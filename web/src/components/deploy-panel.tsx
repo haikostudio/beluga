@@ -24,6 +24,7 @@ import {
   etapeDePublication,
   etapeDeLaColonne,
   libelleCompteLot,
+  mentionPortee,
   procedureEnPlace,
   raisonLotBloque,
   rapportAGarder,
@@ -387,6 +388,10 @@ export function DeployPanel({
         <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} />
         <p className="mt-1.5 text-[12px] text-faint" data-procedure-absente={colonne}>
           {t('Aucune procédure n’est définie pour cette étape : rien ne peut partir tant qu’elle n’existe pas.')}</p>
+        {/* POURQUOI elle n'a pas de défaut : c'est la seule étape qui sort de
+            ce serveur, et rien n'en sort sans décision explicite. */}
+        <p className="mt-1 text-[12px] text-faint" data-portee-etape={colonne}>
+          {t(mentionPortee(etape.cible))}</p>
       </div>
     );
   }

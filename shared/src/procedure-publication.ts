@@ -28,6 +28,7 @@
 
 import type { CiblePublication } from './etapes-publication.js';
 import { TEXTE_TEMOIN_EN_ATTENTE, instantDuTemoin } from './attente-question.js';
+import { contraintePortee } from './portee-publication.js';
 
 /** Ce qu'on garde d'une procédure écrite : au-delà, c'est de la documentation. */
 export const PROCEDURE_MAX = 8000;
@@ -59,19 +60,26 @@ function texte(valeur: unknown): string {
 /**
  * La procédure de CETTE étape est-elle définie ?
  *
- * Pour le déploiement : une procédure écrite, ou le marqueur « constaté » des
- * projets d'avant. Pour la mise en production : un prompt écrit, ou un TYPE de
- * cible explicitement choisi (aucune, SSH, FTP) — ces trois-là se règlent sans
- * prompt, et un accès incomplet se dit ailleurs, ce n'est pas le même sujet.
+ * LE DÉPLOIEMENT EST TOUJOURS EN PLACE : c'est la règle d'or. Tout projet vit
+ * et se déploie sur CE serveur, et le déroulé par défaut — fusionner,
+ * enregistrer, envoyer, rafraîchir l'instance qui tourne ici — vaut pour tous,
+ * y compris un projet créé il y a une minute. Un projet neuf n'est donc plus
+ * bloqué derrière un « Initier le déploiement » qu'il faut payer avant de
+ * pouvoir déployer une seule fois ; écrire une procédure sur mesure reste
+ * possible, par l'icône de réglages, mais devient un CHOIX.
+ *
+ * LA MISE EN PRODUCTION, ELLE, N'A AUCUN DÉFAUT : c'est la seule étape qui peut
+ * sortir de ce serveur (FTP, SSH, GitHub), et rien ne sort sans décision
+ * explicite. Elle est en place quand un prompt est écrit, ou quand un TYPE de
+ * cible a été choisi (aucune, SSH, FTP) — ces trois-là se règlent sans prompt,
+ * et un accès incomplet se dit ailleurs, ce n'est pas le même sujet.
  */
 export function procedureEnPlace(
   projet: ProjetAvecProcedures | undefined,
   cible: CiblePublication,
 ): boolean {
+  if (cible === 'dev') return true;
   if (!projet) return false;
-  if (cible === 'dev') {
-    return projet.deploiement?.constate === true || !!texte(projet.deploiement?.prompt);
-  }
   const type = texte(projet.miseEnProduction?.type);
   if (type && type !== 'consigne') return true;
   return !!texte(projet.miseEnProduction?.prompt);
@@ -185,18 +193,24 @@ export type ContexteDeProcedure = {
   actuelle?: string;
 };
 
-/** Ce que chaque étape recouvre, dit à l'agent pour qu'il ne mélange pas les deux. */
+/**
+ * Ce que chaque étape recouvre, dit à l'agent pour qu'il ne mélange pas les
+ * deux — et JUSQU'OÙ elle a le droit d'aller (`portee-publication.ts`). La
+ * portée vient en second, juste après le périmètre : c'est elle qui empêche un
+ * agent d'écrire un envoi par SSH dans une procédure de déploiement.
+ */
 function perimetre(cible: CiblePublication): string[] {
-  if (cible === 'dev') {
-    return [
-      'Le DÉPLOIEMENT met le code sur l’instance de TRAVAIL de ce serveur — celle que l’équipe regarde, pas celle du client.',
-      'Les cartes passent alors de « À déployer » à « En production », sans être closes.',
-    ];
-  }
-  return [
-    'La MISE EN PRODUCTION met le code chez le CLIENT, à son adresse publique.',
-    'Les cartes du lot sont ensuite closes puis archivées : c’est la dernière étape.',
-  ];
+  const propre =
+    cible === 'dev'
+      ? [
+          'Le DÉPLOIEMENT met le code sur l’instance de TRAVAIL de ce serveur — celle que l’équipe regarde, pas celle du client.',
+          'Les cartes passent alors de « À déployer » à « En production », sans être closes.',
+        ]
+      : [
+          'La MISE EN PRODUCTION met le code chez le CLIENT, à son adresse publique.',
+          'Les cartes du lot sont ensuite closes puis archivées : c’est la dernière étape.',
+        ];
+  return [...propre, ...contraintePortee(cible)];
 }
 
 /**
@@ -273,6 +287,7 @@ export function promptReponseProcedure(cible: CiblePublication, reponse: string)
     `Si sa réponse suffit, écris maintenant la PROCÉDURE de ${titreDeLaProcedure(cible).toLowerCase()} : les gestes DANS L’ORDRE, un par ligne, en français simple ; ce qu’il faut contrôler et à quoi on voit que c’est réellement en ligne ; ce qu’il ne faut surtout pas faire.`,
     'Reste FIDÈLE à sa réponse : tu la mets en forme et tu la précises avec ce que tu as lu du projet, tu n’inventes aucune étape qu’elle ne dit pas.',
     'Le code sera DÉJÀ fusionné, enregistré et envoyé sur le dépôt quand cette procédure servira : n’y mets aucune manœuvre git de fusion ou d’envoi, HaikoDev s’en charge.',
+    ...contraintePortee(cible),
     '',
     `Écris d’abord une explication de 5 lignes au plus, en français simple et sans jargon : ce que tu as retenu et ce que tu as décidé. Rends ENSUITE la procédure, enfermée entre ces deux repères, sans bloc de code autour :`,
     DEBUT_PROCEDURE,
@@ -530,7 +545,13 @@ export const LIBELLE_REFAIRE_ANALYSE = 'Refaire l’analyse du projet';
 /** L'état de la procédure, dit en une ligne dans le tiroir. */
 export function mentionProcedure(cible: CiblePublication, procedure: string): string {
   const propre = (procedure ?? '').trim();
-  if (!propre) return `Aucune procédure de ${titreDeLaProcedure(cible).toLowerCase()} : rien ne peut partir.`;
+  if (!propre) {
+    /* Le déploiement a un DÉFAUT — le déroulé sur ce serveur —, la mise en
+       production n'en a aucun : les deux ne se disent donc pas pareil. */
+    return cible === 'dev'
+      ? 'Aucune procédure sur mesure : le déploiement par défaut sur ce serveur s’applique.'
+      : `Aucune procédure de ${titreDeLaProcedure(cible).toLowerCase()} : rien ne peut partir.`;
+  }
   const lignes = propre.split('\n').filter((ligne) => ligne.trim()).length;
   return `Procédure en place : ${propre.length} signes, ${lignes} ligne${lignes > 1 ? 's' : ''}.`;
 }

@@ -101,6 +101,7 @@ export * from './fusion-du-lot.js';
 export * from './groupes-de-production.js';
 export * from './publication-confiee.js';
 export * from './procedure-publication.js';
+export * from './portee-publication.js';
 export * from './micro-demande.js';
 export * from './models.js';
 export * from './moteur-cursor.js';
