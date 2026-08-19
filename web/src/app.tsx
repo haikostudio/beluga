@@ -679,15 +679,13 @@ export function App() {
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          {/* La barre elle-même reprend EXACTEMENT le fond de la zone du dessus
-              (`--fond-zone`, posée juste au-dessus par `data-zone`) : elle ne se
-              détache plus par sa couleur mais par son filet et son ombre. Les
-              douze palettes tiennent déjà leur texte sur ce fond — c'est celui
-              des colonnes du tableau —, rien à éclaircir pour la lisibilité.
-              Repli sur `--surface` si la palette n'a pas de fond de zone. */}
+          {/* La barre reprend le fond de la barre d'onglets du haut (Chef /
+              Fichiers / Pièces jointes), qui pose `--surface` — pas le fond
+              de la zone du dessous : elle se détache par son filet, sans
+              ombre portée. */}
           <div
-            className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border p-1 shadow-lg"
-            style={{ backgroundColor: 'hsl(var(--fond-zone, var(--surface)))' }}
+            className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border p-1"
+            style={{ backgroundColor: 'hsl(var(--surface))' }}
           >
             {/* L'onglet ACTIF se dit à voix haute (`aria-current`) autant qu'il se
                 colore : une couleur écrite en dur ne se vérifie pas, et un
