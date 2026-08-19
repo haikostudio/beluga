@@ -139,3 +139,35 @@ test('l’arrêt vide la file AVANT de couper, jamais après', () => {
     '« tout arrêter » suit la même règle',
   );
 });
+
+/* ------------------------------------------------------------------ */
+/* UN REDÉMARRAGE DU SERVEUR N'EST PAS UN ARRÊT À LA MAIN              */
+/*                                                                     */
+/* Depuis que l'arrêt à la main range la carte en « Planifié » et la   */
+/* marque « suspendu », il faut que le redémarrage du démon NE prenne  */
+/* PAS ce chemin : une carte coupée par un arrêt du serveur doit       */
+/* revenir INTERROMPUE, garder sa marque de vol et repartir d'elle-    */
+/* même. Marquée « suspendu », elle attendrait un clic que personne ne */
+/* saurait devoir donner — la reprise automatique serait morte.        */
+/* ------------------------------------------------------------------ */
+
+test('le redémarrage forcé coupe les agents SANS suspendre les cartes', () => {
+  const demon = SERVEUR('demon.ts');
+  assert.match(demon, /runtime\.stopAllAgents\(\)/, 'il coupe bien tout ce qui tourne');
+  assert.doesNotMatch(
+    demon,
+    /suspendreLaCarte|suspendu: true/,
+    'mais il ne pose aucune suspension : la carte doit repartir toute seule',
+  );
+});
+
+test('seul le navigateur suspend une carte : le rangement d’arrêt ne vit que dans ws.ts', () => {
+  const appelants = ['runtime.ts', 'scheduler.ts', 'demon.ts', 'deploy.ts', 'orchestrator.ts'];
+  for (const fichier of appelants) {
+    assert.doesNotMatch(
+      SERVEUR(fichier),
+      /suspendreLaCarte\(/,
+      `${fichier} ne doit pas suspendre une carte : ce n'est pas un geste humain`,
+    );
+  }
+});

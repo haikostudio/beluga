@@ -168,6 +168,31 @@ function ecrireAgent(db, id, cardId, titre) {
   ).run(id, PROJET_ID, cardId, 'task', 'running', JSON.stringify(agent), maintenant, maintenant);
 }
 
+/**
+ * REPOSER LE DÉCOR D'UN AGENT FACTICE, JUSTE AVANT LA MESURE.
+ *
+ * Les agents de ce script sont « au travail » en base, sans le moindre
+ * processus derrière. Or c'est EXACTEMENT ce que la veille des tours bloqués
+ * est faite de rattraper : un tour que le démon ne suit pas est refermé sans
+ * aucun délai (`tourBloque`, cas 1), et refermer un tour dépile sa file en
+ * partant (`enchainerLaFile`). Le décor se faisait donc ramasser en pleine
+ * mesure, au gré de la vitesse de la machine et du navigateur — d'où un
+ * contrôle qui passait un coup sur deux pour une raison étrangère à l'arrêt.
+ *
+ * On repose donc le décor juste avant le geste qu'on veut juger : l'agent
+ * redevient « au travail », sa carte revient en « En cours », sa file
+ * retrouve sa demande. Le contrôle mesure alors l'effet du CLIC, et rien
+ * d'autre. Ce n'est pas contourner la veille : c'est refuser qu'un décor
+ * artificiel décide du verdict.
+ */
+function reposerLeDecor(carte, agentId) {
+  const db = base();
+  ecrireCarte(db, carte, 'running', agentId);
+  ecrireAgent(db, agentId, carte.id, carte.titre);
+  ecrireFile(db, agentId);
+  db.close();
+}
+
 /** Une demande qui attend derrière l'agent : l'arrêt doit la balayer. */
 function ecrireFile(db, agentId) {
   const maintenant = Date.now();
@@ -325,6 +350,27 @@ async function main() {
   await page.getByPlaceholder(/attendra son tour/).first().fill('');
   await page.waitForTimeout(600);
 
+  /*
+   * LA FILE DE LA SECONDE, RELEVÉE AVANT LE CLIC.
+   *
+   * Ce qu'on veut prouver ici, c'est que l'arrêt de la PREMIÈRE ne touche pas
+   * la file de la SECONDE — pas qu'il y reste exactement une demande. La
+   * nuance n'est pas de la coquetterie : l'agent de la seconde est un agent
+   * FACTICE, posé « au travail » en base sans aucun processus derrière. La
+   * veille des tours bloqués finit donc par le refermer d'autorité, et
+   * refermer un tour dépile sa file en partant (`enchainerLaFile`) — ce qui
+   * est le comportement voulu de la veille. Selon la vitesse de la machine et
+   * du navigateur, cela tombait avant ou après le contrôle : le point passait
+   * un coup sur deux, pour une raison qui n'avait rien à voir avec l'arrêt.
+   *
+   * On compare donc un AVANT et un APRÈS du même clic, comme le fait déjà le
+   * contrôle du refus plus bas.
+   */
+  reposerLeDecor(CARTES.A, CARTES.A.agent);
+  reposerLeDecor(CARTES.B, CARTES.B.agent);
+  const fileDeLaSecondeAvant = compterFile(CARTES.B.agent);
+  const statutDeLaSecondeAvant = lireAgent(CARTES.B.agent)?.status;
+
   // L'arrêt part de la BARRE D'ÉCRITURE : c'est le chemin neuf qu'on juge.
   await arretDeLaBarre(page).first().click();
   await page.waitForTimeout(3000);
@@ -347,10 +393,18 @@ async function main() {
 
   /* -------- 2. La seconde continue -------- */
 
-  noter('la seconde tâche travaille toujours', lireAgent(CARTES.B.agent)?.status === 'running');
+  noter(
+    'la seconde tâche travaille toujours',
+    lireAgent(CARTES.B.agent)?.status === 'running' && statutDeLaSecondeAvant === 'running',
+    `${statutDeLaSecondeAvant} avant, ${lireAgent(CARTES.B.agent)?.status} après`,
+  );
   const carteB = lireCarte(CARTES.B.id);
   noter('la seconde n’est pas suspendue', !carteB?.scheduling?.suspendu, `suspendu ${carteB?.scheduling?.suspendu}`);
-  noter('la file de la seconde est intacte', compterFile(CARTES.B.agent) === 1);
+  noter(
+    'la file de la seconde est intacte',
+    compterFile(CARTES.B.agent) === fileDeLaSecondeAvant,
+    `${fileDeLaSecondeAvant} avant, ${compterFile(CARTES.B.agent)} après`,
+  );
 
   await page.screenshot({ path: path.join(TMP, 'apres-arret.png') });
   await fermerTiroir(page);
