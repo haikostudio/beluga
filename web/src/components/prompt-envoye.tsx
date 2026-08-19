@@ -32,10 +32,13 @@ import { t } from '@/lib/langue';
  * encadré gris et disaient en partie la même chose (les passages retrouvés
  * apparaissaient déjà dans le prompt complet, à leur place). Posées l'une
  * sous l'autre, elles se lisaient comme un seul texte coupé en deux sans
- * frontière claire. La bulle unique porte son propre fond, son propre écart,
- * un repli court et un entête cliquable qui l'ouvre et la referme ; deux
- * labels colorés (« Mémoire cache », gris, « Mémoire ajoutée », jaune)
- * rappellent ce que la coloration ligne par ligne du texte veut dire.
+ * frontière claire. La bulle unique reprend EXACTEMENT l'habillage de la
+ * bulle de prompt juste au-dessus (même fond, même bordure discrète, même
+ * taille de texte pour le corps), avec un repli court et un entête cliquable
+ * qui l'ouvre et la referme ; deux labels (« Mémoire cache », gris,
+ * « Mémoire ajoutée », jaune) rappellent ce que la coloration ligne par
+ * ligne du texte veut dire — toute la ligne d'en-tête (titre, détail,
+ * labels, mentions) partage la même petite taille de texte.
  */
 
 function BoutonCopier({ texte }: { texte: string }) {
@@ -110,13 +113,14 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
   const basculer = () => setDeroule((valeur) => !valeur);
 
   /*
-   * UNE BULLE ISOLÉE PORTE SON PROPRE ENCADRÉ. Pas la « queue » de bulle des
-   * messages (le coin bas droit rabattu), pas le même gris : un fond `surface`,
-   * un liseré à gauche et un peu d'air au-dessus et au-dessous — de quoi la lire
-   * comme une note à part, jamais comme la suite du bloc voisin.
+   * UNE BULLE ISOLÉE GARDE LE MÊME HABILLAGE que les bulles de prompt
+   * (fond `raised`, bordure `border` discrète) — seule sa « queue » de bulle
+   * (le coin bas droit rabattu) disparaît, et un peu d'air au-dessus et
+   * au-dessous la distingue comme une note à part, jamais comme la suite du
+   * bloc voisin.
    */
   const encadre = bulle.isole
-    ? 'my-3 rounded-lg border border-border border-l-2 border-l-faint bg-surface'
+    ? 'my-3 rounded-lg border border-border bg-raised'
     : 'rounded-lg rounded-br-sm border border-border bg-raised';
 
   // Le détail (compte, mode de recherche, raison) ne redit rien qu'on ne lise
@@ -166,7 +170,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
       </div>
 
       {detailUtile ? (
-        <p className="-mt-0.5 mb-1.5 break-words text-[11.5px] text-faint [overflow-wrap:anywhere]">{detailUtile}</p>
+        <p className="-mt-0.5 mb-1.5 break-words text-[12px] text-faint [overflow-wrap:anywhere]">{detailUtile}</p>
       ) : null}
 
       {/*
@@ -181,13 +185,13 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
         <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
           <span
             data-label-cache
-            className="rounded-full border border-border px-1.5 py-0.5 text-[10.5px] text-faint"
+            className="rounded-full border border-border px-1.5 py-0.5 text-[12px] text-faint"
           >
             {t('Mémoire cache')}
           </span>
           <span
             data-label-ajoutee
-            className="rounded-full border border-nouveau/40 bg-nouveau/10 px-1.5 py-0.5 text-[10.5px] text-nouveau"
+            className="rounded-full border border-border px-1.5 py-0.5 text-[12px] text-nouveau"
           >
             {t('Mémoire ajoutée')}
           </span>
@@ -200,7 +204,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
           n'ajoutaient rien qu'une simple liste ne dise aussi bien. Leur texte
           est dans la bulle, à sa place. Jamais un chiffre de jetons. */}
       {bulle.noms?.length ? (
-        <p data-donnees-paralleles className="mb-1.5 break-words text-[11.5px] text-faint [overflow-wrap:anywhere]">
+        <p data-donnees-paralleles className="mb-1.5 break-words text-[12px] text-faint [overflow-wrap:anywhere]">
           {t('Transmis en même temps : {v0}', { v0: bulle.noms.join(', ') })}</p>
       ) : null}
 
