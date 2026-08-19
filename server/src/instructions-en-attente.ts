@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
   FICHIER_D_ATTENTE,
   PERIODE_DE_FUSION_MS,
@@ -140,6 +141,50 @@ export function sujetsDuProjet(racine: string): SujetRegles[] {
 }
 
 /**
+ * LE RANGEMENT S'ENREGISTRE, SINON IL EST DÉFAIT LA NUIT SUIVANTE.
+ *
+ * Le rendez-vous de nuit écrit sur le DISQUE du dossier partagé, et s'arrêtait
+ * là. Or chaque carte ouvre sa copie de travail depuis le DERNIER COMMIT :
+ * l'agent y retrouvait donc le fichier d'attente NON rangé, dans sa version
+ * grasse, et sa fusion le ramenait en entier dans le dossier partagé. Le
+ * rangement était refait chaque nuit et défait chaque jour — d'où un fichier
+ * d'attente au-dessus de son plafond pendant des jours, sans que personne ne
+ * voie la boucle.
+ *
+ * On enregistre donc ce qui vient d'être rangé, en NOMMANT chaque fichier :
+ * le dossier est partagé, et un `git add -A` emporterait le travail d'un
+ * autre. Pousser n'est PAS de ce ressort : le commit suffit à ce que les
+ * copies de travail suivantes partent du fichier rangé.
+ */
+function enregistrerLeRangement(racine: string, fichiers: readonly string[]): void {
+  if (!fichiers.length) return;
+  const git = (...args: string[]) =>
+    execFileSync('git', args, {
+      cwd: racine,
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C', GIT_TERMINAL_PROMPT: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  try {
+    // Un dépôt en pleine fusion ou en plein rebasage ne se laisse pas
+    // enregistrer : on repasse la nuit suivante plutôt que d'insister.
+    for (const fichier of fichiers) {
+      if (fs.existsSync(path.join(racine, fichier))) git('add', '--', fichier);
+    }
+    try {
+      git('diff', '--cached', '--quiet');
+      return; // rien de neuf dans l'index : pas de commit à vide.
+    } catch {
+      /* il y a bien quelque chose à enregistrer */
+    }
+    git('commit', '-m', 'Range les règles durables déposées, une fois pour la nuit');
+    log.info(`rangement des instructions : ${fichiers.length} fichier(s) enregistré(s) dans ${racine}`);
+  } catch (err) {
+    log.warn(`rangement des instructions : enregistrement impossible dans ${racine} — ${(err as Error).message}`);
+  }
+}
+
+/**
  * Range ce qu'UN projet a déposé. Rend le plan appliqué — ce qui a été rangé,
  * ce qui reste en attente avec sa cause.
  */
@@ -153,11 +198,14 @@ export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
   const sujets = sujetsDuProjet(racine);
   const plan = planDeFusion(entrees, sujets.map((s) => s.id));
 
+  const touches: string[] = [FICHIER_D_ATTENTE];
+
   for (const { sujet, texte } of plan.parSujet) {
     const cible = sujets.find((s) => s.id === sujet);
     if (!cible) continue;
     const chemin = path.join(racine, cible.fichier);
     ajouterALaFin(chemin, texte, `# ${cible.libelle} — règles du moteur\n`);
+    touches.push(cible.fichier);
   }
 
   /*
@@ -169,12 +217,14 @@ export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
     const instructions = fichierDInstructions(racine);
     if (instructions) {
       insererParSujet(instructions, plan.contrat, '# Instructions du moteur\n');
+      touches.push(path.relative(racine, instructions));
     } else {
       log.warn(`rangement des instructions : ${racine} n'a pas de fichier d'instructions, contrat non ajouté`);
     }
   }
 
   fs.writeFileSync(attente, plan.refusees.length ? fichierApresFusion(plan.refusees) : fichierDAttenteVide());
+  enregistrerLeRangement(racine, touches);
   return plan;
 }
 

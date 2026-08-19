@@ -136,6 +136,15 @@ async function main() {
         ombre: styleBloc.boxShadow,
         filetNav: parseFloat(styleNav.borderTopWidth) || 0,
         fondNav: styleNav.backgroundColor,
+        fondBloc: styleBloc.backgroundColor,
+        fondContenu: (() => {
+          // L'écran affiché sur téléphone : le tableau (`main`) ou la
+          // conversation (`aside`) — l'autre est replié, hauteur nulle.
+          const zone = [...document.querySelectorAll('main[data-zone], aside[data-zone]')].find(
+            (element) => element.getBoundingClientRect().height > 0,
+          );
+          return zone ? getComputedStyle(zone).backgroundColor : null;
+        })(),
         boutons,
         contenu: cadreDe(document.querySelector('[data-zone="Tableau"], main')),
         voix: cadreDe(document.querySelector('[data-module-voix]')),
@@ -158,6 +167,20 @@ async function main() {
     );
     record('les coins du bloc sont arrondis', mesures.rayon >= 8, `${mesures.rayon} px`);
     record('le bloc porte une ombre', mesures.ombre !== 'none', mesures.ombre);
+    // LE FOND DU MENU PROLONGE CELUI DU CONTENU. La bande du menu ET la barre
+    // elle-même reprennent la teinte de la zone affichée au-dessus : plus de
+    // bande `--bg` noire sous un tableau gris.
+    record(
+      'le fond du menu reprend celui du contenu au-dessus',
+      !!mesures.fondContenu && mesures.fondNav === mesures.fondContenu,
+      `menu ${mesures.fondNav} / contenu ${mesures.fondContenu}`,
+    );
+    record(
+      'la barre du menu a le même fond que la bande qui la porte',
+      mesures.fondBloc === mesures.fondNav,
+      `barre ${mesures.fondBloc} / bande ${mesures.fondNav}`,
+    );
+
     record(
       'aucun filet horizontal au-dessus du menu',
       mesures.filetNav === 0,

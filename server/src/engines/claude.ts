@@ -142,6 +142,13 @@ export const claudeAdapter: EngineAdapter = {
     const taches = new SuiviDesTaches();
     let buffer = '';
     let stderr = '';
+    /*
+     * LE MOTEUR A-T-IL SEULEMENT PARLÉ ? Une seule ligne de son protocole
+     * suffit à le prouver. C'est ce que l'adaptateur rend au démon
+     * (`jamaisDemarre`), au lieu de le laisser le deviner à l'absence
+     * d'étapes, de texte et de liste de tâches.
+     */
+    let aParle = false;
 
     const handleLine = (line: string) => {
       const trimmed = line.trim();
@@ -152,6 +159,7 @@ export const claudeAdapter: EngineAdapter = {
       } catch {
         return;
       }
+      aParle = true;
       emitFromClaude(event, options.onEvent, pendingSteps, taches);
     };
 
@@ -179,7 +187,11 @@ export const claudeAdapter: EngineAdapter = {
           : stderr.trim().split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
         if (!ok) options.onEvent({ kind: 'error', error: message });
         options.onEvent({ kind: 'done', exitCode: code ?? -1 });
-        return { ok, error: ok ? undefined : depassement ? message : stderr.trim().slice(-500) };
+        return {
+          ok,
+          error: ok ? undefined : depassement ? message : stderr.trim().slice(-500),
+          jamaisDemarre: !ok && !aParle,
+        };
       },
     });
 

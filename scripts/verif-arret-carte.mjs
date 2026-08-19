@@ -12,8 +12,9 @@
  * Ce qui est vérifié :
  *   1. deux cartes travaillent en même temps ; arrêter la première laisse la
  *      seconde intacte ;
- *   2. la première ne repart pas seule : sa file est vide et elle porte la
- *      marque « suspendu » que l'ordonnanceur respecte ;
+ *   2. la première ne repart pas seule : sa file est vide, elle RETOMBE en
+ *      « Planifié » (comme la sortie à la souris) et elle porte la marque
+ *      « suspendu » que l'ordonnanceur respecte ;
  *   3. une carte dont le tiroir retombe sur l'agent d'une AUTRE tâche n'affiche
  *      pas de bouton d'arrêt — ni en haut, ni dans la barre d'écriture ;
  *   4. le démon REFUSE en toutes lettres un « agent.stop » qui vise un agent
@@ -330,6 +331,13 @@ async function main() {
 
   const carteA = lireCarte(CARTES.A.id);
   noter('la première est marquée arrêtée à la main', carteA?.scheduling?.suspendu === true, `suspendu ${carteA?.scheduling?.suspendu}`);
+  /*
+   * ET LA COLONNE SUIT LE GESTE : la carte retombe en « Planifié », comme le
+   * fait déjà la sortie à la souris. Laissée en « En cours », elle y serait
+   * restée pour toujours — le balayage de l'ordonnanceur s'interdit de ranger
+   * une carte dont le dernier tour a été arrêté.
+   */
+  noter('elle retombe en « Planifié », comme la sortie à la souris', carteA?.column === 'planned', `colonne ${carteA?.column}`);
   noter(
     'la raison est écrite sur la carte',
     /arrêté à la main/i.test(carteA?.scheduling?.waitingReason ?? ''),

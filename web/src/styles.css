@@ -634,125 +634,168 @@
    * conversation se place entre `--surface` et `--raised`. Valeurs choisies
    * par PROPORTION du même écart (35 %, 65 % puis 45 % du suivant), jamais
    * recopiées d'un thème à l'autre.
+   *
+   * Chaque règle pose sa teinte dans `--fond-zone` AVANT de peindre avec :
+   * ce qui vit DANS la zone peut donc reprendre le fond exact de la zone sans
+   * le recopier douze fois. C'est ce dont se sert le MENU DU BAS du téléphone
+   * (`app.tsx`, `data-menu-bas`), qui porte lui aussi un `data-zone` — celui de
+   * l'écran affiché — pour prolonger le fond du tableau ou de la conversation
+   * au lieu de poser une bande `--bg` sous eux.
    */
   html[data-theme='sombre'] [data-zone='gauche'] {
-    background-color: hsl(0 0% 3%);
+    --fond-zone: 0 0% 3%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sombre'] [data-zone='centre'] {
-    background-color: hsl(0 0% 5%);
+    --fond-zone: 0 0% 5%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sombre'] [data-zone='droite'] {
-    background-color: hsl(0 0% 11%);
+    --fond-zone: 0 0% 11%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html:not(.dark) [data-zone='gauche'] {
-    background-color: hsl(0 0% 98%);
+    --fond-zone: 0 0% 98%;
+    background-color: hsl(var(--fond-zone));
   }
   html:not(.dark) [data-zone='centre'] {
-    background-color: hsl(0 0% 96%);
+    --fond-zone: 0 0% 96%;
+    background-color: hsl(var(--fond-zone));
   }
   html:not(.dark) [data-zone='droite'] {
-    background-color: hsl(0 0% 99%);
+    --fond-zone: 0 0% 99%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='sable'] [data-zone='gauche'] {
-    background-color: hsl(40 26% 93%);
+    --fond-zone: 40 26% 93%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sable'] [data-zone='centre'] {
-    background-color: hsl(40 28% 94%);
+    --fond-zone: 40 28% 94%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sable'] [data-zone='droite'] {
-    background-color: hsl(41 30% 97%);
+    --fond-zone: 41 30% 97%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='ardoise'] [data-zone='gauche'] {
-    background-color: hsl(220 14% 13%);
+    --fond-zone: 220 14% 13%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='ardoise'] [data-zone='centre'] {
-    background-color: hsl(220 13% 14%);
+    --fond-zone: 220 13% 14%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='ardoise'] [data-zone='droite'] {
-    background-color: hsl(220 12% 18%);
+    --fond-zone: 220 12% 18%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='givre'] [data-zone='gauche'] {
-    background-color: hsl(210 26% 92%);
+    --fond-zone: 210 26% 92%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='givre'] [data-zone='centre'] {
-    background-color: hsl(210 28% 90%);
+    --fond-zone: 210 28% 90%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='givre'] [data-zone='droite'] {
-    background-color: hsl(210 24% 93%);
+    --fond-zone: 210 24% 93%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='sapin'] [data-zone='gauche'] {
-    background-color: hsl(148 16% 11%);
+    --fond-zone: 148 16% 11%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sapin'] [data-zone='centre'] {
-    background-color: hsl(148 15% 12%);
+    --fond-zone: 148 15% 12%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sapin'] [data-zone='droite'] {
-    background-color: hsl(148 14% 16%);
+    --fond-zone: 148 14% 16%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='contraste'] [data-zone='gauche'] {
-    background-color: hsl(45 8% 94%);
+    --fond-zone: 45 8% 94%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='contraste'] [data-zone='centre'] {
-    background-color: hsl(45 7% 95%);
+    --fond-zone: 45 7% 95%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='contraste'] [data-zone='droite'] {
-    background-color: hsl(45 6% 98%);
+    --fond-zone: 45 6% 98%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='sable-sombre'] [data-zone='gauche'] {
-    background-color: hsl(35 17% 11%);
+    --fond-zone: 35 17% 11%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sable-sombre'] [data-zone='centre'] {
-    background-color: hsl(35 16% 12%);
+    --fond-zone: 35 16% 12%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sable-sombre'] [data-zone='droite'] {
-    background-color: hsl(34 15% 16%);
+    --fond-zone: 34 15% 16%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='ardoise-clair'] [data-zone='gauche'] {
-    background-color: hsl(220 17% 91%);
+    --fond-zone: 220 17% 91%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='ardoise-clair'] [data-zone='centre'] {
-    background-color: hsl(220 16% 90%);
+    --fond-zone: 220 16% 90%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='ardoise-clair'] [data-zone='droite'] {
-    background-color: hsl(220 18% 93%);
+    --fond-zone: 220 18% 93%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='givre-sombre'] [data-zone='gauche'] {
-    background-color: hsl(210 23% 10%);
+    --fond-zone: 210 23% 10%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='givre-sombre'] [data-zone='centre'] {
-    background-color: hsl(210 22% 11%);
+    --fond-zone: 210 22% 11%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='givre-sombre'] [data-zone='droite'] {
-    background-color: hsl(210 20% 15%);
+    --fond-zone: 210 20% 15%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='sapin-clair'] [data-zone='gauche'] {
-    background-color: hsl(145 19% 94%);
+    --fond-zone: 145 19% 94%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sapin-clair'] [data-zone='centre'] {
-    background-color: hsl(145 18% 95%);
+    --fond-zone: 145 18% 95%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='sapin-clair'] [data-zone='droite'] {
-    background-color: hsl(145 20% 98%);
+    --fond-zone: 145 20% 98%;
+    background-color: hsl(var(--fond-zone));
   }
 
   html[data-theme='contraste-sombre'] [data-zone='gauche'] {
-    background-color: hsl(45 7% 6%);
+    --fond-zone: 45 7% 6%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='contraste-sombre'] [data-zone='centre'] {
-    background-color: hsl(45 6% 8%);
+    --fond-zone: 45 6% 8%;
+    background-color: hsl(var(--fond-zone));
   }
   html[data-theme='contraste-sombre'] [data-zone='droite'] {
-    background-color: hsl(45 5% 13%);
+    --fond-zone: 45 5% 13%;
+    background-color: hsl(var(--fond-zone));
   }
 
   * {

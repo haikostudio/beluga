@@ -670,11 +670,25 @@ export function App() {
             se rejoint alors par le menu trois points de la barre du haut. */}
         <nav
           data-menu-bas
+          // LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE : « centre »
+          // sous le tableau, « droite » sous la conversation du chef. Sans ce
+          // repère il retombait sur `--bg`, une bande NOIRE en thème sombre
+          // collée sous un tableau gris — deux fonds pour une seule page.
+          data-zone={mobileView === 'chat' && !dashboardOpen ? 'droite' : 'centre'}
           className="shrink-0 px-3 pb-2 pt-1 sm:hidden"
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          <div className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border bg-surface p-1 shadow-lg">
+          {/* La barre elle-même reprend EXACTEMENT le fond de la zone du dessus
+              (`--fond-zone`, posée juste au-dessus par `data-zone`) : elle ne se
+              détache plus par sa couleur mais par son filet et son ombre. Les
+              douze palettes tiennent déjà leur texte sur ce fond — c'est celui
+              des colonnes du tableau —, rien à éclaircir pour la lisibilité.
+              Repli sur `--surface` si la palette n'a pas de fond de zone. */}
+          <div
+            className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border p-1 shadow-lg"
+            style={{ backgroundColor: 'hsl(var(--fond-zone, var(--surface)))' }}
+          >
             {/* L'onglet ACTIF se dit à voix haute (`aria-current`) autant qu'il se
                 colore : une couleur écrite en dur ne se vérifie pas, et un
                 contrôle qui la cherchait a fini par juger une classe disparue. */}

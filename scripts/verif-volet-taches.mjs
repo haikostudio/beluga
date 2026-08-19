@@ -11,7 +11,7 @@
  * vérifie que l'en-tête ne quitte jamais l'écran, qu'il reste au-dessus de la
  * barre d'écriture, que c'est bien le repère compact, et que le pli se retient.
  *
- *   HAIKODEV_CARTE=… node scripts/verif-volet-taches.mjs
+ *   HAIKODEV_VERIF_URL=http://localhost:7099 node scripts/verif-volet-taches.mjs
  */
 import { chromium } from 'playwright';
 import fs from 'node:fs';
@@ -21,12 +21,25 @@ import Database from 'better-sqlite3';
 /* On vise le serveur de DÉVELOPPEMENT : HAIKODEV_URL, posée pour les agents,
    pointe l'application déjà publiée — on y verrait l'ancienne version. */
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
-/* Une carte RÉELLE, encore sur le tableau, dont le dernier message porte une
-   liste de tâches : la précédente avait été archivée, et le contrôle ne
-   trouvait plus rien à ouvrir. */
-const CARTE = process.env.HAIKODEV_CARTE || 'cf52e715-b972-4f06-ac51-1e1932d5c067';
-/** La carte à ouvrir, reconnue à son titre sur le tableau. */
-const TITRE = process.env.HAIKODEV_TITRE || "Stopper l'agent quand il pose une question";
+/*
+ * LA CARTE EST POSÉE PAR LE CONTRÔLE LUI-MÊME, plus jamais cherchée parmi les
+ * vraies. Deux fois de suite, la carte réelle nommée ici avait été archivée
+ * entre-temps et le contrôle échouait sans que rien ne soit cassé. Carte,
+ * agent et message sont donc INJECTÉS dans le canal temps réel, comme le fait
+ * `verif-progression-taches.mjs` : rien n'est écrit en base à part la session
+ * d'essai.
+ */
+const CARTE = 'essai-volet-taches';
+const AGENT = 'essai-volet-taches-agent';
+const TITRE = 'Essai — volet des tâches';
+/** La liste que l'agent est censé montrer : deux faites, une en cours, deux à faire. */
+const LISTE = [
+  { label: 'Lire le code existant', state: 'done' },
+  { label: 'Écrire le correctif', state: 'done' },
+  { label: 'Construire le projet', state: 'running' },
+  { label: 'Lancer les tests', state: 'todo' },
+  { label: 'Enregistrer et pousser', state: 'todo' },
+];
 const SHOTS = '/root/haikodev/data/verification';
 
 const resultats = [];
@@ -69,9 +82,113 @@ async function ouvrir(navigateur, token, telephone) {
   const erreurs = [];
   page.on('pageerror', (error) => erreurs.push(String(error)));
   page.on('console', (m) => m.type() === 'error' && erreurs.push(m.text()));
+
+  // On se greffe sur le canal temps réel, sans rien remplacer de ce qui arrive
+  // vraiment du serveur : `__injecter` rejoue un événement tel quel.
+  await page.addInitScript(() => {
+    window.__ecouteurs = [];
+    const propriete = Object.getOwnPropertyDescriptor(WebSocket.prototype, 'onmessage');
+    Object.defineProperty(WebSocket.prototype, 'onmessage', {
+      configurable: true,
+      get() {
+        return propriete.get.call(this);
+      },
+      set(ecouteur) {
+        window.__ecouteurs.push(ecouteur);
+        return propriete.set.call(this, ecouteur);
+      },
+    });
+    window.__injecter = (evenement) => {
+      const donnees = JSON.stringify(evenement);
+      for (const ecouteur of window.__ecouteurs) ecouteur({ data: donnees });
+    };
+  });
+
   await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(5000);
   return { context, page, erreurs };
+}
+
+/** Le projet AFFICHÉ : c'est dans SON tableau que la carte d'essai est posée. */
+async function projetAffiche(page) {
+  return page.evaluate(
+    () =>
+      document.querySelector('[data-espace-dev]')?.getAttribute('data-espace-dev') ??
+      document.querySelector('[data-drag-kind="project"]')?.getAttribute('data-drag-id') ??
+      null,
+  );
+}
+
+/** Pose la carte d'essai, son agent au travail et son message porteur de liste. */
+async function poserLaCarte(page, projectId, { avecMessage }) {
+  await page.evaluate(
+    ([projectId, cardId, agentId, titre, liste, avecMessage]) => {
+      window.__injecter({
+        type: 'card.upsert',
+        card: {
+          id: cardId,
+          projectId,
+          title: titre,
+          description: '',
+          labels: [],
+          column: 'running',
+          // EN TÊTE de la colonne : posée en queue, la carte tombait hors du
+          // premier paquet de vingt et n'était jamais rendue sur grand écran.
+          position: -1,
+          origin: 'user',
+          run: { engine: 'claude', model: 'claude-sonnet-5', thinking: 'medium', mode: 'direct' },
+          excludedFromDeploy: false,
+          horsTache: false,
+          agentId,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      });
+      window.__injecter({
+        type: 'agent.upsert',
+        agent: {
+          id: agentId,
+          projectId,
+          cardId,
+          role: 'task',
+          title: titre,
+          run: { engine: 'claude', model: 'claude-sonnet-5', thinking: 'medium', mode: 'direct' },
+          status: 'running',
+          todos: { done: 2, total: 5 },
+          etapeEnCours: 'Construire le projet',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        },
+      });
+      if (!avecMessage) return;
+      // La conversation de la carte ENTIÈRE, pas un simple `message.upsert` :
+      // la carte n'existe pas côté serveur, il n'a donc jamais envoyé sa
+      // conversation, et un message seul n'aurait rejoint aucune liste.
+      window.__injecter({
+        type: 'card.conversation',
+        cardId,
+        activeAgentId: agentId,
+        messages: [
+          {
+            id: 'essai-volet-taches-message',
+            agentId,
+            role: 'assistant',
+            content: 'Travail en cours.',
+            steps: [{ id: 's1', label: 'Construction du projet', state: 'running' }],
+            todos: liste,
+            proposals: [],
+            questions: [],
+            downloads: [],
+            attachments: [],
+            streaming: true,
+            plan: false,
+            createdAt: Date.now(),
+          },
+        ],
+      });
+    },
+    [projectId, CARTE, AGENT, TITRE, LISTE, avecMessage],
+  );
 }
 
 /** Un clic sur l'en-tête du volet, posé directement sur le bon bouton. */
@@ -82,47 +199,49 @@ async function cliquerEntete(page) {
 }
 
 async function ouvrirLaCarte(page) {
-  const projet = process.env.HAIKODEV_PROJET || 'HaikoDev';
-  const tiroir = () => page.locator('[role="dialog"] [role="tab"]');
-  const cartes = () => page.locator('article', { hasText: TITRE });
+  const projectId = await projetAffiche(page);
+  if (!projectId) return false;
 
-  // L'application retient la carte quittée : un tiroir peut déjà être ouvert.
-  // S'il porte une autre carte, on le referme avant de chercher la bonne.
-  if (await tiroir().count()) {
-    const titre = await page.locator('[role="dialog"] h2, [role="dialog"] h3').first().textContent();
-    if (titre && titre.includes(TITRE)) return await surLaConversation(page);
+  // La carte d'abord, sans son message : le tiroir demande sa conversation au
+  // serveur en s'ouvrant, et une liste vide effacerait un message injecté trop
+  // tôt. On le pose donc UNE FOIS le tiroir ouvert.
+  await poserLaCarte(page, projectId, { avecMessage: false });
+  await page.waitForTimeout(1800);
+
+  /*
+   * PUIS on repart d'un écran NU. L'ordre compte : l'application rouvre la
+   * carte quittée la dernière fois DÈS QUE les cartes du projet lui arrivent —
+   * donc juste après notre injection. Refermer avant, c'était refermer trop
+   * tôt : le tiroir revenait et son voile avalait le clic sur le tableau.
+   */
+  for (let essai = 0; essai < 4; essai += 1) {
+    const ouvert =
+      (await page.locator('[role="dialog"]').count()) > 0 ||
+      (await page.locator('[aria-hidden="true"][data-state="open"]').count()) > 0;
+    if (!ouvert) break;
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(1200);
   }
 
-  if (!(await cartes().count())) {
-    // Le projet retenu n'est pas le bon : on le choisit dans le panneau.
-    await page.locator('header button[aria-label="Projets"]').click({ force: true });
-    await page.waitForTimeout(1500);
-    // On vise la LIGNE du projet, pas un texte quelconque : une adresse
-    // affichée dans le panneau ferait quitter le serveur de développement.
-    const ligne = page
-      .locator('[role="dialog"][aria-label="Projets"] button', { hasText: projet })
-      .first();
-    await ligne.waitFor({ state: 'visible', timeout: 15000 });
-    await ligne.click({ force: true });
-    await page.waitForTimeout(3500);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(1500);
-  }
+  // La colonne d'abord : sur grand écran, le tableau défile de côté et un clic
+  // « en force » sur une carte hors champ ne déclenche rien.
+  await page
+    .locator('[data-column="running"]')
+    .first()
+    .scrollIntoViewIfNeeded()
+    .catch(() => {});
+  await page.waitForTimeout(600);
 
-  await revenirAuDev(page);
-  if (!(await cartes().count())) return false;
-  await cartes().first().click({ force: true });
-  await page.waitForTimeout(3500);
-  return await surLaConversation(page);
-}
+  const carte = page.locator('article', { hasText: TITRE }).first();
+  if (!(await carte.count())) return false;
+  await carte.scrollIntoViewIfNeeded().catch(() => {});
+  await carte.click();
+  await page.waitForTimeout(2500);
 
-/** Un clic malheureux peut emmener sur l'application publiée : on revient. */
-async function revenirAuDev(page) {
-  if (page.url().startsWith(BASE)) return;
-  await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.waitForTimeout(5000);
+  const surConversation = await surLaConversation(page);
+  await poserLaCarte(page, projectId, { avecMessage: true });
+  await page.waitForTimeout(1500);
+  return surConversation;
 }
 
 /** L'onglet « Conversation » du tiroir : c'est là que vit le volet. */

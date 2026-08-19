@@ -111,10 +111,32 @@ export interface EngineRunOptions {
   onEvent: (event: EngineEvent) => void;
 }
 
+/**
+ * CE QUE REND UN TOUR DE MOTEUR — et notamment s'il a seulement eu lieu.
+ *
+ * `jamaisDemarre` est un SIGNAL EXPLICITE, rendu par l'adaptateur, qui est le
+ * seul à savoir : il a lu (ou pas) le flux du moteur. Il vaut « vrai » quand le
+ * processus s'est terminé sans qu'une SEULE ligne de protocole n'en soit sortie
+ * — binaire introuvable, lancement refusé, réseau coupé avant le premier mot.
+ *
+ * Le démon en déduisait la même chose par un faisceau d'ABSENCES : pas
+ * d'étape, pas de texte, pas de liste de tâches. Ce faisceau se trompait à
+ * chaque fois qu'un moteur parlait sans rien produire de visible — c'est
+ * exactement ainsi qu'une liste de tâches annoncée puis un plantage passaient
+ * pour « jamais joint », renvoyant la carte en « Planifié » pour une relance
+ * de zéro. Le signal remplace la déduction ; l'ancien faisceau ne sert plus
+ * que de repli pour un adaptateur qui ne dirait rien.
+ */
+export interface ResultatDuMoteur {
+  ok: boolean;
+  error?: string;
+  jamaisDemarre?: boolean;
+}
+
 export interface EngineHandle {
   pid?: number;
   stop: () => void;
-  finished: Promise<{ ok: boolean; error?: string }>;
+  finished: Promise<ResultatDuMoteur>;
 }
 
 export interface EngineAdapter {

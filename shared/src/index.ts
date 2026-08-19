@@ -30,6 +30,7 @@ export * from './cerveau.js';
 export * from './chef-econome.js';
 export * from './choix-de-compte.js';
 export * from './cles-api.js';
+export * from './coffre-du-compte.js';
 export * from './coffre-fort.js';
 export * from './credit-cursor.js';
 export * from './doc-api.js';

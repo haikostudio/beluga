@@ -6,7 +6,11 @@ import {
   raisonDuChoix,
   API_CURSOR,
   AccountQuota,
+  dossiersDuCoffre,
+  marqueDuCoffre,
   EngineId,
+  type LienDuCoffre,
+  reparationsDuCoffre,
   type EtatSeuilsSemaine,
   compteDeSecours,
   raisonDeRefusCursor,
@@ -197,6 +201,65 @@ export function bootstrapAccounts(): void {
   } catch {
     /* aucun compte de relève */
   }
+
+  // Au démarrage déjà, pas seulement au premier lancement : un coffre dont les
+  // liens sont morts prive TOUS les agents de leur liste de sous-tâches.
+  for (const compte of listAllAccountRecords()) {
+    reparerLeCoffreDuCompte(compte.configDir, compte.engine);
+  }
+}
+
+/**
+ * REMET LE COFFRE D'UN COMPTE MOTEUR D'APLOMB — CLAUDE COMME CODEX.
+ *
+ * Les liens du coffre portent un chemin absolu vers le compte principal. Le
+ * dossier personnel déménage (compte système renommé) et ils deviennent morts,
+ * sans un mot : Claude n'écrit alors plus sa liste de tâches et les trois
+ * affichages d'avancement s'éteignent ; Codex, lui, perd son `auth.json` et ne
+ * s'authentifie plus. On rapatrie donc ces liens vers le dossier personnel
+ * d'aujourd'hui, et on s'assure que les dossiers dont ce moteur a besoin
+ * existent (`tasks/` pour Claude, rien pour Codex).
+ *
+ * CURSOR n'a pas de coffre — sa clé voyage par l'environnement : la fonction
+ * repart aussitôt, sans rien toucher.
+ *
+ * Sans bruit quand tout va bien : cette fonction part à CHAQUE lancement.
+ */
+export function reparerLeCoffreDuCompte(configDir: string, moteur: string): number {
+  if (!marqueDuCoffre(moteur)) return 0;
+  const home = CONFIG.homeDir || os.homedir();
+  let repares = 0;
+  try {
+    const liens: LienDuCoffre[] = [];
+    for (const entree of fs.readdirSync(configDir, { withFileTypes: true })) {
+      if (!entree.isSymbolicLink()) continue;
+      const chemin = path.join(configDir, entree.name);
+      liens.push({
+        nom: entree.name,
+        cible: fs.readlinkSync(chemin),
+        vivant: fs.existsSync(chemin),
+      });
+    }
+    for (const reparation of reparationsDuCoffre(liens, home, moteur)) {
+      if (!fs.existsSync(reparation.nouvelleCible)) continue;
+      const chemin = path.join(configDir, reparation.nom);
+      fs.rmSync(chemin, { force: true });
+      fs.symlinkSync(reparation.nouvelleCible, chemin);
+      repares += 1;
+      log.info(
+        `coffre ${path.basename(configDir)} (${moteur}) : lien « ${reparation.nom} » rapatrié (${reparation.ancienneCible} → ${reparation.nouvelleCible})`,
+      );
+    }
+    // Le dossier des tâches de Claude, lui, se recrée même sans lien : c'est
+    // lui qui porte la liste de sous-tâches de chaque session.
+    for (const dossier of dossiersDuCoffre(moteur)) {
+      const chemin = path.join(configDir, dossier);
+      if (!fs.existsSync(chemin)) fs.mkdirSync(chemin, { recursive: true });
+    }
+  } catch {
+    /* coffre illisible : le moteur dira lui-même ce qui lui manque. */
+  }
+  return repares;
 }
 
 function readClaudePlan(configDir: string): string | undefined {
@@ -221,6 +284,12 @@ function readClaudePlan(configDir: string): string | undefined {
  * façon : le moteur ne lit jamais un compte, il lit son environnement.
  */
 export function applyAccountEnv(account: AccountRecord): Record<string, string> {
+  // Le coffre est remis d'aplomb AVANT chaque lancement : un lien mort
+  // (`tasks` chez Claude, `auth.json` chez Codex) ne se voit pas dans HaikoDev,
+  // il fait juste échouer en silence (`shared/src/coffre-du-compte.ts`). Cursor
+  // n'a pas de coffre : l'appel repart aussitôt.
+  reparerLeCoffreDuCompte(account.configDir, account.engine);
+
   if (account.engine === 'claude') {
     return { CLAUDE_CONFIG_DIR: account.configDir };
   }

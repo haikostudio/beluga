@@ -2111,6 +2111,18 @@ export function CardTile({
           decisionEnAttente: decisions > 0,
           tourEnVolDepuis: card.scheduling?.tourEnVolDepuis,
           finDuDernierTour: agentsDeLaCarte.reduce((fin, a) => Math.max(fin, a.endedAt ?? 0), 0) || undefined,
+          /*
+           * LES DEUX MARQUES QUI DISENT « ELLE NE SE RANGERA PAS TOUTE SEULE ».
+           * Le bouton d'arrêt d'une carte pose `suspendu` SANS changer la
+           * colonne, et le balayage de l'ordonnanceur refuse de ranger une
+           * carte dont le dernier tour a échoué : dans ces deux cas, la phrase
+           * ne doit plus promettre un rangement automatique qui ne viendra
+           * jamais. On lit l'agent que la CARTE reconnaît comme le sien — un
+           * vieil agent en échec, remplacé depuis, ne retient rien (même
+           * lecture que `dernierTourEnEchec`, `deplacement-carte.ts`).
+           */
+          suspendu: card.scheduling?.suspendu,
+          dernierTourEnEchec: agent ? agent.status === 'failed' || agent.status === 'stopped' : false,
         },
         maintenant,
       );

@@ -84,7 +84,7 @@ import {
   blocageMiseEnProduction,
   avertissementsDeLaSelection,
 } from './deploy.js';
-import { rangerLaCarte } from './deplacement-carte.js';
+import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 import { annulerLAttente, repondreALAttente } from './attente-question.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
@@ -561,17 +561,10 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       if (effet === 'suspendre') {
         if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
-        const suspendue = store.saveCard({
-          ...card,
-          column: 'planned',
-          position: store.nextPosition(card.projectId, 'planned'),
-          scheduling: {
-            ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-            suspendu: true,
-            waitingReason: RAISON_SUSPENDU,
-          },
-        });
-        bus.emit({ type: 'card.upsert', card: suspendue });
+        // Le rangement lui-même est celui des trois gestes d'arrêt, écrit une
+        // seule fois (`suspendreLaCarte`) : c'est ce qui garantit qu'ils
+        // laissent tous la carte dans le MÊME état.
+        const suspendue = suspendreLaCarte(card, RAISON_SUSPENDU);
         bus.toast('warning', RAISON_SUSPENDU, suspendue.id);
         return { card: suspendue };
       }
@@ -845,6 +838,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!verdict.possible) throw new Error(verdict.raison ?? 'arrêt refusé');
 
       /*
+       * CE QUI ATTENDAIT DERRIÈRE TOMBE EN PREMIER, AVANT MÊME DE COUPER.
+       *
+       * L'ordre comptait, et il était faux : la file n'était vidée qu'APRÈS
+       * l'arrêt. Or refermer un tour d'autorité relance la file en partant
+       * (`refermerLeTour` → `enchainerLaFile`, ce qui est juste quand c'est la
+       * VEILLE qui referme un tour bloqué). La demande en attente était donc
+       * dépilée avant qu'on ne vide la file, elle repartait quatre dixièmes de
+       * seconde plus tard, et ce nouveau tour replaçait la carte en « En
+       * cours » par-dessus la suspension qu'on venait d'écrire : le clic
+       * « Arrêter » relançait la tâche qu'il devait arrêter. On coupe donc la
+       * suite d'abord.
+       */
+      const vides = store.clearQueue(cmd.agentId);
+      if (vides) bus.emit({ type: 'queue.snapshot', agentId: cmd.agentId, queue: [] });
+
+      /*
        * L'ARRÊT RÉPOND TOUJOURS. Sans moteur en marche — préparation coincée,
        * fermeture avalée par une panne, tour d'un démon d'avant — l'agent est
        * refermé d'autorité au lieu de rester marqué « au travail » ; et dans
@@ -873,26 +882,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.toast('info', decision.message, cmd.cardId, 'agent-interrompu');
 
       /*
-       * L'arrêt coupe aussi ce qui attendait DERRIÈRE : les demandes en file
-       * repartaient toutes seules quelques secondes plus tard, et la carte
-       * pouvait être reprise par l'ordonnanceur après un redémarrage. La marque
-       * `suspendu` est celle de la suspension à la main : seul un geste
-       * (« Lancer maintenant », dépôt en « En cours ») l'efface.
+       * La marque `suspendu` est celle de la suspension à la main : seul un
+       * geste (« Lancer maintenant », dépôt en « En cours ») l'efface, et c'est
+       * elle qui empêche l'ordonnanceur de reprendre la carte après un
+       * redémarrage.
        */
-      const vides = store.clearQueue(cmd.agentId);
-      if (vides) bus.emit({ type: 'queue.snapshot', agentId: cmd.agentId, queue: [] });
 
+      /*
+       * ET LA COLONNE SUIT LE GESTE. La carte ne portait que la phrase : elle
+       * restait donc dans « En cours », sans agent au travail, et le balayage
+       * de l'ordonnanceur s'interdit d'y toucher après un tour arrêté. Elle
+       * retombe maintenant en « Planifié », exactement comme la sortie à la
+       * souris — même fonction, même état final.
+       */
       const carte = cmd.cardId ? store.getCard(cmd.cardId) : null;
       if (carte) {
-        const arretee = store.saveCard({
-          ...carte,
-          scheduling: {
-            ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-            suspendu: true,
-            waitingReason: RAISON_ARRETE_A_LA_MAIN,
-          },
-        });
-        bus.emit({ type: 'card.upsert', card: arretee });
+        const arretee = suspendreLaCarte(carte, RAISON_ARRETE_A_LA_MAIN);
         bus.toast('warning', RAISON_ARRETE_A_LA_MAIN, arretee.id);
       }
 
@@ -908,18 +913,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
      * nombre qui ne dit pas si le clic a mordu.
      */
     case 'agents.stop-all': {
+      /*
+       * LES FILES D'ABORD, LA COUPE ENSUITE — même raison qu'au bouton d'un
+       * agent seul : refermer un tour d'autorité dépile la file en partant, et
+       * la demande repartie replaçait la carte en « En cours » par-dessus la
+       * suspension. Un bouton « tout arrêter » qui laisse repartir le travail
+       * n'arrête rien.
+       */
+      for (const agent of store.listAgents()) {
+        const vides = store.clearQueue(agent.id);
+        if (vides) bus.emit({ type: 'queue.snapshot', agentId: agent.id, queue: [] });
+      }
+
       const stoppedAgents = stopAllAgents();
       const bilan = bilanDesArrets(stoppedAgents.map((a) => a.geste));
-
-      /*
-       * Ce qui attendait DERRIÈRE tombe aussi : sans cela, les demandes en file
-       * repartaient toutes seules quelques secondes après l'arrêt — un bouton
-       * « tout arrêter » qui laisse repartir le travail n'arrête rien.
-       */
-      for (const { agentId } of stoppedAgents) {
-        const vides = store.clearQueue(agentId);
-        if (vides) bus.emit({ type: 'queue.snapshot', agentId, queue: [] });
-      }
 
       /*
        * Mettre à jour les cartes : les agents arrêtés reviennent en suspension
@@ -931,15 +938,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         const carte = store.getCard(cardId);
         if (!carte) continue;
 
-        const suspendue = store.saveCard({
-          ...carte,
-          scheduling: {
-            ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
-            suspendu: true,
-            waitingReason: RAISON_ARRETE_A_LA_MAIN,
-          },
-        });
-        bus.emit({ type: 'card.upsert', card: suspendue });
+        suspendreLaCarte(carte, RAISON_ARRETE_A_LA_MAIN);
       }
 
       /*

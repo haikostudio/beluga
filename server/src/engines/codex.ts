@@ -72,6 +72,9 @@ export const codexAdapter: EngineAdapter = {
     let buffer = '';
     let stderr = '';
     let sessionId = options.sessionId ?? undefined;
+    // Une seule ligne du protocole prouve que le moteur a démarré : c'est le
+    // signal explicite rendu au démon, à la place d'une déduction par absences.
+    let aParle = false;
 
     const handleLine = (line: string) => {
       const trimmed = line.trim();
@@ -82,6 +85,7 @@ export const codexAdapter: EngineAdapter = {
       } catch {
         return;
       }
+      aParle = true;
       if (event.type === 'thread.started' && event.thread_id) sessionId = event.thread_id;
       emitFromCodex(event, options.onEvent);
     };
@@ -112,7 +116,11 @@ export const codexAdapter: EngineAdapter = {
           : stderr.trim().split('\n').slice(-4).join('\n') || `Le moteur s'est arrêté (code ${code}).`;
         if (!ok) options.onEvent({ kind: 'error', error: message });
         options.onEvent({ kind: 'done', exitCode: code ?? -1 });
-        return { ok, error: ok ? undefined : depassement ? message : stderr.trim().slice(-500) };
+        return {
+          ok,
+          error: ok ? undefined : depassement ? message : stderr.trim().slice(-500),
+          jamaisDemarre: !ok && !aParle,
+        };
       },
     });
 

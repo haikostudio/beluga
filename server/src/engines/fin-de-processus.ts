@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { DELAI_COUP_DE_GRACE_MS, DELAI_VIDAGE_SORTIE_MS } from '@haikodev/shared';
 import { log } from '../logger.js';
+import type { ResultatDuMoteur } from './types.js';
 
 export interface OptionsDeFin {
   /** Le nom du moteur, pour le journal. */
@@ -10,7 +11,7 @@ export interface OptionsDeFin {
    * Ce qu'il reste à vider et à dire avant de rendre la main. Appelé UNE SEULE
    * fois, quelle que soit la route prise (« close », « exit », plafond).
    */
-  cloturer: (code: number | null, depassement: boolean) => { ok: boolean; error?: string };
+  cloturer: (code: number | null, depassement: boolean) => ResultatDuMoteur;
   /** Le moteur n'a pas pu être lancé du tout. */
   surErreur: (message: string) => void;
   /** Plafond de durée. Sans lui, on attend aussi longtemps qu'il le faut. */
@@ -34,7 +35,7 @@ export interface OptionsDeFin {
 export function finDuProcessus(
   child: ChildProcess,
   options: OptionsDeFin,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<ResultatDuMoteur> {
   return new Promise((resolve) => {
     let rendu = false;
     let vidage: NodeJS.Timeout | undefined;
@@ -59,7 +60,9 @@ export function finDuProcessus(
       if (vidage) clearTimeout(vidage);
       if (plafond) clearTimeout(plafond);
       options.surErreur(err.message);
-      resolve({ ok: false, error: err.message });
+      // Le processus n'a même pas pu être lancé (binaire absent, droits) : le
+      // moteur n'a jamais démarré, et c'est lui qui le dit, pas une déduction.
+      resolve({ ok: false, error: err.message, jamaisDemarre: true });
     });
 
     child.on('close', (code) => rendre(code));
