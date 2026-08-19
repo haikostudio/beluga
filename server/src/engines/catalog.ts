@@ -113,6 +113,24 @@ function niveau(id: string, description?: string): ThinkingOption {
   };
 }
 
+/**
+ * « Sans réflexion » ne doit plus se PROPOSER AU CHOIX dès qu'un modèle offre
+ * de vrais niveaux : elle ne reste que là où c'est la SEULE option du modèle
+ * (Haiku, Composer 2.5…), où le champ ne s'affiche même pas (un seul niveau).
+ */
+function sansOptionSans(niveaux: ThinkingOption[]): ThinkingOption[] {
+  if (niveaux.length <= 1) return niveaux;
+  return niveaux.filter((n) => n.id !== 'none');
+}
+
+/** Le défaut visé, ramené à « moyenne » quand ce qui était demandé n'existe plus. */
+function defautReflexion(niveaux: ThinkingOption[], souhaite?: string): string {
+  const ids = niveaux.map((n) => n.id);
+  if (souhaite && ids.includes(souhaite)) return souhaite;
+  if (ids.includes('medium')) return 'medium';
+  return ids[0] ?? 'none';
+}
+
 /* ------------------------------------------------------------------ */
 /* Claude                                                              */
 /* ------------------------------------------------------------------ */
@@ -179,19 +197,20 @@ async function claudeCatalogAvec(token: string): Promise<Catalogue> {
 
     const models: ModelInfo[] = entries.map((entry) => {
       const effort = entry?.capabilities?.effort ?? {};
-      const niveaux: ThinkingOption[] = [NIVEAU_SANS];
+      const brut: ThinkingOption[] = [NIVEAU_SANS];
       if (effort?.supported) {
         for (const key of ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']) {
-          if (effort[key]?.supported) niveaux.push(niveau(key));
+          if (effort[key]?.supported) brut.push(niveau(key));
         }
       }
+      const niveaux = sansOptionSans(brut);
       const sortie = entry.created_at ? new Date(entry.created_at).getTime() : undefined;
       return ModelInfo.parse({
         id: entry.id,
         label: entry.display_name ?? entry.id,
         description: entry?.capabilities?.thinking?.supported ? 'Réflexion adaptative disponible' : undefined,
         thinking: niveaux,
-        defaultThinking: 'none',
+        defaultThinking: defautReflexion(niveaux),
         contextWindow: entry.max_input_tokens ?? undefined,
         releasedAt: Number.isFinite(sortie) ? sortie : undefined,
         appetite: appetiteOf(entry.id, entry.display_name ?? ''),
@@ -208,10 +227,17 @@ async function claudeCatalogAvec(token: string): Promise<Catalogue> {
 }
 
 function claudeFallback(): ModelInfo[] {
-  const niveaux = [NIVEAU_SANS, niveau('low'), niveau('medium'), niveau('high'), niveau('xhigh'), niveau('max')];
+  const niveaux = sansOptionSans([
+    NIVEAU_SANS,
+    niveau('low'),
+    niveau('medium'),
+    niveau('high'),
+    niveau('xhigh'),
+    niveau('max'),
+  ]);
   return [
-    { id: 'opus', label: 'Opus (le plus capable)', thinking: niveaux, defaultThinking: 'none' },
-    { id: 'sonnet', label: 'Sonnet (équilibré)', thinking: niveaux, defaultThinking: 'none' },
+    { id: 'opus', label: 'Opus (le plus capable)', thinking: niveaux, defaultThinking: defautReflexion(niveaux) },
+    { id: 'sonnet', label: 'Sonnet (équilibré)', thinking: niveaux, defaultThinking: defautReflexion(niveaux) },
     { id: 'haiku', label: 'Haiku (rapide et léger)', thinking: [NIVEAU_SANS], defaultThinking: 'none' },
   ].map((m) => ModelInfo.parse(m));
 }
@@ -267,15 +293,16 @@ export async function codexCatalogAvec(version: string, token: string): Promise<
     if (!entries.length) throw new Error('catalogue vide');
 
     const models: ModelInfo[] = entries.map((entry) => {
-      const niveaux: ThinkingOption[] = (entry.supported_reasoning_levels ?? []).map((level: any) =>
+      const brut: ThinkingOption[] = (entry.supported_reasoning_levels ?? []).map((level: any) =>
         niveau(String(level.effort), typeof level.description === 'string' ? level.description : undefined),
       );
+      const niveaux = sansOptionSans(brut.length ? brut : [NIVEAU_SANS]);
       return ModelInfo.parse({
         id: entry.slug,
         label: entry.display_name ?? entry.slug,
         description: entry.description ?? undefined,
-        thinking: niveaux.length ? niveaux : [NIVEAU_SANS],
-        defaultThinking: entry.default_reasoning_level ?? niveaux[0]?.id,
+        thinking: niveaux,
+        defaultThinking: defautReflexion(niveaux, entry.default_reasoning_level),
         contextWindow: entry.context_window ?? undefined,
         appetite: appetiteOf(entry.slug, entry.display_name ?? ''),
       });
@@ -320,19 +347,22 @@ export async function cursorCatalog(): Promise<Catalogue> {
     try {
       const entries = await modelesCursor(cle);
       if (!entries.length) throw new Error('catalogue vide');
-      const models: ModelInfo[] = entries.map((entry) =>
-        ModelInfo.parse({
+      const models: ModelInfo[] = entries.map((entry) => {
+        // Les niveaux sont ceux que le CLI propose RÉELLEMENT pour ce
+        // modèle : en afficher un de plus ferait refuser le tour entier,
+        // puisque le niveau fait partie du nom envoyé. « Sans réflexion » ne
+        // se PROPOSE plus au choix dès qu'un autre niveau existe pour ce modèle.
+        const brut = entry.niveaux.map((id) => (id === 'none' ? NIVEAU_SANS : niveau(id)));
+        const niveaux = sansOptionSans(brut);
+        return ModelInfo.parse({
           id: entry.id,
           label: entry.label,
-          // Les niveaux sont ceux que le CLI propose RÉELLEMENT pour ce
-          // modèle : en afficher un de plus ferait refuser le tour entier,
-          // puisque le niveau fait partie du nom envoyé.
-          thinking: entry.niveaux.map((id) => (id === 'none' ? NIVEAU_SANS : niveau(id))),
-          defaultThinking: entry.niveauParDefaut,
+          thinking: niveaux,
+          defaultThinking: defautReflexion(niveaux, entry.niveauParDefaut),
           contextWindow: entry.fenetre,
           appetite: appetiteOf(entry.id, entry.label),
-        }),
-      );
+        });
+      });
       models.sort(byRecency);
       return { models: limiterAuxPlusRecents(dedoublonnerModeles(models)), live: true };
     } catch (err: any) {
@@ -344,10 +374,10 @@ export async function cursorCatalog(): Promise<Catalogue> {
 }
 
 function cursorFallback(): ModelInfo[] {
-  const efforts = [NIVEAU_SANS, niveau('low'), niveau('medium'), niveau('high'), niveau('xhigh')];
+  const efforts = sansOptionSans([NIVEAU_SANS, niveau('low'), niveau('medium'), niveau('high'), niveau('xhigh')]);
   return [
     { id: 'composer-2.5', label: 'Composer 2.5', thinking: [NIVEAU_SANS], defaultThinking: 'none' },
-    { id: 'claude-sonnet-5', label: 'Sonnet 5', thinking: efforts, defaultThinking: 'none' },
+    { id: 'claude-sonnet-5', label: 'Sonnet 5', thinking: efforts, defaultThinking: defautReflexion(efforts) },
   ].map((m) => ModelInfo.parse(m));
 }
 
