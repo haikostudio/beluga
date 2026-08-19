@@ -91,6 +91,7 @@ const {
   PLAFOND_PASSAGES_SUITE_JETONS,
   POIDS_MOTS_VECTEUR,
   POIDS_SENS_VECTEUR,
+  PART_MINIMALE_DU_PREMIER,
   SCORE_MINIMUM,
   SCORE_MINIMUM_VECTEUR,
   SEUIL_VECTEUR_CONVERSATION,
@@ -390,7 +391,13 @@ console.log('3. LE SENS CONTRE LES MOTS — même corpus, même plafond, seule l
 
 const plafond = plafondDeRecherche(jetonsIndex);
 function choisir(classes, minimum) {
-  return choisirPassages(classes, { plafond, minimum, maxCode: PASSAGES_CODE_MAX });
+  /*
+   * `partDuPremier: 0` COUPE LE SECOND FILTRE. Les sections qui suivent balaient
+   * le SEUIL : elles doivent le mesurer SEUL, sinon la part du mieux placé
+   * écarterait des passages et on lirait son effet à elle sur la ligne du seuil.
+   * La part a son propre balayage (« 5 quater » et « 5 quinquies »).
+   */
+  return choisirPassages(classes, { plafond, minimum, maxCode: PASSAGES_CODE_MAX, partDuPremier: 0 });
 }
 /** Le rang (1 = premier) du premier passage venu d'un fichier attendu, 0 si aucun. */
 function rangDuBon(classes, attendus) {
@@ -411,6 +418,15 @@ function rangDuBon(classes, attendus) {
 const SEUILS_ESSAYES = [
   0.24, 0.28, 0.3, 0.32, 0.34, 0.36, 0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.55, 0.6,
 ];
+/*
+ * LES DEUX GRILLES DU SEUIL DE LANCEMENT (section « 5 quater »), déclarées ici
+ * parce que le balayage de la CONVERSATION, plus bas, s'en sert aussi : la part
+ * du mieux placé n'a pas d'échelle, elle vaut donc sur les deux terrains et doit
+ * être mesurée sur les deux.
+ */
+const PLANCHERS_ESSAYES = [0.14, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.34];
+const PARTS_ESSAYEES = [0, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75];
+
 const balayage = new Map(
   SEUILS_ESSAYES.map((seuil) => [
     seuil,
@@ -599,6 +615,22 @@ const balayageConv = new Map(
   SEUILS_ESSAYES.map((seuil) => [seuil, { touche: 0, toucheStrict: 0, vides: 0, passages: [], horsSujet: [] }]),
 );
 
+/** Le même balayage, mais sur la PART DU MIEUX PLACÉ, seuil laissé en place. */
+const balayagePartConv = new Map(
+  PARTS_ESSAYEES.map((part) => [part, { touche: 0, toucheStrict: 0, vides: 0, passages: [] }]),
+);
+
+/**
+ * ET LE PLANCHER ABSOLU (`SCORE_MINIMUM`) SUR CE TERRAIN AUSSI, par les MOTS.
+ * Il est balayé au lancement en « 5 quater », mais il sert ICI également : c'est
+ * lui, relevé de `MARGE_SEUIL_SUITE`, qui filtre un tour de suite quand la
+ * recherche retombe sur les mots. Le monter sans l'avoir mesuré ici serait
+ * refaire l'erreur que « 5 ter » a fermée.
+ */
+const balayagePlancherConv = new Map(
+  PLANCHERS_ESSAYES.map((plancher) => [plancher, { touche: 0, toucheStrict: 0, vides: 0, passages: [] }]),
+);
+
 const messagesRejoues = messages.slice(0, Math.max(0, MESSAGES_VOULUS));
 if (messagesRejoues.length) {
   for (const message of messagesRejoues) {
@@ -611,7 +643,13 @@ if (messagesRejoues.length) {
     });
     const classesSens = rebondSurLesFichiersCites(classesSensBrut, message.question);
     const classesMots = classerPassages(tousLesPassages, message.question);
-    const bornes = { plafond: PLAFOND_PASSAGES_SUITE_JETONS, max: PASSAGES_SUITE_MAX, maxCode: PASSAGES_CODE_MAX };
+    /* `partDuPremier: 0` : même raison qu'en section 3 — ici on balaie le SEUIL. */
+    const bornes = {
+      plafond: PLAFOND_PASSAGES_SUITE_JETONS,
+      max: PASSAGES_SUITE_MAX,
+      maxCode: PASSAGES_CODE_MAX,
+      partDuPremier: 0,
+    };
     {
       /* LE REBOND EN CONVERSATION : il doit gagner là aussi, ou au moins ne rien coûter. */
       const brut = new Set(
@@ -641,6 +679,40 @@ if (messagesRejoues.length) {
     const communs = [...sourcesSens].filter((s) => sourcesMots.has(s)).length;
     duelConv.communs += sourcesSens.size ? communs / sourcesSens.size : 0;
     duelConv.rangs.push(rangDuBon(classesSens, message.carte.fichiers));
+
+    /* Le PLANCHER ABSOLU, par les MOTS, aux bornes du tour de suite. */
+    for (const plancher of PLANCHERS_ESSAYES) {
+      const essai = choisirPassages(classesMots, {
+        ...bornes,
+        minimum: seuilDeSuite(plancher),
+      });
+      const releve = balayagePlancherConv.get(plancher);
+      const sources = new Set(essai.gardes.map((p) => p.source));
+      if (!essai.gardes.length) releve.vides += 1;
+      if ([...sources].some((s) => message.carte.fichiers.has(s))) releve.touche += 1;
+      if ([...sources].some((s) => message.carte.propres.has(s))) releve.toucheStrict += 1;
+      releve.passages.push(essai.gardes.length);
+    }
+
+    /*
+     * LA PART DU MIEUX PLACÉ, SUR CE TERRAIN AUSSI. Elle s'applique dans
+     * `choisirPassages`, donc aux deux terrains : la mesurer sur le seul
+     * lancement reviendrait à la poser en conversation sans l'avoir éprouvée.
+     * Le seuil, lui, reste celui déjà retenu ici (`SEUIL_VECTEUR_CONVERSATION`).
+     */
+    for (const part of PARTS_ESSAYEES) {
+      const essai = choisirPassages(classesSens, {
+        ...bornes,
+        minimum: SEUIL_VECTEUR_CONVERSATION,
+        partDuPremier: part,
+      });
+      const releve = balayagePartConv.get(part);
+      const sources = new Set(essai.gardes.map((p) => p.source));
+      if (!essai.gardes.length) releve.vides += 1;
+      if ([...sources].some((s) => message.carte.fichiers.has(s))) releve.touche += 1;
+      if ([...sources].some((s) => message.carte.propres.has(s))) releve.toucheStrict += 1;
+      releve.passages.push(essai.gardes.length);
+    }
 
     /* Le même classement, aux bornes du tour de suite, jugé par chaque seuil. */
     for (const seuil of SEUILS_ESSAYES) {
@@ -837,6 +909,190 @@ if (!duelConv.total) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 5 quater. LE SEUIL DU LANCEMENT — celui qui décide vraiment          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE SEUIL QU'ON N'AVAIT JAMAIS BALAYÉ.
+ *
+ * « 5 bis » et « 5 ter » balaient `SCORE_MINIMUM_VECTEUR`, le seuil du mode
+ * SENS. Or le LANCEMENT d'une carte est classé par les MOTS depuis
+ * `SENS_PAR_TERRAIN` : ce qui y décide, c'est `SCORE_MINIMUM` (0,14), une
+ * valeur d'origine que personne n'a jamais mesurée. C'est pourtant elle qui a
+ * laissé passer, sur une carte réelle, un fait sans rapport avec la demande.
+ *
+ * Deux réglages sont balayés ENSEMBLE, parce qu'ils ne coupent pas la même
+ * chose :
+ *   - le PLANCHER ABSOLU (`SCORE_MINIMUM`) — un score en deçà duquel un passage
+ *     ne répond à rien, quelle que soit la question ;
+ *   - la PART DU MIEUX PLACÉ (`PART_MINIMALE_DU_PREMIER`) — sans échelle, donc
+ *     capable de couper les traînards d'un bon classement sans vider un
+ *     classement médiocre où les passages sont les meilleurs qu'on ait.
+ *
+ * Mêmes cartes, même vérité de terrain venue de git, même choix sous plafond.
+ * Aucun vecteur n'est calculé : ce terrain n'en utilise pas, la boucle est donc
+ * rapide et tourne même sans moteur de vectorisation installé.
+ */
+console.log('5 quater. LE SEUIL DU LANCEMENT — balayé par les MOTS, le mode que ce terrain utilise');
+
+const balayageMots = new Map();
+for (const plancher of PLANCHERS_ESSAYES) {
+  for (const part of PARTS_ESSAYEES) {
+    balayageMots.set(`${plancher}|${part}`, {
+      plancher,
+      part,
+      touche: 0,
+      toucheStrict: 0,
+      vides: 0,
+      passages: [],
+      horsSujet: [],
+    });
+  }
+}
+
+for (const carte of cartes) {
+  const classesMots = classerPassages(tousLesPassages, carte.question);
+  for (const releve of balayageMots.values()) {
+    const essai = choisirPassages(classesMots, {
+      plafond,
+      maxCode: PASSAGES_CODE_MAX,
+      minimum: releve.plancher,
+      partDuPremier: releve.part,
+    });
+    const sources = new Set(essai.gardes.map((p) => p.source));
+    if (!essai.gardes.length) releve.vides += 1;
+    if ([...sources].some((s) => carte.fichiers.has(s))) releve.touche += 1;
+    if ([...sources].some((s) => carte.propres.has(s))) releve.toucheStrict += 1;
+    releve.passages.push(essai.gardes.length);
+  }
+}
+
+/* Les mêmes questions étrangères au projet, jugées par les MOTS cette fois. */
+for (const question of HORS_SUJET) {
+  const classesMots = classerPassages(tousLesPassages, question);
+  console.log(
+    `   hors sujet « ${question.slice(0, 40)}… » → mieux placé à ${(classesMots[0]?.score ?? 0).toFixed(2)} par les mots : ${classesMots[0]?.source ?? '—'}`,
+  );
+  for (const releve of balayageMots.values()) {
+    releve.horsSujet.push(
+      choisirPassages(classesMots, {
+        plafond,
+        maxCode: PASSAGES_CODE_MAX,
+        minimum: releve.plancher,
+        partDuPremier: releve.part,
+      }).gardes.length,
+    );
+  }
+}
+
+const lignesMots = [...balayageMots.values()].map((releve) => ({
+  plancher: releve.plancher,
+  part: releve.part,
+  pertinence: releve.touche / Math.max(1, cartes.length),
+  pertinenceStricte: releve.toucheStrict / Math.max(1, cartes.length),
+  perdues: balayageMots.get(`${PLANCHERS_ESSAYES[0]}|0`).touche - releve.touche,
+  passages: moyenne(releve.passages),
+  vides: releve.vides,
+  horsSujet: Math.max(0, ...releve.horsSujet),
+}));
+for (const ligne of lignesMots) {
+  console.log(
+    `   plancher ${ligne.plancher.toFixed(2)} · part du premier ${ligne.part ? ligne.part.toFixed(2) : '—   '}` +
+      ` · bonne page ${Math.round(ligne.pertinence * 100)} %` +
+      ` (stricte ${Math.round(ligne.pertinenceStricte * 100)} %, ${ligne.perdues >= 0 ? `${ligne.perdues} perdue(s)` : `${-ligne.perdues} gagnée(s)`})` +
+      ` · ${ligne.passages.toFixed(1)} passages servis · ${ligne.vides} repli(s)` +
+      ` · hors sujet : ${ligne.horsSujet}`,
+  );
+}
+/*
+ * LA RECOMMANDATION EST CALCULÉE, PAS CHOISIE — mais le critère n'est pas celui
+ * de « 5 bis ». Là-bas, on demandait qu'une question hors sujet reparte les
+ * mains VIDES ; par les MOTS, c'est hors d'atteinte : une phrase française
+ * quelconque partage toujours quelques mots courants avec 6 000 passages, et le
+ * mieux placé d'une question étrangère sort déjà à 0,36-0,39 — au-dessus du
+ * score de la moitié des vraies demandes. Un plancher qui refuserait le hors
+ * sujet refuserait donc aussi les vraies cartes.
+ *
+ * Le critère de CE terrain est donc : NE PERDRE AUCUNE CARTE, et parmi les
+ * couples qui n'en perdent aucune, servir le MOINS de passages — c'est-à-dire
+ * écarter le plus de traînards à pertinence rigoureusement égale. À égalité, le
+ * plus exigeant des deux réglages l'emporte. Le hors sujet reste affiché : il
+ * dit ce que le réglage retenu laisse encore passer, il ne le décide pas.
+ */
+const tenablesMots = lignesMots.filter((l) => l.perdues <= 0);
+const meilleurMots = tenablesMots
+  .slice()
+  .sort((a, b) => a.passages - b.passages || b.part - a.part || b.plancher - a.plancher)[0];
+console.log(
+  meilleurMots
+    ? `   → COUPLE RETENU : plancher ${meilleurMots.plancher.toFixed(2)} · part du premier ${meilleurMots.part.toFixed(2)}` +
+        ` — ${meilleurMots.passages.toFixed(1)} passages servis contre ${lignesMots[0].passages.toFixed(1)} sans rien couper,` +
+        ` à pertinence identique (${Math.round(meilleurMots.pertinence * 100)} %, ${meilleurMots.horsSujet} passage(s) sur une question hors sujet)` +
+        ` · en place : plancher ${SCORE_MINIMUM} · part ${PART_MINIMALE_DU_PREMIER}`
+    : '   → aucun couple essayé ne tient la condition : la fourchette est à élargir.',
+);
+console.log('');
+
+/* ------------------------------------------------------------------ */
+/* 5 quinquies. LA MÊME PART, SUR LE TERRAIN DE LA CONVERSATION         */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LA PART S'APPLIQUE DANS `choisirPassages`, DONC AUX DEUX TERRAINS. La mesurer
+ * sur le seul lancement reviendrait à la poser en conversation sans l'avoir
+ * éprouvée — exactement le reproche fait au seuil du mode sens en « 5 ter ».
+ * Mêmes messages, mêmes bornes de tour de suite, seuil laissé à la valeur déjà
+ * retenue ici : seule la part change.
+ */
+console.log('5 quinquies. LA PART DU MIEUX PLACÉ EN CONVERSATION — le même filtre, sur l’autre terrain');
+if (!duelConv.total) {
+  console.log('   aucun message exploitable : rien à balayer sur ce terrain\n');
+} else {
+  const referencePart = balayagePartConv.get(0).touche;
+  const lignesPartConv = PARTS_ESSAYEES.map((part) => {
+    const releve = balayagePartConv.get(part);
+    return {
+      part,
+      pertinence: releve.touche / Math.max(1, duelConv.total),
+      pertinenceStricte: releve.toucheStrict / Math.max(1, duelConv.total),
+      perdus: referencePart - releve.touche,
+      passages: moyenne(releve.passages),
+      vides: releve.vides,
+    };
+  });
+  for (const ligne of lignesPartConv) {
+    console.log(
+      `   part du premier ${ligne.part ? ligne.part.toFixed(2) : '—   '}` +
+        ` · bonne page ${Math.round(ligne.pertinence * 100)} %` +
+        ` (stricte ${Math.round(ligne.pertinenceStricte * 100)} %, ${ligne.perdus >= 0 ? `${ligne.perdus} message(s) perdu(s)` : `${-ligne.perdus} gagné(s)`})` +
+        ` · ${ligne.passages.toFixed(1)} passages servis · ${ligne.vides} tour(s) sans rien`,
+    );
+  }
+  const referencePlancher = balayagePlancherConv.get(PLANCHERS_ESSAYES[0]).touche;
+  for (const plancher of PLANCHERS_ESSAYES) {
+    const releve = balayagePlancherConv.get(plancher);
+    const perdus = referencePlancher - releve.touche;
+    console.log(
+      `   plancher ${plancher.toFixed(2)} (appliqué ${seuilDeSuite(plancher).toFixed(2)} par les MOTS)` +
+        ` · bonne page ${Math.round((releve.touche / Math.max(1, duelConv.total)) * 100)} %` +
+        ` (${perdus >= 0 ? `${perdus} message(s) perdu(s)` : `${-perdus} gagné(s)`})` +
+        ` · ${moyenne(releve.passages).toFixed(1)} passages servis · ${releve.vides} tour(s) sans rien`,
+    );
+  }
+
+  const tenablesPart = lignesPartConv.filter((l) => l.perdus <= 0);
+  const meilleurPart = tenablesPart.slice().sort((a, b) => a.passages - b.passages || b.part - a.part)[0];
+  console.log(
+    meilleurPart
+      ? `   → PART TENABLE SUR CE TERRAIN AUSSI : jusqu’à ${meilleurPart.part.toFixed(2)} sans perdre un message` +
+          ` (${meilleurPart.passages.toFixed(1)} passages servis contre ${lignesPartConv[0].passages.toFixed(1)} sans filtre)` +
+          ` · en place : ${PART_MINIMALE_DU_PREMIER}`
+      : '   → la part coûte des messages sur ce terrain : elle doit être réservée au lancement.',
+  );
+  console.log('');
+}
+
+/* ------------------------------------------------------------------ */
 /* 6. Ce que coûte la recherche elle-même                              */
 /* ------------------------------------------------------------------ */
 
@@ -901,6 +1157,13 @@ const bilan = {
     plageSansPerte: sansPerte.length ? [premier.seuil, recommande.seuil] : null,
     recommande: recommande?.seuil ?? null,
     lignes,
+  },
+  seuilDuLancement: {
+    planchersEssayes: PLANCHERS_ESSAYES,
+    partsEssayees: PARTS_ESSAYEES,
+    enPlace: { plancher: SCORE_MINIMUM, part: PART_MINIMALE_DU_PREMIER },
+    retenu: meilleurMots ?? null,
+    lignes: lignesMots,
   },
   releves,
 };

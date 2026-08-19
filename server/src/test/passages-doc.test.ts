@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PART_MAX_DE_L_INDEX,
+  PART_MINIMALE_DU_PREMIER,
   PLAFOND_PASSAGES_JETONS,
   PRIORITE,
   choisirPassages,
@@ -16,6 +17,7 @@ import {
   rebondSurLesFichiersCites,
   rechercheConvaincante,
   rechercheRentable,
+  seuilAppliquable,
   termesRares,
   texteDesPassages,
 } from '@haikodev/shared';
@@ -258,6 +260,62 @@ test('un seul fichier ne prend pas toute la place', () => {
 test('un passage sous le seuil n’entre pas, même s’il reste de la place', () => {
   const choix = choisirPassages([faux('a.md', 0.05, 10)], { plafond: 5000 });
   assert.equal(choix.gardes.length, 0);
+});
+
+/* ------------------------------------------------------------------ */
+/* La part du mieux placé : le traînard n'entre plus                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE CAS QUI A DONNÉ LA RÈGLE : une demande précise, un passage qui y répond, et
+ * un second qui la croise par hasard — un fait sans rapport, servi à côté du bon.
+ * Le plancher ABSOLU ne peut pas le couper : il vaut 0,14 et le traînard est
+ * au-dessus. La part du MIEUX PLACÉ, elle, le voit — il ne pèse pas la moitié de
+ * celui qui répond vraiment (balayé sur 120 cartes, `audit-memoire-rag.mjs`).
+ */
+test('un passage très en dessous du mieux placé n’entre plus, même au-dessus du plancher', () => {
+  const choix = choisirPassages([faux('bon.md', 0.6, 50), faux('trainard.md', 0.2, 50)], {
+    plafond: 5000,
+  });
+  assert.deepEqual(
+    choix.gardes.map((p) => p.source),
+    ['bon.md'],
+    'seul le passage qui répond à la demande est servi',
+  );
+  assert.equal(choix.ecartes, 0, 'un passage sous le seuil est refusé, pas « écarté faute de place »');
+});
+
+test('le mieux placé entre toujours : il est sa propre référence', () => {
+  const choix = choisirPassages([faux('seul.md', 0.2, 50)], { plafond: 5000 });
+  assert.equal(choix.gardes.length, 1, 'un classement médiocre sert quand même son meilleur passage');
+});
+
+/*
+ * LE CLASSEMENT MÉDIOCRE EST LE VRAI PIÈGE D'UN SEUIL ABSOLU : tous les scores se
+ * tiennent, aucun ne se détache. Un plancher relevé assez haut pour couper le
+ * traînard du test précédent viderait celui-ci — alors que ces passages sont les
+ * meilleurs qu'on ait. La part, sans échelle, les garde.
+ */
+test('un classement serré garde tous ses passages, même bas', () => {
+  const choix = choisirPassages(
+    [faux('a.md', 0.2, 50), faux('b.md', 0.18, 50), faux('c.md', 0.17, 50)],
+    { plafond: 5000 },
+  );
+  assert.equal(choix.gardes.length, 3);
+});
+
+test('le seuil appliqué est le plus exigeant des deux, et un classement vide n’a pas de référence', () => {
+  /* Le mieux placé est haut : c'est la part qui décide. */
+  assert.equal(seuilAppliquable([{ score: 0.8 }], 0.14), 0.8 * PART_MINIMALE_DU_PREMIER);
+  /* Le mieux placé est bas : c'est le plancher absolu qui décide. */
+  assert.equal(seuilAppliquable([{ score: 0.2 }], 0.14), 0.14);
+  assert.equal(seuilAppliquable([], 0.14), 0.14);
+});
+
+test('la part se coupe, et c’est ce dont le balayage a besoin', () => {
+  const classes = [faux('bon.md', 0.6, 50), faux('trainard.md', 0.2, 50)];
+  const sansFiltre = choisirPassages(classes, { plafond: 5000, partDuPremier: 0 });
+  assert.equal(sansFiltre.gardes.length, 2, 'le relevé peut mesurer ce que la part apporte');
 });
 
 test('le plafond est borné par l’index qu’il remplace', () => {
