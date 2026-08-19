@@ -646,7 +646,7 @@ export function Drawer({
             onPointerCancel={poignee.onPointerUp}
             className="flex shrink-0 cursor-grab touch-none justify-center py-3 active:cursor-grabbing"
           >
-            <DialogPrimitive.Close className="h-1 w-10 rounded-full bg-border transition-colors hover:bg-muted" />
+            <DialogPrimitive.Close className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text" />
           </div>
           {children}
         </DialogPrimitive.Content>
