@@ -6,7 +6,10 @@ import {
   raisonDuChoix,
   API_CURSOR,
   AccountQuota,
+  DOSSIER_DES_TACHES,
   EngineId,
+  type LienDuCoffre,
+  reparationsDuCoffre,
   type EtatSeuilsSemaine,
   compteDeSecours,
   raisonDeRefusCursor,
@@ -197,6 +200,57 @@ export function bootstrapAccounts(): void {
   } catch {
     /* aucun compte de relève */
   }
+
+  // Au démarrage déjà, pas seulement au premier lancement : un coffre dont les
+  // liens sont morts prive TOUS les agents de leur liste de sous-tâches.
+  for (const compte of listAllAccountRecords()) {
+    if (compte.engine === 'claude') reparerLeCoffreClaude(compte.configDir);
+  }
+}
+
+/**
+ * REMET LE COFFRE D'UN COMPTE CLAUDE D'APLOMB.
+ *
+ * Les liens du coffre portent un chemin absolu vers le compte principal. Le
+ * dossier personnel déménage (compte système renommé) et ils deviennent morts,
+ * sans un mot : le moteur n'écrit alors plus sa liste de tâches et les trois
+ * affichages d'avancement s'éteignent. On rapatrie donc ces liens vers le
+ * dossier personnel d'aujourd'hui, et on s'assure que `tasks/` existe.
+ *
+ * Sans bruit quand tout va bien : cette fonction part à CHAQUE lancement.
+ */
+export function reparerLeCoffreClaude(configDir: string): number {
+  const home = CONFIG.homeDir || os.homedir();
+  let repares = 0;
+  try {
+    const liens: LienDuCoffre[] = [];
+    for (const entree of fs.readdirSync(configDir, { withFileTypes: true })) {
+      if (!entree.isSymbolicLink()) continue;
+      const chemin = path.join(configDir, entree.name);
+      liens.push({
+        nom: entree.name,
+        cible: fs.readlinkSync(chemin),
+        vivant: fs.existsSync(chemin),
+      });
+    }
+    for (const reparation of reparationsDuCoffre(liens, home)) {
+      if (!fs.existsSync(reparation.nouvelleCible)) continue;
+      const chemin = path.join(configDir, reparation.nom);
+      fs.rmSync(chemin, { force: true });
+      fs.symlinkSync(reparation.nouvelleCible, chemin);
+      repares += 1;
+      log.info(
+        `coffre ${path.basename(configDir)} : lien « ${reparation.nom} » rapatrié (${reparation.ancienneCible} → ${reparation.nouvelleCible})`,
+      );
+    }
+    // Le dossier des tâches, lui, se recrée même sans lien : c'est lui qui
+    // porte la liste de sous-tâches de chaque session.
+    const taches = path.join(configDir, DOSSIER_DES_TACHES);
+    if (!fs.existsSync(taches)) fs.mkdirSync(taches, { recursive: true });
+  } catch {
+    /* coffre illisible : le moteur dira lui-même ce qui lui manque. */
+  }
+  return repares;
 }
 
 function readClaudePlan(configDir: string): string | undefined {
@@ -222,6 +276,10 @@ function readClaudePlan(configDir: string): string | undefined {
  */
 export function applyAccountEnv(account: AccountRecord): Record<string, string> {
   if (account.engine === 'claude') {
+    // Le coffre est remis d'aplomb AVANT chaque lancement : un lien mort
+    // (`tasks` en tête) ne se voit pas dans HaikoDev, il fait juste échouer en
+    // silence la liste de tâches de l'agent (`shared/src/coffre-du-compte.ts`).
+    reparerLeCoffreClaude(account.configDir);
     return { CLAUDE_CONFIG_DIR: account.configDir };
   }
   if (account.engine === 'cursor') {

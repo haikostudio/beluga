@@ -193,12 +193,35 @@ async function main() {
 
   // Le décroché est FRÈRE de l'article `data-carte`, pas descendant : la valeur
   // de l'attribut porte l'identifiant de la carte, elle suffit à le viser.
-  const texteProgression = (cardId) =>
-    page
-      .locator(`[data-progression-taches="${cardId}"]`)
-      .first()
-      .textContent()
-      .catch(() => null);
+  //
+  // DEUX DÉCROCHÉS, SELON QUE L'AGENT TRAVAILLE OU NON. Tant qu'il travaille,
+  // c'est la BARRE DE TRAVAIL (`data-barre-travail`) qui porte le compte, avec
+  // l'étape en cours et le temps ; une fois l'agent arrêté, la mention
+  // « n/N faites » (`data-progression-taches`) prend le relais. Le compte doit
+  // se lire dans les DEUX cas — on regarde donc les deux repères.
+  //
+  // La barre de travail fait TOURNER le compte et le chronomètre à un rythme
+  // régulier : on échantillonne pendant quelques secondes et on retient le
+  // dernier « n/N » aperçu, plutôt que de lire une seule fois et de tomber sur
+  // le temps.
+  const texteProgression = async (cardId, essais = 16) => {
+    let dernier = null;
+    for (let i = 0; i < essais; i += 1) {
+      const vu = await page
+        .evaluate(
+          (id) =>
+            document.querySelector(`[data-progression-taches="${id}"]`)?.textContent ??
+            document.querySelector(`[data-barre-travail="${id}"]`)?.textContent ??
+            null,
+          cardId,
+        )
+        .catch(() => null);
+      if (vu) dernier = vu;
+      if (/\d+\s*\/\s*\d+/.test(vu ?? '')) return vu;
+      await page.waitForTimeout(400);
+    }
+    return dernier;
+  };
 
   const deuxSurTrois = await poser('en-cours', {
     column: 'running',
@@ -229,19 +252,26 @@ async function main() {
   await page.waitForTimeout(400);
 
   const t1 = await texteProgression(deuxSurTrois.cardId);
-  record('une carte en cours avec une liste 2/3 montre « 2/3 »', /2\/3/.test(t1 ?? ''), t1 ?? 'absent');
-  record('le mot « faites » accompagne le compte', /faites/.test(t1 ?? ''), t1 ?? '');
+  record('une carte en cours avec une liste 2/3 montre « 2/3 »', /2\s*\/\s*3/.test(t1 ?? ''), t1 ?? 'absent');
 
+  // Un agent au travail sans liste annoncée dit ce qu'il fait, jamais un
+  // compte : c'est l'absence de CHIFFRE qui se vérifie, pas l'absence de
+  // décroché — la barre de travail, elle, reste en place.
+  const tSansListe = await texteProgression(sansListe.cardId, 3);
   record(
-    'une carte sans liste de tâches ne montre rien',
-    !(await texteProgression(sansListe.cardId)),
+    'une carte sans liste de tâches ne montre aucun compte',
+    !/\d+\s*\/\s*\d+/.test(tSansListe ?? ''),
+    tSansListe ?? 'aucun décroché',
   );
   const tTerminee = await texteProgression(terminee.cardId);
   record(
     'une carte « Terminé » avec une liste montre aussi son avancement',
-    /3\/3/.test(tTerminee ?? ''),
+    /3\s*\/\s*3/.test(tTerminee ?? ''),
     tTerminee ?? 'absent',
   );
+  // « faites » n'accompagne le compte que sur la mention de l'agent ARRÊTÉ :
+  // la barre d'un agent au travail, plus étroite, ne porte que le chiffre.
+  record('le mot « faites » accompagne le compte figé', /faites/.test(tTerminee ?? ''), tTerminee ?? '');
 
   /*
    * L'agent coche la dernière étape : il renvoie 3/3, le décroché doit suivre.
@@ -258,27 +288,50 @@ async function main() {
   });
   await page.waitForTimeout(700);
   const t2 = await texteProgression(deuxSurTrois.cardId);
-  record('le compteur passe à « 3/3 » quand une étape est cochée', /3\/3/.test(t2 ?? ''), t2 ?? 'absent');
+  record('le compteur passe à « 3/3 » quand une étape est cochée', /3\s*\/\s*3/.test(t2 ?? ''), t2 ?? 'absent');
 
   /*
    * L'avancement GLOBAL, en tête de la colonne « En cours ». On ne suppose rien
-   * du contenu réel du tableau : on additionne les « n/N faites » RÉELLEMENT
-   * affichés dans CETTE colonne (le décroché existe désormais sur toutes les
-   * cartes, il faut donc se limiter à « En cours » pour comparer au bon total)
-   * et on compare au pourcentage de l'entête. Sa couleur doit être celle du
-   * jeton « en cours », jamais une teinte neuve : on la mesure contre un
-   * témoin `text-en-cours`.
+   * du contenu réel du tableau : on additionne les comptes RÉELLEMENT affichés
+   * par les cartes de CETTE colonne dont un agent TRAVAILLE — les seules que
+   * la tête de colonne additionne (`avancementDeLaColonne`) — et on compare au
+   * pourcentage de l'entête. Une carte dont l'agent est arrêté garde son
+   * dernier compte à l'écran mais ne pèse plus : elle est donc laissée de côté
+   * ici, sinon les deux chiffres ne parleraient pas de la même chose.
+   *
+   * Le compte de ces barres TOURNE avec le chronomètre : on échantillonne
+   * pendant quelques secondes et on retient, pour chaque carte, le dernier
+   * « n/N » aperçu.
    */
-  const mesure = await page.evaluate(() => {
+  const comptes = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const vus = new Map();
+        const lire = () => {
+          const colonne = document.querySelector('[data-column="running"]');
+          for (const barre of colonne?.querySelectorAll('[data-barre-travail]') ?? []) {
+            const trouve = /(\d+)\s*\/\s*(\d+)/.exec(barre.textContent ?? '');
+            if (trouve) vus.set(barre.getAttribute('data-barre-travail'), [Number(trouve[1]), Number(trouve[2])]);
+          }
+        };
+        lire();
+        let restants = 14;
+        const timer = window.setInterval(() => {
+          lire();
+          if ((restants -= 1) <= 0) {
+            window.clearInterval(timer);
+            resolve([...vus.values()]);
+          }
+        }, 400);
+      }),
+  );
+  const mesure = await page.evaluate((comptes) => {
     const entete = document.querySelector('[data-avancement-colonne="running"]');
     let done = 0;
     let total = 0;
-    const colonneEnCours = document.querySelector('[data-column="running"]');
-    for (const decroche of colonneEnCours?.querySelectorAll('[data-progression-taches]') ?? []) {
-      const trouve = /(\d+)\s*\/\s*(\d+)/.exec(decroche.textContent ?? '');
-      if (!trouve) continue;
-      done += Number(trouve[1]);
-      total += Number(trouve[2]);
+    for (const [d, t] of comptes) {
+      done += d;
+      total += t;
     }
     const temoin = document.createElement('span');
     temoin.className = 'text-en-cours';
@@ -292,7 +345,7 @@ async function main() {
       done,
       total,
     };
-  });
+  }, comptes);
   const attendu = mesure.total > 0 ? Math.round((mesure.done / mesure.total) * 100) : null;
   record(
     'la tête de « En cours » affiche un pourcentage',
