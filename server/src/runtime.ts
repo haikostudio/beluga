@@ -204,6 +204,20 @@ const live = new Map<string, LiveRun>();
 /** Dernier relevé dont la hausse a déjà été répartie, compte par compte. */
 const dernierQuotaReparti = new Map<string, { session?: number; weekly?: number }>();
 
+/*
+ * L'ALERTE DE PANNE NE SE DIT QU'UNE FOIS PAR SESSION VIVANTE DU MOTEUR.
+ *
+ * Chaque nouvel envoi qui tombe sur une panne encore en cours relance sa
+ * propre boucle d'essais (`lancerAvecRelances`) : sans mémoire d'un tour à
+ * l'autre, la bannière « Panne passagère du moteur » réapparaissait à CHAQUE
+ * message tant que le fournisseur restait perturbé — bruyant, et redondant
+ * dès le second envoi. Un tour qui a déjà montré la bannière et fini par
+ * réussir marque l'agent ici : les prochains hoquets du même fil se retentent
+ * en silence, jusqu'à ce qu'une session NEUVE (`nouvelleSession`) remette le
+ * compteur à zéro.
+ */
+const panneDejaSignalee = new Map<string, boolean>();
+
 /** Deux fins très proches passent dans cette file pour partager les relevés dans l'ordre. */
 const filesRepartitionQuota = new Map<string, Promise<void>>();
 
@@ -881,6 +895,9 @@ async function preparerLeTour(
    */
   const cleSession = cleDeSession(agent.run.engine, agent.run.model, account.id);
   const nouvelleSession = !store.getSessionId(agent.id, cleSession);
+  // Une session neuve repart sans passé : la prochaine panne, s'il y en a une,
+  // a de nouveau le droit de se dire.
+  if (nouvelleSession) panneDejaSignalee.delete(agent.id);
   /*
    * FIL NEUF PARCE QU'ON A CHANGÉ DE COMPTE. Il existait bien une conversation
    * pour ce moteur et ce modèle : elle appartient simplement au coffre d'un
@@ -1954,6 +1971,10 @@ async function startTurn(
       }),
     }),
     avantNouvelEssai: ({ essai, motif, attenteMs }) => {
+      log.warn(`panne passagère du moteur (${motif}) sur l'agent ${agent.id} : nouvel essai ${essai} dans ${attenteMs} ms`);
+      // Déjà signalée sur cette session : on retente en silence, sans rouvrir
+      // la bannière que l'utilisateur a déjà vue.
+      if (panneDejaSignalee.get(agent.id)) return;
       runState.steps.set(ETAPE_PANNE_ID, {
         id: ETAPE_PANNE_ID,
         label: libelleDeLEtape(motif, essai, attenteMs),
@@ -1961,9 +1982,12 @@ async function startTurn(
         startedAt: Date.now(),
       });
       pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
-      log.warn(`panne passagère du moteur (${motif}) sur l'agent ${agent.id} : nouvel essai ${essai} dans ${attenteMs} ms`);
     },
     apresNouvelEssai: ({ essai, ok }) => {
+      // La bannière déjà signalée reste tue ; l'essai marque tout de même la
+      // panne comme dite, pour que le prochain envoi retente sans un mot.
+      panneDejaSignalee.set(agent.id, true);
+      if (!runState.steps.has(ETAPE_PANNE_ID)) return;
       runState.steps.set(ETAPE_PANNE_ID, {
         id: ETAPE_PANNE_ID,
         label: libelleDeLaReprise(essai),
