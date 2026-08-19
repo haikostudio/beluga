@@ -15,11 +15,13 @@ import {
   jugerLaCle,
   jugerRapportErreur,
   nomSansCollision,
+  pageChangelog,
   pageDocApi,
   rechercherClientsParNom,
+  ROUTE_CHANGELOG,
   trouverLeProjetVise,
 } from '@haikodev/shared';
-import { CONFIG, PATHS, webRoot } from './config.js';
+import { CONFIG, PATHS, ROOT, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -219,6 +221,21 @@ export function createHttpServer(): http.Server {
         if (veutJson) return json(res, 200, documentationApi(racine));
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(req.method === 'HEAD' ? '' : pageDocApi(racine));
+      }
+
+      /**
+       * LE JOURNAL DES LIVRAISONS, PUBLIC. `HISTORIQUE.md` vit à la racine du
+       * dépôt et est relu à CHAQUE requête — jamais mis en cache ici — pour
+       * que la page suive sans redémarrage la moindre nouvelle entrée.
+       */
+      if (route === ROUTE_CHANGELOG || route === `${ROUTE_CHANGELOG}/`) {
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          return json(res, 405, { ok: false, error: 'Cette adresse se lit en GET.' });
+        }
+        const fichier = path.join(ROOT, 'HISTORIQUE.md');
+        const contenu = fs.existsSync(fichier) ? fs.readFileSync(fichier, 'utf8') : '';
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache, must-revalidate' });
+        return res.end(req.method === 'HEAD' ? '' : pageChangelog(contenu));
       }
 
       /**

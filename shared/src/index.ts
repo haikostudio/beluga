@@ -27,6 +27,7 @@ export * from './carte-sans-suite.js';
 export * from './carte-sql.js';
 export * from './catalogue-modeles.js';
 export * from './cerveau.js';
+export * from './changelog.js';
 export * from './chef-econome.js';
 export * from './choix-de-compte.js';
 export * from './cles-api.js';
