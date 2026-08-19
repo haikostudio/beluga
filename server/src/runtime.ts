@@ -579,7 +579,13 @@ export function instantaneContexteEnvoye(input: {
   });
 }
 
-/** La mesure d'entrée appartient à la demande, pas au message de réponse. */
+/**
+ * La mesure d'entrée appartient à la demande, pas au message de réponse.
+ * `totalInputTokens` — celui qui s'affiche sous la bulle — écarte le cache : il
+ * n'est que le contexte déjà connu renvoyé au moteur, pas ce que CETTE demande
+ * a coûté de neuf. `cachedInputTokens` reste rendu à part, pour le lecteur qui
+ * veut le détail (bulle du prompt envoyé).
+ */
 export function mesureEntreeMoteur(usage: NonNullable<EngineEvent['usage']>): {
   inputTokens: number;
   cachedInputTokens?: number;
@@ -588,7 +594,7 @@ export function mesureEntreeMoteur(usage: NonNullable<EngineEvent['usage']>): {
   return {
     inputTokens: usage.inputTokens,
     cachedInputTokens: usage.cachedTokens,
-    totalInputTokens: usage.inputTokens + (usage.cachedTokens ?? 0),
+    totalInputTokens: usage.inputTokens,
   };
 }
 
@@ -2066,10 +2072,23 @@ async function startTurn(
    */
   const panneDefinitive = relance.panne;
   const elapsedSeconds = (Date.now() - runState.startedAt) / 1000;
+  // `tokens` reste le total COMPLET (cache compris) : c'est lui qui sert la
+  // facturation et l'historique de consommation (`recordUsage`), où le cache
+  // doit rester compté.
   const tokens =
     (runState.usage?.inputTokens ?? 0) +
     (runState.usage?.cachedTokens ?? 0) +
     (runState.usage?.outputTokens ?? 0);
+  /*
+   * LE CHIFFRE POSÉ SOUS LA BULLE, LUI, ÉCARTE LE CACHE. Un tour qui relit un
+   * gros contexte déjà connu (mémoire, consigne système) le refait payer en
+   * jetons de cache à CHAQUE appel interne — un total qui grossit avec le
+   * nombre d'allers-retours d'outils, pas avec ce que CE message a produit de
+   * neuf. `483 260 jetons` pour une réponse de trois phrases venait de là :
+   * l'essentiel était du contexte déjà connu, relu plusieurs fois dans le même
+   * tour. Le compteur affiché ne garde que l'entrée FRAÎCHE et la sortie.
+   */
+  const tokensAffiches = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
 
 
   // Contrôle de forme : un moteur qui ignore le gabarit se fait rattraper.
@@ -2421,7 +2440,7 @@ async function startTurn(
     steps: stepsRefermees,
     todos: runState.todos,
     streaming: false,
-    tokens: tokens || undefined,
+    tokens: tokensAffiches || undefined,
     durationMs: Math.round(elapsedSeconds * 1000),
     account: account.label,
     // Un arrêt dû au quota n'affiche pas de panne : le bloc de reprise dit ce
