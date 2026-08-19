@@ -290,3 +290,21 @@ Texte entier : `docs/regles/quotas.md` (`project_memory`, sujet « quotas »).
 - Chaque échéance de quota connue déclenche une lecture ciblée après 15 s
 - LE TRAVAIL PART OÙ IL Y A LE PLUS DE PLACE, pas au premier compte pas encore à 100 %
 - LE CHEF D'ORCHESTRE NE PAIE PAS UN MODÈLE DE RAISONNEMENT POUR TRIER
+- **Le rangement de nuit vise les sujets réels du projet traité, pas les huit d'HaikoDev** — le rangement de nuit range dans les fichiers de `docs/regles/` qui existent VRAIMENT sur le projet traité, jamais dans les huit sujets fixes d'HaikoDev appliqués à un autre projet
+- **LE SEUIL DU MODE SENS SE MESURE SUR LE TERRAIN OÙ IL S'APPLIQUE** — LE SEUIL DU MODE SENS SE MESURE SUR LE TERRAIN OÙ IL S'APPLIQUE
+- **Le créneau conseillé devient le vrai départ programmé de la carte** — LE CRÉNEAU CONSEILLÉ D'UNE CARTE EST DÉJÀ SON DÉPART PROGRAMMÉ, PAS UNE SIMPLE SUGGESTION
+- **LA PUBLICATION CHOISIT UN MOTEUR QUI A ENCORE DU QUOTA, ET LE DIT QUAND IL N'Y EN A AUCUN** — LA PUBLICATION CHOISIT ELLE-MÊME UN MOTEUR AU QUOTA SUFFISANT, ET UN MANQUE DE QUOTA SE DIT AU LIEU DE BLOQUER EN SILENCE
+- **LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT** — LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT
+- **UN COFFRE-FORT CENTRAL POUR LES IDENTIFIANTS, ATTEINT DEPUIS LA COLONNE DE GAUCHE** — LES IDENTIFIANTS VIVENT DANS UN COFFRE-FORT CENTRAL, OUVERT DEPUIS LA COLONNE DE GAUCHE
+- **La fusion du lot : un tour d'agent borné, et les heurts de documentation recollés seuls** — LE VOLET DIT OÙ EN EST CHAQUE TÂCHE DU LOT
+- **Le tiroir de publication est une vraie timeline verticale** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
+- **Le tiroir de publication est une vraie timeline verticale (mise à jour : ronds sur chaque moment)** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
+- **Une élévation sudo (mkdir + chown) cible toujours le dossier CIBLE, jamais son parent** — LE MKDIR+CHOWN SUDO D'UN PROJET PORTE SUR SON PROPRE DOSSIER, JAMAIS SUR SON PARENT
+- **Cinq points que le renommage du compte système laisse derrière lui** — UN RENOMMAGE DU COMPTE COUVRE AUSSI CE QUI POINTE L'ANCIEN DOSSIER PERSONNEL
+- **Le dossier SSH de l'administrateur doit rester à l'administrateur** — UN `chown -R` TROP LARGE COUPE LES ACCÈS SSH DE L'ADMINISTRATEUR
+- **Un nouvel essai après panne emporte TOUJOURS la demande de son tour** — UN NOUVEL ESSAI APRÈS PANNE EMPORTE LA DEMANDE DE SON TOUR
+- **Deux demandes trop rapprochées se SUIVENT, elles ne se doublent pas** — DEUX DEMANDES TROP RAPPROCHÉES SE SUIVENT, ELLES NE SE DOUBLENT PAS
+- **Un trait qui porte une information suit `--faint`, jamais `--border`** — sur les thèmes plats, un trait porteur d'information se dessine avec `--faint`, pas avec `--border`
+- **Une carte annoncée en texte, sans appel d'outil, fait relancer le chef** — Une carte RACONTÉE n'est pas une carte : le chef est relancé pour l'appel d'outil manquant
+- **Un canal WebSocket zombie n'a plus le dernier mot sur le témoin « Réflexion en cours »** — LE CLIENT VÉRIFIE LUI-MÊME QUE SON CANAL RÉPOND ENCORE, IL NE SE FIE PLUS À `onclose`
+- **Le chef d'orchestre remonte le fil, et propose les deux chemins quand il hésite** — LE CHEF REMONTE LE FIL AVANT D'ÉCRIRE UNE CARTE, ET UN CAS AMBIGU LUI FAIT PROPOSER LES DEUX CHEMINS
