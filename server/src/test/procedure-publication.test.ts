@@ -16,7 +16,7 @@ import {
   phraseDeTravail,
   procedureDeLEtape,
   procedureEnPlace,
-  promptOuvertureProcedure,
+  promptAnalyseProcedure,
   promptReponseProcedure,
   refusSansProcedure,
   repriseDuDialogue,
@@ -119,31 +119,57 @@ test('l’état de la procédure se dit en une ligne, vide comme pleine', () => 
 /* Le dialogue avec l'agent                                             */
 /* ------------------------------------------------------------------ */
 
-test('le premier tour POSE la question et n’écrit aucune procédure', () => {
-  const prompt = promptOuvertureProcedure('dev', { projet: 'Essai', dossier: '/root/essai' });
+/* ------------------------------------------------------------------ */
+/* L'AGENT ANALYSE ET TRANCHE ; L'UTILISATEUR NE CHOISIT RIEN DE TECHNIQUE */
+/*                                                                      */
+/* L'ouverture posait une question avec deux ou trois pistes techniques  */
+/* — reconstruire sur place, reprendre une version déjà construite,      */
+/* faire passer les contrôles — que personne, hors développeur, ne peut  */
+/* trancher. L'agent, lui, vient de lire le projet : il décide.          */
+/* ------------------------------------------------------------------ */
+
+test('le premier tour ANALYSE, tranche et écrit la procédure lui-même', () => {
+  const prompt = promptAnalyseProcedure('dev', { projet: 'Essai', dossier: '/root/essai' });
   assert.match(prompt, /DÉPLOIEMENT/);
   assert.match(prompt, /instance de TRAVAIL/, 'l’agent doit savoir de quelle étape il parle');
   assert.doesNotMatch(prompt, /MISE EN PRODUCTION met le code chez le CLIENT/);
-  assert.match(prompt, /Va LIRE le projet/);
-  assert.match(prompt, /Ne rends AUCUN bloc de procédure/);
+  assert.match(prompt, /LIS LE PROJET/, 'il lit avant de décider');
+  assert.match(prompt, /TRANCHE TOI-MÊME/, 'les choix techniques ne remontent pas');
+  assert.ok(prompt.includes(DEBUT_PROCEDURE) && prompt.includes(FIN_PROCEDURE), 'la procédure part dès ce tour');
+});
+
+test('le premier tour interdit la question technique, et n’en garde qu’une seule autre', () => {
+  const prompt = promptAnalyseProcedure('production', { projet: 'Essai', dossier: '/root/essai' });
+  assert.match(prompt, /TU NE POSES AUCUNE QUESTION TECHNIQUE/);
+  assert.match(prompt, /que le projet ne porte NULLE PART/, 'seule l’information qu’il ne peut pas trouver se demande');
+  assert.match(prompt, /jamais un choix entre deux techniques/);
+  assert.match(prompt, /n’est pas informaticienne/);
+});
+
+test('le premier tour demande l’explication en français simple AVANT la procédure', () => {
+  const prompt = promptAnalyseProcedure('dev', { projet: 'Essai', dossier: '/root/essai' });
+  const explication = prompt.indexOf('sans jargon');
+  const bloc = prompt.indexOf(DEBUT_PROCEDURE);
+  assert.notEqual(explication, -1, 'ce qu’il a constaté et décidé se lit');
+  assert.ok(explication < bloc, 'l’explication précède la procédure : c’est ce qui est affiché');
 });
 
 test('le tour de production parle du client, jamais de l’instance de dev', () => {
-  const prompt = promptOuvertureProcedure('production', { projet: 'Essai', dossier: '/root/essai' });
+  const prompt = promptAnalyseProcedure('production', { projet: 'Essai', dossier: '/root/essai' });
   assert.match(prompt, /chez le CLIENT/);
   assert.match(prompt, /closes puis archivées/);
   assert.doesNotMatch(prompt, /instance de TRAVAIL/);
 });
 
 test('rouvrir pour MODIFIER donne à l’agent la procédure déjà en place', () => {
-  const prompt = promptOuvertureProcedure('dev', {
+  const prompt = promptAnalyseProcedure('dev', {
     projet: 'Essai',
     dossier: '/root/essai',
     actuelle: 'Construire puis relancer le service.',
   });
   assert.match(prompt, /procédure actuelle/);
   assert.match(prompt, /Construire puis relancer le service\./);
-  assert.match(prompt, /MODIFIER/);
+  assert.match(prompt, /tu ne repars pas de zéro/);
 });
 
 test('le tour de réponse demande la procédure entre ses deux repères', () => {
@@ -159,12 +185,23 @@ test('sans repères, la réponse de l’agent est une QUESTION', () => {
   assert.equal(lue.procedure, undefined);
 });
 
-test('avec ses repères, la réponse est la PROCÉDURE — même précédée d’une phrase', () => {
+test('avec ses repères, la réponse est la PROCÉDURE, et l’explication d’avant est GARDÉE', () => {
   const lue = lireReponseDeProcedure(
-    `Voici ce que je retiens.\n${DEBUT_PROCEDURE}\n1. Construire.\n2. Copier.\n${FIN_PROCEDURE}`,
+    `Ce projet se construit avec npm et tourne en service : je relance le service après construction.\n${DEBUT_PROCEDURE}\n1. Construire.\n2. Copier.\n${FIN_PROCEDURE}`,
   );
   assert.equal(lue.procedure, '1. Construire.\n2. Copier.');
   assert.equal(lue.question, undefined);
+  assert.match(
+    lue.resume ?? '',
+    /je relance le service après construction/,
+    'ce que l’agent a décidé se lit : sans cela, la procédure tomberait du ciel',
+  );
+});
+
+test('une procédure rendue sans un mot d’explication reste une procédure', () => {
+  const lue = lireReponseDeProcedure(`${DEBUT_PROCEDURE}\n1. Construire.\n${FIN_PROCEDURE}`);
+  assert.equal(lue.procedure, '1. Construire.');
+  assert.equal(lue.resume, undefined);
 });
 
 test('un bloc VIDE n’est pas une procédure : la réponse reste une question', () => {
@@ -188,7 +225,11 @@ test('l’issue d’un tour est toujours dite : question, procédure, ou raison'
   });
   assert.deepEqual(
     issueDuTour({ contenu: `${DEBUT_PROCEDURE}\n1. Construire.\n${FIN_PROCEDURE}`, statut: 'done' }),
-    { procedure: '1. Construire.' },
+    { procedure: '1. Construire.', resume: undefined },
+  );
+  assert.deepEqual(
+    issueDuTour({ contenu: `J’ai vu un service système.\n${DEBUT_PROCEDURE}\n1. Construire.\n${FIN_PROCEDURE}`, statut: 'done' }),
+    { procedure: '1. Construire.', resume: 'J’ai vu un service système.' },
   );
 });
 
@@ -279,7 +320,7 @@ test('une question de l’outil, posée tiroir fermé, se RELIT au lieu de se re
 test('le tiroir écrit la procédure DEPUIS une demande de modification, sans redemander', () => {
   assert.match(SOURCE_TIROIR, /promptModificationProcedure/);
   assert.match(SOURCE_TIROIR, /const dialogueEnCours = /, 'la session vivante décide du prompt');
-  assert.match(SOURCE_PANNEAU, /data-reposer-question/, 'reposer la question reste un geste');
+  assert.match(SOURCE_PANNEAU, /data-refaire-analyse/, 'refaire l’analyse reste un geste, jamais un réflexe');
   assert.match(SOURCE_PANNEAU, /repriseDuDialogue\(res\?\.etat \?\? null, Date\.now\(\), !!actuelle\)/);
 });
 
@@ -365,6 +406,13 @@ test('le tiroir n’écrit que la cible d’où il vient, jamais l’autre', () 
   assert.match(corps, /miseEnProduction: \{/);
   // Le type de cible et les accès SSH/FTP déjà réglés ne sont pas balayés.
   assert.match(corps, /\.\.\.projet\.miseEnProduction/);
+});
+
+test('l’explication de l’agent est portée en bulle, pas remplacée par une phrase toute faite', () => {
+  const debut = SOURCE_TIROIR.indexOf("if ('procedure' in issue)");
+  assert.notEqual(debut, -1);
+  const corps = SOURCE_TIROIR.slice(debut, debut + 900);
+  assert.match(corps, /issue\.resume \|\|/, 'ce que l’agent a décidé se lit dans le tiroir');
 });
 
 test('le tiroir mène un tour d’agent et n’en lance aucun tout seul', () => {

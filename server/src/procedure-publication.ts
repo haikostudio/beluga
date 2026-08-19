@@ -6,8 +6,8 @@ import {
   QuestionDeProcedure,
   issueDuTour,
   procedureDeLEtape,
+  promptAnalyseProcedure,
   promptModificationProcedure,
-  promptOuvertureProcedure,
   promptReponseProcedure,
   titreDeLaProcedure,
 } from '@haikodev/shared';
@@ -19,9 +19,10 @@ import { agentsActifs, createAgent, sendPrompt } from './runtime.js';
  * LE TIROIR QUI DÉFINIT UNE PROCÉDURE DE MISE EN LIGNE.
  *
  * Un projet neuf n'a plus de procédure toute faite : la tête de la colonne
- * propose de l'INITIER, et c'est un AGENT qui la définit — il lit le projet, il
- * demande comment cette étape doit se passer, et il écrit la procédure à partir
- * de la réponse.
+ * propose de l'INITIER, et c'est un AGENT qui la définit — il lit le projet,
+ * TRANCHE lui-même les choix techniques, explique en français simple ce qu'il a
+ * constaté et décidé, puis écrit la procédure. L'utilisateur n'a rien à
+ * arbitrer : il lit, et il écrit ce qu'il veut changer.
  *
  * Le dialogue tient dans UN agent, gardé d'un tour à l'autre par son
  * identifiant : la question et la réponse vivent donc dans la même session, et
@@ -187,10 +188,10 @@ export function enregistrerProcedure(
 /**
  * UN TOUR du tiroir, LANCÉ puis rendu tout de suite.
  *
- * Sans `message` : ouverture, l'agent lit le projet et pose sa question. Avec
- * `message` : la réponse de l'utilisateur part au même agent, qui écrit la
- * procédure — ou pose une question de plus s'il lui manque vraiment quelque
- * chose. Un tour d'agent est PAYANT : le tiroir n'en lance aucun tout seul, et
+ * Sans `message` : ouverture, l'agent lit le projet, tranche et écrit la
+ * procédure. Avec `message` : la demande de l'utilisateur part au même agent,
+ * qui la réécrit en conséquence — ou pose une question de plus s'il lui manque
+ * vraiment quelque chose que le projet ne dit nulle part. Un tour d'agent est PAYANT : le tiroir n'en lance aucun tout seul, et
  * un tour DÉJÀ en train de tourner n'est jamais doublé — on s'y raccroche.
  */
 export function tourDeProcedure(input: {
@@ -240,12 +241,12 @@ export function tourDeProcedure(input: {
 
   /*
    * QUEL PROMPT ? Il dépend de ce que l'agent a DÉJÀ dans sa session.
-   *  - une réponse dans un dialogue en cours → il a lu le projet et posé la
-   *    question : sa réponse suffit ;
+   *  - une demande dans un dialogue en cours → il a déjà lu le projet et écrit
+   *    une première procédure : ce qu'on lui dit suffit ;
    *  - une demande de MODIFICATION arrivée sur un tiroir rouvert (le dialogue
    *    d'avant a disparu, il ne vivait qu'en mémoire) → l'agent est neuf, il
    *    lui faut le projet, la procédure actuelle ET la demande ;
-   *  - rien d'écrit → l'ouverture, l'agent lit le projet et demande.
+   *  - rien d'écrit → l'ouverture, l'agent lit le projet et écrit lui-même.
    */
   const actuelle = procedureDeLEtape(projet, input.cible) || undefined;
   const dialogueEnCours = !!courant?.echanges.length && !!reprenable;
@@ -256,7 +257,7 @@ export function tourDeProcedure(input: {
     actuelle,
   };
   const prompt = !reponse
-    ? promptOuvertureProcedure(input.cible, contexte)
+    ? promptAnalyseProcedure(input.cible, contexte)
     : dialogueEnCours
       ? promptReponseProcedure(input.cible, reponse)
       : promptModificationProcedure(input.cible, contexte, reponse);
@@ -312,10 +313,20 @@ async function mener(depart: EtatDeProcedure, prompt: string, reponse: string): 
       poser({ ...fini, raison: 'Projet introuvable : la procédure n’a pas pu être enregistrée.' });
       return;
     }
+    /*
+     * CE QUE L'AGENT A CONSTATÉ ET DÉCIDÉ EST DIT, pas seulement enregistré.
+     * L'agent tranche désormais les choix techniques lui-même : sans son
+     * explication, la procédure tomberait du ciel et personne ne saurait
+     * pourquoi c'est celle-là. Elle est rendue avant le bloc, on la porte en
+     * bulle. À défaut (agent muet), la phrase d'avant reste.
+     */
     poser({
       ...fini,
       procedure: issue.procedure,
-      echanges: [...fini.echanges, { qui: 'agent', texte: 'La procédure est écrite et enregistrée.' }],
+      echanges: [
+        ...fini.echanges,
+        { qui: 'agent', texte: issue.resume || 'La procédure est écrite et enregistrée.' },
+      ],
     });
     return;
   }
