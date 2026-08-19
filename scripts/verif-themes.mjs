@@ -24,11 +24,12 @@
  *  9. un bloc de jetons pour le mode automatique, qui n'est pas une palette,
  *     ou un second endroit qui pose le thème.
  *
- * La seconde moitié demande au NAVIGATEUR ce qu'il affiche vraiment — trois
+ * La seconde moitié demande au NAVIGATEUR ce qu'il affiche vraiment — quatre
  * promesses qu'aucune relecture ne peut tenir : les couleurs CALCULÉES de chaque
- * thème, le thème d'un PROJET qui habille l'application entière quand on change de
- * projet, et l'interrupteur automatique qui suit le réglage clair / sombre de
- * l'ordinateur sans changer l'ambiance. Elle fabrique une session d'une
+ * thème, le MENU DU BAS du téléphone qui reprend le fond de la zone du dessus dans
+ * les douze palettes, le thème d'un PROJET qui habille l'application entière quand
+ * on change de projet, et l'interrupteur automatique qui suit le réglage clair /
+ * sombre de l'ordinateur sans changer l'ambiance. Elle fabrique une session d'une
  * heure, la retire en partant, et n'écrit rien d'autre en base.
  *
  *   HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs
@@ -441,6 +442,25 @@ async function dansLaPage(page, navigateur) {
   });
 
   const anomalies = [];
+
+  /* CE QUE L'APPLICATION AVAIT POSÉ, pour le REMETTRE après la revue des douze
+     palettes. Les boucles qui suivent écrivent `data-theme` À LA MAIN, sans
+     passer par React : sans cette remise en place, la page reste marquée du
+     DERNIER thème essayé, et le contrôle du thème par PROJET jugeait ensuite un
+     affichage qui n'était plus celui de l'application (React ne repose son
+     thème que lorsqu'il CHANGE — un projet habillé du thème déjà en vigueur ne
+     déclenchait donc aucune écriture, et la marque laissée là passait pour un
+     refus). */
+  const themeDeLApplication = await page.evaluate(() => ({
+    theme: document.documentElement.dataset.theme,
+    sombre: document.documentElement.classList.contains('dark'),
+  }));
+  const remettreLeThemeDeLApplication = () =>
+    page.evaluate(({ theme, sombre }) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.classList.toggle('dark', sombre);
+    }, themeDeLApplication);
+
   for (const bloc of BLOCS) {
     const mesures = await page.evaluate(
       ({ id, sombre }) => {
@@ -482,6 +502,55 @@ async function dansLaPage(page, navigateur) {
       anomalies.push(`thème « ${bloc.id} » : le voile d'une fenêtre a perdu sa transparence (${mesures.voile})`);
     }
   }
+
+  /* ---------------------------------------------------------------- *
+   * LE MENU DU BAS DU TÉLÉPHONE, DANS LES DOUZE PALETTES.
+   *
+   * Il ne prend PAS son fond dans un jeton à lui : il lit `--fond-zone`, la
+   * teinte que la zone affichée au-dessus vient de poser (`data-zone`,
+   * `styles.css`). Une palette qui oublierait d'y poser sa teinte le ferait
+   * retomber sur le repli — une bande d'une autre couleur sous le tableau, et
+   * personne ne le verrait en ne regardant que la palette active. On mesure donc
+   * les DOUZE, en largeur téléphone, où ce menu existe.
+   * ---------------------------------------------------------------- */
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(800);
+  const barrePresente = await page.evaluate(() => !!document.querySelector('nav[data-menu-bas] > div'));
+  if (!barrePresente) {
+    anomalies.push('le menu du bas est introuvable en largeur téléphone (`nav[data-menu-bas]`)');
+  } else {
+    for (const bloc of BLOCS) {
+      const mesure = await page.evaluate(
+        ({ id, sombre }) => {
+          document.documentElement.dataset.theme = id;
+          document.documentElement.classList.toggle('dark', sombre);
+          const fond = (noeud) => (noeud ? getComputedStyle(noeud).backgroundColor : null);
+          const menu = document.querySelector('nav[data-menu-bas]');
+          return {
+            barre: fond(menu?.firstElementChild),
+            zone: fond(document.querySelector('main[data-zone]')),
+            repere: menu?.dataset.zone ?? null,
+          };
+        },
+        { id: bloc.id, sombre: bloc.sombre },
+      );
+      if (mesure.repere !== 'centre') {
+        anomalies.push(
+          `le menu du bas ne se dit pas dans la zone du tableau (repère « ${mesure.repere} » au lieu de « centre »)`,
+        );
+        break;
+      }
+      if (!mesure.barre || !mesure.zone || mesure.barre !== mesure.zone) {
+        anomalies.push(
+          `thème « ${bloc.id} » : le menu du bas (${mesure.barre}) ne reprend pas le fond de la zone ` +
+            `qu'il prolonge (${mesure.zone})`,
+        );
+      }
+    }
+  }
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.waitForTimeout(400);
+  await remettreLeThemeDeLApplication();
 
   /* ---------------------------------------------------------------- *
    * LE THÈME D'UN PROJET, ET LE THÈME « SYSTÈME », POUR DE VRAI.
@@ -534,14 +603,24 @@ async function dansLaPage(page, navigateur) {
       return precedente;
     };
 
-    /* Deux projets, deux thèmes : passer de l'un à l'autre change tout. */
-    const surLePremier = await habiller(premier.id, 'sable-sombre');
-    if (surLePremier !== 'sable-sombre') {
-      anomalies.push(`le thème du projet « ${premier.name} » n'habille pas l'application (vu « ${surLePremier} »)`);
+    /* Deux projets, deux thèmes — CHOISIS DIFFÉRENTS de celui déjà en vigueur.
+       Imposer à un projet le thème que le réglage général applique déjà ne
+       prouverait rien : rien ne changerait, et l'on ne saurait pas dire si c'est
+       le projet qui habille l'application ou le réglage général qui n'a jamais
+       bougé. */
+    const [themeUn, themeDeux] = ['sable-sombre', 'ardoise-clair', 'givre-sombre', 'sapin-clair'].filter(
+      (candidat) => candidat !== themeDeLApplication.theme,
+    );
+
+    const surLePremier = await habiller(premier.id, themeUn);
+    if (surLePremier !== themeUn) {
+      anomalies.push(
+        `le thème du projet « ${premier.name} » n'habille pas l'application (vu « ${surLePremier} » au lieu de « ${themeUn} »)`,
+      );
     }
-    const surLeSecond = await habiller(second.id, 'ardoise-clair');
-    if (surLeSecond !== 'ardoise-clair') {
-      anomalies.push(`changer de projet ne change pas l'apparence (vu « ${surLeSecond} » au lieu de « ardoise-clair »)`);
+    const surLeSecond = await habiller(second.id, themeDeux);
+    if (surLeSecond !== themeDeux) {
+      anomalies.push(`changer de projet ne change pas l'apparence (vu « ${surLeSecond} » au lieu de « ${themeDeux} »)`);
     }
 
     /* Le thème couvre TOUTE l'application, pas la seule colonne du milieu. */
@@ -557,14 +636,14 @@ async function dansLaPage(page, navigateur) {
     );
     if (fondsSuspects.length) {
       anomalies.push(
-        `le thème « ardoise » n'atteint pas ${fondsSuspects.map(([zone]) => zone).join(', ')} — ` +
+        `le thème « ${themeDeux} » n'atteint pas ${fondsSuspects.map(([zone]) => zone).join(', ')} — ` +
           `un noir pur y reste, or ce thème n'en a aucun`,
       );
     }
 
     /* Un projet qui n'impose RIEN rend la main au réglage général. */
     const rendu = await habiller(second.id, null);
-    if (rendu === 'ardoise-clair') {
+    if (rendu === themeDeux) {
       anomalies.push("un projet sans thème garde l'apparence qu'il imposait : le réglage général ne reprend pas la main");
     }
 
@@ -704,7 +783,8 @@ if (typeof mesureNavigateur === 'string') {
 } else {
   for (const anomalie of mesureNavigateur) refuser(anomalie);
   constater(
-    `dans un vrai navigateur : couleurs calculées des ${BLOCS.length} thèmes, thème d'un PROJET qui habille ` +
+    `dans un vrai navigateur : couleurs calculées des ${BLOCS.length} thèmes, menu du bas du téléphone qui ` +
+      `reprend le fond de sa zone dans les ${BLOCS.length} palettes, thème d'un PROJET qui habille ` +
       `toute l'application, une SEULE entrée « Thème » au menu qui s'ouvre au survol comme au clic, ` +
       `et l'automatique qui suit l'ordinateur sans changer l'ambiance`,
   );
