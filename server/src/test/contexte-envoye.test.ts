@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCodexArgs } from '../engines/codex.js';
-import { instantaneContexteEnvoye, mesureEntreeMoteur } from '../runtime.js';
+import { instantaneContexteEnvoye, mesureEntreeMoteur, tokensSousLaBulleDeReponse } from '../runtime.js';
 import { chronologieContexteEnvoye, recapitulatifEnvoi } from '@haikodev/shared';
 
 const PROMPT = 'DEMANDE : montre exactement ce nouveau contenu.';
@@ -91,6 +91,33 @@ test('la mesure affichée vient de l’usage moteur et sépare le cache', () => 
     cachedInputTokens: undefined,
     totalInputTokens: 700,
   });
+});
+
+/*
+ * LE COMPTEUR SOUS UNE BULLE DE RÉPONSE ÉCARTE LE CACHE, MÊME SUR UN TOUR À
+ * DES DIZAINES D'ALLERS-RETOURS D'OUTILS. Le moteur ne rend qu'une mesure par
+ * tour, déjà cumulée sur tous ces allers-retours internes ; sans ce filtre,
+ * une réponse de trois phrases affichait des centaines de milliers de jetons
+ * (le contexte déjà connu, relu à chaque appel d'outil, payé en cache à
+ * chaque fois).
+ */
+test('le compteur de la bulle de réponse écarte le cache, même massif', () => {
+  // Un tour à outils longs : la mémoire et la consigne relues des dizaines de
+  // fois (gros cache), mais peu de contenu réellement neuf par appel.
+  assert.equal(tokensSousLaBulleDeReponse({ inputTokens: 900, cachedTokens: 640_000, outputTokens: 180 }), 1_080);
+});
+
+test('le compteur de la bulle de réponse grossit avec le travail réel, pas avec le cache', () => {
+  const tourCourt = tokensSousLaBulleDeReponse({ inputTokens: 300, cachedTokens: 4_000, outputTokens: 80 });
+  const tourLong = tokensSousLaBulleDeReponse({ inputTokens: 300, cachedTokens: 400_000, outputTokens: 80 });
+  // Même entrée fraîche et même sortie : rejouer cent fois plus de cache ne
+  // change RIEN au chiffre affiché — c'est tout l'objet du filtre.
+  assert.equal(tourCourt, tourLong);
+  assert.ok(tourLong < 1_000, `un tour d'outils long doit rester lisible, pas ${tourLong}`);
+});
+
+test('le compteur de la bulle de réponse reste défini sur une mesure absente', () => {
+  assert.equal(tokensSousLaBulleDeReponse(undefined), 0);
 });
 
 test('une demande mise en file ne reçoit aucun instantané avant son vrai départ', () => {

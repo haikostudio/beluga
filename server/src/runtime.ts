@@ -601,6 +601,20 @@ export function mesureEntreeMoteur(usage: NonNullable<EngineEvent['usage']>): {
   };
 }
 
+/**
+ * LE CHIFFRE POSÉ SOUS LA BULLE DE RÉPONSE. Le moteur ne rend qu'une seule
+ * mesure d'usage par tour, déjà cumulée par lui sur tous les allers-retours
+ * d'outils internes (un tour à cent appels d'outil compte cent fois son entrée
+ * fraîche). Ce qui est REJOUÉ depuis le cache — le même contexte relu à chaque
+ * aller-retour — est écarté ici : c'est ce qui faisait grimper une réponse de
+ * trois phrases à plusieurs centaines de milliers de jetons. Ce qui RESTE
+ * (entrée fraîche + sortie) grossit avec le nombre d'outils réellement
+ * consultés pour produire la réponse — c'est un TRAVAIL fait, pas une fuite.
+ */
+export function tokensSousLaBulleDeReponse(usage: EngineEvent['usage'] | undefined): number {
+  return (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0);
+}
+
 function mesurerContexteUtilisateur(messageId: string, usage: NonNullable<EngineEvent['usage']>): void {
   const message = store.getMessage(messageId);
   if (!message?.sentContext) return;
@@ -2087,16 +2101,8 @@ async function startTurn(
     (runState.usage?.inputTokens ?? 0) +
     (runState.usage?.cachedTokens ?? 0) +
     (runState.usage?.outputTokens ?? 0);
-  /*
-   * LE CHIFFRE POSÉ SOUS LA BULLE, LUI, ÉCARTE LE CACHE. Un tour qui relit un
-   * gros contexte déjà connu (mémoire, consigne système) le refait payer en
-   * jetons de cache à CHAQUE appel interne — un total qui grossit avec le
-   * nombre d'allers-retours d'outils, pas avec ce que CE message a produit de
-   * neuf. `483 260 jetons` pour une réponse de trois phrases venait de là :
-   * l'essentiel était du contexte déjà connu, relu plusieurs fois dans le même
-   * tour. Le compteur affiché ne garde que l'entrée FRAÎCHE et la sortie.
-   */
-  const tokensAffiches = (runState.usage?.inputTokens ?? 0) + (runState.usage?.outputTokens ?? 0);
+  // Compteur affiché sous la bulle, cache écarté : voir `tokensSousLaBulleDeReponse`.
+  const tokensAffiches = tokensSousLaBulleDeReponse(runState.usage);
 
 
   // Contrôle de forme : un moteur qui ignore le gabarit se fait rattraper.
