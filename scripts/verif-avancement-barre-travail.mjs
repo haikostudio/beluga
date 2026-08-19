@@ -309,7 +309,12 @@ async function main() {
     const barre = page.locator('[data-temoin-reflexion]');
     await barre.waitFor({ state: 'visible', timeout: 10_000 });
 
-    const compteur = page.locator('[data-avancement-travail]');
+    /* Le compteur est cherché DANS la barre du tiroir, et nulle part ailleurs :
+       la carte du tableau, restée derrière le tiroir, porte le MÊME repère
+       (`InfoTravail`, board.tsx). Sans cette portée, deux éléments répondent,
+       Playwright refuse de choisir et le contrôle échouait alors que
+       l'affichage était juste. */
+    const compteur = page.locator('[data-temoin-reflexion] [data-avancement-travail]');
     const texte = await compteur.textContent().catch(() => null);
     noter(`${cible} — le compteur « n/N » est visible sur la barre`, /2\s*\/\s*5/.test(texte ?? ''), texte ?? 'absent');
 
@@ -324,7 +329,7 @@ async function main() {
     // Le compteur ne doit pas écraser le bouton d’arrêt : les deux tiennent
     // dans la largeur de la barre.
     const chevauchement = await page.evaluate(() => {
-      const c = document.querySelector('[data-avancement-travail]');
+      const c = document.querySelector('[data-temoin-reflexion] [data-avancement-travail]');
       const bouton = document.querySelector('[data-temoin-reflexion] button');
       if (!c || !bouton) return null;
       const a = c.getBoundingClientRect();
