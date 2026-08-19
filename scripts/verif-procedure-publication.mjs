@@ -345,18 +345,12 @@ await page.addInitScript((id) => {
           window.__injecter({ type: 'procedure', etat: tombe });
           return;
         }
-        if (!cmd.message) {
-          const pose = {
-            ...parti,
-            enCours: false,
-            depuis: parti.depuis,
-            echanges: [...echanges, { qui: 'agent', texte: `Comment se passe cette étape ? (${cmd.cible})` }],
-          };
-          window.__etats[k] = pose;
-          window.__injecter({ type: 'procedure', etat: pose });
-          return;
-        }
-        const procedure = `Procédure ${cmd.cible} :: ${cmd.message}`;
+        /* L'AGENT ANALYSE ET ÉCRIT, il ne fait plus trancher : un tour SANS
+           message aboutit à une procédure, précédée de son explication. */
+        const procedure = `Procédure ${cmd.cible} :: ${cmd.message ?? 'analyse automatique'}`;
+        const explication = cmd.message
+          ? `J’ai repris la procédure avec ce que vous demandez (${cmd.cible}).`
+          : `J’ai lu le projet : il se construit puis tourne en service, je relance donc le service (${cmd.cible}).`;
         const projet = window.__projet ?? { id: window.__idProjet };
         const suite =
           cmd.cible === 'dev'
@@ -368,7 +362,7 @@ await page.addInitScript((id) => {
           enCours: false,
           depuis: undefined,
           procedure,
-          echanges: [...echanges, { qui: 'agent', texte: 'La procédure est écrite et enregistrée.' }],
+          echanges: [...echanges, { qui: 'agent', texte: explication }],
         };
         window.__etats[k] = ecrite;
         window.__injecter({ type: 'procedure', etat: ecrite });
@@ -414,7 +408,7 @@ const texteDe = (selecteur) =>
 const present = (selecteur) => page.evaluate((s) => !!document.querySelector(s), selecteur);
 const compterTours = () => page.evaluate(() => window.__tours.length);
 
-/* Un tour LENT, comme en vrai : l'agent lit tout le projet avant de parler. */
+/* Un tour LENT, comme en vrai : l'agent lit tout le projet avant d'écrire. */
 await page.evaluate(() => {
   window.__delai = 2500;
 });
@@ -433,12 +427,33 @@ noter('pendant le tour, le bouton « Envoyer » attend', await page.isDisabled('
 /* ON REFERME PENDANT QUE ÇA TOURNE : c'est le geste qui perdait tout. */
 await page.keyboard.press('Escape');
 await page.waitForTimeout(2400);
-await page.click('[data-initier-procedure="dev"]');
+
+/* ------------------------------------------------------------------ */
+/* L'AGENT ANALYSE ET TRANCHE : AUCUN CHOIX TECHNIQUE NE REMONTE       */
+/*                                                                      */
+/* L'ouverture demandait de choisir entre reconstruire sur place,       */
+/* reprendre une version déjà construite ou faire passer les contrôles. */
+/* Elle rend maintenant la procédure ÉCRITE, avec l'explication de ce   */
+/* qui a été constaté et décidé.                                        */
+/* ------------------------------------------------------------------ */
+
+const apresAnalyse = await etatColonnes();
+noter(
+  'le seul fait d’initier suffit : le déploiement est configuré, sans rien demander',
+  !apresAnalyse.initierDev && apresAnalyse.boutonAction === 1 && apresAnalyse.reglages === 1,
+  JSON.stringify(apresAnalyse),
+);
+noter('la mise en production, elle, propose toujours d’initier : jamais l’une pour l’autre', apresAnalyse.initierProd);
+
+await page.click('[data-reglages-procedure="dev"]');
 await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
 await page.waitForTimeout(900);
-
-const rattrapee = await texteDe('[data-tiroir-procedure="dev"] [data-bulle-procedure="agent"]');
-noter('une question posée tiroir REFERMÉ se retrouve à la réouverture', rattrapee.includes('dev'), rattrapee);
+const rattrapee = await texteDe('[data-tiroir-procedure="dev"] [data-procedure-actuelle]');
+noter(
+  'une procédure écrite tiroir REFERMÉ se retrouve à la réouverture',
+  rattrapee.includes('Procédure dev ::'),
+  rattrapee.trim().slice(0, 80),
+);
 noter('la rouvrir ne repaie AUCUN tour : un seul est parti', (await compterTours()) === 1);
 noter(
   'le témoin est éteint dès que plus rien ne tourne',
@@ -465,53 +480,20 @@ await page.evaluate(() => {
 });
 await page.click('[data-relancer-procedure]');
 await page.waitForTimeout(1000);
+const expliquee = await texteDe('[data-tiroir-procedure="production"] [data-bulle-procedure="agent"]');
 noter(
-  'relancer à la main repose la question',
-  (await texteDe('[data-tiroir-procedure="production"] [data-bulle-procedure="agent"]')).includes('production'),
+  'relancer à la main refait l’analyse, et l’agent DIT ce qu’il a constaté et décidé',
+  /J’ai lu le projet/.test(expliquee),
+  expliquee.trim().slice(0, 90),
+);
+noter(
+  '… la procédure est écrite dans la foulée, sans qu’aucun choix technique soit posé',
+  (await texteDe('[data-tiroir-procedure="production"] [data-procedure-ecrite]')).includes('Procédure production ::') &&
+    !(await present('[data-question-procedure]')),
 );
 await page.keyboard.press('Escape');
-await page.waitForTimeout(500);
+await page.waitForTimeout(600);
 
-/** Ouvre le tiroir, répond à l'agent, et rend l'état des colonnes après coup. */
-async function configurer(cible) {
-  await page.click(`[data-initier-procedure="${cible}"]`);
-  await page.waitForSelector(`[data-tiroir-procedure="${cible}"]`, { timeout: 8000 });
-  await page.waitForTimeout(700);
-  const question = await page.evaluate(
-    (c) => document.querySelector(`[data-tiroir-procedure="${c}"] [data-bulle-procedure="agent"]`)?.textContent ?? '',
-    cible,
-  );
-  noter(`le tiroir « ${cible} » s’ouvre sur la question de l’agent`, question.includes(cible), question.trim());
-
-  await page.fill('[data-reponse-procedure]', `Réponse pour ${cible}`);
-  await page.click('[data-envoyer-procedure]');
-  await page.waitForTimeout(900);
-  const ecrite = await page.evaluate(
-    (c) => document.querySelector(`[data-tiroir-procedure="${c}"] [data-procedure-ecrite]`)?.textContent ?? '',
-    cible,
-  );
-  noter(
-    `la procédure « ${cible} » est écrite et enregistrée`,
-    ecrite.includes(`Procédure ${cible} ::`),
-    ecrite.trim().slice(0, 80),
-  );
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(600);
-}
-
-await configurer('dev');
-const apresDevEcran = await etatColonnes();
-noter(
-  'le déploiement configuré fait revenir son bouton et paraître son icône de réglages',
-  !apresDevEcran.initierDev && apresDevEcran.boutonAction === 1 && apresDevEcran.reglages === 1,
-  JSON.stringify(apresDevEcran),
-);
-noter(
-  'la mise en production, elle, propose toujours d’initier : jamais l’une pour l’autre',
-  apresDevEcran.initierProd,
-);
-
-await configurer('production');
 const apresTout = await etatColonnes();
 noter(
   'les deux étapes configurées : deux boutons d’action, deux icônes de réglages',
@@ -523,17 +505,15 @@ noter(
 /* L'ICÔNE DE RÉGLAGES NE PAIE PLUS UN AGENT À CHAQUE CLIC             */
 /*                                                                      */
 /* Elle relançait un agent complet, qui relisait tout le projet pour     */
-/* reposer une question déjà tranchée. Elle montre maintenant ce qui     */
-/* existe, et rien ne part sans un geste.                               */
+/* réécrire une procédure déjà là. Elle montre maintenant ce qui existe, */
+/* et rien ne part sans un geste.                                       */
 /* ------------------------------------------------------------------ */
 
 const avantReglages = await compterTours();
 await page.click('[data-reglages-procedure="dev"]');
 await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
 await page.waitForTimeout(900);
-const relu = await page.evaluate(
-  () => document.querySelector('[data-tiroir-procedure="dev"] [data-procedure-actuelle]')?.textContent ?? '',
-);
+const relu = await texteDe('[data-tiroir-procedure="dev"] [data-procedure-actuelle]');
 noter(
   'l’icône de réglages rouvre le tiroir sur la procédure déjà en place',
   relu.includes('Procédure dev ::'),
@@ -541,14 +521,32 @@ noter(
 );
 noter('… et n’envoie AUCUN agent relire le projet', (await compterTours()) === avantReglages);
 noter(
-  '… le tiroir dit qu’il attend un geste, et propose de reposer la question',
-  (await present('[data-procedure-en-attente]')) && (await present('[data-reposer-question]')),
+  '… le tiroir dit qu’il attend un geste, et propose de refaire l’analyse',
+  (await present('[data-procedure-en-attente]')) && (await present('[data-refaire-analyse]')),
 );
 
-/* Reposer la question reste possible — mais c'est un geste, et il est payé. */
-await page.click('[data-reposer-question]');
+/* Ce qu'on écrit ici n'est pas une réponse à une question : c'est un CHANGEMENT
+   demandé sur une procédure déjà écrite, en français, sans rien à trancher. */
+await page.fill('[data-reponse-procedure]', 'Ne redémarre rien le vendredi');
+await page.click('[data-envoyer-procedure]');
+await page.waitForTimeout(1000);
+const ajustee = await texteDe('[data-tiroir-procedure="dev"] [data-procedure-ecrite]');
+noter(
+  'ce qu’on demande en français réécrit la procédure, sans question posée',
+  ajustee.includes('Ne redémarre rien le vendredi'),
+  ajustee.trim().slice(0, 90),
+);
+
+/* Refaire l'analyse reste possible — mais c'est un geste, et il est payé. Il
+   se propose à la réouverture, quand le tiroir n'a rien lancé de lui-même. */
+await page.keyboard.press('Escape');
+await page.waitForTimeout(500);
+await page.click('[data-reglages-procedure="dev"]');
+await page.waitForSelector('[data-tiroir-procedure="dev"]', { timeout: 8000 });
 await page.waitForTimeout(900);
-noter('reposer la question à la main paie un tour, et un seul', (await compterTours()) === avantReglages + 1);
+await page.click('[data-refaire-analyse]');
+await page.waitForTimeout(900);
+noter('refaire l’analyse à la main paie un tour, et un seul', (await compterTours()) === avantReglages + 2);
 
 /* ------------------------------------------------------------------ */
 /* LA QUESTION DE L'AGENT S'AFFICHE DANS LE TIROIR, ET S'Y RÉPOND      */
@@ -622,16 +620,15 @@ noter('la question répondue laisse sa trace dans le fil', !(await present('[dat
 
 /*
  * TOUS les tours partis, dans l'ordre. Chacun porte la cible de la colonne d'où
- * il vient, et il n'y en a pas UN de trop : ouverture « dev » (la réouverture
- * pendant le tour n'en repaie aucun), production tombée puis relancée à la
- * main, la réponse de chaque étape — puis le SEUL tour de la réouverture, celui
- * qu'on a demandé en cliquant « Reposer la question ». L'icône de réglages,
- * elle, n'en paie plus aucun.
+ * il vient, et il n'y en a pas UN de trop : l'ouverture « dev », qui suffit à
+ * elle seule (la réouverture pendant le tour n'en repaie aucun), la production
+ * tombée puis relancée à la main, le changement demandé sur « dev », puis
+ * l'analyse refaite à la demande. L'icône de réglages, elle, n'en paie aucun.
  */
 const cibles = await page.evaluate(() => window.__tours.map((t) => t.cible).join(','));
 noter(
   'chaque tour porte la cible de la colonne d’où il vient, et aucun tour de trop',
-  cibles === 'dev,production,production,dev,production,dev',
+  cibles === 'dev,production,production,dev,dev',
   cibles,
 );
 

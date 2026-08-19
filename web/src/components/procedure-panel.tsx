@@ -2,7 +2,7 @@ import * as React from 'react';
 import { Loader2, MessageCircleQuestion, RotateCw, Settings2, Sparkles, Check, X } from 'lucide-react';
 import {
   CiblePublication,
-  LIBELLE_REPOSER_LA_QUESTION,
+  LIBELLE_REFAIRE_ANALYSE,
   RAISON_TOUR_PERDU,
   libelleInitier,
   libelleReglages,
@@ -26,11 +26,13 @@ import { cn } from '@/lib/utils';
  * le… » posé en tête de la colonne tant qu'aucune procédure n'existe, et
  * l'icône de réglages du haut de la colonne une fois qu'il y en a une.
  *
- * Dedans, un agent : il ouvre en DEMANDANT comment cette étape doit se passer
- * pour ce projet, on lui répond en une phrase, il écrit la procédure et le
- * serveur l'enregistre — sur la cible de la colonne d'où l'on vient, jamais sur
- * l'autre. Chaque tour est un tour d'agent payant : rien ne part tout seul, ni
- * à l'ouverture d'un projet, ni en fond.
+ * Dedans, un agent : il LIT le projet, TRANCHE lui-même les choix techniques,
+ * explique en français simple ce qu'il a constaté et décidé, puis écrit la
+ * procédure — que le serveur enregistre aussitôt, sur la cible de la colonne
+ * d'où l'on vient, jamais sur l'autre. RIEN DE TECHNIQUE N'EST DEMANDÉ : le
+ * champ du bas ne sert qu'à dire ce qu'on veut changer. Chaque tour est un tour
+ * d'agent payant : rien ne part tout seul, ni à l'ouverture d'un projet, ni en
+ * fond.
  *
  * LE DIALOGUE VIT SUR LE SERVEUR, ce tiroir ne fait que le SUIVRE. Un tour dure
  * une à deux minutes (l'agent lit tout le projet) : attendre la réponse d'une
@@ -115,8 +117,8 @@ export function TiroirProcedure({
    *
    * ET SI UNE PROCÉDURE EST DÉJÀ ÉCRITE, RIEN NE PART. L'icône de réglages
    * relançait un agent complet à chaque clic — il relisait tout le projet pour
-   * reposer une question déjà tranchée. Le tiroir montre alors ce qui existe et
-   * attend : on écrit ce qu'on veut changer, ou on repose la question soi-même.
+   * réécrire une procédure déjà là. Le tiroir montre alors ce qui existe et
+   * attend : on écrit ce qu'on veut changer, ou on fait refaire l'analyse.
    */
   React.useEffect(() => {
     if (!open || !cible) return;
@@ -210,7 +212,7 @@ export function TiroirProcedure({
           {titreDeLaProcedure(cible)} — {actuelle ? t('modifier la procédure') : t('définir la procédure')}
         </h2>
         <p className="mt-1 shrink-0 text-[12.5px] text-faint">
-          {t('Un agent lit le projet, demande comment cette étape doit se passer, puis écrit la procédure. Elle ne vaut que pour cette colonne.')}</p>
+          {t('Un agent analyse le projet et écrit lui-même la procédure la mieux adaptée : rien de technique ne vous est demandé. Elle ne vaut que pour cette colonne.')}</p>
 
         <ZoneDefilement classeEnveloppe="mt-3 min-h-0 flex-1" className="space-y-2 pr-1">
           {/* La procédure DÉJÀ en place, quand on rouvre pour la modifier. */}
@@ -272,9 +274,9 @@ export function TiroirProcedure({
           {enAttenteDeGeste ? (
             <div className="space-y-1.5" data-procedure-en-attente>
               <p className="text-[12.5px] text-faint">{mentionProcedureEnPlace(cible)}</p>
-              <Button size="sm" variant="outline" onClick={() => void lancer()} data-reposer-question>
+              <Button size="sm" variant="outline" onClick={() => void lancer()} data-refaire-analyse>
                 <RotateCw className="h-3 w-3" />
-                {LIBELLE_REPOSER_LA_QUESTION}
+                {t(LIBELLE_REFAIRE_ANALYSE)}
               </Button>
             </div>
           ) : null}
@@ -312,7 +314,7 @@ export function TiroirProcedure({
               <Button size="sm" variant="outline" onClick={() => void lancer()} data-relancer-procedure>
                 <RotateCw className="h-3 w-3" />
                 
-{t('Relancer la question')}
+{t('Relancer l’analyse')}
 </Button>
             </div>
           ) : null}
@@ -335,9 +337,7 @@ export function TiroirProcedure({
             placeholder={
               question
                 ? t('Répondez à la question de l’agent…')
-                : actuelle
-                  ? t('Que voulez-vous changer à cette procédure ?')
-                  : t('Répondez à l’agent : comment cette mise en ligne doit-elle se passer ?')
+                : t('Que voulez-vous changer à cette procédure ?')
             }
             data-reponse-procedure
             onKeyDown={(e) => {
