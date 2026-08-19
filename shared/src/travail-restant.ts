@@ -20,7 +20,7 @@
  */
 
 /** Ce qui retient la carte, en un mot — chacun a son icône et son ton. */
-export type NatureDuRestant = 'question' | 'travaille' | 'rangement' | 'sans-agent';
+export type NatureDuRestant = 'question' | 'travaille' | 'relance' | 'rangement' | 'sans-agent';
 
 /** Ce qu'il faut savoir de la carte et de son agent pour juger. */
 export interface CarteEnCours {
@@ -43,6 +43,18 @@ export interface CarteEnCours {
   tourEnVolDepuis?: number;
   /** Quand le dernier agent de la carte a rendu la main. */
   finDuDernierTour?: number;
+  /**
+   * La carte a été ARRÊTÉE À LA MAIN (`scheduling.suspendu`). Le bouton d'arrêt
+   * d'une carte pose cette marque SANS changer la colonne : la carte reste donc
+   * dans « En cours », et plus rien ne repartira sans un geste.
+   */
+  suspendu?: boolean;
+  /**
+   * Le dernier tour de SON agent s'est mal terminé — échec, ou arrêt à la main.
+   * C'est le seul état où le balayage de l'ordonnanceur (`issueDeCarteOubliee`)
+   * s'interdit de ranger la carte : elle doit rester là où on la relance.
+   */
+  dernierTourEnEchec?: boolean;
 }
 
 export interface TravailRestant {
@@ -99,10 +111,18 @@ function resteDesEtapes(todos?: { done: number; total: number }): string | null 
  *     l'agent est arrêté net tant qu'on n'a pas répondu.
  *  2. UN AGENT TRAVAILLE. On dit son étape, depuis quand, et ce qui reste de sa
  *     liste de tâches.
- *  3. UN TOUR SE RANGE. Le moteur a rendu la main, mais le tour tient encore la
+ *  3. LA CARTE ATTEND VOTRE RELANCE. Le tour s'est arrêté — en échec, ou coupé
+ *     par le bouton d'arrêt — et la carte est RESTÉE dans « En cours » : c'est
+ *     la règle, on doit pouvoir la relire et la corriger là où on la relance.
+ *     Mais alors le balayage de l'ordonnanceur s'interdit d'y toucher
+ *     (`issueDeCarteOubliee`, refus « dernier tour en échec ») : promettre un
+ *     « rangement automatique sous quinze secondes » serait un mensonge, et
+ *     c'est précisément ce que la carte disait. Elle nomme donc le seul geste
+ *     qui la fera bouger : le vôtre.
+ *  4. UN TOUR SE RANGE. Le moteur a rendu la main, mais le tour tient encore la
  *     carte (fusion de la branche, compression du fil) : quelques secondes, qui
  *     ne doivent pas ressembler à un blocage.
- *  4. PLUS PERSONNE. Le tour est fini et la carte est restée là : depuis la
+ *  5. PLUS PERSONNE. Le tour est fini et la carte est restée là : depuis la
  *     nouvelle règle, c'est une anomalie que le balayage de l'ordonnanceur
  *     corrige en quinze secondes — on l'écrit quand même, plutôt que de laisser
  *     une carte muette.
@@ -135,6 +155,21 @@ export function travailRestant(carte: CarteEnCours, maintenant: number): Travail
       etape: 'Question posée',
       depuis: depuisQuand(carte.finDuDernierTour, maintenant),
       attente: 'votre réponse : la carte ne se fermera pas avant',
+    };
+  }
+
+  /*
+   * ELLE NE SE RANGERA PAS TOUTE SEULE, ET ELLE LE DIT. Deux marques, un même
+   * verdict : la carte est arrêtée, et le balayage de l'ordonnanceur ne la
+   * touchera pas. Ce cas passe devant le rangement ET devant « plus personne » —
+   * tous deux annoncent une suite automatique qui, ici, ne viendra jamais.
+   */
+  if (carte.suspendu || carte.dernierTourEnEchec) {
+    return {
+      nature: 'relance',
+      etape: carte.suspendu ? 'Tâche arrêtée à la main' : 'Le tour s’est arrêté sans aboutir',
+      depuis: depuisQuand(carte.finDuDernierTour ?? carte.tourEnVolDepuis, maintenant),
+      attente: 'votre relance : la carte reste ici, rien ne repartira tout seul',
     };
   }
 

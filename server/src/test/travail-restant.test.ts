@@ -129,3 +129,73 @@ test('la phrase colle les morceaux, et saute ceux qui manquent', () => {
   assert.equal(sansDepuis, 'Lecture · la fin du tour');
   assert.doesNotMatch(sansDepuis, /depuis/);
 });
+
+/* ------------------------------------------------------------------ */
+/* Elle ne se rangera pas toute seule, et elle le dit                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE MENSONGE QU'ON RÉPARE : une carte arrêtée à la main, ou dont le tour a
+ * échoué, RESTE dans « En cours » — c'est la règle, on doit pouvoir la relire
+ * là où on la relance. Mais le balayage de l'ordonnanceur s'interdit alors d'y
+ * toucher (`issueDeCarteOubliee`, refus « dernier tour en échec ») : la carte
+ * promettait pourtant « le rangement automatique de la carte, sous quinze
+ * secondes », et personne ne venait jamais.
+ */
+
+test('une carte arrêtée à la main ne promet plus de rangement automatique', () => {
+  const restant = travailRestant(
+    { colonne: 'running', suspendu: true, finDuDernierTour: MAINTENANT - 3 * MINUTE },
+    MAINTENANT,
+  );
+  assert.equal(restant?.nature, 'relance');
+  assert.equal(restant?.etape, 'Tâche arrêtée à la main');
+  assert.equal(restant?.depuis, 'depuis 3 min');
+  assert.match(restant?.attente ?? '', /votre relance/);
+  assert.doesNotMatch(phraseDuTravailRestant(restant!), /quinze secondes/);
+});
+
+test('un tour tombé en échec dit qu’il attend une relance, pas un rangement', () => {
+  const restant = travailRestant(
+    { colonne: 'running', dernierTourEnEchec: true, finDuDernierTour: MAINTENANT - 2 * MINUTE },
+    MAINTENANT,
+  );
+  assert.equal(restant?.nature, 'relance');
+  assert.equal(restant?.etape, 'Le tour s’est arrêté sans aboutir');
+  assert.match(restant?.attente ?? '', /rien ne repartira tout seul/);
+});
+
+test('la marque de vol d’un tour mort ne fait plus croire à un rangement en cours', () => {
+  // Le tour a laissé sa marque, mais son agent s'est arrêté : il n'y a plus
+  // aucun rangement en route, seulement une carte qui attend un geste.
+  const restant = travailRestant(
+    { colonne: 'running', dernierTourEnEchec: true, tourEnVolDepuis: MAINTENANT - 40 * MINUTE },
+    MAINTENANT,
+  );
+  assert.equal(restant?.nature, 'relance');
+  assert.equal(restant?.depuis, 'depuis 40 min');
+});
+
+test('un agent qui travaille passe devant les deux marques', () => {
+  // Une marque laissée par le tour PRÉCÉDENT ne doit pas éteindre l'étape du
+  // tour qui court : l'agent au travail est toujours la vérité la plus fraîche.
+  const restant = travailRestant({ ...AU_TRAVAIL, suspendu: true, dernierTourEnEchec: true }, MAINTENANT);
+  assert.equal(restant?.nature, 'travaille');
+  assert.equal(restant?.etape, 'Analyse des fichiers');
+});
+
+test('une question attend toujours devant tout le reste', () => {
+  const restant = travailRestant(
+    { colonne: 'running', decisionEnAttente: true, dernierTourEnEchec: true },
+    MAINTENANT,
+  );
+  assert.equal(restant?.nature, 'question');
+});
+
+test('sans marque d’arrêt, le rangement automatique reste annoncé', () => {
+  // La règle d'origine ne bouge pas : une carte oubliée SANS échec est bien
+  // rangée par le balayage, et continue donc de l'annoncer.
+  const restant = travailRestant({ colonne: 'running', finDuDernierTour: MAINTENANT - MINUTE }, MAINTENANT);
+  assert.equal(restant?.nature, 'sans-agent');
+  assert.match(restant?.attente ?? '', /quinze secondes/);
+});
