@@ -142,6 +142,19 @@ test('les quatre champs séparés sont mis en forme par HaikoDev', () => {
   assert.match(texte, /\*\*Vérification\*\* : /);
 });
 
+test('un texte d’intro se pose en tête, avant le Constat, sans intertitre', () => {
+  const texte = composerDescription({
+    intro: 'Ce carnet de règles grossissait toujours au même endroit : on le range mieux.',
+    constat: 'le fichier server/src/tools.ts accepte tout',
+    attendu: 'il refuse une description pauvre',
+    limites: 'on ne touche pas au tableau',
+    verification: 'rejouer npm test',
+  });
+  assert.match(texte, /^Ce carnet de règles grossissait/, 'l’intro ouvre la description');
+  assert.doesNotMatch(texte.split('\n\n')[0], /\*\*/, 'l’intro ne porte pas son propre intertitre');
+  assert.match(texte, /\*\*Constat\*\* : /, 'le Constat technique suit, inchangé');
+});
+
 /* ------------------------------------------------------------------ */
 /* L'outil du chef refuse pour de bon                                   */
 /* ------------------------------------------------------------------ */
