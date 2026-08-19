@@ -170,6 +170,22 @@ export function jetonsApproches(caracteres: number): number {
 }
 
 /**
+ * LE POIDS DE CE MESSAGE, PAS DU TOUR QUI A SUIVI. La mesure rendue par le
+ * moteur (`usage.inputTokens`) cumule TOUT le tour agentique déclenché par ce
+ * message — chaque aller-retour d'outil interne renvoie sa part fraîche, et le
+ * total grossit avec le nombre d'étapes, pas avec ce que ce message a
+ * réellement fait partir. On revient donc à ce qui est VRAIMENT propre à ce
+ * message : la taille de ce qui a été assemblé et envoyé pour le déclencher,
+ * en écartant ce qui n'est qu'un préfixe relu au cache.
+ */
+export function jetonsMessageEnvoye(contexte: { prompt: string; blocks: SentContextBlock[] }): number {
+  const caracteres =
+    contexte.prompt.length +
+    contexte.blocks.filter((bloc) => !bloc.cached).reduce((total, bloc) => total + bloc.characters, 0);
+  return jetonsApproches(caracteres);
+}
+
+/**
  * LE VOLET « CONTEXTE ENVOYÉ », EN DEUX PARTIES : ce qui vient de la mémoire du
  * projet (les blocs `kind: 'memory'` — l'index complet au premier tour, les
  * seuls faits ajoutés ensuite) contre ce qui a été RÉELLEMENT envoyé au moteur

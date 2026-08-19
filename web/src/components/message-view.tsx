@@ -84,7 +84,7 @@ function LigneReperes({
   jointes = [],
 }: {
   at: number;
-  /** Les jetons de ce message : entrée moteur sous une demande, total du tour sous une réponse. */
+  /** Les jetons de ce message : poids estimé de la demande sous une demande, total du tour sous une réponse. */
   tokens?: number;
   complements?: (string | null)[];
   texte: string;

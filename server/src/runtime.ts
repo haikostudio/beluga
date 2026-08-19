@@ -100,6 +100,7 @@ import {
   templateForColumn,
   wrapPrompt,
   mesurerContexte,
+  jetonsMessageEnvoye,
   PLAFOND_APPEL_APRES_REPONSE_MS,
   delaiOutilMoteurMs,
   statutDeFermetureForcee,
@@ -580,11 +581,13 @@ export function instantaneContexteEnvoye(input: {
 }
 
 /**
- * La mesure d'entrée appartient à la demande, pas au message de réponse.
- * `totalInputTokens` — celui qui s'affiche sous la bulle — écarte le cache : il
- * n'est que le contexte déjà connu renvoyé au moteur, pas ce que CETTE demande
- * a coûté de neuf. `cachedInputTokens` reste rendu à part, pour le lecteur qui
- * veut le détail (bulle du prompt envoyé).
+ * La mesure d'entrée RÉELLE, rendue par le moteur pour tout le tour — celle du
+ * tiroir « Contexte envoyé » (`sentContext.usage`), pas celle du compteur sous
+ * la bulle : ce total-là cumule chaque aller-retour d'outil interne du tour,
+ * pas seulement ce que CETTE demande a fait partir de neuf. Le compteur sous
+ * la bulle s'estime à part, depuis ce qui a été assemblé pour ce message
+ * (`jetonsMessageEnvoye`). `cachedInputTokens` reste rendu séparément, pour le
+ * lecteur qui veut le détail.
  */
 export function mesureEntreeMoteur(usage: NonNullable<EngineEvent['usage']>): {
   inputTokens: number;
@@ -604,7 +607,12 @@ function mesurerContexteUtilisateur(messageId: string, usage: NonNullable<Engine
   const mesure = mesureEntreeMoteur(usage);
   const updated = store.saveMessage({
     ...message,
-    tokens: mesure.totalInputTokens,
+    // Le compteur SOUS LA BULLE reste le poids de CE message (estimé depuis ce
+    // qui a été assemblé pour lui) — jamais `mesure.totalInputTokens`, qui
+    // cumule tout le tour agentique déclenché ensuite. La mesure réelle du
+    // moteur continue d'aller dans `sentContext.usage`, pour le tiroir qui,
+    // lui, décrit bien le tour entier.
+    tokens: jetonsMessageEnvoye(message.sentContext),
     sentContext: {
       ...message.sentContext,
       usage: {
