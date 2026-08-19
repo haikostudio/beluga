@@ -44,18 +44,17 @@ export interface ReparationDuCoffre {
 /**
  * Le même dossier, mais sous le dossier personnel D'AUJOURD'HUI.
  *
- * On ne rapatrie qu'un chemin qui désigne le coffre Claude d'un dossier
- * personnel (`/home/<qui>/.claude/…`, `/root/.claude/…`) : tout autre chemin
- * mort relève d'un autre problème, et le réécrire à l'aveugle ferait pire.
- * Un lien qui pointe DÉJÀ le bon dossier ne bouge pas (`null`).
+ * On ne rapatrie qu'un chemin qui désigne le coffre de CE moteur dans un
+ * dossier personnel (`/home/<qui>/.claude/…`, `/root/.codex/…`) : tout autre
+ * chemin mort relève d'un autre problème, et le réécrire à l'aveugle ferait
+ * pire. Un lien qui pointe DÉJÀ le bon dossier ne bouge pas (`null`).
  */
-export function cibleRapatriee(cible: string, home: string): string | null {
-  const marque = '/.claude/';
+export function cibleRapatriee(cible: string, home: string, marque = '/.claude/'): string | null {
   const index = cible.indexOf(marque);
   if (index <= 0) return null;
   const reste = cible.slice(index + marque.length);
   if (!reste) return null;
-  const nouvelle = `${home.replace(/\/+$/, '')}/.claude/${reste}`;
+  const nouvelle = `${home.replace(/\/+$/, '')}${marque}${reste}`;
   return nouvelle === cible ? null : nouvelle;
 }
 
@@ -63,15 +62,61 @@ export function cibleRapatriee(cible: string, home: string): string | null {
  * Les liens morts à rapatrier vers le dossier personnel d'aujourd'hui.
  *
  * Un lien VIVANT n'est jamais touché, même s'il pointe ailleurs : il rend
- * encore service, et c'est peut-être voulu.
+ * encore service, et c'est peut-être voulu. Un moteur SANS coffre (Cursor) ne
+ * rapatrie rien : la liste rendue est vide, et c'est le bon comportement.
  */
-export function reparationsDuCoffre(liens: readonly LienDuCoffre[], home: string): ReparationDuCoffre[] {
+export function reparationsDuCoffre(
+  liens: readonly LienDuCoffre[],
+  home: string,
+  moteur = 'claude',
+): ReparationDuCoffre[] {
+  const marque = marqueDuCoffre(moteur);
+  if (!marque) return [];
   const reparations: ReparationDuCoffre[] = [];
   for (const lien of liens) {
     if (lien.vivant) continue;
-    const nouvelleCible = cibleRapatriee(lien.cible, home);
+    const nouvelleCible = cibleRapatriee(lien.cible, home, marque);
     if (!nouvelleCible) continue;
     reparations.push({ nom: lien.nom, ancienneCible: lien.cible, nouvelleCible });
   }
   return reparations;
+}
+
+/* ------------------------------------------------------------------ */
+/* Les autres moteurs : Codex a un coffre, Cursor n'en a pas           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE MÊME DÉMÉNAGEMENT CASSE LE COFFRE DE CODEX, EN PLUS DISCRET ENCORE.
+ *
+ * Un compte Codex de relève partage lui aussi ses dossiers avec le compte
+ * principal (`~/.codex`) par des liens ABSOLUS : `auth.json` en tête, mais
+ * aussi `config.toml`, `sessions`, `memories`… Le jour où le dossier personnel
+ * déménage, ces liens meurent exactement comme ceux de Claude — et le moteur
+ * n'a alors plus de quoi s'authentifier.
+ *
+ * CURSOR, lui, N'A PAS DE COFFRE sur la machine : sa clé voyage par
+ * l'environnement (`CURSOR_API_KEY`). Il n'y a donc rien à rapatrier, et c'est
+ * un CONSTAT, pas un oubli : `marqueDuCoffre('cursor')` rend `null`, et la
+ * réparation passe son chemin sans rien inventer.
+ */
+export type MoteurDuCoffre = 'claude' | 'codex' | 'cursor';
+
+/** Le morceau de chemin qui désigne le coffre de ce moteur, ou `null` s'il n'en a pas. */
+export function marqueDuCoffre(moteur: string): string | null {
+  if (moteur === 'claude') return '/.claude/';
+  if (moteur === 'codex') return '/.codex/';
+  return null;
+}
+
+/**
+ * Les dossiers que ce moteur doit trouver, même sans lien pour les porter.
+ *
+ * Claude range la liste de sous-tâches de chaque session dans `tasks/` : sans
+ * ce dossier, `TaskCreate` échoue en silence et les trois affichages
+ * d'avancement s'éteignent. Codex n'a pas d'équivalent — on ne lui fabrique
+ * donc aucun dossier au hasard.
+ */
+export function dossiersDuCoffre(moteur: string): readonly string[] {
+  return moteur === 'claude' ? [DOSSIER_DES_TACHES] : [];
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * LE COFFRE DE CHAQUE COMPTE CLAUDE TIENT-IL DEBOUT ?
+ * LE COFFRE DE CHAQUE COMPTE MOTEUR TIENT-IL DEBOUT ?
  *
  * Un coffre de compte de relève partage ses dossiers avec le compte principal
  * par des liens symboliques ABSOLUS. Le jour où le dossier personnel déménage
@@ -9,6 +9,11 @@
  * `TaskCreate`) et les TROIS affichages d'avancement s'éteignent en silence :
  * le volet au-dessus de la barre d'écriture, le pourcentage en tête de la
  * colonne « En cours » et celui de la ligne du projet.
+ *
+ * CODEX souffre du même mal, en plus discret : ses liens morts lui prennent son
+ * `auth.json` et il ne s'authentifie plus. CURSOR, lui, n'a PAS de coffre — sa
+ * clé voyage par l'environnement : il n'est donc pas jugé ici, et c'est un
+ * constat, pas un oubli.
  *
  * Ce contrôle ne lit que le disque : aucun moteur appelé, aucun jeton dépensé.
  *
@@ -33,12 +38,14 @@ function noter(nom, ok, detail = '') {
 console.log(`Racine jugée : ${RACINE}`);
 const db = new Database(BASE, { readonly: true });
 const comptes = db
-  .prepare("SELECT data FROM accounts WHERE engine = 'claude'")
+  .prepare('SELECT data FROM accounts')
   .all()
-  .map((ligne) => JSON.parse(ligne.data));
+  .map((ligne) => JSON.parse(ligne.data))
+  // Cursor n'a pas de coffre sur la machine : rien à juger chez lui.
+  .filter((compte) => compte.engine === 'claude' || compte.engine === 'codex');
 db.close();
 
-noter('au moins un compte Claude est déclaré', comptes.length > 0, `${comptes.length} compte(s)`);
+noter('au moins un compte à coffre est déclaré', comptes.length > 0, `${comptes.length} compte(s)`);
 
 for (const compte of comptes) {
   const coffre = compte.configDir;
@@ -55,6 +62,14 @@ for (const compte of comptes) {
     if (!fs.existsSync(chemin)) morts.push(`${entree.name} → ${fs.readlinkSync(chemin)}`);
   }
   noter(`${nom} : aucun lien mort dans le coffre`, morts.length === 0, morts.slice(0, 3).join(' | '));
+
+  if (compte.engine === 'codex') {
+    // Codex n'a pas de liste de sous-tâches, mais il a son identité : sans
+    // `auth.json`, le moteur ne démarre tout simplement pas.
+    const auth = path.join(coffre, 'auth.json');
+    noter(`${nom} : son identité (auth.json) est lisible`, fs.existsSync(auth), auth);
+    continue;
+  }
 
   // Le dossier des tâches, celui qui porte la liste de sous-tâches de chaque
   // session : sans lui, plus aucun agent n'annonce ce qu'il fait.
