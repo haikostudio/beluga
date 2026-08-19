@@ -27,7 +27,15 @@
  *      balayage de l'ordonnanceur ne la ramasse pas ; elle DIT alors qu'elle
  *      attend une relance, et ne promet plus de rangement automatique ;
  *   5. LA RELANCE APRÈS ÉCHEC — un message de plus suffit à la ramener au
- *      bout du cycle, sans geste de rattrapage.
+ *      bout du cycle, sans geste de rattrapage ;
+ *   6. UN MOTEUR QUI N'A JAMAIS PARLÉ — l'adaptateur le DIT (signal explicite,
+ *      plus un faisceau d'absences) : la carte retombe en « Planifié », son
+ *      compteur de reprises monte, et l'ordonnanceur la relance tout seul ;
+ *   7. LE BOUTON D'ARRÊT — la carte retombe en « Planifié », suspendue, et
+ *      RIEN ne la relance sans un geste : le tableau ne montre plus une tâche
+ *      « en cours » que plus personne ne fait ;
+ *   8. LE LANCEMENT REFUSÉ FAUTE DE QUOTA — la reprise armée par le refus est
+ *      rejouée par l'ordonnanceur, sans second clic.
  */
 import { colonnesDeLaCarte } from '../shared/dist/carte-sql.js';
 import { travailRestant, phraseDuTravailRestant } from '../shared/dist/travail-restant.js';
@@ -110,9 +118,24 @@ const liste = (derniere) => ({
 });
 
 async function jouer() {
+  /*
+   * « ZZMUET » : le moteur meurt sans écrire UNE SEULE ligne de protocole.
+   * C'est exactement le cas que l'adaptateur doit signaler de lui-même
+   * (jamaisDemarre), et non plus le démon le deviner à l'absence d'étapes.
+   */
+  if (/zzmuet/.test(demande)) {
+    process.stderr.write('command not found\\n');
+    process.exit(127);
+  }
+
   dire({ type: 'system', subtype: 'init', session_id: 'session-' + Math.random().toString(16).slice(2) });
   dire(liste('in_progress'));
   await new Promise((r) => setTimeout(r, 300));
+
+  // « zzlong » : le moteur reste en vie assez longtemps pour qu'on l'arrête.
+  if (/zzlong/.test(demande)) {
+    await new Promise((r) => setTimeout(r, 120000));
+  }
 
   if (/tombe/.test(demande)) {
     process.stderr.write('API Error: fatal\\n');
@@ -230,6 +253,33 @@ function laCarte() {
     scheduling: reste.scheduling ?? {},
     github: reste.github ?? {},
   };
+}
+
+/**
+ * ARMER LA CARTE COMME LE FERAIT UN REFUS DE QUOTA — sans avoir à vider un vrai
+ * compte. Le refus lui-même est verrouillé par les tests du démon ; ce qui se
+ * vérifie ici, c'est l'autre moitié, celle qui manquait : une carte armée
+ * repart-elle TOUTE SEULE, sans second clic ?
+ */
+function armerLaReprise() {
+  const db = base();
+  const ligne = db.prepare('SELECT data FROM cards WHERE id = ?').get(CARTE);
+  const carte = JSON.parse(ligne.data);
+  carte.column = 'planned';
+  carte.scheduling = {
+    ...(carte.scheduling ?? {}),
+    // Remis à ZÉRO : sans cela, `attempts > 0` suffirait à la reprise et la
+    // marque ne prouverait rien.
+    asap: false,
+    attempts: 0,
+    restarts: 0,
+    suspendu: false,
+    departPrevu: undefined,
+    waitingReason: 'Quota épuisé sur tous les comptes',
+    reprendreDesQuePossible: true,
+  };
+  db.prepare('UPDATE cards SET column_key = ?, data = ? WHERE id = ?').run('planned', JSON.stringify(carte), CARTE);
+  db.close();
 }
 
 /** Les agents de la carte, du plus récent au plus ancien. */
@@ -502,6 +552,110 @@ async function main() {
     'un simple message suffit à refermer la carte après un échec',
     !!reprise,
     reprise ? '' : `colonne « ${laCarte()?.column} »`,
+  );
+
+  /* -------- 7. UN MOTEUR QUI N'A JAMAIS PARLÉ -------- */
+  /*
+   * Le moteur meurt sans écrire une seule ligne : ce n'est pas la TÂCHE qui a
+   * échoué, c'est le lancement qui n'a jamais joint le moteur. L'adaptateur le
+   * DIT lui-même ; la carte doit repartir en « Planifié » avec un essai de plus
+   * — et non rester en « En cours » comme un échec ordinaire.
+   */
+  const reprisesAvant = laCarte()?.scheduling?.restarts ?? 0;
+  await commande({ type: 'agent.prompt', agentId: agentDeLaCarte, text: 'Ce tour zzmuet ne dira rien du tout.' });
+  const injoignable = await attendre(() => {
+    const c = laCarte();
+    return c?.column === 'planned' ? c : null;
+  }, 60000, 200);
+  noter(
+    'un moteur jamais joint renvoie la carte en « Planifié », il ne la fige pas',
+    !!injoignable,
+    `colonne « ${laCarte()?.column} »`,
+  );
+  noter(
+    'le compteur de reprises monte, et la carte dit pourquoi',
+    (injoignable?.scheduling?.restarts ?? 0) > reprisesAvant &&
+      /moteur/i.test(injoignable?.scheduling?.waitingReason ?? ''),
+    `${reprisesAvant} → ${injoignable?.scheduling?.restarts ?? 0}, « ${injoignable?.scheduling?.waitingReason ?? '—'} »`,
+  );
+  const relancee = await attendreColonne('done', 120000);
+  noter(
+    'et l’ordonnanceur la ramène au bout du cycle sans un geste',
+    !!relancee,
+    relancee ? '' : `colonne « ${laCarte()?.column} »`,
+  );
+
+  /* -------- 8. LE BOUTON D'ARRÊT RANGE LA CARTE -------- */
+  /*
+   * Le geste ne changeait que la PHRASE : la carte restait en « En cours »,
+   * sans agent au travail, et le balayage s'interdit d'y toucher après un tour
+   * arrêté. Elle doit maintenant retomber en « Planifié », comme le fait déjà
+   * la sortie à la souris.
+   */
+  await commande({ type: 'agent.prompt', agentId: agentDeLaCarte, text: 'Un travail zzlong, à interrompre.' });
+  const auTravail = await attendreColonne('running', 40000);
+  noter('le tour long repart bien en « En cours »', !!auTravail, `colonne « ${laCarte()?.column} »`);
+
+  await attendre(() => lesAgents().find((a) => a.id === agentDeLaCarte)?.status === 'running', 40000, 200);
+  await commande({ type: 'agent.stop', agentId: agentDeLaCarte, cardId: CARTE });
+  const arretee = await attendre(() => {
+    const c = laCarte();
+    return c?.column === 'planned' ? c : null;
+  }, 40000, 200);
+  noter(
+    'le bouton d’arrêt ramène la carte en « Planifié », comme la souris',
+    !!arretee,
+    `colonne « ${laCarte()?.column} »`,
+  );
+  noter(
+    'elle est marquée suspendue, et le dit',
+    !!arretee?.scheduling?.suspendu && !!arretee?.scheduling?.waitingReason,
+    `suspendu=${!!arretee?.scheduling?.suspendu}, « ${arretee?.scheduling?.waitingReason ?? '—'} »`,
+  );
+  noter(
+    'plus aucune marque de vol ne traîne : rien ne se dit « en cours de rangement »',
+    arretee?.scheduling?.tourEnVolDepuis === undefined,
+    `marque : ${arretee?.scheduling?.tourEnVolDepuis ?? 'aucune'}`,
+  );
+
+  // Deux tours de veille : une carte suspendue ne repart pas toute seule.
+  await new Promise((r) => setTimeout(r, 35000));
+  noter(
+    'suspendue, elle ne repart pas d’elle-même',
+    laCarte()?.column === 'planned' && !!laCarte()?.scheduling?.suspendu,
+    `colonne « ${laCarte()?.column} »`,
+  );
+
+  /* -------- 9. LA RELANCE À LA MAIN EFFACE LA SUSPENSION -------- */
+  await commande({ type: 'card.start', id: CARTE });
+  const reprisApresArret = await attendreColonne('done', 120000);
+  noter(
+    'un clic la relance et la mène au bout, la suspension effacée',
+    !!reprisApresArret && !reprisApresArret.scheduling?.suspendu,
+    reprisApresArret ? `suspendu=${!!reprisApresArret.scheduling?.suspendu}` : `colonne « ${laCarte()?.column} »`,
+  );
+
+  /* -------- 10. UN LANCEMENT REFUSÉ FAUTE DE QUOTA EST REJOUÉ -------- */
+  /*
+   * La carte n'est jamais partie (`attempts` à zéro), elle n'est ni « dès que
+   * possible » ni datée : avant, rien au monde ne la reprenait, et elle
+   * attendait un second clic que personne ne savait devoir donner.
+   */
+  armerLaReprise();
+  const rejouee = await attendre(() => {
+    const c = laCarte();
+    return c?.column === 'running' || c?.column === 'done' ? c : null;
+  }, 90000, 300);
+  noter(
+    'un lancement refusé faute de quota repart tout seul, sans second clic',
+    !!rejouee,
+    `colonne « ${laCarte()?.column} », marque=${laCarte()?.scheduling?.reprendreDesQuePossible ?? 'effacée'}`,
+  );
+  const bouclee = await attendreColonne('done', 120000);
+  noter(
+    'et le départ consomme la marque au lieu de la laisser traîner',
+    !!bouclee && bouclee.scheduling?.reprendreDesQuePossible === undefined,
+    `marque : ${bouclee?.scheduling?.reprendreDesQuePossible ?? 'effacée'}`,
   );
 }
 

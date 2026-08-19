@@ -212,6 +212,7 @@ export function demarrageAutomatiqueAutorise(
     restarts?: number;
     departPrevu?: number;
     suspendu?: boolean;
+    reprendreDesQuePossible?: boolean;
   },
   maintenant: number = Date.now(),
 ): boolean {
@@ -219,6 +220,17 @@ export function demarrageAutomatiqueAutorise(
   // La main l'emporte toujours : suspendre puis voir repartir ne serait pas
   // suspendre. La boucle du démon le vérifie aussi de son côté.
   if (scheduling.suspendu) return false;
+
+  /*
+   * LE LANCEMENT DEMANDÉ QU'UNE PORTE PASSAGÈRE A REFUSÉ. Le geste a eu lieu :
+   * seul le quota (ou la place sur la machine) manquait, et cela se répare tout
+   * seul. Sans cette ligne, une carte lancée pour la première fois et refusée
+   * faute de quota n'était reprise par personne — `attempts` valait encore
+   * zéro, puisque le départ n'avait pas eu lieu — et attendait un second clic
+   * que rien n'annonçait. La marque se pose UNIQUEMENT sur ce refus-là
+   * (`portesDures`, porte « qui se rouvre seule ») et s'efface au vrai départ.
+   */
+  if (scheduling.reprendreDesQuePossible) return true;
 
   const depart = etatDuDepart(scheduling, maintenant);
   // L'heure est passée : la carte part, et le reste autorisée aussi longtemps

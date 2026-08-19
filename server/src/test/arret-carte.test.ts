@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   RAISON_ARRETE_A_LA_MAIN,
+  colonneApresArretALaMain,
   RAISON_ARRET_ETRANGER,
   RAISON_ARRET_SANS_AGENT,
   ClientCommand,
@@ -74,4 +78,64 @@ test("la modification d'un message en attente garde son bouton pour elle", () =>
 test('la carte arrêtée dit qu’elle ne repartira pas toute seule', () => {
   assert.match(RAISON_ARRETE_A_LA_MAIN, /file/);
   assert.match(RAISON_ARRETE_A_LA_MAIN, /geste/);
+});
+
+/* ------------------------------------------------------------------ */
+/* LA COLONNE SUIT LE BOUTON D'ARRÊT                                   */
+/*                                                                     */
+/* Le bouton ne changeait que la PHRASE : la carte restait en « En     */
+/* cours », sans agent au travail, et le balayage de l'ordonnanceur    */
+/* s'interdit d'y toucher après un tour arrêté. Elle retombe désormais  */
+/* en « Planifié », comme la sortie à la souris le faisait déjà.       */
+/* ------------------------------------------------------------------ */
+
+test('une carte arrêtée à la main retombe en « Planifié »', () => {
+  assert.equal(colonneApresArretALaMain('running'), 'planned');
+});
+
+test('une carte qui n’était pas « En cours » ne bouge pas', () => {
+  for (const colonne of ['notes', 'planned', 'done', 'to_deploy', 'in_production', 'archived']) {
+    assert.equal(colonneApresArretALaMain(colonne), null, colonne);
+  }
+});
+
+const ICI = path.dirname(fileURLToPath(import.meta.url));
+const SERVEUR = (fichier: string) => fs.readFileSync(path.resolve(ICI, `../../src/${fichier}`), 'utf8');
+
+test('les trois gestes d’arrêt passent par le MÊME rangement', () => {
+  const ws = SERVEUR('ws.ts');
+  // Sortie à la souris, bouton d'une carte, « tout arrêter » : trois appels,
+  // aucune écriture de carte suspendue en direct.
+  assert.equal(ws.split('suspendreLaCarte(').length - 1, 3, 'trois gestes, trois appels');
+  assert.doesNotMatch(ws, /suspendu: true/, 'plus aucune suspension écrite à la main dans ws.ts');
+});
+
+test('le rangement d’un arrêt retire la marque de vol et désarme la reprise', () => {
+  const corps = SERVEUR('deplacement-carte.ts').split('export function suspendreLaCarte(')[1];
+  assert.match(corps, /colonneApresArretALaMain\(card\.column\)/);
+  assert.match(corps, /suspendu: true/);
+  assert.match(corps, /tourEnVolDepuis: undefined/);
+  assert.match(corps, /reprendreDesQuePossible: undefined/);
+});
+
+test('l’arrêt vide la file AVANT de couper, jamais après', () => {
+  /*
+   * Refermer un tour d'autorité relance la file en partant
+   * (`refermerLeTour` → `enchainerLaFile`) : vidée après coup, la demande en
+   * attente était déjà dépilée et repartait quatre dixièmes de seconde plus
+   * tard, replaçant la carte en « En cours » par-dessus la suspension. Le clic
+   * « Arrêter » relançait donc la tâche qu'il devait arrêter.
+   */
+  const ws = SERVEUR('ws.ts');
+  const bloc = ws.split("case 'agent.stop': {")[1].split("case 'agents.stop-all'")[0];
+  const file = bloc.indexOf('store.clearQueue(cmd.agentId)');
+  const coupe = bloc.indexOf('arreterLAgent(cmd.agentId)');
+  assert.ok(file > 0 && coupe > 0, 'les deux gestes doivent être là');
+  assert.ok(file < coupe, 'la file se vide AVANT la coupe');
+
+  const tous = ws.split("case 'agents.stop-all': {")[1];
+  assert.ok(
+    tous.indexOf('store.clearQueue(agent.id)') < tous.indexOf('stopAllAgents()'),
+    '« tout arrêter » suit la même règle',
+  );
 });

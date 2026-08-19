@@ -398,6 +398,23 @@ export const SchedulingState = z.object({
    */
   suspendu: z.boolean().optional(),
   /**
+   * LE LANCEMENT A ÉTÉ DEMANDÉ, MAIS UNE PORTE QUI SE ROUVRE SEULE L'A REFUSÉ —
+   * plus un compte avec du quota, plus de place sur la machine
+   * (`portesDures`). Le geste a bien eu lieu : il ne doit pas être perdu parce
+   * que l'obstacle était passager.
+   *
+   * Sans cette marque, une carte lancée pour la PREMIÈRE fois et refusée pour
+   * cause de quota restait dans « Planifié » avec sa phrase d'attente, et rien
+   * ne la reprenait jamais : `demarrageAutomatiqueAutorise` ne rend « oui »
+   * qu'à une carte « Dès que possible », datée, ou DÉJÀ partie une fois
+   * (`attempts > 0`) — or ce départ-là n'a pas eu lieu. Elle attendait donc un
+   * second clic que personne ne savait devoir donner.
+   *
+   * La marque autorise la reprise automatique, et rien d'autre : elle
+   * s'efface au vrai départ, comme au premier geste d'arrêt.
+   */
+  reprendreDesQuePossible: z.boolean().optional(),
+  /**
    * La DATE de départ souhaitée, en millisecondes. Tant qu'elle n'est pas
    * venue, la carte attend dans « Planifié » ; à l'heure dite, l'ordonnanceur
    * la lance par le même chemin que le bouton. Le départ EFFACE la date : une

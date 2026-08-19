@@ -12,6 +12,7 @@ import {
   cheminDossierDeCarte,
   consigneDeReprise,
   origineDeReprise,
+  COLONNES_HORS_REPRISE,
   demarrageAutomatiqueAutorise,
   estLaBrancheDeLaCarte,
   etatDuDepart,
@@ -200,6 +201,15 @@ function isOffPeak(): boolean {
 export interface Gate {
   ok: boolean;
   reason?: string;
+  /**
+   * Ce refus SE ROUVRE-T-IL TOUT SEUL ? Le quota revient à sa remise à zéro, la
+   * place sur la machine se libère quand un autre tour finit : dans ces deux
+   * cas, le geste de lancement reste valable et la carte doit repartir sans
+   * qu'on reclique. Un dépôt qui n'est pas un dépôt git ou un dossier occupé
+   * par un autre agent, eux, demandent une action : leur refus est définitif
+   * tant qu'on n'a rien fait, et il n'arme aucune reprise.
+   */
+  reprisePossible?: boolean;
 }
 
 /**
@@ -219,7 +229,9 @@ export interface Gate {
  */
 export async function portesDures(card: Card): Promise<Gate> {
   const capacity = canStartAgent();
-  if (!capacity.ok) return { ok: false, reason: capacity.reason };
+  // La machine pleine se vide d'elle-même dès qu'un tour finit : le lancement
+  // demandé garde sa valeur, il sera rejoué.
+  if (!capacity.ok) return { ok: false, reason: capacity.reason, reprisePossible: true };
 
   const project = store.getProject(card.projectId);
   if (project) {
@@ -242,6 +254,9 @@ export async function portesDures(card: Card): Promise<Gate> {
       .sort((a, b) => a - b)[0];
     return {
       ok: false,
+      // Le quota revient à sa remise à zéro : la carte repartira toute seule,
+      // et c'est bien ce que sa phrase annonce (« reprise à … »).
+      reprisePossible: true,
       reason: soonest
         ? `Quota épuisé — reprise à ${new Date(soonest).toLocaleString('fr-CH', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}`
         : 'Quota épuisé sur tous les comptes',
@@ -368,12 +383,24 @@ function etapesDeLaReprise(agentId: string): EtapeDeReprise[] {
  * déjà l'ordonnanceur quand il patiente. Sans cela, un refus parti du bouton ou
  * d'un dépôt dans « En cours » ne laissait aucune trace.
  */
-function refus(card: Card, raison: string): { ok: false; error: string } {
+function refus(card: Card, raison: string, reprisePossible = false): { ok: false; error: string } {
   const fresh = store.getCard(card.id) ?? card;
-  if (fresh.scheduling?.waitingReason !== raison) {
+  const dejaArmee = !!fresh.scheduling?.reprendreDesQuePossible;
+  if (fresh.scheduling?.waitingReason !== raison || dejaArmee !== reprisePossible) {
     const updated = store.saveCard({
       ...fresh,
-      scheduling: { ...(fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 }), waitingReason: raison },
+      scheduling: {
+        ...(fresh.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+        waitingReason: raison,
+        /*
+         * LE GESTE DEMANDÉ N'EST PAS PERDU. Une porte qui se rouvre seule
+         * (quota, place sur la machine) arme la reprise : l'ordonnanceur
+         * rejouera ce lancement dès que l'obstacle sera levé, sans second clic.
+         * Un refus définitif (dépôt absent, dossier occupé) la désarme au
+         * contraire : rien ne doit repartir tant que personne n'a agi.
+         */
+        reprendreDesQuePossible: reprisePossible ? true : undefined,
+      },
     });
     bus.emit({ type: 'card.upsert', card: updated });
   }
@@ -463,7 +490,7 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
    * agent qui mourait aussitôt, en laissant la carte dans « En cours ».
    */
   const portes = await portesDures(card);
-  if (!portes.ok) return refus(card, portes.reason ?? 'lancement impossible');
+  if (!portes.ok) return refus(card, portes.reason ?? 'lancement impossible', portes.reprisePossible);
 
   /*
    * La branche est OBLIGATOIRE : sans elle, l'agent écrirait sur la branche
@@ -551,6 +578,8 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
       waitingReason: undefined,
       // Un départ efface la suspension : c'est le geste qu'elle attendait.
       suspendu: false,
+      // …et il honore la reprise armée par un refus de quota : elle a servi.
+      reprendreDesQuePossible: undefined,
       // Le départ CONSOMME la date : une date, une fois, jamais une récurrence.
       // Sans cela, une carte relancée plus tard traînerait une heure déjà passée
       // et repartirait toute seule à la première boucle.
@@ -826,6 +855,34 @@ export async function tick(): Promise<void> {
         }
         await startCard(card.id);
         // Les démarrages sont ÉCHELONNÉS : jamais quinze dans la même seconde.
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+
+      /*
+       * LES LANCEMENTS REFUSÉS FAUTE DE QUOTA, HORS DE « PLANIFIÉ ».
+       *
+       * La boucle ci-dessus ne regarde que « Planifié », ce qui couvre la
+       * quasi-totalité des cas. Mais un lancement se demande aussi depuis une
+       * autre colonne — une carte de « Notes » ou de « Terminé » déposée dans
+       * « En cours » : la porte du quota la refuse AVANT tout changement de
+       * colonne, la carte reste donc là où elle était, armée pour la reprise…
+       * et personne ne repassait jamais la voir. Ce second passage ne prend que
+       * les cartes PORTANT LA MARQUE, c'est-à-dire celles dont le lancement a
+       * réellement été demandé puis refusé par une porte qui se rouvre seule.
+       */
+      const armees = store
+        .listCards(project.id)
+        .filter((card) => card.column !== 'planned' && card.column !== 'running')
+        // Les fins de parcours ne se rouvrent que sur geste humain : une marque
+        // oubliée sur une carte archivée entre-temps ne la ressuscite pas.
+        .filter((card) => !COLONNES_HORS_REPRISE.includes(card.column))
+        .filter((card) => card.scheduling?.reprendreDesQuePossible && !card.scheduling.suspendu);
+
+      for (const card of armees) {
+        if (card.agentId && isRunning(card.agentId)) continue;
+        const gate = await portesDures(card);
+        if (!gate.ok) continue;
+        await startCard(card.id);
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
     }

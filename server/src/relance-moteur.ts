@@ -22,6 +22,13 @@ import {
 export interface ResultatDeTour {
   ok: boolean;
   error?: string;
+  /**
+   * Le SIGNAL EXPLICITE de l'adaptateur : le moteur n'a jamais parlé, donc le
+   * lancement lui-même n'a pas abouti (`ResultatDuMoteur`, `engines/types.ts`).
+   * Il traverse la relance telle quelle — un essai qui n'a jamais joint le
+   * moteur reste un essai qui n'a jamais joint le moteur.
+   */
+  jamaisDemarre?: boolean;
 }
 
 /** L'état du tour tel que le démon le voit à l'instant où le moteur rend la main. */

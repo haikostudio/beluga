@@ -92,15 +92,33 @@ test('un nouvel essai après panne emporte le prompt du tour, jamais une consign
 /* « Muet » veut dire « jamais joint », pas « tombé en travaillant »   */
 /* ------------------------------------------------------------------ */
 
-test('une liste de tâches annoncée empêche de juger le moteur « muet »', () => {
+test('« muet » vient du SIGNAL de l’adaptateur, le faisceau d’absences n’étant qu’un repli', () => {
   /*
    * Un moteur qui découpe son travail puis tombe ne crée ni étape ni texte : il
    * était donc pris pour un lancement jamais parti, sa carte repartait en
    * « Planifié » et l'ordonnanceur la relançait de zéro. Constaté par
-   * `scripts/verif-cycle-de-vie-carte.mjs`.
+   * `scripts/verif-cycle-de-vie-carte.mjs`. La réponse n'est plus une
+   * déduction : l'adaptateur DIT s'il a lu une ligne du moteur.
    */
+  assert.match(RUNTIME, /const jamaisDemarre =\n\s+result\.jamaisDemarre \?\?/);
+  assert.match(RUNTIME, /const moteurMuet = !result\.ok && jamaisDemarre;/);
+  // Le repli, lui, garde les trois absences — liste de tâches comprise.
   assert.match(
     RUNTIME,
-    /const moteurMuet =\n\s+!result\.ok && !etapesDuMoteur\.length && !runState\.text\.trim\(\) && !runState\.todos\.length;/,
+    /\(!etapesDuMoteur\.length && !runState\.text\.trim\(\) && !runState\.todos\.length\)/,
   );
+});
+
+test('les trois adaptateurs rendent eux-mêmes le signal « jamais démarré »', () => {
+  for (const moteur of ['claude', 'codex', 'cursor']) {
+    const source = fs.readFileSync(path.resolve(ICI, `../../src/engines/${moteur}.ts`), 'utf8');
+    assert.match(source, /let aParle = false;/, `${moteur} : rien ne note que le moteur a parlé`);
+    assert.match(source, /aParle = true;/, `${moteur} : la marque n’est jamais posée`);
+    assert.match(source, /jamaisDemarre: !ok && !aParle/, `${moteur} : le signal n’est pas rendu`);
+  }
+});
+
+test('un processus qui ne se lance même pas rend le signal, sans passer par le démon', () => {
+  const fin = fs.readFileSync(path.resolve(ICI, '../../src/engines/fin-de-processus.ts'), 'utf8');
+  assert.match(fin, /resolve\(\{ ok: false, error: err\.message, jamaisDemarre: true \}\);/);
 });

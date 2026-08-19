@@ -2,6 +2,7 @@ import {
   CARTE_INCHANGEE,
   RAISON_MOTEUR_INJOIGNABLE,
   ROLES_QUI_DEPLACENT,
+  colonneApresArretALaMain,
   colonneApresMoteurMuet,
   dateDeMiseEnLignePerimee,
   issueDeCarteOubliee,
@@ -46,6 +47,15 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number):
     position: position ?? store.nextPosition(card.projectId, target),
     doneAt: target === 'done' ? Date.now() : card.doneAt,
     deployedAt: dateDeMiseEnLignePerimee(card.column, target) ? undefined : card.deployedAt,
+    /*
+     * RANGER À LA MAIN DÉSARME LA REPRISE. Une carte dont le lancement avait
+     * été refusé faute de quota attend que l'ordonnanceur le rejoue ; la
+     * déplacer ensuite, c'est décider autre chose pour elle. Sans cette ligne,
+     * la carte serait repartie toute seule depuis sa nouvelle colonne.
+     */
+    scheduling: card.scheduling?.reprendreDesQuePossible
+      ? { ...card.scheduling, reprendreDesQuePossible: undefined }
+      : card.scheduling,
   });
 }
 
@@ -228,4 +238,43 @@ function dejaEnregistreApres(card: Card, fin: FinDeTour): boolean {
     ROLES_QUI_DEPLACENT.includes(fin.role) &&
     traceAcquise(fin.trace);
   return card.codeDejaEnregistre || aProduit;
+}
+
+/**
+ * SUSPENDRE UNE CARTE — le seul chemin, pour les trois gestes qui arrêtent.
+ *
+ * Trois boutons coupaient un agent, et chacun rangeait la carte à sa façon :
+ * la sortie à la souris (« En cours » → « Planifié ») la ramenait bien en
+ * file, tandis que le bouton d'arrêt d'une carte et « tout arrêter » la
+ * laissaient dans « En cours », sans agent au travail et sans rien pour l'en
+ * sortir — le balayage de l'ordonnanceur s'interdisant justement d'y toucher
+ * après un tour arrêté (`issueDeCarteOubliee`). Le tableau annonçait un
+ * travail en cours que plus personne ne faisait.
+ *
+ * Le rangement est donc écrit ICI, une fois : colonne rendue à « Planifié »
+ * quand la carte venait de « En cours » (`colonneApresArretALaMain`), marque
+ * de suspension posée, phrase du geste écrite, et la MARQUE DE VOL retirée —
+ * sans quoi la carte se serait dite « en cours de rangement » pour un tour qui
+ * ne rangera plus rien.
+ *
+ * La fonction écrit et diffuse ; elle ne coupe aucun moteur et n'affiche aucun
+ * message : l'appelant sait quoi dire, et à qui.
+ */
+export function suspendreLaCarte(card: Card, raison: string): Card {
+  const cible = colonneApresArretALaMain(card.column);
+  const suspendue = store.saveCard({
+    ...card,
+    ...(cible ? { column: cible, position: store.nextPosition(card.projectId, cible) } : {}),
+    scheduling: {
+      ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+      suspendu: true,
+      waitingReason: raison,
+      tourEnVolDepuis: undefined,
+      // Le geste humain l'emporte sur une reprise promise : une carte qui
+      // attendait le retour du quota n'y attend plus, on vient de l'arrêter.
+      reprendreDesQuePossible: undefined,
+    },
+  });
+  bus.emit({ type: 'card.upsert', card: suspendue });
+  return suspendue;
 }
