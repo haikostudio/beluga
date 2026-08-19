@@ -71,6 +71,7 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  Switch,
   Textarea,
   Tooltip,
   ZoneDefilement,
@@ -216,6 +217,56 @@ function MenuTeteColonne({ colonne, cartesNonLues }: { colonne: ColumnKey; carte
 </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * L'INTERRUPTEUR « DÉPLOIEMENT AUTOMATIQUE », en tête de la colonne
+ * « Terminé ». ÉTEINT par défaut, et son état vit sur le PROJET : allumé, il
+ * vaut consentement permanent pour ce projet-là — dès que plus rien ne
+ * travaille, le lot de « Terminé » passe tout seul dans « À déployer » et la
+ * mise en ligne part, sans clic sur « Publier maintenant ».
+ *
+ * Il ne décide de rien lui-même : il n'écrit qu'un réglage. Ce qui retient ou
+ * lance le lot est une règle pure, jouée par le serveur
+ * (`shared/src/deploiement-automatique.ts`).
+ *
+ * Le clic le dit DÈS le clic (`attente`), et l'affichage suit l'état voulu
+ * pendant l'aller-retour : sans cela l'interrupteur revenait visuellement en
+ * arrière le temps que le projet revienne du serveur.
+ */
+function InterrupteurDeploiementAuto({ projectId, actif }: { projectId: string; actif: boolean }) {
+  const [enVol, setEnVol] = React.useState<boolean | null>(null);
+
+  // Le serveur a parlé : on lâche l'état optimiste et on suit de nouveau le projet.
+  React.useEffect(() => {
+    setEnVol((vise) => (vise === null || vise === actif ? null : vise));
+  }, [actif]);
+
+  const basculer = (valeur: boolean) => {
+    setEnVol(valeur);
+    client
+      .call({ type: 'project.update', id: projectId, patch: { deploiementAutomatique: valeur } })
+      .catch(() => setEnVol(null));
+  };
+
+  const affiche = enVol ?? actif;
+  return (
+    <Tooltip
+      label={t(
+        'Déploiement automatique : dès que plus rien ne travaille sur ce projet, les cartes terminées passent dans « À déployer » et la mise en ligne part toute seule.',
+      )}
+    >
+      <span className="mr-1 inline-flex items-center">
+        <Switch
+          checked={affiche}
+          attente={enVol !== null}
+          onCheckedChange={basculer}
+          aria-label="Déploiement automatique"
+          data-deploiement-automatique={affiche ? 'oui' : 'non'}
+        />
+      </span>
+    </Tooltip>
   );
 }
 
@@ -1354,6 +1405,15 @@ export function Board({
                   <RepereAttention compte={state.plans[projectId] ? 1 : 0} data-attention-plan-colonne={column} />
                 ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
+                {/* « Terminé » précède « À déployer » : c'est ici que se règle
+                    si le lot y va — et part en ligne — tout seul. Éteint par
+                    défaut ; publier reste sinon un geste de l'utilisateur. */}
+                {column === 'done' ? (
+                  <InterrupteurDeploiementAuto
+                    projectId={projectId}
+                    actif={projetOuvert?.deploiementAutomatique === true}
+                  />
+                ) : null}
                 {column === 'to_deploy' || column === 'in_production' ? (
                   <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
                 ) : null}
