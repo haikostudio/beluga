@@ -54,9 +54,10 @@ test('le texte va dans le sujet, et seule la ligne de contrat monte au contrat',
   assert.equal(plan.parSujet[0].sujet, 'cartes');
   assert.match(plan.parSujet[0].texte, /texte entier de la règle/);
   assert.equal(plan.contrat.length, 1);
-  assert.match(plan.contrat[0], /ne rouvre jamais toute seule/);
+  assert.equal(plan.contrat[0].sujet, 'cartes');
+  assert.match(plan.contrat[0].ligne, /ne rouvre jamais toute seule/);
   // Le texte entier ne doit JAMAIS monter dans le contrat : c'est tout l'objet.
-  assert.doesNotMatch(plan.contrat[0], /texte entier de la règle/);
+  assert.doesNotMatch(plan.contrat[0].ligne, /texte entier de la règle/);
 });
 
 test('une entrée sans ligne de contrat ne fait pas grossir le fichier d’instructions', () => {

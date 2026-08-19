@@ -53,6 +53,55 @@ function ajouterALaFin(chemin: string, texte: string, entete: string): void {
   fs.writeFileSync(chemin, `${separe}${texte}`);
 }
 
+/**
+ * INSÈRE CHAQUE LIGNE DE CONTRAT SOUS LA SECTION « ### … » DE SON SUJET, au lieu
+ * de tout recoller en fin de fichier. Le repère existe déjà dans chaque section :
+ * la ligne « Texte entier : … (`project_memory`, sujet « <sujet> »). ». Une
+ * ligne dont le sujet n'a pas de section correspondante garde l'ancien
+ * comportement — ajoutée à la fin — plutôt que d'être perdue.
+ */
+function insererParSujet(chemin: string, contrat: readonly { sujet: string; ligne: string }[], entete: string): void {
+  if (!contrat.length) return;
+  if (!fs.existsSync(chemin)) {
+    ajouterALaFin(chemin, `${contrat.map((c) => c.ligne).join('\n')}\n`, entete);
+    return;
+  }
+
+  const parSujet = new Map<string, string[]>();
+  for (const { sujet, ligne } of contrat) {
+    const liste = parSujet.get(sujet) ?? [];
+    liste.push(ligne);
+    parSujet.set(sujet, liste);
+  }
+
+  let texte = fs.readFileSync(chemin, 'utf8');
+  const restantes: string[] = [];
+
+  for (const [sujet, lignes] of parSujet) {
+    const repere = new RegExp(`sujet\\s*«\\s*${sujet}\\s*»`, 'i');
+    const lignesFichier = texte.split('\n');
+    const indexRepere = lignesFichier.findIndex((l) => repere.test(l));
+    if (indexRepere === -1) {
+      restantes.push(...lignes);
+      continue;
+    }
+    let fin = lignesFichier.length;
+    for (let i = indexRepere + 1; i < lignesFichier.length; i++) {
+      if (/^### /.test(lignesFichier[i])) {
+        fin = i;
+        break;
+      }
+    }
+    let insertion = fin;
+    while (insertion > indexRepere + 1 && lignesFichier[insertion - 1].trim() === '') insertion--;
+    lignesFichier.splice(insertion, 0, ...lignes);
+    texte = lignesFichier.join('\n');
+  }
+
+  fs.writeFileSync(chemin, texte);
+  if (restantes.length) ajouterALaFin(chemin, `${restantes.join('\n')}\n`, entete);
+}
+
 /** Le libellé d'un sujet : le premier titre du fichier, sinon son identifiant mis en forme. */
 function libelleDepuisFichier(chemin: string, id: string): string {
   try {
@@ -119,7 +168,7 @@ export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
   if (plan.contrat.length) {
     const instructions = fichierDInstructions(racine);
     if (instructions) {
-      ajouterALaFin(instructions, `${plan.contrat.join('\n')}\n`, '# Instructions du moteur\n');
+      insererParSujet(instructions, plan.contrat, '# Instructions du moteur\n');
     } else {
       log.warn(`rangement des instructions : ${racine} n'a pas de fichier d'instructions, contrat non ajouté`);
     }

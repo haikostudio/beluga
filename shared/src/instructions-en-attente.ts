@@ -56,8 +56,8 @@ export interface EntreeRefusee {
 export interface PlanDeFusion {
   /** Le texte à ajouter, par fichier de sujet. */
   parSujet: { sujet: string; texte: string }[];
-  /** Les lignes de contrat à ajouter à `CLAUDE.md`. */
-  contrat: string[];
+  /** Les lignes de contrat à ajouter à `CLAUDE.md`, chacune sous le sujet qui la range. */
+  contrat: { sujet: string; ligne: string }[];
   /** Ce qui reste en attente, avec sa cause. */
   refusees: EntreeRefusee[];
 }
@@ -177,7 +177,11 @@ export function planDeFusion(entrees: readonly EntreeDInstruction[], sujetsConnu
     if (deja) deja.texte += texte;
     else plan.parSujet.push({ sujet, texte });
 
-    if (entree.contrat) plan.contrat.push(`- **${entree.titre}** — ${entree.contrat}`);
+    if (entree.contrat) {
+      const memeTexte = entree.contrat.trim().toLowerCase() === entree.titre.trim().toLowerCase();
+      const ligne = memeTexte ? `- **${entree.titre}**` : `- **${entree.titre}** — ${entree.contrat}`;
+      plan.contrat.push({ sujet, ligne });
+    }
   }
 
   return plan;
