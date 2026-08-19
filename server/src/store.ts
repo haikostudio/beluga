@@ -1252,13 +1252,14 @@ export function decisionsEnAttente(): DecisionAttendue[] {
 
   const propositions = getDb()
     .prepare(
-      `SELECT p.project_id AS projectId, p.decision AS decision, p.created_at AS createdAt,
-              p.data AS data, a.id AS agentId, a.card_id AS cardId
+      `SELECT p.id AS proposalId, p.project_id AS projectId, p.decision AS decision,
+              p.created_at AS createdAt, p.data AS data, a.id AS agentId, a.card_id AS cardId
        FROM proposals p
        JOIN messages m ON m.id = p.message_id
        JOIN agents a ON a.id = m.agent_id`,
     )
     .all() as {
+    proposalId: string;
     projectId: string;
     decision: string;
     createdAt: number;
@@ -1333,7 +1334,9 @@ export function decisionsEnAttente(): DecisionAttendue[] {
     }
   }
 
+  const propositionsVues = new Set<string>();
   for (const proposition of propositions) {
+    propositionsVues.add(proposition.proposalId);
     let titre: string | undefined;
     try {
       titre = JSON.parse(proposition.data).title as string | undefined;
@@ -1355,6 +1358,57 @@ export function decisionsEnAttente(): DecisionAttendue[] {
       projectName: enrichir.nomProjet(proposition.projectId),
       lieuTitre: enrichir.lieuTitre(proposition.cardId ?? undefined, proposition.agentId),
     });
+  }
+
+  /*
+   * LE FILET : CE QUE L'ÉCRAN MONTRE À VALIDER COMPTE, D'OÙ QU'IL VIENNE.
+   *
+   * Une carte à valider s'affiche à partir du MESSAGE qui la porte ; le compte,
+   * lui, se lisait dans la seule table des propositions. Deux sources, donc
+   * deux occasions de diverger : une ligne écrite en retard, une ligne jamais
+   * écrite, un message repris ailleurs — et le panneau attendait pendant que la
+   * ligne du projet restait muette. On reprend donc ici les propositions
+   * ENCORE EN ATTENTE portées par un message et absentes de la table. Le filtre
+   * SQL est étroit (deux `LIKE` sur des propositions non tranchées) : sur ce
+   * serveur, il ne ramène qu'une poignée de lignes.
+   */
+  const portees = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+              m.data AS data, m.created_at AS createdAt
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE m.data LIKE '%"proposals":[{%' AND m.data LIKE '%"decision":"pending"%'`,
+    )
+    .all() as {
+    projectId: string;
+    agentId: string;
+    cardId: string | null;
+    data: string;
+    createdAt: number;
+  }[];
+  for (const porte of portees) {
+    try {
+      const message = Message.parse(JSON.parse(porte.data));
+      for (const proposition of message.proposals) {
+        if (proposition.decision !== 'pending') continue;
+        if (propositionsVues.has(proposition.id)) continue;
+        propositionsVues.add(proposition.id);
+        decisions.push({
+          projectId: porte.projectId,
+          agentId: porte.agentId,
+          cardId: porte.cardId ?? undefined,
+          genre: 'validation',
+          reglee: false,
+          poseeA: porte.createdAt,
+          texte: proposition.title ? `Carte proposée : ${proposition.title}` : 'Une carte est proposée',
+          projectName: enrichir.nomProjet(porte.projectId),
+          lieuTitre: enrichir.lieuTitre(porte.cardId ?? undefined, porte.agentId),
+        });
+      }
+    } catch {
+      /* message illisible : on l'ignore */
+    }
   }
 
   return decisions;

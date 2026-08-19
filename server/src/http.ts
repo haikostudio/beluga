@@ -398,10 +398,11 @@ export function createHttpServer(): http.Server {
              * UN SEUL MESSAGE PORTE LA PROPOSITION. Le fil la lit sur le message
              * du tour, la table la rangeait sous le « dernier message » relu à
              * part : deux lectures qui pouvaient déjà se contredire. C'est
-             * désormais le message réellement touché qui fait foi.
+             * désormais le message réellement touché qui fait foi — et
+             * l'attachement range la proposition dans sa table AVANT d'allumer
+             * le signal d'attention du projet.
              */
-            const messageId = attachToCurrentMessage(agentId, { proposal: result.proposal });
-            store.saveProposal(messageId ?? '', agent.projectId, result.proposal);
+            attachToCurrentMessage(agentId, { proposal: result.proposal });
           }
           if (result.download) attachToCurrentMessage(agentId, { download: result.download });
           /*

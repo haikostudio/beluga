@@ -3098,8 +3098,9 @@ async function poserLaCarteRelue(agent: Agent, projectId: string, relue: CarteRe
       log.warn(`carte relue refusée par l'outil pour l'agent ${agent.id} : ${resultat.text.slice(0, 200)}`);
       return false;
     }
-    const messageId = attachToCurrentMessage(agent.id, { proposal: resultat.proposal });
-    store.saveProposal(messageId ?? '', projectId, resultat.proposal);
+    // L'attachement range lui-même la proposition dans sa table, avant
+    // d'allumer le signal : rien à enregistrer ici.
+    attachToCurrentMessage(agent.id, { proposal: resultat.proposal });
     return true;
   } catch (error) {
     log.warn(`carte relue non posée pour l'agent ${agent.id} : ${(error as Error).message}`);
@@ -3334,6 +3335,20 @@ export function attachToCurrentMessage(
     downloads: patch.download ? [...current.downloads, patch.download] : current.downloads,
   });
   bus.emit({ type: 'message.upsert', message: updated });
+  /*
+   * LA PROPOSITION EST RANGÉE AVANT QUE LE SIGNAL PARTE.
+   *
+   * Le compte des décisions attendues se lit dans la TABLE des propositions,
+   * pas sur le message. Chaque appelant enregistrait donc la sienne APRÈS ce
+   * tour de fonction : le signal partait sur une table qui ne la contenait pas
+   * encore, le panneau « Carte à valider » s'affichait, et la ligne du projet
+   * restait éteinte jusqu'au prochain événement — souvent un rechargement de
+   * page. L'écriture vit ici, dans le même geste que l'attachement.
+   */
+  if (patch.proposal) {
+    const projectId = store.getAgent(agentId)?.projectId;
+    if (projectId) store.saveProposal(messageId, projectId, patch.proposal);
+  }
   // Une carte présentée à valider attend une décision au même titre qu'une
   // question : elle allume donc le même signal dans la liste des projets.
   if (patch.question || patch.proposal) {
