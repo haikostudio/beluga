@@ -19,6 +19,11 @@
  * La règle vit ici, sans disque : elle décide QUELS liens sont à rapatrier et
  * VERS QUOI. Le serveur se contente de lire les liens, d'appliquer, et de
  * vérifier que la nouvelle cible existe avant d'écrire.
+ *
+ * CE COFFRE N'EST QUE LA PREMIÈRE CAUSE. Une fois les liens rapatriés sur tous
+ * les comptes, la liste restait absente : le CLI ne DÉCLARE même plus
+ * `TaskCreate` aux modèles récents. Seconde cause, indépendante, traitée par
+ * `shared/src/liste-de-taches-du-moteur.ts`.
  */
 
 /** Le dossier où le moteur range la liste de tâches d'une session. */

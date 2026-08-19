@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { TodoItem } from '@haikodev/shared';
 import {
   enteteDuTour,
+  environnementDeLaListeDeTaches,
   hooksDuGardeDuDemon,
   modePlanFermeLEcriture,
   reglagesClaudeDuChef,
@@ -129,9 +130,18 @@ export const claudeAdapter: EngineAdapter = {
   run(options: EngineRunOptions): EngineHandle {
     const args = buildClaudeArgs(options);
 
+    /*
+     * SANS CETTE VARIABLE, L'AGENT N'A MÊME PLUS L'OUTIL POUR ANNONCER SES
+     * SOUS-TÂCHES. Le CLI ne déclare plus « TaskCreate » / « TaskUpdate » aux
+     * modèles récents (Sonnet 5, Opus 5, Fable 5) : la consigne de déroulé
+     * visible tombe alors dans le vide et les trois affichages d'avancement
+     * s'éteignent. Détail et mesure : `shared/src/liste-de-taches-du-moteur.ts`.
+     */
+    const env = { ...process.env, ...options.env, FORCE_COLOR: '0' };
+
     const child = spawn(claudeAdapter.binary, args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env, FORCE_COLOR: '0' },
+      env: { ...env, ...environnementDeLaListeDeTaches(env) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
