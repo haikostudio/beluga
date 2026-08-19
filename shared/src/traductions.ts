@@ -1683,6 +1683,8 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '{v0} Aufgabe(n) an Bord',
     '已纳入 {v0} 项任务',
   ],
+  '{v0} étape(s) sur {v1}': ['{v0} step(s) of {v1}', '{v0} etapa(s) de {v1}', '{v0} von {v1} Schritten', '{v1} 步中的第 {v0} 步'],
+  'arrêté ici': ['stopped here', 'detenido aquí', 'hier angehalten', '停在此处'],
   '{v0} tâche(s) mise(s) en ligne par ce déploiement — historique complet, en lecture.': [
     '{v0} task(s) put live by this deployment — full history, read-only.',
     '{v0} tarea(s) puesta(s) en línea por este despliegue — historial completo, en lectura.',

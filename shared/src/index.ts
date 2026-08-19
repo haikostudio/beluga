@@ -37,6 +37,7 @@ export * from './credit-cursor.js';
 export * from './doc-api.js';
 export * from './cible-mise-en-production.js';
 export * from './avancement-colonne.js';
+export * from './avancement-publication.js';
 export * from './colonne-affichee.js';
 export * from './columns.js';
 export * from './icone-de-projet.js';
