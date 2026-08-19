@@ -14,6 +14,7 @@ import {
   jugerDemandeDeCarte,
   jugerLaCle,
   jugerRapportErreur,
+  nomSansCollision,
   pageDocApi,
   rechercherClientsParNom,
   trouverLeProjetVise,
@@ -507,15 +508,28 @@ export function createHttpServer(): http.Server {
         const existing = store.findAttachmentBySha(projectId, sha);
         if (existing) return json(res, 200, { attachment: existing, deduplicated: true });
 
+        const cardId = url.searchParams.get('card') ?? undefined;
+        const agentId = url.searchParams.get('agent') ?? undefined;
+        // Deux images collées d'affilée arrivent presque toujours sous le même
+        // nom générique (« image.png ») : sans repère distinct, leur tag dans
+        // le texte devient ambigu dès qu'il y en a plus d'une.
+        const conversation = cardId ?? agentId;
+        const dejaUtilises = conversation
+          ? store
+              .listAttachments(projectId)
+              .filter((a) => (a.cardId ?? a.agentId) === conversation)
+              .map((a) => a.name)
+          : [];
+
         const attachment = Attachment.parse({
           id: store.newId(),
           projectId,
-          name: path.basename(name),
+          name: nomSansCollision(path.basename(name), dejaUtilises),
           mime,
           size: data.length,
           sha,
-          cardId: url.searchParams.get('card') ?? undefined,
-          agentId: url.searchParams.get('agent') ?? undefined,
+          cardId,
+          agentId,
           createdAt: Date.now(),
         });
         fs.mkdirSync(PATHS.attachments, { recursive: true });

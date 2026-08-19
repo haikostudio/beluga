@@ -11,6 +11,7 @@ import {
   jointesApresFrappe,
   masquesDuTexte,
   nomDuTag,
+  nomSansCollision,
   retireAncre,
   retireOccurrence,
   tagsDuTexte,
@@ -36,6 +37,20 @@ test('le nom se relit pareil, avec ou sans espaces insécables', () => {
   assert.equal(nomDuTag('\u00A0ma\u00A0photo.png'), 'ma photo.png');
   assert.equal(tagsDuTexte(ancre('ma photo.png'))[0].nom, 'ma photo.png');
   assert.equal(tagsDuTexte('[fichier: ma photo.png]')[0].nom, 'ma photo.png');
+});
+
+test('un nom libre traverse nomSansCollision sans changer', () => {
+  assert.equal(nomSansCollision('image.png', []), 'image.png');
+  assert.equal(nomSansCollision('image.png', ['capture.png']), 'image.png');
+});
+
+test('un nom déjà pris gagne un numéro, avant son extension', () => {
+  assert.equal(nomSansCollision('image.png', ['image.png']), 'image (2).png');
+  assert.equal(nomSansCollision('image.png', ['image.png', 'image (2).png']), 'image (3).png');
+});
+
+test('un nom sans extension gagne aussi son numéro', () => {
+  assert.equal(nomSansCollision('capture', ['capture']), 'capture (2)');
 });
 
 test("ce qui part au moteur garde des espaces ordinaires", () => {

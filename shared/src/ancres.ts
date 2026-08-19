@@ -44,6 +44,31 @@ export function nomDuTag(brut: string): string {
   return brut.replace(/\u00A0/g, ' ').trim();
 }
 
+/**
+ * UN NOM QUI RE-COLLE DEUX IMAGES NE SE DISTINGUE PLUS DANS LE TAG.
+ *
+ * Un navigateur nomme presque toujours une image coll\u00E9e \u00AB image.png \u00BB, quel
+ * que soit son contenu : coller deux captures d'\u00E9cran de suite pose donc deux
+ * tags \u00AB [fichier: image.png] \u00BB identiques, et le texte ne peut plus dire
+ * laquelle des deux il vise. Le nom garde son extension et gagne un num\u00E9ro \u2014
+ * \u00AB image (2).png \u00BB \u2014 d\u00E8s qu'un homonyme est d\u00E9j\u00E0 pr\u00E9sent dans la m\u00EAme
+ * conversation.
+ */
+export function nomSansCollision(nom: string, dejaUtilises: Iterable<string>): string {
+  const pris = new Set(dejaUtilises);
+  if (!pris.has(nom)) return nom;
+  const point = nom.lastIndexOf('.');
+  const base = point > 0 ? nom.slice(0, point) : nom;
+  const extension = point > 0 ? nom.slice(point) : '';
+  let n = 2;
+  let candidat = `${base} (${n})${extension}`;
+  while (pris.has(candidat)) {
+    n += 1;
+    candidat = `${base} (${n})${extension}`;
+  }
+  return candidat;
+}
+
 /** Le texte exact d'une ancre, telle qu'elle s'écrit dans le champ de saisie. */
 export function ancre(nom: string): string {
   return `[fichier:${ESPACE_INSECABLE}${insecable(nom)}]`;
