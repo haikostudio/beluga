@@ -1,9 +1,12 @@
 import {
   CARTE_INCHANGEE,
+  DELAI_AVANT_REPRISE_APRES_PANNE_MS,
   RAISON_MOTEUR_INJOIGNABLE,
+  RAISON_PANNE_MOTEUR,
   ROLES_QUI_DEPLACENT,
   colonneApresArretALaMain,
   colonneApresMoteurMuet,
+  colonneApresPanneDuMoteur,
   dateDeMiseEnLignePerimee,
   issueDeCarteOubliee,
   issueDeFinDeTour,
@@ -70,6 +73,12 @@ export interface FinDeTour {
   trace: TraceDuTravail;
   /** Le moteur n'a jamais parlé : le lancement n'a pas pu le joindre. */
   moteurMuet: boolean;
+  /**
+   * Une panne du FOURNISSEUR a résisté à tous les essais du tour. Le moteur
+   * avait parlé — ce n'est donc pas un lancement manqué —, mais ce n'est pas
+   * non plus un échec de la tâche : le travail a été INTERROMPU.
+   */
+  panneDuMoteur?: boolean;
 }
 
 /**
@@ -99,14 +108,24 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
   const leSien = tourDeLaCarte(card, fin.agentId);
 
   const relanceMoteurMuet = leSien ? colonneApresMoteurMuet(card.column, fin.role, fin.moteurMuet) : null;
+  /*
+   * LA PANNE DU FOURNISSEUR RENVOIE AUSSI LA CARTE EN FILE. Le moteur muet
+   * passe devant (le lancement n'a jamais eu lieu, il n'y a rien à reprendre) ;
+   * une panne qui a résisté à tous les essais vient juste après, avec sa propre
+   * phrase et son délai d'attente (`colonneApresPanneDuMoteur`).
+   */
+  const relancePanne =
+    leSien && !relanceMoteurMuet
+      ? colonneApresPanneDuMoteur(card.column, fin.role, !!fin.panneDuMoteur)
+      : null;
   const issue = leSien
     ? issueDeFinDeTour(card.column, fin.reussi, fin.role, fin.trace, dejaEnregistreApres(card, fin))
     : CARTE_INCHANGEE;
 
   // Le moteur muet passe devant : ce n'est pas une issue du travail, c'est un
-  // lancement manqué.
-  const cible = relanceMoteurMuet ?? issue.colonne;
-  const raison = relanceMoteurMuet ? null : issue.raison;
+  // lancement manqué. La panne du fournisseur suit la même route.
+  const cible = relanceMoteurMuet ?? relancePanne ?? issue.colonne;
+  const raison = relanceMoteurMuet || relancePanne ? null : issue.raison;
 
   const planification =
     leSien || relanceMoteurMuet
@@ -117,6 +136,21 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
             ? {
                 restarts: (card.scheduling?.restarts ?? 0) + 1,
                 waitingReason: RAISON_MOTEUR_INJOIGNABLE,
+              }
+            : {}),
+          /*
+           * `restarts` monte — c'est lui qui autorise la reprise automatique —
+           * mais `attempts` reste INTACT : une panne du fournisseur n'est pas un
+           * essai raté. La DATE de départ, elle, retient la carte le temps que
+           * la panne passe, au lieu de la faire repartir dans la boucle
+           * suivante, quinze secondes plus tard.
+           */
+          ...(relancePanne
+            ? {
+                restarts: (card.scheduling?.restarts ?? 0) + 1,
+                waitingReason: RAISON_PANNE_MOTEUR,
+                departPrevu: Date.now() + DELAI_AVANT_REPRISE_APRES_PANNE_MS,
+                suspendu: false,
               }
             : {}),
           /*

@@ -209,3 +209,44 @@ test('un moteur introuvable rend la main sans attendre', async () => {
   assert.equal(resultat.ok, false);
   assert.ok(dit.length > 0);
 });
+
+/* ------------------------------------------------------------------ */
+/* Le rangement d'après-réponse : le statut n'est plus le seul portier  */
+/* ------------------------------------------------------------------ */
+
+test('un tour encore suivi dont la réponse est figée depuis trop longtemps est refermé, même si le statut est déjà retombé', () => {
+  for (const statut of ['done', 'stopped', 'failed'] as const) {
+    const verdict = tourBloque({
+      statut,
+      suivi: true,
+      reponseFigeeDepuisMs: PLAFOND_FERMETURE_MS + 60_000,
+      partiDepuisMs: PLAFOND_FERMETURE_MS + 120_000,
+    });
+    assert.match(verdict?.raison ?? '', /La réponse était rendue depuis/, statut);
+  }
+});
+
+test('un rangement d’après-réponse encore dans son plafond n’est pas refermé', () => {
+  const verdict = tourBloque({
+    statut: 'done',
+    suivi: true,
+    reponseFigeeDepuisMs: 30_000,
+    partiDepuisMs: 300_000,
+  });
+  assert.equal(verdict, null);
+});
+
+test('un agent au repos que le démon ne suit plus reste hors de tout jugement', () => {
+  const verdict = tourBloque({
+    statut: 'done',
+    suivi: false,
+    reponseFigeeDepuisMs: PLAFOND_FERMETURE_MS * 10,
+    partiDepuisMs: PLAFOND_FERMETURE_MS * 10,
+  });
+  assert.equal(verdict, null);
+});
+
+test('un agent au repos suivi mais sans réponse figée n’est pas jugé non plus', () => {
+  const verdict = tourBloque({ statut: 'done', suivi: true, partiDepuisMs: 10 * 3_600_000 });
+  assert.equal(verdict, null);
+});

@@ -2,6 +2,7 @@ import type { ColumnKey } from './columns.js';
 import { RAISON_COUPE_EN_VOL, RAISON_TRACE_INCONNUE } from './carte-interrompue.js';
 import {
   RAISON_MOTEUR_INJOIGNABLE,
+  RAISON_PANNE_MOTEUR,
   RAISON_SANS_MODIFICATION,
   RAISON_SUSPENDU,
   RAISON_TOUR_SANS_ISSUE,
@@ -47,6 +48,8 @@ export type OrigineDeReprise =
   | 'coupure'
   /** Le moteur n'a pas répondu au lancement. */
   | 'moteur'
+  /** Le fournisseur du moteur est tombé en panne et n'a pas repris. */
+  | 'panne'
   /** Le tour s'est terminé sans jamais ranger la carte. */
   | 'sans-issue'
   /** Le tour a répondu sans rien changer au dépôt. */
@@ -73,6 +76,7 @@ export interface CarteAReprendre {
 const ORIGINES: { raison: string; origine: OrigineDeReprise }[] = [
   { raison: RAISON_COUPE_EN_VOL, origine: 'coupure' },
   { raison: RAISON_MOTEUR_INJOIGNABLE, origine: 'moteur' },
+  { raison: RAISON_PANNE_MOTEUR, origine: 'panne' },
   { raison: RAISON_TOUR_SANS_ISSUE, origine: 'sans-issue' },
   { raison: RAISON_SANS_MODIFICATION, origine: 'sans-modification' },
   { raison: RAISON_TRACE_INCONNUE, origine: 'sans-trace' },
@@ -137,6 +141,7 @@ export function libelleDuLotDeLancement(cartes: CarteAReprendre[]): string {
 const MENTIONS: Record<OrigineDeReprise, string> = {
   coupure: 'Reprise : travail interrompu par un arrêt du serveur, ce qui était fait est gardé.',
   moteur: 'Reprise : le moteur n’avait pas répondu, ce qui était fait est gardé.',
+  panne: 'Reprise : le moteur du fournisseur était en panne, ce qui était fait est gardé.',
   'sans-issue': 'Reprise : le tour s’était terminé sans ranger la carte, ce qui était fait est gardé.',
   'sans-modification': 'Reprise : le tour précédent n’avait rien changé, ce qui était fait est gardé.',
   'sans-trace': 'Reprise : le dépôt n’avait pas pu être consulté, ce qui était fait est gardé.',

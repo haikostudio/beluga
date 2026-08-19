@@ -8,6 +8,7 @@ import {
   ROLES_QUI_DEPLACENT,
   canMove,
   colonneApresMoteurMuet,
+  colonneApresPanneDuMoteur,
   colonneAuDemarrage,
   colonneDeReprise,
   colonneEnFinDeTour,
@@ -22,6 +23,7 @@ import {
   sortieAutorisee,
   RAISON_DEJA_LIVRE,
   RAISON_MOTEUR_INJOIGNABLE,
+  RAISON_PANNE_MOTEUR,
   RAISON_SANS_MODIFICATION,
   RAISON_SUSPENDU,
   RAISON_TOUR_SANS_ISSUE,
@@ -541,4 +543,37 @@ test('la branche d’une carte se reconnaît au NUMÉRO, même si le titre a cha
   assert.equal(estLaBrancheDeLaCarte(branche, 'aaaaaa11-0000-0000-0000-000000000000'), false);
   assert.equal(estLaBrancheDeLaCarte('main', id), false);
   assert.equal(estLaBrancheDeLaCarte('hors-tache/quelque-chose-c91941', id), false);
+});
+
+/* -------- Une panne du fournisseur qui a résisté à tous les essais -------- */
+
+test('une panne définitive du moteur remet la carte en « Planifié »', () => {
+  assert.equal(colonneApresPanneDuMoteur('running', 'task', true), 'planned');
+});
+
+test('sans panne définitive, la règle ne dit rien', () => {
+  assert.equal(colonneApresPanneDuMoteur('running', 'task', false), null);
+});
+
+test('une panne définitive hors « En cours » ne fait rien bouger', () => {
+  for (const depart of COLUMN_KEYS.filter((c) => c !== 'running')) {
+    assert.equal(colonneApresPanneDuMoteur(depart, 'task', true), null, `depuis « ${depart} »`);
+  }
+});
+
+test('seuls les rôles qui exécutent voient leur carte revenir en file après une panne', () => {
+  for (const role of ['orchestrator', 'analysis', 'deploy'] as const) {
+    assert.equal(colonneApresPanneDuMoteur('running', role, true), null, role);
+  }
+});
+
+test('la phrase d’une panne définitive dit que la carte repartira toute seule', () => {
+  assert.match(RAISON_PANNE_MOTEUR, /Planifié/);
+  assert.match(RAISON_PANNE_MOTEUR, /toute seule/);
+});
+
+test('une carte revenue d’une panne repart d’elle-même, mais pas avant sa date', () => {
+  const scheduling = { asap: false, attempts: 1, restarts: 1, departPrevu: 1_000 };
+  assert.equal(demarrageAutomatiqueAutorise(scheduling, 500), false);
+  assert.equal(demarrageAutomatiqueAutorise(scheduling, 2_000), true);
 });

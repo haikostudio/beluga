@@ -2644,6 +2644,18 @@ async function startTurn(
           reussi: !failed,
           trace,
           moteurMuet,
+          /*
+           * TOUS LES ESSAIS ONT ÉCHOUÉ SUR UNE PANNE DU FOURNISSEUR. Le message
+           * affiché promet en toutes lettres que le travail « repartira où il
+           * s'était arrêté dès que le fournisseur répondra de nouveau »
+           * (`messageDePanneDefinitive`) : c'est ce drapeau qui tient la
+           * promesse, en renvoyant la carte en « Planifié » avec sa date de
+           * reprise (`colonneApresPanneDuMoteur`). Sans lui, la carte restait
+           * figée en « En cours », l'agent en « stopped » — donc hors d'atteinte
+           * même du balayage des cartes oubliées — et il fallait la reprendre à
+           * la main.
+           */
+          panneDuMoteur: !!panneDefinitive,
         }),
         consumption: {
           tokens,
@@ -3586,7 +3598,18 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
   // un agent que plus personne ne fait travailler.
   libererLesAttentes(agentId);
   const frais = store.getAgent(agentId) ?? agent;
-  setStatus(frais, statutDeFermetureForcee({ reponseRendue }), { endedAt: Date.now() });
+  /*
+   * UN STATUT DÉJÀ DÉCIDÉ NE SE RÉÉCRIT PAS. La fermeture d'autorité peut
+   * désormais tomber APRÈS que le chemin normal a rendu la réponse et remis
+   * l'agent au repos — c'est même son nouveau terrain : le rangement
+   * d'après-réponse resté pendu. Repasser par `statutDeFermetureForcee`
+   * transformerait alors un tour « interrompu » par une panne du fournisseur en
+   * tour « terminé », donc en travail rendu. On ne libère que ce qui reste à
+   * libérer.
+   */
+  if (frais.status === 'running' || frais.status === 'starting') {
+    setStatus(frais, statutDeFermetureForcee({ reponseRendue }), { endedAt: Date.now() });
+  }
   log.warn(`tour refermé d'autorité (agent ${agentId}) : ${raison}`);
 
   void import('./capacity.js').then((capacity) =>
@@ -3615,13 +3638,31 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
 export function veilleDesToursBloques(maintenant = Date.now()): number {
   let refermes = 0;
   for (const agent of store.listAgents()) {
-    const suivi = live.has(agent.id) || demarrant.has(agent.id);
-    if (agent.status !== 'running' && agent.status !== 'starting') {
-      eteindreEcritureOrpheline(agent, { suivi });
-      continue;
-    }
     const run = live.get(agent.id);
     const preparation = demarrant.get(agent.id);
+    const suivi = !!run || !!preparation;
+    /*
+     * LE STATUT N'EST PLUS LE SEUL PORTIER (§ 6 de `shared/src/fin-de-tour.ts`).
+     * Le démon remet l'agent au repos dès la réponse rendue, puis CONTINUE son
+     * rangement : constat du dépôt, fusion de la branche, fermeture de la copie
+     * de travail. Une commande git pendue dans cette fenêtre laissait le tour
+     * vivant pour toujours — barre « L'agent termine son tour… » allumée sous
+     * une réponse pourtant complète — sans qu'aucun filet ne puisse le voir,
+     * puisque l'agent n'était plus « au travail ». Un tour que le démon SUIT
+     * ENCORE est donc jugé, quel que soit le statut inscrit.
+     */
+    if (agent.status !== 'running' && agent.status !== 'starting') {
+      eteindreEcritureOrpheline(agent, { suivi });
+      /*
+       * ET LA MARQUE DE TOUR VIVANT NE SURVIT PAS À SON TOUR. Un agent au repos
+       * que le démon ne suit plus n'a plus rien à allumer : la marque oubliée
+       * ferait tourner le témoin dans le vide jusqu'au prochain redémarrage.
+       */
+      if (!suivi) {
+        if (agent.tourVivantDepuis !== undefined) retirerLeTourVivant(agent.id);
+        continue;
+      }
+    }
     const pid = run?.handle.pid;
     const verdict = tourBloque({
       statut: agent.status,
