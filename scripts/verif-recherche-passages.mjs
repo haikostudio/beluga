@@ -422,6 +422,47 @@ for (const question of DEMANDES_REBOND) {
 verifier(rebondsUtiles > 0, 'au moins une demande gagne un fichier grâce au rebond', `${rebondsUtiles} sur ${DEMANDES_REBOND.length}`);
 
 /* ------------------------------------------------------------------ */
+/* 8. LA PART DU MIEUX PLACÉ : le traînard n'entre plus                */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LE DÉFAUT SIGNALÉ : une demande précise recevait DEUX passages, dont un seul
+ * en rapport avec elle. Le plancher absolu (`SCORE_MINIMUM`) ne pouvait pas le
+ * couper — le traînard est au-dessus — et le relever assez haut aurait vidé les
+ * classements serrés, où les passages bas sont les meilleurs qu'on ait.
+ *
+ * On vérifie ici les DEUX moitiés de la règle sur le VRAI corpus du dépôt, sans
+ * jamais juger un classement précis (celui-là bouge à chaque carte, et se mesure
+ * dans `scripts/audit-memoire-rag.mjs`) :
+ *   - ce qui reste servi pèse au moins la part exigée du mieux placé ;
+ *   - la part ne vide jamais une recherche : le premier passe toujours.
+ */
+console.log('\n8. La part du mieux placé : ce qui reste sert vraiment la demande');
+let resserrees = 0;
+for (const { question } of DEMANDES) {
+  const classes = partage.classerPassages(indexes, question);
+  const sansPart = partage.choisirPassages(classes, { plafond: 900, maxCode: partage.PASSAGES_CODE_MAX, partDuPremier: 0 });
+  const avecPart = partage.choisirPassages(classes, { plafond: 900, maxCode: partage.PASSAGES_CODE_MAX });
+  if (avecPart.gardes.length < sansPart.gardes.length) resserrees += 1;
+  const meilleur = avecPart.gardes[0]?.score ?? 0;
+  verifier(
+    avecPart.gardes.length > 0,
+    `« ${question.slice(0, 44)}… » — la part ne vide jamais la recherche`,
+    `${sansPart.gardes.length} passages sans elle, ${avecPart.gardes.length} avec`,
+  );
+  verifier(
+    avecPart.gardes.every((p) => p.score >= meilleur * partage.PART_MINIMALE_DU_PREMIER - 1e-9),
+    '  … et tout ce qui reste pèse au moins la part exigée du mieux placé',
+    `part ${partage.PART_MINIMALE_DU_PREMIER} · du plus bas ${(avecPart.gardes[avecPart.gardes.length - 1].score / Math.max(1e-9, meilleur)).toFixed(2)}`,
+  );
+}
+verifier(
+  resserrees > 0,
+  'au moins une demande réelle sert MOINS de passages grâce à la part',
+  `${resserrees} sur ${DEMANDES.length}`,
+);
+
+/* ------------------------------------------------------------------ */
 
 console.log('');
 if (echecs.length) {
