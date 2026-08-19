@@ -427,6 +427,60 @@ export function colonneApresMoteurMuet(colonne: ColumnKey, role: AgentRole, mote
 export const RAISON_MOTEUR_INJOIGNABLE =
   'Le moteur n’a pas répondu au lancement : la carte repart en « Planifié », nouvelle tentative automatique.';
 
+/**
+ * LE TEMPS LAISSÉ AU FOURNISSEUR AVANT DE RETENTER UNE CARTE.
+ *
+ * Une panne qui a résisté à TOUS les essais du tour (`ESSAIS_MAX`, environ une
+ * minute d'attente cumulée) ne passera pas dans les quinze secondes de la
+ * boucle de l'ordonnanceur. Repartir aussitôt ferait tourner la carte en rond
+ * — lancement, panne, retour en file, lancement — en brûlant du quota à chaque
+ * passage, tant que le fournisseur reste perturbé. La carte attend donc ce
+ * délai avant de repartir toute seule, et elle DIT quand elle repartira
+ * (`departPrevu`, la même date de départ que partout ailleurs).
+ */
+export const DELAI_AVANT_REPRISE_APRES_PANNE_MS = 5 * 60_000;
+
+/**
+ * TOUS LES ESSAIS ONT ÉCHOUÉ SUR UNE PANNE DU FOURNISSEUR — et le moteur, lui,
+ * avait bel et bien parlé : `colonneApresMoteurMuet` ne voit donc rien, et
+ * `colonneEnFinDeTour` laisse la carte figée en « En cours » comme n'importe
+ * quel échec de TÂCHE.
+ *
+ * Or ce n'en est pas un, et le message affiché à l'utilisateur le promet en
+ * toutes lettres : « le travail déjà fait est intact, et il repartira où il
+ * s'était arrêté dès que le fournisseur répondra de nouveau »
+ * (`messageDePanneDefinitive`). Personne ne tenait cette promesse : la carte
+ * restait en « En cours » avec son bandeau rouge, l'agent en « stopped » — donc
+ * même le balayage des cartes oubliées s'interdisait d'y toucher
+ * (`issueDeCarteOubliee`, refus « dernier tour en échec ») — et il fallait la
+ * reprendre à la main.
+ *
+ * Elle retombe donc en « Planifié », exactement comme une carte coupée par un
+ * redémarrage du serveur : `restarts` incrémenté, donc reprise automatique
+ * (`demarrageAutomatiqueAutorise`), mais pas avant
+ * `DELAI_AVANT_REPRISE_APRES_PANNE_MS` — une panne qui vient de résister à
+ * trois essais ne se répare pas en quinze secondes.
+ */
+export function colonneApresPanneDuMoteur(
+  colonne: ColumnKey,
+  role: AgentRole,
+  panneDuMoteur: boolean,
+): ColumnKey | null {
+  if (!panneDuMoteur) return null;
+  if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
+  if (colonne !== 'running') return null;
+  return 'planned';
+}
+
+/**
+ * La phrase portée par une carte dont le tour est tombé sur une panne du
+ * fournisseur qui a résisté à tous les essais. Elle dit les trois choses qu'on
+ * veut savoir en la relisant : ce n'est pas un échec du travail, le travail
+ * déjà fait est gardé, et la carte repartira seule.
+ */
+export const RAISON_PANNE_MOTEUR =
+  'Le moteur du fournisseur est tombé en panne et n’a pas repris après plusieurs essais : la carte repart en « Planifié » et sera relancée toute seule.';
+
 /* ------------------------------------------------------------------ */
 /* Ce que vaut un DÉPÔT de carte à la main                              */
 /* ------------------------------------------------------------------ */

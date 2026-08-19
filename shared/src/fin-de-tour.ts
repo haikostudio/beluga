@@ -30,6 +30,18 @@
  *   5. UN MOTEUR LANCÉ POUVAIT SE TAIRE POUR TOUJOURS. Processus bien vivant,
  *      aucun événement, aucune réponse écrite : là non plus aucun constat ne
  *      s'appliquait. C'est le même cul-de-sac, une étape plus loin.
+ *   6. LE STATUT RETOMBE AVANT QUE LE RANGEMENT SOIT FINI. Le démon remet
+ *      l'agent au repos (« terminé », « interrompu ») DÈS que la réponse est
+ *      rendue, puis continue son rangement : constat du dépôt, fusion de la
+ *      branche de la carte, fermeture de la copie de travail — des commandes
+ *      git, qui peuvent rester pendues sur un verrou. Or ce jugement commençait
+ *      par écarter tout agent qui n'était plus « au travail » : le constat 3 (la
+ *      réponse est figée depuis trop longtemps) ne pouvait donc PLUS JAMAIS
+ *      s'appliquer à cette fenêtre-là, la seule où il servait vraiment. La barre
+ *      « L'agent termine son tour… » restait allumée pour toujours au-dessus
+ *      d'une réponse pourtant complète, et la barre d'écriture avec elle.
+ *      Le portier ne regarde donc plus le seul statut : un tour encore SUIVI par
+ *      le démon dont la réponse est déjà figée est jugé comme les autres.
  *
  * Les seuils et le jugement vivent ici, sans base ni disque : c'est ce qui les
  * rend rejouables.
@@ -127,7 +139,16 @@ export interface TourBloque {
  * un agent qui réfléchit une heure travaille, il ne se bloque pas.
  */
 export function tourBloque(etat: EtatDuTour): TourBloque | null {
-  if (etat.statut !== 'running' && etat.statut !== 'starting') return null;
+  /*
+   * QUI A LE DROIT D'ÊTRE JUGÉ. Un agent au repos qui n'intéresse plus personne
+   * ne se referme pas : il n'y a rien à refermer. Mais un agent que le démon
+   * SUIT ENCORE alors que sa réponse est déjà figée est dans la fenêtre du
+   * rangement d'après-réponse — statut déjà retombé, tour bel et bien vivant —
+   * et c'est exactement là que le constat 3 doit pouvoir mordre.
+   */
+  const auTravail = etat.statut === 'running' || etat.statut === 'starting';
+  const rangementApresReponse = etat.suivi && etat.reponseFigeeDepuisMs !== undefined;
+  if (!auTravail && !rangementApresReponse) return null;
 
   // 1. Le démon ne suit plus ce tour : une panne interne a mangé sa fermeture,
   //    ou le tour appartient à un démon qui n'existe plus. Personne ne le
