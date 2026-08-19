@@ -714,6 +714,32 @@ function enchainerLaFile(agentId: string): void {
 }
 
 /**
+ * LES FILES QUE PLUS AUCUNE FIN DE TOUR NE VIENDRA DÉPILER.
+ *
+ * `enchainerLaFile` est appelée à chaque fin de tour : elle suffit tant qu'un
+ * tour a bel et bien tourné. Mais une demande peut entrer en file SANS qu'aucun
+ * tour ne parte — c'est le cas quand plus un seul compte n'a de quota
+ * (`preparerLeTour`). L'agent reste alors au repos, sa file pleine, et plus
+ * rien au monde ne la dépile : la demande attendait pour toujours.
+ *
+ * Ce filet la reprend, et RIEN D'AUTRE. Il ne réveille un agent que si un
+ * compte de son moteur est de nouveau disponible : sans quota, on ne relance
+ * pas un tour qui ne ferait qu'échouer et réécrire le même message toutes les
+ * quinze secondes. Un agent qui travaille ou qui prépare est laissé tranquille —
+ * son propre tour dépilera à sa fin.
+ */
+export async function reprendreLesFilesEnAttente(): Promise<void> {
+  for (const agent of store.listAgents()) {
+    if (live.has(agent.id) || demarrant.has(agent.id)) continue;
+    if (!store.listQueue(agent.id).length) continue;
+    const compte = await pickAccount(agent.run.engine).catch(() => null);
+    if (!compte) continue;
+    log.info(`file reprise : une demande attendait un quota (agent ${agent.id})`);
+    enchainerLaFile(agent.id);
+  }
+}
+
+/**
  * LE POINT DE PASSAGE UNIQUE (PLAN §9). Toutes les demandes partent d'ici :
  * chat, lancement de tâche, analyse, publication. Le gabarit est appliqué là,
  * donc aucun chemin ne peut y échapper.
@@ -823,6 +849,71 @@ async function preparerLeTour(
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
 
+  /*
+   * LE COMPTE SE CHOISIT AVANT TOUT LE RESTE — avant la demande écrite, avant
+   * la carte déplacée, avant le contexte.
+   *
+   * Le fil du moteur vit dans le COFFRE du compte : changer de compte, c'est
+   * repartir d'une conversation vide, que ce soit sur bascule automatique ou
+   * après une reprise pour limite atteinte. Or c'est plus bas que se décide ce
+   * qu'on envoie — briefing entier ou simple message de suite. Choisir le
+   * compte après, comme autrefois, revenait à préparer un message de suite pour
+   * un fil qui n'existait pas : le moteur refusait le `--resume`, et le travail
+   * en cours était perdu au lieu d'être poursuivi.
+   *
+   * ET IL SE CHOISIT MAINTENANT DEVANT LA CARTE, pas seulement devant le
+   * contexte. Sans quota, le tour ne partait JAMAIS — mais la bulle de la
+   * demande était déjà écrite, la carte déjà remontée en « En cours » avec sa
+   * marque de vol, et la demande, elle, purement PERDUE. Cinq minutes plus
+   * tard, le balayage des cartes oubliées la fermait en annonçant « Terminé »
+   * un travail que personne n'avait fait. Rien n'est donc touché tant qu'on ne
+   * sait pas qu'un moteur peut partir.
+   *
+   * Un compte IMPOSÉ passe devant : il vient d'un choix humain, revérifié à
+   * l'instant du clic. Le choix automatique retomberait sur le compte à sec,
+   * puisqu'il classe par priorité.
+   */
+  const compteImpose = options.compteImpose
+    ? listAccountRecords().find((a) => a.id === options.compteImpose && a.engine === agent.run.engine)
+    : undefined;
+  const account = compteImpose ?? (await pickAccount(agent.run.engine));
+  if (!account) {
+    /*
+     * LA DEMANDE N'EST PAS PERDUE : ELLE ATTEND EN FILE. C'est la file ordinaire
+     * de l'agent, celle qui repart d'elle-même dès qu'il se tait — ici, dès
+     * qu'un compte redevient disponible (`reprendreLesFilesEnAttente`, rejouée
+     * par le filet de veille toutes les quinze secondes). La bulle de la demande
+     * s'écrira au VRAI départ, une seule fois : elle n'a pas encore été écrite.
+     *
+     * SEULE UNE DEMANDE ORDINAIRE Y ENTRE. La file ne transporte qu'un texte et
+     * ses pièces jointes : un appel INTERNE (`silent`, ou porteur d'un
+     * `onComplete` — le lancement d'une carte, une relance du démon) y perdrait
+     * son gabarit, son chiffrage et son post-traitement, et sa consigne
+     * s'afficherait en clair comme un message écrit par l'utilisateur. Ces
+     * appels-là ont leur propre reprise (l'ordonnanceur relance une carte dont
+     * les portes dures ont refusé le quota) : on les laisse repartir par leur
+     * chemin, et on le DIT.
+     */
+    const parLaFile = !options.silent && !options.onComplete;
+    const enFile = parLaFile && store.enqueuePrompt(agentId, text, options.attachments ?? []);
+    if (enFile) bus.emit({ type: 'queue.snapshot', agentId, queue: store.listQueue(agentId) });
+    const message = store.saveMessage(
+      Message.parse({
+        id: store.newId(),
+        agentId,
+        role: 'assistant',
+        content: enFile
+          ? "Aucun compte n'a de quota disponible pour le moment. La demande attend en file : elle repartira toute seule dès la remise à zéro."
+          : "Aucun compte n'a de quota disponible : ce tour n'est jamais parti. Rien n'a été fait, et il faudra le relancer une fois le quota revenu.",
+        error: 'quota',
+        createdAt: store.now(),
+      }),
+    );
+    bus.emit({ type: 'message.upsert', message });
+    setStatus(agent, 'idle');
+    return;
+  }
+
   let userMessageId: string | undefined;
   if (!options.silent) {
     const userMessage = store.saveMessage(
@@ -842,42 +933,6 @@ async function preparerLeTour(
   // La carte quitte « Terminé » AVANT qu'on écrive la demande : le bloc de
   // contexte qui suit doit annoncer à l'agent la colonne où il repart.
   replacerCarteAuDemarrage(agent);
-
-  /*
-   * LE COMPTE SE CHOISIT AVANT LE CONTEXTE, PLUS APRÈS.
-   *
-   * Le fil du moteur vit dans le COFFRE du compte : changer de compte, c'est
-   * repartir d'une conversation vide, que ce soit sur bascule automatique ou
-   * après une reprise pour limite atteinte. Or c'est ICI que se décide ce qu'on
-   * envoie — briefing entier ou simple message de suite. Choisir le compte plus
-   * bas, comme avant, revenait à préparer un message de suite pour un fil qui
-   * n'existait pas : le moteur refusait le `--resume`, et le travail en cours
-   * était perdu au lieu d'être poursuivi.
-   *
-   * Un compte IMPOSÉ passe devant : il vient d'un choix humain, revérifié à
-   * l'instant du clic. Le choix automatique retomberait sur le compte à sec,
-   * puisqu'il classe par priorité.
-   */
-  const compteImpose = options.compteImpose
-    ? listAccountRecords().find((a) => a.id === options.compteImpose && a.engine === agent.run.engine)
-    : undefined;
-  const account = compteImpose ?? (await pickAccount(agent.run.engine));
-  if (!account) {
-    const message = store.saveMessage(
-      Message.parse({
-        id: store.newId(),
-        agentId,
-        role: 'assistant',
-        content:
-          "Aucun compte n'a de quota disponible pour le moment. La demande attend : elle repartira dès la remise à zéro.",
-        error: 'quota',
-        createdAt: store.now(),
-      }),
-    );
-    bus.emit({ type: 'message.upsert', message });
-    setStatus(agent, 'idle');
-    return;
-  }
 
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const template: TemplateKind =
@@ -2032,7 +2087,25 @@ async function startTurn(
   // Un moteur qui n'a jamais démarré (compte refusé, binaire absent) n'a rien
   // fait du tout : sa panne est déjà dite, celle du pont serait un faux motif.
   const etapesDuMoteur = [...runState.steps.keys()].filter((cle) => cle !== MEMORY_STEP_ID);
-  const moteurMuet = !result.ok && !etapesDuMoteur.length && !runState.text.trim();
+  /*
+   * « MUET » VEUT DIRE : LE LANCEMENT N'A JAMAIS JOINT LE MOTEUR — binaire
+   * introuvable, réseau coupé au démarrage du processus. C'est à ce titre, et à
+   * ce titre seul, que la carte repart en « Planifié » pour se relancer toute
+   * seule (`colonneApresMoteurMuet`).
+   *
+   * UNE LISTE DE TÂCHES ANNONCÉE EST UNE PAROLE. Elle ne crée pourtant ni étape
+   * ni texte : un moteur qui découpait son travail puis tombait était donc jugé
+   * « jamais joint ». Sa carte retournait en « Planifié », l'ordonnanceur la
+   * relançait d'elle-même — avec la demande D'ORIGINE, sans un mot de ce qui
+   * avait déjà été fait —, et le tableau annonçait une nouvelle tentative là où
+   * il y avait eu un vrai échec de TÂCHE, qui doit rester en « En cours » pour
+   * qu'on puisse le relire. Constaté par `scripts/verif-cycle-de-vie-carte.mjs`.
+   *
+   * Un lancement qui n'a pas abouti ne peut pas avoir produit de liste : la
+   * condition ne peut donc rien masquer d'un vrai moteur injoignable.
+   */
+  const moteurMuet =
+    !result.ok && !etapesDuMoteur.length && !runState.text.trim() && !runState.todos.length;
   if (!pont.ok && !moteurMuet) {
     runState.steps.set(ETAPE_PONT_ID, {
       id: ETAPE_PONT_ID,

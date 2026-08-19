@@ -37,11 +37,46 @@ test('la file n’est dépilée qu’en UN endroit, et jamais par-dessus un tour
 
 test('chaque fin de tour enchaîne la file — jusqu’à la préparation qui n’a lancé aucun moteur', () => {
   const enchainements = [...RUNTIME.matchAll(/enchainerLaFile\(/g)];
-  // La déclaration, plus les trois chemins de fin : tour rendu, fermeture
-  // d'autorité, et le filet de sendPrompt.
-  assert.equal(enchainements.length, 4, `attendu 4 mentions, trouvé ${enchainements.length}`);
+  // La déclaration, plus les trois chemins de fin (tour rendu, fermeture
+  // d'autorité, filet de sendPrompt), plus le filet de veille qui reprend la
+  // file d'un agent AU REPOS — celle qu'aucune fin de tour ne viendra dépiler.
+  assert.equal(enchainements.length, 5, `attendu 5 mentions, trouvé ${enchainements.length}`);
   const filet = RUNTIME.split('const preparation = prochainePreparation++;')[1].split('\nasync function preparerLeTour')[0];
   assert.match(filet, /enchainerLaFile\(agentId\);/, 'le filet de sendPrompt dépile aussi');
+});
+
+/* ------------------------------------------------------------------ */
+/* Une demande sans quota n'est ni perdue, ni annoncée « Terminé »     */
+/* ------------------------------------------------------------------ */
+
+test('le compte se choisit AVANT la bulle de la demande et AVANT la carte', () => {
+  const corps = RUNTIME.split('async function preparerLeTour(')[1];
+  const compte = corps.indexOf('await pickAccount(agent.run.engine)');
+  const bulle = corps.indexOf("role: 'user',");
+  const carte = corps.indexOf('replacerCarteAuDemarrage(agent);');
+  assert.ok(compte > 0 && bulle > 0 && carte > 0, 'les trois repères doivent exister');
+  assert.ok(compte < bulle, 'sans quota, aucune bulle de demande ne doit être écrite');
+  assert.ok(
+    compte < carte,
+    'sans quota, la carte ne doit pas remonter en « En cours » : le balayage la fermerait en « Terminé »',
+  );
+});
+
+test('sans quota, une demande ORDINAIRE attend en file au lieu d’être perdue', () => {
+  const bloc = RUNTIME.split('const account = compteImpose ?? (await pickAccount(agent.run.engine));')[1].split(
+    'let userMessageId',
+  )[0];
+  assert.match(bloc, /const parLaFile = !options\.silent && !options\.onComplete;/);
+  assert.match(bloc, /store\.enqueuePrompt\(agentId, text, options\.attachments \?\? \[\]\)/);
+});
+
+test('la file d’un agent AU REPOS est reprise, mais seulement quand un compte est disponible', () => {
+  const corps = RUNTIME.split('export async function reprendreLesFilesEnAttente(): Promise<void> {')[1].split(
+    '\n}',
+  )[0];
+  assert.match(corps, /if \(live\.has\(agent\.id\) \|\| demarrant\.has\(agent\.id\)\) continue;/);
+  assert.match(corps, /if \(!store\.listQueue\(agent\.id\)\.length\) continue;/);
+  assert.match(corps, /if \(!compte\) continue;/, 'sans quota, on ne relance aucun tour');
 });
 
 test('un nouvel essai après panne emporte le prompt du tour, jamais une consigne nue', () => {
@@ -51,4 +86,21 @@ test('un nouvel essai après panne emporte le prompt du tour, jamais une consign
   assert.match(bloc, /filNeuf: !filDuNouvelEssai,/);
   // Les étapes posées par le démon lui-même ne prouvent aucun travail du moteur.
   assert.match(RUNTIME, /cle !== MEMORY_STEP_ID && cle !== ETAPE_PANNE_ID/);
+});
+
+/* ------------------------------------------------------------------ */
+/* « Muet » veut dire « jamais joint », pas « tombé en travaillant »   */
+/* ------------------------------------------------------------------ */
+
+test('une liste de tâches annoncée empêche de juger le moteur « muet »', () => {
+  /*
+   * Un moteur qui découpe son travail puis tombe ne crée ni étape ni texte : il
+   * était donc pris pour un lancement jamais parti, sa carte repartait en
+   * « Planifié » et l'ordonnanceur la relançait de zéro. Constaté par
+   * `scripts/verif-cycle-de-vie-carte.mjs`.
+   */
+  assert.match(
+    RUNTIME,
+    /const moteurMuet =\n\s+!result\.ok && !etapesDuMoteur\.length && !runState\.text\.trim\(\) && !runState\.todos\.length;/,
+  );
 });

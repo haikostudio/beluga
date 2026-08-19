@@ -36,6 +36,7 @@ import {
   runningCount,
   runningAgentIds,
   veilleDesToursBloques,
+  reprendreLesFilesEnAttente,
 } from './runtime.js';
 import { rangerLesCartesOubliees } from './deplacement-carte.js';
 import { canStartAgent, snapshot } from './capacity.js';
@@ -750,6 +751,14 @@ export function passageDeVeille(): void {
   } catch (err) {
     log.error('rangement des cartes oubliées', err);
   }
+  /*
+   * LA FILE D'UN AGENT AU REPOS. Une demande empilée faute de quota n'a plus
+   * aucune fin de tour derrière elle pour la dépiler : ce troisième geste va la
+   * chercher. Il est le SEUL du filet à demander une lecture de quota, donc le
+   * seul qui attende — il part de côté pour ne pas retenir les deux autres, qui
+   * doivent rester strictement synchrones.
+   */
+  void reprendreLesFilesEnAttente().catch((err) => log.error('reprise des files en attente', err));
 }
 
 export function startVeille(): NodeJS.Timeout {
