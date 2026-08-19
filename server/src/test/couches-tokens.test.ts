@@ -5,6 +5,7 @@ import {
   coucheDExecution,
   ecartProjete,
   jetonsApproches,
+  jetonsMessageEnvoye,
   SIGNES_PAR_JETON,
   montantEnFrancs,
   projectionDeLExecution,
@@ -185,6 +186,33 @@ test('sans mesure d’envoi, la part reste indéfinie — jamais une division pa
 test('aucun bloc de mémoire : la part mémoire est à zéro, pas indisponible', () => {
   const blocks = [{ kind: 'request' as const, label: 'Demande utilisateur', characters: 200 }];
   assert.equal(repartitionMemoireEnvoi(blocks).memoireTokens, 0);
+});
+
+/*
+ * LE COMPTEUR SOUS LA BULLE D'UN MESSAGE UTILISATEUR NE CUMULE PLUS LE TOUR
+ * AGENTIQUE QUI SUIT. Un message de quelques phrases qui déclenche de
+ * nombreux allers-retours d'outils affichait le total FRAIS de tout le tour
+ * (des dizaines de milliers de jetons) — `jetonsMessageEnvoye` ne compte plus
+ * que ce qui a été assemblé pour CE message : le prompt et les blocs non mis
+ * en cache, indépendamment de ce que le moteur a fait ensuite.
+ */
+test('le poids d’un message écarte ce qui est rejoué depuis le cache', () => {
+  const contexte = {
+    prompt: 'Corrige ce bug.',
+    blocks: [
+      { kind: 'memory' as const, label: 'Index de la mémoire', characters: 4_000 },
+      { kind: 'system' as const, label: 'Consigne système complète', characters: 20_000, cached: true },
+    ],
+  };
+  assert.equal(jetonsMessageEnvoye(contexte), jetonsApproches('Corrige ce bug.'.length + 4_000));
+});
+
+test('le poids d’un message ne dépend jamais de ce que le tour a coûté après coup', () => {
+  const contexteCourt = { prompt: 'Ok, merci.', blocks: [] };
+  // Même si le tour qui a suivi a enchaîné des dizaines d'appels d'outils
+  // (donc un `usage.inputTokens` de plusieurs dizaines de milliers), le poids
+  // du message reste celui de ce qui a été envoyé pour LE DÉCLENCHER.
+  assert.ok(jetonsMessageEnvoye(contexteCourt) < 100);
 });
 
 test('sans passage, la raison dit la reprise de session en premier', () => {

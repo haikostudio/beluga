@@ -946,7 +946,11 @@ export const Message = z.object({
   streaming: z.boolean().default(false),
   /** Vrai quand ce message a été écrit en mode plan (RunConfig.mode) : l'interface le montre dans un cadre dédié. */
   plan: z.boolean().default(false),
-  /** Jetons associés au message : entrée moteur sur la demande, total du tour sur la réponse. */
+  /**
+   * Jetons associés au message : le poids ESTIMÉ de ce message précis sur une
+   * demande (`jetonsMessageEnvoye`, jamais le cumul du tour agentique qui a
+   * suivi), le total RÉEL du tour sur la réponse.
+   */
   tokens: z.number().optional(),
   /** Ce que HaikoDev a réellement transmis pour cette demande utilisateur. */
   sentContext: SentContextSnapshot.optional(),
