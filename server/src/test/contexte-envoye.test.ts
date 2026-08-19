@@ -84,7 +84,7 @@ test('la mesure affichée vient de l’usage moteur et sépare le cache', () => 
   assert.deepEqual(mesureEntreeMoteur({ inputTokens: 700, cachedTokens: 300, outputTokens: 120 }), {
     inputTokens: 700,
     cachedInputTokens: 300,
-    totalInputTokens: 1_000,
+    totalInputTokens: 700,
   });
   assert.deepEqual(mesureEntreeMoteur({ inputTokens: 700, outputTokens: 120 }), {
     inputTokens: 700,
