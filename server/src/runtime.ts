@@ -76,7 +76,12 @@ import {
   jugerLeFond,
   AVERTISSEMENT_SANS_CARTE,
   carteAnnonceeSansOutil,
+  carteDecriteEnTexte,
   consigneDeCarteReelle,
+  consigneDeDernierRappel,
+  MIN_SIGNES_CARTE_COURTE,
+  NIVEAU_PAR_DEFAUT,
+  type CarteRelue,
   consigneDePlanEntier,
   consigneDePlanPlusFouille,
   nomDeBranche,
@@ -127,7 +132,7 @@ import {
 } from './memory.js';
 import { rechercherPourLaSuite, rechercherPourLaTache } from './passages.js';
 import { allDone, mergeTodos } from './todos.js';
-import { orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
+import { callTool, orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
   AccountRecord,
   pickAccount,
@@ -2309,37 +2314,70 @@ async function startTurn(
     texte: finalText,
   });
   if (phraseDeCarte) {
-    runState.steps.set(ETAPE_CARTE_ID, {
-      id: ETAPE_CARTE_ID,
-      label: `${ETAPE_CARTE} — annoncée en texte, sans appel d'outil`,
-      state: 'running',
-      startedAt: Date.now(),
-    });
+    const debutRattrapage = Date.now();
+    const carteNee = () => (store.getMessage(runState.messageId)?.proposals.length ?? 0) > 0;
+    const poserLetape = (label: string, state: 'running' | 'done' | 'failed') => {
+      runState.steps.set(ETAPE_CARTE_ID, {
+        id: ETAPE_CARTE_ID,
+        label: `${ETAPE_CARTE} — ${label}`,
+        state,
+        startedAt: debutRattrapage,
+        ...(state === 'running' ? {} : { endedAt: Date.now() }),
+      });
+    };
+    const relancer = (consigne: string) =>
+      exigerLappelDeLoutil({
+        adapter,
+        cwd,
+        projectRoot,
+        agent,
+        sessionId: store.getSessionId(agent.id, cleSession),
+        mcpConfigPath,
+        mcpBridgePath: bridgePath,
+        fullAccess,
+        env,
+        allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
+        disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+        consigne,
+      }).catch(() => '');
+
+    poserLetape("annoncée en texte, sans appel d'outil", 'running');
     pushMessage(runState, { steps: [...runState.steps.values()] });
     log.warn(`carte annoncée sans outil par l'agent ${agent.id} : relance`);
-    await exigerLappelDeLoutil({
-      adapter,
-      cwd,
-      projectRoot,
-      agent,
-      sessionId: store.getSessionId(agent.id, cleSession),
-      mcpConfigPath,
-      mcpBridgePath: bridgePath,
-      fullAccess,
-      env,
-      allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
-      disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
-      consigne: consigneDeCarteReelle(phraseDeCarte),
-    }).catch(() => {});
-    const nee = (store.getMessage(runState.messageId)?.proposals.length ?? 0) > 0;
-    runState.steps.set(ETAPE_CARTE_ID, {
-      id: ETAPE_CARTE_ID,
-      label: nee ? `${ETAPE_CARTE} — carte posée après reprise` : `${ETAPE_CARTE} — aucune carte, même après reprise`,
-      state: nee ? 'done' : 'failed',
-      startedAt: Date.now(),
-      endedAt: Date.now(),
-    });
-    if (!nee) finalText += AVERTISSEMENT_SANS_CARTE;
+
+    /* 1. LA RELANCE. Le modèle garde la main : c'est lui qui écrit le mieux
+     *    les arguments de sa propre carte. */
+    let dernierTexte = await relancer(consigneDeCarteReelle(phraseDeCarte));
+    let issue = carteNee() ? 'carte posée après reprise' : '';
+
+    /* 2. LE FILET DU DÉMON, tout de suite après — il est INSTANTANÉ et ne
+     *    dépend d'aucun modèle. Quand la réponse (ou la relance) DÉCRIT une
+     *    carte, HaikoDev la relit et appelle l'outil lui-même. La proposition
+     *    garde ses boutons : rien n'entre sur le tableau sans le clic. */
+    if (!issue) {
+      const relue = carteDecriteEnTexte(dernierTexte) ?? carteDecriteEnTexte(finalText);
+      if (relue && (await poserLaCarteRelue(agent, project.id, relue))) {
+        issue = 'carte posée par HaikoDev, relue dans le texte';
+      }
+    }
+
+    /* 3. LE DERNIER RAPPEL, réservé au cas où la réponse ne décrivait AUCUNE
+     *    carte relisible : on n'invente pas, on redemande — en disant cette
+     *    fois ce que l'outil exige d'une description. */
+    if (!issue) {
+      dernierTexte = await relancer(consigneDeDernierRappel(MIN_SIGNES_CARTE_COURTE));
+      if (carteNee()) issue = 'carte posée au dernier rappel';
+      else {
+        const relue = carteDecriteEnTexte(dernierTexte);
+        if (relue && (await poserLaCarteRelue(agent, project.id, relue))) {
+          issue = 'carte posée par HaikoDev, relue dans le texte';
+        }
+      }
+    }
+
+    poserLetape(issue || 'aucune carte, même après deux reprises', issue ? 'done' : 'failed');
+    if (!issue) finalText += AVERTISSEMENT_SANS_CARTE;
+    else log.info(`rattrapage de carte pour l'agent ${agent.id} : ${issue}`);
   }
 
   // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
@@ -2983,7 +3021,14 @@ async function exigerLappelDeLoutil(options: {
   allowedTools?: string[];
   disallowedTools?: string[];
   consigne: string;
-}): Promise<void> {
+}): Promise<string> {
+  /*
+   * LE TEXTE DE LA RELANCE EST GARDÉ, il ne se jette plus. Un modèle qui
+   * recommence à ÉCRIRE sa carte au lieu de l'appeler vient de nous la donner
+   * en toutes lettres : c'est exactement ce qu'il faut au filet du démon
+   * (`carteDecriteEnTexte`) pour appeler l'outil à sa place.
+   */
+  let texte = '';
   const handle = options.adapter.run({
     cwd: options.cwd,
     projectRoot: options.projectRoot,
@@ -3002,9 +3047,52 @@ async function exigerLappelDeLoutil(options: {
     // d'origine et son avertissement.
     plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
     surLancement: suivreLeService(options.agent.id),
-    onEvent: () => {},
+    onEvent: (event) => {
+      if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
+    },
   });
   await handle.finished;
+  return texte.trim();
+}
+
+/**
+ * LE FILET : LE DÉMON APPELLE L'OUTIL À LA PLACE DU MODÈLE.
+ *
+ * On ne peut pas obliger un moteur à appeler un outil ; on peut faire le geste
+ * pour lui. Quand la réponse DÉCRIT une carte (`carteDecriteEnTexte`), le démon
+ * passe par le MÊME outil que l'agent — `board_create_card`, avec ses règles :
+ * la description est jugée, le niveau traduit en réglages, la proposition
+ * s'attache au message du tour. Rien n'est écrit sur le tableau pour autant :
+ * une proposition attend toujours le clic de l'utilisateur.
+ *
+ * On rend `false` quand l'outil refuse (une description trop maigre reste
+ * refusée, d'où qu'elle vienne) : la suite du rattrapage prend alors le relais.
+ */
+async function poserLaCarteRelue(agent: Agent, projectId: string, relue: CarteRelue): Promise<boolean> {
+  try {
+    const resultat = await callTool(
+      {
+        agentId: agent.id,
+        projectId,
+        role: agent.role,
+        cardId: agent.cardId,
+        run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
+        mode: agent.run.mode,
+      },
+      'board_create_card',
+      { title: relue.titre, description: relue.description, niveau: relue.niveau ?? NIVEAU_PAR_DEFAUT },
+    );
+    if (!resultat.proposal) {
+      log.warn(`carte relue refusée par l'outil pour l'agent ${agent.id} : ${resultat.text.slice(0, 200)}`);
+      return false;
+    }
+    const messageId = attachToCurrentMessage(agent.id, { proposal: resultat.proposal });
+    store.saveProposal(messageId ?? '', projectId, resultat.proposal);
+    return true;
+  } catch (error) {
+    log.warn(`carte relue non posée pour l'agent ${agent.id} : ${(error as Error).message}`);
+    return false;
+  }
 }
 
 /** Tout ce que la relance n'a pas à toucher : elle ne rend qu'un texte. */
