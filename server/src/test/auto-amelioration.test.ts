@@ -140,7 +140,7 @@ test('la consigne interdit de modifier quoi que ce soit et plafonne les proposit
 
 test('la consigne exige une intro simple et ludique avant le Constat technique', () => {
   const consigne = consigneDAutoAmelioration('HaikoDev');
-  assert.match(consigne, /champ « intro »/, 'le champ à remplir est nommé');
+  assert.match(consigne, /CHAMP « intro »/, 'le champ à remplir est nommé');
   assert.match(consigne, /sans jargon ni chemin de fichier/, 'l’intro doit rester lisible par un non-technicien');
 });
 
