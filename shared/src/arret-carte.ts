@@ -93,3 +93,25 @@ export function boutonsBarreEcriture(entree: {
  */
 export const RAISON_ARRETE_A_LA_MAIN =
   'Agent arrêté à la main : la file est vidée, la carte ne repartira que sur votre geste.';
+
+/**
+ * OÙ VA LA CARTE DONT ON VIENT D'ARRÊTER L'AGENT ?
+ *
+ * Le bouton d'arrêt ne changeait que la PHRASE de la carte : elle restait dans
+ * « En cours », sans agent au travail et sans rien qui viendrait la ranger — le
+ * balayage de l'ordonnanceur (`issueDeCarteOubliee`) s'interdit justement d'y
+ * toucher quand le dernier tour s'est arrêté. Le tableau montrait donc une
+ * tâche « en cours » que plus rien ne faisait avancer.
+ *
+ * Or le MÊME geste existait déjà ailleurs, et lui rangeait la carte : sortir
+ * une carte de « En cours » vers « Planifié » à la souris (`effetDuDepot`,
+ * effet « suspendre »). Deux chemins pour un seul geste, deux résultats
+ * différents. Le bouton suit maintenant la souris : la carte retombe en
+ * « Planifié », suspendue, et n'en repartira que sur un geste.
+ *
+ * Une carte qui n'était pas en « En cours » ne bouge pas : il n'y a rien à
+ * ramener en arrière.
+ */
+export function colonneApresArretALaMain(colonne: string): 'planned' | null {
+  return colonne === 'running' ? 'planned' : null;
+}

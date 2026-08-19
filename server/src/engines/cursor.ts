@@ -28,7 +28,7 @@ import {
   type EtatCompteCursor,
   type ModeleCursorCli,
 } from '@haikodev/shared';
-import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, humanStep, normalizeTodos } from './types.js';
+import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, ResultatDuMoteur, humanStep, normalizeTodos } from './types.js';
 import { arreterProcessus, finDuProcessus } from './fin-de-processus.js';
 import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
@@ -393,6 +393,9 @@ export const cursorAdapter: EngineAdapter = {
     const pendingSteps = new Map<string, string>();
     let buffer = '';
     let stderr = '';
+    // Une seule ligne du protocole prouve que le moteur a démarré : c'est le
+    // signal explicite rendu au démon, à la place d'une déduction par absences.
+    let aParle = false;
 
     const handleLine = (line: string) => {
       const trimmed = line.trim();
@@ -403,6 +406,7 @@ export const cursorAdapter: EngineAdapter = {
       } catch {
         return;
       }
+      aParle = true;
       emitFromCursor(event, options.onEvent, pendingSteps);
     };
 
@@ -416,7 +420,7 @@ export const cursorAdapter: EngineAdapter = {
      * dossier ne peut écraser `.cursor/mcp.json` pendant que CE `cursor-agent`
      * le lit encore.
      */
-    const finished = avecVerrouCwd(options.cwd, async (): Promise<{ ok: boolean; error?: string }> => {
+    const finished = avecVerrouCwd(options.cwd, async (): Promise<ResultatDuMoteur> => {
       poserLaConfigurationMcp(options.cwd, options.mcpConfigPath);
 
       const modele = idCursorPourNiveau(
@@ -426,7 +430,9 @@ export const cursorAdapter: EngineAdapter = {
       );
       if (arrete) {
         options.onEvent({ kind: 'done', exitCode: 1 });
-        return { ok: false, error: 'Tour arrêté à la demande.' };
+        // Arrêté avant même le lancement : le moteur n'a jamais démarré, et ce
+        // n'est pas au démon de le deviner.
+        return { ok: false, error: 'Tour arrêté à la demande.', jamaisDemarre: true };
       }
 
       const child = spawn(cursorAdapter.binary, buildCursorArgs(options, modele), {
@@ -464,7 +470,7 @@ export const cursorAdapter: EngineAdapter = {
             : raisonDeLaSortieCursor(stderr, code);
           if (!ok) options.onEvent({ kind: 'error', error: message });
           options.onEvent({ kind: 'done', exitCode: code ?? -1 });
-          return { ok, error: ok ? undefined : message.slice(0, 500) };
+          return { ok, error: ok ? undefined : message.slice(0, 500), jamaisDemarre: !ok && !aParle };
         },
       });
     });
@@ -495,7 +501,8 @@ export const cursorAdapter: EngineAdapter = {
 function tourImpossible(options: EngineRunOptions, raison: string): EngineHandle {
   options.onEvent({ kind: 'error', error: raison });
   options.onEvent({ kind: 'done', exitCode: 1 });
-  return { stop: () => undefined, finished: Promise.resolve({ ok: false, error: raison }) };
+  // Le CLI n'a même pas été lancé : le moteur n'a jamais démarré, il le DIT.
+  return { stop: () => undefined, finished: Promise.resolve({ ok: false, error: raison, jamaisDemarre: true }) };
 }
 
 /**

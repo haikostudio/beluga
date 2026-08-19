@@ -2093,19 +2093,24 @@ async function startTurn(
    * ce titre seul, que la carte repart en « Planifié » pour se relancer toute
    * seule (`colonneApresMoteurMuet`).
    *
-   * UNE LISTE DE TÂCHES ANNONCÉE EST UNE PAROLE. Elle ne crée pourtant ni étape
-   * ni texte : un moteur qui découpait son travail puis tombait était donc jugé
-   * « jamais joint ». Sa carte retournait en « Planifié », l'ordonnanceur la
-   * relançait d'elle-même — avec la demande D'ORIGINE, sans un mot de ce qui
-   * avait déjà été fait —, et le tableau annonçait une nouvelle tentative là où
-   * il y avait eu un vrai échec de TÂCHE, qui doit rester en « En cours » pour
-   * qu'on puisse le relire. Constaté par `scripts/verif-cycle-de-vie-carte.mjs`.
+   * ET C'EST LE MOTEUR QUI LE DIT, PLUS LE DÉMON QUI LE DEVINE. L'adaptateur est
+   * le seul à savoir : il a lu, ou n'a pas lu, une ligne du protocole
+   * (`ResultatDuMoteur.jamaisDemarre`). On en déduisait la même chose par un
+   * faisceau d'ABSENCES — pas d'étape, pas de texte, pas de liste de tâches —
+   * et ce faisceau se trompait dès qu'un moteur parlait sans rien produire de
+   * visible : un tour qui annonçait sa liste de tâches puis tombait passait pour
+   * « jamais joint », sa carte retournait en « Planifié » et l'ordonnanceur la
+   * relançait de zéro, avec la demande D'ORIGINE, alors qu'il y avait eu un
+   * vrai échec de TÂCHE à relire. Constaté par
+   * `scripts/verif-cycle-de-vie-carte.mjs`.
    *
-   * Un lancement qui n'a pas abouti ne peut pas avoir produit de liste : la
-   * condition ne peut donc rien masquer d'un vrai moteur injoignable.
+   * Le faisceau reste en REPLI, et rien de plus : il ne sert qu'à un adaptateur
+   * qui ne dirait rien du tout.
    */
-  const moteurMuet =
-    !result.ok && !etapesDuMoteur.length && !runState.text.trim() && !runState.todos.length;
+  const jamaisDemarre =
+    result.jamaisDemarre ??
+    (!etapesDuMoteur.length && !runState.text.trim() && !runState.todos.length);
+  const moteurMuet = !result.ok && jamaisDemarre;
   if (!pont.ok && !moteurMuet) {
     runState.steps.set(ETAPE_PONT_ID, {
       id: ETAPE_PONT_ID,
