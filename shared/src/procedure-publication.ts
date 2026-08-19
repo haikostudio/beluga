@@ -145,14 +145,21 @@ export const DEBUT_PROCEDURE = '<<<PROCEDURE';
 export const FIN_PROCEDURE = 'PROCEDURE>>>';
 
 /** Ce que l'agent a rendu : une question de plus, ou la procédure écrite. */
-export type ReponseDeProcedure = { question: string; procedure?: undefined } | { procedure: string; question?: undefined };
+export type ReponseDeProcedure =
+  | { question: string; procedure?: undefined; resume?: undefined }
+  | { procedure: string; question?: undefined; resume?: string };
+
+/** Ce qu'on garde de l'explication qui précède la procédure : de quoi la lire d'un coup d'œil. */
+export const RESUME_MAX = 1200;
 
 /**
  * Lit la réponse de l'agent.
  *
- * Le bloc encadré gagne toujours : un agent qui écrit la procédure peut la faire
- * précéder d'une phrase, elle n'est alors qu'un accompagnement. Sans bloc, tout
- * le texte est une question — y compris quand l'agent propose des options.
+ * Le bloc encadré gagne toujours : un agent qui écrit la procédure la fait
+ * précéder de son EXPLICATION — ce qu'il a constaté du projet et ce qu'il a
+ * décidé, en français simple. Ce texte-là n'est plus jeté : c'est la seule
+ * chose que l'utilisateur a à lire pour savoir ce qui a été choisi pour lui.
+ * Sans bloc, tout le texte est une question.
  */
 export function lireReponseDeProcedure(brut: string): ReponseDeProcedure {
   const propre = (brut ?? '').trim();
@@ -160,7 +167,8 @@ export function lireReponseDeProcedure(brut: string): ReponseDeProcedure {
   const fin = propre.lastIndexOf(FIN_PROCEDURE);
   if (debut !== -1 && fin > debut) {
     const procedure = propre.slice(debut + DEBUT_PROCEDURE.length, fin).trim();
-    if (procedure) return { procedure: procedure.slice(0, PROCEDURE_MAX) };
+    const resume = propre.slice(0, debut).trim().slice(0, RESUME_MAX);
+    if (procedure) return { procedure: procedure.slice(0, PROCEDURE_MAX), resume: resume || undefined };
   }
   return { question: propre };
 }
@@ -192,36 +200,58 @@ function perimetre(cible: CiblePublication): string[] {
 }
 
 /**
- * LE PREMIER TOUR : l'agent lit le projet et DEMANDE quelle procédure on veut.
+ * LE PREMIER TOUR : l'agent ANALYSE le projet et ÉCRIT la procédure lui-même.
  *
- * Il ne propose pas dans le vide : il a lu le dossier, il sait s'il y a un
- * service, un script de construction, un dossier servi. Sa question tient en
- * quelques lignes et se répond en une phrase — c'est un tiroir, pas un
- * formulaire.
+ * IL NE FAIT PLUS TRANCHER L'UTILISATEUR. L'ouverture posait une question avec
+ * deux ou trois pistes TECHNIQUES — reconstruire sur place, récupérer une
+ * version déjà construite depuis le dépôt, faire passer les contrôles — et
+ * personne, hors développeur, ne peut choisir entre elles : il faut connaître
+ * les scripts du projet, son service système et son dossier servi pour savoir
+ * laquelle est la bonne. Or l'agent, lui, vient justement de les lire.
+ *
+ * Il tranche donc, et il rend deux choses : une EXPLICATION courte, en français
+ * simple, de ce qu'il a constaté et de ce qu'il a décidé, puis la procédure
+ * entre ses deux repères — enregistrée dans la foulée. Il ne reste à
+ * l'utilisateur qu'à lire, et à écrire ce qu'il veut changer s'il n'est pas
+ * d'accord.
+ *
+ * UNE SEULE CHOSE PEUT ENCORE ARRÊTER L'AGENT : une information que le projet
+ * ne porte NULLE PART et que lui seul détient — typiquement l'adresse et
+ * l'accès du serveur du client pour une mise en production. Elle se demande
+ * alors en langage courant, jamais comme un choix entre deux techniques.
  */
-export function promptOuvertureProcedure(cible: CiblePublication, ctx: ContexteDeProcedure): string {
+export function promptAnalyseProcedure(cible: CiblePublication, ctx: ContexteDeProcedure): string {
   const lignes: (string | null)[] = [
-    `Tu prépares la procédure de ${titreDeLaProcedure(cible).toUpperCase()} du projet « ${ctx.projet} ». Pour l’instant, tu ne fais que POSER LA QUESTION.`,
+    `Tu écris la procédure de ${titreDeLaProcedure(cible).toUpperCase()} du projet « ${ctx.projet} ». Tu l’écris TOI-MÊME, à partir de ce que tu constates : la personne en face n’est pas informaticienne et ne doit trancher AUCUN choix technique.`,
     '',
     ...perimetre(cible),
     '',
     `Dossier du projet : ${ctx.dossier}`,
     ctx.devUrl ? `Adresse de l’instance de dev réglée : ${ctx.devUrl}` : 'Aucune adresse d’instance de dev n’est réglée.',
     ctx.actuelle
-      ? ['Une procédure est DÉJÀ en place — tu vas la MODIFIER, pas repartir de zéro :', '--- procédure actuelle ---', ctx.actuelle, '--- fin ---'].join('\n')
+      ? ['Une procédure est DÉJÀ en place — tu la reprends et tu l’améliores, tu ne repars pas de zéro :', '--- procédure actuelle ---', ctx.actuelle, '--- fin ---'].join('\n')
       : 'Aucune procédure n’existe encore pour cette étape.',
     '',
-    'Va LIRE le projet avant de parler : fichiers de configuration, scripts de construction, service système, documentation, adresse servie. Ne modifie rien, ne lance aucune publication.',
+    'D’ABORD, LIS LE PROJET. Ne modifie rien, ne lance aucune publication. Regarde au moins :',
+    '- les fichiers de configuration et les scripts déclarés (construction, tests, démarrage) ;',
+    '- un éventuel service système, conteneur, ou gestionnaire de processus ;',
+    '- le serveur web ou le proxy qui sert le projet, et le dossier réellement servi ;',
+    '- la documentation du dépôt, et ce qu’elle dit d’une mise en ligne.',
     '',
-    'Puis écris, en français simple et pour un lecteur non technique :',
-    '- une phrase qui dit ce que tu as constaté du projet ;',
-    `- LA question : comment cette étape doit-elle se passer pour ce projet ?`,
-    '- deux ou trois pistes courtes, en liste, tirées de ce que tu as vraiment vu (jamais inventées).',
+    'ENSUITE, TRANCHE TOI-MÊME les choix techniques d’après ce que tu as vu : construire sur place ou reprendre une version déjà construite, faire passer les contrôles ou non, redémarrer un service ou recharger un dossier servi. Prends ce que le projet rend le plus sûr. Si le projet ne dit rien sur un point, prends le parti le plus prudent et le plus courant — tu ne demandes pas.',
     '',
-    'Reste sous 1200 signes. Ne rends AUCUN bloc de procédure à ce tour-ci : on attend la réponse de l’utilisateur.',
+    'ENFIN, RENDS DEUX CHOSES, dans cet ordre et rien d’autre :',
+    '1. une explication de 5 lignes au plus, en français simple et sans jargon : ce que tu as constaté du projet, et ce que tu as décidé pour cette étape (avec, en une phrase, pourquoi) ;',
+    '2. la procédure, enfermée entre les deux repères ci-dessous : les gestes DANS L’ORDRE, un par ligne, en français simple ; ce qu’il faut contrôler et à quoi on voit que c’est réellement en ligne ; ce qu’il ne faut surtout pas faire.',
     '',
-    'Ta question s’affiche DANS LE TIROIR ouvert en bas de l’écran, et c’est là qu’on te répond — que tu l’écrives en texte ou que tu passes par l’outil « ask_user ». Si tu passes par l’outil, la réponse te revient dans le MÊME tour : écris alors la procédure aussitôt, enfermée entre ces deux repères et rien d’autre autour —',
-    `${DEBUT_PROCEDURE} …la procédure… ${FIN_PROCEDURE}`,
+    DEBUT_PROCEDURE,
+    '…la procédure…',
+    FIN_PROCEDURE,
+    '',
+    'Le code sera DÉJÀ fusionné, enregistré et envoyé sur le dépôt quand cette procédure servira : n’y mets aucune manœuvre git de fusion ou d’envoi, HaikoDev s’en charge.',
+    `Reste sous ${PROCEDURE_MAX} signes. Tu ne DÉPLOIES rien et ne modifies aucun fichier : tu ne fais que LIRE et RÉDIGER.`,
+    '',
+    'TU NE POSES AUCUNE QUESTION TECHNIQUE. Une seule chose peut t’arrêter : une information que le projet ne porte NULLE PART et que la personne est seule à connaître (l’adresse ou l’accès du serveur du client, par exemple). Dans ce cas SEULEMENT, pose UNE question courte avec l’outil « ask_user », en français simple, avec des choix rédigés en langage courant — jamais un choix entre deux techniques. La réponse te revient dans le MÊME tour : écris alors la procédure aussitôt, dans la forme ci-dessus. Ta question s’affiche DANS LE TIROIR ouvert en bas de l’écran, et c’est là qu’on te répond.',
   ];
   return lignes.filter((ligne): ligne is string => ligne !== null).join('\n');
 }
@@ -244,12 +274,13 @@ export function promptReponseProcedure(cible: CiblePublication, reponse: string)
     'Reste FIDÈLE à sa réponse : tu la mets en forme et tu la précises avec ce que tu as lu du projet, tu n’inventes aucune étape qu’elle ne dit pas.',
     'Le code sera DÉJÀ fusionné, enregistré et envoyé sur le dépôt quand cette procédure servira : n’y mets aucune manœuvre git de fusion ou d’envoi, HaikoDev s’en charge.',
     '',
-    `Rends-la enfermée entre ces deux repères, seule et sans bloc de code autour :`,
+    `Écris d’abord une explication de 5 lignes au plus, en français simple et sans jargon : ce que tu as retenu et ce que tu as décidé. Rends ENSUITE la procédure, enfermée entre ces deux repères, sans bloc de code autour :`,
     DEBUT_PROCEDURE,
     '…la procédure…',
     FIN_PROCEDURE,
     '',
-    `S’il te manque VRAIMENT une information sans laquelle la procédure serait fausse, pose une seule question courte à la place, sans aucun repère. Reste sous ${PROCEDURE_MAX} signes. Tu ne DÉPLOIES rien et ne modifies aucun fichier : tu ne fais que RÉDIGER.`,
+    'Tranche toi-même tout ce qui est technique : la personne en face n’est pas informaticienne.',
+    `S’il te manque VRAIMENT une information que le projet ne porte NULLE PART et qu’elle est seule à connaître, pose une seule question courte à la place, en langage courant et sans aucun repère. Reste sous ${PROCEDURE_MAX} signes. Tu ne DÉPLOIES rien et ne modifies aucun fichier : tu ne fais que RÉDIGER.`,
   ].join('\n');
 }
 
@@ -295,12 +326,13 @@ export function promptModificationProcedure(
     'Le code sera DÉJÀ fusionné, enregistré et envoyé sur le dépôt quand cette procédure servira : n’y mets aucune manœuvre git de fusion ou d’envoi, HaikoDev s’en charge.',
     'Ne modifie aucun fichier et ne déploie rien : tu ne fais que RÉDIGER.',
     '',
-    'Rends-la enfermée entre ces deux repères, seule et sans bloc de code autour :',
+    'Écris d’abord une explication de 5 lignes au plus, en français simple et sans jargon : ce que tu as changé et pourquoi. Rends ENSUITE la procédure ENTIÈRE, enfermée entre ces deux repères, sans bloc de code autour :',
     DEBUT_PROCEDURE,
     '…la procédure…',
     FIN_PROCEDURE,
     '',
-    `S’il te manque VRAIMENT une information sans laquelle la procédure serait fausse, pose une seule question courte avec l’outil « ask_user » et attends la réponse. Reste sous ${PROCEDURE_MAX} signes.`,
+    'Tranche toi-même tout ce qui est technique : la personne en face n’est pas informaticienne, elle ne choisit pas entre deux façons de construire ou de redémarrer.',
+    `S’il te manque VRAIMENT une information que le projet ne porte NULLE PART et qu’elle est seule à connaître, pose une seule question courte avec l’outil « ask_user », en langage courant, et attends la réponse. Reste sous ${PROCEDURE_MAX} signes.`,
   ];
   return lignes.join('\n');
 }
@@ -456,7 +488,11 @@ export const RAISON_TOUR_PERDU =
   'Le tour de l’agent ne tourne plus (serveur redémarré, ou agent arrêté). Rien n’a été écrit : relancez la question.';
 
 /** Ce qu'un tour d'agent a rendu : une question, la procédure, ou un échec dit en clair. */
-export type IssueDuTour = { question: string } | { procedure: string } | { raison: string };
+export type IssueDuTour =
+  | { question: string }
+  /** La procédure, et l'explication en français simple qui la précédait. */
+  | { procedure: string; resume?: string }
+  | { raison: string };
 
 /**
  * L'ISSUE D'UN TOUR, décidée en un seul endroit.
@@ -473,7 +509,7 @@ export function issueDuTour(input: { contenu?: string; statut?: string; erreur?:
   const contenu = (input.contenu ?? '').trim();
   if (!contenu) return { raison: 'L’agent n’a rien rendu : aucune question, aucune procédure.' };
   const lue = lireReponseDeProcedure(contenu);
-  return lue.procedure ? { procedure: lue.procedure } : { question: lue.question ?? contenu };
+  return lue.procedure ? { procedure: lue.procedure, resume: lue.resume } : { question: lue.question ?? contenu };
 }
 
 /**
@@ -484,12 +520,12 @@ export function issueDuTour(input: { contenu?: string; statut?: string; erreur?:
 export function mentionProcedureEnPlace(cible: CiblePublication): string {
   return (
     `Une procédure de ${titreDeLaProcedure(cible).toLowerCase()} est déjà en place : aucun agent n’a été ` +
-    'lancé. Écrivez ci-dessous ce que vous voulez y changer, ou reposez la question depuis le début.'
+    'lancé. Écrivez ci-dessous ce que vous voulez y changer, ou faites relire le projet depuis le début.'
   );
 }
 
-/** Le bouton qui, lui, paie un tour : on ne repose la question que si on le veut. */
-export const LIBELLE_REPOSER_LA_QUESTION = 'Reposer la question depuis le début';
+/** Le bouton qui, lui, paie un tour : l'agent relit tout le projet et réécrit. */
+export const LIBELLE_REFAIRE_ANALYSE = 'Refaire l’analyse du projet';
 
 /** L'état de la procédure, dit en une ligne dans le tiroir. */
 export function mentionProcedure(cible: CiblePublication, procedure: string): string {

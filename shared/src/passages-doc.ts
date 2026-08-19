@@ -646,6 +646,58 @@ export const PASSAGES_PAR_SOURCE_MAX = 3;
 export const SCORE_MINIMUM = 0.14;
 
 /**
+ * LE SEUIL RELATIF : CE QU'UN PASSAGE DOIT PESER FACE AU MIEUX PLACÉ.
+ *
+ * Un seuil ABSOLU seul ne peut pas trancher, parce qu'il doit servir deux cas
+ * opposés. Sur une demande qui tombe pile, le mieux placé sort à 0,45 et le
+ * septième à 0,15 : ce septième n'a plus rien à voir avec la question, mais il
+ * passe. Sur une demande vague, tout le classement tient entre 0,16 et 0,20 :
+ * relever le seuil absolu assez haut pour couper le premier cas viderait le
+ * second, où les passages sont pourtant les meilleurs qu'on ait.
+ *
+ * On ajoute donc une seconde condition, SANS ÉCHELLE : un passage n'entre que
+ * s'il pèse au moins cette part du MIEUX PLACÉ de son propre classement. Le
+ * premier passe toujours — il est sa propre référence —, et ce sont les traînards
+ * qui tombent, ceux dont le score dit qu'ils croisent la question au lieu d'y
+ * répondre. C'est exactement le cas signalé : deux faits remontés, un seul en
+ * rapport avec la demande.
+ *
+ * La valeur est MESURÉE, pas devinée. `scripts/audit-memoire-rag.mjs` la balaie
+ * sur les DEUX terrains où elle s'applique, avec la vérité de terrain venue de
+ * git — les fichiers que chaque carte a réellement modifiés. Relevé du
+ * 19/08/2026, 120 cartes réelles au lancement (section 5 quater, par les MOTS) :
+ *
+ * | part du premier | bonne page retrouvée | passages servis |
+ * | ---: | ---: | ---: |
+ * | aucune | 55 % | 2,8 |
+ * | 0,45 | 55 % | 2,4 |
+ * | **0,50** | **55 %** | **2,2** |
+ * | 0,55 | 53 % (2 cartes perdues) | 2,0 |
+ *
+ * De « aucune » à 0,50 la pertinence ne bouge pas d'une carte, et un passage sur
+ * cinq disparaît : ce sont les traînards, rien d'autre. À 0,55, la première
+ * carte tombe. On retient donc 0,50, la plus haute valeur à coût nul — et la
+ * section 5 quinquies confirme qu'elle ne coûte rien non plus en CONVERSATION,
+ * sur 100 vrais messages (tenable jusqu'à 0,65 sans en perdre un seul).
+ */
+export const PART_MINIMALE_DU_PREMIER = 0.5;
+
+/**
+ * Le seuil réellement appliqué à un classement : le plus exigeant des deux —
+ * le plancher absolu, et la part du mieux placé. Un classement vide n'a pas de
+ * référence : le plancher absolu décide seul.
+ */
+export function seuilAppliquable(
+  classes: { score: number }[],
+  minimum: number,
+  part = PART_MINIMALE_DU_PREMIER,
+): number {
+  const meilleur = classes.reduce((haut, p) => Math.max(haut, p.score), 0);
+  if (meilleur <= 0) return minimum;
+  return Math.max(minimum, meilleur * part);
+}
+
+/**
  * LA PART DU BUDGET QUE LE CODE A LE DROIT DE PRENDRE.
  *
  * Le code était déjà borné en NOMBRE (`PASSAGES_CODE_MAX`, 2 sur 7) — mais pas
@@ -704,12 +756,29 @@ export function choisirPassages(
      * (`PART_MAX_DES_COMPETENCES`, shared/src/competences.ts).
      */
     plafondCompetences?: number;
+    /**
+     * La part du MIEUX PLACÉ qu'un passage doit atteindre pour entrer
+     * (`PART_MINIMALE_DU_PREMIER`). `0` la coupe — c'est ce dont le balayage a
+     * besoin pour mesurer ce qu'elle apporte, jamais la production.
+     */
+    partDuPremier?: number;
   } = {},
 ): ChoixDePassages {
   const plafond = options.plafond ?? PLAFOND_PASSAGES_JETONS;
   const max = options.max ?? PASSAGES_MAX;
   const parSource = options.parSource ?? PASSAGES_PAR_SOURCE_MAX;
-  const minimum = options.minimum ?? SCORE_MINIMUM;
+  /*
+   * LE SEUIL APPLIQUÉ EST LE PLUS EXIGEANT DES DEUX : le plancher absolu, et la
+   * part du mieux placé. Le second n'a pas d'échelle, donc il vaut pour les deux
+   * modes de recherche — c'est lui qui coupe les traînards d'un classement par
+   * ailleurs bon, là où un plancher absolu devrait choisir entre les vider tous
+   * ou les laisser tous passer.
+   */
+  const minimum = seuilAppliquable(
+    classes,
+    options.minimum ?? SCORE_MINIMUM,
+    options.partDuPremier ?? PART_MINIMALE_DU_PREMIER,
+  );
   const maxCode = options.maxCode ?? Number.POSITIVE_INFINITY;
   const plafondCode = options.plafondCode ?? Math.floor(plafond * PART_MAX_DU_CODE);
   const plafondCompetences = options.plafondCompetences ?? Math.floor(plafond * PART_MAX_DES_COMPETENCES);
