@@ -189,6 +189,14 @@ export const Project = z.object({
       prodUrl: z.string().optional(),
     })
     .default({}),
+  /**
+   * LE DÉPLOIEMENT AUTOMATIQUE, commandé par l'interrupteur posé en tête de la
+   * colonne « Terminé ». ÉTEINT par défaut, et pour tous les projets déjà
+   * inscrits : rien ne change tant que l'utilisateur ne l'allume pas lui-même.
+   * Allumé, il vaut consentement permanent pour CE projet — les règles de
+   * déclenchement vivent dans `deploiement-automatique.ts`.
+   */
+  deploiementAutomatique: z.boolean().default(false),
   billing: BillingLink.optional(),
   /**
    * Dernière fois que ce projet a été OUVERT depuis la colonne de gauche —

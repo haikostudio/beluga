@@ -40,6 +40,7 @@ import {
   reprendreLesFilesEnAttente,
 } from './runtime.js';
 import { rangerLesCartesOubliees } from './deplacement-carte.js';
+import { passageDuDeploiementAutomatique } from './deploiement-automatique.js';
 import { canStartAgent, snapshot } from './capacity.js';
 import { refreshQuotas } from './accounts.js';
 import { notify } from './notify.js';
@@ -788,6 +789,13 @@ export function passageDeVeille(): void {
    * doivent rester strictement synchrones.
    */
   void reprendreLesFilesEnAttente().catch((err) => log.error('reprise des files en attente', err));
+  /*
+   * LE DÉPLOIEMENT AUTOMATIQUE, sur les seuls projets dont l'interrupteur de la
+   * colonne « Terminé » est allumé. Il part de côté lui aussi : lancer une
+   * publication n'est pas instantané, et le filet doit rester synchrone. Son
+   * verrou interne empêche deux passages de se superposer.
+   */
+  void passageDuDeploiementAutomatique().catch((err) => log.error('déploiement automatique', err));
 }
 
 export function startVeille(): NodeJS.Timeout {

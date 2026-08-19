@@ -79,6 +79,7 @@ export * from './instructions-en-attente.js';
 export * from './instructions-projet.js';
 export * from './lecture-message.js';
 export * from './colonne-a-deployer.js';
+export * from './deploiement-automatique.js';
 export * from './lot-a-deployer.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';

@@ -1552,6 +1552,20 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Tout lancer': ['Start all', 'Lanzar todo', 'Alle starten', '全部启动'],
   'Tout reprendre': ['Resume all', 'Reanudar todo', 'Alle fortsetzen', '全部继续'],
   'Tout déployer': ['Deploy all', 'Desplegar todo', 'Alles bereitstellen', '全部部署'],
+  /* Restées en français quand le tiroir de procédure a été simplifié. */
+  'Procédure par défaut': ['Default procedure', 'Procedimiento por defecto', 'Standardablauf', '默认流程'],
+  'adapter la procédure par défaut': [
+    'adapt the default procedure',
+    'adaptar el procedimiento por defecto',
+    'den Standardablauf anpassen',
+    '调整默认流程',
+  ],
+  'Déploiement automatique : dès que plus rien ne travaille sur ce projet, les cartes terminées passent dans « À déployer » et la mise en ligne part toute seule.': [
+    'Automatic deployment: as soon as nothing is working on this project any more, finished cards move to “To deploy” and the release starts on its own.',
+    'Despliegue automático: en cuanto ya nada trabaje en este proyecto, las tarjetas terminadas pasan a «Por desplegar» y la publicación se inicia sola.',
+    'Automatische Bereitstellung: Sobald an diesem Projekt nichts mehr arbeitet, wandern fertige Karten nach „Bereitzustellen“ und die Veröffentlichung startet von selbst.',
+    '自动部署：当该项目上再无任务运行时，已完成的卡片会自动移入「待部署」，上线流程也会自行开始。',
+  ],
   'Tout archiver': ['Archive all', 'Archivar todo', 'Alles archivieren', '全部归档'],
   'Tout mettre en production': ['Put all live', 'Poner todo en producción', 'Alles produktiv setzen', '全部上线'],
   'Déployer': ['Deploy', 'Desplegar', 'Bereitstellen', '部署'],
