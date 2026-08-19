@@ -83,7 +83,13 @@ function BoutonCopier({ texte }: { texte: string }) {
  * que la règle ne peut pas voir — une ligne unique mais si longue qu'elle se
  * replie toute seule sur dix hauteurs. Le texte reste du texte simple, jamais
  * un pavé rogné : il se sélectionne et se copie comme n'importe quelle bulle.
+ *
+ * TOUT LE TEXTE DE LA BULLE ISOLÉE (« Mémoire transmise ») PARTAGE LA TAILLE
+ * D'UNE BULLE STANDARD (`text-[13.5px]`, celle du prompt envoyé) — plus la
+ * petite taille à part (12px) qu'elle portait pour son titre, son détail et
+ * ses labels. Les autres bulles (non isolées) gardent leur taille d'origine.
  */
+const TAILLE_TEXTE_BULLE = 'text-[13.5px]';
 function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
   const [deroule, setDeroule] = React.useState(false);
   const [deborde, setDeborde] = React.useState(false);
@@ -155,7 +161,12 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
             title={deroule ? t('Replier cette mémoire') : t('Déplier cette mémoire')}
             className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
           >
-            <span className="min-w-0 flex-1 break-words text-[12px] font-medium text-faint [overflow-wrap:anywhere]">
+            <span
+              className={cn(
+                'min-w-0 flex-1 break-words font-medium text-faint [overflow-wrap:anywhere]',
+                TAILLE_TEXTE_BULLE,
+              )}
+            >
               {bulle.titre}
             </span>
             <ChevronDown
@@ -170,32 +181,9 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
       </div>
 
       {detailUtile ? (
-        <p className="-mt-0.5 mb-1.5 break-words text-[12px] text-faint [overflow-wrap:anywhere]">{detailUtile}</p>
-      ) : null}
-
-      {/*
-        LES DEUX LABELS COLORÉS : un repère, pas un compte. Cette bulle
-        regroupe deux volets qui formaient auparavant deux bulles séparées
-        (« Mémoire retrouvée » puis « Prompt complet ») ; le texte plus bas
-        reprend déjà la coloration ligne par ligne (`ligne.cached`) — ces deux
-        pastilles disent simplement ce que chaque couleur veut dire, une fois
-        pour toute la bulle plutôt que répétée à chaque ligne.
-      */}
-      {bulle.lignes ? (
-        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-          <span
-            data-label-cache
-            className="rounded-full border border-border px-1.5 py-0.5 text-[12px] text-faint"
-          >
-            {t('Mémoire cache')}
-          </span>
-          <span
-            data-label-ajoutee
-            className="rounded-full border border-border px-1.5 py-0.5 text-[12px] text-nouveau"
-          >
-            {t('Mémoire ajoutée')}
-          </span>
-        </div>
+        <p className={cn('-mt-0.5 mb-1.5 break-words text-faint [overflow-wrap:anywhere]', TAILLE_TEXTE_BULLE)}>
+          {detailUtile}
+        </p>
       ) : null}
 
       {/* CE QUI EST PARTI EN MÊME TEMPS : briefing, mémoire, carte, pièces
@@ -204,8 +192,33 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
           n'ajoutaient rien qu'une simple liste ne dise aussi bien. Leur texte
           est dans la bulle, à sa place. Jamais un chiffre de jetons. */}
       {bulle.noms?.length ? (
-        <p data-donnees-paralleles className="mb-1.5 break-words text-[12px] text-faint [overflow-wrap:anywhere]">
-          {t('Transmis en même temps : {v0}', { v0: bulle.noms.join(', ') })}</p>
+        <p
+          data-donnees-paralleles
+          className={cn('mb-1.5 break-words text-faint [overflow-wrap:anywhere]', TAILLE_TEXTE_BULLE)}
+        >
+          {t('Transmis en même temps : {v0}', { v0: bulle.noms.join(', ') })}
+        </p>
+      ) : null}
+
+      {/*
+        LES DEUX LABELS, EN SIMPLE TEXTE — un repère, pas un compte, et plus
+        une pastille à l'apparence de bouton. Posés juste au-dessus du texte
+        qu'ils qualifient (« Mémoire cache » en gris au-dessus des lignes
+        relues au cache, « Mémoire ajoutée » en jaune au-dessus des lignes
+        neuves) : le texte plus bas reprend déjà la même coloration
+        ligne par ligne (`ligne.cached`), ces deux labels disent simplement ce
+        que chaque couleur veut dire, une fois pour toute la bulle plutôt que
+        répétée à chaque ligne.
+      */}
+      {bulle.lignes ? (
+        <div className={cn('mb-1 flex flex-wrap items-center gap-3 font-medium', TAILLE_TEXTE_BULLE)}>
+          <span data-label-cache className="text-faint">
+            {t('Mémoire cache')}
+          </span>
+          <span data-label-ajoutee className="text-nouveau">
+            {t('Mémoire ajoutée')}
+          </span>
+        </div>
       ) : null}
 
       <pre
