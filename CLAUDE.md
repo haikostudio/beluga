@@ -139,6 +139,9 @@ Texte entier : `docs/regles/publication.md` (`project_memory`, sujet « publicat
 - …ET L'ENCART PROPOSE DE LUI DONNER SA FICHE, D'UN CLIC
 - …ET CE QUI EST PORTÉ PAR LA BRANCHE D'UNE CARTE N'EST PAS « SANS CARTE »
 - La BRANCHE de chaque étape se choisit dans les réglages du projet
+- **Initier une procédure de mise en ligne n'interroge plus : l'agent analyse et tranche** — INITIER UNE PROCÉDURE, C'EST UNE ANALYSE, PAS UN QUESTIONNAIRE
+- **Déployer, c'est sur ce serveur ; mettre en production, c'est ailleurs**
+- **Un interrupteur « déploiement automatique » en tête de « Terminé », éteint par défaut** — LE DÉPLOIEMENT AUTOMATIQUE EST UN INTERRUPTEUR DU PROJET, ÉTEINT PAR DÉFAUT, POSÉ EN TÊTE DE « TERMINÉ »
 
 ### Cartes
 
@@ -181,6 +184,18 @@ Texte entier : `docs/regles/cartes.md` (`project_memory`, sujet « cartes »).
 - Les champs d'une carte sont de VRAIES colonnes
 - UN SERVICE EXTÉRIEUR PEUT POSER UNE CARTE, par une porte gardée par des CLÉS NOMMÉES
 - Chaque NUIT VERS 3 H, un agent d'analyse cherche ce qui peut être amélioré, et il ne fait que PROPOSER
+- **Une carte en « En cours » que rien ne rangera le DIT, au lieu de promettre un rangement** — UNE CARTE QUE LE BALAYAGE NE RAMASSERA PAS DIT QU'ELLE ATTEND VOTRE RELANCE
+- **Sans quota, la demande attend en file — elle n'est plus perdue, et la carte ne bouge pas** — UNE DEMANDE QUI NE PEUT PAS PARTIR ATTEND EN FILE, SANS DÉPLACER SA CARTE
+- **Une liste de tâches annoncée est une parole : le moteur n'est plus dit « muet »** — UN MOTEUR QUI A ANNONCÉ SA LISTE DE TÂCHES N'EST PAS UN MOTEUR JAMAIS JOINT
+- **Le cycle de vie complet d'une carte a son contrôle bout-en-bout** — `node scripts/verif-cycle-de-vie-carte.mjs` rejoue le cycle entier, plusieurs fois de suite
+- **Le bouton d'arrêt range la carte, exactement comme la sortie à la souris** — UN ARRÊT À LA MAIN RAMÈNE LA CARTE EN « PLANIFIÉ », QUEL QUE SOIT LE BOUTON
+- **L'arrêt vide la file AVANT de couper, jamais après** — UN ARRÊT COUPE D'ABORD CE QUI ATTEND DERRIÈRE, ENSUITE LE MOTEUR
+- **Un lancement refusé par une porte qui se rouvre seule est rejoué, sans second clic** — UN LANCEMENT REFUSÉ FAUTE DE QUOTA REPART TOUT SEUL DÈS QUE LE QUOTA REVIENT
+- **Le moteur DIT qu'il n'a jamais démarré, on ne le déduit plus d'un faisceau d'absences** — « MOTEUR JAMAIS JOINT » EST UN SIGNAL DE L'ADAPTATEUR, PAS UNE DÉDUCTION DU DÉMON
+- **Une carte annoncée en texte : le démon appelle l'outil À LA PLACE du modèle** — UNE CARTE ÉCRITE EN TEXTE EST RELUE PAR LE DÉMON, QUI APPELLE L'OUTIL LUI-MÊME
+- **Une carte à valider allume le triangle de son projet, d'où qu'elle vienne** — UNE CARTE À VALIDER ALLUME TOUJOURS LE TRIANGLE DE SON PROJET
+- **Un agent arrêté sur sa question n'est en travail pour PERSONNE** — UN AGENT QUI ATTEND UNE RÉPONSE N'EST PLUS « EN TRAVAIL » NULLE PART, ET SON CHRONOMÈTRE S'ARRÊTE
+- **Chaque carte d'auto-amélioration s'ouvre sur une phrase d'intro ludique, avant le Constat technique** — CHAQUE CARTE D'AUTO-AMÉLIORATION S'OUVRE SUR UNE PHRASE D'INTRO LUDIQUE, SANS JARGON, AVANT LE CONSTAT TECHNIQUE
 
 ### Branches et dossiers
 
@@ -226,6 +241,12 @@ Texte entier : `docs/regles/methode.md` (`project_memory`, sujet « methode »).
 - LE FICHIER D'INSTRUCTIONS TIENT SOUS UN PLAFOND MESURÉ (25 000 signes, vérifié)
 - SIGNES PAR JETON : 2,2 sur cette documentation, jamais 4
 - LA COMPRESSION DU CONTEXTE SE COMPTE EN JETONS, PAS EN PART DE FENÊTRE
+- **Le coffre d'un compte moteur se remet d'aplomb tout seul** — LE COFFRE D'UN COMPTE MOTEUR (CLAUDE ET CODEX) SE RÉPARE AU DÉMARRAGE ET À CHAQUE LANCEMENT
+- **Le rangement de nuit des instructions s'ENREGISTRE, sinon il est défait chaque jour** — LE RANGEMENT DE NUIT DES INSTRUCTIONS ENREGISTRE LUI-MÊME CE QU'IL RANGE
+- **Le contrôle du coffre des comptes rejoint les vérifications de tous les jours** — `node scripts/verif-coffre-des-comptes.mjs` fait partie des contrôles de TOUS LES JOURS — les coffres Claude et Codex tiennent-ils debout ?
+- **Chaque ligne de contrat rejoint la section de son sujet dans CLAUDE.md, pas la fin du fichier** — le rangement de nuit insère chaque ligne de contrat sous la section « ### … » de son sujet, repérée par « sujet « <sujet> » », jamais collée à la fin du fichier
+- **Le filet de fermeture ne regarde plus le seul statut : un rangement d'après-réponse est jugé aussi** — UN TOUR ENCORE SUIVI DONT LA RÉPONSE EST FIGÉE SE REFERME, MÊME SI SON STATUT EST DÉJÀ RETOMBÉ
+- **Un passage doit peser face au MIEUX PLACÉ, pas seulement dépasser un seuil absolu** — UN PASSAGE N'ENTRE QUE S'IL PÈSE FACE AU MIEUX PLACÉ, PAS SEULEMENT AU-DESSUS D'UN SEUIL
 
 ### Interface et code
 
@@ -279,6 +300,11 @@ Texte entier : `docs/regles/interface.md` (`project_memory`, sujet « interface 
 - GITHUB est ouvert à TOUT agent, sur TOUS les projets, sans carte ni réglage
 - L'ONGLET « GITHUB » D'UNE CARTE NE PARLE QUE DE LA BRANCHE DE SON AGENT
 - …ET IL SE LIT COMME UNE LIGNE DE TEMPS VERTICALE, CHARGÉE À L'OUVERTURE
+- **Le timestamp du chat est court, et une carte acceptée porte son bouton « Lancer » dans le fil** — le timestamp sous un message du chat est court (ex. « 4h35min », plus jamais « il y a … »)
+- **Le menu du bas du téléphone prolonge le fond de l'écran affiché, il ne pose plus sa propre bande** — LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE
+- **Le menu du bas du téléphone prolonge le fond de l'écran affiché, il ne pose plus sa propre bande** — LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE
+- **L'heure, le séparateur de date et les jetons sous les messages** — L'HEURE SOUS CHAQUE BULLE, UN SÉPARATEUR ENTRE DEUX JOURS, ET LES JETONS DE RETOUR SOUS LES MESSAGES
+- **Le compteur de jetons sous un message utilisateur n'écarte plus le tour agentique qui suit** — LE COMPTEUR SOUS UNE BULLE DE DEMANDE MESURE CE MESSAGE, JAMAIS LE TOUR AGENTIQUE QUI A SUIVI
 
 ### Quotas
 
