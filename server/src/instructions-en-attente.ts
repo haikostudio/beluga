@@ -4,6 +4,9 @@ import { execFileSync } from 'node:child_process';
 import {
   FICHIER_D_ATTENTE,
   PERIODE_DE_FUSION_MS,
+  compacterInstructions,
+  contratMisDeCote,
+  contratsQuiTiennent,
   decisionDeFusion,
   fichierApresFusion,
   fichierDAttenteVide,
@@ -60,8 +63,17 @@ function ajouterALaFin(chemin: string, texte: string, entete: string): void {
  * la ligne « Texte entier : … (`project_memory`, sujet « <sujet> »). ». Une
  * ligne dont le sujet n'a pas de section correspondante garde l'ancien
  * comportement — ajoutée à la fin — plutôt que d'être perdue.
+ *
+ * UNE LIGNE DÉJÀ PRÉSENTE N'EST PAS RÉÉCRITE. Le fichier d'instructions vit
+ * sous un plafond mesuré ; deux règles déposées deux fois — par deux cartes, ou
+ * par une carte reprise — y écrivaient deux fois le même contrat, et le doublon
+ * se paie à chaque session de chaque agent.
  */
-function insererParSujet(chemin: string, contrat: readonly { sujet: string; ligne: string }[], entete: string): void {
+function insererParSujet(
+  chemin: string,
+  contrat: readonly { sujet: string; ligne: string }[],
+  entete: string,
+): void {
   if (!contrat.length) return;
   if (!fs.existsSync(chemin)) {
     ajouterALaFin(chemin, `${contrat.map((c) => c.ligne).join('\n')}\n`, entete);
@@ -78,7 +90,9 @@ function insererParSujet(chemin: string, contrat: readonly { sujet: string; lign
   let texte = fs.readFileSync(chemin, 'utf8');
   const restantes: string[] = [];
 
-  for (const [sujet, lignes] of parSujet) {
+  for (const [sujet, toutes] of parSujet) {
+    const lignes = toutes.filter((ligne) => !texte.includes(ligne.trim()));
+    if (!lignes.length) continue;
     const repere = new RegExp(`sujet\\s*«\\s*${sujet}\\s*»`, 'i');
     const lignesFichier = texte.split('\n');
     const indexRepere = lignesFichier.findIndex((l) => repere.test(l));
@@ -200,27 +214,51 @@ export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
 
   const touches: string[] = [FICHIER_D_ATTENTE];
 
+  /*
+   * LE CONTRAT NE GROSSIT QUE D'UNE LIGNE PAR RÈGLE, et seulement quand l'agent
+   * en a écrit une. C'est tout l'objet de la manœuvre : le fichier lu par le
+   * moteur à chaque session ne doit pas reprendre le texte entier.
+   *
+   * …ET IL NE FRANCHIT JAMAIS SON PLAFOND. Le rangement COMPACTE d'abord ce qui
+   * s'y répète (doublons, contrats qui redisent leur titre), puis n'ajoute que
+   * les lignes qui TIENNENT. Ce qui déborde n'est pas perdu : son texte entier
+   * part dans le fichier de son sujet comme les autres, avec la phrase qui dit
+   * que son nom attend une place. Sans cette borne, chaque nuit poussait le
+   * fichier plus loin au-dessus de sa limite, et le dépassement se paie à
+   * chaque aller-retour de chaque agent.
+   */
+  const instructions = fichierDInstructions(racine);
+  let debordent: typeof plan.contrat = [];
+
+  if (plan.contrat.length && !instructions) {
+    log.warn(`rangement des instructions : ${racine} n'a pas de fichier d'instructions, contrat non ajouté`);
+  } else if (plan.contrat.length && instructions) {
+    const compacte = compacterInstructions(fs.readFileSync(instructions, 'utf8'));
+    if (compacte.gagnes > 0) {
+      fs.writeFileSync(instructions, compacte.texte);
+      log.info(
+        `rangement des instructions : ${compacte.doublons} doublon(s) et ${compacte.compactees} redite(s) ` +
+          `retirés du fichier d'instructions, ${compacte.gagnes} signes gagnés`,
+      );
+    }
+    const tri = contratsQuiTiennent(compacte.texte.length, plan.contrat);
+    debordent = tri.debordent;
+    if (tri.retenues.length) {
+      insererParSujet(instructions, tri.retenues, '# Instructions du moteur\n');
+    }
+    if (compacte.gagnes > 0 || tri.retenues.length) touches.push(path.relative(racine, instructions));
+    for (const mis of debordent) {
+      log.warn(`rangement des instructions : « ${mis.titre} » non nommée dans le contrat — plafond atteint`);
+    }
+  }
+
   for (const { sujet, texte } of plan.parSujet) {
     const cible = sujets.find((s) => s.id === sujet);
     if (!cible) continue;
     const chemin = path.join(racine, cible.fichier);
-    ajouterALaFin(chemin, texte, `# ${cible.libelle} — règles du moteur\n`);
+    const misDeCote = debordent.filter((c) => c.sujet === sujet).map(contratMisDeCote);
+    ajouterALaFin(chemin, texte + misDeCote.join(''), `# ${cible.libelle} — règles du moteur\n`);
     touches.push(cible.fichier);
-  }
-
-  /*
-   * LE CONTRAT NE GROSSIT QUE D'UNE LIGNE PAR RÈGLE, et seulement quand
-   * l'agent en a écrit une. C'est tout l'objet de la manœuvre : le fichier lu
-   * par le moteur à chaque session ne doit pas reprendre le texte entier.
-   */
-  if (plan.contrat.length) {
-    const instructions = fichierDInstructions(racine);
-    if (instructions) {
-      insererParSujet(instructions, plan.contrat, '# Instructions du moteur\n');
-      touches.push(path.relative(racine, instructions));
-    } else {
-      log.warn(`rangement des instructions : ${racine} n'a pas de fichier d'instructions, contrat non ajouté`);
-    }
   }
 
   fs.writeFileSync(attente, plan.refusees.length ? fichierApresFusion(plan.refusees) : fichierDAttenteVide());

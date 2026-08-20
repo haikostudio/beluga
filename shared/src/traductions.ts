@@ -2080,6 +2080,18 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'voir plus': ['show more', 'ver más', 'mehr anzeigen', '展开'],
   '{v0} version précédente': ['{v0} previous version', '{v0} versión anterior', '{v0} vorherige Version', '前一版 {v0}'],
   '{v0} versions précédentes': ['{v0} previous versions', '{v0} versiones anteriores', '{v0} vorherige Versionen', '前 {v0} 个版本'],
+  'Mémoire évitée par le tri': ['Memory saved by filtering', 'Memoria ahorrada por el filtrado', 'Durch die Sortierung eingespartes Gedächtnis', '筛选节省的记忆'],
+  'Un sujet de mémoire n\'est plus envoyé en entier : seuls les passages qui parlent du travail de la carte partent. Voici ce que ce tri a évité d\'envoyer sur les {v0} derniers jours.': ['A memory topic is no longer sent in full: only the passages that speak to the card\'s work are sent. Here is what this filtering avoided sending over the last {v0} days.', 'Un tema de memoria ya no se envía entero: solo salen los pasajes que hablan del trabajo de la tarjeta. Esto es lo que este filtrado evitó enviar en los últimos {v0} días.', 'Ein Gedächtnisthema wird nicht mehr vollständig gesendet: Nur die Passagen, die zur Arbeit der Karte passen, gehen raus. Das hat die Sortierung in den letzten {v0} Tagen eingespart.', '记忆主题不再整体发送：只发送与卡片工作相关的段落。以下是这种筛选在过去 {v0} 天里避免发送的内容。'],
+  'Mémoire non envoyée': ['Memory not sent', 'Memoria no enviada', 'Nicht gesendetes Gedächtnis', '未发送的记忆'],
+  'sur {v0} ouverture{v1} de mémoire, {v2} carte{v3}': ['across {v0} memory lookup{v1}, {v2} card{v3}', 'en {v0} consulta{v1} de memoria, {v2} tarjeta{v3}', 'bei {v0} Gedächtnisabruf{v1}, {v2} Karte{v3}', '共 {v0} 次记忆查询{v1}，{v2} 张卡片{v3}'],
+  'Quota de semaine épargné': ['Weekly quota saved', 'Cuota semanal ahorrada', 'Eingesparte Wochenquote', '节省的每周配额'],
+  'déduit de la consommation réellement relevée sur la période': ['derived from the consumption actually recorded over the period', 'deducido del consumo realmente registrado en el periodo', 'abgeleitet aus dem tatsächlich erfassten Verbrauch des Zeitraums', '根据该时段实际记录的消耗推算'],
+  'aucune consommation relevée : la part de quota ne se déduit pas encore': ['no consumption recorded: the quota share cannot be derived yet', 'sin consumo registrado: aún no se puede deducir la parte de cuota', 'kein Verbrauch erfasst: der Quotenanteil lässt sich noch nicht ableiten', '尚无消耗记录：暂时无法推算配额占比'],
+  '{v0} ouverture{v1}': ['{v0} lookup{v1}', '{v0} consulta{v1}', '{v0} Abruf{v1}', '{v0} 次查询{v1}'],
+  '{v0} évités': ['{v0} saved', '{v0} ahorrado', '{v0} eingespart', '节省 {v0}'],
+  '{v0} de quota': ['{v0} of quota', '{v0} de cuota', '{v0} der Quote', '配额的 {v0}'],
+  'Aucune carte ne porte encore d\'économie : les ouvertures relevées viennent de conversations.': ['No card carries any saving yet: the lookups recorded come from conversations.', 'Ninguna tarjeta muestra todavía un ahorro: las consultas registradas vienen de conversaciones.', 'Noch keine Karte mit Einsparung: die erfassten Abrufe stammen aus Unterhaltungen.', '暂无卡片产生节省：已记录的查询来自对话。'],
+  'Rien de relevé pour l\'instant. Ce bloc se remplit à chaque fois qu\'un agent ouvre la mémoire du projet.': ['Nothing recorded yet. This block fills up each time an agent opens the project memory.', 'Nada registrado por ahora. Este bloque se llena cada vez que un agente abre la memoria del proyecto.', 'Noch nichts erfasst. Dieser Block füllt sich, sobald ein Agent das Projektgedächtnis öffnet.', '目前尚无记录。每当代理打开项目记忆时，此区块就会填充。'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */

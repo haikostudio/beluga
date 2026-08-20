@@ -1082,6 +1082,10 @@ async function preparerLeTour(
       agent.run.engine,
       agent.workdir,
       niveau,
+      undefined,
+      // Le POOL DE COMPÉTENCES est servi au poids du travail de la carte, comme
+      // les règles : les fiches qui en parlent sont nommées, les autres comptées.
+      card ? `${card.title}\n${card.description}` : '',
     );
     contextParts.push({
       label:

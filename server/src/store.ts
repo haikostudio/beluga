@@ -2238,6 +2238,107 @@ export function usageByCard(): {
     .all() as any;
 }
 
+/* ------------------------------------------------------------------ */
+/* CE QUE LE TRI DE LA MÉMOIRE ÉCONOMISE                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA FENÊTRE DE MESURE : un mois glissant. C'est la période sur laquelle le
+ * tableau de bord annonce l'économie — assez longue pour que quelques cartes
+ * bavardes ne fassent pas la moyenne, assez courte pour parler du présent.
+ */
+export const JOURS_D_ECONOMIE_MEMOIRE = 30;
+
+/**
+ * UNE OUVERTURE DE MÉMOIRE, ET CE QU'ELLE A ÉVITÉ D'ENVOYER.
+ *
+ * Les deux poids sont en SIGNES et tous deux MESURÉS : `entiers` est la
+ * longueur du texte qui serait parti sans le tri, `servis` celle du texte
+ * réellement parti. On n'écrit rien quand le tri n'a rien changé — une ligne
+ * à zéro d'économie n'apprend rien et remplit la table pour rien.
+ */
+export function recordMemoryEconomy(ligne: {
+  projectId?: string;
+  cardId?: string;
+  agentId?: string;
+  entiers: number;
+  servis: number;
+}): void {
+  if (ligne.entiers <= ligne.servis) return;
+  getDb()
+    .prepare(
+      `INSERT INTO memoire_economie (project_id, card_id, agent_id, signes_entiers, signes_servis, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      ligne.projectId ?? null,
+      ligne.cardId ?? null,
+      ligne.agentId ?? null,
+      Math.max(0, Math.round(ligne.entiers)),
+      Math.max(0, Math.round(ligne.servis)),
+      now(),
+    );
+}
+
+function depuisJours(days: number): number {
+  return now() - Math.max(1, Math.round(days)) * 24 * 3600 * 1000;
+}
+
+/** Le total de la fenêtre : ce qui aurait été envoyé, ce qui l'a été, et sur combien d'ouvertures. */
+export function memoryEconomyTotals(days = JOURS_D_ECONOMIE_MEMOIRE): {
+  entiers: number;
+  servis: number;
+  ouvertures: number;
+  cartes: number;
+} {
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(signes_entiers), 0) AS entiers, COALESCE(SUM(signes_servis), 0) AS servis,
+              COUNT(*) AS ouvertures, COUNT(DISTINCT card_id) AS cartes
+       FROM memoire_economie WHERE created_at >= ?`,
+    )
+    .get(depuisJours(days)) as { entiers: number; servis: number; ouvertures: number; cartes: number };
+  return row;
+}
+
+/** L'économie CARTE PAR CARTE sur la fenêtre, la plus grosse d'abord. */
+export function memoryEconomyByCard(days = JOURS_D_ECONOMIE_MEMOIRE): {
+  cardId: string;
+  entiers: number;
+  servis: number;
+  ouvertures: number;
+}[] {
+  return getDb()
+    .prepare(
+      `SELECT card_id AS cardId, COALESCE(SUM(signes_entiers), 0) AS entiers,
+              COALESCE(SUM(signes_servis), 0) AS servis, COUNT(*) AS ouvertures
+       FROM memoire_economie WHERE created_at >= ? AND card_id IS NOT NULL
+       GROUP BY card_id ORDER BY (SUM(signes_entiers) - SUM(signes_servis)) DESC`,
+    )
+    .all(depuisJours(days)) as any;
+}
+
+/**
+ * COMBIEN DE POINTS DE QUOTA COÛTE UN JETON — MESURÉ, PAS SUPPOSÉ.
+ *
+ * Il n'existe aucune table de conversion officielle entre jetons et part de
+ * quota : le fournisseur ne la publie pas, et elle bouge avec le modèle. On la
+ * DÉDUIT donc de la consommation réelle du même mois — les points de quota de
+ * la semaine relevés sur les tours, divisés par les jetons de ces mêmes tours.
+ * `null` quand rien n'a encore été relevé : mieux vaut n'afficher aucune part
+ * de quota qu'en inventer une.
+ */
+export function quotaParJeton(days = JOURS_D_ECONOMIE_MEMOIRE): number | null {
+  const row = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(quota_semaine), 0) AS quota, COALESCE(SUM(tokens), 0) AS tokens
+       FROM usage WHERE created_at >= ?`,
+    )
+    .get(depuisJours(days)) as { quota: number; tokens: number };
+  if (!row.tokens || row.quota <= 0) return null;
+  return row.quota / row.tokens;
+}
+
 /** Consommation mémoire moyenne mesurée d'un agent — sert au calcul des places libres (PLAN §27). */
 export function averageAgentMemMb(): number | null {
   const row = getDb()

@@ -47,6 +47,14 @@ export interface EntreeDInstruction {
   texte: string;
 }
 
+/**
+ * LA MARQUE D'UN REFUS. Elle est ÉCRITE par `fichierApresFusion` et RETIRÉE par
+ * `lireEntrees` : sans ce retour, chaque nuit recollait un avertissement de plus
+ * sous la même entrée, et le fichier d'attente grossissait de trois lignes par
+ * entrée bloquée et par nuit — indéfiniment, puisqu'une entrée bloquée le reste.
+ */
+const MARQUE_DE_REFUS = '> [!WARNING]';
+
 /** Une entrée que la nuit n'a pas pu ranger, et pourquoi. */
 export interface EntreeRefusee {
   entree: EntreeDInstruction;
@@ -56,8 +64,12 @@ export interface EntreeRefusee {
 export interface PlanDeFusion {
   /** Le texte à ajouter, par fichier de sujet. */
   parSujet: { sujet: string; texte: string }[];
-  /** Les lignes de contrat à ajouter à `CLAUDE.md`, chacune sous le sujet qui la range. */
-  contrat: { sujet: string; ligne: string }[];
+  /**
+   * Les lignes de contrat à ajouter à `CLAUDE.md`, chacune sous le sujet qui la
+   * range. Le TITRE voyage avec : quand le plafond refuse une ligne, il faut
+   * savoir de quelle règle elle vient pour l'écrire dans le fichier du sujet.
+   */
+  contrat: { sujet: string; ligne: string; titre: string }[];
   /** Ce qui reste en attente, avec sa cause. */
   refusees: EntreeRefusee[];
 }
@@ -122,7 +134,7 @@ export function lireEntrees(fichier: string): EntreeDInstruction[] {
       }
       corps.push(ligne);
     }
-    entrees.push({ titre: courante.titre, sujet, contrat, texte: corps.join('\n').trim() });
+    entrees.push({ titre: courante.titre, sujet, contrat, texte: sansAvertissements(corps).trim() });
     courante = undefined;
   };
 
@@ -146,12 +158,60 @@ export function lireEntrees(fichier: string): EntreeDInstruction[] {
 }
 
 /**
- * Ce que la nuit va ranger, et ce qu'elle refuse. Le sujet doit exister : on
- * ne fabrique jamais un fichier de règles à partir d'un nom mal tapé, sinon la
- * règle irait dormir dans un fichier que `project_memory` ne sert à personne.
+ * LE TEXTE D'UNE ENTRÉE, DÉBARRASSÉ DES AVERTISSEMENTS DES NUITS PASSÉES. Un
+ * bloc de refus commence par « > [!WARNING] » et court tant que les lignes
+ * commencent par « > » ; la ligne vide qui le suit part avec lui.
  */
-export function planDeFusion(entrees: readonly EntreeDInstruction[], sujetsConnus: readonly string[]): PlanDeFusion {
+function sansAvertissements(lignes: readonly string[]): string {
+  const gardees: string[] = [];
+  let dansUnRefus = false;
+  for (const ligne of lignes) {
+    if (ligne.trim().startsWith(MARQUE_DE_REFUS)) {
+      dansUnRefus = true;
+      continue;
+    }
+    if (dansUnRefus) {
+      if (ligne.trim().startsWith('>') || !ligne.trim()) continue;
+      dansUnRefus = false;
+    }
+    gardees.push(ligne);
+  }
+  return gardees.join('\n');
+}
+
+/**
+ * LE SUJET DE REPLI : celui qui accueille une entrée déposée sans sujet ou avec
+ * un sujet qui n'existe pas. `methode` est le sujet fourre-tout de la
+ * documentation — la méthode de travail, les moteurs, les outils : une règle
+ * mal étiquetée y est mal rangée, mais elle est RANGÉE, relue et déplaçable.
+ * Un projet qui n'a pas ce fichier n'a pas de repli, et l'entrée est refusée
+ * comme avant.
+ */
+export const SUJET_DE_REPLI = 'methode';
+
+/**
+ * Ce que la nuit va ranger, et ce qu'elle refuse.
+ *
+ * LE SUJET DOIT EXISTER : on ne fabrique jamais un fichier de règles à partir
+ * d'un nom mal tapé, sinon la règle irait dormir dans un fichier que
+ * `project_memory` ne sert à personne.
+ *
+ * …MAIS UNE ENTRÉE NE RESTE PLUS BLOQUÉE POUR TOUJOURS. Refuser et redire la
+ * raison chaque nuit semblait prudent ; à l'usage, personne ne relit un fichier
+ * que rien n'oblige à ouvrir. Treize entrées y ont dormi des semaines pendant
+ * que le fichier passait son plafond, dont neuf déposées sans la moindre ligne
+ * « - sujet : ». Une entrée qui a un TEXTE va donc dans le sujet de REPLI, avec
+ * une phrase qui dit d'où elle vient et où la déplacer : mal rangée mais lue,
+ * plutôt que bien étiquetée et perdue. Seule une entrée VIDE est encore refusée
+ * — elle n'a rien à ranger.
+ */
+export function planDeFusion(
+  entrees: readonly EntreeDInstruction[],
+  sujetsConnus: readonly string[],
+  sujetDeRepli = SUJET_DE_REPLI,
+): PlanDeFusion {
   const connus = new Set(sujetsConnus.map((s) => s.toLowerCase()));
+  const repli = connus.has(sujetDeRepli.toLowerCase()) ? sujetDeRepli.toLowerCase() : '';
   const plan: PlanDeFusion = { parSujet: [], contrat: [], refusees: [] };
 
   for (const entree of entrees) {
@@ -159,32 +219,193 @@ export function planDeFusion(entrees: readonly EntreeDInstruction[], sujetsConnu
       plan.refusees.push({ entree, raison: 'entrée sans texte : rien à ranger' });
       continue;
     }
-    if (!entree.sujet) {
-      plan.refusees.push({ entree, raison: 'aucun sujet indiqué (ligne « - sujet : … »)' });
-      continue;
-    }
-    if (!connus.has(entree.sujet.toLowerCase())) {
+
+    const demande = entree.sujet.toLowerCase();
+    const reconnu = demande && connus.has(demande);
+    if (!reconnu && !repli) {
       plan.refusees.push({
         entree,
-        raison: `sujet inconnu « ${entree.sujet} » — les sujets existants sont : ${sujetsConnus.join(', ')}`,
+        raison: demande
+          ? `sujet inconnu « ${entree.sujet} » — les sujets existants sont : ${sujetsConnus.join(', ')}`
+          : 'aucun sujet indiqué (ligne « - sujet : … »)',
       });
       continue;
     }
 
-    const sujet = entree.sujet.toLowerCase();
-    const texte = `\n- **${entree.titre}** — ${entree.texte.trim()}\n`;
+    const sujet = reconnu ? demande : repli;
+    // Le déplacement se DIT : sans cette phrase, une règle d'interface rangée
+    // dans « methode » passerait pour une règle de méthode.
+    const note = reconnu
+      ? ''
+      : ` _(déposée ${
+          demande ? `sous le sujet « ${entree.sujet} », qui n'existe pas` : 'sans sujet'
+        } ; rangée ici par défaut — à déplacer dans le fichier de son vrai sujet.)_`;
+    const texte = `\n- **${entree.titre}** — ${entree.texte.trim()}${note}\n`;
     const deja = plan.parSujet.find((p) => p.sujet === sujet);
     if (deja) deja.texte += texte;
     else plan.parSujet.push({ sujet, texte });
 
     if (entree.contrat) {
-      const memeTexte = entree.contrat.trim().toLowerCase() === entree.titre.trim().toLowerCase();
-      const ligne = memeTexte ? `- **${entree.titre}**` : `- **${entree.titre}** — ${entree.contrat}`;
-      plan.contrat.push({ sujet, ligne });
+      const ligne = ligneDeContrat(entree.titre, entree.contrat);
+      if (!plan.contrat.some((c) => c.ligne === ligne)) plan.contrat.push({ sujet, ligne, titre: entree.titre });
     }
   }
 
   return plan;
+}
+
+/* ------------------------------------------------------------------ */
+/* LE PLAFOND DU FICHIER D'INSTRUCTIONS, TENU PAR LE RANGEMENT LUI-MÊME */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE PLAFOND, EN SIGNES — la même valeur que celle que vérifie
+ * `scripts/verif-taille-instructions.mjs` : les deux doivent bouger ensemble.
+ *
+ * 25 000 signes font environ 11 400 jetons au rapport mesuré de cette
+ * documentation. Le fichier d'instructions est relu par le moteur à CHAQUE
+ * aller-retour d'un tour — une soixantaine par carte : chaque millier de signes
+ * de trop se paie soixante fois, tous les jours, sur tous les projets.
+ *
+ * LE RANGEMENT DE NUIT LE TIENT LUI-MÊME, il n'attend pas qu'un contrôle le
+ * constate le lendemain. Une règle rangée n'est jamais perdue pour autant : son
+ * TEXTE ENTIER va dans le fichier de son sujet quoi qu'il arrive, et seul son
+ * NOM — la ligne de contrat — attend une place.
+ */
+export const PLAFOND_INSTRUCTIONS_SIGNES = 25_000;
+
+/** Un texte réduit à ses mots utiles : sans casse, sans accents, sans ponctuation. */
+function nu(texte: string): string {
+  return texte
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/** Les mots de plus de trois lettres d'un texte — ceux qui le distinguent d'un autre. */
+function motsUtiles(texte: string): Set<string> {
+  return new Set(nu(texte).split(' ').filter((mot) => mot.length > 3));
+}
+
+/**
+ * DEUX PHRASES DISENT-ELLES LA MÊME CHOSE ? Mesuré par la part de mots qu'elles
+ * partagent. Les agents écrivent le titre en clair et le contrat EN MAJUSCULES,
+ * avec deux ou trois mots de différence : une égalité stricte ne voyait jamais
+ * le doublon, et la ligne payait deux fois la même idée à chaque session.
+ */
+export function ditLaMemeChose(a: string, b: string, seuil = 0.6): boolean {
+  const gauche = motsUtiles(a);
+  const droite = motsUtiles(b);
+  if (!gauche.size || !droite.size) return nu(a) === nu(b);
+  const communs = [...gauche].filter((mot) => droite.has(mot)).length;
+  const reunis = new Set([...gauche, ...droite]).size;
+  return communs / reunis >= seuil;
+}
+
+/** La ligne de contrat d'une règle : sans redire son titre quand le contrat le répète. */
+export function ligneDeContrat(titre: string, contrat: string): string {
+  const nom = titre.trim();
+  const dit = contrat.trim();
+  return !dit || ditLaMemeChose(nom, dit) ? `- **${nom}**` : `- **${nom}** — ${dit}`;
+}
+
+/** Ce qu'un compactage a gagné, pour le dire au journal. */
+export interface CompactageInstructions {
+  texte: string;
+  /** Les lignes en doublon retirées. */
+  doublons: number;
+  /** Les lignes dont le contrat redisait le titre, ramenées au titre seul. */
+  compactees: number;
+  /** Les signes gagnés. */
+  gagnes: number;
+}
+
+/**
+ * COMPACTER LE FICHIER D'INSTRUCTIONS SANS PERDRE UN SEUL INVARIANT.
+ *
+ * Deux gestes, et deux seulement — ils ne retirent jamais un NOM, seulement une
+ * répétition :
+ *
+ *   • UNE LIGNE ÉCRITE DEUX FOIS n'est gardée qu'une. Deux cartes qui déposent
+ *     la même règle, ou une carte reprise, l'écrivaient deux fois ;
+ *   • UN CONTRAT QUI REDIT SON TITRE est ramené au titre seul. « - **Le menu du
+ *     bas emprunte le fond** — LE MENU DU BAS EMPRUNTE LE FOND » coûte le double
+ *     de ce qu'il apprend.
+ *
+ * Tout le reste du fichier est rendu tel quel : ce module ne réécrit pas la
+ * prose d'un humain.
+ */
+export function compacterInstructions(texte: string): CompactageInstructions {
+  const lignes = texte.split('\n');
+  const vues = new Set<string>();
+  let doublons = 0;
+  let compactees = 0;
+
+  const gardees = lignes.filter((ligne) => {
+    const contrat = /^- \*\*(.+?)\*\*(?: — (.+?))?\s*$/.exec(ligne);
+    if (!contrat) return true;
+    const cle = nu(contrat[1]);
+    if (vues.has(cle)) {
+      doublons += 1;
+      return false;
+    }
+    vues.add(cle);
+    return true;
+  });
+
+  const compactes = gardees.map((ligne) => {
+    const contrat = /^- \*\*(.+?)\*\* — (.+?)\s*$/.exec(ligne);
+    if (!contrat) return ligne;
+    const reduite = ligneDeContrat(contrat[1], contrat[2]);
+    if (reduite !== ligne.trimEnd()) compactees += 1;
+    return reduite;
+  });
+
+  const resultat = compactes.join('\n');
+  return { texte: resultat, doublons, compactees, gagnes: texte.length - resultat.length };
+}
+
+/**
+ * CE QUI TIENT SOUS LE PLAFOND, ET CE QUI DÉBORDE.
+ *
+ * Les lignes sont prises DANS L'ORDRE : une règle déposée avant une autre est
+ * nommée avant elle. Rien n'est tronqué au milieu d'une ligne — un invariant
+ * coupé en deux ne veut plus rien dire —, et ce qui déborde est RENDU, jamais
+ * jeté : l'appelant l'écrit dans le fichier du sujet.
+ */
+export function contratsQuiTiennent<T extends { ligne: string }>(
+  tailleActuelle: number,
+  contrat: readonly T[],
+  plafond = PLAFOND_INSTRUCTIONS_SIGNES,
+): { retenues: T[]; debordent: T[] } {
+  const retenues: T[] = [];
+  const debordent: T[] = [];
+  let taille = Math.max(0, tailleActuelle);
+  for (const entree of contrat) {
+    const cout = entree.ligne.length + 1;
+    if (taille + cout > plafond) {
+      debordent.push(entree);
+      continue;
+    }
+    retenues.push(entree);
+    taille += cout;
+  }
+  return { retenues, debordent };
+}
+
+/**
+ * La phrase ajoutée dans le fichier du SUJET pour un invariant que le plafond
+ * n'a pas laissé nommer. Elle dit la règle EN ENTIER — c'est elle qui fait foi —
+ * et pourquoi son nom manque à `CLAUDE.md`.
+ */
+export function contratMisDeCote(entree: { titre: string; ligne: string }): string {
+  return (
+    `\n  _(« ${entree.titre} » n'est PAS nommée dans le fichier d'instructions : son plafond de ` +
+    `${PLAFOND_INSTRUCTIONS_SIGNES} signes était atteint. La règle fait foi quand même, et \`project_memory\` ` +
+    `la sert avec ce sujet.)_\n`
+  );
 }
 
 /** Le fichier d'attente reconstruit : ce qui n'a pas pu être rangé, et pourquoi. */

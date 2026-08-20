@@ -976,6 +976,37 @@ const MIGRATIONS: {
       DROP TABLE IF EXISTS doc_fichiers;
     `,
   },
+  {
+    id: 34,
+    name: 'economie-du-tri-de-la-memoire',
+    // CE QUE LE TRI DE LA MÉMOIRE ÉCONOMISE, CARTE PAR CARTE.
+    //
+    // Un sujet nommé sur une carte n'est plus servi au poids de son fichier
+    // mais au poids de la demande (`shared/src/extrait-regles.ts`). L'économie
+    // était ANNONCÉE — 95 % sur un sujet d'essai — jamais SUIVIE dans la vraie
+    // vie : personne ne savait ce qu'elle valait sur un mois de travail réel.
+    //
+    // Une ligne par ouverture de mémoire, avec les deux poids MESURÉS : ce qui
+    // serait parti sans le tri, ce qui est parti. Rien d'estimé, rien de
+    // moyenné : la conversion en jetons puis en part de quota se fait à la
+    // lecture, à partir de ces signes-là.
+    //
+    // `card_id` peut être vide : une conversation interroge la mémoire elle
+    // aussi, et sa ligne compte dans le total sans se rattacher à une carte.
+    sql: `
+      CREATE TABLE IF NOT EXISTS memoire_economie (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        card_id TEXT,
+        agent_id TEXT,
+        signes_entiers INTEGER NOT NULL,
+        signes_servis INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memoire_economie_date ON memoire_economie(created_at);
+      CREATE INDEX IF NOT EXISTS idx_memoire_economie_carte ON memoire_economie(card_id);
+    `,
+  },
 ];
 
 export function openDb(): DB {

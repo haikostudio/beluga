@@ -32,6 +32,8 @@
  * rejouent seules.
  */
 
+import { classerRegles } from './extrait-regles.js';
+
 /** Le nom du dossier de compétences dans le coffre d'un compte. */
 export const NOM_DOSSIER_COMPETENCES = 'skills';
 
@@ -428,24 +430,98 @@ export function grouperParTheme(liste: Competence[]): { theme: string; fiches: C
  *
  * Vide s'il n'y a aucune compétence : on n'envoie pas un titre pour ne rien dire.
  */
-export function texteDesCompetences(liste: Competence[], dossier = ''): string {
+/**
+ * EN DESSOUS DE TANT DE FICHES, ON NE TRIE PAS. Un pool de trois compétences
+ * tient en deux lignes : le trier ferait courir le risque d'en cacher une utile
+ * pour économiser cent signes. Le tri ne se déclenche que quand la liste pèse
+ * vraiment — et c'est le sens du pool que de grossir.
+ */
+export const COMPETENCES_MINIMUM_POUR_FILTRER = 6;
+
+/**
+ * CE QUI FAIT QU'UNE FICHE PARLE D'UN TRAVAIL. Son nom, sa description, ses
+ * symptômes et ses thèmes — jamais le corps du `SKILL.md`, qui n'est pas lu ici
+ * et n'a pas à l'être : une fiche se déclenche sur sa TÊTE, c'est tout l'objet
+ * de l'en-tête qu'elle porte.
+ */
+export function texteClassableDUneFiche(fiche: Competence): string {
+  return [fiche.nom, fiche.description, ...fiche.symptomes, ...fiche.themes].join(' ');
+}
+
+/**
+ * LES FICHES QUI TOUCHENT LE TRAVAIL DE LA CARTE, ET CELLES QUI N'EN PARLENT PAS.
+ *
+ * Même classement lexical que les règles (`classerRegles`) : les mots utiles de
+ * la demande, cherchés dans la tête de chaque fiche. Aucune demande, ou aucune
+ * fiche touchée, rend `retenues` vide — l'appelant sert alors la liste entière,
+ * car rogner reviendrait à cacher le pool au lieu de l'annoncer.
+ */
+export function classerCompetences(
+  liste: Competence[],
+  travail: string,
+): { retenues: Competence[]; ecartees: Competence[] } {
+  const classees = classerRegles(liste.map(texteClassableDUneFiche), travail);
+  const touchees = new Set(classees.map((regle) => regle.texte));
+  const retenues = liste.filter((fiche) => touchees.has(texteClassableDUneFiche(fiche)));
+  return { retenues, ecartees: liste.filter((fiche) => !retenues.includes(fiche)) };
+}
+
+/** Le sommaire par thème d'une liste de fiches — une ligne par thème. */
+function lignesParTheme(liste: Competence[]): string {
+  return grouperParTheme(liste)
+    .map((groupe) => `- ${groupe.theme} (${groupe.fiches.length}) : ${groupe.fiches.map((f) => f.nom).join(', ')}`)
+    .join('\n');
+}
+
+export function texteDesCompetences(liste: Competence[], dossier = '', travail = ''): string {
   const servies = liste.filter((fiche) => ficheEnService(fiche.etat));
   if (!servies.length) return '';
-  const groupes = grouperParTheme(servies);
-  const lignes = groupes.map((groupe) => {
-    const noms = groupe.fiches.map((fiche) => fiche.nom).join(', ');
-    return `- ${groupe.theme} (${groupe.fiches.length}) : ${noms}`;
-  });
+
   const entree = dossier
     ? `\nLe sommaire complet et l'index par symptôme sont dans ${dossier}/${FICHIER_SOMMAIRE} et ${dossier}/${FICHIER_INDEX_SYMPTOMES}.`
     : '';
-  return (
-    `COMPÉTENCES PARTAGÉES (${servies.length}) — des modes d'emploi déjà écrits, valables pour TOUS les projets, ` +
-    `rangés par thème :\n${lignes.join('\n')}\n${entree}\n` +
+  const consigne =
     `Dès qu'une demande entre dans le champ d'une compétence, OUVRE son mode d'emploi (le SKILL.md de son dossier) ` +
     `et suis-le : il dit quelle commande lancer et avec quels identifiants. Ne réponds jamais que tu ne sais pas faire ` +
-    `ce qu'une compétence sait faire — et si tu ne fais pas le travail toi-même, nomme-la dans la carte que tu proposes.`
-  );
+    `ce qu'une compétence sait faire — et si tu ne fais pas le travail toi-même, nomme-la dans la carte que tu proposes.`;
+
+  /*
+   * LE POOL EST SERVI AU POIDS DE LA DEMANDE, COMME LES RÈGLES.
+   *
+   * Le sommaire par thème partait ENTIER dans le briefing de chaque agent : une
+   * carte qui touche un bouton recevait la liste des quinze fiches — dessin,
+   * comptabilité, navigateur — dont aucune ne parle de son travail. On NOMME
+   * donc celles qui touchent la carte, et on COMPTE les autres en disant où les
+   * lire. Sans carte (une conversation, le chef d'orchestre), rien ne change :
+   * la liste entière part, comme avant.
+   */
+  const entier =
+    `COMPÉTENCES PARTAGÉES (${servies.length}) — des modes d'emploi déjà écrits, valables pour TOUS les projets, ` +
+    `rangés par thème :\n${lignesParTheme(servies)}\n${entree}\n${consigne}`;
+
+  if (travail.trim() && servies.length >= COMPETENCES_MINIMUM_POUR_FILTRER) {
+    const { retenues, ecartees } = classerCompetences(servies, travail);
+    if (retenues.length && ecartees.length) {
+      const reste =
+        `(${ecartees.length} autre${ecartees.length > 1 ? 's' : ''} compétence${ecartees.length > 1 ? 's' : ''} ` +
+        `du pool ne parle${ecartees.length > 1 ? 'nt' : ''} pas du travail de ta carte et ne ${
+          ecartees.length > 1 ? 'sont' : 'est'
+        } pas listée${ecartees.length > 1 ? 's' : ''} ici — le sommaire les donne toutes.)`;
+      const trie =
+        `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, valables pour TOUS les ` +
+        `projets. Celles qui touchent le travail de ta carte :\n${lignesParTheme(retenues)}\n${reste}\n${entree}\n${consigne}`;
+      /*
+       * UN TRI QUI COÛTE PLUS CHER QUE CE QU'IL CACHE N'EST PAS UN TRI. La
+       * phrase qui COMPTE les fiches écartées pèse elle aussi ; sur un pool de
+       * noms courts, elle peut peser plus que les noms retirés. On compare donc
+       * les deux textes RÉELLEMENT construits et on garde le plus léger — et à
+       * poids égal, la liste entière, qui en apprend plus.
+       */
+      if (trie.length < entier.length) return trie;
+    }
+  }
+
+  return entier;
 }
 
 /* ------------------------------------------------------------------ */
