@@ -389,7 +389,7 @@ export function Board({
   const travailParCarte = React.useMemo(() => {
     const index = new Set<string>();
     for (const agent of Object.values(state.agents)) {
-      if (agent.cardId && (agent.status === 'running' || agent.status === 'starting')) index.add(agent.cardId);
+      if (agent.cardId && agentTientSonTour(agent)) index.add(agent.cardId);
     }
     return index;
   }, [state.agents]);
@@ -2028,14 +2028,14 @@ export function CardTile({
   // Un agent au travail sur la carte, quel qu'il soit : le voyant doit tourner
   // même quand la carte n'a pas encore retenu son agent.
   const agentActif = Object.values(state.agents).find(
-    (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting'),
+    (a) => a.cardId === card.id && agentTientSonTour(a),
   );
   const agentAuTravail = !!agentActif;
   // Mode plan : l'agent au travail sur cette carte prépare sans écrire — un
   // repère distinct, tant qu'il travaille encore (le réglage seul ne suffit
   // pas à le dire, une fois le tour rendu).
   const agentPlanActif = Object.values(state.agents).some(
-    (a) => a.cardId === card.id && (a.status === 'running' || a.status === 'starting') && a.run?.mode === 'plan',
+    (a) => a.cardId === card.id && agentTientSonTour(a) && a.run?.mode === 'plan',
   );
 
   /*
