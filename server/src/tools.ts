@@ -545,7 +545,7 @@ export const TOOL_DEFS: ToolDef[] = [
         sujet: {
           type: 'string',
           description:
-            "Ce que tu cherches : un numéro de l'index de faits (« 12 »), un nom de sujet (« publication », « cartes », « voix », « quotas »…), ou des mots-clés.",
+            "Ce que tu cherches : un numéro de l'index de faits (« 12 »), un nom de sujet (« publication », « cartes », « voix », « quotas »…), ou des mots-clés. Sur une carte, un gros sujet est servi au poids de ta demande, et ce qui est écarté est dit : ajoute « entier » (« cartes entier ») pour l'avoir en entier.",
         },
       },
     },
@@ -1287,11 +1287,23 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * projet — d'où `sourceDHeritageDuProjet`, seule à connaître la liste des
        * projets.
        */
+      /*
+       * ...ET UN SUJET NOMMÉ EST SERVI AU POIDS DE LA DEMANDE DE LA CARTE. La
+       * MÉTHODE imposée envoie l'agent ouvrir « le SUJET de sa tâche » à son
+       * premier tour : il NOMME donc un sujet, et un sujet nommé valait le
+       * fichier ENTIER — 36 000 signes de `cartes.md` pour une carte qui ne
+       * touche qu'un bouton. Le travail réel de la carte (son titre et son
+       * constat, ce que l'agent a lui-même reçu) descend jusqu'à la mémoire pour
+       * RANGER un gros sujet dans cet ordre-là. Sans carte — une conversation,
+       * le chef d'orchestre —, rien ne change : le sujet part entier.
+       */
+      const carte = ctx.cardId ? store.getCard(ctx.cardId) : null;
       const servi = detailProjet(
         project.path,
         String(args.sujet ?? ''),
         store.sujetsMemoireServis(ctx.agentId),
         sourceDHeritageDuProjet(project),
+        carte ? `${carte.title}\n${carte.description}` : '',
       );
       store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
       return { ok: true, text: servi.texte };

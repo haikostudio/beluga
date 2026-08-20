@@ -331,7 +331,8 @@ console.log(`${pad('TOTAL', largeurDemande)}  ${num(memAvant, 7)}  ${num(memApre
 console.log(
   `\nGain sur la mémoire demandée : ${Math.round((1 - memApres / memAvant) * 100)} %.\n` +
     "L'avant ne compte que les RÈGLES (les contrôles partaient en plus) : le gain réel est un peu plus grand.\n" +
-    'Un sujet demandé par son NOM rend toujours tout — la nuance est voulue, elle appartient à l’agent.',
+    'Un sujet demandé par son NOM rend tout HORS CARTE ; sur une carte, il est servi au poids de sa demande',
+    '(node scripts/verif-memoire-filtree.mjs), et « <sujet> entier » rend le fichier entier.',
 );
 
 /* ------------------------------------------------------------------ */

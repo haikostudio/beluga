@@ -6,8 +6,14 @@ import path from 'node:path';
 import {
   classerRegles,
   extraitDeSujet,
+  lireDemandeDeMemoire,
   mentionDEcart,
   motsDeLaRequete,
+  extraitDeControles,
+  lignesDeControle,
+  MOTS_MINIMUM_POUR_FILTRER,
+  PLAFOND_SUJET_NOMME,
+  sujetNommeAFiltrer,
   partagerSujets,
   PLAFOND_EXTRAIT_SIGNES,
   SUJETS_PAR_MOTS_MAX,
@@ -91,7 +97,7 @@ test('le plafond par défaut reste très en dessous d’un fichier de sujet enti
 test('ce qui est écarté est NOMMÉ, avec le moyen de tout obtenir', () => {
   const mention = mentionDEcart({ id: 'cartes', libelle: 'Cartes' }, { gardees: ['a'], ecartees: 3 });
   assert.match(mention, /3 autres règles/);
-  assert.match(mention, /« cartes »/);
+  assert.match(mention, /« cartes entier »/);
 });
 
 test('rien d’écarté : aucune ligne ajoutée pour parler du vide', () => {
@@ -169,4 +175,109 @@ test('le sujet NOMMÉ rend toujours le fichier entier', () => {
   assert.match(texte, /yyyyy/, 'un sujet demandé par son nom ne se rogne pas');
   assert.match(texte, /CONTRÔLES/);
   fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+/* ------------------------------------------------------------------ */
+/* …SAUF quand une CARTE dit le travail à faire                        */
+/* ------------------------------------------------------------------ */
+
+test('le marqueur « entier » se lit en fin de demande, et laisse le sujet', () => {
+  assert.deepEqual(lireDemandeDeMemoire('cartes entier'), { requete: 'cartes', entier: true });
+  assert.deepEqual(lireDemandeDeMemoire('  cartes EN ENTIER '), { requete: 'cartes', entier: true });
+  assert.deepEqual(lireDemandeDeMemoire('cartes'), { requete: 'cartes', entier: false });
+});
+
+test('« entier » tout seul reste une demande ordinaire, jamais un marqueur', () => {
+  assert.deepEqual(lireDemandeDeMemoire('entier'), { requete: 'entier', entier: false });
+});
+
+test('un sujet nommé ne se filtre que gros, sans « entier », et sur une vraie demande', () => {
+  const demande = 'le bouton arrêt de la carte reste allumé';
+  assert.equal(sujetNommeAFiltrer({ signes: 30000, demande, entier: false }), true);
+  assert.equal(sujetNommeAFiltrer({ signes: 30000, demande, entier: true }), false, '« entier » est un choix');
+  assert.equal(sujetNommeAFiltrer({ signes: 500, demande, entier: false }), false, 'un petit sujet part entier');
+  assert.equal(
+    sujetNommeAFiltrer({ signes: 30000, demande: 'de la à un', entier: false }),
+    false,
+    'sans mot utile on ne devine pas',
+  );
+});
+
+test('le plafond du sujet nommé et le minimum de mots restent des garde-fous sobres', () => {
+  assert.ok(PLAFOND_SUJET_NOMME >= 6000, 'un sujet moyen ne doit pas être rogné pour rien');
+  assert.ok(MOTS_MINIMUM_POUR_FILTRER >= 2, 'un seul mot ne classe pas un fichier de règles');
+});
+
+/** Un projet dont le sujet « cartes » pèse plus qu'un plafond, comme le vrai. */
+function grosProjet(): string {
+  const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'haikodev-gros-'));
+  fs.mkdirSync(path.join(dossier, 'docs', 'regles'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dossier, 'docs', 'regles', 'cartes.md'),
+    '# Cartes\n\n' +
+      regle('Le bouton arrêt.', "Un arrêt à la main ramène la carte en « Planifié ».") +
+      '\n\n' +
+      regle('Le départ programmé.', 'Une carte porte une date de départ.\n  ' + 'z'.repeat(12000)) +
+      '\n',
+  );
+  return dossier;
+}
+
+test('un sujet NOMMÉ sur une carte est servi au poids de la demande de la carte', () => {
+  const dossier = grosProjet();
+  const travail = "Le bouton arrêt d'une carte laisse la carte allumée";
+  const entier = detailRegles(dossier, 'cartes');
+  const filtre = detailRegles(dossier, 'cartes', travail);
+
+  assert.match(filtre, /Le bouton arrêt/, 'la règle qui parle du travail doit être là');
+  assert.doesNotMatch(filtre, /zzzzz/, 'le pavé hors sujet ne part plus');
+  assert.match(filtre, /1 autre règle de ce sujet/, "ce qui est écarté doit être dit");
+  assert.match(filtre, /« cartes entier »/, 'le moyen de tout obtenir doit être écrit');
+  assert.ok(filtre.length < entier.length / 5, `filtré ${filtre.length} vs entier ${entier.length}`);
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('« cartes entier » rend le fichier entier, même avec une carte en cours', () => {
+  const dossier = grosProjet();
+  const texte = detailRegles(dossier, 'cartes entier', "Le bouton arrêt d'une carte laisse la carte allumée");
+  assert.match(texte, /zzzzz/, 'l’agent a demandé le sujet entier : on obéit');
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+test('aucune règle ne parle du travail : le sujet part entier, jamais le silence', () => {
+  const dossier = grosProjet();
+  const texte = detailRegles(dossier, 'cartes', 'la couleur des factures suisses imprimées');
+  assert.match(texte, /zzzzz/, 'rogner jusqu’au vide serait pire que tout rendre');
+  fs.rmSync(dossier, { recursive: true, force: true });
+});
+
+/* ------------------------------------------------------------------ */
+/* Les CONTRÔLES suivent la même règle                                 */
+/* ------------------------------------------------------------------ */
+
+const SECTION = [
+  '## Cartes',
+  '',
+  '```bash',
+  "node scripts/verif-arret-carte.mjs # l'arrêt d'une carte la ramène en « Planifié »",
+  'node scripts/verif-themes.mjs # les six ambiances et leurs palettes',
+  'node scripts/verif-langues.mjs # les cinq langues de l’interface',
+  '```',
+].join('\n');
+
+test('les lignes de contrôle excluent le titre et les bornes du bloc', () => {
+  const lignes = lignesDeControle(SECTION);
+  assert.equal(lignes.length, 3);
+  assert.ok(lignes.every((l) => !l.startsWith('#') && !l.startsWith('```')));
+});
+
+test('seuls les contrôles qui parlent de la demande sont gardés, les autres comptés', () => {
+  const extrait = extraitDeControles(SECTION, "l'arrêt d'une carte reste allumé", 3000);
+  assert.equal(extrait.gardees.length, 1);
+  assert.match(extrait.gardees[0], /verif-arret-carte/);
+  assert.equal(extrait.ecartees, 2);
+});
+
+test('une demande qui ne touche aucun contrôle n’en garde aucun — l’appelant rendra tout', () => {
+  assert.deepEqual(extraitDeControles(SECTION, 'betterave sucrière', 3000), { gardees: [], ecartees: 0 });
 });

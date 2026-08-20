@@ -18,12 +18,14 @@ import {
   classerRegles,
   decouperRegles,
   estLigneDeJournal,
+  extraitDeControles,
   extraitDeSujet,
   faitsDuTexte,
   fichierDuSujet,
   fichierNatif,
   instructionsQuiFontFoi,
   libelleSujet,
+  lireDemandeDeMemoire,
   mentionDEcart,
   nettoyer,
   partagerSujets,
@@ -35,6 +37,7 @@ import {
   sujetDeLaRequete,
   sujetDuFait,
   sujetNomme,
+  sujetNommeAFiltrer,
   sujetsPourRequete,
   texteAccesGithub,
   texteDesCompetences,
@@ -492,21 +495,42 @@ function faitsEnEntier(sujet: SujetEnArbre, faits: string[]): string {
  *    ressemblance. Rien ne correspond ? On le DIT, et on rend la carte — un
  *    silence honnête vaut mieux que cinq passages tirés au sort.
  */
-export function detailMemoire(projectPath: string, requete: string): string {
+export function detailMemoire(projectPath: string, requete: string, travail = ''): string {
   const arbre = arbreDuProjet(projectPath);
   const faits = arbre.flatMap((sujet) => sujet.branches.flatMap((b) => b.faits));
   if (!faits.length) return 'La mémoire du projet est vide pour le moment.';
 
-  const demande = requete.trim();
+  const { requete: demande, entier: toutVoulu } = lireDemandeDeMemoire(requete);
   if (!demande) return carteDeLArbre(arbre);
 
   // UN SUJET, par son nom : le palier au-dessus des branches.
   const vise = sujetDeLaRequete(demande);
   const sujet = vise && arbre.find((s) => s.id === vise.id);
   if (sujet) {
-    const entier = faitsEnEntier(sujet, sujet.branches.flatMap((b) => b.faits));
-    if (!sujet.eclate || entier.length <= POIDS_SERVI_EN_ENTIER) return entier;
-    return rappelDuSujet(sujet);
+    const siens = sujet.branches.flatMap((b) => b.faits);
+    const entier = faitsEnEntier(sujet, siens);
+    if (sujet.eclate && entier.length > POIDS_SERVI_EN_ENTIER) return rappelDuSujet(sujet);
+    /*
+     * UN SUJET RESTÉ À PLAT peut peser autant qu'un fichier de règles : il n'a
+     * pas de branches où descendre, donc rien ne le rognait. Quand une CARTE dit
+     * le travail à faire, ses faits partent eux aussi au poids de cette demande.
+     */
+    if (sujetNommeAFiltrer({ signes: entier.length, demande: travail, entier: toutVoulu })) {
+      const garde = extraitDeSujet(siens, travail);
+      if (garde.gardees.length) {
+        return [
+          faitsEnEntier(sujet, garde.gardees),
+          garde.ecartees &&
+            `(${garde.ecartees} autre${garde.ecartees > 1 ? 's' : ''} fait${
+              garde.ecartees > 1 ? 's' : ''
+            } de ce sujet ne parle${garde.ecartees > 1 ? 'nt' : ''} pas de ta demande. ` +
+              `Pour le sujet entier, redemande project_memory avec « ${sujet.id} entier ».)`,
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+      }
+    }
+    return entier;
   }
 
   // UNE BRANCHE, par son mot. Deux sujets peuvent porter le même : on rend les
@@ -594,17 +618,83 @@ function texteDuSujet(projectPath: string, sujet: SujetRegles): string {
  * `docs/verifications.md`, ils se demandent à la carte. Rend une chaîne vide sur
  * un projet qui n'a pas ces fichiers (rien à ajouter aux faits).
  */
-export function detailRegles(projectPath: string, requete: string): string {
-  return morceauxRegles(projectPath, requete)
+export function detailRegles(projectPath: string, requete: string, travail = ''): string {
+  return morceauxRegles(projectPath, requete, travail)
     .map((m) => m.texte)
     .join('\n\n———\n\n');
 }
 
+/**
+ * LES CONTRÔLES D'UN SUJET, SERVIS AU POIDS DE LA DEMANDE EUX AUSSI.
+ *
+ * Ils suivaient l'extrait EN ENTIER, au motif qu'une section pèse « quelques
+ * centaines de signes ». Celle du sujet « interface » en pèse 16 000 : trois
+ * fois l'extrait de règles qu'elle accompagnait. Une carte rejoue les contrôles
+ * qui touchent ce qu'elle a changé, pas les cinquante d'un sujet ; ce qui est
+ * écarté est compté, et le sujet entier reste à un mot de distance.
+ */
+function controlesDuSujet(projectPath: string, sujet: SujetRegles, demande: string, entier: boolean): string {
+  const section = sectionDoc(lireDoc(projectPath, 'docs/verifications.md'), TITRE_CONTROLES[sujet.id] ?? '');
+  if (!section) return '';
+
+  const entete = `CONTRÔLES — ${sujet.libelle}`;
+  if (!sujetNommeAFiltrer({ signes: section.length, demande, entier })) return `${entete}\n\n${section}`;
+
+  const extrait = extraitDeControles(section, demande);
+  if (!extrait.gardees.length) return `${entete}\n\n${section}`;
+  const reste = extrait.ecartees
+    ? `\n\n(${extrait.ecartees} autre${extrait.ecartees > 1 ? 's' : ''} contrôle${
+        extrait.ecartees > 1 ? 's' : ''
+      } de ce sujet ne parle${extrait.ecartees > 1 ? 'nt' : ''} pas de ta demande. ` +
+      `Pour la liste entière, redemande project_memory avec « ${sujet.id} entier ».)`
+    : '';
+  return `${entete} — ceux qui touchent ta demande :\n\n\`\`\`bash\n${extrait.gardees.join('\n')}\n\`\`\`${reste}`;
+}
+
+/**
+ * LE SUJET NOMMÉ, SERVI AU POIDS DE LA DEMANDE DE LA CARTE — ou rien, et
+ * l'appelant rend alors le fichier entier comme avant.
+ *
+ * Rien n'est rendu dans quatre cas, et chacun protège l'agent d'une réponse
+ * amputée : l'agent a écrit « entier », le fichier tient sous le plafond, la
+ * demande de la carte ne porte pas assez de mots pour classer, ou aucune règle
+ * du sujet ne parle de cette demande — dans ce dernier cas, rogner reviendrait à
+ * rendre le silence, ce que la mémoire en arbre s'interdit.
+ */
+function extraitDuSujetNomme(
+  projectPath: string,
+  sujet: SujetRegles,
+  travail: string,
+  entier: boolean,
+): MorceauServi | null {
+  const fichier = lireDoc(projectPath, sujet.fichier).trim();
+  if (!sujetNommeAFiltrer({ signes: fichier.length, demande: travail, entier })) return null;
+
+  const extrait = extraitDeSujet(decouperRegles(fichier), travail);
+  if (!extrait.gardees.length) return null;
+
+  const texte = [
+    `RÈGLES « ${sujet.libelle} » qui touchent le travail de ta carte ` +
+      `(le sujet entier pèse ${fichier.length} signes ; il est servi au poids de ta demande) :`,
+    extrait.gardees.join('\n\n'),
+    mentionDEcart(sujet, extrait),
+    controlesDuSujet(projectPath, sujet, travail, entier),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return {
+    cle: cleMorceau('extrait', sujet.id, texte),
+    libelle: `un extrait des règles « ${sujet.libelle} »`,
+    texte,
+  };
+}
+
 /** Les morceaux de règles servis par une demande, chacun avec sa clé. */
-function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
+function morceauxRegles(projectPath: string, requete: string, travail = ''): MorceauServi[] {
   if (!fs.existsSync(path.join(projectPath, 'docs', 'regles'))) return [];
 
-  const demande = requete.trim();
+  const { requete: demande, entier } = lireDemandeDeMemoire(requete);
   if (!demande) {
     return [
       {
@@ -621,9 +711,19 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
   /*
    * UN SUJET NOMMÉ vaut le fichier ENTIER, contrôles compris : l'agent l'a
    * demandé par son nom, c'est un choix, on obéit sans rogner.
+   *
+   * …SAUF QUAND UNE CARTE DIT LE TRAVAIL À FAIRE. La MÉTHODE imposée envoie
+   * l'agent ouvrir « le SUJET de sa tâche » à son premier tour : le sujet est
+   * donc NOMMÉ presque à chaque lancement de carte, et c'est par là que
+   * partaient les 36 000 signes de `cartes.md` pour une carte qui ne touche
+   * qu'un bouton. Un sujet volumineux est alors servi au poids de la demande de
+   * la CARTE (`sujetNommeAFiltrer`) : ce qui en parle d'abord, le reste NOMMÉ,
+   * et « <sujet> entier » pour tout obtenir malgré tout.
    */
   const nomme = sujetNomme(demande);
   if (nomme) {
+    const filtre = extraitDuSujetNomme(projectPath, nomme, travail, entier);
+    if (filtre) return [filtre];
     const texte = texteDuSujet(projectPath, nomme);
     /*
      * UN SUJET SANS FICHIER N'EST PAS UNE RÉPONSE. Les sujets de règles sont une
@@ -657,16 +757,15 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
       const extrait = extraitDeSujet(decoupes.get(sujet.id) ?? [], demande);
       if (!extrait.gardees.length) continue;
       /*
-       * Les CONTRÔLES du sujet suivent l'extrait, eux, en entier : la MÉTHODE
-       * impose de rejouer les contrôles touchés, et la section d'un sujet pèse
-       * quelques centaines de signes, pas des dizaines de milliers.
+       * Les CONTRÔLES du sujet suivent l'extrait — au poids de la demande eux
+       * aussi dès que leur liste est longue : la MÉTHODE impose de rejouer les
+       * contrôles TOUCHÉS, pas les cinquante d'un sujet.
        */
-      const controles = sectionDoc(lireDoc(projectPath, 'docs/verifications.md'), TITRE_CONTROLES[sujet.id] ?? '');
       const texte = [
         `RÈGLES « ${sujet.libelle} » qui touchent ta demande :`,
         extrait.gardees.join('\n\n'),
         mentionDEcart(sujet, extrait),
-        controles && `CONTRÔLES — ${sujet.libelle}\n\n${controles}`,
+        controlesDuSujet(projectPath, sujet, travail || demande, entier),
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -722,14 +821,19 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
  * La clé de dédoublonnage est préfixée : un sujet servi depuis l'amont ne se
  * confond pas avec le même sujet servi depuis le projet.
  */
-function morceauxHerites(projectPath: string, requete: string, amont?: SourceDHeritage): MorceauServi[] {
+function morceauxHerites(
+  projectPath: string,
+  requete: string,
+  amont?: SourceDHeritage,
+  travail = '',
+): MorceauServi[] {
   if (!requete.trim()) return [];
   if (!amontApplicable({ projet: projectPath, amont: amont?.chemin })) return [];
   // Le projet a répondu : on ne monte pas d'un cran.
-  if (morceauxRegles(projectPath, requete).length) return [];
+  if (morceauxRegles(projectPath, requete, travail).length) return [];
 
   const source = amont as SourceDHeritage;
-  return morceauxRegles(source.chemin, requete).map((morceau) => ({
+  return morceauxRegles(source.chemin, requete, travail).map((morceau) => ({
     cle: morceau.cle ? `amont:${morceau.cle}` : '',
     libelle: `${morceau.libelle}, héritées de ${source.nom}`,
     texte:
@@ -751,11 +855,14 @@ export interface SourceDHeritage {
 }
 
 /** Les morceaux de FAITS servis par une demande. */
-function morceauxFaits(projectPath: string, requete: string): MorceauServi[] {
-  const texte = detailMemoire(projectPath, requete);
+function morceauxFaits(projectPath: string, requete: string, travail = ''): MorceauServi[] {
+  const texte = detailMemoire(projectPath, requete, travail);
 
-  // Une demande qui NOMME un sujet se dédoublonne : l'agent l'a déjà sous les yeux.
-  const sujet = sujetDeLaRequete(requete);
+  // Une demande qui NOMME un sujet se dédoublonne : l'agent l'a déjà sous les
+  // yeux. Le marqueur « entier » est retiré d'abord : « cartes entier » et
+  // « cartes » nomment le même sujet, et un texte différent porte déjà une clé
+  // différente.
+  const sujet = sujetDeLaRequete(lireDemandeDeMemoire(requete).requete);
   if (sujet) {
     return [{ cle: cleMorceau('faits', sujet.id, texte), libelle: `les faits « ${sujet.libelle} »`, texte }];
   }
@@ -765,7 +872,7 @@ function morceauxFaits(projectPath: string, requete: string): MorceauServi[] {
    * l'arbre : sans clé, un agent qui redemande « catalogue » repaierait le même
    * fichier à chaque tour, ce que le dédoublonnage des sujets évitait déjà.
    */
-  const branches = brancheDemandee(arbreDuProjet(projectPath), requete);
+  const branches = brancheDemandee(arbreDuProjet(projectPath), lireDemandeDeMemoire(requete).requete);
   if (branches.length === 1) {
     const { sujet: parent, branche } = branches[0];
     return [
@@ -810,12 +917,20 @@ export function detailProjet(
    * exactement comme si le projet n'héritait de rien.
    */
   amont?: SourceDHeritage,
+  /**
+   * LE TRAVAIL RÉEL À FAIRE — le titre et le constat de la CARTE en cours, tels
+   * que l'agent les a reçus. Il ne remplace jamais la demande de l'agent : il
+   * sert à RANGER un gros sujet nommé dans l'ordre de ce travail, et à écarter
+   * ce qui n'en parle pas (`sujetNommeAFiltrer`). Absent — une conversation, un
+   * agent sans carte —, tout se comporte comme avant.
+   */
+  travail = '',
 ): DetailProjet {
   const connus = new Set(dejaServis);
   const morceaux = [
-    ...morceauxFaits(projectPath, requete),
-    ...morceauxRegles(projectPath, requete),
-    ...morceauxHerites(projectPath, requete, amont),
+    ...morceauxFaits(projectPath, requete, travail),
+    ...morceauxRegles(projectPath, requete, travail),
+    ...morceauxHerites(projectPath, requete, amont, travail),
   ];
 
   const aServir = morceaux.filter((m) => !m.cle || !connus.has(m.cle));
