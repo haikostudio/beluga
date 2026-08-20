@@ -23,10 +23,11 @@ import {
   decisionDeDeploiementAutomatique,
   demarrageAutomatiqueAutorise,
   procedureEnPlace,
+  type Card,
   type Project,
 } from '@haikodev/shared';
 import { agentsOccupes, startDeploy } from './deploy.js';
-import { rangerLaCarte } from './deplacement-carte.js';
+import { carteAttendUneDecision, rangerLaCarte } from './deplacement-carte.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -39,14 +40,33 @@ import * as store from './store.js';
 let enCours = false;
 
 /**
+ * Les cartes de « Terminé » réellement prêtes à partir — celles qui ne
+ * portent ni question sans réponse ni sous-tâche non faite. Une carte qui
+ * attend encore l'utilisateur n'est pas un travail abouti : elle ne doit
+ * jamais être comptée pour le lot, ni y être poussée.
+ */
+function cartesDeployables(project: Project): { pretes: Card[]; retenues: Card[] } {
+  const terminees = store.listCardsInColumn(project.id, 'done');
+  const agents = store.listAgents(project.id);
+  const decisions = store.decisionsEnAttente();
+  const pretes: Card[] = [];
+  const retenues: Card[] = [];
+  for (const card of terminees) {
+    (carteAttendUneDecision(card, agents, decisions) ? retenues : pretes).push(card);
+  }
+  return { pretes, retenues };
+}
+
+/**
  * L'état d'un projet, lu dans la base et donné tel quel à la règle pure.
  */
 function etatDuProjet(project: Project) {
-  const terminees = store.listCardsInColumn(project.id, 'done');
+  const { pretes, retenues } = cartesDeployables(project);
   const maintenant = Date.now();
   return {
     actif: project.deploiementAutomatique === true,
-    cartesTerminees: terminees.length,
+    cartesTerminees: pretes.length,
+    cartesEnAttenteDeDecision: retenues.length,
     cartesEnCours: store.listCardsInColumn(project.id, 'running').length,
     /*
      * Une carte de « Planifié » qui repartirait d'elle-même au prochain tour de
@@ -60,11 +80,11 @@ function etatDuProjet(project: Project) {
     publicationEnCours: store.latestDeploy(project.id)?.state === 'running',
     procedureEnPlace: procedureEnPlace(project, 'dev'),
     /*
-     * Le travail rendu le PLUS RÉCEMMENT du lot. Deux cartes d'un même chantier
-     * finissent rarement à la même seconde : ce repère laisse le lot se
-     * compléter au lieu de publier une fois par carte.
+     * Le travail rendu le PLUS RÉCEMMENT du lot RÉELLEMENT déployable. Deux
+     * cartes d'un même chantier finissent rarement à la même seconde : ce
+     * repère laisse le lot se compléter au lieu de publier une fois par carte.
      */
-    dernierTravailRenduA: terminees.reduce<number | undefined>(
+    dernierTravailRenduA: pretes.reduce<number | undefined>(
       (dernier, card) => (card.doneAt && (!dernier || card.doneAt > dernier) ? card.doneAt : dernier),
       undefined,
     ),
@@ -106,13 +126,18 @@ export async function passageDuDeploiementAutomatique(): Promise<void> {
  * `startDeploy` valent ici comme au clic.
  */
 async function envoyerLeLot(project: Project, raison: string): Promise<void> {
-  const aDeplacer = store.listCardsInColumn(project.id, 'done');
-  for (const card of aDeplacer) {
+  const { pretes, retenues } = cartesDeployables(project);
+  for (const card of pretes) {
     bus.emit({ type: 'card.upsert', card: rangerLaCarte(card, 'to_deploy') });
   }
   log.info(
-    `déploiement automatique de « ${project.name} » : ${aDeplacer.length} carte(s) poussée(s) dans « À déployer » (${raison})`,
+    `déploiement automatique de « ${project.name} » : ${pretes.length} carte(s) poussée(s) dans « À déployer » (${raison})`,
   );
+  if (retenues.length > 0) {
+    log.info(
+      `déploiement automatique de « ${project.name} » : ${retenues.length} carte(s) retenue(s) dans « Terminé », en attente d'une décision de l'utilisateur`,
+    );
+  }
 
   const resultat = await startDeploy(project.id, { cible: 'dev' });
   if (!resultat.ok) {

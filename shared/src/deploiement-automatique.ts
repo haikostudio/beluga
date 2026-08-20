@@ -26,6 +26,14 @@
  *    finissent rarement à la même seconde, et on ne veut pas d'une publication
  *    par carte.
  *
+ * UNE CARTE QUI ATTEND UNE RÉPONSE NE COMPTE JAMAIS DANS LE LOT, même arrivée
+ * dans « Terminé » : une question posée par l'agent restée sans réponse, ou une
+ * liste de tâches refermée avec des étapes non faites, disent toutes deux
+ * qu'une intervention de l'utilisateur reste due. L'interrupteur ne vaut
+ * consentement que pour du travail RÉELLEMENT abouti — l'appelant (côté
+ * serveur) exclut donc ces cartes de `cartesTerminees` avant d'appeler cette
+ * règle, et compte ce qu'il a retenu dans `cartesEnAttenteDeDecision`.
+ *
  * Règle PURE : ni base, ni disque, ni git — l'appelant apporte ce qu'il a lu.
  */
 
@@ -35,8 +43,14 @@ export const DELAI_DE_CALME_MS = 60_000;
 export interface EtatDuDeploiementAutomatique {
   /** L'interrupteur de la colonne « Terminé » de ce projet. */
   actif: boolean;
-  /** Combien de cartes attendent dans « Terminé ». */
+  /** Combien de cartes de « Terminé » sont réellement prêtes à partir. */
   cartesTerminees: number;
+  /**
+   * Combien de cartes de « Terminé » sont RETENUES par une décision ouverte
+   * (question sans réponse) ou une sous-tâche non faite — elles ne comptent
+   * pas dans `cartesTerminees`, et ne partiront jamais toutes seules.
+   */
+  cartesEnAttenteDeDecision: number;
   /** Combien de cartes sont encore dans « En cours ». */
   cartesEnCours: number;
   /** Combien de cartes vont repartir d'elles-mêmes (programmées, « dès que possible »). */
@@ -80,7 +94,15 @@ export function decisionDeDeploiementAutomatique(
   if (etat.cartesQuiVontPartir > 0) {
     return { partir: false, raison: `${etat.cartesQuiVontPartir} carte(s) sur le point de repartir` };
   }
-  if (etat.cartesTerminees < 1) return { partir: false, raison: 'rien à déployer dans « Terminé »' };
+  if (etat.cartesTerminees < 1) {
+    if (etat.cartesEnAttenteDeDecision > 0) {
+      return {
+        partir: false,
+        raison: `${etat.cartesEnAttenteDeDecision} carte(s) terminée(s) attendent encore une décision de l'utilisateur`,
+      };
+    }
+    return { partir: false, raison: 'rien à déployer dans « Terminé »' };
+  }
 
   const rendu = etat.dernierTravailRenduA;
   if (typeof rendu === 'number' && maintenant - rendu < DELAI_DE_CALME_MS) {

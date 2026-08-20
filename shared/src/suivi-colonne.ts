@@ -598,6 +598,13 @@ export interface CarteOubliee {
   dernierTourEnEchec: boolean;
   /** Elle a déjà produit du code, ce tour-ci ou avant. */
   dejaEnregistre: boolean;
+  /**
+   * Une décision reste ouverte sur cette carte : question posée sans réponse,
+   * ou liste de tâches refermée avec des étapes non faites. La ranger en
+   * « Terminé » maintenant annoncerait un travail abouti alors qu'une
+   * intervention de l'utilisateur reste due.
+   */
+  decisionOuverte?: boolean;
 }
 
 /**
@@ -639,7 +646,12 @@ export const SEUIL_VOL_BLOQUE_MS = 5 * 60 * 1000;
  *     sans cette porte de sortie, la carte restait bloquée jusqu'au prochain
  *     redémarrage du démon (`server/src/store.ts`, `cartesEnVol`) ;
  *   - son dernier tour a ÉCHOUÉ ou a été ARRÊTÉ à la main : la règle est déjà
- *     écrite, l'incident est dit en rouge et la carte reste là où on la relance.
+ *     écrite, l'incident est dit en rouge et la carte reste là où on la relance ;
+ *   - une DÉCISION reste OUVERTE (`decisionOuverte`) : une question posée sans
+ *     réponse, ou une liste de tâches refermée avec des étapes non faites. La
+ *     ranger dans « Terminé » ferait passer une carte qui attend l'utilisateur
+ *     pour un travail abouti — et donc, plus loin, pour une carte prête à être
+ *     déployée.
  *
  * Restent les vraies oubliées, et leur issue est la MÊME que celle d'une fin de
  * tour sans changement : code déjà livré → « Terminé » avec sa raison ; rien
@@ -660,6 +672,7 @@ export function issueDeCarteOubliee(etat: CarteOubliee, maintenant: number): Iss
   const volRecent = etat.tourEnVolDepuis !== undefined && maintenant - etat.tourEnVolDepuis < SEUIL_VOL_BLOQUE_MS;
   if (volRecent) return CARTE_INCHANGEE;
   if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
+  if (etat.decisionOuverte) return CARTE_INCHANGEE;
 
   if (etat.dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE };
   return { colonne: 'done', raison: RAISON_TOUR_SANS_ISSUE };

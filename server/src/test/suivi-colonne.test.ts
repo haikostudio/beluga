@@ -497,6 +497,14 @@ test('un dernier tour en échec laisse la carte là où on la relance', () => {
   );
 });
 
+test('une décision ouverte laisse la carte là où on doit y répondre, même du code déjà livré', () => {
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, decisionOuverte: true }, MAINTENANT).colonne, null);
+  assert.equal(
+    issueDeCarteOubliee({ ...OUBLIEE, decisionOuverte: true, dejaEnregistre: true }, MAINTENANT).colonne,
+    null,
+  );
+});
+
 test('hors « En cours », le balayage ne touche à rien', () => {
   for (const colonne of COLUMN_KEYS.filter((c) => c !== 'running')) {
     assert.equal(issueDeCarteOubliee({ ...OUBLIEE, colonne }, MAINTENANT).colonne, null, `depuis « ${colonne} »`);
