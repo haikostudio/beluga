@@ -9,7 +9,7 @@ import {
   SIGNES_PAR_JETON,
   montantEnFrancs,
   projectionDeLExecution,
-  raisonAbsenceDePassages,
+  RAISON_ARBRE,
   repartitionMemoireEnvoi,
   type TourMesureAgent,
 } from '@haikodev/shared';
@@ -215,29 +215,9 @@ test('le poids d’un message ne dépend jamais de ce que le tour a coûté apr�
   assert.ok(jetonsMessageEnvoye(contexteCourt) < 100);
 });
 
-test('sans passage, la raison dit la reprise de session en premier', () => {
-  assert.match(
-    raisonAbsenceDePassages({ nouvelleSession: false, accueilEmporteLaMemoire: true }),
-    /Reprise de session/,
-  );
-  // Même sans mémoire à l'accueil, une reprise reste une reprise : la raison
-  // la plus parlante l'emporte.
-  assert.match(
-    raisonAbsenceDePassages({ nouvelleSession: false, accueilEmporteLaMemoire: false }),
-    /Reprise de session/,
-  );
-});
-
-test('session neuve sans mémoire à l’accueil (tri du chef, dépannage) : la raison le dit', () => {
-  assert.match(
-    raisonAbsenceDePassages({ nouvelleSession: true, accueilEmporteLaMemoire: false }),
-    /n’emporte pas la mémoire/,
-  );
-});
-
-test('session neuve, mémoire emportée, recherche vide : le repli sur l’index est dit', () => {
-  assert.match(
-    raisonAbsenceDePassages({ nouvelleSession: true, accueilEmporteLaMemoire: true }),
-    /Repli sur l’index complet/,
-  );
+test('la raison qui remplace les passages dit l’arbre, pas une panne', () => {
+  // Plus rien n'est « retrouvé » : la bulle doit dire que c'est un CHOIX —
+  // la carte de l'arbre est partie, l'agent ouvre ce qu'il veut.
+  assert.match(RAISON_ARBRE, /ARBRE/);
+  assert.match(RAISON_ARBRE, /project_memory/);
 });

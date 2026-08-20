@@ -17,7 +17,7 @@
  *
  * Constaté le 17/08/2026 : le démon n'a plus rien refermé entre 03 h 10 et
  * 07 h 36, deux agents figés — l'auto-amélioration de la nuit et une carte —,
- * pendant que le reste du démon (sauvegarde, vectorisation, envoi au cerveau)
+ * pendant que le reste du démon (sauvegarde, envoi au cerveau)
  * continuait de tourner normalement. La boucle, elle seule, était morte.
  *
  * Deux règles, ici, sans base ni disque :

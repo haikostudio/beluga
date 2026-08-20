@@ -28,7 +28,6 @@ import { initPush } from './push.js';
 import { amorcerFenetres } from './amorce.js';
 import { envoyerAuCerveau } from './cerveau.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
-import { planifierVectorisation } from './vecteurs-nocturne.js';
 import { planifierCapitalisation } from './capitalisation.js';
 import { planifierRangementDesInstructions } from './instructions-en-attente.js';
 import { arretParSignal, diffuserEtatDemon } from './demon.js';
@@ -191,13 +190,6 @@ async function main(): Promise<void> {
    */
   const autoAmeliorationTimer = planifierAutoAmelioration();
   /*
-   * La vectorisation de l'index : chaque nuit vers 1 h, TOUS les projets d'un
-   * coup, avant le rendez-vous d'auto-amélioration de 3 h. Elle n'appelle aucun
-   * moteur et ne prend la place d'aucun agent — un travail en cours ne la
-   * reporte donc pas.
-   */
-  const vectorisationTimer = planifierVectorisation();
-  /*
    * LA CAPITALISATION : vers 5 h, APRÈS l'auto-amélioration de 3 h, un agent
    * d'analyse relit les cartes qui ont fait leurs preuves — contrôles rejoués,
    * passage en production, sept jours sans contradiction — et n'écrit dans le
@@ -243,7 +235,6 @@ async function main(): Promise<void> {
     clearInterval(digestTimer);
     clearInterval(janitorTimer);
     clearInterval(autoAmeliorationTimer);
-    clearInterval(vectorisationTimer);
     clearInterval(capitalisationTimer);
     clearInterval(instructionsTimer);
     clearInterval(faviconTimer);

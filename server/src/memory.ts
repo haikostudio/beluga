@@ -3,11 +3,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   FICHIER_D_ATTENTE,
+  MARQUE_ARBRE,
   amontApplicable,
+  brancheDemandee,
+  carteDeLArbre,
   chercherFaits,
+  construireLArbre,
+  dossierDuSujet,
+  rappelDuSujet,
+  rendreBranche,
+  rendreRacine,
+  rendreRappelDuSujet,
+  type SujetEnArbre,
   classerRegles,
   decouperRegles,
-  DOSSIER_MEMOIRE,
   estLigneDeJournal,
   extraitDeSujet,
   faitsDuTexte,
@@ -20,7 +29,6 @@ import {
   partagerSujets,
   partsDAccueil,
   reglesContenant,
-  rendreFichierSujet,
   repartirParSujet,
   SUJETS_MEMOIRE,
   SUJETS_REGLES,
@@ -28,7 +36,6 @@ import {
   sujetDuFait,
   sujetNomme,
   sujetsPourRequete,
-  texteIndex,
   texteAccesGithub,
   texteDesCompetences,
   type InstructionsDuProjet,
@@ -42,13 +49,15 @@ import { dossierDesCompetences, listerCompetences } from './competences.js';
  * lisent naturellement et qui suit le code dans l'historique. Règle d'hygiène :
  * une ligne devenue fausse est remplacée, pas empilée.
  *
- * Trois endroits, trois usages :
- *  — `docs/memoire/<sujet>.md` : les faits durables et les pièges, RANGÉS PAR
- *    SUJET comme les règles de `docs/regles/`. Seul l'INDEX (une ligne brève par
- *    fait) part au moteur au lancement d'un agent ; le fichier d'un sujet se
- *    demande à la carte, et une fois pour toutes dans une session.
- *  — MEMOIRE.md : le SOMMAIRE de ces fichiers. Il ne porte plus de faits — il
- *    dit où ils vivent, pour qui ouvre le dépôt à la main.
+ * ELLE EST RANGÉE EN ARBRE, et c'est le seul chemin pour la retrouver — il n'y
+ * a plus de recherche par le sens derrière (`shared/src/arbre-memoire.ts`) :
+ *  — MEMOIRE.md : la RACINE. Les sujets, et les MOTS de leurs branches. Aucun
+ *    fait : rien que des chemins, pour l'humain comme pour l'agent.
+ *  — `docs/memoire/<sujet>.md` : le RAPPEL de premier niveau — ce qui existe
+ *    sous ce sujet, et où.
+ *  — `docs/memoire/<sujet>/<sujet>-<branche>.md` : le DÉTAIL. Le dossier porte
+ *    le nom du parent, et chaque fichier le répète : un mot lu dans la racine
+ *    donne le chemin exact, sans rien chercher.
  *  — HISTORIQUE.md : les livraisons datées. Relisible par un humain, jamais
  *    envoyé au moteur : « telle carte livrée le 3 août » n'apprend rien à un
  *    agent qui commence une tâche.
@@ -94,16 +103,75 @@ function lireFichier(chemin: string): string {
  */
 const MARQUE_SOMMAIRE = '<!-- haikodev:memoire-par-sujet -->';
 
-/** Les faits restés dans le vieux fichier plat : rien si c'est déjà le sommaire. */
+/** Les faits restés dans le vieux fichier plat : rien si c'est déjà la racine. */
 function faitsRestes(projectPath: string): string[] {
   const texte = lireFichier(memoryPath(projectPath));
-  if (texte.includes(MARQUE_SOMMAIRE)) return [];
+  if (texte.includes(MARQUE_ARBRE) || texte.includes(MARQUE_SOMMAIRE)) return [];
   return faitsDuTexte(texte);
 }
 
-/** Les faits d'un SEUL sujet, tels qu'écrits dans son fichier. */
+/**
+ * LES CHEMINS DES BRANCHES, LUS DANS LE RAPPEL DU SUJET.
+ *
+ * L'ordre compte : c'est lui qui rend une écriture puis une relecture
+ * identiques. Le rappel les cite dans l'ordre où elles ont été écrites, chacune
+ * entre accents graves ; à défaut de rappel lisible, on retombe sur le contenu
+ * du dossier, trié par nom — jamais sur l'ordre que le système de fichiers
+ * voudra bien rendre.
+ */
+function branchesDuSujet(projectPath: string, sujet: string): string[] {
+  const relatifs: string[] = [];
+  const dossier = dossierDuSujet(sujet);
+  const cites = lireFichier(cheminDuSujet(projectPath, sujet)).matchAll(/`([^`]+\.md)`/g);
+  for (const [, chemin] of cites) {
+    if (chemin.startsWith(`${dossier}/`) && !relatifs.includes(chemin)) relatifs.push(chemin);
+  }
+
+  let surLeDisque: string[] = [];
+  try {
+    surLeDisque = fs
+      .readdirSync(path.join(projectPath, ...dossier.split('/')))
+      .filter((nom) => nom.endsWith('.md'))
+      .sort()
+      .map((nom) => `${dossier}/${nom}`);
+  } catch {
+    surLeDisque = [];
+  }
+
+  // Ce que le rappel cite d'abord, puis ce qui traîne dans le dossier sans y
+  // être cité : un fichier ajouté à la main ne disparaît pas de la lecture.
+  const existe = new Set(surLeDisque);
+  return [...relatifs.filter((c) => existe.has(c)), ...surLeDisque.filter((c) => !relatifs.includes(c))];
+}
+
+/**
+ * Les faits d'un SEUL sujet — son rappel ET toutes ses branches. Un sujet resté
+ * à plat porte ses faits dans son rappel ; un sujet éclaté n'y garde que des
+ * chemins, et les faits vivent dans le dossier enfant.
+ */
 export function faitsDuSujet(projectPath: string, sujet: string): string[] {
-  return faitsDuTexte(lireFichier(cheminDuSujet(projectPath, sujet)));
+  const vus = new Set<string>();
+  const faits: string[] = [];
+  const ajouter = (texte: string) => {
+    for (const fait of faitsDuTexte(texte)) {
+      const cle = fait.toLowerCase();
+      if (vus.has(cle)) continue;
+      vus.add(cle);
+      faits.push(fait);
+    }
+  };
+  const branches = branchesDuSujet(projectPath, sujet);
+  for (const branche of branches) {
+    ajouter(lireFichier(path.join(projectPath, ...branche.split('/'))));
+  }
+  /*
+   * LE RAPPEL D'UN SUJET ÉCLATÉ NE PORTE PAS DE FAIT — il ne porte que des
+   * chemins, écrits eux aussi à la puce. Les relire comme des faits ferait
+   * entrer « **Catalogue** (3) — `…md` » dans la mémoire à chaque passage : la
+   * mémoire se remplirait de sa propre table des matières.
+   */
+  if (!branches.length) ajouter(lireFichier(cheminDuSujet(projectPath, sujet)));
+  return faits;
 }
 
 /**
@@ -152,63 +220,89 @@ export function readMemory(projectPath: string): string {
   return `${morceaux.join('\n\n')}\n`;
 }
 
-/** Le sommaire écrit dans MEMOIRE.md : où vivent les faits, et combien par sujet. */
-function sommaireMemoire(parSujet: Map<string, string[]>): string {
-  const lignes = [
-    '# Mémoire du projet',
-    '',
-    MARQUE_SOMMAIRE,
-    '',
-    '_Tenue automatiquement par HaikoDev. Les faits durables vivent PAR SUJET dans ' +
-      `\`${DOSSIER_MEMOIRE}/\` — un fichier par sujet, demandé à la carte avec l'outil ` +
-      "`project_memory`. Ce sommaire ne porte aucun fait._",
-    '',
-  ];
-  for (const [sujet, faits] of parSujet) {
-    const compte = faits.length > 1 ? `${faits.length} faits` : '1 fait';
-    lignes.push(`- \`${fichierDuSujet(sujet)}\` — ${libelleSujet(sujet)} (${compte})`);
+/** L'arbre du projet, tel qu'il est sur le disque. */
+export function arbreDuProjet(projectPath: string): SujetEnArbre[] {
+  return construireLArbre(faitsParSujet(projectPath));
+}
+
+/** Retire un fichier sans jamais faire échouer la tâche qui l'a provoqué. */
+function retirer(chemin: string): void {
+  try {
+    if (fs.existsSync(chemin)) fs.rmSync(chemin, { recursive: true, force: true });
+  } catch {
+    /* la mémoire ne doit jamais faire échouer une tâche */
   }
-  if (!parSujet.size) lignes.push('_Aucun fait retenu pour le moment._');
-  return `${lignes.join('\n')}\n`;
 }
 
 /**
- * Écrit la mémoire telle qu'elle doit être sur le disque : un fichier par
- * sujet, le sommaire dans MEMOIRE.md, et plus rien qui traîne pour un sujet
- * devenu vide.
+ * ÉCRIT L'ARBRE ENTIER, et ne laisse rien derrière.
+ *
+ * Trois étages à poser, et trois à nettoyer : une branche qui disparaît (son
+ * dernier fait a été remplacé), un sujet qui redescend à plat (il n'a plus
+ * qu'une branche), un sujet devenu vide. Sans ce ménage, un fichier orphelin
+ * continuerait d'être LU par `faitsDuSujet` et ressusciterait un fait effacé.
  */
-function ecrireParSujet(projectPath: string, parSujet: Map<string, string[]>): void {
-  for (const sujet of SUJETS_MEMOIRE) {
-    const faits = parSujet.get(sujet.id) ?? [];
-    const chemin = cheminDuSujet(projectPath, sujet.id);
-    if (!faits.length) {
-      try {
-        if (fs.existsSync(chemin)) fs.rmSync(chemin);
-      } catch {
-        /* la mémoire ne doit jamais faire échouer une tâche */
-      }
+function ecrireLArbre(projectPath: string, parSujet: Map<string, string[]>): void {
+  const arbre = construireLArbre(parSujet);
+  const parId = new Map(arbre.map((sujet) => [sujet.id, sujet]));
+
+  for (const connu of SUJETS_MEMOIRE) {
+    const sujet = parId.get(connu.id);
+    const rappel = cheminDuSujet(projectPath, connu.id);
+    const dossier = path.join(projectPath, ...dossierDuSujet(connu.id).split('/'));
+
+    if (!sujet) {
+      retirer(rappel);
+      retirer(dossier);
       continue;
     }
-    writeSafely(chemin, rendreFichierSujet(sujet.id, faits));
+
+    writeSafely(rappel, rendreRappelDuSujet(sujet));
+
+    if (!sujet.eclate) {
+      // Le sujet est redescendu à plat : son dossier enfant n'a plus lieu d'être.
+      retirer(dossier);
+      continue;
+    }
+
+    const gardes = new Set<string>();
+    for (const branche of sujet.branches) {
+      writeSafely(path.join(projectPath, ...branche.fichier.split('/')), rendreBranche(sujet, branche));
+      gardes.add(path.basename(branche.fichier));
+    }
+    try {
+      for (const nom of fs.readdirSync(dossier)) {
+        if (nom.endsWith('.md') && !gardes.has(nom)) retirer(path.join(dossier, nom));
+      }
+    } catch {
+      /* le dossier vient d'être créé : rien à nettoyer */
+    }
   }
-  writeSafely(memoryPath(projectPath), sommaireMemoire(parSujet));
+
+  writeSafely(memoryPath(projectPath), rendreRacine(arbre));
 }
 
 /**
- * LE DÉCOUPAGE, une fois pour toutes. Un projet qui garde ses faits dans le
- * vieux fichier plat les voit partir dans `docs/memoire/`, sans rien perdre :
- * chaque fait est simplement rangé sous son sujet. Rejouable — un deuxième
- * passage ne trouve plus rien à déplacer et rend 0.
+ * LA MISE EN ARBRE, une fois pour toutes. Un projet qui garde ses faits dans le
+ * vieux fichier plat — ou dans les fichiers par sujet d'avant l'arbre — les voit
+ * partir dans leurs branches, sans rien perdre. Rejouable : un deuxième passage
+ * ne trouve plus rien à déplacer et rend 0.
  */
 export function migrerParSujet(projectPath: string): number {
   const restes = faitsRestes(projectPath);
   const parSujet = faitsParSujet(projectPath);
-  if (!restes.length) {
-    // Rien à déplacer, mais le sommaire peut manquer sur un projet neuf.
-    if (parSujet.size && !fs.existsSync(memoryPath(projectPath))) ecrireParSujet(projectPath, parSujet);
+  const racine = lireFichier(memoryPath(projectPath));
+  const dejaEnArbre = racine.includes(MARQUE_ARBRE);
+
+  if (!restes.length && dejaEnArbre) return 0;
+  if (!parSujet.size) {
+    // Rien à ranger. On pose tout de même la racine sur un projet neuf, pour
+    // qu'un humain trouve le fichier même quand il est vide.
+    if (!racine.trim()) writeSafely(memoryPath(projectPath), rendreRacine([]));
     return 0;
   }
-  ecrireParSujet(projectPath, parSujet);
+
+  ecrireLArbre(projectPath, parSujet);
   return restes.length;
 }
 
@@ -253,7 +347,7 @@ export function migrerJournal(projectPath: string): number {
   if (!deplacees.length) return 0;
 
   for (const line of deplacees) appendHistory(projectPath, line);
-  ecrireParSujet(projectPath, gardes);
+  ecrireLArbre(projectPath, gardes);
   return deplacees.length;
 }
 
@@ -278,13 +372,13 @@ export function appendMemory(projectPath: string, line: string, replaces?: strin
       faits.splice(idx, 1);
       if (!faits.length) parSujet.delete(sujet);
       poserLeFait(parSujet, clean);
-      ecrireParSujet(projectPath, plafonner(parSujet));
+      ecrireLArbre(projectPath, plafonner(parSujet));
       return;
     }
   }
 
   if (!poserLeFait(parSujet, clean)) return; // doublon exact : on ne l'empile pas
-  ecrireParSujet(projectPath, plafonner(parSujet));
+  ecrireLArbre(projectPath, plafonner(parSujet));
 }
 
 /** Range un fait sous son sujet. Rend faux si le fait y était déjà. */
@@ -315,7 +409,7 @@ function plafonner(parSujet: Map<string, string[]>): Map<string, string[]> {
 
 /** Réécrit la mémoire entière (synthèse relue et acceptée). */
 export function replaceMemory(projectPath: string, faits: string[]): void {
-  ecrireParSujet(projectPath, repartirParSujet(faits));
+  ecrireLArbre(projectPath, repartirParSujet(faits));
 }
 
 function writeSafely(file: string, content: string): void {
@@ -367,18 +461,73 @@ export function empreintesDesFaits(projectPath: string): string[] {
   return memoryFacts(projectPath).map(empreinteDuFait);
 }
 
-/** Le détail demandé par un agent : le texte ENTIER des faits qui l'intéressent. */
+/**
+ * LE POIDS AU-DELÀ DUQUEL UN SUJET NE SE SERT PLUS D'UN BLOC.
+ *
+ * L'arbre existe pour descendre par paliers, pas pour multiplier les
+ * allers-retours : un sujet qui tient en quelques lignes part en entier, et
+ * l'agent n'a rien de plus à demander. Au-delà, il reçoit le RAPPEL — ses
+ * branches et leurs mots — et ouvre celle qui le concerne.
+ */
+const POIDS_SERVI_EN_ENTIER = 1400;
+
+/** Tous les faits d'un sujet, écrits en clair. */
+function faitsEnEntier(sujet: SujetEnArbre, faits: string[]): string {
+  return `SUJET « ${sujet.id} » (${sujet.libelle}) — ${faits.length > 1 ? `ses ${faits.length} faits` : 'son seul fait'} :\n\n${faits
+    .map((f) => `- ${f}`)
+    .join('\n')}`;
+}
+
+/**
+ * LE DÉTAIL DEMANDÉ PAR UN AGENT — et l'arbre est le SEUL chemin pour y aller.
+ *
+ * Quatre demandes possibles, de la plus large à la plus fine, et chacune rend
+ * exactement le palier qu'on lui demande :
+ *  — rien : la CARTE de l'arbre, les sujets et les mots de leurs branches ;
+ *  — un SUJET : ses faits s'il est court, sinon son RAPPEL — la liste de ses
+ *    branches, à ouvrir une par une ;
+ *  — une BRANCHE, par son mot : ses faits en entier. C'est le geste que tout le
+ *    système existe pour rendre possible.
+ *  — des mots quelconques : les faits qui les contiennent, sans note de
+ *    ressemblance. Rien ne correspond ? On le DIT, et on rend la carte — un
+ *    silence honnête vaut mieux que cinq passages tirés au sort.
+ */
 export function detailMemoire(projectPath: string, requete: string): string {
-  const faits = memoryFacts(projectPath);
+  const arbre = arbreDuProjet(projectPath);
+  const faits = arbre.flatMap((sujet) => sujet.branches.flatMap((b) => b.faits));
   if (!faits.length) return 'La mémoire du projet est vide pour le moment.';
-  if (!requete.trim()) {
-    return `MÉMOIRE DU PROJET — index (${faits.length} faits)\n\n${texteIndex(faits)}\n\nDemande le texte entier d'un fait avec un numéro, un sujet ou des mots-clés.`;
+
+  const demande = requete.trim();
+  if (!demande) return carteDeLArbre(arbre);
+
+  // UN SUJET, par son nom : le palier au-dessus des branches.
+  const vise = sujetDeLaRequete(demande);
+  const sujet = vise && arbre.find((s) => s.id === vise.id);
+  if (sujet) {
+    const entier = faitsEnEntier(sujet, sujet.branches.flatMap((b) => b.faits));
+    if (!sujet.eclate || entier.length <= POIDS_SERVI_EN_ENTIER) return entier;
+    return rappelDuSujet(sujet);
   }
-  const trouves = chercherFaits(faits, requete);
+
+  // UNE BRANCHE, par son mot. Deux sujets peuvent porter le même : on rend les
+  // deux plutôt que d'en cacher un.
+  const branches = brancheDemandee(arbre, demande);
+  if (branches.length) {
+    return branches
+      .map(
+        ({ sujet: parent, branche }) =>
+          `\`${branche.fichier}\` — ${parent.libelle} › ${branche.titre}\n\n${branche.faits
+            .map((f) => `- ${f}`)
+            .join('\n')}`,
+      )
+      .join('\n\n———\n\n');
+  }
+
+  const trouves = chercherFaits(faits, demande);
   if (!trouves.length) {
-    return `Aucun fait ne correspond à « ${requete} ».\n\nL'index complet :\n\n${texteIndex(faits)}`;
+    return `Aucun fait ne correspond à « ${demande} ».\n\n${carteDeLArbre(arbre)}`;
   }
-  return trouves.map((f) => `${f.numero}. ${f.texte}`).join('\n\n');
+  return trouves.map((f) => `- ${f.texte}`).join('\n');
 }
 
 /**
@@ -592,11 +741,31 @@ function morceauxHerites(projectPath: string, requete: string, amont?: string): 
 /** Les morceaux de FAITS servis par une demande. */
 function morceauxFaits(projectPath: string, requete: string): MorceauServi[] {
   const texte = detailMemoire(projectPath, requete);
+
+  // Une demande qui NOMME un sujet se dédoublonne : l'agent l'a déjà sous les yeux.
   const sujet = sujetDeLaRequete(requete);
-  // Seule une demande qui NOMME un sujet se dédoublonne : un numéro ou des
-  // mots-clés rendent un extrait, jamais un fichier entier.
-  if (!sujet) return [{ cle: '', libelle: 'ces faits', texte }];
-  return [{ cle: cleMorceau('faits', sujet.id, texte), libelle: `les faits « ${sujet.libelle} »`, texte }];
+  if (sujet) {
+    return [{ cle: cleMorceau('faits', sujet.id, texte), libelle: `les faits « ${sujet.libelle} »`, texte }];
+  }
+
+  /*
+   * …ET UNE BRANCHE AUSSI. C'est devenu le geste le plus fréquent depuis
+   * l'arbre : sans clé, un agent qui redemande « catalogue » repaierait le même
+   * fichier à chaque tour, ce que le dédoublonnage des sujets évitait déjà.
+   */
+  const branches = brancheDemandee(arbreDuProjet(projectPath), requete);
+  if (branches.length === 1) {
+    const { sujet: parent, branche } = branches[0];
+    return [
+      {
+        cle: cleMorceau('branche', `${parent.id}/${branche.nom}`, texte),
+        libelle: `la branche « ${branche.nom} » de « ${parent.id} »`,
+        texte,
+      },
+    ];
+  }
+
+  return [{ cle: '', libelle: 'ces faits', texte }];
 }
 
 /** Ce que l'outil `project_memory` rend, et ce qu'il faut retenir d'avoir servi. */
@@ -737,17 +906,7 @@ _À remplir : les dossiers du projet et leur rôle, une ligne chacun._
  * publication avec lui, alors que la règle, elle, n'avait jamais bougé.
  */
 export function blocMemoire(projectPath: string): string {
-  const faits = memoryFacts(projectPath);
-  if (!faits.length) {
-    return "La mémoire du projet est vide : tu la rempliras en fin de tâche avec ce que tu auras appris.";
-  }
-  return (
-    `MÉMOIRE DU PROJET — index des faits retenus (${faits.length}), une ligne par fait, groupée par sujet :\n` +
-    `${texteIndex(faits)}\n\n` +
-    `Ces lignes sont VOLONTAIREMENT tronquées. Chaque sujet est un FICHIER (${DOSSIER_MEMOIRE}/<sujet>.md) : ` +
-    `demande-le avec l'outil « project_memory » (argument « sujet » : un numéro, un nom de sujet, ou des mots-clés) ` +
-    `dès qu'une ligne touche à ce que tu vas modifier — et UNE SEULE FOIS par session, il reste ensuite dans ton contexte.`
-  );
+  return carteDeLArbre(arbreDuProjet(projectPath));
 }
 
 /**

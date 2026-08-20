@@ -956,6 +956,26 @@ const MIGRATIONS: {
       ALTER TABLE doc_fichiers ADD COLUMN version TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    id: 33,
+    name: 'retrait-de-la-recherche-par-le-sens',
+    // LA MÉMOIRE EST UN ARBRE, PLUS UN INDEX DE RECHERCHE.
+    //
+    // Ces deux tables portaient les milliers de passages découpés dans la
+    // documentation et le code de chaque projet, et leurs vecteurs de sens.
+    // Plus rien ne les lit : la mémoire se navigue par les NOMS de ses fichiers
+    // (`shared/src/arbre-memoire.ts`). Les laisser en place, c'est garder des
+    // dizaines de mégaoctets qu'aucune requête ne rouvrira, et faire croire au
+    // prochain lecteur qu'un index vit encore quelque part.
+    //
+    // Les migrations qui les ont créées restent dans cette liste : une base
+    // déjà en service les a appliquées, et l'histoire d'un schéma ne se réécrit
+    // pas. C'est celle-ci qui range derrière elles.
+    sql: `
+      DROP TABLE IF EXISTS doc_passages;
+      DROP TABLE IF EXISTS doc_fichiers;
+    `,
+  },
 ];
 
 export function openDb(): DB {

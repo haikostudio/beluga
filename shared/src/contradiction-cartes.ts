@@ -21,7 +21,7 @@
  * Rien ici ne lit la base : le démon relève les faits, ces règles les jugent.
  */
 
-import { motsDuTexte, normaliserPourRecherche } from './passages-doc.js';
+import { motsDuTexte, normaliserPourRecherche } from './mots.js';
 
 /** Ce qu'on sait d'une carte pour la comparer à une autre. */
 export interface CarteComparable {
@@ -138,7 +138,7 @@ export function perimetreCommun(a: { titre: string; demande: string }, b: { titr
 
 /**
  * LA PROXIMITÉ DE SENS, sans modèle : la part de mots partagés rapportée à la
- * plus petite des deux demandes (indice de recouvrement). On ne vectorise pas
+ * plus petite des deux demandes (indice de recouvrement). On ne compare pas de vecteurs
  * ici — la détection tourne sur des centaines de couples de cartes, et un
  * appel de modèle par couple coûterait des minutes pour un gain nul à ce seuil.
  */

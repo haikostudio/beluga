@@ -10,8 +10,7 @@
  *  1. le chef ÉCRIT un plan : le fichier est là, au bon endroit, sous un nom propre ;
  *  2. il le MODIFIE : le même fichier est remplacé, aucun doublon ;
  *  3. il écrit et SUPPRIME un document ailleurs dans le projet ; le CODE lui est REFUSÉ ;
- *  4. le plan REMONTE dans les passages d'une carte sur le même sujet ;
- *  5. sa consigne lui dit ce qu'il écrit, et le mode plan lui dit d'enregistrer.
+ *  4. sa consigne lui dit ce qu'il écrit, et le mode plan lui dit d'enregistrer.
  *
  *   node scripts/verif-plans-du-chef.mjs
  */
@@ -36,7 +35,6 @@ process.on('exit', () => {
 
 const store = await import(path.join(RACINE, 'server/dist/store.js'));
 const outils = await import(path.join(RACINE, 'server/dist/tools.js'));
-const passages = await import(path.join(RACINE, 'server/dist/passages.js'));
 const runtime = await import(path.join(RACINE, 'server/dist/runtime.js'));
 const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
 
@@ -152,41 +150,10 @@ verifier(
 verifier(!fs.existsSync(path.join(dossier, 'CLAUDE.md')), 'aucun doublon dans le dossier des plans');
 
 /* ------------------------------------------------------------------ */
-/* 4. Le plan remonte au lancement d'une carte                         */
+/* 4. Ce que le chef en sait                                           */
 /* ------------------------------------------------------------------ */
 
-console.log('\n4. Le plan remonte dans le contexte d’une carte sur le même sujet');
-/* Une mémoire de projet crédible : sans index à remplacer, la recherche se
-   refuse par construction (`rechercheRentable`). */
-const INDEX = {
-  texte: [
-    'MÉMOIRE DU PROJET — index des faits, par sujet.',
-    ...Array.from({ length: 40 }, (_, i) => `${i + 1}. Un fait durable du projet, rangé par sujet, qui décrit une règle ou un piège connu.`),
-  ].join('\n'),
-  faits: 40,
-};
-const trouve = await passages.rechercherPourLaTache(
-  projet.id,
-  PROJET,
-  'Ajouter la recherche vocale dans le tableau',
-  INDEX,
-);
-verifier(!!trouve, 'la recherche rend des passages');
-verifier(
-  !!trouve && trouve.passages.some((p) => p.source === `${partage.DOSSIER_PLANS}/${attendu}`),
-  'le plan du chef fait partie des passages retenus',
-  trouve ? trouve.passages.map((p) => p.source).join(', ') : '',
-);
-verifier(
-  !!trouve && trouve.texte.includes('recherche vocale'),
-  'son contenu part réellement au moteur',
-);
-
-/* ------------------------------------------------------------------ */
-/* 5. Ce que le chef en sait                                           */
-/* ------------------------------------------------------------------ */
-
-console.log('\n5. Le chef sait ce qu’il écrit');
+console.log('\n4. Le chef sait ce qu’il écrit');
 const consigne = runtime.rolePrompt('orchestrator', false);
 verifier(consigne.includes(partage.DOSSIER_PLANS), 'sa consigne nomme le dossier des plans');
 verifier(/LE CODE RESTE FERMÉ/.test(consigne), 'sa consigne dit que le code lui reste fermé');

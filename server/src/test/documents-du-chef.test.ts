@@ -17,7 +17,6 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool } = await import('../tools.js');
-const { fichiersAIndexer } = await import('../passages.js');
 const { CONSIGNE_DOCUMENTS_DU_CHEF, rolePrompt } = await import('../runtime.js');
 
 const projet = fs.mkdtempSync(path.join(os.tmpdir(), 'projet-plans-'));
@@ -184,16 +183,6 @@ test('un agent de tâche, lui, garde le dossier entier', async () => {
 /* ------------------------------------------------------------------ */
 /* La suite : le plan est indexé, et le chef sait où écrire            */
 /* ------------------------------------------------------------------ */
-
-test('les plans entrent dans l’index de la recherche, en priorité haute', () => {
-  fs.mkdirSync(path.join(projet, DOSSIER_PLANS), { recursive: true });
-  fs.writeFileSync(path.join(projet, DOSSIER_PLANS, 'indexe.md'), '# Un plan\n\nContenu.\n', 'utf8');
-  const fichiers = fichiersAIndexer(projet);
-  const plan = fichiers.find((f) => f.source === `${DOSSIER_PLANS}/indexe.md`);
-  assert.ok(plan, 'le plan doit être dans la liste des fichiers à indexer');
-  assert.equal(plan!.sujet, 'plan-indexe');
-  assert.ok(plan!.priorite >= 2, 'un plan passe devant à score égal');
-});
 
 test('la consigne du chef dit ce qu’il écrit, et ce qui lui reste fermé', () => {
   const consigne = rolePrompt('orchestrator', false);

@@ -103,9 +103,9 @@ test('le briefing d’un dépannage ne porte plus le bloc mémoire', () => {
 
   // Le témoin : l'accueil complet, lui, porte bien l'index.
   assert.ok(complet.includes(blocMemoire(dossier)), 'l’accueil complet garde la mémoire');
-  assert.match(complet, /index des faits retenus \(12\)/);
+  assert.match(complet, /la CARTE de l'arbre \(12 faits\)/);
 
-  assert.doesNotMatch(minimal, /index des faits retenus/);
+  assert.doesNotMatch(minimal, /la CARTE de l'arbre/);
   assert.doesNotMatch(minimal, /project_memory/);
   assert.doesNotMatch(minimal, /Fichiers d'instructions présents/);
   assert.doesNotMatch(minimal, /compétence/i);

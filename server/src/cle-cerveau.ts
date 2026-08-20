@@ -50,9 +50,8 @@ function lireDansEnvironnement(chemin: string): string | undefined {
 
 /**
  * N'IMPORTE QUELLE VARIABLE DU SERVICE, lue comme la clé du cerveau :
- * l'environnement du démon d'abord, le fichier du service ensuite. C'est ce dont
- * la vectorisation a besoin (`server/src/vecteurs.ts`) — un démon lancé à la
- * main n'a pas forcément chargé `/etc/haikodev.env`.
+ * l'environnement du démon d'abord, le fichier du service ensuite — un démon
+ * lancé à la main n'a pas forcément chargé `/etc/haikodev.env`.
  */
 export function lireVariableDEnvironnement(nom: string): string | undefined {
   const enMemoire = process.env[nom]?.trim();

@@ -115,7 +115,10 @@ test('un agent retrouve le texte entier d\'un fait par son numéro, son sujet ou
   assert.match(detailMemoire(dossier, 'mobile'), /creux du clavier/);
   assert.match(detailMemoire(dossier, 'clavier curseur'), /cent points/);
   // Rien trouvé : on rend l'index plutôt qu'un silence.
-  assert.match(detailMemoire(dossier, 'zzz introuvable'), /index complet/i);
+  // Rien ne correspond : on le DIT, et on rend la carte de l'arbre — jamais
+  // des extraits tirés au sort pour faire nombre.
+  assert.match(detailMemoire(dossier, 'zzz introuvable'), /Aucun fait ne correspond/);
+  assert.match(detailMemoire(dossier, 'zzz introuvable'), /CARTE de l'arbre/);
 });
 
 test('la recherche par mots exige que tous les mots soient présents', () => {
@@ -135,7 +138,7 @@ test('le briefing envoie l\'index, pas la mémoire entière, et parle du fichier
   for (let i = 0; i < 20; i++) appendMemory(dossier, `Règle ${i} sur le tiroir du téléphone${explication}`);
 
   const ouverture = briefing(dossier, 'Essai', true);
-  assert.match(ouverture, /index des faits retenus \(20\)/);
+  assert.match(ouverture, /la CARTE de l'arbre \(20 faits\)/);
   assert.match(ouverture, /project_memory/);
   assert.match(ouverture, /CLAUDE\.md/);
   // L'explication longue ne part plus : elle se demande.

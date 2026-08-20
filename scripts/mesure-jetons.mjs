@@ -21,11 +21,17 @@ import { fileURLToPath } from 'node:url';
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /*
- * Ce relevé pèse aussi l'index de RECHERCHE des passages, qui vit en base. La
- * base se pose donc dans un dossier JETABLE, AVANT tout import du serveur (la
+ * La base se pose dans un dossier JETABLE, AVANT tout import du serveur (la
  * configuration est lue au chargement) : mesurer ne doit jamais écrire dans la
  * base du démon.
  */
+
+/*
+ * CE QUE COÛTAIT LA RECHERCHE DE PASSAGES, mesuré sur 120 cartes réelles avant
+ * son retrait (audit du 16/08/2026) : 1 300 jetons par tour, et non par
+ * session. C'est le repère contre lequel la carte de l'arbre se juge.
+ */
+const COUT_ANCIENNE_RECHERCHE = 1300;
 const BASE_JETABLE = fs.mkdtempSync(path.join(os.tmpdir(), 'mesure-jetons-'));
 process.env.HAIKODEV_DATA = BASE_JETABLE;
 process.on('exit', () => fs.rmSync(BASE_JETABLE, { recursive: true, force: true }));
@@ -329,69 +335,49 @@ console.log(
 );
 
 /* ------------------------------------------------------------------ */
-/* LA RECHERCHE DE PASSAGES : GARDE-FOU                                */
+/* LA CARTE DE L'ARBRE : GARDE-FOU                                     */
 /* ------------------------------------------------------------------ */
 
 /*
- * Au lancement d'une carte, la demande sert de QUESTION et la recherche remonte
- * quelques PASSAGES de la documentation à la place de l'INDEX de la mémoire
- * (`shared/src/passages-doc.ts`, `server/src/passages.ts`). C'est le poste le
- * plus visible de l'accueil : on le pèse ici, sur des demandes réelles.
+ * Au lancement d'une carte, ce qui part au titre de la mémoire, c'est la CARTE
+ * de l'arbre : les sujets, les mots de leurs branches, et rien d'autre
+ * (`shared/src/arbre-memoire.ts`). Elle a remplacé, le 20 août 2026, une
+ * recherche de passages qui coûtait environ 1 300 jetons à CHAQUE tour et dont
+ * un tiers ne parlait pas du travail à faire.
  *
- * Et c'est un GARDE-FOU, pas un simple relevé : si la recherche pesait plus
- * lourd que l'index qu'elle remplace, ce script SORT EN ERREUR. Le démon, lui,
- * se replie de lui-même sur l'index dans ce cas (`rechercheRentable`) — le
- * contrôle vérifie que ce repli n'est pas devenu la règle par accident.
+ * C'est un GARDE-FOU, pas un simple relevé : la carte ne doit JAMAIS porter le
+ * texte d'un fait, ni peser plus que ce que coûtait la recherche retirée.
  */
-const passages = await import(path.join(RACINE, 'server/dist/passages.js'));
+const carte = memory.blocMemoire(RACINE);
+const jetonsCarte = jetons(carte);
+const faits = memory.memoryFacts(RACINE);
+const jetonsMemoireEntiere = jetons(faits.join('\n'));
 
-const TACHES = [
-  'Recherche sémantique sur la mémoire et la documentation du projet',
-  "Changer le mot de réveil de l'écoute vocale",
-  'Reprendre un déploiement interrompu par un conflit de fusion',
-  'Ajouter une colonne au tableau des cartes',
-  'Ajouter un outil au démon pour les agents',
-];
-
-const INDEX = { texte: memory.blocMemoire(RACINE), faits: memory.memoryFacts(RACINE).length };
-const jetonsIndex = jetons(INDEX.texte);
-
-console.log("\nL'ACCUEIL D'UNE CARTE — index de la mémoire contre passages retrouvés\n");
-const largeurTache = Math.max(...TACHES.map((t) => Math.min(t.length, 52)));
-console.log(`${pad('Tâche', largeurTache)}  ${num('index', 7)}  ${num('après', 7)}  ${num('gain', 7)}   passages`);
-console.log('-'.repeat(largeurTache + 42));
-
-let rechercheAvant = 0;
-let rechercheApres = 0;
-let replis = 0;
-let depassements = [];
-for (const tache of TACHES) {
-  const trouve = await passages.rechercherPourLaTache('mesure-jetons', RACINE, tache, INDEX);
-  const apresJetons = trouve ? trouve.jetons : jetonsIndex;
-  if (!trouve) replis++;
-  else if (trouve.jetons >= jetonsIndex) depassements.push(tache);
-  rechercheAvant += jetonsIndex;
-  rechercheApres += apresJetons;
-  console.log(
-    `${pad(tache.slice(0, largeurTache), largeurTache)}  ${num(jetonsIndex, 7)}  ${num(apresJetons, 7)}  ` +
-      `${num(jetonsIndex - apresJetons, 7)}   ${trouve ? trouve.passages.length : 'repli sur l’index'}`,
-  );
-}
-console.log('-'.repeat(largeurTache + 42));
+console.log("\nL'ACCUEIL D'UNE CARTE — la carte de l'arbre contre la mémoire entière\n");
+console.log(`${pad('Ce qui part', 34)}  ${num('jetons', 8)}`);
+console.log('-'.repeat(46));
+console.log(`${pad("carte de l'arbre (envoyée)", 34)}  ${num(jetonsCarte, 8)}`);
+console.log(`${pad('mémoire entière (jamais envoyée)', 34)}  ${num(jetonsMemoireEntiere, 8)}`);
+console.log(`${pad('ancienne recherche, par tour', 34)}  ${num(COUT_ANCIENNE_RECHERCHE, 8)}`);
+console.log('-'.repeat(46));
 console.log(
-  `${pad('TOTAL', largeurTache)}  ${num(rechercheAvant, 7)}  ${num(rechercheApres, 7)}  ${num(rechercheAvant - rechercheApres, 7)}`,
-);
-console.log(
-  `\nGain à CHAQUE lancement de carte : ${Math.round((1 - rechercheApres / rechercheAvant) * 100)} %.\n` +
-    `${replis} tâche(s) sur ${TACHES.length} sont retombées sur l'index — c'est prévu : sans passage assez\n` +
-    "pertinent, ou sur un projet dont la mémoire tient en quelques lignes, l'index reste le moins cher.",
+  `\n${faits.length} faits en mémoire. La carte en dit les CHEMINS pour ${jetonsCarte} jetons, ` +
+    `une seule fois par session —\nsoit ${Math.round((1 - jetonsCarte / jetonsMemoireEntiere) * 100)} % de moins que la mémoire entière, ` +
+    `et ${Math.round((1 - jetonsCarte / COUT_ANCIENNE_RECHERCHE) * 100)} % de moins que la recherche retirée, qui repassait à CHAQUE tour.`,
 );
 
-if (depassements.length) {
+const echappes = faits.filter((f) => f.length > 40 && carte.includes(f.slice(0, 40)));
+if (echappes.length) {
   console.error(
-    `\n✗ ÉCHEC : la recherche coûte PLUS que l'index qu'elle remplace sur ${depassements.length} tâche(s) :\n` +
-      depassements.map((t) => `  — ${t}`).join('\n') +
-      "\nLe plafond (PLAFOND_PASSAGES_JETONS / PART_MAX_DE_L_INDEX, shared/src/passages-doc.ts) doit être resserré.",
+    `\n✗ ÉCHEC : un fait part avec la carte, alors qu'elle ne doit porter que des chemins :\n` +
+      echappes.map((f) => `  — ${f.slice(0, 90)}`).join('\n'),
+  );
+  process.exit(1);
+}
+if (jetonsCarte >= COUT_ANCIENNE_RECHERCHE) {
+  console.error(
+    `\n✗ ÉCHEC : la carte pèse ${jetonsCarte} jetons, soit plus que les ${COUT_ANCIENNE_RECHERCHE} de la recherche` +
+      "\nqu'elle remplace. Il faut raccourcir les noms de branches, ou en regrouper.",
   );
   process.exit(1);
 }

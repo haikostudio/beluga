@@ -281,10 +281,15 @@ test("la mémoire n'est envoyée en entier qu'à l'ouverture d'une session", () 
     appendMemory(dossier, 'Le démon est la source de vérité.');
     appendMemory(dossier, 'Une carte naît toujours dans « À faire ».');
 
-    // Ouverture de session : la mémoire entière part avec la demande.
+    /*
+     * Ouverture de session : ce qui part, c'est la CARTE de l'arbre — les
+     * sujets et les mots de leurs branches. Aucun fait : c'est tout l'objet du
+     * changement, et le briefing ne doit donc PAS porter leur texte.
+     */
     const ouverture = briefing(dossier, 'Essai', true);
     assert.match(ouverture, /MÉMOIRE DU PROJET/);
-    assert.match(ouverture, /source de vérité/);
+    assert.match(ouverture, /CARTE de l'arbre/);
+    assert.doesNotMatch(ouverture, /source de vérité/);
 
     // Tour suivant : plus de mémoire, seulement le repère du projet.
     const suite = briefing(dossier, 'Essai', false);

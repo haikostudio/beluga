@@ -270,25 +270,13 @@ export function recapitulatifEnvoi(tours: TourEnvoye[]): RecapitulatifEnvoi {
   return { tours: tours.length, memoireTotale, envoyeTotal };
 }
 
-export function raisonAbsenceDePassages(input: {
-  nouvelleSession: boolean;
-  accueilEmporteLaMemoire: boolean;
-  /**
-   * Vrai quand la recherche a RÉELLEMENT tourné sur la demande de ce tour et
-   * n'a rien rapporté de neuf. Cette raison-là passe avant toutes les autres :
-   * dire « reprise de session » d'une recherche qui vient d'avoir lieu serait
-   * faux, et c'est exactement ce que la bulle vient vérifier.
-   */
-  rechercheTentee?: boolean;
-}): string {
-  if (input.rechercheTentee) {
-    return 'La recherche a bien tourné sur cette demande : rien de neuf au-dessus du seuil de pertinence. Les passages déjà transmis plus haut dans ce fil ne sont pas renvoyés.';
-  }
-  if (!input.nouvelleSession) {
-    return 'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil, seuls les faits ajoutés depuis sont renvoyés.';
-  }
-  if (!input.accueilEmporteLaMemoire) {
-    return 'Cet accueil (tri du chef ou dépannage) n’emporte pas la mémoire du projet.';
-  }
-  return 'Repli sur l’index complet de la mémoire : la recherche n’a rien trouvé au-dessus du seuil de pertinence, ou coûterait plus cher que l’index.';
-}
+/**
+ * CE QUI REMPLACE LES PASSAGES, dit en clair sous la bulle de mémoire.
+ *
+ * Plus rien n'est « retrouvé » : la mémoire part sous forme de CARTE de son
+ * arbre, et l'agent ouvre lui-même ce qui le concerne. Une case vide sans
+ * explication se lirait comme une panne — c'est une décision.
+ */
+export const RAISON_ARBRE =
+  "La mémoire du projet part en ARBRE : sa carte (les sujets et les mots de leurs branches) est dans le briefing, " +
+  "et l'agent ouvre lui-même les branches qui le concernent avec « project_memory ». Plus aucun extrait n'est envoyé d'office.";

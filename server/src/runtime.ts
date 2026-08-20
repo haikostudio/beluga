@@ -88,9 +88,7 @@ import {
   observerContexte,
   plafondDeContexte,
   poidsDeTour,
-  raisonAbsenceDePassages,
-  clePassage,
-  libelleDesPassagesDeSuite,
+  RAISON_ARBRE,
   consigneEspaceDuChef,
   detailDuRefus,
   resumeContinuite,
@@ -131,7 +129,6 @@ import {
   memorySummary,
   newFactsSince,
 } from './memory.js';
-import { rechercherPourLaSuite, rechercherPourLaTache } from './passages.js';
 import { allDone, mergeTodos } from './todos.js';
 import { callTool, orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
@@ -1005,72 +1002,20 @@ async function preparerLeTour(
   let memoryAndInstructionsCharacters = 0;
 
   /*
-   * LA RECHERCHE DANS LA DOCUMENTATION (`server/src/passages.ts`). Au lancement
-   * d'une session, la demande de la carte — titre, description, texte du tour —
-   * sert de QUESTION : on remonte les quelques passages qui y répondent, sous
-   * plafond strict de jetons, au lieu de l'index de toute la mémoire. L'index
-   * reste le REPLI, et il repart tel quel dès que la recherche ne trouve rien
-   * ou coûterait plus cher que lui.
+   * PLUS AUCUNE RECHERCHE ICI — LA MÉMOIRE EST UN ARBRE, ET IL SE NAVIGUE.
    *
-   * Le chef d'orchestre n'est pas concerné : son accueil `tri` n'emporte aucune
-   * mémoire, la recherche n'a donc rien à remplacer chez lui.
-   */
-  /*
-   * ...ET ELLE NE S'ARRÊTE PLUS AU PREMIER TOUR. La deuxième question d'une
-   * conversation porte souvent sur une règle que la première n'avait aucune
-   * raison de remonter : on cherche donc à CHAQUE demande, sur le texte que
-   * l'utilisateur vient d'écrire, et la bulle montre ce qui a été trouvé POUR
-   * CE MESSAGE. Un passage déjà servi dans la session ne repart pas, le plafond
-   * est plus bas et le seuil plus exigeant (`shared/src/passages-de-suite.ts`).
+   * Jusqu'au 20 août 2026, chaque tour payait une recherche : la demande servait
+   * de question, quelques passages étaient notés puis envoyés d'office, environ
+   * 1 300 jetons. L'audit chiffré disait le reste — un tour sur trois n'en
+   * recevait aucun qui parle du travail à faire, et les payait quand même.
+   *
+   * Ce qui part désormais, c'est la CARTE de l'arbre (`blocMemoire`) : les
+   * sujets, les mots de leurs branches, et rien d'autre. Quelques dizaines de
+   * jetons. L'agent OUVRE ensuite ce qui le concerne avec `project_memory`, par
+   * un nom — jamais par une note de ressemblance. On ne devine plus ce dont il a
+   * besoin : on lui donne de quoi le demander.
    */
   const memoireALAccueil = partsDAccueil(niveau).memoire;
-  // La QUESTION du tour : au lancement, tout ce qui décrit la tâche ; ensuite,
-  // le seul message qu'on vient de lire — c'est lui, la question neuve.
-  const question = nouvelleSession
-    ? [card?.title, card?.description, text].filter(Boolean).join('\n')
-    : text;
-  const rechercheTentee = memoireALAccueil && Boolean(question.trim());
-  const recherche = !rechercheTentee
-    ? undefined
-    : nouvelleSession
-      ? await rechercherPourLaTache(project.id, project.path, question, {
-          texte: blocMemoire(project.path),
-          faits: memoryFacts(project.path).length,
-          /*
-           * LE SOMMAIRE DES SUJETS SUIT LES PASSAGES. La recherche remplace
-           * l'index : elle emportait avec lui la LISTE des sujets, alors que la
-           * méthode de travail dit à l'agent de demander « le SUJET de sa
-           * tâche » à `project_memory`. Il devinait donc un nom. Une ligne par
-           * sujet, contre une par fait : la carte revient, le territoire non.
-           */
-          sommaire: texteDuSommaire(memoryFacts(project.path)),
-        },
-        // Le NOM du projet ne sert qu'au pool de compétences : une fiche qui
-        // nomme ses projets s'applique mieux à celui-là qu'à un autre.
-        project.name)
-      : await rechercherPourLaSuite(
-          project.id,
-          project.path,
-          question,
-          store.passagesServisDansLaSession(agent.id),
-          project.name,
-        );
-  /*
-   * POURQUOI AUCUN PASSAGE, dit en clair pour la bulle de mémoire et le lecteur
-   * de prompts — jamais une case à zéro sans explication
-   * (`raisonAbsenceDePassages`, shared/src/couches-tokens.ts, pure et testée
-   * seule). Une recherche qui a TOURNÉ sans rien rapporter le dit ainsi : dire
-   * « reprise de session » serait faux, et c'est justement ce qu'on vérifie.
-   */
-  const passagesRaison = recherche
-    ? undefined
-    : raisonAbsenceDePassages({
-        nouvelleSession,
-        accueilEmporteLaMemoire: memoireALAccueil,
-        // Seulement sur un tour de SUITE : au lancement, le repli est l'index
-        // complet de la mémoire, et c'est ce fait-là qu'il faut dire.
-        rechercheTentee: rechercheTentee && !nouvelleSession,
-      });
 
   if (nouvelleSession) {
     // Le briefing (chemin du projet, fichiers d'instructions, compétences)
@@ -1084,7 +1029,6 @@ async function preparerLeTour(
       agent.run.engine,
       agent.workdir,
       niveau,
-      recherche?.texte,
     );
     contextParts.push({
       label:
@@ -1099,9 +1043,7 @@ async function preparerLeTour(
     memoryAndInstructionsCharacters += sansMemoire.length;
     if (memoire) {
       contextParts.push({
-        label: recherche
-          ? `Passages retrouvés dans la documentation (${recherche.passages.length})`
-          : 'Index de la mémoire du projet',
+        label: 'Carte de la mémoire du projet',
         kind: 'memory',
         content: memoire,
       });
@@ -1181,43 +1123,11 @@ async function preparerLeTour(
       store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     }
     /*
-     * LES PASSAGES TROUVÉS POUR CE MESSAGE-CI. La session est déjà ouverte : le
-     * briefing et l'index ne repartent pas, mais ce que la recherche vient de
-     * remonter pour cette question, si — c'est tout l'intérêt de relancer la
-     * recherche à chaque tour. Le bloc dit lui-même qu'il est un complément
-     * (`texteDesPassagesDeSuite`).
+     * UN TOUR DE SUITE N'EMPORTE PLUS DE MÉMOIRE D'OFFICE. La carte de l'arbre
+     * est déjà dans le contexte depuis le premier tour, et l'agent sait
+     * l'ouvrir : lui renvoyer des extraits à chaque message était le péage que
+     * ce changement supprime.
      */
-    if (recherche) {
-      contextParts.push({
-        label: libelleDesPassagesDeSuite(recherche.passages.length),
-        kind: 'memory',
-        content: recherche.texte,
-      });
-      memoryAndInstructionsCharacters += recherche.texte.length;
-    }
-  }
-
-  /*
-   * CE QUE LA RECHERCHE EST ALLÉE CHERCHER SE RETIENT, à chaque tour et non au
-   * seul premier. Deux traces, pour deux usages :
-   *  - la DURABLE (`marquerPassagesRetrouves`) : le parcours d'une carte doit
-   *    pouvoir dire des mois plus tard ce que l'agent est allé lire ;
-   *  - celle de la SESSION (`marquerPassagesServis`) : elle empêche le tour
-   *    suivant de renvoyer un passage que l'agent a déjà sous les yeux.
-   * Posée APRÈS `oublierMemoireServie`, qui vide la seconde sur session neuve.
-   */
-  if (recherche) {
-    store.marquerPassagesRetrouves(
-      agent.id,
-      recherche.passages.map((passage) => ({
-        source: passage.source,
-        titre: passage.titre,
-        score: Math.round(passage.score * 1000) / 1000,
-        tokens: passage.jetons,
-        texte: passage.texte,
-      })),
-    );
-    store.marquerPassagesServis(agent.id, recherche.passages.map((passage) => clePassage(passage)));
   }
 
   /*
@@ -1334,29 +1244,12 @@ async function preparerLeTour(
     {
       messageId: userMessageId,
       blocks,
-      passages: recherche?.passages.map((passage) => ({
-        source: passage.source,
-        titre: passage.titre,
-        score: Math.round(passage.score * 1000) / 1000,
-        tokens: passage.jetons,
-        texte: passage.texte,
-      })),
-      passagesRaison,
       /*
-       * PAR LE SENS OU PAR LES MOTS, dit à l'écran. Un repli sur les mots était
-       * INVISIBLE : la bulle montrait des passages médiocres sans dire qu'ils
-       * avaient été choisis à l'ancienne. La couverture voyage avec, c'est elle
-       * qui explique le mode.
+       * PLUS AUCUN PASSAGE À MONTRER : rien n'est plus retrouvé d'office. Le
+       * champ reste dans la trace pour les tours DÉJÀ enregistrés — un mois de
+       * conversations continue de s'afficher tel qu'il a été vécu.
        */
-      passagesMode: recherche
-        ? {
-            sens: recherche.mode.vecteurs,
-            couverture: Math.min(1, Math.max(0, recherche.mode.couverture)),
-            raison: recherche.mode.raison,
-            choisi: recherche.mode.choisi,
-          }
-        : undefined,
-      passagesPertinents: recherche?.pertinents,
+      passagesRaison: RAISON_ARBRE,
     },
     niveau,
     {

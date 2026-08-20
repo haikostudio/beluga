@@ -94,7 +94,7 @@ test("le briefing porte l'index seul : jamais le texte entier d'un sujet", () =>
   appendMemory(dossier, FAIT_PUBLI);
 
   const ouverture = briefing(dossier, 'Essai', true);
-  assert.match(ouverture, /index des faits retenus \(7\)/);
+  assert.match(ouverture, /la CARTE de l'arbre \(7 faits\)/);
   assert.doesNotMatch(ouverture, /piège rencontré ce jour-là/);
   assert.ok(blocMemoire(dossier).length < readMemory(dossier).length);
   fs.rmSync(dossier, { recursive: true, force: true });

@@ -10,14 +10,11 @@
  *   1. le pool rend TOUTES ses fiches, liens vers le coffre personnel compris ;
  *   2. ce qui est écarté sort avec sa RAISON — plus aucun refus muet ;
  *   3. l'ARBRE est lu : la tête d'une fiche ET ses fichiers de détail ;
- *   4. le pool est indexé UNE SEULE FOIS, sous son propre identifiant, et
- *      n'est plus recopié dans l'index de chaque projet ;
- *   5. les deux fichiers d'entrée sont écrits par le démon, et indexés en tête ;
- *   6. le briefing porte un SOMMAIRE par thème, pas une ligne par fiche ;
- *   7. l'écriture passe le contrôle de qualité, garde la provenance d'origine
+ *   4. les deux fichiers d'entrée du pool sont écrits par le démon ;
+ *   5. le briefing porte un SOMMAIRE par thème, pas une ligne par fiche ;
+ *   6. l'écriture passe le contrôle de qualité, garde la provenance d'origine
  *      et ne sort jamais du pool ;
- *   8. une fiche ne se supprime pas : elle se déprécie ou s'archive ;
- *   9. les compétences ne prennent jamais plus que leur part du contexte.
+ *   7. une fiche ne se supprime pas : elle se déprécie ou s'archive.
  *
  *   node scripts/verif-pool-competences.mjs
  *
@@ -73,7 +70,6 @@ const {
   etatDuPoolPourLEcran,
   dossierDesCompetences,
 } = await import('../server/dist/competences.js');
-const passages = await import('../server/dist/passages.js');
 const { briefing } = await import('../server/dist/memory.js');
 const shared = await import('../shared/dist/index.js');
 
@@ -127,41 +123,12 @@ noter(
   (fabrique.fiches[0]?.annexes ?? []).join(', '),
 );
 
-/* --- 4 et 5. Indexé une seule fois, entrées en tête --- */
-const fichiersDuPool = passages.fichiersDuPool(POOL_ESSAI);
-noter(
-  'l’arbre entier part à l’index (tête + détails)',
-  fichiersDuPool.some((f) => f.source.endsWith('bonne/SKILL.md')) &&
-    fichiersDuPool.some((f) => f.source.endsWith('bonne/references/mesures.md')),
-  fichiersDuPool.map((f) => f.source).join(', '),
-);
-const fichiersDunProjet = passages.fichiersAIndexer
-  ? []
-  : []; /* `fichiersAIndexer` n'est pas exporté : on vérifie autrement, plus bas. */
-void fichiersDunProjet;
-
-// Le pool ne doit plus apparaître dans l'index d'un PROJET : on indexe un projet
-// d'essai et on regarde ses sources.
+/* --- 4. Un projet d'essai, pour le briefing --- */
 const PROJET = path.join(ESSAI, 'projet');
 fs.mkdirSync(path.join(PROJET, 'docs'), { recursive: true });
 fs.writeFileSync(path.join(PROJET, 'CLAUDE.md'), '# Essai\n\n## Une règle\n\nDu texte.\n', 'utf8');
-passages.indexerDocumentation('verif-pool-projet', PROJET);
-const sourcesDuProjet = new Set(passages.passagesIndexes('verif-pool-projet').map((p) => p.source));
-noter(
-  'le pool n’est plus recopié dans l’index de chaque projet',
-  ![...sourcesDuProjet].some((s) => s.startsWith(shared.PREFIXE_SOURCE_COMPETENCE)),
-  [...sourcesDuProjet].slice(0, 4).join(', '),
-);
 
-passages.indexerLePool(POOL_ESSAI);
-const sourcesDuPool = passages.passagesIndexes(passages.PROJET_DU_POOL).map((p) => p.source);
-noter(
-  'le pool a son PROPRE index, préparé une seule fois',
-  sourcesDuPool.some((s) => s.startsWith(shared.PREFIXE_SOURCE_COMPETENCE)),
-  `${sourcesDuPool.length} passage(s)`,
-);
-
-/* --- 6. Le briefing porte un sommaire --- */
+/* --- 5. Le briefing porte un sommaire --- */
 const texteDuBriefing = shared.texteDesCompetences(listerCompetences(POOL_ESSAI), POOL_ESSAI);
 noter(
   'le briefing porte un SOMMAIRE par thème, pas une ligne par fiche',
@@ -170,7 +137,7 @@ noter(
 const briefingReel = briefing(PROJET, 'Essai', false, 'codex');
 noter('le briefing d’un vrai projet annonce toujours les compétences', /COMPÉTENCES PARTAGÉES/.test(briefingReel));
 
-/* --- 7. L'écriture, gardée --- */
+/* --- 6. L'écriture, gardée --- */
 const refusee = ecrireLaFiche({ nom: 'vague', description: 'trop court' }, { dossier: POOL_ESSAI });
 noter(
   'une fiche sans vérification ni déclenchement est REFUSÉE, avec ses raisons',
@@ -215,7 +182,7 @@ noter(
   fs.existsSync(path.join(POOL_ESSAI, 'SOMMAIRE.md')) && fs.existsSync(path.join(POOL_ESSAI, 'SYMPTOMES.md')),
 );
 
-/* --- 8. Rien ne se supprime --- */
+/* --- 7. Rien ne se supprime --- */
 changerLEtat('preuve', 'depreciee', POOL_ESSAI);
 const depreciee = lirePool(POOL_ESSAI).fiches.find((f) => f.nom === 'preuve');
 changerLEtat('preuve', 'archivee', POOL_ESSAI);
@@ -230,37 +197,6 @@ noter(
   'une fiche archivée sort du service, mais pas de l’écran',
   !listerCompetences(POOL_ESSAI).some((f) => f.nom === 'preuve') &&
     etatDuPoolPourLEcran(POOL_ESSAI).fiches.some((f) => f.nom === 'preuve'),
-);
-
-/* --- 9. La part du contexte --- */
-const faux = (source, jetons) => ({
-  source,
-  titre: 'un titre',
-  sujet: 'x',
-  priorite: 0,
-  texte: 'x'.repeat(jetons * 4),
-  score: 0.9,
-  sens: 0.9,
-  mots: 0.9,
-  jetons,
-});
-const choix = shared.choisirPassages(
-  [
-    faux(`${shared.PREFIXE_SOURCE_COMPETENCE}a/SKILL.md`, 300),
-    faux(`${shared.PREFIXE_SOURCE_COMPETENCE}b/SKILL.md`, 300),
-    faux(`${shared.PREFIXE_SOURCE_COMPETENCE}c/SKILL.md`, 300),
-    faux('docs/regles/cartes.md', 200),
-  ],
-  { plafond: 1000, max: 7 },
-);
-const jetonsDesCompetences = choix.gardes
-  .filter((p) => shared.estPassageDeCompetence(p.source))
-  .reduce((total, p) => total + p.jetons, 0);
-noter(
-  'les compétences ne prennent jamais plus que leur part du contexte',
-  choix.gardes.some((p) => p.source === 'docs/regles/cartes.md') &&
-    jetonsDesCompetences <= 300 + Math.floor(1000 * shared.PART_MAX_DES_COMPETENCES),
-  `${jetonsDesCompetences} jetons de compétences sur 1000`,
 );
 
 fs.rmSync(ESSAI, { recursive: true, force: true });
