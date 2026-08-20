@@ -40,7 +40,7 @@ export const DOSSIER_MEMOIRE_PROJET = 'docs/memoire';
  * moteur, et il n'a rien à faire dans une mémoire d'apprentissage. La mémoire
  * d'avant resserrement est une COPIE périmée : elle ferait double emploi.
  */
-export const FICHIERS_JAMAIS_ENVOYES = ['HISTORIQUE.md', 'MEMOIRE.avant-synthese.md'] as const;
+export const FICHIERS_JAMAIS_ENVOYES = ['HISTORIQUE.md', 'MEMOIRE.avant-synthese.md', 'PLAN.md'] as const;
 
 /**
  * Les dossiers qu'on ne parcourt pas : du code installé, des constructions, des
