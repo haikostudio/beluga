@@ -396,12 +396,25 @@ export type AgentOccupe = { id: string; title: string };
 /**
  * Les agents qui travaillent encore dans le dossier. Le chef d'orchestre ne
  * compte pas : c'est souvent LUI qui répond au moment où l'on clique.
+ *
+ * DEUX TÉMOINS, PAS UN. Le statut retombe à « terminé » dès que la réponse est
+ * figée à l'écran, alors que le tour continue de ranger pendant des minutes :
+ * compression du fil, constat du dépôt, FUSION DE LA BRANCHE de la carte,
+ * fermeture de sa copie de travail. Publier dans cette fenêtre, c'était mettre
+ * en ligne un lot AMPUTÉ du travail de la carte qui venait de finir — et le
+ * déploiement automatique, qui repasse toutes les quinze secondes, tombait
+ * dedans à chaque fois. `tourVivantDepuis` ne s'éteint, lui, qu'à la toute
+ * dernière ligne du tour, et il est effacé au démarrage du démon : il ne peut
+ * pas retenir une publication pour toujours.
  */
 export function agentsOccupes(projectId: string): AgentOccupe[] {
   return store
     .listAgents(projectId)
     .filter((agent) => agent.role !== 'orchestrator')
-    .filter((agent) => agent.status === 'running' || agent.status === 'starting')
+    .filter(
+      (agent) =>
+        agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined,
+    )
     .map((agent) => ({ id: agent.id, title: agent.title || 'agent sans titre' }));
 }
 

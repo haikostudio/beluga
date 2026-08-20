@@ -218,6 +218,14 @@ export function rangerLesCartesOubliees(): void {
         colonne: card.column,
         tourEnVolDepuis: card.scheduling?.tourEnVolDepuis,
         agentAuTravail: agents.some((a) => a.cardId === card.id && STATUTS_AU_TRAVAIL.includes(a.status)),
+        /*
+         * LE STATUT N'EST PAS LE SEUL TÉMOIN DE TRAVAIL. Il retombe à
+         * « terminé » dès la réponse figée, alors que le tour continue de
+         * ranger pendant des minutes (compression, constat du dépôt, fusion de
+         * la branche, fermeture du dossier de carte). `tourVivantDepuis`, lui,
+         * ne s'éteint qu'à la toute dernière ligne du tour.
+         */
+        tourEncoreVivant: agents.some((a) => a.cardId === card.id && a.tourVivantDepuis !== undefined),
         dernierTourEnEchec: dernierTourEnEchec(card, agents),
         dejaEnregistre: !!card.codeDejaEnregistre,
       },
