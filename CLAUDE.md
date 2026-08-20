@@ -141,7 +141,7 @@ Texte entier : `docs/regles/publication.md` (`project_memory`, sujet « publicat
 - La BRANCHE de chaque étape se choisit dans les réglages du projet
 - **Initier une procédure de mise en ligne n'interroge plus : l'agent analyse et tranche** — INITIER UNE PROCÉDURE, C'EST UNE ANALYSE, PAS UN QUESTIONNAIRE
 - **Déployer, c'est sur ce serveur ; mettre en production, c'est ailleurs**
-- **Un interrupteur « déploiement automatique » en tête de « Terminé », éteint par défaut** — LE DÉPLOIEMENT AUTOMATIQUE EST UN INTERRUPTEUR DU PROJET, ÉTEINT PAR DÉFAUT, POSÉ EN TÊTE DE « TERMINÉ »
+- **Un interrupteur « déploiement automatique » en tête de « Terminé », éteint par défaut**
 
 ### Cartes
 
@@ -193,9 +193,9 @@ Texte entier : `docs/regles/cartes.md` (`project_memory`, sujet « cartes »).
 - **Un lancement refusé par une porte qui se rouvre seule est rejoué, sans second clic** — UN LANCEMENT REFUSÉ FAUTE DE QUOTA REPART TOUT SEUL DÈS QUE LE QUOTA REVIENT
 - **Le moteur DIT qu'il n'a jamais démarré, on ne le déduit plus d'un faisceau d'absences** — « MOTEUR JAMAIS JOINT » EST UN SIGNAL DE L'ADAPTATEUR, PAS UNE DÉDUCTION DU DÉMON
 - **Une carte annoncée en texte : le démon appelle l'outil À LA PLACE du modèle** — UNE CARTE ÉCRITE EN TEXTE EST RELUE PAR LE DÉMON, QUI APPELLE L'OUTIL LUI-MÊME
-- **Une carte à valider allume le triangle de son projet, d'où qu'elle vienne** — UNE CARTE À VALIDER ALLUME TOUJOURS LE TRIANGLE DE SON PROJET
+- **Une carte à valider allume le triangle de son projet, d'où qu'elle vienne**
 - **Un agent arrêté sur sa question n'est en travail pour PERSONNE** — UN AGENT QUI ATTEND UNE RÉPONSE N'EST PLUS « EN TRAVAIL » NULLE PART, ET SON CHRONOMÈTRE S'ARRÊTE
-- **Chaque carte d'auto-amélioration s'ouvre sur une phrase d'intro ludique, avant le Constat technique** — CHAQUE CARTE D'AUTO-AMÉLIORATION S'OUVRE SUR UNE PHRASE D'INTRO LUDIQUE, SANS JARGON, AVANT LE CONSTAT TECHNIQUE
+- **Chaque carte d'auto-amélioration s'ouvre sur une phrase d'intro ludique, avant le Constat technique**
 
 ### Branches et dossiers
 
@@ -302,7 +302,6 @@ Texte entier : `docs/regles/interface.md` (`project_memory`, sujet « interface 
 - …ET IL SE LIT COMME UNE LIGNE DE TEMPS VERTICALE, CHARGÉE À L'OUVERTURE
 - **Le timestamp du chat est court, et une carte acceptée porte son bouton « Lancer » dans le fil** — le timestamp sous un message du chat est court (ex. « 4h35min », plus jamais « il y a … »)
 - **Le menu du bas du téléphone prolonge le fond de l'écran affiché, il ne pose plus sa propre bande** — LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE
-- **Le menu du bas du téléphone prolonge le fond de l'écran affiché, il ne pose plus sa propre bande** — LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE
 - **L'heure, le séparateur de date et les jetons sous les messages** — L'HEURE SOUS CHAQUE BULLE, UN SÉPARATEUR ENTRE DEUX JOURS, ET LES JETONS DE RETOUR SOUS LES MESSAGES
 - **Le compteur de jetons sous un message utilisateur n'écarte plus le tour agentique qui suit** — LE COMPTEUR SOUS UNE BULLE DE DEMANDE MESURE CE MESSAGE, JAMAIS LE TOUR AGENTIQUE QUI A SUIVI
 
@@ -317,10 +316,10 @@ Texte entier : `docs/regles/quotas.md` (`project_memory`, sujet « quotas »).
 - LE TRAVAIL PART OÙ IL Y A LE PLUS DE PLACE, pas au premier compte pas encore à 100 %
 - LE CHEF D'ORCHESTRE NE PAIE PAS UN MODÈLE DE RAISONNEMENT POUR TRIER
 - **Le rangement de nuit vise les sujets réels du projet traité, pas les huit d'HaikoDev** — le rangement de nuit range dans les fichiers de `docs/regles/` qui existent VRAIMENT sur le projet traité, jamais dans les huit sujets fixes d'HaikoDev appliqués à un autre projet
-- **LE SEUIL DU MODE SENS SE MESURE SUR LE TERRAIN OÙ IL S'APPLIQUE** — LE SEUIL DU MODE SENS SE MESURE SUR LE TERRAIN OÙ IL S'APPLIQUE
+- **LE SEUIL DU MODE SENS SE MESURE SUR LE TERRAIN OÙ IL S'APPLIQUE**
 - **Le créneau conseillé devient le vrai départ programmé de la carte** — LE CRÉNEAU CONSEILLÉ D'UNE CARTE EST DÉJÀ SON DÉPART PROGRAMMÉ, PAS UNE SIMPLE SUGGESTION
 - **LA PUBLICATION CHOISIT UN MOTEUR QUI A ENCORE DU QUOTA, ET LE DIT QUAND IL N'Y EN A AUCUN** — LA PUBLICATION CHOISIT ELLE-MÊME UN MOTEUR AU QUOTA SUFFISANT, ET UN MANQUE DE QUOTA SE DIT AU LIEU DE BLOQUER EN SILENCE
-- **LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT** — LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT
+- **LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT**
 - **UN COFFRE-FORT CENTRAL POUR LES IDENTIFIANTS, ATTEINT DEPUIS LA COLONNE DE GAUCHE** — LES IDENTIFIANTS VIVENT DANS UN COFFRE-FORT CENTRAL, OUVERT DEPUIS LA COLONNE DE GAUCHE
 - **La fusion du lot : un tour d'agent borné, et les heurts de documentation recollés seuls** — LE VOLET DIT OÙ EN EST CHAQUE TÂCHE DU LOT
 - **Le tiroir de publication est une vraie timeline verticale** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
@@ -328,8 +327,8 @@ Texte entier : `docs/regles/quotas.md` (`project_memory`, sujet « quotas »).
 - **Une élévation sudo (mkdir + chown) cible toujours le dossier CIBLE, jamais son parent** — LE MKDIR+CHOWN SUDO D'UN PROJET PORTE SUR SON PROPRE DOSSIER, JAMAIS SUR SON PARENT
 - **Cinq points que le renommage du compte système laisse derrière lui** — UN RENOMMAGE DU COMPTE COUVRE AUSSI CE QUI POINTE L'ANCIEN DOSSIER PERSONNEL
 - **Le dossier SSH de l'administrateur doit rester à l'administrateur** — UN `chown -R` TROP LARGE COUPE LES ACCÈS SSH DE L'ADMINISTRATEUR
-- **Un nouvel essai après panne emporte TOUJOURS la demande de son tour** — UN NOUVEL ESSAI APRÈS PANNE EMPORTE LA DEMANDE DE SON TOUR
-- **Deux demandes trop rapprochées se SUIVENT, elles ne se doublent pas** — DEUX DEMANDES TROP RAPPROCHÉES SE SUIVENT, ELLES NE SE DOUBLENT PAS
+- **Un nouvel essai après panne emporte TOUJOURS la demande de son tour**
+- **Deux demandes trop rapprochées se SUIVENT, elles ne se doublent pas**
 - **Un trait qui porte une information suit `--faint`, jamais `--border`** — sur les thèmes plats, un trait porteur d'information se dessine avec `--faint`, pas avec `--border`
 - **Une carte annoncée en texte, sans appel d'outil, fait relancer le chef** — Une carte RACONTÉE n'est pas une carte : le chef est relancé pour l'appel d'outil manquant
 - **Un canal WebSocket zombie n'a plus le dernier mot sur le témoin « Réflexion en cours »** — LE CLIENT VÉRIFIE LUI-MÊME QUE SON CANAL RÉPOND ENCORE, IL NE SE FIE PLUS À `onclose`
