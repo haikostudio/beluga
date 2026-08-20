@@ -1,4 +1,5 @@
 import { PLAFOND_PASSAGES_JETONS, type PassageClasse, type PassageDoc } from './passages-doc.js';
+import { rappelDeLAmont } from './memoire-en-arbre.js';
 
 /**
  * LA RECHERCHE NE S'ARRÊTE PLUS AU PREMIER TOUR.
@@ -97,13 +98,17 @@ export function texteDesPassagesDeSuite(passages: PassageClasse[]): string {
   const corps = passages
     .map((passage) => `▸ ${passage.source}${passage.titre ? ` — ${passage.titre}` : ''}\n${passage.texte.trim()}`)
     .join('\n\n');
+  const amont = rappelDeLAmont(passages);
   return (
     `MÉMOIRE DU PROJET — ${passages.length} passage${passages.length > 1 ? 's' : ''} retrouvé${
       passages.length > 1 ? 's' : ''
     } pour LA demande ci-dessus ` +
     `(recherche relancée sur ce message, en plus de ce qui t'a déjà été transmis) :\n\n` +
     `${corps}\n\n` +
-    `C'est un complément, pas toute la mémoire : appelle « project_memory » dès que cela ne suffit pas.`
+    `C'est un complément, pas toute la mémoire : appelle « project_memory » dès que cela ne suffit pas.` +
+    // Le rappel de la couche AMONT, ici aussi : un passage `@haikodev/…` remonté
+    // au dixième message doit se lire comme au premier.
+    `${amont ? `\n\n${amont}` : ''}`
   );
 }
 

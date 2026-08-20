@@ -31,6 +31,7 @@
 
 import { jetonsApproches } from './couches-tokens.js';
 import { PART_MAX_DES_COMPETENCES, estPassageDeCompetence } from './competences.js';
+import { estPassageAmont, plafondDeLAmont, rappelDeLAmont, seuilDeLAmont } from './memoire-en-arbre.js';
 
 /* ------------------------------------------------------------------ */
 /* Ce qu'est un passage                                                */
@@ -757,6 +758,13 @@ export function choisirPassages(
      */
     plafondCompetences?: number;
     /**
+     * Ce que la COUCHE AMONT — la documentation de HaikoDev, héritée par tous
+     * ses projets — a le droit de peser, en jetons. Troisième usage de la même
+     * mécanique : une part réservée, jamais celle des règles du projet visé
+     * (`PART_MAX_DE_L_AMONT`, shared/src/memoire-en-arbre.ts).
+     */
+    plafondAmont?: number;
+    /**
      * La part du MIEUX PLACÉ qu'un passage doit atteindre pour entrer
      * (`PART_MINIMALE_DU_PREMIER`). `0` la coupe — c'est ce dont le balayage a
      * besoin pour mesurer ce qu'elle apporte, jamais la production.
@@ -774,14 +782,19 @@ export function choisirPassages(
    * ailleurs bon, là où un plancher absolu devrait choisir entre les vider tous
    * ou les laisser tous passer.
    */
-  const minimum = seuilAppliquable(
-    classes,
-    options.minimum ?? SCORE_MINIMUM,
-    options.partDuPremier ?? PART_MINIMALE_DU_PREMIER,
-  );
+  const plancher = options.minimum ?? SCORE_MINIMUM;
+  const minimum = seuilAppliquable(classes, plancher, options.partDuPremier ?? PART_MINIMALE_DU_PREMIER);
+  /*
+   * LA BARRE DE L'AMONT, bâtie sur le PLANCHER ABSOLU et non sur le seuil
+   * appliqué : sur un projet neuf, l'héritage est le mieux placé, et se comparer
+   * à soi-même s'interdirait de répondre au moment où l'on sert le plus
+   * (`seuilDeLAmont`, shared/src/memoire-en-arbre.ts).
+   */
+  const barreAmont = seuilDeLAmont(plancher);
   const maxCode = options.maxCode ?? Number.POSITIVE_INFINITY;
   const plafondCode = options.plafondCode ?? Math.floor(plafond * PART_MAX_DU_CODE);
   const plafondCompetences = options.plafondCompetences ?? Math.floor(plafond * PART_MAX_DES_COMPETENCES);
+  const plafondAmont = options.plafondAmont ?? plafondDeLAmont(plafond);
 
   const gardes: PassageClasse[] = [];
   const vus = new Set<string>();
@@ -791,6 +804,7 @@ export function choisirPassages(
   let code = 0;
   let jetonsDuCode = 0;
   let jetonsDesCompetences = 0;
+  let jetonsDeLAmont = 0;
 
   for (const passage of classes) {
     if (passage.score < minimum) continue;
@@ -810,6 +824,24 @@ export function choisirPassages(
     if (estPassageDeCompetence(passage.source)) {
       const tropLourd =
         jetonsDesCompetences > 0 && jetonsDesCompetences + passage.jetons > plafondCompetences;
+      if (tropLourd) {
+        ecartes++;
+        continue;
+      }
+    }
+    /*
+     * L'HÉRITAGE NE MANGE PAS LE BUDGET DU PROJET. Une page de HaikoDev est une
+     * règle de PLATEFORME : elle rappelle, elle ne remplace pas la
+     * documentation du dépôt visé. Même exception que pour le code et le pool —
+     * le PREMIER passage amont passe sous le seul plafond général, sinon une
+     * demande qui tombe pile sur une règle de plateforme n'en recevrait qu'un
+     * fragment.
+     */
+    if (estPassageAmont(passage.source)) {
+      // La barre d'abord : un héritage à peu près pertinent est du bruit payé à
+      // chaque carte, et il tuerait le repli sur l'index.
+      if (passage.score < barreAmont) continue;
+      const tropLourd = jetonsDeLAmont > 0 && jetonsDeLAmont + passage.jetons > plafondAmont;
       if (tropLourd) {
         ecartes++;
         continue;
@@ -839,6 +871,7 @@ export function choisirPassages(
       jetonsDuCode += passage.jetons;
     }
     if (estPassageDeCompetence(passage.source)) jetonsDesCompetences += passage.jetons;
+    if (estPassageAmont(passage.source)) jetonsDeLAmont += passage.jetons;
     gardes.push(passage);
     jetons += passage.jetons;
   }
@@ -908,12 +941,16 @@ export function texteDesPassages(passages: PassageClasse[], faits: number, somma
     .map((passage) => `▸ ${passage.source}${passage.titre ? ` — ${passage.titre}` : ''}\n${passage.texte.trim()}`)
     .join('\n\n');
   const carte = sommaire.trim() ? `\n\n${sommaire.trim()}` : '';
+  // Le rappel de la couche AMONT ne part que si elle a réellement servi : un
+  // projet qui n'a rien hérité ne paie pas cette ligne.
+  const amont = rappelDeLAmont(passages);
   return (
     `MÉMOIRE DU PROJET — ${passages.length} passages retrouvés pour CETTE tâche ` +
     `(règles, faits, contrôles, mécaniques, fichiers du projet) :\n\n` +
     `${corps}\n\n` +
     `Ce sont les mieux placés, sous plafond de jetons — pas toute la mémoire (${faits} faits, ` +
     `plus les règles et les contrôles). Appelle « project_memory » dès que cela ne suffit pas : ` +
-    `sans argument pour l'index complet, avec un sujet ou des mots-clés pour le reste.${carte}`
+    `sans argument pour l'index complet, avec un sujet ou des mots-clés pour le reste.` +
+    `${amont ? `\n\n${amont}` : ''}${carte}`
   );
 }

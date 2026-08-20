@@ -25,7 +25,23 @@ delete process.env.HAIKODEV_EMBED_API_KEY;
 delete process.env.OPENROUTER_API_KEY;
 process.env.HAIKODEV_ENV_FILE = path.join(bacASable, 'aucun-environnement');
 
-const { indexerDocumentation, passagesIndexes, rechercherPourLaTache } = await import('../passages.js');
+const { indexerDocumentation, passagesIndexes, rechercherPourLaTache: chercher } = await import('../passages.js');
+
+/*
+ * LA COUCHE AMONT EST ÉTEINTE ICI, VOLONTAIREMENT. Depuis la mémoire en arbre,
+ * la recherche joint la documentation de HaikoDev au corpus des AUTRES projets
+ * (`shared/src/memoire-en-arbre.ts`). Ce fichier-ci mesure le corpus d'UN
+ * projet, seul : sans ce zéro, chaque cas éprouverait aussi les règles du vrai
+ * dépôt, et « un projet sans documentation ne reçoit rien » deviendrait faux
+ * pour une raison qui n'a rien à voir avec ce qu'il vérifie. L'héritage a son
+ * propre fichier (`memoire-en-arbre.test.ts`) et son propre contrôle.
+ */
+const rechercherPourLaTache = (
+  projectId: string,
+  projectPath: string,
+  question: string,
+  index: { texte: string; faits: number; sommaire?: string },
+) => chercher(projectId, projectPath, question, index, '', '');
 
 const FAIT_VOIX =
   "Le mot de réveil de l'écoute permanente se compare sans accent ni ponctuation, et il ne " +

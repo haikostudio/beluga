@@ -186,9 +186,29 @@ verifier(
   (await passages.rechercherPourLaTache('verif', RACINE, 'un déploiement', { texte: '  1. Un fait.', faits: 1 })) === undefined,
   'sur une mémoire minuscule, l’index reste le moins cher',
 );
+/*
+ * UN PROJET VIDE NE REÇOIT RIEN DE SIEN — MAIS IL REÇOIT CE QU'IL HÉRITE.
+ *
+ * Depuis la mémoire en arbre, la documentation de HaikoDev est jointe au corpus
+ * de ses AUTRES projets : un projet neuf qui demande « un déploiement » reçoit
+ * la règle de plateforme, et c'est tout l'intérêt de la couche. On vérifie donc
+ * les DEUX faces, sans en taire une seule : sans dépôt amont, le silence d'avant
+ * ; avec, l'héritage — et rien qui vienne du projet, puisqu'il n'a rien.
+ */
 verifier(
-  (await passages.rechercherPourLaTache('verif', DOSSIER_VIDE, 'un déploiement', INDEX)) === undefined,
-  'sur un projet sans documentation ni code, la recherche se tait',
+  (await passages.rechercherPourLaTache('verif', DOSSIER_VIDE, 'un déploiement', INDEX, '', '')) === undefined,
+  'sans dépôt amont, un projet sans documentation ni code ne reçoit rien',
+);
+const heriteSurVide = await passages.rechercherPourLaTache('verif-herite', DOSSIER_VIDE, 'un déploiement', INDEX, '', RACINE);
+verifier(
+  !!heriteSurVide && heriteSurVide.passages.every((p) => partage.estPassageAmont(p.source)),
+  'avec l’amont, il reçoit les règles de HaikoDev — et rien d’autre, puisqu’il n’a rien à lui',
+  heriteSurVide ? heriteSurVide.passages.map((p) => p.source).join(', ') : 'aucune réponse',
+);
+verifier(
+  !heriteSurVide || heriteSurVide.jetons < heriteSurVide.jetonsIndex,
+  'et cet héritage reste moins cher que l’index qu’il remplace',
+  heriteSurVide ? `${heriteSurVide.jetons} contre ${heriteSurVide.jetonsIndex}` : '',
 );
 
 /* ------------------------------------------------------------------ */

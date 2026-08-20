@@ -59,6 +59,8 @@ import {
   ficheEnService,
   nomDepuisLaSource,
 } from '@haikodev/shared';
+import { amontApplicable, reculerLAmont, sourceAmont } from '@haikodev/shared';
+import { CONFIG } from './config.js';
 import { getDb } from './db.js';
 import { compter, compteursDeLaFiche, dossierDesCompetences, lirePool } from './competences.js';
 import { log } from './logger.js';
@@ -197,6 +199,12 @@ interface FichierIndexable {
 /** Le dossier des fiches de MÉCANIQUES : les modes d'emploi réutilisables. */
 export const DOSSIER_MECANIQUES = 'docs/mecaniques';
 
+/** Le dossier des RÈGLES du moteur, rangées par sujet. */
+export const DOSSIER_REGLES = 'docs/regles';
+
+/** Le fichier des CONTRÔLES ciblés, rangés par sujet eux aussi. */
+export const FICHIER_VERIFICATIONS = 'docs/verifications.md';
+
 /**
  * LA PLACE D'UN DOCUMENT DANS LE CLASSEMENT, d'après son chemin. Les dossiers
  * NOMMÉS de HaikoDev gardent la priorité qu'ils avaient ; tout autre Markdown
@@ -214,9 +222,9 @@ export function rangDuDocument(source: string): { sujet: string; priorite: numbe
    * l'un en règle l'autre en plan, ne se confondent pas dans `project_memory`.
    */
   if (source.startsWith(`${DOSSIER_PLANS}/`)) return { sujet: `plan-${nom}`, priorite: PRIORITE.mecanique };
-  if (source.startsWith('docs/regles/')) return { sujet: nom, priorite: PRIORITE.regle };
+  if (source.startsWith(`${DOSSIER_REGLES}/`)) return { sujet: nom, priorite: PRIORITE.regle };
   if (source.startsWith(`${DOSSIER_MEMOIRE}/`)) return { sujet: nom, priorite: PRIORITE.regle };
-  if (source === 'docs/verifications.md') return { sujet: 'verifications', priorite: PRIORITE.regle };
+  if (source === FICHIER_VERIFICATIONS) return { sujet: 'verifications', priorite: PRIORITE.regle };
   // Le reste de `docs/`, à plat : les cartes de sujets, les audits.
   if (/^docs\/[^/]+$/.test(source)) return { sujet: nom, priorite: PRIORITE.normale };
   if (source === 'DOCUMENTATION.md') return { sujet: 'documentation', priorite: PRIORITE.normale };
@@ -410,6 +418,77 @@ export function indexerLePool(racine = dossierDesCompetences()): {
   passages: number;
 } {
   return indexerDesFichiers(PROJET_DU_POOL, fichiersDuPool(racine));
+}
+
+/**
+ * L'IDENTIFIANT DE LA COUCHE AMONT. Troisième corpus, à côté de celui du projet
+ * et de celui du pool : la documentation de HAIKODEV, préparée une seule fois et
+ * jointe au classement de tous ses AUTRES projets
+ * (`shared/src/memoire-en-arbre.ts`).
+ */
+export const PROJET_AMONT = '@amont';
+
+/**
+ * CE QUI S'HÉRITE, ET RIEN D'AUTRE.
+ *
+ * Les dossiers de HaikoDev qui portent une connaissance de PLATEFORME : ses
+ * règles, ses faits durables, ses fiches de mécaniques, ses contrôles. Ce sont
+ * les trois familles que la carte nomme — faits, règles, compétences —, les
+ * compétences étant déjà servies par le pool.
+ *
+ * Ce qui reste DEHORS est aussi important que ce qui entre : le CODE de
+ * HaikoDev (il n'apprend rien à un agent qui travaille sur un autre dépôt), ses
+ * PLANS de chef d'orchestre (écrits pour une carte précise de HaikoDev), ses
+ * audits et ses pages libres. C'est ce refus qui empêche la couche de gonfler le
+ * prompt.
+ */
+export const DOSSIERS_HERITES = [`${DOSSIER_REGLES}/`, `${DOSSIER_MEMOIRE}/`, `${DOSSIER_MECANIQUES}/`];
+
+/** Les fichiers isolés qui s'héritent aussi, hors de tout dossier dédié. */
+export const FICHIERS_HERITES = [FICHIER_VERIFICATIONS];
+
+/** Ce fichier de HaikoDev s'hérite-t-il ? */
+export function estFichierHerite(source: string): boolean {
+  return (
+    DOSSIERS_HERITES.some((dossier) => source.startsWith(dossier)) || FICHIERS_HERITES.includes(source)
+  );
+}
+
+/**
+ * LES FICHIERS DE LA COUCHE AMONT, à indexer. On repart de la descente normale
+ * — même exclusions, même plafonds, même rang — puis on ne garde que les
+ * DOCUMENTS hérités, et on préfixe leur source : un agent doit voir d'un coup
+ * d'œil que `@haikodev/docs/regles/cartes.md` n'est pas dans son dépôt.
+ *
+ * Le SUJET est préfixé lui aussi (`amont-cartes`) : sans cela, le fichier
+ * « cartes » de HaikoDev et celui d'un projet qui en aurait un se
+ * confondraient dans l'index et dans `project_memory`.
+ */
+export function fichiersDeLAmont(racine = CONFIG.selfPath): FichierIndexable[] {
+  if (!fs.existsSync(racine)) return [];
+  return fichiersAIndexer(racine)
+    .filter((fichier) => fichier.priorite !== PRIORITE.code && estFichierHerite(fichier.source))
+    .map((fichier) => ({
+      ...fichier,
+      source: sourceAmont(fichier.source),
+      sujet: `${PREFIXE_SUJET_AMONT}${fichier.sujet}`,
+    }));
+}
+
+/** Le préfixe des sujets hérités, pour ne jamais les confondre avec ceux du projet. */
+export const PREFIXE_SUJET_AMONT = 'amont-';
+
+/**
+ * LA COUCHE AMONT, PRÉPARÉE UNE SEULE FOIS — pas une fois par projet, exactement
+ * comme le pool. Incrémentale : une documentation de HaikoDev qui n'a pas bougé
+ * ne coûte que la lecture de ses empreintes.
+ */
+export function indexerLAmont(racine = CONFIG.selfPath): {
+  fichiers: number;
+  modifies: number;
+  passages: number;
+} {
+  return indexerDesFichiers(PROJET_AMONT, fichiersDeLAmont(racine));
 }
 
 /** Le travail commun : indexer une LISTE de fichiers sous un identifiant de corpus. */
@@ -787,6 +866,13 @@ async function classerPourLaQuestion(
    * s'appliquer : c'est le cas général, une leçon de plateforme sert partout.
    */
   projectName = '',
+  /**
+   * LA RACINE DU DÉPÔT AMONT — HaikoDev. Elle est un PARAMÈTRE, pas une
+   * constante lue au vol : c'est ce qui permet de rejouer la couche entière sur
+   * un faux dépôt jetable, en test comme dans le contrôle, sans toucher à la
+   * configuration du serveur.
+   */
+  racineAmont = CONFIG.selfPath,
 ): Promise<{ classes: PassageClasse[]; mode: ModeDeRecherche } | undefined> {
   /*
    * ON INDEXE, ON NE VECTORISE PAS. Découper les fichiers modifiés coûte
@@ -805,8 +891,22 @@ async function classerPourLaQuestion(
    * une compétence ne passe devant une règle du projet que si son score le dit.
    */
   indexerLePool();
+  /*
+   * LA COUCHE AMONT EST JOINTE DE LA MÊME FAÇON. La documentation de HaikoDev —
+   * ses règles, ses faits, ses mécaniques, ses contrôles — est indexée UNE fois
+   * sous `PROJET_AMONT` et ajoutée au corpus de tous ses AUTRES projets. Sur
+   * HaikoDev lui-même, rien n'est joint : son corpus EST déjà cette
+   * documentation, la doubler ferait remonter deux fois la même règle
+   * (`amontApplicable`, shared/src/memoire-en-arbre.ts).
+   */
+  const heriteDeLAmont = amontApplicable({ projet: projectPath, amont: racineAmont });
+  if (heriteDeLAmont) indexerLAmont(racineAmont);
   const duProjet = passagesIndexes(projectId);
-  const indexes = [...duProjet, ...passagesIndexes(PROJET_DU_POOL)];
+  const indexes = [
+    ...duProjet,
+    ...passagesIndexes(PROJET_DU_POOL),
+    ...(heriteDeLAmont ? passagesIndexes(PROJET_AMONT) : []),
+  ];
   if (!indexes.length) return undefined;
 
   /*
@@ -845,7 +945,14 @@ async function classerPourLaQuestion(
       ? { vecteurQuestion, poids: { sens: POIDS_SENS_VECTEUR, mots: POIDS_MOTS_VECTEUR } }
       : {},
   );
-  return { classes: ajusterLesCompetences(classes, projectName), mode };
+  /*
+   * DEUX SECONDS PAS, DANS CET ORDRE. Les compétences sont d'abord ajustées à
+   * leur confiance et à leur applicabilité ; puis la couche amont RECULE d'un
+   * cran (`reculerLAmont`) : à score voisin, la page du projet COURANT gagne
+   * toujours, et l'héritage ne remonte que lorsqu'il répond nettement mieux.
+   * C'est le tri final, celui que `choisirPassages` respecte.
+   */
+  return { classes: reculerLAmont(ajusterLesCompetences(classes, projectName)), mode };
 }
 
 /**
@@ -920,10 +1027,19 @@ export async function rechercherPourLaTache(
   index: { texte: string; faits: number; sommaire?: string },
   /** Le nom du projet visé : il ne sert qu'à juger l'applicabilité d'une fiche du pool. */
   projectName = '',
+  /** La racine du dépôt AMONT — HaikoDev, sauf en test et dans le contrôle. */
+  racineAmont = CONFIG.selfPath,
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
-    const classement = await classerPourLaQuestion(projectId, projectPath, question, 'lancement', projectName);
+    const classement = await classerPourLaQuestion(
+      projectId,
+      projectPath,
+      question,
+      'lancement',
+      projectName,
+      racineAmont,
+    );
     if (!classement) return undefined;
     const { classes, mode } = classement;
     const pertinents = rechercheConvaincante(classes);
@@ -982,6 +1098,8 @@ export async function rechercherPourLaSuite(
   dejaServies: Iterable<string>,
   /** Le nom du projet visé : il ne sert qu'à juger l'applicabilité d'une fiche du pool. */
   projectName = '',
+  /** La racine du dépôt AMONT — HaikoDev, sauf en test et dans le contrôle. */
+  racineAmont = CONFIG.selfPath,
 ): Promise<RechercheDePassages | undefined> {
   if (!question.trim()) return undefined;
   try {
@@ -991,6 +1109,7 @@ export async function rechercherPourLaSuite(
       question,
       'conversation',
       projectName,
+      racineAmont,
     );
     if (!classement) return undefined;
 

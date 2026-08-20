@@ -49,7 +49,7 @@ import {
 import * as store from './store.js';
 import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
-import { PATHS } from './config.js';
+import { CONFIG, PATHS } from './config.js';
 import { mintDownload } from './auth.js';
 import { readMemory, appendMemory, detailProjet } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
@@ -1190,7 +1190,18 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // entier des faits, des règles et des contrôles d'un sujet se demande
       // quand ce sujet concerne vraiment la tâche — et UNE SEULE FOIS par
       // session : un sujet déjà servi n'est pas repayé.
-      const servi = detailProjet(project.path, String(args.sujet ?? ''), store.sujetsMemoireServis(ctx.agentId));
+      /*
+       * ...ET IL MONTE D'UN CRAN QUAND LE PROJET N'A RIEN À DIRE. La mémoire est
+       * EN ARBRE : sous un projet hébergé par HaikoDev, un sujet sans règle
+       * locale est servi depuis la plateforme, dit comme tel
+       * (`morceauxHerites`, server/src/memory.ts).
+       */
+      const servi = detailProjet(
+        project.path,
+        String(args.sujet ?? ''),
+        store.sujetsMemoireServis(ctx.agentId),
+        CONFIG.selfPath,
+      );
       store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
       return { ok: true, text: servi.texte };
     }
