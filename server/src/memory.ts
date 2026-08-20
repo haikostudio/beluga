@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   FICHIER_D_ATTENTE,
+  amontApplicable,
   chercherFaits,
   classerRegles,
   decouperRegles,
@@ -475,6 +476,14 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
   const nomme = sujetNomme(demande);
   if (nomme) {
     const texte = texteDuSujet(projectPath, nomme);
+    /*
+     * UN SUJET SANS FICHIER N'EST PAS UNE RÉPONSE. Les sujets de règles sont une
+     * liste FIXE ; un projet qui n'a pas écrit `docs/regles/cartes.md` rendait
+     * pourtant un morceau vide, marqué « servi » — l'agent recevait le silence,
+     * puis « déjà dans ton contexte » s'il redemandait. On ne rend rien : c'est
+     * ce vide qui laisse la couche amont répondre à sa place (`morceauxHerites`).
+     */
+    if (!texte.trim()) return [];
     return [{ cle: cleMorceau('regles', nomme.id, texte), libelle: `les règles « ${nomme.libelle} »`, texte }];
   }
 
@@ -544,6 +553,42 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
   ];
 }
 
+/**
+ * LE CRAN AU-DESSUS : LES RÈGLES HÉRITÉES DE HAIKODEV.
+ *
+ * C'est la seconde moitié de la mémoire en arbre. La recherche automatique ne
+ * remonte que quelques passages amont, volontairement — c'est le « souvenir
+ * flou ». Quand l'agent veut la règle ENTIÈRE, il redemande son sujet : si le
+ * projet courant n'a rien à en dire, on monte d'un cran et on sert le fichier
+ * de HaikoDev.
+ *
+ * TROIS REFUS tiennent ce repli à sa place :
+ *  — sur HaikoDev lui-même, jamais (`amontApplicable`) : ce serait servir deux
+ *    fois le même fichier ;
+ *  — quand le projet A répondu, jamais non plus : sa règle à lui fait foi, et
+ *    une règle de plateforme qui la contredirait serait un piège ;
+ *  — sans demande précise, jamais : la liste nue des sujets de HaikoDev
+ *    n'apprend rien et se paie.
+ *
+ * La clé de dédoublonnage est préfixée : un sujet servi depuis l'amont ne se
+ * confond pas avec le même sujet servi depuis le projet.
+ */
+function morceauxHerites(projectPath: string, requete: string, amont?: string): MorceauServi[] {
+  if (!requete.trim()) return [];
+  if (!amontApplicable({ projet: projectPath, amont })) return [];
+  // Le projet a répondu : on ne monte pas d'un cran.
+  if (morceauxRegles(projectPath, requete).length) return [];
+
+  return morceauxRegles(amont as string, requete).map((morceau) => ({
+    cle: morceau.cle ? `amont:${morceau.cle}` : '',
+    libelle: `${morceau.libelle}, héritées de HaikoDev`,
+    texte:
+      `HÉRITÉ DE HAIKODEV — ce projet n'a pas de règle sur ce sujet ; voici celle de la PLATEFORME ` +
+      `qui l'héberge. Elle vaut tant que ce projet n'écrit pas la sienne, et le fichier cité vit ` +
+      `dans le dépôt de HaikoDev, pas ici.\n\n${morceau.texte}`,
+  }));
+}
+
 /** Les morceaux de FAITS servis par une demande. */
 function morceauxFaits(projectPath: string, requete: string): MorceauServi[] {
   const texte = detailMemoire(projectPath, requete);
@@ -573,9 +618,23 @@ export interface DetailProjet {
  * sujet qui a CHANGÉ depuis (un fait ajouté en cours de tâche) porte une autre
  * clé : il repart, lui.
  */
-export function detailProjet(projectPath: string, requete: string, dejaServis: string[] = []): DetailProjet {
+export function detailProjet(
+  projectPath: string,
+  requete: string,
+  dejaServis: string[] = [],
+  /**
+   * LE DÉPÔT AMONT — HaikoDev — quand le projet visé en hérite. Il ne sert QUE
+   * de repli : voir `morceauxHerites`. Absent, l'outil se comporte exactement
+   * comme avant.
+   */
+  amont?: string,
+): DetailProjet {
   const connus = new Set(dejaServis);
-  const morceaux = [...morceauxFaits(projectPath, requete), ...morceauxRegles(projectPath, requete)];
+  const morceaux = [
+    ...morceauxFaits(projectPath, requete),
+    ...morceauxRegles(projectPath, requete),
+    ...morceauxHerites(projectPath, requete, amont),
+  ];
 
   const aServir = morceaux.filter((m) => !m.cle || !connus.has(m.cle));
   const rappels = morceaux.filter((m) => m.cle && connus.has(m.cle));

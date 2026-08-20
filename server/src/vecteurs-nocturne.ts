@@ -9,9 +9,11 @@ import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
 import {
+  PROJET_AMONT,
   PROJET_DU_POOL,
   couvertureDesVecteurs,
   indexerDocumentation,
+  indexerLAmont,
   indexerLePool,
   vectoriserLIndex,
 } from './passages.js';
@@ -151,6 +153,27 @@ export async function rendezVousDeVectorisation(force = false): Promise<BilanDeV
       }
     } catch (err) {
       log.warn(`vectorisation : pool de compétences sauté — ${(err as Error).message}`);
+    }
+
+    /*
+     * PUIS LA COUCHE AMONT, pour la même raison exactement : la documentation de
+     * HaikoDev est jointe au corpus de TOUS ses autres projets. Non vectorisée,
+     * elle ne remonterait que par les mots exacts — et sur un projet qui n'a
+     * jamais lu ces règles, c'est précisément le SENS qui doit les retrouver.
+     */
+    try {
+      indexerLAmont();
+      const bilanDeLAmont = await vectoriserUnCorpus(PROJET_AMONT, bornes.tranches - tranches, finAu);
+      passages += bilanDeLAmont.total;
+      vectorises += bilanDeLAmont.vectorises;
+      tranches += bilanDeLAmont.tranches;
+      if (bilanDeLAmont.vectorises) {
+        log.info(
+          `vectorisation : couche amont (HaikoDev) — ${bilanDeLAmont.vectorises} passages vectorisés sur ${bilanDeLAmont.total}`,
+        );
+      }
+    } catch (err) {
+      log.warn(`vectorisation : couche amont sautée — ${(err as Error).message}`);
     }
 
     for (const projet of store.listProjects()) {

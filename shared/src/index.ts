@@ -83,6 +83,7 @@ export * from './deploiement-automatique.js';
 export * from './lot-a-deployer.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';
+export * from './memoire-en-arbre.js';
 export * from './documents-du-chef.js';
 export * from './droits-mode-plan.js';
 export * from './gestion-projets.js';
