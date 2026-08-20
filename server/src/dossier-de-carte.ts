@@ -523,6 +523,9 @@ async function retirerLeDossier(racine: string, dossier: string): Promise<boolea
   return !fs.existsSync(dossier);
 }
 
+/** Le préfixe que porte la branche d'une carte ARCHIVÉE (`server/src/archive.ts`). */
+const PREFIXE_BRANCHE_ARCHIVEE = 'archive/tache/';
+
 export interface BilanFermeture {
   fusionnee: boolean;
   retire: boolean;
@@ -657,6 +660,47 @@ export async function refermerDossierDeCarte(
   });
 }
 
+/**
+ * Fermeture d'une copie posée sur une branche « archive/tache/… ».
+ *
+ * `archiveCard` (`server/src/archive.ts`) renomme la branche de la carte au
+ * moment de l'archivage — mais si une copie de travail était encore ouverte à
+ * cet instant, elle continue de pointer sur cette nouvelle branche et
+ * `menageDesDossiers` ne la reconnaissait plus : ni « tache/… », ni personne
+ * dedans, elle restait ouverte pour toujours.
+ *
+ * Ici on ne fusionne JAMAIS : la carte est archivée, sa branche existe déjà
+ * (fusionnée ou volontairement écartée), refusionner referait un travail qui
+ * n'a plus de sens. On se contente de RETIRER la copie — et seulement si elle
+ * ne porte plus de travail non enregistré, exactement comme pour une carte
+ * vivante.
+ */
+export async function retirerDossierDeCarteArchivee(
+  racine: string,
+  dossier: string,
+  branche: string,
+): Promise<BilanFermeture> {
+  return aLaQueue(racine, async () => {
+    if (!fs.existsSync(dossier)) return { fusionnee: false, retire: true, raison: 'dossier déjà refermé' };
+
+    const enregistre = await enregistrerLeTravailEnCours(dossier);
+    const sale = await git(dossier, ['status', '--porcelain'], 60000);
+    if (sale.out.trim()) {
+      const raison =
+        "du travail non enregistré reste dans le dossier d'une carte archivée : il n'est ni retiré ni perdu";
+      log.warn(`fermeture du dossier ${dossier} : ${raison}`);
+      return { fusionnee: false, retire: false, raison, enregistre };
+    }
+
+    const retire = await retirerLeDossier(racine, dossier);
+    const raison = retire
+      ? `carte archivée (branche « ${branche} ») : copie de travail retirée sans fusion`
+      : `carte archivée (branche « ${branche} ») : copie de travail restée ouverte`;
+    log.info(`dossier de carte refermé (${dossier}) : ${raison}`);
+    return { fusionnee: false, retire, raison, enregistre };
+  });
+}
+
 /** Ce qu'un dossier de carte refermé au démarrage a laissé derrière lui. */
 export interface DossierRattrape {
   dossier: string;
@@ -683,14 +727,20 @@ export async function menageDesDossiers(racine: string, occupes: string[]): Prom
   const orphelins = dossiersOrphelins(racine, ouverts, occupes);
   const rattrapes: DossierRattrape[] = [];
   for (const dossier of orphelins) {
-    // Seule une copie posée sur une branche de CARTE se referme toute seule :
-    // un dossier ouvert à la main sur une autre branche ne se fait pas fusionner
-    // dans la principale à la faveur d'un redémarrage.
+    // Seule une copie posée sur une branche de CARTE — vivante ou archivée — se
+    // referme toute seule : un dossier ouvert à la main sur une autre branche ne
+    // se fait pas fusionner dans la principale à la faveur d'un redémarrage.
     const branche = await brancheCourante(dossier);
-    if (!branche.startsWith('tache/')) continue;
-    // On referme comme en fin de tour : le travail en cours est enregistré
-    // d'office sur la branche de la carte, puis le tout rejoint la principale.
-    const bilan = await refermerDossierDeCarte(racine, dossier, branche);
+    const estVivante = branche.startsWith('tache/');
+    const estArchivee = branche.startsWith(PREFIXE_BRANCHE_ARCHIVEE);
+    if (!estVivante && !estArchivee) continue;
+    // Une carte vivante referme comme en fin de tour (travail en cours enregistré
+    // d'office, puis fusion). Une carte ARCHIVÉE ne fusionne plus jamais : sa
+    // branche a déjà rejoint la principale — ou volontairement pas — au moment de
+    // l'archivage ; on se contente de retirer la copie.
+    const bilan = estArchivee
+      ? await retirerDossierDeCarteArchivee(racine, dossier, branche)
+      : await refermerDossierDeCarte(racine, dossier, branche);
     rattrapes.push({
       dossier,
       branche,
