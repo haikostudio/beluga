@@ -666,6 +666,7 @@ async function resoudreConflit(
   branch: string,
   mainBranch: string,
   files: string[],
+  onAgent: (agentId: string, legere: boolean) => void,
 ): Promise<{ fusionnee: boolean; recit: string }> {
   const liste = files.length ? files.map((file) => `- ${file}`).join('\n') : '- (fichiers non identifiés)';
   const passes = passesDeResolution(card.run, await catalogueMoteurs());
@@ -709,6 +710,7 @@ async function resoudreConflit(
     );
     if ('manque' in pose) return { fusionnee: false, recit: recitFauteDeQuota(pose.manque) };
     const { agent } = pose;
+    onAgent(agent.id, legere);
 
     /*
      * ET CE TOUR-LÀ EST BORNÉ, comme les quatre autres de la publication.
@@ -1151,10 +1153,11 @@ function noterAuJournal(
   etape: DeployStepKey,
   texte: string,
   genre: GenreDEvenement,
+  agentId?: string,
 ): DeployRun {
   const fil = journalDuRun(run);
   const avant = fil.get(etape);
-  const apres = ajouterAuJournal(avant, { at: Date.now(), genre, texte });
+  const apres = ajouterAuJournal(avant, { at: Date.now(), genre, texte, ...(agentId ? { agentId } : {}) });
   if (apres === avant) return run;
   fil.set(etape, apres);
   emit(store.getDeploy(run.id) ?? run);
@@ -2490,14 +2493,16 @@ export async function startDeploy(
           current = marquerLaTache(current, card.id, 'conflit', enConflit.join(', '));
           // Seule la SUITE part au détail : le journal entier s'y recopiait.
           current = setStep(current, 'merge', 'running', aVerser());
-          current = noterAuJournal(
-            current,
-            'merge',
-            `${branch} : CONFLIT${enConflit.length ? ` sur ${enConflit.join(', ')}` : ''} — un agent de dépannage est appelé.`,
-            'depannage',
-          );
 
-          const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit);
+          const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit, (agentId, legere) => {
+            current = noterAuJournal(
+              current,
+              'merge',
+              `${branch} : CONFLIT${enConflit.length ? ` sur ${enConflit.join(', ')}` : ''} — un agent de dépannage est appelé${legere ? '' : ' (seconde passe)'}.`,
+              'depannage',
+              agentId,
+            );
+          });
           if (issue.fusionnee) {
             fusionnees += 1;
             lignesDeFusion.push(`${branch} : ${issue.recit}`);

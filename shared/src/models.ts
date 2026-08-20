@@ -1197,6 +1197,7 @@ export const DeployRun = z.object({
               at: z.number(),
               genre: z.enum(['debut', 'progression', 'commande', 'depannage', 'issue']),
               texte: z.string(),
+              agentId: z.string().optional(),
             }),
           )
           .optional(),

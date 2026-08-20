@@ -1718,6 +1718,18 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Dieser Schritt hatte nichts zu berichten.',
     '这一步没有任何可记录的内容。',
   ],
+  'Agent de dépannage': [
+    'Troubleshooting agent',
+    'Agente de resolución de incidencias',
+    'Störungsagent',
+    '排障代理',
+  ],
+  'Le conflit de fusion se résout ici, en direct.': [
+    'The merge conflict is being resolved here, live.',
+    'El conflicto de fusión se resuelve aquí, en directo.',
+    'Der Merge-Konflikt wird hier live gelöst.',
+    '合并冲突正在这里实时解决。',
+  ],
   'carte impossible à créer': [
     'the card could not be created',
     'no se ha podido crear la tarjeta',

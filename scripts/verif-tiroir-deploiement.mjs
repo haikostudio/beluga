@@ -104,6 +104,27 @@ function voletDuServeur() {
   noter("c'est un vrai tiroir, pas un panneau posé sur les cartes", /<Drawer/.test(tiroir));
   noter('chaque étape porte son fil, horodaté', /filDeLEtape\(/.test(tiroir) && /heureDeLEvenement\(/.test(tiroir));
 
+  /* LA LIGNE DE DÉPANNAGE OUVRE LA CONVERSATION DE SON AGENT, en direct — pas
+     de cardId sur cet agent (règle de `resoudreConflit`), le mécanisme
+     générique `agent.open`/`Chat` suffit. */
+  noter(
+    "l'agentId de la passe voyage jusqu'au fil (resoudreConflit → noterAuJournal)",
+    /onAgent: \(agentId: string, legere: boolean\) => void/.test(deploy) &&
+      /onAgent\(agent\.id, legere\)/.test(deploy),
+  );
+  noter(
+    'la ligne « CONFLIT… un agent de dépannage est appelé » porte cet agentId',
+    /un agent de dépannage est appelé[\s\S]{0,120}'depannage',\s*\n\s*agentId,/.test(deploy),
+  );
+  noter(
+    'un moment de dépannage avec agentId se clique, et ouvre le second tiroir',
+    /data-moment-agent={agentId}/.test(tiroir) && /onOuvrirAgent/.test(tiroir),
+  );
+  noter(
+    "le second tiroir montre la conversation de l'agent, SANS cardId (jamais celui d'une carte)",
+    /<Chat agent={state\.agents\[agentOuvert\] \?\? null} projectId={run\?\.projectId/.test(tiroir),
+  );
+
   /* LE CHIFFRE : la règle vit dans `shared`, pure, et l'écran ne fait que
      l'afficher — aucun pourcentage recalculé à la main dans le composant. */
   const regleChiffre = fs.readFileSync(path.join(RACINE, 'shared', 'src', 'avancement-publication.ts'), 'utf8');
@@ -183,6 +204,9 @@ const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-essai-tiroir';
 const RUN_ID = 'run-essai-1';
 const AUTRE_RUN = 'run-essai-2';
+/* L'agent de dépannage appelé sur le conflit — SANS cardId, comme le vrai
+   (`docs/regles/publication.md`) : ce n'est jamais l'agent d'une carte. */
+const AGENT_DEPANNAGE = 'a-essai-depannage';
 /* Une heure FIXE : le titre du groupe se lit sur elle, jamais sur « maintenant ». */
 const DEPLOYE_LE = new Date(2026, 7, 17, 14, 32, 5).getTime();
 
@@ -201,7 +225,12 @@ function etapesAvecFil() {
         { at: t0 + 1000, genre: 'progression', texte: 'Branche 1 sur 2 : tache/premiere' },
         { at: t0 + 2000, genre: 'commande', texte: '$ git merge --no-edit tache/premiere' },
         { at: t0 + 3000, genre: 'issue', texte: 'tache/premiere : fusionnée (« Première carte »).' },
-        { at: t0 + 4000, genre: 'depannage', texte: 'Conflit reconnu : un agent de dépannage est parti.' },
+        {
+          at: t0 + 4000,
+          genre: 'depannage',
+          texte: 'Conflit reconnu : un agent de dépannage est parti.',
+          agentId: AGENT_DEPANNAGE,
+        },
         { at: t0 + 8000, genre: 'issue', texte: 'tache/seconde : fusionnée après réparation.' },
       ],
     },
@@ -333,6 +362,47 @@ function poserLeDecor() {
   db.prepare(
     'INSERT INTO deploys (id, project_id, state, data, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)',
   ).run(rate.id, PROJET_ID, rate.state, JSON.stringify(rate), rate.startedAt, rate.endedAt);
+
+  /* L'AGENT DE DÉPANNAGE, sans cardId — c'est sa conversation que la ligne
+     « CONFLIT… » du fil doit ouvrir. */
+  const agentDepannage = {
+    id: AGENT_DEPANNAGE,
+    projectId: PROJET_ID,
+    role: 'deploy',
+    title: 'Conflit de fusion — Seconde carte',
+    run: { engine: 'claude', thinking: 'moyenne', mode: 'direct' },
+    status: 'done',
+    startedAt: DEPLOYE_LE + 4000,
+    endedAt: DEPLOYE_LE + 8000,
+    createdAt: DEPLOYE_LE + 4000,
+    updatedAt: DEPLOYE_LE + 8000,
+  };
+  db.prepare(
+    `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
+  ).run(
+    agentDepannage.id,
+    PROJET_ID,
+    agentDepannage.role,
+    agentDepannage.status,
+    JSON.stringify(agentDepannage),
+    DEPLOYE_LE + 4000,
+    DEPLOYE_LE + 8000,
+  );
+  const messageDepannage = {
+    id: 'm-essai-depannage-1',
+    agentId: AGENT_DEPANNAGE,
+    role: 'assistant',
+    content: 'Conflit recollé sur CLAUDE.md : les deux intentions sont gardées, tests relancés.',
+    createdAt: DEPLOYE_LE + 7500,
+  };
+  db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    messageDepannage.id,
+    AGENT_DEPANNAGE,
+    messageDepannage.role,
+    JSON.stringify(messageDepannage),
+    messageDepannage.createdAt,
+  );
 
   db.close();
 }
@@ -607,6 +677,38 @@ async function voletDeLEcran() {
       noter('les commandes réellement lancées se lisent', (await commande.count()) >= 1);
       const depannage = page.locator('[data-fil-etape="merge"] [data-moment-fil="depannage"]');
       noter('le passage d’un agent de dépannage se lit', (await depannage.count()) === 1);
+
+      /* ---------------------------------------------------------------- */
+      /* LA LIGNE DE DÉPANNAGE OUVRE LA CONVERSATION DE SON AGENT           */
+      /* ---------------------------------------------------------------- */
+      const ligneAgent = page.locator(`[data-moment-agent="${AGENT_DEPANNAGE}"]`);
+      noter('la ligne de dépannage porte son agentId et se clique', (await ligneAgent.count()) === 1);
+      if (await ligneAgent.count()) {
+        await ligneAgent.click();
+        await page.waitForTimeout(1200);
+
+        const secondTiroir = page.locator('[data-tiroir-depannage]');
+        noter('le clic ouvre un SECOND tiroir, empilé', (await secondTiroir.count()) === 1);
+
+        const texteAgent = (await secondTiroir.count())
+          ? ((await secondTiroir.first().textContent()) ?? '')
+          : '';
+        noter(
+          'ce second tiroir montre la conversation de l’agent, en direct',
+          /Conflit recollé sur CLAUDE\.md/.test(texteAgent),
+          texteAgent.replace(/\s+/g, ' ').slice(0, 140),
+        );
+
+        /* Fermer le second tiroir laisse le premier ouvert : deux tiroirs
+           empilés se referment chacun pour soi. */
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+        noter(
+          'refermer le tiroir de l’agent laisse celui de la publication ouvert',
+          (await page.locator('[data-tiroir-depannage]').count()) === 0 &&
+            (await page.locator('[data-tiroir-deploiement]').count()) === 1,
+        );
+      }
 
       /* UN HISTORIQUE NE SE REJOUE PAS : aucun bouton de décision dedans. */
       const texteTiroir = (await ouvert.first().textContent()) ?? '';

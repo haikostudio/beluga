@@ -54,8 +54,10 @@ import {
   type GenreDEvenement,
   type TacheDuLot,
 } from '@haikodev/shared';
-import { Button, Drawer, ZoneDefilement } from '@/components/ui';
+import { Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
 import { cn, duration, elapsed, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -417,12 +419,30 @@ function MomentDuFil({
   moment,
   depuis,
   dernier,
+  onOuvrirAgent,
 }: {
-  moment: { evenement: { at: number } | null; texte: string; genre: GenreDEvenement };
+  moment: { evenement: { at: number } | null; texte: string; genre: GenreDEvenement; agentId?: string };
   depuis?: number;
   dernier: boolean;
+  /** Un moment de dépannage porte l'agent qui l'a écrit : cliquer l'ouvre. */
+  onOuvrirAgent?: (agentId: string) => void;
 }) {
   const ecart = moment.evenement ? ecartDepuisLeDebut(moment.evenement.at, depuis) : null;
+  const agentId = moment.genre === 'depannage' ? moment.agentId : undefined;
+  const texte = (
+    <span
+      className={cn(
+        'block whitespace-pre-wrap texte-copiable',
+        moment.genre === 'commande'
+          ? 'rounded bg-raised px-1.5 py-1 font-mono text-[11.5px] text-muted'
+          : moment.genre === 'depannage'
+            ? cn('text-warning', agentId && 'underline underline-offset-2')
+            : 'text-muted',
+      )}
+    >
+      {moment.texte}
+    </span>
+  );
   return (
     <LigneTimeline
       taille="petite"
@@ -432,18 +452,18 @@ function MomentDuFil({
       attrs={{ 'data-moment-fil': moment.genre }}
     >
       <div className="px-1.5 py-0.5 text-[12px] leading-snug">
-        <span
-          className={cn(
-            'block whitespace-pre-wrap texte-copiable',
-            moment.genre === 'commande'
-              ? 'rounded bg-raised px-1.5 py-1 font-mono text-[11.5px] text-muted'
-              : moment.genre === 'depannage'
-                ? 'text-warning'
-                : 'text-muted',
-          )}
-        >
-          {moment.texte}
-        </span>
+        {agentId ? (
+          <button
+            type="button"
+            onClick={() => onOuvrirAgent?.(agentId)}
+            className="text-left hover:opacity-80"
+            data-moment-agent={agentId}
+          >
+            {texte}
+          </button>
+        ) : (
+          texte
+        )}
       </div>
       <DateSousLeMessage at={moment.evenement?.at} ecart={ecart} />
     </LigneTimeline>
@@ -464,6 +484,7 @@ function EtapeDuTiroir({
   ouverte,
   onBasculer,
   dernier,
+  onOuvrirAgent,
 }: {
   cle: DeployStepKey;
   etape?: EtapeRun;
@@ -471,6 +492,7 @@ function EtapeDuTiroir({
   onBasculer: () => void;
   /** La dernière étape affichée ne tire plus de trait vers le bas. */
   dernier: boolean;
+  onOuvrirAgent?: (agentId: string) => void;
 }) {
   const etat: EtatEtape = etape?.state ?? 'todo';
   const duree = dureeEtape(etape);
@@ -583,6 +605,7 @@ function EtapeDuTiroir({
                 moment={moment}
                 depuis={etape?.startedAt}
                 dernier={i === fil.length - 1 && !avecLog ? dernier : false}
+                onOuvrirAgent={onOuvrirAgent}
               />
             ))}
 
@@ -634,7 +657,11 @@ export function TiroirDeploiement({
   controls?: React.ReactNode;
   empile?: boolean;
 }) {
+  const state = useApp();
   const [ouvertes, setOuvertes] = React.useState<Set<DeployStepKey>>(new Set());
+  /* L'agent de dépannage OUVERT depuis une ligne « CONFLIT… » : un second
+     tiroir, empilé au-dessus de celui-ci, avec sa conversation en direct. */
+  const [agentOuvert, setAgentOuvert] = React.useState<string | null>(null);
   /* L'étape QUI TRAVAILLE s'ouvre d'elle-même : c'est celle qu'on vient
      regarder. Une étape ouverte à la main ne se referme jamais toute seule —
      d'où le suivi de la dernière étape ouverte d'office. */
@@ -702,12 +729,34 @@ export function TiroirDeploiement({
                 ouverte={ouvertes.has(cle)}
                 onBasculer={() => basculer(cle)}
                 dernier={i === affichees.length - 1}
+                onOuvrirAgent={setAgentOuvert}
               />
             ))}
           </ul>
           {controls}
         </ZoneDefilement>
       </div>
+
+      {/* LE TIROIR DE L'AGENT DE DÉPANNAGE, empilé au-dessus : sa conversation
+          et son avancement, en direct, sans quitter celui de la publication.
+          Il n'a pas de `cardId` — cet agent n'est jamais celui d'une carte
+          (`docs/regles/publication.md`) — le mécanisme générique `agent.open`
+          suffit, le même que pour toute conversation d'agent. */}
+      <Drawer open={!!agentOuvert} onClose={() => setAgentOuvert(null)} empile>
+        {agentOuvert ? (
+          <div className="flex min-h-0 flex-1 flex-col" data-tiroir-depannage>
+            <div className="shrink-0 px-4 pb-2">
+              <DialogTitle className="text-[15.5px] font-semibold text-text">
+                {t('Agent de dépannage')}
+              </DialogTitle>
+              <p className="mt-0.5 text-[12.5px] text-faint">
+                {t('Le conflit de fusion se résout ici, en direct.')}
+              </p>
+            </div>
+            <Chat agent={state.agents[agentOuvert] ?? null} projectId={run?.projectId ?? ''} />
+          </div>
+        ) : null}
+      </Drawer>
     </Drawer>
   );
 }

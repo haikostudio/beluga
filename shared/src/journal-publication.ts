@@ -49,6 +49,13 @@ export type EvenementDEtape = {
   at: number;
   genre: GenreDEvenement;
   texte: string;
+  /**
+   * L'agent de dépannage qui a écrit ce moment, s'il y en a un — jamais posé
+   * sur l'`Agent` lui-même (voir `resoudreConflit`), seulement ICI, pour que
+   * le tiroir puisse ouvrir sa conversation sans le confondre avec l'agent de
+   * la carte.
+   */
+  agentId?: string;
 };
 
 /**
@@ -87,7 +94,10 @@ export function ajouterAuJournal(
   if (!texte) return fil;
   const dernier = fil[fil.length - 1];
   if (dernier && dernier.genre === evenement.genre && dernier.texte === texte) return fil;
-  const suite = [...fil, { at: evenement.at, genre: evenement.genre, texte }];
+  const suite = [
+    ...fil,
+    { at: evenement.at, genre: evenement.genre, texte, ...(evenement.agentId ? { agentId: evenement.agentId } : {}) },
+  ];
   return suite.length > EVENEMENTS_PAR_ETAPE_MAX ? suite.slice(-EVENEMENTS_PAR_ETAPE_MAX) : suite;
 }
 
@@ -145,11 +155,12 @@ export function resumeDuFil(journal?: EvenementDEtape[]): string | null {
 export function filDeLEtape(step: {
   journal?: EvenementDEtape[];
   reparations?: string[];
-}): { evenement: EvenementDEtape | null; texte: string; genre: GenreDEvenement }[] {
+}): { evenement: EvenementDEtape | null; texte: string; genre: GenreDEvenement; agentId?: string }[] {
   const fil = (step.journal ?? []).map((evenement) => ({
     evenement,
     texte: evenement.texte,
     genre: evenement.genre,
+    agentId: evenement.agentId,
   }));
   const dejaDit = new Set(fil.map((ligne) => ligne.texte));
   const reparations = (step.reparations ?? [])
