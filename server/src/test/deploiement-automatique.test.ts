@@ -13,6 +13,7 @@ function pret(patch: Partial<EtatDuDeploiementAutomatique> = {}): EtatDuDeploiem
   return {
     actif: true,
     cartesTerminees: 1,
+    cartesEnAttenteDeDecision: 0,
     cartesEnCours: 0,
     cartesQuiVontPartir: 0,
     agentsAuTravail: 0,
@@ -75,6 +76,23 @@ test('une colonne « Terminé » vide ne déclenche aucune publication', () => {
   const decision = decisionDeDeploiementAutomatique(pret({ cartesTerminees: 0 }), MAINTENANT);
   assert.equal(decision.partir, false);
   assert.match(decision.raison, /rien à déployer/);
+});
+
+test('une carte terminée qui attend une décision ne fait jamais partir le lot à elle seule', () => {
+  const decision = decisionDeDeploiementAutomatique(
+    pret({ cartesTerminees: 0, cartesEnAttenteDeDecision: 1 }),
+    MAINTENANT,
+  );
+  assert.equal(decision.partir, false);
+  assert.match(decision.raison, /décision/);
+});
+
+test('une carte qui attend une décision ne bloque pas les AUTRES cartes prêtes', () => {
+  const decision = decisionDeDeploiementAutomatique(
+    pret({ cartesTerminees: 1, cartesEnAttenteDeDecision: 1 }),
+    MAINTENANT,
+  );
+  assert.equal(decision.partir, true);
 });
 
 /* ------------------------------------------------------------------ */

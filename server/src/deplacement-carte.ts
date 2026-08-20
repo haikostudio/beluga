@@ -8,6 +8,7 @@ import {
   colonneApresMoteurMuet,
   colonneApresPanneDuMoteur,
   dateDeMiseEnLignePerimee,
+  decisionsParCarte,
   issueDeCarteOubliee,
   issueDeFinDeTour,
   traceAcquise,
@@ -16,6 +17,7 @@ import {
   type AgentRole,
   type Card,
   type ColumnKey,
+  type DecisionAttendue,
   type TraceDuTravail,
 } from '@haikodev/shared';
 import { bus } from './bus.js';
@@ -212,6 +214,7 @@ const STATUTS_EN_ECHEC = ['failed', 'stopped'];
  */
 export function rangerLesCartesOubliees(): void {
   const agents = store.listAgents();
+  const decisions = store.decisionsEnAttente();
   for (const card of store.cartesEnCours()) {
     const issue = issueDeCarteOubliee(
       {
@@ -228,6 +231,7 @@ export function rangerLesCartesOubliees(): void {
         tourEncoreVivant: agents.some((a) => a.cardId === card.id && a.tourVivantDepuis !== undefined),
         dernierTourEnEchec: dernierTourEnEchec(card, agents),
         dejaEnregistre: !!card.codeDejaEnregistre,
+        decisionOuverte: carteAttendUneDecision(card, agents, decisions),
       },
       Date.now(),
     );
@@ -254,6 +258,25 @@ export function rangerLesCartesOubliees(): void {
     bus.emit({ type: 'card.upsert', card: rangee });
     log.info(`carte « ${card.title} » oubliée en « En cours », rangée dans « ${issue.colonne} »`);
   }
+}
+
+/**
+ * CETTE CARTE ATTEND-ELLE ENCORE UNE DÉCISION DE L'UTILISATEUR ?
+ *
+ * Deux signaux, aucun des deux propre à la seule colonne « En cours » : une
+ * question posée sans réponse (`decisionsParCarte`, qui couvre aussi bien
+ * l'outil `ask_user` que la reprise de compte ou la question écrite en texte
+ * libre), et une liste de tâches refermée avec des étapes non faites
+ * (`Agent.todos.unfinished`, posé à la clôture du tour et qui survit à
+ * l'agent). Sert au balayage des cartes oubliées ET au déploiement
+ * automatique : ni l'un ni l'autre ne doit ranger — ou déployer — une carte
+ * qui attend encore l'utilisateur.
+ */
+export function carteAttendUneDecision(card: Card, agents: Agent[], decisions: DecisionAttendue[]): boolean {
+  const parCarte = decisionsParCarte(decisions);
+  if ((parCarte[card.id] ?? 0) > 0) return true;
+  const agent = card.agentId ? agents.find((a) => a.id === card.agentId) : undefined;
+  return !!agent?.todos?.unfinished && agent.todos.unfinished > 0;
 }
 
 /**
