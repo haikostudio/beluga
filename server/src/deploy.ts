@@ -95,6 +95,7 @@ import {
   type MotifDeTourDePublication,
   type PanneDePublication,
   type AvertissementSelection,
+  fichiersAAjouter,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -1852,6 +1853,25 @@ async function runCommand(
   }
 }
 
+/**
+ * AJOUTE CE QUI A BOUGÉ, FICHIER PAR FICHIER — jamais `git add -A` : le dossier
+ * du projet est PARTAGÉ, et un autre agent (le rangement de nuit de la
+ * mémoire, un chef d'orchestre) peut y avoir déposé du travail qui n'a pas à
+ * partir dans CETTE publication. On relit `git status --porcelain` pour
+ * connaître exactement ce que CET appel voit, et on ajoute chaque chemin
+ * nommé — modifié, supprimé ou nouveau, `fichiersAAjouter` les rend tous.
+ */
+async function ajouterCeQuiABouge(cwd: string): Promise<{ out: string; touche: boolean }> {
+  const statut = await runCommand(cwd, 'git status --porcelain');
+  const fichiers = fichiersAAjouter(statut.out);
+  let out = '';
+  for (const fichier of fichiers) {
+    const ajout = await runCommand(cwd, `git add -- ${JSON.stringify(fichier)}`);
+    out += ajout.out;
+  }
+  return { out, touche: fichiers.length > 0 };
+}
+
 /** Les outils dont `npm run build` a besoin, et qu'aucune dépendance ordinaire n'apporte. */
 const OUTILS_DE_CONSTRUCTION = ['tsc', 'vite'];
 
@@ -2359,7 +2379,7 @@ export async function startDeploy(
         if (enCours.out.trim()) {
           current = progresserEtape(current, 'merge', 'Enregistrement des travaux en cours…');
           const branche = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD')).out.trim() || 'branche courante';
-          await runCommand(cwd, 'git add -A');
+          await ajouterCeQuiABouge(cwd);
           const enregistre = await runCommand(
             cwd,
             `git commit -m "Travaux en cours enregistrés avant publication" -m "Branche ${branche}"`,
@@ -2560,7 +2580,9 @@ export async function startDeploy(
         current = setStep(current, 'commit', 'running');
         const status = await runCommand(cwd, 'git status --porcelain');
         if (status.out.trim()) {
-          await runCommand(cwd, 'git add -A');
+          for (const fichier of fichiersAAjouter(status.out)) {
+            await runCommand(cwd, `git add -- ${JSON.stringify(fichier)}`);
+          }
           const commit = await commandeDuFil(
             current,
             'commit',
