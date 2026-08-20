@@ -13,6 +13,7 @@ import {
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
+  parcoursDeLaMemoire,
   texteDesPassagesRetrouves,
   texteDuPromptEnvoye,
   type SentContextSnapshot,
@@ -33,6 +34,7 @@ function tourEssai(extra: Partial<SentContextSnapshot> = {}): SentContextSnapsho
       { kind: 'format', label: 'Gabarit HaikoDev', characters: 12 },
     ],
     passages: [],
+    consultationsMemoire: [],
     history: 'none',
     sentAt: 1_000,
     ...extra,
@@ -239,6 +241,55 @@ test('la bulle « Mémoire transmise » combine le texte des deux volets qu’el
   // le passage retrouvé (mémoire) ET le prompt complet.
   assert.match(memoire?.texte ?? '', /une règle/);
   assert.match(memoire?.texte ?? '', /Claude Code — claude-sonnet-5/);
+});
+
+test('le parcours garde la carte, l’ancienne recherche puis chaque ouverture avec son résultat exact', () => {
+  const contexte = tourEssai({
+    blocks: [
+      { kind: 'request', label: 'Demande utilisateur', characters: 4, text: 'fais' },
+      { kind: 'memory', label: 'Carte de la mémoire du projet', characters: 14, text: 'memoire → arbre' },
+    ],
+    passages: [
+      { source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 12, texte: 'ancien passage' },
+    ],
+    consultationsMemoire: [
+      { id: 'ouverture-1', requete: 'memoire', resultat: 'faits et règles du sujet', reussie: true, at: 2_000 },
+      { id: 'ouverture-2', requete: 'branche', resultat: 'branche introuvable', reussie: false, at: 3_000 },
+    ],
+  });
+  const parcours = parcoursDeLaMemoire(contexte);
+
+  assert.deepEqual(parcours.map((etape) => etape.nature), [
+    'transmission',
+    'recherche',
+    'consultation',
+    'consultation',
+  ]);
+  assert.equal(parcours[0].texte, 'memoire → arbre');
+  assert.match(parcours[1].texte, /ancien passage/);
+  assert.equal(parcours[2].libelle, 'memoire');
+  assert.equal(parcours[2].texte, 'faits et règles du sujet');
+  assert.equal(parcours[3].reussie, false);
+  const bulle = bullesDuPromptEnvoye(contexte).find((b) => b.cle === 'memoire');
+  assert.equal(bulle?.parcoursMemoire?.length, 4);
+  assert.match(bulle?.texteCopie ?? '', /faits et règles du sujet/);
+});
+
+test('l’écran rend une ligne de temps et un détail indépendant pour chaque ouverture', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(vue.includes('data-parcours-memoire'), 'le parcours porte son repère d’écran');
+  assert.ok(vue.includes('data-etape-memoire'), 'chaque étape porte son repère d’écran');
+  assert.ok(vue.includes('data-entete-etape-memoire'), 'chaque résultat possède son propre bouton');
+  assert.ok(vue.includes('<ZoneDefilement'), 'un long résultat passe par la zone de défilement commune');
+});
+
+test('le pont rattache au tour le texte réellement rendu par project_memory', () => {
+  const http = fs.readFileSync(path.join(RACINE, 'server', 'src', 'http.ts'), 'utf8');
+  const runtime = fs.readFileSync(path.join(RACINE, 'server', 'src', 'runtime.ts'), 'utf8');
+  assert.ok(http.includes("body.name === 'project_memory'"), 'le pont reconnaît l’ouverture de mémoire');
+  assert.ok(http.includes('resultat: result.text'), 'il garde le texte rendu, pas seulement le sujet');
+  assert.ok(runtime.includes('ajouterConsultationMemoireAuTour'), 'le résultat rejoint la bulle du tour vivant');
+  assert.ok(runtime.includes('contexteMessageId: messageDuContexte'), 'une demande écrite et un lancement par bouton visent le bon message');
 });
 
 /*

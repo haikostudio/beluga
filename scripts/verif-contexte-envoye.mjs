@@ -178,6 +178,22 @@ function poserDecor() {
           { kind: 'system', label: 'Rappel de méthode', characters: 46, text: 'RAPPEL DE MÉTHODE : lis, constate et vérifie.', cached: true },
         ],
         passages: [],
+        consultationsMemoire: [
+          {
+            id: 'consultation-memoire',
+            requete: 'memoire',
+            resultat: 'SUJET « memoire » : faits, règles et contrôles réellement rendus.',
+            reussie: true,
+            at: t + 200,
+          },
+          {
+            id: 'consultation-interface',
+            requete: 'interface',
+            resultat: 'SUJET « interface » : règles de lisibilité réellement rendues.',
+            reussie: true,
+            at: t + 400,
+          },
+        ],
         passagesRaison:
           'Reprise de session : la mémoire a déjà été transmise au premier tour de ce fil, seuls les faits ajoutés depuis sont renvoyés.',
         history: 'retained_by_engine',
@@ -421,31 +437,40 @@ try {
       );
       noter(`${cas.nom} : aucun compteur de jetons dans la bulle`, !/\d[\s ]*tokens?\b/i.test(texteMemoire1));
       noter(
-        `${cas.nom} : le titre est bien « Mémoire transmise », avec ses deux labels`,
+        `${cas.nom} : le titre et le parcours compact sont visibles`,
         /Mémoire transmise/.test(texteMemoire1) &&
-          (await memoire1.locator('[data-label-cache]').count()) === 1 &&
-          (await memoire1.locator('[data-label-ajoutee]').count()) === 1,
+          /Parcours de la mémoire \(3\)/.test(texteMemoire1) &&
+          (await memoire1.locator('[data-etape-memoire]').count()) === 3,
       );
 
       /*
-       * LA COUPE À TROIS LIGNES. La bulle réunit mémoire et prompt complet,
-       * donc plusieurs dizaines de lignes : repliée elle tient dans la
-       * conversation, « voir plus » la déroule.
+       * LE PARCOURS EST COMPACT, PUIS CHAQUE ÉTAPE OUVRE SON PROPRE RÉSULTAT.
+       * Le contexte complet reste disponible à part : il ne noie plus le fil.
        */
-      const texte1 = memoire1.locator('[data-texte-bulle]').first();
-      const replie = await texte1.boundingBox();
       const voirPlus = memoire1.locator('[data-voir-plus]').first();
       noter(`${cas.nom} : la bulle est repliée derrière « voir plus »`, (await voirPlus.count()) === 1);
       await voirPlus.click();
-      await page.waitForTimeout(400);
-      const deroule = await texte1.boundingBox();
+      await page.waitForTimeout(300);
+      const consultation = memoire1.locator('[data-etape-memoire="consultation"]').first();
+      await consultation.locator('[data-entete-etape-memoire]').click();
       noter(
-        `${cas.nom} : « voir plus » déroule le reste du texte`,
-        !!deroule && !!replie && deroule.height > replie.height,
+        `${cas.nom} : une étape révèle le texte exact récupéré`,
+        /faits, règles et contrôles réellement rendus/.test(await consultation.innerText()),
+      );
+      await memoire1.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: path.join(SHOTS, `contexte-envoye-parcours-${cas.telephone ? 'telephone' : 'ordinateur'}.png`),
+      });
+      const contexteComplet = memoire1.locator('[data-contexte-complet]');
+      await contexteComplet.locator('summary').click();
+      noter(
+        `${cas.nom} : le contexte complet transmis reste consultable à part`,
+        (await memoire1.innerText()).includes(MEMOIRE_SUIVI.slice(0, 40)),
       );
       noter(
-        `${cas.nom} : déroulée, elle rend le texte réel du prompt`,
-        (await memoire1.innerText()).includes(MEMOIRE_SUIVI.slice(0, 40)),
+        `${cas.nom} : les deux couleurs du contexte complet gardent leur légende`,
+        (await memoire1.locator('[data-label-cache]').count()) === 1 &&
+          (await memoire1.locator('[data-label-ajoutee]').count()) === 1,
       );
       await memoire1.locator('[data-voir-plus]').first().click();
       await page.waitForTimeout(300);
@@ -459,26 +484,24 @@ try {
         (await second.locator('[data-bulle-prompt="memoire"][data-bulle-isolee]').count()) === 1,
       );
 
-      const texteMemoire2 = memoire2.locator('[data-texte-bulle]').first();
-      const memRepliee = await texteMemoire2.boundingBox();
       noter(
-        `${cas.nom} : repliée, elle ne montre que trois lignes`,
-        !!memRepliee && memRepliee.height <= 3 * 1.6 * 13.5 + 2,
-        memRepliee ? `${Math.round(memRepliee.height)} px` : '(introuvable)',
+        `${cas.nom} : l’ancien tour restitue ses deux étapes historiques`,
+        (await memoire2.locator('[data-etape-memoire]').count()) === 2,
       );
       await memoire2.locator('[data-bulle-entete]').first().click();
       await page.waitForTimeout(300);
-      const memDepliee = await texteMemoire2.boundingBox();
+      const rechercheHistorique = memoire2.locator('[data-etape-memoire="recherche"]').first();
+      await rechercheHistorique.locator('[data-entete-etape-memoire]').click();
       noter(
-        `${cas.nom} : un clic sur son entête la déplie`,
-        !!memDepliee && !!memRepliee && memDepliee.height > memRepliee.height,
+        `${cas.nom} : l’ancienne recherche automatique garde son contenu`,
+        /Chaque hausse mesurée/.test(await rechercheHistorique.innerText()),
       );
       await memoire2.locator('[data-bulle-entete]').first().click();
       await page.waitForTimeout(300);
-      const memRefermee = await texteMemoire2.boundingBox();
       noter(
         `${cas.nom} : un second clic la referme`,
-        !!memRefermee && !!memDepliee && memRefermee.height < memDepliee.height,
+        (await memoire2.locator('[data-etape-memoire="recherche"]').count()) === 1 &&
+          !/Chaque hausse mesurée/.test(await memoire2.innerText()),
       );
 
       // Déroulé d'abord : replié, un texte long ne rend que ses premières lignes.
@@ -487,6 +510,8 @@ try {
         await aDerouler.nth(i).click().catch(() => {});
       }
       await page.waitForTimeout(300);
+      const contexteCompletTour2 = memoire2.locator('[data-contexte-complet]');
+      await contexteCompletTour2.locator('summary').click();
       const texteTour2 = await second.innerText();
       noter(`${cas.nom} : le second tour nomme le passage retrouvé`, /docs\/regles\/quotas\.md/.test(texteTour2));
       noter(
@@ -582,6 +607,10 @@ try {
       const memoire = bloc.locator('[data-bulle-prompt="memoire"]').first();
       await memoire.locator('[data-voir-plus]').first().click().catch(() => {});
       await page.waitForTimeout(300);
+      const recherche = memoire.locator('[data-etape-memoire="recherche"]').first();
+      await recherche.locator('[data-entete-etape-memoire]').click();
+      await memoire.locator('[data-contexte-complet] summary').click();
+      await page.waitForTimeout(200);
       const texteMemoire = await memoire.innerText();
       noter('carte : la bulle « Mémoire transmise » compte les passages retrouvés', /2 passages retrouvés/.test(texteMemoire));
       noter(

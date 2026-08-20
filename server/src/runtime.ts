@@ -26,6 +26,7 @@ import {
   Project,
   RunStep,
   PassageRetrouve,
+  ConsultationMemoire,
   SentContextBlock,
   SentContextSnapshot,
   decisionRepriseCoupure,
@@ -168,6 +169,10 @@ export interface LiveRun {
   tourId: string;
   handle: EngineHandle;
   messageId: string;
+  /** Le message qui porte la bulle « Mémoire transmise » de ce tour. */
+  contexteMessageId: string;
+  /** Ouvertures de mémoire déjà revenues pendant ce tour, dans leur ordre. */
+  consultationsMemoire: ConsultationMemoire[];
   startedAt: number;
   steps: Map<string, RunStep>;
   todos: TodoItem[];
@@ -317,6 +322,42 @@ export function agentsActifsDetail(): string[] {
 
 export function liveRun(agentId: string): LiveRun | undefined {
   return live.get(agentId);
+}
+
+/**
+ * Ajoute au BON tour ce que `project_memory` vient réellement de rendre.
+ *
+ * L'appel d'outil arrive après l'envoi du prompt. Sa réponse ne peut donc pas
+ * faire partie de la photographie initiale : on enrichit la même bulle au fil
+ * du tour et on la rediffuse immédiatement. La liste du tour sert aussi de
+ * tampon si l'appel revient dans les quelques millisecondes qui précèdent
+ * l'enregistrement de `sentContext`.
+ */
+export function ajouterConsultationMemoireAuTour(
+  agentId: string,
+  entree: { requete?: string; resultat: string; reussie: boolean },
+): void {
+  const run = live.get(agentId);
+  if (!run) return;
+  const consultation = ConsultationMemoire.parse({
+    id: store.newId(),
+    requete: entree.requete?.trim() ?? '',
+    resultat: entree.resultat,
+    reussie: entree.reussie,
+    at: Date.now(),
+  });
+  run.consultationsMemoire.push(consultation);
+
+  const message = store.getMessage(run.contexteMessageId);
+  if (!message?.sentContext) return;
+  const updated = store.saveMessage({
+    ...message,
+    sentContext: {
+      ...message.sentContext,
+      consultationsMemoire: [...run.consultationsMemoire],
+    },
+  });
+  bus.emit({ type: 'message.upsert', message: updated });
 }
 
 /**
@@ -1544,6 +1585,8 @@ async function startTurn(
     tourId,
     handle: null as unknown as EngineHandle,
     messageId: assistantMessage.id,
+    contexteMessageId: messageDuContexte,
+    consultationsMemoire: [],
     startedAt: Date.now(),
     // Le moteur n'a encore rien dit : son lancement vaut premier signe de vie.
     dernierSigneDeVie: Date.now(),
@@ -1905,7 +1948,24 @@ async function startTurn(
     try {
       const message = store.getMessage(messageDuContexte);
       if (message) {
-        const updated = store.saveMessage({ ...message, sentContext: instantane });
+        let updated = store.saveMessage({
+          ...message,
+          sentContext: instantane,
+        });
+        // Un outil extrêmement rapide peut répondre avant que cette
+        // photographie initiale ne soit posée. Le tampon du tour empêche alors
+        // sa première ouverture de disparaître. La photographie nue reste
+        // toutefois enregistrée en premier : ce repère garantit que rien n'est
+        // rattaché à une demande encore en file ou à un moteur non suivi.
+        if (runState.consultationsMemoire.length) {
+          updated = store.saveMessage({
+            ...updated,
+            sentContext: {
+              ...instantane,
+              consultationsMemoire: [...runState.consultationsMemoire],
+            },
+          });
+        }
         bus.emit({ type: 'message.upsert', message: updated });
         store.purgerContexteEnvoyeAncien(agent.id);
         // Un adaptateur d'essai peut rendre l'usage dès son appel ; dans ce cas

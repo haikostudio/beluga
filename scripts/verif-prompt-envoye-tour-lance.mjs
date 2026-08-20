@@ -437,23 +437,31 @@ async function main() {
         'aucun compteur de jetons dans ces repères',
         !/\d+\s*(jetons?|tokens?)/i.test(texteParalleles),
       );
+      /* LE PARCOURS RESTE COMPACT : « voir plus » révèle les étapes, puis le
+         contexte complet s'ouvre à part. */
+      const voirPlus = memoire.locator('[data-voir-plus]').first();
+      noter('la bulle est repliée derrière « voir plus »', (await voirPlus.count()) === 1);
       noter(
-        'les deux labels colorés (cache, ajoutée) sont posés',
+        'le parcours de la mémoire est visible sans le contexte complet',
+        (await memoire.locator('[data-etape-memoire]').count()) >= 1 &&
+          (await memoire.locator('[data-contexte-complet]').count()) === 0,
+      );
+      await voirPlus.click().catch(() => {});
+      await page.waitForTimeout(400);
+      const contexteComplet = memoire.locator('[data-contexte-complet]');
+      noter(
+        '« voir plus » révèle l’accès au contexte complet',
+        (await contexteComplet.count()) === 1,
+      );
+      await contexteComplet.locator('summary').click();
+      noter(
+        'les deux labels colorés (cache, ajoutée) restent dans le contexte complet',
         (await memoire.locator('[data-label-cache]').count()) === 1 &&
           (await memoire.locator('[data-label-ajoutee]').count()) === 1,
       );
-
-      /* LA COUPE À CINQ LIGNES : la bulle est longue, elle ne peut pas
-         s'étaler dans le fil — « voir plus » le déroule. */
-      const voirPlus = memoire.locator('[data-voir-plus]').first();
-      noter('la bulle est repliée derrière « voir plus »', (await voirPlus.count()) === 1);
-      const hauteurRepliee = await memoire.locator('[data-texte-bulle]').boundingBox();
-      await voirPlus.click().catch(() => {});
-      await page.waitForTimeout(400);
-      const hauteurDeroulee = await memoire.locator('[data-texte-bulle]').boundingBox();
       noter(
-        '« voir plus » déroule réellement le reste du texte',
-        !!hauteurRepliee && !!hauteurDeroulee && hauteurDeroulee.height > hauteurRepliee.height,
+        'le contexte complet rend bien le texte envoyé',
+        new RegExp(TITRE_CARTE.slice(0, 30)).test(await contexteComplet.innerText()),
       );
     }
 
