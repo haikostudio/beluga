@@ -246,6 +246,65 @@ export function texteDesPassagesRetrouves(contexte: SentContextSnapshot): string
     .join('\n\n---\n\n');
 }
 
+/** Une étape réellement parcourue dans la mémoire pendant ce tour. */
+export interface EtapeDuParcoursMemoire {
+  cle: string;
+  nature: 'transmission' | 'recherche' | 'consultation';
+  /** Nom déjà porté par le bloc transmis, ou sujet demandé à l'outil. */
+  libelle?: string;
+  /** Texte exact reçu par l'agent ; vide seulement après la purge d'un vieux tour. */
+  texte: string;
+  reussie: boolean;
+  at: number;
+}
+
+/**
+ * LE CHEMIN DE LA MÉMOIRE, DANS L'ORDRE OÙ IL A ÉTÉ PARCOURU.
+ *
+ * Le premier cran est ce que HaikoDev a transmis avec le prompt : aujourd'hui
+ * la carte de l'arbre, autrefois des faits ajoutés. Les anciens passages issus
+ * de la recherche automatique gardent ensuite leur propre cran. Enfin viennent
+ * les ouvertures explicites de `project_memory`, enregistrées à mesure qu'elles
+ * reviennent. Aucune étape n'est reconstruite depuis un simple nom de sujet :
+ * son texte réel est gardé tant que le tour n'a pas atteint la purge normale
+ * des vieux contextes, puis l'étape reste visible en disant que son texte a été retiré.
+ */
+export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParcoursMemoire[] {
+  const etapes: EtapeDuParcoursMemoire[] = contexte.blocks
+    .filter((bloc) => bloc.kind === 'memory')
+    .map((bloc, index) => ({
+      cle: `transmission-${index}`,
+      nature: 'transmission' as const,
+      libelle: bloc.label,
+      texte: bloc.text ?? '',
+      reussie: true,
+      at: contexte.sentAt,
+    }));
+
+  if ((contexte.passages ?? []).length) {
+    etapes.push({
+      cle: 'recherche-automatique',
+      nature: 'recherche',
+      texte: texteDesPassagesRetrouves(contexte) ?? '',
+      reussie: true,
+      at: contexte.sentAt,
+    });
+  }
+
+  (contexte.consultationsMemoire ?? []).forEach((consultation) => {
+    etapes.push({
+      cle: consultation.id,
+      nature: 'consultation',
+      libelle: consultation.requete,
+      texte: consultation.resultat,
+      reussie: consultation.reussie,
+      at: consultation.at,
+    });
+  });
+
+  return etapes;
+}
+
 /** Une bulle du prompt envoyé, prête à être posée dans la conversation. */
 export interface BulleDePrompt {
   /** Repère stable, pour la clé de rendu et les contrôles d'écran. */
@@ -256,6 +315,8 @@ export interface BulleDePrompt {
   mention?: string;
   /** Le texte de la bulle, tel qu'il est parti au moteur. */
   texte: string;
+  /** La copie ajoute les ouvertures revenues après l'envoi initial. */
+  texteCopie?: string;
   /** Les NOMS des morceaux partis en même temps (bulle « Mémoire transmise » seulement). */
   noms?: string[];
   /**
@@ -277,6 +338,8 @@ export interface BulleDePrompt {
    * besoin : rien n'y est jamais relu au cache.
    */
   lignes?: LigneDePrompt[];
+  /** Le fil ordonné des contenus réellement reçus depuis la mémoire. */
+  parcoursMemoire?: EtapeDuParcoursMemoire[];
 }
 
 /**
@@ -333,6 +396,10 @@ export function bullesDuPromptEnvoye(
 
   const memoire = texteDesPassagesRetrouves(contexte);
   const complet = texteDuPromptEnvoye(contexte);
+  const parcoursMemoire = parcoursDeLaMemoire(contexte);
+  const consultations = (contexte.consultationsMemoire ?? [])
+    .map((consultation) => `${consultation.requete || 'project_memory'}\n\n${consultation.resultat}`)
+    .filter((texte) => texte.trim());
   if (complet.trim()) {
     bulles.push({
       cle: 'memoire',
@@ -345,10 +412,14 @@ export function bullesDuPromptEnvoye(
       titre: 'Mémoire transmise',
       mention: mentionDesPassages(contexte),
       texte: memoire ? `${memoire}\n\n---\n\n${complet}` : complet,
+      texteCopie: consultations.length
+        ? `${memoire ? `${memoire}\n\n---\n\n` : ''}${complet}\n\n---\n\n${consultations.join('\n\n---\n\n')}`
+        : undefined,
       noms: donneesParallelesDuPrompt(contexte),
       isole: true,
       lignesVisibles: LIGNES_VISIBLES_MEMOIRE,
       lignes: lignesDeLaMemoireTransmise(contexte),
+      parcoursMemoire,
     });
   }
 

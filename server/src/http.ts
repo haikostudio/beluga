@@ -27,7 +27,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { callTool, createCard, toolsFor } from './tools.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
-import { attachToCurrentMessage, liveRun } from './runtime.js';
+import { ajouterConsultationMemoireAuTour, attachToCurrentMessage, liveRun } from './runtime.js';
 import { readFilePreview, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
@@ -424,6 +424,20 @@ export function createHttpServer(): http.Server {
           }
           if (result.download) attachToCurrentMessage(agentId, { download: result.download });
           if (result.attachment) attachToCurrentMessage(agentId, { attachment: result.attachment.id });
+          /*
+           * LE RÉSULTAT DE LA MÉMOIRE REJOINT SA BULLE, pas le déroulé
+           * générique des commandes. Le nom du sujet seul était déjà visible,
+           * mais pas le texte effectivement rendu au moteur : impossible de
+           * juger ce qui avait circulé. On garde aussi un refus, avec son
+           * explication, car il fait partie du parcours réel.
+           */
+          if (body.name === 'project_memory') {
+            ajouterConsultationMemoireAuTour(agentId, {
+              requete: typeof body.args?.sujet === 'string' ? body.args.sujet : '',
+              resultat: result.text,
+              reussie: result.ok,
+            });
+          }
           /*
            * UNE QUESTION ARRÊTE LE MOTEUR. On enregistre l'attente AVANT de
            * rendre la main : le pont d'outils va sonder `/internal/attente`

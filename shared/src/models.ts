@@ -867,6 +867,27 @@ export const PassageRetrouve = z.object({
 export type PassageRetrouve = z.infer<typeof PassageRetrouve>;
 
 /**
+ * Une ouverture de l'arbre de mémoire faite par l'agent pendant un tour.
+ *
+ * La carte de l'arbre fait partie du prompt initial (`blocks`, genre
+ * `memory`). Les ouvertures suivantes arrivent par l'outil `project_memory`,
+ * APRÈS cet envoi : il faut donc les garder à part, dans l'ordre, avec le
+ * texte exact rendu. Sans cette trace, l'écran ne connaît que les noms de
+ * sujets demandés et ne peut pas montrer ce qui a réellement circulé.
+ */
+export const ConsultationMemoire = z.object({
+  id: z.string(),
+  /** Le sujet ou le mot de branche demandé ; vide signifie l'index. */
+  requete: z.string().default(''),
+  /** Le texte exact rendu par `project_memory`, avant toute reformulation. */
+  resultat: z.string().default(''),
+  /** Un refus reste une étape du parcours, avec son explication en clair. */
+  reussie: z.boolean().default(true),
+  at: z.number(),
+});
+export type ConsultationMemoire = z.infer<typeof ConsultationMemoire>;
+
+/**
  * Photographie du SEUL contenu transmis pendant ce tour. L'historique d'une
  * session reprise reste chez le moteur : on le nomme, sans le recopier ni
  * prétendre pouvoir le relire.
@@ -939,6 +960,12 @@ export const SentContextSnapshot = z.object({
    * cette règle).
    */
   passagesPertinents: z.boolean().optional(),
+  /**
+   * Les ouvertures de mémoire faites APRÈS le prompt initial, pendant ce tour.
+   * Vide sur les anciens messages et sur un tour qui s'est contenté de la
+   * carte reçue au départ.
+   */
+  consultationsMemoire: z.array(ConsultationMemoire).optional(),
   history: z.enum(['none', 'retained_by_engine']),
   usage: z
     .object({

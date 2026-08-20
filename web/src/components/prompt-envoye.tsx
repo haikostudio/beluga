@@ -1,7 +1,8 @@
 import * as React from 'react';
-import { BookOpen, Check, ChevronDown, Copy } from 'lucide-react';
+import { BookOpen, Check, ChevronDown, Copy, FolderOpen, Search, X } from 'lucide-react';
 import {
   BulleDePrompt,
+  EtapeDuParcoursMemoire,
   LIGNES_VISIBLES_BULLE,
   LIGNES_VISIBLES_MEMOIRE,
   SentContextSnapshot,
@@ -10,6 +11,7 @@ import {
 } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { ZoneDefilement } from '@/components/ui';
 
 /**
  * LE PROMPT ENVOYÉ, EN BULLES DE MESSAGE — plus aucun tiroir.
@@ -90,6 +92,104 @@ function BoutonCopier({ texte }: { texte: string }) {
  * ses labels. Les autres bulles (non isolées) gardent leur taille d'origine.
  */
 const TAILLE_TEXTE_BULLE = 'text-[13.5px]';
+
+function libelleEtapeMemoire(etape: EtapeDuParcoursMemoire): string {
+  if (etape.nature === 'transmission') return etape.libelle ? t(etape.libelle) : t('Carte de la mémoire reçue');
+  if (etape.nature === 'recherche') return t('Recherche automatique dans la documentation');
+  return etape.libelle
+    ? t('Ouverture de « {v0} »', { v0: etape.libelle })
+    : t('Ouverture de la carte de la mémoire');
+}
+
+/**
+ * LE FIL DES OUVERTURES DE MÉMOIRE.
+ *
+ * Replié, il ne montre que les intitulés : la conversation garde sa hauteur.
+ * Déroulé, chaque ligne ouvre SON résultat exact, indépendamment des autres.
+ * La ligne verticale porte l'ordre ; ses ronds portent la nature de l'étape.
+ */
+function ParcoursMemoire({
+  etapes,
+  compact,
+  onOuvrir,
+}: {
+  etapes: EtapeDuParcoursMemoire[];
+  compact: boolean;
+  onOuvrir: () => void;
+}) {
+  const [ouvertes, setOuvertes] = React.useState<Set<string>>(new Set());
+  const visibles = compact ? etapes.slice(0, 3) : etapes;
+
+  const basculer = (cle: string) => {
+    if (compact) onOuvrir();
+    setOuvertes((courantes) => {
+      const suivantes = new Set(courantes);
+      suivantes.has(cle) ? suivantes.delete(cle) : suivantes.add(cle);
+      return suivantes;
+    });
+  };
+
+  return (
+    <div data-parcours-memoire className="mt-1.5">
+      <p className="mb-2 text-[12px] font-medium text-faint">
+        {t('Parcours de la mémoire ({v0})', { v0: etapes.length })}
+      </p>
+      <ol>
+        {visibles.map((etape, index) => {
+          const ouverte = !compact && ouvertes.has(etape.cle);
+          const derniere = index === visibles.length - 1;
+          const Icone = etape.nature === 'transmission' ? BookOpen : etape.nature === 'recherche' ? Search : FolderOpen;
+          return (
+            <li
+              key={etape.cle}
+              data-etape-memoire={etape.nature}
+              className={cn('relative pl-7', !derniere && 'pb-2.5')}
+            >
+              {!derniere ? (
+                <span className="absolute bottom-0 left-[9.5px] top-5 w-px bg-faint/30" aria-hidden="true" />
+              ) : null}
+              <span
+                className={cn(
+                  'absolute left-0 top-0.5 flex h-5 w-5 items-center justify-center rounded-full border bg-raised',
+                  etape.reussie ? 'border-faint text-faint' : 'border-danger/60 text-danger',
+                )}
+                aria-hidden="true"
+              >
+                {etape.reussie ? <Icone className="h-2.5 w-2.5" /> : <X className="h-2.5 w-2.5" />}
+              </span>
+              <button
+                type="button"
+                data-entete-etape-memoire
+                aria-expanded={ouverte}
+                onClick={() => basculer(etape.cle)}
+                className="flex w-full min-w-0 items-start gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-surface"
+              >
+                <span className={cn('min-w-0 flex-1 break-words text-[13px] leading-snug', etape.reussie ? 'text-muted' : 'text-danger')}>
+                  {libelleEtapeMemoire(etape)}
+                </span>
+                <ChevronDown
+                  className={cn('mt-0.5 h-3 w-3 shrink-0 text-faint transition-transform', ouverte && 'rotate-180')}
+                />
+              </button>
+              {ouverte ? (
+                <ZoneDefilement
+                  fond="hsl(var(--surface))"
+                  classeEnveloppe="ml-1 mt-1 max-h-56 flex-none rounded-md border border-border bg-surface"
+                  className="p-2"
+                >
+                  <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
+                    {etape.texte || t('Texte non conservé (tour ancien, retiré pour borner le disque).')}
+                  </pre>
+                </ZoneDefilement>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
   const [deroule, setDeroule] = React.useState(false);
   const [deborde, setDeborde] = React.useState(false);
@@ -106,6 +206,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
   // découpe par `\n`) : la coupe à « voir plus » (`tronque`, ci-dessus) reste
   // donc valable.
   const lignesAAfficher = bulle.lignes;
+  const parcoursMemoire = bulle.parcoursMemoire ?? [];
 
   React.useLayoutEffect(() => {
     const element = zone.current;
@@ -115,18 +216,17 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
     setDeborde(element.scrollHeight > element.clientHeight + 1);
   }, [apercu, deroule]);
 
-  const aVoirPlus = tronque || deborde;
+  const aVoirPlus = parcoursMemoire.length > 0 || tronque || deborde;
   const basculer = () => setDeroule((valeur) => !valeur);
 
   /*
-   * UNE BULLE ISOLÉE GARDE LE MÊME HABILLAGE que les bulles de prompt
-   * (fond `raised`, bordure `border` discrète) — seule sa « queue » de bulle
-   * (le coin bas droit rabattu) disparaît, et un peu d'air au-dessus et
-   * au-dessous la distingue comme une note à part, jamais comme la suite du
-   * bloc voisin.
+   * UNE BULLE ISOLÉE A SON PROPRE FOND (`surface`) : elle raconte ce que la
+   * machine a consulté, ce n'est pas un autre message de la personne. Sa
+   * « queue » de bulle disparaît aussi, et un peu d'air au-dessus et au-dessous
+   * la distingue comme une note à part, jamais comme la suite du bloc voisin.
    */
   const encadre = bulle.isole
-    ? 'my-3 rounded-lg border border-border bg-raised'
+    ? 'my-3 rounded-lg border border-border bg-surface'
     : 'rounded-lg rounded-br-sm border border-border bg-raised';
 
   // Le détail (compte, mode de recherche, raison) ne redit rien qu'on ne lise
@@ -210,44 +310,75 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
         que chaque couleur veut dire, une fois pour toute la bulle plutôt que
         répétée à chaque ligne.
       */}
-      {bulle.lignes ? (
-        <div className={cn('mb-1 flex flex-wrap items-center gap-3 font-medium', TAILLE_TEXTE_BULLE)}>
-          <span data-label-cache className="text-faint">
-            {t('Mémoire cache')}
-          </span>
-          <span data-label-ajoutee className="text-nouveau">
-            {t('Mémoire ajoutée')}
-          </span>
-        </div>
-      ) : null}
-
-      <pre
-        ref={zone}
-        data-texte-bulle
-        /*
-          REPLIÉE, une bulle isolée s'ouvre aussi d'un clic sur son aperçu :
-          trois lignes coupées ne se lisent pas, elles s'ouvrent. Une fois
-          DÉROULÉE, le clic ne referme plus rien — sinon sélectionner une
-          citation pour la copier refermerait la bulle sous le doigt.
-        */
-        onClick={bulle.isole && !deroule && aVoirPlus ? basculer : undefined}
-        className={cn(
-          'whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]',
-          !deroule && (bulle.isole ? 'max-h-[4.8em] overflow-hidden' : 'max-h-[8em] overflow-hidden'),
-          bulle.isole && !deroule && aVoirPlus && 'cursor-pointer',
-        )}
-      >
-        {lignesAAfficher
-          ? (deroule ? lignesAAfficher : lignesAAfficher.slice(0, lignes)).map((ligne, index, tableau) => (
-              <span key={index} className={ligne.cached ? 'text-faint' : 'text-nouveau'}>
-                {ligne.texte}
-                {index < tableau.length - 1 ? '\n' : ''}
-              </span>
-            ))
-          : deroule
-            ? bulle.texte
-            : apercu}
-      </pre>
+      {parcoursMemoire.length ? (
+        <>
+          <ParcoursMemoire etapes={parcoursMemoire} compact={!deroule} onOuvrir={() => setDeroule(true)} />
+          {deroule ? (
+            <details data-contexte-complet className="mt-2 rounded-md border border-border bg-surface/60">
+              <summary className="cursor-pointer select-none px-2 py-1.5 text-[12px] font-medium text-faint transition-colors hover:text-text">
+                {t('Contexte complet transmis')}
+              </summary>
+              {bulle.lignes ? (
+                <div className={cn('flex flex-wrap items-center gap-3 border-t border-border px-2 pt-2 font-medium', TAILLE_TEXTE_BULLE)}>
+                  <span data-label-cache className="text-faint">
+                    {t('Mémoire cache')}
+                  </span>
+                  <span data-label-ajoutee className="text-nouveau">
+                    {t('Mémoire ajoutée')}
+                  </span>
+                </div>
+              ) : null}
+              <ZoneDefilement
+                fond="hsl(var(--surface))"
+                classeEnveloppe="max-h-72 flex-none"
+                className="p-2"
+              >
+                <pre
+                  data-texte-bulle
+                  className="whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]"
+                >
+                  {lignesAAfficher
+                    ? lignesAAfficher.map((ligne, index, tableau) => (
+                        <span key={index} className={ligne.cached ? 'text-faint' : 'text-nouveau'}>
+                          {ligne.texte}
+                          {index < tableau.length - 1 ? '\n' : ''}
+                        </span>
+                      ))
+                    : bulle.texte}
+                </pre>
+              </ZoneDefilement>
+            </details>
+          ) : null}
+        </>
+      ) : (
+        <pre
+          ref={zone}
+          data-texte-bulle
+          /*
+            REPLIÉE, une bulle isolée s'ouvre aussi d'un clic sur son aperçu :
+            trois lignes coupées ne se lisent pas, elles s'ouvrent. Une fois
+            DÉROULÉE, le clic ne referme plus rien — sinon sélectionner une
+            citation pour la copier refermerait la bulle sous le doigt.
+          */
+          onClick={bulle.isole && !deroule && aVoirPlus ? basculer : undefined}
+          className={cn(
+            'whitespace-pre-wrap break-words font-sans text-[13.5px] leading-[1.6] text-text [overflow-wrap:anywhere]',
+            !deroule && (bulle.isole ? 'max-h-[4.8em] overflow-hidden' : 'max-h-[8em] overflow-hidden'),
+            bulle.isole && !deroule && aVoirPlus && 'cursor-pointer',
+          )}
+        >
+          {lignesAAfficher
+            ? (deroule ? lignesAAfficher : lignesAAfficher.slice(0, lignes)).map((ligne, index, tableau) => (
+                <span key={index} className={ligne.cached ? 'text-faint' : 'text-nouveau'}>
+                  {ligne.texte}
+                  {index < tableau.length - 1 ? '\n' : ''}
+                </span>
+              ))
+            : deroule
+              ? bulle.texte
+              : apercu}
+        </pre>
+      )}
 
       {aVoirPlus ? (
         <button
@@ -297,7 +428,7 @@ function BulleDuPrompt({ bulle }: { bulle: BulleDePrompt }) {
       ) : (
         boite
       )}
-      <BoutonCopier texte={bulle.texte} />
+      <BoutonCopier texte={bulle.texteCopie ?? bulle.texte} />
     </div>
   );
 }

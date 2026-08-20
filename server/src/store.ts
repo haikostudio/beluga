@@ -1664,6 +1664,10 @@ export function purgerContexteEnvoyeAncien(agentId: string): void {
         systemInstruction: { ...sc.systemInstruction, content: '' },
         blocks: (sc.blocks ?? []).map((b) => ({ ...b, text: undefined })),
         passages: (sc.passages ?? []).map((p) => ({ ...p, texte: '' })),
+        consultationsMemoire: (sc.consultationsMemoire ?? []).map((consultation) => ({
+          ...consultation,
+          resultat: '',
+        })),
       },
     };
     if (JSON.stringify(allege) === row.data) continue;
