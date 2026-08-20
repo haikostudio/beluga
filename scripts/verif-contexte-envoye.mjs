@@ -457,6 +457,33 @@ try {
         `${cas.nom} : une étape révèle le texte exact récupéré`,
         /faits, règles et contrôles réellement rendus/.test(await consultation.innerText()),
       );
+
+      /* UNE ÉTAPE OUVERTE DIT TROIS CHOSES : ce qui a été demandé, ce que ça
+         pèse, et le résultat. Vérifié par le CONTENU et par des repères
+         d'écran stables, jamais par une hauteur. */
+      const detail = consultation.locator('[data-detail-etape-memoire]').first();
+      noter(`${cas.nom} : l’étape ouverte pose son détail`, (await detail.count()) === 1);
+      const texteDetail = await detail.innerText();
+      noter(
+        `${cas.nom} : le détail nomme la requête posée à la mémoire`,
+        /Requête/.test(texteDetail) && /memoire/.test(texteDetail),
+      );
+      noter(`${cas.nom} : le détail sépare le résultat de la requête`, /Résultat/.test(texteDetail));
+      const poids = await detail.locator('[data-jetons-etape]').first().innerText();
+      noter(
+        `${cas.nom} : le détail donne un poids approché en jetons`,
+        /^~[\d  ']+ jetons$/.test(poids.trim()),
+        poids.trim(),
+      );
+      // Refermer doit tout retirer : requête, poids et résultat.
+      await consultation.locator('[data-entete-etape-memoire]').click();
+      await page.waitForTimeout(200);
+      noter(
+        `${cas.nom} : refermée, l’étape ne laisse ni requête ni poids`,
+        (await consultation.locator('[data-detail-etape-memoire]').count()) === 0,
+      );
+      await consultation.locator('[data-entete-etape-memoire]').click();
+      await page.waitForTimeout(200);
       await memoire1.scrollIntoViewIfNeeded();
       await page.screenshot({
         path: path.join(SHOTS, `contexte-envoye-parcours-${cas.telephone ? 'telephone' : 'ordinateur'}.png`),

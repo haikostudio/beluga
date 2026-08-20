@@ -1,3 +1,4 @@
+import { jetonsApproches } from './couches-tokens.js';
 import type { SentContextSnapshot } from './models.js';
 
 /**
@@ -23,7 +24,11 @@ import type { SentContextSnapshot } from './models.js';
  * (`text-faint`) pour ce qui est relu au cache du moteur — DÉJÀ là, pas
  * refacturé — jaune (`text-nouveau`) pour ce qui est écrit neuf pour ce tour.
  *
- * Aucune mesure, aucun compteur de jetons : seulement du texte.
+ * Aucun compteur de jetons sur les bulles elles-mêmes : seulement du texte. La
+ * SEULE exception est le parcours de la mémoire, où chaque étape dit son poids
+ * APPROCHÉ (`EtapeDuParcoursMemoire.jetons`) — sans lui, deux ouvertures
+ * voisines se lisent pareil alors que l'une rapporte trois lignes et l'autre
+ * trente mille signes.
  */
 
 /** Un morceau nommé du prompt, prêt à être affiché tel quel. */
@@ -252,10 +257,31 @@ export interface EtapeDuParcoursMemoire {
   nature: 'transmission' | 'recherche' | 'consultation';
   /** Nom déjà porté par le bloc transmis, ou sujet demandé à l'outil. */
   libelle?: string;
+  /**
+   * CE QUI A ÉTÉ DEMANDÉ à cette étape — le sujet passé à `project_memory`, ou
+   * la demande qui a servi de question à la recherche automatique. Absent pour
+   * un bloc transmis d'office : personne n'a rien demandé.
+   */
+  requete?: string;
   /** Texte exact reçu par l'agent ; vide seulement après la purge d'un vieux tour. */
   texte: string;
+  /**
+   * CE QUE CETTE ÉTAPE A COÛTÉ, estimé — jamais mesuré par le moteur, qui ne
+   * détaille rien à ce grain. Le calcul est celui de tout le projet
+   * (`jetonsApproches`, 2,2 signes par jeton) : approché, mais comparable d'une
+   * étape à l'autre, et c'est ce qu'on veut savoir en ouvrant ce parcours.
+   */
+  jetons: number;
   reussie: boolean;
   at: number;
+}
+
+/** La demande, ramenée à une ligne : elle sert d'étiquette, pas de lecture. */
+function questionDeLaRecherche(contexte: SentContextSnapshot): string | undefined {
+  const demande = demandeDuPromptEnvoye(contexte) ?? contexte.prompt?.trim();
+  if (!demande) return undefined;
+  const ligne = demande.replace(/\s+/g, ' ').trim();
+  return ligne.length > 160 ? `${ligne.slice(0, 159)}…` : ligne;
 }
 
 /**
@@ -268,6 +294,13 @@ export interface EtapeDuParcoursMemoire {
  * reviennent. Aucune étape n'est reconstruite depuis un simple nom de sujet :
  * son texte réel est gardé tant que le tour n'a pas atteint la purge normale
  * des vieux contextes, puis l'étape reste visible en disant que son texte a été retiré.
+ *
+ * CHAQUE CRAN PORTE SA QUESTION ET SON POIDS. Un libellé seul ne disait pas ce
+ * qui avait été demandé (le sujet passé à l'outil, la demande qui a servi de
+ * question) ni ce que la réponse avait coûté : deux ouvertures voisines se
+ * lisaient pareil, l'une rapportant trois lignes et l'autre trente mille
+ * signes. `requete` et `jetons` remplissent ces deux trous, sans toucher au
+ * texte lui-même.
  */
 export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParcoursMemoire[] {
   const etapes: EtapeDuParcoursMemoire[] = contexte.blocks
@@ -277,15 +310,19 @@ export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParco
       nature: 'transmission' as const,
       libelle: bloc.label,
       texte: bloc.text ?? '',
+      jetons: jetonsApproches((bloc.text ?? '').length),
       reussie: true,
       at: contexte.sentAt,
     }));
 
   if ((contexte.passages ?? []).length) {
+    const texte = texteDesPassagesRetrouves(contexte) ?? '';
     etapes.push({
       cle: 'recherche-automatique',
       nature: 'recherche',
-      texte: texteDesPassagesRetrouves(contexte) ?? '',
+      requete: questionDeLaRecherche(contexte),
+      texte,
+      jetons: jetonsApproches(texte.length),
       reussie: true,
       at: contexte.sentAt,
     });
@@ -296,7 +333,9 @@ export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParco
       cle: consultation.id,
       nature: 'consultation',
       libelle: consultation.requete,
+      requete: consultation.requete,
       texte: consultation.resultat,
+      jetons: jetonsApproches(consultation.resultat.length),
       reussie: consultation.reussie,
       at: consultation.at,
     });

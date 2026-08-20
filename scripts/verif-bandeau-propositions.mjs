@@ -347,6 +347,56 @@ try {
         `x=${vue.axeX} y=${vue.axeY}`,
       );
 
+      /* LE PLI DU BANDEAU — vérifié par l'ÉTAT, jamais par une hauteur : le
+         bouton annonce `aria-expanded`, et les vignettes sont là ou pas. On
+         referme puis on rouvre : un accordéon cassé en position ouverte
+         passerait un contrôle qui n'ouvre jamais rien. */
+      /* Sur grand écran, la conversation est montée DEUX fois (le fil et le
+         panneau de droite) : on juge le PREMIER bandeau du document, celui que
+         `place()` mesure déjà. */
+      const pli = page.locator('[data-bandeau-pli]').first();
+      noter(`${ecran} : l’entête porte un bouton de repli`, (await pli.count()) === 1);
+      noter(`${ecran} : le bandeau s’ouvre déplié`, (await pli.getAttribute('aria-expanded')) === 'true');
+      await pli.click();
+      await page.waitForFunction(
+        () => document.querySelector('[data-bandeau-pli]')?.getAttribute('aria-expanded') === 'false',
+        undefined,
+        { timeout: 4000 },
+      );
+      const replie = await page.evaluate(() => {
+        const bandeau = document.querySelector('[data-bandeau="propositions"]');
+        return {
+          entete: !!bandeau?.querySelector('[data-bandeau-pli]'),
+          zone: !!bandeau?.querySelector('[data-bandeau-zone]'),
+          vignettes: bandeau?.querySelectorAll('[data-vignette="proposition"]').length ?? 0,
+          hauteur: Math.round(bandeau?.getBoundingClientRect().height ?? 0),
+        };
+      });
+      noter(
+        `${ecran} : replié, plus aucune vignette n’occupe l’écran`,
+        replie.zone === false && replie.vignettes === 0,
+        `${replie.vignettes} vignette(s)`,
+      );
+      noter(`${ecran} : replié, l’entête reste visible`, replie.entete);
+      /* La HAUTEUR est ici le sujet même de la carte (« la barre prend de la
+         place sans pouvoir se réduire ») : on garde donc cette seule mesure. */
+      noter(
+        `${ecran} : replié, le bandeau tient sur une ligne`,
+        replie.hauteur > 0 && replie.hauteur < 60,
+        `${replie.hauteur} px`,
+      );
+      await page.screenshot({
+        path: path.join(SHOTS, `bandeau-replie-${telephone ? 'telephone' : 'ordinateur'}.png`),
+      });
+      await pli.click();
+      await page.waitForFunction(
+        () => document.querySelector('[data-bandeau-pli]')?.getAttribute('aria-expanded') === 'true',
+        undefined,
+        { timeout: 4000 },
+      );
+      const rouvert = await place(page);
+      noter(`${ecran} : un second clic redonne les deux vignettes`, rouvert.vignettes === 2);
+
       // Le fil garde la refusée, et NON les propositions en attente.
       noter(`${ecran} : la carte refusée reste dans le fil`, await dansLeFil(page, TITRE_REFUSEE));
       noter(
