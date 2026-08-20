@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  HERITAGE_AUCUN,
   PROMPT_PRODUCTION_MAX,
   Project,
   TITRE_MISE_EN_PRODUCTION,
@@ -105,6 +106,76 @@ function ChoixDeBranche({
         {valeur ? t('Le lot sera fusionné, enregistré et poussé sur « {valeur} ».', { valeur }) : mention}
         {raison ? ` ${raison}` : ''}
       </p>
+    </div>
+  );
+}
+
+/**
+ * LA SOURCE DONT CE PROJET HÉRITE SES RÈGLES.
+ *
+ * Quand un agent demande un sujet et que ce projet n'a rien écrit dessus, la
+ * règle de sa source est servie à la place, dite en toutes lettres. C'était
+ * toujours HaikoDev ; c'est maintenant un choix — une agence peut poser ses
+ * règles dans un projet « socle » dont tous les autres héritent, au lieu de les
+ * recopier partout.
+ *
+ * Trois options, et l'ordre compte : le défaut d'abord (rien n'a changé pour qui
+ * ne touche à rien), le refus ensuite, les projets en dernier. Le projet
+ * lui-même n'est jamais proposé — s'hériter soi-même ne servirait à rien, et le
+ * serveur le refuse de toute façon.
+ */
+function ChoixDeLHeritage({
+  valeur,
+  onChange,
+  projets,
+  projetCourant,
+}: {
+  valeur: string;
+  onChange: (valeur: string) => void;
+  projets: Project[];
+  projetCourant: Project;
+}) {
+  const candidats = projets
+    .filter((p) => p.id !== projetCourant.id && !p.archived && !p.isSelf)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  /*
+   * Une source RÉGLÉE puis supprimée resterait invisible dans la liste : le
+   * réglage disparaîtrait de l'écran sans que personne ne l'ait retiré. On la
+   * garde donc, en disant qu'elle est introuvable.
+   */
+  const regleMaisAbsent =
+    valeur && valeur !== HERITAGE_AUCUN && !candidats.some((p) => p.id === valeur) ? valeur : '';
+
+  const source = candidats.find((p) => p.id === valeur);
+  const explication = regleMaisAbsent
+    ? t('Ce projet n’existe plus : rien n’est hérité tant qu’une autre source n’est pas choisie.')
+    : valeur === HERITAGE_AUCUN
+      ? t('Ce projet n’hérite de rien : seules ses propres règles sont servies aux agents.')
+      : source
+        ? t('Un sujet sans règle ici sera servi depuis « {v0} », en le disant.', { v0: source.name })
+        : t('Un sujet sans règle ici sera servi depuis HaikoDev, en le disant.');
+
+  return (
+    <div data-heritage>
+      <Label>{t('Hérite des règles de')}</Label>
+      <select
+        value={regleMaisAbsent ? regleMaisAbsent : valeur}
+        onChange={(event) => onChange(event.target.value)}
+        data-heritage-choix
+        className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
+      >
+        <option value="">{t('HaikoDev (par défaut)')}</option>
+        <option value={HERITAGE_AUCUN}>{t('Aucun héritage')}</option>
+        {regleMaisAbsent ? (
+          <option value={regleMaisAbsent}>{t('Projet introuvable')}</option>
+        ) : null}
+        {candidats.map((projet) => (
+          <option key={projet.id} value={projet.id}>
+            {projet.name}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-[11.5px] leading-snug text-faint">{explication}</p>
     </div>
   );
 }
@@ -270,6 +341,9 @@ export function ProjectSettings({
   const [accesFTP, setAccesFTP] = React.useState<AccesFTP>({});
   const [prodUrl, setProdUrl] = React.useState('');
   const [engine, setEngine] = React.useState<string>('claude');
+  /* La SOURCE dont ce projet hérite ses règles. Vide = HaikoDev, comme avant ce
+     réglage ; `HERITAGE_AUCUN` = rien ; sinon l'identifiant d'un autre projet. */
+  const [heriteDe, setHeriteDe] = React.useState('');
   /* `null` = ce projet n'impose rien et suit le réglage général. C'est bien un
      null explicite, pas un `undefined` : seul lui peut RETIRER un thème déjà
      enregistré, `undefined` disparaissant du bloc envoyé au serveur. */
@@ -297,6 +371,7 @@ export function ProjectSettings({
     setAccesFTP(project.miseEnProduction?.ftp ?? {});
     setProdUrl(project.miseEnProduction?.prodUrl ?? '');
     setEngine(project.defaultEngine ?? 'claude');
+    setHeriteDe(project.heriteDe ?? '');
     setThemeProjet(reglageApparenceValide(project.theme));
     setClientId(project.billing?.clientId ?? '');
     setRate(String(project.billing?.hourlyRate ?? 130));
@@ -380,6 +455,9 @@ export function ProjectSettings({
         patch: {
           name: name.trim() || project.name,
           defaultEngine: engine,
+          /* Vide = la plateforme, donc pas de clé : c'est le défaut, et il ne
+             s'écrit pas dans la base pour ne pas figer un choix jamais fait. */
+          heriteDe: heriteDe.trim() || undefined,
           theme: themeProjet ? themeChoisiDepuisReglage(themeProjet) : null,
           devUrl: devUrl.trim() || undefined,
           /* Les deux branches partent ensemble ; vides, elles ne sont pas
@@ -497,6 +575,13 @@ export function ProjectSettings({
           {/* L'APPARENCE DU PROJET suit exactement la même règle que le général :
               ambiance indépendante du mode, et suivi du système par interrupteur.
               L'interrupteur extérieur rend la main au réglage général. */}
+          <ChoixDeLHeritage
+            valeur={heriteDe}
+            onChange={setHeriteDe}
+            projets={state.projects}
+            projetCourant={project}
+          />
+
           <div data-theme-projet>
             <Label>{t('Apparence de ce projet')}</Label>
             <p className="mt-0.5 text-[12.5px] leading-snug text-faint">

@@ -1,6 +1,13 @@
 import * as React from 'react';
 import { Check, ChevronDown, Copy, Search } from 'lucide-react';
-import { SentContextSnapshot, TourEnvoye } from '@haikodev/shared';
+import {
+  SentContextSnapshot,
+  TourEnvoye,
+  origineDuBloc,
+  partagePourLOeil,
+  partsDuContexte,
+  type OrigineDeBloc,
+} from '@haikodev/shared';
 import { Input } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -78,12 +85,14 @@ function BlocDePrompt({
   cached,
   ouvertParDefaut,
   kind,
+  origine,
 }: {
   label: string;
   texte: string | undefined;
   cached: boolean;
   ouvertParDefaut: boolean;
   kind?: string;
+  origine?: OrigineDeBloc;
 }) {
   const [ouvert, setOuvert] = React.useState(ouvertParDefaut);
   React.useEffect(() => {
@@ -119,6 +128,7 @@ function BlocDePrompt({
           aria-hidden="true"
         />
         <span className="min-w-0 flex-1 truncate text-[13px] text-text">{label}</span>
+        {origine ? <PastilleOrigine origine={origine} /> : null}
         {cached ? (
           <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10.5px] text-faint">
             {t('relu au cache')}
@@ -136,6 +146,73 @@ function BlocDePrompt({
             {t('Texte non conservé (tour ancien, retiré pour borner le disque).')}</p>
         )
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * LA PASTILLE D'ORIGINE — d'où vient ce bloc, en un mot.
+ *
+ * Trois couleurs, et le choix suit la règle de la maison : le BLEU pour ce qui
+ * est déjà acquis (la plateforme, identique partout), l'ORANGE pour ce qui
+ * bouge (le projet, qu'on écrit et qu'on paie), le gris pour la demande, qui
+ * n'est le contexte de personne.
+ */
+const NOM_ORIGINE: Record<OrigineDeBloc, string> = {
+  plateforme: 'plateforme',
+  projet: 'projet',
+  demande: 'demande',
+};
+
+function PastilleOrigine({ origine }: { origine: OrigineDeBloc }) {
+  return (
+    <span
+      data-origine={origine}
+      className={cn(
+        'shrink-0 rounded-full px-1.5 py-0.5 text-[10.5px]',
+        origine === 'plateforme'
+          ? 'bg-info/15 text-info'
+          : origine === 'projet'
+            ? 'bg-warning/15 text-warning'
+            : 'bg-raised text-faint',
+      )}
+    >
+      {t(NOM_ORIGINE[origine])}
+    </span>
+  );
+}
+
+/**
+ * LE PARTAGE D'UN TOUR — ce qui vient de la plateforme, ce qui vient du projet.
+ *
+ * C'est la question que ce tiroir doit savoir répondre : sur tout ce qu'on
+ * paie, quelle part décrit VRAIMENT ce projet, et quelle part est un socle
+ * identique sur les dix-huit autres ? La barre le montre d'un coup d'œil, et
+ * chaque bloc porte ensuite sa pastille pour dire lequel est lequel.
+ */
+function PartageDuTour({ contexte }: { contexte: SentContextSnapshot }) {
+  const parts = partsDuContexte(contexte.blocks);
+  const lignes = partagePourLOeil(parts);
+  if (!lignes.length) return null;
+  return (
+    <div data-partage-contexte className="mb-2">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-raised">
+        {lignes.map((ligne) => (
+          <div
+            key={ligne.cle}
+            data-partage-barre={ligne.cle}
+            style={{ width: `${ligne.part}%` }}
+            className={cn(
+              ligne.cle === 'plateforme' ? 'bg-info' : ligne.cle === 'projet' ? 'bg-warning' : 'bg-faint',
+            )}
+          />
+        ))}
+      </div>
+      <p className="mt-1 text-[11.5px] text-faint">
+        {lignes
+          .map((ligne) => `${t(NOM_ORIGINE[ligne.cle])} ${ligne.part} %`)
+          .join(' · ')}
+      </p>
     </div>
   );
 }
@@ -194,6 +271,7 @@ function TourDuLecteur({
 
         {ouvert ? (
           <div className="mt-2 space-y-1.5 border-t border-border pt-2">
+            <PartageDuTour contexte={contexte} />
             {contexte.passages.length ? (
               <div className="mb-1.5 text-[12px] text-faint">
                 {t('Passages retrouvés dans la documentation ({v0}) :{v1} {v2}', { v0: contexte.passages.length, v1: ' ', v2: contexte.passages.map((p) => p.source).join(', ') })}</div>
@@ -208,6 +286,7 @@ function TourDuLecteur({
                 cached={Boolean(bloc.cached)}
                 ouvertParDefaut={Boolean(requete)}
                 kind={bloc.kind}
+                origine={origineDuBloc(bloc)}
               />
             ))}
             {contexte.passages.length ? (

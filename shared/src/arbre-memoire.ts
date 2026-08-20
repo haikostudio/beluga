@@ -380,17 +380,55 @@ export function rappelDuSujet(sujet: SujetEnArbre): string {
 /* ------------------------------------------------------------------ */
 
 /**
+ * L'HÉRITAGE NE VIENT PLUS FORCÉMENT DE LA PLATEFORME.
+ *
+ * Un projet désigne SA source dans ses réglages (`Project.heriteDe`). Trois cas,
+ * et un seul est un réglage explicite :
+ *  — clé ABSENTE : la source est HaikoDev. C'est le comportement d'origine, et
+ *    il reste celui de tous les projets qui n'ont rien réglé ;
+ *  — `HERITAGE_AUCUN` : ce projet n'hérite de RIEN. Utile pour un projet dont
+ *    les règles n'ont aucun rapport avec celles de la plateforme — recevoir
+ *    « ne jamais publier de sa propre initiative » n'y apprend rien ;
+ *  — un IDENTIFIANT de projet : c'est ce projet-là qui fait foi. Une agence peut
+ *    ainsi poser ses règles dans un projet « socle » dont tous les autres
+ *    héritent, sans les recopier huit fois.
+ */
+
+/** La valeur qui dit « ce projet n'hérite de rien ». */
+export const HERITAGE_AUCUN = 'aucun';
+
+/** Ce que le réglage d'un projet désigne, une fois lu. */
+export type CibleDHeritage =
+  | { genre: 'plateforme' }
+  | { genre: 'projet'; id: string }
+  | { genre: 'aucun' };
+
+/**
+ * Le réglage LU, jamais deviné. Une chaîne vide vaut une clé absente : c'est ce
+ * que rend un champ de formulaire qu'on n'a pas touché, et cela ne doit pas
+ * couper l'héritage par accident.
+ */
+export function cibleDHeritage(heriteDe?: string): CibleDHeritage {
+  const regle = (heriteDe ?? '').trim();
+  if (!regle) return { genre: 'plateforme' };
+  if (regle === HERITAGE_AUCUN) return { genre: 'aucun' };
+  return { genre: 'projet', id: regle };
+}
+
+/**
  * LA COUCHE AMONT S'APPLIQUE-T-ELLE ?
  *
  * L'arbre ne s'arrête pas au projet : quand celui-ci n'a rien écrit sur un
- * sujet, la règle de la PLATEFORME qui l'héberge fait foi. C'est le dernier
- * cran de l'arbre, et il se demande comme les autres — par un nom.
+ * sujet, la règle de sa SOURCE fait foi. C'est le dernier cran de l'arbre, et il
+ * se demande comme les autres — par un nom.
  *
  * Deux refus, et un seul oui :
- *  — sur HAIKODEV LUI-MÊME, jamais : ce serait servir deux fois le même
- *    fichier, sous deux noms ;
+ *  — sur SA PROPRE SOURCE, jamais : un projet qui s'hériterait lui-même servirait
+ *    deux fois le même fichier, sous deux noms. C'est aussi ce qui protège du
+ *    réglage « je m'hérite moi-même », posé à la main ou par mégarde ;
  *  — sans dépôt amont lisible, jamais non plus : la mémoire du projet se
- *    comporte exactement comme si l'étage n'existait pas.
+ *    comporte exactement comme si l'étage n'existait pas — ce qui couvre le cas
+ *    d'une source SUPPRIMÉE depuis qu'elle a été réglée.
  */
 export function amontApplicable(options: {
   /** Le chemin du projet visé. */

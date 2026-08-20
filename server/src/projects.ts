@@ -3,13 +3,49 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { EngineId, Project, TITRE_ETAPE_ADRESSE, adresseDuSousDomaine, jugerAdresseDemandee } from '@haikodev/shared';
+import {
+  EngineId,
+  Project,
+  TITRE_ETAPE_ADRESSE,
+  adresseDuSousDomaine,
+  cibleDHeritage,
+  jugerAdresseDemandee,
+} from '@haikodev/shared';
 import * as store from './store.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
 import { DnsResult, publishSubdomain } from './dns.js';
 import { recupererFaviconEnTache } from './favicon.js';
+import type { SourceDHeritage } from './memory.js';
+
+/**
+ * LA SOURCE DONT UN PROJET HÉRITE, résolue en dossier ET en nom.
+ *
+ * C'est le SEUL endroit qui traduit le réglage `heriteDe` en quelque chose de
+ * concret : `server/src/memory.ts` ne connaît que le disque, et
+ * `shared/src/arbre-memoire.ts` ne connaît ni base ni chemins.
+ *
+ * Rend `undefined` — donc aucun héritage — dans trois cas, et le dernier est
+ * celui qui compte : « aucun » réglé exprès, la source qui EST le projet visé,
+ * et la source SUPPRIMÉE depuis qu'elle a été réglée. Un projet dont le socle a
+ * disparu doit continuer de travailler, pas tomber en panne de mémoire.
+ */
+export function sourceDHeritageDuProjet(project: Project): SourceDHeritage | undefined {
+  const cible = cibleDHeritage(project.heriteDe);
+  if (cible.genre === 'aucun') return undefined;
+
+  if (cible.genre === 'plateforme') {
+    // La plateforme reste le défaut : un projet qui n'a rien réglé hérite
+    // d'HaikoDev, exactement comme avant que ce réglage existe.
+    if (project.isSelf) return undefined;
+    return { nom: 'HaikoDev', chemin: CONFIG.selfPath };
+  }
+
+  const source = store.getProject(cible.id);
+  if (!source || source.id === project.id) return undefined;
+  return { nom: source.name, chemin: source.path };
+}
 
 const execFileAsync = promisify(execFile);
 

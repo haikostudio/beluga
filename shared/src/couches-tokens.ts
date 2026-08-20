@@ -280,3 +280,81 @@ export function recapitulatifEnvoi(tours: TourEnvoye[]): RecapitulatifEnvoi {
 export const RAISON_ARBRE =
   "La mémoire du projet part en ARBRE : sa carte (les sujets et les mots de leurs branches) est dans le briefing, " +
   "et l'agent ouvre lui-même les branches qui le concernent avec « project_memory ». Plus aucun extrait n'est envoyé d'office.";
+
+/* ------------------------------------------------------------------ */
+/* CE QUI VIENT DE LA PLATEFORME, CE QUI VIENT DU PROJET               */
+/* ------------------------------------------------------------------ */
+
+/** Les trois origines possibles d'un bloc envoyé au moteur. */
+export type OrigineDeBloc = 'plateforme' | 'projet' | 'demande';
+
+/**
+ * L'ORIGINE D'UN BLOC, telle qu'elle a été posée à l'envoi — ou DÉDUITE de son
+ * genre pour les tours enregistrés avant que ce partage existe.
+ *
+ * La déduction est volontairement grossière : elle ne cherche pas à deviner ce
+ * qu'un vieux briefing contenait, elle range chaque genre du côté où il tombe
+ * neuf fois sur dix. Un tour ancien affiche donc un partage approché, pas un
+ * faux partage précis.
+ */
+export function origineDuBloc(bloc: Pick<SentContextBlock, 'kind' | 'origine'>): OrigineDeBloc {
+  if (bloc.origine) return bloc.origine;
+  switch (bloc.kind) {
+    case 'request':
+    case 'attachment':
+      return 'demande';
+    case 'format':
+    case 'system':
+      return 'plateforme';
+    default:
+      // Briefing, mémoire, carte, extra : tout cela décrivait le projet.
+      return 'projet';
+  }
+}
+
+/** Ce que pèse chaque origine dans un tour, en signes. */
+export interface PartsDuContexte {
+  plateforme: number;
+  projet: number;
+  demande: number;
+  total: number;
+}
+
+/** Le partage d'un tour, additionné une seule fois, en SIGNES. */
+export function partsDuContexte(blocs: SentContextBlock[]): PartsDuContexte {
+  const parts: PartsDuContexte = { plateforme: 0, projet: 0, demande: 0, total: 0 };
+  for (const bloc of blocs) {
+    const signes = Math.max(0, bloc.characters);
+    parts[origineDuBloc(bloc)] += signes;
+    parts.total += signes;
+  }
+  return parts;
+}
+
+/**
+ * LE PARTAGE ÉCRIT POUR L'ŒIL — « plateforme 58 % · projet 35 % · demande 7 % ».
+ *
+ * Les pourcentages sont arrondis puis RATTRAPÉS sur la plus grosse part, sinon
+ * trois arrondis donnent 99 % ou 101 % et le lecteur se demande ce qui manque.
+ * Un tour vide ne rend rien : une ligne de zéros n'apprend rien.
+ */
+export function partagePourLOeil(parts: PartsDuContexte): { cle: OrigineDeBloc; nom: string; part: number; signes: number }[] {
+  if (parts.total <= 0) return [];
+  const noms: Record<OrigineDeBloc, string> = {
+    plateforme: 'plateforme',
+    projet: 'projet',
+    demande: 'demande',
+  };
+  const lignes = (['plateforme', 'projet', 'demande'] as OrigineDeBloc[]).map((cle) => ({
+    cle,
+    nom: noms[cle],
+    signes: parts[cle],
+    part: Math.round((parts[cle] / parts.total) * 100),
+  }));
+  const somme = lignes.reduce((n, l) => n + l.part, 0);
+  if (somme !== 100) {
+    const plusGrosse = lignes.reduce((a, b) => (b.signes > a.signes ? b : a));
+    plusGrosse.part += 100 - somme;
+  }
+  return lignes.filter((l) => l.signes > 0);
+}

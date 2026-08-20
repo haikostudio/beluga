@@ -47,7 +47,7 @@ import {
   momentDuCreneau,
 } from '@haikodev/shared';
 import * as store from './store.js';
-import { createProjectFolder } from './projects.js';
+import { createProjectFolder, sourceDHeritageDuProjet } from './projects.js';
 import { bus } from './bus.js';
 import { CONFIG, PATHS } from './config.js';
 import { mintDownload } from './auth.js';
@@ -1192,15 +1192,17 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // session : un sujet déjà servi n'est pas repayé.
       /*
        * ...ET IL MONTE D'UN CRAN QUAND LE PROJET N'A RIEN À DIRE. La mémoire est
-       * EN ARBRE : sous un projet hébergé par HaikoDev, un sujet sans règle
-       * locale est servi depuis la plateforme, dit comme tel
-       * (`morceauxHerites`, server/src/memory.ts).
+       * EN ARBRE : un sujet sans règle locale est servi depuis la SOURCE du
+       * projet, dite en toutes lettres (`morceauxHerites`, server/src/memory.ts).
+       * Cette source est HaikoDev par défaut, mais elle se règle projet par
+       * projet — d'où `sourceDHeritageDuProjet`, seule à connaître la liste des
+       * projets.
        */
       const servi = detailProjet(
         project.path,
         String(args.sujet ?? ''),
         store.sujetsMemoireServis(ctx.agentId),
-        CONFIG.selfPath,
+        sourceDHeritageDuProjet(project),
       );
       store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
       return { ok: true, text: servi.texte };

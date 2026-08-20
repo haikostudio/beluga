@@ -106,6 +106,13 @@ export const Project = z.object({
   /** Vrai uniquement pour le dépôt HaikoDev lui-même (PLAN §5, exception). */
   isSelf: z.boolean().default(false),
   /**
+   * LA SOURCE DONT CE PROJET HÉRITE ses règles, quand il n'a rien écrit sur un
+   * sujet (`cibleDHeritage`, `shared/src/arbre-memoire.ts`). Clé ABSENTE = la
+   * plateforme HaikoDev, comme avant ce réglage ; `HERITAGE_AUCUN` = ce projet
+   * n'hérite de rien ; sinon, l'identifiant du projet qui fait foi.
+   */
+  heriteDe: z.string().optional(),
+  /**
    * L'adresse de l'INSTANCE DE DEV de ce projet sur ce serveur : la seule chose
    * que le déploiement demande encore de régler. Elle est contrôlée à la fin du
    * déploiement — une adresse qui ne répond pas fait échouer le run. Vide :
@@ -829,6 +836,16 @@ export const SentContextBlock = z.object({
    * Faux par défaut : un bloc de contenu propre à ce tour n'est jamais en cache.
    */
   cached: z.boolean().optional(),
+  /**
+   * D'OÙ VIENT CE BLOC — la question que le tiroir « Contexte envoyé » doit
+   * savoir répondre : ce qu'on paie vient-il de ce PROJET, ou du socle de la
+   * PLATEFORME qui serait le même partout ?
+   *
+   * Absent sur les tours enregistrés AVANT ce partage : `origineDuBloc` retombe
+   * alors sur le genre du bloc, ce qui reste juste pour l'essentiel et n'invente
+   * rien. On ne réécrit pas l'histoire d'une conversation.
+   */
+  origine: z.enum(['plateforme', 'projet', 'demande']).optional(),
 });
 export type SentContextBlock = z.infer<typeof SentContextBlock>;
 

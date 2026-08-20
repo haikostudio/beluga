@@ -703,39 +703,51 @@ function morceauxRegles(projectPath: string, requete: string): MorceauServi[] {
 }
 
 /**
- * LE CRAN AU-DESSUS : LES RÈGLES HÉRITÉES DE HAIKODEV.
+ * LE CRAN AU-DESSUS : LES RÈGLES HÉRITÉES DE LA SOURCE DU PROJET.
  *
- * C'est la seconde moitié de la mémoire en arbre. La recherche automatique ne
- * remonte que quelques passages amont, volontairement — c'est le « souvenir
- * flou ». Quand l'agent veut la règle ENTIÈRE, il redemande son sujet : si le
- * projet courant n'a rien à en dire, on monte d'un cran et on sert le fichier
- * de HaikoDev.
+ * C'est le dernier étage de l'arbre. Quand l'agent demande un sujet et que le
+ * projet courant n'a rien à en dire, on monte d'un cran et on sert le fichier de
+ * sa SOURCE — HaikoDev par défaut, ou le projet désigné dans ses réglages
+ * (`cibleDHeritage`, `shared/src/arbre-memoire.ts`).
  *
  * TROIS REFUS tiennent ce repli à sa place :
- *  — sur HaikoDev lui-même, jamais (`amontApplicable`) : ce serait servir deux
- *    fois le même fichier ;
+ *  — sur SA PROPRE SOURCE, jamais (`amontApplicable`) : ce serait servir deux
+ *    fois le même fichier — et c'est aussi ce qui rend inoffensif un réglage
+ *    « je m'hérite moi-même » ;
  *  — quand le projet A répondu, jamais non plus : sa règle à lui fait foi, et
- *    une règle de plateforme qui la contredirait serait un piège ;
- *  — sans demande précise, jamais : la liste nue des sujets de HaikoDev
+ *    une règle héritée qui la contredirait serait un piège ;
+ *  — sans demande précise, jamais : la liste nue des sujets d'un autre dépôt
  *    n'apprend rien et se paie.
  *
  * La clé de dédoublonnage est préfixée : un sujet servi depuis l'amont ne se
  * confond pas avec le même sujet servi depuis le projet.
  */
-function morceauxHerites(projectPath: string, requete: string, amont?: string): MorceauServi[] {
+function morceauxHerites(projectPath: string, requete: string, amont?: SourceDHeritage): MorceauServi[] {
   if (!requete.trim()) return [];
-  if (!amontApplicable({ projet: projectPath, amont })) return [];
+  if (!amontApplicable({ projet: projectPath, amont: amont?.chemin })) return [];
   // Le projet a répondu : on ne monte pas d'un cran.
   if (morceauxRegles(projectPath, requete).length) return [];
 
-  return morceauxRegles(amont as string, requete).map((morceau) => ({
+  const source = amont as SourceDHeritage;
+  return morceauxRegles(source.chemin, requete).map((morceau) => ({
     cle: morceau.cle ? `amont:${morceau.cle}` : '',
-    libelle: `${morceau.libelle}, héritées de HaikoDev`,
+    libelle: `${morceau.libelle}, héritées de ${source.nom}`,
     texte:
-      `HÉRITÉ DE HAIKODEV — ce projet n'a pas de règle sur ce sujet ; voici celle de la PLATEFORME ` +
-      `qui l'héberge. Elle vaut tant que ce projet n'écrit pas la sienne, et le fichier cité vit ` +
-      `dans le dépôt de HaikoDev, pas ici.\n\n${morceau.texte}`,
+      `HÉRITÉ DE ${source.nom.toUpperCase()} — ce projet n'a pas de règle sur ce sujet ; voici celle du projet ` +
+      `dont il HÉRITE. Elle vaut tant que ce projet n'écrit pas la sienne, et le fichier cité vit ` +
+      `dans le dépôt de ${source.nom}, pas ici.\n\n${morceau.texte}`,
   }));
+}
+
+/**
+ * LA SOURCE D'HÉRITAGE, telle que l'appelant l'a résolue : son dossier et son
+ * NOM. Le nom compte autant que le chemin — une règle servie sans dire d'où elle
+ * vient est une règle qu'un agent croira écrite ici, et qu'il ira modifier dans
+ * le mauvais dépôt.
+ */
+export interface SourceDHeritage {
+  nom: string;
+  chemin: string;
 }
 
 /** Les morceaux de FAITS servis par une demande. */
@@ -792,11 +804,12 @@ export function detailProjet(
   requete: string,
   dejaServis: string[] = [],
   /**
-   * LE DÉPÔT AMONT — HaikoDev — quand le projet visé en hérite. Il ne sert QUE
-   * de repli : voir `morceauxHerites`. Absent, l'outil se comporte exactement
-   * comme avant.
+   * LA SOURCE D'HÉRITAGE de ce projet, déjà résolue par l'appelant (c'est lui
+   * qui connaît les projets ; ce module ne connaît que le disque). Elle ne sert
+   * QUE de repli : voir `morceauxHerites`. Absente, l'outil se comporte
+   * exactement comme si le projet n'héritait de rien.
    */
-  amont?: string,
+  amont?: SourceDHeritage,
 ): DetailProjet {
   const connus = new Set(dejaServis);
   const morceaux = [
@@ -921,9 +934,20 @@ export function blocMemoire(projectPath: string): string {
  * `avecMemoire` est faux pour les tours SUIVANTS d'une même session : l'agent a
  * déjà l'index sous les yeux, on ne lui renvoie que les faits nouveaux.
  */
-/** Le briefing coupé en deux : la part sans mémoire, et la part mémoire à part — quand elle existe. */
+/**
+ * LE BRIEFING COUPÉ SELON SON ORIGINE, et c'est cette coupure que le tiroir
+ * « Contexte envoyé » donne à lire :
+ *  — `sansMemoire` : ce qui vient du PROJET — son dossier, ses fichiers
+ *    d'instructions ;
+ *  — `socle` : ce qui vient de la PLATEFORME et serait le même sur n'importe
+ *    quel projet — les compétences partagées, l'accès GitHub, la façon d'écrire
+ *    une règle durable. Absent quand l'accueil n'en emporte rien ;
+ *  — `memoire` : la carte de l'arbre du PROJET, à part depuis toujours, pour
+ *    que le tiroir sache la distinguer du reste.
+ */
 export interface BriefingSepare {
   sansMemoire: string;
+  socle?: string;
   memoire?: string;
 }
 
@@ -988,10 +1012,11 @@ export function briefingSepare(
    * cette ligne, le même projet « ne sait pas créer une offre » d'un moteur à
    * l'autre. Un chemin de fichier se lit partout.
    */
+  const socle: string[] = [];
   const competences = emporte.competences
     ? texteDesCompetences(listerCompetences(), dossierDesCompetences())
     : '';
-  if (competences) parts.push(competences);
+  if (competences) socle.push(competences);
 
   /*
    * L'accès GitHub est ANNONCÉ, jamais supposé deviné. Le jeton est posé dans
@@ -1000,22 +1025,33 @@ export function briefingSepare(
    * secondes. Une ligne, valable sur tous les projets, sans réglage
    * (`shared/src/acces-github.ts`).
    */
-  if (emporte.github) parts.push(texteAccesGithub());
+  if (emporte.github) socle.push(texteAccesGithub());
 
   const sansMemoire = parts.join('\n\n');
-  if (!avecMemoire || !emporte.memoire) return { sansMemoire };
+  if (!avecMemoire || !emporte.memoire) {
+    return { sansMemoire, socle: socle.length ? socle.join('\n\n') : undefined };
+  }
 
-  const memoire = [
-    memoireRemplacee?.trim() || blocMemoire(projectPath),
+  /*
+   * LA FAÇON D'ÉCRIRE UNE RÈGLE DURABLE EST DU SOCLE, PAS DE LA MÉMOIRE. Elle
+   * était collée au bloc mémoire, ce qui faisait passer pour « venu du projet »
+   * un paragraphe identique sur les dix-huit projets. Le tiroir compte
+   * désormais chaque signe du bon côté.
+   */
+  socle.push(
     `RÈGLE DURABLE APPRISE : si ta tâche change une règle durable, une architecture ou une commande, NE TOUCHE PAS à ${quiFaitFoi} — ` +
       `écris-la à la fin de « ${FICHIER_D_ATTENTE} », et le démon la rangera cette nuit dans le fichier de son sujet. ` +
       `Ce fichier est chargé par le MOTEUR à chaque session : le modifier fait repayer aux agents suivants tout ce qu'il contient, au plein tarif. ` +
       `Le fichier d'attente, lui, n'est lu par aucun moteur et ne coûte rien.\n` +
       `Format d'une entrée : un titre en « ## », puis « - sujet : <un sujet de docs/regles/> », puis « - contrat : <une ligne> » seulement si l'invariant doit être NOMMÉ dans ${quiFaitFoi}, ` +
       `puis le texte entier de la règle. Court et factuel : comment lancer, comment vérifier, où vivent les choses, ce qu'on n'enfreint pas. Aucun journal, aucune trace de tâche.`,
-  ].join('\n\n');
+  );
 
-  return { sansMemoire, memoire };
+  return {
+    sansMemoire,
+    socle: socle.length ? socle.join('\n\n') : undefined,
+    memoire: memoireRemplacee?.trim() || blocMemoire(projectPath),
+  };
 }
 
 /** Le briefing complet, tel qu'envoyé au moteur : la part sans mémoire, puis la mémoire. */
@@ -1027,6 +1063,13 @@ export function briefing(
   dossierDeTravail?: string,
   niveau: NiveauDAccueil = 'complet',
 ): string {
-  const { sansMemoire, memoire } = briefingSepare(projectPath, projectName, avecMemoire, engine, dossierDeTravail, niveau);
-  return memoire ? `${sansMemoire}\n\n${memoire}` : sansMemoire;
+  const { sansMemoire, socle, memoire } = briefingSepare(
+    projectPath,
+    projectName,
+    avecMemoire,
+    engine,
+    dossierDeTravail,
+    niveau,
+  );
+  return [sansMemoire, socle, memoire].filter(Boolean).join('\n\n');
 }

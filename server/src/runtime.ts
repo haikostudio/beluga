@@ -89,6 +89,7 @@ import {
   plafondDeContexte,
   poidsDeTour,
   RAISON_ARBRE,
+  type OrigineDeBloc,
   consigneEspaceDuChef,
   detailDuRefus,
   resumeContinuite,
@@ -998,7 +999,18 @@ async function preparerLeTour(
    * ni index de mémoire, ni compétences, ni fichiers d'instructions.
    */
   const niveau = niveauDAccueil({ role: agent.role, motif: options.motif });
-  const contextParts: { label: string; kind: SentContextBlock['kind']; content: string }[] = [];
+  /*
+   * CHAQUE BLOC DIT D'OÙ IL VIENT. Le tiroir « Contexte envoyé » sépare ce qui
+   * décrit CE projet de ce qui vient du socle de la plateforme — un socle qui
+   * serait identique sur n'importe quel projet. Sans cette étiquette posée à
+   * l'envoi, le tiroir devrait le deviner après coup, et se tromperait.
+   */
+  const contextParts: {
+    label: string;
+    kind: SentContextBlock['kind'];
+    origine: OrigineDeBloc;
+    content: string;
+  }[] = [];
   let memoryAndInstructionsCharacters = 0;
 
   /*
@@ -1022,7 +1034,7 @@ async function preparerLeTour(
     // n'a de sens qu'au premier tour : ensuite l'agent l'a en contexte. L'index
     // de la mémoire voyage à part (`kind: 'memory'`) : c'est ce qui permet au
     // tiroir « Contexte envoyé » de distinguer mémoire et reste du briefing.
-    const { sansMemoire, memoire } = briefingSepare(
+    const { sansMemoire, socle, memoire } = briefingSepare(
       project.path,
       project.name,
       true,
@@ -1038,13 +1050,26 @@ async function preparerLeTour(
             ? 'Briefing réduit (tri du chef)'
             : 'Briefing du projet',
       kind: 'briefing',
+      origine: 'projet',
       content: sansMemoire,
     });
     memoryAndInstructionsCharacters += sansMemoire.length;
+    if (socle) {
+      // Le SOCLE : compétences partagées, accès GitHub, façon d'écrire une règle
+      // durable. Le même sur tous les projets — c'est la part « plateforme ».
+      contextParts.push({
+        label: 'Socle de la plateforme',
+        kind: 'briefing',
+        origine: 'plateforme',
+        content: socle,
+      });
+      memoryAndInstructionsCharacters += socle.length;
+    }
     if (memoire) {
       contextParts.push({
         label: 'Carte de la mémoire du projet',
         kind: 'memory',
+        origine: 'projet',
         content: memoire,
       });
       memoryAndInstructionsCharacters += memoire.length;
@@ -1058,6 +1083,7 @@ async function preparerLeTour(
       contextParts.push({
         label: 'Résumé de continuité après compression',
         kind: 'extra',
+        origine: 'projet',
         content: agent.context.continuitySummary,
       });
     } else if (filDuCompteDavant) {
@@ -1072,6 +1098,7 @@ async function preparerLeTour(
       contextParts.push({
         label: 'Résumé de continuité — reprise sur un autre compte',
         kind: 'extra',
+        origine: 'projet',
         content: resume,
       });
       log.info(
@@ -1108,6 +1135,7 @@ async function preparerLeTour(
       contextParts.push({
         label: 'Ce qui a déjà été dit dans cette conversation',
         kind: 'extra',
+        origine: 'projet',
         content: resume,
       });
       log.info(
@@ -1118,7 +1146,7 @@ async function preparerLeTour(
     const nouveaux = newFactsSince(project.path, store.memorySeen(agent.id));
     if (nouveaux.length) {
       const ajout = `MÉMOIRE DU PROJET — faits ajoutés depuis :\n${nouveaux.map((f) => `- ${f}`).join('\n')}`;
-      contextParts.push({ label: 'Nouveaux faits de la mémoire', kind: 'memory', content: ajout });
+      contextParts.push({ label: 'Nouveaux faits de la mémoire', kind: 'memory', origine: 'projet', content: ajout });
       memoryAndInstructionsCharacters += ajout.length;
       store.setMemorySeen(agent.id, empreintesDesFaits(project.path));
     }
@@ -1147,7 +1175,8 @@ async function preparerLeTour(
   if (agent.role === 'orchestrator' && !project.isSelf) {
     const scratch = path.join(PATHS.chefScratch, project.id);
     const espace = consigneEspaceDuChef(scratch, project.path);
-    contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', content: espace });
+    // L'espace du chef est une mécanique de la plateforme, la même partout.
+    contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', origine: 'plateforme', content: espace });
   }
 
   /*
@@ -1166,17 +1195,18 @@ async function preparerLeTour(
       contextParts.push({
         label: `Plan à reprendre (version ${plan.numero})`,
         kind: 'extra',
+        origine: 'projet',
         content: consigneDeRepriseDuPlan(plan),
       });
     }
   }
 
   if (options.context) {
-    contextParts.push({ label: 'Contexte ajouté par HaikoDev', kind: 'extra', content: options.context });
+    contextParts.push({ label: 'Contexte ajouté par HaikoDev', kind: 'extra', origine: 'plateforme', content: options.context });
   }
   if (card) {
     const bloc = carteContexte(agent.id, card, nouvelleSession);
-    if (bloc) contextParts.push({ label: 'Carte en cours', kind: 'card', content: bloc });
+    if (bloc) contextParts.push({ label: 'Carte en cours', kind: 'card', origine: 'projet', content: bloc });
   }
   if (options.attachments?.length) {
     const files = options.attachments
@@ -1187,6 +1217,7 @@ async function preparerLeTour(
       contextParts.push({
         label: 'Pièces jointes',
         kind: 'attachment',
+        origine: 'demande',
         content: `PIÈCES JOINTES fournies par l'utilisateur (lis-les) :\n${files.join('\n')}`,
       });
     }
@@ -1206,19 +1237,28 @@ async function preparerLeTour(
   const description = card?.description ?? '';
   const occurrencesDescription = description ? prompt.split(description).length - 1 : 0;
   const blocks: SentContextBlock[] = [
-    { kind: 'request', label: 'Demande utilisateur', characters: text.length, text, cached: false },
+    {
+      kind: 'request',
+      label: 'Demande utilisateur',
+      characters: text.length,
+      text,
+      cached: false,
+      origine: 'demande',
+    },
     ...contextParts.map((part) => ({
       kind: part.kind,
       label: part.label,
       characters: part.content.length,
       text: part.content,
       cached: false,
+      origine: part.origine,
     })),
     {
       kind: 'format',
       label: 'Gabarit et séparateurs HaikoDev',
       characters: Math.max(0, prompt.length - text.length - contexteAssemble.length),
       cached: false,
+      origine: 'plateforme',
     },
   ];
   await startTurn(
