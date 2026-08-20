@@ -3287,6 +3287,8 @@ export function attachToCurrentMessage(
     proposal?: TaskProposal;
     question?: Message['questions'][number];
     download?: Message['downloads'][number];
+    /** L'identifiant d'une pièce jointe que l'agent vient de produire (ex. capture d'écran). */
+    attachment?: string;
   },
 ): string | undefined {
   const run = live.get(agentId);
@@ -3299,6 +3301,10 @@ export function attachToCurrentMessage(
     proposals: patch.proposal ? [...current.proposals, patch.proposal] : current.proposals,
     questions: patch.question ? [...current.questions, patch.question] : current.questions,
     downloads: patch.download ? [...current.downloads, patch.download] : current.downloads,
+    attachments:
+      patch.attachment && !current.attachments.includes(patch.attachment)
+        ? [...current.attachments, patch.attachment]
+        : current.attachments,
   });
   bus.emit({ type: 'message.upsert', message: updated });
   /*

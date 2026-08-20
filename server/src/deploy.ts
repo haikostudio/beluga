@@ -28,6 +28,7 @@ import {
   detailDEchecConstruction,
   phraseDEchecConstruction,
   estPlomberie,
+  etapeDeRedemarrageDePublication,
   exclusionsDesBranchesDeCartes,
   titreHorsTache,
   descriptionCartePorteuse,
@@ -2865,31 +2866,22 @@ export async function startDeploy(
           .runningDeploys()
           .filter((r) => r.id !== current.id)
           .map((r) => store.getProject(r.projectId)?.name ?? 'un projet');
-        if (!etat.redemarrageNecessaire) {
-          current = setStep(current, 'restart', 'skipped', 'Seule l’interface a changé : le serveur en place sert déjà le bon code.');
-        } else if (autres > 0) {
-          current = setStep(
-            current,
-            'restart',
-            'skipped',
-            `${autres} agent(s) travaillent encore : le redémarrage attend pour ne pas couper leur travail. Il se fait d’un clic sous la liste des projets.`,
-          );
-        } else if (autresPublications.length > 0) {
-          // Une autre publication tourne : le redémarrage est RETENU, il partira
-          // tout seul dès la dernière publication terminée.
-          current = setStep(
-            current,
-            'restart',
-            'skipped',
-            `${autresPublications.length} autre(s) publication(s) en cours (${autresPublications
-              .map((n) => `« ${n} »`)
-              .join(', ')}) : le redémarrage attend qu’elles finissent. Il partira tout seul dès la dernière terminée.`,
-          );
-          redemarrageDemande = true;
-        } else {
-          current = setStep(current, 'restart', 'done', 'Le serveur redémarre : il repart avec le nouveau code en quelques secondes.');
-          redemarrageDemande = true;
-        }
+        /*
+         * LA DÉCISION EST PURE ET RETENUE (§ `etapeDeRedemarrageDePublication`).
+         * Un agent au travail faisait sauter cette étape SANS RIEN RETENIR, en
+         * renvoyant à un clic manuel : le nouveau code restait sur le disque et
+         * le démon continuait des heures sur l'ancien. Les deux attentes
+         * retiennent désormais la demande, et le filet de veille la rejoue dès
+         * que la voie est libre.
+         */
+        const etape = etapeDeRedemarrageDePublication({
+          redemarrageNecessaire: etat.redemarrageNecessaire,
+          agents: autres,
+          agentsDetail: etat.agentsDetail,
+          autresPublications,
+        });
+        current = setStep(current, 'restart', etape.etat, etape.message);
+        redemarrageDemande = etape.retenir;
       } else {
         /*
          * Un projet ordinaire : le plan a déjà dit COMMENT il peut être mis en

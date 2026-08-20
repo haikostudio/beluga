@@ -41,6 +41,7 @@ import {
 } from './runtime.js';
 import { rangerLesCartesOubliees } from './deplacement-carte.js';
 import { passageDuDeploiementAutomatique } from './deploiement-automatique.js';
+import { appliquerRedemarrageEnAttente } from './demon.js';
 import { canStartAgent, snapshot } from './capacity.js';
 import { refreshQuotas } from './accounts.js';
 import { notify } from './notify.js';
@@ -796,6 +797,31 @@ export function passageDeVeille(): void {
    * verrou interne empêche deux passages de se superposer.
    */
   void passageDuDeploiementAutomatique().catch((err) => log.error('déploiement automatique', err));
+  /*
+   * ET LE REDÉMARRAGE RETENU EST REJOUÉ ICI, à chaque passage.
+   *
+   * Publier HaikoDev écrit le nouveau code sur le disque ; le démon en marche
+   * garde celui qu'il a chargé à son lancement. Quand l'étape « redémarrage »
+   * de la publication ne peut pas partir — un agent travaille, une autre
+   * publication tourne —, la demande est RETENUE
+   * (`etapeDeRedemarrageDePublication`) et rejouée par ce qui finit : la fin de
+   * tout tour d'agent et la fin de toute publication l'appellent déjà.
+   *
+   * Ce passage-ci est le FILET de ces deux chemins : ils tiennent tous les deux
+   * à un `finally`, et une demande retenue qu'un tour perdu ne rejouerait jamais
+   * laisserait le nouveau code dormir sur le disque jusqu'au prochain geste à la
+   * main — c'est précisément ce qui a fait qu'un correctif publié le 20/08/2026
+   * n'a jamais tourné. Un point de passage régulier ne dépend, lui, de rien.
+   *
+   * La règle pure ne bouge pas : rien ne part tant qu'un agent travaille ou
+   * qu'une publication tourne, et rien n'est demandé si personne n'a rien
+   * demandé (`redemarrageEnAttente`).
+   */
+  try {
+    appliquerRedemarrageEnAttente();
+  } catch (err) {
+    log.error('redémarrage retenu', err);
+  }
 }
 
 export function startVeille(): NodeJS.Timeout {

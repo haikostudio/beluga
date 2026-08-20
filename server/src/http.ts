@@ -423,6 +423,7 @@ export function createHttpServer(): http.Server {
             attachToCurrentMessage(agentId, { proposal: result.proposal });
           }
           if (result.download) attachToCurrentMessage(agentId, { download: result.download });
+          if (result.attachment) attachToCurrentMessage(agentId, { attachment: result.attachment.id });
           /*
            * UNE QUESTION ARRÊTE LE MOTEUR. On enregistre l'attente AVANT de
            * rendre la main : le pont d'outils va sonder `/internal/attente`

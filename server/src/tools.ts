@@ -1,10 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   AGENT_MOVABLE_COLUMNS,
   AgentQuestion,
+  Attachment,
   texteSansAttente,
   COLUMN_LABELS,
   Card,
@@ -14,6 +16,7 @@ import {
   SouhaitReglages,
   TaskProposal,
   canMove,
+  nomSansCollision,
   heritageAnalyseDeProposition,
   repriseAutorisee,
   reglagesDeLaProposition,
@@ -491,6 +494,22 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'attach_screenshot',
+    description:
+      "Joint une image déjà présente sur disque (capture d'écran de test, vignette…) à TA réponse : elle s'affiche " +
+      "directement dans la conversation, comme une pièce jointe reçue de l'utilisateur. À utiliser après un script " +
+      "de vérification qui a pris des captures (ex. navigateur d'essai) : donne le chemin du fichier PNG/JPG déjà " +
+      "écrit. Le chemin peut être relatif à ton dossier de travail, ou absolu.",
+    inputSchema: {
+      type: 'object',
+      required: ['path'],
+      properties: {
+        path: { type: 'string', description: 'Chemin du fichier image déjà écrit sur disque' },
+        label: { type: 'string', description: 'Nom à afficher (facultatif, sinon celui du fichier)' },
+      },
+    },
+  },
+  {
     name: 'ask_user',
     description:
       "Pose une question à l'utilisateur et ATTEND sa réponse avant de continuer. À utiliser dès qu'un choix t'appartient pas : options possibles, préférence, information manquante.",
@@ -715,6 +734,7 @@ export interface ToolResult {
   proposal?: TaskProposal;
   question?: AgentQuestion;
   download?: { id: string; label: string; size: number; expiresAt: number };
+  attachment?: Attachment;
 }
 
 /**
@@ -1149,6 +1169,75 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       } catch (err: any) {
         return { ok: false, text: `Archive impossible : ${err?.message ?? err}` };
       }
+    }
+
+    case 'attach_screenshot': {
+      const demande = String(args.path ?? '').trim();
+      if (!demande) return { ok: false, text: 'Aucun chemin donné.' };
+      const agent = store.getAgent(ctx.agentId);
+      /*
+       * TROIS RACINES ACCEPTÉES : le dossier de travail de CETTE carte (où vit
+       * une capture prise par ses propres scripts), le dépôt du projet, et le
+       * dossier de données partagé de HaikoDev (où les scripts de vérification
+       * « de tous les jours » écrivent, hors de toute copie de carte).
+       */
+      const racines = [agent?.workdir, project.path, CONFIG.dataDir].filter(Boolean) as string[];
+      let full: string | null = null;
+      for (const racine of racines) {
+        const essai = path.isAbsolute(demande)
+          ? path.resolve(demande) === path.resolve(racine) || path.resolve(demande).startsWith(path.resolve(racine) + path.sep)
+            ? demande
+            : null
+          : safeJoin(racine, demande);
+        if (essai && fs.existsSync(essai) && fs.statSync(essai).isFile()) {
+          full = essai;
+          break;
+        }
+      }
+      if (!full) return { ok: false, text: `Fichier introuvable : ${demande}` };
+      const MIME_PAR_EXTENSION: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+      };
+      const mime = MIME_PAR_EXTENSION[path.extname(full).toLowerCase()];
+      if (!mime) return { ok: false, text: `Ce n'est pas une image reconnue (png, jpg, webp, gif) : ${demande}` };
+      const data = fs.readFileSync(full);
+      const sha = crypto.createHash('sha256').update(data).digest('hex');
+      const existant = store.findAttachmentBySha(project.id, sha);
+      let attachment: Attachment;
+      if (existant) {
+        attachment = existant;
+      } else {
+        const conversation = ctx.cardId ?? ctx.agentId;
+        const dejaUtilises = store
+          .listAttachments(project.id)
+          .filter((a) => (a.cardId ?? a.agentId) === conversation)
+          .map((a) => a.name);
+        const nomVoulu = typeof args.label === 'string' && args.label.trim() ? args.label.trim() : path.basename(full);
+        attachment = Attachment.parse({
+          id: store.newId(),
+          projectId: project.id,
+          name: nomSansCollision(nomVoulu, dejaUtilises),
+          mime,
+          size: data.length,
+          sha,
+          cardId: ctx.cardId,
+          agentId: ctx.agentId,
+          createdAt: Date.now(),
+        });
+        fs.mkdirSync(PATHS.attachments, { recursive: true });
+        fs.writeFileSync(path.join(PATHS.attachments, `${attachment.id}-${attachment.name}`), data);
+        store.saveAttachment(attachment);
+        bus.emit({ type: 'attachments', projectId: project.id, items: store.listAttachments(project.id) });
+      }
+      return {
+        ok: true,
+        text: `Capture jointe à la conversation : ${attachment.name} (${Math.round(data.length / 1024)} ko).`,
+        attachment,
+      };
     }
 
     case 'ask_user': {
