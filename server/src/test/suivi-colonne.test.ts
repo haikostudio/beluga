@@ -460,6 +460,35 @@ test('un agent au travail interdit de la ranger, même avec une vieille marque d
   );
 });
 
+test('un TOUR ENCORE VIVANT interdit de ranger la carte, même statut retombé et marque de vol périmée', () => {
+  /*
+   * LE BOGUE EXACT : le statut de l'agent retombe à « terminé » dès la réponse
+   * figée, puis le démon range encore pendant des minutes (compression du fil,
+   * constat du dépôt, fusion de la branche, fermeture du dossier de carte). La
+   * marque de vol a alors largement dépassé son seuil, et le balayage posait la
+   * carte en « Terminé » — travail non fusionné — avec « le tour s'est terminé
+   * sans ranger la carte ».
+   */
+  const vieille = MAINTENANT - SEUIL_VOL_BLOQUE_MS - 1;
+  assert.equal(
+    issueDeCarteOubliee({ ...OUBLIEE, tourEncoreVivant: true, tourEnVolDepuis: vieille }, MAINTENANT)
+      .colonne,
+    null,
+  );
+  // Et le drapeau « du code a déjà été livré » ne rouvre pas la porte non plus.
+  assert.equal(
+    issueDeCarteOubliee(
+      { ...OUBLIEE, tourEncoreVivant: true, tourEnVolDepuis: vieille, dejaEnregistre: true },
+      MAINTENANT,
+    ).colonne,
+    null,
+  );
+});
+
+test('un tour vivant SANS marque de vol du tout protège lui aussi la carte', () => {
+  assert.equal(issueDeCarteOubliee({ ...OUBLIEE, tourEncoreVivant: true }, MAINTENANT).colonne, null);
+});
+
 test('un dernier tour en échec laisse la carte là où on la relance', () => {
   assert.equal(issueDeCarteOubliee({ ...OUBLIEE, dernierTourEnEchec: true }, MAINTENANT).colonne, null);
   assert.equal(

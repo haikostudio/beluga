@@ -574,6 +574,26 @@ export interface CarteOubliee {
   tourEnVolDepuis?: number;
   /** Un agent — quel que soit son rôle — travaille en ce moment dessus. */
   agentAuTravail: boolean;
+  /**
+   * UN TOUR VIT ENCORE SUR CETTE CARTE, alors même que le STATUT de son agent
+   * est déjà retombé à « terminé » (`Agent.tourVivantDepuis`).
+   *
+   * C'est la fenêtre qui faisait ranger des cartes en plein travail. Le démon
+   * fige la réponse à l'écran, PUIS continue : compression du fil, mesure du
+   * quota, constat du dépôt, fusion de la branche de la carte, fermeture de sa
+   * copie de travail — des minutes entières, pendant lesquelles le statut de
+   * l'agent dit « terminé » et la marque de vol a largement dépassé son seuil.
+   * Le balayage voyait donc une carte « oubliée » là où un tour rangeait
+   * encore, la posait en « Terminé » avec la phrase « le tour s'est terminé
+   * sans ranger la carte », et le vrai rangement qui arrivait une minute plus
+   * tard ne trouvait plus sa carte en « En cours » : il ne faisait plus rien.
+   *
+   * `tourVivantDepuis` est le seul témoin qui couvre cette fenêtre : posé au
+   * lancement du moteur, retiré à la toute dernière ligne du tour, et effacé au
+   * démarrage du démon (aucun moteur ne lui survit). Il ne peut donc pas
+   * bloquer le balayage pour toujours.
+   */
+  tourEncoreVivant?: boolean;
   /** Son dernier tour s'est mal terminé : échec, ou arrêt à la main. */
   dernierTourEnEchec: boolean;
   /** Elle a déjà produit du code, ce tour-ci ou avant. */
@@ -602,10 +622,14 @@ export const SEUIL_VOL_BLOQUE_MS = 5 * 60 * 1000;
  * corrige. Le balayage de l'ordonnanceur les retrouve et cette règle dit ce
  * qu'il faut en faire.
  *
- * Quatre situations n'y touchent PAS, et c'est ce qui rend le balayage sûr :
+ * Cinq situations n'y touchent PAS, et c'est ce qui rend le balayage sûr :
  *
  *   - la carte n'est pas en « En cours » : il n'y a rien à débloquer ;
  *   - un agent travaille dessus : l'agent fait foi, pas la colonne ;
+ *   - un TOUR VIT ENCORE dessus (`tourEncoreVivant`), même avec un statut
+ *     d'agent déjà retombé : le rangement d'après-réponse — compression,
+ *     constat du dépôt, fusion de la branche — dure des minutes, et fermer la
+ *     carte pendant ce temps, c'est l'annoncer terminée avant qu'elle le soit ;
  *   - un tour la TIENT encore depuis MOINS de `SEUIL_VOL_BLOQUE_MS`
  *     (`tourEnVolDepuis`, posée au démarrage du tour et retirée seulement une
  *     fois la carte rangée) : le ranger maintenant, ce serait la ranger en
@@ -626,6 +650,13 @@ export const SEUIL_VOL_BLOQUE_MS = 5 * 60 * 1000;
 export function issueDeCarteOubliee(etat: CarteOubliee, maintenant: number): IssueDeFinDeTour {
   if (etat.colonne !== 'running') return CARTE_INCHANGEE;
   if (etat.agentAuTravail) return CARTE_INCHANGEE;
+  /*
+   * ET UN TOUR QUI RANGE ENCORE N'EST PAS UN TOUR OUBLIÉ. Le statut de l'agent
+   * retombe dès la réponse figée, bien avant la fin du rangement : sans ce
+   * refus, le balayage fermait la carte pendant que le tour fusionnait encore
+   * sa branche (§ `tourEncoreVivant`).
+   */
+  if (etat.tourEncoreVivant) return CARTE_INCHANGEE;
   const volRecent = etat.tourEnVolDepuis !== undefined && maintenant - etat.tourEnVolDepuis < SEUIL_VOL_BLOQUE_MS;
   if (volRecent) return CARTE_INCHANGEE;
   if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
