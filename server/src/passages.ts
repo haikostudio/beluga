@@ -418,11 +418,15 @@ function indexerDesFichiers(
   fichiers: FichierIndexable[],
 ): { fichiers: number; modifies: number; passages: number } {
   const db = getDb();
-  const connus = new Map<string, string>(
-    (db.prepare('SELECT chemin, empreinte FROM doc_fichiers WHERE project_id = ?').all(projectId) as {
-      chemin: string;
-      empreinte: string;
-    }[]).map((ligne) => [ligne.chemin, ligne.empreinte]),
+  const connus = new Map<string, { empreinte: string; taille: number; mtime: number; version: string }>(
+    (
+      db.prepare('SELECT chemin, empreinte, taille, mtime, version FROM doc_fichiers WHERE project_id = ?').all(
+        projectId,
+      ) as { chemin: string; empreinte: string; taille: number; mtime: number; version: string }[]
+    ).map((ligne) => [
+      ligne.chemin,
+      { empreinte: ligne.empreinte, taille: ligne.taille, mtime: ligne.mtime, version: ligne.version },
+    ]),
   );
   // L'index en mémoire du projet — chargé une fois depuis la base, tenu à jour
   // ci-dessous EXACTEMENT comme la base, jamais relu ensuite.
@@ -431,7 +435,8 @@ function indexerDesFichiers(
   const supprimerFichier = db.prepare('DELETE FROM doc_fichiers WHERE project_id = ? AND chemin = ?');
   const supprimerPassages = db.prepare('DELETE FROM doc_passages WHERE project_id = ? AND source = ?');
   const poserFichier = db.prepare(
-    'INSERT OR REPLACE INTO doc_fichiers (project_id, chemin, empreinte, indexe_at) VALUES (?, ?, ?, ?)',
+    `INSERT OR REPLACE INTO doc_fichiers (project_id, chemin, empreinte, indexe_at, taille, mtime, version)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   const poserPassage = db.prepare(
     `INSERT OR REPLACE INTO doc_passages
@@ -472,16 +477,39 @@ function indexerDesFichiers(
     }
 
     for (const fichier of fichiers) {
+      const connu = connus.get(fichier.source);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(fichier.chemin);
+      } catch {
+        continue;
+      }
+      if (stat.size > SIGNES_MAX_PAR_FICHIER) continue;
+      // LE RACCOURCI : taille, date de modification et découpage inchangés →
+      // le contenu ne peut pas avoir bougé, pas besoin de le lire ni de le
+      // hacher. `version` doit rester alignée sur VERSION_INDEX : un
+      // changement de découpage doit forcer la relecture, jamais être court-
+      // circuité par ce raccourci.
+      if (
+        connu &&
+        connu.version === VERSION_INDEX &&
+        connu.taille === stat.size &&
+        connu.mtime === stat.mtimeMs
+      ) {
+        continue;
+      }
+
       let texte = '';
       try {
-        const taille = fs.statSync(fichier.chemin).size;
-        if (taille > SIGNES_MAX_PAR_FICHIER) continue;
         texte = fs.readFileSync(fichier.chemin, 'utf8');
       } catch {
         continue;
       }
       const empreinte = empreinteDuContenu(texte);
-      if (connus.get(fichier.source) === empreinte) continue;
+      if (connu?.empreinte === empreinte) {
+        poserFichier.run(projectId, fichier.source, empreinte, maintenant, stat.size, stat.mtimeMs, VERSION_INDEX);
+        continue;
+      }
 
       /*
        * CE QU'ON VA POUVOIR REPRENDRE. Un fichier réécrit voit tous ses
@@ -536,7 +564,7 @@ function indexerDesFichiers(
           modele: garde?.modele ?? null,
         });
       });
-      poserFichier.run(projectId, fichier.source, empreinte, maintenant);
+      poserFichier.run(projectId, fichier.source, empreinte, maintenant, stat.size, stat.mtimeMs, VERSION_INDEX);
       misesAJourEnCache.push({ source: fichier.source, passages: nouveauxEnCache });
       modifies++;
     }

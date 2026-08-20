@@ -934,6 +934,28 @@ const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_secrets_projet ON secrets(project_id);
     `,
   },
+  {
+    id: 32,
+    name: 'raccourci-taille-mtime-doc-fichiers',
+    siTable: 'doc_fichiers',
+    // NE PLUS RELIRE LES 770 FICHIERS À CHAQUE MESSAGE.
+    //
+    // `doc_fichiers` ne portait que l'empreinte du CONTENU — pour la connaître
+    // il fallait donc lire le fichier en entier et le hacher, à chaque appel,
+    // même quand rien n'a bougé. La taille et la date de modification du
+    // fichier suffisent à savoir « rien n'a changé » sans le lire : un
+    // `statSync` (quelques millisecondes pour tout le projet) remplace la
+    // lecture + le SHA-1 (des dizaines de millisecondes).
+    //
+    // `version` retient le VERSION_INDEX appliqué à l'empreinte : un
+    // changement de découpage doit forcer la relecture complète, le raccourci
+    // par taille/date ne doit pas le court-circuiter.
+    sql: `
+      ALTER TABLE doc_fichiers ADD COLUMN taille INTEGER NOT NULL DEFAULT -1;
+      ALTER TABLE doc_fichiers ADD COLUMN mtime INTEGER NOT NULL DEFAULT -1;
+      ALTER TABLE doc_fichiers ADD COLUMN version TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 export function openDb(): DB {
