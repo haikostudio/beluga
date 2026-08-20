@@ -38,6 +38,7 @@ import {
   type DepotDuCompte,
   filtrerDepots,
   lireLienGithub,
+  agentTientSonTour,
   avancementDeLaColonne,
   avertissementRedemarrage,
   resumeDeCeQuiSeraInterrompu,
@@ -338,7 +339,7 @@ export function Sidebar({
     setCollapsed(collapsed.includes(id) ? collapsed.filter((g) => g !== id) : [...collapsed, id]);
 
   const runningOf = (projectId: string) =>
-    Object.values(state.agents).filter((a) => a.projectId === projectId && a.status === 'running').length;
+    Object.values(state.agents).filter((a) => a.projectId === projectId && agentTientSonTour(a)).length;
 
   /*
    * Le même pourcentage que celui affiché en tête de la colonne « En cours » du
@@ -351,9 +352,7 @@ export function Sidebar({
   const avancementOf = (projectId: string): AvancementColonne | null =>
     avancementDeLaColonne(
       Object.values(state.agents)
-        .filter(
-          (a) => a.projectId === projectId && a.role === 'task' && (a.status === 'running' || a.status === 'starting'),
-        )
+        .filter((a) => a.projectId === projectId && a.role === 'task' && agentTientSonTour(a))
         .map((agent) => ({ agentActif: true, todos: agent.todos })),
     );
 
