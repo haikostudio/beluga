@@ -337,3 +337,85 @@ test('le classement départage sans renverser, et fait reculer une fiche dépré
 });
 
 test.after(() => fs.rmSync(RACINE, { recursive: true, force: true }));
+
+/* ------------------------------------------------------------------ */
+/* LE POOL EST SERVI AU POIDS DE LA DEMANDE, COMME LES RÈGLES          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN POOL RÉALISTE : la taille et les noms de celui d'HaikoDev au 20/08/2026.
+ * Le tri ne se juge pas sur trois fiches courtes — sur un pool minuscule il ne
+ * paie pas, et la règle le sait (elle rend alors la liste entière).
+ */
+const POOL = [
+  ['compta', 'Créer des factures, des offres et des clients', 'gestion', 'facture'],
+  ['brandkit', 'Planches de marque, logos et identité visuelle', 'dessin', 'logo'],
+  ['minimalist-ui', 'Interfaces sobres, palettes calmes', 'dessin', 'palette'],
+  ['industrial-brutalist-ui', 'Interfaces brutes, grilles rigides', 'dessin', 'grille'],
+  ['high-end-visual-design', 'Faire un site qui a l’air cher', 'dessin', 'ombre'],
+  ['design-taste-frontend', 'Pages d’accueil et portfolios non templatés', 'dessin', 'template'],
+  ['redesign-existing-projects', 'Reprendre un site existant sans le casser', 'dessin', 'refonte'],
+  ['imagegen-frontend-web', 'Images de référence pour un site', 'dessin', 'maquette'],
+  ['imagegen-frontend-mobile', 'Écrans d’application pour téléphone', 'dessin', 'iphone'],
+  ['image-to-code', 'Passer d’une image au code du site', 'dessin', 'capture'],
+  ['stitch-design-taste', 'Système de design pour Google Stitch', 'dessin', 'stitch'],
+  ['gpt-taste', 'Mouvement GSAP et typographie éditoriale', 'dessin', 'gsap'],
+  ['full-output-enforcement', 'Interdire les sorties tronquées', 'outils', 'placeholder'],
+  ['verifs-navigateur-etat-plutot-que-hauteur', 'Contrôles Playwright robustes sur une zone repliable', 'tests', 'accordéon'],
+  ['tracer-appels-outils-dans-le-tour', 'Afficher ce qu’un appel d’outil a rendu pendant le tour', 'outils', 'résultat'],
+  ['ajouter-projet-github', 'Poser un dépôt GitHub sur le serveur et le faire tourner', 'serveur', 'systemd'],
+].map(([nom, description, theme, symptome]) => ({
+  ...FICHE,
+  nom,
+  description,
+  themes: [theme],
+  symptomes: [symptome],
+}));
+
+test('sans carte, le pool part entier — rien ne change pour une conversation', () => {
+  const texte = texteDesCompetences(POOL, '/partage');
+  for (const fiche of POOL) assert.match(texte, new RegExp(fiche.nom));
+});
+
+test('avec une carte, seules les compétences qui parlent du travail sont nommées', () => {
+  const texte = texteDesCompetences(POOL, '/partage', 'Créer une facture pour un client et envoyer le devis');
+  assert.match(texte, /compta/);
+  assert.doesNotMatch(texte, /brandkit/);
+  assert.doesNotMatch(texte, /minimalist-ui/);
+  assert.doesNotMatch(texte, /ajouter-projet-github/);
+  // Ce qui est écarté est COMPTÉ, jamais caché en silence.
+  assert.match(texte, /12 autres compétences/);
+  assert.match(texte, /le sommaire les donne toutes/);
+  // Et le tri fait vraiment maigrir le bloc.
+  assert.ok(texte.length < texteDesCompetences(POOL, '/partage').length);
+});
+
+test('une carte dont aucune compétence ne parle reçoit le pool entier, pas le silence', () => {
+  const texte = texteDesCompetences(POOL, '/partage', 'Corriger fuseau horaire séparateur quantième');
+  for (const fiche of POOL) assert.match(texte, new RegExp(fiche.nom));
+});
+
+test('un pool trop court n’est jamais trié : la liste entière coûte moins qu’une fiche cachée', () => {
+  const petit = POOL.slice(0, 2);
+  const texte = texteDesCompetences(petit, '/partage', 'Créer une facture pour un client');
+  assert.match(texte, /brandkit/);
+});
+
+test('un tri qui pèserait plus que la liste entière n’est pas servi', () => {
+  // Six fiches aux noms très courts : la phrase qui COMPTE les écartées pèse
+  // plus que les noms qu'elle retire. La règle rend alors la liste entière.
+  const courts = ['aa1', 'bb2', 'cc3', 'dd4', 'ee5', 'ff6'].map((nom) => ({
+    ...FICHE,
+    nom,
+    description: nom,
+    themes: ['divers'],
+    symptomes: [],
+  }));
+  const texte = texteDesCompetences(courts, '', 'aa1 seulement');
+  for (const fiche of courts) assert.match(texte, new RegExp(fiche.nom));
+});
+
+test('les fiches retenues gardent leur classement PAR THÈME', () => {
+  const texte = texteDesCompetences(POOL, '/partage', 'Poser un dépôt GitHub sur le serveur, avec systemd');
+  assert.match(texte, /- serveur \(1\) : ajouter-projet-github/);
+});

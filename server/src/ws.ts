@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
+  economieMemoire,
   COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
   ERREURS_MONTREES_REGLAGES,
@@ -1857,10 +1858,50 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           turns: ligne.turns,
         };
       });
+      /*
+       * CE QUE LE TRI DE LA MÉMOIRE A ÉCONOMISÉ SUR LE MOIS, CARTE PAR CARTE.
+       *
+       * Les deux poids sont relevés à chaque ouverture de mémoire
+       * (`store.recordMemoryEconomy`) ; le rapport jetons → quota est DÉDUIT de
+       * la consommation réelle de la même fenêtre, jamais supposé. Une carte
+       * dont le titre a disparu garde sa ligne : l'économie a bien eu lieu.
+       */
+      const parJeton = store.quotaParJeton();
+      const memoireCartes = store
+        .memoryEconomyByCard()
+        .map((ligne) => {
+          const calcul = economieMemoire(ligne.entiers, ligne.servis, parJeton);
+          return {
+            cardId: ligne.cardId,
+            title: cartes.get(ligne.cardId)?.title ?? 'Carte retirée',
+            projectName: cartes.get(ligne.cardId)?.projectName,
+            ouvertures: ligne.ouvertures,
+            signesEvites: calcul.signesEvites,
+            jetonsEvites: calcul.jetonsEvites,
+            part: calcul.part,
+            quotaEvite: calcul.quotaEvite,
+          };
+        })
+        .filter((ligne) => ligne.signesEvites > 0);
+      const totaux = store.memoryEconomyTotals();
+      const memoireTotal = economieMemoire(totaux.entiers, totaux.servis, parJeton);
+
       return {
         byProject: store.usageByProject(),
         byDay: store.usageByDay(30),
         byCard,
+        memoire: {
+          jours: store.JOURS_D_ECONOMIE_MEMOIRE,
+          ouvertures: totaux.ouvertures,
+          cartes: memoireCartes.length,
+          signesEvites: memoireTotal.signesEvites,
+          jetonsEvites: memoireTotal.jetonsEvites,
+          part: memoireTotal.part,
+          quotaEvite: memoireTotal.quotaEvite,
+          /** Le rapport RELEVÉ, pour que l'écran puisse dire d'où sort la part de quota. */
+          quotaParJeton: parJeton ?? undefined,
+          parCarte: memoireCartes,
+        },
       };
     }
 

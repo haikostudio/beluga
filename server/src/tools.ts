@@ -1306,6 +1306,20 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         carte ? `${carte.title}\n${carte.description}` : '',
       );
       store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
+      /*
+       * CE QUE LE TRI VIENT D'ÉVITER D'ENVOYER, RELEVÉ ICI ET NULLE PART
+       * AILLEURS. La mémoire ne connaît ni base ni carte : elle rend les deux
+       * poids, c'est l'outil — qui sait de quelle carte il travaille — qui les
+       * enregistre. Le tableau de bord additionne ensuite ces lignes sur un
+       * mois glissant, carte par carte.
+       */
+      store.recordMemoryEconomy({
+        projectId: project.id,
+        cardId: ctx.cardId,
+        agentId: ctx.agentId,
+        entiers: servi.economie.entiers,
+        servis: servi.economie.servis,
+      });
       return { ok: true, text: servi.texte };
     }
 

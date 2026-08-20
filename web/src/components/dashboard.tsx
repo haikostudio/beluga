@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowLeft, Clock, Gauge, ListChecks, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Clock, Gauge, ListChecks, Scissors, TrendingUp } from 'lucide-react';
 import { couleurIntensite } from '@haikodev/shared';
 import { Button, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -24,6 +24,27 @@ type DonneesTableau = {
     seconds: number;
     turns: number;
   }[];
+  /**
+   * CE QUE LE TRI DE LA MÉMOIRE A ÉCONOMISÉ SUR LA FENÊTRE. Les parts sont des
+   * fractions (0,95 = 95 %) ; `quotaEvite` est en POINTS DE POURCENTAGE de
+   * quota de la semaine, comme le reste de la page, et reste absent tant que le
+   * rapport jetons → quota n'a pas été relevé sur de vrais tours.
+   */
+  memoire?: {
+    jours: number;
+    ouvertures: number;
+    cartes: number;
+    part: number;
+    quotaEvite?: number;
+    parCarte: {
+      cardId: string;
+      title: string;
+      projectName?: string;
+      ouvertures: number;
+      part: number;
+      quotaEvite?: number;
+    }[];
+  };
 };
 
 /** Secondes machine → « 3 h 20 » ou « 12 min », lisible d'un coup d'œil. */
@@ -72,6 +93,15 @@ function partEnClair(part: number): string {
 function pourcentEnClair(part: number): string {
   if (part < 1) return `${part.toFixed(2)} %`;
   return `${part.toFixed(part < 10 ? 1 : 0)} %`;
+}
+
+/**
+ * Une part écrite en FRACTION (0,95) → « 95 % ». À ne pas confondre avec
+ * `pourcentEnClair`, qui reçoit déjà des points de pourcentage.
+ */
+function fractionEnClair(part: number): string {
+  const pourcent = part * 100;
+  return `${pourcent.toFixed(pourcent < 10 && pourcent > 0 ? 1 : 0)} %`;
 }
 
 /** Une grande tuile de chiffre, en tête de page. */
@@ -192,6 +222,9 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
   // La barre se mesure au plus gros consommateur de la SEMAINE : même grandeur
   // que le classement, donc elle décroît du haut vers le bas.
   const maxSemaine = Math.max(0.0001, ...cartesMesurees.map((c) => c.quotaSemaine ?? 0));
+  // Ce que le tri de la mémoire a évité d'envoyer sur la fenêtre. Absent d'une
+  // base qui n'a rien relevé : le bloc le dit au lieu d'afficher un zéro.
+  const memoire = donnees?.memoire;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg">
@@ -349,6 +382,79 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             ) : null}
+          </section>
+
+          {/* 5. Ce que le tri de la mémoire a évité d'envoyer, sur le mois. */}
+          <section className="rounded-lg border border-border bg-surface px-3 py-3" data-economie-memoire>
+            <h2 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+              <Scissors className="h-3.5 w-3.5 text-faint" />  {t('Mémoire évitée par le tri')}
+</h2>
+            <p className="mb-2 mt-0.5 text-[12.5px] text-faint">
+              {t('Un sujet de mémoire n\'est plus envoyé en entier : seuls les passages qui parlent du travail de la carte partent. Voici ce que ce tri a évité d\'envoyer sur les {v0} derniers jours.', { v0: memoire?.jours ?? 30 })}</p>
+
+            {memoire && memoire.ouvertures ? (
+              <>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <Tuile
+                    icone={<Scissors className="h-3.5 w-3.5" />}
+                    titre={t('Mémoire non envoyée')}
+                    valeur={fractionEnClair(memoire.part)}
+                    dessous={t('sur {v0} ouverture{v1} de mémoire, {v2} carte{v3}', {
+                      v0: memoire.ouvertures,
+                      v1: memoire.ouvertures > 1 ? 's' : '',
+                      v2: memoire.cartes,
+                      v3: memoire.cartes > 1 ? 's' : '',
+                    })}
+                  />
+                  <Tuile
+                    icone={<Gauge className="h-3.5 w-3.5" />}
+                    titre={t('Quota de semaine épargné')}
+                    valeur={memoire.quotaEvite != null ? pourcentEnClair(memoire.quotaEvite) : '—'}
+                    dessous={
+                      memoire.quotaEvite != null
+                        ? t('déduit de la consommation réellement relevée sur la période')
+                        : t('aucune consommation relevée : la part de quota ne se déduit pas encore')
+                    }
+                  />
+                </div>
+
+                {memoire.parCarte.length ? (
+                  <div className="mt-3 space-y-1.5">
+                    {memoire.parCarte.slice(0, 20).map((carte) => (
+                      <div
+                        key={carte.cardId}
+                        className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5"
+                        data-economie-carte={carte.cardId}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] text-text">{carte.title}</p>
+                          <p className="truncate text-[11px] text-faint">
+                            {carte.projectName ?? t('Projet retiré')} ·{' '}
+                            {t('{v0} ouverture{v1}', { v0: carte.ouvertures, v1: carte.ouvertures > 1 ? 's' : '' })}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
+                            {t('{v0} évités', { v0: fractionEnClair(carte.part) })}
+                          </span>
+                          {carte.quotaEvite != null ? (
+                            <p className="mt-0.5 text-[11px] text-faint">
+                              {t('{v0} de quota', { v0: pourcentEnClair(carte.quotaEvite) })}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[13px] text-faint">
+                    {t('Aucune carte ne porte encore d\'économie : les ouvertures relevées viennent de conversations.')}</p>
+                )}
+              </>
+            ) : (
+              <p className="text-[13px] text-faint">
+                {t('Rien de relevé pour l\'instant. Ce bloc se remplit à chaque fois qu\'un agent ouvre la mémoire du projet.')}</p>
+            )}
           </section>
         </div>
       </ZoneDefilement>

@@ -496,12 +496,29 @@ function faitsEnEntier(sujet: SujetEnArbre, faits: string[]): string {
  *    silence honnête vaut mieux que cinq passages tirés au sort.
  */
 export function detailMemoire(projectPath: string, requete: string, travail = ''): string {
+  return detailMemoireEtPoids(projectPath, requete, travail).texte;
+}
+
+/**
+ * LE MÊME DÉTAIL, AVEC CE QU'IL AURAIT PESÉ SANS LE TRI.
+ *
+ * `poidsEntier` est le nombre de signes que la réponse aurait eus si rien
+ * n'avait été rogné — égal à la longueur du texte servi quand aucun tri n'a
+ * joué. C'est la seule mesure honnête de l'économie : une soustraction entre
+ * deux textes réellement construits, jamais une estimation.
+ */
+export function detailMemoireEtPoids(
+  projectPath: string,
+  requete: string,
+  travail = '',
+): { texte: string; poidsEntier: number } {
+  const rendre = (texte: string, poidsEntier = texte.length) => ({ texte, poidsEntier });
   const arbre = arbreDuProjet(projectPath);
   const faits = arbre.flatMap((sujet) => sujet.branches.flatMap((b) => b.faits));
-  if (!faits.length) return 'La mémoire du projet est vide pour le moment.';
+  if (!faits.length) return rendre('La mémoire du projet est vide pour le moment.');
 
   const { requete: demande, entier: toutVoulu } = lireDemandeDeMemoire(requete);
-  if (!demande) return carteDeLArbre(arbre);
+  if (!demande) return rendre(carteDeLArbre(arbre));
 
   // UN SUJET, par son nom : le palier au-dessus des branches.
   const vise = sujetDeLaRequete(demande);
@@ -509,7 +526,7 @@ export function detailMemoire(projectPath: string, requete: string, travail = ''
   if (sujet) {
     const siens = sujet.branches.flatMap((b) => b.faits);
     const entier = faitsEnEntier(sujet, siens);
-    if (sujet.eclate && entier.length > POIDS_SERVI_EN_ENTIER) return rappelDuSujet(sujet);
+    if (sujet.eclate && entier.length > POIDS_SERVI_EN_ENTIER) return rendre(rappelDuSujet(sujet));
     /*
      * UN SUJET RESTÉ À PLAT peut peser autant qu'un fichier de règles : il n'a
      * pas de branches où descendre, donc rien ne le rognait. Quand une CARTE dit
@@ -518,40 +535,47 @@ export function detailMemoire(projectPath: string, requete: string, travail = ''
     if (sujetNommeAFiltrer({ signes: entier.length, demande: travail, entier: toutVoulu })) {
       const garde = extraitDeSujet(siens, travail);
       if (garde.gardees.length) {
-        return [
+        return rendre(
+          [
           faitsEnEntier(sujet, garde.gardees),
           garde.ecartees &&
             `(${garde.ecartees} autre${garde.ecartees > 1 ? 's' : ''} fait${
               garde.ecartees > 1 ? 's' : ''
             } de ce sujet ne parle${garde.ecartees > 1 ? 'nt' : ''} pas de ta demande. ` +
               `Pour le sujet entier, redemande project_memory avec « ${sujet.id} entier ».)`,
-        ]
-          .filter(Boolean)
-          .join('\n\n');
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+          // Ce que le sujet aurait pesé servi en entier : c'est ce nombre-là,
+          // moins le texte servi, que le tableau de bord additionne.
+          entier.length,
+        );
       }
     }
-    return entier;
+    return rendre(entier);
   }
 
   // UNE BRANCHE, par son mot. Deux sujets peuvent porter le même : on rend les
   // deux plutôt que d'en cacher un.
   const branches = brancheDemandee(arbre, demande);
   if (branches.length) {
-    return branches
-      .map(
+    return rendre(
+      branches
+        .map(
         ({ sujet: parent, branche }) =>
-          `\`${branche.fichier}\` — ${parent.libelle} › ${branche.titre}\n\n${branche.faits
-            .map((f) => `- ${f}`)
-            .join('\n')}`,
-      )
-      .join('\n\n———\n\n');
+            `\`${branche.fichier}\` — ${parent.libelle} › ${branche.titre}\n\n${branche.faits
+              .map((f) => `- ${f}`)
+              .join('\n')}`,
+        )
+        .join('\n\n———\n\n'),
+    );
   }
 
   const trouves = chercherFaits(faits, demande);
   if (!trouves.length) {
-    return `Aucun fait ne correspond à « ${demande} ».\n\n${carteDeLArbre(arbre)}`;
+    return rendre(`Aucun fait ne correspond à « ${demande} ».\n\n${carteDeLArbre(arbre)}`);
   }
-  return trouves.map((f) => `- ${f.texte}`).join('\n');
+  return rendre(trouves.map((f) => `- ${f.texte}`).join('\n'));
 }
 
 /**
@@ -565,6 +589,13 @@ interface MorceauServi {
   /** Comment le nommer quand on refuse de le resservir. */
   libelle: string;
   texte: string;
+  /**
+   * CE QUE CE MORCEAU AURAIT PESÉ SANS LE TRI, en signes. Égal à la longueur du
+   * texte quand rien n'a été rogné. C'est de la différence entre les deux que
+   * sort l'économie affichée au tableau de bord — une soustraction entre deux
+   * textes réellement construits, jamais une estimation.
+   */
+  poidsEntier?: number;
 }
 
 function cleMorceau(genre: string, id: string, texte: string): string {
@@ -633,22 +664,30 @@ export function detailRegles(projectPath: string, requete: string, travail = '')
  * qui touchent ce qu'elle a changé, pas les cinquante d'un sujet ; ce qui est
  * écarté est compté, et le sujet entier reste à un mot de distance.
  */
-function controlesDuSujet(projectPath: string, sujet: SujetRegles, demande: string, entier: boolean): string {
+function controlesDuSujet(
+  projectPath: string,
+  sujet: SujetRegles,
+  demande: string,
+  entier: boolean,
+): { texte: string; poidsEntier: number } {
   const section = sectionDoc(lireDoc(projectPath, 'docs/verifications.md'), TITRE_CONTROLES[sujet.id] ?? '');
-  if (!section) return '';
+  if (!section) return { texte: '', poidsEntier: 0 };
 
   const entete = `CONTRÔLES — ${sujet.libelle}`;
-  if (!sujetNommeAFiltrer({ signes: section.length, demande, entier })) return `${entete}\n\n${section}`;
+  const tout = `${entete}\n\n${section}`;
+  const rendreTout = { texte: tout, poidsEntier: tout.length };
+  if (!sujetNommeAFiltrer({ signes: section.length, demande, entier })) return rendreTout;
 
   const extrait = extraitDeControles(section, demande);
-  if (!extrait.gardees.length) return `${entete}\n\n${section}`;
+  if (!extrait.gardees.length) return rendreTout;
   const reste = extrait.ecartees
     ? `\n\n(${extrait.ecartees} autre${extrait.ecartees > 1 ? 's' : ''} contrôle${
         extrait.ecartees > 1 ? 's' : ''
       } de ce sujet ne parle${extrait.ecartees > 1 ? 'nt' : ''} pas de ta demande. ` +
       `Pour la liste entière, redemande project_memory avec « ${sujet.id} entier ».)`
     : '';
-  return `${entete} — ceux qui touchent ta demande :\n\n\`\`\`bash\n${extrait.gardees.join('\n')}\n\`\`\`${reste}`;
+  const texte = `${entete} — ceux qui touchent ta demande :\n\n\`\`\`bash\n${extrait.gardees.join('\n')}\n\`\`\`${reste}`;
+  return { texte, poidsEntier: tout.length };
 }
 
 /**
@@ -673,12 +712,13 @@ function extraitDuSujetNomme(
   const extrait = extraitDeSujet(decouperRegles(fichier), travail);
   if (!extrait.gardees.length) return null;
 
+  const controles = controlesDuSujet(projectPath, sujet, travail, entier);
   const texte = [
     `RÈGLES « ${sujet.libelle} » qui touchent le travail de ta carte ` +
       `(le sujet entier pèse ${fichier.length} signes ; il est servi au poids de ta demande) :`,
     extrait.gardees.join('\n\n'),
     mentionDEcart(sujet, extrait),
-    controlesDuSujet(projectPath, sujet, travail, entier),
+    controles.texte,
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -687,6 +727,9 @@ function extraitDuSujetNomme(
     cle: cleMorceau('extrait', sujet.id, texte),
     libelle: `un extrait des règles « ${sujet.libelle} »`,
     texte,
+    // Sans le tri, l'agent aurait reçu le fichier de règles ENTIER et la
+    // section de contrôles ENTIÈRE : c'est cela qu'on compare au texte servi.
+    poidsEntier: texteDuSujet(projectPath, sujet).length,
   };
 }
 
@@ -761,11 +804,12 @@ function morceauxRegles(projectPath: string, requete: string, travail = ''): Mor
        * aussi dès que leur liste est longue : la MÉTHODE impose de rejouer les
        * contrôles TOUCHÉS, pas les cinquante d'un sujet.
        */
+      const controles = controlesDuSujet(projectPath, sujet, travail || demande, entier);
       const texte = [
         `RÈGLES « ${sujet.libelle} » qui touchent ta demande :`,
         extrait.gardees.join('\n\n'),
         mentionDEcart(sujet, extrait),
-        controlesDuSujet(projectPath, sujet, travail || demande, entier),
+        controles.texte,
       ]
         .filter(Boolean)
         .join('\n\n');
@@ -774,6 +818,9 @@ function morceauxRegles(projectPath: string, requete: string, travail = ''): Mor
         cle: cleMorceau('extrait', sujet.id, texte),
         libelle: `un extrait des règles « ${sujet.libelle} »`,
         texte,
+        // Ici seuls les CONTRÔLES sont neufs au tri : les règles étaient déjà
+        // servies au poids des mots-clés avant cette mécanique.
+        poidsEntier: texte.length + (controles.poidsEntier - controles.texte.length),
       });
     }
 
@@ -833,14 +880,20 @@ function morceauxHerites(
   if (morceauxRegles(projectPath, requete, travail).length) return [];
 
   const source = amont as SourceDHeritage;
-  return morceauxRegles(source.chemin, requete, travail).map((morceau) => ({
-    cle: morceau.cle ? `amont:${morceau.cle}` : '',
-    libelle: `${morceau.libelle}, héritées de ${source.nom}`,
-    texte:
+  return morceauxRegles(source.chemin, requete, travail).map((morceau) => {
+    const entete =
       `HÉRITÉ DE ${source.nom.toUpperCase()} — ce projet n'a pas de règle sur ce sujet ; voici celle du projet ` +
       `dont il HÉRITE. Elle vaut tant que ce projet n'écrit pas la sienne, et le fichier cité vit ` +
-      `dans le dépôt de ${source.nom}, pas ici.\n\n${morceau.texte}`,
-  }));
+      `dans le dépôt de ${source.nom}, pas ici.\n\n`;
+    return {
+      cle: morceau.cle ? `amont:${morceau.cle}` : '',
+      libelle: `${morceau.libelle}, héritées de ${source.nom}`,
+      texte: `${entete}${morceau.texte}`,
+      // L'en-tête d'héritage se paie des deux côtés : elle serait partie sans
+      // le tri comme avec lui.
+      poidsEntier: entete.length + (morceau.poidsEntier ?? morceau.texte.length),
+    };
+  });
 }
 
 /**
@@ -856,7 +909,7 @@ export interface SourceDHeritage {
 
 /** Les morceaux de FAITS servis par une demande. */
 function morceauxFaits(projectPath: string, requete: string, travail = ''): MorceauServi[] {
-  const texte = detailMemoire(projectPath, requete, travail);
+  const { texte, poidsEntier } = detailMemoireEtPoids(projectPath, requete, travail);
 
   // Une demande qui NOMME un sujet se dédoublonne : l'agent l'a déjà sous les
   // yeux. Le marqueur « entier » est retiré d'abord : « cartes entier » et
@@ -864,7 +917,9 @@ function morceauxFaits(projectPath: string, requete: string, travail = ''): Morc
   // différente.
   const sujet = sujetDeLaRequete(lireDemandeDeMemoire(requete).requete);
   if (sujet) {
-    return [{ cle: cleMorceau('faits', sujet.id, texte), libelle: `les faits « ${sujet.libelle} »`, texte }];
+    return [
+      { cle: cleMorceau('faits', sujet.id, texte), libelle: `les faits « ${sujet.libelle} »`, texte, poidsEntier },
+    ];
   }
 
   /*
@@ -880,11 +935,12 @@ function morceauxFaits(projectPath: string, requete: string, travail = ''): Morc
         cle: cleMorceau('branche', `${parent.id}/${branche.nom}`, texte),
         libelle: `la branche « ${branche.nom} » de « ${parent.id} »`,
         texte,
+        poidsEntier,
       },
     ];
   }
 
-  return [{ cle: '', libelle: 'ces faits', texte }];
+  return [{ cle: '', libelle: 'ces faits', texte, poidsEntier }];
 }
 
 /** Ce que l'outil `project_memory` rend, et ce qu'il faut retenir d'avoir servi. */
@@ -892,6 +948,17 @@ export interface DetailProjet {
   texte: string;
   /** Les clés des sujets réellement servis : à retenir pour ne pas les resservir. */
   servis: string[];
+  /**
+   * CE QUE LE TRI A ÉCONOMISÉ SUR CETTE OUVERTURE, en signes : `entiers` est ce
+   * qui serait parti sans lui, `servis` ce qui part vraiment. Les deux sont
+   * MESURÉS sur des textes réellement construits — c'est ce couple que le
+   * tableau de bord additionne sur le mois (`store.recordMemoryEconomy`).
+   *
+   * Les rappels « déjà dans ton contexte » n'y entrent PAS : ils relèvent du
+   * dédoublonnage de session, pas du tri par pertinence, et les mélanger
+   * gonflerait l'économie annoncée d'une grandeur qui n'est pas la sienne.
+   */
+  economie: { entiers: number; servis: number };
 }
 
 /**
@@ -953,6 +1020,10 @@ export function detailProjet(
   return {
     texte: parties.filter(Boolean).join('\n\n═══\n\n'),
     servis: utiles.map((m) => m.cle).filter(Boolean),
+    economie: {
+      entiers: utiles.reduce((total, m) => total + (m.poidsEntier ?? m.texte.length), 0),
+      servis: utiles.reduce((total, m) => total + m.texte.length, 0),
+    },
   };
 }
 
@@ -1093,6 +1164,13 @@ export function briefingSepare(
    * fait chez l'appelant : ce module ne connaît ni base ni index de recherche.
    */
   memoireRemplacee?: string,
+  /**
+   * LE TRAVAIL RÉEL DE LA CARTE — son titre et son constat. Il ne sert qu'à
+   * SERVIR LE POOL DE COMPÉTENCES AU POIDS DE LA DEMANDE : les fiches qui en
+   * parlent sont nommées, les autres comptées. Absent — une conversation, le
+   * chef d'orchestre —, la liste entière part comme avant.
+   */
+  travail = '',
 ): BriefingSepare {
   const emporte = partsDAccueil(niveau);
   migrerJournal(projectPath);
@@ -1129,7 +1207,7 @@ export function briefingSepare(
    */
   const socle: string[] = [];
   const competences = emporte.competences
-    ? texteDesCompetences(listerCompetences(), dossierDesCompetences())
+    ? texteDesCompetences(listerCompetences(), dossierDesCompetences(), travail)
     : '';
   if (competences) socle.push(competences);
 
