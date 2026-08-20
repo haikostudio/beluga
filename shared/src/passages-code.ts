@@ -74,7 +74,7 @@ export const DOSSIERS_SANS_DOC = new Set([
  * mémoire, qui contredirait la version en vigueur. Même règle que l'envoi
  * quotidien au cerveau.
  */
-export const DOCUMENTS_JAMAIS_INDEXES = new Set(['HISTORIQUE.md', 'MEMOIRE.avant-synthese.md']);
+export const DOCUMENTS_JAMAIS_INDEXES = new Set(['HISTORIQUE.md', 'MEMOIRE.avant-synthese.md', 'PLAN.md']);
 
 /** Combien de documents Markdown on indexe au plus, sur un projet quelconque. */
 export const FICHIERS_DOC_MAX = 1600;
