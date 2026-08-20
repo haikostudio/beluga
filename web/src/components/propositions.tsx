@@ -28,19 +28,62 @@ type Proposition = Message['proposals'][number];
  * bandeau glisse horizontalement — l'axe vertical est bloqué en toutes lettres
  * par `ZoneDefilement axe="horizontal"`. Aucune proposition en attente : le
  * bandeau ne rend RIEN et ne prend aucune place.
+ *
+ * IL SE REPLIE D'UN CLIC SUR SON ENTÊTE. Sur un téléphone, une vignette
+ * dépliée mangeait la moitié de l'écran et poussait la conversation hors de
+ * vue, sans aucun moyen de la ranger : la carte restait là tant qu'on ne
+ * l'avait pas validée ou refusée. Replié, le bandeau ne garde qu'UNE ligne —
+ * son compte et le titre de la carte — et la conversation retrouve sa place ;
+ * le choix est retenu d'une fois sur l'autre (`CLE_BANDEAU`). Une proposition
+ * NOUVELLE rouvre le bandeau d'office : rien de ce qui attend une décision ne
+ * doit rester caché derrière un pli.
  */
+
+/** Où l'on retient le choix « replié / déplié » du bandeau. */
+const CLE_BANDEAU = 'haikodev.bandeau-propositions.ouvert';
+
+function pliInitial(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(CLE_BANDEAU) !== '0';
+  } catch {
+    return true;
+  }
+}
+
 export function BandeauPropositions({ messages }: { messages: Message[] }) {
   const attente = propositionsEnAttente(messages);
   const [selectionActive, setSelectionActive] = React.useState(false);
   const [selection, setSelection] = React.useState<string[]>([]);
   const [fusionEnCours, setFusionEnCours] = React.useState(false);
+  const [ouvert, setOuvert] = React.useState(pliInitial);
   const idsEnAttente = attente.map((entree) => entree.proposal.id);
   const cleAttente = idsEnAttente.join('|');
+  const dejaVues = React.useRef<Set<string>>(new Set(idsEnAttente));
 
   React.useEffect(() => {
     setSelection((courante) => courante.filter((id) => idsEnAttente.includes(id)));
     if (idsEnAttente.length < 2) setSelectionActive(false);
   }, [cleAttente]);
+
+  /* Une proposition JAMAIS VUE rouvre le bandeau : un pli est un confort de
+     lecture, pas un moyen de rater une décision qui vous attend. */
+  React.useEffect(() => {
+    const nouvelle = idsEnAttente.some((id) => !dejaVues.current.has(id));
+    dejaVues.current = new Set(idsEnAttente);
+    if (nouvelle) setOuvert(true);
+  }, [cleAttente]);
+
+  const basculerPli = () =>
+    setOuvert((valeur) => {
+      const suivant = !valeur;
+      try {
+        window.localStorage.setItem(CLE_BANDEAU, suivant ? '1' : '0');
+      } catch {
+        /* navigation privée : le choix vaut pour la session, c'est tout. */
+      }
+      return suivant;
+    });
 
   if (!attente.length) return null;
 
@@ -81,11 +124,24 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
       className="shrink-0 border-t border-accent/30 bg-gradient-to-b from-surface to-surface/0"
     >
       <div className="flex items-center gap-1.5 px-3 pt-1.5 text-[12px] text-muted">
-        <LayoutGrid className="h-3 w-3 shrink-0 text-accent" />
-        <span className="min-w-0 flex-1 truncate">
-          {attente.length > 1 ? t('{v0} cartes à valider', { v0: attente.length }) : t('Carte à valider')}
-        </span>
-        {!selectionActive && attente.length > 1 ? (
+        {/* TOUT L'ENTÊTE REPLIE ET DÉPLIE : un clic n'importe où sur la ligne
+            du titre suffit, sans viser le chevron posé à son extrémité. */}
+        <button
+          type="button"
+          data-bandeau-pli=""
+          aria-expanded={ouvert}
+          onClick={basculerPli}
+          title={ouvert ? t('Replier les cartes à valider') : t('Déplier les cartes à valider')}
+          className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-raised"
+        >
+          <LayoutGrid className="h-3 w-3 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate">
+            {attente.length > 1 ? t('{v0} cartes à valider', { v0: attente.length }) : t('Carte à valider')}
+            {!ouvert && attente.length === 1 ? ` — ${attente[0].proposal.title}` : ''}
+          </span>
+          <ChevronDown className={cn('h-3 w-3 shrink-0 text-faint transition-transform', ouvert && 'rotate-180')} />
+        </button>
+        {ouvert && !selectionActive && attente.length > 1 ? (
           <button
             type="button"
             onClick={ouvrirSelection}
@@ -96,26 +152,30 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
         ) : null}
       </div>
 
-      <ZoneDefilement
-        data-bandeau-zone=""
-        axe="horizontal"
-        classeEnveloppe="flex-none"
-        className="flex gap-2 px-3 py-2"
-      >
-        {attente.map((entree: PropositionEnAttente<Proposition>) => (
-          <VignetteProposition
-            key={entree.proposal.id}
-            messageId={entree.messageId}
-            agentId={entree.agentId}
-            proposal={entree.proposal}
-            selectionActive={selectionActive}
-            selectionnee={selection.includes(entree.proposal.id)}
-            onSelection={() => basculer(entree.proposal.id)}
-          />
-        ))}
-      </ZoneDefilement>
+      {ouvert ? (
+        <ZoneDefilement
+          data-bandeau-zone=""
+          axe="horizontal"
+          classeEnveloppe="flex-none"
+          className="flex gap-2 px-3 py-2"
+        >
+          {attente.map((entree: PropositionEnAttente<Proposition>) => (
+            <VignetteProposition
+              key={entree.proposal.id}
+              messageId={entree.messageId}
+              agentId={entree.agentId}
+              proposal={entree.proposal}
+              selectionActive={selectionActive}
+              selectionnee={selection.includes(entree.proposal.id)}
+              onSelection={() => basculer(entree.proposal.id)}
+            />
+          ))}
+        </ZoneDefilement>
+      ) : (
+        <div className="h-1.5" aria-hidden="true" />
+      )}
 
-      {selectionActive ? (
+      {ouvert && selectionActive ? (
         <div data-fusion-propositions="actions" className="flex items-center gap-1.5 border-t border-border px-3 py-1.5">
           <Button size="sm" variant="ghost" className="flex-1" disabled={fusionEnCours} onClick={fermerSelection}>
             {t('Annuler')}</Button>

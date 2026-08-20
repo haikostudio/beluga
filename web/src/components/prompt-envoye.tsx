@@ -107,6 +107,12 @@ function libelleEtapeMemoire(etape: EtapeDuParcoursMemoire): string {
  * Replié, il ne montre que les intitulés : la conversation garde sa hauteur.
  * Déroulé, chaque ligne ouvre SON résultat exact, indépendamment des autres.
  * La ligne verticale porte l'ordre ; ses ronds portent la nature de l'étape.
+ *
+ * UNE ÉTAPE OUVERTE DIT TROIS CHOSES, jamais un pavé unique : la REQUÊTE (le
+ * sujet passé à l'outil, ou la demande qui a servi de question), son POIDS
+ * approché en jetons, puis le RÉSULTAT exact. Sans la requête et le poids,
+ * deux ouvertures voisines se lisaient pareil alors que l'une rapportait trois
+ * lignes et l'autre trente mille signes.
  */
 function ParcoursMemoire({
   etapes,
@@ -172,15 +178,35 @@ function ParcoursMemoire({
                 />
               </button>
               {ouverte ? (
-                <ZoneDefilement
-                  fond="hsl(var(--surface))"
-                  classeEnveloppe="ml-1 mt-1 max-h-56 flex-none rounded-md border border-border bg-surface"
-                  className="p-2"
-                >
-                  <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
-                    {etape.texte || t('Texte non conservé (tour ancien, retiré pour borner le disque).')}
-                  </pre>
-                </ZoneDefilement>
+                <div data-detail-etape-memoire className="ml-1 mt-1 rounded-md border border-border bg-surface">
+                  {/* CE QUI A ÉTÉ DEMANDÉ, ET CE QUE ÇA A COÛTÉ — au-dessus du
+                      résultat, jamais mêlé à lui. Le poids est APPROCHÉ (2,2
+                      signes par jeton) : le moteur ne détaille rien à ce
+                      grain-là, et la mention le dit en toutes lettres. */}
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-border px-2 py-1.5 text-[12px]">
+                    <span className="shrink-0 font-medium text-faint">{t('Requête')}</span>
+                    <span className="min-w-0 flex-1 break-words text-muted [overflow-wrap:anywhere]">
+                      {etape.requete?.trim()
+                        ? etape.requete
+                        : etape.nature === 'consultation'
+                          ? t('toute la carte de la mémoire')
+                          : t('aucune — transmis avec la demande')}
+                    </span>
+                    <span data-jetons-etape className="shrink-0 text-faint" title={t('Estimation maison : 2,2 signes par jeton')}>
+                      {t('~{v0} jetons', { v0: etape.jetons.toLocaleString('fr-CH') })}
+                    </span>
+                  </div>
+                  <p className="px-2 pt-1.5 text-[12px] font-medium text-faint">{t('Résultat')}</p>
+                  <ZoneDefilement
+                    fond="hsl(var(--surface))"
+                    classeEnveloppe="max-h-56 flex-none"
+                    className="px-2 pb-2 pt-1"
+                  >
+                    <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-relaxed text-muted [overflow-wrap:anywhere]">
+                      {etape.texte || t('Texte non conservé (tour ancien, retiré pour borner le disque).')}
+                    </pre>
+                  </ZoneDefilement>
+                </div>
               ) : null}
             </li>
           );

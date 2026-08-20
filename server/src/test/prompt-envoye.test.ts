@@ -13,6 +13,7 @@ import {
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
+  jetonsApproches,
   parcoursDeLaMemoire,
   texteDesPassagesRetrouves,
   texteDuPromptEnvoye,
@@ -281,6 +282,59 @@ test('l’écran rend une ligne de temps et un détail indépendant pour chaque 
   assert.ok(vue.includes('data-etape-memoire'), 'chaque étape porte son repère d’écran');
   assert.ok(vue.includes('data-entete-etape-memoire'), 'chaque résultat possède son propre bouton');
   assert.ok(vue.includes('<ZoneDefilement'), 'un long résultat passe par la zone de défilement commune');
+});
+
+test('chaque étape du parcours dit CE QUI A ÉTÉ DEMANDÉ et CE QUE ÇA PÈSE', () => {
+  const contexte = tourEssai({
+    blocks: [
+      { kind: 'request', label: 'Demande utilisateur', characters: 22, text: 'répare la publication' },
+      { kind: 'memory', label: 'Carte de la mémoire du projet', characters: 15, text: 'memoire → arbre' },
+    ],
+    passages: [
+      { source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 12, texte: 'ancien passage' },
+    ],
+    consultationsMemoire: [
+      { id: 'ouverture-1', requete: 'publication', resultat: 'x'.repeat(2_200), reussie: true, at: 2_000 },
+    ],
+  });
+  const [transmission, recherche, consultation] = parcoursDeLaMemoire(contexte);
+
+  // Un bloc transmis d'office n'a PAS de requête : personne n'a rien demandé.
+  assert.equal(transmission.requete, undefined);
+  // La recherche automatique prend la demande pour question, ramenée à une ligne.
+  assert.equal(recherche.requete, 'répare la publication');
+  // Une ouverture explicite porte le sujet passé à l'outil.
+  assert.equal(consultation.requete, 'publication');
+  // Le poids suit l'estimation maison du projet : 2,2 signes par jeton.
+  assert.equal(consultation.jetons, jetonsApproches(2_200));
+  assert.equal(consultation.jetons, 1_000);
+  assert.equal(transmission.jetons, jetonsApproches('memoire → arbre'.length));
+});
+
+test('une demande longue ne remplit pas la ligne de temps : sa question est coupée', () => {
+  const longue = 'répare '.repeat(60).trim();
+  const [recherche] = parcoursDeLaMemoire(
+    tourEssai({
+      blocks: [{ kind: 'request', label: 'Demande utilisateur', characters: longue.length, text: longue }],
+      passages: [{ source: 'docs/regles/cartes.md', titre: 'Cartes', score: 0.6, tokens: 12, texte: 'passage' }],
+    }),
+  ).filter((etape) => etape.nature === 'recherche');
+  assert.ok((recherche.requete ?? '').length <= 160, 'la question tient sur une ligne');
+  assert.ok((recherche.requete ?? '').endsWith('…'), 'la coupe se voit');
+});
+
+test('l’écran ouvre chaque étape sur sa requête, son poids et son résultat', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
+  assert.ok(vue.includes('data-detail-etape-memoire'), 'le détail d’une étape porte son repère d’écran');
+  assert.ok(vue.includes('data-jetons-etape'), 'le poids approché a son propre repère');
+  assert.ok(vue.includes("t('Requête')") && vue.includes("t('Résultat')"), 'les deux parts sont nommées');
+});
+
+test('le bandeau des cartes à valider se replie, et retient le choix', () => {
+  const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'propositions.tsx'), 'utf8');
+  assert.ok(vue.includes('data-bandeau-pli'), 'l’entête porte son bouton de repli');
+  assert.ok(vue.includes('haikodev.bandeau-propositions.ouvert'), 'le choix est retenu d’une fois sur l’autre');
+  assert.ok(vue.includes('if (nouvelle) setOuvert(true)'), 'une proposition neuve rouvre le bandeau');
 });
 
 test('le pont rattache au tour le texte réellement rendu par project_memory', () => {
