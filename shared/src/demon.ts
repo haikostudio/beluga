@@ -314,3 +314,114 @@ export function suiteDuRedemarrage(
   if (decision.action === 'attendre') return { redemarrer: false, enAttente: true, raison: decision.raison };
   return { redemarrer: false, enAttente: false };
 }
+
+/* ------------------------------------------------------------------ */
+/* L'ÉTAPE « REDÉMARRAGE » D'UNE PUBLICATION DE HAIKODEV               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE PUBLICATION QUI NE PEUT PAS REDÉMARRER MAINTENANT LE RETIENT POUR PLUS
+ * TARD — ELLE NE L'OUBLIE PAS.
+ *
+ * Publier HaikoDev écrit le nouveau code sur le disque, mais le démon en marche
+ * garde celui qu'il a chargé à son lancement : tant qu'il n'a pas redémarré, la
+ * correction n'existe pas. L'étape « redémarrage » de la publication le sait, et
+ * elle refuse à juste titre de couper un agent au travail ou une autre
+ * publication.
+ *
+ * LE PIÈGE ÉTAIT LÀ : ces deux refus n'étaient pas traités pareil. Une AUTRE
+ * PUBLICATION en cours faisait RETENIR le redémarrage (il repartait tout seul à
+ * la fin) ; un AGENT AU TRAVAIL, lui, faisait simplement sauter l'étape, sans
+ * rien retenir — le message renvoyant l'utilisateur à un clic manuel qu'il n'a
+ * aucune raison de remarquer. Or un agent travaille presque toujours au moment
+ * où l'on publie : c'est justement la fin de son travail qui remplit le lot.
+ *
+ * Constaté le 20 août 2026 : la publication de 07:30 portait le correctif
+ * « une carte ne passe en Terminé que quand son tour a fini de ranger », son
+ * étape de redémarrage a été sautée sur « 1 agent(s) travaillent encore », et le
+ * démon a continué des heures sur l'ancien code. À 07:48, trois cartes de trois
+ * projets ont été rangées d'office en « Terminé » par le balayage — exactement le
+ * bogue que le correctif interdisait — et l'une d'elles a été déployée
+ * automatiquement à 07:49, vingt minutes avant que son agent n'ait fini.
+ *
+ * UN CORRECTIF QUI DORT SUR LE DISQUE N'EN EST PAS UN. La règle rend donc
+ * `retenir` dans les DEUX cas d'attente, et c'est cette demande retenue que le
+ * filet de veille rejoue toutes les quinze secondes.
+ */
+export interface MondeEtapeRedemarrage {
+  /** Le code construit est-il plus récent que le démon en marche ? */
+  redemarrageNecessaire: boolean;
+  /** Agents au travail, TOUS PROJETS : le démon les porte tous. */
+  agents: number;
+  /** Ce que fait chacun, en une phrase courte. */
+  agentsDetail?: string[];
+  /** Les AUTRES publications en cours — jamais celle qui pose la question. */
+  autresPublications: string[];
+}
+
+export interface EtapeRedemarrage {
+  /** « done » : le redémarrage part. « skipped » : il ne part pas maintenant. */
+  etat: 'done' | 'skipped';
+  /**
+   * Le redémarrage doit-il être DEMANDÉ à la fin de la publication ? Vrai aussi
+   * bien quand il peut partir tout de suite que quand il devra attendre : c'est
+   * `demanderRedemarrage` qui tranche, et qui le RETIENT jusqu'à ce que la voie
+   * soit libre.
+   */
+  retenir: boolean;
+  /** Ce qui s'écrit dans l'étape, lisible par qui relit la publication. */
+  message: string;
+}
+
+/**
+ * La phrase de l'étape quand des agents retiennent le redémarrage. Elle promet
+ * un départ AUTOMATIQUE : plus aucun renvoi vers un geste à la main, que
+ * personne n'a de raison de venir faire.
+ */
+function attenteDesAgents(agents: number, detail?: string[]): string {
+  const liste = listeDesAgents(detail, agents);
+  const qui =
+    agents === 1
+      ? `Un agent travaille encore${liste} : le redémarrage est RETENU pour ne pas couper son travail.`
+      : `${agents} agents travaillent encore${liste} : le redémarrage est RETENU pour ne pas couper leur travail.`;
+  return `${qui} Il partira tout seul dès le dernier travail fini.`;
+}
+
+/**
+ * Ce que l'étape « redémarrage » d'une publication de HaikoDev doit faire.
+ *
+ * Quatre situations, et une seule ne retient rien : celle où il n'y a rien à
+ * recharger (seule l'interface a changé). Les deux attentes retiennent, la voie
+ * libre part.
+ */
+export function etapeDeRedemarrageDePublication(monde: MondeEtapeRedemarrage): EtapeRedemarrage {
+  if (!monde.redemarrageNecessaire) {
+    return {
+      etat: 'skipped',
+      retenir: false,
+      message: 'Seule l’interface a changé : le serveur en place sert déjà le bon code.',
+    };
+  }
+
+  const autres = monde.autresPublications.filter((n) => n.trim());
+  if (monde.agents > 0) {
+    return {
+      etat: 'skipped',
+      retenir: true,
+      message: attenteDesAgents(monde.agents, monde.agentsDetail),
+    };
+  }
+  if (autres.length > 0) {
+    const noms = autres.map((n) => `« ${n} »`).join(', ');
+    return {
+      etat: 'skipped',
+      retenir: true,
+      message: `${autres.length} autre(s) publication(s) en cours (${noms}) : le redémarrage est RETENU pour ne pas les couper. Il partira tout seul dès la dernière terminée.`,
+    };
+  }
+  return {
+    etat: 'done',
+    retenir: true,
+    message: 'Le serveur redémarre : il repart avec le nouveau code en quelques secondes.',
+  };
+}
