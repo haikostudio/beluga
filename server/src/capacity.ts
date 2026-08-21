@@ -135,10 +135,6 @@ export function canStartAgent(): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
-export function setManualPause(value: boolean): void {
-  manualPause = value;
-}
-
 /** Échantillonnage régulier : la courbe 24 h et l'alerte prolongée. */
 export function sampleCapacity(): void {
   const snap = snapshot();

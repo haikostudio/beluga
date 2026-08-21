@@ -17,10 +17,6 @@
  * l'application par où un flux s'ouvre.
  */
 
-/** Ce qu'on dit quand un micro s'ouvrirait sans qu'on l'ait demandé. */
-export const RAISON_MICRO_NON_DEMANDE =
-  'Le micro ne s’ouvre qu’à la demande : rallumez l’écoute pour l’utiliser.';
-
 /** L'état d'un interrupteur d'écoute, du point de vue de la permission. */
 export interface DemandeDeMicro {
   /** L'interrupteur est-il sur « allumé » ? */

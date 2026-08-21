@@ -62,11 +62,6 @@ export function t(texte: string, valeurs?: ValeursDeTexte): string {
   return traduire(TRADUCTIONS, langueCourante, texte, valeurs);
 }
 
-/** La langue en vigueur, hors composant (le client, la voix, les erreurs). */
-export function langueEnCours(): LangueId {
-  return langueCourante;
-}
-
 /**
  * LE FORMAT DES DATES, DES HEURES ET DES NOMBRES, dans la langue en vigueur.
  *

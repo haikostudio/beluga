@@ -1027,10 +1027,6 @@ export function detailProjet(
   };
 }
 
-/** Le nom du fichier d'instructions natif du moteur. */
-export function fichierInstructions(engine?: string): string {
-  return fichierNatif(engine);
-}
 
 /**
  * Le fichier d'instructions qui fait FOI pour ce projet et ce moteur.

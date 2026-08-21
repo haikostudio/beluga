@@ -7,12 +7,6 @@ import { claudeCatalog, codexCatalog, cursorCatalog, resolveModel } from './cata
 
 export * from './types.js';
 
-export const ADAPTERS: Record<EngineId, EngineAdapter> = {
-  claude: claudeAdapter,
-  codex: codexAdapter,
-  cursor: cursorAdapter,
-};
-
 export function adapterFor(engine: EngineId | string | undefined): EngineAdapter {
   if (engine === 'codex') return codexAdapter;
   if (engine === 'cursor') return cursorAdapter;

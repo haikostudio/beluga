@@ -988,14 +988,6 @@ export function setCarteVue(agentId: string, empreinte: string): void {
   setMeta(`carte.vue.${agentId}`, empreinte);
 }
 
-export function deleteAgent(id: string): void {
-  const db = getDb();
-  db.transaction(() => {
-    db.prepare('DELETE FROM messages WHERE agent_id = ?').run(id);
-    db.prepare('DELETE FROM queue WHERE agent_id = ?').run(id);
-    db.prepare('DELETE FROM agents WHERE id = ?').run(id);
-  })();
-}
 
 /* ------------------------------------------------------------------ */
 /* Messages                                                            */

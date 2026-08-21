@@ -488,6 +488,3 @@ export function BullesDuPromptEnvoye({
     </div>
   );
 }
-
-/** Le nombre de lignes montrées avant « voir plus », pour les contrôles. */
-export const LIGNES_AVANT_VOIR_PLUS = LIGNES_VISIBLES_BULLE;

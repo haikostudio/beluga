@@ -390,12 +390,6 @@ export function normaliseThinking(models: ModelInfo[], modelId: string | undefin
   return model.defaultThinking && available.includes(model.defaultThinking) ? model.defaultThinking : (available[0] ?? 'none');
 }
 
-export function engineOf(id: string): EngineId {
-  if (id === 'codex') return 'codex';
-  if (id === 'cursor') return 'cursor';
-  return 'claude';
-}
-
 /**
  * Un réglage enregistré hier peut nommer un modèle qui n'existe plus, ou un
  * raccourci (« sonnet ») absent du catalogue réel. On le ramène vers le modèle

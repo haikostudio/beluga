@@ -112,7 +112,3 @@ export function creneauPourUneCarte(entree: {
   }
 }
 
-/** Le profil gardé est jeté : les tests n'héritent pas de la mesure d'un autre. */
-export function oublierLesProfils(): void {
-  profilsGardes = null;
-}

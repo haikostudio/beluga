@@ -49,17 +49,6 @@ function lireDansEnvironnement(chemin: string): string | undefined {
 }
 
 /**
- * N'IMPORTE QUELLE VARIABLE DU SERVICE, lue comme la clé du cerveau :
- * l'environnement du démon d'abord, le fichier du service ensuite — un démon
- * lancé à la main n'a pas forcément chargé `/etc/haikodev.env`.
- */
-export function lireVariableDEnvironnement(nom: string): string | undefined {
-  const enMemoire = process.env[nom]?.trim();
-  if (enMemoire) return enMemoire;
-  return lireDansLeFichier(fichierEnvironnement(), nom);
-}
-
-/**
  * La clé retenue, dans l'ordre : l'environnement du démon, puis le fichier du
  * service, puis le repli du dossier de données. Les deux derniers permettent à
  * une clé posée depuis les réglages de tenir après un redémarrage, quelle que

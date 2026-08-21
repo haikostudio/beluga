@@ -157,7 +157,6 @@ export function retrouverParNom<T extends Nommable>(
 
 /** Les gestes qu'un agent peut faire sur un projet. La suppression n'en est pas. */
 export const GESTES_PROJET = ['lister', 'creer', 'renommer', 'deplacer', 'retirer', 'remettre'] as const;
-export type GesteProjet = (typeof GESTES_PROJET)[number];
 
 /** Ce qu'on retient d'une demande sur un projet, une fois jugée recevable. */
 export type DemandeProjet =
@@ -316,7 +315,6 @@ export function lireGesteProjet(args: Record<string, unknown>): Recevable<Demand
 
 /** Les gestes qu'un agent peut faire sur un groupe. Le retrait n'en est pas. */
 export const GESTES_GROUPE = ['lister', 'creer', 'renommer', 'regler'] as const;
-export type GesteGroupe = (typeof GESTES_GROUPE)[number];
 
 export type DemandeGroupe =
   | { geste: 'lister' }

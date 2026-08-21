@@ -120,11 +120,3 @@ export function decisionDEntretien(compteurs: CompteursDeFiche, confiance: numbe
   }
   return { geste: 'rien', raison: 'rien à signaler' };
 }
-
-/**
- * UNE FICHE ÉPINGLÉE reste à faire : le favori est un privilège, donc il se
- * borne et il se mesure — ses usages devraient être comptés à part, sinon
- * l'épingle se justifie toute seule par le trafic qu'elle s'octroie. Rien n'est
- * posé ici tant que ce compteur séparé n'existe pas.
- */
-export const FAVORI_NON_IMPLEMENTE = true;

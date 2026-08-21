@@ -140,15 +140,6 @@ export function fichierDuSujet(id: string): string {
   return `${DOSSIER_MEMOIRE}/${id}.md`;
 }
 
-/** Le contenu d'un fichier de sujet : un titre, puis une ligne par fait. */
-export function rendreFichierSujet(id: string, faits: string[]): string {
-  const entete =
-    `# Mémoire du projet — ${libelleSujet(id)}\n\n` +
-    `_Tenue automatiquement par HaikoDev : faits durables uniquement, une ligne par fait. ` +
-    `Ce fichier se demande à la carte avec l'outil \`project_memory\` (sujet « ${id} »)._\n\n`;
-  return `${entete}${faits.map((f) => `- ${nettoyer(f)}`).join('\n')}\n`;
-}
-
 /** Les faits écrits dans un fichier de mémoire : les lignes à puce, nettoyées. */
 export function faitsDuTexte(texte: string): string[] {
   return texte
