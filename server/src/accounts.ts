@@ -1191,8 +1191,3 @@ export function noteAccountUse(accountId: string, rateLimit: { status: string; r
     bus.emit({ type: 'quotas', quotas: cachedQuotas() });
   }
 }
-
-export function accountLabel(id: string | undefined): string {
-  if (!id) return '—';
-  return listAccountRecords().find((a) => a.id === id)?.label ?? id;
-}

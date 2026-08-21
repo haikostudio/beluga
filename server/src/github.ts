@@ -354,18 +354,3 @@ export async function mergeCard(
   return { ok: true };
 }
 
-/** Ouvre une demande de fusion pour la branche de la carte. */
-export async function openPullRequest(cardId: string): Promise<{ ok: boolean; error?: string }> {
-  const card = store.getCard(cardId);
-  if (!card?.github?.branch) return { ok: false, error: 'aucune branche' };
-  const project = store.getProject(card.projectId);
-  if (!project) return { ok: false, error: 'projet introuvable' };
-
-  const result = await gh(
-    ['pr', 'create', '--head', card.github.branch, '--title', card.title, '--body', card.description || card.title],
-    project.path,
-  );
-  if (!result.ok) return { ok: false, error: result.out.slice(0, 300) };
-  await refreshCard(cardId);
-  return { ok: true };
-}

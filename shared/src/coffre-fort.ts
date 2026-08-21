@@ -229,11 +229,6 @@ export function apercuAcces(acces: AccesCoffre): string {
   }
 }
 
-/** Une fiche est renseignée dès qu'un de ses champs porte quelque chose. */
-export function accesRempli(acces: AccesCoffre): boolean {
-  return Object.values(acces.champs).some((v) => v.trim().length > 0);
-}
-
 /**
  * Le plus récemment touché d'abord, puis par nom : une fiche qu'on vient
  * d'écrire se retrouve en haut, sans avoir à la chercher.

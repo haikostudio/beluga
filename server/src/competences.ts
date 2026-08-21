@@ -439,10 +439,6 @@ export function compter(nom: string, colonne: ColonneDeCompteur, combien = 1): v
   }
 }
 
-/** La confiance d'une fiche : ses compteurs, lus puis jugés (règle pure). */
-export function confianceDe(nom: string): number {
-  return confianceDeLaFiche(compteursDeLaFiche(nom));
-}
 
 /* ------------------------------------------------------------------ */
 /* L'ÉCRITURE                                                           */

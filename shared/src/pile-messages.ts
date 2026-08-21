@@ -22,8 +22,6 @@ export const PILE_VISIBLES = 3;
 export const PILE_DECALAGE = 6;
 /** L'écart entre deux messages, pile OUVERTE, en pixels. */
 export const PILE_ECART = 6;
-/** La durée de l'ouverture et de la fermeture, en millisecondes. */
-export const PILE_DUREE = 200;
 /** Ce que chaque rang perd en largeur : le rétrécissement se voit sans gêner. */
 const RETRECISSEMENT = 0.04;
 

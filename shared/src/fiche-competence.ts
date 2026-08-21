@@ -197,6 +197,3 @@ export function texteDeLIndexDesSymptomes(fiches: Competence[]): string {
     `Ce qu'on CONSTATE, puis la fiche à ouvrir. Le sommaire par thème est dans \`${FICHIER_SOMMAIRE}\`.\n\n${corps}\n`
   );
 }
-
-/** Le thème d'affichage d'une fiche sans thème déclaré. */
-export const THEME_SANS = THEME_PAR_DEFAUT;

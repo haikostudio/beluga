@@ -105,8 +105,6 @@ export function reparationsDuCoffre(
  * un CONSTAT, pas un oubli : `marqueDuCoffre('cursor')` rend `null`, et la
  * réparation passe son chemin sans rien inventer.
  */
-export type MoteurDuCoffre = 'claude' | 'codex' | 'cursor';
-
 /** Le morceau de chemin qui désigne le coffre de ce moteur, ou `null` s'il n'en a pas. */
 export function marqueDuCoffre(moteur: string): string | null {
   if (moteur === 'claude') return '/.claude/';

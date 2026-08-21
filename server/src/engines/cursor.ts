@@ -78,12 +78,6 @@ export function clesCursor(): string[] {
   return cles;
 }
 
-export class RefusCursor extends Error {
-  constructor(message: string, readonly status: number) {
-    super(message);
-  }
-}
-
 /**
  * ÉPROUVER UNE CLÉ. Le seul appel réseau qui reste : le CLI ne sait pas dire si
  * la clé qu'on lui passe est bonne — sa commande `status` rend le compte

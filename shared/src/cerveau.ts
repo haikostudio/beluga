@@ -139,17 +139,6 @@ export interface EmpreinteRetenue {
   at: number;
 }
 
-/** Un envoi prêt à partir : son identifiant stable, son texte, son empreinte. */
-export interface EnvoiPrepare {
-  /** Identifiant stable par projet ET par fichier : le cerveau REMPLACE au lieu d'empiler. */
-  identifiant: string;
-  projet: string;
-  fichier: string;
-  texte: string;
-  sha: string;
-  raison: RaisonEnvoi;
-}
-
 /**
  * Les projets concernés : ceux qui vivent encore. Un projet archivé est mis de
  * côté par son propriétaire — le cerveau n'a pas à continuer d'apprendre

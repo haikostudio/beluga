@@ -8,7 +8,6 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
-import * as ScrollAreaPrimitive from '@radix-ui/react-scroll-area';
 import { Check, ChevronRight, Loader2, X } from 'lucide-react';
 import {
   DUREE_REUSSITE_MS,
@@ -509,8 +508,6 @@ export const ZoneDefilement = React.forwardRef<
 /* ----------------------------- Dialogue --------------------------- */
 
 export const Dialog = DialogPrimitive.Root;
-export const DialogTrigger = DialogPrimitive.Trigger;
-export const DialogClose = DialogPrimitive.Close;
 
 export function DialogContent({
   className,
@@ -1046,24 +1043,6 @@ export function Switch({
 
 export function Separator({ className, ...props }: React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>) {
   return <SeparatorPrimitive.Root className={cn('bg-border', 'h-px w-full', className)} {...props} />;
-}
-
-export function ScrollArea({
-  className,
-  children,
-  ...props
-}: React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>) {
-  return (
-    <ScrollAreaPrimitive.Root className={cn('relative overflow-hidden', className)} {...props}>
-      <ScrollAreaPrimitive.Viewport className="h-full w-full [&>div]:!block">{children}</ScrollAreaPrimitive.Viewport>
-      <ScrollAreaPrimitive.Scrollbar
-        orientation="vertical"
-        className="flex w-1.5 touch-none select-none p-px transition-colors"
-      >
-        <ScrollAreaPrimitive.Thumb className="relative flex-1 rounded-full bg-border" />
-      </ScrollAreaPrimitive.Scrollbar>
-    </ScrollAreaPrimitive.Root>
-  );
 }
 
 /** Jauge maison, écrite aux mêmes règles que la bibliothèque (PLAN §17). */

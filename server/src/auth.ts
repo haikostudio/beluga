@@ -12,13 +12,6 @@ import { log } from './logger.js';
  * la règle pure `decisionDuMur` (shared/src/mur-acces.ts).
  */
 
-export function secretKey(): Buffer {
-  if (!fs.existsSync(PATHS.secret)) {
-    fs.writeFileSync(PATHS.secret, crypto.randomBytes(48), { mode: 0o600 });
-  }
-  return fs.readFileSync(PATHS.secret);
-}
-
 function hashPassword(password: string, salt: Buffer): string {
   return crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 }).toString('hex');
 }

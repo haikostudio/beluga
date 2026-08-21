@@ -530,15 +530,6 @@ export function texteDesCompetences(liste: Competence[], dossier = '', travail =
 
 /**
  * LA PART DU BUDGET QUE LES COMPÉTENCES ONT LE DROIT DE PRENDRE.
- *
- * Une compétence est une leçon d'AILLEURS : elle peut être la meilleure réponse,
- * elle ne doit jamais passer devant la documentation du projet PAR PRINCIPE
- * (limite posée par la carte). Même mécanique que la borne déjà en place pour le
- * code (`PART_MAX_DU_CODE`) : une part RÉSERVÉE — le pool a droit à sa place —
- * mais PLAFONNÉE — il ne prend pas celle des règles du projet.
- */
-export const PART_MAX_DES_COMPETENCES = 0.25;
-
 /** Un passage vient-il du pool ? Reconnu à sa SOURCE, jamais à sa priorité. */
 export function estPassageDeCompetence(source: string): boolean {
   return source.startsWith(PREFIXE_SOURCE_COMPETENCE);
