@@ -1,6 +1,10 @@
 node_modules/
 dist/
 data/
+# Un socle de données isolé pour un essai (serveur de test lancé avec un
+# HAIKODEV_DATA à soi) prend parfois ce nom à la racine du dépôt au lieu de
+# vivre sous data/ ou /tmp : il ne doit jamais polluer git status.
+/data-*/
 *.log
 .DS_Store
 .env
