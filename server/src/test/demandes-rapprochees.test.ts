@@ -63,7 +63,7 @@ test('le compte se choisit AVANT la bulle de la demande et AVANT la carte', () =
 });
 
 test('sans quota, une demande ORDINAIRE attend en file au lieu d’être perdue', () => {
-  const bloc = RUNTIME.split('const account = compteImpose ?? (await pickAccount(agent.run.engine));')[1].split(
+  const bloc = RUNTIME.split('const account = compteImpose ?? compteChoisi ?? (await pickAccount(agent.run.engine));')[1].split(
     'let userMessageId',
   )[0];
   assert.match(bloc, /const parLaFile = !options\.silent && !options\.onComplete;/);

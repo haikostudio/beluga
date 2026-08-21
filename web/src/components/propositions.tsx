@@ -249,7 +249,7 @@ function VignetteProposition({
         messageId,
         proposalId: proposal.id,
         run: resolu.engine
-          ? { engine: resolu.engine.id, model: resolu.model?.id, thinking: resolu.thinking?.id }
+          ? { engine: resolu.engine.id, model: resolu.model?.id, thinking: resolu.thinking?.id, account: suivant.account }
           : suivant,
       })
       .catch(() => {});
@@ -287,7 +287,7 @@ function VignetteProposition({
         title: title.trim() || proposal.title,
         description,
         run: retenu.engine
-          ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id }
+          ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id, account: choix?.account }
           : undefined,
       });
       client.pushToast(accept ? 'success' : 'info', accept ? t('Carte créée dans « Planifié »') : t('Carte refusée'));
@@ -400,7 +400,7 @@ function VignetteProposition({
       {/* Les réglages de l'agent qui exécutera la carte, choisis dès maintenant :
           chaque menu prend toute la largeur et affiche son libellé entier. */}
       <div className="mt-auto flex flex-col gap-1 border-t border-border px-2 py-1.5">
-        <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} pleineLargeur />
+        <RunSelectors engines={state.engines} choix={choix} onSelect={choisir} pleineLargeur comptes={state.quotas} />
         <Button size="sm" variant="default" disabled={busy || selectionActive} onClick={() => decide(true)} className="w-full">
           <Check className="h-3 w-3" />  {t('Créer la carte')}
 </Button>

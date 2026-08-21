@@ -245,6 +245,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
       model: z.string().optional(),
       thinking: z.string().optional(),
       mode: z.enum(['direct', 'plan']).optional(),
+      account: z.string().optional(),
     }),
   }),
   z.object({ type: z.literal('agent.dismiss'), agentId: z.string() }),

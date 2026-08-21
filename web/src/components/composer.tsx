@@ -38,6 +38,7 @@ import { RunChoix, RunSelectors } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -98,6 +99,7 @@ export function Composer({
   fondNoir,
   barreTravail,
 }: ComposerProps) {
+  const state = useApp();
   const [text, setText] = React.useState('');
   /*
    * CE QUE LE CHAMP AFFICHE : le même texte, tags MASQUÉS (`tagsMasques`,
@@ -1248,7 +1250,7 @@ export function Composer({
           <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
 
           {/* Trois réglages EN CASCADE, alimentés par le serveur */}
-          <RunSelectors engines={engines} choix={agent?.run} onSelect={updateRun} />
+          <RunSelectors engines={engines} choix={agent?.run} onSelect={updateRun} comptes={state.quotas} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {onProposeTask && !edition && (text.trim() || picked.length) ? (
