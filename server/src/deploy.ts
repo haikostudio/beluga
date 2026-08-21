@@ -2537,13 +2537,28 @@ export async function startDeploy(
           for (const fichier of fichiersAAjouter(status.out)) {
             await runCommand(cwd, `git add -- ${JSON.stringify(fichier)}`);
           }
-          const commit = await commandeDuFil(
-            current,
-            'commit',
-            cwd,
-            `git commit -m "Publication : ${cards.length} tâche(s)" -m "HaikoDev"`,
-          );
-          current = setStep(current, 'commit', commit.ok ? 'done' : 'failed', commit.out);
+          /*
+           * `git status --porcelain` PEUT lister un chemin sans qu'un `git
+           * add` réussisse à le mettre dans l'index (dossier vide laissé par
+           * un script d'essai qui a nettoyé son contenu sans se retirer
+           * lui-même : git ne suit pas les dossiers vides). L'étape tentait
+           * alors `git commit` sur un index resté vide, qui échoue avec
+           * « rien à valider » — une PANNE alors qu'il n'y avait, en vérité,
+           * rien à enregistrer. On vérifie donc ce qui est RÉELLEMENT
+           * indexé avant de committer.
+           */
+          const indexe = await runCommand(cwd, 'git diff --cached --name-only');
+          if (indexe.out.trim()) {
+            const commit = await commandeDuFil(
+              current,
+              'commit',
+              cwd,
+              `git commit -m "Publication : ${cards.length} tâche(s)" -m "HaikoDev"`,
+            );
+            current = setStep(current, 'commit', commit.ok ? 'done' : 'failed', commit.out);
+          } else {
+            current = setStep(current, 'commit', 'skipped', 'rien à enregistrer (restes vides sans changement réel)');
+          }
         } else {
           current = setStep(current, 'commit', 'skipped', 'rien à enregistrer');
         }
