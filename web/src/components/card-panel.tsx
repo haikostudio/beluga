@@ -701,6 +701,7 @@ function ReglagesAgent({ card }: { card: Card }) {
           engine: retenu.engine.id,
           model: retenu.model?.id,
           thinking: retenu.thinking?.id ?? 'none',
+          account: souhait.account,
         },
       },
     });
@@ -718,8 +719,10 @@ function ReglagesAgent({ card }: { card: Card }) {
         /* Les mêmes menus que la barre d'écriture : sur téléphone, ils
            s'ouvrent en tiroir pleine largeur. */
         <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-0.5 sm:gap-x-1">
-          <RunSelectors engines={state.engines} choix={card.run} onSelect={choisir} />
-          <span className="px-1 text-[12.5px] text-faint">{t('compte choisi au lancement')}</span>
+          <RunSelectors engines={state.engines} choix={card.run} onSelect={choisir} comptes={state.quotas} />
+          {!card.run.account ? (
+            <span className="px-1 text-[12.5px] text-faint">{t('compte choisi au lancement')}</span>
+          ) : null}
         </div>
       ) : (
         <div>

@@ -76,6 +76,12 @@ export const RunConfig = z.object({
    * retenu à part, comme une intention, jamais comme un réglage de plus.
    */
   niveau: z.enum(['leger', 'standard', 'approfondi']).optional(),
+  /**
+   * Le COMPTE imposé pour ce moteur, choisi à la main dans les réglages de
+   * l'agent. Vide = laisser la répartition de quota décider (`pickAccount`).
+   * N'a de sens que si plusieurs comptes existent pour `engine`.
+   */
+  account: z.string().optional(),
 });
 export type RunConfig = z.infer<typeof RunConfig>;
 

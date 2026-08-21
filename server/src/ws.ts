@@ -980,11 +980,24 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         modelChanged ? undefined : (cmd.run.thinking ?? agent.run.thinking),
       );
 
+      // Un compte imposé n'a de sens que pour SON moteur : changer de moteur
+      // oublie le choix précédent plutôt que de forcer un compte qui n'existe
+      // pas dessus.
+      const engineChanged = engineId !== agent.run.engine;
+      const requestedAccount = cmd.run.account !== undefined ? cmd.run.account : agent.run.account;
+      const account =
+        engineChanged || !requestedAccount
+          ? undefined
+          : listAccountRecords().some((a) => a.id === requestedAccount && a.engine === engineId)
+            ? requestedAccount
+            : undefined;
+
       const run = {
         engine: engine?.id ?? agent.run.engine,
         model,
         thinking,
         mode: cmd.run.mode ?? agent.run.mode,
+        account,
       };
       const updated = store.saveAgent({
         ...agent,

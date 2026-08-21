@@ -948,7 +948,15 @@ async function preparerLeTour(
   const compteImpose = options.compteImpose
     ? listAccountRecords().find((a) => a.id === options.compteImpose && a.engine === agent.run.engine)
     : undefined;
-  const account = compteImpose ?? (await pickAccount(agent.run.engine));
+  // Un compte choisi À LA MAIN dans les réglages de l'agent (`agent.run.account`)
+  // passe devant la répartition automatique, tout comme une reprise sur limite —
+  // sauf s'il a depuis disparu ou été coupé, auquel cas on retombe sur le choix
+  // automatique plutôt que de bloquer la carte sur un compte fantôme.
+  const compteChoisi =
+    !compteImpose && agent.run.account
+      ? listAccountRecords().find((a) => a.id === agent.run.account && a.engine === agent.run.engine && !a.disabled)
+      : undefined;
+  const account = compteImpose ?? compteChoisi ?? (await pickAccount(agent.run.engine));
   if (!account) {
     /*
      * LA DEMANDE N'EST PAS PERDUE : ELLE ATTEND EN FILE. C'est la file ordinaire

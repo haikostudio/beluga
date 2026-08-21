@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
-import { EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
+import { AccountQuota, EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
 import { Button, DialogTitle, Drawer } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -20,7 +20,7 @@ import { t, formatRegional } from '@/lib/langue';
  * tard : même composant, même comportement.
  */
 
-export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode'>>;
+export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'mode' | 'account'>>;
 
 /**
  * Le nom court du moteur, celui que tout le monde utilise à l'oral : « Claude »,
@@ -52,13 +52,14 @@ export function resoudreRun(engines: EngineInfo[], choix: RunChoix | undefined) 
   return { installed, engine, models, model, thinkingOptions, thinking };
 }
 
-type SousVue = 'moteur' | 'modele' | 'reflexion' | null;
+type SousVue = 'moteur' | 'modele' | 'reflexion' | 'compte' | null;
 
 export function RunSelectors({
   engines,
   choix,
   onSelect,
   pleineLargeur,
+  comptes,
 }: {
   engines: EngineInfo[];
   choix: RunChoix | undefined;
@@ -66,13 +67,28 @@ export function RunSelectors({
   onSelect: (patch: RunChoix) => void;
   /** Le bouton d'entrée prend toute la largeur — pour un pied de carte empilé. */
   pleineLargeur?: boolean;
+  /**
+   * Tous les comptes connus, tous moteurs confondus (`state.quotas`). La ligne
+   * « Compte » ne s'affiche que si plusieurs d'entre eux, une fois filtrés sur
+   * le moteur choisi et non coupés, se disputent le travail — sinon le choix
+   * automatique suffit et n'a rien à montrer.
+   */
+  comptes?: Pick<AccountQuota, 'id' | 'engine' | 'label' | 'disabled'>[];
 }) {
   const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
   const [ouvert, setOuvert] = React.useState(false);
   const [sousVue, setSousVue] = React.useState<SousVue>(null);
   const avertissementModele = messageDeRepli(engine);
 
-  const resume = [nomCourtMoteur(engine), model?.label, thinkingOptions.length > 1 ? thinking?.label : null]
+  const comptesDuMoteur = (comptes ?? []).filter((c) => c.engine === engine?.id && !c.disabled);
+  const compteChoisi = choix?.account ? comptesDuMoteur.find((c) => c.id === choix.account) : undefined;
+
+  const resume = [
+    nomCourtMoteur(engine),
+    model?.label,
+    thinkingOptions.length > 1 ? thinking?.label : null,
+    compteChoisi ? compteChoisi.label : null,
+  ]
     .filter(Boolean)
     .join(' · ');
 
@@ -95,7 +111,9 @@ export function RunSelectors({
           : t('Modèle')
         : sousVue === 'reflexion'
           ? t('Niveau de réflexion')
-          : '';
+          : sousVue === 'compte'
+            ? t('Compte')
+            : '';
 
   return (
     <>
@@ -153,6 +171,15 @@ export function RunSelectors({
               repere="reflexion"
               menuitem={sousVue === null}
               onClick={() => setSousVue('reflexion')}
+            />
+          ) : null}
+          {comptesDuMoteur.length > 1 ? (
+            <LigneApercu
+              titre={t('Compte')}
+              valeur={compteChoisi?.label ?? t('Automatique')}
+              repere="compte"
+              menuitem={sousVue === null}
+              onClick={() => setSousVue('compte')}
             />
           ) : null}
         </div>
@@ -215,6 +242,21 @@ export function RunSelectors({
                 </ItemListe>
               ))
             : null}
+
+          {sousVue === 'compte' ? (
+            <>
+              {/* Repartir sur la répartition automatique — celle qui suit le
+                  quota disponible — plutôt que sur un compte figé. */}
+              <ItemListe actif={!choix?.account} onSelect={() => choisir({ account: undefined })}>
+                <span className="min-w-0 flex-1 truncate">{t('Automatique')}</span>
+              </ItemListe>
+              {comptesDuMoteur.map((c) => (
+                <ItemListe key={c.id} actif={c.id === choix?.account} onSelect={() => choisir({ account: c.id })}>
+                  <span className="min-w-0 flex-1 truncate">{c.label}</span>
+                </ItemListe>
+              ))}
+            </>
+          ) : null}
         </div>
       </Drawer>
     </>
