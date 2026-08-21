@@ -29,6 +29,44 @@
 /** Le fichier où les agents déposent ce qu'ils ont appris, en attendant la nuit. */
 export const FICHIER_D_ATTENTE = 'docs/instructions-en-attente.md';
 
+/**
+ * …MAIS CHAQUE CARTE ÉCRIT DANS LE SIEN, ET DEUX FICHIERS NE SE HEURTENT PAS.
+ *
+ * Le fichier ci-dessus était PARTAGÉ : chaque agent ajoutait son entrée à la
+ * fin, donc deux cartes finies le même jour écrivaient toutes deux les mêmes
+ * dernières lignes, et leur fusion se heurtait — par construction, sans
+ * qu'aucune n'ait rien fait de mal. Mesuré sur les 207 publications du
+ * 02/08/2026 au 20/08/2026 : `docs/instructions-en-attente.md` arrive en tête
+ * des conflits qui SURVIVENT au recollage automatique (les trois derniers en
+ * date le portent tous les trois).
+ *
+ * Un dépôt par CARTE règle la cause au lieu du symptôme : deux fichiers
+ * différents ne peuvent pas entrer en conflit, quel que soit le nombre de
+ * cartes lancées en parallèle. Le rangement de nuit les lit tous, dans l'ordre,
+ * exactement comme il lisait les entrées d'un fichier unique.
+ */
+export const DOSSIER_D_ATTENTE = 'docs/instructions-en-attente';
+
+/**
+ * Le nom de fichier d'attente d'une copie de travail. Il se déduit du NOM DE LA
+ * COPIE (« reduire-les-conflits-…-582c24 ») : unique par carte, stable d'un
+ * tour à l'autre, et lisible par qui relit le dossier.
+ *
+ * Rendu `undefined` quand il n'y a pas de copie à soi — dossier partagé du chef,
+ * de l'analyse ou de la publication : ceux-là gardent le fichier commun, ils ne
+ * travaillent jamais à plusieurs en même temps.
+ */
+export function fichierDAttentePourCopie(nomDeCopie: string | undefined): string | undefined {
+  const propre = (nomDeCopie ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  if (!propre) return undefined;
+  return `${DOSSIER_D_ATTENTE}/${propre}.md`;
+}
+
 /** Le rendez-vous de rangement : creux de la nuit, avant l'auto-amélioration. */
 export const FENETRE_DE_FUSION = { debut: 2, fin: 5 } as const;
 

@@ -32,6 +32,7 @@ import {
   reconnaitrePanneDeDossier,
 } from '@haikodev/shared';
 import { log } from './logger.js';
+import { fichiersEnConflitDuDossier, recollerLesDocumentsEnConflit } from './recollage-documentaire.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -615,8 +616,11 @@ function aLaQueue<T>(racine: string, travail: () => Promise<T>): Promise<T> {
  * sur la branche de la carte au lieu de laisser le dossier ouvert pour toujours
  * (`enregistrerLeTravailEnCours`) : c'est du travail réel, il doit pouvoir être
  * déployé comme le reste. Restent deux refus, tous DITS : le dossier principal
- * n'est pas sur sa branche principale, la fusion entre en conflit — ce dernier
- * cas revient à la publication, qui sait le faire régler par un agent.
+ * n'est pas sur sa branche principale, la fusion entre en conflit — et ce
+ * dernier cas ne revient à la publication QUE s'il porte sur autre chose que de
+ * la documentation. Un heurt de pure documentation est recollé ICI, sans moteur
+ * ni agent (`server/src/recollage-documentaire.ts`) : il n'atteint jamais la
+ * fusion du lot, où il coûtait un agent et trois minutes.
  */
 export async function refermerDossierDeCarte(
   racine: string,
@@ -648,8 +652,26 @@ export async function refermerDossierDeCarte(
         fusionnee = true;
         raison = `branche « ${branche} » fusionnée dans « ${principale} »`;
       } else {
-        await git(racine, ['merge', '--abort'], 60000);
-        raison = `la branche « ${branche} » entre en conflit avec « ${principale} » : la fusion revient à la publication`;
+        /*
+         * UN HEURT DE DOCUMENTATION MEURT ICI, PAS À LA PUBLICATION.
+         *
+         * La fusion est laissée EN COURS le temps de l'essai : les fichiers
+         * portent leurs marqueurs, on recolle ceux qui sont de la documentation
+         * en liste et on referme. Réussi, la branche entre dans la principale à
+         * la seconde où son tour se termine — la fusion du lot ne la verra même
+         * pas. Refusé, on annule et tout se passe comme avant : c'est la
+         * publication, avec son agent, qui tranchera.
+         */
+        const enConflit = await fichiersEnConflitDuDossier(racine);
+        const recollage = await recollerLesDocumentsEnConflit(racine, enConflit);
+        if (recollage.fusionnee) {
+          fusionnee = true;
+          raison = `branche « ${branche} » fusionnée dans « ${principale} » — ${recollage.recit}`;
+        } else {
+          await git(racine, ['merge', '--abort'], 60000);
+          const reste = recollage.restants.length ? ` (${recollage.restants.join(', ')})` : '';
+          raison = `la branche « ${branche} » entre en conflit avec « ${principale} »${reste} : la fusion revient à la publication`;
+        }
       }
     }
 

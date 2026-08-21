@@ -255,7 +255,15 @@ export const DOCUMENTS_RECOLLABLES: readonly string[] = [
 ];
 
 /** Les dossiers dont TOUT le contenu Markdown est de la documentation en liste. */
-const DOSSIERS_RECOLLABLES: readonly string[] = ['docs/memoire/', 'docs/regles/', 'docs/mecaniques/'];
+const DOSSIERS_RECOLLABLES: readonly string[] = [
+  'docs/memoire/',
+  'docs/regles/',
+  'docs/mecaniques/',
+  // Le dépôt des règles apprises, un fichier par carte : deux cartes n'y
+  // écrivent plus la même ligne, mais le filet reste posé pour une carte
+  // reprise qui reviendrait sur son propre fichier.
+  'docs/instructions-en-attente/',
+];
 
 /** Ce fichier-là peut-il se recoller mécaniquement, sans qu'un agent tranche ? */
 export function documentRecollable(chemin: string): boolean {

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
+  DOSSIER_D_ATTENTE,
   FICHIER_D_ATTENTE,
   PERIODE_DE_FUSION_MS,
   compacterInstructions,
@@ -182,8 +183,11 @@ function enregistrerLeRangement(racine: string, fichiers: readonly string[]): vo
   try {
     // Un dépôt en pleine fusion ou en plein rebasage ne se laisse pas
     // enregistrer : on repasse la nuit suivante plutôt que d'insister.
+    // `--all` sur un chemin NOMMÉ : il faut aussi enregistrer la DISPARITION
+    // d'un dépôt de carte, consommé et retiré. La règle du dossier partagé est
+    // tenue — un fichier à la fois, jamais `git add -A` sur tout le dépôt.
     for (const fichier of fichiers) {
-      if (fs.existsSync(path.join(racine, fichier))) git('add', '--', fichier);
+      git('add', '--all', '--', fichier);
     }
     try {
       git('diff', '--cached', '--quiet');
@@ -199,20 +203,55 @@ function enregistrerLeRangement(racine: string, fichiers: readonly string[]): vo
 }
 
 /**
+ * TOUS LES DÉPÔTS D'UN PROJET : le fichier commun, puis un fichier par carte.
+ *
+ * Le fichier commun était le SEUL, et c'était la cause d'une bonne part des
+ * conflits qui atteignaient la fusion du lot : chaque agent ajoutait son entrée
+ * à la fin des mêmes lignes. Chaque copie de travail écrit désormais dans
+ * `docs/instructions-en-attente/<sa-copie>.md` — deux fichiers différents ne se
+ * heurtent jamais —, et la nuit les lit tous, dans l'ordre des noms pour que
+ * deux rangements du même dépôt rendent le même résultat.
+ *
+ * Rend une liste vide quand il n'y a rien à ranger.
+ */
+export function depotsDAttente(racine: string): string[] {
+  const depots: string[] = [];
+  if (fs.existsSync(path.join(racine, FICHIER_D_ATTENTE))) depots.push(FICHIER_D_ATTENTE);
+  const dossier = path.join(racine, DOSSIER_D_ATTENTE);
+  if (fs.existsSync(dossier) && fs.statSync(dossier).isDirectory()) {
+    // Le mode d'emploi du dossier n'est pas un dépôt : le lire comme tel le
+    // ferait retirer à la première nuit qui range quelque chose.
+    const modeDEmploi = new Set(['LISEZ-MOI.md', 'README.md']);
+    for (const nom of fs.readdirSync(dossier).filter((n) => n.endsWith('.md') && !modeDEmploi.has(n)).sort()) {
+      depots.push(path.posix.join(DOSSIER_D_ATTENTE, nom));
+    }
+  }
+  return depots;
+}
+
+/**
  * Range ce qu'UN projet a déposé. Rend le plan appliqué — ce qui a été rangé,
  * ce qui reste en attente avec sa cause.
  */
 export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
   const attente = path.join(racine, FICHIER_D_ATTENTE);
-  if (!fs.existsSync(attente)) return undefined;
+  const depots = depotsDAttente(racine);
+  if (!depots.length) return undefined;
 
-  const entrees = lireEntrees(fs.readFileSync(attente, 'utf8'));
+  const entrees = depots.flatMap((relatif) => {
+    try {
+      return lireEntrees(fs.readFileSync(path.join(racine, relatif), 'utf8'));
+    } catch {
+      return [];
+    }
+  });
   if (!entrees.length) return undefined;
 
   const sujets = sujetsDuProjet(racine);
   const plan = planDeFusion(entrees, sujets.map((s) => s.id));
 
-  const touches: string[] = [FICHIER_D_ATTENTE];
+  const touches: string[] = [...depots];
+  if (!touches.includes(FICHIER_D_ATTENTE)) touches.push(FICHIER_D_ATTENTE);
 
   /*
    * LE CONTRAT NE GROSSIT QUE D'UNE LIGNE PAR RÈGLE, et seulement quand l'agent
@@ -261,7 +300,21 @@ export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
     touches.push(cible.fichier);
   }
 
+  /*
+   * CE QUI RESTE EN ATTENTE REVIENT DANS LE FICHIER COMMUN, ET LES DÉPÔTS DE
+   * CARTE DISPARAISSENT. Un dépôt de carte est un PASSAGE : la carte est finie,
+   * sa copie de travail est refermée, personne n'y reviendra. Le laisser en
+   * place ferait relire chaque nuit les mêmes entrées déjà rangées.
+   */
   fs.writeFileSync(attente, plan.refusees.length ? fichierApresFusion(plan.refusees) : fichierDAttenteVide());
+  for (const relatif of depots) {
+    if (relatif === FICHIER_D_ATTENTE) continue;
+    try {
+      fs.rmSync(path.join(racine, relatif));
+    } catch (err) {
+      log.warn(`rangement des instructions : ${relatif} non retiré — ${(err as Error).message}`);
+    }
+  }
   enregistrerLeRangement(racine, touches);
   return plan;
 }
@@ -275,12 +328,12 @@ export function rendezVousDeRangement(maintenant = new Date()): BilanDeFusion {
 
   let enAttente = 0;
   for (const projet of projets) {
-    const attente = path.join(projet.path, FICHIER_D_ATTENTE);
-    if (!fs.existsSync(attente)) continue;
-    try {
-      enAttente += lireEntrees(fs.readFileSync(attente, 'utf8')).length;
-    } catch {
-      // Fichier illisible : il se dira au rangement, pas ici.
+    for (const relatif of depotsDAttente(projet.path)) {
+      try {
+        enAttente += lireEntrees(fs.readFileSync(path.join(projet.path, relatif), 'utf8')).length;
+      } catch {
+        // Fichier illisible : il se dira au rangement, pas ici.
+      }
     }
   }
 
