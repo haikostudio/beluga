@@ -63,8 +63,7 @@ node scripts/mesure-jetons.mjs      # ce qui part au moteur, avant / après
 node scripts/verif-taille-instructions.mjs # le fichier d'instructions tient-il sous son plafond ?
 node scripts/verif-memoire-agent.mjs # un vrai agent va-t-il chercher un fait détaillé ?
 node scripts/verif-memoire-sujets.mjs # la mémoire part-elle par sujet, une seule fois par session ?
-node scripts/verif-recherche-passages.mjs # la recherche remonte-t-elle les bons passages, sous plafond ?
-node scripts/verif-memoire-des-vecteurs.mjs # un fichier réécrit garde-t-il ses vecteurs, et les sujets sont-ils nommés ?
+node scripts/verif-arbre-memoire.mjs # l'arbre de mémoire : trois étages, et aucun fait dans la carte
 HAIKO_THEMES_URL=http://localhost:7099 node scripts/verif-themes.mjs # les thèmes : 6 ambiances × clair/sombre, aucun jeton oublié, réglage général/projet, automatique et menu
 HAIKO_LANGUES_URL=http://localhost:7099 node scripts/verif-langues.mjs # les cinq langues
 node scripts/verify-ui.mjs          # l'interface dans un vrai navigateur
@@ -81,30 +80,23 @@ fabriquée puis retirée (jetons HACHÉS), **ne jamais reprendre `HAIKODEV_TOKEN
 
 ## Mémoire du projet
 
-Les faits durables vivent PAR SUJET dans `docs/memoire/<sujet>.md` ; `MEMOIRE.md` n'en garde que le
-sommaire. Au lancement d'une carte, la demande sert de QUESTION et le démon envoie les PASSAGES qui
-y répondent, à la place de l'index. Le même outil `project_memory` sert les FAITS, les RÈGLES
+La mémoire est un ARBRE à trois étages, navigué par les NOMS — il n'y a plus aucune recherche.
+`MEMOIRE.md` est la RACINE : les sujets, le mot de chaque branche, son chemin, aucun fait.
+`docs/memoire/<sujet>.md` est le RAPPEL de ce qui existe sous ce sujet ;
+`docs/memoire/<sujet>/<sujet>-<branche>.md` le DÉTAIL. Ce qui part au moteur est la CARTE de
+l'arbre, UNE SEULE FOIS par session et sans aucun fait ; la descente se fait à la demande avec
+`project_memory` — rien rend la carte, un SUJET ses faits ou ses branches, une BRANCHE ses faits en
+entier, un mot inconnu un SILENCE dit en clair. Le même outil sert les FAITS, les RÈGLES
 (`docs/regles/`) et les CONTRÔLES (`docs/verifications.md`) — un sujet demandé rend les trois, jamais
 le reste. `HISTORIQUE.md` n'est **jamais** envoyé au moteur.
 
 Les invariants de cette mécanique — texte entier dans `docs/regles/methode.md` :
 
-- Au LANCEMENT d'une carte, la demande sert de QUESTION
-- …ET LA RECHERCHE EST RELANCÉE À CHAQUE DEMANDE, plus seulement au premier tour
-- Le SENS vient d'un VRAI modèle de vectorisation, façon RAG, et il tourne EN LOCAL
-- VECTORISER EST UN TRAVAIL DE FOND, jamais un péage au lancement d'une carte — ET IL REVIENT TOUTES LES SIX HEURES
-- …ET UN PASSAGE INCHANGÉ GARDE SON VECTEUR, sinon la nuit travaille pour rien
-- L'INDEX RESTE EN MÉMOIRE VIVE ENTRE DEUX DEMANDES, il ne se relit plus en entier à chaque fois
-- LE SOMMAIRE DES SUJETS VOYAGE AVEC LES PASSAGES
-- LE CODE NE MANGE PLUS LE BUDGET DE LA DOCUMENTATION
-- LE CLASSEMENT FAIT UN SECOND PAS : LA RÈGLE NOMME SON FICHIER, ET IL REMONTE AVEC ELLE
-- PAR LE SENS OU PAR LES MOTS, C'EST ÉCRIT DANS LA BULLE
-- UNE AMPLEUR IMPOSÉE NE SE FAIT PLUS RABAISSER PAR LE CRAN DE SUIVI
-- CE QUE LA RECHERCHE RAPPORTE EST MESURÉ, PAS SUPPOSÉ
-- …D'OÙ DEUX TERRAINS ET DEUX RÉGLAGES : les MOTS EXACTS au LANCEMENT d'une carte, le SENS en CONVERSATION
-- LE SEUIL DU MODE SENS EST RÉGLÉ SUR CE BALAYAGE, PAS À L'ESTIME
-- Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`
+- LA MÉMOIRE EST UN ARBRE, ET IL SE NAVIGUE PAR LES NOMS — plus aucune recherche
+- La mémoire est EN ARBRE : un projet hérite de ce que sait HaikoDev
+- Un sujet nommé sur une carte est servi au POIDS DE SA DEMANDE, pas au poids du fichier
 - Un sujet servi une fois ne l'est pas deux dans la même session
+- Les MÉCANIQUES récurrentes vivent dans `docs/mecaniques/`
 - Envoi quotidien au cerveau
 
 ## Règles à ne pas enfreindre
@@ -142,6 +134,9 @@ Texte entier : `docs/regles/publication.md` (`project_memory`, sujet « publicat
 - **Initier une procédure de mise en ligne n'interroge plus : l'agent analyse et tranche** — INITIER UNE PROCÉDURE, C'EST UNE ANALYSE, PAS UN QUESTIONNAIRE
 - **Déployer, c'est sur ce serveur ; mettre en production, c'est ailleurs**
 - **Un interrupteur « déploiement automatique » en tête de « Terminé », éteint par défaut**
+- **LA PUBLICATION CHOISIT UN MOTEUR QUI A ENCORE DU QUOTA, ET LE DIT QUAND IL N'Y EN A AUCUN** — LA PUBLICATION CHOISIT ELLE-MÊME UN MOTEUR AU QUOTA SUFFISANT, ET UN MANQUE DE QUOTA SE DIT AU LIEU DE BLOQUER EN SILENCE
+- **LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT**
+- **La fusion du lot : un tour d'agent borné, et les heurts de documentation recollés seuls** — LE VOLET DIT OÙ EN EST CHAQUE TÂCHE DU LOT
 
 ### Cartes
 
@@ -196,6 +191,11 @@ Texte entier : `docs/regles/cartes.md` (`project_memory`, sujet « cartes »).
 - **Une carte à valider allume le triangle de son projet, d'où qu'elle vienne**
 - **Un agent arrêté sur sa question n'est en travail pour PERSONNE** — UN AGENT QUI ATTEND UNE RÉPONSE N'EST PLUS « EN TRAVAIL » NULLE PART, ET SON CHRONOMÈTRE S'ARRÊTE
 - **Chaque carte d'auto-amélioration s'ouvre sur une phrase d'intro ludique, avant le Constat technique**
+- **Le créneau conseillé devient le vrai départ programmé de la carte** — LE CRÉNEAU CONSEILLÉ D'UNE CARTE EST DÉJÀ SON DÉPART PROGRAMMÉ, PAS UNE SIMPLE SUGGESTION
+- **Un nouvel essai après panne emporte TOUJOURS la demande de son tour**
+- **Deux demandes trop rapprochées se SUIVENT, elles ne se doublent pas**
+- **Une carte annoncée en texte, sans appel d'outil, fait relancer le chef** — Une carte RACONTÉE n'est pas une carte : le chef est relancé pour l'appel d'outil manquant
+- **Le chef d'orchestre remonte le fil, et propose les deux chemins quand il hésite** — LE CHEF REMONTE LE FIL AVANT D'ÉCRIRE UNE CARTE, ET UN CAS AMBIGU LUI FAIT PROPOSER LES DEUX CHEMINS
 
 ### Branches et dossiers
 
@@ -218,6 +218,9 @@ Texte entier : `docs/regles/projets.md` (`project_memory`, sujet « projets »).
 - UN DÉPÔT QUI EXISTE DÉJÀ SUR GITHUB ENTRE EN QUELQUES CLICS
 - Un projet se déclare sur son DÉPÔT DE TRAVAIL, jamais sur son dossier publié
 - La COLONNE DE GAUCHE se pilote par outil
+- **Une élévation sudo (mkdir + chown) cible toujours le dossier CIBLE, jamais son parent** — LE MKDIR+CHOWN SUDO D'UN PROJET PORTE SUR SON PROPRE DOSSIER, JAMAIS SUR SON PARENT
+- **Cinq points que le renommage du compte système laisse derrière lui** — UN RENOMMAGE DU COMPTE COUVRE AUSSI CE QUI POINTE L'ANCIEN DOSSIER PERSONNEL
+- **Le dossier SSH de l'administrateur doit rester à l'administrateur** — UN `chown -R` TROP LARGE COUPE LES ACCÈS SSH DE L'ADMINISTRATEUR
 
 ### Méthode et silence
 
@@ -246,7 +249,10 @@ Texte entier : `docs/regles/methode.md` (`project_memory`, sujet « methode »).
 - **Le contrôle du coffre des comptes rejoint les vérifications de tous les jours** — `node scripts/verif-coffre-des-comptes.mjs` fait partie des contrôles de TOUS LES JOURS — les coffres Claude et Codex tiennent-ils debout ?
 - **Chaque ligne de contrat rejoint la section de son sujet dans CLAUDE.md, pas la fin du fichier** — le rangement de nuit insère chaque ligne de contrat sous la section « ### … » de son sujet, repérée par « sujet « <sujet> » », jamais collée à la fin du fichier
 - **Le filet de fermeture ne regarde plus le seul statut : un rangement d'après-réponse est jugé aussi** — UN TOUR ENCORE SUIVI DONT LA RÉPONSE EST FIGÉE SE REFERME, MÊME SI SON STATUT EST DÉJÀ RETOMBÉ
-- **Un passage doit peser face au MIEUX PLACÉ, pas seulement dépasser un seuil absolu** — UN PASSAGE N'ENTRE QUE S'IL PÈSE FACE AU MIEUX PLACÉ, PAS SEULEMENT AU-DESSUS D'UN SEUIL
+- **Le rangement de nuit vise les sujets réels du projet traité, pas les huit d'HaikoDev** — le rangement de nuit range dans les fichiers de `docs/regles/` qui existent VRAIMENT sur le projet traité, jamais dans les huit sujets fixes d'HaikoDev appliqués à un autre projet
+- **Un décor d'agents FACTICES doit être reposé juste avant la mesure**
+- **Les outils de liste de tâches se rouvrent par l'environnement**
+- **Un fichier inchangé se reconnaît par sa taille et sa date, pas en le relisant**
 
 ### Interface et code
 
@@ -304,6 +310,10 @@ Texte entier : `docs/regles/interface.md` (`project_memory`, sujet « interface 
 - **Le menu du bas du téléphone prolonge le fond de l'écran affiché, il ne pose plus sa propre bande** — LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE
 - **L'heure, le séparateur de date et les jetons sous les messages** — L'HEURE SOUS CHAQUE BULLE, UN SÉPARATEUR ENTRE DEUX JOURS, ET LES JETONS DE RETOUR SOUS LES MESSAGES
 - **Le compteur de jetons sous un message utilisateur n'écarte plus le tour agentique qui suit** — LE COMPTEUR SOUS UNE BULLE DE DEMANDE MESURE CE MESSAGE, JAMAIS LE TOUR AGENTIQUE QUI A SUIVI
+- **UN COFFRE-FORT CENTRAL POUR LES IDENTIFIANTS, ATTEINT DEPUIS LA COLONNE DE GAUCHE** — LES IDENTIFIANTS VIVENT DANS UN COFFRE-FORT CENTRAL, OUVERT DEPUIS LA COLONNE DE GAUCHE
+- **Le tiroir de publication est une vraie timeline verticale** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
+- **Un trait qui porte une information suit `--faint`, jamais `--border`** — sur les thèmes plats, un trait porteur d'information se dessine avec `--faint`, pas avec `--border`
+- **Un canal WebSocket zombie n'a plus le dernier mot sur le témoin « Réflexion en cours »** — LE CLIENT VÉRIFIE LUI-MÊME QUE SON CANAL RÉPOND ENCORE, IL NE SE FIE PLUS À `onclose`
 
 ### Quotas
 
@@ -315,21 +325,3 @@ Texte entier : `docs/regles/quotas.md` (`project_memory`, sujet « quotas »).
 - Chaque échéance de quota connue déclenche une lecture ciblée après 15 s
 - LE TRAVAIL PART OÙ IL Y A LE PLUS DE PLACE, pas au premier compte pas encore à 100 %
 - LE CHEF D'ORCHESTRE NE PAIE PAS UN MODÈLE DE RAISONNEMENT POUR TRIER
-- **Le rangement de nuit vise les sujets réels du projet traité, pas les huit d'HaikoDev** — le rangement de nuit range dans les fichiers de `docs/regles/` qui existent VRAIMENT sur le projet traité, jamais dans les huit sujets fixes d'HaikoDev appliqués à un autre projet
-- **LE SEUIL DU MODE SENS SE MESURE SUR LE TERRAIN OÙ IL S'APPLIQUE**
-- **Le créneau conseillé devient le vrai départ programmé de la carte** — LE CRÉNEAU CONSEILLÉ D'UNE CARTE EST DÉJÀ SON DÉPART PROGRAMMÉ, PAS UNE SIMPLE SUGGESTION
-- **LA PUBLICATION CHOISIT UN MOTEUR QUI A ENCORE DU QUOTA, ET LE DIT QUAND IL N'Y EN A AUCUN** — LA PUBLICATION CHOISIT ELLE-MÊME UN MOTEUR AU QUOTA SUFFISANT, ET UN MANQUE DE QUOTA SE DIT AU LIEU DE BLOQUER EN SILENCE
-- **LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT**
-- **UN COFFRE-FORT CENTRAL POUR LES IDENTIFIANTS, ATTEINT DEPUIS LA COLONNE DE GAUCHE** — LES IDENTIFIANTS VIVENT DANS UN COFFRE-FORT CENTRAL, OUVERT DEPUIS LA COLONNE DE GAUCHE
-- **La fusion du lot : un tour d'agent borné, et les heurts de documentation recollés seuls** — LE VOLET DIT OÙ EN EST CHAQUE TÂCHE DU LOT
-- **Le tiroir de publication est une vraie timeline verticale** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
-- **Le tiroir de publication est une vraie timeline verticale (mise à jour : ronds sur chaque moment)** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
-- **Une élévation sudo (mkdir + chown) cible toujours le dossier CIBLE, jamais son parent** — LE MKDIR+CHOWN SUDO D'UN PROJET PORTE SUR SON PROPRE DOSSIER, JAMAIS SUR SON PARENT
-- **Cinq points que le renommage du compte système laisse derrière lui** — UN RENOMMAGE DU COMPTE COUVRE AUSSI CE QUI POINTE L'ANCIEN DOSSIER PERSONNEL
-- **Le dossier SSH de l'administrateur doit rester à l'administrateur** — UN `chown -R` TROP LARGE COUPE LES ACCÈS SSH DE L'ADMINISTRATEUR
-- **Un nouvel essai après panne emporte TOUJOURS la demande de son tour**
-- **Deux demandes trop rapprochées se SUIVENT, elles ne se doublent pas**
-- **Un trait qui porte une information suit `--faint`, jamais `--border`** — sur les thèmes plats, un trait porteur d'information se dessine avec `--faint`, pas avec `--border`
-- **Une carte annoncée en texte, sans appel d'outil, fait relancer le chef** — Une carte RACONTÉE n'est pas une carte : le chef est relancé pour l'appel d'outil manquant
-- **Un canal WebSocket zombie n'a plus le dernier mot sur le témoin « Réflexion en cours »** — LE CLIENT VÉRIFIE LUI-MÊME QUE SON CANAL RÉPOND ENCORE, IL NE SE FIE PLUS À `onclose`
-- **Le chef d'orchestre remonte le fil, et propose les deux chemins quand il hésite** — LE CHEF REMONTE LE FIL AVANT D'ÉCRIRE UNE CARTE, ET UN CAS AMBIGU LUI FAIT PROPOSER LES DEUX CHEMINS
