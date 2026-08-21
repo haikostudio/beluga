@@ -70,8 +70,6 @@ import {
   mentionDeLOrdre,
   detailDeLEtape,
   lignesNouvelles,
-  conflitPurementDocumentaire,
-  recollerLesDeuxIntentions,
   mentionDuRecollage,
   avecEtatDeTache,
   lotMisEnLigne,
@@ -101,6 +99,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
+import { fichiersEnConflitDuDossier, recollerLesDocumentsEnConflit } from './recollage-documentaire.js';
 import { notify } from './notify.js';
 import { archiveCard } from './archive.js';
 import { createAgent, sendPrompt, agentsActifs, arreterLAgent } from './runtime.js';
@@ -595,56 +594,6 @@ function tourRefusePourQuota(agentId: string): string | null {
   const dernier = messages[messages.length - 1];
   if (dernier?.error !== 'quota') return null;
   return dernier.content?.trim() || 'aucun compte n’a de quota disponible';
-}
-
-/**
- * RECOLLER UN HEURT DE DOCUMENTATION SANS APPELER PERSONNE.
- *
- * 58 des 78 conflits mesurés par l'audit du 18/08/2026 portaient sur
- * `CLAUDE.md` et `MEMOIRE.md` : deux fichiers de TEXTE que le briefing demande
- * à chaque agent de compléter en fin de tâche. Chacun coûtait un agent, un tour
- * de moteur et trois minutes d'attente — pour faire ce que la consigne dit en
- * une phrase : garder les deux intentions.
- *
- * On le fait donc ici, mécaniquement. La fusion est LAISSÉE EN COURS par
- * l'appelant : les fichiers en conflit portent leurs marqueurs, on les recolle,
- * on les enregistre, et `git commit --no-edit` referme la fusion.
- *
- * TROIS REFUS, et chacun rend la main à l'agent plutôt que de bricoler : un
- * fichier hors de la liste fermée (donc du code, ou une prose dont l'ordre a un
- * sens), un fichier illisible sur le disque, un texte dont les marqueurs ne
- * sont pas exactement ceux qu'on attend. Rien n'est jamais écrasé : le
- * recollage AJOUTE, il ne choisit pas de camp.
- */
-async function recollerLaDocumentation(
-  cwd: string,
-  fichiers: string[],
-): Promise<{ recollee: boolean; recit: string }> {
-  if (!conflitPurementDocumentaire(fichiers)) return { recollee: false, recit: '' };
-
-  for (const fichier of fichiers) {
-    const chemin = path.join(cwd, fichier);
-    let avant: string;
-    try {
-      avant = await fs.promises.readFile(chemin, 'utf8');
-    } catch {
-      return { recollee: false, recit: `fichier illisible (${fichier})` };
-    }
-    const apres = recollerLesDeuxIntentions(avant);
-    if (apres === null) return { recollee: false, recit: `marqueurs inattendus dans ${fichier}` };
-    await fs.promises.writeFile(chemin, apres, 'utf8');
-  }
-
-  // On n'ajoute QUE les fichiers recollés : le dossier est partagé, et un
-  // `git add -A` emporterait ce qu'un autre y a laissé.
-  for (const fichier of fichiers) {
-    const ajout = await runCommand(cwd, `git add -- ${JSON.stringify(fichier)}`);
-    if (!ajout.ok) return { recollee: false, recit: `enregistrement impossible (${fichier})` };
-  }
-  const commit = await runCommand(cwd, 'git commit --no-edit');
-  if (!commit.ok) return { recollee: false, recit: 'la fusion recollée n’a pas pu être enregistrée' };
-
-  return { recollee: true, recit: mentionDuRecollage(fichiers) };
 }
 
 /**
@@ -2478,10 +2427,7 @@ export async function startDeploy(
             continue;
           }
 
-          const enConflit = (await runCommand(cwd, 'git diff --name-only --diff-filter=U')).out
-            .trim()
-            .split('\n')
-            .filter(Boolean);
+          const enConflit = await fichiersEnConflitDuDossier(cwd);
 
           /*
            * UN HEURT DE PURE DOCUMENTATION SE RECOLLE ICI, SANS MOTEUR.
@@ -2493,29 +2439,37 @@ export async function startDeploy(
            * réussi, elle est enregistrée telle quelle ; refusé, on annule et
            * l'agent prend la main exactement comme avant.
            */
-          if (conflitPurementDocumentaire(enConflit)) {
-            const recollage = await recollerLaDocumentation(cwd, enConflit);
-            if (recollage.recollee) {
-              fusionnees += 1;
-              lignesDeFusion.push(`${branch} : ${recollage.recit}`);
-              current = marquerLaTache(current, card.id, 'recollee', enConflit.join(', '));
-              current = noterAuJournal(
-                current,
-                'merge',
-                `${branch} : ${recollage.recit} — aucun agent appelé.`,
-                'issue',
-              );
-              continue;
-            }
-            if (recollage.recit) {
-              current = noterAuJournal(
-                current,
-                'merge',
-                `${branch} : recollage automatique refusé (${recollage.recit}) — un agent prend la main.`,
-                'depannage',
-              );
-            }
+          const recollage = await recollerLesDocumentsEnConflit(cwd, enConflit);
+          if (recollage.fusionnee) {
+            fusionnees += 1;
+            lignesDeFusion.push(`${branch} : ${recollage.recit}`);
+            current = marquerLaTache(current, card.id, 'recollee', enConflit.join(', '));
+            current = noterAuJournal(
+              current,
+              'merge',
+              `${branch} : ${recollage.recit} — aucun agent appelé.`,
+              'issue',
+            );
+            continue;
           }
+          if (recollage.recit) {
+            current = noterAuJournal(
+              current,
+              'merge',
+              `${branch} : ${recollage.recit} — un agent prend la main.`,
+              'depannage',
+            );
+          }
+
+          /*
+           * CE QUI PART À L'AGENT EST CE QUI RESTE, PAS TOUT LE TAS. Le
+           * recollage était tout-ou-rien : trois documents et un fichier de code
+           * partaient tous les quatre à l'agent, qui repayait un tour pour
+           * recoller à la main ce qu'on sait faire sans lui. Il ne reçoit
+           * désormais que les fichiers qu'aucune règle mécanique ne sait
+           * trancher.
+           */
+          const pourLAgent = recollage.restants.length ? recollage.restants : enConflit;
 
           await runCommand(cwd, 'git merge --abort');
 
@@ -2528,11 +2482,11 @@ export async function startDeploy(
           // Seule la SUITE part au détail : le journal entier s'y recopiait.
           current = setStep(current, 'merge', 'running', aVerser());
 
-          const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, enConflit, (agentId, legere) => {
+          const issue = await resoudreConflit(projectId, cwd, card, branch, mainBranch, pourLAgent, (agentId, legere) => {
             current = noterAuJournal(
               current,
               'merge',
-              `${branch} : CONFLIT${enConflit.length ? ` sur ${enConflit.join(', ')}` : ''} — un agent de dépannage est appelé${legere ? '' : ' (seconde passe)'}.`,
+              `${branch} : CONFLIT${pourLAgent.length ? ` sur ${pourLAgent.join(', ')}` : ''} — un agent de dépannage est appelé${legere ? '' : ' (seconde passe)'}.`,
               'depannage',
               agentId,
             );

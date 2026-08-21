@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   FICHIER_D_ATTENTE,
+  fichierDAttentePourCopie,
   MARQUE_ARBRE,
   amontApplicable,
   brancheDemandee,
@@ -1227,9 +1228,24 @@ export function briefingSepare(
    * un paragraphe identique sur les dix-huit projets. Le tiroir compte
    * désormais chaque signe du bon côté.
    */
+  /*
+   * LE DÉPÔT D'UNE RÈGLE APPRISE EST PROPRE À LA CARTE, PLUS COMMUN À TOUTES.
+   *
+   * Tant que le briefing nommait UN fichier, chaque agent ajoutait son entrée à
+   * la fin du MÊME fichier : deux cartes finies le même jour écrivaient les
+   * mêmes dernières lignes et se heurtaient à la fusion, par construction. Un
+   * agent qui travaille dans SA copie écrit donc dans SON fichier — deux
+   * fichiers différents ne peuvent pas entrer en conflit. Les dossiers PARTAGÉS
+   * (chef, analyse, publication) gardent le fichier commun : ils ne travaillent
+   * jamais à plusieurs en même temps.
+   */
+  const depotDAttente =
+    (dossier !== projectPath ? fichierDAttentePourCopie(path.basename(dossier)) : undefined) ??
+    FICHIER_D_ATTENTE;
+
   socle.push(
     `RÈGLE DURABLE APPRISE : si ta tâche change une règle durable, une architecture ou une commande, NE TOUCHE PAS à ${quiFaitFoi} — ` +
-      `écris-la à la fin de « ${FICHIER_D_ATTENTE} », et le démon la rangera cette nuit dans le fichier de son sujet. ` +
+      `écris-la à la fin de « ${depotDAttente} » (crée le fichier s'il n'existe pas), et le démon la rangera cette nuit dans le fichier de son sujet. ` +
       `Ce fichier est chargé par le MOTEUR à chaque session : le modifier fait repayer aux agents suivants tout ce qu'il contient, au plein tarif. ` +
       `Le fichier d'attente, lui, n'est lu par aucun moteur et ne coûte rien.\n` +
       `Format d'une entrée : un titre en « ## », puis « - sujet : <un sujet de docs/regles/> », puis « - contrat : <une ligne> » seulement si l'invariant doit être NOMMÉ dans ${quiFaitFoi}, ` +
