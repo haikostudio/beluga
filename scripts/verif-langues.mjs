@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 /* La racine se déduit du script : lancé d'une copie de travail, il juge CE
    code-là, jamais le dossier principal. */
@@ -55,6 +56,7 @@ const {
   LANGUES,
   LANGUE_DORIGINE,
   TRADUCTIONS,
+  TEXTES_TRADUITS,
   langueValide,
   manquesDeLaLangue,
   traduire,
@@ -259,7 +261,62 @@ if (appels.length !== 1) {
 constater(`la langue est posée en un seul endroit, appelé une seule fois depuis la racine`);
 
 /* ------------------------------------------------------------------ */
-/* 6. Le navigateur                                                    */
+/* 6. Aucune clé du dictionnaire ne reste sans emploi                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le sens inverse de la section 2 : le dictionnaire ne doit garder que des
+ * textes RÉELLEMENT affichés. On relit chaque littéral de chaîne (et chaque
+ * bout de texte JSX) du VRAI arbre du code, jamais une comparaison de texte
+ * brut — une clé écrite avec une apostrophe échappée (`\'`) dans un fichier et
+ * une apostrophe simple dans un autre semblerait absente alors qu'elle est
+ * bien utilisée. `node.text` du compilateur TypeScript décode chacun des deux
+ * de la même façon, quelle que soit la façon dont il a été écrit.
+ */
+function litterauxDeSource(dossiers) {
+  const litteraux = new Set();
+  for (const dossier of dossiers) {
+    for (const chemin of fichiers(dossier)) {
+      if (chemin.endsWith(path.join('shared', 'src', 'traductions.ts'))) continue;
+      const texte = fs.readFileSync(chemin, 'utf8');
+      const source = ts.createSourceFile(
+        chemin,
+        texte,
+        ts.ScriptTarget.Latest,
+        true,
+        chemin.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      );
+      const visiter = (noeud) => {
+        if (ts.isStringLiteral(noeud) || ts.isNoSubstitutionTemplateLiteral(noeud)) {
+          litteraux.add(noeud.text);
+        }
+        if (ts.isTemplateExpression(noeud)) {
+          litteraux.add(noeud.head.text);
+          for (const morceau of noeud.templateSpans) litteraux.add(morceau.literal.text);
+        }
+        if (ts.isJsxText(noeud)) {
+          const texteJsx = noeud.getText().trim();
+          if (texteJsx) litteraux.add(texteJsx);
+        }
+        ts.forEachChild(noeud, visiter);
+      };
+      visiter(source);
+    }
+  }
+  return litteraux;
+}
+
+const litteraux = litterauxDeSource([ECRANS, path.join(RACINE, 'shared/src'), path.join(RACINE, 'server/src')]);
+const orphelines = TEXTES_TRADUITS.filter((cle) => !litteraux.has(cle));
+if (orphelines.length) {
+  const apercu = orphelines.slice(0, 10).map((cle) => `« ${cle.slice(0, 70)} »`).join(', ');
+  refuser(`${orphelines.length} clé(s) du dictionnaire n'apparaissent plus nulle part dans les sources : ${apercu}`);
+} else {
+  constater(`aucune des ${TEXTES_TRADUITS.length} clés du dictionnaire n'est orpheline`);
+}
+
+/* ------------------------------------------------------------------ */
+/* 7. Le navigateur                                                    */
 /* ------------------------------------------------------------------ */
 
 /**
