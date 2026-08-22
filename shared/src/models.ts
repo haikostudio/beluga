@@ -998,6 +998,12 @@ export const Message = z.object({
   questions: z.array(AgentQuestion).default([]),
   /** Ce tour a été coupé par la limite d'un compte : sur lequel poursuivre ? */
   repriseCompte: RepriseDeCompte.optional(),
+  /**
+   * Ce message finit sur une question écrite en TEXTE ORDINAIRE (pas par
+   * l'outil `ask_user`) et le bouton « Annuler » du repère l'a fermée : elle ne
+   * compte plus comme décision attendue (`questionEnTexteLibre` la retire).
+   */
+  texteLibreAnnulee: z.boolean().default(false),
   downloads: z.array(DownloadOffer).default([]),
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
