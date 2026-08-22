@@ -944,6 +944,10 @@ function QuestionCard({
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  // Une question sans choix ni réponse libre n'offre aucune façon de répondre.
+  // Elle doit alors donner une sortie nette, plutôt que laisser une zone vide
+  // qui ressemble à un blocage.
+  const reponsePossible = question.options.length > 0 || question.allowFreeText;
 
   if (question.cancelled) {
     return (
@@ -1074,15 +1078,15 @@ function QuestionCard({
       data-question-agent={question.id}
       /* Une image lâchée n'importe où sur le bloc de la question se joint à la
          réponse : viser le champ au pixel près serait une contrainte inutile. */
-      onDragOver={(event) => {
+      onDragOver={reponsePossible ? (event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault();
-      }}
-      onDrop={(event) => {
+      } : undefined}
+      onDrop={reponsePossible ? (event) => {
         const fichiers = Array.from(event.dataTransfer.files);
         if (!fichiers.length) return;
         event.preventDefault();
         void joindre(fichiers);
-      }}
+      } : undefined}
     >
       <p className="flex items-start gap-1.5 text-[14px] font-medium text-text">
         <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
@@ -1121,21 +1125,23 @@ function QuestionCard({
         </div>
       ) : null}
 
-      <Textarea
-        value={complement}
-        onChange={(event) => setComplement(event.target.value)}
-        onPaste={(event) => {
-          // Une image collée depuis le presse-papiers se joint sans passer par
-          // un fichier : c'est le geste le plus courant après une capture.
-          const fichiers = Array.from(event.clipboardData.files);
-          if (!fichiers.length) return;
-          event.preventDefault();
-          void joindre(fichiers);
-        }}
-        rows={2}
-        placeholder={question.options.length ? t('Précision (facultative)…') : t('Votre réponse…')}
-        className="mt-2"
-      />
+      {question.allowFreeText ? (
+        <Textarea
+          value={complement}
+          onChange={(event) => setComplement(event.target.value)}
+          onPaste={(event) => {
+            // Une image collée depuis le presse-papiers se joint sans passer par
+            // un fichier : c'est le geste le plus courant après une capture.
+            const fichiers = Array.from(event.clipboardData.files);
+            if (!fichiers.length) return;
+            event.preventDefault();
+            void joindre(fichiers);
+          }}
+          rows={2}
+          placeholder={question.options.length ? t('Précision (facultative)…') : t('Votre réponse…')}
+          className="mt-2"
+        />
+      ) : null}
 
       {/* Les images jointes en attente : la croix retire celle qu'on ne veut
           plus, et rien ne part avant le clic sur « Répondre ». */}
@@ -1167,37 +1173,41 @@ function QuestionCard({
       <div
         className="sticky bottom-0 z-10 -mx-2.5 -mb-2 mt-2 flex flex-wrap items-center gap-1.5 border-t border-warning/20 bg-surface/95 px-2.5 py-2 backdrop-blur-sm"
         data-actions-question
+        data-question-sans-reponse={reponsePossible ? undefined : ''}
       >
-        <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
-          {t('Répondre')}</Button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          data-champ-image
-          onChange={(event) => {
-            if (event.target.files?.length) void joindre(event.target.files);
-            event.target.value = '';
-          }}
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          title={t('Joindre une image')}
-          aria-label="Joindre une image à la réponse"
-          disabled={envoiFichier}
-          onClick={() => fileRef.current?.click()}
-        >
-          {envoiFichier ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Paperclip className="h-3 w-3" />
-          )}
-          
+        {reponsePossible ? (
+          <>
+            <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
+              {t('Répondre')}</Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              data-champ-image
+              onChange={(event) => {
+                if (event.target.files?.length) void joindre(event.target.files);
+                event.target.value = '';
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              title={t('Joindre une image')}
+              aria-label="Joindre une image à la réponse"
+              disabled={envoiFichier}
+              onClick={() => fileRef.current?.click()}
+            >
+              {envoiFichier ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Paperclip className="h-3 w-3" />
+              )}
 {t('Image')}
 </Button>
+          </>
+        ) : null}
         <Button
           variant="ghost"
           size="sm"
