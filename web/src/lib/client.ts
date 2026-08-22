@@ -5,6 +5,7 @@ import {
   CapacitySnapshot,
   Card,
   ClientCommand,
+  CommandeSlash,
   ConnexionCompte,
   DecisionAttendue,
   CiblePublication,
@@ -114,6 +115,12 @@ export interface AppState {
   attachments: Record<string, Attachment[]>;
   files: Record<string, FileNode[]>;
   memory: Record<string, string>;
+  /**
+   * LES COMMANDES « / » RELEVÉES SUR LE DISQUE, par projet puis par moteur.
+   * Demandées à l'ouverture du menu de la barre d'écriture, jamais poussées
+   * d'office : tant que personne ne tape « / », rien ne voyage.
+   */
+  slash: Record<string, Record<string, CommandeSlash[]>>;
   deploys: Record<string, DeployRun>;
   /**
    * Les dialogues de PROCÉDURE en cours, par `projet:cible`. Ils viennent du
@@ -157,6 +164,7 @@ const initialState: AppState = {
   attachments: {},
   files: {},
   memory: {},
+  slash: {},
   deploys: {},
   procedures: {},
   activeProjectId: null,
@@ -565,6 +573,12 @@ class Client {
         if (event.content) {
           this.set((state) => ({ memory: { ...state.memory, [event.projectId]: event.content } }));
         }
+        break;
+
+      case 'slash':
+        this.set((state) => ({
+          slash: { ...state.slash, [event.projectId]: event.commandes as Record<string, CommandeSlash[]> },
+        }));
         break;
 
       case 'toast':

@@ -596,6 +596,24 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   ],
 
   /* ---- Conversation, composeur, voix ------------------------------- */
+  /* Les commandes « / » du moteur, dans la barre d'écriture. */
+  'Commandes de {v0}': ['{v0} commands', 'Comandos de {v0}', 'Befehle von {v0}', '{v0} 命令'],
+  '↑ ↓ puis Entrée': ['↑ ↓ then Enter', '↑ ↓ y Intro', '↑ ↓ dann Enter', '↑ ↓ 然后回车'],
+  'Aucune commande « / » pour ce moteur : continuez d’écrire normalement.': [
+    'No “/” commands for this engine: just keep writing.',
+    'Ningún comando «/» para este motor: siga escribiendo normalmente.',
+    'Keine „/“-Befehle für diese Engine: Schreiben Sie einfach weiter.',
+    '该引擎没有“/”命令：请继续正常输入。',
+  ],
+  'Retirer la commande': ['Remove the command', 'Quitar el comando', 'Befehl entfernen', '移除命令'],
+  'part en tête du message, telle quelle': [
+    'sent at the start of the message, as is',
+    'se envía al principio del mensaje, tal cual',
+    'geht unverändert an den Anfang der Nachricht',
+    '原样置于消息开头发送',
+  ],
+  'compte': ['account', 'cuenta', 'Konto', '账户'],
+  'moteur': ['engine', 'motor', 'Engine', '引擎'],
   'Écrivez votre demande…': ['Write your request…', 'Escriba su petición…', 'Schreiben Sie Ihre Anfrage…', '写下您的请求……'],
   'Votre réponse…': ['Your answer…', 'Su respuesta…', 'Ihre Antwort…', '您的回答……'],
   'Répondez à la question de l’agent…': ['Answer the agent’s question…', 'Responda a la pregunta del agente…', 'Beantworten Sie die Frage des Agenten…', '回答智能体的问题……'],

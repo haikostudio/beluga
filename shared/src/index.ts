@@ -43,6 +43,7 @@ export * from './colonne-affichee.js';
 export * from './columns.js';
 export * from './icone-de-projet.js';
 export * from './competences.js';
+export * from './commandes-slash.js';
 export * from './fiche-competence.js';
 export * from './preuve-competence.js';
 export * from './contradiction-cartes.js';
