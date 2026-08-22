@@ -104,6 +104,8 @@ const marque = Date.now();
 const TEXTES = {
   transport: `Vérification ${marque} — transport des images`,
   enAttente: `Vérification ${marque} — que voyez-vous sur cette capture ?`,
+  longueTelephone: `Vérification ${marque} — choix long sur téléphone`,
+  longueOrdinateur: `Vérification ${marque} — choix long sur ordinateur`,
   reponse: `Vérification ${marque} — voici la capture`,
   reponseLongue: `Vérification-${marque}-${'sans-espace-'.repeat(80)}`,
 };
@@ -249,9 +251,9 @@ function appelDemon(commande) {
 /* L'écran                                                             */
 /* ------------------------------------------------------------------ */
 
-/** Le bloc de la question en attente, reconnu à son texte. */
+/** Le bloc de la question, reconnu par son rôle stable puis par son texte. */
 const blocQuestion = (page, texte) =>
-  page.getByText(texte).first().locator('xpath=ancestor::div[contains(@class,"border-warning/40")][1]');
+  page.locator('[data-question-agent]').filter({ hasText: texte }).first();
 
 const vignettes = (bloc) => bloc.locator('[data-images-reponse] img').count();
 
@@ -311,6 +313,32 @@ async function ecran(navigateur, telephone) {
     }
     await bloc.scrollIntoViewIfNeeded().catch(() => {});
     await page.waitForTimeout(500);
+
+    /* ---- 0. Les issues d'une longue question restent à portée ---- */
+    const texteLong = telephone ? TEXTES.longueTelephone : TEXTES.longueOrdinateur;
+    const longue = blocQuestion(page, texteLong);
+    await longue.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
+    const premiereOption = longue.getByRole('button', { name: /Option 1 —/ }).first();
+    await premiereOption.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(300);
+    const actionsVisibles = await longue.locator('[data-actions-question]').evaluate((actions) => {
+      const fil = actions.closest('[data-fil="conversation"]');
+      if (!fil) return false;
+      const a = actions.getBoundingClientRect();
+      const f = fil.getBoundingClientRect();
+      return a.top >= f.top && a.bottom <= f.bottom;
+    }).catch(() => false);
+    noter(`${nom} : les options de la question sont visibles`, await premiereOption.isVisible().catch(() => false));
+    noter(`${nom} : répondre et annuler restent visibles pendant la lecture`, actionsVisibles);
+    await premiereOption.click({ force: true });
+    const repondreLongue = longue.getByRole('button', { name: 'Répondre' }).first();
+    noter(`${nom} : choisir une option permet de répondre`, await repondreLongue.isEnabled());
+    await longue.getByRole('button', { name: 'Annuler' }).click({ force: true });
+    await longue.getByText('Question annulée').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+    noter(
+      `${nom} : annuler ferme la question sans blocage`,
+      (await longue.getByText('Question annulée').count()) === 1,
+    );
 
     /* ---- 1. Le bouton de sélection de fichier ---- */
     await bloc.locator('input[data-champ-image]').setInputFiles(fabriqueImage(`bouton-${nom}.png`));
@@ -477,6 +505,20 @@ async function main() {
     allowFreeText: true,
     answerAttachments: [],
   });
+  for (const question of [TEXTES.longueTelephone, TEXTES.longueOrdinateur]) {
+    poserQuestion(AGENT_ID, {
+      id: crypto.randomUUID(),
+      question,
+      kind: 'single',
+      options: Array.from({ length: 12 }, (_, index) => ({
+        id: `option-${index + 1}`,
+        label: `Option ${index + 1} — choix proposé à l'utilisateur`,
+        description: 'Une explication assez longue pour donner à la question la hauteur d’un écran.',
+      })),
+      allowFreeText: true,
+      answerAttachments: [],
+    });
+  }
   poserQuestion(AGENT_ID, {
     id: crypto.randomUUID(),
     question: TEXTES.reponse,
