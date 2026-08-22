@@ -947,7 +947,10 @@ function QuestionCard({
 
   if (question.cancelled) {
     return (
-      <div className="rounded-md border border-border bg-surface/60 px-2.5 py-2">
+      <div
+        className="rounded-md border border-border bg-surface/60 px-2.5 py-2"
+        data-question-agent={question.id}
+      >
         <p className="text-[13px] text-faint">{question.question}</p>
         <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14px] text-faint">
           <X className="mt-0.5 h-3 w-3 shrink-0 text-faint" />
@@ -960,7 +963,10 @@ function QuestionCard({
 
   if (question.answer) {
     return (
-      <div className="rounded-md border border-border bg-surface/60 px-2.5 py-2">
+      <div
+        className="rounded-md border border-border bg-surface/60 px-2.5 py-2"
+        data-question-agent={question.id}
+      >
         <p className="text-[13px] text-faint">{question.question}</p>
         <p className="mt-1 flex min-w-0 items-start gap-1.5 text-[14px] text-text">
           <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
@@ -1065,6 +1071,7 @@ function QuestionCard({
   return (
     <div
       className="rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2"
+      data-question-agent={question.id}
       /* Une image lâchée n'importe où sur le bloc de la question se joint à la
          réponse : viser le champ au pixel près serait une contrainte inutile. */
       onDragOver={(event) => {
@@ -1153,7 +1160,14 @@ function QuestionCard({
 
       <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
 
-      <div className="mt-2 flex items-center gap-1.5">
+      {/* Une question peut porter assez d'options pour dépasser l'écran. Les
+          deux issues restent donc collées au bas du fil pendant sa lecture :
+          répondre ou quitter ne doit jamais demander de deviner qu'un bouton
+          se cache plus bas. */}
+      <div
+        className="sticky bottom-0 z-10 -mx-2.5 -mb-2 mt-2 flex flex-wrap items-center gap-1.5 border-t border-warning/20 bg-surface/95 px-2.5 py-2 backdrop-blur-sm"
+        data-actions-question
+      >
         <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
           {t('Répondre')}</Button>
         <input
