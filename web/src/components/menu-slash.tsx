@@ -19,9 +19,11 @@ import { t } from '@/lib/langue';
 
 /** D'où vient la commande, dit en un mot à droite de son nom. */
 function motDOrigine(origine: OrigineCommande): string {
-  if (origine === 'projet') return t('projet');
-  if (origine === 'compte') return t('compte');
-  return t('moteur');
+  // Les mêmes mots que le reste de l'interface : le dictionnaire ne garde pas
+  // deux clés pour un seul mot. L'affichage les met en capitales lui-même.
+  if (origine === 'projet') return t('Projet');
+  if (origine === 'compte') return t('Compte');
+  return t('Moteur');
 }
 
 export function MenuSlash({

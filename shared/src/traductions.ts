@@ -612,8 +612,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'geht unverändert an den Anfang der Nachricht',
     '原样置于消息开头发送',
   ],
-  'compte': ['account', 'cuenta', 'Konto', '账户'],
-  'moteur': ['engine', 'motor', 'Engine', '引擎'],
   'Écrivez votre demande…': ['Write your request…', 'Escriba su petición…', 'Schreiben Sie Ihre Anfrage…', '写下您的请求……'],
   'Votre réponse…': ['Your answer…', 'Su respuesta…', 'Ihre Antwort…', '您的回答……'],
   'Répondez à la question de l’agent…': ['Answer the agent’s question…', 'Responda a la pregunta del agente…', 'Beantworten Sie die Frage des Agenten…', '回答智能体的问题……'],

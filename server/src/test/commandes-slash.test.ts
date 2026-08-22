@@ -7,6 +7,7 @@ import {
   deplacerDansLaListe,
   filtrerCommandes,
   insereCommande,
+  nomDeCommandeValable,
   slashEnCours,
   type CommandeSlash,
 } from '@haikodev/shared';
@@ -66,11 +67,12 @@ const RELEVEES: CommandeSlash[] = [
 ];
 
 test('les commandes du projet passent devant, l’alphabet départage', () => {
-  const liste = commandesDuMoteur('claude', RELEVEES);
-  assert.deepEqual(
-    liste.map((c) => c.nom),
-    ['deployer', 'compact', 'compta', 'context'],
-  );
+  const noms = commandesDuMoteur('claude', RELEVEES).map((c) => c.nom);
+  // Le projet d'abord, le compte ensuite, le moteur en dernier.
+  assert.deepEqual(noms.slice(0, 3), ['deployer', 'compact', 'compta']);
+  // Et à l'intérieur du bloc du moteur, l'alphabet départage.
+  const duMoteur = noms.slice(3);
+  assert.deepEqual(duMoteur, [...duMoteur].sort((a, b) => a.localeCompare(b)));
 });
 
 test('une commande relevée sur le disque l’emporte sur celle écrite en dur', () => {
@@ -82,14 +84,35 @@ test('une commande relevée sur le disque l’emporte sur celle écrite en dur',
 
 test('un nom impossible est écarté au lieu d’être affiché', () => {
   const liste = commandesDuMoteur('codex', [{ nom: 'mon prompt', origine: 'compte' }]);
-  assert.deepEqual(liste, []);
+  assert.ok(!liste.some((c) => c.nom === 'mon prompt'));
 });
 
-test('chaque moteur a sa propre liste', () => {
-  assert.ok(COMMANDES_INTEGREES.claude.length > 0);
-  assert.deepEqual(commandesDuMoteur('codex', []), []);
-  const codex = commandesDuMoteur('codex', [{ nom: 'plan', origine: 'compte' }]);
-  assert.deepEqual(codex.map((c) => c.nom), ['plan']);
+test('chaque moteur a sa propre liste, et aucune n’est vide', () => {
+  // Un menu vide fait passer la fonction pour cassée : les deux moteurs en
+  // ligne de commande portent leurs propres commandes, même sans rien sur le
+  // disque. C'est le trou qu'on a bouché.
+  assert.ok(commandesDuMoteur('claude', []).length > 0);
+  assert.ok(commandesDuMoteur('codex', []).length > 0);
+  const claude = commandesDuMoteur('claude', []).map((c) => c.nom);
+  const codex = commandesDuMoteur('codex', []).map((c) => c.nom);
+  assert.notDeepEqual(claude, codex);
+  assert.ok(claude.includes('context') && !codex.includes('context'));
+  assert.ok(codex.includes('diff') && !claude.includes('diff'));
+});
+
+test('aucune commande intégrée ne porte un nom impossible à taper', () => {
+  for (const [moteur, liste] of Object.entries(COMMANDES_INTEGREES)) {
+    for (const commande of liste) {
+      assert.ok(nomDeCommandeValable(commande.nom), `${moteur} : ${commande.nom}`);
+      assert.equal(commande.origine, 'moteur');
+    }
+  }
+});
+
+test('une commande du disque remplace celle du moteur, sans la doubler', () => {
+  const liste = commandesDuMoteur('codex', [{ nom: 'plan', origine: 'compte' }]);
+  assert.equal(liste.filter((c) => c.nom === 'plan').length, 1);
+  assert.equal(liste.find((c) => c.nom === 'plan')?.origine, 'compte');
 });
 
 test('le filtre met les débuts de mot devant', () => {
