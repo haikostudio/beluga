@@ -9,6 +9,7 @@ import { PATHS } from './config.js';
 import { isRunning } from './runtime.js';
 import { appendHistory } from './memory.js';
 import { log } from './logger.js';
+import { fermerLesQuestionsSiCarteRangee } from './fermeture-questions.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -50,7 +51,14 @@ export async function archiveCard(
     }
   }
 
-  // 3. La carte part dans « Archivé », avec son document consultable.
+  /*
+   * 3. Les questions restées ouvertes se ferment AVANT le rangement : une carte
+   *    archivée n'attend plus aucun arbitrage, et le tour qui espérait encore
+   *    une réponse repart en sachant que rien n'a été tranché.
+   */
+  fermerLesQuestionsSiCarteRangee(card.id, 'archived');
+
+  // 4. La carte part dans « Archivé », avec son document consultable.
   const archived = store.saveCard({
     ...card,
     column: 'archived',

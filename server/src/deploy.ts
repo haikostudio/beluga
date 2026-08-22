@@ -106,6 +106,7 @@ import { createAgent, sendPrompt, agentsActifs, arreterLAgent } from './runtime.
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { etatDemon, demanderRedemarrage, appliquerRedemarrageEnAttente } from './demon.js';
 import { executerCibleMiseEnProduction } from './cible-mise-en-production.js';
+import { fermerLesQuestionsSiCarteRangee } from './fermeture-questions.js';
 import { moteurPourPublier } from './moteur-de-publication.js';
 
 const execFileAsync = promisify(execFile);
@@ -3076,6 +3077,9 @@ export async function startDeploy(
           if (etape.clot) {
             await archiveCard(cardId, { url: project.devUrl, commit: current.targetCommit });
           } else {
+            /* La carte quitte le travail : ses questions restées ouvertes se
+               ferment, comme sur un déplacement à la main. */
+            fermerLesQuestionsSiCarteRangee(cardId, etape.arrivee);
             const avancee = store.saveCard({
               ...deployed,
               column: etape.arrivee,

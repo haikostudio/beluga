@@ -127,22 +127,37 @@ function message(): MessageAJuger {
   return { role: 'assistant', content: QUESTION };
 }
 
-test('une question posée par l’outil garde son comportement', () => {
-  const projet = projetDEssai();
-  const carte = carteDEssai(projet.id, 'archived');
-  const agent = agentDEssai(projet.id, carte.id);
-  store.saveMessage({
+/**
+ * UNE QUESTION DE L'OUTIL SUR UNE CARTE FERMÉE NE COMPTE PLUS NON PLUS. C'était
+ * le dernier trou : la question écrite en texte ordinaire s'éteignait sur une
+ * carte rangée, celle d'`ask_user` continuait d'allumer le triangle et le
+ * bouton « Répondre » sur une carte archivée ou déjà en production, dont le
+ * tour n'existait même plus. « Terminé », en revanche, garde ses questions : le
+ * travail peut y être repris.
+ */
+function questionDOutil(agentId: string) {
+  return store.saveMessage({
     id: store.newId(),
-    agentId: agent.id,
+    agentId,
     role: 'assistant',
     content: 'Un choix est nécessaire.',
     questions: [{ id: store.newId(), question: 'Quelle formule ?', kind: 'text' }],
     createdAt: store.now(),
   } as any);
+}
 
-  assert.equal(
-    decisionsDeLaCarte(carte.id).length,
-    1,
-    'l’outil ask_user compte même sur une carte rangée',
-  );
+test('une question de l’outil s’éteint sur une carte fermée, pas sur une carte terminée', () => {
+  const projet = projetDEssai();
+
+  for (const colonne of ['to_deploy', 'in_production', 'archived']) {
+    const carte = carteDEssai(projet.id, colonne);
+    questionDOutil(agentDEssai(projet.id, carte.id).id);
+    assert.equal(decisionsDeLaCarte(carte.id).length, 0, colonne);
+  }
+
+  for (const colonne of ['running', 'done']) {
+    const carte = carteDEssai(projet.id, colonne);
+    questionDOutil(agentDEssai(projet.id, carte.id).id);
+    assert.equal(decisionsDeLaCarte(carte.id).length, 1, colonne);
+  }
 });

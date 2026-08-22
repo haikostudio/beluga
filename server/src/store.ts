@@ -26,6 +26,7 @@ import {
   cleDeSession,
   memeFilAutreCompte,
   cleNouveauDepart,
+  colonneFermeLesQuestions,
   decisionEnTexteLibre,
   type StatutAgent,
   rendusParProjet,
@@ -1173,9 +1174,10 @@ export function decisionsEnAttente(): DecisionAttendue[] {
   const rows = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
-              m.data AS data, m.created_at AS createdAt
+              m.data AS data, m.created_at AS createdAt, c.column_key AS colonne
        FROM messages m
        JOIN agents a ON a.id = m.agent_id
+       LEFT JOIN cards c ON c.id = a.card_id
        WHERE m.data LIKE '%"questions":[{%'`,
     )
     .all() as {
@@ -1184,8 +1186,18 @@ export function decisionsEnAttente(): DecisionAttendue[] {
     cardId: string | null;
     data: string;
     createdAt: number;
+    colonne: string | null;
   }[];
   for (const row of rows) {
+    /*
+     * UNE CARTE RANGÉE N'ATTEND PLUS DE RÉPONSE. Le déplacement ferme désormais
+     * les questions ouvertes (`fermeture-questions.ts`), mais celles posées
+     * AVANT cette règle dorment encore en base : elles allumeraient un triangle
+     * et un bouton « Répondre » sur une carte archivée ou déjà en production.
+     * Le garde-fou est ici, à la lecture, exactement comme pour la question
+     * écrite en texte ordinaire.
+     */
+    if (colonneFermeLesQuestions(row.colonne ?? undefined)) continue;
     try {
       const message = Message.parse(JSON.parse(row.data));
       for (const question of message.questions) {
