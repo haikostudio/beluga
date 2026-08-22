@@ -10,6 +10,7 @@ import {
   bullesDuPromptEnvoye,
   demandeDuPromptEnvoye,
   donneesParallelesDuPrompt,
+  filVisuelDeLAgent,
   mentionDesPassages,
   morceauxDuPromptEnvoye,
   nomDuMoteurEnvoye,
@@ -155,16 +156,17 @@ test('chaque moteur porte son nom lisible', () => {
   assert.equal(nomDuMoteurEnvoye('cursor'), 'Cursor');
 });
 
-test('la conversation ne pose plus ni pastille ni tiroir : des bulles, dans le fil', () => {
+test('la conversation ne pose plus ni pastille ni tiroir : un fil côté agent', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'message-view.tsx'), 'utf8');
   assert.ok(!vue.includes('function ContexteEnvoye'), 'l’ancien bloc doit être retiré');
   assert.ok(!vue.includes('RepereDuPrompt'), 'l’ancienne pastille doit être retirée');
   assert.ok(vue.includes('<BullesDuPromptEnvoye'), 'les bulles se posent dans la conversation');
 
   const bulles = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(bulles.includes('bullesDuPromptEnvoye'), 'l’affichage lit la règle partagée');
+  assert.ok(bulles.includes('filVisuelDeLAgent'), 'l’affichage lit la règle du fil partagé');
+  assert.ok(bulles.includes('data-fil-agent'), 'le fil porte son repère d’écran');
   assert.ok(!/<Drawer/.test(bulles), 'plus aucun tiroir à ouvrir pour lire le prompt');
-  assert.ok(!bulles.includes('LecteurPrompt'), 'le fil reste simple : pas de chronologie ici');
+  assert.ok(!bulles.includes('Mémoire transmise'), 'l’ancien pavé n’est plus rendu');
 });
 
 /*
@@ -276,12 +278,63 @@ test('le parcours garde la carte, l’ancienne recherche puis chaque ouverture a
   assert.match(bulle?.texteCopie ?? '', /faits et règles du sujet/);
 });
 
-test('l’écran rend une ligne de temps et un détail indépendant pour chaque ouverture', () => {
+test('le fil côté agent résume une recherche de mémoire et une recherche de compétence dans le bon ordre', () => {
+  const fil = filVisuelDeLAgent(
+    tourEssai({
+      consultationsMemoire: [
+        {
+          id: 'memoire',
+          source: 'memoire',
+          requete: 'ui-memoire',
+          resultat: '- UI Mémoire : les étapes gardent la requête et un résultat lisible.',
+          reussie: true,
+          at: 2_000,
+        },
+        {
+          id: 'competence',
+          source: 'competence',
+          requete: 'catalogue partagé',
+          resultat: '- tracer-appels-outils-dans-le-tour : rattacher chaque résultat au bon tour.',
+          reussie: true,
+          at: 3_000,
+        },
+      ],
+    }),
+  );
+
+  assert.deepEqual(fil.map((bulle) => bulle.cle), ['requete', 'recherche', 'resume', 'resultats']);
+  assert.match(fil[1].texte, /mémoire du projet/i);
+  assert.match(fil[1].texte, /compétences partagées/i);
+  assert.match(fil[2].texte, /étapes gardent la requête/i);
+  assert.match(fil[3].texte, /rattacher chaque résultat au bon tour/i);
+  assert.ok(fil.every((bulle) => bulle.texte.length <= 500), 'chaque bulle reste courte');
+});
+
+test('le fil côté agent retire les chemins et les blocs techniques du résultat court', () => {
+  const fil = filVisuelDeLAgent(
+    tourEssai({
+      consultationsMemoire: [
+        {
+          id: 'memoire',
+          requete: 'interface',
+          resultat: '## RÈGLES\n- Lisible sur mobile (`web/src/components/prompt-envoye.tsx`).\n```ts\nconst interne = true;\n```',
+          reussie: true,
+          at: 2_000,
+        },
+      ],
+    }),
+  );
+  const visible = fil.map((bulle) => bulle.texte).join('\n');
+  assert.doesNotMatch(visible, /web\/src|```|const interne/);
+  assert.match(visible, /Lisible sur mobile/);
+});
+
+test('l’écran rend quatre bulles reliées côté agent', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(vue.includes('data-parcours-memoire'), 'le parcours porte son repère d’écran');
-  assert.ok(vue.includes('data-etape-memoire'), 'chaque étape porte son repère d’écran');
-  assert.ok(vue.includes('data-entete-etape-memoire'), 'chaque résultat possède son propre bouton');
-  assert.ok(vue.includes('<ZoneDefilement'), 'un long résultat passe par la zone de défilement commune');
+  assert.ok(vue.includes('data-fil-agent'), 'le fil porte son repère d’écran');
+  assert.ok(vue.includes('data-bulle-agent'), 'chaque bulle porte son repère d’écran');
+  assert.ok(vue.includes('before:w-px'), 'la ligne verticale relie les bulles');
+  assert.ok(!vue.includes('<ZoneDefilement'), 'aucun bloc technique déroulant ne reste dans le fil');
 });
 
 test('chaque étape du parcours dit CE QUI A ÉTÉ DEMANDÉ et CE QUE ÇA PÈSE', () => {
@@ -323,11 +376,11 @@ test('une demande longue ne remplit pas la ligne de temps : sa question est coup
   assert.ok((recherche.requete ?? '').endsWith('…'), 'la coupe se voit');
 });
 
-test('l’écran ouvre chaque étape sur sa requête, son poids et son résultat', () => {
+test('l’écran ne montre plus ni poids ni résultat technique dépliable', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(vue.includes('data-detail-etape-memoire'), 'le détail d’une étape porte son repère d’écran');
-  assert.ok(vue.includes('data-jetons-etape'), 'le poids approché a son propre repère');
-  assert.ok(vue.includes("t('Requête')") && vue.includes("t('Résultat')"), 'les deux parts sont nommées');
+  assert.ok(!vue.includes('data-detail-etape-memoire'), 'l’ancien détail a disparu');
+  assert.ok(!vue.includes('data-jetons-etape'), 'aucun compteur ne reste dans le fil');
+  assert.ok(!vue.includes('data-voir-plus'), 'aucun pavé brut ne peut être déplié');
 });
 
 test('le bandeau des cartes à valider se replie, et retient le choix', () => {
@@ -344,6 +397,13 @@ test('le pont rattache au tour le texte réellement rendu par project_memory', (
   assert.ok(http.includes('resultat: result.text'), 'il garde le texte rendu, pas seulement le sujet');
   assert.ok(runtime.includes('ajouterConsultationMemoireAuTour'), 'le résultat rejoint la bulle du tour vivant');
   assert.ok(runtime.includes('contexteMessageId: messageDuContexte'), 'une demande écrite et un lancement par bouton visent le bon message');
+});
+
+test('le pont rattache aussi le résultat d’une recherche dans les compétences', () => {
+  const http = fs.readFileSync(path.join(RACINE, 'server', 'src', 'http.ts'), 'utf8');
+  assert.ok(http.includes("body.name === 'competences'"), 'le pont reconnaît la recherche de compétence');
+  assert.ok(http.includes("source: 'competence'"), 'la source reste distincte de la mémoire');
+  assert.ok(http.includes("body.args.action === 'lister'"), 'seule la consultation du catalogue rejoint le fil');
 });
 
 /*
@@ -370,12 +430,11 @@ test('exactement cinq lignes tiennent sans « voir plus »', () => {
   assert.equal(apercuDeBulle(texte).tronque, false);
 });
 
-test('l’affichage borne aussi la hauteur, pour une ligne unique très longue', () => {
+test('le fil préfère des textes courts à un pavé repliable', () => {
   const bulles = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(bulles.includes('apercuDeBulle'), 'la règle pure décide de la coupe');
-  assert.ok(/max-h-\[8em\]/.test(bulles), 'cinq lignes de hauteur bornent aussi le texte replié');
-  assert.ok(bulles.includes('scrollHeight'), 'un texte replié par l’écran seul demande aussi « voir plus »');
-  assert.ok(bulles.includes('data-voir-plus'), 'le bouton porte son repère d’écran');
+  assert.ok(bulles.includes('filVisuelDeLAgent'), 'la règle pure raccourcit avant le rendu');
+  assert.ok(!bulles.includes('scrollHeight'), 'aucune mesure de hauteur ne pilote le comportement');
+  assert.ok(bulles.includes('[overflow-wrap:anywhere]'), 'les mots longs restent dans la largeur mobile');
 });
 
 /*
@@ -413,12 +472,11 @@ test('l’aperçu suit le nombre de lignes demandé par la bulle', () => {
   assert.equal(apercu.split('\n').length, LIGNES_VISIBLES_MEMOIRE);
 });
 
-test('l’écran isole la bulle de mémoire et l’ouvre d’un clic sur son entête', () => {
+test('l’écran place le fil à gauche, sans ancien pavé repliable', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(vue.includes('data-bulle-isolee'), 'la bulle isolée porte son repère d’écran');
-  assert.ok(vue.includes('data-bulle-entete'), 'son entête est un bouton qui bascule');
-  assert.ok(/max-h-\[4\.8em\]/.test(vue), 'trois lignes de hauteur bornent le texte replié');
-  assert.ok(/bg-surface/.test(vue), 'elle ne reprend pas le gris des messages');
+  assert.ok(vue.includes('w-[min(92%,860px)]'), 'le fil prend la largeur de l’agent');
+  assert.ok(!vue.includes('items-end'), 'il n’est plus aligné côté utilisateur');
+  assert.ok(!vue.includes('<button'), 'aucun ancien pavé ne se déplie');
 });
 
 /*
@@ -486,10 +544,10 @@ test('les passages retrouvés comptent pour une seule entrée, et un nom répét
   assert.ok(!noms.some((nom) => /jetons?|tokens?/i.test(nom)));
 });
 
-test('la conversation affiche ces données parallèles dans la bulle « Mémoire transmise »', () => {
+test('la conversation ne recopie plus le contexte parallèle technique', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(vue.includes('bulle.noms'), 'la bulle rend les noms venus de la règle partagée');
-  assert.ok(vue.includes('data-donnees-paralleles'), 'et les pose sous un repère d’écran');
+  assert.ok(!vue.includes('bulle.noms'), 'les noms du prompt complet ne sont plus rendus');
+  assert.ok(!vue.includes('data-donnees-paralleles'), 'l’ancien bloc technique a disparu');
 });
 
 /*
@@ -498,22 +556,18 @@ test('la conversation affiche ces données parallèles dans la bulle « Mémoire
  * petit repère dit ce que chaque couleur veut dire, une fois pour la bulle.
  */
 
-test('les deux labels « Mémoire cache » et « Mémoire ajoutée » sont posés, chacun sa couleur', () => {
+test('les anciens labels techniques ont disparu du fil', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
-  assert.ok(vue.includes('data-label-cache'), 'le label du cache porte son repère d’écran');
-  assert.ok(vue.includes('data-label-ajoutee'), 'le label du neuf porte son repère d’écran');
-  assert.ok(/Mémoire cache/.test(vue));
-  assert.ok(/Mémoire ajoutée/.test(vue));
-  const zoneCache = vue.slice(vue.indexOf('data-label-cache') - 40, vue.indexOf('data-label-cache') + 200);
-  assert.ok(/text-faint/.test(zoneCache), 'le label du cache reprend le gris déjà utilisé pour le cache');
-  const zoneAjoutee = vue.slice(vue.indexOf('data-label-ajoutee') - 40, vue.indexOf('data-label-ajoutee') + 200);
-  assert.ok(/text-nouveau/.test(zoneAjoutee), 'le label du neuf reprend le jaune déjà utilisé pour le neuf');
+  assert.ok(!vue.includes('data-label-cache'));
+  assert.ok(!vue.includes('data-label-ajoutee'));
+  assert.ok(!vue.includes('Mémoire cache'));
+  assert.ok(!vue.includes('Mémoire ajoutée'));
 });
 
-test('la fusion réunit ce que rendaient les deux anciennes bulles, sous un titre changé', () => {
+test('la règle partagée expose le nouveau fil en quatre bulles', () => {
   const partage = fs.readFileSync(path.join(RACINE, 'shared', 'src', 'prompt-envoye.ts'), 'utf8');
-  assert.ok(!/'complet'/.test(partage), 'la clé « complet » a disparu, absorbée par « memoire »');
-  assert.ok(partage.includes("titre: 'Mémoire transmise'"), 'le titre est changé');
+  assert.ok(partage.includes('filVisuelDeLAgent'));
+  assert.ok(partage.includes("cle: 'requete'") && partage.includes("cle: 'resultats'"));
 });
 
 test('le prompt envoyé est conservé même quand aucun message utilisateur n’est écrit', () => {

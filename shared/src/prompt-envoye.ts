@@ -344,6 +344,118 @@ export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParco
   return etapes;
 }
 
+/** Une bulle courte du fil de recherche affiché côté agent. */
+export interface BulleDuFilAgent {
+  cle: 'requete' | 'recherche' | 'resume' | 'resultats';
+  titre: string;
+  texte: string;
+  reussie: boolean;
+}
+
+function couperTexteLisible(texte: string, maximum: number): string {
+  const propre = texte.replace(/\s+/g, ' ').trim();
+  if (propre.length <= maximum) return propre;
+  const coupe = propre.slice(0, maximum - 1);
+  const dernierEspace = coupe.lastIndexOf(' ');
+  return `${coupe.slice(0, dernierEspace > maximum * 0.65 ? dernierEspace : coupe.length).trim()}…`;
+}
+
+/**
+ * Retire l'habillage technique d'un résultat sans inventer ce qu'il dit.
+ * On garde les premières phrases utiles ; les chemins, titres Markdown et
+ * blocs de code restent dans le lecteur détaillé, pas dans la conversation.
+ */
+function extraitLisibleDuResultat(texte: string): string {
+  const lignes = texte
+    .split('\n')
+    .map((ligne) =>
+      ligne
+        .replace(/^\s{0,3}#{1,6}\s*/, '')
+        .replace(/^\s*[-*]\s+/, '')
+        .replace(/\*\*/g, '')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/^SUJET\s+«[^»]+»\s*:\s*/i, '')
+        .replace(/^[a-z0-9]+(?:-[a-z0-9]+){2,}\s*:\s*/i, '')
+        .replace(/(?:\/[\w.@-]+){2,}/g, 'un document du projet')
+        .replace(/\b(?:web|server|shared|scripts|docs)\/(?:[\w.@-]+\/?)+/g, 'un document du projet')
+        .trim(),
+    )
+    .filter((ligne) => ligne.length >= 16)
+    .filter((ligne) => !/^(faits|règles|contrôles|pool de compétences)\b.*:$/i.test(ligne))
+    .filter((ligne) => !/^(```|const\b|let\b|var\b|import\b|export\b|function\b|class\b)/i.test(ligne))
+    .filter((ligne) => !/^tenu automatiquement/i.test(ligne));
+  return lignes.slice(0, 2).join(' ');
+}
+
+/**
+ * LE FIL VISIBLE CÔTÉ AGENT : quatre bulles stables et compréhensibles.
+ *
+ * Le texte exact des outils reste conservé dans l'instantané, mais le fil ne
+ * recopie plus le prompt complet, les chemins ni les blocs de règles bruts.
+ */
+export function filVisuelDeLAgent(contexte: SentContextSnapshot): BulleDuFilAgent[] {
+  const consultations = contexte.consultationsMemoire ?? [];
+  if (!consultations.length) return [];
+
+  const demande = demandeDuPromptEnvoye(contexte) ?? contexte.prompt?.trim() ?? '';
+  const recherches = consultations.map((consultation) => {
+    if (consultation.source === 'competence') return 'Le catalogue des compétences partagées a été consulté.';
+    return consultation.requete.trim()
+      ? `La mémoire du projet a été consultée sur « ${couperTexteLisible(consultation.requete, 80)} ».`
+      : 'La carte de la mémoire du projet a été consultée.';
+  });
+
+  const resumes = consultations.map((consultation) => {
+    const extrait = extraitLisibleDuResultat(consultation.resultat);
+    const sujet = consultation.source === 'competence'
+      ? 'les compétences disponibles'
+      : consultation.requete.trim()
+        ? `« ${couperTexteLisible(consultation.requete, 60)} »`
+        : 'la mémoire du projet';
+    if (!consultation.reussie) {
+      return extrait ? `La recherche sur ${sujet} n’a pas abouti : ${extrait}` : `La recherche sur ${sujet} n’a pas abouti.`;
+    }
+    return extrait ? `Pour ${sujet}, l’agent a retenu : ${extrait}` : `La recherche sur ${sujet} a bien répondu, mais son ancien texte n’est plus conservé.`;
+  });
+
+  const transcriptions = consultations.map((consultation) => {
+    const nom = consultation.source === 'competence'
+      ? 'Compétences'
+      : consultation.requete.trim()
+        ? `Mémoire · ${couperTexteLisible(consultation.requete, 48)}`
+        : 'Mémoire';
+    const extrait = extraitLisibleDuResultat(consultation.resultat);
+    return `${nom} : ${extrait || 'texte non conservé'}`;
+  });
+
+  return [
+    {
+      cle: 'requete',
+      titre: 'Requête reçue',
+      texte: couperTexteLisible(demande, 220),
+      reussie: true,
+    },
+    {
+      cle: 'recherche',
+      titre: 'Recherche effectuée',
+      texte: [...new Set(recherches)].join('\n'),
+      reussie: consultations.every((consultation) => consultation.reussie),
+    },
+    {
+      cle: 'resume',
+      titre: 'Résumé compris',
+      texte: couperTexteLisible(resumes.join(' '), 360),
+      reussie: consultations.every((consultation) => consultation.reussie),
+    },
+    {
+      cle: 'resultats',
+      titre: 'Transcription courte des résultats',
+      texte: transcriptions.map((texte) => couperTexteLisible(texte, 240)).join('\n'),
+      reussie: consultations.every((consultation) => consultation.reussie),
+    },
+  ];
+}
+
 /** Une bulle du prompt envoyé, prête à être posée dans la conversation. */
 export interface BulleDePrompt {
   /** Repère stable, pour la clé de rendu et les contrôles d'écran. */

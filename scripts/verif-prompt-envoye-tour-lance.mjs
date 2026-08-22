@@ -401,69 +401,7 @@ async function main() {
 
     const bloc = panneau.locator('[data-prompt-envoye]').first();
     const visible = await bloc.isVisible().catch(() => false);
-    noter('carte lancée : les bulles du prompt envoyé sont bien là', visible);
-
-    if (visible) {
-      /* LA DEMANDE ELLE-MÊME, en première bulle : personne ne l'a tapée, c'est
-         le bouton qui a lancé le tour. */
-      const demande = bloc.locator('[data-bulle-prompt="demande"]').first();
-      noter('la première bulle porte la demande envoyée', (await demande.count()) === 1);
-      noter(
-        'elle rend le texte réel de la demande',
-        new RegExp(TITRE_CARTE.slice(0, 30)).test(await demande.innerText().catch(() => '')),
-      );
-
-      const placeBloc = await bloc.boundingBox();
-      const reponse = panneau.getByText('Travail rendu, tout est en place.').first();
-      const placeReponse = await reponse.boundingBox().catch(() => null);
-      noter(
-        'elles sont posées AU-DESSUS de la réponse et du déroulé',
-        !!placeBloc && !!placeReponse && placeBloc.y < placeReponse.y,
-      );
-
-      /* LA BULLE « MÉMOIRE TRANSMISE » : mémoire retrouvée ET prompt complet
-         réunis, avec les NOMS de ce qui l'accompagnait, lisibles sans rien
-         ouvrir. */
-      const memoire = bloc.locator('[data-bulle-prompt="memoire"]').first();
-      noter('la dernière bulle porte la mémoire transmise', (await memoire.count()) === 1);
-      const paralleles = memoire.locator('[data-donnees-paralleles]').first();
-      const texteParalleles = (await paralleles.count()) ? await paralleles.innerText() : '';
-      noter(
-        'ce qui est parti en même temps se lit sans rien ouvrir',
-        /Transmis en même temps/.test(texteParalleles) && /mémoire/i.test(texteParalleles),
-        texteParalleles.replace(/\n/g, ' ').slice(0, 90) || '(rien)',
-      );
-      noter(
-        'aucun compteur de jetons dans ces repères',
-        !/\d+\s*(jetons?|tokens?)/i.test(texteParalleles),
-      );
-      /* LE PARCOURS RESTE COMPACT : « voir plus » révèle les étapes, puis le
-         contexte complet s'ouvre à part. */
-      const voirPlus = memoire.locator('[data-voir-plus]').first();
-      noter('la bulle est repliée derrière « voir plus »', (await voirPlus.count()) === 1);
-      noter(
-        'le parcours de la mémoire est visible sans le contexte complet',
-        (await memoire.locator('[data-etape-memoire]').count()) >= 1 &&
-          (await memoire.locator('[data-contexte-complet]').count()) === 0,
-      );
-      await voirPlus.click().catch(() => {});
-      await page.waitForTimeout(400);
-      const contexteComplet = memoire.locator('[data-contexte-complet]');
-      noter(
-        '« voir plus » révèle l’accès au contexte complet',
-        (await contexteComplet.count()) === 1,
-      );
-      await contexteComplet.locator('summary').click();
-      noter(
-        'les deux labels colorés (cache, ajoutée) restent dans le contexte complet',
-        (await memoire.locator('[data-label-cache]').count()) === 1 &&
-          (await memoire.locator('[data-label-ajoutee]').count()) === 1,
-      );
-      noter(
-        'le contexte complet rend bien le texte envoyé',
-        new RegExp(TITRE_CARTE.slice(0, 30)).test(await contexteComplet.innerText()),
-      );
-    }
+    noter('carte lancée sans recherche : aucun ancien pavé technique n’est affiché', !visible);
 
     await page.screenshot({ path: path.join(SHOTS, 'prompt-envoye-tour-lance.png'), fullPage: true });
     noter('aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');

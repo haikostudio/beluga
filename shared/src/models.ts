@@ -873,19 +873,19 @@ export const PassageRetrouve = z.object({
 export type PassageRetrouve = z.infer<typeof PassageRetrouve>;
 
 /**
- * Une ouverture de l'arbre de mémoire faite par l'agent pendant un tour.
+ * Une recherche de contexte faite par l'agent pendant un tour.
  *
- * La carte de l'arbre fait partie du prompt initial (`blocks`, genre
- * `memory`). Les ouvertures suivantes arrivent par l'outil `project_memory`,
- * APRÈS cet envoi : il faut donc les garder à part, dans l'ordre, avec le
- * texte exact rendu. Sans cette trace, l'écran ne connaît que les noms de
- * sujets demandés et ne peut pas montrer ce qui a réellement circulé.
+ * La mémoire initiale fait partie du prompt. Les recherches suivantes arrivent
+ * par `project_memory` ou par le catalogue des compétences, APRÈS cet envoi :
+ * il faut donc les garder à part, dans l'ordre, avec le texte exact rendu.
  */
 export const ConsultationMemoire = z.object({
   id: z.string(),
+  /** Les anciens tours n'ont pas ce champ : ils venaient tous de la mémoire. */
+  source: z.enum(['memoire', 'competence']).optional(),
   /** Le sujet ou le mot de branche demandé ; vide signifie l'index. */
   requete: z.string().default(''),
-  /** Le texte exact rendu par `project_memory`, avant toute reformulation. */
+  /** Le texte exact rendu par l'outil, avant toute reformulation. */
   resultat: z.string().default(''),
   /** Un refus reste une étape du parcours, avec son explication en clair. */
   reussie: z.boolean().default(true),

@@ -164,9 +164,8 @@ export function MessageView({
 
     /*
      * Vos demandes : à droite, sur une largeur réduite — suivies, dès que le
-     * prompt est réellement parti, des BULLES qui montrent ce qui a été envoyé
-     * (`BullesDuPromptEnvoye`). Sa propre demande n'y est pas répétée : elle est
-     * juste au-dessus, dans cette bulle-ci.
+     * prompt est réellement parti, du FIL qui résume les recherches de l'agent
+     * (`BullesDuPromptEnvoye`). Il est rendu à gauche, sous cette demande.
      */
     return (
       <>
@@ -220,12 +219,9 @@ export function MessageView({
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
     <>
-      {/* UN TOUR LANCÉ PAR UN BOUTON N'A PAS DE BULLE DE DEMANDE : son prompt
-          est porté par cette réponse même. Les bulles sont alors posées ICI,
-          au-dessus de la réponse — avant la mémoire relue et avant le déroulé
-          des étapes —, là où la demande se serait trouvée, et la PREMIÈRE porte
-          la demande elle-même. Quand elle a bien été écrite à la main, c'est sa
-          bulle qui les porte et rien ne paraît ici. */}
+      {/* UN TOUR LANCÉ PAR UN BOUTON N'A PAS DE BULLE DE DEMANDE : son contexte
+          est porté par cette réponse. Son fil de recherche se pose donc ici,
+          au-dessus de la réponse et du déroulé. */}
       {message.sentContext ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
       <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
         {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}

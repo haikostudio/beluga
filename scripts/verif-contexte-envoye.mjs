@@ -181,15 +181,17 @@ function poserDecor() {
         consultationsMemoire: [
           {
             id: 'consultation-memoire',
+            source: 'memoire',
             requete: 'memoire',
             resultat: 'SUJET « memoire » : faits, règles et contrôles réellement rendus.',
             reussie: true,
             at: t + 200,
           },
           {
-            id: 'consultation-interface',
-            requete: 'interface',
-            resultat: 'SUJET « interface » : règles de lisibilité réellement rendues.',
+            id: 'consultation-competence',
+            source: 'competence',
+            requete: 'catalogue partagé',
+            resultat: '- tracer-appels-outils-dans-le-tour : rattacher chaque résultat au bon tour.',
             reussie: true,
             at: t + 400,
           },
@@ -233,6 +235,16 @@ function poserDecor() {
             score: 0.52,
             tokens: 210,
             texte: 'Chaque hausse mesurée sur un compte n’est attribuée qu’une fois : les tours simultanés cumulent leur part depuis un repère commun.',
+          },
+        ],
+        consultationsMemoire: [
+          {
+            id: 'consultation-quotas',
+            source: 'memoire',
+            requete: 'quotas',
+            resultat: 'Chaque hausse mesurée n’est attribuée qu’une fois.',
+            reussie: true,
+            at: t + 2200,
           },
         ],
         history: 'retained_by_engine',
@@ -332,6 +344,24 @@ function poserDecor() {
             texte: 'Mode d’emploi pour ajouter une colonne au tableau : où la déclarer, où la brancher.',
           },
         ],
+        consultationsMemoire: [
+          {
+            id: 'consultation-carte',
+            source: 'memoire',
+            requete: 'cartes',
+            resultat: 'Une carte naît dans Planifié et suit les étapes réelles du travail.',
+            reussie: true,
+            at: t + 200,
+          },
+          {
+            id: 'consultation-fiche',
+            source: 'competence',
+            requete: 'catalogue partagé',
+            resultat: '- verifs-navigateur-etat-plutot-que-hauteur : vérifier le contenu et l’état annoncé.',
+            reussie: true,
+            at: t + 300,
+          },
+        ],
         history: 'none',
         usage: { inputTokens: 4_000, cachedInputTokens: 1_000 },
         sentAt: t,
@@ -389,184 +419,60 @@ try {
     choisirTheme(cas.theme);
     const { contexte, page, erreurs } = await ouvrir(navigateur, cas.telephone);
     try {
-      /*
-       * PLUS AUCUNE PASTILLE, PLUS AUCUN TIROIR : ce qui est parti au moteur se
-       * lit comme des messages, dans le fil, sans un clic.
-       */
+      /* Le suivi se lit côté agent, en quatre bulles courtes. */
       noter(
         `${cas.nom} : l’ancienne pastille « Prompt envoyé » a disparu`,
         (await page.locator('[data-contexte-envoye]').count()) === 0,
       );
       const groupes = page.locator('[data-prompt-envoye]:visible');
-      noter(`${cas.nom} : seuls les deux tours réellement partis portent des bulles`, (await groupes.count()) === 2);
-
-      /*
-       * LA DEMANDE TAPÉE N'EST PAS REDITE : sa bulle est déjà juste au-dessus.
-       * Reste une seule bulle : « Mémoire transmise » — mémoire retrouvée et
-       * prompt complet réunis.
-       */
+      noter(`${cas.nom} : seuls les deux tours avec recherche portent un fil`, (await groupes.count()) === 2);
       const premier = groupes.first();
-      const ordre = await premier.locator('[data-bulle-prompt]').evaluateAll((els) =>
-        els.map((el) => el.getAttribute('data-bulle-prompt')),
+      const ordre = await premier.locator('[data-bulle-agent]').evaluateAll((els) =>
+        els.map((el) => el.getAttribute('data-bulle-agent')),
       );
-      noter(`${cas.nom} : une seule bulle sort, sans redire la demande tapée`, JSON.stringify(ordre) === JSON.stringify(['memoire']), ordre.join(' → '));
+      noter(
+        `${cas.nom} : les quatre bulles suivent le bon ordre`,
+        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'resultats']),
+        ordre.join(' → '),
+      );
+      const textePremier = await premier.innerText();
+      noter(
+        `${cas.nom} : mémoire et compétence sont toutes deux nommées`,
+        /mémoire du projet/i.test(textePremier) && /compétences partagées/i.test(textePremier),
+      );
+      noter(
+        `${cas.nom} : le résumé et la transcription restent compréhensibles`,
+        /Résumé compris/.test(textePremier) &&
+          /faits, règles et contrôles réellement rendus/.test(textePremier) &&
+          /rattacher chaque résultat au bon tour/.test(textePremier),
+      );
+      noter(
+        `${cas.nom} : aucun pavé technique n’est rendu dans la conversation`,
+        !/Mémoire transmise|Contexte complet transmis|Mémoire cache|~[\d ]+ jetons|BRIEFING DU PROJET|RAPPEL DE MÉTHODE/.test(textePremier),
+      );
+      const tientMobile = await premier.locator('[data-bulle-agent]').evaluateAll((els) =>
+        els.every((el) => el.scrollWidth <= el.clientWidth + 1),
+      );
+      noter(`${cas.nom} : aucune bulle ne déborde horizontalement`, tientMobile);
 
-      /*
-       * ISOLÉE, DANS SON PROPRE ENCADRÉ — jamais le gris des messages : elle
-       * n'est pas un message de l'utilisateur, c'est ce que la machine a
-       * transmis à côté de lui.
-       */
-      const memoire1 = premier.locator('[data-bulle-prompt="memoire"]').first();
-      const encadre1 = await memoire1.evaluate((el) => {
-        const sonde = document.createElement('div');
-        sonde.style.background = 'hsl(var(--raised))';
-        document.body.appendChild(sonde);
-        const gris = getComputedStyle(sonde).backgroundColor;
-        sonde.remove();
-        return { memeGris: getComputedStyle(el).backgroundColor === gris };
-      });
-      noter(`${cas.nom} : la bulle ne reprend pas le gris des messages`, !encadre1.memeGris);
+      const placeFil = await premier.boundingBox();
+      const placeDemande = await page.getByText('Montre-moi le contexte réellement envoyé.', { exact: true }).first().boundingBox();
       noter(
-        `${cas.nom} : la bulle dit pourquoi rien n’a été retrouvé de neuf`,
-        /Reprise de session/.test(await memoire1.innerText()),
-      );
-      const texteMemoire1 = await memoire1.innerText();
-      noter(
-        `${cas.nom} : elle nomme ce qui est parti à côté`,
-        /Transmis en même temps/.test(texteMemoire1) && /mémoire/i.test(texteMemoire1),
-      );
-      noter(`${cas.nom} : aucun compteur de jetons dans la bulle`, !/\d[\s ]*tokens?\b/i.test(texteMemoire1));
-      noter(
-        `${cas.nom} : le titre et le parcours compact sont visibles`,
-        /Mémoire transmise/.test(texteMemoire1) &&
-          /Parcours de la mémoire \(3\)/.test(texteMemoire1) &&
-          (await memoire1.locator('[data-etape-memoire]').count()) === 3,
+        `${cas.nom} : le fil est placé côté agent`,
+        !!placeFil && !!placeDemande && placeFil.x < placeDemande.x,
       );
 
-      /*
-       * LE PARCOURS EST COMPACT, PUIS CHAQUE ÉTAPE OUVRE SON PROPRE RÉSULTAT.
-       * Le contexte complet reste disponible à part : il ne noie plus le fil.
-       */
-      const voirPlus = memoire1.locator('[data-voir-plus]').first();
-      noter(`${cas.nom} : la bulle est repliée derrière « voir plus »`, (await voirPlus.count()) === 1);
-      await voirPlus.click();
-      await page.waitForTimeout(300);
-      const consultation = memoire1.locator('[data-etape-memoire="consultation"]').first();
-      await consultation.locator('[data-entete-etape-memoire]').click();
-      noter(
-        `${cas.nom} : une étape révèle le texte exact récupéré`,
-        /faits, règles et contrôles réellement rendus/.test(await consultation.innerText()),
-      );
-
-      /* UNE ÉTAPE OUVERTE DIT TROIS CHOSES : ce qui a été demandé, ce que ça
-         pèse, et le résultat. Vérifié par le CONTENU et par des repères
-         d'écran stables, jamais par une hauteur. */
-      const detail = consultation.locator('[data-detail-etape-memoire]').first();
-      noter(`${cas.nom} : l’étape ouverte pose son détail`, (await detail.count()) === 1);
-      const texteDetail = await detail.innerText();
-      noter(
-        `${cas.nom} : le détail nomme la requête posée à la mémoire`,
-        /Requête/.test(texteDetail) && /memoire/.test(texteDetail),
-      );
-      noter(`${cas.nom} : le détail sépare le résultat de la requête`, /Résultat/.test(texteDetail));
-      const poids = await detail.locator('[data-jetons-etape]').first().innerText();
-      noter(
-        `${cas.nom} : le détail donne un poids approché en jetons`,
-        /^~[\d  ']+ jetons$/.test(poids.trim()),
-        poids.trim(),
-      );
-      // Refermer doit tout retirer : requête, poids et résultat.
-      await consultation.locator('[data-entete-etape-memoire]').click();
-      await page.waitForTimeout(200);
-      noter(
-        `${cas.nom} : refermée, l’étape ne laisse ni requête ni poids`,
-        (await consultation.locator('[data-detail-etape-memoire]').count()) === 0,
-      );
-      await consultation.locator('[data-entete-etape-memoire]').click();
-      await page.waitForTimeout(200);
-      await memoire1.scrollIntoViewIfNeeded();
+      await premier.scrollIntoViewIfNeeded();
       await page.screenshot({
-        path: path.join(SHOTS, `contexte-envoye-parcours-${cas.telephone ? 'telephone' : 'ordinateur'}.png`),
+        path: path.join(SHOTS, `fil-agent-${cas.telephone ? 'telephone' : 'ordinateur'}.png`),
       });
-      const contexteComplet = memoire1.locator('[data-contexte-complet]');
-      await contexteComplet.locator('summary').click();
-      noter(
-        `${cas.nom} : le contexte complet transmis reste consultable à part`,
-        (await memoire1.innerText()).includes(MEMOIRE_SUIVI.slice(0, 40)),
-      );
-      noter(
-        `${cas.nom} : les deux couleurs du contexte complet gardent leur légende`,
-        (await memoire1.locator('[data-label-cache]').count()) === 1 &&
-          (await memoire1.locator('[data-label-ajoutee]').count()) === 1,
-      );
-      await memoire1.locator('[data-voir-plus]').first().click();
-      await page.waitForTimeout(300);
 
-      // Le SECOND tour porte SES propres passages, jamais ceux du premier.
       const second = groupes.nth(1);
-
-      const memoire2 = second.locator('[data-bulle-prompt="memoire"]').first();
+      const texteSecond = await second.innerText();
       noter(
-        `${cas.nom} : la bulle de mémoire porte son propre encadré`,
-        (await second.locator('[data-bulle-prompt="memoire"][data-bulle-isolee]').count()) === 1,
+        `${cas.nom} : chaque tour garde sa propre recherche`,
+        /quotas/.test(texteSecond) && /Chaque hausse mesurée/.test(texteSecond) && !/rattacher chaque résultat/.test(texteSecond),
       );
-
-      noter(
-        `${cas.nom} : l’ancien tour restitue ses deux étapes historiques`,
-        (await memoire2.locator('[data-etape-memoire]').count()) === 2,
-      );
-      await memoire2.locator('[data-bulle-entete]').first().click();
-      await page.waitForTimeout(300);
-      const rechercheHistorique = memoire2.locator('[data-etape-memoire="recherche"]').first();
-      await rechercheHistorique.locator('[data-entete-etape-memoire]').click();
-      noter(
-        `${cas.nom} : l’ancienne recherche automatique garde son contenu`,
-        /Chaque hausse mesurée/.test(await rechercheHistorique.innerText()),
-      );
-      await memoire2.locator('[data-bulle-entete]').first().click();
-      await page.waitForTimeout(300);
-      noter(
-        `${cas.nom} : un second clic la referme`,
-        (await memoire2.locator('[data-etape-memoire="recherche"]').count()) === 1 &&
-          !/Chaque hausse mesurée/.test(await memoire2.innerText()),
-      );
-
-      // Déroulé d'abord : replié, un texte long ne rend que ses premières lignes.
-      const aDerouler = second.locator('[data-voir-plus]');
-      for (let i = 0; i < (await aDerouler.count()); i += 1) {
-        await aDerouler.nth(i).click().catch(() => {});
-      }
-      await page.waitForTimeout(300);
-      const contexteCompletTour2 = memoire2.locator('[data-contexte-complet]');
-      await contexteCompletTour2.locator('summary').click();
-      const texteTour2 = await second.innerText();
-      noter(`${cas.nom} : le second tour nomme le passage retrouvé`, /docs\/regles\/quotas\.md/.test(texteTour2));
-      noter(
-        `${cas.nom} : le second tour rend le texte exact de sa demande`,
-        texteTour2.includes('Et maintenant, montre-moi le tour suivant.'),
-      );
-      noter(
-        `${cas.nom} : le second tour ne montre pas le contexte du premier`,
-        !texteTour2.includes(MEMOIRE_SUIVI),
-      );
-
-      await page.evaluate(() => {
-        window.__contexteCopie = '';
-        Object.defineProperty(navigator, 'clipboard', {
-          configurable: true,
-          value: { writeText: async (texte) => { window.__contexteCopie = texte; } },
-        });
-      });
-      // « Copier » vit maintenant SOUS la bulle, hors de son encadré : on le
-      // cherche dans le groupe entier (icône + bulle + bouton), pas dans le
-      // seul encadré coloré.
-      await second.locator('[data-bulle-groupe="memoire"]').getByRole('button', { name: /Copier/ }).first().click();
-      const copie = await page.evaluate(() => window.__contexteCopie);
-      noter(
-        `${cas.nom} : la copie contient le texte réel de ce tour`,
-        copie.includes('Et maintenant, montre-moi le tour suivant.') && !copie.includes(MEMOIRE_SUIVI),
-      );
-
       noter(`${cas.nom} : rien n’a ouvert de tiroir`, (await page.getByRole('dialog').count()) === 0);
       noter(`${cas.nom} : aucune erreur de page`, erreurs.length === 0, erreurs[0] ?? '');
       await page.screenshot({ path: path.join(SHOTS, `contexte-envoye-${cas.telephone ? 'telephone' : 'ordinateur'}.png`) });
@@ -600,61 +506,36 @@ try {
       const bloc = panneau.locator('[data-prompt-envoye]').first();
       await bloc.waitFor({ state: 'visible', timeout: 10_000 });
 
-      /*
-       * UNE CARTE LANCÉE PAR UN BOUTON n'a aucune bulle de demande : la
-       * PREMIÈRE bulle porte donc la demande elle-même, puis « Mémoire
-       * transmise » (mémoire retrouvée et prompt complet réunis).
-       */
-      const ordre = await bloc.locator('[data-bulle-prompt]').evaluateAll((els) =>
-        els.map((el) => el.getAttribute('data-bulle-prompt')),
+      const ordre = await bloc.locator('[data-bulle-agent]').evaluateAll((els) =>
+        els.map((el) => el.getAttribute('data-bulle-agent')),
       );
       noter(
-        'carte : les deux bulles sont là, dans l’ordre',
-        JSON.stringify(ordre) === JSON.stringify(['demande', 'memoire']),
+        'carte : les quatre bulles sont là, dans l’ordre',
+        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'resultats']),
         ordre.join(' → '),
       );
       noter(
-        'carte : la première bulle rend le texte réel de la demande',
-        /Réalise cette tâche\./.test(await bloc.locator('[data-bulle-prompt="demande"]').innerText()),
+        'carte : la première bulle rend la demande lancée par le bouton',
+        /Réalise cette tâche\./.test(await bloc.locator('[data-bulle-agent="requete"]').innerText()),
       );
 
       const placeBloc = await bloc.boundingBox();
       const placeEtapes = await panneau.getByText('1 étape terminée').first().boundingBox();
       noter(
-        'carte : les bulles sont posées AU-DESSUS du déroulé des étapes',
+        'carte : le fil est posé AU-DESSUS du déroulé des étapes',
         !!placeBloc && !!placeEtapes && placeBloc.y < placeEtapes.y,
       );
-
-      /*
-       * LES PASSAGES RETROUVÉS se lisent dans la même bulle : source, titre —
-       * et leur texte réel, pas un coût en tokens. Un contexte choisi par la
-       * machine doit rester lisible, sinon personne ne peut dire pourquoi
-       * l'agent a lu ceci plutôt que cela.
-       */
-      const memoire = bloc.locator('[data-bulle-prompt="memoire"]').first();
-      await memoire.locator('[data-voir-plus]').first().click().catch(() => {});
-      await page.waitForTimeout(300);
-      const recherche = memoire.locator('[data-etape-memoire="recherche"]').first();
-      await recherche.locator('[data-entete-etape-memoire]').click();
-      await memoire.locator('[data-contexte-complet] summary').click();
-      await page.waitForTimeout(200);
-      const texteMemoire = await memoire.innerText();
-      noter('carte : la bulle « Mémoire transmise » compte les passages retrouvés', /2 passages retrouvés/.test(texteMemoire));
+      const texteFil = await bloc.innerText();
       noter(
-        'carte : elle nomme les deux passages retrouvés',
-        /docs\/regles\/cartes\.md/.test(texteMemoire) && /ajouter-une-colonne\.md/.test(texteMemoire),
+        'carte : mémoire et compétence sont résumées sans détail brut',
+        /cartes/.test(texteFil) && /compétences partagées/i.test(texteFil) && /vérifier le contenu et l’état annoncé/.test(texteFil),
       );
       noter(
-        'carte : le texte du premier passage est affiché en clair',
-        /Une carte NAÎT dans « Planifié »/.test(texteMemoire),
+        'carte : aucun ancien pavé technique ne reste visible',
+        !/Mémoire transmise|Contexte complet transmis|BRIEFING DU PROJET|docs\/regles/.test(texteFil),
       );
-      noter(
-        'carte : la même bulle rend aussi le texte réel du briefing (prompt complet)',
-        texteMemoire.includes('BRIEFING DU PROJET — Essai contexte envoyé.'),
-      );
-      noter('carte : aucun compteur de jetons dans les bulles', !/\d[\s ]*tokens?\b/i.test(await bloc.innerText()));
       noter('carte : aucune erreur de page', erreurs.length === 0, erreurs[0] ?? '');
-      await page.screenshot({ path: path.join(SHOTS, 'contexte-envoye-carte.png') });
+      await page.screenshot({ path: path.join(SHOTS, 'fil-agent-carte.png') });
     } finally {
       await contexte.close();
     }

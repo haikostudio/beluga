@@ -325,7 +325,8 @@ export function liveRun(agentId: string): LiveRun | undefined {
 }
 
 /**
- * Ajoute au BON tour ce que `project_memory` vient réellement de rendre.
+ * Ajoute au BON tour ce qu'une recherche de mémoire ou de compétence vient
+ * réellement de rendre.
  *
  * L'appel d'outil arrive après l'envoi du prompt. Sa réponse ne peut donc pas
  * faire partie de la photographie initiale : on enrichit la même bulle au fil
@@ -335,12 +336,13 @@ export function liveRun(agentId: string): LiveRun | undefined {
  */
 export function ajouterConsultationMemoireAuTour(
   agentId: string,
-  entree: { requete?: string; resultat: string; reussie: boolean },
+  entree: { source?: 'memoire' | 'competence'; requete?: string; resultat: string; reussie: boolean },
 ): void {
   const run = live.get(agentId);
   if (!run) return;
   const consultation = ConsultationMemoire.parse({
     id: store.newId(),
+    source: entree.source ?? 'memoire',
     requete: entree.requete?.trim() ?? '',
     resultat: entree.resultat,
     reussie: entree.reussie,

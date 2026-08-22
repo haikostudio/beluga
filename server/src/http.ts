@@ -433,7 +433,16 @@ export function createHttpServer(): http.Server {
            */
           if (body.name === 'project_memory') {
             ajouterConsultationMemoireAuTour(agentId, {
+              source: 'memoire',
               requete: typeof body.args?.sujet === 'string' ? body.args.sujet : '',
+              resultat: result.text,
+              reussie: result.ok,
+            });
+          }
+          if (body.name === 'competences' && (!body.args?.action || body.args.action === 'lister')) {
+            ajouterConsultationMemoireAuTour(agentId, {
+              source: 'competence',
+              requete: 'catalogue partagé',
               resultat: result.text,
               reussie: result.ok,
             });
