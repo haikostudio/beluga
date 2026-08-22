@@ -106,6 +106,8 @@ const TEXTES = {
   enAttente: `Vérification ${marque} — que voyez-vous sur cette capture ?`,
   longueTelephone: `Vérification ${marque} — choix long sur téléphone`,
   longueOrdinateur: `Vérification ${marque} — choix long sur ordinateur`,
+  sansReponseTelephone: `Vérification ${marque} — aucune réponse possible sur téléphone`,
+  sansReponseOrdinateur: `Vérification ${marque} — aucune réponse possible sur ordinateur`,
   reponse: `Vérification ${marque} — voici la capture`,
   reponseLongue: `Vérification-${marque}-${'sans-espace-'.repeat(80)}`,
 };
@@ -314,7 +316,17 @@ async function ecran(navigateur, telephone) {
     await bloc.scrollIntoViewIfNeeded().catch(() => {});
     await page.waitForTimeout(500);
 
-    /* ---- 0. Les issues d'une longue question restent à portée ---- */
+    /* ---- 0. Une question sans réponse possible peut toujours être quittée ---- */
+    const texteSansReponse = telephone ? TEXTES.sansReponseTelephone : TEXTES.sansReponseOrdinateur;
+    const sansReponse = blocQuestion(page, texteSansReponse);
+    await sansReponse.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
+    noter(`${nom} : une question sans réponse montre Annuler`, (await sansReponse.getByRole('button', { name: 'Annuler' }).count()) === 1);
+    noter(`${nom} : aucun champ de réponse ne paraît dans ce cas`, (await sansReponse.locator('textarea, input[data-champ-image]').count()) === 0);
+    await sansReponse.getByRole('button', { name: 'Annuler' }).click({ force: true });
+    await sansReponse.getByText('Question annulée').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+    noter(`${nom} : Annuler permet de sortir de la question`, (await sansReponse.getByText('Question annulée').count()) === 1);
+
+    /* ---- 1. Les issues d'une longue question restent à portée ---- */
     const texteLong = telephone ? TEXTES.longueTelephone : TEXTES.longueOrdinateur;
     const longue = blocQuestion(page, texteLong);
     await longue.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
@@ -505,6 +517,16 @@ async function main() {
     allowFreeText: true,
     answerAttachments: [],
   });
+  for (const question of [TEXTES.sansReponseTelephone, TEXTES.sansReponseOrdinateur]) {
+    poserQuestion(AGENT_ID, {
+      id: crypto.randomUUID(),
+      question,
+      kind: 'text',
+      options: [],
+      allowFreeText: false,
+      answerAttachments: [],
+    });
+  }
   for (const question of [TEXTES.longueTelephone, TEXTES.longueOrdinateur]) {
     poserQuestion(AGENT_ID, {
       id: crypto.randomUUID(),
