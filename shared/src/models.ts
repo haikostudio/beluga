@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { ColumnKey } from './columns.js';
 import { MOYENS_VPS } from './acces-vps.js';
 import { AgentContextUsage } from './contexte-agent.js';
+import { MetriquesSessionLlm } from './metriques-session.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
@@ -529,6 +530,8 @@ export const Card = z.object({
   origineAgentId: z.string().optional(),
   origineAt: z.number().optional(),
   consumption: Consumption.optional(),
+  /** Photographie du dernier tour LLM, figée avant le passage en déploiement. */
+  llmSessionMetrics: MetriquesSessionLlm.optional(),
   scheduling: SchedulingState.optional(),
   agentId: z.string().optional(),
   billing: BillingLine.optional(),

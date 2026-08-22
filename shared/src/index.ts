@@ -87,6 +87,7 @@ export * from './deploiement-automatique.js';
 export * from './lot-a-deployer.js';
 export * from './lot-colonne.js';
 export * from './memoire.js';
+export * from './metriques-session.js';
 export * from './mots.js';
 export * from './arbre-memoire.js';
 export * from './documents-du-chef.js';

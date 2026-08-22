@@ -12,6 +12,7 @@ import {
   fermetureDesQuestions,
   issueDeCarteOubliee,
   issueDeFinDeTour,
+  metriquesSessionLlmIndisponibles,
   traceAcquise,
   tourDeLaCarte,
   type Agent,
@@ -63,6 +64,12 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number):
     position: position ?? store.nextPosition(card.projectId, target),
     doneAt: target === 'done' ? Date.now() : card.doneAt,
     deployedAt: dateDeMiseEnLignePerimee(card.column, target) ? undefined : card.deployedAt,
+    // Toute carte qui entre dans le lot porte une photographie explicite. Une
+    // carte ancienne sans relevé ne reçoit jamais quatre faux zéros.
+    llmSessionMetrics:
+      target === 'to_deploy' && !card.llmSessionMetrics
+        ? metriquesSessionLlmIndisponibles('unavailable')
+        : card.llmSessionMetrics,
     /*
      * RANGER À LA MAIN DÉSARME LA REPRISE. Une carte dont le lancement avait
      * été refusé faute de quota attend que l'ordonnanceur le rejoue ; la
