@@ -283,6 +283,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     messageId: z.string(),
   }),
   /**
+   * Fermer TOUTES les questions encore ouvertes d'une carte, d'un seul geste —
+   * le bouton « Annuler » posé à côté de « Répondre » sur la carte du tableau.
+   * Utile quand la question dort dans le fil d'un ancien agent, hors de vue :
+   * le triangle orange s'éteint sans avoir à retrouver le message.
+   */
+  z.object({
+    type: z.literal('question.cancelCarte'),
+    cardId: z.string(),
+  }),
+  /**
    * POURSUIVRE UN TRAVAIL COUPÉ PAR LA LIMITE D'UN COMPTE, sur le compte
    * choisi. Le serveur revérifie la disponibilité au moment du clic : un compte
    * tombé entre-temps ne lance rien et rafraîchit les choix.

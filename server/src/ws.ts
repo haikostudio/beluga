@@ -86,6 +86,7 @@ import {
   avertissementsDeLaSelection,
 } from './deploy.js';
 import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
+import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
 import { annulerLAttente, repondreALAttente } from './attente-question.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
@@ -1166,6 +1167,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
       return { ok: true };
+    }
+
+    /*
+     * FERMER TOUTES LES QUESTIONS D'UNE CARTE. Le bouton « Annuler » de la carte
+     * du tableau : il n'a pas à savoir où dort la question — dans le fil de
+     * l'agent en cours ou dans celui d'un ancien —, il les coupe toutes. Les
+     * tours qui attendaient encore repartent en sachant que rien n'a été
+     * tranché.
+     */
+    case 'question.cancelCarte': {
+      const card = store.getCard(cmd.cardId);
+      if (!card) throw new Error('carte introuvable');
+      const fermees = fermerLesQuestionsDeLaCarte(cmd.cardId);
+      return { ok: true, fermees };
     }
 
     /*

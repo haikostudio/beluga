@@ -56,6 +56,7 @@ export * from './couches-tokens.js';
 export * from './mise-en-production.js';
 export * from './couleur-intensite.js';
 export * from './decision-attendue.js';
+export * from './fermeture-questions.js';
 export * from './depot-github.js';
 export * from './demon.js';
 export * from './garde-demon.js';

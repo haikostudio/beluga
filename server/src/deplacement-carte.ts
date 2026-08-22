@@ -9,6 +9,7 @@ import {
   colonneApresPanneDuMoteur,
   dateDeMiseEnLignePerimee,
   decisionsParCarte,
+  fermetureDesQuestions,
   issueDeCarteOubliee,
   issueDeFinDeTour,
   traceAcquise,
@@ -21,6 +22,7 @@ import {
   type TraceDuTravail,
 } from '@haikodev/shared';
 import { bus } from './bus.js';
+import { fermerLesQuestionsSiCarteRangee } from './fermeture-questions.js';
 import { log } from './logger.js';
 import * as store from './store.js';
 
@@ -46,6 +48,15 @@ import * as store from './store.js';
  * diffuse la carte et dit ce qu'il a à dire.
  */
 export function rangerLaCarte(card: Card, target: ColumnKey, position?: number): Card {
+  /*
+   * UNE CARTE QUI QUITTE LE TRAVAIL FERME SES QUESTIONS. Archivée, poussée dans
+   * « À déployer » ou passée « En production », elle n'a plus rien à faire
+   * trancher : la question qui restait ouverte annonçait « Répondre » sur un
+   * travail rangé depuis longtemps, et son tour n'existait même plus. Le geste
+   * vit dans `fermeture-questions.ts` et ne refuse jamais un déplacement.
+   */
+  if (fermetureDesQuestions(card.column, target)) fermerLesQuestionsSiCarteRangee(card.id, target);
+
   return store.saveCard({
     ...card,
     column: target,
