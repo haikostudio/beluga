@@ -861,8 +861,9 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   setStatus(agent, 'starting', { startedAt: Date.now(), endedAt: undefined });
   const preparation = prochainePreparation++;
   demarrant.set(agentId, { depuis: Date.now(), jeton: preparation });
+  let attendUnQuota = false;
   try {
-    await preparerLeTour(agent, text, options, preparation);
+    attendUnQuota = await preparerLeTour(agent, text, options, preparation);
   } finally {
     /*
      * CE TOUR EST-IL ENCORE LE MIEN ?
@@ -895,13 +896,13 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
        */
       refermerLeTour(agentId, "Le tour s'est arrêté sur une panne interne du serveur.");
       /*
-       * ET LA FILE REPART, MÊME QUAND IL N'Y AVAIT AUCUN TOUR À REFERMER. Une
-       * préparation qui rend la main sans jamais lancer de moteur laisse l'agent
-       * au repos : `refermerLeTour` n'a alors rien à faire et ne dépile rien.
-       * Depuis qu'une demande écrite pendant la préparation s'empile au lieu de
-       * doubler le tour, ce trou l'y laisserait pour toujours.
+       * ET LA FILE REPART, MÊME QUAND IL N'Y AVAIT AUCUN TOUR À REFERMER — sauf
+       * quand CETTE préparation vient précisément d'y remettre la demande faute
+       * de quota. La dépiler aussitôt recréerait le même refus et sa même bulle
+       * toutes les 400 ms. Celle-là attend le filet de veille, qui ne la reprend
+       * qu'après avoir trouvé un compte de nouveau disponible.
        */
-      enchainerLaFile(agentId);
+      if (!attendUnQuota) enchainerLaFile(agentId);
       // Un redémarrage retenu tant qu'un agent travaillait peut désormais
       // repartir — importé au moment de l'appel pour éviter le cycle avec
       // demon.ts, qui lit lui-même `agentsActifs` d'ici.
@@ -916,7 +917,7 @@ async function preparerLeTour(
   options: PromptOptions,
   /** Le jeton de CETTE préparation : il dit jusqu'au bout si elle a toujours cours. */
   preparation: number,
-): Promise<void> {
+): Promise<boolean> {
   const agentId = agent.id;
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
@@ -991,7 +992,7 @@ async function preparerLeTour(
     );
     bus.emit({ type: 'message.upsert', message });
     setStatus(agent, 'idle');
-    return;
+    return true;
   }
 
   let userMessageId: string | undefined;
@@ -1356,6 +1357,7 @@ async function preparerLeTour(
       preparation,
     },
   );
+  return false;
 }
 
 /**

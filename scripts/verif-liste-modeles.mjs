@@ -221,6 +221,32 @@ if (ouvert) {
   } else {
     noter('une liste venue du moteur n’affiche aucun avertissement', !aRepli, texteRepli || 'aucun');
   }
+
+  /* Choisir un AUTRE modèle doit modifier la configuration que le prochain
+     prompt transmettra au moteur. On juge l'état enregistré et le libellé de
+     l'écran, jamais la position ni la hauteur du tiroir. */
+  const modeleInitial = codex?.defaultModel ?? codex?.models?.[0]?.id;
+  const indexAutre = (codex?.models ?? []).findIndex((modele) => modele.id !== modeleInitial);
+  if (indexAutre >= 0) {
+    const autre = codex.models[indexAutre];
+    await page.locator('[role="menuitem"]').nth(indexAutre).click();
+    await page.waitForTimeout(800);
+
+    const db = new Database(path.join(DATA, 'haikodev.db'));
+    const agentEnregistre = JSON.parse(db.prepare('SELECT data FROM agents WHERE id = ?').get(AGENT_ID)?.data ?? '{}');
+    const reglagesEnregistres = JSON.parse(db.prepare("SELECT value FROM meta WHERE key = 'settings'").get()?.value ?? '{}');
+    db.close();
+    const modeleAffiche = await page.locator('[data-selecteur="modele"]').first().getAttribute('data-valeur');
+
+    noter(
+      'choisir un autre modèle met à jour la configuration du prochain prompt',
+      agentEnregistre.run?.model === autre.id && reglagesEnregistres.orchestratorModel === autre.id,
+      `${agentEnregistre.run?.model ?? 'absent'} / ${reglagesEnregistres.orchestratorModel ?? 'absent'}`,
+    );
+    noter('le modèle choisi est aussitôt affiché', modeleAffiche === autre.label, modeleAffiche ?? 'absent');
+  } else {
+    noter('un autre modèle est disponible pour vérifier le changement', false);
+  }
   await page.screenshot({ path: path.join(SHOTS, 'liste-modeles.png') });
 }
 

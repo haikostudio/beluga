@@ -68,6 +68,17 @@ test('sans quota, une demande ORDINAIRE attend en file au lieu d’être perdue'
   )[0];
   assert.match(bloc, /const parLaFile = !options\.silent && !options\.onComplete;/);
   assert.match(bloc, /store\.enqueuePrompt\(agentId, text, options\.attachments \?\? \[\]\)/);
+  assert.match(bloc, /return true;/, 'la préparation doit dire qu’aucun compte n’est disponible');
+});
+
+test('une demande mise en file faute de quota n’est pas redémarrée immédiatement', () => {
+  const corps = RUNTIME.split('export async function sendPrompt(')[1].split('\nasync function preparerLeTour')[0];
+  assert.match(corps, /attendUnQuota = await preparerLeTour\(/);
+  assert.match(
+    corps,
+    /if \(!attendUnQuota\) enchainerLaFile\(agentId\);/,
+    'la demande doit attendre le filet de quota au lieu de boucler toutes les 400 ms',
+  );
 });
 
 test('la file d’un agent AU REPOS est reprise, mais seulement quand un compte est disponible', () => {
