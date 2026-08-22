@@ -3,14 +3,17 @@
  * Troisième lot : suivi GitHub sur une vraie demande de fusion, propositions de
  * tâche depuis le chat, notifications groupées, exception HaikoDev.
  */
-import WebSocket from '/root/haikodev/node_modules/ws/index.js';
+import WebSocket from 'ws';
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://127.0.0.1:7070';
 const USER = process.env.HAIKODEV_USER;
 const PASS = process.env.HAIKODEV_PASSWORD;
-const SELF = '/root/haikodev';
+const SELF = RACINE;
 
 const results = [];
 function record(name, ok, detail = '') {

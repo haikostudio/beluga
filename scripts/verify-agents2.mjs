@@ -3,15 +3,17 @@
  * Second lot d'essais réels : dictée, propositions de tâche, interdits du chef
  * d'orchestre, file de demandes, reprise après redémarrage, facturation.
  */
-import WebSocket from '/root/haikodev/node_modules/ws/index.js';
+import WebSocket from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
+const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://127.0.0.1:7070';
 const USER = process.env.HAIKODEV_USER;
 const PASS = process.env.HAIKODEV_PASSWORD;
-const SANDBOX = '/root/haikodev/data/bac-a-sable2';
+const SANDBOX = path.join(RACINE, 'data', 'bac-a-sable2');
 
 const results = [];
 function record(name, ok, detail = '') {
@@ -172,7 +174,7 @@ async function main() {
   const wav = '/tmp/haikodev-dictee.wav';
   execFileSync('/bin/bash', [
     '-lc',
-    `printf %s ${JSON.stringify(phrase)} | /root/haikodev/data/venv/bin/piper --model /root/haikodev/data/models/piper/fr_FR-siwis-medium.onnx --output_file ${wav}`,
+    `printf %s ${JSON.stringify(phrase)} | ${RACINE}/data/venv/bin/piper --model ${RACINE}/data/models/piper/fr_FR-siwis-medium.onnx --output_file ${wav}`,
   ]);
   const transcription = await fetch(`${BASE}/api/transcribe`, {
     method: 'POST',
@@ -309,7 +311,7 @@ async function main() {
 
   /* ---------- 5. Évolutions cliquables dans la vraie réponse ---------- */
   const reply = lastAssistant(session, taskAgent);
-  const { extractEvolutions } = await import('/root/haikodev/shared/dist/templates.js');
+  const { extractEvolutions } = await import(path.join(RACINE, 'shared', 'dist', 'templates.js'));
   const evolutions = extractEvolutions(reply?.content ?? '');
   record('Évolutions : la réponse contient des suggestions cliquables', evolutions.length > 0, `${evolutions.length} suggestion(s)`);
 
