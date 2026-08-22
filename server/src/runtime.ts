@@ -100,6 +100,8 @@ import {
   templateForColumn,
   wrapPrompt,
   mesurerContexte,
+  metriquesDeSessionLlm,
+  metriquesSessionLlmIndisponibles,
   jetonsMessageEnvoye,
   PLAFOND_APPEL_APRES_REPONSE_MS,
   delaiOutilMoteurMs,
@@ -2742,6 +2744,12 @@ async function startTurn(
           turns: runState.usage?.turns,
           measuredAt: Date.now(),
         },
+        llmSessionMetrics: metriquesDeSessionLlm({
+          state: failed || Boolean(reprise) || Boolean(panneDefinitive) ? 'interrupted' : 'completed',
+          usage: runState.usage,
+          durationMs: Math.round(elapsedSeconds * 1000),
+          context: runState.context ? { tokens: runState.context.tokens, window: contextWindow } : undefined,
+        }),
       });
       bus.emit({ type: 'card.upsert', card: updated });
     }
@@ -3726,6 +3734,26 @@ export function refermerLeTour(agentId: string, raison: string): boolean {
     ? store.getMessage(run.messageId)
     : [...store.listMessages(agentId, 5)].reverse().find((message) => message.role === 'assistant');
   const reponseRendue = !!dernier && dernier.content.trim().length > 0;
+  /*
+   * Une session coupée avant sa réponse garde ce qu'elle avait déjà mesuré.
+   * Les champs jamais rendus restent « unavailable » ; on ne reconstruit rien
+   * depuis le texte du message ou depuis un ancien tour.
+   */
+  if (run && !reponseRendue && agent.cardId) {
+    const card = store.getCard(agent.cardId);
+    if (card?.agentId === agent.id) {
+      const updated = store.saveCard({
+        ...card,
+        llmSessionMetrics: metriquesDeSessionLlm({
+          state: 'interrupted',
+          usage: run.usage,
+          durationMs: Math.max(0, Date.now() - run.startedAt),
+          context: run.context,
+        }),
+      });
+      bus.emit({ type: 'card.upsert', card: updated });
+    }
+  }
   if (dernier?.streaming) {
     const fige = store.saveMessage({
       ...dernier,
@@ -4343,6 +4371,9 @@ function rendreLaCarteInterrompue(cardId: string): void {
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   const updatedCard = store.saveCard({
     ...card,
+    // Après un redémarrage, le processus qui détenait les compteurs a disparu.
+    // L'interruption est certaine, les quatre valeurs ne le sont pas.
+    llmSessionMetrics: metriquesSessionLlmIndisponibles('interrupted'),
     // La file d'avant-travail, c'est « Planifié » : « À faire » n'existe plus.
     // Viser l'ancienne colonne rendrait la carte illisible.
     ...(etat.colonne
