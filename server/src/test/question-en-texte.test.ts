@@ -68,6 +68,11 @@ test('un message de l’utilisateur ne pose pas de décision', () => {
   assert.equal(questionEnTexteLibre({ ...INVIA, role: 'user' }), null);
 });
 
+test('le bouton « Annuler » du repère éteint la question, sans relancer l’agent', () => {
+  assert.equal(questionEnTexteLibre({ ...INVIA, texteLibreAnnulee: true }), null);
+  assert.ok(questionEnTexteLibre({ ...INVIA, texteLibreAnnulee: false }));
+});
+
 /* ------------------------------------------------------------------ */
 /* Ce qu'on écarte : ce n'est pas un arbitrage                          */
 /* ------------------------------------------------------------------ */

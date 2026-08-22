@@ -1153,6 +1153,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     /*
+     * FERMER UNE QUESTION ÉCRITE EN TEXTE ORDINAIRE. Le tour est déjà terminé
+     * (sans quoi le repère ne s'afficherait pas) : rien à reprendre, on éteint
+     * juste le repère et le triangle orange sur ce message.
+     */
+    case 'question.cancelTexte': {
+      const message = store.getMessage(cmd.messageId);
+      if (!message) throw new Error('message introuvable');
+      if (message.texteLibreAnnulee) return { already: true };
+
+      const updated = store.saveMessage({ ...message, texteLibreAnnulee: true });
+      bus.emit({ type: 'message.upsert', message: updated });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { ok: true };
+    }
+
+    /*
      * POURSUIVRE APRÈS ÉPUISEMENT. Tout se joue dans `reprendreSurCompte` :
      * relevé frais du compte visé, décision fermée AVANT le lancement (donc un
      * double clic ne lance rien), puis reprise du même agent. Un refus rend son

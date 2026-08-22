@@ -79,6 +79,7 @@ export async function getOrCreateOrchestrator(projectId: string): Promise<Agent>
     attachments: [],
     streaming: false,
     plan: false,
+    texteLibreAnnulee: false,
     createdAt: store.now(),
   });
   bus.emit({ type: 'message.upsert', message: welcome });

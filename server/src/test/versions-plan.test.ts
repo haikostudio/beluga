@@ -27,6 +27,7 @@ function messagePlan(id: string, content: string, createdAt: number): Message {
     attachments: [],
     streaming: false,
     plan: true,
+    texteLibreAnnulee: false,
     createdAt,
   };
 }

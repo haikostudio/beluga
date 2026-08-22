@@ -33,6 +33,8 @@ export interface MessageAJuger {
    * ferait annoncer deux attentes là où l'écran n'en montre qu'une.
    */
   repriseCompte?: unknown;
+  /** Le bouton « Annuler » du repère a déjà fermé cette question. */
+  texteLibreAnnulee?: boolean;
 }
 
 /**
@@ -92,8 +94,9 @@ function dernierePhrase(texte: string): string {
  * Ce qui l'écarte, dans l'ordre : un message qui n'est pas de l'agent, un
  * message encore en cours d'écriture, un message qui porte DÉJÀ une question de
  * l'outil ou une proposition (la décision est comptée ailleurs, on ne la
- * doublerait pas), un texte qui ne finit pas par un point d'interrogation, et
- * enfin une question trop courte, trop longue ou purement rhétorique.
+ * doublerait pas), une question déjà fermée par le bouton « Annuler », un texte
+ * qui ne finit pas par un point d'interrogation, et enfin une question trop
+ * courte, trop longue ou purement rhétorique.
  */
 export function questionEnTexteLibre(message: MessageAJuger): string | null {
   if (message.role !== 'assistant') return null;
@@ -101,6 +104,7 @@ export function questionEnTexteLibre(message: MessageAJuger): string | null {
   if (message.questions?.length) return null;
   if (message.proposals?.length) return null;
   if (message.repriseCompte) return null;
+  if (message.texteLibreAnnulee) return null;
 
   const phrase = dernierePhrase(message.content ?? '');
   if (!phrase.endsWith('?')) return null;

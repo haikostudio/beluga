@@ -273,6 +273,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     questionId: z.string(),
   }),
   /**
+   * Fermer une question posée en TEXTE ORDINAIRE (pas par l'outil `ask_user`) :
+   * le repère « l'agent attend votre réponse » et le triangle orange s'éteignent
+   * sur ce message, sans relancer l'agent — il n'y a rien à reprendre, son tour
+   * est déjà terminé.
+   */
+  z.object({
+    type: z.literal('question.cancelTexte'),
+    messageId: z.string(),
+  }),
+  /**
    * POURSUIVRE UN TRAVAIL COUPÉ PAR LA LIMITE D'UN COMPTE, sur le compte
    * choisi. Le serveur revérifie la disponibilité au moment du clic : un compte
    * tombé entre-temps ne lance rien et rafraîchit les choix.
