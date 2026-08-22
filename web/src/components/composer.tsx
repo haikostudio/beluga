@@ -13,7 +13,13 @@ import {
   emballerJointes,
   relireJointes,
   boutonsBarreEcriture,
+  commandeDuMessage,
+  commandesDuMoteur,
   deplacerAncre,
+  deplacerDansLaListe,
+  filtrerCommandes,
+  insereCommande,
+  slashEnCours,
   deplacerJointe,
   effacementDeTag,
   indexDeLAncre,
@@ -34,7 +40,8 @@ import { useArretAgent } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
-import { RunChoix, RunSelectors } from '@/components/run-selectors';
+import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
+import { RunChoix, nomCourtMoteur, resoudreRun, RunSelectors } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -175,7 +182,11 @@ export function Composer({
   const retientCurseur = () => {
     const node = textareaRef.current;
     if (!node) return;
-    curseur.current = node.selectionStart === node.selectionEnd ? node.selectionStart : null;
+    const simple = node.selectionStart === node.selectionEnd ? node.selectionStart : null;
+    curseur.current = simple;
+    // Le menu des commandes « / » suit la place du curseur : elle doit donc
+    // vivre en ÉTAT, pas seulement en référence, sinon rien ne se réaffiche.
+    setPointeur(simple);
   };
 
   /**
@@ -656,6 +667,59 @@ export function Composer({
 
   const modePlan = agent?.run?.mode === 'plan';
 
+  /* ------------------------------------------------------------------ */
+  /* LES COMMANDES « / » DU MOTEUR SÉLECTIONNÉ                            */
+  /* ------------------------------------------------------------------ */
+
+  /*
+   * Le menu s'ouvre sur ce que la personne TAPE : il faut donc suivre la place
+   * du curseur en état, pas seulement en référence — une référence ne fait
+   * rien réafficher. `null` = pas de curseur simple (sélection, champ quitté),
+   * et le menu reste alors fermé.
+   */
+  const [pointeur, setPointeur] = React.useState<number | null>(null);
+  const [slashVise, setSlashVise] = React.useState(0);
+  /* Échappement : le menu se ferme pour CE mot-là, et rouvre au suivant. */
+  const [slashFerme, setSlashFerme] = React.useState<string | null>(null);
+
+  const moteurChoisi = resoudreRun(engines, agent?.run).engine;
+  const zoneSlash = pointeur === null ? null : slashEnCours(text, pointeur);
+  const relevees = moteurChoisi ? state.slash[projectId]?.[moteurChoisi.id] : undefined;
+  const commandesDuChamp = React.useMemo(
+    () => commandesDuMoteur(moteurChoisi?.id, relevees),
+    [moteurChoisi?.id, relevees],
+  );
+  const commandesVisibles = React.useMemo(
+    () => (zoneSlash ? filtrerCommandes(commandesDuChamp, zoneSlash.mot) : []),
+    [commandesDuChamp, zoneSlash?.mot],
+  );
+  const slashOuvert = !!zoneSlash && slashFerme !== zoneSlash.mot;
+
+  /* Le relevé du disque ne se demande qu'à la première ouverture du menu :
+     tant que personne ne tape « / », rien ne voyage. */
+  React.useEffect(() => {
+    if (!slashOuvert || !projectId) return;
+    if (state.slash[projectId]) return;
+    client.send({ type: 'slash.list', projectId });
+  }, [slashOuvert, projectId, state.slash]);
+
+  /* La ligne visée repart du haut dès que la liste change. */
+  React.useEffect(() => setSlashVise(0), [zoneSlash?.mot, moteurChoisi?.id]);
+
+  /** Écrire la commande choisie à la place du « /mot » en train d'être tapé. */
+  const choisirCommande = (nom: string) => {
+    if (!zoneSlash) return;
+    const suite = insereCommande(text, zoneSlash, nom);
+    majTexte(suite.texte);
+    curseur.current = suite.curseur;
+    curseurAPoser.current = suite.curseur;
+    setPointeur(suite.curseur);
+    setSlashFerme(null);
+  };
+
+  /** La commande que le message porte déjà, telle qu'elle partira au moteur. */
+  const commandeEcrite = commandeDuMessage(text);
+
   // Le serveur tranche : il réinitialise les choix d'après et vérifie que la
   // combinaison existe vraiment (PLAN §14).
   const updateRun = async (patch: RunChoix) => {
@@ -808,6 +872,33 @@ export function Composer({
   });
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    /*
+     * LE MENU DES COMMANDES PREND LE CLAVIER TANT QU'IL EST OUVERT. Les flèches
+     * se déplacent dans la liste, Entrée et Tabulation insèrent la commande
+     * visée, Échappement referme le menu sans rien écrire — et rend aussitôt
+     * les mêmes touches au champ, qui garde donc son comportement habituel.
+     */
+    if (slashOuvert && !event.nativeEvent.isComposing) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setSlashFerme(zoneSlash!.mot);
+        return;
+      }
+      if (commandesVisibles.length) {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          setSlashVise((rang) => deplacerDansLaListe(rang, commandesVisibles.length, event.key === 'ArrowDown' ? 1 : -1));
+          return;
+        }
+        if ((event.key === 'Enter' && !event.shiftKey) || event.key === 'Tab') {
+          event.preventDefault();
+          const vise = commandesVisibles[Math.min(slashVise, commandesVisibles.length - 1)];
+          if (vise) choisirCommande(vise.nom);
+          return;
+        }
+      }
+    }
+
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
       void submit();
@@ -1011,9 +1102,37 @@ export function Composer({
         </div>
       ) : null}
 
-      {/* Collée à la zone de saisie, rien entre les deux : la file d'attente,
-          les pièces jointes et l'édition en cours restent au-dessus. */}
-      {barreTravail}
+      {/* La commande reconnue en tête du message, dite avant l'envoi. Elle ne
+          transforme rien : le texte part tel quel, « /nom » compris. */}
+      {commandeEcrite && !slashOuvert ? (
+        <PastilleCommande
+          nom={commandeEcrite}
+          onRetirer={() => {
+            const suite = text.replace(/^\/[a-zA-Z0-9][a-zA-Z0-9:_-]*[ ]?/, '');
+            majTexte(suite);
+            curseur.current = 0;
+            curseurAPoser.current = 0;
+            setPointeur(0);
+          }}
+        />
+      ) : null}
+
+      {/* Le menu des commandes « / » prend la place du repère des tâches : même
+          habillage, même endroit, collé au champ — deux bandeaux empilés là se
+          disputeraient le recouvrement de 8px. */}
+      {slashOuvert ? (
+        <MenuSlash
+          commandes={commandesVisibles}
+          index={Math.min(slashVise, Math.max(0, commandesVisibles.length - 1))}
+          nomDuMoteur={nomCourtMoteur(moteurChoisi)}
+          onChoisir={(commande) => choisirCommande(commande.nom)}
+          onSurvol={setSlashVise}
+        />
+      ) : (
+        /* Collée à la zone de saisie, rien entre les deux : la file d'attente,
+           les pièces jointes et l'édition en cours restent au-dessus. */
+        barreTravail
+      )}
 
       <div className={cn('relative rounded-lg border border-border bg-raised', recorder.recording && 'hidden')}>
         {/* LE CALQUE NE COUVRE QUE LA PART VISIBLE DU CHAMP, ET SA DÉCOUPE NE
@@ -1081,6 +1200,7 @@ export function Composer({
             // qu'une frappe aurait coupé.
             majTexte(sansMasque(event.target.value));
             curseur.current = event.target.selectionStart;
+            setPointeur(event.target.selectionStart);
           }}
           onKeyDown={onKeyDown}
           onKeyUp={retientCurseur}

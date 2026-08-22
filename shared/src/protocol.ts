@@ -623,6 +623,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
   z.object({ type: z.literal('stats.dashboard') }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),
+  /**
+   * Les commandes « / » réellement présentes sur le disque, moteur par moteur
+   * (`server/src/commandes-slash.ts`). Demandé quand la barre d'écriture ouvre
+   * son menu, jamais poussé d'office : c'est un relevé de fichiers, il n'a
+   * aucune raison de voyager avec l'état de départ.
+   */
+  z.object({ type: z.literal('slash.list'), projectId: z.string() }),
 ]);
 export type ClientCommand = z.infer<typeof ClientCommand>;
 
@@ -843,5 +850,19 @@ export const ServerEvent = z.discriminatedUnion('type', [
     agentId: z.string().optional(),
   }),
   z.object({ type: z.literal('memory'), projectId: z.string(), content: z.string() }),
+  /** Le relevé des commandes « / » d'un projet, un tableau par moteur. */
+  z.object({
+    type: z.literal('slash'),
+    projectId: z.string(),
+    commandes: z.record(
+      z.array(
+        z.object({
+          nom: z.string(),
+          description: z.string().optional(),
+          origine: z.enum(['moteur', 'compte', 'projet']),
+        }),
+      ),
+    ),
+  }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

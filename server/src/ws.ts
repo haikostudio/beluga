@@ -101,6 +101,7 @@ import {
 import { listDir, makeZip, readFilePreview } from './files.js';
 import { mintDownload } from './auth.js';
 import { readMemory } from './memory.js';
+import { relevesDesCommandes } from './commandes-slash.js';
 import { scanProjects, registerProject, reorderProjects, createProjectFolder } from './projects.js';
 import { depotsDuCompte, monterDepuisGithub } from './depots-github.js';
 import { testerConnexionVps } from './acces-vps.js';
@@ -1924,6 +1925,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const content = readMemory(project.path);
       bus.emit({ type: 'memory', projectId: cmd.projectId, content });
       return { content };
+    }
+
+    case 'slash.list': {
+      const project = store.getProject(cmd.projectId);
+      if (!project) throw new Error('projet introuvable');
+      const commandes = relevesDesCommandes(project.path);
+      bus.emit({ type: 'slash', projectId: cmd.projectId, commandes });
+      return { commandes };
     }
 
     default: {
