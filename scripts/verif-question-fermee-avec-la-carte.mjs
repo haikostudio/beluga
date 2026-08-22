@@ -146,7 +146,11 @@ function poserLeDecor() {
  */
 async function carteQuiAttend(titre, colonne, genre) {
   const creation = await appelDemon({ type: 'card.create', projectId: PROJET_ID, title: titre });
-  const cardId = creation?.result?.card?.id ?? creation?.result?.id;
+  const cardId =
+    creation?.result?.card?.id ??
+    creation?.data?.card?.id ??
+    creation?.result?.id ??
+    creation?.data?.id;
   if (!cardId) throw new Error(`carte non créée : ${JSON.stringify(creation).slice(0, 200)}`);
   if (colonne !== 'planned') await appelDemon({ type: 'card.move', id: cardId, column: colonne });
 
