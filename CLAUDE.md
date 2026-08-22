@@ -137,6 +137,8 @@ Texte entier : `docs/regles/publication.md` (`project_memory`, sujet « publicat
 - **LA PUBLICATION CHOISIT UN MOTEUR QUI A ENCORE DU QUOTA, ET LE DIT QUAND IL N'Y EN A AUCUN** — LA PUBLICATION CHOISIT ELLE-MÊME UN MOTEUR AU QUOTA SUFFISANT, ET UN MANQUE DE QUOTA SE DIT AU LIEU DE BLOQUER EN SILENCE
 - **LA FUSION DU LOT NE PAIE PLUS LE PRIX FORT, ET SON DÉTAIL SE LIT**
 - **La fusion du lot : un tour d'agent borné, et les heurts de documentation recollés seuls** — LE VOLET DIT OÙ EN EST CHAQUE TÂCHE DU LOT
+- **LES CONFLITS DE FUSION SE RÈGLENT EN AMONT, PLUS À LA PUBLICATION** — **Un heurt de documentation meurt à la fin du tour de sa carte, et chaque carte dépose ses règles apprises dans SON fichier** — `docs/instructions-en-attente/<copie>.md`, recollage mécanique dans `refermerDossierDeCarte`, contrôle `node scripts/verif-conflits-en-amont.mjs`
+- **L'étape « Enregistrement » vérifie l'index réel avant de committer** — L'ÉTAPE « ENREGISTREMENT » NE COMMITTE QUE CE QUI EST RÉELLEMENT INDEXÉ, JAMAIS SUR LA FOI DE `git status` SEUL
 
 ### Cartes
 
@@ -314,6 +316,7 @@ Texte entier : `docs/regles/interface.md` (`project_memory`, sujet « interface 
 - **Le tiroir de publication est une vraie timeline verticale** — LE TIROIR DE PUBLICATION EST UNE TIMELINE VERTICALE : ROND-ICÔNE PAR ÉVÉNEMENT (ÉTAPE ET MOMENT), LIGNE CENTRALE CONTINUE, DATE SOUS LE ROND D'ÉTAPE, TEMPS À DROITE
 - **Un trait qui porte une information suit `--faint`, jamais `--border`** — sur les thèmes plats, un trait porteur d'information se dessine avec `--faint`, pas avec `--border`
 - **Un canal WebSocket zombie n'a plus le dernier mot sur le témoin « Réflexion en cours »** — LE CLIENT VÉRIFIE LUI-MÊME QUE SON CANAL RÉPOND ENCORE, IL NE SE FIE PLUS À `onclose`
+- **Le dictionnaire ne garde que des textes réellement affichés** — LE DICTIONNAIRE NE GARDE AUCUNE CLÉ ORPHELINE, ET UN GARDE-FOU LE VÉRIFIE CHAQUE JOUR
 
 ### Quotas
 
@@ -325,3 +328,4 @@ Texte entier : `docs/regles/quotas.md` (`project_memory`, sujet « quotas »).
 - Chaque échéance de quota connue déclenche une lecture ciblée après 15 s
 - LE TRAVAIL PART OÙ IL Y A LE PLUS DE PLACE, pas au premier compte pas encore à 100 %
 - LE CHEF D'ORCHESTRE NE PAIE PAS UN MODÈLE DE RAISONNEMENT POUR TRIER
+- **Choisir le compte depuis les réglages de l'agent** — Les réglages d'un agent proposent un quatrième choix, « Compte », visible dès que plusieurs comptes existent pour le moteur retenu
