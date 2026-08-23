@@ -813,6 +813,15 @@ export const RepriseDeCompte = z.object({
   motif: z.enum(['limite-structuree', 'texte-de-limite']),
   /** Le compte retenu au clic. Posé une fois, il ferme la décision pour de bon. */
   choisi: z.string().optional(),
+  /**
+   * LA DÉCISION A ÉTÉ FERMÉE SANS CHOIX — bouton d'annulation de la bulle, ou
+   * carte rangée dans une colonne close. Ce n'est pas une réponse : rien ne
+   * repart, le bloc se referme et la décision cesse d'être comptée. Sans ce
+   * drapeau, une reprise de compte oubliée restait ouverte À VIE — c'est elle
+   * qui rallumait « Répondre / Annuler » sur des cartes « En production ».
+   */
+  abandonnee: z.boolean().optional(),
+  abandonneeA: z.number().optional(),
   choisiLabel: z.string().optional(),
   choisiA: z.number().optional(),
   at: z.number(),

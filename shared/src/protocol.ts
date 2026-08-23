@@ -302,6 +302,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     messageId: z.string(),
     accountId: z.string(),
   }),
+  /**
+   * FERMER UN CHOIX DE REPRISE SANS REPARTIR — le bouton « Annuler » de la
+   * bulle. Ce n'est pas une réponse : rien ne relance, la bulle se referme et
+   * la décision cesse d'être comptée. Sans cette sortie, la seule bulle jaune
+   * du fil qui n'en avait pas restait allumée à vie.
+   */
+  z.object({
+    type: z.literal('reprise.abandon'),
+    messageId: z.string(),
+  }),
   z.object({
     type: z.literal('proposal.decide'),
     messageId: z.string(),

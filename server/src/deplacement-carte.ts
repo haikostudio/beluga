@@ -56,9 +56,9 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number):
    * travail rangé depuis longtemps, et son tour n'existait même plus. Le geste
    * vit dans `fermeture-questions.ts` et ne refuse jamais un déplacement.
    */
-  if (fermetureDesQuestions(card.column, target)) fermerLesQuestionsSiCarteRangee(card.id, target);
+  const aFermer = fermetureDesQuestions(card.column, target);
 
-  return store.saveCard({
+  const rangee = store.saveCard({
     ...card,
     column: target,
     position: position ?? store.nextPosition(card.projectId, target),
@@ -80,6 +80,18 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number):
       ? { ...card.scheduling, reprendreDesQuePossible: undefined }
       : card.scheduling,
   });
+
+  /*
+   * APRÈS l'écriture, jamais avant. Fermer les questions diffuse le nouveau
+   * compte de décisions, et ce compte se calcule EN RELISANT la colonne de la
+   * carte : lancé avant l'écriture, il relisait l'ancienne colonne et pouvait
+   * rediffuser la décision qu'il venait d'éteindre. C'est le même ordre qui
+   * fait disparaître « Répondre / Annuler » sur un écran resté ouvert, sans
+   * rechargement à la main.
+   */
+  if (aFermer) fermerLesQuestionsSiCarteRangee(card.id, target);
+
+  return rangee;
 }
 
 /** Ce que le tour qui s'achève a constaté, et qui décide du sort de la carte. */

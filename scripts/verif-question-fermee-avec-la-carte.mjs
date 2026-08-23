@@ -197,6 +197,23 @@ async function carteQuiAttend(titre, colonne, genre) {
             },
           ]
         : [],
+    /*
+     * LA TROISIÈME ATTENTE, longtemps oubliée : un tour coupé par la limite
+     * d'un compte. Elle n'était filtrée par AUCUNE colonne — c'est elle qui
+     * gardait « Répondre / Annuler » sur des cartes « En production » (deux
+     * cartes en base le 23/08/2026, dont celle de la capture).
+     */
+    ...(genre === 'reprise'
+      ? {
+          repriseCompte: {
+            engine: 'claude',
+            compteEpuise: 'compte-essai',
+            compteEpuiseLabel: 'Compte d’essai',
+            motif: 'limite-structuree',
+            at: maintenant,
+          },
+        }
+      : {}),
     downloads: [],
     attachments: [],
     streaming: false,
@@ -281,6 +298,76 @@ async function releveDuDemon() {
     const question = lireMessage(messageId)?.questions?.[0];
     noter('démon : « question.cancelCarte » ferme la question sans ranger la carte', question?.cancelled === true && trame.ok !== false);
   }
+
+  /*
+   * LA REPRISE DE COMPTE, LA TROISIÈME ATTENTE. Elle échappait aux deux règles
+   * ci-dessus : rien ne la fermait au rangement, et rien ne l'écartait à la
+   * lecture. Les deux moitiés sont vérifiées — celle qui répare l'avenir, et
+   * celle qui rattrape ce qui dort déjà en base.
+   */
+  {
+    const { cardId, messageId } = await carteQuiAttend('Reprise puis production', 'running', 'reprise');
+    await appelDemon({ type: 'card.move', id: cardId, column: 'in_production' });
+    noter(
+      'démon : passer en « En production » ferme le choix de reprise de compte',
+      lireMessage(messageId)?.repriseCompte?.abandonnee === true,
+    );
+  }
+
+  {
+    const { cardId, messageId } = await carteQuiAttend('Reprise puis Terminé', 'running', 'reprise');
+    await appelDemon({ type: 'card.move', id: cardId, column: 'done' });
+    noter(
+      'démon : « Terminé » garde le choix de reprise ouvert',
+      lireMessage(messageId)?.repriseCompte?.abandonnee !== true,
+    );
+  }
+
+  {
+    const { messageId } = await carteQuiAttend('Reprise née en production', 'in_production', 'reprise');
+    // Née DANS une colonne close : aucun déplacement ne viendra jamais la
+    // fermer. Seul le garde-fou de lecture peut l'écarter — c'est le cas des
+    // cartes déjà en base avant ce correctif.
+    const decisions = await decisionsDuServeur();
+    noter(
+      'démon : une reprise dormant sur une carte rangée ne compte plus comme décision',
+      !decisions.some((d) => d.lieuTitre === 'Reprise née en production'),
+      `${decisions.length} décision(s) diffusée(s), message ${messageId.slice(0, 8)} écarté`,
+    );
+  }
+
+  {
+    const { messageId } = await carteQuiAttend('Reprise annulée à la main', 'running', 'reprise');
+    const trame = await appelDemon({ type: 'reprise.abandon', messageId });
+    noter(
+      'démon : « reprise.abandon » referme la bulle sans reprendre le travail',
+      lireMessage(messageId)?.repriseCompte?.abandonnee === true && trame.ok !== false,
+    );
+  }
+}
+
+/** Les décisions que le serveur diffuse à l'ouverture — la source des triangles. */
+function decisionsDuServeur() {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${PORT}/ws`, {
+      headers: { cookie: `haikodev_session=${JETON}` },
+    });
+    const minuteur = setTimeout(() => {
+      socket.close();
+      reject(new Error('aucun signal d’attention reçu'));
+    }, 20000);
+    socket.on('message', (brut) => {
+      const trame = JSON.parse(String(brut));
+      if (trame.type !== 'attention') return;
+      clearTimeout(minuteur);
+      socket.close();
+      resolve(trame.decisions ?? []);
+    });
+    socket.on('error', (souci) => {
+      clearTimeout(minuteur);
+      reject(souci);
+    });
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -348,6 +435,97 @@ async function ecran(navigateur, telephone, titre) {
     await page.waitForTimeout(2500);
     noter(`${nom} : le clic éteint « Répondre »`, (await carte.locator('[data-repondre-carte]').count()) === 0);
     noter(`${nom} : et « Annuler » disparaît avec lui`, (await carte.locator('[data-annuler-question-carte]').count()) === 0);
+
+    /*
+     * L'ÉCRAN RESTE OUVERT, ET LA CARTE EST RANGÉE AILLEURS. C'est le cas du
+     * défaut signalé : un téléphone posé sur le tableau depuis des heures.
+     * Aucun rechargement, aucun clic — le serveur diffuse, l'écran suit. Deux
+     * cartes, une par attente : la question de l'outil et la reprise de compte,
+     * qui échappait à tout.
+     */
+    for (const [genre, etiquette] of [
+      ['outil', 'la question de l’outil'],
+      ['reprise', 'la reprise de compte'],
+    ]) {
+      const titreVivant = `Rangée sous les yeux ${genre} ${nom} ${marque}`;
+      const { cardId } = await carteQuiAttend(titreVivant, 'running', genre);
+      /*
+       * UN RECHARGEMENT ICI, ET UN SEUL. Le décor est écrit DIRECTEMENT en base
+       * — c'est le seul moyen de fabriquer une attente sans lancer un vrai tour
+       * —, et une écriture en base ne diffuse rien : l'écran ne peut pas la
+       * deviner. On recharge donc pour ÉTABLIR le point de départ (les boutons
+       * sont là), et c'est seulement le DÉPLACEMENT qui suit qui doit se voir
+       * sans rechargement. C'est exactement ce que le défaut mettait en cause.
+       */
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(6000);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(1000);
+
+      const vivante = carteDuTableau(page, titreVivant);
+      await vivante.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      await vivante.scrollIntoViewIfNeeded().catch(() => {});
+      noter(
+        `${nom} : ${etiquette} allume « Répondre » sur la carte`,
+        (await vivante.locator('[data-repondre-carte]').count()) === 1,
+      );
+
+      await appelDemon({ type: 'card.move', id: cardId, column: 'in_production' });
+      await page.waitForTimeout(3000);
+      const apres = carteDuTableau(page, titreVivant);
+      noter(
+        `${nom} : rangée sous les yeux, ${etiquette} perd « Répondre » sans rechargement`,
+        (await apres.locator('[data-repondre-carte]').count()) === 0,
+      );
+      noter(
+        `${nom} : …et perd « Annuler » avec lui`,
+        (await apres.locator('[data-annuler-question-carte]').count()) === 0,
+      );
+    }
+
+    /*
+     * LA QUESTION ÉCRITE EN TOUTES LETTRES, DANS SA BULLE. Sa seule sortie
+     * vivait dans une bande posée au-dessus du champ d'écriture, loin de ce
+     * qu'elle fermait — introuvable dès qu'on lisait la conversation ailleurs
+     * qu'en bas. On ouvre le tiroir de la carte et on juge la BULLE.
+     */
+    {
+      const titreTexte = `Question en texte ${nom} ${marque}`;
+      await carteQuiAttend(titreTexte, 'running', 'texte');
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
+      await page.waitForTimeout(6000);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(1000);
+
+      const carteTexte = carteDuTableau(page, titreTexte);
+      await carteTexte.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      await carteTexte.scrollIntoViewIfNeeded().catch(() => {});
+      await carteTexte.locator('[data-repondre-carte]').first().click({ force: true });
+      await page.waitForTimeout(4000);
+
+      const bulle = page.locator('[data-question-en-texte]').first();
+      await bulle.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+      noter(`${nom} : la question en texte ordinaire porte sa propre bulle`, (await bulle.count()) === 1);
+      const sortie = bulle.locator('[data-annuler-question-texte]');
+      noter(
+        `${nom} : son « Annuler » est DANS la bulle, et visible`,
+        (await sortie.count()) === 1 && (await sortie.first().isVisible().catch(() => false)),
+      );
+      await page.screenshot({ path: `${SHOTS}/question-texte-${nom}.png`, fullPage: true });
+
+      if (await sortie.count()) {
+        await sortie.first().click({ force: true });
+        await page.waitForTimeout(2500);
+        noter(
+          `${nom} : le clic referme la bulle sans rechargement`,
+          (await page.locator('[data-question-en-texte]').count()) === 0,
+        );
+      } else {
+        noter(`${nom} : le clic referme la bulle sans rechargement`, false, 'bouton introuvable');
+      }
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(1500);
+    }
   } finally {
     await context.close().catch(() => {});
   }

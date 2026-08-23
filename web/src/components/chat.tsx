@@ -8,7 +8,6 @@ import {
   MessageSquare,
   RotateCcw,
   Square,
-  X,
 } from 'lucide-react';
 import {
   Agent,
@@ -26,7 +25,7 @@ import {
   gesteDuPersonnage,
   imageDuPersonnage,
 } from '@haikodev/shared';
-import { Button, ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { useArretAgent } from '@/components/arret-agent';
@@ -284,6 +283,10 @@ export function Chat({
                      pour de vrai : ailleurs, une étape restée « en cours » est
                      le reliquat d'un tour coupé, et ne doit rien animer. */
                   agentAuTravail={busy && index === messages.length - 1}
+                  /* La question en texte ordinaire ne se lit que sur le DERNIER
+                     message, et seule cette vue-ci connaît la carte : le fil
+                     juge, la bulle affiche. */
+                  questionEnTexte={!!questionEnTexte && index === messages.length - 1}
                 />
               </React.Fragment>
             ))
@@ -322,7 +325,7 @@ export function Chat({
           une carte), qui reprend son constat et son chiffrage. */}
       {/* L'agent attend une réponse écrite en toutes lettres : on le dit juste
           au-dessus de la barre, là où la réponse s'écrit. */}
-      {questionEnTexte ? <RepereReponseTexte messageId={dernierMessage.id} /> : null}
+      {questionEnTexte ? <RepereReponseTexte /> : null}
 
       <Composer
         agent={agent}
@@ -434,33 +437,19 @@ function BarreNouveauDepart({
 
 /**
  * Le repère posé juste au-dessus de la barre d'écriture quand l'agent a fini
- * son tour sur une question écrite en toutes lettres. Une simple ligne qui
- * pointe la barre existante, et un bouton « Annuler » — la même sortie que
- * sur une vraie question d'outil — pour les cas où rien n'appelle de réponse
- * (tour parti en erreur avant d'avoir pu poser une vraie question).
+ * son tour sur une question écrite en toutes lettres : une simple ligne qui
+ * pointe la barre existante.
+ *
+ * IL NE PORTE PLUS DE « ANNULER ». La sortie vit désormais DANS la bulle du
+ * message (`QuestionEnTexteCard`, `message-view.tsx`), avec le texte de la
+ * question — deux boutons pour le même geste, l'un loin de ce qu'il ferme,
+ * était précisément ce qui rendait la sortie introuvable sur téléphone.
  */
-function RepereReponseTexte({ messageId }: { messageId: string }) {
-  const annuler = async () => {
-    try {
-      await client.call({ type: 'question.cancelTexte', messageId });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'annulation impossible');
-    }
-  };
-
+function RepereReponseTexte() {
   return (
     <div className="flex shrink-0 items-center gap-2 border-t border-warning/40 bg-warning/10 px-3 py-1.5 text-[12.5px] text-muted">
       <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-warning" />
       <span className="min-w-0 flex-1">{t('L\'agent attend votre réponse — écrivez-la ci-dessous.')}</span>
-      <Button
-        variant="ghost"
-        size="sm"
-        title={t('Fermer la question sans répondre')}
-        onClick={annuler}
-        className="shrink-0 text-faint hover:text-danger"
-      >
-        <X className="h-3 w-3" />
-{t('Annuler')}</Button>
     </div>
   );
 }

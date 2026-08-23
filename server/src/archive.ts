@@ -51,14 +51,7 @@ export async function archiveCard(
     }
   }
 
-  /*
-   * 3. Les questions restées ouvertes se ferment AVANT le rangement : une carte
-   *    archivée n'attend plus aucun arbitrage, et le tour qui espérait encore
-   *    une réponse repart en sachant que rien n'a été tranché.
-   */
-  fermerLesQuestionsSiCarteRangee(card.id, 'archived');
-
-  // 4. La carte part dans « Archivé », avec son document consultable.
+  // 3. La carte part dans « Archivé », avec son document consultable.
   const archived = store.saveCard({
     ...card,
     column: 'archived',
@@ -69,6 +62,15 @@ export async function archiveCard(
     archivedAt: Date.now(),
   });
   bus.emit({ type: 'card.upsert', card: archived });
+
+  /*
+   * 4. Les questions restées ouvertes se ferment APRÈS le rangement, jamais
+   *    avant : le compte de décisions qu'elles diffusent RELIT la colonne de la
+   *    carte, et l'aurait relue « En cours ». Même ordre que `rangerLaCarte`.
+   *    Le tour qui espérait encore une réponse repart en sachant que rien n'a
+   *    été tranché.
+   */
+  fermerLesQuestionsSiCarteRangee(card.id, 'archived');
 
   // La clôture alimente l'HISTORIQUE, pas la mémoire : « telle carte livrée le
   // 3 août » se relit à la main, mais n'apprend rien à un agent au travail et

@@ -9,8 +9,16 @@
  * changement, les fichiers au nom haché restaient en cache indéfiniment et
  * l'application continuait d'afficher l'ancienne version (rencontré le
  * 03/08/2026 : ancienne barre du haut alors que la nouvelle était en ligne).
+ *
+ * IL NE S'ÉCRIT PLUS À LA MAIN. Le jeton est remplacé à la construction par
+ * l'EMPREINTE du paquet (`web/empreinte-paquet.ts`) : un paquet neuf change
+ * donc forcément ce fichier, le navigateur y voit une version neuve, et toute
+ * la chaîne — installation, effacement des anciens caches, relève, rechargement
+ * — se déclenche d'elle-même. Tant que ce numéro dépendait d'un geste humain,
+ * une mise en ligne ordinaire laissait `sw.js` identique octet pour octet et un
+ * téléphone pouvait rester sur l'écran d'avant.
  */
-const CACHE = 'haikodev-v4';
+const CACHE = 'haikodev-__EMPREINTE_DU_PAQUET__';
 const SHELL = ['/', '/icon.svg', '/icon-192.png', '/manifest.json'];
 
 /**
