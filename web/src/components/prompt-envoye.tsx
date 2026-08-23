@@ -7,9 +7,9 @@ import { t } from '@/lib/langue';
 /**
  * Le suivi des recherches faites par l'agent.
  *
- * Il vit à gauche, comme une parole de l'agent. Quatre bulles courtes montrent
- * la requête, les recherches, ce qui a été compris et les directives retrouvées
- * plus bas dans leurs résultats. Le prompt complet n'est jamais recopié ici.
+ * Il vit à gauche, comme une parole de l'agent. Chaque résultat ajoute ses
+ * propres bulles courtes à la suite : la recherche, ce qui a été compris et les
+ * directives éventuellement retrouvées. Le prompt complet n'est jamais recopié ici.
  */
 export function BullesDuPromptEnvoye({
   contexte,
@@ -24,15 +24,20 @@ export function BullesDuPromptEnvoye({
     <div data-prompt-envoye data-fil-agent className="w-[min(92%,860px)] min-w-0 max-w-full py-2">
       <ol className="relative space-y-2 pl-7 before:absolute before:bottom-4 before:left-[9.5px] before:top-4 before:w-px before:bg-faint/30">
         {bulles.map((bulle) => {
-          const Icone = bulle.cle === 'requete'
+          const Icone = bulle.nature === 'requete'
             ? MessageCircle
-            : bulle.cle === 'recherche'
+            : bulle.nature === 'recherche'
               ? Search
-              : bulle.cle === 'resume'
+              : bulle.nature === 'resume'
                 ? Brain
                 : FileText;
           return (
-            <li key={bulle.cle} data-bulle-agent={bulle.cle} className="relative min-w-0">
+            <li
+              key={bulle.cle}
+              data-bulle-agent={bulle.nature}
+              data-etape-fil={bulle.cle}
+              className="relative min-w-0"
+            >
               <span
                 className={cn(
                   'absolute -left-7 top-2 flex h-5 w-5 items-center justify-center rounded-full border bg-surface',
