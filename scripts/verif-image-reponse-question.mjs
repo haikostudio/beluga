@@ -322,6 +322,19 @@ async function ecran(navigateur, telephone) {
     await sansReponse.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {});
     noter(`${nom} : une question sans réponse montre Annuler`, (await sansReponse.getByRole('button', { name: 'Annuler' }).count()) === 1);
     noter(`${nom} : aucun champ de réponse ne paraît dans ce cas`, (await sansReponse.locator('textarea, input[data-champ-image]').count()) === 0);
+    // Seule issue de la bulle : le bouton prend toute sa largeur, il ne se
+    // cache pas en petit lien dans un coin.
+    const pleineLargeur = await sansReponse
+      .locator('[data-annuler-question]')
+      .evaluate((bouton) => {
+        const actions = bouton.closest('[data-actions-question]');
+        if (!actions) return false;
+        const b = bouton.getBoundingClientRect();
+        const a = actions.getBoundingClientRect();
+        return b.width > 0 && b.width >= a.width - 24;
+      })
+      .catch(() => false);
+    noter(`${nom} : le bouton Annuler prend toute la largeur de la bulle`, pleineLargeur);
     await sansReponse.getByRole('button', { name: 'Annuler' }).click({ force: true });
     await sansReponse.getByText('Question annulée').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
     noter(`${nom} : Annuler permet de sortir de la question`, (await sansReponse.getByText('Question annulée').count()) === 1);

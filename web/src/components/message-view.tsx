@@ -1204,15 +1204,23 @@ function QuestionCard({
 </Button>
           </>
         ) : null}
+        {/* Sans aucune façon de répondre, « Annuler » est la SEULE issue : il
+            prend toute la largeur de la bulle, avec sa bordure, au lieu de se
+            faire passer pour un lien discret posé dans un coin. */}
         <Button
-          variant="ghost"
+          variant={reponsePossible ? 'ghost' : 'outline'}
           size="sm"
           title={t('Fermer la question sans répondre')}
           onClick={annuler}
-          className="text-faint hover:text-danger"
+          data-annuler-question
+          className={cn(
+            reponsePossible
+              ? 'text-faint hover:text-danger'
+              : 'w-full justify-center border-danger/40 text-danger hover:bg-danger/10 hover:text-danger',
+          )}
         >
           <X className="h-3 w-3" />
-          
+
 {t('Annuler')}
 </Button>
       </div>
