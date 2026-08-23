@@ -4,8 +4,9 @@
  * L'interrupteur de la colonne « Terminé » (`project.deploiementAutomatique`)
  * est ÉTEINT par défaut. Allumé, ce passage — joué par le filet de veille,
  * toutes les quinze secondes — pousse les cartes de « Terminé » dans « À
- * déployer » dès que plus rien ne travaille sur le projet, puis lance la mise
- * en ligne sans qu'on ait à cliquer sur « Publier maintenant ».
+ * déployer » dès que plus rien ne travaille sur le projet, puis lance le lot,
+ * y compris les cartes qui attendaient déjà dans cette colonne, sans qu'on ait
+ * à cliquer sur « Publier maintenant ».
  *
  * La DÉCISION ne vit pas ici : elle est pure et testée
  * (`shared/src/deploiement-automatique.ts`). Ce fichier ne fait que lui
@@ -26,7 +27,7 @@ import {
   type Card,
   type Project,
 } from '@haikodev/shared';
-import { agentsOccupes, startDeploy } from './deploy.js';
+import { agentsOccupes, deployableCards, startDeploy } from './deploy.js';
 import { carteAttendUneDecision, rangerLaCarte } from './deplacement-carte.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -66,6 +67,10 @@ function etatDuProjet(project: Project) {
   return {
     actif: project.deploiementAutomatique === true,
     cartesTerminees: pretes.length,
+    // Une fiche peut être posée directement dans « À déployer » par une tâche
+    // automatique du système. Elle doit suivre le même réglage que les cartes
+    // venues de « Terminé », sans exiger un second geste de l'utilisateur.
+    cartesADeployer: deployableCards(project.id, 'to_deploy').length,
     cartesEnAttenteDeDecision: retenues.length,
     cartesEnCours: store.listCardsInColumn(project.id, 'running').length,
     /*
