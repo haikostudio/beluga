@@ -13,7 +13,7 @@
  *  - l'attente du tour lui-même (`annulerLAttente`), sans quoi le moteur
  *    resterait arrêté sur un appel d'outil qui ne répondrait jamais.
  */
-import { colonneFermeLesQuestions } from '@haikodev/shared';
+import { colonneFermeLesQuestions, texteQuestionFermeeAvecLaCarte } from '@haikodev/shared';
 import { annulerLAttente } from './attente-question.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -55,9 +55,9 @@ export function fermerLesQuestionsDeLaCarte(cardId: string): number {
     for (const question of message.questions) {
       if (question.answer || question.cancelled) continue;
       fermees += 1;
-      // Le tour qui attendait cette réponse repart en sachant que rien n'a été
-      // tranché (`texteDAnnulation`) ; s'il n'existe plus, l'appel ne fait rien.
-      annulerLAttente(question.id);
+      // Le tour qui attendait cette réponse repart en sachant que la carte a été
+      // rangée ; s'il n'existe plus, l'appel ne fait rien.
+      annulerLAttente(question.id, texteQuestionFermeeAvecLaCarte());
     }
   }
 

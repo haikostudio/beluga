@@ -92,9 +92,9 @@ export function repondreALAttente(questionId: string, reponse: string, jointes: 
   return poserLIssue(questionId, { etat: 'repondu', text: texteDeReponseALaQuestion(reponse, fichiers) });
 }
 
-/** La question a été retirée sans réponse. */
-export function annulerLAttente(questionId: string): boolean {
-  return poserLIssue(questionId, { etat: 'annulee', text: texteDAnnulation() });
+/** La question a été retirée sans réponse. Un texte personnalisé peut être fourni. */
+export function annulerLAttente(questionId: string, texte?: string): boolean {
+  return poserLIssue(questionId, { etat: 'annulee', text: texte ?? texteDAnnulation() });
 }
 
 /**
