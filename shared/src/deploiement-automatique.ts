@@ -4,7 +4,8 @@
  * Un interrupteur, en tête de la colonne « Terminé », ÉTEINT PAR DÉFAUT. Une
  * fois allumé, il vaut consentement PERMANENT pour ce projet : dès que plus
  * rien ne travaille, les cartes de « Terminé » passent d'elles-mêmes dans « À
- * déployer » et la mise en ligne part, sans clic sur « Publier maintenant ».
+ * déployer » et celles qui y attendaient déjà partent avec elles, sans second
+ * clic sur « Publier maintenant ».
  *
  * La règle d'or n'est pas enfreinte : rien ne part de la propre initiative
  * d'une machine ou d'un agent — c'est l'utilisateur qui a allumé
@@ -21,7 +22,8 @@
  *    « dès que possible ») : le calme est trompeur, le travail reprend dans
  *    quelques secondes ;
  *  - une publication déjà en cours sur ce projet ;
- *  - aucune carte dans « Terminé » : il n'y a rien à mettre en ligne ;
+ *  - aucune carte dans « Terminé » ni « À déployer » : il n'y a rien à mettre
+ *    en ligne ;
  *  - un travail terminé il y a moins d'une minute : deux cartes d'un même lot
  *    finissent rarement à la même seconde, et on ne veut pas d'une publication
  *    par carte.
@@ -45,6 +47,8 @@ export interface EtatDuDeploiementAutomatique {
   actif: boolean;
   /** Combien de cartes de « Terminé » sont réellement prêtes à partir. */
   cartesTerminees: number;
+  /** Combien de cartes attendent déjà dans « À déployer ». */
+  cartesADeployer: number;
   /**
    * Combien de cartes de « Terminé » sont RETENUES par une décision ouverte
    * (question sans réponse) ou une sous-tâche non faite — elles ne comptent
@@ -94,7 +98,7 @@ export function decisionDeDeploiementAutomatique(
   if (etat.cartesQuiVontPartir > 0) {
     return { partir: false, raison: `${etat.cartesQuiVontPartir} carte(s) sur le point de repartir` };
   }
-  if (etat.cartesTerminees < 1) {
+  if (etat.cartesTerminees + etat.cartesADeployer < 1) {
     if (etat.cartesEnAttenteDeDecision > 0) {
       return {
         partir: false,
@@ -111,6 +115,8 @@ export function decisionDeDeploiementAutomatique(
 
   return {
     partir: true,
-    raison: `${etat.cartesTerminees} carte(s) terminée(s) et plus rien au travail : le lot part tout seul`,
+    raison:
+      `${etat.cartesTerminees} carte(s) terminée(s), ${etat.cartesADeployer} déjà prête(s) ` +
+      'et plus rien au travail : le lot part tout seul',
   };
 }

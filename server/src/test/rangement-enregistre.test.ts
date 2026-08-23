@@ -47,7 +47,12 @@ function fichiersDuDernierCommit(racine: string): string[] {
 
 test('le rangement de nuit enregistre lui-même ce qu’il vient de ranger', () => {
   const racine = projetDEssai();
-  const plan = rangerUnProjet(racine);
+  let enregistrement:
+    | { sha: string; titre: string; branche?: string; date?: string }
+    | undefined;
+  const plan = rangerUnProjet(racine, (commit) => {
+    enregistrement = commit;
+  });
   assert.ok(plan, 'le rangement a bien eu lieu');
 
   // Le disque est rangé…
@@ -61,6 +66,13 @@ test('le rangement de nuit enregistre lui-même ce qu’il vient de ranger', () 
     'docs/instructions-en-attente.md',
     'docs/regles/methode.md',
   ]);
+
+  // La tâche de nuit remet immédiatement son enregistrement au parcours des
+  // cartes : l'appelant peut créer sa fiche sans attendre que l'utilisateur
+  // la demande depuis « À déployer ».
+  assert.equal(enregistrement?.titre, 'Range les règles durables déposées, une fois pour la nuit');
+  assert.equal(enregistrement?.branche, 'main');
+  assert.match(enregistrement?.sha ?? '', /^[0-9a-f]{40}$/);
 
   // Rien ne traîne en changement non enregistré.
   const restant = execFileSync('git', ['status', '--porcelain'], { cwd: racine, encoding: 'utf8' }).trim();
