@@ -278,18 +278,20 @@ test('le parcours garde la carte, l’ancienne recherche puis chaque ouverture a
   assert.match(bulle?.texteCopie ?? '', /faits et règles du sujet/);
 });
 
-test('le fil côté agent résume la mémoire puis détaille les directives sans répéter le même extrait', () => {
-  const fil = filVisuelDeLAgent(
+test('chaque résultat ajoute ses propres étapes sans modifier celles déjà affichées', () => {
+  const premiereConsultation = {
+    id: 'memoire',
+    source: 'memoire' as const,
+    requete: 'ui-memoire',
+    resultat: '- UI Mémoire : les étapes gardent la requête et un résultat lisible.',
+    reussie: true,
+    at: 2_000,
+  };
+  const premierFil = filVisuelDeLAgent(tourEssai({ consultationsMemoire: [premiereConsultation] }));
+  const filComplet = filVisuelDeLAgent(
     tourEssai({
       consultationsMemoire: [
-        {
-          id: 'memoire',
-          source: 'memoire',
-          requete: 'ui-memoire',
-          resultat: '- UI Mémoire : les étapes gardent la requête et un résultat lisible.',
-          reussie: true,
-          at: 2_000,
-        },
+        premiereConsultation,
         {
           id: 'competence',
           source: 'competence',
@@ -302,13 +304,28 @@ test('le fil côté agent résume la mémoire puis détaille les directives sans
     }),
   );
 
-  assert.deepEqual(fil.map((bulle) => bulle.cle), ['requete', 'recherche', 'resume', 'directives']);
-  assert.match(fil[1].texte, /mémoire du projet/i);
-  assert.match(fil[1].texte, /compétences partagées/i);
-  assert.match(fil[2].texte, /étapes gardent la requête/i);
-  assert.match(fil[3].texte, /rattacher chaque résultat au bon tour/i);
-  assert.doesNotMatch(fil[3].texte, /étapes gardent la requête/i);
-  assert.ok(fil.every((bulle) => bulle.texte.length <= 500), 'chaque bulle reste courte');
+  assert.deepEqual(premierFil.map((bulle) => bulle.nature), ['requete', 'recherche', 'resume']);
+  assert.deepEqual(filComplet.slice(0, premierFil.length), premierFil, 'la première consultation reste inchangée');
+  assert.deepEqual(filComplet.map((bulle) => bulle.nature), [
+    'requete',
+    'recherche',
+    'resume',
+    'recherche',
+    'directives',
+  ]);
+  assert.deepEqual(filComplet.map((bulle) => bulle.cle), [
+    'requete',
+    'memoire-recherche',
+    'memoire-resume',
+    'competence-recherche',
+    'competence-directives',
+  ]);
+  assert.match(filComplet[1].texte, /mémoire du projet/i);
+  assert.doesNotMatch(filComplet[1].texte, /compétences partagées/i);
+  assert.match(filComplet[2].texte, /étapes gardent la requête/i);
+  assert.match(filComplet[3].texte, /compétences partagées/i);
+  assert.match(filComplet[4].texte, /rattacher chaque résultat au bon tour/i);
+  assert.ok(filComplet.every((bulle) => bulle.texte.length <= 500), 'chaque bulle reste courte');
 });
 
 test('le second passage retrouve les règles et contrôles que le premier résumé ne montrait pas', () => {
@@ -337,8 +354,9 @@ test('le second passage retrouve les règles et contrôles que le premier résum
     }),
   );
 
-  const resume = fil.find((bulle) => bulle.cle === 'resume')?.texte ?? '';
-  const directives = fil.find((bulle) => bulle.cle === 'directives')?.texte ?? '';
+  assert.deepEqual(fil.map((bulle) => bulle.nature), ['requete', 'recherche', 'resume', 'directives']);
+  const resume = fil.find((bulle) => bulle.nature === 'resume')?.texte ?? '';
+  const directives = fil.find((bulle) => bulle.nature === 'directives')?.texte ?? '';
   assert.match(resume, /fil garde les résultats réellement rendus/i);
   assert.doesNotMatch(resume, /Chaque ouverture reste rattachée/i);
   assert.match(directives, /Chaque ouverture reste rattachée/i);
@@ -346,7 +364,7 @@ test('le second passage retrouve les règles et contrôles que le premier résum
   assert.doesNotMatch(directives, /fil garde les résultats réellement rendus/i);
 });
 
-test('sans autre directive, le second passage le dit au lieu de recopier le résumé', () => {
+test('sans autre directive, aucun bloc vide ou répétitif n’est ajouté', () => {
   const fil = filVisuelDeLAgent(
     tourEssai({
       consultationsMemoire: [
@@ -362,9 +380,9 @@ test('sans autre directive, le second passage le dit au lieu de recopier le rés
     }),
   );
 
+  assert.deepEqual(fil.map((bulle) => bulle.nature), ['requete', 'recherche', 'resume']);
   assert.match(fil[2].texte, /hausse mesurée/i);
-  assert.match(fil[3].texte, /aucune directive supplémentaire/i);
-  assert.doesNotMatch(fil[3].texte, /hausse mesurée/i);
+  assert.ok(!fil.some((bulle) => bulle.nature === 'directives'));
 });
 
 test('le fil côté agent retire les chemins et les blocs techniques du résultat court', () => {
@@ -386,10 +404,11 @@ test('le fil côté agent retire les chemins et les blocs techniques du résulta
   assert.match(visible, /Lisible sur mobile/);
 });
 
-test('l’écran rend quatre bulles reliées côté agent', () => {
+test('l’écran rend des étapes distinctes reliées côté agent', () => {
   const vue = fs.readFileSync(path.join(RACINE, 'web', 'src', 'components', 'prompt-envoye.tsx'), 'utf8');
   assert.ok(vue.includes('data-fil-agent'), 'le fil porte son repère d’écran');
   assert.ok(vue.includes('data-bulle-agent'), 'chaque bulle porte son repère d’écran');
+  assert.ok(vue.includes('data-etape-fil'), 'chaque arrivée porte sa propre clé stable');
   assert.ok(vue.includes('before:w-px'), 'la ligne verticale relie les bulles');
   assert.ok(!vue.includes('<ZoneDefilement'), 'aucun bloc technique déroulant ne reste dans le fil');
 });
@@ -621,10 +640,10 @@ test('les anciens labels techniques ont disparu du fil', () => {
   assert.ok(!vue.includes('Mémoire ajoutée'));
 });
 
-test('la règle partagée expose le nouveau fil en quatre bulles', () => {
+test('la règle partagée expose un fil dont chaque étape porte sa nature', () => {
   const partage = fs.readFileSync(path.join(RACINE, 'shared', 'src', 'prompt-envoye.ts'), 'utf8');
   assert.ok(partage.includes('filVisuelDeLAgent'));
-  assert.ok(partage.includes("cle: 'requete'") && partage.includes("cle: 'directives'"));
+  assert.ok(partage.includes("nature: 'requete'") && partage.includes("nature: 'directives'"));
 });
 
 test('le prompt envoyé est conservé même quand aucun message utilisateur n’est écrit', () => {

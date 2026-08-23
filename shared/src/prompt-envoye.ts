@@ -346,7 +346,9 @@ export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParco
 
 /** Une bulle courte du fil de recherche affiché côté agent. */
 export interface BulleDuFilAgent {
-  cle: 'requete' | 'recherche' | 'resume' | 'directives';
+  /** Clé stable : les nouvelles réponses s'ajoutent sans remplacer les précédentes. */
+  cle: string;
+  nature: 'requete' | 'recherche' | 'resume' | 'directives';
   titre: string;
   texte: string;
   reussie: boolean;
@@ -438,97 +440,107 @@ function directivesLisiblesDuResultat(texte: string): string[] {
 }
 
 function texteDetailleDesDirectives(
-  consultations: NonNullable<SentContextSnapshot['consultationsMemoire']>,
-  resumes: string[],
-): string {
-  const dejaResume = resumes.join(' ').toLocaleLowerCase('fr');
-  const groupes = consultations.flatMap((consultation) => {
-    const lignes = (consultation.source === 'competence'
-      ? lignesLisiblesDuResultat(consultation.resultat)
-      : directivesLisiblesDuResultat(consultation.resultat))
-      .filter((ligne) => !dejaResume.includes(ligne.toLocaleLowerCase('fr')))
-      .filter((ligne, index, toutes) => toutes.indexOf(ligne) === index)
-      .slice(0, 4);
-    if (!lignes.length) return [];
+  consultation: NonNullable<SentContextSnapshot['consultationsMemoire']>[number],
+  resume: string,
+): string | undefined {
+  const dejaResume = resume.toLocaleLowerCase('fr');
+  const lignes = (consultation.source === 'competence'
+    ? lignesLisiblesDuResultat(consultation.resultat)
+    : directivesLisiblesDuResultat(consultation.resultat))
+    .filter((ligne) => !dejaResume.includes(ligne.toLocaleLowerCase('fr')))
+    .filter((ligne, index, toutes) => toutes.indexOf(ligne) === index)
+    .slice(0, 4);
+  if (!lignes.length) return undefined;
 
-    const nom = consultation.source === 'competence'
-      ? 'Compétences partagées'
-      : consultation.requete.trim()
-        ? `Mémoire · ${couperTexteLisible(consultation.requete, 48)}`
-        : 'Mémoire du projet';
-    return [`${nom} :\n${lignes.map((ligne) => `• ${ligne}`).join('\n')}`];
-  });
-
-  if (!groupes.length) {
-    return 'Le second passage ciblé n’a trouvé aucune directive supplémentaire dans le résultat conservé.';
-  }
-  const texte = groupes.join('\n');
-  return texte.length <= 720 ? texte : `${texte.slice(0, 719).trimEnd()}…`;
+  const nom = consultation.source === 'competence'
+    ? 'Compétences partagées'
+    : consultation.requete.trim()
+      ? `Mémoire · ${couperTexteLisible(consultation.requete, 48)}`
+      : 'Mémoire du projet';
+  const texte = `${nom} :\n${lignes.map((ligne) => `• ${ligne}`).join('\n')}`;
+  return texte.length <= 480 ? texte : `${texte.slice(0, 479).trimEnd()}…`;
 }
 
 /**
- * LE FIL VISIBLE CÔTÉ AGENT : quatre bulles stables et compréhensibles.
+ * LE FIL VISIBLE CÔTÉ AGENT : une étape distincte par information reçue.
  *
- * Le texte exact des outils reste conservé dans l'instantané. Le résumé prend
- * le premier contexte utile ; un SECOND passage va ensuite chercher les
- * directives plus bas dans ce même résultat, au lieu d'en recopier le début.
+ * La demande ouvre le fil, puis CHAQUE consultation ajoute ses propres blocs,
+ * dans l'ordre où elle a rejoint l'instantané : recherche, résumé du contexte
+ * utile, puis directives éventuelles. Les clés portent l'identifiant de la
+ * consultation afin qu'une nouvelle réponse ne puisse ni remplir un ancien
+ * bloc, ni l'écraser à l'écran.
  */
 export function filVisuelDeLAgent(contexte: SentContextSnapshot): BulleDuFilAgent[] {
   const consultations = contexte.consultationsMemoire ?? [];
   if (!consultations.length) return [];
 
   const demande = demandeDuPromptEnvoye(contexte) ?? contexte.prompt?.trim() ?? '';
-  const recherches = consultations.map((consultation) => {
-    if (consultation.source === 'competence') return 'Le catalogue des compétences partagées a été consulté.';
-    return consultation.requete.trim()
-      ? `La mémoire du projet a été consultée sur « ${couperTexteLisible(consultation.requete, 80)} ».`
-      : 'La carte de la mémoire du projet a été consultée.';
-  });
+  const bulles: BulleDuFilAgent[] = [
+    {
+      cle: 'requete',
+      nature: 'requete',
+      titre: 'Requête reçue',
+      texte: couperTexteLisible(demande, 220),
+      reussie: true,
+    },
+  ];
 
-  const consultationsAResumer = consultations.some((consultation) => consultation.source !== 'competence')
-    ? consultations.filter((consultation) => consultation.source !== 'competence')
-    : consultations;
-  const resumes = consultationsAResumer.map((consultation) => {
+  consultations.forEach((consultation) => {
+    const recherche = consultation.source === 'competence'
+      ? 'Le catalogue des compétences partagées a été consulté.'
+      : consultation.requete.trim()
+        ? `La mémoire du projet a été consultée sur « ${couperTexteLisible(consultation.requete, 80)} ».`
+        : 'La carte de la mémoire du projet a été consultée.';
+    bulles.push({
+      cle: `${consultation.id}-recherche`,
+      nature: 'recherche',
+      titre: 'Recherche effectuée',
+      texte: recherche,
+      reussie: consultation.reussie,
+    });
+
     const extrait = extraitLisibleDuResultat(consultation.resultat);
     const sujet = consultation.source === 'competence'
       ? 'les compétences disponibles'
       : consultation.requete.trim()
         ? `« ${couperTexteLisible(consultation.requete, 60)} »`
         : 'la mémoire du projet';
-    if (!consultation.reussie) {
-      return extrait ? `La recherche sur ${sujet} n’a pas abouti : ${extrait}` : `La recherche sur ${sujet} n’a pas abouti.`;
+    const resume = !consultation.reussie
+      ? extrait
+        ? `La recherche sur ${sujet} n’a pas abouti : ${extrait}`
+        : `La recherche sur ${sujet} n’a pas abouti.`
+      : extrait
+        ? `Pour ${sujet}, l’agent a retenu : ${extrait}`
+        : `La recherche sur ${sujet} a bien répondu, mais son ancien texte n’est plus conservé.`;
+
+    // Une compétence est déjà une directive : la résumer juste avant la
+    // recopierait. Les résultats de mémoire, eux, gardent leur résumé propre.
+    if (consultation.source !== 'competence') {
+      bulles.push({
+        cle: `${consultation.id}-resume`,
+        nature: 'resume',
+        titre: 'Résumé compris',
+        texte: couperTexteLisible(resume, 360),
+        reussie: consultation.reussie,
+      });
     }
-    return extrait ? `Pour ${sujet}, l’agent a retenu : ${extrait}` : `La recherche sur ${sujet} a bien répondu, mais son ancien texte n’est plus conservé.`;
+
+    const directives = texteDetailleDesDirectives(
+      consultation,
+      consultation.source === 'competence' ? '' : resume,
+    );
+    if (directives) {
+      bulles.push({
+        cle: `${consultation.id}-directives`,
+        nature: 'directives',
+        titre: 'Directives retrouvées',
+        texte: directives,
+        reussie: consultation.reussie,
+      });
+    }
   });
 
-  const directives = texteDetailleDesDirectives(consultations, resumes);
-
-  return [
-    {
-      cle: 'requete',
-      titre: 'Requête reçue',
-      texte: couperTexteLisible(demande, 220),
-      reussie: true,
-    },
-    {
-      cle: 'recherche',
-      titre: 'Recherche effectuée',
-      texte: [...new Set(recherches)].join('\n'),
-      reussie: consultations.every((consultation) => consultation.reussie),
-    },
-    {
-      cle: 'resume',
-      titre: 'Résumé compris',
-      texte: couperTexteLisible(resumes.join(' '), 360),
-      reussie: consultations.every((consultation) => consultation.reussie),
-    },
-    {
-      cle: 'directives',
-      titre: 'Directives retrouvées',
-      texte: directives,
-      reussie: consultations.every((consultation) => consultation.reussie),
-    },
-  ];
+  return bulles;
 }
 
 /** Une bulle du prompt envoyé, prête à être posée dans la conversation. */

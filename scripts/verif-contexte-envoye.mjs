@@ -188,6 +188,20 @@ function poserDecor() {
             at: t + 200,
           },
           {
+            id: 'consultation-publication',
+            source: 'memoire',
+            requete: 'publication',
+            resultat: [
+              'SUJET « publication » — ses faits :',
+              '- Publication : une branche poussée reste séparée de la mise en ligne.',
+              '',
+              'RÈGLES qui mentionnent « publication » :',
+              '- Ne jamais publier sans un geste de l’utilisateur.',
+            ].join('\n'),
+            reussie: true,
+            at: t + 300,
+          },
+          {
             id: 'consultation-competence',
             source: 'competence',
             requete: 'catalogue partagé',
@@ -419,7 +433,7 @@ try {
     choisirTheme(cas.theme);
     const { contexte, page, erreurs } = await ouvrir(navigateur, cas.telephone);
     try {
-      /* Le suivi se lit côté agent : le résumé et les directives ne se répètent pas. */
+      /* Le suivi se lit côté agent : chaque résultat ajoute ses propres étapes. */
       noter(
         `${cas.nom} : l’ancienne pastille « Prompt envoyé » a disparu`,
         (await page.locator('[data-contexte-envoye]').count()) === 0,
@@ -431,9 +445,30 @@ try {
         els.map((el) => el.getAttribute('data-bulle-agent')),
       );
       noter(
-        `${cas.nom} : les quatre bulles suivent le bon ordre`,
-        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'directives']),
+        `${cas.nom} : chaque arrivée suit le bon ordre`,
+        JSON.stringify(ordre) === JSON.stringify([
+          'requete',
+          'recherche',
+          'resume',
+          'recherche',
+          'resume',
+          'directives',
+          'recherche',
+          'directives',
+        ]),
         ordre.join(' → '),
+      );
+      const recherches = premier.locator('[data-bulle-agent="recherche"]');
+      noter(`${cas.nom} : les trois recherches ont trois blocs distincts`, (await recherches.count()) === 3);
+      const textesRecherches = await recherches.allInnerTexts();
+      noter(
+        `${cas.nom} : aucun bloc de recherche ne cumule les arrivées`,
+        /memoire/.test(textesRecherches[0] ?? '') &&
+          !/publication|compétences partagées/i.test(textesRecherches[0] ?? '') &&
+          /publication/.test(textesRecherches[1] ?? '') &&
+          !/memoire|compétences partagées/i.test(textesRecherches[1] ?? '') &&
+          /compétences partagées/i.test(textesRecherches[2] ?? ''),
+        textesRecherches.join(' | '),
       );
       const textePremier = await premier.innerText();
       noter(
@@ -445,6 +480,8 @@ try {
         /Résumé compris/.test(textePremier) &&
           /Directives retrouvées/.test(textePremier) &&
           /faits, règles et contrôles réellement rendus/.test(textePremier) &&
+          /une branche poussée reste séparée/.test(textePremier) &&
+          /Ne jamais publier sans un geste/.test(textePremier) &&
           /rattacher chaque résultat au bon tour/.test(textePremier) &&
           (textePremier.match(/faits, règles et contrôles réellement rendus/g) ?? []).length === 1,
       );
@@ -512,8 +549,8 @@ try {
         els.map((el) => el.getAttribute('data-bulle-agent')),
       );
       noter(
-        'carte : les quatre bulles sont là, dans l’ordre',
-        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'directives']),
+        'carte : chaque information a son bloc, dans l’ordre',
+        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'recherche', 'directives']),
         ordre.join(' → '),
       );
       noter(
