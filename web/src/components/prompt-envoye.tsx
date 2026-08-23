@@ -8,8 +8,8 @@ import { t } from '@/lib/langue';
  * Le suivi des recherches faites par l'agent.
  *
  * Il vit à gauche, comme une parole de l'agent. Quatre bulles courtes montrent
- * la requête, les recherches, ce qui a été compris et un extrait des résultats.
- * Le prompt complet et les textes techniques ne sont jamais recopiés ici.
+ * la requête, les recherches, ce qui a été compris et les directives retrouvées
+ * plus bas dans leurs résultats. Le prompt complet n'est jamais recopié ici.
  */
 export function BullesDuPromptEnvoye({
   contexte,

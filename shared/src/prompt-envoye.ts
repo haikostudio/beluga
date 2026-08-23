@@ -346,7 +346,7 @@ export function parcoursDeLaMemoire(contexte: SentContextSnapshot): EtapeDuParco
 
 /** Une bulle courte du fil de recherche affiché côté agent. */
 export interface BulleDuFilAgent {
-  cle: 'requete' | 'recherche' | 'resume' | 'resultats';
+  cle: 'requete' | 'recherche' | 'resume' | 'directives';
   titre: string;
   texte: string;
   reussie: boolean;
@@ -365,8 +365,8 @@ function couperTexteLisible(texte: string, maximum: number): string {
  * On garde les premières phrases utiles ; les chemins, titres Markdown et
  * blocs de code restent dans le lecteur détaillé, pas dans la conversation.
  */
-function extraitLisibleDuResultat(texte: string): string {
-  const lignes = texte
+function lignesLisiblesDuResultat(texte: string): string[] {
+  return texte
     .split('\n')
     .map((ligne) =>
       ligne
@@ -381,17 +381,97 @@ function extraitLisibleDuResultat(texte: string): string {
         .trim(),
     )
     .filter((ligne) => ligne.length >= 16)
+    .filter((ligne) => !/^SUJET\s+«/i.test(ligne))
     .filter((ligne) => !/^(faits|règles|contrôles|pool de compétences)\b.*:$/i.test(ligne))
     .filter((ligne) => !/^(```|const\b|let\b|var\b|import\b|export\b|function\b|class\b)/i.test(ligne))
     .filter((ligne) => !/^tenu automatiquement/i.test(ligne));
-  return lignes.slice(0, 2).join(' ');
+}
+
+const TITRE_DE_DIRECTIVES = /^(?:règles?|contrôles?|directives?|instructions?|procédure|garde-fous?|pièges?)\b/i;
+const TITRE_DE_SECTION = /^(?:faits?|règles?|contrôles?|directives?|instructions?|procédure|garde-fous?|pièges?|mémoire|compétences?)\b/i;
+const MOT_DE_DIRECTIVE = /\b(?:doit|doivent|jamais|toujours|interdit|obligatoire|vérifi|contrôle|garder|conserver|retirer|afficher|appeler|demander|règle)\w*/i;
+
+function lignesDeContexteDuResultat(texte: string): string[] {
+  const lignes: string[] = [];
+  for (const brute of texte.split('\n')) {
+    const sansHabillage = brute.trim().replace(/^\s{0,3}#{1,6}\s*/, '').replace(/\*\*/g, '').trim();
+    if (TITRE_DE_DIRECTIVES.test(sansHabillage) && /:\s*$/.test(sansHabillage)) break;
+    lignes.push(...lignesLisiblesDuResultat(brute));
+  }
+  return lignes;
+}
+
+function extraitLisibleDuResultat(texte: string): string {
+  return lignesDeContexteDuResultat(texte).slice(0, 2).join(' ');
+}
+
+/**
+ * SECOND PASSAGE, CIBLÉ SUR LES DIRECTIVES.
+ *
+ * `project_memory` rend souvent d'abord les faits, puis les RÈGLES et les
+ * CONTRÔLES du sujet. Le premier extrait lisible s'arrêtait aux faits : toute
+ * la suite était bien conservée mais invisible. On reparcourt donc le résultat
+ * exact, sans génération, en privilégiant ces sections nommées. Les anciennes
+ * réponses sans titres gardent un repli par les mots directifs.
+ */
+function directivesLisiblesDuResultat(texte: string): string[] {
+  const directives: string[] = [];
+  let dansLesDirectives = false;
+
+  for (const brute of texte.split('\n')) {
+    const ligne = brute.trim().replace(/^\s{0,3}#{1,6}\s*/, '').replace(/\*\*/g, '').trim();
+    if (!ligne || /^═+$/.test(ligne)) continue;
+
+    if (TITRE_DE_SECTION.test(ligne) && /:\s*$/.test(ligne)) {
+      dansLesDirectives = TITRE_DE_DIRECTIVES.test(ligne);
+      if (dansLesDirectives) continue;
+      continue;
+    }
+    if (!dansLesDirectives) continue;
+
+    const [lisible] = lignesLisiblesDuResultat(brute);
+    if (lisible) directives.push(lisible);
+  }
+
+  if (directives.length) return directives;
+  return lignesLisiblesDuResultat(texte).filter((ligne) => MOT_DE_DIRECTIVE.test(ligne));
+}
+
+function texteDetailleDesDirectives(
+  consultations: NonNullable<SentContextSnapshot['consultationsMemoire']>,
+  resumes: string[],
+): string {
+  const dejaResume = resumes.join(' ').toLocaleLowerCase('fr');
+  const groupes = consultations.flatMap((consultation) => {
+    const lignes = (consultation.source === 'competence'
+      ? lignesLisiblesDuResultat(consultation.resultat)
+      : directivesLisiblesDuResultat(consultation.resultat))
+      .filter((ligne) => !dejaResume.includes(ligne.toLocaleLowerCase('fr')))
+      .filter((ligne, index, toutes) => toutes.indexOf(ligne) === index)
+      .slice(0, 4);
+    if (!lignes.length) return [];
+
+    const nom = consultation.source === 'competence'
+      ? 'Compétences partagées'
+      : consultation.requete.trim()
+        ? `Mémoire · ${couperTexteLisible(consultation.requete, 48)}`
+        : 'Mémoire du projet';
+    return [`${nom} :\n${lignes.map((ligne) => `• ${ligne}`).join('\n')}`];
+  });
+
+  if (!groupes.length) {
+    return 'Le second passage ciblé n’a trouvé aucune directive supplémentaire dans le résultat conservé.';
+  }
+  const texte = groupes.join('\n');
+  return texte.length <= 720 ? texte : `${texte.slice(0, 719).trimEnd()}…`;
 }
 
 /**
  * LE FIL VISIBLE CÔTÉ AGENT : quatre bulles stables et compréhensibles.
  *
- * Le texte exact des outils reste conservé dans l'instantané, mais le fil ne
- * recopie plus le prompt complet, les chemins ni les blocs de règles bruts.
+ * Le texte exact des outils reste conservé dans l'instantané. Le résumé prend
+ * le premier contexte utile ; un SECOND passage va ensuite chercher les
+ * directives plus bas dans ce même résultat, au lieu d'en recopier le début.
  */
 export function filVisuelDeLAgent(contexte: SentContextSnapshot): BulleDuFilAgent[] {
   const consultations = contexte.consultationsMemoire ?? [];
@@ -405,7 +485,10 @@ export function filVisuelDeLAgent(contexte: SentContextSnapshot): BulleDuFilAgen
       : 'La carte de la mémoire du projet a été consultée.';
   });
 
-  const resumes = consultations.map((consultation) => {
+  const consultationsAResumer = consultations.some((consultation) => consultation.source !== 'competence')
+    ? consultations.filter((consultation) => consultation.source !== 'competence')
+    : consultations;
+  const resumes = consultationsAResumer.map((consultation) => {
     const extrait = extraitLisibleDuResultat(consultation.resultat);
     const sujet = consultation.source === 'competence'
       ? 'les compétences disponibles'
@@ -418,15 +501,7 @@ export function filVisuelDeLAgent(contexte: SentContextSnapshot): BulleDuFilAgen
     return extrait ? `Pour ${sujet}, l’agent a retenu : ${extrait}` : `La recherche sur ${sujet} a bien répondu, mais son ancien texte n’est plus conservé.`;
   });
 
-  const transcriptions = consultations.map((consultation) => {
-    const nom = consultation.source === 'competence'
-      ? 'Compétences'
-      : consultation.requete.trim()
-        ? `Mémoire · ${couperTexteLisible(consultation.requete, 48)}`
-        : 'Mémoire';
-    const extrait = extraitLisibleDuResultat(consultation.resultat);
-    return `${nom} : ${extrait || 'texte non conservé'}`;
-  });
+  const directives = texteDetailleDesDirectives(consultations, resumes);
 
   return [
     {
@@ -448,9 +523,9 @@ export function filVisuelDeLAgent(contexte: SentContextSnapshot): BulleDuFilAgen
       reussie: consultations.every((consultation) => consultation.reussie),
     },
     {
-      cle: 'resultats',
-      titre: 'Transcription courte des résultats',
-      texte: transcriptions.map((texte) => couperTexteLisible(texte, 240)).join('\n'),
+      cle: 'directives',
+      titre: 'Directives retrouvées',
+      texte: directives,
       reussie: consultations.every((consultation) => consultation.reussie),
     },
   ];

@@ -278,7 +278,7 @@ test('le parcours garde la carte, l’ancienne recherche puis chaque ouverture a
   assert.match(bulle?.texteCopie ?? '', /faits et règles du sujet/);
 });
 
-test('le fil côté agent résume une recherche de mémoire et une recherche de compétence dans le bon ordre', () => {
+test('le fil côté agent résume la mémoire puis détaille les directives sans répéter le même extrait', () => {
   const fil = filVisuelDeLAgent(
     tourEssai({
       consultationsMemoire: [
@@ -302,12 +302,69 @@ test('le fil côté agent résume une recherche de mémoire et une recherche de 
     }),
   );
 
-  assert.deepEqual(fil.map((bulle) => bulle.cle), ['requete', 'recherche', 'resume', 'resultats']);
+  assert.deepEqual(fil.map((bulle) => bulle.cle), ['requete', 'recherche', 'resume', 'directives']);
   assert.match(fil[1].texte, /mémoire du projet/i);
   assert.match(fil[1].texte, /compétences partagées/i);
   assert.match(fil[2].texte, /étapes gardent la requête/i);
   assert.match(fil[3].texte, /rattacher chaque résultat au bon tour/i);
+  assert.doesNotMatch(fil[3].texte, /étapes gardent la requête/i);
   assert.ok(fil.every((bulle) => bulle.texte.length <= 500), 'chaque bulle reste courte');
+});
+
+test('le second passage retrouve les règles et contrôles que le premier résumé ne montrait pas', () => {
+  const fil = filVisuelDeLAgent(
+    tourEssai({
+      consultationsMemoire: [
+        {
+          id: 'memoire',
+          source: 'memoire',
+          requete: 'memoire',
+          resultat: [
+            'SUJET « memoire » — ses faits :',
+            '- Messages : le fil garde les résultats réellement rendus.',
+            '',
+            'RÈGLES qui mentionnent « memoire » :',
+            '- **Chaque ouverture reste rattachée à son tour.**',
+            '- Le texte exact doit rester conservé après le premier affichage.',
+            '',
+            'CONTRÔLES :',
+            '- Vérifier dans un vrai navigateur que la directive est lisible.',
+          ].join('\n'),
+          reussie: true,
+          at: 2_000,
+        },
+      ],
+    }),
+  );
+
+  const resume = fil.find((bulle) => bulle.cle === 'resume')?.texte ?? '';
+  const directives = fil.find((bulle) => bulle.cle === 'directives')?.texte ?? '';
+  assert.match(resume, /fil garde les résultats réellement rendus/i);
+  assert.doesNotMatch(resume, /Chaque ouverture reste rattachée/i);
+  assert.match(directives, /Chaque ouverture reste rattachée/i);
+  assert.match(directives, /texte exact doit rester conservé/i);
+  assert.doesNotMatch(directives, /fil garde les résultats réellement rendus/i);
+});
+
+test('sans autre directive, le second passage le dit au lieu de recopier le résumé', () => {
+  const fil = filVisuelDeLAgent(
+    tourEssai({
+      consultationsMemoire: [
+        {
+          id: 'memoire',
+          source: 'memoire',
+          requete: 'quotas',
+          resultat: 'Une hausse mesurée est attribuée une seule fois.',
+          reussie: true,
+          at: 2_000,
+        },
+      ],
+    }),
+  );
+
+  assert.match(fil[2].texte, /hausse mesurée/i);
+  assert.match(fil[3].texte, /aucune directive supplémentaire/i);
+  assert.doesNotMatch(fil[3].texte, /hausse mesurée/i);
 });
 
 test('le fil côté agent retire les chemins et les blocs techniques du résultat court', () => {
@@ -567,7 +624,7 @@ test('les anciens labels techniques ont disparu du fil', () => {
 test('la règle partagée expose le nouveau fil en quatre bulles', () => {
   const partage = fs.readFileSync(path.join(RACINE, 'shared', 'src', 'prompt-envoye.ts'), 'utf8');
   assert.ok(partage.includes('filVisuelDeLAgent'));
-  assert.ok(partage.includes("cle: 'requete'") && partage.includes("cle: 'resultats'"));
+  assert.ok(partage.includes("cle: 'requete'") && partage.includes("cle: 'directives'"));
 });
 
 test('le prompt envoyé est conservé même quand aucun message utilisateur n’est écrit', () => {
