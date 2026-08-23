@@ -419,7 +419,7 @@ try {
     choisirTheme(cas.theme);
     const { contexte, page, erreurs } = await ouvrir(navigateur, cas.telephone);
     try {
-      /* Le suivi se lit côté agent, en quatre bulles courtes. */
+      /* Le suivi se lit côté agent : le résumé et les directives ne se répètent pas. */
       noter(
         `${cas.nom} : l’ancienne pastille « Prompt envoyé » a disparu`,
         (await page.locator('[data-contexte-envoye]').count()) === 0,
@@ -432,7 +432,7 @@ try {
       );
       noter(
         `${cas.nom} : les quatre bulles suivent le bon ordre`,
-        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'resultats']),
+        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'directives']),
         ordre.join(' → '),
       );
       const textePremier = await premier.innerText();
@@ -441,10 +441,12 @@ try {
         /mémoire du projet/i.test(textePremier) && /compétences partagées/i.test(textePremier),
       );
       noter(
-        `${cas.nom} : le résumé et la transcription restent compréhensibles`,
+        `${cas.nom} : le résumé et les directives restent distincts`,
         /Résumé compris/.test(textePremier) &&
+          /Directives retrouvées/.test(textePremier) &&
           /faits, règles et contrôles réellement rendus/.test(textePremier) &&
-          /rattacher chaque résultat au bon tour/.test(textePremier),
+          /rattacher chaque résultat au bon tour/.test(textePremier) &&
+          (textePremier.match(/faits, règles et contrôles réellement rendus/g) ?? []).length === 1,
       );
       noter(
         `${cas.nom} : aucun pavé technique n’est rendu dans la conversation`,
@@ -511,7 +513,7 @@ try {
       );
       noter(
         'carte : les quatre bulles sont là, dans l’ordre',
-        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'resultats']),
+        JSON.stringify(ordre) === JSON.stringify(['requete', 'recherche', 'resume', 'directives']),
         ordre.join(' → '),
       );
       noter(

@@ -990,7 +990,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Requête reçue': ['Request received', 'Solicitud recibida', 'Anfrage erhalten', '已收到请求'],
   'Recherche effectuée': ['Search completed', 'Búsqueda realizada', 'Suche durchgeführt', '已完成搜索'],
   'Résumé compris': ['What the agent understood', 'Resumen comprendido', 'Verstandene Zusammenfassung', '理解摘要'],
-  'Transcription courte des résultats': ['Short result transcript', 'Transcripción breve de los resultados', 'Kurze Ergebnisabschrift', '结果简述'],
+  'Directives retrouvées': ['Guidance found', 'Directrices encontradas', 'Gefundene Vorgaben', '找到的指引'],
   'Carte de la mémoire reçue': ['Memory map received', 'Mapa de memoria recibido', 'Speicherkarte empfangen', '已收到记忆地图'],
   'Carte de la mémoire du projet': ['Project memory map', 'Mapa de memoria del proyecto', 'Speicherkarte des Projekts', '项目记忆地图'],
   'Nouveaux faits de la mémoire': ['New memory facts', 'Nuevos hechos de la memoria', 'Neue Fakten im Speicher', '新增记忆事实'],
