@@ -3077,15 +3077,16 @@ export async function startDeploy(
           if (etape.clot) {
             await archiveCard(cardId, { url: project.devUrl, commit: current.targetCommit });
           } else {
-            /* La carte quitte le travail : ses questions restées ouvertes se
-               ferment, comme sur un déplacement à la main. */
-            fermerLesQuestionsSiCarteRangee(cardId, etape.arrivee);
             const avancee = store.saveCard({
               ...deployed,
               column: etape.arrivee,
               position: store.nextPosition(card.projectId, etape.arrivee),
             });
             bus.emit({ type: 'card.upsert', card: avancee });
+            /* La carte quitte le travail : ses questions restées ouvertes se
+               ferment, comme sur un déplacement à la main — APRÈS l'écriture de
+               la colonne, dont le compte de décisions dépend. */
+            fermerLesQuestionsSiCarteRangee(cardId, etape.arrivee);
           }
         } catch (err) {
           // On ne relit pas la carte pour son titre : c'est justement sa

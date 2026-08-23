@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Circle,
   Copy,
+  CornerDownRight,
   Download,
   GitMerge,
   HelpCircle,
@@ -131,6 +132,7 @@ export function MessageView({
   etatPlan = 'courant',
   onEcrireDansLeChamp,
   agentAuTravail = false,
+  questionEnTexte = false,
 }: {
   message: Message;
   /** La conversation entière : sert au cadre du plan à numéroter ses versions. */
@@ -151,6 +153,9 @@ export function MessageView({
    *  qu'un refus et une suggestion d'optimisation reviennent à l'utilisateur,
    *  qui les complète puis décide d'envoyer (`shared/src/suggestions-de-plan.ts`). */
   onEcrireDansLeChamp?: (texte: string) => void;
+  /** Ce message finit sur une question écrite en TEXTE ORDINAIRE, encore
+   *  ouverte (`questionEnTexteLibre`, jugé par le fil qui connaît la carte). */
+  questionEnTexte?: boolean;
 }) {
   const isUser = message.role === 'user';
   const state = useApp();
@@ -263,6 +268,12 @@ export function MessageView({
         ) : null}
 
         {message.repriseCompte ? <RepriseDeCompteCard message={message} /> : null}
+
+        {/* La question écrite en TOUTES LETTRES, pas par l'outil : elle n'avait
+            aucune trace dans la bulle, et sa seule sortie vivait dans une bande
+            posée au-dessus du champ d'écriture. Toute bulle qui attend un geste
+            porte désormais sa sortie CHEZ ELLE. */}
+        {questionEnTexte ? <QuestionEnTexteCard messageId={message.id} /> : null}
 
         {message.questions.length ? (
           <div className="mt-2 space-y-2">
@@ -1229,6 +1240,58 @@ function QuestionCard({
 }
 
 /**
+ * LA QUESTION ÉCRITE EN TOUTES LETTRES, dans sa bulle.
+ *
+ * L'agent a fini son tour sur une question posée en texte ordinaire : rien ne
+ * la distinguait du reste de sa réponse, et sa seule sortie était un « Annuler »
+ * relégué dans une bande au-dessus du champ d'écriture — invisible dès qu'on
+ * lisait la conversation ailleurs qu'en bas, et introuvable sur téléphone. Le
+ * bloc dit ce qui est attendu et porte sa sortie, comme une vraie question
+ * d'outil. La réponse, elle, s'écrit toujours dans la barre : rien de neuf à
+ * apprendre.
+ */
+function QuestionEnTexteCard({ messageId }: { messageId: string }) {
+  const [busy, setBusy] = React.useState(false);
+
+  const annuler = async () => {
+    setBusy(true);
+    try {
+      await client.call({ type: 'question.cancelTexte', messageId });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'annulation impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="mt-2 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2"
+      data-question-en-texte={messageId}
+    >
+      <p className="flex items-start gap-1.5 text-[13.5px] text-text">
+        <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+        <span className="min-w-0">{t('L\'agent attend votre réponse — écrivez-la ci-dessous.')}</span>
+      </p>
+      <div className="mt-2 flex justify-end">
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          title={t('Fermer la question sans répondre')}
+          onClick={() => void annuler()}
+          data-annuler-question-texte
+          className="text-faint hover:text-danger"
+        >
+          <X className="h-3 w-3" />
+          {t('Annuler')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
  * « AVEC QUEL COMPTE POURSUIVRE ? »
  *
  * Le tour a été coupé net par la limite d'un compte. Le travail n'est pas
@@ -1284,12 +1347,44 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
     );
   }
 
+  /*
+   * DÉCISION ABANDONNÉE : la carte a été rangée, ou l'on a cliqué « Annuler ».
+   * Même forme refermée que le choix fait — le bloc reste dans le fil parce
+   * qu'il raconte pourquoi le travail s'est arrêté là, mais il ne réclame plus
+   * rien et n'est plus jaune.
+   */
+  if (reprise.abandonnee) {
+    return (
+      <div
+        className="mt-2 rounded-md border border-border bg-surface/60 px-2.5 py-2"
+        data-reprise-compte="abandonnee"
+      >
+        <p className="flex min-w-0 items-start gap-1.5 text-[13.5px] text-muted">
+          <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
+          <span className="min-w-0">
+            {t('Le compte « {v0} » avait atteint sa limite : le travail n’a pas été repris.', { v0: reprise.compteEpuiseLabel })}</span>
+        </p>
+      </div>
+    );
+  }
+
   const reprendre = async (accountId: string) => {
     setBusy(true);
     try {
       await client.call({ type: 'reprise.compte', messageId: message.id, accountId });
     } catch (err: any) {
       client.pushToast('warning', err?.message ?? 'reprise impossible');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const abandonner = async () => {
+    setBusy(true);
+    try {
+      await client.call({ type: 'reprise.abandon', messageId: message.id });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'annulation impossible');
     } finally {
       setBusy(false);
     }
@@ -1353,6 +1448,32 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
             ))}
         </ul>
       ) : null}
+
+      {/*
+       * LA SORTIE, DANS LA BULLE. C'était la seule bulle jaune du fil à n'en
+       * avoir aucune : quand plus aucun compte ne devait revenir, elle restait
+       * allumée à vie et gardait « Répondre » sur sa carte. Comme sur une
+       * question d'outil, le bouton prend TOUTE LA LARGEUR quand il est la
+       * seule issue, et se fait discret dès qu'un compte est proposé à côté.
+       */}
+      <div className="mt-2 flex justify-end">
+        <Button
+          variant={possible ? 'ghost' : 'outline'}
+          size="sm"
+          disabled={busy}
+          title={t('Fermer sans reprendre le travail')}
+          onClick={() => void abandonner()}
+          data-annuler-reprise
+          className={cn(
+            possible
+              ? 'text-faint hover:text-danger'
+              : 'w-full justify-center border-danger/40 text-danger hover:bg-danger/10 hover:text-danger',
+          )}
+        >
+          <X className="h-3 w-3" />
+          {t('Annuler')}
+        </Button>
+      </div>
     </div>
   );
 }

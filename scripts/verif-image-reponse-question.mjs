@@ -110,6 +110,7 @@ const TEXTES = {
   sansReponseOrdinateur: `Vérification ${marque} — aucune réponse possible sur ordinateur`,
   reponse: `Vérification ${marque} — voici la capture`,
   reponseLongue: `Vérification-${marque}-${'sans-espace-'.repeat(80)}`,
+  reprise: `Vérification ${marque} — le tour a été coupé par la limite du compte`,
 };
 
 function poserLeDecor() {
@@ -173,6 +174,46 @@ function poserQuestion(agentId, question) {
     todos: [],
     proposals: [],
     questions: [question],
+    downloads: [],
+    attachments: [],
+    streaming: false,
+    createdAt: Date.now(),
+  };
+  db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    id,
+    agentId,
+    'assistant',
+    JSON.stringify(message),
+    message.createdAt,
+  );
+  db.close();
+  return id;
+}
+
+/**
+ * UNE BULLE DE REPRISE DE COMPTE, restée sans choix. C'était la SEULE bulle
+ * jaune du fil à n'offrir aucune sortie : quand plus aucun compte ne revenait,
+ * elle restait allumée à vie et gardait « Répondre » sur sa carte.
+ */
+function poserRepriseDeCompte(agentId) {
+  const db = base();
+  const id = crypto.randomUUID();
+  const message = {
+    id,
+    agentId,
+    role: 'assistant',
+    content: TEXTES.reprise,
+    steps: [],
+    todos: [],
+    proposals: [],
+    questions: [],
+    repriseCompte: {
+      engine: 'claude',
+      compteEpuise: 'compte-essai',
+      compteEpuiseLabel: 'Compte d’essai',
+      motif: 'limite-structuree',
+      at: Date.now(),
+    },
     downloads: [],
     attachments: [],
     streaming: false,
@@ -474,6 +515,43 @@ async function ecran(navigateur, telephone) {
       noter(`${nom} : la réponse déjà donnée montre son image`, false, 'bloc introuvable');
     }
 
+    /* ---- 9. TOUTE bulle jaune du fil porte sa sortie ---- */
+    const reprise = page.locator('[data-reprise-compte="attente"]').first();
+    await reprise.scrollIntoViewIfNeeded().catch(() => {});
+    await page.waitForTimeout(800);
+    const sortieReprise = reprise.locator('[data-annuler-reprise]');
+    noter(`${nom} : la bulle de reprise de compte est affichée`, (await reprise.count()) === 1);
+    noter(
+      `${nom} : elle porte son Annuler À L'INTÉRIEUR de la bulle`,
+      (await sortieReprise.count()) === 1 && (await sortieReprise.first().isVisible().catch(() => false)),
+    );
+    /*
+     * LA FORME SUIT L'ÉTAT, PAS LA MISE EN PAGE. Ce démon d'essai voit les
+     * comptes réellement configurés sur la machine : on ne peut donc pas
+     * décider d'avance si un compte sera proposé. On lit l'ÉTAT — y a-t-il un
+     * compte à cliquer ? — et on en déduit la forme attendue : seule issue,
+     * « Annuler » prend toute la largeur ; sinon il reste discret à côté des
+     * comptes proposés.
+     */
+    const comptesProposes = await reprise.locator('[data-compte-reprise]').count();
+    const largeurReprise = await sortieReprise
+      .evaluate((bouton) => {
+        const bulle = bouton.closest('[data-reprise-compte]');
+        if (!bulle) return null;
+        const b = bouton.getBoundingClientRect();
+        const a = bulle.getBoundingClientRect();
+        return { bouton: Math.round(b.width), bulle: Math.round(a.width) };
+      })
+      .catch(() => null);
+    const pleine = !!largeurReprise && largeurReprise.bouton >= largeurReprise.bulle - 32;
+    noter(
+      comptesProposes
+        ? `${nom} : avec des comptes proposés, la sortie reste discrète`
+        : `${nom} : seule issue, la sortie prend toute la largeur de la bulle`,
+      comptesProposes ? !pleine && !!largeurReprise && largeurReprise.bouton > 0 : pleine,
+      `${comptesProposes} compte(s) proposé(s), ${JSON.stringify(largeurReprise)}`,
+    );
+
     return { erreurs };
   } finally {
     await context.close();
@@ -564,6 +642,9 @@ async function main() {
     answerAttachments: [imageId],
     answeredAt: Date.now(),
   });
+  // La bulle jaune qui n'avait AUCUNE sortie. Elle n'est pas refermée par le
+  // relevé : les deux écrans doivent la trouver telle quelle.
+  poserRepriseDeCompte(AGENT_ID);
 
   const navigateur = await chromium.launch({
     channel: 'chrome',

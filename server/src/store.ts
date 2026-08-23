@@ -1056,13 +1056,26 @@ export interface RepriseEnAttente {
   poseeA: number;
 }
 
+/**
+ * LES REPRISES DE COMPTE QUI ATTENDENT ENCORE UN CHOIX.
+ *
+ * Trois raisons d'écarter une ligne, et la troisième a longtemps manqué :
+ * un compte a déjà été choisi, la décision a été abandonnée, ou LA CARTE A ÉTÉ
+ * RANGÉE. Ce dernier garde-fou est le MÊME que celui des questions d'outil
+ * (`colonneFermeLesQuestions`) : sans lui, un tour coupé par une limite de
+ * quota laissait sa décision ouverte à vie, et la carte affichait « Répondre /
+ * Annuler » des semaines après être passée « En production » — le défaut vu en
+ * capture le 23/08/2026, deux cartes concernées sur ce serveur.
+ */
 export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
   const rows = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
-              m.id AS messageId, m.data AS data, m.created_at AS createdAt
+              m.id AS messageId, m.data AS data, m.created_at AS createdAt,
+              c.column_key AS colonne
        FROM messages m
        JOIN agents a ON a.id = m.agent_id
+       LEFT JOIN cards c ON c.id = a.card_id
        WHERE m.data LIKE '%"repriseCompte":{%'`,
     )
     .all() as {
@@ -1072,14 +1085,16 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
     messageId: string;
     data: string;
     createdAt: number;
+    colonne: string | null;
   }[];
 
   const attentes: RepriseEnAttente[] = [];
   for (const row of rows) {
+    if (colonneFermeLesQuestions(row.colonne ?? undefined)) continue;
     try {
       const message = Message.parse(JSON.parse(row.data));
       const reprise = message.repriseCompte;
-      if (!reprise || reprise.choisi) continue;
+      if (!reprise || reprise.choisi || reprise.abandonnee) continue;
       attentes.push({
         projectId: row.projectId,
         agentId: row.agentId,

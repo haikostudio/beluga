@@ -1195,6 +1195,27 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true };
     }
 
+    /*
+     * RENONCER À REPRENDRE. Le pendant d'« Annuler » sur une question : on ne
+     * choisit aucun compte, la bulle se referme et le triangle s'éteint. Un
+     * choix DÉJÀ fait ne se défait pas — il a relancé un tour.
+     */
+    case 'reprise.abandon': {
+      const message = store.getMessage(cmd.messageId);
+      if (!message) throw new Error('message introuvable');
+      const reprise = message.repriseCompte;
+      if (!reprise) throw new Error('ce message ne porte aucune reprise de compte');
+      if (reprise.choisi || reprise.abandonnee) return { already: true };
+
+      const updated = store.saveMessage({
+        ...message,
+        repriseCompte: { ...reprise, abandonnee: true, abandonneeA: Date.now() },
+      });
+      bus.emit({ type: 'message.upsert', message: updated });
+      bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { ok: true };
+    }
+
     case 'proposal.decide': {
       const message = store.getMessage(cmd.messageId);
       if (!message) throw new Error('message introuvable');

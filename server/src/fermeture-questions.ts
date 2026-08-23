@@ -7,9 +7,13 @@
  * les messages de la carte, éteindre ce qui attend encore, libérer le tour resté
  * suspendu, et diffuser.
  *
- * Trois choses attendent une réponse sur une carte, et les trois sont coupées :
+ * Quatre choses attendent une réponse sur une carte, et les quatre sont
+ * coupées :
  *  - une question de l'outil `ask_user` (`message.questions`) ;
  *  - une question écrite en TEXTE ORDINAIRE (`message.texteLibreAnnulee`) ;
+ *  - un choix de REPRISE DE COMPTE resté ouvert (`repriseCompte.abandonnee`) —
+ *    oublié jusqu'au 23/08/2026, c'est lui qui rallumait « Répondre / Annuler »
+ *    sur des cartes rangées depuis des semaines ;
  *  - l'attente du tour lui-même (`annulerLAttente`), sans quoi le moteur
  *    resterait arrêté sur un appel d'outil qui ne répondrait jamais.
  */
@@ -41,7 +45,16 @@ export function fermerLesQuestionsDeLaCarte(cardId: string): number {
     const questionsOuvertes = message.questions.some((q) => !q.answer && !q.cancelled);
     const texteLibreAEteindre =
       message.id === dernier?.id && message.role === 'assistant' && !message.texteLibreAnnulee;
-    if (!questionsOuvertes && !texteLibreAEteindre) continue;
+    /*
+     * Le choix de reprise, lui, se lit sur N'IMPORTE QUEL message du fil : un
+     * tour coupé par une limite de quota laisse sa bulle où elle est tombée,
+     * puis d'autres tours écrivent par-dessus. Le chercher sur le seul dernier
+     * message l'aurait manqué dans exactement le cas qui pose problème.
+     */
+    const repriseAEteindre = Boolean(
+      message.repriseCompte && !message.repriseCompte.choisi && !message.repriseCompte.abandonnee,
+    );
+    if (!questionsOuvertes && !texteLibreAEteindre && !repriseAEteindre) continue;
 
     const frais = store.saveMessage({
       ...message,
@@ -49,8 +62,14 @@ export function fermerLesQuestionsDeLaCarte(cardId: string): number {
         q.answer || q.cancelled ? q : { ...q, cancelled: true, answeredAt: maintenant },
       ),
       texteLibreAnnulee: texteLibreAEteindre ? true : message.texteLibreAnnulee,
+      repriseCompte:
+        repriseAEteindre && message.repriseCompte
+          ? { ...message.repriseCompte, abandonnee: true, abandonneeA: maintenant }
+          : message.repriseCompte,
     });
     bus.emit({ type: 'message.upsert', message: frais });
+
+    if (repriseAEteindre) fermees += 1;
 
     for (const question of message.questions) {
       if (question.answer || question.cancelled) continue;
