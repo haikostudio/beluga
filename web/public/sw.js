@@ -44,6 +44,7 @@ const ICONES = {
   // plus — ils n'ont donc plus rien à traduire ici.
   'compte-sature': 'quota',
   'amorcage-impossible': 'quota',
+  'jeton-claude-bloque': 'quota',
 };
 
 function imageDeLAlerte(motif) {

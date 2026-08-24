@@ -51,6 +51,7 @@ test('chaque motif qui alerte entre dans l’un des trois genres, nommément', (
     'amorcage-impossible',
     'compte-sature',
     'geste-lent',
+    'jeton-claude-bloque',
     'publication-echec',
     // Une étape de publication qui traîne : le travail n'avance plus, donc un
     // blocage, donc une erreur (`shared/src/duree-des-etapes.ts`).

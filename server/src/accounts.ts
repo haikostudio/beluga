@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   compteQuiRecoitLeTravail,
   raisonDuChoix,
@@ -50,6 +52,37 @@ export interface AccountRecord {
 }
 
 const CLAUDE_OAUTH_BETA = 'oauth-2025-04-20';
+const execFileAsync = promisify(execFile);
+
+/**
+ * Nombre de lectures 401 de suite sur un compte Claude, pour alerter au
+ * franchissement plutôt qu'à chaque relevé (un renouvellement en cours
+ * en produit un ou deux, sans gravité).
+ */
+const echecsRenouvellementJeton = new Map<string, number>();
+
+/**
+ * Un 401 sur la lecture de quota Claude veut dire un jeton expiré, pas un
+ * compte désactivé ni un vrai dépassement de quota (429, traité ailleurs).
+ * Un compte peu utilisé peut rester des jours sans qu'aucun agent ne le
+ * fasse tourner — donc sans que son jeton se renouvelle jamais tout seul.
+ * On force ici le même renouvellement qu'un agent réel déclenche : un
+ * appel minimal au CLI dans SON coffre, qui réécrit `.credentials.json`
+ * avec un jeton frais via son propre `refresh_token`.
+ */
+async function forcerRenouvellementJetonClaude(configDir: string): Promise<boolean> {
+  try {
+    await execFileAsync('claude', ['-p', 'ok', '--model', 'claude-haiku-4-5-20251001', '--output-format', 'json'], {
+      cwd: configDir,
+      env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+      timeout: 30_000,
+    });
+    return true;
+  } catch (err: any) {
+    log.warn('renouvellement du jeton Claude impossible', err?.message ?? err);
+    return false;
+  }
+}
 
 /**
  * Le compte Cursor né de la clé du serveur. Les autres comptes Cursor sont des
@@ -350,11 +383,11 @@ async function fetchClaudeQuota(account: AccountRecord): Promise<AccountQuota> {
   };
   try {
     const credFile = path.join(account.configDir, '.credentials.json');
-    const raw = JSON.parse(fs.readFileSync(credFile, 'utf8'));
-    const token = raw?.claudeAiOauth?.accessToken;
+    let raw = JSON.parse(fs.readFileSync(credFile, 'utf8'));
+    let token = raw?.claudeAiOauth?.accessToken;
     if (!token) return { ...base, error: 'compte non connecté', available: false };
 
-    const res = await fetch('https://api.anthropic.com/api/oauth/usage', {
+    let res = await fetch('https://api.anthropic.com/api/oauth/usage', {
       headers: {
         authorization: `Bearer ${token}`,
         'anthropic-beta': CLAUDE_OAUTH_BETA,
@@ -362,6 +395,42 @@ async function fetchClaudeQuota(account: AccountRecord): Promise<AccountQuota> {
       },
       signal: AbortSignal.timeout(12000),
     });
+
+    if (res.status === 401) {
+      // Jeton expiré : on force le même renouvellement qu'un agent réel
+      // déclenche, puis on relit une seule fois avec le jeton frais.
+      const renouvele = await forcerRenouvellementJetonClaude(account.configDir);
+      if (renouvele) {
+        raw = JSON.parse(fs.readFileSync(credFile, 'utf8'));
+        token = raw?.claudeAiOauth?.accessToken;
+        res = await fetch('https://api.anthropic.com/api/oauth/usage', {
+          headers: {
+            authorization: `Bearer ${token}`,
+            'anthropic-beta': CLAUDE_OAUTH_BETA,
+            'content-type': 'application/json',
+          },
+          signal: AbortSignal.timeout(12000),
+        });
+      }
+      if (res.status === 401) {
+        const compte = (echecsRenouvellementJeton.get(account.id) ?? 0) + 1;
+        echecsRenouvellementJeton.set(account.id, compte);
+        if (compte === 3) {
+          log.error(`renouvellement du jeton Claude en échec ${compte} fois de suite sur ${account.label}`);
+          notify({
+            motif: 'jeton-claude-bloque',
+            title: 'Compte Claude bloqué',
+            body: `${account.label} : le jeton ne se renouvelle plus, reconnexion nécessaire.`,
+            reference: account.id,
+          });
+        }
+      } else {
+        echecsRenouvellementJeton.delete(account.id);
+      }
+    } else {
+      echecsRenouvellementJeton.delete(account.id);
+    }
+
     if (!res.ok) return { ...base, error: `lecture impossible (${res.status})` };
     const data: any = await res.json();
 

@@ -71,6 +71,7 @@ export type MotifNotification =
   | 'charge-machine'
   | 'amorcage-impossible'
   | 'compte-sature'
+  | 'jeton-claude-bloque'
   | 'fenetre-bientot-finie'
   | 'point-du-jour'
   | 'agent-interrompu'
@@ -150,6 +151,7 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
    * ne touche ni au texte ni à la couleur du message.
    */
   'compte-sature': { famille: 'quota', genre: 'erreur', sujet: 'compte-sature', icone: 'quota' },
+  'jeton-claude-bloque': { famille: 'quota', genre: 'erreur', sujet: 'jeton-bloque', icone: 'quota' },
   'amorcage-impossible': { famille: 'quota', genre: 'erreur', sujet: 'amorcage', icone: 'quota' },
   /*
    * Un agent coupé d'autorité (arrêt de secours) est un travail interrompu : la
