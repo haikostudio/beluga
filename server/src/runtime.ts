@@ -145,7 +145,7 @@ import {
   partsQuotaEnCache,
   relireQuotaDuCompte,
 } from './accounts.js';
-import { poserDecisionDeReprise, repriseDeCompte } from './reprise-compte.js';
+import { poserDecisionDeReprise, reprendreAutomatiquement, repriseDeCompte } from './reprise-compte.js';
 import { notify } from './notify.js';
 import {
   cartesDuTravailHorsTache,
@@ -2765,19 +2765,6 @@ async function startTurn(
     }
   }
 
-  /*
-   * LA DÉCISION EST POSÉE ICI, une fois la carte et la consommation à jour :
-   * elle allume le triangle orange et prévient, exactement comme une question.
-   * Un tour repris ne prévient donc JAMAIS d'un échec — ce n'en est pas un.
-   */
-  if (reprise) {
-    poserDecisionDeReprise({
-      messageId: runState.messageId,
-      agent: finalAgent,
-      reprise,
-    });
-  }
-
   if (failed && !reprise) {
     notify({
       motif: 'tache-echec',
@@ -2840,6 +2827,24 @@ async function startTurn(
 
   retirerLeTourVivant(agent.id);
   bus.emit({ type: 'capacity', capacity: (await import('./capacity.js')).snapshot() });
+
+  /*
+   * LA RELÈVE PART UNE FOIS LE TOUR SORTI DES VIVANTS. Avant cette ligne,
+   * `sendPrompt` mettrait la reprise dans la file ordinaire et y perdrait le
+   * compte imposé ainsi que son caractère silencieux. Avec un quota frais, le
+   * même agent repart automatiquement ; sinon la décision manuelle existante
+   * s'affiche et prévient comme avant.
+   */
+  if (reprise) {
+    const repartie = await reprendreAutomatiquement(runState.messageId);
+    if (!repartie) {
+      poserDecisionDeReprise({
+        messageId: runState.messageId,
+        agent: finalAgent,
+        reprise,
+      });
+    }
+  }
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
   enchainerLaFile(agent.id);

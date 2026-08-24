@@ -1142,8 +1142,8 @@ function markActive(list: AccountQuota[]): void {
     const candidates = list
       .filter((q) => q.engine === engine && !q.disabled)
       .sort((a, b) => a.priority - b.priority);
-    // « Celui qui sert » doit être celui que `pickAccount` retiendra vraiment,
-    // sinon l'écran désigne un compte et le travail part sur un autre.
+    // « Celui qui sert » doit être celui que `pickAccount` retiendra vraiment :
+    // Pro tant qu'il est ouvert, Max x20 en relève, puis les autres plans.
     const aPlace = candidates.filter((q) => q.available);
     const chosen =
       compteQuiRecoitLeTravail(
@@ -1162,8 +1162,9 @@ function markActive(list: AccountQuota[]): void {
 }
 
 /**
- * La décision se prend AU LANCEMENT d'un agent : compte prioritaire d'abord,
- * relève ensuite. Jamais de bascule en plein vol.
+ * La décision se prend AU LANCEMENT d'un agent : Pro d'abord, Max x20 en
+ * relève. Une limite en plein vol arrête forcément le processus du moteur ; la
+ * reprise automatique est alors menée par `server/src/reprise-compte.ts`.
  */
 export async function pickAccount(engine: EngineId): Promise<AccountRecord | null> {
   const accounts = listAccountRecords()
@@ -1174,11 +1175,10 @@ export async function pickAccount(engine: EngineId): Promise<AccountRecord | nul
   const quotas = await refreshQuotas(false);
 
   /*
-   * LE TRAVAIL PART OÙ IL Y A LE PLUS DE PLACE, pas au premier compte pas
-   * encore à 100 %. La règle est pure (`shared/src/choix-de-compte.ts`) : elle
-   * compare la taille du plan multipliée par ce qu'il reste de sa fenêtre —
-   * seule quantité comparable d'un plan à l'autre. Un compte sans quota lu du
-   * tout garde sa place : on ne l'écarte pas sur une lecture manquante.
+   * PRO D'ABORD, MAX X20 EN RELÈVE. La règle pure
+   * (`shared/src/choix-de-compte.ts`) garde la place restante pour départager
+   * deux comptes du même palier. Un compte sans quota lu du tout garde sa
+   * place : on ne l'écarte pas sur une lecture manquante.
    */
   const disponibles = accounts
     .map((account) => ({ account, quota: quotas.find((q) => q.id === account.id) }))

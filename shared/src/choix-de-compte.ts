@@ -1,5 +1,5 @@
 /**
- * QUEL COMPTE REÇOIT LE TRAVAIL — LA PLACE RESTANTE, PAS « PAS ENCORE À 100 % ».
+ * QUEL COMPTE REÇOIT LE TRAVAIL — PRO D'ABORD, MAX X20 EN RELÈVE.
  *
  * Le choix se faisait par PRIORITÉ, et le premier compte « disponible » était
  * retenu. Or « disponible » ne voulait dire qu'une chose : pas encore à 100 %.
@@ -12,10 +12,11 @@
  * c'est le SEUL qui atteignait 100 %. Le même tour y coûte 12,4 fois plus cher
  * que sur le Max x20, parce que sa fenêtre est bien plus petite.
  *
- * D'où la règle : on compare la place RÉELLEMENT restante — la taille du plan
- * multipliée par ce qu'il reste de sa fenêtre —, et le travail part là où il y
- * a le plus de place. Un pourcentage ne se compare pas d'un plan à l'autre :
- * 50 % d'un Pro et 50 % d'un Max x20 ne sont pas la même quantité de travail.
+ * La réserve Max x20 ne doit pourtant pas absorber tous les départs : le quota
+ * de cinq heures du compte Pro est payé lui aussi et doit servir en premier.
+ * La règle est donc explicite : Pro tant qu'il est ouvert, Max x20 ensuite.
+ * Entre deux comptes du même palier — ou pour les autres plans —, on compare la
+ * place RÉELLEMENT restante, puis la priorité réglée à la main.
  *
  * Règle PURE : ni disque, ni base, ni réseau. Elle décide d'un ORDRE, jamais
  * d'une dépense.
@@ -75,17 +76,43 @@ export function classerComptesParPlace<T extends CompteAClasser>(comptes: readon
   });
 }
 
+/** Le rang voulu par la répartition : Pro, puis Max x20, puis les autres. */
+function rangDuPlan(plan?: string): number {
+  if (!plan) return 2;
+  const propre = plan.toLowerCase();
+  if (/\bpro\b/.test(propre) && !/max/.test(propre)) return 0;
+  if (/max/.test(propre) && /20/.test(propre)) return 1;
+  return 2;
+}
+
+/**
+ * L'ordre réellement suivi par les départs. Le rang du plan porte la règle
+ * Pro → Max x20 ; la place restante évite seulement un mauvais choix entre
+ * deux comptes du même genre.
+ */
+export function classerComptesPourLeTravail<T extends CompteAClasser>(comptes: readonly T[]): T[] {
+  return [...comptes].sort((a, b) => {
+    const rang = rangDuPlan(a.plan) - rangDuPlan(b.plan);
+    if (rang) return rang;
+    const place = placeRestante(b) - placeRestante(a);
+    if (Math.abs(place) > 0.0001) return place;
+    return (a.priority ?? 100) - (b.priority ?? 100);
+  });
+}
+
 /**
  * Le compte qui doit recevoir le prochain tour, ou rien du tout. Un compte
  * COUPÉ à la main ne reçoit jamais rien ; un compte sans place non plus.
  */
 export function compteQuiRecoitLeTravail<T extends CompteAClasser>(comptes: readonly T[]): T | undefined {
   const ouverts = comptes.filter((compte) => !compte.disabled && placeRestante(compte) > 0);
-  return classerComptesParPlace(ouverts)[0];
+  return classerComptesPourLeTravail(ouverts)[0];
 }
 
 /** Ce qui s'écrit au journal quand le travail change de compte. */
 export function raisonDuChoix(compte: CompteAClasser): string {
   const reste = Math.round(placeRestante(compte) * 100) / 100;
-  return `${compte.plan ?? 'plan inconnu'} — ${reste} fenêtre(s) de place restante`;
+  const rang = rangDuPlan(compte.plan);
+  const role = rang === 0 ? 'Pro prioritaire' : rang === 1 ? 'Max x20 de relève' : compte.plan ?? 'plan inconnu';
+  return `${role} — ${reste} fenêtre(s) de place restante`;
 }
