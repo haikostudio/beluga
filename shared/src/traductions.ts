@@ -852,6 +852,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   ' · suivi par git': [' · tracked by git', ' · seguido por git', ' · von Git verfolgt', ' · 由 git 跟踪'],
   ' · vide': [' · empty', ' · vacío', ' · leer', ' · 空'],
   'Dossier vide': ['Empty folder', 'Carpeta vacía', 'Leerer Ordner', '空目录'],
+  'Modifié à l’instant': ['Just modified', 'Modificado ahora mismo', 'Gerade geändert', '刚刚修改'],
   'Déjà sur le serveur': ['Already on the server', 'Ya en el servidor', 'Bereits auf dem Server', '已在服务器上'],
   'Dossier de destination': ['Destination folder', 'Carpeta de destino', 'Zielordner', '目标目录'],
   'Dossier construit à transférer (facultatif)': ['Built folder to transfer (optional)', 'Carpeta compilada a transferir (opcional)', 'Zu übertragender Build-Ordner (optional)', '要传输的构建目录（可选）'],

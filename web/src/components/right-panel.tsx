@@ -118,9 +118,15 @@ function FilesTab({ projectId }: { projectId: string }) {
     return () => clearInterval(timer);
   }, [projectId, path]);
 
-  const visible = filter
-    ? nodes.filter((node) => node.name.toLowerCase().includes(filter.toLowerCase()))
-    : nodes;
+  const RECENT_MS = 5 * 60 * 1000;
+
+  const visible = (filter ? nodes.filter((node) => node.name.toLowerCase().includes(filter.toLowerCase())) : nodes)
+    .slice()
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1;
+      if (a.kind === 'file') return (b.mtime ?? 0) - (a.mtime ?? 0);
+      return a.name.localeCompare(b.name);
+    });
 
   const open = async (node: FileNode) => {
     if (node.kind === 'dir') {
@@ -181,7 +187,9 @@ function FilesTab({ projectId }: { projectId: string }) {
       </div>
 
       <ZoneDefilement className="px-1 py-1">
-        {visible.map((node) => (
+        {visible.map((node) => {
+          const recent = node.kind === 'file' && node.mtime !== undefined && Date.now() - node.mtime < RECENT_MS;
+          return (
           <div
             key={node.path}
             className="group flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-surface"
@@ -208,14 +216,22 @@ function FilesTab({ projectId }: { projectId: string }) {
               ) : (
                 <FileIcon className="h-3 w-3 shrink-0 text-faint" />
               )}
+              {recent ? (
+                <Tooltip label={t('Modifié à l’instant')}>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-info" />
+                </Tooltip>
+              ) : null}
               <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{node.name}</span>
               {node.kind === 'file' ? (
-                <span className="shrink-0 text-[11.5px] text-faint">{relativeTime(node.mtime)}</span>
+                <span className={cn('shrink-0 text-[11.5px] text-faint', recent && 'text-info')}>
+                  {relativeTime(node.mtime)}
+                </span>
               ) : null}
               {node.kind === 'file' ? <span className="text-[11.5px] text-faint">{bytes(node.size)}</span> : null}
             </button>
           </div>
-        ))}
+          );
+        })}
         {!visible.length ? <EmptyState title={t('Dossier vide')} /> : null}
       </ZoneDefilement>
 
