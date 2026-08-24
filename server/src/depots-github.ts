@@ -18,6 +18,7 @@ import {
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { EtapeCreation, etapeAdressePublique, registerProject } from './projects.js';
+import { assurerLaBrancheDeDeploiement } from './branche-de-deploiement.js';
 import * as store from './store.js';
 import { jetonGithub } from './github.js';
 
@@ -225,6 +226,16 @@ export async function monterDepuisGithub(
   noter('Dépôt récupéré sur le serveur', true, `${depot.slug} → ${cible}`);
 
   /*
+   * LA BRANCHE DE DÉPLOIEMENT, DÈS LA REPRISE. Un dépôt qui a déjà son « dev »
+   * n'est pas touché : on se contente de le RETENIR comme branche de
+   * déploiement. Un dépôt qui n'en a pas en reçoit une, posée sur sa branche
+   * principale et poussée. Dans les deux cas, la règle s'applique dès la
+   * première carte : chaque tâche sur sa branche, fusion sur « dev » au clic.
+   */
+  const dev = await assurerLaBrancheDeDeploiement(cible);
+  noter('Branche de déploiement « dev » en place', !!dev.branche, dev.detail);
+
+  /*
    * L'adresse publique, AVANT l'inscription : c'est elle que le projet garde et
    * que chaque déploiement contrôlera à la fin. Un échec n'arrête rien.
    */
@@ -238,6 +249,7 @@ export async function monterDepuisGithub(
     gitRemote: depot.url,
     devUrl: adresse.url,
     rank: 5,
+    branchesDePublication: dev.branche ? { dev: dev.branche } : undefined,
   });
   noter('Projet inscrit dans la colonne de gauche', true);
   return { project, etapes };

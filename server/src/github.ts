@@ -13,6 +13,7 @@ import * as store from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import { branchePrincipale } from './dossier-de-carte.js';
+import { brancheDeDeploiement } from './branche-de-deploiement.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -273,11 +274,18 @@ export async function refreshCard(cardId: string): Promise<GithubTracking | null
       tracking.fichiers = avecLesLignes(fichiersDepuisNameStatus(diff), lignesDepuisNumstat(numstat));
     }
 
+    /*
+     * « FUSIONNÉE » SE JUGE SUR LA BRANCHE DE DÉPLOIEMENT, PAS SEULEMENT SUR LA
+     * PRINCIPALE. Depuis que la fusion attend le clic « Tout déployer », une
+     * carte déployée voit sa branche entrer dans la branche de déploiement
+     * (« dev » le plus souvent) ; elle n'atteint la principale qu'à la mise en
+     * production. Regarder la seule principale aurait affiché « pas encore
+     * fusionnée » sur des cartes bel et bien déployées.
+     */
+    const deploiement = await brancheDeDeploiement(project.path, project.branchesDePublication);
     const contenue = await git(['branch', '--contains', branch, '--format=%(refname:short)'], project.path);
-    tracking.fusionnee = contenue
-      .split('\n')
-      .map((l) => l.trim())
-      .includes(principale);
+    const accueils = contenue.split('\n').map((l) => l.trim());
+    tracking.fusionnee = accueils.includes(principale) || accueils.includes(deploiement);
 
     const prJson = await gh(
       ['pr', 'view', branch, '--json', 'number,title,state,url,mergeable,reviewDecision,statusCheckRollup,comments,reviews'],

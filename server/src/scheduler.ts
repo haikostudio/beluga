@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   Agent,
+  BranchesDePublication,
   Card,
   EtapeDeReprise,
   Estimate,
@@ -359,9 +360,13 @@ export type Branche =
   | { kind: 'prete'; nom: string; dossier: string; base?: string }
   | { kind: 'echec'; raison: string };
 
-export async function prepareBranch(projectPath: string, card: Card): Promise<Branche> {
+export async function prepareBranch(
+  projectPath: string,
+  card: Card,
+  reglees?: BranchesDePublication,
+): Promise<Branche> {
   if (!(await estUnDepotGit(projectPath))) return { kind: 'echec', raison: RAISON_SANS_DEPOT };
-  const ouvert = await ouvrirDossierDeCarte(projectPath, card);
+  const ouvert = await ouvrirDossierDeCarte(projectPath, card, reglees);
   if (ouvert.kind === 'echec') return ouvert;
   return { kind: 'prete', nom: ouvert.branche, dossier: ouvert.dossier, base: ouvert.base };
 }
@@ -499,7 +504,7 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
    * principale, ou sur celle d'un autre. Un échec ici REFUSE le lancement et
    * s'écrit sur la carte, au lieu de laisser partir un agent sur « main ».
    */
-  const prepa = await prepareBranch(project.path, card);
+  const prepa = await prepareBranch(project.path, card, project.branchesDePublication);
   if (prepa.kind === 'echec') return refus(card, prepa.raison);
   const branch = prepa.nom;
 
@@ -559,7 +564,13 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
    */
   const dejaEnregistre =
     card.codeDejaEnregistre ||
-    (!!origine && (await travailDejaSurLaBranche(project.path, branch, prepa.dossier).catch(() => false)));
+    (!!origine &&
+      (await travailDejaSurLaBranche(
+        project.path,
+        branch,
+        prepa.dossier,
+        project.branchesDePublication,
+      ).catch(() => false)));
 
   const running = store.saveCard({
     ...card,
