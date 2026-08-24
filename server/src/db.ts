@@ -1007,6 +1007,27 @@ const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_memoire_economie_carte ON memoire_economie(card_id);
     `,
   },
+  {
+    id: 35,
+    name: 'index-signal-attention',
+    // LE SIGNAL D'ATTENTION NE RELIT PLUS TOUTE LA TABLE.
+    //
+    // `decisionsEnAttente()` et `pendingQuestions()` filtraient avec
+    // `data LIKE '%"questions":[{%'` : un LIKE ouvert par `%` ignore tout index
+    // et force SQLite à lire la colonne `data` de CHAQUE message. Mesuré sur
+    // 5 339 messages (90 Mo de `data`) : 105 à 124 ms par appel, pour 118 lignes
+    // retenues — et ce filtre est rejoué à chaque ouverture de canal.
+    //
+    // `a_questions` porte le même verdict qu'avant (`data` contient
+    // `"questions":[{`), posé une fois pour toutes par ce backfill puis tenu à
+    // jour par les écritures de `store.ts`. L'index partiel ne porte que sur
+    // les lignes à 1 : la table reste presque entièrement `a_questions = 0`.
+    sql: `
+      ALTER TABLE messages ADD COLUMN a_questions INTEGER NOT NULL DEFAULT 0;
+      UPDATE messages SET a_questions = 1 WHERE data LIKE '%"questions":[{%';
+      CREATE INDEX idx_messages_a_questions ON messages(a_questions) WHERE a_questions = 1;
+    `,
+  },
 ];
 
 export function openDb(): DB {

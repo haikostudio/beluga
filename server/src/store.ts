@@ -1193,7 +1193,7 @@ export function decisionsEnAttente(): DecisionAttendue[] {
        FROM messages m
        JOIN agents a ON a.id = m.agent_id
        LEFT JOIN cards c ON c.id = a.card_id
-       WHERE m.data LIKE '%"questions":[{%'`,
+       WHERE m.a_questions = 1`,
     )
     .all() as {
     projectId: string;
@@ -1565,7 +1565,7 @@ export function pendingQuestions(): { projectId: string; question: string }[] {
     .prepare(
       `SELECT a.project_id AS projectId, m.data AS data FROM messages m
        JOIN agents a ON a.id = m.agent_id
-       WHERE m.data LIKE '%"questions":[{%'
+       WHERE m.a_questions = 1
        ORDER BY m.created_at DESC LIMIT 200`,
     )
     .all() as { projectId: string; data: string }[];
@@ -1624,9 +1624,9 @@ export function saveMessage(message: Message): Message {
   const value = Message.parse(message);
   getDb()
     .prepare(
-      `INSERT INTO messages (id, agent_id, role, data, created_at)
-       VALUES (@id, @agentId, @role, @data, @createdAt)
-       ON CONFLICT(id) DO UPDATE SET data = excluded.data`,
+      `INSERT INTO messages (id, agent_id, role, data, created_at, a_questions)
+       VALUES (@id, @agentId, @role, @data, @createdAt, @aQuestions)
+       ON CONFLICT(id) DO UPDATE SET data = excluded.data, a_questions = excluded.a_questions`,
     )
     .run({
       id: value.id,
@@ -1634,6 +1634,7 @@ export function saveMessage(message: Message): Message {
       role: value.role,
       data: JSON.stringify(value),
       createdAt: value.createdAt,
+      aQuestions: value.questions.length > 0 ? 1 : 0,
     });
   return value;
 }
@@ -1690,7 +1691,9 @@ export function purgerContexteEnvoyeAncien(agentId: string): void {
       },
     };
     if (JSON.stringify(allege) === row.data) continue;
-    getDb().prepare('UPDATE messages SET data = ? WHERE id = ?').run(JSON.stringify(allege), row.id);
+    getDb()
+      .prepare('UPDATE messages SET data = ?, a_questions = ? WHERE id = ?')
+      .run(JSON.stringify(allege), allege.questions.length > 0 ? 1 : 0, row.id);
   }
 }
 
@@ -1890,7 +1893,11 @@ export function mergePendingProposals(items: ReferenceProposition[]): ResultatFu
       const propositions = message.proposals.map((courante) => sources.get(courante.id) ?? courante);
       if (messageId === messageCible) propositions.push(proposal);
       const miseAJour = Message.parse({ ...message, proposals: propositions });
-      db.prepare('UPDATE messages SET data = ? WHERE id = ?').run(JSON.stringify(miseAJour), messageId);
+      db.prepare('UPDATE messages SET data = ?, a_questions = ? WHERE id = ?').run(
+        JSON.stringify(miseAJour),
+        miseAJour.questions.length > 0 ? 1 : 0,
+        messageId,
+      );
       return miseAJour;
     });
 
