@@ -82,7 +82,7 @@ if (!projet.archived) {
 }
 
 /* Ce qui part avec le projet, table par table. `store.deleteProject` en oublie
- * plusieurs (propositions, consommation, dictées, mémoire du projet, secrets,
+ * plusieurs (propositions, consommation, dictées, économie de mémoire, secrets,
  * étiquettes et pièces jointes de cartes) : elles laissaient des orphelins. */
 const agents = db.prepare('SELECT id FROM agents WHERE project_id = ?').all(ID).map((r) => r.id);
 const cartes = db.prepare('SELECT id FROM cards WHERE project_id = ?').all(ID).map((r) => r.id);
@@ -100,9 +100,8 @@ const inventaire = [
   ['propositions', compte('SELECT count(*) c FROM proposals WHERE project_id = ?')],
   ['consommation', compte('SELECT count(*) c FROM usage WHERE project_id = ?')],
   ['dictées', compte('SELECT count(*) c FROM dictees WHERE project_id = ?')],
-  ['fichiers de mémoire', compte('SELECT count(*) c FROM doc_fichiers WHERE project_id = ?')],
-  ['passages de mémoire', compte('SELECT count(*) c FROM doc_passages WHERE project_id = ?')],
   ['identifiants', compte('SELECT count(*) c FROM secrets WHERE project_id = ?')],
+  ['économie de mémoire', compte('SELECT count(*) c FROM memoire_economie WHERE project_id = ?')],
   ['étiquettes de cartes', cartes.length ? compte(`SELECT count(*) c FROM card_labels WHERE card_id IN (${listeIn(cartes.length)})`, cartes) : 0],
   ['pièces jointes de cartes', cartes.length ? compte(`SELECT count(*) c FROM card_attachments WHERE card_id IN (${listeIn(cartes.length)})`, cartes) : 0],
 ];
@@ -130,7 +129,7 @@ db.transaction(() => {
     db.prepare(`DELETE FROM card_labels WHERE card_id IN (${listeIn(cartes.length)})`).run(...cartes);
     db.prepare(`DELETE FROM card_attachments WHERE card_id IN (${listeIn(cartes.length)})`).run(...cartes);
   }
-  for (const table of ['agents', 'cards', 'attachments', 'deploys', 'proposals', 'usage', 'dictees', 'doc_passages', 'doc_fichiers', 'secrets']) {
+  for (const table of ['agents', 'cards', 'attachments', 'deploys', 'proposals', 'usage', 'dictees', 'secrets', 'memoire_economie']) {
     db.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(ID);
   }
   db.prepare('DELETE FROM projects WHERE id = ?').run(ID);
