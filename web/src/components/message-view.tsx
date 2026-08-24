@@ -1341,7 +1341,9 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
         <p className="flex min-w-0 items-start gap-1.5 text-[13.5px] text-muted">
           <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
           <span className="min-w-0">
-            {t('Le compte « {v0} » avait atteint sa limite : le travail a repris sur « {v1} ».', { v0: reprise.compteEpuiseLabel, v1: reprise.choisiLabel ?? reprise.choisi })}</span>
+            {reprise.automatique
+              ? t('Le compte « {v0} » avait atteint sa limite : HaikoDev a poursuivi automatiquement sur « {v1} ».', { v0: reprise.compteEpuiseLabel, v1: reprise.choisiLabel ?? reprise.choisi })
+              : t('Le compte « {v0} » avait atteint sa limite : le travail a repris sur « {v1} ».', { v0: reprise.compteEpuiseLabel, v1: reprise.choisiLabel ?? reprise.choisi })}</span>
         </p>
       </div>
     );

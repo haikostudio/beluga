@@ -275,6 +275,21 @@ async function main() {
     noter('une fois repris, le bloc dit sur quel compte', /repris sur/.test(await repris.textContent()));
     noter('plus aucun bouton de reprise', (await page.locator('[data-compte-reprise]:visible').count()) === 0);
 
+    /* 7. Relève automatique : le fil dit clairement qui a pris la suite. */
+    await page.evaluate(
+      ([id, r]) =>
+        window.__poserReprise(id, {
+          ...r,
+          choisi: 'essai-compte-2',
+          choisiLabel: 'Essai — relève',
+          choisiA: Date.now(),
+          automatique: true,
+        }),
+      [chefId, reprise],
+    );
+    await page.waitForTimeout(400);
+    noter('la relève automatique est dite dans le fil', /automatiquement/.test((await repris.textContent()) ?? ''));
+
     noter('aucune erreur de page', erreurs.length === 0, erreurs.slice(0, 2).join(' | '));
   } finally {
     await navigateur.close();

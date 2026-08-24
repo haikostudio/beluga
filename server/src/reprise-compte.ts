@@ -5,6 +5,7 @@ import {
   MotifDArretQuota,
   RepriseDeCompte,
   choixPossible,
+  compteDeRepriseAutomatique,
   comptesDeReprise,
   demandeDeReprise,
   jugerRepriseSurCompte,
@@ -54,12 +55,18 @@ function prochaineRemiseAZero(session?: number, weekly?: number): number | undef
  */
 export function comptesConnus(): CompteConnu[] {
   const coupes = new Set(listAllAccountRecords().filter((a) => a.disabled).map((a) => a.id));
+  const comptes = new Map(listAllAccountRecords().map((compte) => [compte.id, compte]));
   return cachedQuotas().map((quota) => ({
     id: quota.id,
     label: quota.label,
     engine: quota.engine,
     disponible: quota.available !== false && !quota.disabled,
+    releveFiable: !quota.error,
     coupe: quota.disabled || coupes.has(quota.id),
+    plan: quota.plan ?? comptes.get(quota.id)?.plan,
+    priority: comptes.get(quota.id)?.priority ?? quota.priority,
+    sessionPct: quota.session?.usedPct,
+    weeklyPct: quota.weekly?.usedPct,
     consommePct: consomme(quota.session?.usedPct, quota.weekly?.usedPct),
     resetsAt: prochaineRemiseAZero(quota.session?.resetsAt, quota.weekly?.resetsAt),
   }));
@@ -148,7 +155,11 @@ export interface ResultatDeReprise {
  * refus rafraîchit les quotas diffusés, donc les choix affichés, et ne lance
  * rien.
  */
-export async function reprendreSurCompte(messageId: string, accountId: string): Promise<ResultatDeReprise> {
+export async function reprendreSurCompte(
+  messageId: string,
+  accountId: string,
+  options: { automatique?: boolean } = {},
+): Promise<ResultatDeReprise> {
   const message = store.getMessage(messageId);
   if (!message) throw new Error('message introuvable');
   const reprise = message.repriseCompte;
@@ -177,7 +188,13 @@ export async function reprendreSurCompte(messageId: string, accountId: string): 
   const choisi = compte!;
   const retenue = store.saveMessage({
     ...message,
-    repriseCompte: { ...reprise, choisi: choisi.id, choisiLabel: choisi.label, choisiA: Date.now() },
+    repriseCompte: {
+      ...reprise,
+      choisi: choisi.id,
+      choisiLabel: choisi.label,
+      choisiA: Date.now(),
+      automatique: options.automatique || undefined,
+    },
   });
   bus.emit({ type: 'message.upsert', message: retenue });
   bus.emit({ type: 'attention', ...store.signalAttention() });
@@ -196,6 +213,28 @@ export async function reprendreSurCompte(messageId: string, accountId: string): 
   }).catch((err) => log.error('reprise sur un autre compte impossible', err));
 
   return { ok: true };
+}
+
+/**
+ * Après une limite, chercher une relève sur un relevé frais et repartir sans
+ * clic. Faux signifie que le bloc de choix manuel doit rester ouvert.
+ */
+export async function reprendreAutomatiquement(messageId: string): Promise<boolean> {
+  const message = store.getMessage(messageId);
+  const reprise = message?.repriseCompte;
+  if (!reprise || reprise.choisi || reprise.abandonnee) return false;
+
+  const quotas = await refreshQuotas(true).catch(() => null);
+  if (!quotas) return false;
+  bus.emit({ type: 'quotas', quotas });
+  const compte = compteDeRepriseAutomatique(reprise.engine, reprise.compteEpuise, comptesConnus());
+  if (!compte) return false;
+
+  const resultat = await reprendreSurCompte(messageId, compte.id, { automatique: true });
+  if (!resultat.ok) {
+    log.warn(`relève automatique refusée pour le compte ${compte.label} : ${resultat.error}`);
+  }
+  return resultat.ok;
 }
 
 /* ------------------------------------------------------------------ */

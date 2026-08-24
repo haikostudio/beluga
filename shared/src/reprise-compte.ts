@@ -1,3 +1,5 @@
+import { CompteAClasser, compteQuiRecoitLeTravail } from './choix-de-compte.js';
+
 /**
  * « Le compte est à sec au milieu du travail : sur lequel poursuivre ? »
  *
@@ -14,8 +16,8 @@
  *   3. le compte cliqué est-il encore valable au moment du clic
  *      (`jugerRepriseSurCompte`).
  *
- * On ne choisit JAMAIS à la place de l'utilisateur : ces règles préparent le
- * choix, elles ne le prennent pas.
+ * Quand une relève sûre existe, le système la prend automatiquement. Le choix
+ * manuel reste le filet du cas où aucun relevé ne permet de repartir.
  */
 
 /* ------------------------------------------------------------------ */
@@ -141,18 +143,42 @@ export function arretDuAuQuota(arret: ArretAJuger): boolean {
 /* ------------------------------------------------------------------ */
 
 /** Un compte tel que le relevé de quota le connaît. */
-export interface CompteConnu {
+export interface CompteConnu extends CompteAClasser {
   id: string;
   label: string;
   engine: string;
   /** Le fournisseur annonce-t-il encore du quota ? */
   disponible: boolean;
+  /** Le dernier relevé a-t-il réellement abouti ? Obligatoire pour l'automatique. */
+  releveFiable?: boolean;
   /** Compte coupé à la main : il ne sert plus, même s'il a du quota. */
   coupe?: boolean;
   /** Le pire des deux pourcentages consommés : sert à classer les candidats. */
   consommePct?: number;
   /** La remise à zéro la plus proche : ce qui permet de dire quand il reviendra. */
   resetsAt?: number;
+}
+
+/**
+ * Le compte de relève automatique, selon la même règle que le prochain départ.
+ * Il faut un relevé qui le dise disponible : une absence de mesure ne suffit
+ * jamais à relancer automatiquement un travail déjà coupé.
+ */
+export function compteDeRepriseAutomatique(
+  engine: string,
+  compteEpuise: string,
+  comptes: readonly CompteConnu[],
+): CompteConnu | undefined {
+  return compteQuiRecoitLeTravail(
+    comptes.filter(
+      (compte) =>
+        compte.engine === engine &&
+        compte.id !== compteEpuise &&
+        !compte.coupe &&
+        compte.disponible &&
+        compte.releveFiable === true,
+    ),
+  );
 }
 
 /** Un compte proposé dans le composant « Avec quel compte poursuivre ? ». */
