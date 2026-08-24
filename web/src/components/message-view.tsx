@@ -269,6 +269,8 @@ export function MessageView({
 
         {message.repriseCompte ? <RepriseDeCompteCard message={message} /> : null}
 
+        {message.erreurDeTour ? <ErreurDeTourCard message={message} /> : null}
+
         {/* La question écrite en TOUTES LETTRES, pas par l'outil : elle n'avait
             aucune trace dans la bulle, et sa seule sortie vivait dans une bande
             posée au-dessus du champ d'écriture. Toute bulle qui attend un geste
@@ -1474,6 +1476,90 @@ function RepriseDeCompteCard({ message }: { message: Message }) {
         >
           <X className="h-3 w-3" />
           {t('Annuler')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * « UNE ERREUR A ARRÊTÉ LE TRAVAIL » — ni une panne passagère (elle s'est déjà
+ * retentée toute seule), ni une limite de compte (sa propre bulle jaune) :
+ * une erreur qui a coupé le tour net et qui reste sans réponse tant que
+ * personne n'a choisi. Trois issues, jamais de choix par défaut : relancer le
+ * même agent, ignorer (le travail déjà fait suffit), ou arrêter (la carte
+ * revient en « Planifié »).
+ */
+function ErreurDeTourCard({ message }: { message: Message }) {
+  const [busy, setBusy] = React.useState<'relancer' | 'ignorer' | 'arreter' | null>(null);
+  const erreur = message.erreurDeTour!;
+
+  if (erreur.choix) {
+    const libelle =
+      erreur.choix === 'relancer'
+        ? t('Le travail a été relancé.')
+        : erreur.choix === 'ignorer'
+          ? t('L’erreur a été ignorée : la carte est rangée telle quelle.')
+          : t('Le travail a été arrêté : la carte est revenue en « Planifié ».');
+    return (
+      <div className="mt-2 rounded-md border border-border bg-surface/60 px-2.5 py-2" data-erreur-de-tour="decidee">
+        <p className="flex min-w-0 items-start gap-1.5 text-[13.5px] text-muted">
+          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+          <span className="min-w-0">{libelle}</span>
+        </p>
+      </div>
+    );
+  }
+
+  const repondre = async (choix: 'relancer' | 'ignorer' | 'arreter') => {
+    setBusy(choix);
+    try {
+      await client.call({ type: 'erreur.repondre', messageId: message.id, choix });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? 'réponse impossible');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-2 rounded-md border border-danger/40 bg-danger/5 px-2.5 py-2" data-erreur-de-tour="attente">
+      <p className="flex items-start gap-1.5 text-[14px] font-medium text-text">
+        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" />
+        {t('Une erreur a arrêté le travail')}
+      </p>
+      <p className="mt-1 text-[13px] leading-relaxed text-muted">{erreur.cause}</p>
+
+      <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => void repondre('arreter')}
+          data-erreur-arreter
+        >
+          {busy === 'arreter' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-3 w-3" />}
+          {t('Arrêter')}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => void repondre('ignorer')}
+          data-erreur-ignorer
+        >
+          {busy === 'ignorer' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+          {t('Ignorer')}
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          disabled={busy !== null}
+          onClick={() => void repondre('relancer')}
+          data-erreur-relancer
+        >
+          {busy === 'relancer' ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+          {t('Relancer')}
         </Button>
       </div>
     </div>

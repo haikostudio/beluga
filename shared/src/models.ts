@@ -830,6 +830,22 @@ export const RepriseDeCompte = z.object({
 });
 export type RepriseDeCompte = z.infer<typeof RepriseDeCompte>;
 
+/**
+ * UN TOUR COUPÉ NET PAR UNE ERREUR — ni une panne passagère du fournisseur
+ * (elle se retente toute seule), ni une limite de compte (sa propre route).
+ * Le message porte cette décision : relancer le même agent, ignorer l'échec
+ * et ranger la carte telle quelle, ou l'arrêter et la remettre en file.
+ */
+export const ErreurDeTour = z.object({
+  /** La cause telle qu'elle a été vue — dernière ligne du moteur, ou du protocole. */
+  cause: z.string(),
+  at: z.number(),
+  /** Posé une fois, il ferme la décision pour de bon. */
+  choix: z.enum(['relancer', 'ignorer', 'arreter']).optional(),
+  choisiA: z.number().optional(),
+});
+export type ErreurDeTour = z.infer<typeof ErreurDeTour>;
+
 export const DownloadOffer = z.object({
   id: z.string(),
   label: z.string(),
@@ -1012,6 +1028,8 @@ export const Message = z.object({
   questions: z.array(AgentQuestion).default([]),
   /** Ce tour a été coupé par la limite d'un compte : sur lequel poursuivre ? */
   repriseCompte: RepriseDeCompte.optional(),
+  /** Ce tour a été coupé net par une erreur : relancer, ignorer, ou arrêter ? */
+  erreurDeTour: ErreurDeTour.optional(),
   /**
    * Ce message finit sur une question écrite en TEXTE ORDINAIRE (pas par
    * l'outil `ask_user`) et le bouton « Annuler » du repère l'a fermée : elle ne

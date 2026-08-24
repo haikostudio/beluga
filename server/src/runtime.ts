@@ -44,6 +44,7 @@ import {
   libelleDeLEtape,
   libelleDeLaReprise,
   messageDePanneDefinitive,
+  erreurDeTourAPoser,
   MotifDeContinuite,
   filARappeler,
   messagesDepuis,
@@ -146,6 +147,7 @@ import {
   relireQuotaDuCompte,
 } from './accounts.js';
 import { poserDecisionDeReprise, reprendreAutomatiquement, repriseDeCompte } from './reprise-compte.js';
+import { poserDecisionErreurDeTour } from './erreur-de-tour.js';
 import { notify } from './notify.js';
 import {
   cartesDuTravailHorsTache,
@@ -2460,6 +2462,20 @@ async function startTurn(
   // le libellé posé sur l'agent : sinon le tableau garde à vie l'étape d'un
   // tour pourtant terminé.
   poserLetapeDesSteps(agent.id, stepsRefermees);
+  /*
+   * L'ÉCHEC ORDINAIRE — ni une reprise de quota, ni une panne passagère du
+   * fournisseur, ni un moteur jamais joint — mérite lui aussi une décision,
+   * pas seulement un bandeau rouge qu'on peut ne jamais rouvrir
+   * (`shared/src/erreur-de-tour.ts`). Relancer, ignorer ou arrêter : trois
+   * boutons posés sur ce message, et le triangle orange qui va avec.
+   */
+  const causeErreurDeTour = sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin.";
+  const erreurAPoser = erreurDeTourAPoser({
+    failed,
+    reprise: Boolean(reprise),
+    panneDefinitive: Boolean(panneDefinitive),
+    moteurMuet,
+  });
   pushMessage(runState, {
     content: finalText || (failed ? '' : 'Terminé.'),
     steps: stepsRefermees,
@@ -2477,9 +2493,10 @@ async function startTurn(
       : panneDefinitive
         ? messageDePanneDefinitive(panneDefinitive, relance.essais)
         : failed
-          ? sawError ?? result.error ?? "Le moteur s'est arrêté avant la fin."
+          ? causeErreurDeTour
           : undefined,
     repriseCompte: reprise,
+    erreurDeTour: erreurAPoser ? { cause: causeErreurDeTour, at: Date.now() } : undefined,
     /*
      * C'EST ICI, ET NULLE PART AVANT, QUE LE MESSAGE DEVIENT UN PLAN. Le
      * drapeau était posé au LANCEMENT du tour, avant de savoir ce qui serait
@@ -2844,6 +2861,14 @@ async function startTurn(
         reprise,
       });
     }
+  }
+
+  if (erreurAPoser) {
+    poserDecisionErreurDeTour({
+      messageId: runState.messageId,
+      agent: finalAgent,
+      cause: causeErreurDeTour,
+    });
   }
 
   // Dès que l'agent se tait, il regarde sa file et enchaîne tout seul.
