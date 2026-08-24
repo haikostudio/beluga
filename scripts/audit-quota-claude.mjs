@@ -136,6 +136,46 @@ tableau(
 rapport.parRole = parRole;
 
 /* ------------------------------------------------------------------ */
+/* 1 bis. LES CARTES LES PLUS GOURMANDES                               */
+/* ------------------------------------------------------------------ */
+
+/*
+ * « Qui consomme » par rôle ne dit pas QUELLE carte a coûté cher. Ici, une ligne
+ * par carte, avec le compte et le modèle qui ont servi : c'est ce croisement qui
+ * explique un pic — presque toujours un gros modèle sur un petit compte. Les
+ * tours SANS carte (chef d'orchestre, publication d'un projet) sont regroupés
+ * sous « (sans carte) » plutôt que jetés : ils font partie du total.
+ */
+const parCarte = db
+  .prepare(
+    `SELECT COALESCE(ca.title,'(sans carte)') titre,
+            COALESCE(u.project_name,'?') projet,
+            COUNT(*) tours,
+            SUM(u.quota_5h) pct5h,
+            SUM(u.cached_tokens) cache,
+            GROUP_CONCAT(DISTINCT u.account) comptes,
+            GROUP_CONCAT(DISTINCT u.model) modeles
+       FROM usage u LEFT JOIN cards ca ON ca.id = u.card_id
+      WHERE u.engine='claude' AND u.created_at > ?
+      GROUP BY u.card_id ORDER BY pct5h DESC LIMIT 15`,
+  )
+  .all(DEPUIS);
+const court = (t, n) => (String(t ?? '').length > n ? String(t).slice(0, n - 1) + '…' : String(t ?? ''));
+
+titre(`1 bis. LES CARTES LES PLUS GOURMANDES — ${JOURS} derniers jours`);
+tableau(parCarte, [
+  { titre: 'carte', valeur: (l) => court(l.titre, 44) },
+  { titre: 'projet', valeur: (l) => court(l.projet, 14) },
+  { titre: 'tours', valeur: (l) => l.tours },
+  { titre: 'points 5h', valeur: (l) => nombre(l.pct5h, 1) },
+  { titre: 'part', valeur: (l) => nombre((100 * (l.pct5h ?? 0)) / (totalPct || 1), 1) + ' %' },
+  { titre: 'Mj relus', valeur: (l) => nombre((l.cache ?? 0) / 1e6, 1) },
+  { titre: 'compte(s)', valeur: (l) => (l.comptes ?? '').replace(/claude-/g, '') },
+  { titre: 'modèle(s)', valeur: (l) => (l.modeles ?? '').replace(/claude-/g, '') },
+]);
+rapport.parCarte = parCarte;
+
+/* ------------------------------------------------------------------ */
 /* 2. Sur quel COMPTE — le plan décide du prix, pas le travail         */
 /* ------------------------------------------------------------------ */
 
@@ -185,6 +225,74 @@ tableau(
   ],
 );
 rapport.parCompte = parCompte;
+
+/* ------------------------------------------------------------------ */
+/* 2 bis. LA TRAJECTOIRE HEBDOMADAIRE — la limite qui fait basculer    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * La fenêtre de cinq heures se voit ; la fenêtre de SEPT JOURS, non. Or c'est
+ * elle qui décide du basculement : quand la semaine du grand compte touche
+ * 100 %, tout le travail part sur le petit, où le même tour pèse dix fois plus.
+ * Le relevé lit donc les deux séries, jour par jour, sur les vrais échantillons.
+ */
+const trajectoire = db
+  .prepare(
+    `SELECT account compte, date(at/1000,'unixepoch') jour,
+            MAX(session_pct) session_max, ROUND(AVG(session_pct)) session_moy,
+            MIN(weekly_pct) semaine_debut, MAX(weekly_pct) semaine_fin,
+            COUNT(*) releves
+       FROM quota_samples
+      WHERE account LIKE 'claude%' AND at > ?
+      GROUP BY compte, jour ORDER BY jour, compte`,
+  )
+  .all(Date.now() - Math.max(JOURS, 10) * 86400 * 1000);
+
+titre('2 bis. LA TRAJECTOIRE HEBDOMADAIRE — la limite qui fait basculer');
+tableau(trajectoire, [
+  { titre: 'jour', valeur: (l) => l.jour },
+  { titre: 'compte', valeur: (l) => l.compte.replace(/^claude-/, '') },
+  { titre: '5 h max', valeur: (l) => nombre(l.session_max) + ' %' },
+  { titre: '5 h moy', valeur: (l) => nombre(l.session_moy) + ' %' },
+  { titre: 'semaine', valeur: (l) => `${nombre(l.semaine_debut)} → ${nombre(l.semaine_fin)} %` },
+  { titre: 'relevés', valeur: (l) => l.releves },
+]);
+rapport.trajectoire = trajectoire;
+
+/* ------------------------------------------------------------------ */
+/* 2 ter. LE RENDEMENT — ce qu'un point de fenêtre achète              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Additionner des points de fenêtre Pro et des points de fenêtre Max x20 est
+ * TROMPEUR : les deux fenêtres n'ont pas la même taille. Un pic de « points »
+ * peut donc arriver alors que le VOLUME de travail s'écroule. La seule mesure
+ * honnête est le rendement : combien de millions de jetons un point de fenêtre
+ * a payé ce jour-là. Il s'effondre dès que le travail part sur le petit compte.
+ */
+const rendement = db
+  .prepare(
+    `SELECT date(u.created_at/1000,'unixepoch') jour,
+            COUNT(*) tours,
+            SUM(u.quota_5h) pct5h,
+            SUM(u.cached_tokens) cache,
+            SUM(u.input_tokens) frais,
+            SUM(u.output_tokens) sortie
+       FROM usage u WHERE u.engine='claude' AND u.created_at > ?
+      GROUP BY jour ORDER BY jour`,
+  )
+  .all(Date.now() - Math.max(JOURS, 10) * 86400 * 1000);
+
+titre('2 ter. LE RENDEMENT — ce qu\'un point de fenêtre achète');
+tableau(rendement, [
+  { titre: 'jour', valeur: (l) => l.jour },
+  { titre: 'tours', valeur: (l) => l.tours },
+  { titre: 'Mj relus', valeur: (l) => nombre((l.cache ?? 0) / 1e6, 1) },
+  { titre: 'Mj frais', valeur: (l) => nombre((l.frais ?? 0) / 1e6, 2) },
+  { titre: 'points 5h', valeur: (l) => nombre(l.pct5h, 1) },
+  { titre: 'Mj par point', valeur: (l) => nombre((l.cache ?? 0) / 1e6 / (l.pct5h || 1), 2) },
+]);
+rapport.rendement = rendement;
 
 /* ------------------------------------------------------------------ */
 /* 3. Le MULTIPLICATEUR — combien d'allers-retours par tour            */
@@ -352,6 +460,51 @@ tableau(
   ],
 );
 rapport.contextes = contextes;
+
+/* ------------------------------------------------------------------ */
+/* 5 bis. LA COMPRESSION QUI ÉCHOUE — un appel plein tarif pour rien   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Compresser commence par un `/compact` NATIF : un appel au moteur qui relit
+ * tout le contexte de l'agent. S'il ne rend pas la main dans son plafond, il est
+ * coupé — et le repli « résumé » paie un SECOND appel. Deux appels au lieu d'un,
+ * dont un pour rien. La méthode réellement retenue est donc à surveiller : si le
+ * « résumé » domine, le natif est payé sans jamais servir.
+ */
+const methodes = new Map();
+for (const ligne of db.prepare(`SELECT data FROM agents`).all()) {
+  let ctx;
+  try {
+    ctx = JSON.parse(ligne.data)?.context;
+  } catch {
+    continue;
+  }
+  if (!ctx?.lastCompressionMethod) continue;
+  if ((ctx.lastCompressionAt ?? 0) <= DEPUIS) continue;
+  const vu = methodes.get(ctx.lastCompressionMethod) ?? { methode: ctx.lastCompressionMethod, agents: 0 };
+  vu.agents += 1;
+  methodes.set(ctx.lastCompressionMethod, vu);
+}
+const totalMethodes = [...methodes.values()].reduce((s, m) => s + m.agents, 0);
+
+titre('5 bis. LA COMPRESSION QUI ÉCHOUE — méthode réellement retenue');
+tableau(
+  [...methodes.values()].sort((a, b) => b.agents - a.agents),
+  [
+    { titre: 'méthode', valeur: (l) => (l.methode === 'native' ? 'native (un seul appel)' : 'résumé (deux appels)') },
+    { titre: 'agents', valeur: (l) => l.agents },
+    { titre: 'part', valeur: (l) => nombre((100 * l.agents) / (totalMethodes || 1), 1) + ' %' },
+  ],
+);
+const echecsNatifs = (() => {
+  const journal = path.join(DONNEES_REELLES, 'logs', 'service.log');
+  if (!fs.existsSync(journal)) return null;
+  const texte = fs.readFileSync(journal, 'utf8');
+  return (texte.match(/compression native impossible/g) ?? []).length;
+})();
+console.log(`  Refus de compression native au journal du service (tout le journal) : ${echecsNatifs ?? '—'}`);
+rapport.compression = { methodes: [...methodes.values()], echecsNatifs };
 
 /* ------------------------------------------------------------------ */
 /* 6. CE QUI A CHANGÉ — la consommation par tour, jour après jour      */
