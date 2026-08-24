@@ -267,7 +267,6 @@ export async function createProjectFolder(input: {
     }
   }
 
-
   /*
    * Le dépôt distant. Une adresse fournie à la main gagne toujours : on la pose
    * telle quelle. Sinon on demande à GitHub d'en fabriquer un, par l'outil en
