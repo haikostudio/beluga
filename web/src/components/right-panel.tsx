@@ -209,6 +209,9 @@ function FilesTab({ projectId }: { projectId: string }) {
                 <FileIcon className="h-3 w-3 shrink-0 text-faint" />
               )}
               <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{node.name}</span>
+              {node.kind === 'file' ? (
+                <span className="shrink-0 text-[11.5px] text-faint">{relativeTime(node.mtime)}</span>
+              ) : null}
               {node.kind === 'file' ? <span className="text-[11.5px] text-faint">{bytes(node.size)}</span> : null}
             </button>
           </div>
