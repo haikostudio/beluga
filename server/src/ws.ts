@@ -62,6 +62,7 @@ import { changerLEtat, etatDuPoolPourLEcran, relierCompetencesAuxCoffres } from 
 import { capitaliserMaintenant, jugementDeLaCarte } from './capitalisation.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
+import { repondreErreurDeTour } from './erreur-de-tour.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, arreterLAgent, stopAllAgents, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
@@ -1213,6 +1214,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
+      return { ok: true };
+    }
+
+    /*
+     * TRANCHER UNE ERREUR QUI A ARRÊTÉ LE TRAVAIL. Tout se joue dans
+     * `repondreErreurDeTour` : relancer le même agent, ranger la carte en
+     * « Terminé » (ignorer), ou la remettre en « Planifié » (arrêter).
+     */
+    case 'erreur.repondre': {
+      const resultat = await repondreErreurDeTour(cmd.messageId, cmd.choix);
+      if (!resultat.ok) throw new Error(resultat.error ?? 'réponse impossible');
       return { ok: true };
     }
 

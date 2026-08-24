@@ -312,6 +312,17 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('reprise.abandon'),
     messageId: z.string(),
   }),
+  /**
+   * TRANCHER UNE ERREUR QUI A ARRÊTÉ LE TRAVAIL : relancer le même agent
+   * (reprend là où il s'était arrêté), ignorer (le travail déjà fait suffit,
+   * la carte se range en « Terminé »), ou arrêter (la carte revient en
+   * « Planifié », comme un arrêt à la main).
+   */
+  z.object({
+    type: z.literal('erreur.repondre'),
+    messageId: z.string(),
+    choix: z.enum(['relancer', 'ignorer', 'arreter']),
+  }),
   z.object({
     type: z.literal('proposal.decide'),
     messageId: z.string(),

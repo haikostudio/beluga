@@ -1112,6 +1112,64 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
   return attentes;
 }
 
+/** Un tour coupé net par une erreur, qui attend encore un choix. */
+export interface ErreurDeTourEnAttente {
+  projectId: string;
+  agentId: string;
+  cardId?: string;
+  messageId: string;
+  cause: string;
+  poseeA: number;
+}
+
+/**
+ * LES ERREURS DE TOUR QUI ATTENDENT ENCORE UN CHOIX — même garde-fou que les
+ * reprises de compte : un choix déjà fait, ou une carte déjà rangée, ferme la
+ * décision pour de bon.
+ */
+export function erreursDeTourEnAttente(): ErreurDeTourEnAttente[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
+              m.id AS messageId, m.data AS data, m.created_at AS createdAt,
+              c.column_key AS colonne
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       LEFT JOIN cards c ON c.id = a.card_id
+       WHERE m.data LIKE '%"erreurDeTour":{%'`,
+    )
+    .all() as {
+    projectId: string;
+    agentId: string;
+    cardId: string | null;
+    messageId: string;
+    data: string;
+    createdAt: number;
+    colonne: string | null;
+  }[];
+
+  const attentes: ErreurDeTourEnAttente[] = [];
+  for (const row of rows) {
+    if (colonneFermeLesQuestions(row.colonne ?? undefined)) continue;
+    try {
+      const message = Message.parse(JSON.parse(row.data));
+      const erreur = message.erreurDeTour;
+      if (!erreur || erreur.choix) continue;
+      attentes.push({
+        projectId: row.projectId,
+        agentId: row.agentId,
+        cardId: row.cardId ?? undefined,
+        messageId: row.messageId,
+        cause: erreur.cause,
+        poseeA: row.createdAt,
+      });
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+  return attentes;
+}
+
 /**
  * Le nom du projet et le titre de l'endroit (carte ou conversation), pour
  * l'affichage d'une décision — jamais pour trancher où elle se prend, ce que
@@ -1181,6 +1239,24 @@ export function decisionsEnAttente(): DecisionAttendue[] {
       reglee: false,
       poseeA: attente.poseeA,
       texte: `Le compte « ${attente.compteEpuiseLabel} » a atteint sa limite : avec quel compte poursuivre ?`,
+      projectName: enrichir.nomProjet(attente.projectId),
+      lieuTitre: enrichir.lieuTitre(attente.cardId, attente.agentId),
+    });
+  }
+
+  /*
+   * Une erreur qui a coupé le travail net attend, elle aussi, un choix :
+   * relancer, ignorer, ou arrêter. Même triangle orange, même cloche.
+   */
+  for (const attente of erreursDeTourEnAttente()) {
+    decisions.push({
+      projectId: attente.projectId,
+      agentId: attente.agentId,
+      cardId: attente.cardId,
+      genre: 'question',
+      reglee: false,
+      poseeA: attente.poseeA,
+      texte: `Une erreur a arrêté le travail : ${attente.cause}`,
       projectName: enrichir.nomProjet(attente.projectId),
       lieuTitre: enrichir.lieuTitre(attente.cardId, attente.agentId),
     });
