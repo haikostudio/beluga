@@ -202,6 +202,22 @@ class Client {
   private battement: number | null = null;
   private openCardHandlers = new Set<(cardId: string) => void>();
   private openConversationHandlers = new Set<(lieu: { projectId: string; agentId: string }) => void>();
+  /**
+   * LA CONVERSATION SOUS LES YEUX, POUR LA REDEMANDER APRÈS UNE RECONNEXION.
+   * `agent.snapshot` et `card.conversation` REMPLACENT tout le fil affiché —
+   * ils ne sont redemandés qu'à l'ouverture (effet de `chat.tsx`, qui ne
+   * dépend que de l'identifiant de l'agent ou de la carte, jamais du lien).
+   * Un message envoyé pendant une coupure (veille, changement de réseau,
+   * canal zombie fermé par le battement) part bien au serveur — il est
+   * enregistré, l'agent se met au travail — mais son `message.upsert` est
+   * diffusé sur un socket déjà mort : silencieusement perdu, sans jamais être
+   * redemandé. La conversation reste alors affichée SANS ce message, même une
+   * fois le lien revenu. On retient donc ici la DERNIÈRE conversation ouverte
+   * et on la redemande à chaque `ready` : le premier, sans effet (rien
+   * n'était encore ouvert), tous les suivants — donc chaque reconnexion.
+   */
+  private dernierAgentOuvert: { id: string; tout: boolean } | null = null;
+  private derniereCarteOuverte: string | null = null;
 
   state: AppState = initialState;
 
@@ -363,6 +379,22 @@ class Client {
           if (event.openedProjectId !== choix.id) this.send({ type: 'project.open', id: choix.id });
           this.send({ type: 'attachments.list', projectId: choix.id });
           if (choix.aCorriger) this.retenirProjetActif(choix.id);
+        }
+        /*
+         * REDEMANDER LA CONVERSATION SOUS LES YEUX. `ready` arrive à CHAQUE
+         * connexion, la toute première comme celle d'une reconnexion : sur la
+         * première, rien n'est encore ouvert, ces deux envois ne font rien.
+         * Sur une reconnexion, ils rattrapent un fil resté silencieusement en
+         * retard (`dernierAgentOuvert` / `derniereCarteOuverte`, voir plus
+         * haut) : un message envoyé pendant la coupure, correctement reçu et
+         * traité par le serveur, dont l'écho avait été diffusé sur le socket
+         * mort.
+         */
+        if (this.dernierAgentOuvert) {
+          this.send({ type: 'agent.open', id: this.dernierAgentOuvert.id, tout: this.dernierAgentOuvert.tout });
+        }
+        if (this.derniereCarteOuverte) {
+          this.send({ type: 'card.conversation', cardId: this.derniereCarteOuverte });
         }
         break;
       }
@@ -692,6 +724,8 @@ class Client {
   }
 
   send(cmd: ClientCommand): void {
+    if (cmd.type === 'agent.open') this.dernierAgentOuvert = { id: cmd.id, tout: !!cmd.tout };
+    if (cmd.type === 'card.conversation') this.derniereCarteOuverte = cmd.cardId;
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({ cmd }));
     }
