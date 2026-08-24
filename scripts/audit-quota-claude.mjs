@@ -149,7 +149,7 @@ rapport.parRole = parRole;
 const parCarte = db
   .prepare(
     `SELECT COALESCE(ca.title,'(sans carte)') titre,
-            COALESCE(u.project_name,'?') projet,
+            CASE WHEN u.card_id IS NULL THEN '(tous projets)' ELSE COALESCE(u.project_name,'?') END projet,
             COUNT(*) tours,
             SUM(u.quota_5h) pct5h,
             SUM(u.cached_tokens) cache,
@@ -225,6 +225,56 @@ tableau(
   ],
 );
 rapport.parCompte = parCompte;
+
+/* ------------------------------------------------------------------ */
+/* 2 quater. LA FENÊTRE DE SEPT JOURS, PAR RÔLE ET PAR COMPTE          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * La SEULE unité honnête pour comparer deux comptes : chacun a sa propre
+ * fenêtre de sept jours, et 100 points veut dire « la semaine entière » sur
+ * l'un comme sur l'autre. Additionner des points de CINQ HEURES venus de deux
+ * plans différents est trompeur ; additionner des points de SEMAINE par compte
+ * ne l'est pas. C'est ce tableau qui dit si le travail TIENT dans la capacité
+ * achetée, et ce que coûte au grand compte un tour envoyé sur le petit.
+ */
+const semaineParRole = db
+  .prepare(
+    `SELECT u.account compte, COALESCE(a.role,'(agent effacé)') role,
+            COUNT(*) tours, SUM(u.quota_semaine) sem, AVG(u.quota_semaine) sem_moy
+       FROM usage u LEFT JOIN agents a ON a.id = u.agent_id
+      WHERE u.engine='claude' AND u.created_at > ?
+      GROUP BY compte, role ORDER BY sem DESC`,
+  )
+  .all(DEPUIS);
+
+titre(`2 quater. LA FENÊTRE DE SEPT JOURS — par compte et par rôle, ${JOURS} derniers jours`);
+console.log('  100 points = la semaine entière DE CE COMPTE. Comparable d\'un compte à l\'autre.');
+tableau(semaineParRole, [
+  { titre: 'compte', valeur: (l) => l.compte.replace(/^claude-/, '') },
+  { titre: 'rôle', valeur: (l) => l.role },
+  { titre: 'tours', valeur: (l) => l.tours },
+  { titre: 'points semaine', valeur: (l) => nombre(l.sem, 2) },
+  { titre: 'par tour', valeur: (l) => nombre(l.sem_moy, 4) },
+]);
+rapport.semaineParRole = semaineParRole;
+
+const semaineParCompte = db
+  .prepare(
+    `SELECT u.account compte, COUNT(*) tours, SUM(u.quota_semaine) sem
+       FROM usage u WHERE u.engine='claude' AND u.created_at > ?
+      GROUP BY compte ORDER BY sem DESC`,
+  )
+  .all(DEPUIS);
+console.log('');
+console.log('  Capacité hebdomadaire réellement consommée, compte par compte :');
+for (const l of semaineParCompte) {
+  console.log(
+    `    ${l.compte.replace(/^claude-/, '').padEnd(12)} ${nombre(l.sem, 1).padStart(6)} points de sa semaine` +
+      ` (${l.tours} tours, ${nombre((l.sem ?? 0) / (l.tours || 1), 3)} par tour)`,
+  );
+}
+rapport.semaineParCompte = semaineParCompte;
 
 /* ------------------------------------------------------------------ */
 /* 2 bis. LA TRAJECTOIRE HEBDOMADAIRE — la limite qui fait basculer    */
@@ -323,6 +373,71 @@ tableau(parEtapes, [
   { titre: 'étapes max', valeur: (l) => l.etapes_max },
 ]);
 rapport.parEtapes = parEtapes;
+
+/* ------------------------------------------------------------------ */
+/* 3 bis. DE QUOI SONT FAITS LES ALLERS-RETOURS                        */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Savoir qu'un tour de carte fait soixante allers-retours ne dit pas OÙ les
+ * réduire. Chaque étape enregistrée porte un libellé ; on les regroupe par
+ * FAMILLE et on pèse aussi le résultat gardé dans le contexte. C'est le seul
+ * endroit du relevé qui désigne un geste concret à changer : si une famille
+ * porte les deux tiers des allers-retours, c'est là que le produit
+ * « contexte × allers-retours » se réduit.
+ */
+const familleDEtape = (libelle = '') => {
+  if (/^Commande/.test(libelle)) return 'Commande (terminal)';
+  if (/^(Lecture|Fichier|Lit )/.test(libelle)) return 'Lecture de fichier';
+  if (/^(Écrit|Modif|Édition|Remplace)/.test(libelle)) return 'Écriture / édition';
+  if (/^Mémoire du projet/.test(libelle)) return 'Mémoire du projet';
+  if (/^Outil /.test(libelle)) return 'Outil ' + libelle.replace(/^Outil /, '').split(/[ (]/)[0];
+  if (/^(Recherche|Cherche)/.test(libelle)) return 'Recherche';
+  return (libelle.split(/[:—(]/)[0] || '(sans libellé)').trim().slice(0, 34);
+};
+
+const toursAvecEtapes = db
+  .prepare(
+    `SELECT m.data data FROM messages m JOIN agents a ON a.id = m.agent_id
+      WHERE m.role='assistant' AND m.created_at > ? AND a.role='task'`,
+  )
+  .all(DEPUIS);
+
+const familles = new Map();
+let etapesTotal = 0;
+for (const ligne of toursAvecEtapes) {
+  let etapes;
+  try {
+    etapes = JSON.parse(ligne.data)?.steps;
+  } catch {
+    etapes = undefined;
+  }
+  if (!Array.isArray(etapes)) continue;
+  for (const etape of etapes) {
+    const famille = familleDEtape(etape?.label ?? '');
+    const vu = familles.get(famille) ?? { famille, appels: 0, signes: 0 };
+    vu.appels += 1;
+    vu.signes += String(etape?.detail ?? '').length;
+    familles.set(famille, vu);
+    etapesTotal += 1;
+  }
+}
+
+titre(`3 bis. DE QUOI SONT FAITS LES ALLERS-RETOURS — rôle « task », ${JOURS} derniers jours`);
+tableau(
+  [...familles.values()].sort((a, b) => b.appels - a.appels).slice(0, 12),
+  [
+    { titre: 'famille', valeur: (l) => l.famille },
+    { titre: 'appels', valeur: (l) => milliers(l.appels) },
+    { titre: 'part', valeur: (l) => nombre((100 * l.appels) / (etapesTotal || 1), 1) + ' %' },
+    { titre: 'k signes gardés', valeur: (l) => milliers(Math.round(l.signes / 1000)) },
+  ],
+);
+console.log(
+  `  ${milliers(etapesTotal)} allers-retours sur ${toursAvecEtapes.length} tours` +
+    ` — ${nombre(etapesTotal / (toursAvecEtapes.length || 1), 1)} par tour.`,
+);
+rapport.famillesDEtape = [...familles.values()].sort((a, b) => b.appels - a.appels);
 
 /* ------------------------------------------------------------------ */
 /* 4. Le SOCLE — ce qui est relu à CHAQUE aller-retour                 */
