@@ -1401,7 +1401,9 @@ async function dossierDuTour(agent: Agent, project: Project): Promise<string> {
   if (fs.existsSync(agent.workdir)) return agent.workdir;
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   if (!card) return project.path;
-  const ouvert = await ouvrirDossierDeCarte(project.path, card).catch(() => null);
+  const ouvert = await ouvrirDossierDeCarte(project.path, card, project.branchesDePublication).catch(
+    () => null,
+  );
   if (!ouvert || ouvert.kind === 'echec') {
     log.warn(
       `dossier de la carte impossible à rouvrir (${agent.workdir})`,

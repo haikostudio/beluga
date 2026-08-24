@@ -4,6 +4,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  BranchesDePublication,
   EngineId,
   Project,
   TITRE_ETAPE_ADRESSE,
@@ -17,6 +18,7 @@ import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
 import { DnsResult, publishSubdomain } from './dns.js';
 import { recupererFaviconEnTache } from './favicon.js';
+import { assurerLaBrancheDeDeploiement } from './branche-de-deploiement.js';
 import type { SourceDHeritage } from './memory.js';
 
 /**
@@ -77,6 +79,13 @@ export function registerProject(input: {
   defaultEngine?: EngineId;
   devUrl?: string;
   rank?: number;
+  /**
+   * Les branches de publication à poser d'emblée. Un projet MONTÉ par HaikoDev
+   * arrive avec sa branche de déploiement (« dev ») : c'est elle qui reçoit le
+   * lot au clic « Tout déployer », et c'est d'elle que partent ses cartes. Une
+   * nouvelle exploration du serveur n'écrase jamais un réglage déjà fait.
+   */
+  branchesDePublication?: BranchesDePublication;
 }): Project {
   const resolved = path.resolve(input.path);
   if (!fs.existsSync(resolved)) throw new Error(`le dossier ${resolved} n'existe pas`);
@@ -98,6 +107,7 @@ export function registerProject(input: {
     // Une nouvelle exploration du serveur ne doit pas effacer l'adresse de dev
     // réglée à la main.
     devUrl: input.devUrl ?? existing?.devUrl,
+    branchesDePublication: existing?.branchesDePublication ?? input.branchesDePublication,
     billing: existing?.billing,
     rank: input.rank ?? existing?.rank ?? nextRank(),
     archived: false,
@@ -257,6 +267,7 @@ export async function createProjectFolder(input: {
     }
   }
 
+
   /*
    * Le dépôt distant. Une adresse fournie à la main gagne toujours : on la pose
    * telle quelle. Sinon on demande à GitHub d'en fabriquer un, par l'outil en
@@ -277,6 +288,22 @@ export async function createProjectFolder(input: {
   }
 
   /*
+   * LA BRANCHE DE DÉPLOIEMENT, DÈS LA PREMIÈRE MINUTE — et APRÈS le dépôt
+   * distant, pour qu'elle y soit poussée du même coup. Un projet monté par
+   * HaikoDev applique d'emblée la règle : chaque carte travaille sur sa propre
+   * branche, partie de « dev », et le clic « Tout déployer » y fusionne le lot.
+   * « dev » devient ainsi l'image de ce qui tourne sur le serveur, « main »
+   * celle de la mise en production. Un échec ici n'arrête rien : le projet
+   * retombe sur son unique branche, exactement comme les projets d'avant.
+   */
+  let branchesDePublication: BranchesDePublication | undefined;
+  if (avecGit) {
+    const dev = await assurerLaBrancheDeDeploiement(target);
+    if (dev.branche) branchesDePublication = { dev: dev.branche };
+    noter('Branche de déploiement « dev » en place', !!dev.branche, dev.detail);
+  }
+
+  /*
    * L'adresse publique, AVANT l'inscription : c'est elle qu'on range dans le
    * projet, et c'est elle que chaque déploiement contrôlera à la fin. Un échec
    * n'arrête rien — le projet existe, il lui manque seulement son adresse.
@@ -291,6 +318,7 @@ export async function createProjectFolder(input: {
     gitRemote: remote,
     devUrl: adresse.url,
     rank: 5,
+    branchesDePublication,
   });
   noter('Projet inscrit dans la colonne de gauche', true);
   return { project, etapes };

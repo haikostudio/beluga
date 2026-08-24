@@ -16,8 +16,17 @@
  *   qui s'annule au premier heurt. C'est le comportement d'avant cette carte.
  *
  *   APRÈS — un fichier d'attente PAR CARTE (deux fichiers ne se heurtent
- *   jamais) et le recollage mécanique des documents à la fermeture
- *   (`refermerDossierDeCarte`). C'est le comportement du démon.
+ *   jamais), les copies de travail refermées SANS AUCUNE FUSION
+ *   (`refermerDossierDeCarte` : la branche garde son travail jusqu'au clic
+ *   « Tout déployer »), puis la fusion du lot telle que la publication la fait
+ *   — une branche à la fois, avec le recollage MÉCANIQUE des documents
+ *   (`recollerLesDocumentsEnConflit`). C'est le comportement du démon.
+ *
+ * CE QU'ON COMPTE A CHANGÉ DE PLACE AVEC LA FUSION. Ce n'est plus « combien de
+ * conflits atteignent la publication » — ils l'atteignent tous, puisque c'est
+ * là que tout fusionne désormais — mais « combien atteignent un AGENT », c'est-
+ * à-dire coûtent un tour de moteur. C'est ce chiffre-là qui pesait 66 % du temps
+ * de publication.
  *
  * AUCUN moteur n'est appelé, aucun jeton n'est dépensé, et rien n'est touché
  * hors du dossier temporaire. Le contrôle vise le dépôt d'où il PART : il
@@ -38,6 +47,9 @@ if (!fs.existsSync(dist)) {
   process.exit(1);
 }
 const { refermerDossierDeCarte } = await import(pathToFileURL(dist).href);
+const { fichiersEnConflitDuDossier, recollerLesDocumentsEnConflit } = await import(
+  pathToFileURL(path.join(RACINE, 'server', 'dist', 'recollage-documentaire.js')).href
+);
 const { fichierDAttentePourCopie, FICHIER_D_ATTENTE } = await import(
   pathToFileURL(path.join(RACINE, 'shared', 'dist', 'index.js')).href
 );
@@ -143,7 +155,7 @@ function mondeDAvant() {
 }
 
 /* ------------------------------------------------------------------ */
-/* APRÈS : un dépôt par carte, et le recollage à la fermeture          */
+/* APRÈS : un dépôt par carte, fermeture sans fusion, lot recollé      */
 /* ------------------------------------------------------------------ */
 
 async function mondeDApres() {
@@ -152,15 +164,39 @@ async function mondeDApres() {
     const cartes = [];
     for (let rang = 1; rang <= CARTES; rang++) cartes.push(lancerUneCarte(racine, rang, { depotACommun: false }));
 
-    let reportes = 0;
+    /*
+     * FIN DE TOUR : la copie se referme, la branche RESTE. Rien ne rejoint le
+     * tronc ici — c'est tout l'objet du refactor : une tâche terminée ne met
+     * plus rien en ligne toute seule.
+     */
     const bilans = [];
     for (const { branche, dossier } of cartes) {
-      const bilan = await refermerDossierDeCarte(racine, dossier, branche);
-      bilans.push(bilan);
-      if (!bilan.fusionnee) reportes += 1;
+      bilans.push(await refermerDossierDeCarte(racine, dossier, branche));
+    }
+    const memoireAvantLot = fs.readFileSync(path.join(racine, 'MEMOIRE.md'), 'utf8');
+    const troncIntact = !memoireAvantLot.includes('la carte 1');
+
+    /*
+     * LE CLIC « TOUT DÉPLOYER » : la fusion du lot, branche par branche, avec le
+     * recollage mécanique des documents. C'est exactement ce que fait l'étape
+     * « merge » de `server/src/deploy.ts`.
+     */
+    let versUnAgent = 0;
+    let recollees = 0;
+    for (const { branche } of cartes) {
+      const fusion = git(racine, ['merge', '--no-edit', branche], true);
+      if (fusion.ok) continue;
+      const enConflit = await fichiersEnConflitDuDossier(racine);
+      const recollage = await recollerLesDocumentsEnConflit(racine, enConflit);
+      if (recollage.fusionnee) {
+        recollees += 1;
+        continue;
+      }
+      git(racine, ['merge', '--abort'], true);
+      versUnAgent += 1;
     }
 
-    // Le tronc porte-t-il VRAIMENT le travail des quatre cartes ?
+    // Le tronc porte-t-il VRAIMENT le travail des quatre cartes, une fois le lot passé ?
     const memoire = fs.readFileSync(path.join(racine, 'MEMOIRE.md'), 'utf8');
     const faits = Array.from({ length: CARTES }, (_, i) => `la carte ${i + 1}`).filter((m) => memoire.includes(m));
     const reglesGardees = Array.from({ length: CARTES }, (_, i) => {
@@ -168,7 +204,14 @@ async function mondeDApres() {
       return fs.existsSync(chemin) && fs.readFileSync(chemin, 'utf8').includes(`carte ${i + 1}`);
     }).filter(Boolean);
 
-    return { reportes, faits: faits.length, reglesGardees: reglesGardees.length, bilans };
+    return {
+      reportes: versUnAgent,
+      recollees,
+      troncIntact,
+      faits: faits.length,
+      reglesGardees: reglesGardees.length,
+      bilans,
+    };
   } finally {
     fs.rmSync(racine, { recursive: true, force: true });
   }
@@ -184,18 +227,20 @@ console.log(`  ${avant} conflit(s) sur ${CARTES} repoussé(s) jusqu’à la fusi
 verifier('le monde d’avant repousse bien des conflits (sinon le décor ne prouve rien)', avant > 0);
 
 const apres = await mondeDApres();
-console.log('\nAPRÈS — un dépôt de règles par carte, recollage des documents à la fermeture');
-console.log(`  ${apres.reportes} conflit(s) sur ${CARTES} repoussé(s) jusqu’à la fusion du lot`);
+console.log('\nAPRÈS — un dépôt de règles par carte, fermeture sans fusion, lot recollé au clic');
+console.log(`  ${apres.reportes} conflit(s) sur ${CARTES} atteignant un AGENT (${apres.recollees} recollé(s) sans moteur)`);
 for (const bilan of apres.bilans) console.log(`    · ${bilan.raison}`);
 
-verifier('plus aucun conflit n’atteint la fusion du lot', apres.reportes === 0);
+verifier('une fin de tour ne fusionne RIEN', apres.bilans.every((b) => b.fusionnee === false));
+verifier('le tronc n’a rien reçu avant le clic « Tout déployer »', apres.troncIntact);
+verifier('plus aucun conflit n’atteint un agent', apres.reportes === 0);
 verifier('la baisse est réelle par rapport au monde d’avant', apres.reportes < avant);
 verifier('les quatre cartes ont bien leur fait dans la mémoire du tronc', apres.faits === CARTES);
 verifier('les quatre règles apprises sont là, chacune dans son dépôt', apres.reglesGardees === CARTES);
 verifier('les copies de travail sont refermées', apres.bilans.every((b) => b.retire));
 
 console.log(
-  `\nBAISSE MESURÉE : ${avant} → ${apres.reportes} conflit(s) atteignant la fusion, ` +
+  `\nBAISSE MESURÉE : ${avant} → ${apres.reportes} conflit(s) coûtant un tour de moteur, ` +
     `sur ${CARTES} cartes lancées en parallèle.`,
 );
 

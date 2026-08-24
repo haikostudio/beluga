@@ -16,8 +16,9 @@
  *      au lieu d'un agent lâché sur la branche principale ;
  *   3. deux cartes lancées ENSEMBLE → aucune n'attend l'autre, chacune écrit
  *      chez elle sans voir le travail de l'autre ;
- *   4. fin de tour → la branche rejoint la principale et le dossier est refermé,
- *      sans laisser de copie orpheline.
+ *   4. fin de tour → le dossier est refermé sans laisser de copie orpheline, la
+ *      branche GARDE son travail, et la branche principale n'a RIEN reçu : la
+ *      fusion attend le clic « Tout déployer ».
  *
  * Rien n'est touché dans un vrai dépôt : tout se passe dans un dossier
  * temporaire, effacé en partant.
@@ -117,14 +118,23 @@ try {
   noter('deux cartes qui visent le MÊME dossier : la seconde attend', memeDossier.ok === false);
   noter('elle nomme la carte qui l’occupe', (memeDossier.raison ?? '').includes(un.title), memeDossier.raison);
 
-  /* 4. Fin de tour : fusion dans la principale, dossier refermé. */
+  /* 4. Fin de tour : dossier refermé, RIEN de fusionné, branches intactes. */
   const bilanUn = await refermerDossierDeCarte(dir, prepaUn.dossier, prepaUn.nom);
   const bilanDeux = await refermerDossierDeCarte(dir, prepaDeux.dossier, prepaDeux.nom);
   noter('les deux dossiers sont refermés', bilanUn.retire && bilanDeux.retire, `${bilanUn.raison} / ${bilanDeux.raison}`);
-  noter('les deux branches sont fusionnées dans la principale', bilanUn.fusionnee && bilanDeux.fusionnee);
   noter(
-    'le travail des deux cartes est sur la branche principale',
-    fs.existsSync(path.join(dir, 'un.txt')) && fs.existsSync(path.join(dir, 'deux.txt')),
+    'AUCUNE branche n’est fusionnée en fin de tour',
+    bilanUn.fusionnee === false && bilanDeux.fusionnee === false,
+  );
+  noter(
+    'la branche principale n’a rien reçu : rien ne part sans le clic « Tout déployer »',
+    !fs.existsSync(path.join(dir, 'un.txt')) && !fs.existsSync(path.join(dir, 'deux.txt')),
+  );
+  const surUn = g('show', `${prepaUn.nom}:un.txt`).trim();
+  const surDeux = g('show', `${prepaDeux.nom}:deux.txt`).trim();
+  noter(
+    'chaque branche garde le travail de sa carte, prêt à être déployé',
+    surUn.includes('première') && surDeux.includes('seconde'),
   );
   const ouverts = g('worktree', 'list', '--porcelain')
     .split('\n')

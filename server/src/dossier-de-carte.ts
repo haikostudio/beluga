@@ -5,11 +5,22 @@
  * `shared/src/dossier-de-carte.ts`. Ici, on parle à git :
  *
  *   - à l'ouverture, `git worktree add` donne à la carte une copie de travail à
- *     elle seule, posée sur SA branche « tache/… » ; plusieurs cartes du même
+ *     elle seule, posée sur SA branche « tache/… », partie de la branche de
+ *     DÉPLOIEMENT du projet (`server/src/branche-de-deploiement.ts`) — c'est-à-
+ *     dire de ce qui tourne réellement sur le serveur ; plusieurs cartes du même
  *     projet peuvent donc démarrer en même temps ;
- *   - à la fermeture, la branche est fusionnée dans la principale et le dossier
- *     retiré : une branche poussée n'est PAS livrée, et un dossier laissé ouvert
- *     empêcherait la carte de repartir.
+ *   - à la fermeture, le travail qui traînait est enregistré SUR LA BRANCHE DE
+ *     LA CARTE et la copie de travail est retirée. **Plus aucune fusion ici** :
+ *     un dossier laissé ouvert empêcherait la carte de repartir, mais la branche,
+ *     elle, garde son travail jusqu'au clic « Tout déployer ».
+ *
+ * POURQUOI LA FUSION A QUITTÉ LA FIN DE TOUR. La branche rejoignait la branche
+ * principale à la seconde où l'agent rendait sa réponse. Sur un projet servi
+ * depuis son dossier — tous ceux que HaikoDev monte sur le serveur —, cela
+ * revenait à mettre en ligne sans que personne n'ait cliqué. Désormais la
+ * fusion appartient à la publication, et à elle seule (`server/src/deploy.ts`,
+ * étape « merge ») : chaque tâche modifie sa propre branche, le clic « Tout
+ * déployer » les fusionne toutes sur la branche de déploiement.
  *
  * Rien n'est poussé sur la branche principale, rien n'est mis en ligne : la
  * publication reste un geste de l'utilisateur.
@@ -20,6 +31,7 @@ import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  BranchesDePublication,
   Card,
   GesteDeReparation,
   PanneDeDossier,
@@ -32,7 +44,7 @@ import {
   reconnaitrePanneDeDossier,
 } from '@haikodev/shared';
 import { log } from './logger.js';
-import { fichiersEnConflitDuDossier, recollerLesDocumentsEnConflit } from './recollage-documentaire.js';
+import { brancheDeDeploiement } from './branche-de-deploiement.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -174,19 +186,26 @@ function relierLesLourds(racine: string, dossier: string): void {
  * rien à changer.
  *
  * Deux constats, l'un ou l'autre suffisant : la branche porte des
- * enregistrements que la principale n'a pas, ou sa copie de travail contient
- * des fichiers modifiés. Un dépôt qui ne répond pas rend `false` : on ne
- * fabrique pas une trace qu'on n'a pas vue.
+ * enregistrements que la branche de DÉPLOIEMENT n'a pas, ou sa copie de travail
+ * contient des fichiers modifiés. Un dépôt qui ne répond pas rend `false` : on
+ * ne fabrique pas une trace qu'on n'a pas vue.
+ *
+ * La comparaison se fait contre la branche de déploiement — celle d'où la carte
+ * est PARTIE — et non contre la principale : depuis que la fusion attend le
+ * clic, ces deux branches ne portent plus la même chose, et compter contre la
+ * principale aurait pris le travail des cartes déjà déployées pour celui de la
+ * carte qu'on reprend.
  */
 export async function travailDejaSurLaBranche(
   racine: string,
   branche: string,
   dossier?: string,
+  reglees?: BranchesDePublication,
 ): Promise<boolean> {
-  const principale = await branchePrincipale(racine);
+  const depart = await brancheDeDeploiement(racine, reglees);
   const existe = await git(racine, ['rev-parse', '--verify', '--quiet', branche], 20000);
   if (existe.ok && existe.out.trim()) {
-    const compte = await git(racine, ['rev-list', '--count', `${principale}..${branche}`], 60000);
+    const compte = await git(racine, ['rev-list', '--count', `${depart}..${branche}`], 60000);
     if (compte.ok && Number(compte.out.trim()) > 0) return true;
   }
   if (dossier && fs.existsSync(dossier)) {
@@ -215,10 +234,19 @@ export type DossierOuvert =
 /**
  * Le dossier de travail d'une carte, prêt sur sa branche.
  *
- * Une carte relancée retrouve SON dossier et SA branche : on ne repart jamais de
- * la principale par-dessus un travail déjà enregistré.
+ * Une carte relancée retrouve SON dossier et SA branche : on ne repart jamais du
+ * point de départ par-dessus un travail déjà enregistré.
+ *
+ * `reglees` porte les branches de publication du projet : c'est ce qui permet de
+ * partir de la branche de DÉPLOIEMENT — l'image de ce qui tourne sur le serveur
+ * — plutôt que de la principale. Absent, on retombe sur la règle par défaut
+ * (« dev » si le dépôt en a une, sinon la principale).
  */
-export async function ouvrirDossierDeCarte(racine: string, card: Card): Promise<DossierOuvert> {
+export async function ouvrirDossierDeCarte(
+  racine: string,
+  card: Card,
+  reglees?: BranchesDePublication,
+): Promise<DossierOuvert> {
   /*
    * OUVRIR PASSE PAR LA MÊME FILE QUE REFERMER. Sans cela, une carte pouvait
    * ouvrir son dossier pendant que le ménage du démarrage était en train de le
@@ -227,10 +255,14 @@ export async function ouvrirDossierDeCarte(racine: string, card: Card): Promise<
    * tard — et le travail déjà écrit disparaissait avec elle. Les deux gestes se
    * suivent donc, un par un, par projet.
    */
-  return aLaQueue(racine, () => ouvrirVraiment(racine, card));
+  return aLaQueue(racine, () => ouvrirVraiment(racine, card, reglees));
 }
 
-async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert> {
+async function ouvrirVraiment(
+  racine: string,
+  card: Card,
+  reglees?: BranchesDePublication,
+): Promise<DossierOuvert> {
   const branche = nomDeBranche(card.title, card.id);
   const dossier = cheminDossierDeCarte(racine, card.title, card.id);
 
@@ -264,7 +296,15 @@ async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert
   }
 
   const existe = await git(racine, ['rev-parse', '--verify', '--quiet', branche], 20000);
-  const principale = await branchePrincipale(racine);
+  /*
+   * LE POINT DE DÉPART EST LA BRANCHE DE DÉPLOIEMENT, pas la principale.
+   * Depuis que la fusion attend le clic « Tout déployer », c'est la branche de
+   * déploiement qui porte tout ce qui a réellement été mis en ligne : une carte
+   * qui partirait de la principale repartirait d'un état plus ancien que
+   * l'instance servie, et referait le travail des cartes déjà déployées.
+   * Sans réglage ni branche « dev », c'est la principale — comme avant.
+   */
+  const depart = await brancheDeDeploiement(racine, reglees);
 
   /*
    * L'ÉTAT DE L'OUVERTURE, qui traverse les réparations. `depuis` et `neuve`
@@ -272,7 +312,7 @@ async function ouvrirVraiment(racine: string, card: Card): Promise<DossierOuvert
    * (« attacher-la-branche »), et un point de départ abîmé se remplace par
    * celui du dépôt distant (« repartir-du-distant »).
    */
-  const etat = { depuis: principale, neuve: !(existe.ok && existe.out.trim()) };
+  const etat = { depuis: depart, neuve: !(existe.ok && existe.out.trim()) };
   const argsDuTour = () =>
     etat.neuve
       ? ['worktree', 'add', '-b', branche, dossier, etat.depuis]
@@ -610,17 +650,24 @@ function aLaQueue<T>(racine: string, travail: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Fin de tour : la branche rejoint la principale et le dossier se referme.
+ * Fin de tour : le travail est mis à l'abri sur la branche de la carte, et la
+ * copie de travail se referme. LA BRANCHE, ELLE, RESTE.
  *
  * Du travail non enregistré traînait-il dans la copie ? On l'ENREGISTRE d'office
  * sur la branche de la carte au lieu de laisser le dossier ouvert pour toujours
  * (`enregistrerLeTravailEnCours`) : c'est du travail réel, il doit pouvoir être
- * déployé comme le reste. Restent deux refus, tous DITS : le dossier principal
- * n'est pas sur sa branche principale, la fusion entre en conflit — et ce
- * dernier cas ne revient à la publication QUE s'il porte sur autre chose que de
- * la documentation. Un heurt de pure documentation est recollé ICI, sans moteur
- * ni agent (`server/src/recollage-documentaire.ts`) : il n'atteint jamais la
- * fusion du lot, où il coûtait un agent et trois minutes.
+ * déployé comme le reste. Un seul refus subsiste, et il est DIT : l'enregistre-
+ * ment d'office n'a pas pris (dépôt en plein conflit, droits) — on garde alors
+ * le dossier plutôt que de perdre le travail.
+ *
+ * PLUS AUCUNE FUSION ICI. La branche rejoignait la principale à la seconde où
+ * l'agent rendait sa réponse : sur un projet servi depuis son dossier, le
+ * travail d'une tâche terminée passait donc en ligne sans que personne n'ait
+ * cliqué. La fusion appartient maintenant à la publication seule
+ * (`server/src/deploy.ts`, étape « merge »), qui la fait sur la branche de
+ * DÉPLOIEMENT, une branche à la fois, avec son recollage de documents et son
+ * dépannage. `fusionnee` reste dans le bilan pour ceux qui le lisent, et vaut
+ * désormais toujours faux : rien n'est fusionné en fin de tour.
  */
 export async function refermerDossierDeCarte(
   racine: string,
@@ -635,50 +682,18 @@ export async function refermerDossierDeCarte(
     if (sale.out.trim()) {
       // L'enregistrement d'office a échoué (dépôt en plein conflit, droits) :
       // on garde le dossier plutôt que de perdre le travail.
-      const raison = "du travail non enregistré reste dans le dossier de la carte : il n'est ni fusionné ni refermé";
+      const raison = "du travail non enregistré reste dans le dossier de la carte : il n'est ni enregistré ni refermé";
       log.warn(`fermeture du dossier ${dossier} : ${raison}`);
       return { fusionnee: false, retire: false, raison, enregistre };
     }
 
-    const principale = await branchePrincipale(racine);
-    const courante = await brancheCourante(racine);
-    let fusionnee = false;
-    let raison = '';
-    if (courante !== principale) {
-      raison = `le dossier principal est sur « ${courante || 'inconnue'} » et non sur « ${principale} » : la fusion attend la publication`;
-    } else {
-      const fusion = await git(racine, ['merge', '--no-ff', '--no-edit', branche], 180000);
-      if (fusion.ok) {
-        fusionnee = true;
-        raison = `branche « ${branche} » fusionnée dans « ${principale} »`;
-      } else {
-        /*
-         * UN HEURT DE DOCUMENTATION MEURT ICI, PAS À LA PUBLICATION.
-         *
-         * La fusion est laissée EN COURS le temps de l'essai : les fichiers
-         * portent leurs marqueurs, on recolle ceux qui sont de la documentation
-         * en liste et on referme. Réussi, la branche entre dans la principale à
-         * la seconde où son tour se termine — la fusion du lot ne la verra même
-         * pas. Refusé, on annule et tout se passe comme avant : c'est la
-         * publication, avec son agent, qui tranchera.
-         */
-        const enConflit = await fichiersEnConflitDuDossier(racine);
-        const recollage = await recollerLesDocumentsEnConflit(racine, enConflit);
-        if (recollage.fusionnee) {
-          fusionnee = true;
-          raison = `branche « ${branche} » fusionnée dans « ${principale} » — ${recollage.recit}`;
-        } else {
-          await git(racine, ['merge', '--abort'], 60000);
-          const reste = recollage.restants.length ? ` (${recollage.restants.join(', ')})` : '';
-          raison = `la branche « ${branche} » entre en conflit avec « ${principale} »${reste} : la fusion revient à la publication`;
-        }
-      }
-    }
-
     const retire = await retirerLeDossier(racine, dossier);
+    let raison =
+      `branche « ${branche} » gardée telle quelle : son travail attend le clic « Tout déployer », ` +
+      'qui la fusionnera sur la branche de déploiement';
     if (!retire) raison = `${raison} — dossier resté ouvert`;
     log.info(`dossier de carte refermé (${dossier}) : ${raison}`);
-    return { fusionnee, retire, raison, enregistre };
+    return { fusionnee: false, retire, raison, enregistre };
   });
 }
 
@@ -729,7 +744,10 @@ export interface DossierRattrape {
   branche: string;
   /** Du travail non enregistré a été sauvé sur la branche de la carte. */
   enregistre: boolean;
-  /** La branche a rejoint la principale. */
+  /**
+   * La branche a rejoint sa branche d'accueil. Depuis que la fusion attend le
+   * clic « Tout déployer », vaut toujours faux : gardé pour ceux qui le lisent.
+   */
   fusionnee: boolean;
 }
 
@@ -751,15 +769,14 @@ export async function menageDesDossiers(racine: string, occupes: string[]): Prom
   for (const dossier of orphelins) {
     // Seule une copie posée sur une branche de CARTE — vivante ou archivée — se
     // referme toute seule : un dossier ouvert à la main sur une autre branche ne
-    // se fait pas fusionner dans la principale à la faveur d'un redémarrage.
+    // se fait pas retirer à la faveur d'un redémarrage.
     const branche = await brancheCourante(dossier);
     const estVivante = branche.startsWith('tache/');
     const estArchivee = branche.startsWith(PREFIXE_BRANCHE_ARCHIVEE);
     if (!estVivante && !estArchivee) continue;
-    // Une carte vivante referme comme en fin de tour (travail en cours enregistré
-    // d'office, puis fusion). Une carte ARCHIVÉE ne fusionne plus jamais : sa
-    // branche a déjà rejoint la principale — ou volontairement pas — au moment de
-    // l'archivage ; on se contente de retirer la copie.
+    // Une carte vivante referme comme en fin de tour : travail en cours
+    // enregistré d'office sur SA branche, copie retirée, aucune fusion. Une
+    // carte ARCHIVÉE se contente elle aussi de rendre sa copie.
     const bilan = estArchivee
       ? await retirerDossierDeCarteArchivee(racine, dossier, branche)
       : await refermerDossierDeCarte(racine, dossier, branche);

@@ -117,15 +117,19 @@ verifier(
 );
 
 /* ------------------------------------------------------------------ */
-console.log('\n4. Refermer : le travail rejoint la principale, donc le déploiement');
+console.log('\n4. Refermer : le travail reste sur la branche, il attend le clic');
 /* ------------------------------------------------------------------ */
 
 const bilan = await dossiers.refermerDossierDeCarte(projet, ouvert.dossier, branche);
-verifier(bilan.fusionnee === true, 'la branche de la carte a été fusionnée dans la principale');
+verifier(bilan.fusionnee === false, 'une fin de tour ne fusionne RIEN : la fusion attend « Tout déployer »');
 verifier(bilan.retire === true, 'la copie de travail a été refermée');
 verifier(
-  fs.readFileSync(path.join(projet, 'travail.txt'), 'utf8').includes('ce que l’agent avait écrit'),
-  'le travail interrompu est bien dans la principale — il partira au déploiement',
+  git(projet, 'show', `${branche}:travail.txt`).includes('ce que l’agent avait écrit'),
+  'le travail interrompu vit sur la branche de la carte — il partira au déploiement',
+);
+verifier(
+  !fs.existsSync(path.join(projet, 'travail.txt')),
+  'et la branche principale ne l’a pas reçu sans qu’on ait cliqué',
 );
 
 /* Une copie sale se referme désormais toute seule : plus de dossier zombie. */
