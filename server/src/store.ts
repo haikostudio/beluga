@@ -2315,11 +2315,9 @@ export function usageByDay(days = 30): { day: string; tokens: number; seconds: n
  * quota (jetons, secondes machine, nombre de tours) ET les deux parts de quota
  * MESURÉES — fenêtre de 5 h, fenêtre de la semaine — sommées depuis les mêmes
  * lignes que `usageQuotaByCard`. Le classement suit la part de SEMAINE
- * décroissante (les jetons ne départagent plus qu'à égalité) : c'est la
- * grandeur que le tableau de bord affiche en tête, donc celle qui doit ordonner
- * la liste. Les deux parts sont en POINTS DE POURCENTAGE, jamais en fraction.
- * Le titre de la carte se raccroche côté appelant — ici on ne connaît que les
- * identifiants.
+ * décroissante (les jetons ne départagent plus qu'à égalité). Les deux parts
+ * sont en POINTS DE POURCENTAGE, jamais en fraction. Le titre de la carte se
+ * raccroche côté appelant — ici on ne connaît que les identifiants.
  */
 export function usageByCard(): {
   cardId: string;
@@ -2340,16 +2338,33 @@ export function usageByCard(): {
     .all() as any;
 }
 
+/**
+ * L'HISTORIQUE DES TÂCHES EXÉCUTÉES : une ligne par TOUR réellement parti
+ * (`recordUsage` écrit une ligne à la fin de chaque tour d'agent), la plus
+ * récente d'abord. `inputTokens` / `outputTokens` sont le DÉTAIL réel du
+ * tour tel que le moteur l'a rendu — jamais une estimation. Le titre de la
+ * carte se raccroche côté appelant, comme pour `usageByCard`.
+ */
+export function usageHistorique(limit = 30): {
+  cardId: string;
+  at: number;
+  inputTokens: number;
+  outputTokens: number;
+  tokens: number;
+}[] {
+  return getDb()
+    .prepare(
+      `SELECT card_id AS cardId, created_at AS at, input_tokens AS inputTokens,
+              output_tokens AS outputTokens, tokens
+       FROM usage WHERE card_id IS NOT NULL
+       ORDER BY created_at DESC, id DESC LIMIT ?`,
+    )
+    .all(Math.max(1, Math.round(limit))) as any;
+}
+
 /* ------------------------------------------------------------------ */
 /* CE QUE LE TRI DE LA MÉMOIRE ÉCONOMISE                               */
 /* ------------------------------------------------------------------ */
-
-/**
- * LA FENÊTRE DE MESURE : un mois glissant. C'est la période sur laquelle le
- * tableau de bord annonce l'économie — assez longue pour que quelques cartes
- * bavardes ne fassent pas la moyenne, assez courte pour parler du présent.
- */
-export const JOURS_D_ECONOMIE_MEMOIRE = 30;
 
 /**
  * UNE OUVERTURE DE MÉMOIRE, ET CE QU'ELLE A ÉVITÉ D'ENVOYER.
@@ -2380,65 +2395,6 @@ export function recordMemoryEconomy(ligne: {
       Math.max(0, Math.round(ligne.servis)),
       now(),
     );
-}
-
-function depuisJours(days: number): number {
-  return now() - Math.max(1, Math.round(days)) * 24 * 3600 * 1000;
-}
-
-/** Le total de la fenêtre : ce qui aurait été envoyé, ce qui l'a été, et sur combien d'ouvertures. */
-export function memoryEconomyTotals(days = JOURS_D_ECONOMIE_MEMOIRE): {
-  entiers: number;
-  servis: number;
-  ouvertures: number;
-  cartes: number;
-} {
-  const row = getDb()
-    .prepare(
-      `SELECT COALESCE(SUM(signes_entiers), 0) AS entiers, COALESCE(SUM(signes_servis), 0) AS servis,
-              COUNT(*) AS ouvertures, COUNT(DISTINCT card_id) AS cartes
-       FROM memoire_economie WHERE created_at >= ?`,
-    )
-    .get(depuisJours(days)) as { entiers: number; servis: number; ouvertures: number; cartes: number };
-  return row;
-}
-
-/** L'économie CARTE PAR CARTE sur la fenêtre, la plus grosse d'abord. */
-export function memoryEconomyByCard(days = JOURS_D_ECONOMIE_MEMOIRE): {
-  cardId: string;
-  entiers: number;
-  servis: number;
-  ouvertures: number;
-}[] {
-  return getDb()
-    .prepare(
-      `SELECT card_id AS cardId, COALESCE(SUM(signes_entiers), 0) AS entiers,
-              COALESCE(SUM(signes_servis), 0) AS servis, COUNT(*) AS ouvertures
-       FROM memoire_economie WHERE created_at >= ? AND card_id IS NOT NULL
-       GROUP BY card_id ORDER BY (SUM(signes_entiers) - SUM(signes_servis)) DESC`,
-    )
-    .all(depuisJours(days)) as any;
-}
-
-/**
- * COMBIEN DE POINTS DE QUOTA COÛTE UN JETON — MESURÉ, PAS SUPPOSÉ.
- *
- * Il n'existe aucune table de conversion officielle entre jetons et part de
- * quota : le fournisseur ne la publie pas, et elle bouge avec le modèle. On la
- * DÉDUIT donc de la consommation réelle du même mois — les points de quota de
- * la semaine relevés sur les tours, divisés par les jetons de ces mêmes tours.
- * `null` quand rien n'a encore été relevé : mieux vaut n'afficher aucune part
- * de quota qu'en inventer une.
- */
-export function quotaParJeton(days = JOURS_D_ECONOMIE_MEMOIRE): number | null {
-  const row = getDb()
-    .prepare(
-      `SELECT COALESCE(SUM(quota_semaine), 0) AS quota, COALESCE(SUM(tokens), 0) AS tokens
-       FROM usage WHERE created_at >= ?`,
-    )
-    .get(depuisJours(days)) as { quota: number; tokens: number };
-  if (!row.tokens || row.quota <= 0) return null;
-  return row.quota / row.tokens;
 }
 
 /** Consommation mémoire moyenne mesurée d'un agent — sert au calcul des places libres (PLAN §27). */
