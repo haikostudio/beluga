@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  Card,
   DOSSIER_D_ATTENTE,
   FICHIER_D_ATTENTE,
   PERIODE_DE_FUSION_MS,
@@ -18,7 +17,6 @@ import {
   type CommitObserve,
   type SujetRegles,
 } from '@haikodev/shared';
-import { bus } from './bus.js';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -211,47 +209,6 @@ function enregistrerLeRangement(racine: string, fichiers: readonly string[]): Co
 }
 
 /**
- * UNE TÂCHE AUTOMATIQUE TERMINÉE REÇOIT SA FICHE TOUT DE SUITE.
- *
- * Le rangement de nuit enregistrait son travail puis attendait que la colonne
- * « À déployer » le redécouvre et demande à l'utilisateur de créer une carte.
- * Le système connaît pourtant déjà le projet, le titre et l'enregistrement :
- * il peut donc poser la fiche sans question. Le réglage de déploiement décide
- * ensuite seul si elle attend dans la colonne ou si le lot part.
- */
-export function poserCarteDuRangement(project: ReturnType<typeof store.getProject>, commit: CommitObserve): void {
-  if (!project || store.shasCouverts(project.id).includes(commit.sha)) return;
-  const maintenant = Date.now();
-  const card = store.saveCard(
-    Card.parse({
-      id: store.newId(),
-      projectId: project.id,
-      title: commit.titre,
-      description:
-        'Le rangement automatique de nuit a terminé ce travail et créé directement sa fiche de déploiement. ' +
-        'Le code est déjà enregistré : il ne reste aucune tâche à relancer.',
-      labels: ['tâche automatique', 'sur la principale'],
-      column: 'to_deploy',
-      position: store.nextPosition(project.id, 'to_deploy'),
-      origin: 'agent',
-      run: { engine: project.defaultEngine },
-      horsTache: true,
-      codeDejaEnregistre: true,
-      github: {
-        branch: commit.branche ?? '',
-        checks: [],
-        activity: [],
-        commits: [{ sha: commit.sha, message: commit.titre, date: commit.date }],
-      },
-      createdAt: maintenant,
-      updatedAt: maintenant,
-    }),
-  );
-  bus.emit({ type: 'card.upsert', card });
-  log.info(`rangement des instructions : carte « À déployer » créée pour ${project.name}`);
-}
-
-/**
  * TOUS LES DÉPÔTS D'UN PROJET : le fichier commun, puis un fichier par carte.
  *
  * Le fichier commun était le SEUL, et c'était la cause d'une bonne part des
@@ -282,10 +239,7 @@ export function depotsDAttente(racine: string): string[] {
  * Range ce qu'UN projet a déposé. Rend le plan appliqué — ce qui a été rangé,
  * ce qui reste en attente avec sa cause.
  */
-export function rangerUnProjet(
-  racine: string,
-  apresEnregistrement?: (commit: CommitObserve) => void,
-): PlanDeFusion | undefined {
+export function rangerUnProjet(racine: string): PlanDeFusion | undefined {
   const attente = path.join(racine, FICHIER_D_ATTENTE);
   const depots = depotsDAttente(racine);
   if (!depots.length) return undefined;
@@ -367,8 +321,7 @@ export function rangerUnProjet(
       log.warn(`rangement des instructions : ${relatif} non retiré — ${(err as Error).message}`);
     }
   }
-  const commit = enregistrerLeRangement(racine, touches);
-  if (commit) apresEnregistrement?.(commit);
+  enregistrerLeRangement(racine, touches);
   return plan;
 }
 
@@ -399,7 +352,7 @@ export function rendezVousDeRangement(maintenant = new Date()): BilanDeFusion {
   let refusees = 0;
   for (const projet of projets) {
     try {
-      const plan = rangerUnProjet(projet.path, (commit) => poserCarteDuRangement(projet, commit));
+      const plan = rangerUnProjet(projet.path);
       if (!plan) continue;
       touches += 1;
       rangees += plan.parSujet.length;
