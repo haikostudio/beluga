@@ -2594,7 +2594,7 @@ export function recordTelemetrieTache(ligne: {
  * effacerait le fait le plus utile de la ligne.
  */
 export function telemetrieDesTaches(jours = JOURS_DE_TENDANCE): MesureDeTache[] {
-  const depuis = depuisJours(jours);
+  const depuis = now() - Math.max(1, Math.round(jours)) * 24 * 60 * 60 * 1000;
   const lignes = getDb()
     .prepare(
       `SELECT card_id AS cardId, project_id AS projectId,
