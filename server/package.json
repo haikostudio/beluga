@@ -5,8 +5,8 @@
   "type": "module",
   "main": "./dist/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch"
+    "build": "node ../scripts/emonder-dist.mjs server && tsc -p tsconfig.json",
+    "dev": "node ../scripts/emonder-dist.mjs server && tsc -p tsconfig.json --watch"
   },
   "dependencies": {
     "@haikodev/shared": "*",
