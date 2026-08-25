@@ -2,6 +2,12 @@ import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   economieMemoire,
+  noteDeQualite,
+  tendancesParJour,
+  resumeDeTendance,
+  JOURS_DE_TENDANCE,
+  JETONS_DE_REFERENCE,
+  SECONDES_DE_REFERENCE,
   COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
   ERREURS_MONTREES_REGLAGES,
@@ -1980,6 +1986,38 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           quotaParJeton: parJeton ?? undefined,
           parCarte: memoireCartes,
         },
+      };
+    }
+
+    /*
+     * LA TÉLÉMÉTRIE DES TÂCHES. Le serveur ne fait que RACCROCHER les mesures
+     * déjà écrites (`telemetrie_tache`) au titre et au projet de leur carte ;
+     * la note de qualité et les courbes de tendance sont des règles PURES
+     * (`shared/src/telemetrie-tache.ts`), donc rejouables sans base.
+     *
+     * Une carte SUPPRIMÉE garde sa ligne : la tâche a bien tourné, et l'effacer
+     * de la moyenne réécrirait l'histoire d'une semaine.
+     */
+    case 'stats.telemetrie': {
+      const jours = Math.max(1, Math.min(90, Math.round(cmd.jours ?? JOURS_DE_TENDANCE)));
+      const titres = new Map<string, { titre: string; projet?: string }>();
+      for (const project of store.listProjects(true)) {
+        for (const card of store.listCards(project.id)) {
+          titres.set(card.id, { titre: card.title, projet: project.name });
+        }
+      }
+      const mesures = store.telemetrieDesTaches(jours).map((mesure) => ({
+        ...mesure,
+        titre: titres.get(mesure.cardId)?.titre,
+        projet: titres.get(mesure.cardId)?.projet,
+      }));
+      return {
+        jours,
+        taches: mesures.map((mesure) => ({ ...mesure, qualite: noteDeQualite(mesure) })),
+        tendances: tendancesParJour(mesures, Date.now(), jours),
+        resume: resumeDeTendance(mesures),
+        /* Les deux références de la note, pour que l'écran puisse dire d'où elle sort. */
+        references: { jetons: JETONS_DE_REFERENCE, secondes: SECONDES_DE_REFERENCE },
       };
     }
 

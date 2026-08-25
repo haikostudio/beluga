@@ -116,6 +116,8 @@ import {
   MESSAGE_ARRET_ACHEVE,
   DELAI_CONFIRMATION_ARRET_MS,
   arretAAchever,
+  noteDeQualite,
+  type IssueDeTache,
 } from '@haikodev/shared';
 import type { DecisionDArret } from '@haikodev/shared';
 import * as store from './store.js';
@@ -2773,6 +2775,53 @@ async function startTurn(
         }),
       });
       bus.emit({ type: 'card.upsert', card: updated });
+    }
+
+    /*
+     * LA TÉLÉMÉTRIE DE LA TÂCHE, ÉCRITE ICI ET NULLE PART AILLEURS.
+     *
+     * C'est le seul endroit où les trois grandeurs sont ensemble : les jetons
+     * réels du moteur (l'événement d'usage, pas une estimation), la durée
+     * machine du tour, et ce que l'agent est allé chercher dans la mémoire.
+     * Ailleurs, chacune vit dans sa table et personne ne peut les recouper.
+     *
+     * UN TOUR = UNE LIGNE. Une carte reprise trois fois en porte trois, que la
+     * lecture additionne : écrire la seule dernière ferait passer une tâche
+     * reprise pour une tâche courte.
+     *
+     * Seuls les agents de TÂCHE sont mesurés : le chef d'orchestre trie des
+     * demandes, il ne fait pas le travail d'une carte, et mêler ses tours
+     * fausserait toutes les moyennes.
+     *
+     * RIEN DE SENSIBLE N'Y ENTRE : des nombres, un identifiant de carte, et les
+     * NOMS des sujets de mémoire ouverts. Aucun texte de demande, de réponse ou
+     * de fait.
+     */
+    if (agent.role === 'task') {
+      try {
+        const memoire = store.consultationsDeLAgent(agent.id);
+        const mesure = {
+          cardId: agent.cardId,
+          projectId: agent.projectId,
+          agentId: agent.id,
+          issue: (failed
+            ? 'echec'
+            : reprise || panneDefinitive
+              ? 'interrompue'
+              : 'terminee') as IssueDeTache,
+          tours: runState.usage?.turns ?? 1,
+          tokensEntree: runState.usage?.inputTokens ?? 0,
+          tokensCache: runState.usage?.cachedTokens ?? 0,
+          tokensSortie: runState.usage?.outputTokens ?? 0,
+          secondes: elapsedSeconds,
+          memoire,
+          at: Date.now(),
+        };
+        store.recordTelemetrieTache({ ...mesure, note: noteDeQualite(mesure).note });
+      } catch (err) {
+        // Une mesure ratée ne fait pas rater un tour : elle se dit et s'oublie.
+        log.error('télémétrie de la tâche impossible', err);
+      }
     }
   }
 

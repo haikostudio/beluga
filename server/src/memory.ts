@@ -960,6 +960,18 @@ export interface DetailProjet {
    * gonflerait l'économie annoncée d'une grandeur qui n'est pas la sienne.
    */
   economie: { entiers: number; servis: number };
+  /**
+   * CE QUE LA DEMANDE A FAIT REMONTER, ET CE QUI EST PARTI — en BLOCS, pas en
+   * signes. Purement OBSERVATIONNEL : ce champ ne change rien à ce qui est
+   * servi, il dit seulement ce qui vient de se passer, pour que la télémétrie
+   * des tâches puisse répondre à « la mémoire a-t-elle rendu quelque chose ? ».
+   *
+   * `demandes` compte tous les blocs qu'une demande a trouvés, `rendus` ceux
+   * réellement envoyés, `rappels` ceux remplacés par une ligne « déjà dans ton
+   * contexte ». Un écart entre les deux premiers n'est pas une perte : c'est
+   * le dédoublonnage de session qui fait son travail.
+   */
+  compte: { demandes: number; rendus: number; rappels: number };
 }
 
 /**
@@ -1025,6 +1037,7 @@ export function detailProjet(
       entiers: utiles.reduce((total, m) => total + (m.poidsEntier ?? m.texte.length), 0),
       servis: utiles.reduce((total, m) => total + m.texte.length, 0),
     },
+    compte: { demandes: morceaux.length, rendus: utiles.length, rappels: rappels.length },
   };
 }
 

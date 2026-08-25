@@ -36,6 +36,10 @@ import {
   jourLocal,
   resumerReleves,
   planEnAttente,
+  JOURS_DE_TENDANCE,
+  type IssueDeTache,
+  type MesureDeMemoire,
+  type MesureDeTache,
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 
@@ -2522,4 +2526,195 @@ export function capacityHistory(): { at: number; loadPct: number; running: numbe
   return getDb()
     .prepare('SELECT at, load_pct AS loadPct, running FROM capacity_samples ORDER BY at')
     .all() as any;
+}
+
+/* ------------------------------------------------------------------ */
+/* Télémétrie des tâches                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE OUVERTURE DE MÉMOIRE, TELLE QU'ELLE S'EST PASSÉE.
+ *
+ * Toutes les ouvertures sont écrites, y compris celles où le tri n'a rien
+ * changé : c'est le RENDEMENT du tri qu'on suit, et une moyenne calculée sur
+ * les seules ouvertures rentables serait flatteuse et fausse.
+ *
+ * `sujet` est un NOM court, déjà ramené à un mot par `nomDeSujetMesure` : ce
+ * qui entre ici ne doit jamais être une phrase de travail.
+ */
+export function recordMemoryConsultation(ligne: {
+  projectId?: string;
+  cardId?: string;
+  agentId?: string;
+  sujet: string;
+  dureeMs: number;
+  blocsDemandes: number;
+  blocsRendus: number;
+  signesEntiers: number;
+  signesServis: number;
+}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO memoire_consultation
+         (project_id, card_id, agent_id, sujet, duree_ms, blocs_demandes, blocs_rendus,
+          signes_entiers, signes_servis, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      ligne.projectId ?? null,
+      ligne.cardId ?? null,
+      ligne.agentId ?? null,
+      ligne.sujet.slice(0, 40),
+      Math.max(0, Math.round(ligne.dureeMs)),
+      Math.max(0, Math.round(ligne.blocsDemandes)),
+      Math.max(0, Math.round(ligne.blocsRendus)),
+      Math.max(0, Math.round(ligne.signesEntiers)),
+      Math.max(0, Math.round(ligne.signesServis)),
+      now(),
+    );
+}
+
+/** Ce que cet agent est allé chercher dans la mémoire, tout compté. */
+export function consultationsDeLAgent(agentId: string): MesureDeMemoire {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS ouvertures, COALESCE(SUM(duree_ms), 0) AS ms,
+              COALESCE(SUM(blocs_demandes), 0) AS demandes, COALESCE(SUM(blocs_rendus), 0) AS rendus,
+              COALESCE(SUM(signes_entiers), 0) AS entiers, COALESCE(SUM(signes_servis), 0) AS servis
+       FROM memoire_consultation WHERE agent_id = ?`,
+    )
+    .get(agentId) as {
+    ouvertures: number;
+    ms: number;
+    demandes: number;
+    rendus: number;
+    entiers: number;
+    servis: number;
+  };
+  const sujets = getDb()
+    .prepare(
+      `SELECT sujet FROM memoire_consultation WHERE agent_id = ? GROUP BY sujet ORDER BY MIN(created_at)`,
+    )
+    .all(agentId) as { sujet: string }[];
+  return {
+    ouvertures: row.ouvertures,
+    millisecondes: row.ms,
+    sujets: sujets.map((s) => s.sujet),
+    demandes: row.demandes,
+    rendus: row.rendus,
+    signesEntiers: row.entiers,
+    signesServis: row.servis,
+  };
+}
+
+/**
+ * LA MESURE D'UN TOUR DE TÂCHE, ÉCRITE UNE FOIS LE TOUR FINI.
+ *
+ * Une carte reprise trois fois porte trois lignes : la lecture les additionne.
+ * Écrire la seule dernière ferait passer une tâche reprise pour une tâche
+ * courte, et c'est précisément ce qu'on cherche à mesurer.
+ */
+export function recordTelemetrieTache(ligne: {
+  cardId: string;
+  projectId?: string;
+  agentId?: string;
+  issue: IssueDeTache;
+  tours: number;
+  tokensEntree: number;
+  tokensCache: number;
+  tokensSortie: number;
+  secondes: number;
+  memoire: MesureDeMemoire;
+  note: number;
+}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO telemetrie_tache
+         (card_id, project_id, agent_id, issue, tours, tokens_entree, tokens_cache, tokens_sortie,
+          secondes, memoire_ouvertures, memoire_ms, memoire_sujets, memoire_demandes, memoire_rendus,
+          memoire_signes_entiers, memoire_signes_servis, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      ligne.cardId,
+      ligne.projectId ?? null,
+      ligne.agentId ?? null,
+      ligne.issue,
+      Math.max(0, Math.round(ligne.tours)),
+      Math.max(0, Math.round(ligne.tokensEntree)),
+      Math.max(0, Math.round(ligne.tokensCache)),
+      Math.max(0, Math.round(ligne.tokensSortie)),
+      Math.max(0, ligne.secondes),
+      Math.max(0, Math.round(ligne.memoire.ouvertures)),
+      Math.max(0, Math.round(ligne.memoire.millisecondes)),
+      JSON.stringify(ligne.memoire.sujets.slice(0, 20)),
+      Math.max(0, Math.round(ligne.memoire.demandes)),
+      Math.max(0, Math.round(ligne.memoire.rendus)),
+      Math.max(0, Math.round(ligne.memoire.signesEntiers)),
+      Math.max(0, Math.round(ligne.memoire.signesServis)),
+      Math.max(0, Math.min(100, Math.round(ligne.note))),
+      now(),
+    );
+}
+
+/**
+ * LES TÂCHES MESURÉES DE LA FENÊTRE, une ligne par CARTE — les tours d'une même
+ * carte sont additionnés, ses sujets de mémoire réunis sans doublon.
+ *
+ * L'ISSUE retenue est la PIRE des tours : une tâche qui a échoué puis été
+ * reprise reste une tâche qui a échoué en route, et l'afficher « terminée »
+ * effacerait le fait le plus utile de la ligne.
+ */
+export function telemetrieDesTaches(jours = JOURS_DE_TENDANCE): MesureDeTache[] {
+  const depuis = depuisJours(jours);
+  const lignes = getDb()
+    .prepare(
+      `SELECT card_id AS cardId, project_id AS projectId,
+              SUM(tours) AS tours, SUM(tokens_entree) AS tokensEntree, SUM(tokens_cache) AS tokensCache,
+              SUM(tokens_sortie) AS tokensSortie, SUM(secondes) AS secondes,
+              SUM(memoire_ouvertures) AS ouvertures, SUM(memoire_ms) AS ms,
+              SUM(memoire_demandes) AS demandes, SUM(memoire_rendus) AS rendus,
+              SUM(memoire_signes_entiers) AS entiers, SUM(memoire_signes_servis) AS servis,
+              MAX(created_at) AS at,
+              MIN(CASE issue WHEN 'echec' THEN 0 WHEN 'interrompue' THEN 1 ELSE 2 END) AS rang
+       FROM telemetrie_tache WHERE created_at >= ?
+       GROUP BY card_id ORDER BY at DESC`,
+    )
+    .all(depuis) as any[];
+  const sujetsParCarte = getDb()
+    .prepare(
+      `SELECT card_id AS cardId, memoire_sujets AS sujets FROM telemetrie_tache
+       WHERE created_at >= ? ORDER BY created_at ASC`,
+    )
+    .all(depuis) as { cardId: string; sujets: string | null }[];
+  const reunis = new Map<string, string[]>();
+  for (const ligne of sujetsParCarte) {
+    let liste: string[] = [];
+    try {
+      const brut = ligne.sujets ? JSON.parse(ligne.sujets) : [];
+      if (Array.isArray(brut)) liste = brut.filter((s) => typeof s === 'string');
+    } catch {
+      liste = [];
+    }
+    reunis.set(ligne.cardId, [...new Set([...(reunis.get(ligne.cardId) ?? []), ...liste])]);
+  }
+  return lignes.map((ligne) => ({
+    cardId: ligne.cardId,
+    issue: (ligne.rang === 0 ? 'echec' : ligne.rang === 1 ? 'interrompue' : 'terminee') as IssueDeTache,
+    tours: ligne.tours ?? 0,
+    tokensEntree: ligne.tokensEntree ?? 0,
+    tokensCache: ligne.tokensCache ?? 0,
+    tokensSortie: ligne.tokensSortie ?? 0,
+    secondes: ligne.secondes ?? 0,
+    memoire: {
+      ouvertures: ligne.ouvertures ?? 0,
+      millisecondes: ligne.ms ?? 0,
+      sujets: reunis.get(ligne.cardId) ?? [],
+      demandes: ligne.demandes ?? 0,
+      rendus: ligne.rendus ?? 0,
+      signesEntiers: ligne.entiers ?? 0,
+      signesServis: ligne.servis ?? 0,
+    },
+    at: ligne.at ?? 0,
+  }));
 }

@@ -48,6 +48,7 @@ import {
   raisonDuRefus,
   type ProjetDeLaColonne,
   momentDuCreneau,
+  nomDeSujetMesure,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { createProjectFolder, sourceDHeritageDuProjet } from './projects.js';
@@ -1298,14 +1299,42 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * le chef d'orchestre —, rien ne change : le sujet part entier.
        */
       const carte = ctx.cardId ? store.getCard(ctx.cardId) : null;
+      const demande = String(args.sujet ?? '');
+      /*
+       * LE CHRONOMÈTRE DE L'OUVERTURE. Une descente dans l'arbre lit des
+       * fichiers, filtre, recolle : on ne savait pas si cela coûtait trois
+       * millisecondes ou trois cents, donc on ne pouvait pas dire si les
+       * cinquante minutes d'une tâche venaient de là. Il ne mesure QUE l'appel,
+       * jamais l'écriture qui suit.
+       */
+      const debutMemoire = Date.now();
       const servi = detailProjet(
         project.path,
-        String(args.sujet ?? ''),
+        demande,
         store.sujetsMemoireServis(ctx.agentId),
         sourceDHeritageDuProjet(project),
         carte ? `${carte.title}\n${carte.description}` : '',
       );
+      const dureeMemoire = Date.now() - debutMemoire;
       store.marquerSujetsMemoireServis(ctx.agentId, servi.servis);
+      /*
+       * LA TÉLÉMÉTRIE DE L'OUVERTURE, à côté de l'économie et sans la remplacer.
+       * TOUTES les ouvertures sont écrites ici, y compris celles où le tri n'a
+       * rien évité : le rendement du tri se juge sur l'ensemble, pas sur les
+       * seules ouvertures rentables. Ce qui est rangé n'est que du CHIFFRE et un
+       * NOM de sujet ramené à un mot — jamais la demande, jamais le texte rendu.
+       */
+      store.recordMemoryConsultation({
+        projectId: project.id,
+        cardId: ctx.cardId,
+        agentId: ctx.agentId,
+        sujet: nomDeSujetMesure(demande),
+        dureeMs: dureeMemoire,
+        blocsDemandes: servi.compte.demandes,
+        blocsRendus: servi.compte.rendus,
+        signesEntiers: servi.economie.entiers,
+        signesServis: servi.economie.servis,
+      });
       /*
        * CE QUE LE TRI VIENT D'ÉVITER D'ENVOYER, RELEVÉ ICI ET NULLE PART
        * AILLEURS. La mémoire ne connaît ni base ni carte : elle rend les deux

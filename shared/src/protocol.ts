@@ -663,6 +663,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.parcours'), cardId: z.string() }),
   /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
   z.object({ type: z.literal('stats.dashboard') }),
+  /**
+   * LA TÉLÉMÉTRIE DES TÂCHES : une mesure par tâche (jetons réels, sujets de
+   * mémoire ouverts et leur temps, blocs demandés contre rendus, note de
+   * qualité) et les courbes de tendance de la fenêtre
+   * (`shared/src/telemetrie-tache.ts`). Demandée à part du tableau de bord :
+   * c'est une autre fenêtre de temps, et elle n'a pas à ralentir le reste.
+   */
+  z.object({ type: z.literal('stats.telemetrie'), jours: z.number().optional() }),
   z.object({ type: z.literal('memory.get'), projectId: z.string() }),
   /**
    * Les commandes « / » réellement présentes sur le disque, moteur par moteur

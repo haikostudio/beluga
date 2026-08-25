@@ -1028,6 +1028,72 @@ const MIGRATIONS: {
       CREATE INDEX idx_messages_a_questions ON messages(a_questions) WHERE a_questions = 1;
     `,
   },
+  {
+    id: 36,
+    name: 'telemetrie-des-taches',
+    // LA TÉLÉMÉTRIE COMPLÈTE D'UNE TÂCHE, EN DEUX TABLES.
+    //
+    // Trois grandeurs vivaient chacune dans son coin — les jetons dans `usage`,
+    // le tri de la mémoire dans `memoire_economie`, la durée dans la carte — et
+    // aucune ne se lisait à côté des autres. Personne ne pouvait donc répondre à
+    // « pourquoi cette tâche a-t-elle pris cinquante minutes ? ».
+    //
+    // `memoire_consultation` : UNE LIGNE PAR OUVERTURE de `project_memory`,
+    // TOUTES les ouvertures, y compris celles où le tri n'a rien changé —
+    // c'est justement le rendement du tri qu'on veut suivre. Elle ne remplace
+    // pas `memoire_economie`, qui garde son mois d'historique et ses règles à
+    // elle : ajouter ici des lignes à économie nulle aurait changé sous les
+    // yeux du lecteur des pourcentages déjà affichés.
+    //
+    // `telemetrie_tache` : UNE LIGNE PAR TOUR TERMINÉ d'un agent de tâche. Une
+    // carte reprise trois fois porte trois lignes, que la lecture additionne :
+    // c'est la seule façon d'avoir la mesure du travail RÉEL et non celle du
+    // dernier tour.
+    //
+    // AUCUN CONTENU N'ENTRE ICI : des nombres, un identifiant, et les NOMS des
+    // sujets de mémoire ouverts. Jamais un texte de fait, jamais une demande.
+    sql: `
+      CREATE TABLE IF NOT EXISTS memoire_consultation (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id TEXT,
+        card_id TEXT,
+        agent_id TEXT,
+        sujet TEXT NOT NULL,
+        duree_ms INTEGER NOT NULL,
+        blocs_demandes INTEGER NOT NULL,
+        blocs_rendus INTEGER NOT NULL,
+        signes_entiers INTEGER NOT NULL,
+        signes_servis INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memoire_consultation_agent ON memoire_consultation(agent_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_memoire_consultation_carte ON memoire_consultation(card_id);
+
+      CREATE TABLE IF NOT EXISTS telemetrie_tache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_id TEXT NOT NULL,
+        project_id TEXT,
+        agent_id TEXT,
+        issue TEXT NOT NULL,
+        tours INTEGER NOT NULL DEFAULT 0,
+        tokens_entree INTEGER NOT NULL DEFAULT 0,
+        tokens_cache INTEGER NOT NULL DEFAULT 0,
+        tokens_sortie INTEGER NOT NULL DEFAULT 0,
+        secondes REAL NOT NULL DEFAULT 0,
+        memoire_ouvertures INTEGER NOT NULL DEFAULT 0,
+        memoire_ms INTEGER NOT NULL DEFAULT 0,
+        memoire_sujets TEXT,
+        memoire_demandes INTEGER NOT NULL DEFAULT 0,
+        memoire_rendus INTEGER NOT NULL DEFAULT 0,
+        memoire_signes_entiers INTEGER NOT NULL DEFAULT 0,
+        memoire_signes_servis INTEGER NOT NULL DEFAULT 0,
+        note INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_telemetrie_date ON telemetrie_tache(created_at);
+      CREATE INDEX IF NOT EXISTS idx_telemetrie_carte ON telemetrie_tache(card_id);
+    `,
+  },
 ];
 
 export function openDb(): DB {

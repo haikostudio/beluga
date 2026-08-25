@@ -153,6 +153,7 @@ export * from './sous-domaine-projet.js';
 export * from './suivi-branche-carte.js';
 export * from './suivi-colonne.js';
 export * from './taches-fin-de-tour.js';
+export * from './telemetrie-tache.js';
 export * from './templates.js';
 export * from './themes.js';
 export * from './langues.js';
