@@ -2311,39 +2311,11 @@ export function usageByDay(days = 30): { day: string; tokens: number; seconds: n
 }
 
 /**
- * La consommation par CARTE : une ligne par carte ayant vraiment dépensé du
- * quota (jetons, secondes machine, nombre de tours) ET les deux parts de quota
- * MESURÉES — fenêtre de 5 h, fenêtre de la semaine — sommées depuis les mêmes
- * lignes que `usageQuotaByCard`. Le classement suit la part de SEMAINE
- * décroissante (les jetons ne départagent plus qu'à égalité). Les deux parts
- * sont en POINTS DE POURCENTAGE, jamais en fraction. Le titre de la carte se
- * raccroche côté appelant — ici on ne connaît que les identifiants.
- */
-export function usageByCard(): {
-  cardId: string;
-  tokens: number;
-  seconds: number;
-  turns: number;
-  quota5h: number;
-  quotaSemaine: number;
-}[] {
-  return getDb()
-    .prepare(
-      `SELECT card_id AS cardId, SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(*) AS turns,
-              COALESCE(SUM(quota_5h), 0) AS quota5h,
-              COALESCE(SUM(quota_semaine), 0) AS quotaSemaine
-       FROM usage WHERE card_id IS NOT NULL
-       GROUP BY card_id ORDER BY SUM(quota_semaine) DESC, SUM(tokens) DESC`,
-    )
-    .all() as any;
-}
-
-/**
  * L'HISTORIQUE DES TÂCHES EXÉCUTÉES : une ligne par TOUR réellement parti
  * (`recordUsage` écrit une ligne à la fin de chaque tour d'agent), la plus
  * récente d'abord. `inputTokens` / `outputTokens` sont le DÉTAIL réel du
  * tour tel que le moteur l'a rendu — jamais une estimation. Le titre de la
- * carte se raccroche côté appelant, comme pour `usageByCard`.
+ * carte se raccroche côté appelant, comme pour les autres vues d'usage.
  */
 export function usageHistorique(limit = 30): {
   cardId: string;
