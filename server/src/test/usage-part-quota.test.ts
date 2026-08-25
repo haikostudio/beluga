@@ -78,58 +78,38 @@ test('une carte sans aucun relevé rend deux zéros, pas un null', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* La VUE D'ENSEMBLE : usageByCard remonte les deux parts, et classe    */
-/* sur la part de SEMAINE                                               */
+/* L'HISTORIQUE DES TÂCHES, tous projets confondus, la plus récente     */
+/* d'abord, avec ses jetons d'entrée et de sortie RÉELS                 */
 /* ------------------------------------------------------------------ */
 
-test('usageByCard somme les deux parts de quota et classe sur la semaine', () => {
-  // Une carte peu gourmande en jetons mais lourde sur la semaine, et l'inverse :
-  // le classement doit suivre la SEMAINE, pas les jetons.
+test('usageHistorique rend les tours les plus récents en premier, avec leurs jetons réels', () => {
   store.recordUsage({
-    cardId: 'carte-semaine-lourde',
+    cardId: 'carte-historique-1',
     account: 'compte-a',
     engine: 'claude',
-    tokens: 500,
-    quota5h: partQuotaConsommee(1, 1.5),
-    quotaSemaine: partQuotaConsommee(20, 28),
-    seconds: 10,
+    tokens: 1500,
+    inputTokens: 1000,
+    outputTokens: 500,
+    seconds: 12,
   });
   store.recordUsage({
-    cardId: 'carte-jetons-lourds',
+    cardId: 'carte-historique-2',
     account: 'compte-a',
     engine: 'claude',
-    tokens: 900000,
-    quota5h: partQuotaConsommee(1, 4),
-    quotaSemaine: partQuotaConsommee(20, 21),
-    seconds: 900,
+    tokens: 3000,
+    inputTokens: 2000,
+    outputTokens: 1000,
+    seconds: 20,
   });
 
-  const lignes = store.usageByCard();
-  const parId = new Map(lignes.map((l) => [l.cardId, l]));
-
-  // Les sommes des deux colonnes remontent bien, carte par carte.
-  const lourde = parId.get('carte-semaine-lourde')!;
-  assert.ok(Math.abs(lourde.quotaSemaine - 8) < 1e-6, 'la part de semaine sommée est attendue');
-  assert.ok(Math.abs(lourde.quota5h - 0.5) < 1e-6, 'la part de 5 h sommée est attendue');
-
-  // La carte des deux tours du premier test totalise les mêmes chiffres que
-  // `usageQuotaByCard` : une seule vérité, deux lectures.
-  const parCarte = store.usageQuotaByCard('carte-essai-1');
-  const dansLaVue = parId.get('carte-essai-1')!;
-  assert.ok(Math.abs(dansLaVue.quota5h - parCarte.quota5h) < 1e-6);
-  assert.ok(Math.abs(dansLaVue.quotaSemaine - parCarte.quotaSemaine) < 1e-6);
-
-  // Le classement : la plus gourmande de la SEMAINE d'abord, même si une autre
-  // carte a brûlé mille fois plus de jetons.
-  const rangs = lignes.map((l) => l.cardId);
-  assert.ok(
-    rangs.indexOf('carte-semaine-lourde') < rangs.indexOf('carte-jetons-lourds'),
-    'la carte la plus lourde sur la semaine passe devant celle qui a le plus de jetons',
-  );
-  // Et la liste est bien décroissante sur la part de semaine.
-  for (let i = 1; i < lignes.length; i++) {
-    assert.ok(lignes[i - 1].quotaSemaine >= lignes[i].quotaSemaine, 'liste décroissante sur la part de semaine');
-  }
+  const lignes = store.usageHistorique(30);
+  // Le tour le plus récent (carte-historique-2, écrit en second) arrive en tête.
+  assert.equal(lignes[0].cardId, 'carte-historique-2');
+  assert.equal(lignes[0].inputTokens, 2000);
+  assert.equal(lignes[0].outputTokens, 1000);
+  assert.equal(lignes[1].cardId, 'carte-historique-1');
+  assert.equal(lignes[1].inputTokens, 1000);
+  assert.equal(lignes[1].outputTokens, 500);
 });
 
 /* ------------------------------------------------------------------ */

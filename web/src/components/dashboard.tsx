@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowLeft, Clock, Gauge, ListChecks, Scissors, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Clock, Gauge, History, ListChecks, TrendingUp } from 'lucide-react';
 import { couleurIntensite } from '@haikodev/shared';
 import { Button, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -10,41 +10,20 @@ import { t, formatRegional } from '@/lib/langue';
 type DonneesTableau = {
   byProject: { projectId: string; name?: string; tokens: number; seconds: number; tasks: number }[];
   byDay: { day: string; tokens: number; seconds: number; tasks: number }[];
-  byCard: {
+  /**
+   * L'HISTORIQUE DES TÂCHES EXÉCUTÉES, la plus récente d'abord : une ligne par
+   * tour réellement parti, avec ses jetons d'entrée et de sortie RÉELS —
+   * jamais une estimation.
+   */
+  historique: {
     cardId: string;
     title: string;
     projectName?: string;
-    column?: string;
-    /** MESURÉ, en points de pourcentage : ce que la carte a réellement pris. 0 = aucun relevé. */
-    quota5h: number;
-    quotaSemaine: number;
-    /** ESTIMÉ à la validation, en fraction (0,12) — jamais mélangé au mesuré. */
-    quotaEstime?: number;
+    at: number;
+    inputTokens: number;
+    outputTokens: number;
     tokens: number;
-    seconds: number;
-    turns: number;
   }[];
-  /**
-   * CE QUE LE TRI DE LA MÉMOIRE A ÉCONOMISÉ SUR LA FENÊTRE. Les parts sont des
-   * fractions (0,95 = 95 %) ; `quotaEvite` est en POINTS DE POURCENTAGE de
-   * quota de la semaine, comme le reste de la page, et reste absent tant que le
-   * rapport jetons → quota n'a pas été relevé sur de vrais tours.
-   */
-  memoire?: {
-    jours: number;
-    ouvertures: number;
-    cartes: number;
-    part: number;
-    quotaEvite?: number;
-    parCarte: {
-      cardId: string;
-      title: string;
-      projectName?: string;
-      ouvertures: number;
-      part: number;
-      quotaEvite?: number;
-    }[];
-  };
 };
 
 /** Secondes machine → « 3 h 20 » ou « 12 min », lisible d'un coup d'œil. */
@@ -74,34 +53,15 @@ function jourEnClair(jour: string): string {
   return date.toLocaleDateString(formatRegional(), { day: 'numeric', month: 'short' });
 }
 
-/**
- * Une part de quota ESTIMÉE, notée en fraction (0,42) OU déjà en pourcent (42)
- * → « 42 % ». L'échelle des estimations anciennes n'est pas garantie, d'où ce
- * rattrapage ; il ne vaut QUE pour l'estimation.
- */
-function partEnClair(part: number): string {
-  const pourcent = part <= 1 ? part * 100 : part;
-  return `${pourcent.toFixed(pourcent < 10 ? 1 : 0)} %`;
-}
-
-/**
- * Une part de quota MESURÉE : toujours en points de pourcentage (c'est ce que
- * la base range), donc aucune conversion — 0,5 vaut bien un demi-pourcent, et
- * non 50 %. Deux décimales sous 1 %, pour qu'une petite tâche ne s'affiche pas
- * « 0 % ».
- */
-function pourcentEnClair(part: number): string {
-  if (part < 1) return `${part.toFixed(2)} %`;
-  return `${part.toFixed(part < 10 ? 1 : 0)} %`;
-}
-
-/**
- * Une part écrite en FRACTION (0,95) → « 95 % ». À ne pas confondre avec
- * `pourcentEnClair`, qui reçoit déjà des points de pourcentage.
- */
-function fractionEnClair(part: number): string {
-  const pourcent = part * 100;
-  return `${pourcent.toFixed(pourcent < 10 && pourcent > 0 ? 1 : 0)} %`;
+/** Un horodatage (ms) → « 4 août, 15:27 », dans le format régional de la langue en vigueur. */
+function dateHeureEnClair(at: number): string {
+  const date = new Date(at);
+  return date.toLocaleString(formatRegional(), {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 /** Une grande tuile de chiffre, en tête de page. */
@@ -208,23 +168,9 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
   const maxProjet = Math.max(1, ...byProject.map((p) => p.seconds ?? 0));
   // Les jours arrivent du plus récent au plus ancien : la courbe se lit à l'endroit.
   const jours = [...(donnees?.byDay ?? [])].reverse();
-  // Les cartes se rangent en deux tas, jamais mélangés : celles dont la part de
-  // quota a été MESURÉE (classées par la part de SEMAINE décroissante — ce que
-  // la ligne affiche en tête, et ce que le serveur trie déjà), et les anciennes
-  // sans le moindre relevé, qui le disent au lieu d'afficher un zéro trompeur.
-  const toutesLesCartes = donnees?.byCard ?? [];
-  const cartesMesurees = toutesLesCartes
-    .filter((c) => (c.quotaSemaine ?? 0) > 0 || (c.quota5h ?? 0) > 0)
-    .sort((a, b) => (b.quotaSemaine ?? 0) - (a.quotaSemaine ?? 0));
-  const cartesSansReleve = toutesLesCartes.filter((c) => !((c.quotaSemaine ?? 0) > 0 || (c.quota5h ?? 0) > 0));
-  const totalSemaine = cartesMesurees.reduce((total, c) => total + (c.quotaSemaine ?? 0), 0);
-  const total5h = cartesMesurees.reduce((total, c) => total + (c.quota5h ?? 0), 0);
-  // La barre se mesure au plus gros consommateur de la SEMAINE : même grandeur
-  // que le classement, donc elle décroît du haut vers le bas.
-  const maxSemaine = Math.max(0.0001, ...cartesMesurees.map((c) => c.quotaSemaine ?? 0));
-  // Ce que le tri de la mémoire a évité d'envoyer sur la fenêtre. Absent d'une
-  // base qui n'a rien relevé : le bloc le dit au lieu d'afficher un zéro.
-  const memoire = donnees?.memoire;
+  // Déjà trié récent d'abord côté serveur ; le tri se refait ici pour ne
+  // dépendre de rien d'autre que les dates reçues.
+  const historique = [...(donnees?.historique ?? [])].sort((a, b) => b.at - a.at);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg">
@@ -300,160 +246,44 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
             )}
           </section>
 
-          {/* 4. La part de quota par carte (dépend de la carte précédente). */}
-          <section className="rounded-lg border border-border bg-surface px-3 py-3">
+          {/* 4. L'historique des tâches exécutées, la plus récente d'abord. */}
+          <section className="rounded-lg border border-border bg-surface px-3 py-3" data-historique-taches>
             <h2 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <Gauge className="h-3.5 w-3.5 text-faint" />  {t('Part de quota par carte')}
+              <History className="h-3.5 w-3.5 text-faint" />  {t('Historique des tâches')}
 </h2>
             <p className="mb-2 mt-0.5 text-[12.5px] text-faint">
-              {t('La part de quota que chaque tâche a réellement consommée : la semaine en tête, la fenêtre de 5 h juste après. Les tâches sont classées de la plus gourmande à la moins gourmande sur la semaine.')}</p>
-            {cartesMesurees.length ? (
-              <>
-                {/* Le total de la période, rappelé AU-DESSUS de la liste. */}
-                <p className="mb-2 text-[12.5px] text-text" data-total-quota>
-                  
-{t('Total mesuré sur la période :')}{' '}
-                  <span className="font-semibold">{t('{v0} du quota de la semaine', { v0: pourcentEnClair(totalSemaine) })}</span>
-                  {' · '}
-                  {pourcentEnClair(total5h)}  {t('de fenêtres de 5 h, sur')} {cartesMesurees.length}  {t('tâche')}
-{cartesMesurees.length > 1 ? 's' : ''}
-                </p>
-                <div className="space-y-1.5">
-                  {cartesMesurees.slice(0, 20).map((carte) => (
-                    <div
-                      key={carte.cardId}
-                      className="rounded-md border border-border bg-bg px-2 py-1.5"
-                      data-quota-carte
-                      data-quota-semaine={carte.quotaSemaine}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] text-text">{carte.title}</p>
-                          <p className="truncate text-[11px] text-faint">
-                            {carte.projectName ?? t('Projet retiré')} · {dureeEnClair(carte.seconds)}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
-                            {t('{v0} semaine', { v0: pourcentEnClair(carte.quotaSemaine ?? 0) })}
-                          </span>
-                          <p className="mt-0.5 text-[11px] text-faint">{t('{v0} sur 5 h', { v0: pourcentEnClair(carte.quota5h ?? 0) })}</p>
-                        </div>
-                      </div>
-                      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raised">
-                        <div
-                          className="h-full rounded-full"
-                          data-barre-carte={carte.cardId}
-                          style={{
-                            width: `${Math.round(((carte.quotaSemaine ?? 0) / maxSemaine) * 100)}%`,
-                            backgroundColor: couleurIntensite(carte.quotaSemaine ?? 0, maxSemaine),
-                          }}
-                        />
-                      </div>
+              {t('Chaque tâche exécutée, avec ses jetons d\'entrée et de sortie réels, la plus récente en tête.')}</p>
+            {historique.length ? (
+              <div className="space-y-1.5">
+                {historique.slice(0, 20).map((ligne, index) => (
+                  <div
+                    key={`${ligne.cardId}-${ligne.at}-${index}`}
+                    className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5"
+                    data-tache-historique={ligne.cardId}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] text-text">{ligne.title}</p>
+                      <p className="truncate text-[11px] text-faint">
+                        {ligne.projectName ?? t('Projet retiré')} · {dateHeureEnClair(ligne.at)}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="text-[13px] text-faint">
-                {t('Aucune tâche ne porte encore de part de quota mesurée. Ce bloc se remplira à mesure que de nouvelles tâches s\'exécutent.')}</p>
-            )}
-
-            {/* Les tâches sans le moindre relevé : dites, jamais chiffrées à zéro. */}
-            {cartesSansReleve.length ? (
-              <div className="mt-3 border-t border-border pt-2">
-                <p className="text-[12px] text-faint">
-                  {t('{v0} tâche{v1} sans relevé de quota — la mesure est récente, les tâches plus anciennes n\'en portent pas.', { v0: cartesSansReleve.length, v1: cartesSansReleve.length > 1 ? 's' : '' })}</p>
-                <div className="mt-1 space-y-0.5">
-                  {cartesSansReleve.slice(0, 5).map((carte) => (
-                    <div
-                      key={carte.cardId}
-                      className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1"
-                      data-quota-sans-releve
-                    >
-                      <p className="min-w-0 flex-1 truncate text-[12.5px] text-faint">{carte.title}</p>
-                      <span className="shrink-0 text-[11px] text-faint">
-                        {carte.quotaEstime != null
-                          ? t('{v0} estimés, jamais mesurés', { v0: partEnClair(carte.quotaEstime) })
-                          : t('pas de relevé')}
+                    <div className="shrink-0 text-right">
+                      <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
+                        {t('{v0} jetons', { v0: ligne.tokens.toLocaleString(formatRegional()) })}
                       </span>
+                      <p className="mt-0.5 text-[11px] text-faint">
+                        {t('{v0} entrée · {v1} sortie', {
+                          v0: ligne.inputTokens.toLocaleString(formatRegional()),
+                          v1: ligne.outputTokens.toLocaleString(formatRegional()),
+                        })}
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </section>
-
-          {/* 5. Ce que le tri de la mémoire a évité d'envoyer, sur le mois. */}
-          <section className="rounded-lg border border-border bg-surface px-3 py-3" data-economie-memoire>
-            <h2 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <Scissors className="h-3.5 w-3.5 text-faint" />  {t('Mémoire évitée par le tri')}
-</h2>
-            <p className="mb-2 mt-0.5 text-[12.5px] text-faint">
-              {t('Un sujet de mémoire n\'est plus envoyé en entier : seuls les passages qui parlent du travail de la carte partent. Voici ce que ce tri a évité d\'envoyer sur les {v0} derniers jours.', { v0: memoire?.jours ?? 30 })}</p>
-
-            {memoire && memoire.ouvertures ? (
-              <>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <Tuile
-                    icone={<Scissors className="h-3.5 w-3.5" />}
-                    titre={t('Mémoire non envoyée')}
-                    valeur={fractionEnClair(memoire.part)}
-                    dessous={t('sur {v0} ouverture{v1} de mémoire, {v2} carte{v3}', {
-                      v0: memoire.ouvertures,
-                      v1: memoire.ouvertures > 1 ? 's' : '',
-                      v2: memoire.cartes,
-                      v3: memoire.cartes > 1 ? 's' : '',
-                    })}
-                  />
-                  <Tuile
-                    icone={<Gauge className="h-3.5 w-3.5" />}
-                    titre={t('Quota de semaine épargné')}
-                    valeur={memoire.quotaEvite != null ? pourcentEnClair(memoire.quotaEvite) : '—'}
-                    dessous={
-                      memoire.quotaEvite != null
-                        ? t('déduit de la consommation réellement relevée sur la période')
-                        : t('aucune consommation relevée : la part de quota ne se déduit pas encore')
-                    }
-                  />
-                </div>
-
-                {memoire.parCarte.length ? (
-                  <div className="mt-3 space-y-1.5">
-                    {memoire.parCarte.slice(0, 20).map((carte) => (
-                      <div
-                        key={carte.cardId}
-                        className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5"
-                        data-economie-carte={carte.cardId}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] text-text">{carte.title}</p>
-                          <p className="truncate text-[11px] text-faint">
-                            {carte.projectName ?? t('Projet retiré')} ·{' '}
-                            {t('{v0} ouverture{v1}', { v0: carte.ouvertures, v1: carte.ouvertures > 1 ? 's' : '' })}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
-                            {t('{v0} évités', { v0: fractionEnClair(carte.part) })}
-                          </span>
-                          {carte.quotaEvite != null ? (
-                            <p className="mt-0.5 text-[11px] text-faint">
-                              {t('{v0} de quota', { v0: pourcentEnClair(carte.quotaEvite) })}
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
                   </div>
-                ) : (
-                  <p className="mt-2 text-[13px] text-faint">
-                    {t('Aucune carte ne porte encore d\'économie : les ouvertures relevées viennent de conversations.')}</p>
-                )}
-              </>
+                ))}
+              </div>
             ) : (
               <p className="text-[13px] text-faint">
-                {t('Rien de relevé pour l\'instant. Ce bloc se remplit à chaque fois qu\'un agent ouvre la mémoire du projet.')}</p>
+                {t('Aucune tâche exécutée pour l\'instant. Ce bloc se remplira à mesure que des tâches s\'exécutent.')}</p>
             )}
           </section>
         </div>

@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  economieMemoire,
   COLONNES_HORS_REPRISE,
   COLUMN_LABELS,
   ERREURS_MONTREES_REGLAGES,
@@ -1902,84 +1901,39 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     }
 
     case 'stats.dashboard': {
-      // Le titre, le projet et la colonne d'une carte vivent dans son JSON, pas
-      // dans la table `usage` : on raccroche la conso par carte aux cartes de
-      // tous les projets (archivés compris — une conso passée garde son nom).
-      const cartes = new Map<string, { title: string; projectName?: string; column: string; quotaEstime?: number }>();
+      // Le titre et le projet d'une carte vivent dans son JSON, pas dans la
+      // table `usage` : on raccroche la conso par carte aux cartes de tous les
+      // projets (archivés compris — une conso passée garde son nom).
+      const cartes = new Map<string, { title: string; projectName?: string }>();
       for (const project of store.listProjects(true)) {
         for (const card of store.listCards(project.id)) {
-          cartes.set(card.id, {
-            title: card.title,
-            projectName: project.name,
-            column: card.column,
-            // L'ESTIMATION faite à la validation, et rien d'autre : la part
-            // réellement consommée vient des lignes `usage` (quota5h /
-            // quotaSemaine ci-dessous), jamais du JSON de la carte. Les deux
-            // voyagent séparément pour ne plus être confondues à l'écran.
-            quotaEstime: card.estimate?.quotaShare,
-          });
+          cartes.set(card.id, { title: card.title, projectName: project.name });
         }
       }
-      const byCard = store.usageByCard().map((ligne) => {
+      /*
+       * L'HISTORIQUE DES TÂCHES EXÉCUTÉES, la plus récente d'abord : une ligne
+       * par tour réellement parti, avec ses jetons d'entrée et de sortie RÉELS
+       * (`store.usageHistorique`, colonnes `input_tokens` / `output_tokens` —
+       * jamais une estimation). Le titre et le projet se raccrochent à la même
+       * carte `cartes` que ci-dessus ; une carte retirée garde sa ligne.
+       */
+      const historique = store.usageHistorique(30).map((ligne) => {
         const carte = cartes.get(ligne.cardId);
         return {
           cardId: ligne.cardId,
           title: carte?.title ?? 'Carte retirée',
           projectName: carte?.projectName,
-          column: carte?.column,
-          // Mesuré, en points de pourcentage. 0 = aucun relevé (tâche ancienne).
-          quota5h: ligne.quota5h,
-          quotaSemaine: ligne.quotaSemaine,
-          quotaEstime: carte?.quotaEstime,
+          at: ligne.at,
+          inputTokens: ligne.inputTokens,
+          outputTokens: ligne.outputTokens,
           tokens: ligne.tokens,
-          seconds: ligne.seconds,
-          turns: ligne.turns,
         };
       });
-      /*
-       * CE QUE LE TRI DE LA MÉMOIRE A ÉCONOMISÉ SUR LE MOIS, CARTE PAR CARTE.
-       *
-       * Les deux poids sont relevés à chaque ouverture de mémoire
-       * (`store.recordMemoryEconomy`) ; le rapport jetons → quota est DÉDUIT de
-       * la consommation réelle de la même fenêtre, jamais supposé. Une carte
-       * dont le titre a disparu garde sa ligne : l'économie a bien eu lieu.
-       */
-      const parJeton = store.quotaParJeton();
-      const memoireCartes = store
-        .memoryEconomyByCard()
-        .map((ligne) => {
-          const calcul = economieMemoire(ligne.entiers, ligne.servis, parJeton);
-          return {
-            cardId: ligne.cardId,
-            title: cartes.get(ligne.cardId)?.title ?? 'Carte retirée',
-            projectName: cartes.get(ligne.cardId)?.projectName,
-            ouvertures: ligne.ouvertures,
-            signesEvites: calcul.signesEvites,
-            jetonsEvites: calcul.jetonsEvites,
-            part: calcul.part,
-            quotaEvite: calcul.quotaEvite,
-          };
-        })
-        .filter((ligne) => ligne.signesEvites > 0);
-      const totaux = store.memoryEconomyTotals();
-      const memoireTotal = economieMemoire(totaux.entiers, totaux.servis, parJeton);
 
       return {
         byProject: store.usageByProject(),
         byDay: store.usageByDay(30),
-        byCard,
-        memoire: {
-          jours: store.JOURS_D_ECONOMIE_MEMOIRE,
-          ouvertures: totaux.ouvertures,
-          cartes: memoireCartes.length,
-          signesEvites: memoireTotal.signesEvites,
-          jetonsEvites: memoireTotal.jetonsEvites,
-          part: memoireTotal.part,
-          quotaEvite: memoireTotal.quotaEvite,
-          /** Le rapport RELEVÉ, pour que l'écran puisse dire d'où sort la part de quota. */
-          quotaParJeton: parJeton ?? undefined,
-          parCarte: memoireCartes,
-        },
+        historique,
       };
     }
 
