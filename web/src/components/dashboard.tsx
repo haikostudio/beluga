@@ -512,6 +512,14 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                         })}
                       </p>
                     </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[13px] text-faint">
+                {t('Aucune tâche exécutée pour l\'instant. Ce bloc se remplira à mesure que des tâches s\'exécutent.')}</p>
+            )}
+          </section>
 
           {/* 5. La télémétrie complète des tâches : jetons, mémoire, durée, qualité. */}
           <section className="rounded-lg border border-border bg-surface px-3 py-3" data-telemetrie-taches>
@@ -641,19 +649,13 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                       </div>
                     ))}
                   </div>
-
-                ))}
-
-              </div>
-
+                ) : null}
+              </>
             ) : (
-
               <p className="text-[13px] text-faint">
-
-                {t('Aucune tâche exécutée pour l\'instant. Ce bloc se remplira à mesure que des tâches s\'exécutent.')}</p>
-
+                {t('Aucune mesure d\'économie de mémoire pour l\'instant.')}
+              </p>
             )}
-
           </section>
 
         </div>
