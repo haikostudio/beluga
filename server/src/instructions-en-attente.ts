@@ -31,6 +31,13 @@ import * as store from './store.js';
  * Ce travail n'appelle AUCUN moteur : il déplace du texte d'un fichier à un
  * autre. Il ne coûte donc pas un jeton, et n'a aucune raison d'attendre qu'un
  * agent ait fini.
+ *
+ * IL NE POSE PLUS DE CARTE. Le résultat était systématiquement enregistré
+ * directement dans le dépôt de travail du projet (celui que lisent
+ * `project_memory` et l'accueil de chaque agent) : rien n'y attend une
+ * publication pour devenir effectif. La fiche posée chaque matin dans
+ * « À déployer » n'apportait donc qu'une case à ranger de plus sur chaque
+ * projet, sans rien changer d'utile — elle est retirée.
  */
 
 const CLE_DERNIERE_FUSION = 'instructions:derniere-fusion';
@@ -170,7 +177,8 @@ export function sujetsDuProjet(racine: string): SujetRegles[] {
  * On enregistre donc ce qui vient d'être rangé, en NOMMANT chaque fichier :
  * le dossier est partagé, et un `git add -A` emporterait le travail d'un
  * autre. Pousser n'est PAS de ce ressort : le commit suffit à ce que les
- * copies de travail suivantes partent du fichier rangé.
+ * copies de travail suivantes partent du fichier rangé, et la prochaine
+ * publication réelle emportera ce commit avec le reste.
  */
 function enregistrerLeRangement(racine: string, fichiers: readonly string[]): CommitObserve | undefined {
   if (!fichiers.length) return undefined;
