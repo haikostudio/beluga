@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowLeft, Activity, BookOpen, Clock, Gauge, History, ListChecks, Scissors, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Activity, BookOpen, Clock, Gauge, History, ListChecks, TrendingUp } from 'lucide-react';
 import {
   couleurIntensite,
   type MesureDeTache,
@@ -584,77 +584,6 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
             ) : (
               <p className="text-[13px] text-faint">
                 {t('Aucune tâche mesurée pour l\'instant. Ce bloc se remplit à la fin de chaque tâche lancée depuis la mise en service de la mesure.')}</p>
-            )}
-          </section>
-
-          {/* 6. Ce que le tri de la mémoire a évité d'envoyer, sur le mois. */}
-          <section className="rounded-lg border border-border bg-surface px-3 py-3" data-economie-memoire>
-            <h2 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text">
-              <Scissors className="h-3.5 w-3.5 text-faint" />  {t('Mémoire évitée par le tri')}
-</h2>
-            <p className="mb-2 mt-0.5 text-[12.5px] text-faint">
-              {t('Un sujet de mémoire n\'est plus envoyé en entier : seuls les passages qui parlent du travail de la carte partent. Voici ce que ce tri a évité d\'envoyer sur les {v0} derniers jours.', { v0: memoire?.jours ?? 30 })}</p>
-
-            {memoire && memoire.ouvertures ? (
-              <>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <Tuile
-                    icone={<Scissors className="h-3.5 w-3.5" />}
-                    titre={t('Mémoire non envoyée')}
-                    valeur={fractionEnClair(memoire.part)}
-                    dessous={t('sur {v0} ouverture{v1} de mémoire, {v2} carte{v3}', {
-                      v0: memoire.ouvertures,
-                      v1: memoire.ouvertures > 1 ? 's' : '',
-                      v2: memoire.cartes,
-                      v3: memoire.cartes > 1 ? 's' : '',
-                    })}
-                  />
-                  <Tuile
-                    icone={<Gauge className="h-3.5 w-3.5" />}
-                    titre={t('Quota de semaine épargné')}
-                    valeur={memoire.quotaEvite != null ? pourcentEnClair(memoire.quotaEvite) : '—'}
-                    dessous={
-                      memoire.quotaEvite != null
-                        ? t('déduit de la consommation réellement relevée sur la période')
-                        : t('aucune consommation relevée : la part de quota ne se déduit pas encore')
-                    }
-                  />
-                </div>
-
-                {memoire.parCarte.length ? (
-                  <div className="mt-3 space-y-1.5">
-                    {memoire.parCarte.slice(0, 20).map((carte) => (
-                      <div
-                        key={carte.cardId}
-                        className="flex items-center gap-2 rounded-md border border-border bg-bg px-2 py-1.5"
-                        data-economie-carte={carte.cardId}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] text-text">{carte.title}</p>
-                          <p className="truncate text-[11px] text-faint">
-                            {carte.projectName ?? t('Projet retiré')} ·{' '}
-                            {t('{v0} ouverture{v1}', { v0: carte.ouvertures, v1: carte.ouvertures > 1 ? 's' : '' })}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <span className="rounded bg-raised px-1.5 py-0.5 text-[12px] font-medium text-text">
-                            {t('{v0} évités', { v0: fractionEnClair(carte.part) })}
-                          </span>
-                          {carte.quotaEvite != null ? (
-                            <p className="mt-0.5 text-[11px] text-faint">
-                              {t('{v0} de quota', { v0: pourcentEnClair(carte.quotaEvite) })}
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <p className="text-[13px] text-faint">
-                {t('Aucune mesure d\'économie de mémoire pour l\'instant.')}
-              </p>
             )}
           </section>
 

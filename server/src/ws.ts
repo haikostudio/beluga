@@ -1,7 +1,6 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  economieMemoire,
   noteDeQualite,
   tendancesParJour,
   resumeDeTendance,
