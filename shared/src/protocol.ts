@@ -631,6 +631,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('snapshots.relire'), id: z.string() }),
   /**
+   * RESTAURER UN POINT — le sens inverse de la prise : la base et les fichiers
+   * du point écrasent ce que le site porte aujourd'hui. Même mécanique que
+   * `lancer` : la réponse ne retient pas l'écran, l'état se relit ensuite.
+   */
+  z.object({ type: z.literal('snapshots.restaurer'), id: z.string() }),
+  /**
    * LA SURVEILLANCE DES SITES (`shared/src/surveillance.ts`). Ajouter appelle
    * l'adresse TOUT DE SUITE ; « vérifier » relance une tournée sans attendre
    * l'heure, sur un site ou sur tous. L'état complet revient ensuite par

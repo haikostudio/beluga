@@ -433,6 +433,18 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Les identifiants restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.': ['Credentials stay on this server: they are what reads the site’s database and files, every night.', 'Las credenciales permanecen en este servidor: sirven para releer la base y los archivos del sitio cada noche.', 'Die Zugangsdaten bleiben auf diesem Server: Sie dienen dazu, Datenbank und Dateien der Website jede Nacht zu lesen.', '凭据保留在本服务器上：每晚用于读取站点的数据库和文件。'],
   'Jamais sauvegardé.': ['Never backed up.', 'Nunca copiado.', 'Nie gesichert.', '从未备份。'],
   'Total : {volume}': ['Total: {volume}', 'Total: {volume}', 'Gesamt: {volume}', '合计：{volume}'],
+  'Restaurer': ['Restore', 'Restaurar', 'Wiederherstellen', '恢复'],
+  'Restauration…': ['Restoring…', 'Restaurando…', 'Wird wiederhergestellt…', '正在恢复…'],
+  'Restaurer ce point ?': ['Restore this backup?', '¿Restaurar esta copia?', 'Diesen Punkt wiederherstellen?', '恢复此备份点？'],
+  'Les données actuelles du site sont remplacées par celles de cette sauvegarde, du {date}. Cette action ne peut pas être annulée.':
+    [
+      'The site’s current data is replaced with this backup from {date}. This action cannot be undone.',
+      'Los datos actuales del sitio se sustituyen por los de esta copia del {date}. Esta acción no se puede deshacer.',
+      'Die aktuellen Daten der Website werden durch diese Sicherung vom {date} ersetzt. Diese Aktion kann nicht rückgängig gemacht werden.',
+      '站点当前数据将被 {date} 的这份备份覆盖。此操作无法撤销。',
+    ],
+  'Restauration lancée.': ['Restore started.', 'Restauración iniciada.', 'Wiederherstellung gestartet.', '恢复已启动。'],
+  'Restauration impossible': ['Restore failed', 'Restauración imposible', 'Wiederherstellung nicht möglich', '无法恢复'],
   'Snapshots des sites en production': ['Production site snapshots', 'Copias de los sitios en producción', 'Snapshots der Produktionswebsites', '生产站点快照'],
   'Dossier du disque de stockage': ['Storage disk folder', 'Carpeta del disco de almacenamiento', 'Ordner des Speicherlaufwerks', '存储磁盘文件夹'],
   'Le point de montage du disque, chemin absolu. Vide, aucun snapshot ne part.': ['The disk mount point, an absolute path. Empty, no snapshot runs.', 'El punto de montaje del disco, ruta absoluta. Vacío, no se ejecuta ninguna copia.', 'Der Einhängepunkt des Laufwerks, absoluter Pfad. Leer, läuft kein Snapshot.', '磁盘挂载点，绝对路径。留空则不执行快照。'],
