@@ -22,6 +22,12 @@
  * s'arrête alors en le DISANT, au lieu de faire passer un défaut d'installation
  * pour un défaut d'affichage. Redémarrer le démon est un geste de l'utilisateur.
  *
+ * NE LANCE JAMAIS UN DÉMON D'ESSAI DEPUIS LE DÉPÔT pour contourner cette
+ * attente, même sur un autre port et une autre base : au démarrage, un démon
+ * REFERME les dossiers de carte laissés ouverts du dépôt réel — y compris celui
+ * de l'agent qui vient de le lancer, qui perd son dossier de travail en pleine
+ * tâche. `HAIKO_SYNTHESE_DB` ne sert qu'à viser une instance lancée AILLEURS.
+ *
  *   node scripts/verif-synthese-dans-le-fil.mjs
  */
 import { chromium } from 'playwright';
