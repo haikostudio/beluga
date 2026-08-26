@@ -11,6 +11,7 @@ import { Button, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t, formatRegional } from '@/lib/langue';
+import { useEstSimplifie } from '@/lib/mode-simplifie';
 
 /* Ce que le serveur renvoie pour la commande `stats.dashboard`. */
 type DonneesTableau = {
@@ -364,6 +365,7 @@ function LigneDeTache({ tache }: { tache: MesureDeTache & { qualite: NoteDeQuali
 
 export function Dashboard({ onClose }: { onClose: () => void }) {
   const state = useApp();
+  const simplifie = useEstSimplifie();
   const [donnees, setDonnees] = React.useState<DonneesTableau | null>(null);
   const [telemetrie, setTelemetrie] = React.useState<DonneesTelemetrie | null>(null);
   const [erreur, setErreur] = React.useState(false);
@@ -538,12 +540,14 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                     valeur={telemetrie.resume.taches.toLocaleString(formatRegional())}
                     dessous={t('sur les {v0} derniers jours', { v0: telemetrie.jours })}
                   />
+                  {simplifie ? null : (
                   <Tuile
                     icone={<TrendingUp className="h-3.5 w-3.5" />}
                     titre={t('Jetons facturables')}
                     valeur={jetonsEnClair(telemetrie.resume.jetons)}
                     dessous={t('entrée neuve et sortie, hors relecture au cache')}
                   />
+                  )}
                   <Tuile
                     icone={<Clock className="h-3.5 w-3.5" />}
                     titre={t('Durée moyenne')}
@@ -558,12 +562,17 @@ export function Dashboard({ onClose }: { onClose: () => void }) {
                   />
                 </div>
 
+                {/* LA COURBE DES JETONS EST LA MESURE LA PLUS TECHNIQUE DE
+                    L'ÉCRAN : le mode simplifié la retire, le nombre de tâches,
+                    la durée et la qualité restent. */}
+                {simplifie ? null : (
                 <div className="mt-3">
                   <h3 className="text-[12.5px] font-medium text-text">{t('Jetons et durée, jour par jour')}</h3>
                   <p className="mb-2 mt-0.5 text-[12px] text-faint">
                     {t('Les barres donnent les jetons du jour, la ligne la durée moyenne d\'une tâche : un jour cher n\'est pas forcément un jour long.')}</p>
                   <CourbeJetonsEtDuree tendances={telemetrie.tendances} />
                 </div>
+                )}
 
                 <div className="mt-3">
                   <h3 className="text-[12.5px] font-medium text-text">{t('Le détail, tâche par tâche')}</h3>

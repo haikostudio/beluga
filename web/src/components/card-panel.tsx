@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import {
   COLUMN_LABELS,
+  ONGLETS_CARTE_TECHNIQUES,
+  ongletTechnique,
   Card,
   DecisionGeste,
   DeployRun,
@@ -78,6 +80,7 @@ import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } f
 import { useMinute } from '@/lib/horloge';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
+import { useEstSimplifie } from '@/lib/mode-simplifie';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 
@@ -141,6 +144,11 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * l'onglet des détails qu'il faudrait ensuite quitter à la main.
    */
   const [onglet, setOnglet] = React.useState(decisions > 0 || aLire ? 'chat' : 'details');
+  /* L'onglet « GitHub » — branche, enregistrements, fichiers modifiés — est la
+     matière du métier, pas le suivi du travail : le mode simplifié le retire.
+     Si c'était l'onglet ouvert, on retombe sur la conversation. */
+  const simplifie = useEstSimplifie();
+  const ongletActif = simplifie && ongletTechnique(ONGLETS_CARTE_TECHNIQUES, onglet) ? 'chat' : onglet;
 
   /*
    * Les gestes du pied suivent une règle partagée : un bouton ne s'allume que
@@ -319,7 +327,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           agent d'exécution. */}
       <Tabs
         key={card.id}
-        value={onglet}
+        value={ongletActif}
         onValueChange={setOnglet}
         onScrollCapture={surDefilement}
         className="flex min-h-0 flex-1 flex-col"
@@ -365,11 +373,13 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 <RoueDOnglet visible={!!chargement.details} />
             </TabsTrigger>
             <TabsTrigger value="billing" className="flex-1">{t('Facturation')}</TabsTrigger>
+            {simplifie ? null : (
             <TabsTrigger value="github" className="flex-1 gap-1">
               
 {t('GitHub')}
 <RoueDOnglet visible={!!chargement.github} />
             </TabsTrigger>
+            )}
           </TabsList>
         </ZoneDefilement>
         </div>
@@ -390,6 +400,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           <ZoneDefilement><BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} /></ZoneDefilement>
         </TabsContent>
 
+        {simplifie ? null : (
         <TabsContent value="github" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           <ZoneDefilement>
             <FournisseurDeChargement signaler={signalerChargement}>
@@ -397,6 +408,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
             </FournisseurDeChargement>
           </ZoneDefilement>
         </TabsContent>
+        )}
       </Tabs>
 
       {/* Les gestes de décision restent en bas, toujours à portée de pouce ;

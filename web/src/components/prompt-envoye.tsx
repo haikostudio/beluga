@@ -3,6 +3,7 @@ import { Brain, FileText, MessageCircle, Search } from 'lucide-react';
 import { SentContextSnapshot, filVisuelDeLAgent } from '@haikodev/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useEstSimplifie } from '@/lib/mode-simplifie';
 
 /**
  * Le suivi des recherches faites par l'agent.
@@ -18,7 +19,11 @@ export function BullesDuPromptEnvoye({
   demandeDejaAffichee?: boolean;
 }) {
   const bulles = React.useMemo(() => filVisuelDeLAgent(contexte), [contexte]);
-  if (!bulles.length) return null;
+  /* LE MODE SIMPLIFIÉ RETIRE CE FIL EN ENTIER : c'est le carnet de bord de
+     l'agent — recherches, fichiers lus, mémoire ouverte. Utile pour comprendre
+     comment il a travaillé, hors sujet pour qui attend son résultat. */
+  const simplifie = useEstSimplifie();
+  if (simplifie || !bulles.length) return null;
 
   return (
     <div data-prompt-envoye data-fil-agent className="w-[min(92%,860px)] min-w-0 max-w-full py-2">
