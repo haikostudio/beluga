@@ -82,7 +82,7 @@ function decisionsDeLaCarte(cardId: string) {
 }
 
 test('la règle nomme les trois colonnes qui ferment, et elles seules', () => {
-  for (const colonne of ['to_deploy', 'in_production', 'archived']) {
+  for (const colonne of ['to_deploy', 'archived']) {
     assert.equal(colonneFermeLesQuestions(colonne), true, colonne);
   }
   for (const colonne of ['notes', 'planned', 'running', 'done']) {
@@ -94,7 +94,7 @@ test('la règle nomme les trois colonnes qui ferment, et elles seules', () => {
   // Seule l'ARRIVÉE dans une colonne close déclenche la fermeture.
   assert.equal(fermetureDesQuestions('running', 'archived'), true);
   assert.equal(fermetureDesQuestions('done', 'to_deploy'), true);
-  assert.equal(fermetureDesQuestions('to_deploy', 'in_production'), false, 'déjà close');
+  assert.equal(fermetureDesQuestions('to_deploy', 'archived'), false, 'déjà close');
   assert.equal(fermetureDesQuestions('archived', 'running'), false, 'retour en arrière');
   assert.equal(fermetureDesQuestions('running', 'done'), false);
 });

@@ -11,8 +11,8 @@ import {
 /* La DATE DE MISE EN LIGNE périmée : le bogue du « Tout déployer » muet */
 /* ------------------------------------------------------------------ */
 
-test('une carte repassée de « En production » à « À déployer » perd sa date', () => {
-  assert.equal(dateDeMiseEnLignePerimee('in_production', 'to_deploy'), true);
+test('une carte repassée d’« Archivé » à « À déployer » perd sa date', () => {
+  assert.equal(dateDeMiseEnLignePerimee('archived', 'to_deploy'), true);
 });
 
 test('une carte qui revient de « Terminé » vers « À déployer » perd sa date', () => {
@@ -22,7 +22,6 @@ test('une carte qui revient de « Terminé » vers « À déployer » perd sa da
 });
 
 test('une carte qui QUITTE « À déployer » garde sa date de mise en ligne', () => {
-  assert.equal(dateDeMiseEnLignePerimee('to_deploy', 'in_production'), false);
   assert.equal(dateDeMiseEnLignePerimee('to_deploy', 'archived'), false);
   assert.equal(dateDeMiseEnLignePerimee('to_deploy', 'done'), false);
 });
@@ -34,8 +33,8 @@ test('un rangement sur place ne périme rien', () => {
 test('une carte posée dans « À déployer » avec une date est bloquée', () => {
   assert.equal(carteBloqueeDansLeLot({ column: 'to_deploy', deployedAt: 1 }), true);
   assert.equal(carteBloqueeDansLeLot({ column: 'to_deploy' }), false);
-  // « En production » porte forcément une date : elle n'a rien de bloquant.
-  assert.equal(carteBloqueeDansLeLot({ column: 'in_production', deployedAt: 1 }), false);
+  // « Archivé » porte forcément une date : elle n'a rien de bloquant.
+  assert.equal(carteBloqueeDansLeLot({ column: 'archived', deployedAt: 1 }), false);
 });
 
 /* ------------------------------------------------------------------ */

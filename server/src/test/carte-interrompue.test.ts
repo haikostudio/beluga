@@ -70,7 +70,7 @@ test('une carte marquée et en travail retombe dans « Planifié », raison écr
 });
 
 test('une carte marquée dans une fin de parcours ne bouge pas, mais le dit', () => {
-  for (const colonne of ['to_deploy', 'in_production', 'archived'] as const) {
+  for (const colonne of ['to_deploy', 'archived'] as const) {
     const etat = etatApresCoupure({ column: colonne, scheduling: { tourEnVolDepuis: 1 } });
     assert.equal(etat?.colonne, null, colonne);
     assert.equal(etat?.raison, RAISON_COUPE_EN_VOL, colonne);

@@ -59,9 +59,8 @@ test('une carte déjà en cours ne bouge pas : rien à annoncer', () => {
 test('une carte prête à publier ou archivée ne sort pas de son rangement', () => {
   // Poser une question dans sa conversation ne doit pas la retirer du lot.
   assert.equal(colonneAuDemarrage('to_deploy', 'task'), null);
-  assert.equal(colonneAuDemarrage('in_production', 'task'), null);
   assert.equal(colonneAuDemarrage('archived', 'task'), null);
-  assert.deepEqual(COLONNES_HORS_REPRISE, ['to_deploy', 'in_production', 'archived']);
+  assert.deepEqual(COLONNES_HORS_REPRISE, ['to_deploy', 'archived']);
 });
 
 /* -------- Le tour d'exécution se termine -------- */
@@ -245,7 +244,6 @@ test('l’ordonnanceur ne pousse jamais une carte vers une étape de publication
   // disparu —, c'est la règle de pause. Ici on garde l'autre garde-fou : la
   // machine ne promeut que dans le pipeline d'exécution.
   assert.equal(canMove('machine', 'planned', 'to_deploy').allowed, false);
-  assert.equal(canMove('machine', 'planned', 'in_production').allowed, false);
   assert.equal(canMove('machine', 'planned', 'running').allowed, true);
 });
 

@@ -42,7 +42,7 @@ test('la machine promeut dans le pipeline, et nulle part ailleurs', () => {
 });
 
 test('la machine ne peut pas promouvoir vers le lot à publier', () => {
-  for (const target of ['to_deploy', 'in_production'] as ColumnKey[]) {
+  for (const target of ['to_deploy'] as ColumnKey[]) {
     assert.equal(canMove('machine', 'planned', target).allowed, false);
   }
 });
