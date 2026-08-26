@@ -79,8 +79,16 @@ export interface SiteASauvegarder {
   fichiers: FichiersDuSite;
   /** Au-delà de ce nombre de jours, un point de sauvegarde est jeté. */
   conservationJours: number;
-  /** Tous les combien de jours ce site est sauvegardé (1 = chaque nuit). */
-  frequenceJours: number;
+  /**
+   * TOUS LES COMBIEN DE MINUTES ce site est sauvegardé. 1440 = une fois par
+   * jour, 15 = un quart d'heure. C'est le SEUL réglage de cadence qui fait foi.
+   */
+  frequenceMinutes: number;
+  /**
+   * L'ANCIEN réglage, en jours. Il ne sert plus qu'à relire les fiches écrites
+   * avant la cadence en minutes (`normaliserCadence`) — rien ne l'écrit.
+   */
+  frequenceJours?: number;
   note: string;
   /**
    * LA CONVERSATION DE L'ASSISTANT qui a posé cette fiche en dernier. C'est elle
@@ -134,10 +142,20 @@ export const CONSERVATION_MIN = 1;
 export const CONSERVATION_MAX = 365;
 export const NOM_SITE_MAX = 80;
 
-/** Tous les combien de jours un site est repris, par défaut (chaque nuit). */
+/** Tous les combien de MINUTES un site est repris, par défaut (une fois par jour). */
+export const FREQUENCE_MINUTES_PAR_DEFAUT = 24 * 60;
+/** Cinq minutes : en dessous, deux prises se marcheraient dessus. */
+export const FREQUENCE_MINUTES_MIN = 5;
+/** Trente jours : au-delà, ce n'est plus une sauvegarde, c'est une archive. */
+export const FREQUENCE_MINUTES_MAX = 30 * 24 * 60;
+
+/** L'ancienne cadence, en jours — gardée pour relire les fiches d'avant. */
 export const FREQUENCE_PAR_DEFAUT = 1;
 export const FREQUENCE_MIN = 1;
 export const FREQUENCE_MAX = 30;
+
+/** Le nom du dossier créé tout seul quand aucun stockage n'est réglé. */
+export const DOSSIER_SNAPSHOTS_PAR_DEFAUT = 'Snapshots';
 
 /** L'heure par défaut du passage de nuit — après la sauvegarde du démon (3 h). */
 export const HEURE_SNAPSHOT_PAR_DEFAUT = 4;
@@ -149,17 +167,60 @@ export const HEURE_SNAPSHOT_PAR_DEFAUT = 4;
  */
 export const ECART_MINIMAL_MS = 20 * 3600 * 1000;
 
-/** La marge de rattrapage retranchée à toute fréquence (même logique que ci-dessus). */
+/** La marge de rattrapage maximale retranchée à une cadence (même logique que ci-dessus). */
 const MARGE_RATTRAPAGE_MS = 4 * 3600 * 1000;
 
 /**
- * L'ÉCART MINIMAL ENTRE DEUX PASSAGES pour la fréquence propre d'un site : le
- * nombre de jours réglé, moins la même marge de rattrapage. Une fréquence d'un
- * jour retombe exactement sur `ECART_MINIMAL_MS`.
+ * L'ÉCART MINIMAL ENTRE DEUX PASSAGES pour la cadence propre d'un site : la
+ * période réglée, moins une marge de rattrapage d'un SIXIÈME de cette période,
+ * plafonnée à quatre heures. Une cadence d'un jour retombe donc exactement sur
+ * `ECART_MINIMAL_MS` (20 h), et une cadence d'un quart d'heure ne perd que deux
+ * minutes et demie — une marge fixe de quatre heures l'aurait effacée.
  */
-export function ecartMinimalMs(frequenceJours: number): number {
-  const jours = Math.max(FREQUENCE_MIN, Math.round(frequenceJours) || FREQUENCE_PAR_DEFAUT);
-  return Math.max(MARGE_RATTRAPAGE_MS, jours * 24 * 3600 * 1000 - MARGE_RATTRAPAGE_MS);
+export function ecartMinimalMs(frequenceMinutes: number): number {
+  const periode = cadenceValide(frequenceMinutes) * 60 * 1000;
+  const marge = Math.min(MARGE_RATTRAPAGE_MS, periode / 6);
+  return Math.max(60 * 1000, periode - marge);
+}
+
+/** Une cadence ramenée dans ses bornes, en minutes. */
+export function cadenceValide(frequenceMinutes: number): number {
+  const brut = Math.round(Number(frequenceMinutes));
+  if (!Number.isFinite(brut) || brut <= 0) return FREQUENCE_MINUTES_PAR_DEFAUT;
+  return Math.min(FREQUENCE_MINUTES_MAX, Math.max(FREQUENCE_MINUTES_MIN, brut));
+}
+
+/**
+ * LA CADENCE D'UNE FICHE, QUELLE QUE SOIT SA GÉNÉRATION. Les fiches écrites
+ * avant ce réglage ne portent qu'un nombre de JOURS : il vaut autant de fois
+ * 1440 minutes. Aucune migration de base n'est nécessaire.
+ */
+export function normaliserCadence(site: SiteASauvegarder): SiteASauvegarder {
+  if (Number(site.frequenceMinutes) > 0) {
+    return { ...site, frequenceMinutes: cadenceValide(site.frequenceMinutes) };
+  }
+  const jours = Number(site.frequenceJours);
+  const minutes = Number.isFinite(jours) && jours > 0 ? jours * 24 * 60 : FREQUENCE_MINUTES_PAR_DEFAUT;
+  return { ...site, frequenceMinutes: cadenceValide(minutes) };
+}
+
+/** La cadence telle qu'on la lit : « toutes les 15 min », « tous les 3 j ». */
+export function phraseDeCadence(frequenceMinutes: number): string {
+  const minutes = cadenceValide(frequenceMinutes);
+  if (minutes % (24 * 60) === 0) {
+    const jours = minutes / (24 * 60);
+    return jours === 1 ? 'chaque jour' : `tous les ${jours} j`;
+  }
+  if (minutes % 60 === 0) {
+    const heures = minutes / 60;
+    return heures === 1 ? 'toutes les heures' : `toutes les ${heures} h`;
+  }
+  return `toutes les ${minutes} min`;
+}
+
+/** Une cadence d'AU MOINS un jour attend l'heure de nuit ; une plus courte, non. */
+export function cadenceDeNuit(frequenceMinutes: number): boolean {
+  return cadenceValide(frequenceMinutes) >= 24 * 60;
 }
 
 /* ------------------------------------------------------------------ */
@@ -176,7 +237,7 @@ export function siteVierge(projectId: string | null = null, nom = ''): SiteASauv
     base: { moteur: 'aucune', hote: '', port: '', nom: '', utilisateur: '', motDePasse: '' },
     fichiers: { moyen: 'aucun', chemin: '', hote: '', port: '', utilisateur: '', motDePasse: '' },
     conservationJours: CONSERVATION_PAR_DEFAUT,
-    frequenceJours: FREQUENCE_PAR_DEFAUT,
+    frequenceMinutes: FREQUENCE_MINUTES_PAR_DEFAUT,
     note: '',
     assistantId: '',
     assistantProjectId: '',
@@ -236,9 +297,12 @@ export function jugerSite(site: SiteASauvegarder): { ok: boolean; raison?: strin
   if (!Number.isFinite(jours) || jours < CONSERVATION_MIN || jours > CONSERVATION_MAX) {
     return { ok: false, raison: `la conservation se règle entre ${CONSERVATION_MIN} et ${CONSERVATION_MAX} jours` };
   }
-  const frequence = Number(site.frequenceJours);
-  if (!Number.isFinite(frequence) || frequence < FREQUENCE_MIN || frequence > FREQUENCE_MAX) {
-    return { ok: false, raison: `la fréquence se règle entre ${FREQUENCE_MIN} et ${FREQUENCE_MAX} jours` };
+  const frequence = Number(site.frequenceMinutes);
+  if (!Number.isFinite(frequence) || frequence < FREQUENCE_MINUTES_MIN || frequence > FREQUENCE_MINUTES_MAX) {
+    return {
+      ok: false,
+      raison: `la fréquence se règle entre ${FREQUENCE_MINUTES_MIN} et ${FREQUENCE_MINUTES_MAX} minutes`,
+    };
   }
   return { ok: true };
 }
@@ -259,7 +323,7 @@ export function nettoyerSite(site: SiteASauvegarder): SiteASauvegarder {
       : site.fichiers.moyen === 'local'
         ? { ...site.fichiers, hote: '', port: '', utilisateur: '', motDePasse: '' }
         : site.fichiers;
-  return { ...site, nom: (site.nom ?? '').trim(), base, fichiers };
+  return normaliserCadence({ ...site, nom: (site.nom ?? '').trim(), base, fichiers });
 }
 
 /* ------------------------------------------------------------------ */
@@ -275,10 +339,18 @@ export function siteEstDu(
   site: SiteASauvegarder,
   dernier: PointDeSauvegarde | null,
   maintenant: number,
+  heureDeNuit?: number,
 ): boolean {
   if (!site.actif || siteVide(site)) return false;
+  const cadence = normaliserCadence(site).frequenceMinutes;
+  // UNE CADENCE D'AU MOINS UN JOUR GARDE SON RENDEZ-VOUS DE NUIT : c'est
+  // l'heure réglée dans « Système ». Une cadence plus courte, elle, ne peut pas
+  // attendre une heure précise — elle part dès que son écart est écoulé.
+  if (heureDeNuit !== undefined && cadenceDeNuit(cadence) && new Date(maintenant).getHours() !== heureDeNuit) {
+    return false;
+  }
   if (!dernier) return true;
-  return maintenant - dernier.debut >= ecartMinimalMs(site.frequenceJours);
+  return maintenant - dernier.debut >= ecartMinimalMs(cadence);
 }
 
 /** Les sites que le passage de cette minute doit prendre, dans l'ordre de la liste. */
@@ -286,8 +358,9 @@ export function sitesDuPassage(
   sites: SiteASauvegarder[],
   derniers: Map<string, PointDeSauvegarde>,
   maintenant: number,
+  heureDeNuit?: number,
 ): SiteASauvegarder[] {
-  return sites.filter((site) => siteEstDu(site, derniers.get(site.id) ?? null, maintenant));
+  return sites.filter((site) => siteEstDu(site, derniers.get(site.id) ?? null, maintenant, heureDeNuit));
 }
 
 /* ------------------------------------------------------------------ */

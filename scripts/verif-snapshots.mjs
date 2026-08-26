@@ -212,9 +212,11 @@ function poserSitesSupplementaires() {
   const db = new Database(path.join(DATA, 'haikodev.db'));
   const maintenant = Date.now();
   const sites = [
+    // Une fiche d'AVANT la cadence en minutes (elle ne porte que des jours) :
+    // elle doit se relire sans migration.
     { id: 'site-vitrine', nom: 'Vitrine — production', frequenceJours: 3 },
-    { id: 'site-blog', nom: 'Blog — production', frequenceJours: 7 },
-    { id: 'site-intranet', nom: 'Intranet — interne', frequenceJours: 1 },
+    { id: 'site-blog', nom: 'Blog — production', frequenceMinutes: 42 },
+    { id: 'site-intranet', nom: 'Intranet — interne', frequenceMinutes: 60 },
   ];
   for (const s of sites) {
     const site = {
@@ -225,7 +227,8 @@ function poserSitesSupplementaires() {
       base: { moteur: 'sqlite', hote: '', port: '', nom: BASE_DU_SITE, utilisateur: '', motDePasse: '' },
       fichiers: { moyen: 'local', chemin: FICHIERS_DU_SITE, hote: '', port: '', utilisateur: '', motDePasse: '' },
       conservationJours: 14,
-      frequenceJours: s.frequenceJours,
+      ...(s.frequenceJours ? { frequenceJours: s.frequenceJours } : {}),
+      ...(s.frequenceMinutes ? { frequenceMinutes: s.frequenceMinutes } : {}),
       note: '',
       creeLe: maintenant,
       modifieLe: maintenant,
@@ -242,7 +245,7 @@ function frequenceEnBase(id) {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
   const ligne = db.prepare('SELECT data FROM snapshot_sites WHERE id = ?').get(id);
   db.close();
-  return ligne ? JSON.parse(ligne.data).frequenceJours : undefined;
+  return ligne ? JSON.parse(ligne.data).frequenceMinutes : undefined;
 }
 
 /**
@@ -341,12 +344,18 @@ async function main() {
     await fenetre.waitFor({ state: 'visible', timeout: 15000 });
     noter('La fenêtre des snapshots s’ouvre au clic', true);
 
-    /* 3. Sans disque de stockage réglé, la fenêtre le DIT. */
+    /* 3. SANS DOSSIER RÉGLÉ, UN DOSSIER « SNAPSHOTS » EST CRÉÉ TOUT SEUL : la
+       fenêtre n'avertit plus, elle DIT où les points vont se poser. */
     const avertissement = fenetre.locator('[data-snapshots-sans-destination]');
+    const entete = (await fenetre.innerText()).trim();
     noter(
-      'Sans dossier de stockage réglé, la fenêtre le dit au lieu de se taire',
-      (await avertissement.count()) === 1,
-      (await avertissement.count()) ? (await avertissement.innerText()).trim() : 'aucun avertissement affiché',
+      'Sans dossier réglé, aucun avertissement : un dossier « Snapshots » est créé tout seul',
+      (await avertissement.count()) === 0 && /Snapshots/.test(entete),
+      entete.split('\n').find((l) => l.includes('Snapshots')) ?? entete.slice(0, 120),
+    );
+    noter(
+      'Le dossier « Snapshots » existe vraiment sur le disque',
+      fs.existsSync(path.join(DATA, 'Snapshots')),
     );
 
     /* On règle le disque de stockage, puis on recharge : l'avertissement part. */
@@ -548,7 +557,8 @@ async function main() {
     noter('Le tableau affiche au moins cinq sites', nbLignes >= 5, `${nbLignes} ligne(s)`);
     noter(
       'La fréquence de chaque site est affichée',
-      (await fenetre.getByText('tous les 3 j').count()) >= 1 && (await fenetre.getByText('tous les 7 j').count()) >= 1,
+      (await fenetre.getByText('tous les 3 j').count()) >= 1 &&
+        (await fenetre.getByText('toutes les 42 min').count()) >= 1,
     );
 
     /* La recherche filtre EN TEMPS RÉEL, sans recharger la page. */
@@ -574,11 +584,21 @@ async function main() {
       has: page.locator('[data-snapshots-frequence]'),
     });
     await ficheOuverte.waitFor({ state: 'visible', timeout: 10000 });
-    await ficheOuverte.locator('[data-snapshots-frequence]').fill('5');
+    await ficheOuverte.locator('[data-snapshots-frequence]').fill('15');
     await ficheOuverte.locator('[data-snapshots-enregistrer]').click();
     await ficheOuverte.waitFor({ state: 'hidden', timeout: 10000 });
     await page.waitForTimeout(300);
-    noter('La fréquence choisie dans la fiche est enregistrée sur le site', frequenceEnBase('site-intranet') === 5);
+    noter(
+      'La fréquence en MINUTES choisie dans la fiche est enregistrée sur le site',
+      frequenceEnBase('site-intranet') === 15,
+    );
+
+    /* 11 bis. UNE FICHE D'AVANT, RÉGLÉE EN JOURS, SE LIT SANS MIGRATION, et une
+       cadence en minutes s'affiche dans son unité. */
+    const ligneVitrine = await page.locator('[data-snapshots-site="site-vitrine"]').innerText();
+    const ligneBlog = await page.locator('[data-snapshots-site="site-blog"]').innerText();
+    noter('Une fiche réglée en jours se lit encore « tous les 3 j »', /3\s*j/.test(ligneVitrine));
+    noter('Une cadence de 42 minutes s’affiche en minutes', /42\s*min/.test(ligneBlog));
 
     /* 12. L'ASSISTANT S'OUVRE DANS SON TIROIR, PAS EN PLEIN ÉCRAN : la fenêtre
        des snapshots reste ouverte DERRIÈRE, on ne quitte jamais l'écran. */

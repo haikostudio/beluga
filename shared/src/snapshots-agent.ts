@@ -23,9 +23,10 @@ import {
   CONSERVATION_MAX,
   CONSERVATION_MIN,
   CONSERVATION_PAR_DEFAUT,
-  FREQUENCE_MAX,
-  FREQUENCE_MIN,
-  FREQUENCE_PAR_DEFAUT,
+  FREQUENCE_MINUTES_MAX,
+  FREQUENCE_MINUTES_MIN,
+  FREQUENCE_MINUTES_PAR_DEFAUT,
+  phraseDeCadence,
   LIBELLE_MOTEUR_BASE,
   LIBELLE_MOYEN_FICHIERS,
   MOTEURS_BASE,
@@ -98,11 +99,11 @@ export function conservationDemandee(valeur: unknown): number | undefined {
   return Math.min(CONSERVATION_MAX, Math.max(CONSERVATION_MIN, Math.round(brut)));
 }
 
-/** Une fréquence en jours, même écrite « toutes les 3 nuits » (le nombre suffit). */
+/** Une cadence en MINUTES, même écrite « toutes les 15 minutes » (le nombre suffit). */
 export function frequenceDemandee(valeur: unknown): number | undefined {
   const brut = typeof valeur === 'number' ? valeur : Number(String(valeur ?? '').replace(/[^\d.]/g, ''));
   if (!Number.isFinite(brut) || brut <= 0) return undefined;
-  return Math.min(FREQUENCE_MAX, Math.max(FREQUENCE_MIN, Math.round(brut)));
+  return Math.min(FREQUENCE_MINUTES_MAX, Math.max(FREQUENCE_MINUTES_MIN, Math.round(brut)));
 }
 
 function texte(valeur: unknown, max = 500): string {
@@ -159,7 +160,10 @@ export function ficheProposee(
     },
     conservationJours:
       conservationDemandee(source.conservationJours) ?? depart.conservationJours ?? CONSERVATION_PAR_DEFAUT,
-    frequenceJours: frequenceDemandee(source.frequenceJours) ?? depart.frequenceJours ?? FREQUENCE_PAR_DEFAUT,
+    frequenceMinutes:
+      frequenceDemandee(source.frequenceMinutes) ??
+      depart.frequenceMinutes ??
+      FREQUENCE_MINUTES_PAR_DEFAUT,
     note: texte(source.note, 1000) || depart.note,
   };
 }
@@ -236,7 +240,7 @@ export function demandeDeConfiguration(entree: DemandeDeConfiguration): string {
     `- fichiers.moyen : ${MOYENS_FICHIERS.map((m) => `« ${m} » (${LIBELLE_MOYEN_FICHIERS[m]})`).join(', ')}`,
     '  puis, sauf pour « aucun » : fichiers.chemin (le dossier à prendre), et fichiers.hote / utilisateur / motDePasse pour ssh et ftp',
     `- conservationJours : entre ${CONSERVATION_MIN} et ${CONSERVATION_MAX}, ${CONSERVATION_PAR_DEFAUT} par défaut`,
-    `- frequenceJours : tous les combien de jours ce site est repris, entre ${FREQUENCE_MIN} et ${FREQUENCE_MAX}, ${FREQUENCE_PAR_DEFAUT} (chaque nuit) par défaut`,
+    `- frequenceMinutes : tous les combien de MINUTES ce site est repris, entre ${FREQUENCE_MINUTES_MIN} et ${FREQUENCE_MINUTES_MAX}, ${FREQUENCE_MINUTES_PAR_DEFAUT} (une fois par jour) par défaut — 15 pour un quart d’heure, 60 pour une heure, 1440 pour un jour`,
     '- note : ce que ce site contient et qui l’exploite, en une phrase',
     '',
     'DÉROULÉ : cherche d’abord ce que le serveur peut te dire, pose ensuite les questions qui restent (une par une), enregistre enfin la fiche avec « snapshot_site ».',
@@ -342,7 +346,7 @@ export function resumeDeFiche(site: SiteASauvegarder): string {
                 site.fichiers.port || 'celui du protocole'
               } »`)),
     `- conservation : ${site.conservationJours} jours`,
-    `- fréquence : tous les ${site.frequenceJours} jour(s)`,
+    `- fréquence : ${phraseDeCadence(site.frequenceMinutes)} (${site.frequenceMinutes} min)`,
   ];
   return lignes.join('\n');
 }

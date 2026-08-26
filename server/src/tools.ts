@@ -52,9 +52,10 @@ import {
   CONSERVATION_MAX,
   CONSERVATION_MIN,
   CONSERVATION_PAR_DEFAUT,
-  FREQUENCE_MAX,
-  FREQUENCE_MIN,
-  FREQUENCE_PAR_DEFAUT,
+  FREQUENCE_MINUTES_MAX,
+  FREQUENCE_MINUTES_MIN,
+  FREQUENCE_MINUTES_PAR_DEFAUT,
+  phraseDeCadence,
   MOTEURS_BASE,
   MOYENS_FICHIERS,
   essaisConcluants,
@@ -694,9 +695,9 @@ export const TOOL_DEFS: ToolDef[] = [
           type: 'number',
           description: `Au-delà de ce nombre de jours, un point de sauvegarde est jeté (${CONSERVATION_MIN} à ${CONSERVATION_MAX}, ${CONSERVATION_PAR_DEFAUT} par défaut)`,
         },
-        frequenceJours: {
+        frequenceMinutes: {
           type: 'number',
-          description: `Tous les combien de jours ce site est repris (${FREQUENCE_MIN} à ${FREQUENCE_MAX}, ${FREQUENCE_PAR_DEFAUT} = chaque nuit, par défaut)`,
+          description: `Tous les combien de MINUTES ce site est repris (${FREQUENCE_MINUTES_MIN} à ${FREQUENCE_MINUTES_MAX} ; 15 = un quart d’heure, 60 = une heure, ${FREQUENCE_MINUTES_PAR_DEFAUT} = une fois par jour, par défaut)`,
         },
         note: { type: 'string', description: 'Ce que ce site contient et qui l’exploite, en une phrase' },
         forcer: {
@@ -1605,7 +1606,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ok: true,
         text:
           `${ancienne ? 'Fiche corrigée' : 'Site enregistré'} : « ${site.nom} » (identifiant ${site.id}). ` +
-          `Sauvegarde ${morceaux.join(' et ')}, gardés ${site.conservationJours} jours. ` +
+          `Sauvegarde ${morceaux.join(' et ')} ${phraseDeCadence(site.frequenceMinutes)}, gardés ${site.conservationJours} jours. ` +
           `Essai des accès :\n${phraseDesEssais(essais)}\n` +
           'Le passage de nuit le prendra tout seul.',
       };

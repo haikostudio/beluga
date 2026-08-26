@@ -23,8 +23,9 @@ import {
   Agent,
   CONSERVATION_MAX,
   CONSERVATION_MIN,
-  FREQUENCE_MAX,
-  FREQUENCE_MIN,
+  FREQUENCE_MINUTES_MAX,
+  FREQUENCE_MINUTES_MIN,
+  cadenceValide,
   LIBELLE_MOTEUR_BASE,
   LIBELLE_MOYEN_FICHIERS,
   MOTEURS_BASE,
@@ -101,6 +102,18 @@ function dateLisible(at: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * LA CADENCE TELLE QU'ON LA LIT dans le tableau : « toutes les 15 min »,
+ * « toutes les 2 h », « tous les 3 j ». Chaque tournure a sa clé de dictionnaire
+ * — une phrase fabriquée côté serveur ne se traduirait pas.
+ */
+function cadenceLisible(frequenceMinutes: number): string {
+  const minutes = cadenceValide(frequenceMinutes);
+  if (minutes % (24 * 60) === 0) return t('tous les {n} j', { n: minutes / (24 * 60) });
+  if (minutes % 60 === 0) return t('toutes les {n} h', { n: minutes / 60 });
+  return t('toutes les {n} min', { n: minutes });
 }
 
 /** Les colonnes sur lesquelles le tableau des sites peut se trier. */
@@ -554,7 +567,7 @@ function LigneSite({
         </button>
       </td>
       <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
-        {t('tous les {n} j', { n: site.frequenceJours })}
+        {cadenceLisible(site.frequenceMinutes)}
       </td>
       <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
         <span className="inline-flex items-center gap-1">
@@ -996,22 +1009,25 @@ function FicheSite({
 
             <div className="flex gap-2">
               <div className="flex-1">
-                <Champ libelle={t('Fréquence (jours)')}>
+                <Champ libelle={t('Fréquence (minutes)')}>
                   <Input
                     type="number"
-                    min={FREQUENCE_MIN}
-                    max={FREQUENCE_MAX}
-                    value={String(site.frequenceJours)}
+                    min={FREQUENCE_MINUTES_MIN}
+                    max={FREQUENCE_MINUTES_MAX}
+                    value={String(site.frequenceMinutes)}
                     onChange={(e) =>
-                      setSite((avant) => ({ ...avant, frequenceJours: Number(e.target.value) || 0 }))
+                      setSite((avant) => ({ ...avant, frequenceMinutes: Number(e.target.value) || 0 }))
                     }
                     className="h-8 text-[13px]"
                     data-snapshots-frequence
                   />
+                  <p className="mt-1 text-[11.5px] text-faint">
+                    {t('15 = un quart d’heure, 60 = une heure, 1440 = une fois par jour.')}
+                  </p>
                 </Champ>
               </div>
               <div className="flex-1">
-                <Champ libelle={t('Conservation (jours)')}>
+                <Champ libelle={t('Rétention (jours)')}>
                   <Input
                     type="number"
                     min={CONSERVATION_MIN}

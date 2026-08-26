@@ -6,6 +6,7 @@ import { spawn, execFile } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import {
+  DOSSIER_SNAPSHOTS_PAR_DEFAUT,
   EssaiDAcces,
   PointDeSauvegarde,
   siteARelire,
@@ -15,12 +16,14 @@ import {
   horodatageDePoint,
   jugerSite,
   nettoyerSite,
+  normaliserCadence,
   pointsAPurger,
   raisonDestinationRefusee,
   siteEstDu,
   siteVierge,
 } from '@haikodev/shared';
 import { getDb } from './db.js';
+import { CONFIG } from './config.js';
 import { getSettings, listProjects } from './store.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -67,7 +70,7 @@ function siteDepuisLigne(ligne: LigneSite): SiteASauvegarder {
     // Un bloc abîmé rend une fiche vide plutôt que de faire tomber la liste.
   }
   const vierge = siteVierge(ligne.project_id, ligne.nom);
-  return {
+  return normaliserCadence({
     ...vierge,
     ...bloc,
     base: { ...vierge.base, ...(bloc.base ?? {}) },
@@ -78,7 +81,11 @@ function siteDepuisLigne(ligne: LigneSite): SiteASauvegarder {
     actif: ligne.actif === 1,
     creeLe: ligne.cree_le,
     modifieLe: ligne.modifie_le,
-  };
+    // La cadence est reprise du BLOC, jamais du modèle vierge : sans cela, une
+    // fiche d'avant (qui ne porte que des jours) se verrait imposer la valeur
+    // par défaut au lieu de sa vraie cadence.
+    frequenceMinutes: Number(bloc.frequenceMinutes ?? 0),
+  });
 }
 
 export function listerSites(): SiteASauvegarder[] {
@@ -364,7 +371,7 @@ export async function prendreUnSnapshot(
   const site = lireSite(siteId);
   if (!site) return { ok: false, raison: 'site introuvable' };
 
-  const destination = (getSettings().snapshotDossier ?? '').trim();
+  const destination = dossierDeStockage();
   const refus = raisonDestinationRefusee(destination);
   if (refus) return { ok: false, raison: refus };
 
@@ -835,7 +842,7 @@ export function echecsDuSite(siteId: string): PointDeSauvegarde[] {
  */
 export async function passageDesSnapshots(origine: 'automatique' | 'manuel' = 'automatique'): Promise<number> {
   const reglages = getSettings();
-  const refus = raisonDestinationRefusee((reglages.snapshotDossier ?? '').trim());
+  const refus = raisonDestinationRefusee(dossierDeStockage());
   if (refus) {
     log.warn(`snapshots : ${refus}`);
     return 0;
@@ -843,11 +850,20 @@ export async function passageDesSnapshots(origine: 'automatique' | 'manuel' = 'a
 
   const maintenant = Date.now();
   const derniers = derniersPoints();
-  const dus = listerSites().filter((site) => siteEstDu(site, derniers.get(site.id) ?? null, maintenant));
+  const sites = listerSites();
+  // UN PASSAGE MANUEL PREND CE QU'ON LUI DEMANDE, SANS RENDEZ-VOUS DE NUIT :
+  // l'heure réglée ne s'impose qu'au passage automatique.
+  const heureDeNuit = origine === 'automatique' ? (reglages.snapshotHeure ?? 4) : undefined;
+  const dus = sites.filter((site) => siteEstDu(site, derniers.get(site.id) ?? null, maintenant, heureDeNuit));
   for (const site of dus) {
     await prendreUnSnapshot(site.id, origine);
   }
   if (dus.length) log.info(`snapshots : ${dus.length} site(s) sauvegardé(s)`);
+
+  // LE MÉNAGE PASSE SUR TOUS LES SITES, PAS SEULEMENT SUR CEUX QUI VIENNENT
+  // D'ÊTRE PRIS : une rétention d'un jour doit expirer même si le site est
+  // éteint ou que sa prochaine prise est encore loin.
+  for (const site of sites) menageDuSite(site, maintenant);
 
   // CE QUI ÉCHOUE ENCORE ET ENCORE PART CHEZ L'ASSISTANT. L'import est fait ici
   // et pas en tête de fichier : le module de l'assistant tire tout le moteur,
@@ -865,22 +881,38 @@ export async function passageDesSnapshots(origine: 'automatique' | 'manuel' = 'a
 }
 
 /**
- * L'HEURE DITE, UNE FOIS PAR JOUR. Même mécanique que la sauvegarde du démon
- * (`backup.ts`) : un passage toutes les cinq minutes, qui ne fait rien tant que
- * l'heure n'est pas celle réglée, et jamais deux fois le même jour.
+ * LA CADENCE SE JUGE À LA MINUTE. Le passage tourne chaque minute et ne prend
+ * que les sites DUS (`siteEstDu`) : un site réglé sur un quart d'heure est
+ * repris toutes les quinze minutes, un site réglé sur un jour garde son
+ * rendez-vous à l'heure de nuit. Un passage qui tourne encore n'est jamais
+ * doublé — le suivant attend.
  */
 export function planifierLesSnapshots(): NodeJS.Timeout {
-  let dernierJour = -1;
-  return setInterval(
-    () => {
-      const reglages = getSettings();
-      if (!reglages.snapshotAuto) return;
-      const maintenant = new Date();
-      if (maintenant.getHours() !== (reglages.snapshotHeure ?? 4)) return;
-      if (maintenant.getDate() === dernierJour) return;
-      dernierJour = maintenant.getDate();
-      void passageDesSnapshots('automatique');
-    },
-    5 * 60 * 1000,
-  );
+  let passageEnCours = false;
+  return setInterval(() => {
+    if (passageEnCours) return;
+    if (!getSettings().snapshotAuto) return;
+    passageEnCours = true;
+    void passageDesSnapshots('automatique').finally(() => {
+      passageEnCours = false;
+    });
+  }, 60 * 1000);
+}
+
+/**
+ * LE DOSSIER DE STOCKAGE, ET SON REPLI CRÉÉ TOUT SEUL. Tant qu'aucun dossier
+ * n'est réglé dans « Système », les snapshots vont dans un dossier
+ * « Snapshots » posé à côté des données du démon — au lieu de ne rien prendre
+ * du tout. Un dossier réglé à la main l'emporte toujours.
+ */
+export function dossierDeStockage(): string {
+  const regle = (getSettings().snapshotDossier ?? '').trim();
+  if (regle) return regle;
+  const repli = path.join(CONFIG.dataDir, DOSSIER_SNAPSHOTS_PAR_DEFAUT);
+  try {
+    fs.mkdirSync(repli, { recursive: true });
+  } catch (err: any) {
+    log.warn(`snapshots : dossier « ${repli} » non créé`, err?.message ?? err);
+  }
+  return repli;
 }

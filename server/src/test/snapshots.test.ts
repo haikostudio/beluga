@@ -13,6 +13,11 @@ import {
   pointsAPurger,
   raisonDestinationRefusee,
   resumeParSite,
+  cadenceDeNuit,
+  cadenceValide,
+  ecartMinimalMs,
+  normaliserCadence,
+  phraseDeCadence,
   siteEstDu,
   siteVierge,
   sitesDuPassage,
@@ -177,4 +182,70 @@ test('une destination absente ou relative est refusée, en disant pourquoi', () 
   assert.match(raisonDestinationRefusee('') ?? '', /réglé/);
   assert.match(raisonDestinationRefusee('stockage') ?? '', /absolu/);
   assert.equal(raisonDestinationRefusee('/mnt/stockage'), null);
+});
+
+
+/* ------------------------------------------------------------------ */
+/* LA CADENCE EN MINUTES                                                */
+/* ------------------------------------------------------------------ */
+
+test('une cadence hors bornes est refusée, une cadence en minutes est acceptée', () => {
+  assert.equal(jugerSite(site({ frequenceMinutes: 0 })).ok, false);
+  assert.equal(jugerSite(site({ frequenceMinutes: 1 })).ok, false);
+  assert.equal(jugerSite(site({ frequenceMinutes: 999_999 })).ok, false);
+  assert.equal(jugerSite(site({ frequenceMinutes: 15 })).ok, true);
+  assert.equal(jugerSite(site({ frequenceMinutes: 42 })).ok, true);
+});
+
+test('une cadence d’un jour garde exactement l’écart de rattrapage d’avant (20 h)', () => {
+  assert.equal(ecartMinimalMs(24 * 60), ECART_MINIMAL_MS);
+});
+
+test('une cadence courte ne perd qu’un sixième d’elle-même, pas quatre heures', () => {
+  assert.equal(ecartMinimalMs(15), 15 * 60 * 1000 - (15 * 60 * 1000) / 6);
+  assert.ok(ecartMinimalMs(42) < 42 * 60 * 1000);
+  assert.ok(ecartMinimalMs(42) > 30 * 60 * 1000);
+});
+
+test('une fiche d’avant, réglée en jours, se relit en minutes sans migration', () => {
+  const ancienne = { ...site(), frequenceMinutes: 0, frequenceJours: 3 } as SiteASauvegarder;
+  assert.equal(normaliserCadence(ancienne).frequenceMinutes, 3 * 24 * 60);
+});
+
+test('une cadence absente retombe sur une fois par jour', () => {
+  assert.equal(cadenceValide(0), 24 * 60);
+  assert.equal(cadenceValide(Number.NaN), 24 * 60);
+});
+
+test('deux sites à 15 et 42 minutes ne sont pas dus au même instant', () => {
+  const quart = site({ id: 'quart', frequenceMinutes: 15 });
+  const long = site({ id: 'long', frequenceMinutes: 42 });
+  const maintenant = 100 * ECART_MINIMAL_MS;
+  const derniers = new Map([
+    ['quart', point({ siteId: 'quart', debut: maintenant - 16 * 60 * 1000 })],
+    ['long', point({ siteId: 'long', debut: maintenant - 16 * 60 * 1000 })],
+  ]);
+  assert.deepEqual(
+    sitesDuPassage([quart, long], derniers, maintenant).map((s) => s.id),
+    ['quart'],
+  );
+});
+
+test('seule une cadence d’au moins un jour attend l’heure de nuit', () => {
+  assert.equal(cadenceDeNuit(24 * 60), true);
+  assert.equal(cadenceDeNuit(15), false);
+  const nuit = new Date(2026, 7, 26, 4, 30).getTime();
+  const jour = new Date(2026, 7, 26, 11, 30).getTime();
+  const quotidien = site({ frequenceMinutes: 24 * 60 });
+  const rapide = site({ frequenceMinutes: 15 });
+  assert.equal(siteEstDu(quotidien, null, jour, 4), false);
+  assert.equal(siteEstDu(quotidien, null, nuit, 4), true);
+  assert.equal(siteEstDu(rapide, null, jour, 4), true);
+});
+
+test('la cadence se lit en clair, dans l’unité qui lui va', () => {
+  assert.equal(phraseDeCadence(15), 'toutes les 15 min');
+  assert.equal(phraseDeCadence(120), 'toutes les 2 h');
+  assert.equal(phraseDeCadence(24 * 60), 'chaque jour');
+  assert.equal(phraseDeCadence(3 * 24 * 60), 'tous les 3 j');
 });

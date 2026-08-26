@@ -107,6 +107,7 @@ import {
   enregistrerSite,
   listerPoints,
   listerSites as listerSitesSnapshots,
+  dossierDeStockage as dossierDeStockageSnapshots,
   passageDesSnapshots,
   prendreUnSnapshot,
   projetsSansFiche,
@@ -1816,7 +1817,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         projets: projetsSansFiche(),
         enCours: snapshotsEnCours(),
         restaurations: restaurationsEnCours(),
-        dossier: (store.getSettings().snapshotDossier ?? '').trim(),
+        dossier: dossierDeStockageSnapshots(),
       };
 
     case 'snapshots.enregistrerSite': {
