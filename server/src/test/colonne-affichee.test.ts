@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { colonneAffichee, type CartePourAffichage } from '@haikodev/shared';
+import { agentCompteCommeTravail, colonneAffichee, type CartePourAffichage } from '@haikodev/shared';
 
 /** La carte du symptôme : rangée en « Planifié », son agent travaille. */
 const RETOMBEE: CartePourAffichage = { column: 'planned', agentAuTravail: true };
@@ -32,5 +32,22 @@ test('une carte au travail se montre en « En cours » depuis n’importe quelle
 test('sans agent au travail, ces colonnes restent inchangées', () => {
   for (const column of ['done', 'to_deploy', 'archived'] as const) {
     assert.equal(colonneAffichee({ column }), column);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Le CADRAGE n'est pas le travail de la carte                         */
+/* ------------------------------------------------------------------ */
+
+test('un agent de cadrage ne compte pas comme le travail de la carte', () => {
+  // Discuter une carte n'est pas la faire : la carte-fil restait en
+  // « Planifié » dans son tiroir, et sautait pourtant en « En cours » sur le
+  // tableau à chaque réponse de cadrage.
+  assert.equal(agentCompteCommeTravail('cadrage'), false);
+});
+
+test('tous les autres rôles comptent, comme avant', () => {
+  for (const role of ['task', 'analysis', 'orchestrator', 'deploy', undefined]) {
+    assert.equal(agentCompteCommeTravail(role), true);
   }
 });

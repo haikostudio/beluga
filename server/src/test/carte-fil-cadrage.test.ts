@@ -41,11 +41,19 @@ test('le bouton ne paraît que dans une carte de cadrage encore en « Planifié 
   assert.equal(boutonLancerLaTache({ ...base, colonne: 'planned' }).affiche, false);
 });
 
-test('le bouton attend qu’on ait parlé, et que le tour en cours soit fini', () => {
+test('les gestes de lancement ne paraissent qu’une fois la discussion engagée', () => {
+  // Carte vierge : la rangée entière reste absente — rien à lancer tant que
+  // rien n'est dit, et le champ de saisie garde toute la place.
   const vide = boutonLancerLaTache({ colonne: 'planned', roleAgent: 'cadrage', agentAuTravail: false, messages: 0 });
-  assert.equal(vide.affiche, true);
+  assert.equal(vide.affiche, false);
   assert.equal(vide.possible, false);
   assert.equal(vide.raison, RAISONS_DU_BOUTON_LANCER[1]);
+  // Même quand le tout premier tour de cadrage tourne déjà : le message est
+  // parti, mais rien n'est encore dans le fil.
+  assert.equal(
+    boutonLancerLaTache({ colonne: 'planned', roleAgent: 'cadrage', agentAuTravail: true, messages: 0 }).affiche,
+    false,
+  );
 
   const occupe = boutonLancerLaTache({ colonne: 'planned', roleAgent: 'cadrage', agentAuTravail: true, messages: 4 });
   assert.equal(occupe.possible, false);

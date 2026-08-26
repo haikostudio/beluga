@@ -31,6 +31,27 @@ import type { ColumnKey } from './columns.js';
  * La règle vit ici, sans base ni réseau : elle se teste seule.
  */
 
+/**
+ * LES RÔLES QUI NE SONT PAS LE TRAVAIL DE LA CARTE.
+ *
+ * Un agent de CADRAGE discute le besoin dans le fil de la carte, sur un modèle
+ * économe, et ne touche à rien : la carte n'a même pas encore de branche. Son
+ * tour n'est donc PAS le travail — le compter comme tel faisait basculer la
+ * carte en « En cours » à chaque réponse de cadrage, alors que son tiroir
+ * affichait toujours « Planifié » et que rien n'avait été lancé. Le passage en
+ * « En cours » n'appartient qu'au clic sur « Lancer la tâche ».
+ */
+export const ROLES_HORS_TRAVAIL_DE_CARTE = ['cadrage'] as const;
+
+/**
+ * Le tour de cet agent prouve-t-il que le TRAVAIL de la carte a commencé ?
+ * Un rôle inconnu compte comme du travail : c'est le cas d'avant, et seul le
+ * cadrage a été retiré.
+ */
+export function agentCompteCommeTravail(role: string | undefined): boolean {
+  return !ROLES_HORS_TRAVAIL_DE_CARTE.includes((role ?? '') as (typeof ROLES_HORS_TRAVAIL_DE_CARTE)[number]);
+}
+
 /** Ce qu'il faut savoir d'une carte pour décider où la MONTRER. */
 export interface CartePourAffichage {
   /** La colonne enregistrée, telle que le serveur l'a diffusée. */

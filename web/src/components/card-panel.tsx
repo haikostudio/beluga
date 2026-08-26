@@ -196,10 +196,22 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * faisaient cliquer par erreur en croyant valider le commentaire. Ils
    * restent atteignables depuis « Détails » et « Conversation ».
    */
+  /*
+   * UNE CARTE-FIL DE CADRAGE PREND SES GESTES DE LANCEMENT DANS SON FIL, PAS
+   * AU PIED DU TIROIR. Le couple « Lancer maintenant » / « Dès que possible »
+   * s'affichait tout en bas, SOUS la barre d'écriture, pendant que « Lancer la
+   * tâche » — la MÊME commande — se tenait juste au-dessus d'elle : deux
+   * endroits pour un seul geste, et le plus visible des deux hors de vue au
+   * moment de conclure la discussion. Ces gestes vivent désormais dans la
+   * rangée posée au-dessus du champ de saisie (`GestesDeLancement`, `chat.tsx`).
+   * Les autres cartes de « Planifié » gardent leur pied de tiroir intact.
+   */
+  const cadrageEnCours = card.column === 'planned' && agent?.role === 'cadrage';
+
   const aDecision =
     ongletActif !== 'comments' &&
     (peut('valider').affiche ||
-    card.column === 'planned' ||
+    (card.column === 'planned' && !cadrageEnCours) ||
     peut('terminer').affiche ||
     peut('publier').affiche ||
     peut('reprendre').affiche ||
@@ -447,7 +459,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               entière ; à plusieurs, ils se divisent la ligne et passent à la
               suivante en dessous de 150 px, toujours sans laisser de vide. */}
           <div className="grid items-center gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))] [&>*]:w-full">
-            {card.column === 'planned' ? (
+            {card.column === 'planned' && !cadrageEnCours ? (
               <>
                 <Geste decision={peut('lancer')}>
                   <Button

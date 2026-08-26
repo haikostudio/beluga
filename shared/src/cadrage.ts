@@ -36,6 +36,14 @@ export const MOT_CADRAGE = {
 export const BOUTON_LANCER_LA_TACHE = 'Lancer la tâche';
 
 /**
+ * Le libellé du geste qui l'accompagne : mettre la carte en file plutôt que de
+ * la lancer tout de suite. Il vit DANS le fil, juste au-dessus du champ de
+ * saisie, et non plus au pied du tiroir — les deux gestes de lancement d'une
+ * carte de cadrage se prennent là où la discussion se termine.
+ */
+export const BOUTON_DES_QUE_POSSIBLE = 'Dès que possible';
+
+/**
  * Les deux raisons qui éteignent ce bouton, réunies pour être TRADUITES : elles
  * s'affichent à l'écran sans qu'aucun `t('…')` littéral ne les nomme, la règle
  * vivant ici et l'affichage dans le fil de la carte.
@@ -81,11 +89,19 @@ export function boutonLancerLaTache(ctx: ContexteBoutonLancer): EtatBoutonLancer
   if (ctx.colonne !== 'planned' || ctx.roleAgent !== 'cadrage') {
     return { affiche: false, possible: false };
   }
+  /*
+   * TANT QUE RIEN N'EST DIT, RIEN NE S'AFFICHE. Le bouton restait posé, gris,
+   * sur une carte vierge : il occupait la place au-dessus du champ de saisie
+   * juste au moment où l'on cherche ce champ, et sa seule phrase disait
+   * d'écrire quelque chose — ce que l'accueil de la conversation dit déjà.
+   * Les gestes de lancement n'apparaissent donc qu'une fois la DISCUSSION
+   * ENGAGÉE ; leur raison reste rendue, pour qui voudrait l'expliquer.
+   */
+  if (ctx.messages <= 0) {
+    return { affiche: false, possible: false, raison: RAISONS_DU_BOUTON_LANCER[1] };
+  }
   if (ctx.agentAuTravail) {
     return { affiche: true, possible: false, raison: RAISONS_DU_BOUTON_LANCER[0] };
-  }
-  if (ctx.messages <= 0) {
-    return { affiche: true, possible: false, raison: RAISONS_DU_BOUTON_LANCER[1] };
   }
   return { affiche: true, possible: true };
 }

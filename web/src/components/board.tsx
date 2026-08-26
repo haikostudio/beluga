@@ -25,6 +25,7 @@ import {
   cleColonneTableau,
   colonneAReprendre,
   colonneAffichee,
+  agentCompteCommeTravail,
   compteurDeColonne,
   phraseDeColonneVide,
   TravailSansCarte,
@@ -382,7 +383,12 @@ export function Board({
   const travailParCarte = React.useMemo(() => {
     const index = new Set<string>();
     for (const agent of Object.values(state.agents)) {
-      if (agent.cardId && agentTientSonTour(agent)) index.add(agent.cardId);
+      /* Le CADRAGE ne compte pas : discuter une carte n'est pas la faire
+         (`agentCompteCommeTravail`). Sans cela, la carte-fil sautait en
+         « En cours » à chaque réponse, sans qu'on ait rien lancé. */
+      if (agent.cardId && agentCompteCommeTravail(agent.role) && agentTientSonTour(agent)) {
+        index.add(agent.cardId);
+      }
     }
     return index;
   }, [state.agents]);
@@ -1402,7 +1408,11 @@ export function Board({
                   tait quand il n'a rien à dire : pas d'étape comptée, rien à
                   lire, rien de non-lu. */}
               <div className="ml-auto flex items-center gap-0.5">
-                {column === 'planned' || column === 'notes' ? (
+                {/* « Planifié » n'a plus de « + » : sa place est tenue par la
+                    carte permanente « Nouvelle tâche », en tête de colonne
+                    (`TuileNouvelleTache`). « Notes » garde son formulaire —
+                    une note ne se discute pas, elle s'écrit. */}
+                {column === 'notes' ? (
                   <ComposerInline
                     projectId={projectId}
                     column={column}
@@ -1497,6 +1507,13 @@ export function Board({
                   onFiche={() => setSansCarte((prev) => ({ ...prev, [column]: null }))}
                 />
               ) : null}
+              {/* LA CARTE PERMANENTE « NOUVELLE TÂCHE », toujours en tête de
+                  « Planifié » : elle tient la place de l'ancien « + ». Elle
+                  n'est PAS une carte enregistrée — rien à ranger, rien à
+                  compter, rien à laisser derrière soi : le clic fait naître la
+                  vraie carte de cadrage et ouvre son fil, et la tuile reste où
+                  elle est pour la fois suivante. */}
+              {column === 'planned' ? <TuileNouvelleTache projectId={projectId} /> : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
                 /* Le bandeau du groupe se pose DEVANT sa première carte, jamais
@@ -1546,13 +1563,13 @@ export function Board({
                   onCharger={() => chargerLaSuite(column, columnCards.length)}
                 />
               ) : null}
-              {!columnCards.length ? (
+              {/* « Planifié » n'a plus d'état vide : la carte permanente
+                  « Nouvelle tâche » est toujours là, et dit déjà quoi faire. */}
+              {!columnCards.length && column !== 'planned' ? (
                 <p className="px-1.5 py-3 text-[13px] text-faint">
                   {column === 'notes'
                     ? t('Idées en vrac.')
-                    : column === 'planned'
-                      ? t('Rien à faire pour l’instant : ajoutez une carte avec « + ».')
-                      : column === 'running'
+                    : column === 'running'
                         ? t('Glissez ici pour lancer le travail.')
                         : column === 'done'
                           ? t('Aucun travail terminé pour l’instant.')
@@ -1654,6 +1671,67 @@ function maintenantEnChamp(): string {
   return `${date.getFullYear()}-${deux(date.getMonth() + 1)}-${deux(date.getDate())}T${deux(date.getHours())}:${deux(
     date.getMinutes(),
   )}`;
+}
+
+/**
+ * LA CARTE PERMANENTE « NOUVELLE TÂCHE », EN TÊTE DE « PLANIFIÉ ».
+ *
+ * Elle remplace le « + » de l'entête : au lieu d'un bouton gros comme un
+ * caractère, perdu dans une rangée de repères, la place de la prochaine tâche
+ * est TENUE, à taille de carte, là où les cartes se lisent.
+ *
+ * Elle n'est PAS enregistrée : rien en base, rien à compter dans l'entête de
+ * colonne, rien à ranger si l'on change d'avis. Le clic fait naître la VRAIE
+ * carte de cadrage (`card.create`, `cadrage: true`) et ouvre son fil ; la
+ * nouvelle carte se range juste en dessous, et la tuile reste où elle est —
+ * c'est ainsi qu'une « Nouvelle tâche » vierge attend toujours en tête, sans
+ * qu'aucune carte vide ne traîne derrière.
+ */
+function TuileNouvelleTache({ projectId }: { projectId: string }) {
+  const [busy, setBusy] = React.useState(false);
+  const ouvrir = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const data = await client.call<{ card: Card }>({
+        type: 'card.create',
+        projectId,
+        title: TITRE_CARTE_DE_CADRAGE,
+        cadrage: true,
+      });
+      if (data?.card) client.openCard(data.card.id);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('création impossible'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      // Le repère des scripts de vérification : c'est LUI qui ouvre désormais
+      // une carte-fil, à la place de l'ancien bouton « + ».
+      data-nouvelle-carte="planned"
+      aria-label="Nouvelle tâche"
+      aria-busy={busy}
+      disabled={busy}
+      onClick={() => void ouvrir()}
+      className={cn(
+        'flex w-full items-center gap-2 rounded-md border border-dashed border-faint/60 bg-raised/40 px-2.5 py-2 text-left transition-colors',
+        busy ? 'cursor-wait opacity-70' : 'cursor-pointer hover:border-faint hover:bg-raised',
+      )}
+    >
+      {busy ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-faint" />
+      ) : (
+        <Plus className="h-3.5 w-3.5 shrink-0 text-faint" />
+      )}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13.5px] font-medium text-muted">{t(TITRE_CARTE_DE_CADRAGE)}</span>
+        <span className="block truncate text-[12px] text-faint">{t('Dites ce que vous voulez faire')}</span>
+      </span>
+    </button>
+  );
 }
 
 function ComposerInline({
@@ -1794,33 +1872,6 @@ function ComposerInline({
     }
   };
 
-  /*
-   * LE « + » DE « PLANIFIÉ » N'OUVRE PLUS UN FORMULAIRE, IL OUVRE UNE
-   * CONVERSATION. La carte naît tout de suite, sans titre à inventer, et son
-   * tiroir s'ouvre sur son fil : un agent LÉGER y discute le besoin, écrit le
-   * titre, la description et le niveau, puis le bouton « Lancer la tâche »
-   * confie le travail à un agent complet (`shared/src/cadrage.ts`). Rien ne
-   * part au moteur avant le premier message.
-   *
-   * « Notes » garde son formulaire : une note ne se discute pas, elle s'écrit.
-   */
-  const ouvrirUneCarteFil = async () => {
-    setBusy(true);
-    try {
-      const data = await client.call<{ card: Card }>({
-        type: 'card.create',
-        projectId,
-        title: TITRE_CARTE_DE_CADRAGE,
-        cadrage: true,
-      });
-      if (data?.card) client.openCard(data.card.id);
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('création impossible'));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (!open) {
     return (
       <Tooltip label={column === 'notes' ? t('Nouvelle note') : t('Nouvelle tâche')}>
@@ -1831,10 +1882,6 @@ function ComposerInline({
           aria-label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}
           data-nouvelle-carte={column}
           onClick={() => {
-            if (column !== 'notes') {
-              void ouvrirUneCarteFil();
-              return;
-            }
             // Le champ repart de l'heure qu'il est, pas de celle d'il y a
             // trois heures quand le formulaire avait été ouvert la dernière fois.
             setDepart(maintenantEnChamp());

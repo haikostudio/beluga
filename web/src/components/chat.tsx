@@ -10,10 +10,12 @@ import {
   Rocket,
   RotateCcw,
   Square,
+  Zap,
 } from 'lucide-react';
 import {
   Agent,
   BOUTON_LANCER_LA_TACHE,
+  BOUTON_DES_QUE_POSSIBLE,
   boutonLancerLaTache,
   type EtatBoutonLancer,
   MOT_CADRAGE,
@@ -358,7 +360,9 @@ export function Chat({
       <Composer
         agent={agent}
         boutonPrincipal={
-          lancement.affiche && cardId ? <BoutonLancerLaTache cardId={cardId} etat={lancement} /> : undefined
+          lancement.affiche && cardId ? (
+            <GestesDeLancement cardId={cardId} etat={lancement} asap={carte?.scheduling?.asap === true} />
+          ) : undefined
         }
         engines={state.engines}
         queue={queue}
@@ -467,11 +471,68 @@ function BarreNouveauDepart({
 }
 
 /**
+ * LES GESTES DE LANCEMENT D'UNE CARTE DE CADRAGE, RÉUNIS AU-DESSUS DU CHAMP.
+ *
+ * Ils étaient à deux endroits : « Lancer la tâche » au-dessus du champ de
+ * saisie, « Lancer maintenant » et « Dès que possible » tout au fond du pied du
+ * tiroir, SOUS la barre d'écriture — donc hors de vue au moment précis où l'on
+ * vient de finir d'expliquer son besoin. Or « Lancer maintenant » et « Lancer
+ * la tâche » envoient la MÊME commande (`card.start`) : les garder tous les
+ * deux, l'un au-dessus l'autre en dessous, était un double emploi. Il ne reste
+ * donc qu'une rangée, juste au-dessus du champ : le lancement, et le seul geste
+ * qui en diffère vraiment — mettre la carte en file au lieu de la lancer.
+ *
+ * La rangée ne paraît QU'UNE FOIS LA DISCUSSION ENGAGÉE (`boutonLancerLaTache`
+ * ne l'affiche plus sur une carte vierge) : rien à lancer tant que rien n'est
+ * dit.
+ */
+function GestesDeLancement({
+  cardId,
+  etat,
+  asap,
+}: {
+  cardId: string;
+  etat: EtatBoutonLancer;
+  asap: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-stretch gap-1.5" data-gestes-de-lancement={cardId}>
+      <div className="min-w-[150px] flex-1">
+        <BoutonLancerLaTache cardId={cardId} etat={etat} />
+      </div>
+      <Tooltip
+        label={
+          asap
+            ? t('La carte partira d’elle-même dès qu’une place se libère — cliquez pour annuler')
+            : t('Mettre la carte en file : elle partira dès qu’une place se libère')
+        }
+      >
+        <button
+          type="button"
+          data-des-que-possible={cardId}
+          aria-pressed={asap}
+          onClick={() =>
+            client
+              .call({ type: 'card.asap', id: cardId, value: !asap })
+              .catch((err: any) => client.signalerRefus(err?.message ?? t('Geste refusé'), cardId))
+          }
+          className={cn(
+            'flex shrink-0 items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors',
+            asap ? 'bg-raised text-text ring-1 ring-inset ring-accent' : 'bg-raised text-muted hover:text-text',
+          )}
+        >
+          <Zap className="h-3.5 w-3.5" />
+          {t(BOUTON_DES_QUE_POSSIBLE)}
+        </button>
+      </Tooltip>
+    </div>
+  );
+}
+
+/**
  * « LANCER LA TÂCHE » : le geste qui ferme la conversation de cadrage.
  *
- * Il vit en PLEINE LARGEUR au-dessus du champ de saisie, parce que c'est là
- * qu'on le cherche une fois le besoin expliqué — pas au fond d'un pied de
- * tiroir. Inactif, il n'est pas « désactivé » au sens du navigateur : un bouton
+ * Inactif, il n'est pas « désactivé » au sens du navigateur : un bouton
  * désactivé n'affiche plus son explication au survol, et on perdrait la seule
  * phrase qui dit pourquoi le geste attend.
  */
