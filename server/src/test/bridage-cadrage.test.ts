@@ -15,8 +15,8 @@ import { EngineRunOptions } from '../engines/types.js';
 
 const PONT = '/opt/haikodev/server/mcp-bridge.mjs';
 
-/** Le tour d'un chef d'orchestre sur un projet ORDINAIRE : les deux listes. */
-function tourDuChef(extra: Partial<EngineRunOptions> = {}): EngineRunOptions {
+/** Le tour d'un agent BRIDÉ sur un projet ORDINAIRE : les deux listes. */
+function tourBride(extra: Partial<EngineRunOptions> = {}): EngineRunOptions {
   return {
     cwd: '/root/projet',
     prompt: 'bonjour',
@@ -33,30 +33,30 @@ function tourDuChef(extra: Partial<EngineRunOptions> = {}): EngineRunOptions {
 
 /** Le tour d'un agent de tâche : accès complet, aucune liste. */
 function tourDeTache(extra: Partial<EngineRunOptions> = {}): EngineRunOptions {
-  return tourDuChef({ fullAccess: true, allowedTools: undefined, disallowedTools: undefined, ...extra });
+  return tourBride({ fullAccess: true, allowedTools: undefined, disallowedTools: undefined, ...extra });
 }
 
 test('les deux listes partent au moteur, pour Claude COMME pour Codex', () => {
-  const claude = buildClaudeArgs(tourDuChef()).join(' ');
+  const claude = buildClaudeArgs(tourBride()).join(' ');
   assert.ok(claude.includes('--allowedTools'), 'Claude doit recevoir la liste blanche');
   assert.ok(claude.includes('--disallowedTools'), 'Claude doit recevoir la liste noire');
   assert.ok(claude.includes('mcp__haikodev__board_create_card'), 'la proposition de carte reste permise');
 
   // Le défaut d'origine : Codex ne lisait ni l'une ni l'autre, et le chef y
   // écrivait des fichiers.
-  const codex = buildCodexArgs(tourDuChef()).join(' ');
-  for (const surcharge of surchargesCodexBridees(tourDuChef())) {
+  const codex = buildCodexArgs(tourBride()).join(' ');
+  for (const surcharge of surchargesCodexBridees(tourBride())) {
     assert.ok(codex.includes(surcharge), `Codex doit recevoir « ${surcharge} »`);
   }
 });
 
 test('sous Codex, le chef lance tout ce qu’il veut, sans travail de fond', () => {
   for (const reprise of [undefined, 'fil-1']) {
-    const codex = buildCodexArgs(tourDuChef({ sessionId: reprise })).join(' ');
+    const codex = buildCodexArgs(tourBride({ sessionId: reprise })).join(' ');
     // ACCÈS COMPLET : construire, installer, déployer, redémarrer, administrer.
     // Un bac à sable bloquait ces gestes-là, jamais le code (voir bridage-cadrage.ts).
-    assert.ok(codex.includes('sandbox_mode="danger-full-access"'), 'le chef a l\'accès complet');
-    assert.ok(!codex.includes('sandbox_mode="read-only"'), 'le chef n\'est pas muré en lecture seule');
+    assert.ok(codex.includes('sandbox_mode="danger-full-access"'), 'l\'agent bridé a l\'accès complet');
+    assert.ok(!codex.includes('sandbox_mode="read-only"'), 'il n\'est pas muré en lecture seule');
     assert.ok(
       !codex.includes('sandbox_mode="workspace-write"'),
       'plus rien ne limite l\'écriture à un espace de travail',
@@ -68,8 +68,8 @@ test('sous Codex, le chef lance tout ce qu’il veut, sans travail de fond', () 
   }
 });
 
-test('sous Claude, le chef a l’accès complet et le projet lui est ouvert', () => {
-  const claude = buildClaudeArgs(tourDuChef({ projectRoot: '/root/projet' }));
+test('sous Claude, l’agent bridé a l’accès complet et le projet lui est ouvert', () => {
+  const claude = buildClaudeArgs(tourBride({ projectRoot: '/root/projet' }));
   const ligne = claude.join(' ');
   assert.ok(ligne.includes('--settings'), 'Claude reçoit ses réglages');
   const i = claude.indexOf('--settings');
@@ -77,25 +77,25 @@ test('sous Claude, le chef a l’accès complet et le projet lui est ouvert', ()
   assert.equal(reglages.sandbox.enabled, false, 'le bac à sable est éteint');
   assert.ok(
     !JSON.stringify(reglages).includes('denyWrite'),
-    'plus aucun dossier n\'est fermé en écriture au chef',
+    'plus aucun dossier n\'est fermé en écriture',
   );
   assert.ok(ligne.includes('--add-dir /root/projet'), 'le projet lui est ouvert');
 });
 
 test('sous Codex, les outils du projet sont énumérés un par un', () => {
-  const codex = buildCodexArgs(tourDuChef()).join(' ');
+  const codex = buildCodexArgs(tourBride()).join(' ');
   const permis = outilsDuProjet(cadrageAllowList());
   const interdits = outilsDuProjet(cadrageDenyList());
-  assert.ok(permis.includes('board_create_card'), 'la liste blanche porte bien les outils du projet');
+  assert.ok(permis.includes('board_update_card'), 'la liste blanche porte bien les outils du projet');
   assert.ok(interdits.length > 0, 'la liste noire porte au moins un outil du projet');
   assert.ok(codex.includes(`mcp_servers.haikodev.enabled_tools=${JSON.stringify(permis)}`));
   assert.ok(codex.includes(`mcp_servers.haikodev.disabled_tools=${JSON.stringify(interdits)}`));
 });
 
-test('sous Codex, la facturation est énumérée parmi les outils permis au chef', () => {
+test('sous Codex, la facturation est énumérée parmi les outils permis au cadrage', () => {
   const permis = outilsDuProjet(cadrageAllowList());
-  assert.ok(permis.includes('compta'), 'compta doit être dans les outils permis du chef');
-  const codex = buildCodexArgs(tourDuChef()).join(' ');
+  assert.ok(permis.includes('compta'), 'compta doit être dans les outils permis du cadrage');
+  const codex = buildCodexArgs(tourBride()).join(' ');
   assert.ok(
     codex.includes(`mcp_servers.haikodev.enabled_tools=${JSON.stringify(permis)}`),
     'la liste enabled_tools de Codex doit porter compta',

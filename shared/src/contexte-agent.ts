@@ -63,13 +63,14 @@ export const SEUIL_COMPRESSION_CONTEXTE = 0.5;
 export const PLAFOND_CONTEXTE_JETONS = 100_000;
 
 /**
- * Le chef d'orchestre a son propre plafond, plus bas : sa conversation ne meurt
- * jamais et il ne fait que trier. Un chef mesuré portait 107 155 jetons de fil
- * accumulé, relus À CHAQUE message pour reformuler une phrase — 28,8 % de tout
- * le quota du serveur. Compresser lui coûte un appel ; ne pas compresser lui
- * coûte ce fil entier, à chaque tri.
+ * L'agent de CADRAGE a son propre plafond, plus bas : il discute un besoin sur
+ * un modèle économe, sans ouvrir le projet. Un fil de discussion accumulé et
+ * relu à CHAQUE message coûte plus cher que la compression qui l'évite — un
+ * agent mesuré portait 107 155 jetons relus pour reformuler une phrase, soit
+ * 28,8 % de tout le quota du serveur.
  */
 export const PLAFOND_CONTEXTE_PAR_ROLE: Record<string, number> = {
+  cadrage: 60_000,
 };
 
 /** Le plafond en jetons qui s'applique à un rôle. */

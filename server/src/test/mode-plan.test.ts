@@ -215,18 +215,17 @@ test('sans mode (ou en mode direct), board_create_card fonctionne comme avant', 
 /* écrit dans la conversation, pas une carte.                           */
 /* ------------------------------------------------------------------ */
 
-test('la consigne du chef en mode plan porte les quatre parties du plan et interdit la carte', () => {
+test('la consigne du cadrage en mode plan porte les quatre parties du plan et interdit la carte', () => {
   const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /FAISABILITÉ/);
   assert.match(consigne, /CHEMIN À SUIVRE/);
   assert.match(consigne, /CONSÉQUENCES/);
   assert.match(consigne, /AMÉLIORATIONS APPORTÉES/);
-  assert.match(consigne, /NE PROPOSES AUCUNE carte/);
-  assert.match(consigne, /analysis\.context/);
+  assert.match(consigne, /tu n'écris rien sur le tableau/);
   assert.ok(consigne.includes(CONSIGNE_MODE_PLAN));
 });
 
-test('la consigne du chef en mode direct ne porte pas le texte du mode plan', () => {
+test('la consigne du cadrage en mode direct ne porte pas le texte du mode plan', () => {
   const consigne = rolePrompt('cadrage', false, 'claude');
   assert.ok(!consigne.includes(CONSIGNE_MODE_PLAN));
 });

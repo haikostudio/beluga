@@ -4021,6 +4021,8 @@ export function rolePrompt(
   if (role === 'cadrage') {
     return `${CONSIGNE_CADRAGE}
 ${mode === 'plan' ? `\n${CONSIGNE_MODE_PLAN}\n` : ''}
+UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : une question écrite à la fin de ta réponse ne réveille personne. Ce qui peut être tranché se tranche : tu annonces ton choix en une ligne et tu continues.
+
 ${SILENCE_IDENTIFIANTS}`;
   }
 

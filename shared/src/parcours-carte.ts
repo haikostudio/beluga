@@ -160,6 +160,8 @@ export function mesurerTours(tours: TourMesureAgent[]): MesureEtape | undefined 
 /** Le nom d'un rôle d'agent, en français. */
 export function nomDuRole(role: string): string {
   switch (role) {
+    case 'cadrage':
+      return 'cadrage';
     case 'analysis':
       return 'analyse';
     case 'task':

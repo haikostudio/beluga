@@ -162,7 +162,7 @@ test('le redémarrage forcé coupe les agents SANS suspendre les cartes', () => 
 });
 
 test('seul le navigateur suspend une carte : le rangement d’arrêt ne vit que dans ws.ts', () => {
-  const appelants = ['runtime.ts', 'scheduler.ts', 'demon.ts', 'deploy.ts', 'orchestrator.ts'];
+  const appelants = ['runtime.ts', 'scheduler.ts', 'demon.ts', 'deploy.ts', 'cadrage.ts'];
   for (const fichier of appelants) {
     assert.doesNotMatch(
       SERVEUR(fichier),

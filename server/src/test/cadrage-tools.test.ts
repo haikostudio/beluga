@@ -6,7 +6,7 @@ import { outilsNatifsDuMoteur } from '@haikodev/shared';
 import {
   CADRAGE_ALLOWED_NATIVE,
   CADRAGE_DENIED_NATIVE,
-  TASK_ONLY_TOOLS,
+  CADRAGE_BLOCKED_TOOLS,
   TOOL_DEFS,
   cadrageAllowList,
   cadrageDenyList,
@@ -79,7 +79,7 @@ test('la liste d\'interdiction est explicite, jamais un joker', () => {
   const deny = cadrageDenyList();
   assert.ok(deny.length >= CADRAGE_DENIED_NATIVE.length);
   assert.equal(deny.includes('*'), false);
-  // Le shell est désormais PERMIS au chef ; c'est le bac à sable qui garde le
+  // Le shell est désormais PERMIS à l'agent bridé ; c'est le bac à sable qui garde le
   // projet en lecture seule, pas l'absence de « Bash ».
   assert.equal(deny.includes('Bash'), false);
   // L'édition de fichiers et les travaux de fond restent, eux, interdits.
@@ -88,23 +88,23 @@ test('la liste d\'interdiction est explicite, jamais un joker', () => {
   assert.ok(deny.includes('Task'));
 });
 
-test('le chef d\'orchestre ne voit pas les outils réservés aux agents de tâche', () => {
+test('l\'agent de cadrage ne voit ni les outils de tâche, ni de quoi proposer une autre carte', () => {
   const names = toolsFor('cadrage').map((tool) => tool.name);
-  for (const reserved of TASK_ONLY_TOOLS) {
-    assert.equal(names.includes(reserved), false);
+  for (const reserved of CADRAGE_BLOCKED_TOOLS) {
+    assert.equal(names.includes(reserved), false, `${reserved} ne doit pas lui être servi`);
   }
-  // Mais il garde ceux dont il a besoin pour trier et documenter.
-  for (const expected of ['board_create_card', 'board_move_card', 'propose_task', 'write_document', 'make_archive']) {
+  // Mais il garde ceux dont il a besoin pour écrire SA carte et documenter.
+  for (const expected of ['board_update_card', 'write_document', 'ask_user', 'project_memory']) {
     assert.ok(names.includes(expected), `${expected} devrait rester autorisé`);
   }
 });
 
-test('la facturation est ouverte au chef d\'orchestre, comme aux agents de tâche', () => {
-  // Le chef bridé ne peut pas éditer de fichiers ni lancer « Skill » : l'outil
+test('la facturation est ouverte à l\'agent de cadrage, comme aux agents de tâche', () => {
+  // L'agent bridé ne peut pas éditer de fichiers ni lancer « Skill » : l'outil
   // MCP « compta » est son accès à la facturation, et il doit lui rester ouvert.
   const chef = toolsFor('cadrage').map((tool) => tool.name);
-  assert.ok(chef.includes('compta'), 'le chef doit voir l\'outil de facturation');
-  assert.ok(cadrageAllowList().includes('mcp__haikodev__compta'), 'compta doit être dans la liste blanche du chef');
+  assert.ok(chef.includes('compta'), 'le cadrage doit voir l\'outil de facturation');
+  assert.ok(cadrageAllowList().includes('mcp__haikodev__compta'), 'compta doit être dans la liste blanche du cadrage');
   assert.equal(cadrageDenyList().includes('mcp__haikodev__compta'), false, 'compta ne doit jamais être interdit');
   assert.ok(toolsFor('task').map((tool) => tool.name).includes('compta'), 'un agent de tâche garde aussi la facturation');
 });

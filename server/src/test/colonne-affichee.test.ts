@@ -47,7 +47,7 @@ test('un agent de cadrage ne compte pas comme le travail de la carte', () => {
 });
 
 test('tous les autres rôles comptent, comme avant', () => {
-  for (const role of ['task', 'analysis', 'cadrage', 'deploy', undefined]) {
+  for (const role of ['task', 'analysis', 'deploy', undefined]) {
     assert.equal(agentCompteCommeTravail(role), true);
   }
 });
