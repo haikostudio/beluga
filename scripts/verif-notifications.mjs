@@ -204,20 +204,27 @@ function poserLeDecor() {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(agentTache.id, PROJET_A, CARD_ID, 'task', 'idle', JSON.stringify(agentTache), maintenant, maintenant);
 
+  /*
+   * Le chef du second projet est déclaré AU TRAVAIL : c'est la seule façon de
+   * le faire paraître dans la pile d'agents du pied de la colonne de gauche,
+   * d'où l'on ouvre une conversation d'un clic. Rien ne démarre pour autant —
+   * le plafond d'agents est à zéro et aucun moteur n'est joignable.
+   */
   const agentChef = {
     id: AGENT_CHEF,
     projectId: PROJET_B,
     role: 'orchestrator',
     title: `Chef d'orchestre — Essai notifs B ${marque}`,
     run: { engine: 'claude', thinking: 'none', mode: 'direct' },
-    status: 'idle',
+    status: 'running',
+    startedAt: maintenant,
     createdAt: maintenant,
     updatedAt: maintenant,
   };
   db.prepare(
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
-  ).run(agentChef.id, PROJET_B, 'orchestrator', 'idle', JSON.stringify(agentChef), maintenant, maintenant);
+  ).run(agentChef.id, PROJET_B, 'orchestrator', 'running', JSON.stringify(agentChef), maintenant, maintenant);
 
   db.close();
 }
@@ -423,8 +430,12 @@ async function main() {
     const pile = page.locator('[data-pile-agents-colonne]');
     let agentEnTiroir = 'pile absente';
     if ((await pile.count()) > 0) {
-      await pile.locator('button').first().click();
-      await page.waitForTimeout(400);
+      /*
+       * On SURVOLE, on ne clique pas : la pile s'ouvre déjà au survol, et le
+       * clic qui suivrait la refermerait aussitôt.
+       */
+      await pile.hover();
+      await page.waitForTimeout(600);
       const vignette = page.locator('[data-vignette-agent-colonne] button').first();
       if ((await vignette.count()) > 0) {
         await vignette.click();
