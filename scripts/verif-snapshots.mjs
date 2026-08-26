@@ -205,6 +205,47 @@ function poserLeSite() {
 }
 
 /**
+ * TROIS SITES DE PLUS, pour que le TABLEAU montre au moins cinq lignes et que
+ * la RECHERCHE ait de quoi filtrer. Chacun porte sa propre FRÉQUENCE.
+ */
+function poserSitesSupplementaires() {
+  const db = new Database(path.join(DATA, 'haikodev.db'));
+  const maintenant = Date.now();
+  const sites = [
+    { id: 'site-vitrine', nom: 'Vitrine — production', frequenceJours: 3 },
+    { id: 'site-blog', nom: 'Blog — production', frequenceJours: 7 },
+    { id: 'site-intranet', nom: 'Intranet — interne', frequenceJours: 1 },
+  ];
+  for (const s of sites) {
+    const site = {
+      id: s.id,
+      nom: s.nom,
+      projectId: null,
+      actif: true,
+      base: { moteur: 'sqlite', hote: '', port: '', nom: BASE_DU_SITE, utilisateur: '', motDePasse: '' },
+      fichiers: { moyen: 'local', chemin: FICHIERS_DU_SITE, hote: '', port: '', utilisateur: '', motDePasse: '' },
+      conservationJours: 14,
+      frequenceJours: s.frequenceJours,
+      note: '',
+      creeLe: maintenant,
+      modifieLe: maintenant,
+    };
+    db.prepare(
+      `INSERT INTO snapshot_sites (id, project_id, nom, actif, data, cree_le, modifie_le)
+       VALUES (?, NULL, ?, 1, ?, ?, ?)`,
+    ).run(site.id, site.nom, JSON.stringify(site), maintenant, maintenant);
+  }
+  db.close();
+}
+
+function frequenceEnBase(id) {
+  const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
+  const ligne = db.prepare('SELECT data FROM snapshot_sites WHERE id = ?').get(id);
+  db.close();
+  return ligne ? JSON.parse(ligne.data).frequenceJours : undefined;
+}
+
+/**
  * UNE FICHE QUI ÉCHOUE NUIT APRÈS NUIT, posée avec ses points en échec et la
  * CONVERSATION de l'assistant qui l'a écrite. On ne clique pas sur ses boutons :
  * réparer ou rouvrir la conversation lancerait un vrai tour de moteur — ce qui
@@ -490,6 +531,64 @@ async function main() {
     noter(
       'Une fiche qui n’a jamais échoué ne propose pas de réparation',
       (await page.locator('[data-snapshots-relire="site-boutique"]').count()) === 0,
+    );
+
+    /* 10. LE TABLEAU : au moins cinq sites, colonnes nom / fréquence / dernière
+       prise / volume / statut, et la RECHERCHE qui filtre en temps réel. */
+    poserSitesSupplementaires();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-column="notes"]', { timeout: 30000 });
+    await page.click('aside[data-zone="gauche"] [data-ouvrir-snapshots]');
+    await fenetre.waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('[data-snapshots-site="site-vitrine"]').waitFor({ state: 'visible', timeout: 10000 });
+
+    const tableau = fenetre.locator('[data-snapshots-tableau]');
+    noter('La liste des sites est un vrai tableau', (await tableau.count()) === 1);
+    const nbLignes = await fenetre.locator('[data-snapshots-site]').count();
+    noter('Le tableau affiche au moins cinq sites', nbLignes >= 5, `${nbLignes} ligne(s)`);
+    noter(
+      'La fréquence de chaque site est affichée',
+      (await fenetre.getByText('tous les 3 j').count()) >= 1 && (await fenetre.getByText('tous les 7 j').count()) >= 1,
+    );
+
+    /* La recherche filtre EN TEMPS RÉEL, sans recharger la page. */
+    await fenetre.locator('[data-snapshots-recherche]').fill('Vitrine');
+    await page.waitForTimeout(200);
+    noter(
+      'La recherche ne garde que ce qui correspond',
+      (await fenetre.locator('[data-snapshots-site]').count()) === 1 &&
+        (await fenetre.locator('[data-snapshots-site="site-vitrine"]').isVisible()),
+    );
+    await fenetre.locator('[data-snapshots-recherche]').fill('zzz-introuvable');
+    await page.waitForTimeout(200);
+    noter(
+      'La recherche dit quand rien ne correspond',
+      (await fenetre.locator('[data-snapshots-site]').count()) === 0,
+    );
+    await fenetre.locator('[data-snapshots-recherche]').fill('');
+    await page.waitForTimeout(200);
+
+    /* 11. LA FRÉQUENCE SE RÈGLE DANS LA FICHE, ET SE RETROUVE ENREGISTRÉE. */
+    await page.locator('[data-snapshots-site="site-intranet"] button').first().click();
+    const ficheOuverte = page.locator('[role="dialog"][data-state="open"]', {
+      has: page.locator('[data-snapshots-frequence]'),
+    });
+    await ficheOuverte.waitFor({ state: 'visible', timeout: 10000 });
+    await ficheOuverte.locator('[data-snapshots-frequence]').fill('5');
+    await ficheOuverte.locator('[data-snapshots-enregistrer]').click();
+    await ficheOuverte.waitFor({ state: 'hidden', timeout: 10000 });
+    await page.waitForTimeout(300);
+    noter('La fréquence choisie dans la fiche est enregistrée sur le site', frequenceEnBase('site-intranet') === 5);
+
+    /* 12. L'ASSISTANT S'OUVRE DANS SON TIROIR, PAS EN PLEIN ÉCRAN : la fenêtre
+       des snapshots reste ouverte DERRIÈRE, on ne quitte jamais l'écran. */
+    await page.locator('[data-snapshots-conversation="site-casse"]').click();
+    const tiroirConversation = page.locator('[data-snapshots-conversation-tiroir]');
+    await tiroirConversation.waitFor({ state: 'visible', timeout: 10000 });
+    noter('La conversation de l’assistant s’ouvre dans un tiroir', true);
+    noter(
+      'Le tiroir des snapshots reste ouvert DERRIÈRE, aucune navigation plein écran',
+      await fenetre.isVisible(),
     );
 
     const SHOTS = path.join(RACINE, 'data', 'verification');

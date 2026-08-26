@@ -937,7 +937,7 @@ export function Composer({
       // (conversation, tiroir de carte), il faut viser CELLE qu'on voit.
       data-composer
       data-contexte-agent
-      data-agent-contexte={agent.id}
+      data-agent-contexte={agent?.id}
       className={cn(
         'px-2.5 pt-2 bg-gradient-to-b',
         fondNoir ? 'from-bg to-bg/0' : 'from-surface to-surface/0',

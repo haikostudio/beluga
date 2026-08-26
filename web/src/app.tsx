@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { LayoutGrid, Columns3, MessageSquare, Loader2 } from 'lucide-react';
-import { TooltipProvider, Button, EmptyState, SidePanel } from '@/components/ui';
+import { TooltipProvider, Button, Drawer, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
 import { Board } from '@/components/board';
@@ -780,26 +780,30 @@ export function App() {
           </PanneauALaDemande>
         </Filet>
 
+        {/* UN AGENT S'OUVRE TOUJOURS DANS UN TIROIR, d'où qu'on l'appelle.
+            Cette conversation-ci se posait dans une fenêtre bricolée à la main
+            — un voile, un cadre centré, une croix à soi — pendant que la carte,
+            la procédure de publication et l'assistant des captures s'ouvraient
+            tous dans le tiroir commun. Trois habillages pour la même chose :
+            on n'en garde qu'un, celui que l'on tire vers le bas pour refermer,
+            que la touche Échap ferme, et qui monte au doigt sur téléphone. */}
         {openAgent ? (
-          <div className="fixed inset-0 z-40 grid place-items-center bg-voile/60 p-3" onClick={() => setOpenAgentId(null)}>
-            <div
-              className="flex h-[80dvh] w-[min(720px,100%)] flex-col overflow-hidden rounded-lg border border-border bg-surface"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-                <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{openAgent.title}</span>
-                <Button variant="ghost" size="sm" onClick={() => setOpenAgentId(null)}>
-                  {t('Fermer')}</Button>
-              </header>
-              <div className="min-h-0 flex-1">
-                <Filet zone="Conversation">
-                  <PanneauALaDemande monte>
-                    <Chat agent={openAgent} projectId={openAgent.projectId} />
-                  </PanneauALaDemande>
-                </Filet>
-              </div>
+          <Drawer open onClose={() => setOpenAgentId(null)} className="h-[85dvh]">
+            <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 pb-2">
+              <span className="min-w-0 flex-1 truncate text-[15.5px] font-semibold text-text" data-titre-agent>
+                {openAgent.title}
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => setOpenAgentId(null)}>
+                {t('Fermer')}</Button>
+            </header>
+            <div className="min-h-0 flex-1" data-tiroir-agent>
+              <Filet zone="Conversation">
+                <PanneauALaDemande monte>
+                  <Chat agent={openAgent} projectId={openAgent.projectId} />
+                </PanneauALaDemande>
+              </Filet>
             </div>
-          </div>
+          </Drawer>
         ) : null}
       </div>
     </TooltipProvider>

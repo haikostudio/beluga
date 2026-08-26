@@ -232,13 +232,16 @@ function poserQuestion(agentId, texte) {
     streaming: false,
     createdAt: Date.now(),
   };
-  db.prepare('INSERT INTO messages (id, agent_id, role, data, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    id,
-    agentId,
-    'assistant',
-    JSON.stringify(message),
-    message.createdAt,
-  );
+  /*
+   * `a_questions` EST ÉCRIT ICI AUSSI. Le démon ne relit plus tous les messages
+   * pour trouver ceux qui portent une question : il interroge cette colonne, et
+   * son index. Un message posé à la main sans elle est donc INVISIBLE — la
+   * cloche restait vide et le script échouait en annonçant un défaut qui
+   * n'existait pas.
+   */
+  db.prepare(
+    'INSERT INTO messages (id, agent_id, role, data, created_at, a_questions) VALUES (?, ?, ?, ?, ?, 1)',
+  ).run(id, agentId, 'assistant', JSON.stringify(message), message.createdAt);
   db.close();
 }
 

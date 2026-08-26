@@ -22,8 +22,12 @@ import {
   Settings,
   SiteSurveille,
   SystemProcess,
+  AnnonceRecue,
   CLE_PROJET_ACTIF,
   DUREE_MESSAGE_MS,
+  PLAFOND_ANNONCES,
+  ajouterAnnonce,
+  marquerLues,
   EVENEMENT_ATTENTE_LONGUE,
   RAISON_SANS_REPONSE,
   messageAlerte,
@@ -138,6 +142,15 @@ export interface AppState {
   procedures: Record<string, EtatProcedure>;
   activeProjectId: string | null;
   toasts: Toast[];
+  /**
+   * Les ANNONCES du guichet de notifications déjà reçues — celles-là mêmes que
+   * le téléphone reçoit poussées. Gardées ici pour que la cloche du bandeau les
+   * relise APRÈS coup : un message passager s'efface, une tâche terminée
+   * pendant qu'on regardait ailleurs ne doit pas se perdre avec lui. Rangées
+   * dans le navigateur (`CLE_ANNONCES`) : elles survivent à un rechargement,
+   * et ne sont vraies que pour cet appareil.
+   */
+  annonces: AnnonceRecue[];
 }
 
 const initialState: AppState = {
@@ -177,7 +190,30 @@ const initialState: AppState = {
   procedures: {},
   activeProjectId: null,
   toasts: [],
+  annonces: [],
 };
+
+/**
+ * Où les annonces reçues sont rangées dans le navigateur. Elles ne valent que
+ * pour CET appareil : ce qui a été lu sur le téléphone reste à lire sur
+ * l'ordinateur, comme n'importe quelle notification poussée.
+ */
+const CLE_ANNONCES = 'haikodev.notifications';
+
+/** Relit les annonces rangées au démarrage. Un contenu abîmé est ignoré, jamais fatal. */
+function relireAnnoncesRangees(): AnnonceRecue[] {
+  try {
+    const brut = localStorage.getItem(CLE_ANNONCES);
+    if (!brut) return [];
+    const lu = JSON.parse(brut);
+    if (!Array.isArray(lu)) return [];
+    return lu
+      .filter((a) => a && typeof a.id === 'string' && typeof a.titre === 'string' && typeof a.a === 'number')
+      .slice(0, PLAFOND_ANNONCES);
+  } catch {
+    return [];
+  }
+}
 
 type Listener = () => void;
 
@@ -227,7 +263,7 @@ class Client {
   private dernierAgentOuvert: { id: string; tout: boolean } | null = null;
   private derniereCarteOuverte: string | null = null;
 
-  state: AppState = initialState;
+  state: AppState = { ...initialState, annonces: relireAnnoncesRangees() };
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -630,11 +666,65 @@ class Client {
         break;
 
       case 'notify':
+        this.garderAnnonce(event);
         for (const handler of this.notifyHandlers) handler(event);
         break;
 
       default:
         break;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* LA LISTE DES NOTIFICATIONS                                          */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Toute annonce reçue du guichet est GARDÉE, en plus d'être affichée en
+   * message passager : c'est ce qui permet à la cloche du bandeau de la relire
+   * ensuite. Rangée dans le navigateur pour survivre à un rechargement — un
+   * échec survenu pendant qu'on avait l'onglet fermé se retrouve donc au
+   * retour, tant que le plafond ne l'a pas chassé.
+   */
+  private garderAnnonce(event: Extract<ServerEvent, { type: 'notify' }>): void {
+    const annonce: AnnonceRecue = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      titre: event.title,
+      corps: event.body,
+      motif: event.motif,
+      a: Date.now(),
+      projectId: event.projectId,
+      cardId: event.cardId,
+      agentId: event.agentId,
+    };
+    this.set((state) => {
+      const annonces = ajouterAnnonce(state.annonces, annonce);
+      this.rangerAnnonces(annonces);
+      return { annonces };
+    });
+  }
+
+  /** Le tiroir ouvert : tout ce qui s'y lit est lu. Les demandes, elles, se règlent. */
+  marquerAnnoncesLues(): void {
+    this.set((state) => {
+      if (state.annonces.every((annonce) => annonce.lue)) return {};
+      const annonces = marquerLues(state.annonces);
+      this.rangerAnnonces(annonces);
+      return { annonces };
+    });
+  }
+
+  /** Vider la liste : un geste explicite, jamais automatique. */
+  viderAnnonces(): void {
+    this.rangerAnnonces([]);
+    this.set({ annonces: [] });
+  }
+
+  private rangerAnnonces(annonces: AnnonceRecue[]): void {
+    try {
+      localStorage.setItem(CLE_ANNONCES, JSON.stringify(annonces.slice(0, PLAFOND_ANNONCES)));
+    } catch {
+      /* Navigateur sans stockage local : la liste vit alors le temps de l'onglet. */
     }
   }
 
