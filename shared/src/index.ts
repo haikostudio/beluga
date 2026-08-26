@@ -34,6 +34,7 @@ export * from './cles-api.js';
 export * from './coffre-du-compte.js';
 export * from './liste-de-taches-du-moteur.js';
 export * from './coffre-fort.js';
+export * from './snapshots.js';
 export * from './credit-cursor.js';
 export * from './doc-api.js';
 export * from './cible-mise-en-production.js';
