@@ -200,7 +200,7 @@ export function derniersPoints(): Map<string, PointDeSauvegarde> {
 export function projetsSansFiche(): { id: string; nom: string }[] {
   const dejaLa = new Set(listerSites().map((site) => site.projectId).filter(Boolean));
   return listProjects()
-    .filter((projet) => !projet.archived && !dejaLa.has(projet.id))
+    .filter((projet) => !dejaLa.has(projet.id))
     .map((projet) => ({ id: projet.id, nom: projet.name }));
 }
 

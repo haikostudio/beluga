@@ -19,6 +19,7 @@ import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
 import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
+import { planifierLesSnapshots } from './snapshots.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
 import { getSettings, listProjects } from './store.js';
@@ -165,6 +166,9 @@ async function main(): Promise<void> {
   }, 600_000);
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
+  // Les snapshots des sites en production : leur propre heure, après celle de
+  // la sauvegarde du démon, et rien tant qu'aucun dossier de stockage n'est réglé.
+  const snapshotTimer = planifierLesSnapshots();
   const janitorTimer = setInterval(
     () => {
       purgeOldArchives();
@@ -233,6 +237,7 @@ async function main(): Promise<void> {
     suivreReprises();
     clearInterval(backupTimer);
     clearInterval(digestTimer);
+    clearInterval(snapshotTimer);
     clearInterval(janitorTimer);
     clearInterval(autoAmeliorationTimer);
     clearInterval(capitalisationTimer);

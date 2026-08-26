@@ -102,6 +102,17 @@ import { enregistrerCleCerveau } from './cle-cerveau.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
 import { enregistrerAcces, listerAcces, supprimerAcces } from './coffre-fort.js';
 import {
+  derniersPoints,
+  enregistrerSite,
+  listerPoints,
+  listerSites,
+  passageDesSnapshots,
+  prendreUnSnapshot,
+  projetsSansFiche,
+  snapshotsEnCours,
+  supprimerSite,
+} from './snapshots.js';
+import {
   compterErreursInterface,
   dernieresErreursInterface,
   effacerErreursInterface,
@@ -1788,6 +1799,46 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (!resultat.ok) throw new Error(resultat.raison ?? 'accès introuvable');
       return { ok: true, liste: listerAcces() };
     }
+
+    /* -------- Snapshots des sites en production -------- */
+
+    case 'snapshots.etat':
+      return {
+        sites: listerSites(),
+        points: listerPoints(),
+        projets: projetsSansFiche(),
+        enCours: snapshotsEnCours(),
+        dossier: (store.getSettings().snapshotDossier ?? '').trim(),
+      };
+
+    case 'snapshots.enregistrerSite': {
+      const resultat = enregistrerSite(cmd.site);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { site: resultat.site, sites: listerSites() };
+    }
+
+    case 'snapshots.supprimerSite': {
+      const resultat = supprimerSite(String(cmd.id ?? ''));
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'site introuvable');
+      return { ok: true, sites: listerSites(), points: listerPoints() };
+    }
+
+    case 'snapshots.lancer': {
+      // Le snapshot d'un site peut durer : on rend la main TOUT DE SUITE et
+      // l'écran relit l'état, exactement comme le tiroir de publication. Retenir
+      // la réponse pendant un vidage de base ferait tomber le navigateur au bout
+      // de deux minutes, sans rien dire du travail en cours.
+      const site = String(cmd.id ?? '');
+      if (site) {
+        void prendreUnSnapshot(site, 'manuel');
+      } else {
+        void passageDesSnapshots('manuel');
+      }
+      return { lance: true, enCours: snapshotsEnCours() };
+    }
+
+    case 'snapshots.points':
+      return { points: listerPoints(cmd.id ? String(cmd.id) : undefined), derniers: [...derniersPoints().values()] };
 
     case 'erreurs.liste':
       return {

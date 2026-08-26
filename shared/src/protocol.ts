@@ -603,6 +603,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('coffre.enregistrer'), acces: z.any() }),
   z.object({ type: z.literal('coffre.supprimer'), id: z.string() }),
   /**
+   * LES SNAPSHOTS DES SITES EN PRODUCTION (`shared/src/snapshots.ts`). `etat`
+   * rend tout ce que les deux fenêtres affichent en une fois : les sites, leurs
+   * points de sauvegarde, les projets sans fiche et le dossier de stockage
+   * réglé. `lancer` ne RETIENT PAS sa réponse — un vidage de base dure des
+   * minutes, l'écran relit l'état plutôt que d'attendre.
+   */
+  z.object({ type: z.literal('snapshots.etat') }),
+  z.object({ type: z.literal('snapshots.enregistrerSite'), site: z.any() }),
+  z.object({ type: z.literal('snapshots.supprimerSite'), id: z.string() }),
+  z.object({ type: z.literal('snapshots.lancer'), id: z.string().optional() }),
+  z.object({ type: z.literal('snapshots.points'), id: z.string().optional() }),
+  /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
    */
