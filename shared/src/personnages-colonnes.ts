@@ -217,8 +217,9 @@ export const COLONNE_DU_MOTIF: Partial<Record<MotifNotification, ColumnKey>> = {
   // Un échec ou une question arrêtent une carte EN COURS : c'est là qu'on va.
   'tache-echec': 'running',
   'decision-attendue': 'running',
-  // Les deux étapes de la mise en ligne, chacune dans sa colonne.
-  'publication-terminee': 'in_production',
+  // Les deux étapes de la mise en ligne : une publication réussie range ses
+  // cartes en « Archivé », c'est donc là qu'on va les voir.
+  'publication-terminee': 'archived',
   'publication-echec': 'to_deploy',
 };
 

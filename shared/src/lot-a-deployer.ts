@@ -82,6 +82,13 @@ export interface EtatDuLot {
   productionBloquee?: string;
   /** Le navigateur n'a plus de lien avec le serveur : rien ne partirait. */
   horsLigne?: boolean;
+  /**
+   * L'étape n'embarque AUCUNE carte (mise en production) : un lot vide n'est
+   * alors pas un blocage — c'est son fonctionnement normal. Ce qui la retient
+   * reste tout le reste : lien coupé, procédure absente, agent au travail,
+   * publication déjà en cours.
+   */
+  sansLot?: boolean;
 }
 
 /**
@@ -116,6 +123,10 @@ export function raisonLotBloque(etat: EtatDuLot): string | null {
   }
 
   if (etat.aPublier > 0) return null;
+
+  // Une étape sans lot n'a rien à compter : elle pousse une VERSION, pas des
+  // cartes. Aucun de ce qui suit ne la concerne.
+  if (etat.sansLot) return null;
 
   if (etat.cartesDansLaColonne > 0) {
     const n = etat.cartesDansLaColonne;

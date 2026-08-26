@@ -57,12 +57,11 @@ import type { AgentRole } from './models.js';
 /**
  * Les colonnes qu'un tour d'agent ne remet PAS en marche.
  *
- * « À déployer », « En production » et « Archivé » sont des fins de parcours
- * choisies : poser une question dans la conversation d'une carte déjà prête à
- * publier — ou déjà en ligne — ne doit pas la sortir du lot sans qu'on l'ait
- * demandé.
+ * « À déployer » et « Archivé » sont des fins de parcours choisies : poser une
+ * question dans la conversation d'une carte déjà prête à publier — ou déjà en
+ * ligne — ne doit pas la sortir du lot sans qu'on l'ait demandé.
  */
-export const COLONNES_HORS_REPRISE: ColumnKey[] = ['to_deploy', 'in_production', 'archived'];
+export const COLONNES_HORS_REPRISE: ColumnKey[] = ['to_deploy', 'archived'];
 
 /**
  * QUI demande la reprise. La règle n'est pas la même selon la main qui pousse :
@@ -105,10 +104,7 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
  *     part le geste de lancement — personne ne rouvre une dépense sans le
  *     savoir, puisque rien n'y démarre tout seul ;
  *   - « À déployer » → « Terminé » : elle sort du lot à publier et revient à
- *     l'étape juste avant, celle d'où l'on décide de publier ;
- *   - « En production » → « À déployer » : le travail est en ligne quelque
- *     part, mais on veut le remettre dans le lot — une correction à repasser,
- *     une mise en ligne à refaire.
+ *     l'étape juste avant, celle d'où l'on décide de publier.
  *
  * Toujours l'étape JUSTE AVANT, jamais deux d'un coup.
  *
@@ -116,20 +112,18 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
  */
 export function colonneDeReprise(colonne: ColumnKey): ColumnKey | null {
   if (colonne === 'archived') return 'planned';
-  if (colonne === 'in_production') return 'to_deploy';
   if (colonne === 'to_deploy') return 'done';
   return null;
 }
 
 /**
- * Ce que dit le bouton qui ressort une carte d'une fin de parcours. Trois
- * phrases, parce que trois gestes différents : on ne « retire pas du lot à
- * publier » une carte déjà en ligne. Rend `null` quand il n'y a rien à
+ * Ce que dit le bouton qui ressort une carte d'une fin de parcours. Deux
+ * phrases, parce que deux gestes différents : on ne « retire pas du lot à
+ * publier » une carte déjà archivée. Rend `null` quand il n'y a rien à
  * reprendre.
  */
 export function libelleDeReprise(colonne: ColumnKey): string | null {
   if (colonne === 'archived') return 'Sortir de l’archive';
-  if (colonne === 'in_production') return 'Repasser dans le lot à publier';
   if (colonne === 'to_deploy') return 'Retirer du lot à publier';
   return null;
 }

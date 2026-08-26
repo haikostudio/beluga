@@ -311,7 +311,7 @@ export function construireParcours(source: SourceParcours): EtapeParcours[] {
   /* 4. LE DÉPLOIEMENT. */
   const publieurs = source.agents.filter((agent) => agent.role === 'deploy');
   const mesurePublication = mesurerTours(publieurs.flatMap((agent) => agent.tours));
-  const deploye = !!source.deployedAt || source.colonne === 'in_production';
+  const deploye = !!source.deployedAt;
   if (deploye || source.colonne === 'to_deploy' || publieurs.length) {
     etapes.push({
       cle: 'deploiement',
@@ -330,18 +330,25 @@ export function construireParcours(source: SourceParcours): EtapeParcours[] {
     });
   }
 
-  /* 5. LA MISE EN PRODUCTION. */
-  if (source.colonne === 'in_production' || source.colonne === 'archived' || source.archivedAt) {
+  /*
+   * 5. LA CLÔTURE.
+   *
+   * Ce n'est plus « la mise en production » : celle-ci ne porte plus de lot de
+   * cartes — elle pousse une VERSION pour le projet entier, et rien ici ne
+   * saurait la découper par carte. Ce qui se dit d'une carte à cet endroit,
+   * c'est ce qui lui est arrivé : son document de clôture, sa branche refermée,
+   * sa ligne d'historique, l'archive.
+   */
+  if (source.colonne === 'archived' || source.archivedAt) {
     etapes.push({
       cle: 'production',
-      titre: 'Mise en production',
-      quoi: 'La mise en ligne suit le prompt réglé du projet — un second geste, séparé du déploiement.',
+      titre: 'Clôture',
+      quoi: 'Document de clôture écrit, branche de la carte refermée, ligne ajoutée à l’historique.',
       quand: source.archivedAt,
       cherche: [],
-      sansMesure:
-        'La mise en production est menée pour le projet entier : sa mesure ne se découpe pas par carte.',
+      sansMesure: 'La clôture est de la comptabilité : aucun appel au moteur.',
       attendMesure: false,
-      etat: source.colonne === 'archived' || source.archivedAt ? 'faite' : 'en-cours',
+      etat: 'faite',
     });
   }
 

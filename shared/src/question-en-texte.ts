@@ -129,7 +129,7 @@ export function agentAuTravail(statut: StatutAgent | undefined): boolean {
  * arrivée là a été menée au bout — une question écrite en chemin a forcément
  * trouvé sa réponse, sans quoi la carte ne serait pas close.
  */
-export const COLONNES_RANGEES = ['done', 'to_deploy', 'in_production', 'archived'] as const;
+export const COLONNES_RANGEES = ['done', 'to_deploy', 'archived'] as const;
 
 /** La carte est-elle rangée ? Sans colonne connue, on ne présume rien. */
 export function carteRangee(colonne: string | undefined): boolean {

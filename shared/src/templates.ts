@@ -105,7 +105,6 @@ export function templateForColumn(column: ColumnKey | undefined, deployed = fals
     case 'running':
     case 'done':
     case 'to_deploy':
-    case 'in_production':
       return 'in_run';
     case 'notes':
     case 'archived':
