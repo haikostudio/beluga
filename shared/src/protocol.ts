@@ -427,6 +427,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * déploiement passé.
    */
   z.object({ type: z.literal('deploy.historique'), projectId: z.string(), limite: z.number().optional() }),
+  /**
+   * L'ÉTAT DE LA VERSION EN PRODUCTION : quel enregistrement est en ligne chez
+   * le client, et de combien la branche du dépôt l'a dépassé. Lecture PURE —
+   * une entrée de journal et deux commandes git qui n'écrivent rien : elle ne
+   * peut donc rien déclencher, et coûte zéro jeton.
+   */
+  z.object({ type: z.literal('deploy.etatProduction'), projectId: z.string() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),

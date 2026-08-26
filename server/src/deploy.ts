@@ -41,6 +41,7 @@ import {
   annonceDeDeploiement,
   brancheDePublication,
   etapeDeLaColonne,
+  type EtatProduction,
   typeCibleReglee,
   refusCibleMiseEnProduction,
   raisonCibleMiseEnProduction,
@@ -364,18 +365,20 @@ export function deployableCards(
   source: ColumnKey = 'to_deploy',
   selectedCardIds?: string[],
 ): Card[] {
+  /*
+   * UNE ÉTAPE SANS LOT N'EMBARQUE AUCUNE CARTE, et la colonne en tête de
+   * laquelle son bloc s'affiche n'est PAS un lot. La mise en production est
+   * dans ce cas : son bloc vit en tête d'« Archivé », mais elle pousse une
+   * VERSION — lui rendre les cartes archivées les ferait toutes repartir.
+   */
+  if (etapeDeLaColonne(source)?.sansLot) return [];
   const cards = store
     .listCardsInColumn(projectId, source)
     .filter((card) => !card.excludedFromDeploy)
     /*
-     * Une carte déjà mise en ligne ne repart pas dans le même lot. Le
-     * garde-fou ne vaut QUE pour la première étape : une carte posée « En
-     * production » porte forcément une date de mise en ligne — celle du
-     * déploiement —, et c'est justement elle qu'on veut passer en
-     * production. Sa présence dans la colonne prouve qu'elle n'a pas encore
-     * franchi CETTE étape-là.
+     * Une carte déjà mise en ligne ne repart pas dans le même lot.
      */
-    .filter((card) => source !== 'to_deploy' || !card.deployedAt)
+    .filter((card) => !card.deployedAt)
     .sort((a, b) => a.createdAt - b.createdAt);
   /*
    * L'ÉCRAN DE SÉLECTION laisse choisir les tâches à embarquer, à la première
@@ -386,6 +389,70 @@ export function deployableCards(
   if (!selectedCardIds) return cards;
   const retenues = new Set(selectedCardIds);
   return cards.filter((card) => retenues.has(card.id));
+}
+
+/* ------------------------------------------------------------------ */
+/* CE QUI TOURNE EN PRODUCTION, ET DE COMBIEN LE DÉPÔT L'A DÉPASSÉ      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * L'ÉTAT DE LA VERSION EN PRODUCTION.
+ *
+ * La colonne « En production » a disparu : ce qu'on veut savoir de la
+ * production n'est pas « quelles cartes y sont posées », c'est QUEL
+ * enregistrement est en ligne chez le client et de COMBIEN la branche du dépôt
+ * l'a dépassé depuis.
+ *
+ * Les deux réponses se lisent SANS rien changer : la dernière mise en
+ * production RÉUSSIE donne l'enregistrement poussé (`targetCommit`), et un
+ * `git rev-list --count` donne l'écart. Aucune commande n'écrit, aucune ne
+ * touche à une branche : cette lecture peut tourner pendant qu'un agent
+ * travaille, comme `conflitsPrevus`.
+ *
+ * Un silence ne se rend jamais nu : ce qui manque est DIT (`raison`).
+ */
+export async function etatDeLaProduction(projectId: string): Promise<EtatProduction> {
+  const project = store.getProject(projectId);
+  if (!project) return { raison: 'projet introuvable' };
+
+  const derniere = store
+    .recentDeploys(projectId, 50)
+    .filter((run) => run.cible === 'production' && run.state === 'success')
+    .sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt))[0];
+
+  const etat: EtatProduction = {
+    commit: derniere?.targetCommit,
+    at: derniere?.endedAt ?? derniere?.startedAt,
+    url: project.miseEnProduction?.prodUrl || undefined,
+  };
+  if (!derniere) etat.raison = 'Aucune mise en production n’a encore abouti sur ce projet.';
+
+  const cwd = project.path;
+  if (!(await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok) {
+    etat.raison = 'Le dossier du projet n’est pas un dépôt git : l’écart ne peut pas se mesurer.';
+    return etat;
+  }
+
+  const branche = (await brancheDeLEtape(project, 'production')).branche;
+  etat.branche = branche;
+  const tete = await runCommand(cwd, `git rev-parse --verify --quiet ${branche}`, 20000);
+  if (!tete.ok || !tete.out.trim()) {
+    etat.raison = `La branche « ${branche} » est introuvable dans le dépôt : l’écart ne peut pas se mesurer.`;
+    return etat;
+  }
+  etat.commitDepot = tete.out.trim().slice(0, 40);
+
+  if (!etat.commit) return etat;
+  /*
+   * L'ÉCART se compte du commit MIS EN PRODUCTION à la tête de la branche.
+   * Un enregistrement disparu du dépôt (branche réécrite, historique élagué)
+   * ferait échouer la commande : on laisse alors `ecart` absent, et la phrase
+   * le dira — mieux vaut « écart inconnu » qu'un « à jour » faux.
+   */
+  const compte = await runCommand(cwd, `git rev-list --count ${etat.commit}..${branche}`, 30000);
+  const n = Number.parseInt(compte.out.trim(), 10);
+  if (compte.ok && Number.isFinite(n)) etat.ecart = n;
+  return etat;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3042,11 +3109,10 @@ export async function startDeploy(
       /*
        * Ce qui se passe quand une carte est vraiment en ligne (PLAN §11).
        *
-       * Où elle se pose dépend de l'ÉTAPE. La MISE EN PRODUCTION clôt la carte :
-       * document de clôture, branche refermée, « Archivé ». Le DÉPLOIEMENT, lui,
-       * se contente de la faire avancer dans « En production » : le travail
-       * tourne sur l'instance de dev, mais rien n'est fini et la carte reste
-       * reprenable. Une carte déployée ne part donc plus jamais aux archives.
+       * Le DÉPLOIEMENT clôt la carte : document de clôture, branche refermée,
+       * « Archivé ». Il n'y a plus d'étape intermédiaire — la colonne « En
+       * production » a disparu. La MISE EN PRODUCTION, elle, n'embarque aucune
+       * carte : cette boucle ne tourne alors sur rien.
        */
       /*
        * CE RANGEMENT NE PEUT PLUS FAIRE ÉCHOUER UNE MISE EN LIGNE RÉUSSIE.
@@ -3076,7 +3142,7 @@ export async function startDeploy(
           bus.emit({ type: 'card.upsert', card: deployed });
           if (etape.clot) {
             await archiveCard(cardId, { url: project.devUrl, commit: current.targetCommit });
-          } else {
+          } else if (etape.arrivee) {
             const avancee = store.saveCard({
               ...deployed,
               column: etape.arrivee,
@@ -3107,15 +3173,21 @@ export async function startDeploy(
         : '';
       // Deux étapes, deux annonces : on nomme celle qui vient d'aboutir.
       const ou = ` (${etape.libelle})`;
+      /* Une étape SANS LOT ne compte pas de tâches : annoncer « 0 tâche(s) en
+         ligne » après une mise en production réussie serait un contresens. Elle
+         dit ce qu'elle a réellement fait : la version poussée. */
+      const bilan = etape.sansLot
+        ? `Version en ligne : ${current.targetCommit?.slice(0, 7) ?? 'enregistrement inconnu'}`
+        : `${current.cardIds.length} tâche(s) en ligne${reste}`;
       notify({
         motif: 'publication-terminee',
         title: `Publication terminée${ou}`,
-        body: `${current.cardIds.length} tâche(s) en ligne${reste}`,
+        body: bilan,
         /* Une publication = un lot posé sur un enregistrement précis, à une
            ÉTAPE précise : le même lot déployé puis mis en production fait bien
            deux alertes, sinon la seconde serait avalée comme un doublon. */
         reference: `${projectId}:${etape.cible}:${current.targetCommit ?? current.cardIds.join(',')}`,
-        element: `${current.cardIds.length} tâche(s) en ligne${ou}`,
+        element: `${bilan}${ou}`,
         projectId,
       });
       bus.toast(ecartees.size ? 'info' : 'success', `Publication terminée${ou}${reste}`);

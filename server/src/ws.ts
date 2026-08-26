@@ -90,6 +90,7 @@ import {
   moyenDeMiseEnLigne,
   blocageMiseEnProduction,
   avertissementsDeLaSelection,
+  etatDeLaProduction,
 } from './deploy.js';
 import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
@@ -1443,6 +1444,19 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        */
       const limite = Math.min(Math.max(cmd.limite ?? 20, 1), 50);
       return { runs: store.recentDeploys(cmd.projectId, limite) };
+    }
+
+    case 'deploy.etatProduction': {
+      /*
+       * QUELLE VERSION TOURNE CHEZ LE CLIENT, et de combien le dépôt l'a
+       * dépassée. C'est ce qui a remplacé la colonne « En production » : on ne
+       * compte plus des cartes, on lit un enregistrement et un écart.
+       *
+       * Lecture SEULE : une ligne de journal et deux commandes git qui
+       * n'écrivent rien. Elle ne peut donc rien déclencher et ne coûte aucun
+       * jeton.
+       */
+      return { etat: await etatDeLaProduction(cmd.projectId) };
     }
 
     /* -------- Fichiers -------- */

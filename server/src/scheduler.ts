@@ -702,7 +702,7 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
          * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
          * renvoie la carte en file, il n'y a donc pas de travail à annoncer.
          */
-        if (fresh.column === 'done' || fresh.column === 'to_deploy' || fresh.column === 'in_production') {
+        if (fresh.column === 'done' || fresh.column === 'to_deploy') {
           /*
            * La voix préfère un résumé du VRAI contenu de la réponse au seul
            * titre : on le tire du texte que l'agent vient d'écrire (aucune
