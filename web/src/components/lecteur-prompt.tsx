@@ -14,7 +14,7 @@ import { t, formatRegional } from '@/lib/langue';
 
 /**
  * LE LECTEUR DE PROMPTS — la SEULE façon de lire un tour envoyé au moteur
- * dans toute l'application (tiroir « Contexte envoyé » du chef, volet
+ * dans toute l'application (tiroir « Contexte envoyé », volet
  * « Détail » d'une carte). Montre le texte réellement transmis, découpé en
  * blocs nommés, avec un repère VISUEL pour ce qui est relu au cache — jamais
  * un chiffre.

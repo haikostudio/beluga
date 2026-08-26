@@ -289,7 +289,7 @@ class Client {
 
   /**
    * Ouvrir la CONVERSATION où une décision se prend — quand elle ne tient à
-   * aucune carte (une carte proposée, une question du chef d'orchestre).
+   * aucune carte (une carte proposée, une question d'un agent).
    */
   onOpenConversation(handler: (lieu: { projectId: string; agentId: string }) => void): () => void {
     this.openConversationHandlers.add(handler);

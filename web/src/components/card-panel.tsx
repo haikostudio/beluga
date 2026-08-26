@@ -16,7 +16,6 @@ import {
   Play,
   Rocket,
   RotateCcw,
-  Sparkles,
   Trash2,
   X,
   Zap,
@@ -626,70 +625,6 @@ function libellesDuRun(
 }
 
 /**
- * Ce qui était déjà prêt lorsque la proposition du chef d'orchestre est
- * devenue une carte. On ne fabrique aucun historique : le bloc ne lit que les
- * champs conservés sur la carte et distingue le chiffrage, produit ensuite
- * par l'analyse mais toujours avant l'exécution.
- */
-function PreparationChef({ card }: { card: Card }) {
-  const state = useApp();
-  if (card.origin !== 'agent') return null;
-
-  const reglages = libellesDuRun(state.engines, card.run);
-  const estimation = card.estimate?.machineSeconds
-    ? duration(card.estimate.machineSeconds)
-    : card.estimate?.failed
-      ? 'Chiffrage indisponible'
-      : t('Chiffrage en attente');
-  const pieces = card.attachments.length;
-  const etiquettes = card.labels.length;
-
-  return (
-    <div
-      className="rounded-md border border-accent/25 bg-accent/5 px-3 py-3"
-      data-preparation-chef
-    >
-      <div className="flex items-center gap-1.5 text-[13.5px] font-semibold text-text">
-        <Sparkles className="h-3.5 w-3.5 text-accent" />
-        
-{t('Préparé depuis la proposition du chef d’orchestre')}
-</div>
-      <p className="mt-0.5 text-[12.5px] text-faint">
-        {t('Ces éléments étaient déjà dans la carte avant son exécution.')}</p>
-
-      <div className="mt-3 space-y-2.5 text-[13px]">
-        <div>
-          <p className="text-[11.5px] text-faint">{t('Réglages repris')}</p>
-          <p className="mt-0.5 font-medium text-text">
-            {reglages.moteur} · {reglages.modele} · {reglages.reflexion}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11.5px] text-faint">{t('Contenu transmis')}</p>
-          <p className="mt-0.5 font-medium text-text">
-            {t('consigne de la carte · {etiquettes} {v0} · {pieces}{v1} {v2}', { etiquettes, v0: etiquettes === 1 ? 'étiquette' : 'étiquettes', pieces, v1: ' ', v2: pieces === 1 ? 'image' : 'images' })}</p>
-        </div>
-        {card.briefing ? (
-          /* LA SYNTHÈSE NE SE LIT PLUS ICI : elle ouvre la conversation de la
-             carte, en premier message. Ce bloc dit seulement qu'elle existe et
-             où elle est — sans quoi on la chercherait dans les détails, comme
-             avant. */
-          <div>
-            <p className="text-[11.5px] text-faint">{t('Synthèse du besoin')}</p>
-            <p className="mt-0.5 font-medium text-text">
-              {t('déposée en premier message de la conversation')}</p>
-          </div>
-        ) : null}
-        <div>
-          <p className="text-[11.5px] text-faint">{t('Préparation avant exécution')}</p>
-          <p className="mt-0.5 font-medium text-text">{t('{estimation} · analyse et exécution dans la même conversation', { estimation })}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
  * Avec quoi cette carte va tourner — ou a tourné. Quatre étiquettes courtes sur
  * UNE ligne qui se replie : moteur, modèle, réflexion, compte. Jamais un
  * tableau, il deviendrait illisible sur téléphone.
@@ -958,7 +893,6 @@ function CardSummary({ card }: { card: Card }) {
       {/* Juste après « avec quoi » : QUAND. Les deux se règlent avant le
           départ, au même endroit et de la même façon. */}
       <DepartProgramme card={card} />
-      <PreparationChef card={card} />
 
       {/* LE CŒUR DE L'ONGLET : ce qui s'est passé, dans l'ordre, avec la mesure
           réelle de chaque étape. Il remplace les quatre encadrés qui empilaient

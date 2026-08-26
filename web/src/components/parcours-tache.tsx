@@ -13,22 +13,21 @@ import { t, formatRegional } from '@/lib/langue';
 /**
  * LE PARCOURS D'UNE TÂCHE, EN LIGNE DE TEMPS.
  *
- * L'onglet « Détails » empilait sept encadrés — réglages, préparation du chef,
+ * L'onglet « Détails » empilait sept encadrés — réglages, préparation de la carte,
  * jetons par agent, « Analyse initiale », « Exécution réelle », ventilation,
  * projection — qui disaient chacun une part de la même histoire, dans le
  * désordre, et dont deux comptaient les mêmes jetons deux fois. Il fallait
  * connaître le produit pour s'y retrouver.
  *
- * À la place, une seule lecture, de haut en bas : le tri par le chef
- * d'orchestre, l'autorisation, le travail, le déploiement, la mise en
- * production. Une pastille par étape (faite, en cours, à venir), et pour
+ * À la place, une seule lecture, de haut en bas : la proposition de la carte,
+ * l'autorisation, le travail, le déploiement, la mise en production. Une pastille par étape (faite, en cours, à venir), et pour
  * chacune :
  *   — CE QU'ELLE EST ALLÉE CHERCHER, en français, une ligne par source ;
  *   — CE QU'ELLE A RÉELLEMENT CONSOMMÉ, en durée et en francs — jamais un
  *     compteur de jetons.
  *
  * Sous la ligne de temps, le LECTEUR DE PROMPTS (le même que le tiroir
- * « Contexte envoyé » du chef) montre le texte réellement envoyé, tour par
+ * « Contexte envoyé ») montre le texte réellement envoyé, tour par
  * tour, pour tous les agents de la carte — c'est la seule façon de lire un
  * prompt dans toute l'application.
  *
@@ -182,7 +181,7 @@ export function ParcoursTache({ cardId }: { cardId: string }) {
 
       {/* LE LECTEUR DE PROMPTS : le texte réellement envoyé, tour par tour,
           pour tous les agents de la carte — la même lecture que le tiroir
-          « Contexte envoyé » du chef d'orchestre. */}
+          « Contexte envoyé ». */}
       {tours.length ? (
         <div data-prompts-de-la-carte>
           <h3 className="mb-1.5 text-[14px] font-semibold text-text">{t('Prompts envoyés')}</h3>

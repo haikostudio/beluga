@@ -223,7 +223,7 @@ export function App() {
    * jusqu'ici quand la décision ne tient à aucune carte : on ouvre le projet,
    * on déplie la conversation (elle est cachée derrière un bouton sur
    * téléphone, et repliable sur ordinateur), et si la décision vit dans le fil
-   * d'un autre agent que le chef, c'est ce fil-là qui s'ouvre. Le tiroir d'une
+   * d'un agent, c'est ce fil-là qui s'ouvre. Le tiroir d'une
    * carte resté ouvert (un autre projet, par exemple) est un plein écran qui
    * cacherait cette conversation par-dessus : on le referme au passage. Le
    * tableau de bord, lui, prend la place du panneau de droite sur ordinateur
@@ -242,7 +242,7 @@ export function App() {
         // son téléphone. Là, le panneau qu'on vient d'ouvrir suffit.
         if (window.innerWidth < 640) setMobileView('chat');
         const agent = client.getSnapshot().agents[agentId];
-        if (agent && agent.role !== 'orchestrator') setOpenAgentId(agentId);
+        if (agent) setOpenAgentId(agentId);
       }),
     [],
   );
@@ -469,7 +469,7 @@ export function App() {
     void setup();
 
     // Un appui sur une notification poussée emmène à la décision concernée
-    // (carte, ou conversation quand elle n'en a aucune — question du chef
+    // (carte, ou conversation quand elle n'en a aucune — question d'un agent
     // d'orchestre).
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OPEN_CARD') {

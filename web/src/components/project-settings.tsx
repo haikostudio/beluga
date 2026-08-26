@@ -569,7 +569,7 @@ export function ProjectSettings({
                 ))}
             </select>
             <p className="mt-1 text-[12.5px] text-faint">
-              {t('Les nouvelles cartes et le chef de ce projet partiront sur ce moteur.')}</p>
+              {t('Les nouvelles cartes de ce projet partiront sur ce moteur.')}</p>
           </div>
 
           {/* L'APPARENCE DU PROJET suit exactement la même règle que le général :

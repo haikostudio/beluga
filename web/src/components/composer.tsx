@@ -72,7 +72,7 @@ export interface ComposerProps {
   dansTiroir?: boolean;
   /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
   cardId?: string;
-  /** Seule la conversation permanente du chef d'orchestre vit sur fond noir
+  /** Seule une conversation hors carte vit sur fond noir
    *  (pas dans un tiroir) ; partout ailleurs (tiroir de carte, pile des
    *  agents) le fond entourant est gris cendré, la barre doit le reprendre. */
   fondNoir?: boolean;

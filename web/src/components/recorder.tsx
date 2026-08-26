@@ -224,7 +224,7 @@ export function useRecorder(onText: (text: string) => void) {
 
   /*
    * QUITTER L'ÉCRAN RELÂCHE LE MICRO. Cet effet est le filet de sécurité de
-   * toutes les issues qu'on n'a pas prévues : passer du chef au tableau, fermer
+   * toutes les issues qu'on n'a pas prévues : passer d'une carte au tableau, fermer
    * la conversation, recharger la page. Sans lui, une dictée commencée puis
    * abandonnée laissait le flux ouvert et le repère du système allumé.
    */

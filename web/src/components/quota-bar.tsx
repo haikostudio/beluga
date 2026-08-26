@@ -59,9 +59,9 @@ export function QuotaBar({
    * gauche y mène déjà : l'entrée n'y est pas doublée.
    */
   onOpenDashboard?: () => void;
-  /** Sur grand écran : la colonne du chef d'orchestre est-elle dépliée ? */
+  /** Sur grand écran : le volet des fichiers est-il déplié ? */
   rightOpen?: boolean;
-  /** Sur grand écran : plie ou déplie la colonne du chef d'orchestre. */
+  /** Sur grand écran : plie ou déplie le volet des fichiers. */
   onToggleRight?: () => void;
 }) {
   const state = useApp();
@@ -301,16 +301,16 @@ export function QuotaBar({
         </Tooltip>
       ) : null}
 
-      {/* Plier ou déplier la colonne du chef d'orchestre. Il vit DANS la barre,
-          à sa place : posé en flottant par-dessus, il recouvrait les trois
-          points et le menu devenait inatteignable sur ordinateur. */}
+      {/* Plier ou déplier le volet des fichiers. Il vit DANS la barre, à sa
+          place : posé en flottant par-dessus, il recouvrait les trois points et
+          le menu devenait inatteignable sur ordinateur. */}
       {onToggleRight ? (
-        <Tooltip label={rightOpen ? t('Replier le chef d’orchestre') : t('Ouvrir le chef d’orchestre')}>
+        <Tooltip label={rightOpen ? t('Replier le volet des fichiers') : t('Ouvrir le volet des fichiers')}>
           <Button
             variant="outline"
             size="icon"
             className="hidden lg:flex"
-            aria-label={rightOpen ? 'Replier le chef d’orchestre' : 'Ouvrir le chef d’orchestre'}
+            aria-label={rightOpen ? 'Replier le volet des fichiers' : 'Ouvrir le volet des fichiers'}
             onClick={onToggleRight}
           >
             <PanelRight className={cn('h-3.5 w-3.5', rightOpen && 'text-text')} />
