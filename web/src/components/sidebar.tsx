@@ -466,7 +466,9 @@ export function Sidebar({
           {sitesEnPanne ? (
             <span
               data-surveillance-pastille={sitesEnPanne}
-              className="ml-auto inline-flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-semibold leading-none text-white"
+              // Les mêmes couleurs que l'étiquette « danger » de l'interface :
+              // lisibles dans les douze palettes, sans jeton posé à la main.
+              className="ml-auto inline-flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded-full border border-danger/30 bg-danger/10 px-1 text-[10.5px] font-semibold leading-none text-danger"
             >
               {sitesEnPanne}
             </span>
