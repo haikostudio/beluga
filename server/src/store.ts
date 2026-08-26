@@ -1663,26 +1663,6 @@ export function pendingQuestions(): { projectId: string; question: string }[] {
   return out;
 }
 
-/** Les propositions d'agents qui n'ont encore reçu ni oui ni non. */
-export function pendingProposals(projectId?: string): { projectId: string; title: string }[] {
-  const rows = (
-    projectId
-      ? getDb()
-          .prepare("SELECT project_id AS projectId, data FROM proposals WHERE decision = 'pending' AND project_id = ?")
-          .all(projectId)
-      : getDb().prepare("SELECT project_id AS projectId, data FROM proposals WHERE decision = 'pending'").all()
-  ) as { projectId: string; data: string }[];
-  const out: { projectId: string; title: string }[] = [];
-  for (const row of rows) {
-    try {
-      out.push({ projectId: row.projectId, title: String(JSON.parse(row.data).title ?? '') });
-    } catch {
-      /* proposition illisible : on l'ignore */
-    }
-  }
-  return out.filter((item) => item.title);
-}
-
 export function listCardMessages(cardId: string, limit = 800): Message[] {
   const rows = getDb()
     .prepare(
