@@ -99,7 +99,6 @@ const CARTES_PAR_COLONNE: Record<string, number> = {
   running: 2,
   done: 3,
   to_deploy: 1,
-  in_production: 1,
   archived: 1,
 };
 

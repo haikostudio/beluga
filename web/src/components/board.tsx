@@ -139,18 +139,10 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
   // publication. Rien n'est mis en ligne — les cartes changent de colonne.
   done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
-  // La mise en ligne compte désormais DEUX étapes : « À déployer » pousse vers
-  // « En production », et c'est de là seulement qu'on archive. Un pied suit le
-  // parcours de la carte — on n'archive jamais par-dessus une étape.
+  // « En production » n'existe plus : le déploiement range lui-même ses cartes
+  // en « Archivé ». Le pied de « À déployer » garde donc le seul geste de masse
+  // qui reste à la main — sortir du lot sans rien mettre en ligne.
   to_deploy: {
-    libelle: 'Tout mettre en production',
-    icone: Globe,
-    verbe: 'Mettre en production',
-    cible: 'in_production',
-    participe: 'mise en production',
-  },
-  // Dernière colonne du parcours, où le ménage se fait en lot.
-  in_production: {
     libelle: 'Tout archiver',
     icone: Archive,
     verbe: 'Archiver',
@@ -418,15 +410,19 @@ export function Board({
    *
    * L'état de la publication du projet lui sert de RÉVEIL : la fin d'un
    * déploiement crée justement le groupe qu'on veut voir apparaître.
+   *
+   * Il travaille pour « Archivé » depuis que « En production » a disparu : les
+   * cartes déployées ensemble s'y posent ensemble, et le bandeau de leur groupe
+   * reste le seul chemin vers le fil de leur mise en ligne.
    */
   const production = useGroupesDeProduction(
     projectId,
-    parColonne.in_production,
+    parColonne.archived,
     true,
     state.deploys[projectId]?.state,
   );
   /* Le vrai glissement d'un groupe qui se plie ou se déplie : posé sur la
-     colonne « En production » (seule à grouper), il traduit chaque
+     colonne « Archivé » (seule à grouper), il traduit chaque
      changement de pli en translation pour toutes les lignes suivies par
      `data-carte-flip`. */
   const colonneProductionRef = React.useRef<HTMLDivElement | null>(null);
@@ -1220,12 +1216,12 @@ export function Board({
         className="flex gap-2.5 px-3 py-3 snap-columns"
       >
       {COLUMN_KEYS.map((column) => {
-        /* « En production » range ses cartes par publication : un groupe reste
+        /* « Archivé » range ses cartes par publication : un groupe reste
            d'un seul tenant, sinon les paquets de vingt le couperaient en deux
            et son bandeau se retrouverait sans ses cartes. Aucune carte n'est
            ajoutée ni retirée — seul l'ORDRE change, et le compteur de la tête
            lit toujours cette même liste. */
-        const columnCards = column === 'in_production' ? production.cartes : byColumn(column);
+        const columnCards = column === 'archived' ? production.cartes : byColumn(column);
         // Ce qui est RÉELLEMENT posé dans la page : le premier paquet de vingt,
         // puis un paquet de plus à chaque fois que le bas approche.
         const cartesPosees = cartesDuPaquet(columnCards, paquets[column] ?? 1);
@@ -1414,7 +1410,7 @@ export function Board({
                     actif={projetOuvert?.deploiementAutomatique === true}
                   />
                 ) : null}
-                {column === 'to_deploy' || column === 'in_production' ? (
+                {column === 'to_deploy' || column === 'archived' ? (
                   <BoutonInfosPublication colonne={column} infos={infosPublication[column] ?? null} />
                 ) : null}
                 {/* Une fois la procédure en place, l'icône de réglages prend la
@@ -1452,7 +1448,7 @@ export function Board({
                   production » ne s'affiche que si cette étape existe vraiment
                   pour le projet — c'est le bloc lui-même qui le demande au
                   serveur, et qui ne rend rien sinon. */}
-              {column === 'to_deploy' || column === 'in_production' ? (
+              {column === 'to_deploy' || column === 'archived' ? (
                 <DeployPanel
                   projectId={projectId}
                   cards={columnCards}
@@ -1466,7 +1462,7 @@ export function Board({
                 />
               ) : null}
               <div
-                ref={column === 'in_production' ? colonneProductionRef : undefined}
+                ref={column === 'archived' ? colonneProductionRef : undefined}
                 className={cn(
                   'space-y-1.5 p-1.5',
                   colonneEnLot === column && 'pl-[15px] pt-[15px]',
@@ -1476,7 +1472,7 @@ export function Board({
                   jamais derrière un bouton : du travail prêt à partir que rien
                   ne montre expose à le mettre en ligne — ou à l'oublier — sans
                   l'avoir jamais vu. */}
-              {column === 'to_deploy' || column === 'in_production' ? (
+              {column === 'to_deploy' || column === 'archived' ? (
                 <AlerteTravailSansCarte
                   colonne={column}
                   projectId={projectId}
@@ -1489,8 +1485,8 @@ export function Board({
                 const cochable = colonneEnLot === column;
                 /* Le bandeau du groupe se pose DEVANT sa première carte, jamais
                    ailleurs : il nomme la publication qui a mis ces cartes en
-                   ligne et rouvre son fil. Hors « En production », rien. */
-                const bandeau = column === 'in_production' ? production.bandeau(card.id) : null;
+                   ligne et rouvre son fil. Hors « Archivé », rien. */
+                const bandeau = column === 'archived' ? production.bandeau(card.id) : null;
                 const tuile = (
                   <CardTile
                     card={card}
@@ -1519,7 +1515,7 @@ export function Board({
                 return (
                   <React.Fragment key={card.id}>
                   {bandeau}
-                  {column === 'in_production' ? production.envelopper(card.id, tuile) : tuile}
+                  {column === 'archived' ? production.envelopper(card.id, tuile) : tuile}
                   </React.Fragment>
                 );
               })}
@@ -1550,9 +1546,7 @@ export function Board({
                                  attendait juste au-dessus. Tant qu'il en
                                  reste, la colonne ne dit plus « rien ». */
                               phraseDeColonneVide(sansCarte.to_deploy ?? null)
-                            : column === 'in_production'
-                              ? t('Aucune carte en attente de mise en production.')
-                              : t('Aucune carte rangée ici pour l’instant.')}
+                            : t('Aucune carte rangée ici pour l’instant.')}
                 </p>
               ) : null}
               </div>

@@ -8,6 +8,7 @@ import {
   X,
   AlertTriangle,
   FilePlus2,
+  GitCommitHorizontal,
 } from 'lucide-react';
 import {
   Card,
@@ -15,10 +16,15 @@ import {
   DeployRun,
   DeployStepKey,
   EtapeDePublication,
+  EtatProduction,
   PlanDeMiseEnLigne,
   TravailSansCarte,
   alerteTravailSansCarte,
   annonceDeHeurts,
+  annonceMiseAJourProduction,
+  ecartProduction,
+  empreinteCourte,
+  productionEnRetard,
   selectionSansHeurts,
   libelleCartePorteuse,
   etapeDePublication,
@@ -155,15 +161,17 @@ export function DeployPanel({
   const enPlace = !!etape && procedureEnPlace(projet, etape.cible);
 
   /*
-   * Le garde-fou « déjà mise en ligne » ne vaut que pour la première étape :
-   * une carte posée « En production » porte forcément une date de mise en ligne
-   * — celle du déploiement —, et c'est justement elle qu'on veut passer en
-   * production. Même règle que `deployableCards` côté serveur, sinon
-   * le compteur annoncerait autre chose que ce qui partira.
+   * Ce que le lot va embarquer. Même règle que `deployableCards` côté serveur,
+   * sinon le compteur annoncerait autre chose que ce qui partira : une carte
+   * qui porte déjà une date de mise en ligne ne repart pas.
+   *
+   * UNE ÉTAPE SANS LOT N'EMBARQUE RIEN. La mise en production vit en tête
+   * d'« Archivé » : compter les cartes de cette colonne annoncerait un lot de
+   * cent tâches là où il n'en part aucune — elle pousse une VERSION.
    */
-  const embarked = cards.filter(
-    (card) => !card.excludedFromDeploy && (colonne !== 'to_deploy' || !card.deployedAt),
-  );
+  const embarked = etape?.sansLot
+    ? []
+    : cards.filter((card) => !card.excludedFromDeploy && !card.deployedAt);
   const active = run?.state === 'running';
   /* Deux blocs peuvent être à l'écran : chacun ne montre QUE sa publication. */
   const mienne = !!run && !!etape && runDeLEtape(run.cible, etape);
@@ -188,6 +196,14 @@ export function DeployPanel({
      illisible) : son échec était avalé, et le bloc affichait alors un état
      d'avant, muet. On le garde pour le DIRE sous le bouton. */
   const [erreurControle, setErreurControle] = React.useState<string | null>(null);
+  /*
+   * CE QUI TOURNE EN PRODUCTION : l'enregistrement en ligne chez le client et
+   * l'écart avec la branche du dépôt. C'est ce qui a remplacé la colonne « En
+   * production » — on ne compte plus des cartes, on lit une version. Demandé
+   * seulement par le bloc de l'étape SANS LOT : le bloc de « À déployer » n'a
+   * rien à en dire.
+   */
+  const [etatProduction, setEtatProduction] = React.useState<EtatProduction | null>(null);
   const signature = embarked.map((card) => card.id).join(',');
 
   /*
@@ -196,6 +212,30 @@ export function DeployPanel({
    * le bouton allumé, et la publication n'était refusée qu'au clic — trop tard
    * pour comprendre pourquoi.
    */
+  /*
+   * L'ÉTAT DE LA PRODUCTION, relu au montage puis à chaque changement d'état de
+   * la publication — c'est une mise en production qui le fait bouger. Lecture
+   * SEULE côté serveur (une ligne de journal, deux commandes git qui n'écrivent
+   * rien) : elle ne peut rien déclencher et ne coûte aucun jeton.
+   */
+  React.useEffect(() => {
+    if (!etape?.sansLot || !enPlace) return;
+    let vivant = true;
+    client
+      .call({ type: 'deploy.etatProduction', projectId })
+      .then((res: any) => {
+        if (vivant) setEtatProduction(res?.etat ?? null);
+      })
+      .catch(() => {
+        /* Un état de production illisible ne casse pas le bloc : le bouton
+           reste, et la ligne dira simplement qu'on ne sait pas. */
+        if (vivant) setEtatProduction(null);
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [projectId, etape?.sansLot, enPlace, run?.state]);
+
   React.useEffect(() => {
     // Le contrôle tourne MÊME sans carte à embarquer : c'est lui qui découvre
     // le travail enregistré sur la principale, et donc qui rallume le bouton.
@@ -303,6 +343,7 @@ export function DeployPanel({
     etape && !(active && mienne)
       ? raisonLotBloque({
           verbe: etape.verbe,
+          sansLot: etape.sansLot,
           aPublier,
           cartesDansLaColonne: cards.length,
           autrePublication: active && !mienne,
@@ -409,12 +450,19 @@ export function DeployPanel({
           Pendant une publication, le bouton dit l'étape traitée. */}
       <div className="relative flex items-stretch gap-1">
         <Button
-          variant={publicationEnCours ? 'outline' : aPublier ? 'default' : 'outline'}
+          variant={publicationEnCours ? 'outline' : aPublier || etape.sansLot ? 'default' : 'outline'}
           size="sm"
           className="min-w-0 flex-1"
           data-bouton-publication
           disabled={
-            publicationEnCours || !aPublier || busy || active || busyAgents.length > 0 || !!productionBloquee
+            publicationEnCours ||
+            /* Une étape SANS LOT n'a rien à compter : son bouton reste allumé
+               même à zéro carte — c'est une VERSION qu'elle pousse. */
+            (!etape.sansLot && !aPublier) ||
+            busy ||
+            active ||
+            busyAgents.length > 0 ||
+            !!productionBloquee
           }
           onClick={publicationEnCours ? undefined : demarrer}
         >
@@ -428,12 +476,18 @@ export function DeployPanel({
               {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Rocket className="h-3 w-3 shrink-0" />}
               {/* Le compteur embarque TOUT : une branche en conflit n'est plus
                   écartée d'avance, l'agent de publication la reprend en route.
-                  Le verbe vient de l'ÉTAPE : « Tout déployer » en tête de « À
-                  déployer », « Tout publier » en tête de « En production ».
                   Les deux parts (cartes, travail sans carte) sont NOMMÉES dès
-                  qu'elles coexistent : un chiffre seul ne s'explique pas. */}
+                  qu'elles coexistent : un chiffre seul ne s'explique pas.
+                  Une étape SANS LOT n'a pas de compteur du tout : elle porte
+                  son libellé entier (« Mettre à jour la version prod »), parce
+                  qu'elle ne pousse pas des cartes mais une VERSION. */}
               <span className="truncate">
-                {t('Tout {v0} ({v1})', { v0: etape.verbe, v1: libelleCompteLot(embarked.length, enAttente.nombre) })}</span>
+                {etape.bouton
+                  ? t(etape.bouton)
+                  : t('Tout {v0} ({v1})', {
+                      v0: etape.verbe,
+                      v1: libelleCompteLot(embarked.length, enAttente.nombre),
+                    })}</span>
             </>
           )}
         </Button>
@@ -464,6 +518,37 @@ export function DeployPanel({
         controls={(publicationEnCours || rapport) && run ? <DeployControls run={run} /> : null}
       />
 
+      {/* L'ÉTAT DE LA VERSION EN PRODUCTION, sous le bouton qui la met à jour.
+          Deux lignes, jamais plus : l'enregistrement en ligne, puis l'écart
+          avec le dépôt. C'est exactement ce que la colonne « En production » ne
+          disait pas — elle empilait des cartes sans jamais nommer la version
+          servie. */}
+      {etape.sansLot ? (
+        <div className="mt-1.5 space-y-0.5 text-[12px]" data-etat-production>
+          <p className="flex items-center gap-1.5 text-faint">
+            <GitCommitHorizontal className="h-3 w-3 shrink-0" />
+            {etatProduction?.commit ? (
+              <>
+                <span className="font-mono" data-commit-production>{empreinteCourte(etatProduction.commit)}</span>
+                {etatProduction.at ? <span>· {elapsed(etatProduction.at)}</span> : null}
+              </>
+            ) : (
+              <span data-commit-production="">{t('Aucune version en production')}</span>
+            )}
+          </p>
+          <p
+            className={cn(productionEnRetard(etatProduction) ? 'text-warning' : 'text-faint')}
+            data-ecart-production
+          >
+            {t(ecartProduction(etatProduction).texte, ecartProduction(etatProduction).valeurs)}</p>
+          {/* Ce qui manque se DIT : dépôt illisible, branche introuvable,
+              première mise en production jamais faite. Jamais un silence. */}
+          {etatProduction?.raison && etatProduction.commit ? (
+            <p className="text-faint" data-raison-production>{etatProduction.raison}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {!publicationEnCours ? (
         <>
           {/* Plus aucun bandeau jaune en permanence sous le bouton : pourquoi
@@ -481,23 +566,18 @@ export function DeployPanel({
         </>
       ) : null}
 
-      {/* La confirmation de la MISE EN PRODUCTION : elle nomme l'étape, rappelle
-          le lot qui part (le même compte que le bouton, travail sans carte
-          compris) et prévient que ces cartes seront closes puis archivées.
-          « Publier » lance seul la publication ; « Annuler » ne touche à rien. */}
+      {/* La confirmation de la MISE EN PRODUCTION : elle nomme l'étape et dit ce
+          qui va réellement partir — l'écart entre la version en ligne et le
+          dépôt, jamais un lot de cartes, puisqu'elle n'en embarque aucune.
+          « Mettre à jour » lance seul la publication ; « Annuler » ne touche à
+          rien. */}
       <ConfirmDialog
         open={confirmation}
         title={t('Mise en production')}
         description={
-          aPublier > 1 ? (
-            <>
-              {aPublier}  {t('tâches vont partir chez le client. Une fois publiées, elles seront closes puis archivées.')}
-</>
-          ) : (
-            <>{t('Une tâche va partir chez le client. Une fois publiée, elle sera close puis archivée.')}</>
-          )
+          <>{t(annonceMiseAJourProduction(etatProduction).texte, annonceMiseAJourProduction(etatProduction).valeurs)}</>
         }
-        confirmLabel={t('Publier')}
+        confirmLabel={t('Mettre à jour')}
         danger
         onConfirm={() => void start()}
         onClose={() => setConfirmation(false)}
