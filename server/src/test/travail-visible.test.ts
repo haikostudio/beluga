@@ -76,6 +76,14 @@ test('la plomberie de la publication n’est pas du travail', () => {
   assert.equal(commitsSansCarte([commit('b1', 'Publication : 2 tâche(s)')]).length, 0);
 });
 
+test('le rangement de nuit des instructions n’est pas du travail hors tâche', () => {
+  assert.equal(estPlomberie('Range les règles durables déposées, une fois pour la nuit'), true);
+  assert.equal(
+    commitsSansCarte([commit('n1', 'Range les règles durables déposées, une fois pour la nuit')]).length,
+    0,
+  );
+});
+
 test('une branche de tâche a déjà sa carte : on ne double jamais', () => {
   assert.equal(brancheDeTache('tache/quelque-chose-abc123'), true);
   assert.equal(brancheDeTache('main'), false);
