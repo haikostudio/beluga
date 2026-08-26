@@ -538,6 +538,15 @@ export const Card = z.object({
    */
   analysisContext: z.string().optional(),
   /**
+   * LA SYNTHÈSE ENTIÈRE DU BESOIN, écrite avec l'utilisateur avant que la carte
+   * existe. Elle est déposée comme PREMIER MESSAGE de la conversation de la
+   * carte — visible avant même le lancement — et reprise en toutes lettres dans
+   * le prompt de l'agent. Un titre court et trois phrases de description ne
+   * disaient pas la moitié de ce qui s'était échangé ; ce champ porte le reste
+   * (`shared/src/synthese-du-besoin.ts`).
+   */
+  briefing: z.string().optional(),
+  /**
    * L'agent qui a PROPOSÉ cette carte (le chef d'orchestre), et le moment de sa
    * proposition. Sans ce lien, la première étape du parcours d'une tâche — le
    * tri — ne pouvait porter aucune mesure : le tour du chef vit dans SA
@@ -767,6 +776,11 @@ export const TaskProposal = z.object({
   departPrevu: z.number().optional(),
   /** Faits, choix et contrôles déjà établis, transmis à l'agent d'exécution. */
   analysisContext: z.string().optional(),
+  /**
+   * La synthèse entière du besoin, telle qu'elle sera déposée dans le fil de
+   * l'agent une fois la carte validée (`shared/src/synthese-du-besoin.ts`).
+   */
+  briefing: z.string().optional(),
   /**
    * Ce qui cloche dans les réglages proposés — moteur absent, aucun compte
    * disponible — écrit en toutes lettres sur la proposition. On ne bascule

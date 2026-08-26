@@ -38,6 +38,12 @@ const { rolePrompt, TRI_MODE_PLAN } = await import('../runtime.js');
  * « description-carte ») : sans rôle « orchestrator » sur le contexte de
  * test, l'exigence est la plus complète — on la fournit donc en entier.
  */
+const SYNTHESE = [
+  "L'utilisateur veut pouvoir réfléchir avec le chef d'orchestre sans qu'aucune carte ne parte pendant ce temps.",
+  'Il a dit vouloir un plan écrit dans la conversation, relu et affiné, avant toute création de carte.',
+  "Une fois le plan validé, la carte se propose comme d'habitude et emporte le plan avec elle.",
+].join('\n');
+
 const DESCRIPTION = [
   "Constat : le tableau se fabrique dans `web/src/components/board.tsx` et n’offre aucun bouton d’export des cartes.",
   'Attendu : un bouton d’export rend le contenu de la colonne dans un fichier téléchargeable.',
@@ -198,6 +204,7 @@ test('sans mode (ou en mode direct), board_create_card fonctionne comme avant', 
   const resultat = await callTool({ projectId: projet.id, mode: 'direct' } as any, 'board_create_card', {
     title: 'Ajouter un bouton',
     description: DESCRIPTION,
+    contexte: SYNTHESE,
   });
   assert.equal(resultat.ok, true);
   assert.ok(resultat.proposal);

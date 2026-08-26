@@ -24,7 +24,7 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool } = await import('../tools.js');
-const { carteDecriteEnTexte } = await import('@haikodev/shared');
+const { carteDecriteEnTexte, syntheseDeSecours } = await import('@haikodev/shared');
 
 /** Le texte tel qu'un modèle l'a réellement rendu, sans appeler l'outil. */
 const TEXTE_DU_CHEF = `Parfait ! Je vois les 5 images des formations.
@@ -59,6 +59,10 @@ test('la carte écrite en texte devient une VRAIE proposition, sans le modèle',
     title: relue!.titre,
     description: relue!.description,
     niveau: relue!.niveau,
+    // Ce que fait le démon dans `poserLaCarteRelue` : le chef n'a rédigé
+    // aucune synthèse, sa réponse entière en tient lieu et n'est pas jugée.
+    contexte: syntheseDeSecours(TEXTE_DU_CHEF),
+    secours: true,
   });
 
   assert.equal(resultat.ok, true, resultat.text);
@@ -76,6 +80,8 @@ test('le tableau ne bouge pas : une proposition reste une proposition', async ()
     title: relue.titre,
     description: relue.description,
     niveau: relue.niveau,
+    contexte: syntheseDeSecours(TEXTE_DU_CHEF),
+    secours: true,
   });
 
   assert.equal(store.listCards(projet.id).length, avant);
@@ -88,7 +94,13 @@ test('en MODE PLAN, le démon ne pose rien non plus', async () => {
   const resultat = await callTool(
     { projectId: projet.id, role: 'orchestrator', mode: 'plan' } as any,
     'board_create_card',
-    { title: relue.titre, description: relue.description, niveau: relue.niveau },
+    {
+      title: relue.titre,
+      description: relue.description,
+      niveau: relue.niveau,
+      contexte: syntheseDeSecours(TEXTE_DU_CHEF),
+      secours: true,
+    },
   );
 
   assert.equal(resultat.ok, false);

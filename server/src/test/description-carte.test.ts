@@ -42,6 +42,14 @@ const BONNE_DESCRIPTION = [
   'Vérification : rejouer `npm test` puis regarder la colonne pendant qu’une carte y entre, sur écran de téléphone.',
 ].join('\n');
 
+/** Une synthèse du besoin qui tient debout : l'échange, résumé pour l'agent. */
+const SYNTHESE = [
+  "L'utilisateur voit la colonne « À déployer » clignoter dès qu'une carte y entre, et cela le gêne depuis plusieurs jours.",
+  'Il a précisé que le défaut se voit surtout sur son téléphone, moins sur son écran d’ordinateur.',
+  "Il ne veut toucher à rien d'autre : ni au glisser-déposer, ni aux autres colonnes.",
+  "Il accepte que le compte soit légèrement en retard, du moment que la colonne cesse de sauter.",
+].join('\n');
+
 /**
  * Une carte de TRI : la demande reformulée, sans partie annoncée ni repère
  * concret — le chef n'a pas ouvert le projet, il n'a rien à citer.
@@ -188,6 +196,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
     const duChef = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
       title: 'Stabiliser la colonne « À déployer »',
       description: CARTE_COURTE,
+      contexte: SYNTHESE,
       niveau: 'standard',
     });
     assert.equal(duChef.ok, true, duChef.text);
@@ -197,6 +206,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
     const dUnAutre = await callTool({ projectId: projet.id, role: 'analysis' } as any, outil, {
       title: 'Stabiliser la colonne « À déployer »',
       description: CARTE_COURTE,
+      contexte: SYNTHESE,
     });
     assert.equal(dUnAutre.ok, false);
     assert.match(dUnAutre.text, /Constat/);
@@ -207,6 +217,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
     const resultat = await callTool({ projectId: projet.id } as any, outil, {
       title: 'Corriger le clignotement de la colonne',
       description: BONNE_DESCRIPTION,
+      contexte: SYNTHESE,
     });
     assert.equal(resultat.ok, true, resultat.text);
     assert.equal(resultat.proposal?.description, BONNE_DESCRIPTION);
@@ -216,6 +227,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
     const projet = projetDEssai();
     const resultat = await callTool({ projectId: projet.id } as any, outil, {
       title: 'Corriger le clignotement de la colonne',
+      contexte: SYNTHESE,
       constat:
         "la colonne « À déployer » du fichier web/src/components/board.tsx recompte ses cartes à chaque rendu, et se met à clignoter quand une carte y entre",
       attendu: 'le compte ne se refait qu’au changement de liste, et la colonne reste stable',

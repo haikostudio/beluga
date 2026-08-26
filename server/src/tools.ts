@@ -22,6 +22,9 @@ import {
   reglagesDeLaProposition,
   composerDescription,
   jugerDescription,
+  jugerSynthese,
+  MIN_SIGNES_SYNTHESE,
+  MAX_SIGNES_SYNTHESE,
   lireDateDeDepart,
   momentDeDepart,
   MAX_SIGNES_DESCRIPTION,
@@ -209,6 +212,40 @@ const CHAMP_ANALYSE = {
   },
 };
 
+/**
+ * LE CHAMP QUI PORTE L'ÉCHANGE JUSQU'À L'AGENT. Le titre est court et la
+ * description reformule la demande : tout le reste de la discussion — les
+ * réflexions, les contraintes dites en passant, ce qui a été écarté — vivait
+ * dans la conversation du chef et mourait avec elle. Ce champ le transporte, et
+ * HaikoDev le dépose en PREMIER MESSAGE du fil de la carte.
+ */
+const CHAMP_SYNTHESE = {
+  type: 'string',
+  description:
+    "OBLIGATOIRE. La SYNTHÈSE ENTIÈRE du besoin, telle qu'elle ressort de l'échange avec l'utilisateur : ce qu'il veut, " +
+    "pourquoi, sur quel écran, les contraintes et préférences énoncées, ce qui a été écarté en chemin, ce qui reste ouvert. " +
+    `Entre ${MIN_SIGNES_SYNTHESE} et ${MAX_SIGNES_SYNTHESE} signes. Ce texte est déposé tel quel comme PREMIER MESSAGE de la ` +
+    "conversation de l'agent, visible avant même qu'il démarre : écris-le pour quelqu'un qui n'était pas là.",
+};
+
+/**
+ * La synthèse du besoin, jugée avant d'être portée par la proposition. Une
+ * carte sans elle n'est pas affichée : l'agent repartirait du seul titre.
+ */
+function syntheseDeProposition(args: any): { briefing: string } | { refus: string } {
+  const texte = typeof args?.contexte === 'string' ? args.contexte.trim() : '';
+  /*
+   * `secours` n'est PAS dans le schéma de l'outil : aucun modèle ne connaît ce
+   * drapeau. Seul le démon le pose, quand c'est LUI qui rattrape une carte
+   * décrite en texte (`poserLaCarteRelue`) — il n'y a alors pas de synthèse
+   * rédigée, et refuser la carte pour cela la ferait disparaître pour de bon.
+   */
+  if (args?.secours === true) return { briefing: texte };
+  const verdict = jugerSynthese(texte);
+  if (!verdict.ok) return { refus: verdict.message };
+  return { briefing: texte };
+}
+
 /** Ignore toute prétendue mesure : elle sera ajoutée par le démon en fin de tour. */
 function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analysisContext'> | Record<string, never> {
   const raw = args?.analysis;
@@ -330,10 +367,11 @@ export const TOOL_DEFS: ToolDef[] = [
       "Propose une carte pour une demande d'ACTION CLAIRE : elle apparaît dans la conversation avec ses boutons valider / refuser, et n'entre dans « Planifié » qu'après le clic de l'utilisateur. Rien n'est écrit sur le tableau avant ce clic, et la colonne ne peut pas être choisie. Jamais pour une simple question, qui se répond dans la conversation.",
     inputSchema: {
       type: 'object',
-      required: ['title', 'niveau'],
+      required: ['title', 'niveau', 'contexte'],
       properties: {
         title: { type: 'string', description: 'Titre court et clair' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
+        contexte: CHAMP_SYNTHESE,
         constat: { type: 'string', description: "Ce que le projet fait aujourd'hui, avec un repère concret vu dans le projet" },
         attendu: { type: 'string', description: 'Ce que le projet doit faire une fois la carte terminée' },
         limites: { type: 'string', description: "Ce qu'on ne touche pas, ni n'élargit" },
@@ -383,10 +421,11 @@ export const TOOL_DEFS: ToolDef[] = [
       "Propose une tâche à l'utilisateur SANS créer de carte : une carte à valider ou refuser apparaît dans la conversation. À utiliser dans les cas ambigus.",
     inputSchema: {
       type: 'object',
-      required: ['title', 'niveau'],
+      required: ['title', 'niveau', 'contexte'],
       properties: {
         title: { type: 'string' },
         description: { type: 'string', description: CHAMP_DESCRIPTION },
+        contexte: CHAMP_SYNTHESE,
         intro: {
           type: 'string',
           description:
@@ -937,6 +976,13 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const texte = descriptionDeProposition(args, exigenceDuRole(ctx.role));
       if ('refus' in texte) return { ok: false, text: texte.refus };
+      /*
+       * …et rien ne part non plus sans la SYNTHÈSE du besoin : c'est elle qui
+       * sera déposée en premier message du fil de l'agent. Une carte sans elle
+       * renverrait l'agent au seul titre, comme avant.
+       */
+      const synthese = syntheseDeProposition(args);
+      if ('refus' in synthese) return { ok: false, text: synthese.refus };
 
       const reglages = await reglagesProposes(ctx.run, niveauDemande(args.niveau));
       const analyse = analyseDeProposition(args);
@@ -945,6 +991,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         id: store.newId(),
         title: String(args.title),
         description: texte.description,
+        briefing: synthese.briefing,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
         // Les images jointes au message qui a fait naître la proposition
         // suivent la carte jusqu'à l'agent d'exécution.
@@ -1024,6 +1071,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // solide n'est pas affichée, elle est rendue à réécrire.
       const texte = descriptionDeProposition(args, exigenceDuRole(ctx.role));
       if ('refus' in texte) return { ok: false, text: texte.refus };
+      // Même exigence de SYNTHÈSE que board_create_card : le fil de l'agent
+      // s'ouvre sur ce texte, quel que soit l'outil qui a proposé la carte.
+      const synthese = syntheseDeProposition(args);
+      if ('refus' in synthese) return { ok: false, text: synthese.refus };
 
       const reglages = await reglagesProposes(ctx.run, niveauDemande(args.niveau));
       const analyse = analyseDeProposition(args);
@@ -1032,6 +1083,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         id: store.newId(),
         title: String(args.title),
         description: texte.description,
+        briefing: synthese.briefing,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : [],
         // Mêmes images que board_create_card : celles du message déclencheur.
         attachments: imagesDuMessageDeclencheur(ctx.agentId),
@@ -1688,6 +1740,11 @@ export function createCard(
     estimate?: Card['estimate'];
     /** Relais factuel qui évite à l'exécution de recommencer l'étude. */
     analysisContext?: string;
+    /**
+     * La synthèse entière du besoin. Elle ouvrira la conversation de la carte,
+     * et l'agent la recevra dans son prompt de lancement.
+     */
+    briefing?: string;
     /** Heure de départ souhaitée : la carte partira toute seule ce moment venu. */
     departPrevu?: number;
     /**
@@ -1733,6 +1790,7 @@ export function createCard(
     attachments: input.attachments ?? [],
     estimate: input.estimate,
     analysisContext: input.analysisContext,
+    briefing: input.briefing,
     origineAgentId: input.origineAgentId,
     origineAt: input.origineAt,
     // Le champ « colonne » est ignoré à la création : invariant 1. Une carte

@@ -66,6 +66,7 @@ export * from './garde-demon.js';
 export * from './depart-programme.js';
 export * from './heure-de-lancement.js';
 export * from './description-carte.js';
+export * from './synthese-du-besoin.js';
 export * from './dossier-de-carte.js';
 export * from './reparation-worktree.js';
 export * from './echec-construction.js';

@@ -118,6 +118,10 @@ export function accepterPropositionsDeLaNuit(agentId: string): number {
       origin: 'agent',
       run: proposal.run,
       attachments: proposal.attachments,
+      // La synthèse ouvre la conversation de la carte, ici comme ailleurs :
+      // au réveil, on lit ce que l'agent de la nuit a constaté avant même de
+      // lancer quoi que ce soit.
+      briefing: proposal.briefing,
       departPrevu: proposal.departPrevu,
       origineAgentId: agentId,
       origineAt: message.createdAt,

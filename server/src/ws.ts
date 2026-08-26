@@ -45,6 +45,7 @@ import {
   choisirProjetAOuvrir,
   lireLienGithub,
   REFUS_LIEN_MAL_FORME,
+  filAvecLaSynthese,
 } from '@haikodev/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
@@ -738,10 +739,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         dernier = store.getAgent(card.conversationAgentId);
         if (dernier) messages = store.listMessages(dernier.id);
       }
+      /*
+       * LE PREMIER MESSAGE DU FIL EST LA SYNTHÈSE DU BESOIN. Elle vit sur la
+       * CARTE, pas en base : le fil s'ouvre donc dessus même quand aucun agent
+       * n'existe encore — c'est tout l'intérêt, on la lit avant de lancer.
+       */
       bus.emit({
         type: 'card.conversation',
         cardId: cmd.cardId,
-        messages,
+        messages: filAvecLaSynthese(card, messages),
         activeAgentId: dernier?.id ?? card.agentId,
       });
 
@@ -1305,6 +1311,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
           ...retenu,
           origin: 'agent',
           attachments: proposal.attachments,
+          /*
+           * LA SYNTHÈSE DU BESOIN SUIT LA CARTE, et elle survit à une retouche
+           * du titre ou de la description : ce n'est pas une étude du projet
+           * (que la moindre édition rendrait caduque, voir `heritage`) mais le
+           * compte rendu de l'échange avec l'utilisateur. Elle ouvrira la
+           * conversation de la carte, avant même son lancement.
+           */
+          briefing: proposal.briefing,
           // L'heure dite voyage avec la proposition : elle ne s'édite pas au
           // dernier clic, elle se retire ensuite dans l'onglet « Détails ».
           departPrevu: proposal.departPrevu,

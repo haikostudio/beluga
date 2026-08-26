@@ -7,6 +7,8 @@ import {
   Ampleur,
   CONSIGNE_CREATION_PROJET,
   CONSIGNE_CARTE_COURTE,
+  CONSIGNE_SYNTHESE_CARTE,
+  syntheseDeSecours,
   CONSIGNE_NIVEAU_AGENT,
   DOSSIER_PLANS,
   EXTENSIONS_DOCUMENT,
@@ -2414,7 +2416,7 @@ async function startTurn(
      *    garde ses boutons : rien n'entre sur le tableau sans le clic. */
     if (!issue) {
       const relue = carteDecriteEnTexte(dernierTexte) ?? carteDecriteEnTexte(finalText);
-      if (relue && (await poserLaCarteRelue(agent, project.id, relue))) {
+      if (relue && (await poserLaCarteRelue(agent, project.id, relue, dernierTexte || finalText))) {
         issue = 'carte posée par HaikoDev, relue dans le texte';
       }
     }
@@ -2427,7 +2429,7 @@ async function startTurn(
       if (carteNee()) issue = 'carte posée au dernier rappel';
       else {
         const relue = carteDecriteEnTexte(dernierTexte);
-        if (relue && (await poserLaCarteRelue(agent, project.id, relue))) {
+        if (relue && (await poserLaCarteRelue(agent, project.id, relue, dernierTexte))) {
           issue = 'carte posée par HaikoDev, relue dans le texte';
         }
       }
@@ -3219,7 +3221,13 @@ async function exigerLappelDeLoutil(options: {
  * On rend `false` quand l'outil refuse (une description trop maigre reste
  * refusée, d'où qu'elle vienne) : la suite du rattrapage prend alors le relais.
  */
-async function poserLaCarteRelue(agent: Agent, projectId: string, relue: CarteRelue): Promise<boolean> {
+async function poserLaCarteRelue(
+  agent: Agent,
+  projectId: string,
+  relue: CarteRelue,
+  /** La réponse d'où la carte a été relue : elle sert de synthèse de secours. */
+  texteSource: string,
+): Promise<boolean> {
   try {
     const resultat = await callTool(
       {
@@ -3231,7 +3239,18 @@ async function poserLaCarteRelue(agent: Agent, projectId: string, relue: CarteRe
         mode: agent.run.mode,
       },
       'board_create_card',
-      { title: relue.titre, description: relue.description, niveau: relue.niveau ?? NIVEAU_PAR_DEFAUT },
+      {
+        title: relue.titre,
+        description: relue.description,
+        niveau: relue.niveau ?? NIVEAU_PAR_DEFAUT,
+        /*
+         * Le chef n'a rien rédigé pour l'agent : sa réponse ENTIÈRE fait
+         * office de synthèse, et le drapeau `secours` dit à l'outil de ne pas
+         * la juger — sans quoi la carte relue serait refusée, donc perdue.
+         */
+        contexte: syntheseDeSecours(texteSource),
+        secours: true,
+      },
     );
     if (!resultat.proposal) {
       log.warn(`carte relue refusée par l'outil pour l'agent ${agent.id} : ${resultat.text.slice(0, 200)}`);
@@ -4280,6 +4299,8 @@ export function rolePrompt(
 ${TRI_DU_CHEF}
 ${mode === 'plan' ? `\n${TRI_MODE_PLAN}\n` : ''}
 ${CONSIGNE_CARTE_COURTE}
+
+${CONSIGNE_SYNTHESE_CARTE}
 
 ${CONSIGNE_NIVEAU_AGENT}
 

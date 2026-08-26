@@ -24,6 +24,13 @@ const DESCRIPTION = [
   'Vérification : contrôler le trajet proposition, validation puis exécution sans second chiffrage.',
 ].join('\n');
 
+const SYNTHESE = [
+  "L'utilisateur veut qu'une carte déjà chiffrée par le chef d'orchestre ne soit pas rechiffrée juste après sa validation.",
+  'Il a dit avoir vu deux tours de moteur pour une seule carte, et trouve cette dépense inutile.',
+  "Il tient au clic de lancement : rien ne doit partir tout seul, même quand le chiffrage est déjà là.",
+  "Rien n'a été demandé sur les branches ni sur la publication : elles ne bougent pas.",
+].join('\n');
+
 const ANALYSE = {
   machineSeconds: 420,
   seniorHours: 1.5,
@@ -74,7 +81,7 @@ test('la proposition transporte les chiffres futurs, mais aucune mesure inventé
   const resultat = await callTool(
     { projectId: projet.id, agentId: 'chef-1', role: 'orchestrator' } as any,
     'board_create_card',
-    { title: 'Réutiliser l’analyse du chef', description: DESCRIPTION, analysis: ANALYSE },
+    { title: 'Réutiliser l’analyse du chef', description: DESCRIPTION, contexte: SYNTHESE, analysis: ANALYSE },
   );
 
   assert.equal(resultat.ok, true);
@@ -89,7 +96,7 @@ test('la mesure réelle du tour complète la proposition puis suit la carte', as
   const resultat = await callTool(
     { projectId: projet.id, agentId: 'chef-2', role: 'orchestrator' } as any,
     'board_create_card',
-    { title: 'Réutiliser l’analyse du chef', description: DESCRIPTION, analysis: ANALYSE },
+    { title: 'Réutiliser l’analyse du chef', description: DESCRIPTION, contexte: SYNTHESE, analysis: ANALYSE },
   );
   const proposal = finaliserAnalyseDeProposition(
     resultat.proposal!,

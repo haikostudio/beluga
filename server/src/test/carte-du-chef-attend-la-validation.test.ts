@@ -36,6 +36,12 @@ function projetDEssai() {
  * « description-carte ») : les contrôles ci-dessous en fournissent donc une
  * vraie, sans quoi ils testeraient le refus au lieu de la proposition.
  */
+const SYNTHESE = [
+  "L'utilisateur veut qu'une carte proposée par le chef d'orchestre n'apparaisse sur le tableau qu'après son clic.",
+  "Il a raconté avoir vu des cartes surgir toutes seules dans « Planifié », et n'en veut plus aucune.",
+  'La proposition doit rester dans la conversation, avec ses deux boutons, tant que rien n’est décidé.',
+].join('\n');
+
 const DESCRIPTION = [
   "Constat : le tableau se fabrique dans `web/src/components/board.tsx` et n’offre aucun bouton d’export des cartes.",
   'Attendu : un bouton d’export rend le contenu de la colonne dans un fichier téléchargeable.',
@@ -50,6 +56,7 @@ test('l’outil du chef n’écrit AUCUNE carte : il propose', async () => {
   const resultat = await callTool({ projectId: projet.id } as any, 'board_create_card', {
     title: 'Ajouter un bouton d’export',
     description: DESCRIPTION,
+    contexte: SYNTHESE,
   });
 
   assert.equal(resultat.ok, true);
@@ -61,6 +68,7 @@ test('la proposition attend la décision, et ne désigne aucune carte', async ()
   const resultat = await callTool({ projectId: projet.id } as any, 'board_create_card', {
     title: 'Refaire la page d’accueil',
     description: DESCRIPTION,
+    contexte: SYNTHESE,
     labels: ['interface'],
   });
 

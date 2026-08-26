@@ -24,6 +24,7 @@ import {
   porteDuDossier,
   avecMesureAnalyse,
   contexteHeritePourExecution,
+  blocDeSyntheseDuBesoin,
   PERIODE_VEILLE_MS,
   decisionDeBoucle,
   travailAbandonne,
@@ -637,7 +638,7 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
 TITRE : ${card.title}
 ${card.description || '(pas de description)'}
 
-Tu travailles sur la branche « ${branch} », dans le dossier « ${prepa.dossier} » — une copie de travail à toi seul, créée pour cette carte. Reste dedans : n'en change pas et ne change pas de branche. HaikoDev fusionne ta branche dans la principale et referme ce dossier dès que tu as rendu ; ne le fais pas toi-même.
+${blocDeSyntheseDuBesoin(card.briefing)}Tu travailles sur la branche « ${branch} », dans le dossier « ${prepa.dossier} » — une copie de travail à toi seul, créée pour cette carte. Reste dedans : n'en change pas et ne change pas de branche. HaikoDev fusionne ta branche dans la principale et referme ce dossier dès que tu as rendu ; ne le fais pas toi-même.
 
 ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde (commit + push). Ne publie pas.`;
 

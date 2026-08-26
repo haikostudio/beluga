@@ -142,7 +142,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    */
   // Une carte de travail hors tâche n'a pas d'agent à elle : c'est la
   // conversation empruntée qui dit qu'il y a quelque chose à lire.
-  const aLire = !!agent || !!card.conversationAgentId || phase !== 'aucune';
+  // …et une carte qui porte déjà sa SYNTHÈSE a quelque chose à lire avant
+  // même d'avoir un agent : c'est le premier message de sa conversation.
+  const aLire = !!agent || !!card.conversationAgentId || !!card.briefing || phase !== 'aucune';
   /* Ce que cette carte attend de vous — le même compte que son triangle sur le
      tableau, posé ici sur l'onglet où la décision se prend. */
   const decisions = decisionsParCarte(state.decisions)[card.id] ?? 0;
@@ -655,6 +657,17 @@ function PreparationChef({ card }: { card: Card }) {
           <p className="mt-0.5 font-medium text-text">
             {t('consigne de la carte · {etiquettes} {v0} · {pieces}{v1} {v2}', { etiquettes, v0: etiquettes === 1 ? 'étiquette' : 'étiquettes', pieces, v1: ' ', v2: pieces === 1 ? 'image' : 'images' })}</p>
         </div>
+        {card.briefing ? (
+          /* LA SYNTHÈSE NE SE LIT PLUS ICI : elle ouvre la conversation de la
+             carte, en premier message. Ce bloc dit seulement qu'elle existe et
+             où elle est — sans quoi on la chercherait dans les détails, comme
+             avant. */
+          <div>
+            <p className="text-[11.5px] text-faint">{t('Synthèse du besoin')}</p>
+            <p className="mt-0.5 font-medium text-text">
+              {t('déposée en premier message de la conversation')}</p>
+          </div>
+        ) : null}
         <div>
           <p className="text-[11.5px] text-faint">{t('Préparation avant exécution')}</p>
           <p className="mt-0.5 font-medium text-text">{t('{estimation} · analyse et exécution dans la même conversation', { estimation })}</p>

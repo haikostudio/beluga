@@ -33,6 +33,12 @@ function projetDEssai() {
 }
 
 /* Une description qui tient debout (règle « description-carte »). */
+const SYNTHESE = [
+  "L'utilisateur a déposé une icône et une maquette dans la conversation, et veut les voir arriver jusqu'à l'agent.",
+  'Il a expliqué que sans elles, la carte partait sur une description vague et le rendu ne ressemblait à rien.',
+  "Seules les images du dernier message comptent : il ne veut pas voir remonter tout l'historique du fil.",
+].join('\n');
+
 const DESCRIPTION = [
   'Constat : le tableau se fabrique dans `web/src/components/board.tsx` et n’offre pas d’icône.',
   'Attendu : une icône fournie en maquette est intégrée à la barre du haut.',
@@ -61,7 +67,7 @@ test('la proposition retient les images du message déclencheur', async () => {
   const resultat = await callTool(
     { projectId: projet.id, agentId, role: 'orchestrator' } as any,
     'board_create_card',
-    { title: 'Intégrer l’icône fournie', description: DESCRIPTION },
+    { title: 'Intégrer l’icône fournie', description: DESCRIPTION, contexte: SYNTHESE },
   );
 
   assert.equal(resultat.ok, true);
@@ -79,7 +85,7 @@ test('seul le DERNIER message de l’utilisateur compte, pas tout le fil', async
   const resultat = await callTool(
     { projectId: projet.id, agentId, role: 'orchestrator' } as any,
     'propose_task',
-    { title: 'Une tâche sans image', description: DESCRIPTION },
+    { title: 'Une tâche sans image', description: DESCRIPTION, contexte: SYNTHESE },
   );
 
   assert.equal(resultat.ok, true);

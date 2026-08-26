@@ -220,6 +220,19 @@ export function fusionnerPropositions(propositions: TaskProposal[], id: string):
             .join('\n\n'),
         }
       : {}),
+    /*
+     * LES SYNTHÈSES SE SUIVENT, ELLES NE SE REMPLACENT PAS. Chaque proposition
+     * réunie portait le besoin d'un utilisateur : la carte fusionnée ouvre donc
+     * sa conversation sur les deux, l'une sous l'autre, chacune sous son titre.
+     */
+    ...(propositions.some((proposal) => proposal.briefing?.trim())
+      ? {
+          briefing: propositions
+            .filter((proposal) => proposal.briefing?.trim())
+            .map((proposal) => `**${proposal.title}**\n\n${proposal.briefing!.trim()}`)
+            .join('\n\n'),
+        }
+      : {}),
     ...(avertissements.length ? { avertissement: avertissements.join(' ') } : {}),
     decision: 'pending',
   };

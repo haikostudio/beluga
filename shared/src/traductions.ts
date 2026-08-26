@@ -693,6 +693,19 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
 
   /* ---- États vides et attentes ------------------------------------ */
   'Aucun échange pour le moment': ['No messages yet', 'Ningún intercambio por ahora', 'Noch keine Nachrichten', '暂无对话'],
+  'Synthèse du besoin': ['Summary of the need', 'Síntesis de la necesidad', 'Zusammenfassung des Bedarfs', '需求综述'],
+  'déposée en premier message de la conversation': [
+    'posted as the first message of the conversation',
+    'publicada como primer mensaje de la conversación',
+    'als erste Nachricht der Unterhaltung abgelegt',
+    '作为对话的第一条消息发布',
+  ],
+  'Synthèse du besoin, avant le lancement de la carte': [
+    'Summary of the need, before the card starts',
+    'Síntesis de la necesidad, antes de lanzar la tarjeta',
+    'Zusammenfassung des Bedarfs, vor dem Start der Karte',
+    '需求综述，卡片启动前',
+  ],
   'Aucun projet inscrit.': ['No project registered.', 'Ningún proyecto registrado.', 'Kein Projekt eingetragen.', '尚未登记任何项目。'],
   'Aucun projet sélectionné': ['No project selected', 'Ningún proyecto seleccionado', 'Kein Projekt ausgewählt', '未选择项目'],
   'Aucun projet mis de côté.': ['No project set aside.', 'Ningún proyecto apartado.', 'Kein Projekt beiseitegelegt.', '没有搁置的项目。'],

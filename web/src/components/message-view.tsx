@@ -8,6 +8,7 @@ import {
   Copy,
   CornerDownRight,
   Download,
+  FileText,
   GitMerge,
   HelpCircle,
   History,
@@ -51,6 +52,8 @@ import {
   triImages,
   versionSuivante,
   versionsPrecedentes,
+  TITRE_SYNTHESE,
+  estLeMessageDeSynthese,
 } from '@haikodev/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
@@ -189,6 +192,28 @@ export function MessageView({
 }) {
   const isUser = message.role === 'user';
   const state = useApp();
+
+  /*
+   * LA SYNTHÈSE DU BESOIN OUVRE LE FIL, ET ELLE NE SE LIT PAS COMME UNE
+   * DEMANDE. C'est un texte long, écrit par le chef d'orchestre avant même que
+   * la carte existe : le serrer dans une bulle étroite à droite, en texte brut,
+   * le rendrait illisible (`shared/src/synthese-du-besoin.ts`). Il prend donc
+   * toute la largeur, sous son titre, et se lit en Markdown comme une réponse.
+   */
+  if (isUser && estLeMessageDeSynthese(message.id)) {
+    return (
+      <div className="w-[min(92%,860px)] min-w-0 max-w-full">
+        <div className="rounded-lg border border-faint bg-raised px-3 py-2">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-muted">
+            <FileText className="h-3.5 w-3.5" />
+            <span>{t(TITRE_SYNTHESE)}</span>
+          </div>
+          <Markdown content={message.content} />
+        </div>
+        <LigneReperes at={message.createdAt} complements={[]} texte={message.content} cle={message.id} />
+      </div>
+    );
+  }
 
   if (isUser) {
     /* TOUS les fichiers joints voyagent avec la copie du message
