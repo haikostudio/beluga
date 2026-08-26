@@ -755,12 +755,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Fügen Sie über die linke Spalte ein Projekt hinzu, um zu beginnen.',
     '从左侧栏添加一个项目即可开始。',
   ],
-  'Rien à faire pour l’instant : ajoutez une carte avec « + ».': [
-    'Nothing to do yet: add a card with “+”.',
-    'Nada que hacer por ahora: añada una tarjeta con «+».',
-    'Noch nichts zu tun: Karte mit „+“ hinzufügen.',
-    '暂时无事可做：用“+”添加一张卡片。',
-  ],
   'Chargement en cours…': ['Loading…', 'Cargando…', 'Wird geladen…', '加载中……'],
   'Lecture…': ['Reading…', 'Leyendo…', 'Wird gelesen…', '读取中……'],
   'Génération…': ['Generating…', 'Generando…', 'Wird erzeugt…', '生成中……'],
@@ -789,6 +783,19 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '把工作交给完整代理',
   ],
   'Lancement refusé': ['Launch refused', 'Lanzamiento rechazado', 'Start abgelehnt', '启动被拒绝'],
+  'Geste refusé': ['Action refused', 'Acción rechazada', 'Aktion abgelehnt', '操作被拒绝'],
+  'Mettre la carte en file : elle partira dès qu’une place se libère': [
+    'Queue the card: it will start as soon as a slot frees up',
+    'Poner la tarjeta en cola: se iniciará en cuanto se libere un espacio',
+    'Karte in die Warteschlange stellen: Sie startet, sobald ein Platz frei wird',
+    '将卡片排队：一有空位就会启动',
+  ],
+  'La carte partira d’elle-même dès qu’une place se libère — cliquez pour annuler': [
+    'The card will start on its own as soon as a slot frees up — click to cancel',
+    'La tarjeta se iniciará sola en cuanto se libere un espacio — haga clic para cancelar',
+    'Die Karte startet von selbst, sobald ein Platz frei wird — zum Abbrechen klicken',
+    '一有空位卡片就会自动启动 — 点击可取消',
+  ],
   'Attendez la fin de la réponse en cours.': [
     'Wait for the current reply to finish.',
     'Espere a que termine la respuesta en curso.',
