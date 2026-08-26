@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Activity,
   Archive,
   ArchiveRestore,
   Bot,
@@ -49,6 +50,7 @@ import {
   premiereDecision,
   repereVisible,
   signalDuGroupe,
+  compterEnPanne,
 } from '@haikodev/shared';
 import { libelleAttention } from '@/components/repere-attention';
 import {
@@ -87,6 +89,9 @@ import { t } from '@/lib/langue';
 const CoffreFort = React.lazy(() =>
   import('@/components/coffre-fort').then((m) => ({ default: m.CoffreFort })),
 );
+const Surveillance = React.lazy(() =>
+  import('@/components/surveillance').then((m) => ({ default: m.Surveillance })),
+);
 
 /** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
 type Entry =
@@ -118,6 +123,10 @@ export function Sidebar({
   const [showArchived, setShowArchived] = React.useState(false);
   const [archived, setArchived] = React.useState<Project[]>([]);
   const [coffreOuvert, setCoffreOuvert] = React.useState(false);
+  const [surveillanceOuverte, setSurveillanceOuverte] = React.useState(false);
+  // Le chiffre de la pastille vient du MAGASIN : il est juste avant même qu'on
+  // ouvre la fenêtre, et il suit chaque tournée du serveur.
+  const sitesEnPanne = compterEnPanne(state.surveillance);
 
   // Ce qui est replié est enregistré côté serveur, comme le reste.
   const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
@@ -438,6 +447,35 @@ export function Sidebar({
 
       <PanneauALaDemande monte={coffreOuvert}>
         <CoffreFort open={coffreOuvert} onClose={() => setCoffreOuvert(false)} />
+      </PanneauALaDemande>
+
+      {/* Juste sous le coffre-fort : la surveillance des sites. La PASTILLE
+          compte ce qui est tombé — elle est le seul endroit où une panne se
+          voit sans rien ouvrir, et elle s'éteint d'elle-même dès que tout est
+          revenu (`shared/src/surveillance.ts`). */}
+      <div className="px-1.5 pt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          data-ouvrir-surveillance
+          className="w-full justify-start gap-2"
+          onClick={() => setSurveillanceOuverte(true)}
+        >
+          <Activity className="h-3.5 w-3.5" />
+          <span className="min-w-0 flex-1 truncate text-left">{t('Surveillance')}</span>
+          {sitesEnPanne ? (
+            <span
+              data-surveillance-pastille={sitesEnPanne}
+              className="ml-auto inline-flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded-full bg-danger px-1 text-[10.5px] font-semibold leading-none text-white"
+            >
+              {sitesEnPanne}
+            </span>
+          ) : null}
+        </Button>
+      </div>
+
+      <PanneauALaDemande monte={surveillanceOuverte}>
+        <Surveillance open={surveillanceOuverte} onClose={() => setSurveillanceOuverte(false)} />
       </PanneauALaDemande>
 
       {/* Juste en dessous, toujours AU-DESSUS des projets : l'espace de

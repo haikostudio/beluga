@@ -75,7 +75,8 @@ export type MotifNotification =
   | 'fenetre-bientot-finie'
   | 'point-du-jour'
   | 'agent-interrompu'
-  | 'geste-lent';
+  | 'geste-lent'
+  | 'site-indisponible';
 
 interface RegleMotif {
   /** La famille de réglage : c'est elle que l'utilisateur active ou coupe. */
@@ -177,6 +178,18 @@ export const MOTIFS: Record<MotifNotification, RegleMotif> = {
     icone: 'attention',
     dansLApplication: true,
   },
+
+  /*
+   * UN SITE SURVEILLÉ QUI TOMBE est une panne, et personne d'autre ne la
+   * verra : c'est exactement le genre de nouvelle qu'on veut recevoir loin de
+   * son écran. Elle ne part qu'à la BASCULE (`shared/src/surveillance.ts`), donc
+   * une fois par chute, jamais à chaque tournée. Sujet à part, pour qu'une
+   * panne de site ne soit jamais avalée par l'échec d'une tâche. Le
+   * RÉTABLISSEMENT, lui, ne pousse rien : il se lit sur la pastille qui
+   * s'éteint et sur le bandeau de la fenêtre — c'est un retour à la normale,
+   * pas une interruption.
+   */
+  'site-indisponible': { famille: 'systeme', genre: 'erreur', sujet: 'site-indisponible', icone: 'erreur' },
 
   /* --- CE QUI N'ALERTE PLUS ------------------------------------------- */
   /*

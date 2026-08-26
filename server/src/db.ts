@@ -1144,6 +1144,31 @@ const MIGRATIONS: {
       CREATE INDEX idx_card_comments_card ON card_comments(card_id, created_at);
     `,
   },
+  {
+    id: 39,
+    name: 'sites-surveilles',
+    // LA SURVEILLANCE DES SITES : une ligne par adresse, et son ÉTAT ACTUEL,
+    // rien de plus. Pas de table de mesures : la carte le dit en toutes lettres,
+    // on ne garde ni journal ni historique de disponibilité — seulement de quoi
+    // répondre à « est-ce debout, maintenant ? » et allumer la pastille du menu.
+    // Les règles (ce qui fait une panne, ce qui bascule) vivent dans
+    // `shared/src/surveillance.ts`.
+    sql: `
+      CREATE TABLE sites_surveilles (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        etat TEXT NOT NULL DEFAULT 'inconnu',
+        code INTEGER,
+        raison TEXT,
+        verifie_le INTEGER NOT NULL DEFAULT 0,
+        depuis INTEGER NOT NULL DEFAULT 0,
+        derniere_panne INTEGER NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_sites_surveilles_url ON sites_surveilles(url);
+    `,
+  },
 ];
 
 export function openDb(): DB {

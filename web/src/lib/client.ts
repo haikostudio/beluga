@@ -20,6 +20,7 @@ import {
   QueuedPrompt,
   ServerEvent,
   Settings,
+  SiteSurveille,
   SystemProcess,
   CLE_PROJET_ACTIF,
   DUREE_MESSAGE_MS,
@@ -90,6 +91,12 @@ export interface AppState {
    */
   pool: EtatDuPool | null;
   quotas: AccountQuota[];
+  /**
+   * LES SITES SURVEILLÉS et leur état actuel. Ils arrivent au premier envoi puis
+   * à chaque tournée : c'est ce qui allume la pastille du menu « Surveillance »
+   * sans qu'on ouvre sa fenêtre.
+   */
+  surveillance: SiteSurveille[];
   /** Les connexions de comptes en cours ou tout juste finies. */
   connexions: ConnexionCompte[];
   capacity: CapacitySnapshot | null;
@@ -151,6 +158,7 @@ const initialState: AppState = {
   engines: [],
   pool: null,
   quotas: [],
+  surveillance: [],
   connexions: [],
   capacity: null,
   processes: [],
@@ -552,6 +560,10 @@ class Client {
 
       case 'quotas':
         this.set({ quotas: event.quotas });
+        break;
+
+      case 'surveillance':
+        this.set({ surveillance: event.sites });
         break;
 
       // Après une connexion de compte réussie, la liste des modèles redevient

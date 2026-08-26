@@ -101,6 +101,7 @@ import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { enregistrerCleCerveau } from './cle-cerveau.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
 import { enregistrerAcces, listerAcces, supprimerAcces } from './coffre-fort.js';
+import { ajouterSite, listerSites, supprimerSite, verifierSites } from './surveillance.js';
 import {
   compterErreursInterface,
   dernieresErreursInterface,
@@ -162,6 +163,9 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     send({ type: 'attention', ...store.signalAttention(decisions) });
     send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
     send({ type: 'plans', ...store.signalPlans() });
+    // L'état des sites surveillés : quelques lignes de base, et c'est lui qui
+    // allume la pastille du menu avant même qu'on ouvre la fenêtre.
+    send({ type: 'surveillance', sites: listerSites() });
     // Les personnages remplacés à la main : le tableau doit les connaître AVANT
     // de poser ses images, sinon il afficherait l'ancien puis le remplacerait
     // sous les yeux. Lecture de deux dossiers, rien de plus.
@@ -1787,6 +1791,30 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       const resultat = supprimerAcces(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'accès introuvable');
       return { ok: true, liste: listerAcces() };
+    }
+
+    /* -------- Surveillance des sites -------- */
+
+    case 'surveillance.lister':
+      return { sites: listerSites() };
+
+    case 'surveillance.ajouter': {
+      const resultat = ajouterSite(cmd.url, cmd.nom);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { site: resultat.site, sites: listerSites() };
+    }
+
+    case 'surveillance.supprimer': {
+      const resultat = supprimerSite(String(cmd.id ?? ''));
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'adresse introuvable');
+      return { ok: true, sites: listerSites() };
+    }
+
+    case 'surveillance.verifier': {
+      // Sans identifiant, on relance TOUT : c'est le bouton « Vérifier
+      // maintenant » de la fenêtre, qui ne doit pas attendre l'heure suivante.
+      const sites = await verifierSites(cmd.id ? [cmd.id] : listerSites().map((site) => site.id));
+      return { sites: sites.length ? sites : listerSites() };
     }
 
     case 'erreurs.liste':

@@ -42,6 +42,8 @@ const ICONES = {
   // Les deux BLOCAGES : une limite atteinte, un identifiant qui ne répond plus.
   // Le redémarrage du serveur et les paliers 70 % / 90 % du quota n'alertent
   // plus — ils n'ont donc plus rien à traduire ici.
+  // Un site surveillé qui tombe : une panne, donc l'image d'une erreur.
+  'site-indisponible': 'erreur',
   'compte-sature': 'quota',
   'amorcage-impossible': 'quota',
   'jeton-claude-bloque': 'quota',
