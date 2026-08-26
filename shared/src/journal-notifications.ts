@@ -77,10 +77,15 @@ export interface LigneNotification {
 /** Au-delà, les plus anciennes annonces sortent : une liste sans fin ne se lit plus. */
 export const PLAFOND_ANNONCES = 50;
 
-/** Le genre d'une annonce reçue. Sans motif connu, c'est une information terminée. */
+/**
+ * Le genre d'une annonce reçue. `genreDeLAlerte` lit une table figée et tombe
+ * sur un motif qu'elle ne connaît pas : un démon plus récent, un champ libre.
+ * On vérifie donc le motif AVANT de la consulter, et sans motif connu l'annonce
+ * se lit comme une information terminée.
+ */
 export function genreDeLAnnonce(motif?: string): GenreDAlerte {
-  const genre = motif ? genreDeLAlerte(motif as MotifNotification) : null;
-  return genre ?? 'termine';
+  if (!motif || !(motif in MOTIFS)) return 'termine';
+  return genreDeLAlerte(motif as MotifNotification) ?? 'termine';
 }
 
 /**
