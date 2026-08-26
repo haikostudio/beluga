@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Sparkles,
   Trash2,
+  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -187,14 +188,20 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * gestes rares sont partis dans le menu du haut, et un bandeau vide n'a plus
    * lieu d'être. Ce sont les mêmes règles que les boutons eux-mêmes, sinon la
    * barre pourrait apparaître pour n'y rien montrer.
+   *
+   * L'ONGLET « COMMENTAIRES » NE PORTE JAMAIS CE PIED : ses boutons de
+   * lancement tombaient juste sous le champ de saisie d'une note, et se
+   * faisaient cliquer par erreur en croyant valider le commentaire. Ils
+   * restent atteignables depuis « Détails » et « Conversation ».
    */
   const aDecision =
-    peut('valider').affiche ||
+    ongletActif !== 'comments' &&
+    (peut('valider').affiche ||
     card.column === 'planned' ||
     peut('terminer').affiche ||
     peut('publier').affiche ||
     peut('reprendre').affiche ||
-    !!card.closureDoc;
+    !!card.closureDoc);
 
   /*
    * L'INSTANT où « Terminer la tâche » s'allume mérite un signe : un halo qui
@@ -1299,6 +1306,29 @@ function CommentsTab({ card }: { card: Card }) {
     }
   };
 
+  /**
+   * COLLER UNE IMAGE L'ATTACHE À LA NOTE : une capture prise au clavier
+   * (`Ctrl+V`) arrive dans le presse-papiers comme un fichier sans nom. On lui
+   * en donne un, daté, et on la fait passer par le MÊME envoi que le bouton
+   * « Joindre un fichier » — aucun second stockage. Un collage de texte suit
+   * son chemin normal : on ne l'intercepte pas.
+   */
+  const collerDepuisPressePapier = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const fichiers = Array.from(event.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (!fichiers.length) return;
+    event.preventDefault();
+    const horodate = new Date().toISOString().replace(/[:.]/g, '-');
+    upload(
+      fichiers.map((fichier, index) =>
+        fichier.name
+          ? fichier
+          : new File([fichier], `collage-${horodate}${index ? `-${index + 1}` : ''}.${(fichier.type.split('/')[1] || 'png')}`, {
+              type: fichier.type,
+            }),
+      ),
+    );
+  };
+
   const envoyer = async () => {
     const texte = text.trim();
     if (!texte) return;
@@ -1342,29 +1372,44 @@ function CommentsTab({ card }: { card: Card }) {
             hint={t('Notez ici tout ce qui aide à documenter, comprendre ou exécuter cette carte.')}
           />
         ) : (
-          <ul className="space-y-2.5">
+          /* UNE SUITE DE BULLES, TOUTES À GAUCHE : les notes se lisent comme
+             une conversation avec soi-même. Aucune bulle à droite — il n'y a
+             qu'un seul auteur, aligner en face n'opposerait personne à
+             personne. La bulle ne prend au plus que 85 % de la largeur pour
+             qu'on voie d'un coup d'œil où elle s'arrête. */
+          <ul className="space-y-2.5" data-bulles-commentaires>
             {comments.map((comment) => (
-              <li key={comment.id} className="rounded-md border border-border bg-raised px-3 py-2">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13.5px] text-text texte-copiable">
-                    {comment.text}
-                  </p>
-                  <Tooltip label={t('Retirer')}>
-                    <Button variant="ghost" size="icon-sm" onClick={() => supprimer(comment.id)}>
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </Tooltip>
-                </div>
-                {comment.attachments.length ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {comment.attachments.map((item) => (
-                      <AttachmentThumb key={item.id} item={item} onOpen={() => setZoom(item)} compact />
-                    ))}
+              <li key={comment.id} className="flex justify-start" data-bulle-commentaire>
+                <div className="group max-w-[85%] rounded-2xl rounded-bl-sm bg-raised px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13.5px] text-text texte-copiable">
+                      {comment.text}
+                    </p>
+                    {/* Le geste de retrait s'efface tant qu'on ne survole pas
+                        la bulle : il ne doit pas peser dans la lecture. Sur
+                        téléphone, où rien ne survole, il reste visible. */}
+                    <Tooltip label={t('Retirer')}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="shrink-0 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                        onClick={() => supprimer(comment.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </Tooltip>
                   </div>
-                ) : null}
-                <p className="mt-1.5 text-[12px] text-faint">
-                  {dateHeure(new Date(comment.createdAt).toISOString())}
-                </p>
+                  {comment.attachments.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {comment.attachments.map((item) => (
+                        <AttachmentThumb key={item.id} item={item} onOpen={() => setZoom(item)} compact />
+                      ))}
+                    </div>
+                  ) : null}
+                  <p className="mt-1.5 text-[12px] text-faint">
+                    {dateHeure(new Date(comment.createdAt).toISOString())}
+                  </p>
+                </div>
               </li>
             ))}
           </ul>
@@ -1372,17 +1417,30 @@ function CommentsTab({ card }: { card: Card }) {
       </ZoneDefilement>
 
       <div className="shrink-0 space-y-2 border-t border-border px-4 py-3">
+        {/* Une pièce jointe en attente se RETIRE avant l'envoi : une capture
+            collée par erreur se dégageait autrement en rechargeant l'onglet. */}
         {attachments.length ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5" data-pieces-en-attente>
             {attachments.map((item) => (
-              <AttachmentThumb key={item.id} item={item} onOpen={() => setZoom(item)} compact />
+              <div key={item.id} className="group relative">
+                <AttachmentThumb item={item} onOpen={() => setZoom(item)} compact />
+                <button
+                  type="button"
+                  aria-label="Retirer"
+                  className="absolute -right-1 -top-1 rounded-full bg-surface p-0.5 text-faint opacity-100 transition-opacity hover:text-text md:opacity-0 md:group-hover:opacity-100"
+                  onClick={() => setAttachments((current) => current.filter((a) => a.id !== item.id))}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
             ))}
           </div>
         ) : null}
         <Textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder={t('Écrire un commentaire…')}
+          onPaste={collerDepuisPressePapier}
+          placeholder={t('Écrire un commentaire, ou coller une image…')}
           rows={2}
           className="resize-none"
         />
