@@ -446,7 +446,7 @@ export function QuotaBar({
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onOpenSettings}>
+          <DropdownMenuItem onSelect={onOpenSettings} data-reglages-menu>
             <Settings2 className="h-3.5 w-3.5" />
             
 {t('Réglages')}
