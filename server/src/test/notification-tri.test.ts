@@ -56,6 +56,9 @@ test('chaque motif qui alerte entre dans l’un des trois genres, nommément', (
     // Une étape de publication qui traîne : le travail n'avance plus, donc un
     // blocage, donc une erreur (`shared/src/duree-des-etapes.ts`).
     'publication-en-retard',
+    // Un site surveillé qui tombe : personne d'autre ne verra la panne
+    // (`shared/src/surveillance.ts`).
+    'site-indisponible',
     'tache-echec',
   ]);
 });

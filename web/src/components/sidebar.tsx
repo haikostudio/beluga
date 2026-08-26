@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  Activity,
   Archive,
   ArchiveRestore,
   Bot,
@@ -50,6 +51,7 @@ import {
   premiereDecision,
   repereVisible,
   signalDuGroupe,
+  compterEnPanne,
 } from '@haikodev/shared';
 import { libelleAttention } from '@/components/repere-attention';
 import {
@@ -88,6 +90,9 @@ import { t } from '@/lib/langue';
 const CoffreFort = React.lazy(() =>
   import('@/components/coffre-fort').then((m) => ({ default: m.CoffreFort })),
 );
+const Surveillance = React.lazy(() =>
+  import('@/components/surveillance').then((m) => ({ default: m.Surveillance })),
+);
 
 const Snapshots = React.lazy(() =>
   import('@/components/snapshots').then((m) => ({ default: m.Snapshots })),
@@ -124,6 +129,10 @@ export function Sidebar({
   const [archived, setArchived] = React.useState<Project[]>([]);
   const [coffreOuvert, setCoffreOuvert] = React.useState(false);
   const [snapshotsOuverts, setSnapshotsOuverts] = React.useState(false);
+  const [surveillanceOuverte, setSurveillanceOuverte] = React.useState(false);
+  // Le chiffre de la pastille vient du MAGASIN : il est juste avant même qu'on
+  // ouvre la fenêtre, et il suit chaque tournée du serveur.
+  const sitesEnPanne = compterEnPanne(state.surveillance);
 
   // Ce qui est replié est enregistré côté serveur, comme le reste.
   const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
@@ -458,12 +467,43 @@ export function Sidebar({
           className="w-full justify-start gap-2"
           onClick={() => setSnapshotsOuverts(true)}
         >
-          <HardDriveDownload className="h-3.5 w-3.5" />  {t('Snapshot')}
-</Button>
+          <HardDriveDownload className="h-3.5 w-3.5" /> {t('Snapshot')}
+        </Button>
       </div>
 
       <PanneauALaDemande monte={snapshotsOuverts}>
         <Snapshots open={snapshotsOuverts} onClose={() => setSnapshotsOuverts(false)} />
+      </PanneauALaDemande>
+
+      {/* Juste sous les snapshots : la surveillance des sites. La PASTILLE
+          compte ce qui est tombé — elle est le seul endroit où une panne se
+          voit sans rien ouvrir, et elle s'éteint d'elle-même dès que tout est
+          revenu (`shared/src/surveillance.ts`). */}
+      <div className="px-1.5 pt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          data-ouvrir-surveillance
+          className="w-full justify-start gap-2"
+          onClick={() => setSurveillanceOuverte(true)}
+        >
+          <Activity className="h-3.5 w-3.5" />
+          <span className="min-w-0 flex-1 truncate text-left">{t('Surveillance')}</span>
+          {sitesEnPanne ? (
+            <span
+              data-surveillance-pastille={sitesEnPanne}
+              // Les mêmes couleurs que l'étiquette « danger » de l'interface :
+              // lisibles dans les douze palettes, sans jeton posé à la main.
+              className="ml-auto inline-flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded-full border border-danger/30 bg-danger/10 px-1 text-[10.5px] font-semibold leading-none text-danger"
+            >
+              {sitesEnPanne}
+            </span>
+          ) : null}
+        </Button>
+      </div>
+
+      <PanneauALaDemande monte={surveillanceOuverte}>
+        <Surveillance open={surveillanceOuverte} onClose={() => setSurveillanceOuverte(false)} />
       </PanneauALaDemande>
 
       {/* Juste en dessous, toujours AU-DESSUS des projets : l'espace de

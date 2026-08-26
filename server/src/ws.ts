@@ -101,16 +101,17 @@ import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
 import { enregistrerCleCerveau } from './cle-cerveau.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
 import { enregistrerAcces, listerAcces, supprimerAcces } from './coffre-fort.js';
+import { ajouterSite, listerSites, supprimerSite, verifierSites } from './surveillance.js';
 import {
   derniersPoints,
   enregistrerSite,
   listerPoints,
-  listerSites,
+  listerSites as listerSitesSnapshots,
   passageDesSnapshots,
   prendreUnSnapshot,
   projetsSansFiche,
   snapshotsEnCours,
-  supprimerSite,
+  supprimerSite as supprimerSiteSnapshot,
 } from './snapshots.js';
 import {
   compterErreursInterface,
@@ -173,6 +174,9 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     send({ type: 'attention', ...store.signalAttention(decisions) });
     send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
     send({ type: 'plans', ...store.signalPlans() });
+    // L'état des sites surveillés : quelques lignes de base, et c'est lui qui
+    // allume la pastille du menu avant même qu'on ouvre la fenêtre.
+    send({ type: 'surveillance', sites: listerSites() });
     // Les personnages remplacés à la main : le tableau doit les connaître AVANT
     // de poser ses images, sinon il afficherait l'ancien puis le remplacerait
     // sous les yeux. Lecture de deux dossiers, rien de plus.
@@ -1800,6 +1804,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true, liste: listerAcces() };
     }
 
+<<<<<<< HEAD
     /* -------- Snapshots des sites en production -------- */
 
     case 'snapshots.etat':
@@ -1813,10 +1818,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'snapshots.enregistrerSite': {
       const resultat = enregistrerSite(cmd.site);
+=======
+    /* -------- Surveillance des sites -------- */
+
+    case 'surveillance.lister':
+      return { sites: listerSites() };
+
+    case 'surveillance.ajouter': {
+      const resultat = ajouterSite(cmd.url, cmd.nom);
+>>>>>>> main
       if (!resultat.ok) throw new Error(resultat.raison);
       return { site: resultat.site, sites: listerSites() };
     }
 
+<<<<<<< HEAD
     case 'snapshots.supprimerSite': {
       const resultat = supprimerSite(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'site introuvable');
@@ -1840,6 +1855,21 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'snapshots.points':
       return { points: listerPoints(cmd.id ? String(cmd.id) : undefined), derniers: [...derniersPoints().values()] };
 
+=======
+    case 'surveillance.supprimer': {
+      const resultat = supprimerSite(String(cmd.id ?? ''));
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'adresse introuvable');
+      return { ok: true, sites: listerSites() };
+    }
+
+    case 'surveillance.verifier': {
+      // Sans identifiant, on relance TOUT : c'est le bouton « Vérifier
+      // maintenant » de la fenêtre, qui ne doit pas attendre l'heure suivante.
+      const sites = await verifierSites(cmd.id ? [cmd.id] : listerSites().map((site) => site.id));
+      return { sites: sites.length ? sites : listerSites() };
+    }
+
+>>>>>>> main
     case 'erreurs.liste':
       return {
         erreurs: dernieresErreursInterface(cmd.limite ?? ERREURS_MONTREES_REGLAGES),

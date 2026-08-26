@@ -615,6 +615,17 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshots.lancer'), id: z.string().optional() }),
   z.object({ type: z.literal('snapshots.points'), id: z.string().optional() }),
   /**
+   * LA SURVEILLANCE DES SITES (`shared/src/surveillance.ts`). Ajouter appelle
+   * l'adresse TOUT DE SUITE ; « vérifier » relance une tournée sans attendre
+   * l'heure, sur un site ou sur tous. L'état complet revient ensuite par
+   * l'événement `surveillance`, jamais seulement par la réponse — la pastille
+   * du menu doit suivre dans TOUS les onglets ouverts.
+   */
+  z.object({ type: z.literal('surveillance.lister') }),
+  z.object({ type: z.literal('surveillance.ajouter'), url: z.string(), nom: z.string().optional() }),
+  z.object({ type: z.literal('surveillance.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('surveillance.verifier'), id: z.string().optional() }),
+  /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
    */
@@ -868,6 +879,28 @@ export const ServerEvent = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('procedure'), etat: EtatProcedure }),
   z.object({ type: z.literal('quotas'), quotas: z.array(AccountQuota) }),
+  /**
+   * L'ÉTAT DES SITES SURVEILLÉS, rediffusé à chaque tournée et à chaque geste.
+   * C'est lui qui allume la pastille du menu : elle doit être juste dans tous
+   * les onglets, sans que personne n'ouvre la fenêtre.
+   */
+  z.object({
+    type: z.literal('surveillance'),
+    sites: z.array(
+      z.object({
+        id: z.string(),
+        url: z.string(),
+        nom: z.string(),
+        etat: z.enum(['inconnu', 'ok', 'panne']),
+        code: z.number().optional(),
+        raison: z.enum(['client', 'serveur', 'delai', 'injoignable', 'vide']).optional(),
+        verifieLe: z.number(),
+        depuis: z.number(),
+        dernierePanne: z.number(),
+        creeLe: z.number(),
+      }),
+    ),
+  }),
   /**
    * Le catalogue des moteurs, rediffusé quand il a changé — après une
    * connexion de compte réussie, la liste des modèles doit redevenir complète

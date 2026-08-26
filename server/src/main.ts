@@ -34,6 +34,7 @@ import { planifierRangementDesInstructions } from './instructions-en-attente.js'
 import { arretParSignal, diffuserEtatDemon } from './demon.js';
 import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
+import { demarrerSurveillance } from './surveillance.js';
 
 /*
  * LE DÉMON NE S'APPELLE PLUS DU NOM DE SON FICHIER CONSTRUIT — ET UN SERVEUR
@@ -164,6 +165,12 @@ async function main(): Promise<void> {
       void amorcerFenetres();
     });
   }, 600_000);
+  /*
+   * La surveillance des sites : un battement de cinq minutes qui n'appelle que
+   * les adresses DUES (une heure). Elle vit à côté des autres minuteurs et
+   * s'arrête avec eux (`server/src/surveillance.ts`).
+   */
+  const surveillanceTimer = demarrerSurveillance();
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   // Les snapshots des sites en production : leur propre heure, après celle de
@@ -235,6 +242,7 @@ async function main(): Promise<void> {
     quotaEcheances.arreter();
     suivreEcheances();
     suivreReprises();
+    clearInterval(surveillanceTimer);
     clearInterval(backupTimer);
     clearInterval(digestTimer);
     clearInterval(snapshotTimer);
