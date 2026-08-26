@@ -393,7 +393,22 @@ export function Board({
   const parColonne = React.useMemo(() => {
     const index = Object.fromEntries(COLUMN_KEYS.map((cle) => [cle, [] as Card[]])) as Record<ColumnKey, Card[]>;
     for (const card of cards) {
-      index[colonneAffichee({ column: card.column, agentAuTravail: travailParCarte.has(card.id) })].push(card);
+      const cle = colonneAffichee({ column: card.column, agentAuTravail: travailParCarte.has(card.id) });
+      /*
+       * UNE CLÉ DE COLONNE INCONNUE NE FAIT PLUS TOMBER LE TABLEAU ENTIER.
+       *
+       * Le retrait de « En production » l'a montré : tant que le démon n'a pas
+       * redémarré avec la migration qui range ses cartes, il envoie encore des
+       * cartes portant cette clé — et `index['in_production'].push(...)` jetait
+       * une exception qui vidait TOUT l'écran, pas seulement ces cartes-là. Un
+       * navigateur resté ouvert pendant une mise à jour se trouve exactement
+       * dans ce cas.
+       *
+       * Une carte dont la clé n'existe plus se pose donc en « Archivé » — là où
+       * la migration l'enverra de toute façon. Elle reste VISIBLE, ce qui vaut
+       * mieux qu'un tableau blanc.
+       */
+      (index[cle] ?? index.archived).push(card);
     }
     return index;
   }, [cards, travailParCarte]);

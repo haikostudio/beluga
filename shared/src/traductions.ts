@@ -206,7 +206,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Envoyer': ['Send', 'Enviar', 'Senden', '发送'],
   'Envoyer maintenant': ['Send now', 'Enviar ahora', 'Jetzt senden', '立即发送'],
   'Répondre': ['Reply', 'Responder', 'Antworten', '回复'],
-  'Publier': ['Publish', 'Publicar', 'Veröffentlichen', '发布'],
   'Mettre à jour': ['Update', 'Actualizar', 'Aktualisieren', '更新'],
   'Mettre à jour la version prod': [
     'Update the production version',
