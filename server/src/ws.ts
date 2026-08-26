@@ -110,6 +110,8 @@ import {
   passageDesSnapshots,
   prendreUnSnapshot,
   projetsSansFiche,
+  restaurationsEnCours,
+  restaurerUnSnapshot,
   snapshotsEnCours,
   supprimerSite as supprimerSiteSnapshot,
 } from './snapshots.js';
@@ -1813,6 +1815,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         points: listerPoints(),
         projets: projetsSansFiche(),
         enCours: snapshotsEnCours(),
+        restaurations: restaurationsEnCours(),
         dossier: (store.getSettings().snapshotDossier ?? '').trim(),
       };
 
@@ -1860,6 +1863,15 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'snapshots.points':
       return { points: listerPoints(cmd.id ? String(cmd.id) : undefined), derniers: [...derniersPoints().values()] };
+
+    case 'snapshots.restaurer': {
+      // Comme la prise d'un point : la restauration peut durer, on rend la
+      // main tout de suite et l'écran relit l'état pour suivre son avancée.
+      const point = String(cmd.id ?? '');
+      if (!point) throw new Error('point à restaurer manquant');
+      void restaurerUnSnapshot(point);
+      return { lance: true, restaurations: restaurationsEnCours() };
+    }
 
     /* -------- Surveillance des sites -------- */
 

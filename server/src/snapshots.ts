@@ -175,6 +175,11 @@ export function listerPoints(siteId?: string): PointDeSauvegarde[] {
   return lignes.map(pointDepuisLigne);
 }
 
+export function lirePoint(id: string): PointDeSauvegarde | null {
+  const ligne = getDb().prepare('SELECT * FROM snapshot_points WHERE id = ?').get(id) as LignePoint | undefined;
+  return ligne ? pointDepuisLigne(ligne) : null;
+}
+
 function enregistrerPoint(point: PointDeSauvegarde): PointDeSauvegarde {
   getDb()
     .prepare('INSERT INTO snapshot_points (id, site_id, debut, statut, data) VALUES (?, ?, ?, ?, ?)')
@@ -446,6 +451,164 @@ export async function prendreUnSnapshot(
     return { ok: false, raison };
   } finally {
     enCours.delete(siteId);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Restaurer un point                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Les points dont la restauration tourne EN CE MOMENT. */
+const enRestauration = new Set<string>();
+
+export function restaurationsEnCours(): string[] {
+  return [...enRestauration];
+}
+
+/** La base d'un point, reposée à l'endroit que la fiche du site donne. */
+async function restaurerLaBase(site: SiteASauvegarder, dossier: string): Promise<void> {
+  const base = site.base;
+  if (base.moteur === 'aucune') return;
+
+  if (base.moteur === 'sqlite') {
+    const source = path.join(dossier, 'base.sqlite.gz');
+    if (!fs.existsSync(source)) throw new Error('ce point n’a pas de base sqlite');
+    await pipeline(fs.createReadStream(source), zlib.createGunzip(), fs.createWriteStream(base.nom));
+    return;
+  }
+
+  const source = path.join(dossier, 'base.sql.gz');
+  if (!fs.existsSync(source)) throw new Error('ce point n’a pas de base');
+
+  const args =
+    base.moteur === 'mysql'
+      ? [
+          ...(base.hote.trim() ? ['-h', base.hote.trim()] : []),
+          ...(base.port.trim() ? ['-P', base.port.trim()] : []),
+          '-u',
+          base.utilisateur,
+          base.nom,
+        ]
+      : [
+          ...(base.hote.trim() ? ['-h', base.hote.trim()] : []),
+          ...(base.port.trim() ? ['-p', base.port.trim()] : []),
+          '-U',
+          base.utilisateur,
+          '-v',
+          'ON_ERROR_STOP=1',
+          base.nom,
+        ];
+  const programme = base.moteur === 'mysql' ? 'mysql' : 'psql';
+  const env = base.moteur === 'mysql' ? { MYSQL_PWD: base.motDePasse } : { PGPASSWORD: base.motDePasse };
+
+  const processus = spawn(programme, args, { env: { ...process.env, ...env } });
+  const erreurs: Buffer[] = [];
+  processus.stderr.on('data', (bloc) => erreurs.push(bloc));
+  const fini = new Promise<void>((resolve, reject) => {
+    processus.on('error', (err: any) =>
+      reject(new Error(err?.code === 'ENOENT' ? `${programme} n’est pas installé sur cette machine` : err.message)),
+    );
+    processus.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(Buffer.concat(erreurs).toString().trim().slice(0, 400) || `${programme} a rendu ${code}`));
+    });
+  });
+  await Promise.all([
+    pipeline(fs.createReadStream(source), zlib.createGunzip(), processus.stdin),
+    fini,
+  ]);
+}
+
+/** Les fichiers d'un point, reposés à l'endroit que la fiche du site donne. */
+async function restaurerLesFichiers(site: SiteASauvegarder, dossier: string): Promise<void> {
+  const fichiers = site.fichiers;
+  if (fichiers.moyen === 'aucun') return;
+
+  const source = path.join(dossier, 'fichiers');
+  if (!fs.existsSync(source)) throw new Error('ce point n’a pas de fichiers');
+
+  if (fichiers.moyen === 'local') {
+    fs.rmSync(fichiers.chemin, { recursive: true, force: true });
+    fs.cpSync(source, fichiers.chemin, { recursive: true });
+    return;
+  }
+
+  if (fichiers.moyen === 'ssh') {
+    const port = fichiers.port.trim() || '22';
+    const distant = `${fichiers.utilisateur}@${fichiers.hote}:${fichiers.chemin.replace(/\/*$/, '/')}`;
+    await execFileAsync(
+      'rsync',
+      ['-a', '--delete', '--timeout=600', '-e', `ssh -p ${port} -o BatchMode=yes -o StrictHostKeyChecking=accept-new`, `${source}/`, distant],
+      { timeout: 3_600_000, maxBuffer: 8 * 1024 * 1024 },
+    );
+    return;
+  }
+
+  // FTP : `lftp` mise en miroir dans l'autre sens (`--reverse`), du disque de
+  // stockage vers le site — le mot de passe passe par l'entrée standard.
+  const port = fichiers.port.trim() || '21';
+  const script = [
+    `open -u ${fichiers.utilisateur},${fichiers.motDePasse} -p ${port} ${fichiers.hote}`,
+    'set ssl:verify-certificate no',
+    `mirror --reverse --delete --verbose=0 --parallel=2 ${source} ${fichiers.chemin}`,
+    'bye',
+  ].join('\n');
+  await new Promise<void>((resolve, reject) => {
+    const processus = spawn('lftp', ['-f', '/dev/stdin']);
+    const erreurs: Buffer[] = [];
+    processus.stderr.on('data', (bloc) => erreurs.push(bloc));
+    processus.on('error', (err: any) =>
+      reject(new Error(err?.code === 'ENOENT' ? 'lftp n’est pas installé sur cette machine' : err.message)),
+    );
+    processus.on('close', (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error(Buffer.concat(erreurs).toString().trim().slice(0, 400) || `lftp a rendu ${code}`)),
+    );
+    processus.stdin.end(script);
+  });
+}
+
+/**
+ * RESTAURER UN POINT. Base puis fichiers, dans le sens inverse de la prise :
+ * on repose sur le site vivant ce que le point a gardé sur le disque de
+ * stockage. Un site qu'un snapshot est en train de prendre ne se restaure pas
+ * en même temps, et réciproquement — même verrou que la prise.
+ */
+export async function restaurerUnSnapshot(
+  pointId: string,
+): Promise<{ ok: boolean; raison?: string }> {
+  const point = lirePoint(pointId);
+  if (!point) return { ok: false, raison: 'point introuvable' };
+  if (point.statut === 'echec' || !point.chemin) {
+    return { ok: false, raison: 'ce point n’a rien à restaurer' };
+  }
+  if (!fs.existsSync(point.chemin)) {
+    return { ok: false, raison: 'le dossier de ce point n’est plus sur le disque de stockage' };
+  }
+
+  const site = lireSite(point.siteId);
+  if (!site) return { ok: false, raison: 'site introuvable' };
+
+  if (enCours.has(site.id)) return { ok: false, raison: `un snapshot de « ${site.nom} » tourne déjà` };
+  if (enRestauration.has(pointId)) return { ok: false, raison: 'cette restauration tourne déjà' };
+
+  enCours.add(site.id);
+  enRestauration.add(pointId);
+  try {
+    await restaurerLaBase(site, point.chemin);
+    await restaurerLesFichiers(site, point.chemin);
+    log.info(`restauration de « ${site.nom} » (point du ${new Date(point.debut).toISOString()}) terminée`);
+    bus.toast('success', `Restauration de « ${site.nom} » terminée`, undefined, 'snapshot');
+    return { ok: true };
+  } catch (err: any) {
+    const raison = err?.message ?? String(err);
+    log.error(`restauration de « ${site.nom} » interrompue`, err);
+    bus.toast('error', `Restauration de « ${site.nom} » impossible : ${raison}`, undefined, 'snapshot');
+    return { ok: false, raison };
+  } finally {
+    enCours.delete(site.id);
+    enRestauration.delete(pointId);
   }
 }
 
