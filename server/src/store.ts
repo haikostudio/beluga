@@ -3,6 +3,7 @@ import {
   Agent,
   Attachment,
   Card,
+  CardComment,
   CarteRendue,
   carteNonLue,
   carteDepuisLigne,
@@ -2006,6 +2007,29 @@ export function saveAttachment(attachment: Attachment): Attachment {
     .prepare('INSERT INTO attachments (id, project_id, sha, data, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(attachment.id, attachment.projectId, attachment.sha, JSON.stringify(attachment), attachment.createdAt);
   return attachment;
+}
+
+/* ------------------------------------------------------------------ */
+/* Commentaires de carte                                               */
+/* ------------------------------------------------------------------ */
+
+export function listCardComments(cardId: string): CardComment[] {
+  const rows = getDb()
+    .prepare('SELECT data FROM card_comments WHERE card_id = ? ORDER BY created_at ASC')
+    .all(cardId) as { data: string }[];
+  return rows.map((r) => CardComment.parse(JSON.parse(r.data)));
+}
+
+export function addCardComment(comment: CardComment): CardComment {
+  const value = CardComment.parse(comment);
+  getDb()
+    .prepare('INSERT INTO card_comments (id, card_id, project_id, data, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(value.id, value.cardId, value.projectId, JSON.stringify(value), value.createdAt);
+  return value;
+}
+
+export function deleteCardComment(id: string): void {
+  getDb().prepare('DELETE FROM card_comments WHERE id = ?').run(id);
 }
 
 /* ------------------------------------------------------------------ */

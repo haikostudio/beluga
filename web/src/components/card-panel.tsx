@@ -11,17 +11,22 @@ import {
   GitBranch,
   Loader2,
   Lock,
+  MessageSquare,
+  Paperclip,
   Play,
   Rocket,
   RotateCcw,
   Sparkles,
+  Trash2,
   Zap,
 } from 'lucide-react';
 import {
   COLUMN_LABELS,
   ONGLETS_CARTE_TECHNIQUES,
   ongletTechnique,
+  Attachment,
   Card,
+  CardComment,
   DecisionGeste,
   DeployRun,
   EngineInfo,
@@ -60,6 +65,7 @@ import {
   DialogContent,
   DialogTitle,
   Drawer,
+  EmptyState,
   Input,
   Label,
   Tabs,
@@ -70,6 +76,7 @@ import {
   Tooltip,
   ZoneDefilement,
 } from '@/components/ui';
+import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
 import { ParcoursTache } from '@/components/parcours-tache';
@@ -372,6 +379,11 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 {t('Détails')}
 <RoueDOnglet visible={!!chargement.details} />
             </TabsTrigger>
+            <TabsTrigger value="comments" className="flex-1 gap-1">
+
+{t('Commentaires')}
+<RoueDOnglet visible={!!chargement.comments} />
+            </TabsTrigger>
             <TabsTrigger value="billing" className="flex-1">{t('Facturation')}</TabsTrigger>
             {simplifie ? null : (
             <TabsTrigger value="github" className="flex-1 gap-1">
@@ -394,6 +406,12 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
               <CardSummary card={card} />
             </FournisseurDeChargement>
           </ZoneDefilement>
+        </TabsContent>
+
+        <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+          <FournisseurDeChargement signaler={signalerChargement}>
+            <CommentsTab card={card} />
+          </FournisseurDeChargement>
         </TabsContent>
 
         <TabsContent value="billing" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
@@ -1217,6 +1235,179 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       ) : (
         <p className="text-[13.5px] text-faint">{t('L\'outil de facturation n\'est pas joignable depuis ce serveur.')}</p>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Onglet Commentaires                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Un commentaire tel que le serveur le rend : ses pièces jointes déjà résolues. */
+type CommentaireAvecPieces = CardComment & { attachments: Attachment[] };
+
+/**
+ * DES NOTES LIBRES SUR LA CARTE, pièces jointes comprises — pour documenter
+ * une étape utile, garder un repère personnel, ou expliquer un choix qu'une
+ * conversation d'agent ne garderait pas au même endroit. Chaque ouverture de
+ * l'onglet relit la liste (comme « GitHub » relit son déroulé) : pas de canal
+ * temps réel dédié, un commentaire est écrit par une seule personne à la fois.
+ */
+function CommentsTab({ card }: { card: Card }) {
+  const [comments, setComments] = React.useState<CommentaireAvecPieces[]>([]);
+  const [charge, setCharge] = React.useState(true);
+  useChargementOnglet('comments', charge);
+
+  const [text, setText] = React.useState('');
+  const [attachments, setAttachments] = React.useState<Attachment[]>([]);
+  const [uploading, setUploading] = React.useState(false);
+  const [envoi, setEnvoi] = React.useState(false);
+  const [zoom, setZoom] = React.useState<Attachment | null>(null);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+
+  const recharger = React.useCallback(() => {
+    setCharge(true);
+    client
+      .call({ type: 'comment.list', cardId: card.id })
+      .then((res: any) => setComments(res?.comments ?? []))
+      .catch(() => undefined)
+      .finally(() => setCharge(false));
+  }, [card.id]);
+
+  React.useEffect(() => {
+    recharger();
+  }, [recharger]);
+
+  const upload = async (files: FileList | File[]) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const response = await fetch(`/api/upload?project=${encodeURIComponent(card.projectId)}&card=${card.id}`, {
+          method: 'POST',
+          headers: { 'content-type': file.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(file.name) },
+          body: file,
+        });
+        const data = await response.json();
+        const jointe: Attachment | undefined = data.attachment;
+        if (!jointe) continue;
+        setAttachments((current) => (current.some((a) => a.id === jointe.id) ? current : [...current, jointe]));
+      }
+    } catch {
+      client.pushToast('error', t('Envoi du fichier impossible'));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const envoyer = async () => {
+    const texte = text.trim();
+    if (!texte) return;
+    setEnvoi(true);
+    try {
+      await client.call({
+        type: 'comment.add',
+        cardId: card.id,
+        text: texte,
+        attachmentIds: attachments.map((a) => a.id),
+      });
+      setText('');
+      setAttachments([]);
+      recharger();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Ajout impossible'));
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  const supprimer = async (id: string) => {
+    // Retrait optimiste : une note qu'on vient de retirer ne doit pas rester
+    // affichée le temps que le serveur réponde.
+    setComments((current) => current.filter((c) => c.id !== id));
+    try {
+      await client.call({ type: 'comment.delete', id, cardId: card.id });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Suppression impossible'));
+      recharger();
+    }
+  };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-4 py-3">
+        {!charge && !comments.length ? (
+          <EmptyState
+            icon={<MessageSquare className="h-5 w-5" />}
+            title={t('Aucun commentaire')}
+            hint={t('Notez ici tout ce qui aide à documenter, comprendre ou exécuter cette carte.')}
+          />
+        ) : (
+          <ul className="space-y-2.5">
+            {comments.map((comment) => (
+              <li key={comment.id} className="rounded-md border border-border bg-raised px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 flex-1 whitespace-pre-wrap text-[13.5px] text-text texte-copiable">
+                    {comment.text}
+                  </p>
+                  <Tooltip label={t('Retirer')}>
+                    <Button variant="ghost" size="icon-sm" onClick={() => supprimer(comment.id)}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </Tooltip>
+                </div>
+                {comment.attachments.length ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {comment.attachments.map((item) => (
+                      <AttachmentThumb key={item.id} item={item} onOpen={() => setZoom(item)} compact />
+                    ))}
+                  </div>
+                ) : null}
+                <p className="mt-1.5 text-[12px] text-faint">
+                  {dateHeure(new Date(comment.createdAt).toISOString())}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </ZoneDefilement>
+
+      <div className="shrink-0 space-y-2 border-t border-border px-4 py-3">
+        {attachments.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {attachments.map((item) => (
+              <AttachmentThumb key={item.id} item={item} onOpen={() => setZoom(item)} compact />
+            ))}
+          </div>
+        ) : null}
+        <Textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={t('Écrire un commentaire…')}
+          rows={2}
+          className="resize-none"
+        />
+        <div className="flex items-center justify-between gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(event) => {
+              if (event.target.files?.length) upload(event.target.files);
+              event.target.value = '';
+            }}
+          />
+          <Button variant="outline" size="sm" disabled={uploading} onClick={() => fileRef.current?.click()}>
+            <Paperclip className="h-3 w-3" />
+            {t('Joindre un fichier')}
+          </Button>
+          <Button size="sm" disabled={envoi || !text.trim()} onClick={envoyer}>
+            {t('Ajouter')}
+          </Button>
+        </div>
+      </div>
+
+      <AttachmentPreview item={zoom} onClose={() => setZoom(null)} />
     </div>
   );
 }

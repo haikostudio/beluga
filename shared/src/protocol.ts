@@ -474,6 +474,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
     auto: z.boolean().optional(),
   }),
 
+  // Commentaires de carte
+  z.object({ type: z.literal('comment.list'), cardId: z.string() }),
+  z.object({
+    type: z.literal('comment.add'),
+    cardId: z.string(),
+    text: z.string(),
+    attachmentIds: z.array(z.string()).default([]),
+  }),
+  z.object({ type: z.literal('comment.delete'), id: z.string(), cardId: z.string() }),
+
   // Système
   z.object({ type: z.literal('settings.get') }),
   /** Réglages d'affichage (largeurs, thème, replis) : conservés en base. */

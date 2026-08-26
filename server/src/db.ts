@@ -1094,6 +1094,28 @@ const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_telemetrie_carte ON telemetrie_tache(card_id);
     `,
   },
+  {
+    id: 37,
+    name: 'commentaires-de-carte',
+    // DES NOTES LIBRES SUR UNE CARTE, chacune avec ses pièces jointes. Une
+    // ligne par commentaire, jamais réécrite : contrairement à `card_labels` et
+    // `card_attachments` (des listes plates, remplacées en bloc à chaque
+    // enregistrement de la carte), un commentaire s'ajoute et se retire seul,
+    // sans toucher aux autres — le bloc `data` porte donc son texte et les
+    // identifiants des pièces jointes déjà déposées dans la table `attachments`
+    // existante (même mécanisme de téléversement et de téléchargement que les
+    // conversations, pas de second stockage de fichiers).
+    sql: `
+      CREATE TABLE card_comments (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+        project_id TEXT NOT NULL,
+        data TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_card_comments_card ON card_comments(card_id, created_at);
+    `,
+  },
 ];
 
 export function openDb(): DB {

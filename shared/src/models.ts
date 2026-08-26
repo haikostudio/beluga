@@ -342,6 +342,24 @@ export const Attachment = z.object({
 });
 export type Attachment = z.infer<typeof Attachment>;
 
+/**
+ * Une NOTE écrite à la main sur une carte — un pense-bête, un bout de contexte,
+ * une pièce jointe à garder sous la main. Rien à voir avec la conversation de
+ * l'agent : elle vit tant que la carte existe, quelle que soit sa colonne.
+ * Les fichiers joints sont des `Attachment` déjà déposés (mêmes routes
+ * `/api/upload` et `/api/attachment`) — seuls leurs identifiants sont gardés
+ * ici.
+ */
+export const CardComment = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  projectId: z.string(),
+  text: z.string(),
+  attachmentIds: z.array(z.string()).default([]),
+  createdAt: z.number(),
+});
+export type CardComment = z.infer<typeof CardComment>;
+
 export const BillingLine = z.object({
   documentType: z.enum(['offer', 'invoice']),
   documentId: z.string(),

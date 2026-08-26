@@ -1517,6 +1517,47 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return result;
     }
 
+    /* -------- Commentaires de carte -------- */
+
+    /*
+     * Le commentaire ne garde que des IDENTIFIANTS de pièces jointes (même
+     * table `attachments` que les conversations) : c'est ici, à la lecture,
+     * qu'on les résout en objets complets — l'écran n'a ainsi jamais besoin
+     * d'une seconde requête pour savoir de quel fichier il s'agit.
+     */
+    case 'comment.list':
+      return {
+        comments: store.listCardComments(cmd.cardId).map((comment) => ({
+          ...comment,
+          attachments: comment.attachmentIds.map((id) => store.getAttachment(id)).filter(Boolean),
+        })),
+      };
+
+    case 'comment.add': {
+      const card = store.getCard(cmd.cardId);
+      if (!card) throw new Error('carte introuvable');
+      const texte = cmd.text.trim();
+      if (!texte) throw new Error('Le commentaire est vide.');
+      const comment = store.addCardComment({
+        id: store.newId(),
+        cardId: cmd.cardId,
+        projectId: card.projectId,
+        text: texte,
+        attachmentIds: cmd.attachmentIds ?? [],
+        createdAt: Date.now(),
+      });
+      return {
+        comment: {
+          ...comment,
+          attachments: comment.attachmentIds.map((id) => store.getAttachment(id)).filter(Boolean),
+        },
+      };
+    }
+
+    case 'comment.delete':
+      store.deleteCardComment(cmd.id);
+      return { ok: true };
+
     /* -------- Système -------- */
 
     case 'settings.get':
