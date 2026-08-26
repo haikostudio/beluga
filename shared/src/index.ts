@@ -20,6 +20,7 @@ export * from './branche-de-publication.js';
 export * from './bridage-chef.js';
 export * from './adresse-navigateur.js';
 export * from './ancres.js';
+export * from './cadrage.js';
 export * from './capacite.js';
 export * from './carte-en-texte.js';
 export * from './carte-interrompue.js';

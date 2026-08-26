@@ -5,12 +5,18 @@ import {
   ChevronUp,
   CircleDot,
   CornerDownRight,
+  Loader2,
   MessageSquare,
+  Rocket,
   RotateCcw,
   Square,
 } from 'lucide-react';
 import {
   Agent,
+  BOUTON_LANCER_LA_TACHE,
+  boutonLancerLaTache,
+  type EtatBoutonLancer,
+  MOT_CADRAGE,
   Message,
   separateurDeJour,
   temoinDeTravail,
@@ -131,6 +137,28 @@ export function Chat({
    * d'outil (`questionEnTexteLibre` l'écarte).
    */
   const carte = cardId ? state.cards[cardId] : undefined;
+  /*
+   * LA CONVERSATION DE CADRAGE D'UNE CARTE. Tant que la carte dort en
+   * « Planifié » et que c'est un agent de CADRAGE qui parle, le geste qui
+   * compte n'est pas d'écrire un message de plus : c'est de LANCER le travail.
+   * Le bouton vit donc en pleine largeur, au-dessus du champ de saisie
+   * (`shared/src/cadrage.ts`).
+   */
+  const lancement = boutonLancerLaTache({
+    colonne: carte?.column ?? 'planned',
+    roleAgent: agent?.role,
+    agentAuTravail: busy,
+    messages: messages.length,
+  });
+  /* Une carte-fil encore vide n'attend pas une analyse : elle attend qu'on
+     dise ce qu'on veut faire. Le mot par défaut change donc avec l'agent. */
+  const motDeLaConversationVide =
+    agent?.role === 'cadrage'
+      ? { titre: t(MOT_CADRAGE.titre), indice: t(MOT_CADRAGE.indice) }
+      : {
+          titre: vide?.titre ?? t('Aucun échange pour le moment'),
+          indice: vide?.indice ?? t('Posez une question ou demandez une action.'),
+        };
   const dernierMessage = messages[messages.length - 1];
   const questionEnTexte =
     !!cardId && !busy && !carteRangee(carte?.column) && dernierMessage
@@ -298,8 +326,8 @@ export function Chat({
           ) : (
             <EmptyState
               icon={<MessageSquare className="h-5 w-5" />}
-              title={vide?.titre ?? t('Aucun échange pour le moment')}
-              hint={vide?.indice ?? t('Posez une question ou demandez une action.')}
+              title={motDeLaConversationVide.titre}
+              hint={motDeLaConversationVide.indice}
             />
           )}
           <div ref={bottomRef} />
@@ -329,6 +357,9 @@ export function Chat({
 
       <Composer
         agent={agent}
+        boutonPrincipal={
+          lancement.affiche && cardId ? <BoutonLancerLaTache cardId={cardId} etat={lancement} /> : undefined
+        }
         engines={state.engines}
         queue={queue}
         busy={busy}
@@ -432,6 +463,48 @@ function BarreNouveauDepart({
         onClose={() => setAConfirmer(false)}
       />
     </div>
+  );
+}
+
+/**
+ * « LANCER LA TÂCHE » : le geste qui ferme la conversation de cadrage.
+ *
+ * Il vit en PLEINE LARGEUR au-dessus du champ de saisie, parce que c'est là
+ * qu'on le cherche une fois le besoin expliqué — pas au fond d'un pied de
+ * tiroir. Inactif, il n'est pas « désactivé » au sens du navigateur : un bouton
+ * désactivé n'affiche plus son explication au survol, et on perdrait la seule
+ * phrase qui dit pourquoi le geste attend.
+ */
+function BoutonLancerLaTache({ cardId, etat }: { cardId: string; etat: EtatBoutonLancer }) {
+  const [envoi, setEnvoi] = React.useState(false);
+  const lancer = () => {
+    if (!etat.possible || envoi) return;
+    setEnvoi(true);
+    client
+      .call({ type: 'card.start', id: cardId })
+      /* Un lancement ne répond qu'une fois le tour PARTI : un délai dépassé
+         n'est pas un refus, et n'allume donc pas l'alerte de serveur muet. */
+      .catch((err: any) => client.signalerRefus(err?.message ?? 'lancement refusé', cardId))
+      .finally(() => setEnvoi(false));
+  };
+  return (
+    <Tooltip label={etat.possible ? t('Confier le travail à un agent complet') : (etat.raison ?? '')}>
+      <button
+        type="button"
+        data-lancer-la-tache={cardId}
+        aria-disabled={!etat.possible || envoi}
+        onClick={lancer}
+        className={cn(
+          'flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors',
+          etat.possible && !envoi
+            ? 'bg-accent text-accent-fg hover:opacity-90'
+            : 'cursor-not-allowed bg-raised text-faint',
+        )}
+      >
+        {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
+        {t(BOUTON_LANCER_LA_TACHE)}
+      </button>
+    </Tooltip>
   );
 }
 

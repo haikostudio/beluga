@@ -27,6 +27,11 @@ import {
   PERIODE_VEILLE_MS,
   decisionDeBoucle,
   travailAbandonne,
+  contexteDeDepart,
+  titreDepuisLaDiscussion,
+  titreEncoreVide,
+  NIVEAU_PAR_DEFAUT,
+  reglagesDuNiveau,
 } from '@haikodev/shared';
 import { menageDesDossiers, ouvrirDossierDeCarte, travailDejaSurLaBranche } from './dossier-de-carte.js';
 import * as store from './store.js';
@@ -40,6 +45,8 @@ import {
   veilleDesToursBloques,
   reprendreLesFilesEnAttente,
 } from './runtime.js';
+import { agentDeCadrage } from './cadrage.js';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { rangerLesCartesOubliees } from './deplacement-carte.js';
 import { passageDuDeploiementAutomatique } from './deploiement-automatique.js';
 import { appliquerRedemarrageEnAttente } from './demon.js';
@@ -483,13 +490,65 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   }
 }
 
+/**
+ * CE QUE LE CADRAGE LAISSE À LA CARTE AVANT DE S'EFFACER.
+ *
+ * Deux choses, et deux seulement :
+ *
+ *  - SON TITRE. L'agent de cadrage est censé l'écrire au fil de la discussion
+ *    (`board_update_card`). S'il ne l'a pas fait, la colonne se remplirait de
+ *    cartes « Nouvelle tâche » : on prend alors la première phrase de la
+ *    première demande.
+ *  - SON MODÈLE. Le NIVEAU retenu pendant la discussion est déjà traduit en
+ *    moteur, modèle et réflexion réels sur `card.run`. Sans niveau annoncé, on
+ *    applique le palier par défaut plutôt que de laisser l'exécution repartir
+ *    sur le modèle ÉCONOME du cadrage — un travail complet payé au rabais.
+ */
+async function prendreLaSuiteDuCadrage(
+  card: Card,
+  discussion: { role: string; content: string }[],
+): Promise<Card> {
+  const title = titreEncoreVide(card.title) ? titreDepuisLaDiscussion(discussion, card.title) : card.title;
+  let run = card.run;
+  if (!run?.niveau) {
+    try {
+      const moteurs = await catalogueMoteurs();
+      const moteur =
+        moteurs.find((m) => m.id === card.run?.engine) ?? moteurs.find((m) => m.models.length) ?? moteurs[0];
+      if (moteur) {
+        const reglages = reglagesDuNiveau(moteur, NIVEAU_PAR_DEFAUT);
+        run = { ...(run ?? {}), engine: moteur.id, ...reglages, niveau: NIVEAU_PAR_DEFAUT } as Card['run'];
+      }
+    } catch (err) {
+      // Catalogue illisible : la carte repart sur le moteur par défaut du
+      // projet, comme n'importe quelle carte sans réglage. Mieux qu'un refus.
+      log.warn('niveau par défaut du cadrage : catalogue des moteurs illisible', err);
+    }
+  }
+  if (title === card.title && run === card.run) return card;
+  const frais = store.saveCard({ ...card, title, run });
+  bus.emit({ type: 'card.upsert', card: frais });
+  return frais;
+}
+
 async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: string }> {
-  const card = store.getCard(cardId);
+  let card = store.getCard(cardId);
   if (!card) return { ok: false, error: 'carte introuvable' };
   if (card.agentId && isRunning(card.agentId)) return { ok: true };
 
   const project = store.getProject(card.projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
+
+  /*
+   * LE CADRAGE SE FERME ICI. Une carte née du « + » a discuté son besoin avec
+   * un agent léger : cette discussion devient le CONTEXTE DE DÉPART de l'agent
+   * d'exécution, et le niveau retenu pendant la discussion devient son MODÈLE.
+   * Rien de tout cela n'existe sur une carte venue d'ailleurs : le tour reste
+   * alors exactement celui d'avant.
+   */
+  const cadrage = agentDeCadrage(cardId);
+  const contexteDuCadrage = cadrage ? contexteDeDepart(store.listMessages(cadrage.id)) : '';
+  if (cadrage) card = await prendreLaSuiteDuCadrage(card, store.listMessages(cadrage.id));
 
   /*
    * Les portes dures d'abord, et pour TOUS les chemins de lancement. Sans
@@ -632,7 +691,7 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
       })}\n\n`
     : '';
 
-  const prompt = `${reprise}Réalise cette tâche.
+  const prompt = `${contexteDuCadrage ? `${contexteDuCadrage}\n\n` : ''}${reprise}Réalise cette tâche.
 
 TITRE : ${card.title}
 ${card.description || '(pas de description)'}

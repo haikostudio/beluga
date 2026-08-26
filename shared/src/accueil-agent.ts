@@ -101,6 +101,10 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
   // — n'ouvre pas le projet : sa consigne dit tout, quel que soit son rôle.
   if (input.motif === 'configuration-snapshot') return 'minimal';
   if (input.role === 'orchestrator') return 'tri';
+  // L'AGENT DE CADRAGE non plus n'ouvre pas le projet : il discute un besoin et
+  // écrit la carte. L'index de la mémoire et les fichiers d'instructions
+  // repartiraient à chaque carte neuve, pour un tour qui ne lit rien.
+  if (input.role === 'cadrage') return 'tri';
   if (input.role !== 'deploy') return 'complet';
   if (!input.motif) return 'complet';
   return MOTIFS_DE_DEPANNAGE.includes(input.motif) ? 'minimal' : 'complet';
