@@ -10,6 +10,7 @@ import {
   journalDesNotifications,
   marquerLues,
   titreDeLaDemande,
+  titreSansEmoji,
   type AnnonceRecue,
   type DecisionAttendue,
 } from '@haikodev/shared';
@@ -167,6 +168,26 @@ test('marquer lues ne touche pas aux demandes, qui se règlent au lieu de se lir
     true,
   );
   assert.equal(compteNonLues(DEMANDES, lues), 2);
+});
+
+/* ------------------------------------------------------------------ */
+/* Le tiroir n'affiche plus l'emoji : l'icône de la ligne le dit déjà   */
+/* ------------------------------------------------------------------ */
+
+test('titreSansEmoji retire l’emoji de tête, gardé pour la notification système', () => {
+  assert.equal(titreSansEmoji('✅ HaikoDev — Refondre les notifications'), 'HaikoDev — Refondre les notifications');
+  assert.equal(titreSansEmoji('⚠️ ETSigna — Une carte attend'), 'ETSigna — Une carte attend');
+  assert.equal(titreSansEmoji('🚀 ETSigna — Publication'), 'ETSigna — Publication');
+  // Un titre sans emoji ne perd rien.
+  assert.equal(titreSansEmoji('Projet A · Refonte du bandeau'), 'Projet A · Refonte du bandeau');
+});
+
+test('le journal retire l’emoji d’une annonce, mais jamais celui d’une demande', () => {
+  const [ligne] = journalDesNotifications(
+    [],
+    [{ id: 'n6', titre: '✅ Projet — Tâche terminée', corps: '', motif: 'tache-terminee', a: 1 }],
+  );
+  assert.equal(ligne.titre, 'Projet — Tâche terminée');
 });
 
 test('l’affichage tient au-delà du plafond d’annonces', () => {
