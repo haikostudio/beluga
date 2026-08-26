@@ -1,5 +1,8 @@
 import * as React from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Check,
   Clock,
   Database,
@@ -9,14 +12,18 @@ import {
   Loader2,
   MessagesSquare,
   Play,
+  Search,
   Sparkles,
   Wrench,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
 import {
+  Agent,
   CONSERVATION_MAX,
   CONSERVATION_MIN,
+  FREQUENCE_MAX,
+  FREQUENCE_MIN,
   LIBELLE_MOTEUR_BASE,
   LIBELLE_MOYEN_FICHIERS,
   MOTEURS_BASE,
@@ -50,7 +57,9 @@ import {
   Textarea,
   ZoneDefilement,
 } from '@/components/ui';
+import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
+import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
@@ -92,7 +101,12 @@ function dateLisible(at: number): string {
   });
 }
 
+/** Les colonnes sur lesquelles le tableau des sites peut se trier. */
+type ColonneTri = 'nom' | 'dernier' | 'volume' | 'statut';
+const RANG_STATUT: Readonly<Record<string, number>> = { echec: 0, jamais: 1, partiel: 2, reussi: 3 };
+
 export function Snapshots({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const state = useApp();
   const [etat, setEtat] = React.useState<EtatSnapshots>(ETAT_VIDE);
   const [chargement, setChargement] = React.useState(false);
   const [fiche, setFiche] = React.useState<SiteASauvegarder | null>(null);
@@ -100,6 +114,11 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const [assistant, setAssistant] = React.useState(false);
   const [projetLance, setProjetLance] = React.useState('');
   const [relu, setRelu] = React.useState('');
+  const [recherche, setRecherche] = React.useState('');
+  const [tri, setTri] = React.useState<{ colonne: ColonneTri; sens: 1 | -1 }>({ colonne: 'nom', sens: 1 });
+  /** La conversation de l'assistant, ouverte dans SON PROPRE tiroir latéral —
+   *  plus en plein écran, à la place de cette fenêtre. */
+  const [conversation, setConversation] = React.useState<{ agentId: string; projectId: string } | null>(null);
 
   const relire = React.useCallback(async () => {
     try {
@@ -131,6 +150,26 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const refusDestination = raisonDestinationRefusee(etat.dossier);
   const resumes = resumeParSite(etat.sites, etat.points);
 
+  // LA RECHERCHE FILTRE EN TEMPS RÉEL, sur le nom du site — puis le TRI
+  // s'applique, choisi par un clic sur l'entête de colonne.
+  const resumesAffiches = React.useMemo(() => {
+    const mot = recherche.trim().toLowerCase();
+    const filtres = mot ? resumes.filter((r) => r.site.nom.toLowerCase().includes(mot)) : resumes;
+    const rang = (r: ResumeDeSite) => RANG_STATUT[r.dernier ? r.dernier.statut : 'jamais'] ?? 0;
+    const tries = [...filtres].sort((a, b) => {
+      let ecart = 0;
+      if (tri.colonne === 'nom') ecart = a.site.nom.localeCompare(b.site.nom, 'fr');
+      else if (tri.colonne === 'dernier') ecart = (a.dernier?.debut ?? 0) - (b.dernier?.debut ?? 0);
+      else if (tri.colonne === 'volume') ecart = a.octets - b.octets;
+      else if (tri.colonne === 'statut') ecart = rang(a) - rang(b);
+      return ecart * tri.sens;
+    });
+    return tries;
+  }, [resumes, recherche, tri]);
+
+  const trierPar = (colonne: ColonneTri) =>
+    setTri((avant) => (avant.colonne === colonne ? { colonne, sens: avant.sens === 1 ? -1 : 1 } : { colonne, sens: 1 }));
+
   const lancer = async (id?: string) => {
     try {
       await client.call({ type: 'snapshots.lancer', ...(id ? { id } : {}) });
@@ -142,13 +181,14 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   };
 
   /**
-   * OUVRIR LA CONVERSATION DE L'ASSISTANT, D'UN CLIC. Ses questions et son
-   * compte rendu vivent dans un fil ; il fallait le retrouver à la main dans le
-   * bon projet. Le tiroir se ferme derrière, sinon il masquerait le fil.
+   * OUVRIR LA CONVERSATION DE L'ASSISTANT, D'UN CLIC — DANS SON PROPRE TIROIR
+   * LATÉRAL, empilé sur celui des snapshots, jamais en plein écran : la liste
+   * des sites reste accessible derrière, et on n'a plus quitté la fenêtre pour
+   * suivre l'agent.
    */
   const ouvrirLaConversation = (depart: { agentId: string; projectId: string }) => {
-    client.allerVersDecision({ projectId: depart.projectId, agentId: depart.agentId });
-    onClose();
+    client.setActiveProject(depart.projectId);
+    setConversation(depart);
   };
 
   // Un projet du serveur sans sauvegarde : sa phrase de départ est déjà écrite
@@ -262,6 +302,20 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         ) : null}
 
+        {resumes.length ? (
+          <div className="relative shrink-0 px-3 pb-2">
+            <Search className="pointer-events-none absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+            <Input
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder={t('Rechercher un site…')}
+              className="h-8 pl-7 text-[13px]"
+              autoComplete="off"
+              data-snapshots-recherche
+            />
+          </div>
+        ) : null}
+
         <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
           {chargement && !etat.sites.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Lecture des snapshots…')}</p>
@@ -269,30 +323,52 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
             <p className="px-1 py-3 text-[12.5px] text-faint">
               {t('Aucun site à sauvegarder pour l’instant.')}
             </p>
+          ) : !resumesAffiches.length ? (
+            <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun site ne correspond à cette recherche.')}</p>
           ) : (
-            <div className="flex flex-col gap-1">
-              {resumes.map((resume) => (
-                <LigneSite
-                  key={resume.site.id}
-                  resume={resume}
-                  travaille={etat.enCours.includes(resume.site.id)}
-                  bloque={!!refusDestination}
-                  onOuvrir={() => setFiche(resume.site)}
-                  onLancer={() => void lancer(resume.site.id)}
-                  onConversation={
-                    resume.site.assistantId
-                      ? () =>
-                          ouvrirLaConversation({
-                            agentId: resume.site.assistantId as string,
-                            projectId: (resume.site.assistantProjectId || resume.site.projectId) as string,
-                          })
-                      : undefined
-                  }
-                  onRelire={() => void faireRelire(resume.site)}
-                  relu={relu === resume.site.id}
-                />
-              ))}
-            </div>
+            <table className="w-full border-collapse text-left" data-snapshots-tableau>
+              <thead>
+                <tr className="border-b border-border text-[11.5px] uppercase tracking-wide text-faint">
+                  <EnteteTriable colonne="nom" tri={tri} onTrier={trierPar} className="pl-1">
+                    {t('Site')}
+                  </EnteteTriable>
+                  <th className="px-2 py-1.5 font-normal">{t('Fréquence')}</th>
+                  <EnteteTriable colonne="dernier" tri={tri} onTrier={trierPar}>
+                    {t('Dernière prise')}
+                  </EnteteTriable>
+                  <EnteteTriable colonne="volume" tri={tri} onTrier={trierPar}>
+                    {t('Volume')}
+                  </EnteteTriable>
+                  <EnteteTriable colonne="statut" tri={tri} onTrier={trierPar}>
+                    {t('Statut')}
+                  </EnteteTriable>
+                  <th className="px-2 py-1.5 font-normal" aria-hidden />
+                </tr>
+              </thead>
+              <tbody>
+                {resumesAffiches.map((resume) => (
+                  <LigneSite
+                    key={resume.site.id}
+                    resume={resume}
+                    travaille={etat.enCours.includes(resume.site.id)}
+                    bloque={!!refusDestination}
+                    onOuvrir={() => setFiche(resume.site)}
+                    onLancer={() => void lancer(resume.site.id)}
+                    onConversation={
+                      resume.site.assistantId
+                        ? () =>
+                            ouvrirLaConversation({
+                              agentId: resume.site.assistantId as string,
+                              projectId: (resume.site.assistantProjectId || resume.site.projectId) as string,
+                            })
+                        : undefined
+                    }
+                    onRelire={() => void faireRelire(resume.site)}
+                    relu={relu === resume.site.id}
+                  />
+                ))}
+              </tbody>
+            </table>
           )}
         </ZoneDefilement>
       </Drawer>
@@ -311,9 +387,85 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
         }}
       />
 
+      {/* La conversation de l'assistant : SON PROPRE tiroir, jamais un départ
+          en plein écran — la liste des sites reste ouverte derrière. */}
+      <TiroirConversationAssistant
+        depart={conversation}
+        onClose={() => setConversation(null)}
+        agent={conversation ? (state.agents[conversation.agentId] ?? null) : null}
+      />
+
       {/* L'historique : la seconde fenêtre demandée, empilée elle aussi. */}
       <HistoriqueSnapshots open={historique} onClose={() => setHistorique(false)} resumes={resumes} />
     </>
+  );
+}
+
+/** L'entête d'une colonne triable : un clic trie, un second clic inverse. */
+function EnteteTriable({
+  colonne,
+  tri,
+  onTrier,
+  className,
+  children,
+}: {
+  colonne: ColonneTri;
+  tri: { colonne: ColonneTri; sens: 1 | -1 };
+  onTrier: (colonne: ColonneTri) => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const actif = tri.colonne === colonne;
+  return (
+    <th className={cn('px-2 py-1.5 font-normal', className)}>
+      <button
+        type="button"
+        onClick={() => onTrier(colonne)}
+        className={cn('inline-flex items-center gap-1 hover:text-text', actif && 'text-text')}
+        data-snapshots-tri={colonne}
+      >
+        {children}
+        {actif ? (
+          tri.sens === 1 ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
+
+/**
+ * LA CONVERSATION DE L'ASSISTANT, EN TIROIR LATÉRAL. Elle réutilise le même
+ * composant `Chat` que le fil plein écran : les questions posées avec
+ * `ask_user`, la liste de tâches et le compte rendu s'y lisent pareil, sans
+ * jamais quitter la fenêtre des snapshots.
+ */
+function TiroirConversationAssistant({
+  depart,
+  agent,
+  onClose,
+}: {
+  depart: { agentId: string; projectId: string } | null;
+  agent: Agent | null;
+  onClose: () => void;
+}) {
+  return (
+    <Drawer open={depart !== null} onClose={onClose} empile className="h-[92dvh]">
+      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+        <DialogTitle className="min-w-0 flex-1 truncate">
+          {agent?.title ?? t('Assistant de configuration')}
+        </DialogTitle>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col" data-snapshots-conversation-tiroir>
+        {depart ? <Chat agent={agent} projectId={depart.projectId} /> : null}
+      </div>
+    </Drawer>
   );
 }
 
@@ -340,85 +492,91 @@ function LigneSite({
 }) {
   const { site, dernier, octets, points } = resume;
   return (
-    <div
-      className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-2"
-      data-snapshots-site={site.id}
-    >
-      <button type="button" onClick={onOuvrir} className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
-        <span className="flex w-full min-w-0 items-center gap-1.5">
-          <span className={cn('min-w-0 flex-1 truncate text-[13.5px]', site.actif ? 'text-text' : 'text-faint')}>
-            {site.nom}
-          </span>
-          {!site.actif ? <Badge tone="neutral">{t('Éteint')}</Badge> : null}
-          {dernier ? (
-            <Badge tone={dernier.statut === 'reussi' ? 'success' : dernier.statut === 'partiel' ? 'warning' : 'danger'}>
-              {t(
-                dernier.statut === 'reussi'
-                  ? 'À jour'
-                  : dernier.statut === 'partiel'
-                    ? 'Partiel'
-                    : 'Échec',
-              )}
-            </Badge>
-          ) : (
-            <Badge tone="neutral">{t('Jamais pris')}</Badge>
-          )}
-        </span>
-        <span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-faint">
-          {site.base.moteur !== 'aucune' ? (
-            <span className="inline-flex items-center gap-1">
-              <Database className="h-3 w-3" />
-              {t(LIBELLE_MOTEUR_BASE[site.base.moteur])}
+    <tr className="border-b border-border/60 last:border-0" data-snapshots-site={site.id}>
+      <td className="py-1.5 pl-1 pr-2 align-top">
+        <button type="button" onClick={onOuvrir} className="flex min-w-0 flex-col items-start gap-0.5 text-left">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className={cn('min-w-0 truncate text-[13.5px]', site.actif ? 'text-text' : 'text-faint')}>
+              {site.nom}
             </span>
-          ) : null}
-          {site.fichiers.moyen !== 'aucun' ? (
-            <span className="inline-flex items-center gap-1">
-              <FolderTree className="h-3 w-3" />
-              {t(LIBELLE_MOYEN_FICHIERS[site.fichiers.moyen])}
-            </span>
-          ) : null}
-          <span className="inline-flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {dernier ? dateLisible(dernier.debut) : t('jamais')}
+            {!site.actif ? <Badge tone="neutral">{t('Éteint')}</Badge> : null}
           </span>
-          <span>{t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}</span>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-faint">
+            {site.base.moteur !== 'aucune' ? (
+              <span className="inline-flex items-center gap-1">
+                <Database className="h-3 w-3" />
+                {t(LIBELLE_MOTEUR_BASE[site.base.moteur])}
+              </span>
+            ) : null}
+            {site.fichiers.moyen !== 'aucun' ? (
+              <span className="inline-flex items-center gap-1">
+                <FolderTree className="h-3 w-3" />
+                {t(LIBELLE_MOYEN_FICHIERS[site.fichiers.moyen])}
+              </span>
+            ) : null}
+          </span>
+        </button>
+      </td>
+      <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
+        {t('tous les {n} j', { n: site.frequenceJours })}
+      </td>
+      <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
+        <span className="inline-flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          {dernier ? dateLisible(dernier.debut) : t('jamais')}
         </span>
-      </button>
-      {dernier?.statut === 'echec' ? (
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={relu}
-          onClick={onRelire}
-          title={t('Faire relire cette fiche par l’assistant')}
-          data-snapshots-relire={site.id}
-        >
-          {relu ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
-          {t('Réparer')}
-        </Button>
-      ) : null}
-      {onConversation ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onConversation}
-          title={t('Ouvrir la conversation de l’assistant')}
-          data-snapshots-conversation={site.id}
-        >
-          <MessagesSquare className="h-3 w-3" />
-        </Button>
-      ) : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        disabled={travaille || bloque}
-        onClick={onLancer}
-        data-snapshots-lancer={site.id}
-      >
-        {travaille ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-        {travaille ? t('En cours…') : t('Sauvegarder')}
-      </Button>
-    </div>
+      </td>
+      <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
+        {t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}
+      </td>
+      <td className="px-2 py-1.5 align-top">
+        {dernier ? (
+          <Badge tone={dernier.statut === 'reussi' ? 'success' : dernier.statut === 'partiel' ? 'warning' : 'danger'}>
+            {t(dernier.statut === 'reussi' ? 'À jour' : dernier.statut === 'partiel' ? 'Partiel' : 'Échec')}
+          </Badge>
+        ) : (
+          <Badge tone="neutral">{t('Jamais pris')}</Badge>
+        )}
+      </td>
+      <td className="py-1.5 pl-2 pr-1 align-top">
+        <div className="flex items-center justify-end gap-1">
+          {dernier?.statut === 'echec' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={relu}
+              onClick={onRelire}
+              title={t('Faire relire cette fiche par l’assistant')}
+              data-snapshots-relire={site.id}
+            >
+              {relu ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+              {t('Réparer')}
+            </Button>
+          ) : null}
+          {onConversation ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onConversation}
+              title={t('Ouvrir la conversation de l’assistant')}
+              data-snapshots-conversation={site.id}
+            >
+              <MessagesSquare className="h-3 w-3" />
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={travaille || bloque}
+            onClick={onLancer}
+            data-snapshots-lancer={site.id}
+          >
+            {travaille ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+            {travaille ? t('En cours…') : t('Sauvegarder')}
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -800,19 +958,38 @@ function FicheSite({
               </div>
             ) : null}
 
-            <Champ libelle={t('Conservation (jours)')}>
-              <Input
-                type="number"
-                min={CONSERVATION_MIN}
-                max={CONSERVATION_MAX}
-                value={String(site.conservationJours)}
-                onChange={(e) =>
-                  setSite((avant) => ({ ...avant, conservationJours: Number(e.target.value) || 0 }))
-                }
-                className="h-8 text-[13px]"
-                data-snapshots-conservation
-              />
-            </Champ>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Champ libelle={t('Fréquence (jours)')}>
+                  <Input
+                    type="number"
+                    min={FREQUENCE_MIN}
+                    max={FREQUENCE_MAX}
+                    value={String(site.frequenceJours)}
+                    onChange={(e) =>
+                      setSite((avant) => ({ ...avant, frequenceJours: Number(e.target.value) || 0 }))
+                    }
+                    className="h-8 text-[13px]"
+                    data-snapshots-frequence
+                  />
+                </Champ>
+              </div>
+              <div className="flex-1">
+                <Champ libelle={t('Conservation (jours)')}>
+                  <Input
+                    type="number"
+                    min={CONSERVATION_MIN}
+                    max={CONSERVATION_MAX}
+                    value={String(site.conservationJours)}
+                    onChange={(e) =>
+                      setSite((avant) => ({ ...avant, conservationJours: Number(e.target.value) || 0 }))
+                    }
+                    className="h-8 text-[13px]"
+                    data-snapshots-conservation
+                  />
+                </Champ>
+              </div>
+            </div>
 
             <Champ libelle={t('Note')}>
               <Textarea
