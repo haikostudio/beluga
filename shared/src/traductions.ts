@@ -1056,6 +1056,34 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '该项目的新卡片和主控都会使用这个引擎。',
   ],
   'Thème général': ['General theme', 'Tema general', 'Allgemeines Design', '通用主题'],
+
+  /* ---- Mode simplifié --------------------------------------------- */
+  'Mode simplifié': ['Simplified mode', 'Modo simplificado', 'Vereinfachter Modus', '简化模式'],
+  'Masque les repères qui ne servent qu’au développement : le compte de jetons sous les messages, le détail des recherches de l’agent, le journal des erreurs de la page, les clés d’API et les courbes de consommation. Aucun bouton ne disparaît — tout ce que vous pouviez faire reste possible.': [
+    'Hides the markers that only serve development: the token count under messages, the detail of the agent’s searches, the page error log, the API keys and the usage curves. No button disappears — everything you could do is still possible.',
+    'Oculta los indicadores que solo sirven para el desarrollo: el recuento de tokens bajo los mensajes, el detalle de las búsquedas del agente, el registro de errores de la página, las claves de API y las curvas de consumo. Ningún botón desaparece: todo lo que podía hacer sigue siendo posible.',
+    'Blendet die Angaben aus, die nur der Entwicklung dienen: die Tokenzahl unter den Nachrichten, die Details der Suchläufe des Agenten, das Fehlerprotokoll der Seite, die API-Schlüssel und die Verbrauchskurven. Keine Schaltfläche verschwindet — alles, was Sie tun konnten, bleibt möglich.',
+    '隐藏仅供开发使用的信息：消息下方的词元数、智能体的检索明细、页面错误日志、API 密钥和用量曲线。不会隐藏任何按钮——原先能做的一切依然可以做。',
+  ],
+  'Les détails techniques sont masqués': [
+    'Technical details are hidden',
+    'Los detalles técnicos están ocultos',
+    'Technische Details sind ausgeblendet',
+    '技术细节已隐藏',
+  ],
+  'Tous les détails techniques sont affichés': [
+    'All technical details are shown',
+    'Se muestran todos los detalles técnicos',
+    'Alle technischen Details werden angezeigt',
+    '显示全部技术细节',
+  ],
+  'Une erreur technique est survenue. Le détail est masqué par le mode simplifié.': [
+    'A technical error occurred. The detail is hidden by simplified mode.',
+    'Se ha producido un error técnico. El detalle está oculto por el modo simplificado.',
+    'Ein technischer Fehler ist aufgetreten. Das Detail wird vom vereinfachten Modus ausgeblendet.',
+    '发生了技术错误。简化模式隐藏了详细信息。',
+  ],
+
   'Icône': ['Icon', 'Icono', 'Symbol', '图标'],
   "Aller rechercher l'icône du site : sur cette adresse, ou dans le dépôt du projet": [
     'Fetch the site’s icon: at this address, or in the project’s repository',
