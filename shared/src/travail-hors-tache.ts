@@ -43,14 +43,18 @@ export function brancheDeTache(branche?: string): boolean {
 }
 
 /**
- * La plomberie de la publication n'est pas du travail : ces enregistrements
- * sont posés par le publieur lui-même, pas par quelqu'un qui a codé.
+ * La plomberie du démon n'est pas du travail : ces enregistrements sont posés
+ * par la publication ou par le rangement de nuit lui-même, pas par un agent
+ * qui a codé pendant son tour. Le rangement de nuit écrit à même le dépôt du
+ * projet, sans passer par un agent — si ce commit tombe pendant qu'un agent a
+ * son propre tour ouvert sur ce même dépôt, il ne doit pas lui être imputé.
  */
 const PLOMBERIE = [
   /^Publication\s*:/i,
   /^Travaux en cours enregistrés avant publication/i,
   /^Merge (branch|remote-tracking|pull request)/i,
   /^Revert "Publication/i,
+  /^Range les règles durables déposées, une fois pour la nuit/i,
 ];
 
 export function estPlomberie(titre: string): boolean {
