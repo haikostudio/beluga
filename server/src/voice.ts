@@ -304,11 +304,6 @@ export function digestText(projectId?: string): string {
     etat.questions.push({ projet: nomDuProjet.get(pid)!, titre: question, detail: question });
   }
 
-  for (const { projectId: pid, title } of store.pendingProposals(projectId)) {
-    if (!nomDuProjet.has(pid)) continue;
-    etat.propositions.push({ projet: nomDuProjet.get(pid)!, titre: title });
-  }
-
   const enMarche = new Set(runningAgentIds());
 
   for (const project of projects) {
