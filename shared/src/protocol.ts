@@ -615,6 +615,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('snapshots.lancer'), id: z.string().optional() }),
   z.object({ type: z.literal('snapshots.points'), id: z.string().optional() }),
   /**
+   * CONFIGURER UN SITE PAR L'ASSISTANT plutôt qu'au formulaire : une phrase
+   * suffit, un agent léger cherche, questionne et enregistre la fiche
+   * (`server/src/assistant-snapshot.ts`).
+   */
+  z.object({
+    type: z.literal('snapshots.configurer'),
+    description: z.string(),
+    projectId: z.string().optional(),
+  }),
+  /**
    * LA SURVEILLANCE DES SITES (`shared/src/surveillance.ts`). Ajouter appelle
    * l'adresse TOUT DE SUITE ; « vérifier » relance une tournée sans attendre
    * l'heure, sur un site ou sur tous. L'état complet revient ensuite par

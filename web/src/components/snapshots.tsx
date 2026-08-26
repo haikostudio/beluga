@@ -8,7 +8,7 @@ import {
   History,
   Loader2,
   Play,
-  Plus,
+  Sparkles,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
@@ -31,6 +31,8 @@ import {
   raisonDestinationRefusee,
   resumeParSite,
   siteVierge,
+  DESCRIPTION_SITE_MAX,
+  raisonDemandeRefusee,
   volumeDuPoint,
 } from '@haikodev/shared';
 import {
@@ -39,12 +41,6 @@ import {
   ConfirmDialog,
   DialogTitle,
   Drawer,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Input,
   Label,
   Switch,
@@ -98,6 +94,7 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const [chargement, setChargement] = React.useState(false);
   const [fiche, setFiche] = React.useState<SiteASauvegarder | null>(null);
   const [historique, setHistorique] = React.useState(false);
+  const [assistant, setAssistant] = React.useState(false);
 
   const relire = React.useCallback(async () => {
     try {
@@ -149,37 +146,10 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
             <History className="h-3 w-3" />
             {t('Historique')}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" data-snapshots-creer>
-                <Plus className="h-3 w-3" />
-                {t('Nouveau site')}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                data-snapshots-site-externe
-                onSelect={() => setFiche(siteVierge(null, ''))}
-              >
-                {t('Site extérieur')}
-              </DropdownMenuItem>
-              {etat.projets.length ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>{t('Projets de ce serveur')}</DropdownMenuLabel>
-                  {etat.projets.map((projet) => (
-                    <DropdownMenuItem
-                      key={projet.id}
-                      data-snapshots-projet={projet.id}
-                      onSelect={() => setFiche(siteVierge(projet.id, projet.nom))}
-                    >
-                      {projet.nom}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button variant="secondary" size="sm" onClick={() => setAssistant(true)} data-snapshots-creer>
+            <Sparkles className="h-3 w-3" />
+            {t('Nouveau site')}
+          </Button>
         </header>
 
         {refusDestination ? (
@@ -228,6 +198,14 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
 
       {/* Le détail d'un site : empilé, la liste reste ouverte derrière. */}
       <FicheSite fiche={fiche} onClose={() => setFiche(null)} onChange={() => void relire()} />
+
+      {/* L'assistant : le seul chemin de CRÉATION d'un site, depuis une phrase. */}
+      <AssistantDeSite
+        open={assistant}
+        projets={etat.projets}
+        onClose={() => setAssistant(false)}
+        onLance={() => void relire()}
+      />
 
       {/* L'historique : la seconde fenêtre demandée, empilée elle aussi. */}
       <HistoriqueSnapshots open={historique} onClose={() => setHistorique(false)} resumes={resumes} />
@@ -308,6 +286,136 @@ function LigneSite({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* L'assistant : une phrase, et la fiche se remplit toute seule          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CONFIGURER UN SITE NE SE FAIT PLUS AU FORMULAIRE. On décrit le site en une
+ * phrase ; un agent léger lit le serveur, pose les questions qui restent dans la
+ * conversation, et enregistre la fiche lui-même. Le formulaire, lui, reste pour
+ * CORRIGER un site déjà là — changer un mot de passe ne mérite pas un tour de
+ * moteur.
+ */
+function AssistantDeSite({
+  open,
+  projets,
+  onClose,
+  onLance,
+}: {
+  open: boolean;
+  projets: { id: string; nom: string }[];
+  onClose: () => void;
+  onLance: () => void;
+}) {
+  const [description, setDescription] = React.useState('');
+  const [projet, setProjet] = React.useState('');
+  const [enCours, setEnCours] = React.useState(false);
+
+  // Le champ repart vierge à chaque ouverture : la demande précédente est partie
+  // chez l'assistant, la relire ici ferait croire qu'elle attend encore.
+  React.useEffect(() => {
+    if (open) {
+      setDescription('');
+      setProjet('');
+    }
+  }, [open]);
+
+  const refus = raisonDemandeRefusee(description);
+
+  const lancer = async () => {
+    setEnCours(true);
+    try {
+      await client.call({
+        type: 'snapshots.configurer',
+        description,
+        ...(projet ? { projectId: projet } : {}),
+      });
+      client.pushToast(
+        'success',
+        t('L’assistant configure ce site. Ses questions vous attendent dans la conversation.'),
+      );
+      onLance();
+      onClose();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
+    } finally {
+      setEnCours(false);
+    }
+  };
+
+  return (
+    <Drawer open={open} onClose={onClose} empile>
+      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+        <DialogTitle className="min-w-0 flex-1 truncate">{t('Nouveau site')}</DialogTitle>
+      </header>
+
+      <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+        <div className="flex flex-col gap-3">
+          <p className="text-[12.5px] leading-relaxed text-faint">
+            {t(
+              'Décrivez le site en une phrase. L’assistant cherche lui-même la base et les fichiers, vous pose les questions qui restent, puis enregistre la fiche.',
+            )}
+          </p>
+
+          <Champ libelle={t('Le site à sauvegarder')}>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={DESCRIPTION_SITE_MAX}
+              rows={4}
+              placeholder={t('Ex. : la boutique du client, un WordPress dans /var/www/boutique, à garder un mois')}
+              className="text-[13px]"
+              data-snapshots-description
+            />
+          </Champ>
+
+          {projets.length ? (
+            <Champ libelle={t('Un projet de ce serveur ?')}>
+              <select
+                value={projet}
+                onChange={(e) => setProjet(e.target.value)}
+                className={CLASSE_SELECT}
+                data-snapshots-projet
+              >
+                <option value="">{t('Site extérieur')}</option>
+                {projets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nom}
+                  </option>
+                ))}
+              </select>
+            </Champ>
+          ) : null}
+
+          {refus ? <p className="text-[12px] text-warning">{t(refus)}</p> : null}
+
+          <div className="flex justify-end">
+            <Button
+              variant="default"
+              size="sm"
+              disabled={!!refus || enCours}
+              onClick={() => void lancer()}
+              data-snapshots-configurer
+            >
+              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {enCours ? t('Démarrage…') : t('Configurer')}
+            </Button>
+          </div>
+
+          <p className="text-[12px] leading-relaxed text-faint">
+            {t(
+              'Les identifiants trouvés ou donnés restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.',
+            )}
+          </p>
+        </div>
+      </ZoneDefilement>
+    </Drawer>
+  );
+}
+
 
 /* ------------------------------------------------------------------ */
 /* La fiche d'un site                                                   */

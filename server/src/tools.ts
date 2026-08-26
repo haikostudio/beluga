@@ -49,6 +49,15 @@ import {
   type ProjetDeLaColonne,
   momentDuCreneau,
   nomDeSujetMesure,
+  CONSERVATION_MAX,
+  CONSERVATION_MIN,
+  CONSERVATION_PAR_DEFAUT,
+  MOTEURS_BASE,
+  MOYENS_FICHIERS,
+  ficheProposee,
+  jugerSite,
+  LIBELLE_MOTEUR_BASE,
+  LIBELLE_MOYEN_FICHIERS,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { createProjectFolder, sourceDHeritageDuProjet } from './projects.js';
@@ -58,6 +67,7 @@ import { mintDownload } from './auth.js';
 import { readMemory, appendMemory, detailProjet } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
+import { enregistrerSite, lireSite } from './snapshots.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import {
@@ -633,10 +643,59 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  {
+    name: 'snapshot_site',
+    description:
+      "ENREGISTRE LA FICHE D'UN SITE À SAUVEGARDER (snapshots des sites en production). C'est le geste final de " +
+      "l'assistant de configuration : après avoir lu le serveur et posé ses questions avec « ask_user », tu poses ici " +
+      "la fiche entière, en UN seul appel. Sans « id », un nouveau site est créé ; avec l'« id » d'un site existant, " +
+      "la fiche est corrigée et ce que tu ne redis pas est CONSERVÉ (un mot de passe déjà enregistré ne se perd pas). " +
+      "La fiche doit sauvegarder quelque chose : une base, des fichiers, ou les deux — sinon elle est refusée en " +
+      "disant ce qui manque. Les identifiants donnés servent à relire la base et les fichiers chaque nuit.",
+    inputSchema: {
+      type: 'object',
+      required: ['nom'],
+      properties: {
+        id: { type: 'string', description: "L'identifiant d'un site déjà enregistré, pour le corriger" },
+        nom: { type: 'string', description: 'Comment reconnaître ce site' },
+        projectId: { type: 'string', description: "Le projet de ce serveur dont ce site est la production (facultatif)" },
+        actif: { type: 'boolean', description: 'Un site éteint garde son historique mais ne tourne plus' },
+        base: {
+          type: 'object',
+          description: "La base de données du site. Sans base, mettre moteur « aucune ».",
+          properties: {
+            moteur: { type: 'string', enum: [...MOTEURS_BASE], description: 'aucune, mysql, postgres ou sqlite' },
+            hote: { type: 'string', description: "Machine de la base — vide vaut « la même que le site »" },
+            port: { type: 'string' },
+            nom: { type: 'string', description: 'Nom de la base, ou CHEMIN du fichier pour sqlite' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+        fichiers: {
+          type: 'object',
+          description: "Les fichiers du site. Sans fichiers, mettre moyen « aucun ».",
+          properties: {
+            moyen: { type: 'string', enum: [...MOYENS_FICHIERS], description: 'aucun, local, ssh ou ftp' },
+            chemin: { type: 'string', description: 'Le dossier à prendre, du côté du site' },
+            hote: { type: 'string' },
+            port: { type: 'string' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+        conservationJours: {
+          type: 'number',
+          description: `Au-delà de ce nombre de jours, un point de sauvegarde est jeté (${CONSERVATION_MIN} à ${CONSERVATION_MAX}, ${CONSERVATION_PAR_DEFAUT} par défaut)`,
+        },
+        note: { type: 'string', description: 'Ce que ce site contient et qui l’exploite, en une phrase' },
+      },
+    },
+  },
 ];
 
 /** Les outils réservés aux agents de tâche : le chef d'orchestre ne les voit pas. */
-export const TASK_ONLY_TOOLS = new Set(['remember']);
+export const TASK_ONLY_TOOLS = new Set(['remember', 'snapshot_site']);
 
 export function toolsFor(role: 'task' | 'orchestrator' | 'analysis' | 'deploy'): ToolDef[] {
   if (role === 'orchestrator') return TOOL_DEFS.filter((t) => !TASK_ONLY_TOOLS.has(t.name));
@@ -1444,6 +1503,41 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // bloquer la tâche en cours.
       synthetiserSiNecessaire(project.path);
       return { ok: true, text: 'Mémoire du projet mise à jour.' };
+    }
+
+    case 'snapshot_site': {
+      /*
+       * LE GESTE FINAL DE L'ASSISTANT DE CONFIGURATION. La fiche proposée par un
+       * modèle n'a AUCUN droit de plus qu'une fiche saisie au formulaire : elle
+       * passe par la même lecture (`ficheProposee`, qui traduit « MariaDB » en
+       * `mysql`) puis par le même jugement (`jugerSite`), et un refus REND LA
+       * RAISON — l'agent corrige et rappelle l'outil au lieu d'abandonner.
+       */
+      const ancienne = typeof args.id === 'string' && args.id.trim() ? lireSite(args.id.trim()) : null;
+      if (typeof args.id === 'string' && args.id.trim() && !ancienne) {
+        return { ok: false, text: `Aucun site à sauvegarder ne porte l'identifiant « ${args.id} ».` };
+      }
+      const fiche = ficheProposee(args, ancienne);
+      const jugement = jugerSite(fiche);
+      if (!jugement.ok) return { ok: false, text: `Fiche refusée : ${jugement.raison}. Corrige et rappelle l'outil.` };
+
+      const resultat = enregistrerSite(fiche);
+      if (!resultat.ok) return { ok: false, text: `Fiche refusée : ${resultat.raison}.` };
+
+      const site = resultat.site;
+      const morceaux = [
+        site.base.moteur !== 'aucune' ? `base ${LIBELLE_MOTEUR_BASE[site.base.moteur]} « ${site.base.nom} »` : null,
+        site.fichiers.moyen !== 'aucun'
+          ? `fichiers ${LIBELLE_MOYEN_FICHIERS[site.fichiers.moyen]} « ${site.fichiers.chemin} »`
+          : null,
+      ].filter(Boolean);
+      return {
+        ok: true,
+        text:
+          `${ancienne ? 'Fiche corrigée' : 'Site enregistré'} : « ${site.nom} » (identifiant ${site.id}). ` +
+          `Sauvegarde ${morceaux.join(' et ')}, gardés ${site.conservationJours} jours. ` +
+          'Le passage de nuit le prendra tout seul.',
+      };
     }
 
     case 'compta': {
