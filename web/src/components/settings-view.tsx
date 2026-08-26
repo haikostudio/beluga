@@ -1061,6 +1061,35 @@ function SectionFonctionnement({
         </Champ>
       </Groupe>
 
+      <Groupe titre={t('Snapshots des sites en production')}>
+        <Champ
+          label={t('Dossier du disque de stockage')}
+          aide={t('Le point de montage du disque, chemin absolu. Vide, aucun snapshot ne part.')}
+        >
+          <Input
+            defaultValue={settings.snapshotDossier ?? ''}
+            placeholder="/mnt/stockage/snapshots"
+            onBlur={(event) => update({ snapshotDossier: event.target.value.trim() })}
+          />
+        </Champ>
+        <Champ label={t('Heure du passage')} aide={t('De 0 à 23. Après la sauvegarde du démon, pas en même temps.')}>
+          <Input
+            type="number"
+            min={0}
+            max={23}
+            defaultValue={settings.snapshotHeure}
+            onBlur={(event) => update({ snapshotHeure: Number(event.target.value) })}
+          />
+        </Champ>
+        <label className="flex items-center gap-2 text-[14px] text-muted">
+          <Switch
+            checked={settings.snapshotAuto}
+            onCheckedChange={(checked) => update({ snapshotAuto: checked })}
+          />
+          {t('Sauvegarder les sites automatiquement chaque nuit')}
+        </label>
+      </Groupe>
+
       <Groupe titre={t('Ce dont on vous prévient')}>
         <div className="space-y-2">
           {(

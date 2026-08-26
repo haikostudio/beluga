@@ -11,6 +11,7 @@ import {
   FolderPlus,
   Github,
   GripVertical,
+  HardDriveDownload,
   Key,
   LayoutDashboard,
   Loader2,
@@ -88,6 +89,10 @@ const CoffreFort = React.lazy(() =>
   import('@/components/coffre-fort').then((m) => ({ default: m.CoffreFort })),
 );
 
+const Snapshots = React.lazy(() =>
+  import('@/components/snapshots').then((m) => ({ default: m.Snapshots })),
+);
+
 /** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
 type Entry =
   | { kind: 'project'; id: string; rank: number; project: Project }
@@ -118,6 +123,7 @@ export function Sidebar({
   const [showArchived, setShowArchived] = React.useState(false);
   const [archived, setArchived] = React.useState<Project[]>([]);
   const [coffreOuvert, setCoffreOuvert] = React.useState(false);
+  const [snapshotsOuverts, setSnapshotsOuverts] = React.useState(false);
 
   // Ce qui est replié est enregistré côté serveur, comme le reste.
   const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
@@ -438,6 +444,26 @@ export function Sidebar({
 
       <PanneauALaDemande monte={coffreOuvert}>
         <CoffreFort open={coffreOuvert} onClose={() => setCoffreOuvert(false)} />
+      </PanneauALaDemande>
+
+      {/* Sous le coffre-fort : les SNAPSHOTS des sites en production. Base et
+          fichiers de chaque site servi, sauvegardés sur le disque de stockage —
+          c'est un sujet du SERVEUR, pas d'un projet : il vit donc ici, au-dessus
+          de la liste, atteignable quel que soit le tableau ouvert. */}
+      <div className="px-1.5 pt-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          data-ouvrir-snapshots
+          className="w-full justify-start gap-2"
+          onClick={() => setSnapshotsOuverts(true)}
+        >
+          <HardDriveDownload className="h-3.5 w-3.5" />  {t('Snapshot')}
+</Button>
+      </div>
+
+      <PanneauALaDemande monte={snapshotsOuverts}>
+        <Snapshots open={snapshotsOuverts} onClose={() => setSnapshotsOuverts(false)} />
       </PanneauALaDemande>
 
       {/* Juste en dessous, toujours AU-DESSUS des projets : l'espace de
