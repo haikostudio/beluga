@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = 'http://127.0.0.1:7070';
@@ -15,11 +16,7 @@ const USER = process.env.HAIKODEV_USER;
 const PASS = process.env.HAIKODEV_PASSWORD;
 const SELF = RACINE;
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 async function login() {
   const res = await fetch(`${BASE}/auth/login`, {

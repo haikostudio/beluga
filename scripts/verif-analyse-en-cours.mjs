@@ -12,6 +12,7 @@ import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 // HAIKODEV_URL désigne le démon (version publiée) : l'essai a son propre nom.
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://127.0.0.1:7099';
@@ -20,11 +21,7 @@ const PROJET = process.env.HAIKODEV_PROJET || 'HaikoDev';
 const SHOTS = '/root/haikodev/data/verification';
 const TITRE = `Vérification automatique — analyse lisible ${Date.now().toString().slice(-5)}`;
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 async function main() {
   const db = new Database(DB);

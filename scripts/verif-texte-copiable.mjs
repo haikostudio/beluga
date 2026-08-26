@@ -30,6 +30,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 // Le dépôt d'où PART ce script — jamais /root/haikodev en dur.
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,11 +46,7 @@ const TITRE = `Carte d'essai — texte copiable ${MOT_SANS_COUPURE}`;
 const CARTE_ID = 'essai-texte-copiable';
 const MESSAGE = `Échec de la commande /root/haikodev/${MOT_SANS_COUPURE} — impossible d'écrire`;
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 /** Une session d'une heure : la colonne « token » garde le SHA-256 du cookie. */
 function poserSession(db) {

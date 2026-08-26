@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 // PIÈGE : HAIKODEV_URL désigne le démon (version publiée). L'essai a son nom.
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
@@ -32,11 +33,7 @@ const SHOTS = '/root/haikodev/data/verification';
  */
 const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 /** Une session d'essai : la colonne « token » garde le SHA-256 du cookie. */
 function poserSession(db) {

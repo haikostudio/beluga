@@ -14,6 +14,7 @@ import { chromium } from 'playwright';
 import { createRequire } from 'node:module';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const BASE = process.env.HAIKODEV_URL || 'http://localhost:7099';
 const SHOTS = '/root/haikodev/data/verification';
@@ -36,11 +37,7 @@ function poserSession() {
 // La session est posée au DERNIER moment, juste avant d'ouvrir la page : le
 // ménage des essais tourne en continu et emporterait une session posée trop tôt.
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 async function shot(page, name) {
   fs.mkdirSync(SHOTS, { recursive: true });

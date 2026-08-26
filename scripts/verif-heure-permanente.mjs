@@ -22,16 +22,13 @@ import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const BASE = process.env.HAIKO_HEURE_URL || 'http://localhost:7099';
 const DB = '/root/haikodev/data/haikodev.db';
 const SHOTS = '/root/haikodev/data/verification';
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 /** Une session de courte durée, posée en base : la vérification s'authentifie seule. */
 function poserSession(db) {

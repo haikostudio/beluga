@@ -13,6 +13,7 @@ import { chromium } from 'playwright';
 import Database from '/root/haikodev/node_modules/better-sqlite3/lib/index.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 /* HAIKODEV_URL désigne le démon, qui sert la version PUBLIÉE : l'adresse
    d'essai a son propre nom et vise le serveur de développement. */
@@ -20,11 +21,7 @@ const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
 const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
 const SHOTS = '/root/haikodev/data/verification';
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 /** Une session d'essai : la colonne « token » garde le SHA-256 du cookie. */
 function poserSession(db) {

@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
 const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
@@ -25,11 +26,7 @@ const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
  */
 const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 function poserSession(db) {
   const cookie = crypto.randomBytes(24).toString('hex');

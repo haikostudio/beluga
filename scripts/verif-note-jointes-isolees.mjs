@@ -27,16 +27,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7132';
 const DB = process.env.HAIKODEV_DB || '/root/haikodev/data/haikodev.db';
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 function poserSession(db) {
   const cookie = crypto.randomBytes(24).toString('hex');

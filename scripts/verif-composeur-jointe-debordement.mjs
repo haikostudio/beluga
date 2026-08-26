@@ -30,6 +30,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 // Le dépôt d'où PART ce script — jamais /root/haikodev en dur : lancé depuis
 // une copie de travail, il doit juger cette copie.
@@ -46,11 +47,7 @@ const SHOTS = '/root/haikodev/data/verification';
  */
 const lisible = (valeur) => (valeur || '').replace(/\u00A0/g, ' ');
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 /** Une session d'une heure : la colonne « token » garde le SHA-256 du cookie. */
 function poserSession(db) {

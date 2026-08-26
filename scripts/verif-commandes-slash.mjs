@@ -26,6 +26,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 /* Le dépôt d'où PART ce script, jamais un chemin écrit en dur. */
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -55,11 +56,7 @@ const BASE = process.env.HAIKODEV_VERIF_URL || 'http://localhost:7099';
 const DB = process.env.HAIKODEV_DB || path.join(depotPrincipal(), 'data', 'haikodev.db');
 const CACHE = path.join(os.tmpdir(), 'haikodev-releve-commandes-moteur.json');
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 /* ------------------------------------------------------------------ */
 /* 1. Ce que les programmes installés portent vraiment                  */

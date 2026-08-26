@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.HAIKODEV_AGENTS_URL || 'http://127.0.0.1:7070';
@@ -15,11 +16,7 @@ const PASS = process.env.HAIKODEV_PASSWORD;
 const SANDBOX = process.env.HAIKODEV_AGENTS_SANDBOX || path.join(RACINE, 'data', 'bac-a-sable');
 const ENGINE = process.env.HAIKODEV_AGENTS_ENGINE || 'claude';
 
-const results = [];
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
+const { results, record } = creerResultats();
 
 function terminer() {
   const failed = results.filter((r) => !r.ok);

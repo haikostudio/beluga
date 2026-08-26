@@ -5,19 +5,15 @@
  */
 import { chromium } from 'playwright';
 import fs from 'node:fs';
+import { creerResultats } from './lib/verif-resultats.mjs';
 
 const BASE = process.env.HAIKODEV_URL || 'https://haikodev.haikostudio.cloud';
 const USER = process.env.HAIKODEV_USER;
 const PASS = process.env.HAIKODEV_PASSWORD;
 const SHOTS = '/root/haikodev/data/verification';
 
-const results = [];
+const { results, record } = creerResultats();
 let browser;
-
-function record(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${name}${detail ? ` — ${detail}` : ''}`);
-}
 
 async function shot(page, name) {
   fs.mkdirSync(SHOTS, { recursive: true });
