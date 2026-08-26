@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * LE « + » DE « PLANIFIÉ » OUVRE UNE CONVERSATION, PAS UN FORMULAIRE.
+ * LA CARTE PERMANENTE « NOUVELLE TÂCHE » OUVRE UNE CONVERSATION.
  *
  *   node scripts/verif-carte-fil-cadrage.mjs
  *
@@ -9,14 +9,17 @@
  * n'est dépensé. Tout le parcours est joué à la souris, dans un vrai navigateur.
  *
  * Ce qui est vérifié :
- *   1. le clic sur « + » crée la carte TOUT DE SUITE et ouvre son tiroir sur la
- *      conversation — plus aucun titre à inventer dans un petit formulaire ;
+ *   1. la carte permanente « Nouvelle tâche » tient la tête de « Planifié », et
+ *      le clic dessus crée la carte TOUT DE SUITE en ouvrant son tiroir sur la
+ *      conversation ; la carte permanente reste en tête, prête pour la fois
+ *      suivante ;
  *   2. rien n'est encore parti au moteur : la conversation invite à dire ce
- *      qu'on veut faire, et le bouton « Lancer la tâche » est là mais éteint ;
+ *      qu'on veut faire, et AUCUN geste de lancement ne s'affiche encore ;
  *   3. un message ouvre un tour de CADRAGE, sur le modèle économe, et la carte
- *      ne bouge pas de « Planifié » ;
- *   4. le bouton s'allume alors, prend TOUTE la largeur de la barre d'écriture
- *      et se tient AU-DESSUS du champ de saisie ;
+ *      ne bouge pas de « Planifié » — ni en base, NI À L'ÉCRAN pendant le tour ;
+ *   4. les gestes de lancement paraissent alors AU-DESSUS du champ de saisie,
+ *      « Lancer la tâche » et « Dès que possible » sur la même rangée, et le
+ *      pied du tiroir ne les redit plus ;
  *   5. le clic lance la tâche : la carte passe en « En cours », prend son titre
  *      de la discussion, et l'agent d'exécution reçoit TOUTE la discussion en
  *      contexte de départ.
@@ -236,6 +239,8 @@ const demandesRecues = () =>
 /* ------------------------------------------------------------------ */
 
 const boutonLancer = (page) => page.locator('[data-lancer-la-tache]');
+const boutonAsap = (page) => page.locator('[data-des-que-possible]');
+const rangeeLancement = (page) => page.locator('[data-gestes-de-lancement]');
 const boutonPlus = (page) => page.locator('[data-nouvelle-carte="planned"]');
 
 async function main() {
@@ -265,7 +270,11 @@ async function main() {
 
   /* -------- 1. Le « + » crée la carte et ouvre sa conversation -------- */
 
-  noter('le « + » de « Planifié » est bien là', (await boutonPlus(page).count()) === 1);
+  noter(
+    'la carte permanente « Nouvelle tâche » tient la tête de « Planifié »',
+    (await page.locator('[data-column="planned"] [data-nouvelle-carte="planned"]').count()) === 1,
+  );
+  noter('et elle porte bien son nom', (await boutonPlus(page).innerText()).includes('Nouvelle tâche'));
   await boutonPlus(page).click();
   await page.waitForTimeout(3000);
 
@@ -301,10 +310,26 @@ async function main() {
     'le tiroir s’ouvre sur la conversation, et invite à dire ce qu’on veut faire',
     tiroir.includes('Dites ce que vous voulez faire'),
   );
-  noter('le bouton « Lancer la tâche » est déjà à sa place', (await boutonLancer(page).count()) === 1);
   noter(
-    'mais il attend qu’on ait parlé',
-    (await boutonLancer(page).getAttribute('aria-disabled')) === 'true',
+    'aucun geste de lancement tant que rien n’est dit',
+    (await rangeeLancement(page).count()) === 0 && (await boutonLancer(page).count()) === 0,
+  );
+  noter('et le pied du tiroir ne propose plus de lancer non plus', (await boutonAsap(page).count()) === 0);
+  /* La carte permanente reste en tête, PRÊTE POUR LA FOIS SUIVANTE : la carte
+     qui vient de naître se range dessous, la place du « + » n'est jamais
+     libre. */
+  const placeTenue = await page.evaluate((id) => {
+    const colonne = document.querySelector('[data-column="planned"]');
+    if (!colonne) return null;
+    const tuile = colonne.querySelector('[data-nouvelle-carte="planned"]');
+    const carte = colonne.querySelector(`[data-carte="${id}"]`);
+    if (!tuile || !carte) return null;
+    return { tuile: tuile.getBoundingClientRect().top, carte: carte.getBoundingClientRect().top };
+  }, nees[0]?.id);
+  noter(
+    'une « Nouvelle tâche » vierge attend toujours en tête, au-dessus de la carte créée',
+    !!placeTenue && placeTenue.tuile < placeTenue.carte,
+    placeTenue ? `tuile ${Math.round(placeTenue.tuile)}, carte ${Math.round(placeTenue.carte)}` : 'non mesuré',
   );
 
   /* -------- 3. Un message ouvre le tour de cadrage -------- */
@@ -313,7 +338,28 @@ async function main() {
   await champ.click();
   await champ.fill(DEMANDE);
   await page.keyboard.press('Enter');
-  await page.waitForTimeout(9000);
+
+  /*
+   * PENDANT TOUT LE TOUR DE CADRAGE, la carte reste RANGÉE DANS « PLANIFIÉ » À
+   * L'ÉCRAN. C'était le bug : discuter n'est pas travailler, et pourtant la
+   * carte sautait dans « En cours » dès le premier tour — sans qu'on ait jamais
+   * cliqué sur « Lancer la tâche ». On échantillonne le tableau PENDANT que le
+   * tour tourne, au lieu de ne regarder qu'à la fin.
+   */
+  let vueAilleurs = null;
+  for (let i = 0; i < 24 && vueAilleurs === null; i += 1) {
+    await page.waitForTimeout(400);
+    const ou = await page.evaluate((id) => {
+      const carte = document.querySelector(`[data-carte="${id}"]`);
+      return carte?.closest('[data-column]')?.getAttribute('data-column') ?? null;
+    }, nees[0]?.id);
+    if (ou && ou !== 'planned') vueAilleurs = ou;
+  }
+  noter(
+    'pendant le cadrage, la carte reste AFFICHÉE dans « Planifié »',
+    vueAilleurs === null,
+    vueAilleurs ? `vue dans « ${vueAilleurs} »` : 'jamais vue ailleurs',
+  );
 
   const apresCadrage = cartes()[0];
   noter('la carte n’a pas bougé de « Planifié »', apresCadrage?.column_key === 'planned', apresCadrage?.column_key ?? '—');
@@ -331,18 +377,30 @@ async function main() {
 
   /* -------- 4. Le bouton s'allume, en pleine largeur, au-dessus du champ -------- */
 
-  noter('le bouton s’allume une fois la demande dite', (await boutonLancer(page).getAttribute('aria-disabled')) === 'false');
+  noter('les gestes de lancement paraissent une fois la demande dite', (await rangeeLancement(page).count()) === 1);
+  noter('le bouton s’allume', (await boutonLancer(page).getAttribute('aria-disabled')) === 'false');
+  noter(
+    '« Dès que possible » l’accompagne, et une seule fois dans tout le tiroir',
+    (await boutonAsap(page).count()) === 1,
+  );
+  const cadreRangee = await rangeeLancement(page).boundingBox();
   const cadreBouton = await boutonLancer(page).boundingBox();
+  const cadreAsap = await boutonAsap(page).boundingBox();
   const cadreChamp = await champ.boundingBox();
   noter(
-    'il se tient AU-DESSUS du champ de saisie',
-    !!cadreBouton && !!cadreChamp && cadreBouton.y + cadreBouton.height <= cadreChamp.y + 2,
-    cadreBouton && cadreChamp ? `bouton ${Math.round(cadreBouton.y)}, champ ${Math.round(cadreChamp.y)}` : 'non mesuré',
+    'ils se tiennent AU-DESSUS du champ de saisie',
+    !!cadreRangee && !!cadreChamp && cadreRangee.y + cadreRangee.height <= cadreChamp.y + 2,
+    cadreRangee && cadreChamp ? `rangée ${Math.round(cadreRangee.y)}, champ ${Math.round(cadreChamp.y)}` : 'non mesuré',
   );
   noter(
-    'et il prend TOUTE la largeur de la barre d’écriture',
-    !!cadreBouton && !!cadreChamp && Math.abs(cadreBouton.width - cadreChamp.width) < 24,
-    cadreBouton && cadreChamp ? `${Math.round(cadreBouton.width)} px contre ${Math.round(cadreChamp.width)} px` : 'non mesuré',
+    'la rangée prend TOUTE la largeur de la barre d’écriture',
+    !!cadreRangee && !!cadreChamp && Math.abs(cadreRangee.width - cadreChamp.width) < 24,
+    cadreRangee && cadreChamp ? `${Math.round(cadreRangee.width)} px contre ${Math.round(cadreChamp.width)} px` : 'non mesuré',
+  );
+  noter(
+    'et les deux gestes sont CÔTE À CÔTE, sur la même ligne',
+    !!cadreBouton && !!cadreAsap && Math.abs(cadreBouton.y - cadreAsap.y) < 6 && cadreAsap.x > cadreBouton.x,
+    cadreBouton && cadreAsap ? `lancer x=${Math.round(cadreBouton.x)}, file x=${Math.round(cadreAsap.x)}` : 'non mesuré',
   );
 
   /* -------- 5. Le clic lance la tâche, discussion comprise -------- */
