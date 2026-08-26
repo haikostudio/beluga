@@ -3924,6 +3924,22 @@ NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'apr
 SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
 
 /**
+ * CE QUE L'AGENT DE CADRAGE ÉCRIT, annoncé au modèle.
+ *
+ * Sa frontière ne tient pas à un DOSSIER mais à la NATURE du fichier
+ * (`cheminDuDocument`, `shared/src/documents-de-cadrage.ts`) : les DOCUMENTS
+ * partout, le CODE jamais. Cette consigne lui évite de buter sur un refus, et
+ * lui dit pourquoi le dossier des plans reste le rangement par défaut — ce
+ * qu'il y écrit revient tout seul au lancement de la carte, par la recherche de
+ * passages. Elle ne part qu'en MODE PLAN : c'est le seul moment où on lui
+ * demande d'écrire un fichier.
+ */
+export const CONSIGNE_DOCUMENTS = `TES DOCUMENTS S'ÉCRIVENT AVEC L'OUTIL « write_document », ET IL ÉCRIT PARTOUT DANS LE PROJET : documentation, mémoire, fichier d'instructions, compte-rendu, plan — tout ce qui est du TEXTE (${EXTENSIONS_DOCUMENT.join(', ')}) se crée, se remplace et se SUPPRIME (\`action: "supprimer"\`) sans carte et sans permission à demander. C'est ton seul geste d'écriture, et le seul qui survive à la conversation.
+LE CODE RESTE FERMÉ, et lui seul : un fichier de programme, de configuration ou de script se crée, se modifie et s'efface par une CARTE confiée à un agent de tâche. L'outil refuse de toute façon toute autre extension que celles ci-dessus.
+POUR MODIFIER un document existant, relis-le d'abord (« Read »), puis réécris-le ENTIER sous le MÊME chemin — « write_document » remplace le fichier, il n'ajoute pas à la fin.
+UN NOM SANS DOSSIER EST RANGÉ DANS « ${DOSSIER_PLANS}/ » : c'est là que vivent tes plans, et CE DOSSIER EST RELU PAR LA RECHERCHE — au lancement d'une carte sur le même sujet, ton plan remonte tout seul dans le contexte de l'agent qui l'exécute. Pour écrire ailleurs, donne le chemin entier (« docs/memoire/cartes.md », « README.md »).`;
+
+/**
  * LE MODE PLAN de l'agent de CADRAGE, tant que le bouton « Plan » du composeur
  * est activé (`RunConfig.mode`). Le but n'est plus d'écrire la carte au fil de
  * la discussion mais de rendre un PLAN COMPLET, lisible par un lecteur non
@@ -4020,7 +4036,7 @@ export function rolePrompt(
    */
   if (role === 'cadrage') {
     return `${CONSIGNE_CADRAGE}
-${mode === 'plan' ? `\n${CONSIGNE_MODE_PLAN}\n` : ''}
+${mode === 'plan' ? `\n${CONSIGNE_MODE_PLAN}\n\n${CONSIGNE_DOCUMENTS}\n` : ''}
 UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : une question écrite à la fin de ta réponse ne réveille personne. Ce qui peut être tranché se tranche : tu annonces ton choix en une ligne et tu continues.
 
 ${SILENCE_IDENTIFIANTS}`;

@@ -154,7 +154,7 @@ verifier(!fs.existsSync(path.join(dossier, 'CLAUDE.md')), 'aucun doublon dans le
 /* ------------------------------------------------------------------ */
 
 console.log('\n4. Le chef sait ce qu’il écrit');
-const consigne = runtime.rolePrompt('cadrage', false);
+const consigne = runtime.rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
 verifier(consigne.includes(partage.DOSSIER_PLANS), 'sa consigne nomme le dossier des plans');
 verifier(/LE CODE RESTE FERMÉ/.test(consigne), 'sa consigne dit que le code lui reste fermé');
 verifier(/supprimer/i.test(consigne), 'sa consigne lui dit qu’il peut supprimer un document');
@@ -170,4 +170,4 @@ if (echecs.length) {
   console.error(`${echecs.length} contrôle(s) en échec.`);
   process.exit(1);
 }
-console.log('Tous les contrôles des plans du chef sont au vert.');
+console.log('Tous les contrôles des plans du cadrage sont au vert.');
