@@ -1,7 +1,7 @@
 /**
  * « Ça, c'est pour quel projet ? »
  *
- * Une phrase dictée n'a pas de destinataire : le chef d'orchestre est attaché à
+ * Une phrase dictée n'a pas de destinataire : une conversation est attachée à
  * UN projet, et rien ne disait où déposer « ajoute un bouton de partage ». Ce
  * fichier tranche, sans base, sans réseau et SANS moteur payant : il compare la
  * phrase aux noms des projets ouverts et rend soit le projet, soit la question
@@ -255,7 +255,7 @@ export function routerLaDemande(texte: string, projets: ProjetJoignable[]): Rout
   const reste = projet ? resteApresLeNom(mots(texte), projet) : [];
   if (reste.length < MOTS_MIN_ACTION) {
     return {
-      question: `Que dois-je demander au chef d'orchestre de « ${projet?.name ?? 'ce projet'} » ?`,
+      question: `Que dois-je demander pour « ${projet?.name ?? 'ce projet'} » ?`,
       candidats: [],
       // Le projet est retenu : c'est l'action qui manque, pas la destination.
       projetRetenu: choix.projectId,

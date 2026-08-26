@@ -3,7 +3,7 @@
  * L'ASSISTANT VOCAL GLOBAL : où va la phrase dictée ?
  *
  * Cinq choses vérifiées sur un vrai démon :
- *   1. une phrase qui NOMME un projet arrive dans le chef d'orchestre de CE
+ *   1. une phrase qui NOMME un projet ouvre une carte de cadrage dans CE
  *      projet, et le tour part ;
  *   2. une phrase VAGUE ne dépose rien : elle pose une question, qui compte
  *      comme décision attendue (l'événement « attention » part) ;
@@ -267,7 +267,7 @@ async function main() {
     JSON.stringify(nomme),
   );
   noter(
-    'le fil du chef d’orchestre montre la phrase telle qu’elle a été comprise',
+    'le fil de la carte de cadrage montre la phrase telle qu’elle a été comprise',
     await attendreDepot('p-boutique', 'bouton de partage'),
   );
   const suiteBoutique = messagesDuProjet('p-boutique');
