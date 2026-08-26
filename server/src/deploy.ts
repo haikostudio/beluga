@@ -479,7 +479,6 @@ export type AgentOccupe = { id: string; title: string };
 export function agentsOccupes(projectId: string): AgentOccupe[] {
   return store
     .listAgents(projectId)
-    .filter((agent) => agent.role !== 'orchestrator')
     .filter(
       (agent) =>
         agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined,

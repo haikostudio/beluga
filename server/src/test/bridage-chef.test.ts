@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FONCTIONNALITES_DE_FOND,
-  chefBride,
+  agentBride,
   outilsDuProjet,
   outilsNatifs,
   reglagesClaudeDuChef,
-  surchargesCodexDuChef,
+  surchargesCodexBridees,
 } from '@haikodev/shared';
 import { buildCodexArgs } from '../engines/codex.js';
 import { buildClaudeArgs } from '../engines/claude.js';
@@ -45,7 +45,7 @@ test('les deux listes partent au moteur, pour Claude COMME pour Codex', () => {
   // Le défaut d'origine : Codex ne lisait ni l'une ni l'autre, et le chef y
   // écrivait des fichiers.
   const codex = buildCodexArgs(tourDuChef()).join(' ');
-  for (const surcharge of surchargesCodexDuChef(tourDuChef())) {
+  for (const surcharge of surchargesCodexBridees(tourDuChef())) {
     assert.ok(codex.includes(surcharge), `Codex doit recevoir « ${surcharge} »`);
   }
 });
@@ -54,7 +54,7 @@ test('sous Codex, le chef lance tout ce qu’il veut, sans travail de fond', () 
   for (const reprise of [undefined, 'fil-1']) {
     const codex = buildCodexArgs(tourDuChef({ sessionId: reprise })).join(' ');
     // ACCÈS COMPLET : construire, installer, déployer, redémarrer, administrer.
-    // Un bac à sable bloquait ces gestes-là, jamais le code (voir bridage-chef.ts).
+    // Un bac à sable bloquait ces gestes-là, jamais le code (voir bridage-cadrage.ts).
     assert.ok(codex.includes('sandbox_mode="danger-full-access"'), 'le chef a l\'accès complet');
     assert.ok(!codex.includes('sandbox_mode="read-only"'), 'le chef n\'est pas muré en lecture seule');
     assert.ok(
@@ -103,8 +103,8 @@ test('sous Codex, la facturation est énumérée parmi les outils permis au chef
 });
 
 test('le bridage ne mord jamais sur un agent de tâche', () => {
-  assert.equal(chefBride(tourDeTache()), false);
-  assert.deepEqual(surchargesCodexDuChef(tourDeTache()), []);
+  assert.equal(agentBride(tourDeTache()), false);
+  assert.deepEqual(surchargesCodexBridees(tourDeTache()), []);
   assert.equal(reglagesClaudeDuChef(tourDeTache()), null, 'aucun bac à sable imposé à un agent de tâche');
   const codex = buildCodexArgs(tourDeTache()).join(' ');
   assert.ok(codex.includes('--dangerously-bypass-approvals-and-sandbox'), 'un agent de tâche garde son accès complet');

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  choixDuChefSousPlafond,
+  choixSousPlafond,
   dedoublonnerModeles,
   limiterAuxPlusRecents,
   EngineId,
@@ -423,7 +423,7 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
  * Il n'ouvre plus le projet, ne chiffre plus : payer un modèle de raisonnement
  * pour ce geste-là revenait à payer une analyse à chaque message.
  */
-export function orchestratorModel(engine: EngineId, models: ModelInfo[]): string | undefined {
+export function modeleEconome(engine: EngineId, models: ModelInfo[]): string | undefined {
   if (!models.length) return undefined;
 
   const wanted = engine === 'codex' ? 'gpt-5.4' : engine === 'cursor' ? 'composer-2.5' : 'haiku-4.5';
@@ -443,18 +443,18 @@ export function orchestratorModel(engine: EngineId, models: ModelInfo[]): string
  * fois à l'écran valait ensuite pour tous les projets et pour toujours — 25 %
  * de la consommation Claude du serveur passait à trier des demandes sur Opus 5
  * en réflexion haute (relevé du 17/08/2026). La règle est pure et vit dans
- * `shared/src/chef-econome.ts` : un modèle économe choisi à la main est
+ * `shared/src/modele-econome.ts` : un modèle économe choisi à la main est
  * respecté, un modèle gourmand est ramené sur l'épinglé.
  */
-export function orchestratorChoice(
+export function choixEconome(
   engine: EngineId,
   models: ModelInfo[],
   memorisedModel?: string,
   memorisedThinking?: string,
 ): { model: string | undefined; thinking: string; ramene?: string } {
-  const epingle = orchestratorModel(engine, models);
+  const epingle = modeleEconome(engine, models);
   const retenu = memorisedModel ? resolveModel(models, memorisedModel) : epingle;
-  const sousPlafond = choixDuChefSousPlafond({
+  const sousPlafond = choixSousPlafond({
     modeleRetenu: retenu,
     reflexionRetenue: memorisedModel ? memorisedThinking : 'medium',
     epingle,

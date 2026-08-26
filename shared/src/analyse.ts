@@ -75,8 +75,6 @@ export function titreDeBloc(role: string | undefined): string {
       return 'Cadrage de la tâche';
     case 'deploy':
       return 'Publication';
-    case 'orchestrator':
-      return 'Chef d’orchestre';
     default:
       return 'Exécution de la tâche';
   }

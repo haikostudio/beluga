@@ -26,7 +26,7 @@
 export const ORDRE_DE_REFLEXION = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 /** Le cran de réflexion que le chef ne dépasse jamais. */
-export const REFLEXION_MAX_DU_CHEF = 'medium';
+export const REFLEXION_MAX_ECONOME = 'medium';
 
 /**
  * Les familles reconnues comme gourmandes quand le catalogue n'annonce pas
@@ -41,7 +41,7 @@ export interface ModeleDuCatalogue {
 }
 
 /** Ce modèle est-il trop gourmand pour un travail de tri ? */
-export function modeleTropGourmandPourLeChef(modele: ModeleDuCatalogue | undefined): boolean {
+export function modeleTropGourmand(modele: ModeleDuCatalogue | undefined): boolean {
   if (!modele) return false;
   if (modele.appetite) return modele.appetite === 'heavy';
   return FAMILLES_GOURMANDES.some((famille) => famille.test(modele.id));
@@ -57,9 +57,9 @@ function rangDeReflexion(cran: string | undefined): number {
  * La réflexion ramenée sous le plafond du chef. Un cran déjà en dessous ne
  * bouge pas ; un cran absent laisse le moteur décider comme avant.
  */
-export function reflexionDuChef(cran: string | undefined): string | undefined {
+export function reflexionEconome(cran: string | undefined): string | undefined {
   if (cran === undefined) return undefined;
-  return rangDeReflexion(cran) > rangDeReflexion(REFLEXION_MAX_DU_CHEF) ? REFLEXION_MAX_DU_CHEF : cran;
+  return rangDeReflexion(cran) > rangDeReflexion(REFLEXION_MAX_ECONOME) ? REFLEXION_MAX_ECONOME : cran;
 }
 
 export interface ChoixRamene {
@@ -76,17 +76,17 @@ export interface ChoixRamene {
  * code a choisi pour ce moteur ; c'est lui qui reprend la main quand le souvenir
  * est trop cher.
  */
-export function choixDuChefSousPlafond(entree: {
+export function choixSousPlafond(entree: {
   modeleRetenu: string | undefined;
   reflexionRetenue: string | undefined;
   epingle: string | undefined;
   catalogue: readonly ModeleDuCatalogue[];
 }): ChoixRamene {
   const modele = entree.catalogue.find((m) => m.id === entree.modeleRetenu);
-  const tropGourmand = modeleTropGourmandPourLeChef(modele);
+  const tropGourmand = modeleTropGourmand(modele);
 
   const model = tropGourmand && entree.epingle ? entree.epingle : entree.modeleRetenu;
-  const thinking = reflexionDuChef(entree.reflexionRetenue);
+  const thinking = reflexionEconome(entree.reflexionRetenue);
 
   const causes: string[] = [];
   if (model !== entree.modeleRetenu) causes.push(`modèle ${entree.modeleRetenu} → ${model} (trop gourmand pour un tri)`);

@@ -4,7 +4,7 @@
  * Le chef d'orchestre a l'ACCÈS COMPLET à la machine : il construit, installe,
  * déploie, redémarre, administre. Sa seule frontière est de ne pas modifier
  * lui-même du code, et elle tient sur les outils d'édition, pas sur le disque
- * (`shared/src/bridage-chef.ts`). Le bac à sable qui l'enfermait a été retiré le
+ * (`shared/src/bridage-cadrage.ts`). Le bac à sable qui l'enfermait a été retiré le
  * 11/08/2026 : il bloquait justement les gestes qu'on veut lui ouvrir.
  *
  * Restent les refus RÉELS, ceux de la machine elle-même : un fichier appartenant
@@ -114,7 +114,7 @@ export function expliquerRefus(nature: NatureDuRefus, projet?: string): string {
  * seul premier : une conversation ouverte depuis des jours garderait sinon les
  * croyances de son premier tour, longtemps après que le code les a démenties.
  */
-export function consigneEspaceDuChef(dossierDeTravail: string, projet: string): string {
+export function consigneEspaceDeCadrage(dossierDeTravail: string, projet: string): string {
   return (
     `TON ESPACE DE TRAVAIL : tu as l'ACCÈS COMPLET à cette machine. Tu lances les commandes que tu ` +
     `veux — sondages, études, construction, installation de dépendances, script de déploiement, ` +

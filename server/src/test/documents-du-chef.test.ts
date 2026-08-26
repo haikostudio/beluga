@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DOSSIER_PLANS, cheminDuDocumentDuChef, estUnDocument, nomDeFichierPropre } from '@haikodev/shared';
+import { DOSSIER_PLANS, cheminDuDocument, estUnDocument, nomDeFichierPropre } from '@haikodev/shared';
 
 /*
  * `../runtime.js` importe `../config.js` en cascade (via `../store.js`) : un
@@ -12,7 +12,7 @@ import { DOSSIER_PLANS, cheminDuDocumentDuChef, estUnDocument, nomDeFichierPropr
  * `PATHS.db` avant même d'être redirigée. D'où l'import dynamique, comme pour
  * `store.js` et `tools.js` juste en dessous.
  */
-const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'documents-du-chef-'));
+const bacASable = fs.mkdtempSync(path.join(os.tmpdir(), 'documents-de-cadrage-'));
 process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
@@ -39,42 +39,42 @@ function projetDEssai() {
 /* ------------------------------------------------------------------ */
 
 test('un nom simple est rangé d’office dans le dossier des plans', () => {
-  const choix = cheminDuDocumentDuChef('refonte-accueil');
+  const choix = cheminDuDocument('refonte-accueil');
   assert.equal(choix.ok, true);
   assert.equal(choix.ok && choix.chemin, `${DOSSIER_PLANS}/refonte-accueil.md`);
   assert.equal(choix.ok && choix.parDefaut, true, 'le dossier des plans a été posé d’office');
 });
 
 test('le dossier déjà écrit n’est pas redoublé', () => {
-  const choix = cheminDuDocumentDuChef(`${DOSSIER_PLANS}/refonte-accueil.md`);
+  const choix = cheminDuDocument(`${DOSSIER_PLANS}/refonte-accueil.md`);
   assert.equal(choix.ok && choix.chemin, `${DOSSIER_PLANS}/refonte-accueil.md`);
 });
 
 test('un nom porté par un humain devient un nom de fichier propre', () => {
   assert.equal(nomDeFichierPropre('Plan : refonte de l’accueil'), 'plan-refonte-de-l-accueil');
-  const choix = cheminDuDocumentDuChef('Plan : refonte de l’accueil');
+  const choix = cheminDuDocument('Plan : refonte de l’accueil');
   assert.equal(choix.ok && choix.chemin, `${DOSSIER_PLANS}/plan-refonte-de-l-accueil.md`);
 });
 
 test('un DOCUMENT s’écrit n’importe où dans le projet, dossier nommé', () => {
   for (const chemin of ['docs/regles/cartes.md', 'docs/memoire/cartes.md', 'docs/audit/2026/bilan.txt']) {
-    const choix = cheminDuDocumentDuChef(chemin);
+    const choix = cheminDuDocument(chemin);
     assert.equal(choix.ok, true, `« ${chemin} » aurait dû être accepté`);
     assert.equal(choix.ok && choix.chemin, chemin);
   }
 });
 
 test('un fichier de la racine qui EXISTE déjà se modifie sous son nom nu', () => {
-  const choix = cheminDuDocumentDuChef('CLAUDE.md', (rel) => rel === 'CLAUDE.md');
+  const choix = cheminDuDocument('CLAUDE.md', (rel) => rel === 'CLAUDE.md');
   assert.equal(choix.ok && choix.chemin, 'CLAUDE.md');
   // Sans fichier connu, le même nom reste un plan.
-  const sansFichier = cheminDuDocumentDuChef('CLAUDE.md');
+  const sansFichier = cheminDuDocument('CLAUDE.md');
   assert.equal(sansFichier.ok && sansFichier.chemin, `${DOSSIER_PLANS}/CLAUDE.md`);
 });
 
 test('le CODE reste fermé, quelle que soit sa place', () => {
   for (const chemin of ['runtime.ts', 'server/src/runtime.ts', 'package.json', 'scripts/verif.mjs', 'style.css']) {
-    const choix = cheminDuDocumentDuChef(chemin);
+    const choix = cheminDuDocument(chemin);
     assert.equal(choix.ok, false, `« ${chemin} » aurait dû être refusé`);
     assert.match(!choix.ok ? choix.raison : '', /document|carte/i);
   }
@@ -82,7 +82,7 @@ test('le CODE reste fermé, quelle que soit sa place', () => {
 
 test('on ne sort pas du projet, on ne touche ni au caché ni aux dossiers de machine', () => {
   for (const chemin of ['../ailleurs.md', '/etc/passwd.md', '.git/config.md', 'node_modules/paquet/lisez.md']) {
-    const choix = cheminDuDocumentDuChef(chemin);
+    const choix = cheminDuDocument(chemin);
     assert.equal(choix.ok, false, `« ${chemin} » aurait dû être refusé`);
     assert.match(!choix.ok ? choix.raison : '', /refus/i);
   }

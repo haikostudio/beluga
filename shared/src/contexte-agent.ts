@@ -70,7 +70,6 @@ export const PLAFOND_CONTEXTE_JETONS = 100_000;
  * coûte ce fil entier, à chaque tri.
  */
 export const PLAFOND_CONTEXTE_PAR_ROLE: Record<string, number> = {
-  orchestrator: 60_000,
 };
 
 /** Le plafond en jetons qui s'applique à un rôle. */

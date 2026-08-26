@@ -4,12 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
-  chefBride,
+  agentBride,
   delaiOutilMoteurMs,
   enteteDuTour,
   modePlanFermeLEcriture,
   serveursTiers,
-  surchargesCodexDuChef,
+  surchargesCodexBridees,
 } from '@haikodev/shared';
 import {
   EngineAdapter,
@@ -210,9 +210,9 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
    * simplement IGNORÉES, et le chef y écrivait des fichiers là où le même chef
    * sous Claude ne le pouvait pas. Elles sont traduites en surcharges de
    * configuration (outils du projet énumérés, bac à sable en lecture seule,
-   * travaux de fond éteints) — voir `shared/src/bridage-chef.ts`.
+   * travaux de fond éteints) — voir `shared/src/bridage-cadrage.ts`.
    */
-  const bride = chefBride(options);
+  const bride = agentBride(options);
   // Le mode plan ne ferme l'écriture QUE pour les agents qui travaillent dans le
   // dépôt : le chef, lui, est déjà tenu par son bac à sable, et la lecture seule
   // lui retirait ses propres outils (`modePlanFermeLEcriture`).
@@ -232,7 +232,7 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   }
   // Bridé : le bac à sable vient des surcharges, valables en reprise comme au
   // premier tour — une seule écriture de la règle, pas deux.
-  for (const surcharge of surchargesCodexDuChef(options)) args.push('-c', surcharge);
+  for (const surcharge of surchargesCodexBridees(options)) args.push('-c', surcharge);
   if (options.mcpBridgePath) {
     // Codex reçoit ses serveurs d'outils par surcharge de configuration, et il
     // veut la COMMANDE à lancer : le pont lui-même, jamais le fichier de

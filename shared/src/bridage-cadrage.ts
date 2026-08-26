@@ -23,7 +23,7 @@
  *   1. les outils d'ÉDITION de fichiers (« Edit », « Write », « NotebookEdit »)
  *      restent INTERDITS au chef — c'est là que se modifie du code ;
  *   2. `write_document` n'accepte que des extensions de TEXTE : un fichier de
- *      programme est refusé par la liste (`shared/src/documents-du-chef.ts`) ;
+ *      programme est refusé par la liste (`shared/src/documents-de-cadrage.ts`) ;
  *   3. les outils du projet réservés aux agents de tâche restent hors de sa
  *      portée (`mcp_servers.haikodev.enabled_tools` / `disabled_tools` pour
  *      Codex ; `--allowedTools` / `--disallowedTools` pour Claude) ;
@@ -38,13 +38,13 @@
 export const PREFIXE_OUTIL_PROJET = 'mcp__haikodev__';
 
 /** Ce que le démon passe à un moteur pour brider un chef d'orchestre. */
-export type ListesDuChef = {
+export type ListesDOutils = {
   allowedTools?: string[];
   disallowedTools?: string[];
 };
 
 /** Le chef est-il bridé sur ce tour ? Une seule question, un seul endroit. */
-export function chefBride(listes: ListesDuChef): boolean {
+export function agentBride(listes: ListesDOutils): boolean {
   return Boolean(listes.allowedTools?.length || listes.disallowedTools?.length);
 }
 
@@ -74,8 +74,8 @@ export const FONCTIONNALITES_DE_FOND = ['multi_agent', 'multi_agent_v2', 'enable
  * forme `clé=valeur` attendue derrière `-c`. Liste vide quand le chef n'est pas
  * bridé — un agent de tâche garde son accès complet, dans les deux moteurs.
  */
-export function surchargesCodexDuChef(listes: ListesDuChef): string[] {
-  if (!chefBride(listes)) return [];
+export function surchargesCodexBridees(listes: ListesDOutils): string[] {
+  if (!agentBride(listes)) return [];
   const surcharges: string[] = [];
   const permis = outilsDuProjet(listes.allowedTools);
   const interdits = outilsDuProjet(listes.disallowedTools);
@@ -108,11 +108,11 @@ export function surchargesCodexDuChef(listes: ListesDuChef): string[] {
  * chef par `orchestratorDenyList` — voir l'entête de ce fichier.
  */
 export function reglagesClaudeDuChef(
-  listes: ListesDuChef,
+  listes: ListesDOutils,
   /** La racine du projet, ouverte au chef pour qu'il la lise et y travaille. */
   projectRoot?: string,
 ): Record<string, unknown> | null {
-  if (!chefBride(listes)) return null;
+  if (!agentBride(listes)) return null;
   void projectRoot;
   return {
     sandbox: { enabled: false },

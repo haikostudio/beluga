@@ -72,7 +72,6 @@ import { reprendreSurCompte } from './reprise-compte.js';
 import { repondreErreurDeTour } from './erreur-de-tour.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, arreterLAgent, stopAllAgents, isRunning } from './runtime.js';
-import { getOrCreateOrchestrator } from './orchestrator.js';
 import { ouvrirLeCadrage } from './cadrage.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
@@ -800,12 +799,6 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: !!projet };
     }
 
-    case 'agent.orchestrator': {
-      const agent = await getOrCreateOrchestrator(cmd.projectId);
-      envoyerConversation(agent.id, cmd.tout);
-      return { agent };
-    }
-
     /*
      * REPARTIR DE ZÉRO. Le fil d'avant n'est pas supprimé : un repère de temps
      * le range derrière un lien. Ce qui repart vraiment de zéro, c'est la
@@ -1057,13 +1050,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       });
       bus.emit({ type: 'agent.upsert', agent: updated });
 
-      // Le réglage d'un chef d'orchestre devient le réglage retenu : les chefs
-      // d'orchestre créés ensuite le reprennent au lieu du modèle épinglé.
-      if (agent.role === 'orchestrator') {
+      // Le réglage d'un agent de cadrage devient le réglage retenu : les
+      // cadrages ouverts ensuite le reprennent au lieu du modèle épinglé.
+      if (agent.role === 'cadrage') {
         const settings = store.saveSettings({
-          orchestratorEngine: run.engine,
-          orchestratorModel: run.model,
-          orchestratorThinking: run.thinking,
+          cadrageEngine: run.engine,
+          cadrageModel: run.model,
+          cadrageThinking: run.thinking,
         });
         bus.emit({ type: 'settings', settings });
       }

@@ -6,10 +6,9 @@
  * discute le besoin, écrit le titre, la description et le niveau d'exécution de
  * la carte, et s'arrête là — il ne code pas, la carte n'a pas de branche.
  *
- * Son MODÈLE est celui du chef d'orchestre : épinglé économe (Haiku 4.5 sous
- * Claude, GPT-5.4 sous Codex), parce que ce tour-là ne lit pas le projet. La
- * règle qui plafonne le chef vaut donc ici mot pour mot
- * (`shared/src/chef-econome.ts`).
+ * Son MODÈLE est ÉPINGLÉ économe (Haiku 4.5 sous Claude, GPT-5.4 sous Codex),
+ * parce que ce tour-là ne lit pas le projet : la règle qui plafonne ce choix vit
+ * dans `shared/src/modele-econome.ts`.
  *
  * RIEN NE PART AU MOTEUR À LA CRÉATION : l'agent existe, sa conversation est
  * vide, et le premier tour n'a lieu qu'au premier message de l'utilisateur.
@@ -20,7 +19,7 @@ import * as store from './store.js';
 import { createAgent } from './runtime.js';
 import { bus } from './bus.js';
 import { listEngines } from './engines/index.js';
-import { orchestratorChoice, resolveModel } from './engines/catalog.js';
+import { choixEconome, resolveModel } from './engines/catalog.js';
 
 /**
  * L'agent de cadrage d'une carte, créé s'il n'existe pas encore.
@@ -47,14 +46,14 @@ export async function ouvrirLeCadrage(cardId: string): Promise<Agent | null> {
   const engineId = card.run?.engine ?? project?.defaultEngine ?? 'claude';
   const engine = engines.find((e) => e.id === engineId) ?? engines[0];
   const memorise =
-    settings.orchestratorEngine === engineId && settings.orchestratorModel
-      ? resolveModel(engine?.models ?? [], settings.orchestratorModel)
+    settings.cadrageEngine === engineId && settings.cadrageModel
+      ? resolveModel(engine?.models ?? [], settings.cadrageModel)
       : undefined;
-  const { model, thinking } = orchestratorChoice(
+  const { model, thinking } = choixEconome(
     engine?.id ?? 'claude',
     engine?.models ?? [],
     memorise,
-    settings.orchestratorThinking,
+    settings.cadrageThinking,
   );
 
   const agent = createAgent({

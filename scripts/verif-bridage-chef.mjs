@@ -18,7 +18,7 @@
  *   4. que l'outil réservé aux agents de tâche (« remember ») n'est pas servi, et
  *      que l'outil d'ÉDITION ne peut pas écrire un fichier de code.
  *
- *   node scripts/verif-bridage-chef.mjs
+ *   node scripts/verif-bridage-cadrage.mjs
  *
  * Consomme un petit tour de quota par moteur. N'écrit rien hors de son dossier
  * d'essai, ne touche ni à la base ni au tableau : le pont d'outils est un pont

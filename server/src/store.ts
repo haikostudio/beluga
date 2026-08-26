@@ -769,13 +769,6 @@ export function getLastAgentByCard(cardId: string): Agent | null {
   return row ? Agent.parse(JSON.parse(row.data)) : null;
 }
 
-export function getOrchestrator(projectId: string): Agent | null {
-  const row = getDb()
-    .prepare("SELECT data FROM agents WHERE project_id = ? AND role = 'orchestrator' LIMIT 1")
-    .get(projectId) as { data: string } | undefined;
-  return row ? Agent.parse(JSON.parse(row.data)) : null;
-}
-
 export function saveAgent(agent: Agent): Agent {
   const value = Agent.parse({ ...agent, updatedAt: now() });
   getDb()

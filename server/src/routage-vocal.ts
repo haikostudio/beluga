@@ -1,7 +1,9 @@
 import {
+  Agent,
   AgentQuestion,
   CLE_PROJET_ACTIF,
   Message,
+  TITRE_CARTE_DE_CADRAGE,
   extrait,
   lieuDeLaQuestion,
   reponseEncoreAttendue,
@@ -11,7 +13,8 @@ import {
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { getOrCreateOrchestrator } from './orchestrator.js';
+import { ouvrirLeCadrage } from './cadrage.js';
+import { createCard } from './tools.js';
 import { sendPrompt } from './runtime.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
@@ -19,21 +22,23 @@ import { log } from './logger.js';
 /**
  * L'ASSISTANT VOCAL GLOBAL : où va cette phrase ?
  *
- * Le chef d'orchestre est attaché à UN projet. Une phrase dictée, elle, n'a
- * aucun destinataire tant que personne n'a dit « ça, c'est pour HaikoDev ».
- * Ce module est ce quelqu'un — hors projet, au-dessus du tableau.
+ * Une phrase dictée n'a aucun destinataire tant que personne n'a dit « ça,
+ * c'est pour tel projet ». Ce module est ce quelqu'un — hors projet, au-dessus
+ * du tableau.
  *
- * Il ne code pas, ne crée aucune carte et n'appelle AUCUN moteur payant : il
- * lit la liste des projets ouverts, applique la règle pure
- * (`shared/src/routage-vocal.ts`), et fait l'une de deux choses.
+ * Il n'appelle AUCUN moteur pour router : il lit la liste des projets ouverts,
+ * applique la règle pure (`shared/src/routage-vocal.ts`), et fait l'une de deux
+ * choses.
  *
- *  - Projet clair : il écrit la phrase DANS le chef d'orchestre de ce projet et
- *    lance le tour. Le fil montre la phrase telle qu'elle a été comprise, et le
- *    chef garde son tri — c'est lui, comme toujours, qui propose les cartes.
- *  - Doute : il POSE LA QUESTION. Une vraie question d'agent, donc le triangle
- *    orange habituel, l'annonce vocale « une décision attend » et une réponse
- *    qui se donne à l'écran… ou à la voix, la phrase suivante étant lue comme
- *    la réponse tant que la question est fraîche.
+ *  - Projet clair : il OUVRE UNE CARTE dans « Planifié », lui donne son agent
+ *    de CADRAGE et y écrit la phrase telle qu'elle a été entendue. C'est le
+ *    chemin du « + » de la colonne, à la voix : la carte ne quitte pas
+ *    « Planifié » tant que « Lancer la tâche » n'a pas été cliqué.
+ *  - Doute : il POSE LA QUESTION, dans la carte de cadrage ouverte pour elle.
+ *    Une vraie question d'agent, donc le triangle orange habituel, l'annonce
+ *    vocale « une décision attend » et une réponse qui se donne à l'écran… ou à
+ *    la voix, la phrase suivante étant lue comme la réponse tant que la
+ *    question est fraîche.
  */
 
 export interface ResultatDictee {
@@ -62,13 +67,28 @@ function projetActif(): string | null {
 }
 
 /**
- * Déposer la phrase dans le chef d'orchestre d'un projet, et lancer le tour.
- * La phrase part TELLE QUELLE : ce que le fil montre est ce qui a été entendu.
+ * Ouvrir une carte de cadrage dans un projet : la carte naît en « Planifié »,
+ * son agent de cadrage est posé, et rien n'est encore parti au moteur.
  */
-async function deposer(projectId: string, texte: string): Promise<{ agentId: string }> {
-  const chef = await getOrCreateOrchestrator(projectId);
-  void sendPrompt(chef.id, texte).catch((err) => log.error('dépôt de la demande dictée impossible', err));
-  return { agentId: chef.id };
+async function ouvrirUneCarte(projectId: string, titre: string): Promise<Agent | null> {
+  const card = createCard(projectId, { title: titre, origin: 'user' });
+  bus.emit({ type: 'card.upsert', card });
+  return ouvrirLeCadrage(card.id).catch((err) => {
+    log.error('carte de cadrage impossible à ouvrir pour la demande dictée', err);
+    return null;
+  });
+}
+
+/**
+ * Déposer la phrase dans une carte neuve du projet, et lancer le tour de
+ * cadrage. La phrase part TELLE QUELLE : ce que le fil montre est ce qui a été
+ * entendu.
+ */
+async function deposer(projectId: string, texte: string): Promise<{ agentId?: string }> {
+  const agent = await ouvrirUneCarte(projectId, extrait(texte, 80));
+  if (!agent) return {};
+  void sendPrompt(agent.id, texte).catch((err) => log.error('dépôt de la demande dictée impossible', err));
+  return { agentId: agent.id };
 }
 
 /** Poser la question du doute, là où elle se prendra. */
@@ -80,7 +100,8 @@ async function demander(
   lieu: string,
   motif: string,
 ): Promise<ResultatDictee> {
-  const chef = await getOrCreateOrchestrator(lieu);
+  const accueil = await ouvrirUneCarte(lieu, TITRE_CARTE_DE_CADRAGE);
+  if (!accueil) return { motif: 'aucun-projet' };
 
   const posee = AgentQuestion.parse({
     id: store.newId(),
@@ -93,7 +114,7 @@ async function demander(
   const message = store.saveMessage(
     Message.parse({
       id: store.newId(),
-      agentId: chef.id,
+      agentId: accueil.id,
       role: 'assistant',
       content: `J'ai entendu : « ${extrait(texte, 300)} ».`,
       questions: [posee],
@@ -106,7 +127,7 @@ async function demander(
     texte,
     projectId: projetRetenu,
     candidats,
-    agentId: chef.id,
+    agentId: accueil.id,
     messageId: message.id,
     questionId: posee.id,
   });
@@ -120,11 +141,11 @@ async function demander(
     body: question.slice(0, 120),
     reference: `dictee:${message.id}`,
     element: question.slice(0, 120),
-    projectId: chef.projectId,
-    agentId: chef.id,
+    projectId: accueil.projectId,
+    agentId: accueil.id,
   });
 
-  return { agentId: chef.id, lieu: chef.projectId, question, motif };
+  return { agentId: accueil.id, lieu: accueil.projectId, question, motif };
 }
 
 /**
@@ -154,6 +175,7 @@ export async function deposerDemandeDictee(texteBrut: string): Promise<ResultatD
 
   if (routage.projectId) {
     const { agentId } = await deposer(routage.projectId, texte);
+    if (!agentId) return { motif: 'aucun-projet' };
     return { projectId: routage.projectId, agentId, motif: routage.motif };
   }
 
@@ -209,6 +231,7 @@ export async function repondreALaDictee(
 
   const { agentId } = await deposer(suite.projectId, suite.texte);
   bus.emit({ type: 'attention', ...store.signalAttention() });
+  if (!agentId) return { motif: 'aucun-projet' };
   return { projectId: suite.projectId, agentId, motif: attente.projectId ? 'action-donnee' : 'projet-donne' };
 }
 
