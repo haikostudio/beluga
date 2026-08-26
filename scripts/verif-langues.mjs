@@ -66,6 +66,9 @@ const {
   LIBELLE_TYPE_ACCES,
   CHAMPS_PAR_TYPE,
   LIBELLE_ETAT_TACHE,
+  BOUTON_LANCER_LA_TACHE,
+  MOT_CADRAGE,
+  RAISONS_DU_BOUTON_LANCER,
 } = partage;
 
 /* ------------------------------------------------------------------ */
@@ -149,6 +152,13 @@ const catalogues = [
   /* Où en est chaque tâche du lot : les huit états d'une carte dans une mise
      en ligne viennent eux aussi d'un catalogue partagé, affiché tel quel. */
   ...Object.values(LIBELLE_ETAT_TACHE),
+  /* La carte-fil : le libellé du bouton « Lancer la tâche », les raisons qui
+     l'éteignent et le mot d'une conversation de cadrage encore vide viennent
+     d'un catalogue partagé (`shared/src/cadrage.ts`), affiché tel quel. */
+  BOUTON_LANCER_LA_TACHE,
+  MOT_CADRAGE.titre,
+  MOT_CADRAGE.indice,
+  ...RAISONS_DU_BOUTON_LANCER,
 ];
 const aTraduire = [...new Set([...textes, ...catalogues])];
 

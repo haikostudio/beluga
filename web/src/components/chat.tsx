@@ -484,7 +484,7 @@ function BoutonLancerLaTache({ cardId, etat }: { cardId: string; etat: EtatBouto
       .call({ type: 'card.start', id: cardId })
       /* Un lancement ne répond qu'une fois le tour PARTI : un délai dépassé
          n'est pas un refus, et n'allume donc pas l'alerte de serveur muet. */
-      .catch((err: any) => client.signalerRefus(err?.message ?? 'lancement refusé', cardId))
+      .catch((err: any) => client.signalerRefus(err?.message ?? t('Lancement refusé'), cardId))
       .finally(() => setEnvoi(false));
   };
   return (

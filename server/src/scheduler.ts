@@ -510,14 +510,20 @@ async function prendreLaSuiteDuCadrage(
 ): Promise<Card> {
   const title = titreEncoreVide(card.title) ? titreDepuisLaDiscussion(discussion, card.title) : card.title;
   let run = card.run;
-  if (!run?.niveau) {
+  /*
+   * Sans modèle arrêté, on traduit le palier ICI : soit celui que le cadrage a
+   * retenu, soit le palier par défaut. Sans cela l'exécution repartirait sur le
+   * modèle ÉCONOME du cadrage — un travail complet payé au rabais.
+   */
+  if (!run?.model) {
+    const palier = run?.niveau ?? NIVEAU_PAR_DEFAUT;
     try {
       const moteurs = await catalogueMoteurs();
       const moteur =
         moteurs.find((m) => m.id === card.run?.engine) ?? moteurs.find((m) => m.models.length) ?? moteurs[0];
       if (moteur) {
-        const reglages = reglagesDuNiveau(moteur, NIVEAU_PAR_DEFAUT);
-        run = { ...(run ?? {}), engine: moteur.id, ...reglages, niveau: NIVEAU_PAR_DEFAUT } as Card['run'];
+        const reglages = reglagesDuNiveau(moteur, palier);
+        run = { ...(run ?? {}), engine: moteur.id, ...reglages, niveau: palier } as Card['run'];
       }
     } catch (err) {
       // Catalogue illisible : la carte repart sur le moteur par défaut du

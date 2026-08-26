@@ -110,6 +110,19 @@ export function resteLibreDeLaCarte(card: Card): Record<string, unknown> {
   const reste: Record<string, unknown> = { ...(card as unknown as Record<string, unknown>) };
   for (const champ of CHAMPS_SORTIS_DU_JSON) delete reste[champ];
   for (const [clef, valeur] of Object.entries(reste)) if (valeur === undefined) delete reste[clef];
+  /*
+   * LE RÉGLAGE A QUATRE COLONNES, MAIS SIX CHAMPS. Le moteur, le modèle, la
+   * réflexion et le mode sont sortis en colonnes ; le NIVEAU (l'ambition
+   * retenue pour l'exécution) et le COMPTE imposé n'en ont pas. Sortir `run`
+   * en bloc les effaçait à chaque écriture : une carte cadrée « approfondi »
+   * repartait au palier par défaut, et un compte choisi à la main était oublié.
+   * On garde donc ici les seuls champs SANS colonne, jamais les autres — qui se
+   * contrediraient avec elles.
+   */
+  const sansColonne: Record<string, unknown> = {};
+  if (card.run.niveau !== undefined) sansColonne.niveau = card.run.niveau;
+  if (card.run.account !== undefined) sansColonne.account = card.run.account;
+  if (Object.keys(sansColonne).length) reste.run = sansColonne;
   return reste;
 }
 
@@ -187,7 +200,16 @@ export function carteDepuisLigne(
     origin: texte(ligne.origin, 'origin'),
     labels: labels ?? [],
     attachments: attachments ?? [],
+    /*
+     * QUATRE COLONNES, MAIS LE RÉGLAGE EN COMPTE SIX. Le moteur, le modèle, la
+     * réflexion et le mode ont chacun leur colonne ; le NIVEAU (l'ambition
+     * retenue pour l'exécution) et le COMPTE imposé n'en ont pas et vivent dans
+     * le bloc `data`. Les recopier d'abord est ce qui les garde : sans ce
+     * `...run`, une carte relue perdait le palier écrit sur elle, et repartait
+     * au palier par défaut.
+     */
     run: {
+      ...run,
       engine: ligne.run_engine ?? run.engine,
       model: ligne.run_model ?? run.model,
       thinking: ligne.run_thinking ?? run.thinking,

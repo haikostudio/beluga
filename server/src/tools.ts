@@ -1005,12 +1005,25 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const palier = niveauDemande(args.niveau);
       const reglages = palier ? await reglagesProposes(ctx.run, palier) : {};
+      /*
+       * LE PALIER EST RETENU MÊME QUAND LE CATALOGUE EST MUET. La traduction en
+       * modèle réel demande le catalogue du moteur ; s'il est illisible, garder
+       * l'INTENTION reste juste — le lancement la traduira. La perdre ici
+       * ferait exécuter au palier par défaut une carte cadrée « approfondi ».
+       */
+      let run = card.run;
+      if (palier) {
+        const base = reglages.run ?? card.run;
+        run = base
+          ? { ...base, niveau: palier }
+          : RunConfig.parse({ engine: ctx.run?.engine ?? 'claude', niveau: palier });
+      }
       const updated = store.saveCard({
         ...card,
         title,
         description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : card.labels,
-        run: reglages.run ?? card.run,
+        run,
         ...heritageAnalyseDeProposition(card, title, description),
       });
       bus.emit({ type: 'card.upsert', card: updated });

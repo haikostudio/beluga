@@ -35,6 +35,16 @@ export const MOT_CADRAGE = {
 /** Le libellé du bouton qui ferme le cadrage et lance le travail. */
 export const BOUTON_LANCER_LA_TACHE = 'Lancer la tâche';
 
+/**
+ * Les deux raisons qui éteignent ce bouton, réunies pour être TRADUITES : elles
+ * s'affichent à l'écran sans qu'aucun `t('…')` littéral ne les nomme, la règle
+ * vivant ici et l'affichage dans le fil de la carte.
+ */
+export const RAISONS_DU_BOUTON_LANCER = [
+  'Attendez la fin de la réponse en cours.',
+  'Dites d’abord ce que vous voulez faire.',
+] as const;
+
 /* ------------------------------------------------------------------ */
 /* Le bouton « Lancer la tâche »                                       */
 /* ------------------------------------------------------------------ */
@@ -72,10 +82,10 @@ export function boutonLancerLaTache(ctx: ContexteBoutonLancer): EtatBoutonLancer
     return { affiche: false, possible: false };
   }
   if (ctx.agentAuTravail) {
-    return { affiche: true, possible: false, raison: 'Attendez la fin de la réponse en cours.' };
+    return { affiche: true, possible: false, raison: RAISONS_DU_BOUTON_LANCER[0] };
   }
   if (ctx.messages <= 0) {
-    return { affiche: true, possible: false, raison: 'Dites d’abord ce que vous voulez faire.' };
+    return { affiche: true, possible: false, raison: RAISONS_DU_BOUTON_LANCER[1] };
   }
   return { affiche: true, possible: true };
 }
