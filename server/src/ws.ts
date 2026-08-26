@@ -1804,12 +1804,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { ok: true, liste: listerAcces() };
     }
 
-<<<<<<< HEAD
     /* -------- Snapshots des sites en production -------- */
 
     case 'snapshots.etat':
       return {
-        sites: listerSites(),
+        sites: listerSitesSnapshots(),
         points: listerPoints(),
         projets: projetsSansFiche(),
         enCours: snapshotsEnCours(),
@@ -1818,24 +1817,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'snapshots.enregistrerSite': {
       const resultat = enregistrerSite(cmd.site);
-=======
-    /* -------- Surveillance des sites -------- */
-
-    case 'surveillance.lister':
-      return { sites: listerSites() };
-
-    case 'surveillance.ajouter': {
-      const resultat = ajouterSite(cmd.url, cmd.nom);
->>>>>>> main
       if (!resultat.ok) throw new Error(resultat.raison);
-      return { site: resultat.site, sites: listerSites() };
+      return { site: resultat.site, sites: listerSitesSnapshots() };
     }
 
-<<<<<<< HEAD
     case 'snapshots.supprimerSite': {
-      const resultat = supprimerSite(String(cmd.id ?? ''));
+      const resultat = supprimerSiteSnapshot(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'site introuvable');
-      return { ok: true, sites: listerSites(), points: listerPoints() };
+      return { ok: true, sites: listerSitesSnapshots(), points: listerPoints() };
     }
 
     case 'snapshots.lancer': {
@@ -1855,7 +1844,17 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'snapshots.points':
       return { points: listerPoints(cmd.id ? String(cmd.id) : undefined), derniers: [...derniersPoints().values()] };
 
-=======
+    /* -------- Surveillance des sites -------- */
+
+    case 'surveillance.lister':
+      return { sites: listerSites() };
+
+    case 'surveillance.ajouter': {
+      const resultat = ajouterSite(cmd.url, cmd.nom);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { site: resultat.site, sites: listerSites() };
+    }
+
     case 'surveillance.supprimer': {
       const resultat = supprimerSite(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'adresse introuvable');
@@ -1869,7 +1868,7 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       return { sites: sites.length ? sites : listerSites() };
     }
 
->>>>>>> main
+
     case 'erreurs.liste':
       return {
         erreurs: dernieresErreursInterface(cmd.limite ?? ERREURS_MONTREES_REGLAGES),

@@ -478,7 +478,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'En panne': ['Down', 'Caído', 'Ausgefallen', '故障'],
   'Pas encore vérifié': ['Not checked yet', 'Aún sin comprobar', 'Noch nicht geprüft', '尚未检查'],
   'vu à {heure}': ['seen at {heure}', 'visto a las {heure}', 'gesehen um {heure}', '{heure} 检查'],
-  'jamais': ['never', 'nunca', 'nie', '从未'],
   'Page introuvable ou refusée': [
     'Page missing or refused',
     'Página no encontrada o rechazada',

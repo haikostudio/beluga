@@ -29,7 +29,7 @@ export const DELAI_REPONSE_MS = 15_000;
 export const SITES_MAX = 50;
 
 /** Les longueurs retenues, celles des autres fiches du projet. */
-export const NOM_SITE_MAX = 60;
+export const NOM_SITE_SURVEILLANCE_MAX = 60;
 export const URL_SITE_MAX = 300;
 
 /**
@@ -187,7 +187,7 @@ export function jugerAdresse(brut: unknown, nomVoulu?: unknown): JugementAdresse
   if (!hote || (!hote.includes('.') && hote !== 'localhost'))
     return { ok: false, raison: 'Cette adresse n’a pas de nom de domaine.' };
 
-  const nom = String(nomVoulu ?? '').trim().slice(0, NOM_SITE_MAX) || hote;
+  const nom = String(nomVoulu ?? '').trim().slice(0, NOM_SITE_SURVEILLANCE_MAX) || hote;
   return { ok: true, url: url.toString(), nom };
 }
 
