@@ -78,6 +78,18 @@ export interface LigneNotification {
 export const PLAFOND_ANNONCES = 50;
 
 /**
+ * Le titre d'une annonce arrive parfois précédé d'un emoji de genre
+ * (`titreNotification`, côté serveur) : c'est le seul repère visuel qui
+ * survit sur un téléphone verrouillé, où le système impose l'icône de
+ * l'application. Dans le tiroir, ce repère fait DOUBLE EMPLOI avec l'icône
+ * déjà posée à gauche de chaque ligne — on le retire donc à l'affichage,
+ * sans toucher au texte gardé pour la notification système elle-même.
+ */
+export function titreSansEmoji(titre: string): string {
+  return titre.replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]+\s*/u, '');
+}
+
+/**
  * Le genre d'une annonce reçue. `genreDeLAlerte` lit une table figée et tombe
  * sur un motif qu'elle ne connaît pas : un démon plus récent, un champ libre.
  * On vérifie donc le motif AVANT de la consulter, et sans motif connu l'annonce
@@ -156,7 +168,7 @@ export function journalDesNotifications(
       source: 'annonce',
       genre: genreDeLAnnonce(annonce.motif),
       icone: iconeDeLAnnonce(annonce.motif),
-      titre: annonce.titre,
+      titre: titreSansEmoji(annonce.titre),
       texte: annonce.corps,
       a: annonce.a,
       nonLue: !annonce.lue,

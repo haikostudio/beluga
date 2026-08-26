@@ -112,8 +112,7 @@ export function ClocheNotifications() {
 }
 
 /** L'image de chaque ligne : on reconnaît le genre de nouvelle avant de la lire. */
-function IconeDeLigne({ icone }: { icone: IconeNotification }) {
-  const classe = 'h-3.5 w-3.5 shrink-0';
+function IconeDeLigne({ icone, classe = 'h-3.5 w-3.5 shrink-0' }: { icone: IconeNotification; classe?: string }) {
   switch (icone) {
     case 'attention':
       return <TriangleAlert className={cn(classe, 'text-warning')} />;
@@ -127,6 +126,25 @@ function IconeDeLigne({ icone }: { icone: IconeNotification }) {
       return <RotateCcw className={cn(classe, 'text-muted')} />;
     default:
       return <Check className={cn(classe, 'text-termine')} />;
+  }
+}
+
+/** La couleur du rond posé sur la ligne centrale, selon le genre de la ligne. */
+function bordureDeLigne(ligne: LigneNotification): string {
+  if (ligne.source === 'demande') return 'border-warning';
+  switch (ligne.icone) {
+    case 'attention':
+      return 'border-warning/60';
+    case 'erreur':
+      return 'border-danger/60';
+    case 'publication':
+      return 'border-publie/60';
+    case 'quota':
+      return 'border-info/60';
+    case 'redemarrage':
+      return 'border-border';
+    default:
+      return 'border-termine/60';
   }
 }
 
@@ -178,42 +196,59 @@ function TiroirNotifications({
 
       <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-2 pb-3">
         {lignes.length ? (
-          <ul className="flex flex-col gap-1">
-            {lignes.map((ligne) => (
-              <li key={ligne.cle}>
-                {/* UN BLOC, PAS UN `button` : le texte de la ligne est REPLIÉ
-                    (`line-clamp-3`), et sous Safari un texte replié dans un
-                    bouton fait réserver au parent la hauteur du texte entier.
-                    Même clic, même clavier, même annonce aux lecteurs d'écran
-                    — hauteur honnête. */}
-                <div
-                  data-notification
-                  {...(ligne.source === 'demande' ? { 'data-question-en-attente': '' } : {})}
-                  role={ligne.lieu.projectId ? 'button' : undefined}
-                  tabIndex={ligne.lieu.projectId ? 0 : undefined}
-                  onClick={() => aller(ligne)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      aller(ligne);
-                    }
-                  }}
-                  className={cn(
-                    'flex w-full flex-col items-start gap-0.5 rounded-md border px-2.5 py-2 text-left transition-colors',
-                    ligne.lieu.projectId ? 'cursor-pointer hover:bg-raised' : 'cursor-default',
-                    ligne.source === 'demande' ? 'border-warning/40 bg-warning/5' : 'border-border bg-surface',
-                    !ligne.nonLue && 'opacity-70',
-                  )}
-                >
-                  <span className="flex w-full items-center gap-1.5 text-[11.5px] text-faint">
-                    <IconeDeLigne icone={ligne.icone} />
-                    <span className="min-w-0 flex-1 truncate">{ligne.titre}</span>
-                    {ligne.a ? <span className="shrink-0">{relativeTime(ligne.a)}</span> : null}
-                  </span>
-                  <span className="line-clamp-3 w-full text-[13.5px] text-text">{ligne.texte}</span>
-                </div>
-              </li>
-            ))}
+          <ul className="flex flex-col">
+            {lignes.map((ligne, index) => {
+              const dernier = index === lignes.length - 1;
+              return (
+                <li key={ligne.cle} className="relative flex gap-2.5" data-notification {...(ligne.source === 'demande' ? { 'data-question-en-attente': '' } : {})}>
+                  {/* LA LIGNE CENTRALE : un rond-icône par notification, relié
+                      au suivant par un trait continu — même principe que la
+                      ligne de temps de la recherche mémoire. */}
+                  <div className="relative flex w-6 shrink-0 flex-col items-center">
+                    {!dernier ? (
+                      <span className="absolute left-1/2 top-6 bottom-[-0.5rem] w-px -translate-x-1/2 bg-faint/30" aria-hidden="true" />
+                    ) : null}
+                    <span
+                      className={cn(
+                        'relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 bg-surface',
+                        bordureDeLigne(ligne),
+                      )}
+                    >
+                      <IconeDeLigne icone={ligne.icone} classe="h-3 w-3 shrink-0" />
+                    </span>
+                  </div>
+
+                  {/* UN BLOC, PAS UN `button` : le texte de la ligne est REPLIÉ
+                      (`line-clamp-3`), et sous Safari un texte replié dans un
+                      bouton fait réserver au parent la hauteur du texte entier.
+                      Même clic, même clavier, même annonce aux lecteurs d'écran
+                      — hauteur honnête. */}
+                  <div
+                    role={ligne.lieu.projectId ? 'button' : undefined}
+                    tabIndex={ligne.lieu.projectId ? 0 : undefined}
+                    onClick={() => aller(ligne)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        aller(ligne);
+                      }
+                    }}
+                    className={cn(
+                      'flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1 pb-3 text-left transition-colors',
+                      ligne.lieu.projectId ? 'cursor-pointer hover:bg-raised' : 'cursor-default',
+                      ligne.source === 'demande' && 'bg-warning/5',
+                      !ligne.nonLue && 'opacity-70',
+                    )}
+                  >
+                    <span className="flex w-full items-center gap-1.5 text-[11.5px] text-faint">
+                      <span className="min-w-0 flex-1 truncate">{ligne.titre}</span>
+                      {ligne.a ? <span className="shrink-0">{relativeTime(ligne.a)}</span> : null}
+                    </span>
+                    <span className="line-clamp-3 w-full text-[13.5px] text-text">{ligne.texte}</span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <EmptyState
