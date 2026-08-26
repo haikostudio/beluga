@@ -13,7 +13,10 @@
  *  5. « Sauvegarder » copie POUR DE VRAI la base et les fichiers sur le disque de stockage ;
  *  6. la fenêtre d'HISTORIQUE montre le point pris, sa date et le volume du site ;
  *  7. « Nouveau site » ouvre l'ASSISTANT — une phrase, plus un formulaire —
- *     et les projets du serveur y sont proposés sans ressaisir leur nom.
+ *     et les projets du serveur y sont proposés sans ressaisir leur nom ;
+ *  8. les projets du serveur SANS fiche sont proposés d'un clic dans la fenêtre ;
+ *  9. une fiche qui échoue porte son bouton « Réparer », et une fiche posée par
+ *     l'assistant porte le bouton qui ROUVRE sa conversation.
  *
  *   node scripts/verif-snapshots.mjs
  */
@@ -198,6 +201,58 @@ function poserLeSite() {
   db.close();
 }
 
+/**
+ * UNE FICHE QUI ÉCHOUE NUIT APRÈS NUIT, posée avec ses points en échec et la
+ * CONVERSATION de l'assistant qui l'a écrite. On ne clique pas sur ses boutons :
+ * réparer ou rouvrir la conversation lancerait un vrai tour de moteur — ce qui
+ * se vérifie ici, c'est que les deux chemins EXISTENT sur la bonne ligne.
+ */
+function poserLeSiteEnEchec() {
+  const db = new Database(path.join(DATA, 'haikodev.db'));
+  const maintenant = Date.now();
+  const site = {
+    id: 'site-casse',
+    nom: 'Site cassé — production',
+    projectId: null,
+    actif: true,
+    base: { moteur: 'aucune', hote: '', port: '', nom: '', utilisateur: '', motDePasse: '' },
+    fichiers: { moyen: 'local', chemin: path.join(TMP, 'dossier-parti'), hote: '', port: '', utilisateur: '', motDePasse: '' },
+    conservationJours: 14,
+    note: '',
+    assistantId: 'agent-assistant',
+    assistantProjectId: PROJET_ID,
+    creeLe: maintenant,
+    modifieLe: maintenant,
+  };
+  db.prepare(
+    `INSERT INTO snapshot_sites (id, project_id, nom, actif, data, cree_le, modifie_le)
+     VALUES (?, NULL, ?, 1, ?, ?, ?)`,
+  ).run(site.id, site.nom, JSON.stringify(site), maintenant, maintenant);
+
+  for (let i = 0; i < 3; i += 1) {
+    const point = {
+      id: `point-echec-${i}`,
+      siteId: site.id,
+      debut: maintenant - i * 86400000,
+      fin: maintenant - i * 86400000 + 1000,
+      statut: 'echec',
+      octetsBase: 0,
+      octetsFichiers: 0,
+      chemin: '',
+      detail: 'fichiers : dossier introuvable',
+      origine: 'automatique',
+    };
+    db.prepare('INSERT INTO snapshot_points (id, site_id, debut, statut, data) VALUES (?, ?, ?, ?, ?)').run(
+      point.id,
+      point.siteId,
+      point.debut,
+      point.statut,
+      JSON.stringify(point),
+    );
+  }
+  db.close();
+}
+
 function pointsEnBase() {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
   const lignes = db.prepare('SELECT data FROM snapshot_points ORDER BY debut DESC').all();
@@ -349,6 +404,42 @@ async function main() {
       'L’historique dit la date de la sauvegarde',
       /\d{1,2}\s+\p{L}+.*\d{2}:\d{2}/u.test(texte),
       texte.slice(0, 160),
+    );
+
+    await page.keyboard.press('Escape');
+    await historique.waitFor({ state: 'hidden', timeout: 10000 });
+
+    /* 8. Les projets de ce serveur qui n'ont pas encore de fiche sont PROPOSÉS,
+       avec leur nom déjà écrit : on ne clique pas (ce serait un vrai tour de
+       moteur), on vérifie que le chemin existe. */
+    const encart = page.locator('[data-snapshots-projets-sans-fiche]');
+    const proposes = encart.locator('[data-snapshots-projet-sans-fiche]');
+    noter(
+      'Les projets du serveur sans sauvegarde sont proposés d’un clic',
+      (await encart.count()) === 1 && (await proposes.count()) >= 1,
+      (await proposes.count()) ? await proposes.first().innerText() : 'aucun projet proposé',
+    );
+
+    /* 9. Une fiche qui échoue porte son bouton de réparation, et celle qu'un
+       assistant a posée rouvre sa conversation. */
+    poserLeSiteEnEchec();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-column="notes"]', { timeout: 30000 });
+    await page.click('aside[data-zone="gauche"] [data-ouvrir-snapshots]');
+    await fenetre.waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('[data-snapshots-site="site-casse"]').waitFor({ state: 'visible', timeout: 10000 });
+
+    noter(
+      'Une fiche qui échoue porte son bouton « Réparer »',
+      await page.locator('[data-snapshots-relire="site-casse"]').isVisible(),
+    );
+    noter(
+      'La conversation de l’assistant se rouvre d’un clic depuis la fiche',
+      await page.locator('[data-snapshots-conversation="site-casse"]').isVisible(),
+    );
+    noter(
+      'Une fiche qui n’a jamais échoué ne propose pas de réparation',
+      (await page.locator('[data-snapshots-relire="site-boutique"]').count()) === 0,
     );
 
     const SHOTS = path.join(RACINE, 'data', 'verification');

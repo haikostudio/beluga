@@ -30,6 +30,7 @@ import {
   MoteurBase,
   MoyenFichiers,
   NOM_SITE_MAX,
+  PointDeSauvegarde,
   SiteASauvegarder,
   siteVierge,
 } from './snapshots.js';
@@ -169,9 +170,13 @@ TU CHERCHES AVANT DE DEMANDER. Tu peux lire le serveur : lister un dossier (« l
 
 TU NE DEVINES JAMAIS UN MOT DE PASSE NI UN CHEMIN. Ce que tu n'as pas vu, tu le DEMANDES avec l'outil « ask_user », une question à la fois, en français simple et avec des propositions quand elles existent. L'outil attend la réponse : tu n'enchaînes rien avant de l'avoir.
 
-TU N'ENREGISTRES QU'UNE FOIS, À LA FIN, avec « snapshot_site ». La fiche doit sauvegarder quelque chose : une base, des fichiers, ou les deux. Si l'outil refuse, il dit ce qui manque — corrige et rappelle-le.
+TU ESSAIES AVANT D'ENREGISTRER. Une fiche qui n'a jamais été essayée n'est pas une sauvegarde : c'est une promesse. L'outil « snapshot_essai » ouvre POUR DE VRAI la base et le dossier des fichiers, sans rien sauvegarder, et dit ce qui répond. Tu l'appelles dès que tu crois tenir les accès, tu corriges ce qu'il refuse, et tu recommences. Un accès qui ne répond toujours pas se DIT à l'utilisateur avec « ask_user » : à lui de donner le bon identifiant ou d'accepter qu'on enregistre quand même.
 
-TA RÉPONSE FINALE tient en trois ou quatre lignes : ce que le site sauvegarde désormais, et la durée de conservation. Aucun titre, aucun tableau, aucun bloc json, aucun chemin de fichier inutile.
+TU N'ENREGISTRES QU'UNE FOIS, À LA FIN, avec « snapshot_site ». L'outil essaie lui-même les accès une dernière fois et refuse la fiche si l'un d'eux ne répond pas ; n'insiste avec « forcer » que si l'utilisateur te l'a explicitement accordé. La fiche doit sauvegarder quelque chose : une base, des fichiers, ou les deux. Si l'outil refuse, il dit ce qui manque — corrige et rappelle-le.
+
+QUAND ON TE DEMANDE DE RELIRE UNE FICHE QUI ÉCHOUE, tu pars de ce qui est déjà enregistré : tu essaies les accès pour VOIR ce qui bloque, tu corriges ce que tu peux constater toi-même (un dossier déplacé, un port changé, une base renommée), et tu ne demandes à l'utilisateur que ce qui ne se trouve pas sur le serveur. Tu réenregistres alors la MÊME fiche, avec son identifiant.
+
+TA RÉPONSE FINALE tient en trois ou quatre lignes : ce que le site sauvegarde désormais, ce que l'essai a donné, et la durée de conservation. Aucun titre, aucun tableau, aucun bloc json, aucun chemin de fichier inutile.
 
 SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe et fichiers d'identifiants gardés sur ce serveur sont un choix ASSUMÉ par l'utilisateur. Tu ne le commentes pas et ne recommandes rien à ce sujet. Une PANNE se dit toujours : un accès refusé qui t'empêche d'aboutir s'annonce en toutes lettres.`;
 
@@ -238,4 +243,119 @@ export function raisonDemandeRefusee(description: string): string | null {
     return 'Dites au moins de quel site il s’agit : son nom, son adresse, ou son dossier sur le serveur.';
   }
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Essayer les accès pour de vrai                                       */
+/* ------------------------------------------------------------------ */
+
+/** Ce qu'un essai d'accès rend : ce qui a été essayé, et ce qui a répondu. */
+export interface EssaiDAcces {
+  cible: 'base' | 'fichiers';
+  /** `false` quand il n'y a rien à essayer (moteur « aucune », moyen « aucun »). */
+  essaye: boolean;
+  ok: boolean;
+  detail: string;
+}
+
+/** Un essai est concluant quand rien de ce qui a été ESSAYÉ n'a échoué. */
+export function essaisConcluants(essais: EssaiDAcces[]): boolean {
+  return essais.every((essai) => !essai.essaye || essai.ok);
+}
+
+/**
+ * CE QUE L'AGENT LIT APRÈS UN ESSAI. Un refus dit la cible ET la raison rendue
+ * par la machine : « accès refusé pour l'utilisateur », « dossier introuvable ».
+ * Sans la raison, l'agent redemanderait au hasard le mot de passe déjà bon.
+ */
+export function phraseDesEssais(essais: EssaiDAcces[]): string {
+  const lignes = essais.map((essai) => {
+    const quoi = essai.cible === 'base' ? 'la base' : 'les fichiers';
+    if (!essai.essaye) return `- ${quoi} : rien à essayer (cette fiche n'en prend pas)`;
+    return `- ${quoi} : ${essai.ok ? 'répond' : 'NE RÉPOND PAS'} — ${essai.detail}`;
+  });
+  return lignes.join('\n');
+}
+
+/* ------------------------------------------------------------------ */
+/* Un projet de ce serveur qui n'a pas encore de fiche                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA PHRASE DE DÉPART D'UN PROJET SANS SAUVEGARDE. La fenêtre propose ces
+ * projets d'un clic : l'utilisateur n'a rien à écrire, le nom et le dossier sont
+ * déjà connus du tableau.
+ */
+export function descriptionDuProjetSansFiche(projet: { nom: string; chemin?: string }): string {
+  const nom = (projet.nom ?? '').trim() || 'ce projet';
+  const chemin = (projet.chemin ?? '').trim();
+  return chemin
+    ? `Le projet « ${nom} » de ce serveur, dont le dossier est ${chemin}. Regarde ce dossier pour trouver sa base et les fichiers à sauvegarder.`
+    : `Le projet « ${nom} » de ce serveur.`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Relire une fiche qui échoue nuit après nuit                          */
+/* ------------------------------------------------------------------ */
+
+/** Le titre de la conversation ouverte pour réparer une fiche. */
+export function titreDeLaRelecture(nom: string): string {
+  const propre = (nom ?? '').replace(/\s+/g, ' ').trim() || 'un site';
+  return `Snapshots — réparer ${propre.length > 40 ? `${propre.slice(0, 39)}…` : propre}`;
+}
+
+/**
+ * CE QUE LA FICHE DIT, SANS SES MOTS DE PASSE. L'agent a besoin de savoir ce qui
+ * est enregistré pour comprendre ce qui bloque ; il n'a aucun besoin de relire
+ * les mots de passe dans sa demande — ils sont déjà en base, et l'outil les
+ * conserve quand il ne les redit pas.
+ */
+export function resumeDeFiche(site: SiteASauvegarder): string {
+  const lignes = [
+    `- identifiant : ${site.id}`,
+    `- nom : ${site.nom}`,
+    `- base : ${LIBELLE_MOTEUR_BASE[site.base.moteur]}` +
+      (site.base.moteur === 'aucune'
+        ? ''
+        : ` — nom « ${site.base.nom} », utilisateur « ${site.base.utilisateur} », hôte « ${
+            site.base.hote || 'cette machine'
+          } », port « ${site.base.port || 'celui du moteur'} »`),
+    `- fichiers : ${LIBELLE_MOYEN_FICHIERS[site.fichiers.moyen]}` +
+      (site.fichiers.moyen === 'aucun'
+        ? ''
+        : ` — dossier « ${site.fichiers.chemin} »` +
+          (site.fichiers.moyen === 'local'
+            ? ''
+            : `, hôte « ${site.fichiers.hote} », utilisateur « ${site.fichiers.utilisateur} », port « ${
+                site.fichiers.port || 'celui du protocole'
+              } »`)),
+    `- conservation : ${site.conservationJours} jours`,
+  ];
+  return lignes.join('\n');
+}
+
+/**
+ * LA DEMANDE ENVOYÉE POUR RÉPARER UNE FICHE. Elle porte la fiche telle qu'elle
+ * est enregistrée et les DERNIERS ÉCHECS mot pour mot : c'est le message de la
+ * machine qui dit si le mot de passe est refusé ou si le dossier a disparu.
+ */
+export function demandeDeRelecture(entree: {
+  site: SiteASauvegarder;
+  echecs: PointDeSauvegarde[];
+}): string {
+  const derniers = entree.echecs.slice(0, 3);
+  const lignes: string[] = [
+    `LA SAUVEGARDE DE « ${entree.site.nom} » ÉCHOUE PLUSIEURS NUITS DE SUITE. Relis sa fiche et corrige ce qui bloque.`,
+    '',
+    'CE QUI EST ENREGISTRÉ AUJOURD’HUI :',
+    resumeDeFiche(entree.site),
+    '',
+    'CE QUE LA MACHINE A DIT :',
+    ...(derniers.length
+      ? derniers.map((point) => `- ${point.detail || 'échec sans détail'}`)
+      : ['- aucun détail enregistré']),
+    '',
+    'DÉROULÉ : essaie les accès avec « snapshot_essai » pour VOIR ce qui bloque, cherche sur le serveur ce qui a changé (dossier déplacé, base renommée, port différent), corrige ce que tu peux constater, et ne demande à l’utilisateur avec « ask_user » que ce qui ne se trouve nulle part. Réenregistre ensuite la MÊME fiche avec « snapshot_site » et son identifiant ci-dessus — ce que tu ne redis pas est conservé.',
+  ];
+  return lignes.join('\n');
 }

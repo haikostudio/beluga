@@ -113,7 +113,7 @@ import {
   snapshotsEnCours,
   supprimerSite as supprimerSiteSnapshot,
 } from './snapshots.js';
-import { lancerAssistantDeSnapshot } from './assistant-snapshot.js';
+import { lancerAssistantDeSnapshot, lancerRelectureDeSnapshot } from './assistant-snapshot.js';
 import {
   compterErreursInterface,
   dernieresErreursInterface,
@@ -1850,6 +1850,11 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         description: String(cmd.description ?? ''),
         projectId: cmd.projectId ? String(cmd.projectId) : null,
       });
+      return depart;
+    }
+
+    case 'snapshots.relire': {
+      const depart = await lancerRelectureDeSnapshot(String(cmd.id ?? ''));
       return depart;
     }
 

@@ -54,7 +54,10 @@ import {
   CONSERVATION_PAR_DEFAUT,
   MOTEURS_BASE,
   MOYENS_FICHIERS,
+  essaisConcluants,
   ficheProposee,
+  siteVide,
+  phraseDesEssais,
   jugerSite,
   LIBELLE_MOTEUR_BASE,
   LIBELLE_MOYEN_FICHIERS,
@@ -67,7 +70,7 @@ import { mintDownload } from './auth.js';
 import { readMemory, appendMemory, detailProjet } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
-import { enregistrerSite, lireSite } from './snapshots.js';
+import { enregistrerSite, essayerLesAcces, lireSite } from './snapshots.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import {
@@ -689,13 +692,52 @@ export const TOOL_DEFS: ToolDef[] = [
           description: `Au-delà de ce nombre de jours, un point de sauvegarde est jeté (${CONSERVATION_MIN} à ${CONSERVATION_MAX}, ${CONSERVATION_PAR_DEFAUT} par défaut)`,
         },
         note: { type: 'string', description: 'Ce que ce site contient et qui l’exploite, en une phrase' },
+        forcer: {
+          type: 'boolean',
+          description:
+            "N'enregistre la fiche QUE si l'utilisateur a explicitement accepté qu'un accès qui ne répond pas soit gardé tel quel (machine éteinte, site pas encore en ligne). Sans cela, une fiche dont la base ou les fichiers ne répondent pas est refusée.",
+        },
+      },
+    },
+  },
+  {
+    name: 'snapshot_essai',
+    description:
+      "ESSAIE POUR DE VRAI LES ACCÈS D'UNE FICHE DE SAUVEGARDE, sans rien enregistrer ni rien sauvegarder : la base est ouverte (son schéma est lu puis jeté) et le dossier des fichiers est listé. Rend, pour chacun, s'il répond et ce que la machine a dit. Appelle-le AVANT « snapshot_site » : une fiche complète n'est pas une fiche juste. Prends soit l'« id » d'un site déjà enregistré, soit les mêmes champs que « snapshot_site ».",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: "L'identifiant d'un site déjà enregistré, à essayer tel qu'il est" },
+        nom: { type: 'string' },
+        base: {
+          type: 'object',
+          properties: {
+            moteur: { type: 'string', enum: [...MOTEURS_BASE] },
+            hote: { type: 'string' },
+            port: { type: 'string' },
+            nom: { type: 'string' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+        fichiers: {
+          type: 'object',
+          properties: {
+            moyen: { type: 'string', enum: [...MOYENS_FICHIERS] },
+            chemin: { type: 'string' },
+            hote: { type: 'string' },
+            port: { type: 'string' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
       },
     },
   },
 ];
 
 /** Les outils réservés aux agents de tâche : le chef d'orchestre ne les voit pas. */
-export const TASK_ONLY_TOOLS = new Set(['remember', 'snapshot_site']);
+export const TASK_ONLY_TOOLS = new Set(['remember', 'snapshot_site', 'snapshot_essai']);
 
 export function toolsFor(role: 'task' | 'orchestrator' | 'analysis' | 'deploy'): ToolDef[] {
   if (role === 'orchestrator') return TOOL_DEFS.filter((t) => !TASK_ONLY_TOOLS.has(t.name));
@@ -1521,7 +1563,28 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const jugement = jugerSite(fiche);
       if (!jugement.ok) return { ok: false, text: `Fiche refusée : ${jugement.raison}. Corrige et rappelle l'outil.` };
 
-      const resultat = enregistrerSite(fiche);
+      /*
+       * UNE FICHE COMPLÈTE N'EST PAS UNE FICHE JUSTE. Les accès sont essayés
+       * POUR DE VRAI avant d'enregistrer : sans cela, un mot de passe refusé ou
+       * un dossier déplacé ne se découvrait qu'à la première nuit, dans un
+       * échec que personne ne regardait. « forcer » reste la porte de sortie,
+       * pour une machine éteinte ou un site pas encore en ligne — et l'agent a
+       * consigne de ne l'emprunter qu'avec l'accord de l'utilisateur.
+       */
+      const essais = await essayerLesAcces(fiche);
+      if (!essaisConcluants(essais) && args.forcer !== true) {
+        return {
+          ok: false,
+          text:
+            `Fiche NON enregistrée : un accès ne répond pas.\n${phraseDesEssais(essais)}\n` +
+            'Corrige cet accès puis rappelle « snapshot_essai », ou demande à l’utilisateur (« ask_user ») ' +
+            's’il accepte qu’on enregistre quand même — dans ce cas seulement, rappelle « snapshot_site » avec « forcer ».',
+        };
+      }
+
+      // La CONVERSATION qui a posé la fiche est retenue : la fenêtre des
+      // snapshots la rouvre d'un clic, avec ses questions et son compte rendu.
+      const resultat = enregistrerSite({ ...fiche, assistantId: ctx.agentId, assistantProjectId: ctx.projectId });
       if (!resultat.ok) return { ok: false, text: `Fiche refusée : ${resultat.raison}.` };
 
       const site = resultat.site;
@@ -1536,7 +1599,32 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         text:
           `${ancienne ? 'Fiche corrigée' : 'Site enregistré'} : « ${site.nom} » (identifiant ${site.id}). ` +
           `Sauvegarde ${morceaux.join(' et ')}, gardés ${site.conservationJours} jours. ` +
+          `Essai des accès :\n${phraseDesEssais(essais)}\n` +
           'Le passage de nuit le prendra tout seul.',
+      };
+    }
+
+    case 'snapshot_essai': {
+      /*
+       * LE COUP DE SONDE. Il ouvre la base et liste le dossier, puis jette tout :
+       * aucune sauvegarde n'est prise, aucune fiche n'est enregistrée. Sur un
+       * site déjà là, les champs non redits sont ceux de la base — c'est ainsi
+       * qu'on essaie une fiche en échec sans redemander son mot de passe.
+       */
+      const enregistree = typeof args.id === 'string' && args.id.trim() ? lireSite(args.id.trim()) : null;
+      if (typeof args.id === 'string' && args.id.trim() && !enregistree) {
+        return { ok: false, text: `Aucun site à sauvegarder ne porte l'identifiant « ${args.id} ».` };
+      }
+      const aEssayer = ficheProposee(args, enregistree);
+      if (siteVide(aEssayer)) {
+        return { ok: false, text: 'Rien à essayer : cette fiche ne prend ni base ni fichiers.' };
+      }
+      const issues = await essayerLesAcces(aEssayer);
+      return {
+        ok: true,
+        text: essaisConcluants(issues)
+          ? `Tout répond.\n${phraseDesEssais(issues)}`
+          : `Un accès au moins ne répond pas.\n${phraseDesEssais(issues)}`,
       };
     }
 

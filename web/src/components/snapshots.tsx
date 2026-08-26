@@ -7,8 +7,10 @@ import {
   HardDriveDownload,
   History,
   Loader2,
+  MessagesSquare,
   Play,
   Sparkles,
+  Wrench,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
@@ -32,6 +34,7 @@ import {
   resumeParSite,
   siteVierge,
   DESCRIPTION_SITE_MAX,
+  descriptionDuProjetSansFiche,
   raisonDemandeRefusee,
   volumeDuPoint,
 } from '@haikodev/shared';
@@ -71,7 +74,7 @@ import { cn } from '@/lib/utils';
 interface EtatSnapshots {
   sites: SiteASauvegarder[];
   points: PointDeSauvegarde[];
-  projets: { id: string; nom: string }[];
+  projets: { id: string; nom: string; chemin: string }[];
   enCours: string[];
   dossier: string;
 }
@@ -95,6 +98,8 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const [fiche, setFiche] = React.useState<SiteASauvegarder | null>(null);
   const [historique, setHistorique] = React.useState(false);
   const [assistant, setAssistant] = React.useState(false);
+  const [projetLance, setProjetLance] = React.useState('');
+  const [relu, setRelu] = React.useState('');
 
   const relire = React.useCallback(async () => {
     try {
@@ -136,6 +141,57 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
     }
   };
 
+  /**
+   * OUVRIR LA CONVERSATION DE L'ASSISTANT, D'UN CLIC. Ses questions et son
+   * compte rendu vivent dans un fil ; il fallait le retrouver à la main dans le
+   * bon projet. Le tiroir se ferme derrière, sinon il masquerait le fil.
+   */
+  const ouvrirLaConversation = (depart: { agentId: string; projectId: string }) => {
+    client.allerVersDecision({ projectId: depart.projectId, agentId: depart.agentId });
+    onClose();
+  };
+
+  // Un projet du serveur sans sauvegarde : sa phrase de départ est déjà écrite
+  // (son nom, son dossier), l'utilisateur n'a rien à saisir.
+  const configurerProjet = async (projet: { id: string; nom: string; chemin: string }) => {
+    setProjetLance(projet.id);
+    try {
+      const depart = await client.call<{ agentId: string; projectId: string }>({
+        type: 'snapshots.configurer',
+        description: descriptionDuProjetSansFiche({ nom: projet.nom, chemin: projet.chemin }),
+        projectId: projet.id,
+      });
+      client.pushToast(
+        'success',
+        t('L’assistant configure ce site. Ses questions vous attendent dans la conversation.'),
+      );
+      void relire();
+      ouvrirLaConversation(depart);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
+    } finally {
+      setProjetLance('');
+    }
+  };
+
+  // Une fiche qui échoue : l'assistant la relit sans attendre la nuit suivante.
+  const faireRelire = async (site: SiteASauvegarder) => {
+    setRelu(site.id);
+    try {
+      const depart = await client.call<{ agentId: string; projectId: string }>({
+        type: 'snapshots.relire',
+        id: site.id,
+      });
+      client.pushToast('success', t('L’assistant relit cette fiche et corrige ce qui bloque.'));
+      void relire();
+      ouvrirLaConversation(depart);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
+    } finally {
+      setRelu('');
+    }
+  };
+
   return (
     <>
       <Drawer open={open} onClose={onClose}>
@@ -172,6 +228,40 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         )}
 
+        {etat.projets.length ? (
+          <div
+            className="mx-3 mb-2 flex shrink-0 flex-col gap-1.5 rounded-md border border-border bg-bg px-2.5 py-2"
+            data-snapshots-projets-sans-fiche
+          >
+            <p className="text-[12.5px] leading-relaxed text-text">
+              {etat.projets.length > 1
+                ? t('{n} projets de ce serveur n’ont pas encore de sauvegarde. Un clic, et l’assistant leur en écrit une.', {
+                    n: etat.projets.length,
+                  })
+                : t('Un projet de ce serveur n’a pas encore de sauvegarde. Un clic, et l’assistant lui en écrit une.')}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {etat.projets.map((projet) => (
+                <Button
+                  key={projet.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={!!projetLance}
+                  onClick={() => void configurerProjet(projet)}
+                  data-snapshots-projet-sans-fiche={projet.id}
+                >
+                  {projetLance === projet.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  {projet.nom}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
           {chargement && !etat.sites.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Lecture des snapshots…')}</p>
@@ -189,6 +279,17 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
                   bloque={!!refusDestination}
                   onOuvrir={() => setFiche(resume.site)}
                   onLancer={() => void lancer(resume.site.id)}
+                  onConversation={
+                    resume.site.assistantId
+                      ? () =>
+                          ouvrirLaConversation({
+                            agentId: resume.site.assistantId as string,
+                            projectId: (resume.site.assistantProjectId || resume.site.projectId) as string,
+                          })
+                      : undefined
+                  }
+                  onRelire={() => void faireRelire(resume.site)}
+                  relu={relu === resume.site.id}
                 />
               ))}
             </div>
@@ -204,7 +305,10 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
         open={assistant}
         projets={etat.projets}
         onClose={() => setAssistant(false)}
-        onLance={() => void relire()}
+        onLance={(depart) => {
+          void relire();
+          ouvrirLaConversation(depart);
+        }}
       />
 
       {/* L'historique : la seconde fenêtre demandée, empilée elle aussi. */}
@@ -218,14 +322,21 @@ function LigneSite({
   resume,
   travaille,
   bloque,
+  relu,
   onOuvrir,
   onLancer,
+  onConversation,
+  onRelire,
 }: {
   resume: ResumeDeSite;
   travaille: boolean;
   bloque: boolean;
+  relu: boolean;
   onOuvrir: () => void;
   onLancer: () => void;
+  /** Absent tant qu'aucune conversation d'assistant n'a touché cette fiche. */
+  onConversation?: () => void;
+  onRelire: () => void;
 }) {
   const { site, dernier, octets, points } = resume;
   return (
@@ -273,6 +384,30 @@ function LigneSite({
           <span>{t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}</span>
         </span>
       </button>
+      {dernier?.statut === 'echec' ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={relu}
+          onClick={onRelire}
+          title={t('Faire relire cette fiche par l’assistant')}
+          data-snapshots-relire={site.id}
+        >
+          {relu ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+          {t('Réparer')}
+        </Button>
+      ) : null}
+      {onConversation ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onConversation}
+          title={t('Ouvrir la conversation de l’assistant')}
+          data-snapshots-conversation={site.id}
+        >
+          <MessagesSquare className="h-3 w-3" />
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -307,7 +442,7 @@ function AssistantDeSite({
   open: boolean;
   projets: { id: string; nom: string }[];
   onClose: () => void;
-  onLance: () => void;
+  onLance: (depart: { agentId: string; projectId: string }) => void;
 }) {
   const [description, setDescription] = React.useState('');
   const [projet, setProjet] = React.useState('');
@@ -327,7 +462,7 @@ function AssistantDeSite({
   const lancer = async () => {
     setEnCours(true);
     try {
-      await client.call({
+      const depart = await client.call<{ agentId: string; projectId: string }>({
         type: 'snapshots.configurer',
         description,
         ...(projet ? { projectId: projet } : {}),
@@ -336,8 +471,10 @@ function AssistantDeSite({
         'success',
         t('L’assistant configure ce site. Ses questions vous attendent dans la conversation.'),
       );
-      onLance();
       onClose();
+      // La conversation s'ouvre TOUT DE SUITE : c'est là que la première
+      // question attend, et l'attendre sans le savoir est le pire des cas.
+      onLance(depart);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
     } finally {

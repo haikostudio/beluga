@@ -6,7 +6,9 @@ import { spawn, execFile } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import {
+  EssaiDAcces,
   PointDeSauvegarde,
+  siteARelire,
   SiteASauvegarder,
   StatutDePoint,
   dossierDeSite,
@@ -197,11 +199,11 @@ export function derniersPoints(): Map<string, PointDeSauvegarde> {
  * LES PROJETS DE CE SERVEUR QUI N'ONT PAS ENCORE DE FICHE. La fenêtre les
  * propose d'un clic : on ne resaisit pas un nom que le tableau connaît déjà.
  */
-export function projetsSansFiche(): { id: string; nom: string }[] {
+export function projetsSansFiche(): { id: string; nom: string; chemin: string }[] {
   const dejaLa = new Set(listerSites().map((site) => site.projectId).filter(Boolean));
   return listProjects()
     .filter((projet) => !dejaLa.has(projet.id))
-    .map((projet) => ({ id: projet.id, nom: projet.name }));
+    .map((projet) => ({ id: projet.id, nom: projet.name, chemin: projet.path ?? '' }));
 }
 
 /* ------------------------------------------------------------------ */
@@ -448,6 +450,159 @@ export async function prendreUnSnapshot(
 }
 
 /* ------------------------------------------------------------------ */
+/* Essayer les accès, sans rien sauvegarder                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ESSAYER AVANT D'ENREGISTRER. Une fiche acceptée par `jugerSite` est
+ * COMPLÈTE ; elle n'est pas pour autant JUSTE : le mot de passe peut être
+ * refusé, le dossier avoir été déplacé, la base ne pas porter ce nom. On ne
+ * l'apprenait qu'à la première nuit, dans un échec silencieux.
+ *
+ * L'essai ouvre POUR DE VRAI la base (son schéma, jeté aussitôt) et le dossier
+ * des fichiers (une simple liste). Rien n'est écrit sur le disque de stockage,
+ * rien n'est enregistré : c'est un coup de sonde, borné dans le temps.
+ */
+const DELAI_ESSAI_MS = 30_000;
+
+/** Une commande d'essai : sa sortie est JETÉE, seules comptent son issue et sa plainte. */
+function essaiDeCommande(
+  programme: string,
+  args: string[],
+  env: NodeJS.ProcessEnv = {},
+  entree?: string,
+): Promise<{ ok: boolean; detail: string }> {
+  return new Promise((resolve) => {
+    const processus = spawn(programme, args, {
+      env: { ...process.env, ...env },
+      stdio: [entree === undefined ? 'ignore' : 'pipe', 'ignore', 'pipe'],
+    });
+    const plaintes: Buffer[] = [];
+    let repondu = false;
+    const rendre = (ok: boolean, detail: string) => {
+      if (repondu) return;
+      repondu = true;
+      clearTimeout(minuteur);
+      resolve({ ok, detail: detail.slice(0, 300) });
+    };
+    const minuteur = setTimeout(() => {
+      processus.kill('SIGKILL');
+      rendre(false, `${programme} n’a pas répondu en ${Math.round(DELAI_ESSAI_MS / 1000)} secondes`);
+    }, DELAI_ESSAI_MS);
+
+    processus.stderr?.on('data', (bloc) => plaintes.push(bloc));
+    processus.on('error', (err: any) =>
+      rendre(false, err?.code === 'ENOENT' ? `${programme} n’est pas installé sur cette machine` : String(err?.message ?? err)),
+    );
+    processus.on('close', (code) =>
+      code === 0
+        ? rendre(true, 'accès accepté')
+        : rendre(false, Buffer.concat(plaintes).toString().trim() || `${programme} a rendu ${code}`),
+    );
+    if (entree !== undefined) processus.stdin?.end(entree);
+  });
+}
+
+async function essayerLaBase(site: SiteASauvegarder): Promise<EssaiDAcces> {
+  const base = site.base;
+  if (base.moteur === 'aucune') {
+    return { cible: 'base', essaye: false, ok: true, detail: 'cette fiche ne prend aucune base' };
+  }
+
+  if (base.moteur === 'sqlite') {
+    try {
+      fs.accessSync(base.nom, fs.constants.R_OK);
+      return { cible: 'base', essaye: true, ok: true, detail: `fichier ${base.nom} lisible` };
+    } catch (err: any) {
+      return { cible: 'base', essaye: true, ok: false, detail: `fichier de base illisible : ${err?.message ?? err}` };
+    }
+  }
+
+  if (base.moteur === 'mysql') {
+    const args = ['--no-data', '--skip-triggers', '--skip-lock-tables'];
+    if (base.hote.trim()) args.push('-h', base.hote.trim());
+    if (base.port.trim()) args.push('-P', base.port.trim());
+    args.push('-u', base.utilisateur, base.nom);
+    const issue = await essaiDeCommande('mysqldump', args, { MYSQL_PWD: base.motDePasse });
+    return { cible: 'base', essaye: true, ok: issue.ok, detail: issue.ok ? `base « ${base.nom} » ouverte` : issue.detail };
+  }
+
+  const args = ['--schema-only', '--no-owner', '--no-privileges'];
+  if (base.hote.trim()) args.push('-h', base.hote.trim());
+  if (base.port.trim()) args.push('-p', base.port.trim());
+  args.push('-U', base.utilisateur, base.nom);
+  const issue = await essaiDeCommande('pg_dump', args, { PGPASSWORD: base.motDePasse });
+  return { cible: 'base', essaye: true, ok: issue.ok, detail: issue.ok ? `base « ${base.nom} » ouverte` : issue.detail };
+}
+
+async function essayerLesFichiers(site: SiteASauvegarder): Promise<EssaiDAcces> {
+  const fichiers = site.fichiers;
+  if (fichiers.moyen === 'aucun') {
+    return { cible: 'fichiers', essaye: false, ok: true, detail: 'cette fiche ne prend aucun fichier' };
+  }
+
+  if (fichiers.moyen === 'local') {
+    try {
+      const etat = fs.statSync(fichiers.chemin);
+      if (!etat.isDirectory()) {
+        return { cible: 'fichiers', essaye: true, ok: false, detail: `${fichiers.chemin} n’est pas un dossier` };
+      }
+      fs.accessSync(fichiers.chemin, fs.constants.R_OK);
+      return { cible: 'fichiers', essaye: true, ok: true, detail: `dossier ${fichiers.chemin} lisible` };
+    } catch (err: any) {
+      return { cible: 'fichiers', essaye: true, ok: false, detail: `dossier inaccessible : ${err?.message ?? err}` };
+    }
+  }
+
+  if (fichiers.moyen === 'ssh') {
+    const port = fichiers.port.trim() || '22';
+    const issue = await essaiDeCommande('ssh', [
+      '-p',
+      port,
+      '-o',
+      'BatchMode=yes',
+      '-o',
+      'StrictHostKeyChecking=accept-new',
+      '-o',
+      'ConnectTimeout=15',
+      `${fichiers.utilisateur}@${fichiers.hote}`,
+      `test -d ${JSON.stringify(fichiers.chemin)}`,
+    ]);
+    return {
+      cible: 'fichiers',
+      essaye: true,
+      ok: issue.ok,
+      detail: issue.ok
+        ? `dossier ${fichiers.chemin} atteint sur ${fichiers.hote}`
+        : issue.detail || `dossier ${fichiers.chemin} introuvable sur ${fichiers.hote}`,
+    };
+  }
+
+  // FTP : `cls` liste le dossier sans rien rapatrier ; le mot de passe passe par
+  // l'entrée standard, jamais par la ligne de commande.
+  const port = fichiers.port.trim() || '21';
+  const script = [
+    `open -u ${fichiers.utilisateur},${fichiers.motDePasse} -p ${port} ${fichiers.hote}`,
+    'set ssl:verify-certificate no',
+    'set net:timeout 20',
+    `cls -1 ${fichiers.chemin}`,
+    'bye',
+  ].join('\n');
+  const issue = await essaiDeCommande('lftp', ['-f', '/dev/stdin'], {}, script);
+  return {
+    cible: 'fichiers',
+    essaye: true,
+    ok: issue.ok,
+    detail: issue.ok ? `dossier ${fichiers.chemin} listé sur ${fichiers.hote}` : issue.detail,
+  };
+}
+
+/** Les deux essais d'une fiche, menés l'un après l'autre. */
+export async function essayerLesAcces(site: SiteASauvegarder): Promise<EssaiDAcces[]> {
+  return [await essayerLaBase(site), await essayerLesFichiers(site)];
+}
+
+/* ------------------------------------------------------------------ */
 /* Le ménage et le passage de nuit                                      */
 /* ------------------------------------------------------------------ */
 
@@ -465,6 +620,50 @@ export function menageDuSite(site: SiteASauvegarder, maintenant = Date.now()): n
     oublierPoint(point.id);
   }
   return aJeter.length;
+}
+
+/* ------------------------------------------------------------------ */
+/* Faire relire une fiche qui échoue nuit après nuit                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES FICHES QUE L'ASSISTANT DOIT RELIRE. Trois échecs de suite ne sont plus un
+ * incident : c'est la fiche qui est fausse. On ne la relit qu'une fois par jour
+ * — une relecture par nuit d'échec suffit, et chacune coûte un tour de moteur.
+ */
+export function sitesARelire(maintenant = Date.now()): SiteASauvegarder[] {
+  const parSite = new Map<string, PointDeSauvegarde[]>();
+  for (const point of listerPoints()) {
+    const liste = parSite.get(point.siteId) ?? [];
+    liste.push(point);
+    parSite.set(point.siteId, liste);
+  }
+  return listerSites().filter((site) => siteARelire(site, parSite.get(site.id) ?? [], maintenant));
+}
+
+/**
+ * LA DATE DE RELECTURE, POSÉE SANS PASSER PAR LE JUGEMENT. Une fiche déjà en
+ * base peut être incomplète (c'est justement pour cela qu'elle échoue) :
+ * la faire repasser par `enregistrerSite` la ferait refuser. Seul ce champ bouge.
+ */
+export function marquerRelecture(
+  siteId: string,
+  conversation?: { agentId: string; projectId: string },
+  at = Date.now(),
+): void {
+  const site = lireSite(siteId);
+  if (!site) return;
+  const data = JSON.stringify({
+    ...site,
+    relueLe: at,
+    ...(conversation ? { assistantId: conversation.agentId, assistantProjectId: conversation.projectId } : {}),
+  });
+  getDb().prepare('UPDATE snapshot_sites SET data = ? WHERE id = ?').run(data, siteId);
+}
+
+/** Les échecs d'un site, du plus récent au plus ancien. */
+export function echecsDuSite(siteId: string): PointDeSauvegarde[] {
+  return listerPoints(siteId).filter((point) => point.statut === 'echec');
 }
 
 /**
@@ -486,6 +685,19 @@ export async function passageDesSnapshots(origine: 'automatique' | 'manuel' = 'a
     await prendreUnSnapshot(site.id, origine);
   }
   if (dus.length) log.info(`snapshots : ${dus.length} site(s) sauvegardé(s)`);
+
+  // CE QUI ÉCHOUE ENCORE ET ENCORE PART CHEZ L'ASSISTANT. L'import est fait ici
+  // et pas en tête de fichier : le module de l'assistant tire tout le moteur,
+  // que la sauvegarde n'a aucune raison de charger pour prendre un point.
+  for (const site of sitesARelire()) {
+    try {
+      const { lancerRelectureDeSnapshot } = await import('./assistant-snapshot.js');
+      await lancerRelectureDeSnapshot(site.id);
+    } catch (err: any) {
+      log.warn(`snapshots : relecture de « ${site.nom} » impossible`, err?.message ?? err);
+    }
+  }
+
   return dus.length;
 }
 

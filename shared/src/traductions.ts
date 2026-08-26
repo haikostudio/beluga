@@ -320,6 +320,37 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Historique': ['History', 'Historial', 'Verlauf', '历史'],
   'Historique des snapshots': ['Snapshot history', 'Historial de copias', 'Snapshot-Verlauf', '快照历史'],
   'Nouveau site': ['New site', 'Nuevo sitio', 'Neue Website', '新建站点'],
+  'Réparer': ['Repair', 'Reparar', 'Reparieren', '修复'],
+  'Faire relire cette fiche par l’assistant': [
+    'Have the assistant review this entry',
+    'Que el asistente revise esta ficha',
+    'Diesen Eintrag vom Assistenten prüfen lassen',
+    '让助手复核此配置',
+  ],
+  'Ouvrir la conversation de l’assistant': [
+    'Open the assistant’s conversation',
+    'Abrir la conversación del asistente',
+    'Das Gespräch des Assistenten öffnen',
+    '打开助手的对话',
+  ],
+  'L’assistant relit cette fiche et corrige ce qui bloque.': [
+    'The assistant is reviewing this entry and fixing what is blocking it.',
+    'El asistente revisa esta ficha y corrige lo que la bloquea.',
+    'Der Assistent prüft diesen Eintrag und behebt, was ihn blockiert.',
+    '助手正在复核此配置并修复问题。',
+  ],
+  'Un projet de ce serveur n’a pas encore de sauvegarde. Un clic, et l’assistant lui en écrit une.': [
+    'One project on this server has no backup yet. One click and the assistant writes one for it.',
+    'Un proyecto de este servidor aún no tiene copia de seguridad. Un clic y el asistente le escribe una.',
+    'Ein Projekt dieses Servers hat noch keine Sicherung. Ein Klick, und der Assistent schreibt eine.',
+    '本服务器有一个项目尚无备份。点击一下，助手就会为它写一份。',
+  ],
+  '{n} projets de ce serveur n’ont pas encore de sauvegarde. Un clic, et l’assistant leur en écrit une.': [
+    '{n} projects on this server have no backup yet. One click and the assistant writes one for them.',
+    '{n} proyectos de este servidor aún no tienen copia de seguridad. Un clic y el asistente les escribe una.',
+    '{n} Projekte dieses Servers haben noch keine Sicherung. Ein Klick, und der Assistent schreibt eine.',
+    '本服务器有 {n} 个项目尚无备份。点击一下，助手就会为它们写一份。',
+  ],
   'Site extérieur': ['External site', 'Sitio externo', 'Externe Website', '外部站点'],
   'Le site à sauvegarder': ['The site to back up', 'El sitio a respaldar', 'Die zu sichernde Website', '要备份的站点'],
   'Un projet de ce serveur ?': [

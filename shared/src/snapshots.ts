@@ -80,6 +80,16 @@ export interface SiteASauvegarder {
   /** Au-delà de ce nombre de jours, un point de sauvegarde est jeté. */
   conservationJours: number;
   note: string;
+  /**
+   * LA CONVERSATION DE L'ASSISTANT qui a posé cette fiche en dernier. C'est elle
+   * qu'un clic rouvre depuis la fenêtre : les questions posées, les essais faits
+   * et le compte rendu s'y lisent, au lieu d'être perdus.
+   */
+  assistantId?: string;
+  /** Le projet où cette conversation vit — un site extérieur est accueilli chez HaikoDev. */
+  assistantProjectId?: string;
+  /** Quand l'assistant a relu cette fiche après des échecs — 0 s'il ne l'a jamais fait. */
+  relueLe?: number;
   creeLe: number;
   modifieLe: number;
 }
@@ -147,6 +157,9 @@ export function siteVierge(projectId: string | null = null, nom = ''): SiteASauv
     fichiers: { moyen: 'aucun', chemin: '', hote: '', port: '', utilisateur: '', motDePasse: '' },
     conservationJours: CONSERVATION_PAR_DEFAUT,
     note: '',
+    assistantId: '',
+    assistantProjectId: '',
+    relueLe: 0,
     creeLe: 0,
     modifieLe: 0,
   };
@@ -369,4 +382,46 @@ export function raisonDestinationRefusee(dossier: string): string | null {
   if (!propre) return 'Aucun dossier de stockage réglé : renseignez-le dans les réglages « Système ».';
   if (!propre.startsWith('/')) return 'Le dossier de stockage doit être un chemin absolu (il commence par « / »).';
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Une fiche qui échoue nuit après nuit                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * COMBIEN D'ÉCHECS DE SUITE AVANT DE FAIRE RELIRE LA FICHE. Un échec isolé
+ * arrive (machine éteinte, réseau coupé) et ne mérite pas un tour de moteur.
+ * Trois de suite, c'est la FICHE qui est fausse : un mot de passe changé, un
+ * dossier déplacé, une base renommée.
+ */
+export const ECHECS_AVANT_RELECTURE = 3;
+
+/** Un site relu ne l'est pas deux fois dans la même journée, même s'il échoue encore. */
+export const ECART_MINIMAL_RELECTURE_MS = 20 * 3600 * 1000;
+
+/** Le nombre de points en ÉCHEC depuis le plus récent, sans un seul succès entre eux. */
+export function echecsDeSuite(points: PointDeSauvegarde[]): number {
+  const ordonnes = [...points].sort((a, b) => b.debut - a.debut);
+  let compte = 0;
+  for (const point of ordonnes) {
+    if (point.statut !== 'echec') break;
+    compte += 1;
+  }
+  return compte;
+}
+
+/**
+ * CE SITE DOIT-IL ÊTRE RELU PAR L'ASSISTANT ? Un site éteint ne l'est jamais —
+ * il n'essaie même plus. Un site déjà relu récemment non plus : la relecture
+ * précédente a peut-être corrigé la fiche, et la nuit suivante le dira.
+ */
+export function siteARelire(
+  site: SiteASauvegarder,
+  points: PointDeSauvegarde[],
+  maintenant = Date.now(),
+): boolean {
+  if (!site.actif) return false;
+  if (echecsDeSuite(points) < ECHECS_AVANT_RELECTURE) return false;
+  const relue = Number(site.relueLe ?? 0);
+  return !relue || maintenant - relue >= ECART_MINIMAL_RELECTURE_MS;
 }

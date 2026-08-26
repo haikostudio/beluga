@@ -19,13 +19,17 @@
 
 import {
   demandeDeConfiguration,
+  demandeDeRelecture,
   raisonDemandeRefusee,
   reglagesDuNiveau,
   titreDeLAssistantSnapshot,
+  titreDeLaRelecture,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { createAgent, sendPrompt } from './runtime.js';
+import { echecsDuSite, lireSite, marquerRelecture } from './snapshots.js';
+import { bus } from './bus.js';
 import { log } from './logger.js';
 
 export interface DepartDAssistant {
@@ -101,6 +105,51 @@ export async function lancerAssistantDeSnapshot(entree: {
     silent: true,
     motif: 'configuration-snapshot',
   }).catch((err) => log.error('assistant de snapshot : le tour a échoué', err));
+
+  return { agentId: agent.id, projectId: projet.id };
+}
+
+/**
+ * FAIRE RELIRE UNE FICHE QUI ÉCHOUE NUIT APRÈS NUIT. Le passage de nuit appelle
+ * ceci tout seul après trois échecs de suite ; un bouton de la fenêtre le fait
+ * aussi, à la main, sans attendre la nuit suivante.
+ *
+ * L'agent reçoit la fiche telle qu'elle est enregistrée (sans ses mots de
+ * passe : ils restent en base et l'outil les conserve) et les MESSAGES DE LA
+ * MACHINE, mot pour mot. Il essaie les accès, corrige ce qu'il peut constater,
+ * et ne demande à l'utilisateur que ce qui ne se trouve nulle part.
+ *
+ * LA DATE DE RELECTURE EST POSÉE AVANT DE PARTIR : si le tour échoue, on ne
+ * relance pas un agent toutes les cinq minutes sur la même fiche.
+ */
+export async function lancerRelectureDeSnapshot(siteId: string): Promise<DepartDAssistant> {
+  const site = lireSite(siteId);
+  if (!site) throw new Error('site introuvable');
+
+  const projet = projetDAccueil(site.projectId);
+  if (!projet) throw new Error('Aucun projet ouvert : la conversation de l’assistant n’a nulle part où vivre.');
+
+  const reglages = await reglagesDeLAssistant();
+  const agent = createAgent({
+    projectId: projet.id,
+    role: 'task',
+    title: titreDeLaRelecture(site.nom),
+    run: { engine: reglages.engine, model: reglages.model, thinking: reglages.thinking as any },
+  });
+
+  // La conversation est retenue SUR LA FICHE : la fenêtre l'ouvre d'un clic,
+  // même quand l'agent n'a pas encore fini son tour.
+  marquerRelecture(site.id, { agentId: agent.id, projectId: projet.id });
+
+  const demande = demandeDeRelecture({ site, echecs: echecsDuSite(site.id).slice(0, 3) });
+  void sendPrompt(agent.id, demande, {
+    template: 'none',
+    silent: true,
+    motif: 'configuration-snapshot',
+  }).catch((err) => log.error('relecture de fiche de snapshot : le tour a échoué', err));
+
+  log.info(`snapshots : l’assistant relit la fiche de « ${site.nom} »`);
+  bus.toast('info', `La sauvegarde de « ${site.nom} » échoue : l’assistant relit sa fiche.`, undefined, 'snapshot');
 
   return { agentId: agent.id, projectId: projet.id };
 }
