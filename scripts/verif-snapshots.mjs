@@ -16,7 +16,10 @@
  *     et les projets du serveur y sont proposés sans ressaisir leur nom ;
  *  8. les projets du serveur SANS fiche sont proposés d'un clic dans la fenêtre ;
  *  9. une fiche qui échoue porte son bouton « Réparer », et une fiche posée par
- *     l'assistant porte le bouton qui ROUVRE sa conversation.
+ *     l'assistant porte le bouton qui ROUVRE sa conversation ;
+ * 10. « Restaurer » sur un point, confirmé, écrase POUR DE VRAI la base et les
+ *     fichiers du site avec ceux du point — y compris un fichier apparu depuis
+ *     (mirroir complet, pas une simple copie par-dessus).
  *
  *   node scripts/verif-snapshots.mjs
  */
@@ -419,6 +422,53 @@ async function main() {
       (await encart.count()) === 1 && (await proposes.count()) >= 1,
       (await proposes.count()) ? await proposes.first().innerText() : 'aucun projet proposé',
     );
+
+    /* 10. « Restaurer » écrase POUR DE VRAI ce que le site porte aujourd'hui.
+       On fait dériver la base et les fichiers depuis la prise — une commande
+       de plus, un fichier intrus apparu depuis — puis on restaure le point et
+       on vérifie que le site retrouve EXACTEMENT l'état de la sauvegarde. Le
+       rechargement de la fiche 9, juste après, nettoie les fenêtres : pas
+       besoin de refermer proprement celle-ci. */
+    {
+      const baseDerive = new Database(BASE_DU_SITE);
+      baseDerive.prepare('INSERT INTO commandes (client) VALUES (?)').run('Intrus');
+      baseDerive.close();
+      fs.writeFileSync(path.join(FICHIERS_DU_SITE, 'index.html'), '<h1>Piraté</h1>\n');
+      fs.writeFileSync(path.join(FICHIERS_DU_SITE, 'malware.txt'), 'intrus');
+
+      await page.click('[data-snapshots-historique]');
+      await historique.waitFor({ state: 'visible', timeout: 10000 });
+      await page.click('[data-snapshots-restaurer]');
+      const confirmation = page.locator('[role="dialog"][data-state="open"]', {
+        has: page.locator('text=/Restaurer ce point/'),
+      });
+      await confirmation.waitFor({ state: 'visible', timeout: 10000 });
+      await confirmation.getByRole('button', { name: 'Restaurer', exact: true }).click();
+
+      const finRestauration = Date.now() + 60000;
+      let restaure = false;
+      let dernierEtat = '';
+      while (Date.now() < finRestauration) {
+        try {
+          const lignes = new Database(BASE_DU_SITE, { readonly: true }).prepare('SELECT client FROM commandes').all();
+          const html = fs.readFileSync(path.join(FICHIERS_DU_SITE, 'index.html'), 'utf8');
+          const malwareParti = !fs.existsSync(path.join(FICHIERS_DU_SITE, 'malware.txt'));
+          dernierEtat = `clients=${lignes.map((l) => l.client).join(',')} html=${html.slice(0, 20)} malware_parti=${malwareParti}`;
+          if (lignes.length === 1 && lignes[0].client === 'Chris' && html.includes('Boutique') && malwareParti) {
+            restaure = true;
+            break;
+          }
+        } catch {
+          /* base en cours de réécriture par la restauration : on réessaie */
+        }
+        await page.waitForTimeout(500);
+      }
+      noter(
+        'Restaurer un point remet la base et les fichiers dans l’état de la sauvegarde',
+        restaure,
+        dernierEtat,
+      );
+    }
 
     /* 9. Une fiche qui échoue porte son bouton de réparation, et celle qu'un
        assistant a posée rouvre sa conversation. */
