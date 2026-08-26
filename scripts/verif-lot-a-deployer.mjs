@@ -125,11 +125,11 @@ const etatDe = (run, cle) => run?.steps.find((s) => s.key === cle)?.state;
 
 /* --- 1. Une carte REPASSÉE dans « À déployer » repart bel et bien ----- */
 
-console.log('\n1. Une carte repassée de « En production » vers « À déployer »');
-const repassee = monterProjet('essai-repassee', 'in_production', Date.now() - 3600_000);
+console.log('\n1. Une carte repassée d’« Archivé » vers « À déployer »');
+const repassee = monterProjet('essai-repassee', 'archived', Date.now() - 3600_000);
 
 // Le chemin RÉEL du déplacement à la main (`card.move` passe par là), pas une
-// écriture directe en base : sortir une carte d'« En production » est un geste
+// écriture directe en base : sortir une carte d'« Archivé » est un geste
 // réservé à l'utilisateur, aucun agent ne peut le rejouer.
 rangerLaCarte(store.getCard(repassee.carte.id), 'to_deploy');
 dire(
@@ -154,8 +154,8 @@ dire(
   'le travail de la carte est RÉELLEMENT sur la branche principale',
 );
 dire(
-  store.getCard(repassee.carte.id)?.column === 'in_production',
-  'la carte a CHANGÉ de colonne : « À déployer » → « En production »',
+  store.getCard(repassee.carte.id)?.column === 'archived',
+  'la carte a CHANGÉ de colonne : « À déployer » → « Archivé »',
 );
 
 /* --- 2. Une carte encore piégée : écartée, mais la cause est DITE ----- */
@@ -210,10 +210,10 @@ dire(
 console.log('\n4. Une carte qui QUITTE « À déployer » garde sa trace');
 const gardee = monterProjet('essai-gardee', 'to_deploy');
 store.saveCard({ ...store.getCard(gardee.carte.id), deployedAt: 1234567890 });
-rangerLaCarte(store.getCard(gardee.carte.id), 'in_production');
+rangerLaCarte(store.getCard(gardee.carte.id), 'archived');
 dire(
-  store.getCard(gardee.carte.id)?.column === 'in_production',
-  'la carte est bien passée en « En production »',
+  store.getCard(gardee.carte.id)?.column === 'archived',
+  'la carte est bien passée en « Archivé »',
 );
 dire(
   store.getCard(gardee.carte.id)?.deployedAt === 1234567890,

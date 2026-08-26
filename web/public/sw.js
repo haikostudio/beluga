@@ -65,7 +65,7 @@ const PERSONNAGES = {
   'liste-taches': 'done',
   'tache-echec': 'running',
   'decision-attendue': 'running',
-  'publication-terminee': 'in_production',
+  'publication-terminee': 'archived',
   'publication-echec': 'to_deploy',
   // « publication-en-retard » n'y figure PAS à dessein : un retard peut tomber
   // sur un déploiement comme sur une mise en production, donc sur deux colonnes

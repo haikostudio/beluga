@@ -66,7 +66,7 @@ test('chaque colonne a son personnage, détouré, dans les deux découpes', () =
 test('une alerte qui parle d’une colonne porte son visage, les autres gardent leur genre', () => {
   assert.equal(avatarDeLAlerte('tache-terminee'), '/personnages/done-rond.png');
   assert.equal(avatarDeLAlerte('decision-attendue'), '/personnages/running-rond.png');
-  assert.equal(avatarDeLAlerte('publication-terminee'), '/personnages/in_production-rond.png');
+  assert.equal(avatarDeLAlerte('publication-terminee'), '/personnages/archived-rond.png');
   // Un quota qui monte ou un serveur qui repart n'ont aucune colonne : prendre
   // un personnage au hasard mentirait sur l'endroit où aller.
   assert.equal(avatarDeLAlerte('quota-seuil'), undefined);

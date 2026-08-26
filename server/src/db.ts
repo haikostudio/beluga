@@ -1096,6 +1096,34 @@ const MIGRATIONS: {
   },
   {
     id: 37,
+    name: 'retrait-de-la-colonne-en-production',
+    // Comme toute migration de RÉPARATION, elle nomme la table qu'elle attend :
+    // une base montée pour un contrôle ciblé n'a pas forcément `cards`, et la
+    // migration doit se REPORTER plutôt que d'échouer.
+    siTable: 'cards',
+    // LA COLONNE « EN PRODUCTION » N'EXISTE PLUS.
+    //
+    // Elle racontait la production par ses CARTES : celles qui avaient été
+    // déployées s'y empilaient, et il fallait les lire une à une pour deviner
+    // ce qui tournait chez le client. Ce n'était pas la bonne question — ce
+    // qu'on veut savoir, c'est QUELLE version est en ligne et de combien le
+    // dépôt l'a dépassée (`shared/src/etat-production.ts`).
+    //
+    // Le DÉPLOIEMENT range désormais ses cartes directement en « Archivé », et
+    // c'est lui qui les clôt. Les cartes qui dormaient dans l'ancienne colonne
+    // doivent être reprises AVANT toute lecture : leur clé n'est plus reconnue
+    // par le modèle, et la carte ne se relirait pas.
+    //
+    // Elles gardent leur position d'origine : l'ordre relatif à l'intérieur du
+    // paquet est conservé, et les cartes déjà archivées ne bougent pas. Rien
+    // n'est perdu — ni la date de mise en ligne, ni le rattachement à la
+    // publication qui les a embarquées, qui vit dans `deploys`, pas ici.
+    sql: `
+      UPDATE cards SET column_key = 'archived' WHERE column_key = 'in_production';
+    `,
+  },
+  {
+    id: 38,
     name: 'commentaires-de-carte',
     // DES NOTES LIBRES SUR UNE CARTE, chacune avec ses pièces jointes. Une
     // ligne par commentaire, jamais réécrite : contrairement à `card_labels` et

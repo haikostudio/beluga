@@ -283,7 +283,7 @@ function poserLeDecor() {
       projectId: PROJET_ID,
       title: titre,
       description: 'Carte d’essai posée en base.',
-      column: 'in_production',
+      column: 'archived',
       position,
       origin: 'user',
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
@@ -297,7 +297,7 @@ function poserLeDecor() {
     db.prepare(
       `INSERT INTO cards (id, project_id, column_key, position, title, data, deployed_at, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, PROJET_ID, 'in_production', position, titre, JSON.stringify(donnees), DEPLOYE_LE, maintenant, maintenant);
+    ).run(id, PROJET_ID, 'archived', position, titre, JSON.stringify(donnees), DEPLOYE_LE, maintenant, maintenant);
   };
   carte('c-1', 'Première carte', 1);
   carte('c-2', 'Seconde carte', 2);

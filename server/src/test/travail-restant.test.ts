@@ -22,7 +22,7 @@ const AU_TRAVAIL = {
 /* -------- Une carte hors « En cours » n'a rien à dire -------- */
 
 test('hors « En cours », la colonne dit déjà où en est la carte', () => {
-  for (const colonne of ['notes', 'planned', 'done', 'to_deploy', 'in_production', 'archived']) {
+  for (const colonne of ['notes', 'planned', 'done', 'to_deploy', 'archived']) {
     assert.equal(travailRestant({ ...AU_TRAVAIL, colonne }, MAINTENANT), null, `depuis « ${colonne} »`);
   }
 });

@@ -15,7 +15,10 @@ export const COLUMN_KEYS = [
   'running',
   'done',
   'to_deploy',
-  'in_production',
+  // « En production » a disparu : le DÉPLOIEMENT range désormais ses cartes
+  // directement en « Archivé ». La mise en production, elle, ne porte plus de
+  // lot de cartes — c'est un ÉTAT de version, lu en tête d'« Archivé »
+  // (`shared/src/etat-production.ts`).
   'archived',
 ] as const;
 
@@ -28,7 +31,6 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   running: 'En cours',
   done: 'Terminé',
   to_deploy: 'À déployer',
-  in_production: 'En production',
   archived: 'Archivé',
 };
 
@@ -45,7 +47,7 @@ export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'planned'];
  * Colonnes que seul l'utilisateur peut atteindre. « Terminé » n'en fait plus
  * partie : la carte y va d'elle-même quand son agent a rendu.
  */
-export const USER_ONLY_TARGETS: ColumnKey[] = ['to_deploy', 'in_production'];
+export const USER_ONLY_TARGETS: ColumnKey[] = ['to_deploy'];
 
 /**
  * Colonnes que seule la machine peut attribuer. « Terminé » en fait partie

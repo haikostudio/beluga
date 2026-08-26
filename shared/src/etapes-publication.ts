@@ -13,11 +13,14 @@ import type { ColumnKey } from './columns.js';
  *
  *  1. DÉPLOIEMENT — le lot de « À déployer » est fusionné, enregistré, envoyé
  *     sur le dépôt, puis l'instance de dev du projet est rafraîchie sur ce
- *     serveur. Les cartes se posent en « En production ». Rien n'est clos : on
- *     peut encore reprendre, corriger, redéployer.
- *  2. MISE EN PRODUCTION — le lot d'« En production » part chez le client.
- *     C'est elle, et elle seule, qui CLÔT les cartes : document de clôture,
- *     branche refermée, ligne d'historique, « Archivé ».
+ *     serveur. C'est lui qui CLÔT les cartes : document de clôture, branche
+ *     refermée, ligne d'historique, « Archivé ».
+ *  2. MISE EN PRODUCTION — le code déjà déployé part chez le client. Elle ne
+ *     porte AUCUN lot de cartes : la colonne « En production » a disparu, et
+ *     ce qu'on veut savoir d'elle n'est pas « quelles cartes », c'est « quelle
+ *     VERSION est en ligne, et de combien le dépôt l'a dépassée »
+ *     (`shared/src/etat-production.ts`). Son bouton ne compte donc rien : il
+ *     MET À JOUR la version en production.
  *
  * La règle est PURE : elle ne connaît ni la base, ni le dépôt, ni le disque.
  * Elle dit seulement d'où chaque étape tire son lot, où elle le pose, et si
@@ -45,10 +48,29 @@ export interface EtapeDePublication {
    * l'étape, pour que le bouton ne puisse pas dire autre chose que ce qu'il fait.
    */
   verbe: string;
-  /** La colonne d'où viennent les cartes du lot. */
+  /**
+   * Le libellé ENTIER du bouton, pour une étape SANS LOT : « Tout <verbe> (n) »
+   * n'a alors aucun sens — il n'y a pas de cartes à compter. Absent pour une
+   * étape qui embarque un lot, où le verbe suffit.
+   */
+  bouton?: string;
+  /**
+   * La colonne EN TÊTE DE LAQUELLE le bloc de cette étape s'affiche. Pour le
+   * déploiement, c'est aussi la colonne d'où viennent les cartes du lot ; pour
+   * la mise en production, c'est seulement un EMPLACEMENT (« Archivé »), car
+   * elle n'embarque aucune carte (voir `sansLot`).
+   */
   source: ColumnKey;
-  /** Où les cartes se posent quand la mise en ligne a réellement abouti. */
-  arrivee: ColumnKey;
+  /**
+   * L'étape n'embarque AUCUNE carte : rien à compter, rien à sélectionner, rien
+   * à ranger après coup. Elle pousse une VERSION, pas un lot.
+   */
+  sansLot: boolean;
+  /**
+   * Où les cartes se posent quand la mise en ligne a réellement abouti. `null`
+   * pour une étape sans lot : il n'y a personne à déplacer.
+   */
+  arrivee: ColumnKey | null;
   /**
    * L'étape CLÔT-elle la carte ? Seule la dernière le fait : document de
    * clôture écrit, branche refermée, ligne ajoutée à l'historique. Une carte
@@ -64,18 +86,21 @@ const ETAPE_DEV: EtapeDePublication = {
   titreCourt: 'Déploiement',
   verbe: 'déployer',
   source: 'to_deploy',
-  arrivee: 'in_production',
-  clot: false,
+  sansLot: false,
+  arrivee: 'archived',
+  clot: true,
 };
 
 const ETAPE_PRODUCTION: EtapeDePublication = {
   cible: 'production',
   libelle: 'Mise en production',
   titreCourt: 'Mise en production',
-  verbe: 'publier',
-  source: 'in_production',
-  arrivee: 'archived',
-  clot: true,
+  verbe: 'mettre à jour',
+  bouton: 'Mettre à jour la version prod',
+  source: 'archived',
+  sansLot: true,
+  arrivee: null,
+  clot: false,
 };
 
 /** Les étapes de mise en ligne, dans l'ordre du parcours. Toujours les deux. */
@@ -102,7 +127,7 @@ export function etapeDePublication(cible?: CiblePublication): EtapeDePublication
  * C'est ce que demande le bloc de publication posé en tête d'une colonne : il
  * ne sait pas à quelle étape il sert, il sait seulement d'où il est. Rendre
  * `null` reste une réponse à part entière — toute autre colonne que « À
- * déployer » et « En production » ne publie rien.
+ * déployer » et « Archivé » ne publie rien.
  */
 export function etapeDeLaColonne(source: ColumnKey): EtapeDePublication | null {
   return etapesDePublication().find((etape) => etape.source === source) ?? null;

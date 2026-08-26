@@ -104,7 +104,7 @@ test('l’heure atteinte, la mention annonce le départ imminent', () => {
 
 test('la mention se tait là où la date n’a plus de sens', () => {
   const datee = { departPrevu: MAINTENANT + HEURE };
-  for (const column of ['running', 'done', 'to_deploy', 'in_production', 'archived', 'notes']) {
+  for (const column of ['running', 'done', 'to_deploy', 'archived', 'notes']) {
     assert.equal(mentionDepartProgramme({ column, scheduling: datee }, MAINTENANT), null);
   }
   assert.equal(mentionDepartProgramme({ column: 'planned', scheduling: {} }, MAINTENANT), null);

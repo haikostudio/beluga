@@ -77,9 +77,10 @@ export function controlesReussisSur(card: Card): boolean {
 }
 
 /**
- * DEPUIS QUAND LA CARTE EST-ELLE EN PRODUCTION ? La publication de cible
- * « production » fait foi ; à défaut — projets d'avant les deux étapes —, la
- * colonne « En production » et la date de mise en ligne de la carte.
+ * DEPUIS QUAND LE TRAVAIL DE LA CARTE EST-IL EN LIGNE ? La publication de cible
+ * « production » fait foi quand elle a nommé cette carte — c'était le cas tant
+ * que la mise en production embarquait un lot ; à défaut, la date de mise en
+ * ligne de la carte, posée par son déploiement.
  */
 export function enProductionDepuis(card: Card): number | undefined {
   const miseEnProduction = store
@@ -87,8 +88,7 @@ export function enProductionDepuis(card: Card): number | undefined {
     .filter((run) => run.cible === 'production' && run.state === 'success' && run.cardIds.includes(card.id))
     .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))[0];
   if (miseEnProduction) return miseEnProduction.endedAt ?? miseEnProduction.startedAt;
-  if (card.column === 'in_production') return card.deployedAt ?? card.doneAt ?? card.updatedAt;
-  // Une carte archivée APRÈS être passée en production garde sa date de mise en
+  // Une carte archivée APRÈS avoir été déployée garde sa date de mise en
   // ligne : « Archivé » n'efface pas ce qui a servi. Une carte simplement
   // abandonnée, elle, n'a pas de `deployedAt` — et ne prouve donc rien.
   if (card.column === 'archived' && card.deployedAt) return card.deployedAt;
@@ -148,7 +148,7 @@ export function cartesMures(limite = CARTES_PAR_NUIT_MAX): { projet: Project; ca
   for (const projet of store.listProjects()) {
     if (projet.archived) continue;
     for (const card of store.listCards(projet.id)) {
-      if (card.column !== 'in_production' && card.column !== 'archived') continue;
+      if (card.column !== 'archived') continue;
       const jugement = jugementDeLaCarte(card);
       if (jugement.etat !== 'mure') continue;
       trouvees.push({ projet, card, quand: card.deployedAt ?? card.doneAt ?? card.updatedAt });

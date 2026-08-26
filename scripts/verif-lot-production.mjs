@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 /**
- * La mise en ligne compte DEUX étapes sur le tableau. Entre « À déployer » et
- * « Archivé » s'intercale « En production » :
+ * La colonne « En production » N'EXISTE PLUS, et la production se dit par sa
+ * VERSION :
  *
- *   - le pied de « À déployer » propose « Tout mettre en production » et non
- *     plus « Tout archiver » — on n'archive jamais par-dessus une étape ;
- *   - la colonne « En production » existe, porte son titre, se défile, et son
- *     pied propose « Tout archiver » ;
- *   - les DEUX colonnes portent leur bloc de publication, sans aucun réglage :
- *     « Tout déployer » en tête de l'une, « Tout publier » en tête de l'autre ;
- *   - sur écran de téléphone, elle a son onglet, avec son compte de cartes ;
- *   - une carte posée là ne se reprend qu'à la main, et retombe alors dans
- *     « À déployer » — l'étape juste avant, jamais deux d'un coup.
+ *   - aucune colonne « En production » sur le tableau : « À déployer » est
+ *     suivie directement d'« Archivé », où le déploiement range ses cartes ;
+ *   - les DEUX colonnes de mise en ligne portent leur bloc, sans aucun
+ *     réglage : « Tout déployer (n) » en tête d'« À déployer », « Mettre à jour
+ *     la version prod » — SANS compteur — en tête d'« Archivé » ;
+ *   - ce bloc dit l'ÉTAT de la production : l'enregistrement en ligne et
+ *     l'écart avec le dépôt, jamais un silence ;
+ *   - un clic dessus ne publie RIEN : il ouvre la confirmation, et « Annuler »
+ *     ne lance aucune publication ;
+ *   - sur écran de téléphone, « Archivé » a son onglet, avec son compte ;
+ *   - une carte d'« À déployer » ne se reprend qu'à la main, et retombe alors
+ *     en « Terminé » — l'étape juste avant, jamais deux d'un coup.
  *
  *   node scripts/verif-lot-production.mjs
  *
@@ -130,7 +133,7 @@ function poserLeDecor() {
     sha(jeton),
     maintenant,
     maintenant + 3600_000,
-    'vérification colonne en production',
+    'vérification de l’état de production',
   );
 
   /* Plafond d'agents à ZÉRO : rien ne peut se lancer pendant l'essai. */
@@ -302,32 +305,23 @@ async function main() {
 
   const { page, contexte, erreurs } = await ouvrirLeTableau(navigateur);
 
-  /* -------- La colonne existe et se défile -------- */
+  /* -------- La colonne « En production » a disparu -------- */
 
-  const colonne = page.locator('[data-column="in_production"]');
-  noter('la colonne « En production » existe sur le tableau', (await colonne.count()) === 1);
-  await colonne.scrollIntoViewIfNeeded();
-  await page.waitForTimeout(600);
-  const vue = await page.evaluate(() => {
-    const col = document.querySelector('[data-column="in_production"]');
-    if (!col) return null;
-    const b = col.getBoundingClientRect();
-    return { titre: col.querySelector('h2')?.textContent ?? '', visible: b.left >= -1 && b.right <= window.innerWidth + 1 };
-  });
-  noter('elle porte le titre « En production »', vue?.titre === 'En production', vue?.titre ?? '—');
-  noter('le rail l’amène entièrement à l’écran', !!vue?.visible, JSON.stringify(vue));
+  noter(
+    'aucune colonne « En production » sur le tableau',
+    (await page.locator('[data-column="in_production"]').count()) === 0,
+  );
 
   const ordre = await page.evaluate(() =>
     [...document.querySelectorAll('[data-column]')].map((c) => c.getAttribute('data-column')),
   );
   noter(
-    'elle s’intercale entre « À déployer » et « Archivé »',
-    ordre.indexOf('to_deploy') + 1 === ordre.indexOf('in_production') &&
-      ordre.indexOf('in_production') + 1 === ordre.indexOf('archived'),
+    '« À déployer » est suivie directement d’« Archivé »',
+    ordre.indexOf('to_deploy') + 1 === ordre.indexOf('archived'),
     ordre.join(' → '),
   );
 
-  /* -------- Le pied de « À déployer » pousse en production -------- */
+  /* -------- Les deux blocs de mise en ligne, chacun avec son verbe -------- */
 
   await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
@@ -337,8 +331,6 @@ async function main() {
     TITRES.every((t) => depart[t] === 'to_deploy'),
     JSON.stringify(depart),
   );
-
-  /* -------- Le bloc de publication, colonne par colonne -------- */
 
   const blocDeploy = await blocPublication(page, 'to_deploy');
   noter(
@@ -352,30 +344,114 @@ async function main() {
     blocDeploy?.bouton ?? '—',
   );
 
-  await page.locator('[data-column="in_production"]').scrollIntoViewIfNeeded();
+  await page.locator('[data-column="archived"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(800);
-  const blocProduction = await blocPublication(page, 'in_production');
+  const blocProduction = await blocPublication(page, 'archived');
   noter(
-    '« En production » porte TOUJOURS son bloc : les deux étapes existent sans réglage',
+    '« Archivé » porte le bloc de la MISE EN PRODUCTION',
     !!blocProduction,
     JSON.stringify(blocProduction),
   );
   noter(
-    'son bouton dit « Tout publier », jamais « Tout déployer »',
-    /Tout publier/.test(blocProduction?.bouton ?? '') && !/Tout déployer/.test(blocProduction?.bouton ?? ''),
+    'son bouton dit « Mettre à jour la version prod », sans aucun compteur',
+    /Mettre à jour la version prod/.test(blocProduction?.bouton ?? '') &&
+      !/\(\d/.test(blocProduction?.bouton ?? ''),
     blocProduction?.bouton ?? '—',
   );
+  noter(
+    'il reste ALLUMÉ alors qu’aucune carte n’est à publier',
+    blocProduction?.eteint === false,
+    String(blocProduction?.eteint),
+  );
+
+  /* -------- L'ÉTAT de la version en production se lit -------- */
+
+  const etatProd = await page.evaluate(() => {
+    const bloc = document.querySelector('[data-bloc-publication="archived"] [data-etat-production]');
+    if (!bloc) return null;
+    return {
+      commit: bloc.querySelector('[data-commit-production]')?.textContent?.trim() ?? null,
+      ecart: bloc.querySelector('[data-ecart-production]')?.textContent?.trim() ?? null,
+    };
+  });
+  noter('le bloc affiche l’état de la version en production', !!etatProd, JSON.stringify(etatProd));
+  noter(
+    'sans mise en production, il le DIT au lieu de se taire',
+    etatProd?.commit === 'Aucune version en production' &&
+      etatProd?.ecart === 'Jamais mise en production',
+    JSON.stringify(etatProd),
+  );
+  await page.screenshot({ path: path.join(TMP, 'etat-production.png') });
+
+  /* -------- La mise à jour de la prod demande CONFIRMATION -------- */
+
+  // Le bouton n'envoie rien au premier clic : il ouvre une modale. Aucune
+  // commande deploy.start ne doit partir tant que « Mettre à jour » n'est pas
+  // cliqué.
+  cadresDeployStart.length = 0;
+  await page.evaluate(() => {
+    document.querySelector('[data-bloc-publication="archived"] [data-bouton-publication]')?.click();
+  });
+  await page.waitForTimeout(700);
+  const modale = await page.evaluate(() => {
+    const dlg = document.querySelector('[role="dialog"]');
+    if (!dlg) return null;
+    const boutons = [...dlg.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
+    return {
+      texte: dlg.textContent ?? '',
+      confirmer: boutons.some((t) => t === 'Mettre à jour'),
+      annuler: boutons.some((t) => t === 'Annuler'),
+    };
+  });
+  noter(
+    'un clic ouvre la modale de confirmation « Mise en production »',
+    !!modale && modale.texte.includes('Mise en production') && modale.confirmer && modale.annuler,
+    JSON.stringify(modale),
+  );
+  noter(
+    'elle annonce ce qui va partir chez le client',
+    !!modale && /chez le client/.test(modale.texte),
+    modale?.texte?.slice(0, 160) ?? '—',
+  );
+  noter(
+    'aucune commande deploy.start n’est partie à l’ouverture de la modale',
+    cadresDeployStart.length === 0,
+    `${cadresDeployStart.length} envoi(s)`,
+  );
+
+  // « Annuler » referme sans rien lancer.
+  await page.evaluate(() => {
+    const dlg = document.querySelector('[role="dialog"]');
+    [...(dlg?.querySelectorAll('button') ?? [])].find((b) => (b.textContent?.trim() ?? '') === 'Annuler')?.click();
+  });
+  await page.waitForTimeout(600);
+  noter('« Annuler » referme la modale', await page.evaluate(() => !document.querySelector('[role="dialog"]')));
+  noter(
+    '« Annuler » n’a lancé aucune publication',
+    cadresDeployStart.length === 0,
+    `${cadresDeployStart.length} envoi(s)`,
+  );
+
+  /* -------- Le pied de « À déployer » archive, à la main -------- */
 
   await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
   const auRepos = (await pied(page, 'to_deploy')).join(' | ');
-  noter('le pied de « À déployer » propose « Tout mettre en production »', auRepos.includes('Tout mettre en production'), auRepos);
-  noter('il ne propose PLUS « Tout archiver »', !auRepos.includes('Tout archiver'), auRepos);
+  noter('le pied de « À déployer » propose « Tout archiver »', auRepos.includes('Tout archiver'), auRepos);
+  noter(
+    'il ne propose PLUS « Tout mettre en production »',
+    !auRepos.includes('Tout mettre en production'),
+    auRepos,
+  );
 
-  await cliquerPied(page, 'Tout mettre en production', 'to_deploy');
+  await cliquerPied(page, 'Tout archiver', 'to_deploy');
   await page.waitForTimeout(800);
   const sorties = await cases(page, 'to_deploy');
-  noter('un premier clic sort une case par carte, toutes cochées', sorties.length === 3 && sorties.every((c) => c.cochee), `${sorties.length} case(s)`);
+  noter(
+    'un premier clic sort une case par carte, toutes cochées',
+    sorties.length === 3 && sorties.every((c) => c.cochee),
+    `${sorties.length} case(s)`,
+  );
 
   // La colonne trie du plus récent au plus ancien : la première case est la
   // carte C. On la décoche — elle seule doit rester dans « À déployer ».
@@ -386,110 +462,25 @@ async function main() {
   await page.waitForTimeout(500);
   noter(
     'le compteur du pied suit la sélection',
-    (await pied(page, 'to_deploy')).some((t) => /Mettre en production \(2\)/.test(t)),
+    (await pied(page, 'to_deploy')).some((t) => /Archiver \(2\)/.test(t)),
     (await pied(page, 'to_deploy')).join(' | '),
   );
 
-  await cliquerPied(page, 'Mettre en production', 'to_deploy');
+  await cliquerPied(page, 'Archiver', 'to_deploy');
   await page.waitForTimeout(4000);
 
   const apres = colonnesEnBase();
   noter(
-    'les cartes cochées sont passées en « En production »',
-    TITRES.filter((t) => t !== gardee).every((t) => apres[t] === 'in_production'),
+    'les cartes cochées sont passées en « Archivé »',
+    TITRES.filter((t) => t !== gardee).every((t) => apres[t] === 'archived'),
     JSON.stringify(apres),
   );
   noter(`la carte décochée (« ${gardee} ») est restée dans « À déployer »`, apres[gardee] === 'to_deploy', apres[gardee]);
-  noter('AUCUNE carte n’a sauté à l’archive', !Object.values(apres).includes('archived'), JSON.stringify(apres));
-
-  /* -------- Le pied d’« En production » archive -------- */
-
-  await page.locator('[data-column="in_production"]').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(600);
-  const piedProduction = (await pied(page, 'in_production')).join(' | ');
-  noter('le pied d’« En production » propose « Tout archiver »', piedProduction.includes('Tout archiver'), piedProduction);
-  // Deux cartes viennent d'arriver dans la colonne : le bloc les compte.
-  const blocRempli = await blocPublication(page, 'in_production');
-  noter(
-    'le bloc d’« En production » compte les cartes qui viennent d’arriver',
-    /Tout publier \(2\)/.test(blocRempli?.bouton ?? ''),
-    blocRempli?.bouton ?? '—',
-  );
-  await page.screenshot({ path: path.join(TMP, 'colonne-production.png') });
-
-  /* -------- La mise en production demande CONFIRMATION -------- */
-
-  // Le bouton « Tout publier » de la colonne « En production » n'envoie plus
-  // rien au premier clic : il ouvre une modale. Aucune commande deploy.start ne
-  // doit partir tant que « Publier » n'est pas cliqué.
-  cadresDeployStart.length = 0;
-  await page.evaluate(() => {
-    document.querySelector('[data-bloc-publication="in_production"] [data-bouton-publication]')?.click();
-  });
-  await page.waitForTimeout(700);
-  const modale = await page.evaluate(() => {
-    const dlg = document.querySelector('[role="dialog"]');
-    if (!dlg) return null;
-    const boutons = [...dlg.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
-    return {
-      texte: dlg.textContent ?? '',
-      publier: boutons.some((t) => t === 'Publier'),
-      annuler: boutons.some((t) => t === 'Annuler'),
-    };
-  });
-  noter(
-    'un clic sur « Tout publier » ouvre la modale de confirmation « Mise en production »',
-    !!modale && modale.texte.includes('Mise en production') && modale.publier && modale.annuler,
-    JSON.stringify(modale),
-  );
-  noter(
-    'la modale rappelle le lot qui part (2 tâches)',
-    !!modale && /2\s*tâches/.test(modale.texte),
-    modale?.texte?.slice(0, 140) ?? '—',
-  );
-  noter(
-    'aucune commande deploy.start n’est partie à l’ouverture de la modale',
-    cadresDeployStart.length === 0,
-    `${cadresDeployStart.length} envoi(s)`,
-  );
-
-  // « Annuler » referme sans rien lancer et laisse le lot intact.
-  await page.evaluate(() => {
-    const dlg = document.querySelector('[role="dialog"]');
-    [...(dlg?.querySelectorAll('button') ?? [])].find((b) => (b.textContent?.trim() ?? '') === 'Annuler')?.click();
-  });
-  await page.waitForTimeout(600);
-  const modaleFermee = await page.evaluate(() => !document.querySelector('[role="dialog"]'));
-  noter('« Annuler » referme la modale', modaleFermee);
-  noter(
-    '« Annuler » n’a lancé aucune publication',
-    cadresDeployStart.length === 0,
-    `${cadresDeployStart.length} envoi(s)`,
-  );
-  const apresAnnuler = colonnesEnBase();
-  noter(
-    'le lot d’« En production » est resté intact après « Annuler »',
-    TITRES.filter((t) => t !== gardee).every((t) => apresAnnuler[t] === 'in_production'),
-    JSON.stringify(apresAnnuler),
-  );
-
-  await cliquerPied(page, 'Tout archiver', 'in_production');
-  await page.waitForTimeout(800);
-  await cliquerPied(page, 'Archiver', 'in_production');
-  await page.waitForTimeout(5000);
-
-  const archivees = colonnesEnBase();
-  noter(
-    'les deux cartes partent à l’archive depuis « En production »',
-    TITRES.filter((t) => t !== gardee).every((t) => archivees[t] === 'archived'),
-    JSON.stringify(archivees),
-  );
 
   /* -------- Une carte reprise retombe à l’étape juste avant -------- */
 
   await page.locator('[data-column="to_deploy"]').scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
-  // On remet une carte « En production » à la main, puis on la reprend.
   await page.evaluate(() => {
     const col = document.querySelector('[data-column="to_deploy"]');
     col?.querySelector('article h3')?.closest('article')?.click();
@@ -499,8 +490,6 @@ async function main() {
     const bouton = document.querySelector('[data-geste="reprendre"]');
     return bouton ? (bouton.textContent ?? '') : null;
   });
-  // La carte ouverte est encore dans « À déployer » : son bouton de reprise dit
-  // le geste de CETTE colonne-là.
   noter(
     'une carte « À déployer » propose de retomber en « Terminé »',
     !!reprise && reprise.includes('Retirer du lot à publier') && reprise.includes('Terminé'),
@@ -508,15 +497,6 @@ async function main() {
   );
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);
-
-  /* -------- Les deux blocs coexistent, chacun avec son verbe -------- */
-
-  noter(
-    'le bloc de « À déployer » garde son propre verbe',
-    /Tout déployer/.test((await blocPublication(page, 'to_deploy'))?.bouton ?? ''),
-    (await blocPublication(page, 'to_deploy'))?.bouton ?? '—',
-  );
-  await page.screenshot({ path: path.join(TMP, 'bouton-tout-publier.png') });
 
   /* -------- « Tout déployer » ouvre l'ÉCRAN DE SÉLECTION, puis part -------- */
 
@@ -556,14 +536,16 @@ async function main() {
 
   const { page: tel, contexte: ctxTel } = await ouvrirLeTableau(navigateur, { width: 390, height: 844 });
   const onglet = await tel.evaluate(() => {
-    const el = document.querySelector('[data-onglet-colonne="in_production"]');
+    const el = document.querySelector('[data-onglet-colonne="archived"]');
     if (!el) return null;
     return {
       texte: el.textContent ?? '',
       compte: el.querySelector('[data-onglet-compte]')?.textContent ?? null,
+      production: !!document.querySelector('[data-onglet-colonne="in_production"]'),
     };
   });
-  noter('l’onglet « En production » existe sur téléphone', !!onglet && onglet.texte.includes('En production'), JSON.stringify(onglet));
+  noter('l’onglet « Archivé » existe sur téléphone', !!onglet && onglet.texte.includes('Archivé'), JSON.stringify(onglet));
+  noter('aucun onglet « En production » ne subsiste', onglet?.production === false, JSON.stringify(onglet));
   noter('il porte son compte de cartes, zéro compris', onglet?.compte !== null && onglet?.compte !== undefined, String(onglet?.compte));
   await tel.screenshot({ path: path.join(TMP, 'onglet-telephone.png') });
   await ctxTel.close();

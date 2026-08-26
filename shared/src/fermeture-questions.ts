@@ -20,7 +20,7 @@
  * être reprise, et sa question garde un sens. Dès qu'on la range plus loin, la
  * décision n'a plus d'objet.
  */
-export const COLONNES_QUI_FERMENT_LES_QUESTIONS = ['to_deploy', 'in_production', 'archived'] as const;
+export const COLONNES_QUI_FERMENT_LES_QUESTIONS = ['to_deploy', 'archived'] as const;
 
 /** Cette colonne ferme-t-elle les questions ? Sans colonne connue, on ne présume rien. */
 export function colonneFermeLesQuestions(colonne: string | undefined): boolean {

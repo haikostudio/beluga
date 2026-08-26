@@ -105,7 +105,7 @@ test('un tri sans tour rattaché DIT pourquoi, et ne montre aucun zéro', () => 
 
 test('les étapes se suivent dans l’ordre du travail', () => {
   const etapes = construireParcours(
-    source({ origin: 'agent', colonne: 'in_production', deployedAt: 9_000, archivedAt: 10_000 }),
+    source({ origin: 'agent', colonne: 'archived', deployedAt: 9_000, archivedAt: 10_000 }),
   );
   assert.deepEqual(
     etapes.map((e) => e.cle),
@@ -129,7 +129,7 @@ test('une carte non autorisée le dit, et rappelle qu’attendre ne coûte rien'
 });
 
 test('un déploiement sans incident ne prétend à aucun tour de moteur', () => {
-  const etapes = construireParcours(source({ colonne: 'in_production', deployedAt: 9_000 }));
+  const etapes = construireParcours(source({ colonne: 'archived', deployedAt: 9_000 }));
   const deploiement = etapes.find((e) => e.cle === 'deploiement')!;
   assert.equal(deploiement.mesure, undefined);
   assert.match(deploiement.sansMesure!, /opération git/);
@@ -173,7 +173,7 @@ test('une ventilation absente n’invente aucune ligne', () => {
 
 test('le total ne compte QUE les étapes mesurées, et dit combien manquent', () => {
   const etapes = construireParcours(
-    source({ origin: 'agent', colonne: 'in_production', deployedAt: 9_000 }),
+    source({ origin: 'agent', colonne: 'archived', deployedAt: 9_000 }),
   );
   const total = totalDuParcours(etapes)!;
   assert.equal(total.total, 170, 'seul le tour de l’agent de travail est mesuré');
@@ -185,7 +185,7 @@ test('le total ne compte QUE les étapes mesurées, et dit combien manquent', ()
 });
 
 test('un geste sans moteur n’est jamais compté comme une mesure manquante', () => {
-  const etapes = construireParcours(source({ colonne: 'in_production', deployedAt: 9_000 }));
+  const etapes = construireParcours(source({ colonne: 'archived', deployedAt: 9_000 }));
   for (const cle of ['autorisation', 'deploiement', 'production']) {
     const etape = etapes.find((e) => e.cle === cle);
     if (etape) assert.equal(etape.attendMesure, false, `« ${cle} » ne doit pas réclamer de mesure`);

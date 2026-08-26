@@ -149,7 +149,7 @@ function questionDOutil(agentId: string) {
 test('une question de l’outil s’éteint sur une carte fermée, pas sur une carte terminée', () => {
   const projet = projetDEssai();
 
-  for (const colonne of ['to_deploy', 'in_production', 'archived']) {
+  for (const colonne of ['to_deploy', 'archived']) {
     const carte = carteDEssai(projet.id, colonne);
     questionDOutil(agentDEssai(projet.id, carte.id).id);
     assert.equal(decisionsDeLaCarte(carte.id).length, 0, colonne);

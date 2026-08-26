@@ -102,6 +102,7 @@ export * from './prefixe-cache.js';
 export * from './mise-en-ligne.js';
 export * from './regles.js';
 export * from './etapes-publication.js';
+export * from './etat-production.js';
 export * from './journal-publication.js';
 export * from './fusion-du-lot.js';
 export * from './groupes-de-production.js';

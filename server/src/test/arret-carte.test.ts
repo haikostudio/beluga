@@ -94,7 +94,7 @@ test('une carte arrêtée à la main retombe en « Planifié »', () => {
 });
 
 test('une carte qui n’était pas « En cours » ne bouge pas', () => {
-  for (const colonne of ['notes', 'planned', 'done', 'to_deploy', 'in_production', 'archived']) {
+  for (const colonne of ['notes', 'planned', 'done', 'to_deploy', 'archived']) {
     assert.equal(colonneApresArretALaMain(colonne), null, colonne);
   }
 });
