@@ -2160,7 +2160,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Compétences': ['Skills', 'Competencias', 'Fähigkeiten', '技能'],
   'Réflexion en cours…': ['Thinking…', 'Razonando…', 'Denkt nach…', '正在思考……'],
   'L’agent termine son tour…': ['The agent is finishing its turn…', 'El agente termina su turno…', 'Der Agent beendet seine Runde…', '智能体正在完成本轮……'],
-  'Chiffrage en attente': ['Estimate pending', 'Estimación pendiente', 'Schätzung ausstehend', '估算待定'],
   "Indiquez un nombre d'heures": ['Give a number of hours', 'Indique un número de horas', 'Geben Sie eine Stundenzahl an', '请填写小时数'],
   'Choisissez le document, ou cochez « créer un nouveau document ».': [
     'Choose the document, or tick “create a new document”.',
