@@ -1410,6 +1410,16 @@ export const Settings = z.object({
   alertMinutes: z.number().default(10),
   dailyDigestHour: z.number().optional(),
   backupHour: z.number().default(3),
+  /**
+   * LES SNAPSHOTS DES SITES EN PRODUCTION (`shared/src/snapshots.ts`). Le
+   * DOSSIER est celui du disque de stockage monté sur la machine (Hetzner ou
+   * autre) : vide, aucun snapshot ne part et l'écran le DIT — on ne devine pas
+   * un point de montage. L'heure suit celle de la sauvegarde du démon, pour ne
+   * pas charger le disque deux fois en même temps.
+   */
+  snapshotDossier: z.string().default(''),
+  snapshotHeure: z.number().default(4),
+  snapshotAuto: z.boolean().default(true),
   ttsVoice: z.string().default('fr_FR-siwis-medium'),
   /**
    * Le PRÉNOM auquel la voix de l'assistant s'adresse (mémoire n°141). « Chris »

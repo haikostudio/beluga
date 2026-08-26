@@ -1144,6 +1144,37 @@ const MIGRATIONS: {
       CREATE INDEX idx_card_comments_card ON card_comments(card_id, created_at);
     `,
   },
+  {
+    id: 39,
+    name: 'snapshots-des-sites',
+    // LES SNAPSHOTS DES SITES EN PRODUCTION. Deux tables : les SITES à
+    // sauvegarder (un projet de ce serveur ou un site extérieur, avec ses accès
+    // base et fichiers) et les POINTS de sauvegarde déjà pris (un par passage,
+    // avec son poids et son issue). Le bloc `data` porte la fiche entière — les
+    // accès d'un site changent de forme selon son moteur, une colonne par champ
+    // se paierait d'une migration à chaque nouveau type. Les colonnes sorties du
+    // bloc sont celles qu'on TRIE ou qu'on FILTRE : jamais deux vérités, elles
+    // sont réécrites depuis le bloc à chaque enregistrement.
+    sql: `
+      CREATE TABLE snapshot_sites (
+        id TEXT PRIMARY KEY,
+        project_id TEXT,
+        nom TEXT NOT NULL,
+        actif INTEGER NOT NULL DEFAULT 1,
+        data TEXT NOT NULL,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL
+      );
+      CREATE TABLE snapshot_points (
+        id TEXT PRIMARY KEY,
+        site_id TEXT NOT NULL REFERENCES snapshot_sites(id) ON DELETE CASCADE,
+        debut INTEGER NOT NULL,
+        statut TEXT NOT NULL,
+        data TEXT NOT NULL
+      );
+      CREATE INDEX idx_snapshot_points_site ON snapshot_points(site_id, debut DESC);
+    `,
+  },
 ];
 
 export function openDb(): DB {
