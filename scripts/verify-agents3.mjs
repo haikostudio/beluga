@@ -141,7 +141,12 @@ async function main() {
   await session.call({ type: 'card.delete', id: card.id });
 
   /* ---------- 2. Proposition de tâche depuis le chat ---------- */
-  const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: self.id });
+  const { agent: orchestrator } = await session.call({
+    type: 'card.create',
+    projectId: self.id,
+    title: 'Nouvelle tâche',
+    cadrage: true,
+  });
   const before = session.events.filter((e) => e.type === 'card.upsert').length;
 
   // Sujet réellement différent à chaque essai : la conversation du chef

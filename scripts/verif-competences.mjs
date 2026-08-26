@@ -66,7 +66,7 @@ process.env.HAIKODEV_DATA = DONNEES;
 const { listerCompetences, relierCompetencesAuxCoffres } = await import('../server/dist/competences.js');
 const { briefing } = await import('../server/dist/memory.js');
 const { listAccountRecords } = await import('../server/dist/accounts.js');
-const { orchestratorAllowList, orchestratorDenyList } = await import('../server/dist/tools.js');
+const { cadrageAllowList, cadrageDenyList } = await import('../server/dist/tools.js');
 const { buildClaudeArgs, claudeAdapter } = await import('../server/dist/engines/claude.js');
 const { openDb } = await import('../server/dist/db.js');
 
@@ -173,8 +173,8 @@ rl.on('line', (ligne) => {
       fullAccess: false,
       mcpConfigPath: path.join(DOSSIER, 'mcp.json'),
       mcpBridgePath: PONT,
-      allowedTools: orchestratorAllowList(),
-      disallowedTools: orchestratorDenyList(),
+      allowedTools: cadrageAllowList(),
+      disallowedTools: cadrageDenyList(),
       systemPrompt: 'Tu es le chef d’orchestre : tu ne fais pas le travail, tu proposes une carte avec board_create_card.',
     });
 

@@ -31,7 +31,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildCodexArgs, codexAdapter } from '../server/dist/engines/codex.js';
 import { buildClaudeArgs, claudeAdapter } from '../server/dist/engines/claude.js';
-import { orchestratorAllowList, orchestratorDenyList } from '../server/dist/tools.js';
+import { cadrageAllowList, cadrageDenyList } from '../server/dist/tools.js';
 import { variablesGithub } from '../shared/dist/index.js';
 
 /**
@@ -173,8 +173,8 @@ function tourDuChef() {
     fullAccess: false,
     mcpConfigPath: MCP_CONFIG,
     mcpBridgePath: PONT,
-    allowedTools: orchestratorAllowList(),
-    disallowedTools: orchestratorDenyList(),
+    allowedTools: cadrageAllowList(),
+    disallowedTools: cadrageDenyList(),
     env: {
       HAIKODEV_TOKEN: 'essai',
       HAIKODEV_URL: 'http://127.0.0.1:7070',

@@ -294,7 +294,7 @@ async function main() {
   /* Le cadrage prend le MÊME modèle que le chef d'orchestre — épinglé économe.
      On le compare à celui du chef plutôt qu'à un nom écrit en dur : le
      catalogue d'une machine d'essai n'a pas les mêmes modèles qu'ailleurs. */
-  const chef = agents().find((a) => a.role === 'orchestrator');
+  const chef = agents().find((a) => a.role === 'cadrage');
   const runChef = JSON.parse(chef?.data ?? '{}').run ?? {};
   noter(
     'il tourne sur le modèle ÉCONOME du chef, pas sur celui d’exécution',

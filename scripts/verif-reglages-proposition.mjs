@@ -103,7 +103,7 @@ function poserDecor() {
   const agent = {
     id: AGENT_ID,
     projectId: PROJET_ID,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Chef d’orchestre — Essai réglages',
     run: { engine: 'codex', model: 'gpt-5.1-codex', thinking: 'medium', mode: 'direct' },
     status: 'done',
@@ -112,7 +112,7 @@ function poserDecor() {
   };
   db.prepare(
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
-     VALUES (?, ?, NULL, 'orchestrator', 'done', ?, ?, ?)`,
+     VALUES (?, ?, NULL, 'cadrage', 'done', ?, ?, ?)`,
   ).run(agent.id, agent.projectId, JSON.stringify(agent), t, t);
   db.close();
 }
@@ -146,10 +146,10 @@ function chefDOrchestre() {
     .prepare(
       `SELECT a.id AS agentId, a.project_id AS projectId, p.name AS nom
          FROM agents a JOIN projects p ON p.id = a.project_id
-        WHERE a.role = 'orchestrator' AND p.archived = 0
+        WHERE a.role = 'cadrage' AND p.archived = 0
           AND a.id = (
             SELECT a2.id FROM agents a2
-             WHERE a2.project_id = a.project_id AND a2.role = 'orchestrator'
+             WHERE a2.project_id = a.project_id AND a2.role = 'cadrage'
              LIMIT 1
           )
         ORDER BY p.name = 'HaikoDev' DESC LIMIT 1`,

@@ -205,7 +205,7 @@ function messagesDuProjet(projectId) {
     .prepare(
       `SELECT m.role AS role, m.data AS data FROM messages m
        JOIN agents a ON a.id = m.agent_id
-       WHERE a.project_id = ? AND a.role = 'orchestrator'
+       WHERE a.project_id = ? AND a.role = 'cadrage'
        ORDER BY m.created_at ASC`,
     )
     .all(projectId);

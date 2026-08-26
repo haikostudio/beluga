@@ -108,7 +108,7 @@ function ecrireAgent(db, id, statut, depuisMs) {
   const agent = {
     id,
     projectId: PROJET_ID,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: `Agent ${id}`,
     run: { engine: 'claude', thinking: 'none', mode: 'direct' },
     status: statut,
@@ -120,7 +120,7 @@ function ecrireAgent(db, id, statut, depuisMs) {
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
      VALUES (?, ?, NULL, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET status = excluded.status, data = excluded.data`,
-  ).run(id, PROJET_ID, 'orchestrator', statut, JSON.stringify(agent), agent.createdAt, agent.updatedAt);
+  ).run(id, PROJET_ID, 'cadrage', statut, JSON.stringify(agent), agent.createdAt, agent.updatedAt);
 }
 
 function poserLeDecor() {

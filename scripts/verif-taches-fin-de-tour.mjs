@@ -245,7 +245,7 @@ function ecrireAgent(db, id, projectId, titre) {
   const agent = {
     id,
     projectId,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: titre,
     run: { engine: 'claude', thinking: 'none', mode: 'direct' },
     status: 'idle',
@@ -255,7 +255,7 @@ function ecrireAgent(db, id, projectId, titre) {
   db.prepare(
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, projectId, null, 'orchestrator', 'idle', JSON.stringify(agent), maintenant, maintenant);
+  ).run(id, projectId, null, 'cadrage', 'idle', JSON.stringify(agent), maintenant, maintenant);
 }
 
 /*

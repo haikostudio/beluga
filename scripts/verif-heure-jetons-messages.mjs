@@ -105,7 +105,7 @@ await page.waitForSelector('textarea[placeholder="Écrivez votre demande…"]', 
 let agentId = null;
 for (let essai = 0; essai < 40 && !agentId; essai += 1) {
   agentId =
-    db.prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'orchestrator' LIMIT 1").get(projetId)?.id ??
+    db.prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'cadrage' LIMIT 1").get(projetId)?.id ??
     null;
   if (!agentId) await page.waitForTimeout(500);
 }

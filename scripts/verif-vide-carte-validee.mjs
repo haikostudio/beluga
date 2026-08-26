@@ -162,7 +162,7 @@ function poserLeDecor(decision, replie = false) {
   const agent = {
     id: AGENT_ID,
     projectId: PROJET_ID,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Chef d’orchestre — Essai vide',
     run: { engine: 'claude', model: 'claude-opus-5', thinking: 'medium', mode: 'direct' },
     status: 'done',
@@ -171,7 +171,7 @@ function poserLeDecor(decision, replie = false) {
   };
   db.prepare(
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
-     VALUES (?, ?, NULL, 'orchestrator', 'done', ?, ?, ?)`,
+     VALUES (?, ?, NULL, 'cadrage', 'done', ?, ?, ?)`,
   ).run(AGENT_ID, PROJET_ID, JSON.stringify(agent), t, t);
 
   const message = (id, role, data, quand) => {

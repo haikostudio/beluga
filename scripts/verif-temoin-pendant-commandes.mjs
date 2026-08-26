@@ -396,11 +396,10 @@ async function main() {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(1200);
 
-    const chef = (await commande({ type: 'agent.orchestrator', projectId: PROJET_ID })).data?.agent;
-    noter('le chef d’orchestre du projet existe', !!chef?.id);
-
-    const ongletChef = page.getByRole('tab', { name: 'Chef' }).first();
-    if (await ongletChef.count()) await ongletChef.click();
+    const chef = (
+      await commande({ type: 'card.create', projectId: PROJET_ID, title: 'Nouvelle tâche', cadrage: true })
+    ).data?.agent;
+    noter('la carte de cadrage du projet a bien son agent', !!chef?.id);
     await page.waitForTimeout(1000);
 
     await commande({ type: 'agent.prompt', agentId: chef.id, text: 'Constate l’état réel du dépôt.' });

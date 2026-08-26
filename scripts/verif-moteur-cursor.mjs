@@ -407,7 +407,7 @@ async function main() {
 
   /* Le chef d'orchestre que l'application vient d'ouvrir pour ce projet. */
   const AGENT = baseLecture()
-    .prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'orchestrator' ORDER BY updated_at DESC LIMIT 1")
+    .prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'cadrage' ORDER BY updated_at DESC LIMIT 1")
     .get(PROJET_ID)?.id;
   noter("la conversation du projet a bien un chef d'orchestre", !!AGENT, AGENT ?? 'aucun');
 

@@ -137,7 +137,7 @@ function poserDecor() {
       projectId: PROJET_ID,
       cardId: cardId ?? undefined,
       role,
-      title: role === 'orchestrator' ? 'Chef d’orchestre — essai' : TITRE_CARTE,
+      title: role === 'cadrage' ? 'Chef d’orchestre — essai' : TITRE_CARTE,
       run: { engine: 'claude', model: 'claude-sonnet-5', thinking: 'medium', mode: 'direct' },
       status: 'done',
       createdAt: quand,
@@ -148,7 +148,7 @@ function poserDecor() {
        VALUES (?, ?, ?, ?, 'done', ?, ?, ?)`,
     ).run(id, PROJET_ID, cardId, role, JSON.stringify(data), quand, quand);
   };
-  agent(CHEF_ID, 'orchestrator', null, t);
+  agent(CHEF_ID, 'cadrage', null, t);
   agent(TACHE_ID, 'task', CARTE_ID, t + 60_000);
 
   // Les SUJETS de mémoire que chaque agent est allé chercher : c'est cela que

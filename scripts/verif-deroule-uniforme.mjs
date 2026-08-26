@@ -28,7 +28,7 @@ const { ORCHESTRATOR_ALLOWED_NATIVE } = await import(path.join(RACINE, 'server/d
 const { wrapPrompt } = await import(path.join(RACINE, 'shared/dist/templates.js'));
 
 const MOTEURS = ['claude', 'codex'];
-const ROLES = ['orchestrator', 'analysis', 'deploy', 'task'];
+const ROLES = ['cadrage', 'analysis', 'deploy', 'task'];
 
 /** La demande test : une vraie demande de travail, la même pour les deux moteurs. */
 const DEMANDE =

@@ -160,14 +160,19 @@ async function main() {
   await session.call({ type: 'card.delete', id: carteManuelle.id });
 
   /* ---------- Chef d'orchestre : le tri en familles ---------- */
-  const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
+  const { agent: orchestrator } = await session.call({
+    type: 'card.create',
+    projectId: project.id,
+    title: 'Nouvelle tâche',
+    cadrage: true,
+  });
   record('Chef d\'orchestre : agent permanent créé', !!orchestrator?.id);
   /*
    * Le chef ne fait plus qu'un tri : son modèle par défaut est ÉCONOME sous
    * Claude (Haiku 4.5). Un choix manuel enregistré dans les réglages l'emporte,
    * et le contrôle le DIT au lieu de tomber en erreur.
    */
-  const choixManuel = !!(await session.call({ type: 'settings.get' }))?.settings?.orchestratorModel;
+  const choixManuel = !!(await session.call({ type: 'settings.get' }))?.settings?.cadrageModel;
   record(
     'Chef d\'orchestre : son modèle et sa réflexion ont les bons défauts',
     choixManuel ||

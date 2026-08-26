@@ -154,7 +154,7 @@ const TOURS = [
   { nom: 'Lancement de la carte', texte: `Réalise cette tâche.\n\nTITRE : ${CARTE.titre}\n${CARTE.description}\n\nVa au bout : lis ce qu'il faut, modifie, teste, puis enregistre et sauvegarde.`, ampleur: 'complete' },
   { nom: 'Question de suivi', texte: "Pourquoi tu as choisi trois longueurs plutôt que deux ?" },
   { nom: 'Retouche d\'une ligne', texte: 'Corrige la faute dans le titre.' },
-  { nom: 'Ajustement contenu', texte: 'Ajoute le rappel de forme aussi pour le chef d\'orchestre, et vérifie que les tests passent toujours.' },
+  { nom: 'Ajustement contenu', texte: 'Ajoute le rappel de forme aussi pour l\'agent de cadrage, et vérifie que les tests passent toujours.' },
   { nom: 'Relance', texte: 'Et les tests ?' },
 ];
 
@@ -220,23 +220,19 @@ const sb = suivants.reduce((s, l) => s + l.apres, 0);
 console.log(`Gain sur les tours SUIVANT l'ouverture : ${Math.round((1 - sb / sa) * 100)} % (${sa} → ${sb} jetons)`);
 
 /* ------------------------------------------------------------------ */
-/* L'OUVERTURE DU CHEF D'ORCHESTRE                                     */
+/* L'OUVERTURE DE L'AGENT DE CADRAGE                                   */
 /* ------------------------------------------------------------------ */
 
 /*
- * Ce que le chef reçoit au PREMIER tour d'une conversation, avant même la
- * demande : son briefing et sa consigne de rôle. Depuis la tâche « alléger le
- * chef d'orchestre », il ne fait plus qu'un tri — carte courte et niveau de
- * l'agent qui exécutera — donc il ne reçoit plus ni index de la mémoire, ni
- * fichiers d'instructions, ni méthode de travail en six points, ni exigence de
- * description en quatre parties.
+ * Ce que l'agent de CADRAGE reçoit au PREMIER tour d'une conversation, avant
+ * même la demande : son briefing et sa consigne de rôle. Il discute un besoin
+ * et écrit la carte, sans ouvrir le projet — donc il ne reçoit ni index de la
+ * mémoire, ni fichiers d'instructions, ni méthode de travail en six points, ni
+ * exigence de description en quatre parties.
  *
- * L'AVANT est reconstruit à partir des blocs qu'il portait alors, tous encore
- * dans le code : le briefing COMPLET, la consigne commune des rôles qui
- * travaillent (déroulé visible + méthode + création de projet), le tri, et
- * l'exigence de description en quatre parties. Il OMET les trois paragraphes de
- * queue (relais d'analyse, outils, mise en forme) : le gain annoncé est donc
- * prudent, jamais gonflé.
+ * L'AVANT est ce que recevrait un agent COMPLET à sa place : le briefing entier
+ * et la consigne commune des rôles qui travaillent (déroulé visible + méthode +
+ * création de projet), plus l'exigence de description en quatre parties.
  */
 const runtime = await import(path.join(RACINE, 'server/dist/runtime.js'));
 const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
@@ -246,23 +242,21 @@ const CHEF_AVANT =
   '\n\n' +
   runtime.rolePrompt('task', true, 'claude', 'complet') +
   '\n\n' +
-  runtime.TRI_DU_CHEF +
-  '\n\n' +
   partage.CONSIGNE_DESCRIPTION_CARTE;
 
 const CHEF_APRES =
-  memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'orchestrator' })) +
+  memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'cadrage' })) +
   '\n\n' +
-  runtime.rolePrompt('orchestrator', true, 'claude', partage.niveauDAccueil({ role: 'orchestrator' }));
+  runtime.rolePrompt('cadrage', true, 'claude', partage.niveauDAccueil({ role: 'cadrage' }));
 
 const chefAvant = jetons(CHEF_AVANT);
 const chefApres = jetons(CHEF_APRES);
 
-console.log("\nL'OUVERTURE DU CHEF D'ORCHESTRE — jetons envoyés au premier tour d'une conversation\n");
+console.log("\nL'OUVERTURE DE L'AGENT DE CADRAGE — jetons envoyés au premier tour d'une conversation\n");
 console.log(`${pad('Bloc', largeur)}  ${num('avant', 7)}  ${num('après', 7)}  ${num('gain', 7)}`);
 console.log('-'.repeat(largeur + 40));
 console.log(
-  `${pad('Briefing du chef', largeur)}  ${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')), 7)}  ` +
+  `${pad('Briefing', largeur)}  ${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')), 7)}  ` +
     `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}  ` +
     `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}`,
 );
@@ -274,8 +268,8 @@ console.log(
 console.log('-'.repeat(largeur + 40));
 console.log(`${pad('TOTAL', largeur)}  ${num(chefAvant, 7)}  ${num(chefApres, 7)}  ${num(chefAvant - chefApres, 7)}`);
 console.log(
-  `\nGain à CHAQUE conversation neuve du chef : ${Math.round((1 - chefApres / chefAvant) * 100)} %.\n` +
-    "L'avant est reconstruit des blocs qu'il portait (trois paragraphes de queue omis) : le gain réel est un peu plus grand.",
+  `\nGain à CHAQUE conversation neuve de cadrage : ${Math.round((1 - chefApres / chefAvant) * 100)} %.\n` +
+    "L'avant est ce que recevrait un agent complet à sa place.",
 );
 
 /* ------------------------------------------------------------------ */
