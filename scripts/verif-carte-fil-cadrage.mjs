@@ -54,7 +54,22 @@ const DATA = path.join(TMP, 'data');
 const PROJETS = path.join(TMP, 'projets');
 const DEPOT = path.join(TMP, 'depot');
 const DEMANDES = path.join(TMP, 'demandes');
-for (const dossier of [DATA, PROJETS, DEPOT, DEMANDES]) fs.mkdirSync(dossier, { recursive: true });
+/*
+ * UN DOSSIER PERSONNEL À SOI. Sans lui, le démon d'essai adopterait le compte
+ * Claude RÉEL de la machine (`bootstrapAccounts` lit `~/.claude`) : le contrôle
+ * passerait ou échouerait selon le quota du jour, ce qui n'a rien à voir avec
+ * ce qu'il vérifie.
+ */
+const MAISON = path.join(TMP, 'maison');
+const COMPTE = path.join(TMP, 'compte-claude');
+for (const dossier of [DATA, PROJETS, DEPOT, DEMANDES, MAISON, COMPTE]) fs.mkdirSync(dossier, { recursive: true });
+/* Un compte « connecté » : la lecture de quota partira, échouera faute de jeton
+   valable, et laissera le compte DISPONIBLE — ce que fait déjà tout relevé
+   illisible. Aucun quota réel n'est consulté. */
+fs.writeFileSync(
+  path.join(COMPTE, '.credentials.json'),
+  JSON.stringify({ claudeAiOauth: { accessToken: 'jeton-d-essai', expiresAt: Date.now() + 3600_000 } }),
+);
 
 execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: DEPOT });
 fs.writeFileSync(path.join(DEPOT, 'README.md'), '# essai\n');
@@ -117,6 +132,7 @@ demon = spawn('node', [path.join(RACINE, 'server', 'dist', 'main.js')], {
     HAIKODEV_PROJECTS_ROOT: PROJETS,
     HAIKODEV_WEB: path.join(RACINE, 'web', 'dist'),
     HAIKODEV_CLAUDE_BIN: FAUX_MOTEUR,
+    HOME: MAISON,
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -179,6 +195,21 @@ function poserLeDecor() {
   db.prepare(
     'INSERT INTO projects (id, name, path, archived, data, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?, ?)',
   ).run(projet.id, projet.name, projet.path, JSON.stringify(projet), maintenant, maintenant);
+
+  /* Un compte d'essai, sans quoi rien ne part : une demande sans compte
+     disponible attend en file, et le lancement est refusé faute de quota. */
+  db.prepare('INSERT INTO accounts (id, engine, data, updated_at) VALUES (?, ?, ?, ?)').run(
+    'compte-essai',
+    'claude',
+    JSON.stringify({
+      id: 'compte-essai',
+      engine: 'claude',
+      label: 'Compte d’essai',
+      priority: 1,
+      configDir: COMPTE,
+    }),
+    maintenant,
+  );
   db.close();
 }
 
@@ -242,17 +273,24 @@ async function main() {
   noter('un clic suffit à faire naître la carte', nees.length === 1, `${nees.length} carte(s)`);
   noter('elle naît dans « Planifié »', nees[0]?.column_key === 'planned', nees[0]?.column_key ?? '—');
 
-  const agentsNes = agents();
+  /* Le chef d'orchestre du projet existe toujours à côté : on ne juge que les
+     agents attachés à LA carte. */
+  const agentsDeLaCarte = agents().filter((a) => a.card_id === nees[0]?.id);
   noter(
     'elle naît avec SON agent de cadrage, et lui seul',
-    agentsNes.length === 1 && agentsNes[0].role === 'cadrage',
-    agentsNes.map((a) => a.role).join(', ') || 'aucun',
+    agentsDeLaCarte.length === 1 && agentsDeLaCarte[0].role === 'cadrage',
+    agentsDeLaCarte.map((a) => a.role).join(', ') || 'aucun',
   );
-  const runCadrage = JSON.parse(agentsNes[0]?.data ?? '{}').run ?? {};
+  const runCadrage = JSON.parse(agentsDeLaCarte[0]?.data ?? '{}').run ?? {};
+  /* Le cadrage prend le MÊME modèle que le chef d'orchestre — épinglé économe.
+     On le compare à celui du chef plutôt qu'à un nom écrit en dur : le
+     catalogue d'une machine d'essai n'a pas les mêmes modèles qu'ailleurs. */
+  const chef = agents().find((a) => a.role === 'orchestrator');
+  const runChef = JSON.parse(chef?.data ?? '{}').run ?? {};
   noter(
-    'il tourne sur un modèle ÉCONOME, pas sur le modèle d’exécution',
-    /haiku/i.test(String(runCadrage.model ?? '')),
-    String(runCadrage.model ?? 'aucun'),
+    'il tourne sur le modèle ÉCONOME du chef, pas sur celui d’exécution',
+    !!chef && runCadrage.engine === runChef.engine && (runCadrage.model ?? null) === (runChef.model ?? null),
+    `cadrage ${runCadrage.model ?? 'défaut'} / chef ${runChef.model ?? 'défaut'}`,
   );
   noter('rien n’est encore parti au moteur', demandesRecues().length === 0, `${demandesRecues().length} demande(s)`);
 
@@ -313,13 +351,23 @@ async function main() {
   await page.waitForTimeout(12000);
 
   const lancee = cartes()[0];
-  noter('la carte passe en « En cours »', lancee?.column_key === 'running', lancee?.column_key ?? '—');
+  /* Le faux moteur rend son travail en une seconde : la carte peut déjà être
+     rangée en « Terminé » quand on la relit. Ce qui compte, c'est qu'elle ait
+     QUITTÉ « Planifié » — le cycle complet a son propre contrôle. */
+  noter(
+    'la carte quitte « Planifié » pour le travail',
+    lancee?.column_key === 'running' || lancee?.column_key === 'done',
+    lancee?.column_key ?? '—',
+  );
   noter(
     'elle prend son titre de la discussion, plus « Nouvelle tâche »',
     lancee?.title === DEMANDE,
     lancee?.title ?? '—',
   );
-  const roles = agents().map((a) => a.role).sort();
+  const roles = agents()
+    .filter((a) => a.card_id === lancee?.id)
+    .map((a) => a.role)
+    .sort();
   noter(
     'un agent d’EXÉCUTION prend la suite du cadrage',
     roles.includes('task') && roles.includes('cadrage'),
@@ -349,6 +397,7 @@ main()
   })
   .finally(() => {
     const rates = resultats.filter((r) => !r.ok).length;
+    if (rates && process.env.HAIKODEV_CADRAGE_JOURNAL) console.log(journal.join(''));
     console.log(`\n${resultats.length - rates}/${resultats.length} au vert`);
     process.exit(rates ? 1 : 0);
   });
