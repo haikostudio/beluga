@@ -9,10 +9,14 @@
  *  1. la migration crée les tables des sites et des points de sauvegarde ;
  *  2. le bouton « Snapshot » est DANS la colonne de gauche et ouvre la fenêtre ;
  *  3. sans dossier de stockage réglé, la fenêtre le DIT au lieu d'empiler des échecs ;
- *  4. un site extérieur se crée avec sa base et ses fichiers, et paraît dans la liste ;
+ *  4. un site configuré paraît dans la liste avec sa base et ses fichiers ;
  *  5. « Sauvegarder » copie POUR DE VRAI la base et les fichiers sur le disque de stockage ;
  *  6. la fenêtre d'HISTORIQUE montre le point pris, sa date et le volume du site ;
- *  7. les projets du serveur sont proposés d'un clic, sans ressaisir leur nom.
+ *  7. « Nouveau site » ouvre l'ASSISTANT — une phrase, plus un formulaire —
+ *     et les projets du serveur y sont proposés sans ressaisir leur nom ;
+ *  8. les projets du serveur SANS fiche sont proposés d'un clic dans la fenêtre ;
+ *  9. une fiche qui échoue porte son bouton « Réparer », et une fiche posée par
+ *     l'assistant porte le bouton qui ROUVRE sa conversation.
  *
  *   node scripts/verif-snapshots.mjs
  */
@@ -170,6 +174,85 @@ function poserLeDecor({ avecStockage }) {
 }
 
 /** Les points de sauvegarde tels que la base les porte à cet instant. */
+/**
+ * LA FICHE D'UN SITE, POSÉE COMME L'ASSISTANT LA POSERAIT. Depuis que la
+ * création passe par un agent, la remplir à la souris n'est plus possible : on
+ * écrit donc la même ligne, dans la même table, avec les mêmes champs.
+ */
+function poserLeSite() {
+  const db = new Database(path.join(DATA, 'haikodev.db'));
+  const maintenant = Date.now();
+  const site = {
+    id: 'site-boutique',
+    nom: 'Boutique — production',
+    projectId: null,
+    actif: true,
+    base: { moteur: 'sqlite', hote: '', port: '', nom: BASE_DU_SITE, utilisateur: '', motDePasse: '' },
+    fichiers: { moyen: 'local', chemin: FICHIERS_DU_SITE, hote: '', port: '', utilisateur: '', motDePasse: '' },
+    conservationJours: 14,
+    note: '',
+    creeLe: maintenant,
+    modifieLe: maintenant,
+  };
+  db.prepare(
+    `INSERT INTO snapshot_sites (id, project_id, nom, actif, data, cree_le, modifie_le)
+     VALUES (?, NULL, ?, 1, ?, ?, ?)`,
+  ).run(site.id, site.nom, JSON.stringify(site), maintenant, maintenant);
+  db.close();
+}
+
+/**
+ * UNE FICHE QUI ÉCHOUE NUIT APRÈS NUIT, posée avec ses points en échec et la
+ * CONVERSATION de l'assistant qui l'a écrite. On ne clique pas sur ses boutons :
+ * réparer ou rouvrir la conversation lancerait un vrai tour de moteur — ce qui
+ * se vérifie ici, c'est que les deux chemins EXISTENT sur la bonne ligne.
+ */
+function poserLeSiteEnEchec() {
+  const db = new Database(path.join(DATA, 'haikodev.db'));
+  const maintenant = Date.now();
+  const site = {
+    id: 'site-casse',
+    nom: 'Site cassé — production',
+    projectId: null,
+    actif: true,
+    base: { moteur: 'aucune', hote: '', port: '', nom: '', utilisateur: '', motDePasse: '' },
+    fichiers: { moyen: 'local', chemin: path.join(TMP, 'dossier-parti'), hote: '', port: '', utilisateur: '', motDePasse: '' },
+    conservationJours: 14,
+    note: '',
+    assistantId: 'agent-assistant',
+    assistantProjectId: PROJET_ID,
+    creeLe: maintenant,
+    modifieLe: maintenant,
+  };
+  db.prepare(
+    `INSERT INTO snapshot_sites (id, project_id, nom, actif, data, cree_le, modifie_le)
+     VALUES (?, NULL, ?, 1, ?, ?, ?)`,
+  ).run(site.id, site.nom, JSON.stringify(site), maintenant, maintenant);
+
+  for (let i = 0; i < 3; i += 1) {
+    const point = {
+      id: `point-echec-${i}`,
+      siteId: site.id,
+      debut: maintenant - i * 86400000,
+      fin: maintenant - i * 86400000 + 1000,
+      statut: 'echec',
+      octetsBase: 0,
+      octetsFichiers: 0,
+      chemin: '',
+      detail: 'fichiers : dossier introuvable',
+      origine: 'automatique',
+    };
+    db.prepare('INSERT INTO snapshot_points (id, site_id, debut, statut, data) VALUES (?, ?, ?, ?, ?)').run(
+      point.id,
+      point.siteId,
+      point.debut,
+      point.statut,
+      JSON.stringify(point),
+    );
+  }
+  db.close();
+}
+
 function pointsEnBase() {
   const db = new Database(path.join(DATA, 'haikodev.db'), { readonly: true });
   const lignes = db.prepare('SELECT data FROM snapshot_points ORDER BY debut DESC').all();
@@ -234,28 +317,44 @@ async function main() {
       (await fenetre.locator('[data-snapshots-sans-destination]').count()) === 0,
     );
 
-    /* 7. Les projets du serveur sont proposés d'un clic. */
+    /* 7. « Nouveau site » ouvre l'ASSISTANT, et les projets du serveur y sont
+       proposés sans ressaisir leur nom. Aucun tour de moteur n'est lancé ici :
+       ce contrôle vérifie la porte, pas le travail de l'agent — les règles de
+       lecture de sa fiche sont verrouillées par `snapshots-agent.test.ts`. */
     await fenetre.locator('[data-snapshots-creer]').click();
-    const proposeLeProjet = await page.locator(`[data-snapshots-projet="${PROJET_ID}"]`).count();
-    noter('Les projets de ce serveur sont proposés sans ressaisir leur nom', proposeLeProjet === 1);
-
-    /* 4. Un site extérieur, avec sa base et ses fichiers. */
-    await page.click('[data-snapshots-site-externe]');
-    const fiche = page.locator('[role="dialog"][data-state="open"]', {
-      has: page.locator('[data-snapshots-enregistrer]'),
+    const assistant = page.locator('[role="dialog"][data-state="open"]', {
+      has: page.locator('[data-snapshots-configurer]'),
     });
-    await fiche.waitFor({ state: 'visible', timeout: 10000 });
-    await fiche.locator('[data-snapshots-nom]').fill('Boutique — production');
-    await fiche.locator('[data-snapshots-moteur]').selectOption('sqlite');
-    await fiche.locator('[data-snapshots-base-nom]').fill(BASE_DU_SITE);
-    await fiche.locator('[data-snapshots-moyen]').selectOption('local');
-    await fiche.locator('[data-snapshots-chemin]').fill(FICHIERS_DU_SITE);
-    await fiche.locator('[data-snapshots-enregistrer]').click();
-    await fiche.waitFor({ state: 'hidden', timeout: 10000 });
+    await assistant.waitFor({ state: 'visible', timeout: 10000 });
+    noter('« Nouveau site » ouvre l’assistant, plus un formulaire à remplir', true);
+
+    const optionsProjet = await assistant.locator('[data-snapshots-projet] option').allInnerTexts();
+    noter(
+      'Les projets de ce serveur sont proposés sans ressaisir leur nom',
+      optionsProjet.some((texte) => texte.includes(PROJET_NOM)),
+      optionsProjet.join(' / ') || 'aucune option proposée',
+    );
+
+    const boutonConfigurer = assistant.locator('[data-snapshots-configurer]');
+    noter('Sans description, l’assistant ne part pas', await boutonConfigurer.isDisabled());
+    await assistant.locator('[data-snapshots-description]').fill('la boutique du client');
+    noter('Une phrase suffit à rendre le bouton actif', await boutonConfigurer.isEnabled());
+    await page.keyboard.press('Escape');
+    await assistant.waitFor({ state: 'hidden', timeout: 10000 });
+
+    /* 4. Le site à sauvegarder, avec sa base et ses fichiers. La fiche est posée
+       comme l'assistant la poserait (mêmes champs, même table) : le tour de
+       moteur qui l'aurait écrite coûterait un quota et n'apprendrait rien de
+       plus sur la suite — ce qui est vérifié ici, c'est la SAUVEGARDE réelle. */
+    poserLeSite();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-column="notes"]', { timeout: 30000 });
+    await page.click('aside[data-zone="gauche"] [data-ouvrir-snapshots]');
+    await fenetre.waitFor({ state: 'visible', timeout: 15000 });
 
     const lignes = page.locator('[data-snapshots-site]');
     await lignes.first().waitFor({ state: 'visible', timeout: 10000 });
-    noter('Le site créé paraît dans la liste', (await lignes.count()) === 1);
+    noter('Le site configuré paraît dans la liste', (await lignes.count()) === 1);
 
     /* 5. « Sauvegarder » copie POUR DE VRAI. */
     await page.click('[data-snapshots-lancer]');
@@ -305,6 +404,42 @@ async function main() {
       'L’historique dit la date de la sauvegarde',
       /\d{1,2}\s+\p{L}+.*\d{2}:\d{2}/u.test(texte),
       texte.slice(0, 160),
+    );
+
+    await page.keyboard.press('Escape');
+    await historique.waitFor({ state: 'hidden', timeout: 10000 });
+
+    /* 8. Les projets de ce serveur qui n'ont pas encore de fiche sont PROPOSÉS,
+       avec leur nom déjà écrit : on ne clique pas (ce serait un vrai tour de
+       moteur), on vérifie que le chemin existe. */
+    const encart = page.locator('[data-snapshots-projets-sans-fiche]');
+    const proposes = encart.locator('[data-snapshots-projet-sans-fiche]');
+    noter(
+      'Les projets du serveur sans sauvegarde sont proposés d’un clic',
+      (await encart.count()) === 1 && (await proposes.count()) >= 1,
+      (await proposes.count()) ? await proposes.first().innerText() : 'aucun projet proposé',
+    );
+
+    /* 9. Une fiche qui échoue porte son bouton de réparation, et celle qu'un
+       assistant a posée rouvre sa conversation. */
+    poserLeSiteEnEchec();
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-column="notes"]', { timeout: 30000 });
+    await page.click('aside[data-zone="gauche"] [data-ouvrir-snapshots]');
+    await fenetre.waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('[data-snapshots-site="site-casse"]').waitFor({ state: 'visible', timeout: 10000 });
+
+    noter(
+      'Une fiche qui échoue porte son bouton « Réparer »',
+      await page.locator('[data-snapshots-relire="site-casse"]').isVisible(),
+    );
+    noter(
+      'La conversation de l’assistant se rouvre d’un clic depuis la fiche',
+      await page.locator('[data-snapshots-conversation="site-casse"]').isVisible(),
+    );
+    noter(
+      'Une fiche qui n’a jamais échoué ne propose pas de réparation',
+      (await page.locator('[data-snapshots-relire="site-boutique"]').count()) === 0,
     );
 
     const SHOTS = path.join(RACINE, 'data', 'verification');

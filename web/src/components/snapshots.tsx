@@ -7,8 +7,10 @@ import {
   HardDriveDownload,
   History,
   Loader2,
+  MessagesSquare,
   Play,
-  Plus,
+  Sparkles,
+  Wrench,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
@@ -31,6 +33,9 @@ import {
   raisonDestinationRefusee,
   resumeParSite,
   siteVierge,
+  DESCRIPTION_SITE_MAX,
+  descriptionDuProjetSansFiche,
+  raisonDemandeRefusee,
   volumeDuPoint,
 } from '@haikodev/shared';
 import {
@@ -39,12 +44,6 @@ import {
   ConfirmDialog,
   DialogTitle,
   Drawer,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
   Input,
   Label,
   Switch,
@@ -75,7 +74,7 @@ import { cn } from '@/lib/utils';
 interface EtatSnapshots {
   sites: SiteASauvegarder[];
   points: PointDeSauvegarde[];
-  projets: { id: string; nom: string }[];
+  projets: { id: string; nom: string; chemin: string }[];
   enCours: string[];
   dossier: string;
 }
@@ -98,6 +97,9 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const [chargement, setChargement] = React.useState(false);
   const [fiche, setFiche] = React.useState<SiteASauvegarder | null>(null);
   const [historique, setHistorique] = React.useState(false);
+  const [assistant, setAssistant] = React.useState(false);
+  const [projetLance, setProjetLance] = React.useState('');
+  const [relu, setRelu] = React.useState('');
 
   const relire = React.useCallback(async () => {
     try {
@@ -139,6 +141,57 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
     }
   };
 
+  /**
+   * OUVRIR LA CONVERSATION DE L'ASSISTANT, D'UN CLIC. Ses questions et son
+   * compte rendu vivent dans un fil ; il fallait le retrouver à la main dans le
+   * bon projet. Le tiroir se ferme derrière, sinon il masquerait le fil.
+   */
+  const ouvrirLaConversation = (depart: { agentId: string; projectId: string }) => {
+    client.allerVersDecision({ projectId: depart.projectId, agentId: depart.agentId });
+    onClose();
+  };
+
+  // Un projet du serveur sans sauvegarde : sa phrase de départ est déjà écrite
+  // (son nom, son dossier), l'utilisateur n'a rien à saisir.
+  const configurerProjet = async (projet: { id: string; nom: string; chemin: string }) => {
+    setProjetLance(projet.id);
+    try {
+      const depart = await client.call<{ agentId: string; projectId: string }>({
+        type: 'snapshots.configurer',
+        description: descriptionDuProjetSansFiche({ nom: projet.nom, chemin: projet.chemin }),
+        projectId: projet.id,
+      });
+      client.pushToast(
+        'success',
+        t('L’assistant configure ce site. Ses questions vous attendent dans la conversation.'),
+      );
+      void relire();
+      ouvrirLaConversation(depart);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
+    } finally {
+      setProjetLance('');
+    }
+  };
+
+  // Une fiche qui échoue : l'assistant la relit sans attendre la nuit suivante.
+  const faireRelire = async (site: SiteASauvegarder) => {
+    setRelu(site.id);
+    try {
+      const depart = await client.call<{ agentId: string; projectId: string }>({
+        type: 'snapshots.relire',
+        id: site.id,
+      });
+      client.pushToast('success', t('L’assistant relit cette fiche et corrige ce qui bloque.'));
+      void relire();
+      ouvrirLaConversation(depart);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
+    } finally {
+      setRelu('');
+    }
+  };
+
   return (
     <>
       <Drawer open={open} onClose={onClose}>
@@ -149,37 +202,10 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
             <History className="h-3 w-3" />
             {t('Historique')}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="sm" data-snapshots-creer>
-                <Plus className="h-3 w-3" />
-                {t('Nouveau site')}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                data-snapshots-site-externe
-                onSelect={() => setFiche(siteVierge(null, ''))}
-              >
-                {t('Site extérieur')}
-              </DropdownMenuItem>
-              {etat.projets.length ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel>{t('Projets de ce serveur')}</DropdownMenuLabel>
-                  {etat.projets.map((projet) => (
-                    <DropdownMenuItem
-                      key={projet.id}
-                      data-snapshots-projet={projet.id}
-                      onSelect={() => setFiche(siteVierge(projet.id, projet.nom))}
-                    >
-                      {projet.nom}
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button variant="secondary" size="sm" onClick={() => setAssistant(true)} data-snapshots-creer>
+            <Sparkles className="h-3 w-3" />
+            {t('Nouveau site')}
+          </Button>
         </header>
 
         {refusDestination ? (
@@ -202,6 +228,40 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
           </div>
         )}
 
+        {etat.projets.length ? (
+          <div
+            className="mx-3 mb-2 flex shrink-0 flex-col gap-1.5 rounded-md border border-border bg-bg px-2.5 py-2"
+            data-snapshots-projets-sans-fiche
+          >
+            <p className="text-[12.5px] leading-relaxed text-text">
+              {etat.projets.length > 1
+                ? t('{n} projets de ce serveur n’ont pas encore de sauvegarde. Un clic, et l’assistant leur en écrit une.', {
+                    n: etat.projets.length,
+                  })
+                : t('Un projet de ce serveur n’a pas encore de sauvegarde. Un clic, et l’assistant lui en écrit une.')}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {etat.projets.map((projet) => (
+                <Button
+                  key={projet.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={!!projetLance}
+                  onClick={() => void configurerProjet(projet)}
+                  data-snapshots-projet-sans-fiche={projet.id}
+                >
+                  {projetLance === projet.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  {projet.nom}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
           {chargement && !etat.sites.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Lecture des snapshots…')}</p>
@@ -219,6 +279,17 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
                   bloque={!!refusDestination}
                   onOuvrir={() => setFiche(resume.site)}
                   onLancer={() => void lancer(resume.site.id)}
+                  onConversation={
+                    resume.site.assistantId
+                      ? () =>
+                          ouvrirLaConversation({
+                            agentId: resume.site.assistantId as string,
+                            projectId: (resume.site.assistantProjectId || resume.site.projectId) as string,
+                          })
+                      : undefined
+                  }
+                  onRelire={() => void faireRelire(resume.site)}
+                  relu={relu === resume.site.id}
                 />
               ))}
             </div>
@@ -228,6 +299,17 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
 
       {/* Le détail d'un site : empilé, la liste reste ouverte derrière. */}
       <FicheSite fiche={fiche} onClose={() => setFiche(null)} onChange={() => void relire()} />
+
+      {/* L'assistant : le seul chemin de CRÉATION d'un site, depuis une phrase. */}
+      <AssistantDeSite
+        open={assistant}
+        projets={etat.projets}
+        onClose={() => setAssistant(false)}
+        onLance={(depart) => {
+          void relire();
+          ouvrirLaConversation(depart);
+        }}
+      />
 
       {/* L'historique : la seconde fenêtre demandée, empilée elle aussi. */}
       <HistoriqueSnapshots open={historique} onClose={() => setHistorique(false)} resumes={resumes} />
@@ -240,14 +322,21 @@ function LigneSite({
   resume,
   travaille,
   bloque,
+  relu,
   onOuvrir,
   onLancer,
+  onConversation,
+  onRelire,
 }: {
   resume: ResumeDeSite;
   travaille: boolean;
   bloque: boolean;
+  relu: boolean;
   onOuvrir: () => void;
   onLancer: () => void;
+  /** Absent tant qu'aucune conversation d'assistant n'a touché cette fiche. */
+  onConversation?: () => void;
+  onRelire: () => void;
 }) {
   const { site, dernier, octets, points } = resume;
   return (
@@ -295,6 +384,30 @@ function LigneSite({
           <span>{t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}</span>
         </span>
       </button>
+      {dernier?.statut === 'echec' ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={relu}
+          onClick={onRelire}
+          title={t('Faire relire cette fiche par l’assistant')}
+          data-snapshots-relire={site.id}
+        >
+          {relu ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+          {t('Réparer')}
+        </Button>
+      ) : null}
+      {onConversation ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onConversation}
+          title={t('Ouvrir la conversation de l’assistant')}
+          data-snapshots-conversation={site.id}
+        >
+          <MessagesSquare className="h-3 w-3" />
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -308,6 +421,138 @@ function LigneSite({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* L'assistant : une phrase, et la fiche se remplit toute seule          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CONFIGURER UN SITE NE SE FAIT PLUS AU FORMULAIRE. On décrit le site en une
+ * phrase ; un agent léger lit le serveur, pose les questions qui restent dans la
+ * conversation, et enregistre la fiche lui-même. Le formulaire, lui, reste pour
+ * CORRIGER un site déjà là — changer un mot de passe ne mérite pas un tour de
+ * moteur.
+ */
+function AssistantDeSite({
+  open,
+  projets,
+  onClose,
+  onLance,
+}: {
+  open: boolean;
+  projets: { id: string; nom: string }[];
+  onClose: () => void;
+  onLance: (depart: { agentId: string; projectId: string }) => void;
+}) {
+  const [description, setDescription] = React.useState('');
+  const [projet, setProjet] = React.useState('');
+  const [enCours, setEnCours] = React.useState(false);
+
+  // Le champ repart vierge à chaque ouverture : la demande précédente est partie
+  // chez l'assistant, la relire ici ferait croire qu'elle attend encore.
+  React.useEffect(() => {
+    if (open) {
+      setDescription('');
+      setProjet('');
+    }
+  }, [open]);
+
+  const refus = raisonDemandeRefusee(description);
+
+  const lancer = async () => {
+    setEnCours(true);
+    try {
+      const depart = await client.call<{ agentId: string; projectId: string }>({
+        type: 'snapshots.configurer',
+        description,
+        ...(projet ? { projectId: projet } : {}),
+      });
+      client.pushToast(
+        'success',
+        t('L’assistant configure ce site. Ses questions vous attendent dans la conversation.'),
+      );
+      onClose();
+      // La conversation s'ouvre TOUT DE SUITE : c'est là que la première
+      // question attend, et l'attendre sans le savoir est le pire des cas.
+      onLance(depart);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
+    } finally {
+      setEnCours(false);
+    }
+  };
+
+  return (
+    <Drawer open={open} onClose={onClose} empile>
+      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+        <DialogTitle className="min-w-0 flex-1 truncate">{t('Nouveau site')}</DialogTitle>
+      </header>
+
+      <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+        <div className="flex flex-col gap-3">
+          <p className="text-[12.5px] leading-relaxed text-faint">
+            {t(
+              'Décrivez le site en une phrase. L’assistant cherche lui-même la base et les fichiers, vous pose les questions qui restent, puis enregistre la fiche.',
+            )}
+          </p>
+
+          <Champ libelle={t('Le site à sauvegarder')}>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={DESCRIPTION_SITE_MAX}
+              rows={4}
+              placeholder={t('Ex. : la boutique du client, un WordPress dans /var/www/boutique, à garder un mois')}
+              className="text-[13px]"
+              data-snapshots-description
+            />
+          </Champ>
+
+          {projets.length ? (
+            <Champ libelle={t('Un projet de ce serveur ?')}>
+              <select
+                value={projet}
+                onChange={(e) => setProjet(e.target.value)}
+                className={CLASSE_SELECT}
+                data-snapshots-projet
+              >
+                <option value="">{t('Site extérieur')}</option>
+                {projets.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nom}
+                  </option>
+                ))}
+              </select>
+            </Champ>
+          ) : null}
+
+          {refus ? <p className="text-[12px] text-warning">{t(refus)}</p> : null}
+
+          <div className="flex justify-end">
+            <Button
+              variant="default"
+              size="sm"
+              disabled={!!refus || enCours}
+              onClick={() => void lancer()}
+              data-snapshots-configurer
+            >
+              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+              {enCours ? t('Démarrage…') : t('Configurer')}
+            </Button>
+          </div>
+
+          <p className="text-[12px] leading-relaxed text-faint">
+            {t(
+              'Les identifiants trouvés ou donnés restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.',
+            )}
+          </p>
+        </div>
+      </ZoneDefilement>
+    </Drawer>
+  );
+}
+
 
 /* ------------------------------------------------------------------ */
 /* La fiche d'un site                                                   */

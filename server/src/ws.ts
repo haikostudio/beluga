@@ -113,6 +113,7 @@ import {
   snapshotsEnCours,
   supprimerSite as supprimerSiteSnapshot,
 } from './snapshots.js';
+import { lancerAssistantDeSnapshot, lancerRelectureDeSnapshot } from './assistant-snapshot.js';
 import {
   compterErreursInterface,
   dernieresErreursInterface,
@@ -1839,6 +1840,22 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         void passageDesSnapshots('manuel');
       }
       return { lance: true, enCours: snapshotsEnCours() };
+    }
+
+    case 'snapshots.configurer': {
+      // L'assistant ouvre une conversation et part : on ne retient pas l'écran
+      // pendant un tour de moteur. L'identifiant rendu est celui du fil où ses
+      // questions s'afficheront.
+      const depart = await lancerAssistantDeSnapshot({
+        description: String(cmd.description ?? ''),
+        projectId: cmd.projectId ? String(cmd.projectId) : null,
+      });
+      return depart;
+    }
+
+    case 'snapshots.relire': {
+      const depart = await lancerRelectureDeSnapshot(String(cmd.id ?? ''));
+      return depart;
     }
 
     case 'snapshots.points':

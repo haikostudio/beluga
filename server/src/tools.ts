@@ -49,6 +49,18 @@ import {
   type ProjetDeLaColonne,
   momentDuCreneau,
   nomDeSujetMesure,
+  CONSERVATION_MAX,
+  CONSERVATION_MIN,
+  CONSERVATION_PAR_DEFAUT,
+  MOTEURS_BASE,
+  MOYENS_FICHIERS,
+  essaisConcluants,
+  ficheProposee,
+  siteVide,
+  phraseDesEssais,
+  jugerSite,
+  LIBELLE_MOTEUR_BASE,
+  LIBELLE_MOYEN_FICHIERS,
 } from '@haikodev/shared';
 import * as store from './store.js';
 import { createProjectFolder, sourceDHeritageDuProjet } from './projects.js';
@@ -58,6 +70,7 @@ import { mintDownload } from './auth.js';
 import { readMemory, appendMemory, detailProjet } from './memory.js';
 import { synthetiserSiNecessaire } from './synthese-memoire.js';
 import { makeZip, safeJoin } from './files.js';
+import { enregistrerSite, essayerLesAcces, lireSite } from './snapshots.js';
 import { log } from './logger.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import {
@@ -633,10 +646,98 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  {
+    name: 'snapshot_site',
+    description:
+      "ENREGISTRE LA FICHE D'UN SITE À SAUVEGARDER (snapshots des sites en production). C'est le geste final de " +
+      "l'assistant de configuration : après avoir lu le serveur et posé ses questions avec « ask_user », tu poses ici " +
+      "la fiche entière, en UN seul appel. Sans « id », un nouveau site est créé ; avec l'« id » d'un site existant, " +
+      "la fiche est corrigée et ce que tu ne redis pas est CONSERVÉ (un mot de passe déjà enregistré ne se perd pas). " +
+      "La fiche doit sauvegarder quelque chose : une base, des fichiers, ou les deux — sinon elle est refusée en " +
+      "disant ce qui manque. Les identifiants donnés servent à relire la base et les fichiers chaque nuit.",
+    inputSchema: {
+      type: 'object',
+      required: ['nom'],
+      properties: {
+        id: { type: 'string', description: "L'identifiant d'un site déjà enregistré, pour le corriger" },
+        nom: { type: 'string', description: 'Comment reconnaître ce site' },
+        projectId: { type: 'string', description: "Le projet de ce serveur dont ce site est la production (facultatif)" },
+        actif: { type: 'boolean', description: 'Un site éteint garde son historique mais ne tourne plus' },
+        base: {
+          type: 'object',
+          description: "La base de données du site. Sans base, mettre moteur « aucune ».",
+          properties: {
+            moteur: { type: 'string', enum: [...MOTEURS_BASE], description: 'aucune, mysql, postgres ou sqlite' },
+            hote: { type: 'string', description: "Machine de la base — vide vaut « la même que le site »" },
+            port: { type: 'string' },
+            nom: { type: 'string', description: 'Nom de la base, ou CHEMIN du fichier pour sqlite' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+        fichiers: {
+          type: 'object',
+          description: "Les fichiers du site. Sans fichiers, mettre moyen « aucun ».",
+          properties: {
+            moyen: { type: 'string', enum: [...MOYENS_FICHIERS], description: 'aucun, local, ssh ou ftp' },
+            chemin: { type: 'string', description: 'Le dossier à prendre, du côté du site' },
+            hote: { type: 'string' },
+            port: { type: 'string' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+        conservationJours: {
+          type: 'number',
+          description: `Au-delà de ce nombre de jours, un point de sauvegarde est jeté (${CONSERVATION_MIN} à ${CONSERVATION_MAX}, ${CONSERVATION_PAR_DEFAUT} par défaut)`,
+        },
+        note: { type: 'string', description: 'Ce que ce site contient et qui l’exploite, en une phrase' },
+        forcer: {
+          type: 'boolean',
+          description:
+            "N'enregistre la fiche QUE si l'utilisateur a explicitement accepté qu'un accès qui ne répond pas soit gardé tel quel (machine éteinte, site pas encore en ligne). Sans cela, une fiche dont la base ou les fichiers ne répondent pas est refusée.",
+        },
+      },
+    },
+  },
+  {
+    name: 'snapshot_essai',
+    description:
+      "ESSAIE POUR DE VRAI LES ACCÈS D'UNE FICHE DE SAUVEGARDE, sans rien enregistrer ni rien sauvegarder : la base est ouverte (son schéma est lu puis jeté) et le dossier des fichiers est listé. Rend, pour chacun, s'il répond et ce que la machine a dit. Appelle-le AVANT « snapshot_site » : une fiche complète n'est pas une fiche juste. Prends soit l'« id » d'un site déjà enregistré, soit les mêmes champs que « snapshot_site ».",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: "L'identifiant d'un site déjà enregistré, à essayer tel qu'il est" },
+        nom: { type: 'string' },
+        base: {
+          type: 'object',
+          properties: {
+            moteur: { type: 'string', enum: [...MOTEURS_BASE] },
+            hote: { type: 'string' },
+            port: { type: 'string' },
+            nom: { type: 'string' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+        fichiers: {
+          type: 'object',
+          properties: {
+            moyen: { type: 'string', enum: [...MOYENS_FICHIERS] },
+            chemin: { type: 'string' },
+            hote: { type: 'string' },
+            port: { type: 'string' },
+            utilisateur: { type: 'string' },
+            motDePasse: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
 ];
 
 /** Les outils réservés aux agents de tâche : le chef d'orchestre ne les voit pas. */
-export const TASK_ONLY_TOOLS = new Set(['remember']);
+export const TASK_ONLY_TOOLS = new Set(['remember', 'snapshot_site', 'snapshot_essai']);
 
 export function toolsFor(role: 'task' | 'orchestrator' | 'analysis' | 'deploy'): ToolDef[] {
   if (role === 'orchestrator') return TOOL_DEFS.filter((t) => !TASK_ONLY_TOOLS.has(t.name));
@@ -1444,6 +1545,87 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // bloquer la tâche en cours.
       synthetiserSiNecessaire(project.path);
       return { ok: true, text: 'Mémoire du projet mise à jour.' };
+    }
+
+    case 'snapshot_site': {
+      /*
+       * LE GESTE FINAL DE L'ASSISTANT DE CONFIGURATION. La fiche proposée par un
+       * modèle n'a AUCUN droit de plus qu'une fiche saisie au formulaire : elle
+       * passe par la même lecture (`ficheProposee`, qui traduit « MariaDB » en
+       * `mysql`) puis par le même jugement (`jugerSite`), et un refus REND LA
+       * RAISON — l'agent corrige et rappelle l'outil au lieu d'abandonner.
+       */
+      const ancienne = typeof args.id === 'string' && args.id.trim() ? lireSite(args.id.trim()) : null;
+      if (typeof args.id === 'string' && args.id.trim() && !ancienne) {
+        return { ok: false, text: `Aucun site à sauvegarder ne porte l'identifiant « ${args.id} ».` };
+      }
+      const fiche = ficheProposee(args, ancienne);
+      const jugement = jugerSite(fiche);
+      if (!jugement.ok) return { ok: false, text: `Fiche refusée : ${jugement.raison}. Corrige et rappelle l'outil.` };
+
+      /*
+       * UNE FICHE COMPLÈTE N'EST PAS UNE FICHE JUSTE. Les accès sont essayés
+       * POUR DE VRAI avant d'enregistrer : sans cela, un mot de passe refusé ou
+       * un dossier déplacé ne se découvrait qu'à la première nuit, dans un
+       * échec que personne ne regardait. « forcer » reste la porte de sortie,
+       * pour une machine éteinte ou un site pas encore en ligne — et l'agent a
+       * consigne de ne l'emprunter qu'avec l'accord de l'utilisateur.
+       */
+      const essais = await essayerLesAcces(fiche);
+      if (!essaisConcluants(essais) && args.forcer !== true) {
+        return {
+          ok: false,
+          text:
+            `Fiche NON enregistrée : un accès ne répond pas.\n${phraseDesEssais(essais)}\n` +
+            'Corrige cet accès puis rappelle « snapshot_essai », ou demande à l’utilisateur (« ask_user ») ' +
+            's’il accepte qu’on enregistre quand même — dans ce cas seulement, rappelle « snapshot_site » avec « forcer ».',
+        };
+      }
+
+      // La CONVERSATION qui a posé la fiche est retenue : la fenêtre des
+      // snapshots la rouvre d'un clic, avec ses questions et son compte rendu.
+      const resultat = enregistrerSite({ ...fiche, assistantId: ctx.agentId, assistantProjectId: ctx.projectId });
+      if (!resultat.ok) return { ok: false, text: `Fiche refusée : ${resultat.raison}.` };
+
+      const site = resultat.site;
+      const morceaux = [
+        site.base.moteur !== 'aucune' ? `base ${LIBELLE_MOTEUR_BASE[site.base.moteur]} « ${site.base.nom} »` : null,
+        site.fichiers.moyen !== 'aucun'
+          ? `fichiers ${LIBELLE_MOYEN_FICHIERS[site.fichiers.moyen]} « ${site.fichiers.chemin} »`
+          : null,
+      ].filter(Boolean);
+      return {
+        ok: true,
+        text:
+          `${ancienne ? 'Fiche corrigée' : 'Site enregistré'} : « ${site.nom} » (identifiant ${site.id}). ` +
+          `Sauvegarde ${morceaux.join(' et ')}, gardés ${site.conservationJours} jours. ` +
+          `Essai des accès :\n${phraseDesEssais(essais)}\n` +
+          'Le passage de nuit le prendra tout seul.',
+      };
+    }
+
+    case 'snapshot_essai': {
+      /*
+       * LE COUP DE SONDE. Il ouvre la base et liste le dossier, puis jette tout :
+       * aucune sauvegarde n'est prise, aucune fiche n'est enregistrée. Sur un
+       * site déjà là, les champs non redits sont ceux de la base — c'est ainsi
+       * qu'on essaie une fiche en échec sans redemander son mot de passe.
+       */
+      const enregistree = typeof args.id === 'string' && args.id.trim() ? lireSite(args.id.trim()) : null;
+      if (typeof args.id === 'string' && args.id.trim() && !enregistree) {
+        return { ok: false, text: `Aucun site à sauvegarder ne porte l'identifiant « ${args.id} ».` };
+      }
+      const aEssayer = ficheProposee(args, enregistree);
+      if (siteVide(aEssayer)) {
+        return { ok: false, text: 'Rien à essayer : cette fiche ne prend ni base ni fichiers.' };
+      }
+      const issues = await essayerLesAcces(aEssayer);
+      return {
+        ok: true,
+        text: essaisConcluants(issues)
+          ? `Tout répond.\n${phraseDesEssais(issues)}`
+          : `Un accès au moins ne répond pas.\n${phraseDesEssais(issues)}`,
+      };
     }
 
     case 'compta': {

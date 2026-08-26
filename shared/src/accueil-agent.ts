@@ -45,7 +45,20 @@ export type NiveauDAccueil = 'complet' | 'tri' | 'minimal';
  * production entière d'après le prompt réglé du projet — celui-là agit sur le
  * projet dans son ensemble et garde l'accueil complet.
  */
-export type MotifDAppel = 'conflit' | 'controles' | 'construction' | 'depannage' | 'mise-en-ligne';
+export type MotifDAppel =
+  | 'conflit'
+  | 'controles'
+  | 'construction'
+  | 'depannage'
+  | 'mise-en-ligne'
+  /**
+   * L'ASSISTANT QUI CONFIGURE UN SITE À SAUVEGARDER
+   * (`server/src/assistant-snapshot.ts`). Il ne lit pas le projet : il lit UN
+   * site, pose ses questions et enregistre une fiche. L'index de la mémoire,
+   * les fichiers d'instructions et les compétences partagées ne lui serviraient
+   * à rien — et seraient repayés à chaque site configuré.
+   */
+  | 'configuration-snapshot';
 
 /**
  * Les dépannages : une panne nommée, réparée sur place, rien d'autre.
@@ -84,6 +97,9 @@ export interface PartsDAccueil {
  * rogne rien.
  */
 export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }): NiveauDAccueil {
+  // Un assistant appelé sur une tâche NOMMÉE — configurer un site à sauvegarder
+  // — n'ouvre pas le projet : sa consigne dit tout, quel que soit son rôle.
+  if (input.motif === 'configuration-snapshot') return 'minimal';
   if (input.role === 'orchestrator') return 'tri';
   if (input.role !== 'deploy') return 'complet';
   if (!input.motif) return 'complet';

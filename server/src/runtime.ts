@@ -68,6 +68,7 @@ import {
   texteDuSommaire,
   MemoireDeReprise,
   type MotifDAppel,
+  CONSIGNE_ASSISTANT_SNAPSHOT,
   type NiveauDAccueil,
   niveauDAccueil,
   partsDAccueil,
@@ -1363,6 +1364,7 @@ async function preparerLeTour(
       poursuite: Boolean(compteImpose),
       preparation,
     },
+    options.motif,
   );
   return false;
 }
@@ -1465,6 +1467,13 @@ async function startTurn(
    * fil est rangé. `poursuite` dit que ce tour reprend un travail coupé.
    */
   tour: { account: AccountRecord; cleSession: string; poursuite: boolean; preparation: number },
+  /**
+   * Pourquoi cet agent est appelé, quand ce n'est pas pour une carte. Le NIVEAU
+   * d'accueil ne suffit pas à le dire : deux motifs très différents — un
+   * dépannage de publication, l'assistant qui configure un site à sauvegarder —
+   * partagent l'accueil « minimal » et n'attendent pas la même consigne.
+   */
+  motif?: MotifDAppel,
 ): Promise<void> {
   // Le réglage retenu est celui enregistré à l'instant du départ : si le moteur
   // a été changé entre-temps, c'est le nouveau qui part, pas l'ancien.
@@ -1674,7 +1683,7 @@ async function startTurn(
    * « pre_run » interdit d'écrire au passé.
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId ? 'task' : agent.role;
-  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine, niveau, agent.run.mode);
+  const systemPrompt = rolePrompt(roleMoteur, project.isSelf, agent.run.engine, niveau, agent.run.mode, motif);
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -4236,7 +4245,15 @@ export function rolePrompt(
    * doit faire à la place plutôt que de le laisser buter sur un refus muet.
    */
   mode: 'direct' | 'plan' = 'direct',
+  /**
+   * Le MOTIF de l'appel, quand il en a un. Deux accueils minimaux existent, et
+   * ils n'attendent pas la même chose : un dépannage de publication répare une
+   * panne nommée ; l'assistant des snapshots, lui, configure UN site — il pose
+   * ses questions et enregistre une fiche (`shared/src/snapshots-agent.ts`).
+   */
+  motif?: MotifDAppel,
 ): string {
+  if (motif === 'configuration-snapshot') return CONSIGNE_ASSISTANT_SNAPSHOT;
   if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
 
   // Le déroulé est le MÊME quel que soit le moteur : c'est HaikoDev qui décide,
