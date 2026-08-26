@@ -31,6 +31,7 @@ import {
   NiveauAgent,
   REFUS_A_COMPLETER,
   TYPE_JOINTES_COLLABLES,
+  allegerMessageTechnique,
   choixPossible,
   comptesDeReprise,
   EtatDuPlan,
@@ -63,6 +64,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, heureDuMessage, jetons } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useEstSimplifie } from '@/lib/mode-simplifie';
 
 /**
  * La ligne de repères sous un message : l'heure d'envoi, les jetons, ce qui est
@@ -96,7 +98,10 @@ function LigneReperes({
   jointes?: Attachment[];
 }) {
   const visibles = complements.filter(Boolean) as string[];
-  const compteJetons = jetons(tokens);
+  /* LE MODE SIMPLIFIÉ EFFACE LE COMPTE DE JETONS, jamais l'heure ni les
+     boutons : ce chiffre n'a de sens que pour qui règle une consommation. */
+  const simplifie = useEstSimplifie();
+  const compteJetons = simplifie ? null : jetons(tokens);
   return (
     <div
       className={cn(
@@ -118,6 +123,31 @@ function LigneReperes({
       ))}
       <BoutonEcoute texte={texte} cle={cle} />
       <BoutonCopier texte={texte} jointes={jointes} />
+    </div>
+  );
+}
+
+/**
+ * L'ERREUR SOUS UNE RÉPONSE. En mode ordinaire elle s'affiche telle quelle :
+ * c'est ce dont on a besoin pour comprendre une panne.
+ *
+ * En MODE SIMPLIFIÉ, les traces d'appel et les chemins du serveur sont retirés
+ * (`allegerMessageTechnique`) — l'erreur reste ANNONCÉE, en rouge, à sa place.
+ * On ne cache jamais qu'il s'est passé quelque chose : quand il ne restait que
+ * de la technique, une phrase simple prend le relais.
+ */
+function ErreurDeMessage({ texte }: { texte: string }) {
+  const simplifie = useEstSimplifie();
+  const affiche = simplifie
+    ? (allegerMessageTechnique(texte) ?? t('Une erreur technique est survenue. Le détail est masqué par le mode simplifié.'))
+    : texte;
+  return (
+    <div
+      data-erreur-message
+      className="mt-2 flex gap-2 rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-[13.5px] text-danger"
+    >
+      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span className="leading-relaxed">{affiche}</span>
     </div>
   );
 }
@@ -306,12 +336,7 @@ export function MessageView({
           </div>
         ) : null}
 
-        {message.error ? (
-          <div className="mt-2 flex gap-2 rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-[13.5px] text-danger">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-            <span className="leading-relaxed">{message.error}</span>
-          </div>
-        ) : null}
+        {message.error ? <ErreurDeMessage texte={message.error} /> : null}
 
         {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
             côtés du fil : la mettre au second plan se fait par la COULEUR et la

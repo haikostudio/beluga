@@ -11,6 +11,7 @@ import {
   LogIn,
   Palette,
   Pencil,
+  Eye,
   Play,
   Plus,
   Power,
@@ -47,6 +48,8 @@ import {
   libelleDeRaccourci,
   raisonRaccourciRefuse,
   ERREURS_MONTREES_REGLAGES,
+  ONGLETS_REGLAGES_TECHNIQUES,
+  ongletsVisibles,
   EngineId,
   EtatDuPool,
   ErreurInterface,
@@ -91,6 +94,7 @@ import { Champ } from '@/components/card-panel';
 import { AppearancePicker } from '@/components/appearance-picker';
 import { client } from '@/lib/client';
 import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
+import { useEstSimplifie, useModeSimplifie } from '@/lib/mode-simplifie';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -125,6 +129,12 @@ const CLES_ONGLETS = [
 function SettingsBody({ open }: { open: boolean }) {
   const state = useApp();
   const [onglet, setOnglet] = React.useState<string>('systeme');
+  /* LE MODE SIMPLIFIÉ RETIRE LES ONGLETS QUI NE PARLENT QU'AUX DÉVELOPPEURS.
+     Si l'onglet ouvert vient de disparaître sous les pieds de l'utilisateur, on
+     retombe sur le premier : une fenêtre vide passerait pour une panne. */
+  const simplifie = useEstSimplifie();
+  const onglets = ongletsVisibles(CLES_ONGLETS, ONGLETS_REGLAGES_TECHNIQUES, simplifie);
+  const ongletActif = onglets.some((item) => item.cle === onglet) ? onglet : onglets[0].cle;
   const [history, setHistory] = React.useState<{ at: number; loadPct: number; running: number }[]>([]);
 
   React.useEffect(() => {
@@ -144,12 +154,12 @@ function SettingsBody({ open }: { open: boolean }) {
         <DialogTitle>{t('Réglages')}</DialogTitle>
       </header>
 
-      <Tabs value={onglet} onValueChange={setOnglet} className="flex min-h-0 flex-1 flex-col">
+      <Tabs value={ongletActif} onValueChange={setOnglet} className="flex min-h-0 flex-1 flex-col">
         {/* Six onglets ne tiennent pas sur la largeur d'un téléphone : la barre
             défile horizontalement plutôt que de se replier en deux lignes. */}
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-4 py-2">
           <TabsList>
-            {CLES_ONGLETS.map((item) => (
+            {onglets.map((item) => (
               <TabsTrigger key={item.cle} value={item.cle} className="whitespace-nowrap">
                 {t(item.titre)}
               </TabsTrigger>
@@ -183,31 +193,33 @@ function SettingsBody({ open }: { open: boolean }) {
 
         <TabsContent value="voix" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
-          <VoiceSection open={open && onglet === 'voix'} />
+          <VoiceSection open={open && ongletActif === 'voix'} />
         </ZoneDefilement>
         </TabsContent>
 
         <TabsContent value="consommation" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
-          <UsageSection open={open && onglet === 'consommation'} />
+          <UsageSection open={open && ongletActif === 'consommation'} />
         </ZoneDefilement>
         </TabsContent>
 
         <TabsContent value="sauvegardes" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
-          <SectionSauvegardes open={open && onglet === 'sauvegardes'} />
+          <SectionSauvegardes open={open && ongletActif === 'sauvegardes'} />
         </ZoneDefilement>
         </TabsContent>
 
+        {simplifie ? null : (
         <TabsContent value="acces-api" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
-          <SectionClesApi open={open && onglet === 'acces-api'} />
+          <SectionClesApi open={open && ongletActif === 'acces-api'} />
         </ZoneDefilement>
         </TabsContent>
+        )}
 
         <TabsContent value="competences" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
         <ZoneDefilement className="p-4">
-          <SectionCompetences open={open && onglet === 'competences'} />
+          <SectionCompetences open={open && ongletActif === 'competences'} />
         </ZoneDefilement>
         </TabsContent>
 
@@ -270,7 +282,39 @@ function SectionApparence() {
           })}</p>
       ) : null}
       <AppearancePicker value={apparence} onChange={setApparence} systemeSombre={systemeSombre} />
+
+      <ReglageModeSimplifie />
     </section>
+  );
+}
+
+/**
+ * L'INTERRUPTEUR DU MODE SIMPLIFIÉ, posé sous le thème parce qu'il relève de la
+ * même question : à quoi l'application doit-elle RESSEMBLER pour vous.
+ *
+ * Le texte dit ce qui part ET ce qui reste. Un réglage qui promet de « cacher
+ * la complexité » sans nommer ce qu'il cache se laisse éteint par prudence.
+ */
+function ReglageModeSimplifie() {
+  const [simplifie, setSimplifie] = useModeSimplifie();
+
+  return (
+    <div className="mt-6 border-t border-faint/20 pt-4" data-reglage-mode-simplifie>
+      <h3 className="mb-1 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
+        <Eye className="h-3.5 w-3.5 text-faint" />  {t('Mode simplifié')}
+</h3>
+      <p className="mb-3 text-[12.5px] leading-relaxed text-faint">
+        {t('Masque les repères qui ne servent qu’au développement : le compte de jetons sous les messages, le détail des recherches de l’agent, le journal des erreurs de la page, les clés d’API et les courbes de consommation. Aucun bouton ne disparaît — tout ce que vous pouviez faire reste possible.')}</p>
+      <label className="flex items-center gap-2 text-[14px] text-muted">
+        <Switch
+          checked={simplifie}
+          onCheckedChange={setSimplifie}
+          aria-label="Mode simplifié"
+          data-interrupteur-mode-simplifie
+        />
+        {simplifie ? t('Les détails techniques sont masqués') : t('Tous les détails techniques sont affichés')}
+      </label>
+    </div>
   );
 }
 
@@ -280,6 +324,7 @@ function SectionApparence() {
 
 function SectionSysteme({ history }: { history: { at: number; loadPct: number }[] }) {
   const state = useApp();
+  const simplifie = useEstSimplifie();
   const capacity = state.capacity;
   const [busy, setBusy] = React.useState<string | null>(null);
   const [aConfirmer, setAConfirmer] = React.useState<SystemProcess | null>(null);
@@ -424,7 +469,10 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
 
       <SectionCerveau />
 
-      <SectionErreursInterface />
+      {/* LE JOURNAL DES ERREURS DE LA PAGE est un outil de diagnostic pur :
+          des piles d'appel et des chemins de fichiers. Le mode simplifié le
+          retire — la remontée au serveur, elle, continue. */}
+      {simplifie ? null : <SectionErreursInterface />}
 
       <ConfirmDialog
         open={!!aConfirmer}

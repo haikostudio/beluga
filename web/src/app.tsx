@@ -11,6 +11,7 @@ import { useResizable, ResizeHandle } from '@/components/resizer';
 import { client } from '@/lib/client';
 import { usePref, writePref } from '@/lib/prefs';
 import { useThemeApplique } from '@/lib/theme';
+import { useModeSimplifieApplique } from '@/lib/mode-simplifie';
 import { useApp } from '@/lib/use-app';
 import { Filet } from '@/components/filet';
 import { cn } from '@/lib/utils';
@@ -98,6 +99,14 @@ export function App() {
    * reste en arrière.
    */
   useLangueAppliquee();
+  /*
+   * LE MODE SIMPLIFIÉ SE POSE ICI, POUR LA MÊME RAISON QUE LES DEUX AUTRES :
+   * c'est un réglage de l'application ENTIÈRE. Le crochet écrit le repère
+   * `data-mode-simplifie` sur la racine du document — ce qui masque vraiment
+   * les chiffres, ce sont les écrans eux-mêmes, chacun lisant la préférence
+   * pendant son rendu.
+   */
+  useModeSimplifieApplique();
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
