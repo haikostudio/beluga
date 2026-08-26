@@ -31,7 +31,7 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { MemoryView } from '@/components/memory-view';
-import { QuestionsEnAttente } from '@/components/questions-en-attente';
+import { ClocheNotifications } from '@/components/notifications';
 import { QuotaBadge } from '@/components/quota-badge';
 import { AMBIANCES, LANGUES, ambianceParId, langueParId } from '@haikodev/shared';
 import { useThemeGeneral } from '@/lib/theme';
@@ -278,11 +278,12 @@ export function QuotaBar({
 
       <QuotaBadge activeEngine={activeEngine} />
 
-      {/* La cloche des questions en attente : visible depuis n'importe où,
-          elle liste chaque décision — projet, carte ou conversation, texte —
-          et y emmène en un clic. Le triangle de la colonne de gauche reste,
-          mais il n'est plus le seul chemin. */}
-      <QuestionsEnAttente />
+      {/* LA CLOCHE DES NOTIFICATIONS : toujours là, qu'il y ait quelque chose
+          ou non. Elle ouvre un TIROIR qui réunit ce qui attend une décision —
+          projet, carte ou conversation, texte de la question — et tout ce que
+          le guichet de notifications a annoncé depuis. Le triangle de la
+          colonne de gauche reste, mais il n'est plus le seul chemin. */}
+      <ClocheNotifications />
 
       {capacity ? (
         <Tooltip
