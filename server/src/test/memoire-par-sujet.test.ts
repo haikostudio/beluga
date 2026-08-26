@@ -196,7 +196,7 @@ test('une reprise sans sujet retenu ne parle pas de mémoire du tout', () => {
   const resume = resumeContinuite({
     project: 'Essai',
     workdir: '/tmp/essai',
-    role: 'orchestrator',
+    role: 'cadrage',
     title: "Chef d'orchestre",
     exchanges: [],
   });

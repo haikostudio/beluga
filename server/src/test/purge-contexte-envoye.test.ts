@@ -66,7 +66,7 @@ test('un instantané écrit avant l’existence des passages ne fait pas tomber 
     Agent.parse({
       id: AGENT,
       projectId: projet.id,
-      role: 'orchestrator',
+      role: 'cadrage',
       title: 'Chef d’orchestre',
       run: { engine: 'claude' },
       status: 'running',

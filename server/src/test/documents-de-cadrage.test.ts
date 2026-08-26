@@ -17,7 +17,7 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool } = await import('../tools.js');
-const { CONSIGNE_DOCUMENTS_DU_CHEF, rolePrompt } = await import('../runtime.js');
+const { rolePrompt } = await import('../runtime.js');
 
 const projet = fs.mkdtempSync(path.join(os.tmpdir(), 'projet-plans-'));
 
@@ -101,7 +101,7 @@ test('« estUnDocument » sépare le texte du code', () => {
 test('le chef écrit son plan dans le dossier des plans', async () => {
   const p = projetDEssai();
   const resultat = await callTool(
-    { projectId: p.id, role: 'orchestrator' } as any,
+    { projectId: p.id, role: 'cadrage' } as any,
     'write_document',
     { relativePath: 'refonte-accueil', content: '# Refonte de l’accueil\n\nPremière version.\n' },
   );
@@ -113,7 +113,7 @@ test('le chef écrit son plan dans le dossier des plans', async () => {
 
 test('réécrire le même plan est une MISE À JOUR, pas un doublon', async () => {
   const p = projetDEssai();
-  const ctx = { projectId: p.id, role: 'orchestrator' } as any;
+  const ctx = { projectId: p.id, role: 'cadrage' } as any;
   await callTool(ctx, 'write_document', { relativePath: 'ajustable.md', content: 'avant' });
   const resultat = await callTool(ctx, 'write_document', { relativePath: 'ajustable.md', content: 'après' });
   assert.match(resultat.text, /mis à jour/i);
@@ -123,7 +123,7 @@ test('réécrire le même plan est une MISE À JOUR, pas un doublon', async () =
 test('le chef écrit la documentation du projet, hors du dossier des plans', async () => {
   const p = projetDEssai();
   const resultat = await callTool(
-    { projectId: p.id, role: 'orchestrator' } as any,
+    { projectId: p.id, role: 'cadrage' } as any,
     'write_document',
     { relativePath: 'docs/memoire/nouveau-sujet.md', content: '# Un sujet' },
   );
@@ -135,7 +135,7 @@ test('le chef modifie le fichier d’instructions du moteur sous son nom nu', as
   const p = projetDEssai();
   fs.writeFileSync(path.join(projet, 'CLAUDE.md'), 'avant', 'utf8');
   const resultat = await callTool(
-    { projectId: p.id, role: 'orchestrator' } as any,
+    { projectId: p.id, role: 'cadrage' } as any,
     'write_document',
     { relativePath: 'CLAUDE.md', content: 'après' },
   );
@@ -145,7 +145,7 @@ test('le chef modifie le fichier d’instructions du moteur sous son nom nu', as
 
 test('le chef SUPPRIME un document, et un document seulement', async () => {
   const p = projetDEssai();
-  const ctx = { projectId: p.id, role: 'orchestrator' } as any;
+  const ctx = { projectId: p.id, role: 'cadrage' } as any;
   await callTool(ctx, 'write_document', { relativePath: 'docs/jetable.md', content: 'à effacer' });
   const supprime = await callTool(ctx, 'write_document', { relativePath: 'docs/jetable.md', action: 'supprimer' });
   assert.equal(supprime.ok, true, supprime.text);
@@ -161,7 +161,7 @@ test('le chef SUPPRIME un document, et un document seulement', async () => {
 test('le chef ne peut pas écrire un fichier de CODE', async () => {
   const p = projetDEssai();
   const resultat = await callTool(
-    { projectId: p.id, role: 'orchestrator' } as any,
+    { projectId: p.id, role: 'cadrage' } as any,
     'write_document',
     { relativePath: 'server/src/runtime.ts', content: 'export const x = 1;' },
   );
@@ -181,18 +181,10 @@ test('un agent de tâche, lui, garde le dossier entier', async () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* La suite : le plan est indexé, et le chef sait où écrire            */
+/* La suite : le plan est indexé, et l'agent sait où écrire             */
 /* ------------------------------------------------------------------ */
 
-test('la consigne du chef dit ce qu’il écrit, et ce qui lui reste fermé', () => {
-  const consigne = rolePrompt('orchestrator', false);
-  assert.ok(consigne.includes(CONSIGNE_DOCUMENTS_DU_CHEF));
-  assert.ok(consigne.includes(DOSSIER_PLANS));
-  assert.match(consigne, /LE CODE RESTE FERMÉ/);
-  assert.match(consigne, /supprimer/i);
-});
-
 test('en mode plan, le plan écrit est aussi enregistré', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /ENREGISTRE CHAQUE PLAN/);
 });

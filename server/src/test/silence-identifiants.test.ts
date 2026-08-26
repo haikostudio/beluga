@@ -14,7 +14,7 @@ import { rolePrompt, rappelDeMethode } from '../runtime.js';
  * pour les deux moteurs, sinon elle ne vaudrait nulle part.
  */
 
-const ROLES = ['orchestrator', 'analysis', 'deploy', 'task'] as const;
+const ROLES = ['cadrage', 'analysis', 'deploy', 'task'] as const;
 const MOTEURS = ['claude', 'codex'] as const;
 
 test('la consigne de silence est donnée à tous les rôles et à tous les moteurs', () => {

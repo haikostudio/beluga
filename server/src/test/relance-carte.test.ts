@@ -63,7 +63,7 @@ test('une relance ne rouvre jamais une fin de parcours', () => {
 });
 
 test('une relance d’analyse ou de publication laisse la carte terminée', () => {
-  for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
+  for (const role of ['analysis', 'cadrage', 'deploy'] as const) {
     assert.equal(colonneAuDemarrage('done', role), null, role);
   }
 });

@@ -56,7 +56,7 @@ test('le changement de compte garde la main : il a déjà son résumé', () => {
 const RAPPEL = resumeContinuite({
   project: 'HaikoDev',
   workdir: '/tmp/projet',
-  role: 'orchestrator',
+  role: 'cadrage',
   title: "Chef d'orchestre — HaikoDev",
   exchanges: [
     { role: 'user', content: 'Le bouton « Publier » du bandeau reste gris après un clic.' },
@@ -89,7 +89,7 @@ test('les échanges eux-mêmes voyagent : le sujet est retrouvable', () => {
 });
 
 test('les trois motifs ne se disent pas de la même façon', () => {
-  const base = { project: 'P', workdir: '/w', role: 'orchestrator', title: 'T', exchanges: [] };
+  const base = { project: 'P', workdir: '/w', role: 'cadrage', title: 'T', exchanges: [] };
   const titres = (['compression', 'changement-de-compte', 'fil-neuf'] as const).map(
     (motif) => resumeContinuite({ ...base, motif }).split('\n')[0],
   );

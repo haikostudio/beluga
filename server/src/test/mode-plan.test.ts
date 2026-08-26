@@ -31,7 +31,7 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool } = await import('../tools.js');
-const { rolePrompt, TRI_MODE_PLAN } = await import('../runtime.js');
+const { rolePrompt, CONSIGNE_MODE_PLAN } = await import('../runtime.js');
 
 /*
  * Une proposition n'est affichée que si sa description tient debout (règle
@@ -94,7 +94,7 @@ test('Claude : le chef d’orchestre garde ses outils d’écriture en mode plan
     prompt: 'prépare la refonte',
     fullAccess: false,
     mode: 'plan',
-    role: 'orchestrator',
+    role: 'cadrage',
     onEvent: () => {},
   });
   const i = args.indexOf('--permission-mode');
@@ -108,7 +108,7 @@ test('Codex : le chef d’orchestre n’est pas mis en lecture seule par le mode
     prompt: 'prépare la refonte',
     fullAccess: false,
     mode: 'plan',
-    role: 'orchestrator',
+    role: 'cadrage',
     allowedTools: ['mcp__haikodev__write_document'],
     disallowedTools: ['Edit'],
     mcpBridgePath: '/opt/haikodev/server/mcp-bridge.mjs',
@@ -216,23 +216,23 @@ test('sans mode (ou en mode direct), board_create_card fonctionne comme avant', 
 /* ------------------------------------------------------------------ */
 
 test('la consigne du chef en mode plan porte les quatre parties du plan et interdit la carte', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /FAISABILITÉ/);
   assert.match(consigne, /CHEMIN À SUIVRE/);
   assert.match(consigne, /CONSÉQUENCES/);
   assert.match(consigne, /AMÉLIORATIONS APPORTÉES/);
   assert.match(consigne, /NE PROPOSES AUCUNE carte/);
   assert.match(consigne, /analysis\.context/);
-  assert.ok(consigne.includes(TRI_MODE_PLAN));
+  assert.ok(consigne.includes(CONSIGNE_MODE_PLAN));
 });
 
 test('la consigne du chef en mode direct ne porte pas le texte du mode plan', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude');
-  assert.ok(!consigne.includes(TRI_MODE_PLAN));
+  const consigne = rolePrompt('cadrage', false, 'claude');
+  assert.ok(!consigne.includes(CONSIGNE_MODE_PLAN));
 });
 
 test('la consigne exige un plan COMPLET à chaque itération, refus compris', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /CHAQUE RÉPONSE EN MODE PLAN EST UN PLAN COMPLET/);
   assert.match(consigne, /LE NOUVEAU LE REPREND ET L'ENRICHIT/);
   assert.match(consigne, /UN REFUS .* N'EST PAS UNE FIN/);
@@ -332,20 +332,20 @@ test('un plan très long est recopié tronqué, jamais en entier', () => {
 /* ------------------------------------------------------------------ */
 
 test('la consigne du mode plan dit que les outils d’écriture restent ouverts', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /TU AS TOUS TES OUTILS EN MODE PLAN/);
   assert.match(consigne, /write_document/);
 });
 
 test('la consigne du mode plan impose la question posée AVANT le plan', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /UNE DÉCISION QUI NE T'APPARTIENT PAS SE DEMANDE AVANT LE PLAN/);
   assert.match(consigne, /ask_user/);
   assert.match(consigne, /jamais « par défaut/i);
 });
 
 test('la consigne du mode plan dit le refus automatique du plan précédent', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /TOUT NOUVEAU MESSAGE DE L'UTILISATEUR REFUSE LE PLAN PRÉCÉDENT/);
 });
 
@@ -438,7 +438,7 @@ test('la relance nomme la version attendue, les parties manquantes et la place d
 });
 
 test('la consigne du chef dit qu’une question se répond DANS le plan, et que le démon vérifie', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /UNE QUESTION DE L'UTILISATEUR SE RÉPOND DANS LE PLAN/);
   assert.match(consigne, /dites-moi laquelle intégrer au plan/i);
   assert.match(consigne, /LE DÉMON VÉRIFIE/);
@@ -450,7 +450,7 @@ test('la consigne du chef dit qu’une question se répond DANS le plan, et que 
 /* ------------------------------------------------------------------ */
 
 test('la consigne exige une analyse fouillée, hiérarchisée, et jamais un pavé', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /la VRAIE ANALYSE/);
   assert.match(consigne, /ce que le projet fait AUJOURD'HUI/);
   assert.match(consigne, /étapes NUMÉROTÉES/);
@@ -461,14 +461,14 @@ test('la consigne exige une analyse fouillée, hiérarchisée, et jamais un pav�
 });
 
 test('la consigne dit que la partie « Améliorations apportées » est une liste cliquable', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /AMÉLIORATIONS APPORTÉES : une LISTE À PUCES/);
   assert.match(consigne, /idées à AJOUTER au plan/);
   assert.match(consigne, /Ce ne sont pas les bénéfices/);
 });
 
 test('la consigne annonce la SECONDE vérification, celle du fond', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+  const consigne = rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
   assert.match(consigne, /LE DÉMON VÉRIFIE, DEUX FOIS/);
   assert.match(consigne, /Le FOND est vérifié ensuite/);
 });

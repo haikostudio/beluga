@@ -32,7 +32,7 @@ function poserAgent(id: string, contenu: string) {
     Agent.parse({
       id,
       projectId: projet.id,
-      role: 'orchestrator',
+      role: 'cadrage',
       title: 'Chef d’orchestre',
       run: { engine: 'claude' },
       status: 'running',
@@ -106,7 +106,7 @@ test('un tour refermé sans avoir rien écrit DIT pourquoi, au lieu du silence',
     Agent.parse({
       id: 'agent-sans-un-mot',
       projectId: projet.id,
-      role: 'orchestrator',
+      role: 'cadrage',
       title: 'Chef d’orchestre',
       run: { engine: 'claude' },
       status: 'starting',

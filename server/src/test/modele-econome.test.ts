@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EngineId, ModelInfo } from '@haikodev/shared';
-import { orchestratorChoice } from '../engines/catalog.js';
+import { choixEconome } from '../engines/catalog.js';
 
 function model(id: string, thinking = ['none', 'medium', 'high']): ModelInfo {
   return ModelInfo.parse({
@@ -13,13 +13,13 @@ function model(id: string, thinking = ['none', 'medium', 'high']): ModelInfo {
 }
 
 function choice(engine: EngineId, models: ModelInfo[], wanted?: string, thinking?: string) {
-  const { model, thinking: cran } = orchestratorChoice(engine, models, wanted, thinking);
+  const { model, thinking: cran } = choixEconome(engine, models, wanted, thinking);
   return { model, thinking: cran };
 }
 
 /** Le choix ENTIER, avec ce qui a été ramené sous le plafond du chef. */
 function choixComplet(engine: EngineId, models: ModelInfo[], wanted?: string, thinking?: string) {
-  return orchestratorChoice(engine, models, wanted, thinking);
+  return choixEconome(engine, models, wanted, thinking);
 }
 
 /*

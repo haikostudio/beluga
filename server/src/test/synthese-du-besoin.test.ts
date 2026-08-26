@@ -124,7 +124,7 @@ test('le fil d’une carte s’ouvre sur sa synthèse, même sans le moindre age
 test('une carte proposée sans synthèse est refusée, avec le gabarit', async () => {
   const projet = projetDEssai();
   for (const outil of ['board_create_card', 'propose_task']) {
-    const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
+    const resultat = await callTool({ projectId: projet.id, role: 'cadrage' } as any, outil, {
       title: 'Porter la synthèse jusqu’à l’agent',
       description: 'Le chef doit transmettre tout ce qui s’est dit avant la carte, pas seulement le titre.',
       niveau: 'standard',
@@ -137,7 +137,7 @@ test('une carte proposée sans synthèse est refusée, avec le gabarit', async (
 
 test('la proposition transporte la synthèse, et la carte validée la garde', async () => {
   const projet = projetDEssai();
-  const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, 'board_create_card', {
+  const resultat = await callTool({ projectId: projet.id, role: 'cadrage' } as any, 'board_create_card', {
     title: 'Porter la synthèse jusqu’à l’agent',
     description: 'Le chef doit transmettre tout ce qui s’est dit avant la carte, pas seulement le titre.',
     contexte: SYNTHESE,
@@ -159,7 +159,7 @@ test('la proposition transporte la synthèse, et la carte validée la garde', as
 test('la synthèse de SECOURS passe, quand c’est le démon qui pose la carte', async () => {
   const projet = projetDEssai();
   const texteDuChef = 'Je crée la carte : corriger le clignotement de la colonne « À déployer », niveau standard.';
-  const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, 'board_create_card', {
+  const resultat = await callTool({ projectId: projet.id, role: 'cadrage' } as any, 'board_create_card', {
     title: 'Corriger le clignotement de la colonne',
     description: DESCRIPTION,
     contexte: syntheseDeSecours(texteDuChef),

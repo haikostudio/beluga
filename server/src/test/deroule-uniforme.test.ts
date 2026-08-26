@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { wrapPrompt } from '@haikodev/shared';
 import { rolePrompt, rappelDeMethode } from '../runtime.js';
 import { buildCodexArgs } from '../engines/codex.js';
-import { ORCHESTRATOR_ALLOWED_NATIVE } from '../tools.js';
+import { CADRAGE_ALLOWED_NATIVE } from '../tools.js';
 
 /* ------------------------------------------------------------------ */
 /* Le déroulé est le MÊME pour Codex et pour Claude                     */
@@ -15,7 +15,7 @@ import { ORCHESTRATOR_ALLOWED_NATIVE } from '../tools.js';
  * déroulé — seul le nom de l'outil de liste, propre à chaque moteur, diffère.
  */
 
-const ROLES = ['orchestrator', 'analysis', 'deploy', 'task'] as const;
+const ROLES = ['cadrage', 'analysis', 'deploy', 'task'] as const;
 
 /** On retire la seule ligne qui nomme l'outil : le reste doit être identique. */
 function sansLigneOutil(prompt: string): string {
@@ -91,7 +91,7 @@ test('la méthode de travail est imposée à tous les rôles qui travaillent, et
 
 test('le chef d’orchestre porte sa méthode À LUI : deux gestes, aucune étude', () => {
   for (const engine of ['claude', 'codex'] as const) {
-    const p = rolePrompt('orchestrator', false, engine);
+    const p = rolePrompt('cadrage', false, engine);
     assert.match(p, /tu ne fais QUE DEUX CHOSES/, engine);
     assert.match(p, /Tu n'ouvres pas le projet pour étudier une demande, tu ne chiffres rien/, engine);
     assert.match(p, /NE RIEN INVENTER/, engine);
@@ -176,7 +176,7 @@ test('le rappel nomme à chaque moteur son seul outil de liste', () => {
 test('la liste de tâches reste autorisée au chef d’orchestre bridé', () => {
   for (const outil of ['TaskCreate', 'TaskUpdate', 'TodoWrite']) {
     assert.ok(
-      ORCHESTRATOR_ALLOWED_NATIVE.includes(outil),
+      CADRAGE_ALLOWED_NATIVE.includes(outil),
       `« ${outil} » manque : le déroulé visible serait impossible sous Claude`,
     );
   }

@@ -10,7 +10,7 @@ import {
 } from '@haikodev/shared';
 import { buildCodexArgs } from '../engines/codex.js';
 import { buildClaudeArgs } from '../engines/claude.js';
-import { orchestratorAllowList, orchestratorDenyList } from '../tools.js';
+import { cadrageAllowList, cadrageDenyList } from '../tools.js';
 import { EngineRunOptions } from '../engines/types.js';
 
 const PONT = '/opt/haikodev/server/mcp-bridge.mjs';
@@ -23,8 +23,8 @@ function tourDuChef(extra: Partial<EngineRunOptions> = {}): EngineRunOptions {
     fullAccess: false,
     mcpConfigPath: '/var/log/haikodev/mcp-a1.json',
     mcpBridgePath: PONT,
-    allowedTools: orchestratorAllowList(),
-    disallowedTools: orchestratorDenyList(),
+    allowedTools: cadrageAllowList(),
+    disallowedTools: cadrageDenyList(),
     env: { HAIKODEV_TOKEN: 'jeton', HAIKODEV_URL: 'http://127.0.0.1:7070', HAIKODEV_AGENT: 'a1' },
     onEvent: () => {},
     ...extra,
@@ -84,8 +84,8 @@ test('sous Claude, le chef a l’accès complet et le projet lui est ouvert', ()
 
 test('sous Codex, les outils du projet sont énumérés un par un', () => {
   const codex = buildCodexArgs(tourDuChef()).join(' ');
-  const permis = outilsDuProjet(orchestratorAllowList());
-  const interdits = outilsDuProjet(orchestratorDenyList());
+  const permis = outilsDuProjet(cadrageAllowList());
+  const interdits = outilsDuProjet(cadrageDenyList());
   assert.ok(permis.includes('board_create_card'), 'la liste blanche porte bien les outils du projet');
   assert.ok(interdits.length > 0, 'la liste noire porte au moins un outil du projet');
   assert.ok(codex.includes(`mcp_servers.haikodev.enabled_tools=${JSON.stringify(permis)}`));
@@ -93,7 +93,7 @@ test('sous Codex, les outils du projet sont énumérés un par un', () => {
 });
 
 test('sous Codex, la facturation est énumérée parmi les outils permis au chef', () => {
-  const permis = outilsDuProjet(orchestratorAllowList());
+  const permis = outilsDuProjet(cadrageAllowList());
   assert.ok(permis.includes('compta'), 'compta doit être dans les outils permis du chef');
   const codex = buildCodexArgs(tourDuChef()).join(' ');
   assert.ok(
@@ -114,8 +114,8 @@ test('le bridage ne mord jamais sur un agent de tâche', () => {
 });
 
 test('le shell est permis au chef, l\'édition de fichiers reste interdite', () => {
-  const permis = new Set(outilsNatifs(orchestratorAllowList()));
-  const interdits = new Set(outilsNatifs(orchestratorDenyList()));
+  const permis = new Set(outilsNatifs(cadrageAllowList()));
+  const interdits = new Set(outilsNatifs(cadrageDenyList()));
   // Le shell est OUVERT : sondages, études, analyses. Le projet reste protégé
   // par le bac à sable, pas par l'absence de « Bash ».
   assert.ok(permis.has('Bash'), 'le chef peut lancer des commandes');
@@ -123,7 +123,7 @@ test('le shell est permis au chef, l\'édition de fichiers reste interdite', () 
   assert.ok(interdits.has('Write') && interdits.has('Edit'), 'l\'édition de fichiers reste interdite');
   assert.ok(!interdits.has('Bash'), 'le shell n\'est plus dans les interdits');
   assert.ok(
-    outilsDuProjet(orchestratorDenyList()).every((nom) => !nom.startsWith('mcp__')),
+    outilsDuProjet(cadrageDenyList()).every((nom) => !nom.startsWith('mcp__')),
     'le préfixe du moteur est retiré une seule fois',
   );
 });

@@ -218,7 +218,7 @@ test('deux agents de travail ne comptent jamais deux fois les mêmes jetons', ()
 });
 
 test('les rôles se disent en français', () => {
-  assert.equal(nomDuRole('orchestrator'), "chef d'orchestre");
+  assert.equal(nomDuRole('cadrage'), "chef d'orchestre");
   assert.equal(nomDuRole('task'), 'exécution');
   assert.equal(nomDuRole('deploy'), 'publication');
 });

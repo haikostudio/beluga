@@ -27,7 +27,7 @@ process.env.HAIKODEV_DATA = bacASable;
 
 const store = await import('../store.js');
 const { callTool, createCard, toolsFor } = await import('../tools.js');
-const { CONSIGNE_GESTION_PROJETS, rolePrompt } = await import('../runtime.js');
+const { rolePrompt } = await import('../runtime.js');
 
 const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'projet-colonne-'));
 
@@ -167,25 +167,18 @@ test('une position renumérote tout le voisinage, sans trou ni égalité', () =>
 /* Les outils, sur une vraie base                                      */
 /* ------------------------------------------------------------------ */
 
-test('les deux outils sont servis à tous les rôles, chef compris', () => {
-  for (const role of ['task', 'orchestrator', 'analysis', 'deploy'] as const) {
+test('les deux outils sont servis à tous les rôles', () => {
+  for (const role of ['task', 'cadrage', 'analysis', 'deploy'] as const) {
     const noms = toolsFor(role).map((t) => t.name);
     assert.ok(noms.includes('project_manage'), `project_manage manque pour ${role}`);
     assert.ok(noms.includes('group_manage'), `group_manage manque pour ${role}`);
   }
 });
 
-test('la consigne du chef annonce la colonne de gauche', () => {
-  const consigne = rolePrompt('orchestrator', false, 'claude');
-  assert.ok(consigne.includes(CONSIGNE_GESTION_PROJETS));
-  assert.ok(CONSIGNE_GESTION_PROJETS.includes('project_manage'));
-  assert.ok(CONSIGNE_GESTION_PROJETS.includes('group_manage'));
-});
-
-test('le chef crée un groupe, range un projet dedans, puis l’en sort', async () => {
+test('un agent crée un groupe, range un projet dedans, puis l’en sort', async () => {
   const haiko = projet('Haiko');
   const root = projet('Root');
-  const ctx = { agentId: 'chef', projectId: haiko.id, role: 'orchestrator' as const };
+  const ctx = { agentId: 'chef', projectId: haiko.id, role: 'cadrage' as const };
 
   const cree = await callTool(ctx, 'group_manage', { action: 'creer', nom: 'Clients', couleur: 'bleu' });
   assert.equal(cree.ok, true);
@@ -208,7 +201,7 @@ test('le chef crée un groupe, range un projet dedans, puis l’en sort', async 
 
 test('renommer, retirer puis remettre un projet passe par les outils', async () => {
   const cible = projet('Ancien nom');
-  const ctx = { agentId: 'chef', projectId: cible.id, role: 'orchestrator' as const };
+  const ctx = { agentId: 'chef', projectId: cible.id, role: 'cadrage' as const };
 
   await callTool(ctx, 'project_manage', { action: 'renommer', projet: 'Ancien nom', nom: 'Nom neuf' });
   assert.equal(store.getProject(cible.id)!.name, 'Nom neuf');
@@ -232,7 +225,7 @@ test('renommer, retirer puis remettre un projet passe par les outils', async () 
 
 test('l’outil refuse la suppression d’un projet, et le projet reste', async () => {
   const garde = projet('À garder');
-  const ctx = { agentId: 'chef', projectId: garde.id, role: 'orchestrator' as const };
+  const ctx = { agentId: 'chef', projectId: garde.id, role: 'cadrage' as const };
   const refus = await callTool(ctx, 'project_manage', { action: 'supprimer', projet: 'À garder' });
   assert.equal(refus.ok, false);
   assert.equal(refus.text, REFUS_SUPPRESSION_PROJET);
@@ -241,7 +234,7 @@ test('l’outil refuse la suppression d’un projet, et le projet reste', async 
 
 test('lister rend la colonne telle qu’elle est', async () => {
   const vu = projet('Visible');
-  const ctx = { agentId: 'chef', projectId: vu.id, role: 'orchestrator' as const };
+  const ctx = { agentId: 'chef', projectId: vu.id, role: 'cadrage' as const };
   const liste = await callTool(ctx, 'project_manage', { action: 'lister' });
   assert.equal(liste.ok, true);
   assert.ok(liste.text.includes('Visible'));

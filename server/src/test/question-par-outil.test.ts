@@ -14,7 +14,7 @@ import { rolePrompt, rappelDeMethode } from '../runtime.js';
  * commun aux deux moteurs, jamais un outil natif de l'un d'eux.
  */
 
-const ROLES = ['orchestrator', 'analysis', 'deploy', 'task'] as const;
+const ROLES = ['cadrage', 'analysis', 'deploy', 'task'] as const;
 const MOTEURS = ['claude', 'codex'] as const;
 
 test('la consigne est donnée à tous les rôles et à tous les moteurs', () => {
