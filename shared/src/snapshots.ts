@@ -79,6 +79,8 @@ export interface SiteASauvegarder {
   fichiers: FichiersDuSite;
   /** Au-delà de ce nombre de jours, un point de sauvegarde est jeté. */
   conservationJours: number;
+  /** Tous les combien de jours ce site est sauvegardé (1 = chaque nuit). */
+  frequenceJours: number;
   note: string;
   /**
    * LA CONVERSATION DE L'ASSISTANT qui a posé cette fiche en dernier. C'est elle
@@ -132,15 +134,33 @@ export const CONSERVATION_MIN = 1;
 export const CONSERVATION_MAX = 365;
 export const NOM_SITE_MAX = 80;
 
+/** Tous les combien de jours un site est repris, par défaut (chaque nuit). */
+export const FREQUENCE_PAR_DEFAUT = 1;
+export const FREQUENCE_MIN = 1;
+export const FREQUENCE_MAX = 30;
+
 /** L'heure par défaut du passage de nuit — après la sauvegarde du démon (3 h). */
 export const HEURE_SNAPSHOT_PAR_DEFAUT = 4;
 
 /**
- * L'écart minimal entre deux passages automatiques d'un même site. Vingt heures,
- * pas vingt-quatre : un démon redémarré une heure trop tard ne doit pas SAUTER
- * la journée, il doit rattraper.
+ * L'écart minimal entre deux passages automatiques d'un même site, pour une
+ * fréquence d'UN jour. Vingt heures, pas vingt-quatre : un démon redémarré une
+ * heure trop tard ne doit pas SAUTER la journée, il doit rattraper.
  */
 export const ECART_MINIMAL_MS = 20 * 3600 * 1000;
+
+/** La marge de rattrapage retranchée à toute fréquence (même logique que ci-dessus). */
+const MARGE_RATTRAPAGE_MS = 4 * 3600 * 1000;
+
+/**
+ * L'ÉCART MINIMAL ENTRE DEUX PASSAGES pour la fréquence propre d'un site : le
+ * nombre de jours réglé, moins la même marge de rattrapage. Une fréquence d'un
+ * jour retombe exactement sur `ECART_MINIMAL_MS`.
+ */
+export function ecartMinimalMs(frequenceJours: number): number {
+  const jours = Math.max(FREQUENCE_MIN, Math.round(frequenceJours) || FREQUENCE_PAR_DEFAUT);
+  return Math.max(MARGE_RATTRAPAGE_MS, jours * 24 * 3600 * 1000 - MARGE_RATTRAPAGE_MS);
+}
 
 /* ------------------------------------------------------------------ */
 /* Ce qui tient debout                                                  */
@@ -156,6 +176,7 @@ export function siteVierge(projectId: string | null = null, nom = ''): SiteASauv
     base: { moteur: 'aucune', hote: '', port: '', nom: '', utilisateur: '', motDePasse: '' },
     fichiers: { moyen: 'aucun', chemin: '', hote: '', port: '', utilisateur: '', motDePasse: '' },
     conservationJours: CONSERVATION_PAR_DEFAUT,
+    frequenceJours: FREQUENCE_PAR_DEFAUT,
     note: '',
     assistantId: '',
     assistantProjectId: '',
@@ -215,6 +236,10 @@ export function jugerSite(site: SiteASauvegarder): { ok: boolean; raison?: strin
   if (!Number.isFinite(jours) || jours < CONSERVATION_MIN || jours > CONSERVATION_MAX) {
     return { ok: false, raison: `la conservation se règle entre ${CONSERVATION_MIN} et ${CONSERVATION_MAX} jours` };
   }
+  const frequence = Number(site.frequenceJours);
+  if (!Number.isFinite(frequence) || frequence < FREQUENCE_MIN || frequence > FREQUENCE_MAX) {
+    return { ok: false, raison: `la fréquence se règle entre ${FREQUENCE_MIN} et ${FREQUENCE_MAX} jours` };
+  }
   return { ok: true };
 }
 
@@ -253,7 +278,7 @@ export function siteEstDu(
 ): boolean {
   if (!site.actif || siteVide(site)) return false;
   if (!dernier) return true;
-  return maintenant - dernier.debut >= ECART_MINIMAL_MS;
+  return maintenant - dernier.debut >= ecartMinimalMs(site.frequenceJours);
 }
 
 /** Les sites que le passage de cette minute doit prendre, dans l'ordre de la liste. */

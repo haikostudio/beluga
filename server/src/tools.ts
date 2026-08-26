@@ -52,6 +52,9 @@ import {
   CONSERVATION_MAX,
   CONSERVATION_MIN,
   CONSERVATION_PAR_DEFAUT,
+  FREQUENCE_MAX,
+  FREQUENCE_MIN,
+  FREQUENCE_PAR_DEFAUT,
   MOTEURS_BASE,
   MOYENS_FICHIERS,
   essaisConcluants,
@@ -690,6 +693,10 @@ export const TOOL_DEFS: ToolDef[] = [
         conservationJours: {
           type: 'number',
           description: `Au-delà de ce nombre de jours, un point de sauvegarde est jeté (${CONSERVATION_MIN} à ${CONSERVATION_MAX}, ${CONSERVATION_PAR_DEFAUT} par défaut)`,
+        },
+        frequenceJours: {
+          type: 'number',
+          description: `Tous les combien de jours ce site est repris (${FREQUENCE_MIN} à ${FREQUENCE_MAX}, ${FREQUENCE_PAR_DEFAUT} = chaque nuit, par défaut)`,
         },
         note: { type: 'string', description: 'Ce que ce site contient et qui l’exploite, en une phrase' },
         forcer: {
