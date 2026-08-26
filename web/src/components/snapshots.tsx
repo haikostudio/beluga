@@ -9,6 +9,7 @@ import {
   Loader2,
   MessagesSquare,
   Play,
+  RotateCcw,
   Sparkles,
   Wrench,
   Trash2,
@@ -76,10 +77,11 @@ interface EtatSnapshots {
   points: PointDeSauvegarde[];
   projets: { id: string; nom: string; chemin: string }[];
   enCours: string[];
+  restaurations: string[];
   dossier: string;
 }
 
-const ETAT_VIDE: EtatSnapshots = { sites: [], points: [], projets: [], enCours: [], dossier: '' };
+const ETAT_VIDE: EtatSnapshots = { sites: [], points: [], projets: [], enCours: [], restaurations: [], dossier: '' };
 
 /** Une date de sauvegarde telle qu'on la lit : « 26 août, 04:12 ». */
 function dateLisible(at: number): string {
@@ -100,6 +102,7 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const [assistant, setAssistant] = React.useState(false);
   const [projetLance, setProjetLance] = React.useState('');
   const [relu, setRelu] = React.useState('');
+  const [pointARestaurer, setPointARestaurer] = React.useState<PointDeSauvegarde | null>(null);
 
   const relire = React.useCallback(async () => {
     try {
@@ -171,6 +174,20 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
       client.pushToast('error', err?.message ?? t('L’assistant n’a pas pu démarrer'));
     } finally {
       setProjetLance('');
+    }
+  };
+
+  // Restaurer un point : le disque de stockage écrase ce que le site porte
+  // aujourd'hui. Confirmé avant de partir (voir le dialogue plus bas), lancé
+  // comme une sauvegarde — on ne retient pas l'écran, on relit l'état ensuite.
+  const restaurer = async (point: PointDeSauvegarde) => {
+    setPointARestaurer(null);
+    try {
+      await client.call({ type: 'snapshots.restaurer', id: point.id });
+      client.pushToast('info', t('Restauration lancée.'));
+      void relire();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Restauration impossible'));
     }
   };
 
@@ -312,7 +329,26 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
       />
 
       {/* L'historique : la seconde fenêtre demandée, empilée elle aussi. */}
-      <HistoriqueSnapshots open={historique} onClose={() => setHistorique(false)} resumes={resumes} />
+      <HistoriqueSnapshots
+        open={historique}
+        onClose={() => setHistorique(false)}
+        resumes={resumes}
+        restaurations={etat.restaurations}
+        onRestaurer={(point) => setPointARestaurer(point)}
+      />
+
+      <ConfirmDialog
+        open={!!pointARestaurer}
+        onClose={() => setPointARestaurer(null)}
+        title={t('Restaurer ce point ?')}
+        description={t(
+          'Les données actuelles du site sont remplacées par celles de cette sauvegarde, du {date}. Cette action ne peut pas être annulée.',
+          { date: pointARestaurer ? dateLisible(pointARestaurer.debut) : '' },
+        )}
+        confirmLabel={t('Restaurer')}
+        danger
+        onConfirm={() => pointARestaurer && void restaurer(pointARestaurer)}
+      />
     </>
   );
 }
@@ -879,10 +915,14 @@ function HistoriqueSnapshots({
   open,
   onClose,
   resumes,
+  restaurations,
+  onRestaurer,
 }: {
   open: boolean;
   onClose: () => void;
   resumes: ResumeDeSite[];
+  restaurations: string[];
+  onRestaurer: (point: PointDeSauvegarde) => void;
 }) {
   const total = resumes.reduce((somme, resume) => somme + resume.octets, 0);
 
@@ -915,7 +955,12 @@ function HistoriqueSnapshots({
                 ) : (
                   <div className="flex flex-col gap-1">
                     {resume.points.map((point) => (
-                      <LignePoint key={point.id} point={point} />
+                      <LignePoint
+                        key={point.id}
+                        point={point}
+                        enRestauration={restaurations.includes(point.id)}
+                        onRestaurer={() => onRestaurer(point)}
+                      />
                     ))}
                   </div>
                 )}
@@ -929,7 +974,16 @@ function HistoriqueSnapshots({
 }
 
 /** Un point de sauvegarde : sa date, son issue, son poids, et ce qui a cloché. */
-function LignePoint({ point }: { point: PointDeSauvegarde }) {
+function LignePoint({
+  point,
+  enRestauration,
+  onRestaurer,
+}: {
+  point: PointDeSauvegarde;
+  enRestauration: boolean;
+  onRestaurer: () => void;
+}) {
+  const restaurable = point.statut !== 'echec' && !!point.chemin;
   return (
     <div
       className="flex flex-col gap-0.5 rounded-md border border-border bg-surface px-2.5 py-1.5"
@@ -941,6 +995,22 @@ function LignePoint({ point }: { point: PointDeSauvegarde }) {
         <Badge tone={point.statut === 'reussi' ? 'success' : point.statut === 'partiel' ? 'warning' : 'danger'}>
           {t(point.origine === 'manuel' ? 'À la main' : 'Automatique')}
         </Badge>
+        {restaurable ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={enRestauration}
+            onClick={onRestaurer}
+            data-snapshots-restaurer={point.id}
+          >
+            {enRestauration ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RotateCcw className="h-3 w-3" />
+            )}
+            {t(enRestauration ? 'Restauration…' : 'Restaurer')}
+          </Button>
+        ) : null}
       </span>
       <span className="text-[11.5px] leading-relaxed text-faint">{t(phraseDeStatut(point))}</span>
       {point.statut !== 'reussi' && point.detail ? (
