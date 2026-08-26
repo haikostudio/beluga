@@ -20,7 +20,6 @@ import {
   carteAReprendre,
   cleCarteOuverte,
   construireFragment,
-  decisionsHorsCarte,
   avatarDeLAlerte,
   imageDeLAlerte,
   lireFragment,
@@ -28,7 +27,6 @@ import {
   ongletAReprendre,
   type EcranNavigateur,
 } from '@haikodev/shared';
-import { RepereAttention } from '@/components/repere-attention';
 import { t, useLangueAppliquee } from '@/lib/langue';
 
 /*
@@ -673,14 +671,14 @@ export function App() {
             trois bords — aucun filet sur toute la largeur, qui coupait l'écran
             en deux. Le conteneur reste dans le flux (shrink-0) : il réserve
             donc exactement la place du menu, et le contenu ne passe jamais
-            derrière. DEUX destinations — Tableau, Chef —, la colonne du milieu
+            derrière. DEUX destinations — Tableau, Fichiers —, la colonne du milieu
             étant laissée au module de voix qui vient s'y poser (voir plus bas,
             <VoixAssistant />, ancré au centre sur téléphone). Le tableau de bord
             se rejoint alors par le menu trois points de la barre du haut. */}
         <nav
           data-menu-bas
           // LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE : « centre »
-          // sous le tableau, « droite » sous la conversation du chef. Sans ce
+          // sous le tableau, « droite » sous le volet de droite. Sans ce
           // repère il retombait sur `--bg`, une bande NOIRE en thème sombre
           // collée sous un tableau gris — deux fonds pour une seule page.
           data-zone={mobileView === 'chat' && !dashboardOpen ? 'droite' : 'centre'}
@@ -688,8 +686,8 @@ export function App() {
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >
-          {/* La barre reprend le fond de la barre d'onglets du haut (Chef /
-              Fichiers / Pièces jointes), qui pose `--surface` — pas le fond
+          {/* La barre reprend le fond de la barre d'onglets du haut (Fichiers /
+              Pièces jointes), qui pose `--surface` — pas le fond
               de la zone du dessous : elle se détache par son filet, sans
               ombre portée. */}
           <div
@@ -718,7 +716,7 @@ export function App() {
                 rond du module de voix (fixe, par-dessus) qui vient s'y poser et
                 déborde un peu en haut et en bas, comme un bouton d'action. Les
                 deux autres colonnes se partagent tout le reste (`1fr`), pour que
-                Tableau et Chef s'étendent chacun jusqu'au rond, sans vide. */}
+                Tableau et Fichiers s'étendent chacun jusqu'au rond, sans vide. */}
             <div aria-hidden data-place-voix />
             <Button
               variant="ghost"
@@ -733,18 +731,7 @@ export function App() {
                 setMobileView('chat');
               }}
             >
-              <MessageSquare className="h-3.5 w-3.5 shrink-0" />  {t('Chef')}
-{/* Sur téléphone, la conversation est derrière ce bouton : sans le
-                  triangle ici, une décision en attente resterait invisible. */}
-              <RepereAttention
-                compte={
-                  activeProject
-                    ? decisionsHorsCarte(state.decisions, activeProject.id) +
-                      (state.plans[activeProject.id] ? 1 : 0)
-                    : 0
-                }
-                data-attention-conversation={activeProject?.id}
-              />
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />  {t('Fichiers')}
             </Button>
           </div>
         </nav>

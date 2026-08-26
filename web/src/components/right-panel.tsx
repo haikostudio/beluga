@@ -6,12 +6,11 @@ import {
   FileText,
   Folder,
   Image as ImageIcon,
-  Loader2,
   Paperclip,
   Search,
   X,
 } from 'lucide-react';
-import { Attachment, FileNode, decisionsHorsCarte } from '@haikodev/shared';
+import { Attachment, FileNode } from '@haikodev/shared';
 import {
   Badge,
   Button,
@@ -29,59 +28,23 @@ import {
 } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
-import { Chat } from '@/components/chat';
-import { RepereAttention } from '@/components/repere-attention';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 export function RightPanel({ projectId }: { projectId: string }) {
-  const state = useApp();
-  const orchestrator = Object.values(state.agents).find(
-    (agent) => agent.projectId === projectId && agent.role === 'orchestrator',
-  );
-
-  React.useEffect(() => {
-    if (projectId) client.send({ type: 'agent.orchestrator', projectId });
-  }, [projectId]);
-
-  /*
-   * Les décisions qui ne tiennent à aucune carte — une carte proposée, une
-   * question du chef — se prennent DANS ce fil : l'onglet le dit, sinon le
-   * chiffre de la colonne de gauche resterait sans destination.
-   */
-  const decisions = decisionsHorsCarte(state.decisions, projectId) + (state.plans[projectId] ? 1 : 0);
-
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <Tabs defaultValue="chat" className="flex min-h-0 flex-1 flex-col">
+      <Tabs defaultValue="files" className="flex min-h-0 flex-1 flex-col">
         <div className="px-2 py-1.5">
           <TabsList className="w-full">
-            <TabsTrigger value="chat" className="flex-1 gap-1">
-              
-{t('Chef')}
-<RepereAttention compte={decisions} data-attention-conversation={projectId} />
-            </TabsTrigger>
             <TabsTrigger value="files" className="flex-1">
               {t('Fichiers')}</TabsTrigger>
             <TabsTrigger value="attachments" className="flex-1">
               {t('Pièces jointes')}</TabsTrigger>
           </TabsList>
         </div>
-
-        <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          {orchestrator ? (
-            /* La barre de navigation du téléphone vient juste en dessous et
-               réserve déjà le creux de l'écran : la barre d'écriture ne doit
-               pas creuser un second vide. */
-            <Chat agent={orchestrator} projectId={projectId} nouveauDepart creuxReserveAilleurs />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <Loader2 className="h-4 w-4 animate-spin text-faint" />
-            </div>
-          )}
-        </TabsContent>
 
         <TabsContent value="files" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
           <FilesTab projectId={projectId} />
