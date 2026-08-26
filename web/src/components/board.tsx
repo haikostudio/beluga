@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Plus, Rocket, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, Play, MessageSquare, ListChecks, Bot, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X } from 'lucide-react';
 import {
+  TITRE_CARTE_DE_CADRAGE,
   Attachment,
   COLUMN_KEYS,
   COLUMN_LABELS,
@@ -1793,14 +1794,47 @@ function ComposerInline({
     }
   };
 
+  /*
+   * LE « + » DE « PLANIFIÉ » N'OUVRE PLUS UN FORMULAIRE, IL OUVRE UNE
+   * CONVERSATION. La carte naît tout de suite, sans titre à inventer, et son
+   * tiroir s'ouvre sur son fil : un agent LÉGER y discute le besoin, écrit le
+   * titre, la description et le niveau, puis le bouton « Lancer la tâche »
+   * confie le travail à un agent complet (`shared/src/cadrage.ts`). Rien ne
+   * part au moteur avant le premier message.
+   *
+   * « Notes » garde son formulaire : une note ne se discute pas, elle s'écrit.
+   */
+  const ouvrirUneCarteFil = async () => {
+    setBusy(true);
+    try {
+      const data = await client.call<{ card: Card }>({
+        type: 'card.create',
+        projectId,
+        title: TITRE_CARTE_DE_CADRAGE,
+        cadrage: true,
+      });
+      if (data?.card) client.openCard(data.card.id);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('création impossible'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!open) {
     return (
       <Tooltip label={column === 'notes' ? t('Nouvelle note') : t('Nouvelle tâche')}>
         <Button
           variant="ghost"
           size="icon-sm"
+          disabled={busy}
           aria-label={column === 'notes' ? 'Nouvelle note' : 'Nouvelle tâche'}
+          data-nouvelle-carte={column}
           onClick={() => {
+            if (column !== 'notes') {
+              void ouvrirUneCarteFil();
+              return;
+            }
             // Le champ repart de l'heure qu'il est, pas de celle d'il y a
             // trois heures quand le formulaire avait été ouvert la dernière fois.
             setDepart(maintenantEnChamp());

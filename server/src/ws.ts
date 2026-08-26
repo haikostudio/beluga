@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
+  Agent,
   noteDeQualite,
   tendancesParJour,
   resumeDeTendance,
@@ -72,6 +73,7 @@ import { repondreErreurDeTour } from './erreur-de-tour.js';
 import { snapshot, listProcesses, controlProcess } from './capacity.js';
 import { createAgent, sendPrompt, stopAgent, arreterLAgent, stopAllAgents, isRunning } from './runtime.js';
 import { getOrCreateOrchestrator } from './orchestrator.js';
+import { ouvrirLeCadrage } from './cadrage.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { genererPromptDeProduction } from './mise-en-production.js';
 import { etatDeProcedure, tourDeProcedure } from './procedure-publication.js';
@@ -527,7 +529,20 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
         run: cmd.run as any,
       });
       bus.emit({ type: 'card.upsert', card });
-      return { card };
+      /*
+       * LE « + » DE « PLANIFIÉ » OUVRE UNE CONVERSATION, PAS UN FORMULAIRE. La
+       * carte reçoit son agent de CADRAGE — un modèle économe avec qui discuter
+       * le besoin dans le fil de la carte. Rien ne part au moteur pour autant :
+       * l'agent est créé, il ne parlera qu'au premier message.
+       */
+      let cadrage: Agent | null = null;
+      if (cmd.cadrage) {
+        cadrage = await ouvrirLeCadrage(card.id).catch((err) => {
+          log.warn('agent de cadrage impossible à ouvrir', err);
+          return null;
+        });
+      }
+      return { card, agent: cadrage ?? undefined };
     }
 
     case 'card.update': {

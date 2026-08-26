@@ -71,6 +71,8 @@ export function titreDeBloc(role: string | undefined): string {
   switch (role) {
     case 'analysis':
       return 'Analyse de la carte';
+    case 'cadrage':
+      return 'Cadrage de la tâche';
     case 'deploy':
       return 'Publication';
     case 'orchestrator':

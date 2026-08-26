@@ -184,6 +184,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
     attachments: z.array(z.string()).optional(),
     run: RunConfig.partial().optional(),
     polish: z.boolean().optional(),
+    /**
+     * LE « + » DE « PLANIFIÉ » : la carte naît avec son AGENT DE CADRAGE, un
+     * modèle économe avec qui discuter le besoin dans le fil de la carte
+     * (`shared/src/cadrage.ts`). Rien ne part au moteur pour autant : l'agent
+     * est créé, il ne parle qu'au premier message.
+     */
+    cadrage: z.boolean().optional(),
   }),
   z.object({ type: z.literal('card.update'), id: z.string(), patch: z.record(z.any()) }),
   z.object({

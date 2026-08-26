@@ -613,7 +613,14 @@ export type Card = z.infer<typeof Card>;
 /* Agents & conversations                                              */
 /* ------------------------------------------------------------------ */
 
-export const AgentRole = z.enum(['task', 'orchestrator', 'analysis', 'deploy']);
+/**
+ * Le rôle « cadrage » est l'agent LÉGER d'une carte qui vient de naître : il
+ * discute le besoin dans le fil de la carte, écrit son titre, sa description et
+ * son niveau, et ne touche à aucun fichier (`shared/src/cadrage.ts`). Il
+ * s'efface au lancement, où un agent « task » prend la suite avec toute la
+ * discussion en contexte de départ.
+ */
+export const AgentRole = z.enum(['task', 'orchestrator', 'analysis', 'deploy', 'cadrage']);
 export type AgentRole = z.infer<typeof AgentRole>;
 
 export const AgentStatus = z.enum(['idle', 'starting', 'running', 'stopped', 'failed', 'done']);

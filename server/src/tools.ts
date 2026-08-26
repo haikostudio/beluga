@@ -385,7 +385,8 @@ export const TOOL_DEFS: ToolDef[] = [
   },
   {
     name: 'board_update_card',
-    description: 'Modifie le titre, la description ou les étiquettes d\'une carte existante.',
+    description:
+      "Modifie le titre, la description, les étiquettes ou le NIVEAU d'exécution d'une carte existante.",
     inputSchema: {
       type: 'object',
       required: ['cardId'],
@@ -394,6 +395,13 @@ export const TOOL_DEFS: ToolDef[] = [
         title: { type: 'string' },
         description: { type: 'string' },
         labels: { type: 'array', items: { type: 'string' } },
+        /*
+         * LE NIVEAU DE L'AGENT QUI EXÉCUTERA LA CARTE. C'est par ici que
+         * l'agent de cadrage choisit l'ampleur du travail — jamais un modèle
+         * nommé : HaikoDev traduit le palier en moteur, modèle et réflexion
+         * réels (`shared/src/niveau-agent.ts`).
+         */
+        niveau: CHAMP_NIVEAU,
       },
     },
   },
@@ -786,15 +794,32 @@ export const TOOL_DEFS: ToolDef[] = [
 /** Les outils réservés aux agents de tâche : le chef d'orchestre ne les voit pas. */
 export const TASK_ONLY_TOOLS = new Set(['remember', 'snapshot_site', 'snapshot_essai']);
 
-export function toolsFor(role: 'task' | 'orchestrator' | 'analysis' | 'deploy'): ToolDef[] {
+/**
+ * Ce que l'AGENT DE CADRAGE ne voit pas. Cette conversation EST la carte : lui
+ * laisser de quoi en proposer une autre, c'est repartir dans le parcours que le
+ * « + » remplace. Le reste des outils du démon lui sert vraiment — écrire SA
+ * carte (`board_update_card`), poser une question (`ask_user`), consulter la
+ * mémoire ou les compétences.
+ */
+export const CADRAGE_BLOCKED_TOOLS = new Set([
+  ...TASK_ONLY_TOOLS,
+  'board_create_card',
+  'propose_task',
+  'board_delete_card',
+  'board_move_card',
+  'make_archive',
+]);
+
+export function toolsFor(role: ToolContext['role']): ToolDef[] {
   if (role === 'orchestrator') return TOOL_DEFS.filter((t) => !TASK_ONLY_TOOLS.has(t.name));
+  if (role === 'cadrage') return TOOL_DEFS.filter((t) => !CADRAGE_BLOCKED_TOOLS.has(t.name));
   return TOOL_DEFS;
 }
 
 export interface ToolContext {
   agentId: string;
   projectId: string;
-  role: 'task' | 'orchestrator' | 'analysis' | 'deploy';
+  role: 'task' | 'orchestrator' | 'analysis' | 'deploy' | 'cadrage';
   cardId?: string;
   /**
    * Les réglages de la CONVERSATION en cours (moteur, modèle, réflexion),
@@ -1019,15 +1044,40 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (!card || card.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
       const title = typeof args.title === 'string' ? args.title : card.title;
       const description = typeof args.description === 'string' ? args.description : card.description;
+      /*
+       * LE NIVEAU N'EST PAS UN RÉGLAGE DE PLUS : c'est une AMBITION, traduite
+       * ici en moteur, modèle et réflexion réels. Le moteur reste celui de la
+       * conversation ; un palier illisible laisse la carte comme elle était,
+       * plutôt que de la rabattre sur un modèle au hasard.
+       */
+      const palier = niveauDemande(args.niveau);
+      const reglages = palier ? await reglagesProposes(ctx.run, palier) : {};
+      /*
+       * LE PALIER EST RETENU MÊME QUAND LE CATALOGUE EST MUET. La traduction en
+       * modèle réel demande le catalogue du moteur ; s'il est illisible, garder
+       * l'INTENTION reste juste — le lancement la traduira. La perdre ici
+       * ferait exécuter au palier par défaut une carte cadrée « approfondi ».
+       */
+      let run = card.run;
+      if (palier) {
+        const base = reglages.run ?? card.run;
+        run = base
+          ? { ...base, niveau: palier }
+          : RunConfig.parse({ engine: ctx.run?.engine ?? 'claude', niveau: palier });
+      }
       const updated = store.saveCard({
         ...card,
         title,
         description,
         labels: Array.isArray(args.labels) ? args.labels.map(String) : card.labels,
+        run,
         ...heritageAnalyseDeProposition(card, title, description),
       });
       bus.emit({ type: 'card.upsert', card: updated });
-      return { ok: true, text: `Carte mise à jour : ${updated.title}.` };
+      return {
+        ok: true,
+        text: `Carte mise à jour : ${updated.title}.${palier ? ` Niveau d'exécution : ${palier}.` : ''}`,
+      };
     }
 
     case 'board_move_card': {

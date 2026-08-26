@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import {
   Agent,
   AgentRole,
+  CONSIGNE_CADRAGE,
   Ampleur,
   CONSIGNE_CREATION_PROJET,
   CONSIGNE_CARTE_COURTE,
@@ -318,6 +319,9 @@ export function agentsActifsDetail(): string[] {
       details.push(carte ? `la carte « ${carte.title} » (${projet})` : `une carte du projet « ${projet} »`);
     } else if (agent.role === 'orchestrator') {
       details.push(`le chef d’orchestre du projet « ${projet} »`);
+    } else if (agent.role === 'cadrage') {
+      const carte = agent.cardId ? store.getCard(agent.cardId) : null;
+      details.push(carte ? `le cadrage de « ${carte.title} » (${projet})` : `un cadrage du projet « ${projet} »`);
     } else if (agent.role === 'analysis') {
       details.push(`une analyse du projet « ${projet} »`);
     } else if (agent.role === 'deploy') {
@@ -1030,7 +1034,15 @@ async function preparerLeTour(
     options.template ??
     // Le chef d'orchestre rend le MÊME compte rendu que les agents de tâche :
     // il travaille pour de vrai, sa réponse doit se lire comme les autres.
-    (agent.role === 'orchestrator' ? 'free' : templateForColumn(card?.column, !!card?.deployedAt));
+    (agent.role === 'orchestrator'
+      ? 'free'
+      : /* LE CADRAGE EST UNE CONVERSATION, PAS UN COMPTE RENDU. Le gabarit de sa
+           colonne (« Planifié » → `pre_run`) réclamerait six titres et un
+           chiffrage à un agent qui n'a pas ouvert le projet : on ne lui impose
+           donc aucune forme. */
+        agent.role === 'cadrage'
+        ? 'none'
+        : templateForColumn(card?.column, !!card?.deployedAt));
 
   /*
    * La mémoire du projet part EN ENTIER au lancement d'une session — nouvelle
@@ -1269,7 +1281,7 @@ async function preparerLeTour(
     contextParts.push({ label: 'Contexte ajouté par HaikoDev', kind: 'extra', origine: 'plateforme', content: options.context });
   }
   if (card) {
-    const bloc = carteContexte(agent.id, card, nouvelleSession);
+    const bloc = carteContexte(agent.id, card, nouvelleSession, agent.role === 'cadrage');
     if (bloc) contextParts.push({ label: 'Carte en cours', kind: 'card', origine: 'projet', content: bloc });
   }
   if (options.attachments?.length) {
@@ -1376,8 +1388,24 @@ async function preparerLeTour(
  * sauf si la carte a bougé — et dans ce cas une seule ligne quand seule la
  * colonne a changé.
  */
-function carteContexte(agentId: string, card: Card, nouvelleSession: boolean): string | null {
-  const entier = `CARTE EN COURS : « ${card.title} »\n${card.description || '(pas de description)'}\nColonne : ${card.column}.`;
+function carteContexte(
+  agentId: string,
+  card: Card,
+  nouvelleSession: boolean,
+  /**
+   * L'AGENT DE CADRAGE ÉCRIT CETTE CARTE : il lui faut donc son identifiant,
+   * seul argument obligatoire de `board_update_card`. Les autres rôles ne le
+   * reçoivent pas — ils n'ont rien à mettre à jour, et ce serait une ligne de
+   * plus à chaque tour.
+   */
+  ecritLaCarte = false,
+): string | null {
+  const entier =
+    `CARTE EN COURS : « ${card.title} »\n${card.description || '(pas de description)'}\nColonne : ${card.column}.` +
+    (ecritLaCarte
+      ? `\nIdentifiant de cette carte, à passer à « board_update_card » : ${card.id}` +
+        `\nNiveau d'exécution actuellement retenu : ${card.run?.niveau ?? '(aucun — dis-le dès que tu sais)'}`
+      : '');
   const fond = createHash('sha1').update(`${card.title}\n${card.description ?? ''}`).digest('hex').slice(0, 12);
   const empreinte = `${fond}:${card.column}`;
 
@@ -1649,9 +1677,17 @@ async function startTurn(
   writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath, tourId);
 
   const isOrchestrator = agent.role === 'orchestrator';
+  /*
+   * L'AGENT DE CADRAGE NE CODE JAMAIS, PAS MÊME SUR HAIKODEV : sa carte n'a pas
+   * encore de branche, et le travail appartient à l'agent lancé après lui. Il
+   * suit donc exactement la frontière du chef bridé — outils d'édition fermés,
+   * dossier de travail à part —, sans l'exception « projet à soi ».
+   */
+  const isCadrage = agent.role === 'cadrage';
   // L'exception HaikoDev : sur son propre dépôt, le chef d'orchestre est un
   // agent complet (PLAN §5). Le basculement se décide sur le CHEMIN du projet.
-  const fullAccess = !isOrchestrator || project.isSelf;
+  const bride = isCadrage || (isOrchestrator && !project.isSelf);
+  const fullAccess = !bride;
 
   /*
    * LA FRONTIÈRE DU CHEF BRIDÉ. Il a tous les droits sauf modifier le code du
@@ -1662,7 +1698,6 @@ async function startTurn(
    * L'agent de tâche et le chef d'HaikoDev lui-même, eux, travaillent dans le
    * dossier du projet (`dossier`).
    */
-  const bride = isOrchestrator && !project.isSelf;
   let cwd = dossier;
   let projectRoot: string | undefined;
   if (bride) {
@@ -1807,8 +1842,8 @@ async function startTurn(
       // Le RÔLE décide de l'effet du mode plan : un agent de tâche prépare sans
       // écrire, le chef garde ses outils (`modePlanFermeLEcriture`).
       role: agent.role,
-      allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
-      disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+      allowedTools: bride ? orchestratorAllowList() : undefined,
+      disallowedTools: bride ? orchestratorDenyList() : undefined,
       env,
       onEvent: (event) => {
         agentLog(PATHS.logs, agent.id, JSON.stringify(event));
@@ -2396,8 +2431,8 @@ async function startTurn(
         mcpBridgePath: bridgePath,
         fullAccess,
         env,
-        allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
-        disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+        allowedTools: bride ? orchestratorAllowList() : undefined,
+        disallowedTools: bride ? orchestratorDenyList() : undefined,
         consigne,
       }).catch(() => '');
 
@@ -2667,8 +2702,8 @@ async function startTurn(
           mcpConfigPath,
           mcpBridgePath: bridgePath,
           fullAccess,
-          allowedTools: isOrchestrator && !project.isSelf ? orchestratorAllowList() : undefined,
-          disallowedTools: isOrchestrator && !project.isSelf ? orchestratorDenyList() : undefined,
+          allowedTools: bride ? orchestratorAllowList() : undefined,
+          disallowedTools: bride ? orchestratorDenyList() : undefined,
           env,
           cleSession,
         });
@@ -4316,6 +4351,18 @@ CES OUTILS NE SONT PAS UNE PERMISSION DE COURT-CIRCUITER LE TABLEAU. Le tri du h
 
 INTERDITS ABSOLUS ici : modifier un fichier existant, exécuter une commande, lancer un sous-agent, piloter un terminal. Les outils correspondants sont bloqués : n'essaie pas de les contourner.
 CES INTERDITS NE SONT PAS UNE FIN DE NON-RECEVOIR. Une demande qui réclame d'exécuter quelque chose n'est jamais refusée ni renvoyée à l'utilisateur : elle suit le cas 3 du tri, tu proposes la carte immédiatement et un agent de tâche l'exécutera. Tu ne t'expliques pas longuement sur ce que tu ne peux pas faire, et tu n'attends pas un « oui » avant de proposer.`;
+  }
+
+  /*
+   * L'AGENT DE CADRAGE reçoit une consigne COURTE, la sienne, et rien du
+   * déroulé général : il ne lit pas le projet, ne coche pas de liste de tâches
+   * et ne rend aucun compte rendu à titres — il discute un besoin, puis écrit
+   * la carte. Le silence sur les identifiants reste : il vaut quoi qu'il fasse.
+   */
+  if (role === 'cadrage') {
+    return `${CONSIGNE_CADRAGE}
+
+${SILENCE_IDENTIFIANTS}`;
   }
 
   if (role === 'analysis') {

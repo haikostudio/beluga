@@ -780,6 +780,39 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
 
   /* ---- Cartes, tableau, cycle de travail --------------------------- */
   'Nouvelle note': ['New note', 'Nueva nota', 'Neue Notiz', '新建笔记'],
+  /* ---- La carte-fil : cadrage puis lancement ---------------------- */
+  'Lancer la tâche': ['Start the task', 'Iniciar la tarea', 'Aufgabe starten', '启动任务'],
+  'Confier le travail à un agent complet': [
+    'Hand the work to a full agent',
+    'Confiar el trabajo a un agente completo',
+    'Die Arbeit einem vollwertigen Agenten übergeben',
+    '把工作交给完整代理',
+  ],
+  'Lancement refusé': ['Launch refused', 'Lanzamiento rechazado', 'Start abgelehnt', '启动被拒绝'],
+  'Attendez la fin de la réponse en cours.': [
+    'Wait for the current reply to finish.',
+    'Espere a que termine la respuesta en curso.',
+    'Warten Sie, bis die laufende Antwort fertig ist.',
+    '请等待当前回复结束。',
+  ],
+  'Dites d’abord ce que vous voulez faire.': [
+    'First say what you want to do.',
+    'Diga primero lo que quiere hacer.',
+    'Sagen Sie zuerst, was Sie tun möchten.',
+    '请先说明您想做什么。',
+  ],
+  'Dites ce que vous voulez faire': [
+    'Say what you want to do',
+    'Diga lo que quiere hacer',
+    'Sagen Sie, was Sie tun möchten',
+    '说说您想做什么',
+  ],
+  'Expliquez votre besoin en quelques mots. On en discute ici, à moindre coût, puis « Lancer la tâche » confie le travail à un agent complet.': [
+    'Explain your need in a few words. We discuss it here, at low cost, then “Start the task” hands the work to a full agent.',
+    'Explique su necesidad en pocas palabras. Lo hablamos aquí, a bajo coste, y luego «Iniciar la tarea» confía el trabajo a un agente completo.',
+    'Beschreiben Sie Ihr Anliegen in wenigen Worten. Wir besprechen es hier, kostengünstig, und „Aufgabe starten“ übergibt die Arbeit dann einem vollwertigen Agenten.',
+    '用几句话说明您的需求。我们先在这里低成本讨论，然后点击“启动任务”把工作交给完整代理。',
+  ],
   'Nouvelle tâche': ['New task', 'Nueva tarea', 'Neue Aufgabe', '新建任务'],
   'Nouveau projet': ['New project', 'Nuevo proyecto', 'Neues Projekt', '新建项目'],
   'Nouveau groupe': ['New group', 'Nuevo grupo', 'Neue Gruppe', '新建分组'],

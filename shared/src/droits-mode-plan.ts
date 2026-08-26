@@ -22,7 +22,7 @@
  */
 
 /** Les rôles d'agent, tels que le démon les nomme. */
-export type RoleDAgent = 'task' | 'orchestrator' | 'analysis' | 'deploy';
+export type RoleDAgent = 'task' | 'orchestrator' | 'analysis' | 'deploy' | 'cadrage';
 
 /** Le mode d'une conversation, tel que le composeur le règle. */
 export type ModeDeConversation = 'direct' | 'plan';
@@ -36,5 +36,8 @@ export type ModeDeConversation = 'direct' | 'plan';
  * plan écrit et de ses questions.
  */
 export function modePlanFermeLEcriture(mode: ModeDeConversation | undefined, role?: RoleDAgent): boolean {
-  return mode === 'plan' && role !== 'orchestrator';
+  // Le CADRAGE suit la même exception que le chef : il ne peut de toute façon
+  // pas écrire le projet, et lui retirer ses outils le priverait de sa question
+  // (`ask_user`) et de l'écriture de sa propre carte (`board_update_card`).
+  return mode === 'plan' && role !== 'orchestrator' && role !== 'cadrage';
 }

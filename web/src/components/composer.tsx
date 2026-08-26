@@ -84,6 +84,14 @@ export interface ComposerProps {
    * au-dessus, comme le fil des messages déjà envoyés.
    */
   barreTravail?: React.ReactNode;
+  /**
+   * UN GESTE PLEINE LARGEUR, POSÉ AU-DESSUS DU CHAMP DE SAISIE. Aujourd'hui
+   * « Lancer la tâche », qui ferme la conversation de cadrage d'une carte et
+   * confie le travail à un agent complet (`shared/src/cadrage.ts`). Rendu ICI
+   * plutôt que dans le fil : il épouse alors exactement la largeur de la barre
+   * d'écriture, et rien ne s'intercale entre lui et elle quand le fil défile.
+   */
+  boutonPrincipal?: React.ReactNode;
 }
 
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
@@ -105,6 +113,7 @@ export function Composer({
   cardId,
   fondNoir,
   barreTravail,
+  boutonPrincipal,
 }: ComposerProps) {
   const state = useApp();
   const [text, setText] = React.useState('');
@@ -969,6 +978,11 @@ export function Composer({
         void upload(files);
       }}
     >
+      {/* Le geste principal, en tête de la barre d'écriture et sur toute sa
+          largeur : impossible à manquer, et jamais emporté par le fil qui
+          défile au-dessus. */}
+      {boutonPrincipal ? <div className="mb-2">{boutonPrincipal}</div> : null}
+
       {/* La file d'attente s'empile juste au-dessus de la barre d'écriture */}
       {queue.length ? (
         <div className="mb-1.5 space-y-1">
