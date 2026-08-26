@@ -269,7 +269,7 @@ function appelDemon(commande) {
 
 async function releveDuDemon() {
   // Les trois colonnes qui ferment, chacune avec sa question d'outil.
-  for (const colonne of ['to_deploy', 'in_production', 'archived']) {
+  for (const colonne of ['to_deploy', 'archived']) {
     const { cardId, messageId } = await carteQuiAttend(`Question puis ${colonne}`, 'running', 'outil');
     await appelDemon({ type: 'card.move', id: cardId, column: colonne });
     const question = lireMessage(messageId)?.questions?.[0];
@@ -307,7 +307,7 @@ async function releveDuDemon() {
    */
   {
     const { cardId, messageId } = await carteQuiAttend('Reprise puis production', 'running', 'reprise');
-    await appelDemon({ type: 'card.move', id: cardId, column: 'in_production' });
+    await appelDemon({ type: 'card.move', id: cardId, column: 'archived' });
     noter(
       'démon : passer en « En production » ferme le choix de reprise de compte',
       lireMessage(messageId)?.repriseCompte?.abandonnee === true,
@@ -324,7 +324,7 @@ async function releveDuDemon() {
   }
 
   {
-    const { messageId } = await carteQuiAttend('Reprise née en production', 'in_production', 'reprise');
+    const { messageId } = await carteQuiAttend('Reprise née en archive', 'archived', 'reprise');
     // Née DANS une colonne close : aucun déplacement ne viendra jamais la
     // fermer. Seul le garde-fou de lecture peut l'écarter — c'est le cas des
     // cartes déjà en base avant ce correctif.
@@ -470,7 +470,7 @@ async function ecran(navigateur, telephone, titre) {
         (await vivante.locator('[data-repondre-carte]').count()) === 1,
       );
 
-      await appelDemon({ type: 'card.move', id: cardId, column: 'in_production' });
+      await appelDemon({ type: 'card.move', id: cardId, column: 'archived' });
       await page.waitForTimeout(3000);
       const apres = carteDuTableau(page, titreVivant);
       noter(

@@ -42,7 +42,7 @@ const PORT = Number(process.env.HAIKODEV_PERSONNAGES_PORT || 7213);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-personnages-'));
 
-const COLONNES = ['notes', 'planned', 'running', 'done', 'to_deploy', 'in_production', 'archived'];
+const COLONNES = ['notes', 'planned', 'running', 'done', 'to_deploy', 'archived'];
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {

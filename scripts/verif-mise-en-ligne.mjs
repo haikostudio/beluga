@@ -95,7 +95,7 @@ function monterProjet(nom, colonne = 'to_deploy') {
     horsTache: false,
     github: { branch: 'tache/essai' },
     // Une carte déjà « En production » porte forcément une date de déploiement.
-    deployedAt: colonne === 'in_production' ? maintenant : undefined,
+    deployedAt: colonne === 'archived' ? maintenant : undefined,
     createdAt: maintenant,
     updatedAt: maintenant,
   });
@@ -169,8 +169,8 @@ dire(
   'l’étape de mise en ligne DIT qu’aucune instance de dev n’a été trouvée',
 );
 // Le rangement suit la mise en ligne : on l'attend, on ne le suppose pas.
-const carteDeployee = await attendreCarte(sans.carte.id, (c) => c.column === 'in_production');
-dire(carteDeployee?.column === 'in_production', 'la carte déployée se pose en « En production »');
+const carteDeployee = await attendreCarte(sans.carte.id, (c) => c.column === 'archived');
+dire(carteDeployee?.column === 'archived', 'la carte déployée se pose en « Archivé »');
 dire(carteDeployee?.column !== 'archived', 'elle ne part PAS aux archives : clore vient après');
 dire(!!carteDeployee?.deployedAt, 'la carte porte sa date de déploiement');
 dire(runSans?.cible === 'dev', 'la publication retient son étape (déploiement)');
@@ -199,7 +199,7 @@ raconter(runAvec);
 /* --- 3. La seconde étape : publier depuis « En production » clôt ----- */
 
 console.log('\n3. La mise en production, depuis « En production »');
-const prod = monterProjet('essai-production', 'in_production');
+const prod = monterProjet('essai-production', 'archived');
 const lanceProd = await startDeploy(prod.projet.id, { cible: 'production' });
 dire(lanceProd.ok === true, 'la mise en production démarre');
 const runProd = await attendreFin(prod.projet.id);

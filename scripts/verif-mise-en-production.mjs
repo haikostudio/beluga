@@ -272,7 +272,7 @@ async function main() {
   );
 
   const menusSansNonLue = await page.evaluate(() =>
-    ['to_deploy', 'in_production'].map((cle) => ({
+    ['to_deploy', 'archived'].map((cle) => ({
       cle,
       menu: !!document.querySelector(`[data-menu-colonne="${cle}"]`),
       nonLues: document.querySelectorAll(`[data-column="${cle}"] [data-carte-non-lue]`).length,
