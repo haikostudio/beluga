@@ -620,7 +620,7 @@ export type Card = z.infer<typeof Card>;
  * s'efface au lancement, où un agent « task » prend la suite avec toute la
  * discussion en contexte de départ.
  */
-export const AgentRole = z.enum(['task', 'orchestrator', 'analysis', 'deploy', 'cadrage']);
+export const AgentRole = z.enum(['task', 'analysis', 'deploy', 'cadrage']);
 export type AgentRole = z.infer<typeof AgentRole>;
 
 export const AgentStatus = z.enum(['idle', 'starting', 'running', 'stopped', 'failed', 'done']);
@@ -1475,9 +1475,9 @@ export const Settings = z.object({
    * Le dernier réglage choisi pour un chef d'orchestre : les chefs d'orchestre
    * créés ensuite le reprennent, au lieu de retomber sur le modèle épinglé.
    */
-  orchestratorEngine: z.string().optional(),
-  orchestratorModel: z.string().optional(),
-  orchestratorThinking: z.string().optional(),
+  cadrageEngine: z.string().optional(),
+  cadrageModel: z.string().optional(),
+  cadrageThinking: z.string().optional(),
   /**
    * Les ACCÈS À LA MACHINE (le VPS), réglés dans l'onglet Système. Laissés vides
    * (l'état par défaut), rien ne change : la création d'une adresse publique

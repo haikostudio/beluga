@@ -95,11 +95,11 @@ test('sous le plafond, rien ne part — et le garde-fou anti-boucle compte en je
 });
 
 test('le chef d’orchestre a un plafond plus bas que les autres rôles', () => {
-  assert.ok(plafondDeContexte('orchestrator') < plafondDeContexte('task'));
+  assert.ok(plafondDeContexte('cadrage') < plafondDeContexte('task'));
   assert.equal(plafondDeContexte('task'), PLAFOND_CONTEXTE_JETONS);
   assert.equal(plafondDeContexte(undefined), PLAFOND_CONTEXTE_JETONS);
   // Les 107 155 jetons de fil mesurés sur un vrai chef partent en compression.
-  const chef = observerContexte(undefined, 107_155, 1_000_000, plafondDeContexte('orchestrator'));
+  const chef = observerContexte(undefined, 107_155, 1_000_000, plafondDeContexte('cadrage'));
   assert.equal(chef?.shouldCompress, true);
 });
 
@@ -211,7 +211,7 @@ test('le résumé de continuité garde carte, décisions, tâches et dossier', (
 });
 
 test('tous les rôles d’agent savent conserver le dernier remplissage', () => {
-  for (const role of ['task', 'orchestrator', 'analysis', 'deploy'] as const) {
+  for (const role of ['task', 'cadrage', 'analysis', 'deploy'] as const) {
     const agent = Agent.parse({
       id: role,
       projectId: 'p',

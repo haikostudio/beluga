@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /*
- * LES DOCUMENTS ET LES PLANS DU CHEF D'ORCHESTRE, REJOUÉS DE BOUT EN BOUT.
+ * LES DOCUMENTS ET LES PLANS DE L'AGENT DE CADRAGE, REJOUÉS DE BOUT EN BOUT.
  *
- * Le chef écrit les DOCUMENTS partout dans le projet et le CODE nulle part ; un
+ * L'agent de cadrage écrit les DOCUMENTS partout dans le projet et le CODE nulle part ; un
  * nom nu reste rangé dans `docs/plans/`, d'où il revient tout seul au lancement
  * d'une carte sur le même sujet. Ce contrôle rejoue le parcours entier sur un
  * projet jetable, sans moteur et sans démon :
  *
- *  1. le chef ÉCRIT un plan : le fichier est là, au bon endroit, sous un nom propre ;
+ *  1. l'agent ÉCRIT un plan : le fichier est là, au bon endroit, sous un nom propre ;
  *  2. il le MODIFIE : le même fichier est remplacé, aucun doublon ;
  *  3. il écrit et SUPPRIME un document ailleurs dans le projet ; le CODE lui est REFUSÉ ;
  *  4. sa consigne lui dit ce qu'il écrit, et le mode plan lui dit d'enregistrer.
  *
- *   node scripts/verif-plans-du-chef.mjs
+ *   node scripts/verif-plans-de-cadrage.mjs
  */
 
 import fs from 'node:fs';
@@ -57,7 +57,7 @@ const projet = store.saveProject({
   createdAt: store.now(),
   updatedAt: store.now(),
 });
-const CHEF = { projectId: projet.id, role: 'orchestrator', agentId: 'chef-essai' };
+const CHEF = { projectId: projet.id, role: 'cadrage', agentId: 'chef-essai' };
 const dossier = path.join(PROJET, ...partage.DOSSIER_PLANS.split('/'));
 
 /* ------------------------------------------------------------------ */
@@ -154,11 +154,11 @@ verifier(!fs.existsSync(path.join(dossier, 'CLAUDE.md')), 'aucun doublon dans le
 /* ------------------------------------------------------------------ */
 
 console.log('\n4. Le chef sait ce qu’il écrit');
-const consigne = runtime.rolePrompt('orchestrator', false);
+const consigne = runtime.rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
 verifier(consigne.includes(partage.DOSSIER_PLANS), 'sa consigne nomme le dossier des plans');
 verifier(/LE CODE RESTE FERMÉ/.test(consigne), 'sa consigne dit que le code lui reste fermé');
 verifier(/supprimer/i.test(consigne), 'sa consigne lui dit qu’il peut supprimer un document');
-const enPlan = runtime.rolePrompt('orchestrator', false, 'claude', 'complet', 'plan');
+const enPlan = runtime.rolePrompt('cadrage', false, 'claude', 'complet', 'plan');
 verifier(enPlan.includes('ENREGISTRE CHAQUE PLAN'), 'le mode plan lui dit d’enregistrer son plan');
 verifier(
   /TU AS TOUS TES OUTILS EN MODE PLAN/.test(enPlan),
@@ -170,4 +170,4 @@ if (echecs.length) {
   console.error(`${echecs.length} contrôle(s) en échec.`);
   process.exit(1);
 }
-console.log('Tous les contrôles des plans du chef sont au vert.');
+console.log('Tous les contrôles des plans du cadrage sont au vert.');

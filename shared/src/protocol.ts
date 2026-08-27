@@ -231,7 +231,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * le clic explicite sur le point).
    */
   z.object({ type: z.literal('project.visit'), projectId: z.string() }),
-  z.object({ type: z.literal('agent.orchestrator'), projectId: z.string(), tout: z.boolean().optional() }),
   /** Repartir de zéro : le fil d'avant est mis de côté, pas supprimé. */
   z.object({ type: z.literal('agent.reset'), agentId: z.string() }),
   z.object({

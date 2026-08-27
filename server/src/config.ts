@@ -93,9 +93,9 @@ export const PATHS = {
    * Le DOSSIER DE TRAVAIL du chef d'orchestre bridé : un sous-dossier par projet,
    * le seul endroit où il a le droit d'écrire (brouillons, sorties d'analyse). Il
    * vit hors des dépôts des projets — le projet, lui, reste monté en lecture
-   * seule. Voir `shared/src/bridage-chef.ts`.
+   * seule. Voir `shared/src/bridage-cadrage.ts`.
    */
-  chefScratch: path.join(CONFIG.dataDir, 'chef-scratch'),
+  cadrageScratch: path.join(CONFIG.dataDir, 'cadrage-scratch'),
 };
 
 export function ensureDirs(): void {
@@ -109,7 +109,7 @@ export function ensureDirs(): void {
     PATHS.backups,
     PATHS.accounts,
     PATHS.competences,
-    PATHS.chefScratch,
+    PATHS.cadrageScratch,
     PATHS.favicons,
     PATHS.personnages,
   ]) {

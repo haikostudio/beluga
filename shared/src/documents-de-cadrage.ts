@@ -22,7 +22,7 @@
  *     aujourd'hui remonte tout seul au lancement de la carte qui le réalise.
  *
  * Le bac à sable, lui, ne bouge pas non plus : le projet reste monté en LECTURE
- * SEULE pour les commandes du chef (`bridage-chef.ts`). Cet outil est le seul
+ * SEULE pour les commandes du chef (`bridage-cadrage.ts`). Cet outil est le seul
  * geste d'écriture qui lui soit ouvert, et c'est le DÉMON qui écrit à sa place —
  * d'où l'intérêt d'un contrôle de chemin qui se lit et se rejoue seul.
  *
@@ -122,7 +122,7 @@ export function estUnDocument(chemin: string): boolean {
  *   l'appelant (le démon a le disque, pas ce module) : sans lui, un nom nu part
  *   toujours dans le dossier des plans.
  */
-export function cheminDuDocumentDuChef(
+export function cheminDuDocument(
   demande: string,
   existe?: (relatif: string) => boolean,
 ): CheminDeDocument {

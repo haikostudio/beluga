@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { wrapPrompt } from '@haikodev/shared';
 import { rolePrompt, rappelDeMethode } from '../runtime.js';
 import { buildCodexArgs } from '../engines/codex.js';
-import { ORCHESTRATOR_ALLOWED_NATIVE } from '../tools.js';
+import { CADRAGE_ALLOWED_NATIVE } from '../tools.js';
 
 /* ------------------------------------------------------------------ */
 /* Le déroulé est le MÊME pour Codex et pour Claude                     */
@@ -15,7 +15,7 @@ import { ORCHESTRATOR_ALLOWED_NATIVE } from '../tools.js';
  * déroulé — seul le nom de l'outil de liste, propre à chaque moteur, diffère.
  */
 
-const ROLES = ['orchestrator', 'analysis', 'deploy', 'task'] as const;
+const ROLES = ['cadrage', 'analysis', 'deploy', 'task'] as const;
 
 /** On retire la seule ligne qui nomme l'outil : le reste doit être identique. */
 function sansLigneOutil(prompt: string): string {
@@ -68,10 +68,10 @@ test('sans moteur précisé, le déroulé reste celui de Claude (valeur par déf
 /* ------------------------------------------------------------------ */
 
 /*
- * Le CHEF D'ORCHESTRE est hors de cette liste depuis qu'il ne fait plus qu'un
- * tri : il n'ouvre plus le projet, ne constate plus par écrit et ne rejoue plus
- * les contrôles — l'étude appartient à la carte, après validation. Sa consigne
- * porte sa propre méthode, courte, vérifiée juste en dessous.
+ * L'AGENT DE CADRAGE est hors de cette liste : il n'ouvre pas le projet, ne
+ * constate pas par écrit et ne rejoue aucun contrôle — l'étude appartient à la
+ * carte, une fois lancée. Sa consigne porte sa propre méthode, courte, vérifiée
+ * juste en dessous.
  */
 const ROLES_QUI_TRAVAILLENT = ['analysis', 'deploy', 'task'] as const;
 
@@ -89,12 +89,12 @@ test('la méthode de travail est imposée à tous les rôles qui travaillent, et
   }
 });
 
-test('le chef d’orchestre porte sa méthode À LUI : deux gestes, aucune étude', () => {
+test('l’agent de cadrage porte sa méthode À LUI : discuter, écrire la carte, rien d’autre', () => {
   for (const engine of ['claude', 'codex'] as const) {
-    const p = rolePrompt('orchestrator', false, engine);
-    assert.match(p, /tu ne fais QUE DEUX CHOSES/, engine);
-    assert.match(p, /Tu n'ouvres pas le projet pour étudier une demande, tu ne chiffres rien/, engine);
-    assert.match(p, /NE RIEN INVENTER/, engine);
+    const p = rolePrompt('cadrage', false, engine);
+    assert.match(p, /TU ES L'AGENT DE CADRAGE D'UNE CARTE/, engine);
+    assert.match(p, /Tu ne codes pas, tu ne lances aucune commande/, engine);
+    assert.match(p, /Tu n'inventes rien du projet/, engine);
     // Ce qu'il ne porte PLUS : le déroulé visible et la méthode en six points.
     assert.doesNotMatch(p, /MÉTHODE DE TRAVAIL IMPOSÉE/, engine);
     assert.doesNotMatch(p, /DÉROULÉ VISIBLE/, engine);
@@ -176,7 +176,7 @@ test('le rappel nomme à chaque moteur son seul outil de liste', () => {
 test('la liste de tâches reste autorisée au chef d’orchestre bridé', () => {
   for (const outil of ['TaskCreate', 'TaskUpdate', 'TodoWrite']) {
     assert.ok(
-      ORCHESTRATOR_ALLOWED_NATIVE.includes(outil),
+      CADRAGE_ALLOWED_NATIVE.includes(outil),
       `« ${outil} » manque : le déroulé visible serait impossible sous Claude`,
     );
   }

@@ -6,6 +6,7 @@ import {
   Attachment,
   EngineInfo,
   QueuedPrompt,
+  RAISON_SANS_REPONSE,
   TYPE_JOINTES_COLLABLES,
   ajouterJointesCollees,
   ancreDuTexte,
@@ -72,7 +73,7 @@ export interface ComposerProps {
   dansTiroir?: boolean;
   /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
   cardId?: string;
-  /** Seule la conversation permanente du chef d'orchestre vit sur fond noir
+  /** Seule une conversation hors carte vit sur fond noir
    *  (pas dans un tiroir) ; partout ailleurs (tiroir de carte, pile des
    *  agents) le fond entourant est gris cendré, la barre doit le reprendre. */
   fondNoir?: boolean;
@@ -888,9 +889,25 @@ export function Composer({
         attachments: jointesEnvoyees.map((a) => a.id),
       });
     } catch (err: any) {
+      const raison = err?.message ?? t('envoi impossible');
+      /*
+       * UNE ABSENCE DE RÉPONSE NE DIT PAS QUE L'ENVOI A ÉCHOUÉ. Sur un canal
+       * zombie (veille, changement de réseau), le message part bien au
+       * serveur — il est enregistré, l'agent se met au travail, et il
+       * réapparaît dans le fil dès la reconnexion — mais son accusé de
+       * réception s'est perdu en route, et `client.call` finit par expirer
+       * (`RAISON_SANS_REPONSE`) largement après coup. Remettre le texte ici
+       * réintroduirait dans le champ un message déjà parti et déjà visible
+       * dans la conversation. Seule une VRAIE erreur (agent introuvable,
+       * refus du serveur) rend le texte et les pièces jointes.
+       */
+      if (raison === RAISON_SANS_REPONSE) {
+        client.signalerRefus(raison);
+        return;
+      }
       // L'envoi a échoué : là, on rend le texte ET les pièces jointes, sinon
       // elles seraient perdues.
-      client.pushToast('error', err?.message ?? t('envoi impossible'));
+      client.pushToast('error', raison);
       dejaEnvoye.current = null;
       setText(body);
       if (jointesEnvoyees.length) {

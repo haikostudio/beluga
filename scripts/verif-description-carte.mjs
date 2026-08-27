@@ -27,7 +27,7 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const { rolePrompt } = await import(path.join(RACINE, 'server/dist/runtime.js'));
 const { adapterFor } = await import(path.join(RACINE, 'server/dist/engines/index.js'));
-const { orchestratorAllowList, orchestratorDenyList } = await import(path.join(RACINE, 'server/dist/tools.js'));
+const { cadrageAllowList, cadrageDenyList } = await import(path.join(RACINE, 'server/dist/tools.js'));
 const { wrapPrompt, jugerDescription } = await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const MOTEURS = process.argv[2] ? [process.argv[2]] : ['claude', 'codex'];
@@ -130,15 +130,15 @@ async function tourDeChef(moteur) {
   const handle = adaptateur.run({
     cwd: dossier,
     prompt: wrapPrompt('in_run', DEMANDE, `Projet : Essai (dossier ${dossier}).`),
-    systemPrompt: rolePrompt('orchestrator', false, moteur, 'tri'),
+    systemPrompt: rolePrompt('cadrage', false, moteur, 'tri'),
     mcpConfigPath: config,
     mcpBridgePath: pont,
     fullAccess: false,
     // Exactement le bridage du chef d'orchestre en production : sans ces
     // listes, Claude Code demande une approbation que personne ne donne et
     // l'outil n'est jamais appelé.
-    allowedTools: orchestratorAllowList(),
-    disallowedTools: orchestratorDenyList(),
+    allowedTools: cadrageAllowList(),
+    disallowedTools: cadrageDenyList(),
     env: { HAIKODEV_TOKEN: 'essai', HAIKODEV_URL: 'http://127.0.0.1:7070', HAIKODEV_AGENT: 'essai' },
     onEvent: (evenement) => {
       if (process.env.VERBEUX) console.log('   ·', JSON.stringify(evenement).slice(0, 300));

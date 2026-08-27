@@ -67,7 +67,7 @@ function carteTerminee(db) {
   return null;
 }
 
-/** Une carte issue du chef d'orchestre, posée dans le même projet puis retirée. */
+/** Une carte issue d'une proposition d'agent, posée dans le même projet puis retirée. */
 function poserCarteEssai(db, projectId) {
   const id = crypto.randomUUID();
   const maintenant = Date.now();
@@ -290,26 +290,13 @@ async function main() {
           const hauteur = await bloc.evaluate((n) => n.getBoundingClientRect().height);
           noter(`${ecran.nom} — le bloc tient sur peu de hauteur`, hauteur < 120, `${Math.round(hauteur)} px`);
         }
-        const preparation = tiroir.locator('[data-preparation-chef]');
-        const preparationVisible = (await preparation.count()) === 1;
-        noter(`${ecran.nom} — la préparation du chef est visible`, preparationVisible);
-        if (preparationVisible) {
-          const texte = (await preparation.innerText()).replace(/\s+/g, ' ');
-          noter(
-            `${ecran.nom} — le bloc nomme clairement son origine`,
-            /proposition du chef d.orchestre/i.test(texte),
-            texte.slice(0, 180),
-          );
-          noter(
-            `${ecran.nom} — le bloc rassemble le contenu et le chiffrage transmis`,
-            /Réglages repris/.test(texte) && /1 étiquette/.test(texte) && /1 image/.test(texte) && /10 min/.test(texte),
-            texte.slice(0, 240),
-          );
-          noter(
-            `${ecran.nom} — la continuité entre analyse et exécution est annoncée`,
-            /même conversation/.test(texte),
-          );
-        }
+        // L'encart « préparé depuis la proposition du chef » a été retiré avec
+        // le chef d'orchestre : la ligne de temps du parcours dit désormais
+        // seule ce qui précédait l'exécution.
+        noter(
+          `${ecran.nom} — plus aucun encart de préparation du chef`,
+          (await tiroir.locator('[data-preparation-chef]').count()) === 0,
+        );
         noter(`${ecran.nom} — aucune erreur de page (carte à faire)`, erreurs.length === 0, erreurs.slice(0, 1).join(''));
         await page.close();
       }

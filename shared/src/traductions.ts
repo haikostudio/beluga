@@ -693,13 +693,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
 
   /* ---- États vides et attentes ------------------------------------ */
   'Aucun échange pour le moment': ['No messages yet', 'Ningún intercambio por ahora', 'Noch keine Nachrichten', '暂无对话'],
-  'Synthèse du besoin': ['Summary of the need', 'Síntesis de la necesidad', 'Zusammenfassung des Bedarfs', '需求综述'],
-  'déposée en premier message de la conversation': [
-    'posted as the first message of the conversation',
-    'publicada como primer mensaje de la conversación',
-    'als erste Nachricht der Unterhaltung abgelegt',
-    '作为对话的第一条消息发布',
-  ],
   'Synthèse du besoin, avant le lancement de la carte': [
     'Summary of the need, before the card starts',
     'Síntesis de la necesidad, antes de lanzar la tarjeta',
@@ -1362,7 +1355,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "Réglages de l'agent": ['Agent settings', 'Ajustes del agente', 'Agenteneinstellungen', '智能体设置'],
   'Réglages de l’espace de développement': ['Development space settings', 'Ajustes del espacio de desarrollo', 'Einstellungen des Entwicklungsbereichs', '开发空间设置'],
   'Réglages qui ont servi': ['Settings that were used', 'Ajustes que se usaron', 'Verwendete Einstellungen', '实际使用的设置'],
-  'Réglages repris': ['Settings carried over', 'Ajustes retomados', 'Übernommene Einstellungen', '沿用的设置'],
   'Nom du projet': ['Project name', 'Nombre del proyecto', 'Projektname', '项目名称'],
   'Nom du groupe': ['Group name', 'Nombre del grupo', 'Gruppenname', '分组名称'],
   'Nom du compte': ['Account name', 'Nombre de la cuenta', 'Kontoname', '账户名称'],
@@ -1383,12 +1375,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '一种便于查找的分类方式：“客户”“我的项目”“资产”……',
   ],
   'Moteur par défaut de ce projet': ['Default engine for this project', 'Motor por defecto de este proyecto', 'Standard-Engine dieses Projekts', '该项目的默认引擎'],
-  'Les nouvelles cartes et le chef de ce projet partiront sur ce moteur.': [
-    'New cards and this project’s lead will run on this engine.',
-    'Las nuevas tarjetas y el jefe de este proyecto se ejecutarán en este motor.',
-    'Neue Karten und die Leitung dieses Projekts laufen auf dieser Engine.',
-    '该项目的新卡片和主控都会使用这个引擎。',
-  ],
   'Thème général': ['General theme', 'Tema general', 'Allgemeines Design', '通用主题'],
 
   /* ---- Mode simplifié --------------------------------------------- */
@@ -1484,8 +1470,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Mon nouveau site': ['My new site', 'Mi nuevo sitio', 'Meine neue Website', '我的新网站'],
   'Déplier le groupe': ['Expand the group', 'Desplegar el grupo', 'Gruppe ausklappen', '展开分组'],
   'Replier le groupe': ['Collapse the group', 'Plegar el grupo', 'Gruppe einklappen', '收起分组'],
-  'Ouvrir le chef d’orchestre': ['Open the lead', 'Abrir el jefe de orquesta', 'Die Leitung öffnen', '打开主控'],
-  'Replier le chef d’orchestre': ['Collapse the lead', 'Plegar el jefe de orquesta', 'Die Leitung einklappen', '收起主控'],
   'Revenir au tableau': ['Back to the board', 'Volver al tablero', 'Zurück zum Board', '返回看板'],
 
   /* ---- Quotas, comptes, coûts -------------------------------------- */
@@ -1497,6 +1481,20 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'épuisé': ['exhausted', 'agotado', 'aufgebraucht', '已耗尽'],
   'à sec': ['dry', 'sin reservas', 'leer', '已用完'],
   'Liste de secours': ['Fallback list', 'Lista de reserva', 'Reserveliste', '备用列表'],
+  'Ouvrir le volet des fichiers': ['Open the files panel', 'Abrir el panel de archivos', 'Das Dateifenster öffnen', '打开文件面板'],
+  'Replier le volet des fichiers': ['Collapse the files panel', 'Plegar el panel de archivos', 'Das Dateifenster einklappen', '收起文件面板'],
+  'Les nouvelles cartes de ce projet partiront sur ce moteur.': [
+    'New cards for this project will run on this engine.',
+    'Las nuevas tarjetas de este proyecto se ejecutarán en este motor.',
+    'Neue Karten dieses Projekts laufen auf dieser Engine.',
+    '该项目的新卡片将在此引擎上运行。',
+  ],
+  "L'agent oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d'un clic.": [
+    'The agent forgets everything that was said and starts over: its answers become fast and far cheaper again. Previous exchanges are not deleted, they remain one click away.',
+    'El agente olvida todo lo dicho y vuelve a empezar: sus respuestas vuelven a ser rápidas y mucho más baratas. Los intercambios anteriores no se eliminan, siguen consultables con un clic.',
+    'Der Agent vergisst alles Gesagte und beginnt von vorn: Seine Antworten werden wieder schnell und deutlich günstiger. Frühere Austausche werden nicht gelöscht, sie bleiben mit einem Klick abrufbar.',
+    '智能体会忘记之前所说的一切并从头开始：回答将重新变得快速且便宜得多。先前的对话不会被删除，点击即可查看。',
+  ],
   "L'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en premier, la relève ne sert qu'en cas d'épuisement.": [
     'Priority follows the value declared for each account: the priority account always goes first, the stand-in only serves when it runs out.',
     'El orden de prioridad sigue el valor declarado para cada cuenta: la cuenta prioritaria pasa siempre primero, el relevo solo sirve en caso de agotamiento.',
@@ -1629,27 +1627,12 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Ce qui était prévu': ['What was planned', 'Lo que estaba previsto', 'Was geplant war', '原计划内容'],
   'Ce qui a été consommé': ['What was used up', 'Lo que se ha consumido', 'Was verbraucht wurde', '实际消耗'],
   'Ce qu’elle est allée chercher': ['What it went looking for', 'Lo que fue a buscar', 'Was sie geholt hat', '它去获取了什么'],
-  'Préparation avant exécution': ['Preparation before execution', 'Preparación antes de la ejecución', 'Vorbereitung vor der Ausführung', '执行前的准备'],
-  'Préparé depuis la proposition du chef d’orchestre': ['Prepared from the lead’s proposal', 'Preparado a partir de la propuesta del jefe de orquesta', 'Aus dem Vorschlag der Leitung vorbereitet', '基于主控的提议准备'],
-  'Ces éléments étaient déjà dans la carte avant son exécution.': [
-    'These items were already in the card before it ran.',
-    'Estos elementos ya estaban en la tarjeta antes de su ejecución.',
-    'Diese Angaben standen schon vor der Ausführung in der Karte.',
-    '这些内容在卡片执行前就已存在。',
-  ],
-  'Contenu transmis': ['Content passed on', 'Contenido transmitido', 'Übergebener Inhalt', '已传递的内容'],
   'Niveau de la carte :': ['Card level:', 'Nivel de la tarjeta:', 'Kartenstufe:', '卡片等级：'],
   'Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».': [
     'The full analysis report is in the “Conversation” tab.',
     'El informe completo del análisis está en la pestaña «Conversación».',
     'Der vollständige Analysebericht steht im Reiter „Unterhaltung“.',
     '完整的分析报告在“对话”标签页中。',
-  ],
-  '{estimation} · analyse et exécution dans la même conversation': [
-    '{estimation} · analysis and execution in the same conversation',
-    '{estimation} · análisis y ejecución en la misma conversación',
-    '{estimation} · Analyse und Ausführung in derselben Unterhaltung',
-    '{estimation} · 分析与执行在同一次对话中',
   ],
   'Part de quota par carte': ['Quota share per card', 'Parte de cuota por tarjeta', 'Kontingentanteil je Karte', '各卡片的配额占比'],
   'Part de quota réellement consommée': ['Quota share actually used', 'Parte de cuota realmente consumida', 'Tatsächlich verbrauchter Kontingentanteil', '实际消耗的配额占比'],
@@ -1847,7 +1830,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'privé': ['private', 'privado', 'privat', '私有'],
   'Tout {v0} ({v1})': ['{v0} all ({v1})', '{v0} todo ({v1})', 'Alles {v0} ({v1})', '全部{v0}（{v1}）'],
   'Tour {v0} {v1}': ['Turn {v0} {v1}', 'Turno {v0} {v1}', 'Runde {v0} {v1}', '第 {v0} 轮 {v1}'],
-  'consigne de la carte · {etiquettes} {v0} · {pieces}{v1} {v2}': ['card instruction · {etiquettes} {v0} · {pieces}{v1} {v2}', 'consigna de la tarjeta · {etiquettes} {v0} · {pieces}{v1} {v2}', 'Kartenanweisung · {etiquettes} {v0} · {pieces}{v1} {v2}', '卡片指令 · {etiquettes} {v0} · {pieces}{v1} {v2}'],
   'Passage retrouvé — {v0}{v1}': ['Passage found — {v0}{v1}', 'Pasaje recuperado — {v0}{v1}', 'Gefundene Stelle — {v0}{v1}', '找到的片段 —— {v0}{v1}'],
   'Passages retrouvés dans la documentation ({v0}) :{v1} {v2}': ['Passages found in the documentation ({v0}):{v1} {v2}', 'Pasajes recuperados en la documentación ({v0}):{v1} {v2}', 'In der Dokumentation gefundene Stellen ({v0}):{v1} {v2}', '在文档中找到的片段（{v0}）：{v1} {v2}'],
   'Rechercher dans les prompts envoyés…': ['Search the prompts sent…', 'Buscar en los prompts enviados…', 'In gesendeten Prompts suchen…', '在已发送的提示词中搜索……'],
@@ -1890,12 +1872,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Hora ya pasada: la tarjeta esperará su lanzamiento. Adelante la fecha para programar un inicio.',
     'Zeitpunkt bereits vorbei: Die Karte wartet auf Ihren Start. Schieben Sie das Datum vor, um einen Start zu planen.',
     '时间已过：卡片会等待您手动启动。请把日期往后调以安排启动。',
-  ],
-  "Le chef d'orchestre oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d'un clic.": [
-    'The lead forgets everything said and starts from scratch: its answers become fast again and far cheaper. Earlier messages are not deleted, they stay one click away.',
-    'El jefe de orquesta olvida todo lo dicho y empieza de cero: sus respuestas vuelven a ser rápidas y mucho menos costosas. Los intercambios anteriores no se eliminan, siguen consultables con un clic.',
-    'Die Leitung vergisst alles Gesagte und beginnt von vorn: Ihre Antworten werden wieder schnell und viel günstiger. Frühere Nachrichten werden nicht gelöscht, sie bleiben einen Klick entfernt.',
-    '主控会忘记此前所说的一切并从零开始：回答重新变快，成本也低得多。先前的交流不会被删除，一键即可查看。',
   ],
   'Sans soigner la formulation : où le site tourne, comment le code y arrive, ce qu’il faut relancer, à quoi on voit que c’est en ligne.\n': [
     'No need to polish the wording: where the site runs, how the code gets there, what has to be restarted, how you can tell it is live.\n',
@@ -2184,7 +2160,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Compétences': ['Skills', 'Competencias', 'Fähigkeiten', '技能'],
   'Réflexion en cours…': ['Thinking…', 'Razonando…', 'Denkt nach…', '正在思考……'],
   'L’agent termine son tour…': ['The agent is finishing its turn…', 'El agente termina su turno…', 'Der Agent beendet seine Runde…', '智能体正在完成本轮……'],
-  'Chiffrage en attente': ['Estimate pending', 'Estimación pendiente', 'Schätzung ausstehend', '估算待定'],
   "Indiquez un nombre d'heures": ['Give a number of hours', 'Indique un número de horas', 'Geben Sie eine Stundenzahl an', '请填写小时数'],
   'Choisissez le document, ou cochez « créer un nouveau document ».': [
     'Choose the document, or tick “create a new document”.',

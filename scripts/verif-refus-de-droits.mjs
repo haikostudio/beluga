@@ -53,11 +53,11 @@ async function sortieDe(commande, args) {
 }
 
 const {
-  consigneEspaceDuChef,
+  consigneEspaceDeCadrage,
   detailDuRefus,
   natureDuRefus,
   reglagesClaudeDuChef,
-  surchargesCodexDuChef,
+  surchargesCodexBridees,
 } = await import(path.join(RACINE, 'shared/dist/index.js'));
 
 const LISTES = {
@@ -67,7 +67,7 @@ const LISTES = {
 
 console.log('\nCE QUI PART AUX MOTEURS\n');
 
-const codex = surchargesCodexDuChef(LISTES);
+const codex = surchargesCodexBridees(LISTES);
 dire(codex.includes('sandbox_mode="danger-full-access"'), 'Codex : accès complet, aucun bac à sable');
 dire(
   !codex.some((s) => s.startsWith('sandbox_workspace_write')),
@@ -91,7 +91,7 @@ dire(
 
 console.log('\nLA CONSIGNE ENVOYÉE AU CHEF\n');
 
-const consigne = consigneEspaceDuChef('/root/travail/chef', '/root/projet');
+const consigne = consigneEspaceDeCadrage('/root/travail/chef', '/root/projet');
 for (const [quoi, motif] of [
   ['l’accès complet est annoncé', /ACCÈS COMPLET/],
   ['construire est ouvert', /construction/i],
@@ -177,7 +177,7 @@ try {
 
 const runtime = fs.readFileSync(path.join(RACINE, 'server/src/runtime.ts'), 'utf8');
 dire(
-  /consigneEspaceDuChef\(/.test(runtime),
+  /consigneEspaceDeCadrage\(/.test(runtime),
   'le démon prend sa consigne du module partagé, pas d’un texte recopié',
 );
 dire(/detailDuRefus\(/.test(runtime), 'le démon traduit le détail des étapes d’un chef');
@@ -189,7 +189,7 @@ dire(/detailDuRefus\(/.test(runtime), 'le démon traduit le détail des étapes 
  * lecture seule pour moi », neuf jours après que ce mur a été retiré).
  */
 {
-  const appel = runtime.indexOf('consigneEspaceDuChef(scratch');
+  const appel = runtime.indexOf('consigneEspaceDeCadrage(scratch');
   const finSessionNeuve = runtime.indexOf('\n  }\n', runtime.indexOf('} else {', runtime.indexOf('if (nouvelleSession) {')));
   dire(
     appel > finSessionNeuve && appel > 0,

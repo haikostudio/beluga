@@ -195,7 +195,7 @@ export function MessageView({
 
   /*
    * LA SYNTHÈSE DU BESOIN OUVRE LE FIL, ET ELLE NE SE LIT PAS COMME UNE
-   * DEMANDE. C'est un texte long, écrit par le chef d'orchestre avant même que
+   * DEMANDE. C'est un texte long, écrit avant même que
    * la carte existe : le serrer dans une bulle étroite à droite, en texte brut,
    * le rendrait illisible (`shared/src/synthese-du-besoin.ts`). Il prend donc
    * toute la largeur, sous son titre, et se lit en Markdown comme une réponse.
@@ -394,10 +394,10 @@ export function MessageView({
 }
 
 /**
- * Le texte envoyé par « Valider » : le chef le lit comme un accord clair
- * (`TRI_MODE_PLAN`, `server/src/runtime.ts`) et propose alors la carte, plan
+ * Le texte envoyé par « Valider » : l'agent le lit comme un accord clair
+ * (`CONSIGNE_MODE_PLAN`, `server/src/runtime.ts`) et propose alors la carte, plan
  * recopié dans son contexte. Le niveau choisi voyage dans le même message :
- * le chef le reprend dans le champ « niveau » de la carte qu'il propose.
+ * l'agent le reprend dans le champ « niveau » de la carte qu'il propose.
  */
 const TEXTE_VALIDATION_PLAN = 'Vas-y, lance ce plan.';
 function texteValidationPlan(niveau: NiveauAgent): string {
@@ -407,7 +407,7 @@ function texteValidationPlan(niveau: NiveauAgent): string {
  * « REFUSER » NE LANCE RIEN. Il DÉPOSE ce refus dans la barre d'écriture, où il
  * se complète (« …, je préfère qu'on garde l'existant ») avant d'être envoyé.
  *
- * Le bouton envoyait ce texte tout seul : le chef repartait aussitôt pour un
+ * Le bouton envoyait ce texte tout seul : l'agent repartait aussitôt pour un
  * tour entier, à deviner ce qui n'allait pas dans un plan qu'on venait à peine
  * de refuser — de la dépense sur un malentendu. Le refus reste donc une phrase
  * à relire, et le geste qui lance appartient à l'utilisateur
@@ -436,7 +436,7 @@ function texteRepriseVersion(numero: number, contenu: string): string {
  *
  * « REFUSER », LUI, N'ENVOIE RIEN : il écrit dans la barre d'écriture et
  * s'arrête là. Un plan se refuse rarement sans avoir quelque chose à dire, et
- * relancer le chef à l'aveugle coûtait un tour entier pour rien.
+ * relancer l'agent à l'aveugle coûtait un tour entier pour rien.
  *
  * LES SUGGESTIONS VIENNENT DU PLAN, pas d'un catalogue : sa partie
  * « Améliorations apportées » s'affiche cliquable (`estTitreDesSuggestions`,

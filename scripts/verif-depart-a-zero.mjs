@@ -138,7 +138,7 @@ function poserLeDecor() {
   const agent = {
     id: AGENT_ID,
     projectId: PROJET_ID,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: "Chef d'orchestre",
     run: { engine: 'claude', model: 'claude-haiku-4-5-20251001', thinking: 'medium', mode: 'direct' },
     status: 'idle',

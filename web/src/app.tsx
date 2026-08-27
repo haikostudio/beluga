@@ -61,6 +61,16 @@ const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.V
 const ONGLETS_MOBILES = ['board', 'chat'] as const;
 type OngletMobile = (typeof ONGLETS_MOBILES)[number];
 
+/** Où l'on retient le choix « ouvert / replié » du volet de droite. */
+const CLE_VOLET_DROIT = 'haikodev.volet-droit.ouvert';
+
+/** Le volet de droite commence replié, sauf choix contraire déjà retenu. */
+function choixInitialVoletDroit(): boolean {
+  if (typeof window === 'undefined') return false;
+  const retenu = window.localStorage.getItem(CLE_VOLET_DROIT);
+  return retenu === '1';
+}
+
 
 /** La clé du serveur arrive en base64 « url » : le navigateur la veut en octets. */
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
@@ -112,7 +122,18 @@ export function App() {
   // conteneur central : le Kanban et le volet de droite sont alors masqués, la
   // colonne de gauche reste en place.
   const [dashboardOpen, setDashboardOpen] = React.useState(false);
-  const [rightOpen, setRightOpen] = React.useState(() => window.innerWidth >= 1100);
+  const [rightOpen, setRightOpenEtRetenir] = React.useState(choixInitialVoletDroit);
+  const setRightOpen = React.useCallback((valeur: boolean | ((precedent: boolean) => boolean)) => {
+    setRightOpenEtRetenir((precedent) => {
+      const suivant = typeof valeur === 'function' ? valeur(precedent) : valeur;
+      try {
+        window.localStorage.setItem(CLE_VOLET_DROIT, suivant ? '1' : '0');
+      } catch {
+        /* navigation privée : le choix vaut pour la session, c'est tout. */
+      }
+      return suivant;
+    });
+  }, []);
   /*
    * L'onglet du bas est retenu en base : on rouvre l'application là où on
    * l'avait laissée, et le même onglet suit d'un appareil à l'autre. Un onglet
@@ -223,7 +244,7 @@ export function App() {
    * jusqu'ici quand la décision ne tient à aucune carte : on ouvre le projet,
    * on déplie la conversation (elle est cachée derrière un bouton sur
    * téléphone, et repliable sur ordinateur), et si la décision vit dans le fil
-   * d'un autre agent que le chef, c'est ce fil-là qui s'ouvre. Le tiroir d'une
+   * d'un agent, c'est ce fil-là qui s'ouvre. Le tiroir d'une
    * carte resté ouvert (un autre projet, par exemple) est un plein écran qui
    * cacherait cette conversation par-dessus : on le referme au passage. Le
    * tableau de bord, lui, prend la place du panneau de droite sur ordinateur
@@ -242,7 +263,7 @@ export function App() {
         // son téléphone. Là, le panneau qu'on vient d'ouvrir suffit.
         if (window.innerWidth < 640) setMobileView('chat');
         const agent = client.getSnapshot().agents[agentId];
-        if (agent && agent.role !== 'orchestrator') setOpenAgentId(agentId);
+        if (agent) setOpenAgentId(agentId);
       }),
     [],
   );
@@ -469,7 +490,7 @@ export function App() {
     void setup();
 
     // Un appui sur une notification poussée emmène à la décision concernée
-    // (carte, ou conversation quand elle n'en a aucune — question du chef
+    // (carte, ou conversation quand elle n'en a aucune — question d'un agent
     // d'orchestre).
     const onMessage = (event: MessageEvent) => {
       if (event.data?.type === 'OPEN_CARD') {

@@ -57,7 +57,7 @@ test("un tour d'analyse ne fait entrer aucune carte en « En cours »", () => {
 test("seul l'agent d'EXÉCUTION fait basculer la carte en « En cours »", () => {
   assert.equal(colonneAuDemarrage('planned', 'task'), 'running');
   // Les autres rôles la regardent sans y toucher, où qu'elle soit.
-  for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
+  for (const role of ['analysis', 'cadrage', 'deploy'] as const) {
     assert.equal(colonneAuDemarrage('planned', role), null, `depuis « ${role} »`);
     assert.equal(colonneEnFinDeTour('running', true, role), null, `fin de tour « ${role} »`);
   }

@@ -162,12 +162,12 @@ async function main() {
     await page.waitForTimeout(800);
   }
 
-  /* ---------- 9. Chef d'orchestre ---------- */
-  const orchestratorVisible = await page.evaluate(() => {
+  /* ---------- 9. Volet de droite : plus d'onglet « Chef » ---------- */
+  const ongletChef = await page.evaluate(() => {
     const onglets = Array.from(document.querySelectorAll('[role="tab"]')).map((t) => t.textContent?.trim());
     return onglets.includes('Chef');
   });
-  record("Chef d'orchestre : le panneau de conversation est présent", orchestratorVisible);
+  record("Volet de droite : l'onglet du chef d'orchestre a bien disparu", !ongletChef);
 
   /* ---------- 10. Réglages et capacité ---------- */
   await page.evaluate(() => {
@@ -344,7 +344,7 @@ async function main() {
   const poignees = await page.evaluate(() => document.querySelectorAll('aside [data-drag-id]').length);
   record('Projets : les entrées se réordonnent au glisser-déposer', poignees > 0, `${poignees} projet(s) déplaçables`);
 
-  /* ---------- 14 ter. Chef d'orchestre : le moteur choisi tient ---------- */
+  /* ---------- 14 ter. Le moteur choisi tient ---------- */
   const reglage = await page.evaluate(() => {
     const boutons = Array.from(document.querySelectorAll('button'));
     const libelles = boutons.map((b) => b.textContent?.trim() ?? '');

@@ -65,7 +65,7 @@ export function Chat({
   cardId?: string;
   /** Ce que dit une conversation encore vide (analyse en cours, par exemple). */
   vide?: { titre: string; indice: string };
-  /** Propose le bouton « repartir de zéro » (conversation permanente du chef). */
+  /** Propose le bouton « repartir de zéro » (conversation sans carte). */
   nouveauDepart?: boolean;
   /** Quelque chose vient EN DESSOUS (barre de navigation du téléphone) : le
       creux de l'écran y est déjà réservé, la barre d'écriture ne doit pas le
@@ -101,7 +101,7 @@ export function Chat({
    * l'ABSENCE de l'entrée (jamais sur sa longueur) : le serveur envoie les
    * messages d'un agent en un bloc (`agent.snapshot`), ceux d'une carte de même,
    * et tant que le premier état du projet n'est pas là on ne connaît même pas
-   * l'agent du chef.
+   * l'agent de la conversation.
    */
   const chargement = cardId
     ? conversation === undefined
@@ -263,7 +263,7 @@ export function Chat({
         className="flex flex-col px-3 py-3"
       >
         {/*
-         * Un échange court — une phrase du chef et sa carte proposée — ne
+         * Un échange court — une phrase de l'agent et sa carte proposée — ne
          * remplit pas la hauteur du fil, et le contenu resterait collé EN HAUT
          * avec un grand vide noir jusqu'au volet des tâches.
          *
@@ -398,7 +398,7 @@ export function Chat({
  * rouvre les échanges d'avant (rien n'est supprimé), à droite le bouton qui
  * coupe le fil.
  *
- * Le bouton est inactif tant que le chef d'orchestre travaille : couper le fil
+ * Le bouton est inactif tant que l'agent travaille : couper le fil
  * sous une réponse en cours lui ferait perdre le sien. Le brouillon en train
  * d'être écrit n'est jamais touché par ce geste.
  */
@@ -461,7 +461,7 @@ function BarreNouveauDepart({
       <ConfirmDialog
         open={aConfirmer}
         title={t('Repartir sur une conversation neuve ?')}
-        description={t('Le chef d\'orchestre oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d\'un clic.')}
+        description={t('L\'agent oublie tout ce qui a été dit et repart à zéro : ses réponses redeviennent rapides et bien moins coûteuses. Les échanges précédents ne sont pas supprimés, ils restent consultables d\'un clic.')}
         confirmLabel={t('Repartir de zéro')}
         onConfirm={repartir}
         onClose={() => setAConfirmer(false)}
@@ -766,7 +766,7 @@ function TravailEnCours({
         // de saisie (même repli latéral), il en épouse exactement la largeur.
         'relative z-0 -mb-2 flex shrink-0 flex-col rounded-t-lg',
         // bg-bloc-etapes plutôt qu'un dégradé vers surface/0 : ce composeur vit
-        // tantôt sur un fond bg-bg (chef), tantôt sur un fond bg-surface
+        // tantôt sur un fond bg-bg (hors carte), tantôt sur un fond bg-surface
         // (tiroir d'une carte), et un dégradé qui finit transparent se
         // confondait avec l'un comme avec l'autre. Un jeton DÉDIÉ, SOLIDE du
         // haut jusqu'en bas (entête et liste dépliée comprises), qui

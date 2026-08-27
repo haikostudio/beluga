@@ -161,7 +161,7 @@ test('l’ancienne phrase du renvoi en file ne s’écrit plus jamais', () => {
 test('échec, rôle qui n’exécute pas, colonne autre : l’issue ne touche à rien', () => {
   // L'échec est déjà dit en rouge, et la carte reste là où on la relance.
   assert.deepEqual(issueDeFinDeTour('running', false, 'task', 'non', false).colonne, null);
-  for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
+  for (const role of ['analysis', 'cadrage', 'deploy'] as const) {
     assert.equal(issueDeFinDeTour('running', true, role, 'non', false).colonne, null, `rôle « ${role} »`);
   }
   for (const depart of COLUMN_KEYS.filter((c) => c !== 'running')) {
@@ -196,7 +196,7 @@ test('un tour d’analyse réussi ne clôt pas la carte : rien n’a été exéc
 });
 
 test('ni l’orchestration ni la publication ne déplacent une carte', () => {
-  for (const role of ['orchestrator', 'deploy'] as const) {
+  for (const role of ['cadrage', 'deploy'] as const) {
     assert.equal(colonneAuDemarrage('planned', role), null, `démarrage « ${role} »`);
     assert.equal(colonneAuDemarrage('done', role), null, `démarrage « ${role} »`);
     assert.equal(colonneEnFinDeTour('running', true, role), null, `fin « ${role} »`);
@@ -394,7 +394,7 @@ test('un moteur muet hors « En cours » ne fait rien bouger', () => {
 });
 
 test('un moteur muet sur un rôle qui ne déplace pas (analysis, orchestrator, deploy) ne fait rien bouger', () => {
-  for (const role of ['analysis', 'orchestrator', 'deploy'] as const) {
+  for (const role of ['analysis', 'cadrage', 'deploy'] as const) {
     assert.equal(colonneApresMoteurMuet('running', role, true), null, `rôle « ${role} »`);
   }
 });
@@ -597,7 +597,7 @@ test('une panne définitive hors « En cours » ne fait rien bouger', () => {
 });
 
 test('seuls les rôles qui exécutent voient leur carte revenir en file après une panne', () => {
-  for (const role of ['orchestrator', 'analysis', 'deploy'] as const) {
+  for (const role of ['cadrage', 'analysis', 'deploy'] as const) {
     assert.equal(colonneApresPanneDuMoteur('running', role, true), null, role);
   }
 });

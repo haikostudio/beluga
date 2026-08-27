@@ -7,7 +7,7 @@
  * dépôt. Sur le CHEF, c'était un contresens :
  *
  *  - le chef ne peut de toute façon PAS écrire le projet : son bac à sable le
- *    monte en lecture seule (`bridage-chef.ts`), et ses outils d'édition lui sont
+ *    monte en lecture seule (`bridage-cadrage.ts`), et ses outils d'édition lui sont
  *    interdits. Le mode plan n'ajoutait donc aucune sécurité ;
  *  - il lui retirait en revanche ses OUTILS DU DÉMON — écrire son plan
  *    (`write_document`), poser une question (`ask_user`). Le chef répondait alors
@@ -22,7 +22,7 @@
  */
 
 /** Les rôles d'agent, tels que le démon les nomme. */
-export type RoleDAgent = 'task' | 'orchestrator' | 'analysis' | 'deploy' | 'cadrage';
+export type RoleDAgent = 'task' | 'analysis' | 'deploy' | 'cadrage';
 
 /** Le mode d'une conversation, tel que le composeur le règle. */
 export type ModeDeConversation = 'direct' | 'plan';
@@ -39,5 +39,5 @@ export function modePlanFermeLEcriture(mode: ModeDeConversation | undefined, rol
   // Le CADRAGE suit la même exception que le chef : il ne peut de toute façon
   // pas écrire le projet, et lui retirer ses outils le priverait de sa question
   // (`ask_user`) et de l'écriture de sa propre carte (`board_update_card`).
-  return mode === 'plan' && role !== 'orchestrator' && role !== 'cadrage';
+  return mode === 'plan' && role !== 'cadrage';
 }

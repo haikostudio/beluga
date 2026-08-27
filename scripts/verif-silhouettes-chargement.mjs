@@ -191,7 +191,7 @@ async function main() {
   const colonnes = await page.locator('[data-column]').count();
   record('les vraies colonnes sont posées', colonnes >= 7, `${colonnes} colonne(s)`);
 
-  /* Le fil du chef arrive par un aller-retour de plus (`agent.orchestrator`
+  /* Le fil d'une carte arrive par un aller-retour de plus (`card.open`
      puis `agent.open`) : on lui laisse le temps avant de juger. */
   await page
     .locator('[data-silhouette]')

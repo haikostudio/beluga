@@ -240,11 +240,16 @@ function TiroirNotifications({
                       !ligne.nonLue && 'opacity-70',
                     )}
                   >
-                    <span className="flex w-full items-center gap-1.5 text-[11.5px] text-faint">
-                      <span className="min-w-0 flex-1 truncate">{ligne.titre}</span>
-                      {ligne.a ? <span className="shrink-0">{relativeTime(ligne.a)}</span> : null}
+                    {/* LE TITRE EST CELUI DE LA NOTIFICATION PUSH : il porte
+                        l'information et doit se lire EN ENTIER, jamais coupé
+                        — la couleur la plus lisible de la palette, jamais
+                        tronqué. La description vient juste en dessous, dans
+                        une teinte plus atténuée qu'elle mais encore lisible. */}
+                    <span className="flex w-full items-start gap-1.5">
+                      <span className="min-w-0 flex-1 text-[13.5px] font-medium text-text">{ligne.titre}</span>
+                      {ligne.a ? <span className="shrink-0 pt-0.5 text-[11px] text-faint">{relativeTime(ligne.a)}</span> : null}
                     </span>
-                    <span className="line-clamp-3 w-full text-[13.5px] text-text">{ligne.texte}</span>
+                    <span className="line-clamp-3 w-full text-[13px] text-muted">{ligne.texte}</span>
                   </div>
                 </li>
               );

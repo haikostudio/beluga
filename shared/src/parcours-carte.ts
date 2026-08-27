@@ -160,8 +160,8 @@ export function mesurerTours(tours: TourMesureAgent[]): MesureEtape | undefined 
 /** Le nom d'un rôle d'agent, en français. */
 export function nomDuRole(role: string): string {
   switch (role) {
-    case 'orchestrator':
-      return "chef d'orchestre";
+    case 'cadrage':
+      return 'cadrage';
     case 'analysis':
       return 'analyse';
     case 'task':
@@ -226,29 +226,29 @@ function lignesVentilation(ventilation?: SourceParcours['ventilation']): string[
 /**
  * LE PARCOURS. Les étapes sont produites dans l'ordre du temps, et seules celles
  * qui ont un sens pour CETTE carte apparaissent : une carte née d'une demande
- * directe n'a pas d'étape de tri, une carte jamais publiée n'a pas d'étape de
+ * directe n'a pas d'étape de proposition, une carte jamais publiée n'a pas d'étape de
  * mise en production.
  */
 export function construireParcours(source: SourceParcours): EtapeParcours[] {
   const etapes: EtapeParcours[] = [];
 
-  /* 1. LE TRI — seulement pour une carte née d'une proposition du chef. */
+  /* 1. LA PROPOSITION — seulement pour une carte née de la proposition d'un agent. */
   if (source.origin === 'agent') {
     const mesure = source.tri ? mesurerTours(source.tri.tours) : undefined;
     etapes.push({
       cle: 'tri',
-      titre: "Tri par le chef d'orchestre",
-      quoi: 'Le chef a transformé la demande en carte et choisi le niveau de son agent.',
+      titre: 'Proposition de la carte',
+      quoi: 'Un agent a transformé la demande en carte et choisi le niveau de son exécution.',
       quand: source.createdAt,
       cherche: [
         'la conversation en cours',
         ...(source.tri ? ligneSujets(source.tri.sujetsMemoire) : []),
-        "rien du code du projet — le chef trie, il n'étudie pas",
+        'la conversation où la carte a été proposée',
       ],
       mesure,
       sansMesure: mesure
         ? undefined
-        : "Le tour du chef n'est pas rattaché à cette carte : sa mesure existe dans sa conversation, pas ici.",
+        : "Le tour qui a proposé la carte n'y est pas rattaché : sa mesure existe dans sa conversation, pas ici.",
       attendMesure: true,
       etat: 'faite',
     });

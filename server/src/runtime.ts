@@ -9,14 +9,11 @@ import {
   CONSIGNE_CREATION_PROJET,
   CONSIGNE_CARTE_COURTE,
   CONSIGNE_SYNTHESE_CARTE,
-  syntheseDeSecours,
   CONSIGNE_NIVEAU_AGENT,
   DOSSIER_PLANS,
   EXTENSIONS_DOCUMENT,
   Card,
   DeployRun,
-  ETAPE_CARTE,
-  ETAPE_CARTE_ID,
   ETAPE_FOND,
   ETAPE_FOND_ID,
   ETAPE_PLAN,
@@ -80,14 +77,7 @@ import {
   dernierPlanRedige,
   jugerLePlan,
   jugerLeFond,
-  AVERTISSEMENT_SANS_CARTE,
-  carteAnnonceeSansOutil,
-  carteDecriteEnTexte,
-  consigneDeCarteReelle,
-  consigneDeDernierRappel,
-  MIN_SIGNES_CARTE_COURTE,
   NIVEAU_PAR_DEFAUT,
-  type CarteRelue,
   consigneDePlanEntier,
   consigneDePlanPlusFouille,
   nomDeBranche,
@@ -96,7 +86,7 @@ import {
   poidsDeTour,
   RAISON_ARBRE,
   type OrigineDeBloc,
-  consigneEspaceDuChef,
+  consigneEspaceDeCadrage,
   detailDuRefus,
   resumeContinuite,
   ROLES_QUI_DEPLACENT,
@@ -122,6 +112,8 @@ import {
   arretAAchever,
   noteDeQualite,
   type IssueDeTache,
+  titreEncoreVide,
+  titreDepuisLaDiscussion,
 } from '@haikodev/shared';
 import type { DecisionDArret } from '@haikodev/shared';
 import * as store from './store.js';
@@ -141,7 +133,7 @@ import {
   newFactsSince,
 } from './memory.js';
 import { allDone, mergeTodos } from './todos.js';
-import { callTool, orchestratorAllowList, orchestratorDenyList, toolsFor, writeMcpConfig } from './tools.js';
+import { callTool, cadrageAllowList, cadrageDenyList, toolsFor, writeMcpConfig } from './tools.js';
 import {
   AccountRecord,
   pickAccount,
@@ -304,7 +296,7 @@ export function agentsActifs(): string[] {
  * Ce que fait chaque agent actif, en une phrase courte — pour que « un agent
  * travaille » nomme le projet (et la carte, s'il en a une) au lieu de rester
  * anonyme. Un agent de rôle « task », le seul que le tableau affiche, dit sa
- * carte ; les autres rôles (chef d'orchestre, analyse, déploiement) restent
+ * carte ; les autres rôles (cadrage, analyse, déploiement) restent
  * invisibles du tableau et des projets — sans cette phrase, rien ne permet de
  * les retrouver.
  */
@@ -317,8 +309,6 @@ export function agentsActifsDetail(): string[] {
     if (agent.role === 'task' && agent.cardId) {
       const carte = store.getCard(agent.cardId);
       details.push(carte ? `la carte « ${carte.title} » (${projet})` : `une carte du projet « ${projet} »`);
-    } else if (agent.role === 'orchestrator') {
-      details.push(`le chef d’orchestre du projet « ${projet} »`);
     } else if (agent.role === 'cadrage') {
       const carte = agent.cardId ? store.getCard(agent.cardId) : null;
       details.push(carte ? `le cadrage de « ${carte.title} » (${projet})` : `un cadrage du projet « ${projet} »`);
@@ -1032,21 +1022,15 @@ async function preparerLeTour(
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const template: TemplateKind =
     options.template ??
-    // Le chef d'orchestre rend le MÊME compte rendu que les agents de tâche :
-    // il travaille pour de vrai, sa réponse doit se lire comme les autres.
-    (agent.role === 'orchestrator'
-      ? 'free'
-      : /* LE CADRAGE EST UNE CONVERSATION, PAS UN COMPTE RENDU. Le gabarit de sa
-           colonne (« Planifié » → `pre_run`) réclamerait six titres et un
-           chiffrage à un agent qui n'a pas ouvert le projet : on ne lui impose
-           donc aucune forme. */
-        agent.role === 'cadrage'
-        ? 'none'
-        : templateForColumn(card?.column, !!card?.deployedAt));
+    /* LE CADRAGE EST UNE CONVERSATION, PAS UN COMPTE RENDU. Le gabarit de sa
+       colonne (« Planifié » → `pre_run`) réclamerait six titres et un chiffrage
+       à un agent qui n'a pas ouvert le projet : on ne lui impose donc aucune
+       forme. */
+    (agent.role === 'cadrage' ? 'none' : templateForColumn(card?.column, !!card?.deployedAt));
 
   /*
    * La mémoire du projet part EN ENTIER au lancement d'une session — nouvelle
-   * tâche, nouveau chef d'orchestre, changement de moteur. Ensuite l'agent l'a
+   * tâche, nouveau cadrage, changement de moteur. Ensuite l'agent l'a
    * déjà dans son contexte : lui renvoyer les cent lignes à chaque message ne
    * lui apprend rien et coûte des jetons à chaque tour. Sur les tours suivants,
    * on n'envoie donc que les faits AJOUTÉS depuis.
@@ -1123,7 +1107,7 @@ async function preparerLeTour(
         niveau === 'minimal'
           ? 'Briefing réduit (dépannage)'
           : niveau === 'tri'
-            ? 'Briefing réduit (tri du chef)'
+            ? 'Briefing réduit (cadrage)'
             : 'Briefing du projet',
       kind: 'briefing',
       origine: 'projet',
@@ -1184,14 +1168,13 @@ async function preparerLeTour(
       /*
        * LE FIL DU MOTEUR MEURT, LA CONVERSATION NON.
        *
-       * Le chef d'orchestre garde une conversation qui ne s'arrête jamais, mais
-       * son fil côté moteur repart à neuf pour trois fois rien : une session
-       * expirée chez le fournisseur (« No conversation found »), un modèle ou
-       * un moteur changé dans les réglages. Le tour suivant partait alors avec
-       * le SEUL message qu'on venait d'écrire — et « fais-en une carte » ne
-       * désigne plus rien. Le chef redemandait de quoi on parlait, ou pire,
-       * proposait une carte au hasard, alors que le sujet s'affichait deux
-       * lignes plus haut à l'écran.
+       * Une conversation ne s'arrête jamais, mais son fil côté moteur repart à
+       * neuf pour trois fois rien : une session expirée chez le fournisseur
+       * (« No conversation found »), un modèle ou un moteur changé dans les
+       * réglages. Le tour suivant partait alors avec le SEUL message qu'on
+       * venait d'écrire — et « reprends ce qu'on disait » ne désigne plus rien.
+       * L'agent redemandait de quoi on parlait, alors que le sujet s'affichait
+       * deux lignes plus haut à l'écran.
        *
        * On lui rend donc ce que l'utilisateur voit : les échanges VISIBLES de
        * la conversation, résumés comme après une compression. La compression et
@@ -1235,31 +1218,31 @@ async function preparerLeTour(
   }
 
   /*
-   * LA CONSIGNE D'ESPACE DU CHEF PART À CHAQUE TOUR, JAMAIS AU SEUL PREMIER.
+   * LA CONSIGNE D'ESPACE DE L'AGENT BRIDÉ PART À CHAQUE TOUR, JAMAIS AU SEUL PREMIER.
    *
    * Elle était posée dans le bloc « session neuve » : une conversation ouverte
    * il y a des jours ne l'avait donc JAMAIS reçue, et gardait les croyances de
    * son premier tour — celles du temps du bac à sable. Constaté le 11/08/2026 :
-   * un chef d'une session vieille de neuf jours expliquait à l'utilisateur que
+   * un agent d'une session vieille de neuf jours expliquait à l'utilisateur que
    * « le projet et le dossier servi sont en lecture seule pour moi », alors que
    * l'accès complet était en place depuis le matin. Le code d'un moteur change,
    * pas le souvenir d'une session : ce qui dit à l'agent ce qu'il PEUT faire
    * doit donc repartir à chaque tour. Elle tient en 1 570 signes, moins de 400
-   * jetons — le prix d'un chef qui refuse un geste qu'on lui a ouvert est plus
+   * jetons — le prix d'un agent qui refuse un geste qu'on lui a ouvert est plus
    * élevé.
    */
-  if (agent.role === 'orchestrator' && !project.isSelf) {
-    const scratch = path.join(PATHS.chefScratch, project.id);
-    const espace = consigneEspaceDuChef(scratch, project.path);
-    // L'espace du chef est une mécanique de la plateforme, la même partout.
-    contextParts.push({ label: 'Espace de travail du chef', kind: 'extra', origine: 'plateforme', content: espace });
+  if (agent.role === 'cadrage') {
+    const scratch = path.join(PATHS.cadrageScratch, project.id);
+    const espace = consigneEspaceDeCadrage(scratch, project.path);
+    // L'espace de l'agent bridé est une mécanique de la plateforme, la même partout.
+    contextParts.push({ label: 'Espace de travail du cadrage', kind: 'extra', origine: 'plateforme', content: espace });
   }
 
   /*
    * LE PLAN PRÉCÉDENT EST REFUSÉ D'OFFICE PAR CE MESSAGE. En mode plan, un
    * nouveau message ne s'ajoute pas à côté du plan affiché : il le remplace.
    * L'interface le savait déjà (le plan perd ses boutons dès qu'un message
-   * rédigé le suit) ; le chef, lui, ne le savait pas et commentait au lieu de
+   * rédigé le suit) ; le moteur, lui, ne le savait pas et commentait au lieu de
    * refaire. On lui redonne donc le plan qui attendait, TEXTE COMPRIS — la
    * consigne seule ne survivrait pas à une compression du contexte.
    */
@@ -1676,32 +1659,27 @@ async function startTurn(
   const url = `http://127.0.0.1:${CONFIG.port}`;
   writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath, tourId);
 
-  const isOrchestrator = agent.role === 'orchestrator';
   /*
    * L'AGENT DE CADRAGE NE CODE JAMAIS, PAS MÊME SUR HAIKODEV : sa carte n'a pas
    * encore de branche, et le travail appartient à l'agent lancé après lui. Il
-   * suit donc exactement la frontière du chef bridé — outils d'édition fermés,
-   * dossier de travail à part —, sans l'exception « projet à soi ».
+   * est donc le SEUL rôle bridé — outils d'édition fermés, dossier de travail à
+   * part.
    */
-  const isCadrage = agent.role === 'cadrage';
-  // L'exception HaikoDev : sur son propre dépôt, le chef d'orchestre est un
-  // agent complet (PLAN §5). Le basculement se décide sur le CHEMIN du projet.
-  const bride = isCadrage || (isOrchestrator && !project.isSelf);
+  const bride = agent.role === 'cadrage';
   const fullAccess = !bride;
 
   /*
-   * LA FRONTIÈRE DU CHEF BRIDÉ. Il a tous les droits sauf modifier le code du
-   * projet : on lui donne un DOSSIER DE TRAVAIL à part comme `cwd` — le seul
+   * LA FRONTIÈRE DE L'AGENT BRIDÉ. Il a tous les droits sauf modifier le code
+   * du projet : on lui donne un DOSSIER DE TRAVAIL à part comme `cwd` — le seul
    * écrivable — et on garde le projet en LECTURE SEULE (monté par `projectRoot`,
    * jamais dans l'espace écrivable du bac à sable). Un dossier par projet, hors
-   * des dépôts, gardé d'un tour à l'autre pour que le chef y retrouve ses notes.
-   * L'agent de tâche et le chef d'HaikoDev lui-même, eux, travaillent dans le
-   * dossier du projet (`dossier`).
+   * des dépôts, gardé d'un tour à l'autre pour qu'il y retrouve ses notes.
+   * L'agent de tâche, lui, travaille dans le dossier du projet (`dossier`).
    */
   let cwd = dossier;
   let projectRoot: string | undefined;
   if (bride) {
-    const scratch = path.join(PATHS.chefScratch, project.id);
+    const scratch = path.join(PATHS.cadrageScratch, project.id);
     fs.mkdirSync(scratch, { recursive: true });
     cwd = scratch;
     projectRoot = project.path;
@@ -1840,10 +1818,10 @@ async function startTurn(
       fullAccess,
       mode: agent.run.mode,
       // Le RÔLE décide de l'effet du mode plan : un agent de tâche prépare sans
-      // écrire, le chef garde ses outils (`modePlanFermeLEcriture`).
+      // écrire, l'agent de cadrage garde les siens (`modePlanFermeLEcriture`).
       role: agent.role,
-      allowedTools: bride ? orchestratorAllowList() : undefined,
-      disallowedTools: bride ? orchestratorDenyList() : undefined,
+      allowedTools: bride ? cadrageAllowList() : undefined,
+      disallowedTools: bride ? cadrageDenyList() : undefined,
       env,
       onEvent: (event) => {
         agentLog(PATHS.logs, agent.id, JSON.stringify(event));
@@ -1867,9 +1845,9 @@ async function startTurn(
               const existing = runState.steps.get(event.step.key);
               /*
                * UN REFUS DU BAC À SABLE SE DIT EN FRANÇAIS. Le projet est monté en
-               * lecture seule pour un chef bridé et l'élévation de privilèges y
+               * lecture seule pour un agent bridé et l'élévation de privilèges y
                * est coupée : une commande qui l'oublie rendait « EROFS », « sudo:
-               * no new privileges » ou « Read-only file system », que le chef
+               * no new privileges » ou « Read-only file system », que l'agent
                * reprenait en « je n'ai pas les droits » — alors que rien ne manque.
                * On ajoute la cause réelle et la route à prendre AU-DESSUS de la
                * sortie d'origine, qui reste lisible. Étape en cours exclue : son
@@ -2383,99 +2361,6 @@ async function startTurn(
     }
   }
 
-  /*
-   * LA CARTE A-T-ELLE ÉTÉ APPELÉE, OU SEULEMENT RACONTÉE ?
-   *
-   * Le tri du chef dit en toutes lettres qu'une demande de programmation passe
-   * par `board_create_card`. Un petit modèle (Haiku) préfère pourtant RACONTER
-   * l'action : « J'ai créé la tâche… », tour rendu, aucune proposition née,
-   * aucun bouton « Valider » — l'utilisateur attend une carte qui n'arrivera
-   * jamais. Sonnet, lui, appelle l'outil : le défaut tient au modèle, donc rien
-   * dans la consigne ne le règlera à coup sûr.
-   *
-   * On regarde donc le RÉSULTAT (`carteAnnonceeSansOutil`,
-   * `shared/src/carte-en-texte.ts`) : une annonce de carte sans proposition
-   * attachée au message vaut relance. Un seul tour court, dans la MÊME session,
-   * outils ouverts — la proposition qui en naît se rattache toute seule au
-   * message de ce tour (`attachToCurrentMessage`). Si elle ne vient toujours
-   * pas, la réponse le DIT plutôt que de laisser la phrase du moteur faire
-   * croire le contraire.
-   */
-  const phraseDeCarte = carteAnnonceeSansOutil({
-    role: agent.role,
-    mode: agent.run.mode,
-    echec: failed || Boolean(reprise) || Boolean(panneDefinitive),
-    propositions: store.getMessage(runState.messageId)?.proposals.length ?? 0,
-    texte: finalText,
-  });
-  if (phraseDeCarte) {
-    const debutRattrapage = Date.now();
-    const carteNee = () => (store.getMessage(runState.messageId)?.proposals.length ?? 0) > 0;
-    const poserLetape = (label: string, state: 'running' | 'done' | 'failed') => {
-      runState.steps.set(ETAPE_CARTE_ID, {
-        id: ETAPE_CARTE_ID,
-        label: `${ETAPE_CARTE} — ${label}`,
-        state,
-        startedAt: debutRattrapage,
-        ...(state === 'running' ? {} : { endedAt: Date.now() }),
-      });
-    };
-    const relancer = (consigne: string) =>
-      exigerLappelDeLoutil({
-        adapter,
-        cwd,
-        projectRoot,
-        agent,
-        sessionId: store.getSessionId(agent.id, cleSession),
-        mcpConfigPath,
-        mcpBridgePath: bridgePath,
-        fullAccess,
-        env,
-        allowedTools: bride ? orchestratorAllowList() : undefined,
-        disallowedTools: bride ? orchestratorDenyList() : undefined,
-        consigne,
-      }).catch(() => '');
-
-    poserLetape("annoncée en texte, sans appel d'outil", 'running');
-    pushMessage(runState, { steps: [...runState.steps.values()] });
-    log.warn(`carte annoncée sans outil par l'agent ${agent.id} : relance`);
-
-    /* 1. LA RELANCE. Le modèle garde la main : c'est lui qui écrit le mieux
-     *    les arguments de sa propre carte. */
-    let dernierTexte = await relancer(consigneDeCarteReelle(phraseDeCarte));
-    let issue = carteNee() ? 'carte posée après reprise' : '';
-
-    /* 2. LE FILET DU DÉMON, tout de suite après — il est INSTANTANÉ et ne
-     *    dépend d'aucun modèle. Quand la réponse (ou la relance) DÉCRIT une
-     *    carte, HaikoDev la relit et appelle l'outil lui-même. La proposition
-     *    garde ses boutons : rien n'entre sur le tableau sans le clic. */
-    if (!issue) {
-      const relue = carteDecriteEnTexte(dernierTexte) ?? carteDecriteEnTexte(finalText);
-      if (relue && (await poserLaCarteRelue(agent, project.id, relue, dernierTexte || finalText))) {
-        issue = 'carte posée par HaikoDev, relue dans le texte';
-      }
-    }
-
-    /* 3. LE DERNIER RAPPEL, réservé au cas où la réponse ne décrivait AUCUNE
-     *    carte relisible : on n'invente pas, on redemande — en disant cette
-     *    fois ce que l'outil exige d'une description. */
-    if (!issue) {
-      dernierTexte = await relancer(consigneDeDernierRappel(MIN_SIGNES_CARTE_COURTE));
-      if (carteNee()) issue = 'carte posée au dernier rappel';
-      else {
-        const relue = carteDecriteEnTexte(dernierTexte);
-        if (relue && (await poserLaCarteRelue(agent, project.id, relue, dernierTexte))) {
-          issue = 'carte posée par HaikoDev, relue dans le texte';
-        }
-      }
-    }
-
-    poserLetape(issue || 'aucune carte, même après deux reprises', issue ? 'done' : 'failed');
-    if (!issue) finalText += AVERTISSEMENT_SANS_CARTE;
-    else log.info(`rattrapage de carte pour l'agent ${agent.id} : ${issue}`);
-  }
-
-  // Le résumé de repli n'est oublié qu'une fois le premier tour de la nouvelle
   // session RÉUSSI. Une session créée puis refusée doit pouvoir le renvoyer.
   if (nouvelleSession) {
     const frais = store.getAgent(agent.id);
@@ -2579,6 +2464,25 @@ async function startTurn(
   bus.emit({ type: 'plans', ...store.signalPlans() });
 
   /*
+   * LE TITRE DE LA CARTE SE GÉNÈRE DÈS LE PREMIER ÉCHANGE, PAS SEULEMENT AU
+   * LANCEMENT. Une carte de cadrage encore appelée « Nouvelle tâche » — parce
+   * que l'agent n'a pas pris la peine d'écrire un titre, ou qu'un tour raté
+   * l'en a empêché — reçoit ici la première phrase de la première demande de
+   * l'utilisateur, débarrassée de ses tags « [fichier: …] ». Un titre déjà
+   * posé par l'agent (`board_update_card`) n'est jamais écrasé.
+   */
+  if (agent.role === 'cadrage' && agent.cardId) {
+    const carteDeCadrage = store.getCard(agent.cardId);
+    if (carteDeCadrage && titreEncoreVide(carteDeCadrage.title)) {
+      const titre = titreDepuisLaDiscussion(store.listMessages(agent.id), carteDeCadrage.title);
+      if (titre !== carteDeCadrage.title) {
+        const carteTitree = store.saveCard({ ...carteDeCadrage, title: titre });
+        bus.emit({ type: 'card.upsert', card: carteTitree });
+      }
+    }
+  }
+
+  /*
    * LA COMPTABILITÉ DU TOUR VIENT APRÈS L'AFFICHAGE, JAMAIS AVANT.
    *
    * Relire le quota du compte est un appel RÉSEAU au fournisseur, mis en file
@@ -2668,8 +2572,8 @@ async function startTurn(
     composition,
   };
 
-  if (!failed && agent.role === 'orchestrator') {
-    finaliserPropositionsDuChef(runState.messageId, agent.projectId, measurement);
+  if (!failed) {
+    finaliserPropositionsDuTour(runState.messageId, agent.projectId, measurement);
   }
 
   /*
@@ -2702,8 +2606,8 @@ async function startTurn(
           mcpConfigPath,
           mcpBridgePath: bridgePath,
           fullAccess,
-          allowedTools: bride ? orchestratorAllowList() : undefined,
-          disallowedTools: bride ? orchestratorDenyList() : undefined,
+          allowedTools: bride ? cadrageAllowList() : undefined,
+          disallowedTools: bride ? cadrageDenyList() : undefined,
           env,
           cleSession,
         });
@@ -2834,7 +2738,7 @@ async function startTurn(
      * lecture additionne : écrire la seule dernière ferait passer une tâche
      * reprise pour une tâche courte.
      *
-     * Seuls les agents de TÂCHE sont mesurés : le chef d'orchestre trie des
+     * Seuls les agents de TÂCHE sont mesurés : le cadrage discute des
      * demandes, il ne fait pas le travail d'une carte, et mêler ses tours
      * fausserait toutes les moyennes.
      *
@@ -3049,7 +2953,7 @@ function resumePourAgent(
 /**
  * LA MÉMOIRE QU'UNE REPRISE RECHARGE : les fichiers de sujet que touche le
  * travail en cours, jamais toute la mémoire. Le texte examiné est le même pour
- * TOUS les rôles — carte, titre de l'agent, rôle réunis : le chef d'orchestre et
+ * TOUS les rôles — carte, titre de l'agent, rôle réunis : le cadrage et
  * l'agent de tâche passent par la même règle, seul leur travail diffère.
  */
 function memoireDeReprise(projectPath: string, agent: Agent, card: Card | null): MemoireDeReprise | undefined {
@@ -3057,7 +2961,7 @@ function memoireDeReprise(projectPath: string, agent: Agent, card: Card | null):
     card?.title,
     card?.description,
     agent.title,
-    agent.role === 'orchestrator' ? "chef d'orchestre : cartes, projets, conversation" : agent.role,
+    agent.role,
   ]
     .filter(Boolean)
     .join('\n');
@@ -3187,120 +3091,6 @@ async function rendreLePlanEntier(options: {
   return resultat.ok && !erreur ? texte.trim() : '';
 }
 
-/**
- * LA RELANCE QUI EXIGE L'APPEL DE L'OUTIL.
- *
- * Même principe que `rendreLePlanEntier` — un second passage dans la MÊME
- * session, borné —, à une différence près : ici les outils RESTENT OUVERTS,
- * puisque c'est justement l'appel qui manque. La configuration du pont est
- * celle du tour (même identifiant de tour), donc la proposition qui naît se
- * rattache au message déjà affiché.
- */
-async function exigerLappelDeLoutil(options: {
-  adapter: EngineAdapter;
-  cwd: string;
-  projectRoot?: string;
-  agent: Agent;
-  sessionId?: string | null;
-  mcpConfigPath: string;
-  mcpBridgePath?: string;
-  fullAccess: boolean;
-  env?: Record<string, string>;
-  allowedTools?: string[];
-  disallowedTools?: string[];
-  consigne: string;
-}): Promise<string> {
-  /*
-   * LE TEXTE DE LA RELANCE EST GARDÉ, il ne se jette plus. Un modèle qui
-   * recommence à ÉCRIRE sa carte au lieu de l'appeler vient de nous la donner
-   * en toutes lettres : c'est exactement ce qu'il faut au filet du démon
-   * (`carteDecriteEnTexte`) pour appeler l'outil à sa place.
-   */
-  let texte = '';
-  const handle = options.adapter.run({
-    cwd: options.cwd,
-    projectRoot: options.projectRoot,
-    prompt: options.consigne,
-    model: options.agent.run.model ?? undefined,
-    thinking: options.agent.run.thinking,
-    sessionId: options.sessionId,
-    fullAccess: options.fullAccess,
-    role: options.agent.role,
-    mcpConfigPath: options.mcpConfigPath,
-    mcpBridgePath: options.mcpBridgePath,
-    allowedTools: options.allowedTools,
-    disallowedTools: options.disallowedTools,
-    env: options.env,
-    // Un rattrapage ne retient pas l'agent : au plafond, on garde la réponse
-    // d'origine et son avertissement.
-    plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
-    surLancement: suivreLeService(options.agent.id),
-    onEvent: (event) => {
-      if (event.kind === 'text' && event.text) texte += `${texte ? '\n\n' : ''}${event.text}`;
-    },
-  });
-  await handle.finished;
-  return texte.trim();
-}
-
-/**
- * LE FILET : LE DÉMON APPELLE L'OUTIL À LA PLACE DU MODÈLE.
- *
- * On ne peut pas obliger un moteur à appeler un outil ; on peut faire le geste
- * pour lui. Quand la réponse DÉCRIT une carte (`carteDecriteEnTexte`), le démon
- * passe par le MÊME outil que l'agent — `board_create_card`, avec ses règles :
- * la description est jugée, le niveau traduit en réglages, la proposition
- * s'attache au message du tour. Rien n'est écrit sur le tableau pour autant :
- * une proposition attend toujours le clic de l'utilisateur.
- *
- * On rend `false` quand l'outil refuse (une description trop maigre reste
- * refusée, d'où qu'elle vienne) : la suite du rattrapage prend alors le relais.
- */
-async function poserLaCarteRelue(
-  agent: Agent,
-  projectId: string,
-  relue: CarteRelue,
-  /** La réponse d'où la carte a été relue : elle sert de synthèse de secours. */
-  texteSource: string,
-): Promise<boolean> {
-  try {
-    const resultat = await callTool(
-      {
-        agentId: agent.id,
-        projectId,
-        role: agent.role,
-        cardId: agent.cardId,
-        run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
-        mode: agent.run.mode,
-      },
-      'board_create_card',
-      {
-        title: relue.titre,
-        description: relue.description,
-        niveau: relue.niveau ?? NIVEAU_PAR_DEFAUT,
-        /*
-         * Le chef n'a rien rédigé pour l'agent : sa réponse ENTIÈRE fait
-         * office de synthèse, et le drapeau `secours` dit à l'outil de ne pas
-         * la juger — sans quoi la carte relue serait refusée, donc perdue.
-         */
-        contexte: syntheseDeSecours(texteSource),
-        secours: true,
-      },
-    );
-    if (!resultat.proposal) {
-      log.warn(`carte relue refusée par l'outil pour l'agent ${agent.id} : ${resultat.text.slice(0, 200)}`);
-      return false;
-    }
-    // L'attachement range lui-même la proposition dans sa table, avant
-    // d'allumer le signal : rien à enregistrer ici.
-    attachToCurrentMessage(agent.id, { proposal: resultat.proposal });
-    return true;
-  } catch (error) {
-    log.warn(`carte relue non posée pour l'agent ${agent.id} : ${(error as Error).message}`);
-    return false;
-  }
-}
-
 /** Tout ce que la relance n'a pas à toucher : elle ne rend qu'un texte. */
 const OUTILS_FERMES_POUR_LA_RELANCE = [
   'Bash',
@@ -3312,7 +3102,7 @@ const OUTILS_FERMES_POUR_LA_RELANCE = [
   'Task',
   'Agent',
   'Workflow',
-  ...toolsFor('orchestrator').map((outil) => `mcp__haikodev__${outil.name}`),
+  ...toolsFor('task').map((outil) => `mcp__haikodev__${outil.name}`),
 ];
 
 async function resumeSemantique(agent: Agent, options: OptionsCompression): Promise<string> {
@@ -3582,11 +3372,11 @@ export function attachToCurrentMessage(
 
 /**
  * Une proposition naît pendant le tour, avant que l'usage réel soit connu.
- * À la fin du tour du chef, on complète son chiffrage dans les DEUX sources
+ * À la fin du tour, on complète son chiffrage dans les DEUX sources
  * persistantes (message et table des propositions). Si l'utilisateur a déjà
  * cliqué, la carte reçoit aussi cette mesure tardive sans relancer d'analyse.
  */
-function finaliserPropositionsDuChef(
+function finaliserPropositionsDuTour(
   messageId: string,
   projectId: string,
   measurement: TurnMeasurement,
@@ -4107,7 +3897,7 @@ const OUTIL_LISTE: Record<EngineId, string> = {
  */
 /**
  * LE SILENCE SUR LES IDENTIFIANTS STOCKÉS, écrit UNE FOIS et servi à tous les
- * rôles — chef d'orchestre compris, dont la consigne ne porte plus la MÉTHODE
+ * rôles — agent de cadrage compris, dont la consigne ne porte plus la MÉTHODE
  * entière. Deux copies auraient divergé à la première réécriture.
  */
 const SILENCE_IDENTIFIANTS = `SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet — ni dans ta réponse, ni dans une carte proposée, ni dans une alerte, même en passant. Tu peux les lire et t'en servir comme n'importe quel fichier. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
@@ -4155,95 +3945,26 @@ NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'apr
 SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet. Une PANNE se dit toujours : un identifiant absent, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
 
 /**
- * L'OUVERTURE DE LA CONSIGNE DU CHEF D'ORCHESTRE.
+ * CE QUE L'AGENT DE CADRAGE ÉCRIT, annoncé au modèle.
  *
- * Le chef ne fait plus que deux gestes : rédiger une carte courte, et choisir le
- * NIVEAU de l'agent qui l'exécutera. Il n'ouvre plus le projet, ne chiffre plus,
- * ne prépare plus de relais — l'étude appartient à la carte, après validation.
- *
- * Le déroulé visible (liste de tâches) et la MÉTHODE de travail en six points ne
- * lui servent donc plus : ils disent de lire le fichier d'instructions, de
- * demander la mémoire par sujet, de constater par écrit et de rejouer les
- * contrôles du projet — quatre détours payés à chaque conversation neuve, pour
- * un tri. Ne restent que les trois règles qui valent quoi qu'il fasse : le
- * silence sur les identifiants, la question posée par l'outil, et l'adresse
- * demandée avant de monter un projet.
- */
-/**
- * CE QUE LE CHEF ÉCRIT, annoncé au modèle.
- *
- * Sa frontière ne tient plus à un DOSSIER mais à la NATURE du fichier
- * (`cheminDuDocumentDuChef`, `shared/src/documents-du-chef.ts`) : les DOCUMENTS
- * partout, le CODE jamais. Cette consigne évite au chef de buter sur un refus,
- * et lui dit pourquoi le dossier des plans reste le rangement par défaut — ce
+ * Sa frontière ne tient pas à un DOSSIER mais à la NATURE du fichier
+ * (`cheminDuDocument`, `shared/src/documents-de-cadrage.ts`) : les DOCUMENTS
+ * partout, le CODE jamais. Cette consigne lui évite de buter sur un refus, et
+ * lui dit pourquoi le dossier des plans reste le rangement par défaut — ce
  * qu'il y écrit revient tout seul au lancement de la carte, par la recherche de
- * passages. Un document gardé dans la seule conversation, lui, meurt avec elle.
+ * passages. Elle ne part qu'en MODE PLAN : c'est le seul moment où on lui
+ * demande d'écrire un fichier.
  */
-export const CONSIGNE_DOCUMENTS_DU_CHEF = `TES DOCUMENTS S'ÉCRIVENT AVEC L'OUTIL « write_document », ET IL ÉCRIT PARTOUT DANS LE PROJET : documentation, mémoire, fichier d'instructions, compte-rendu, plan — tout ce qui est du TEXTE (${EXTENSIONS_DOCUMENT.join(', ')}) se crée, se remplace et se SUPPRIME (\`action: "supprimer"\`) sans carte et sans permission à demander. C'est ton seul geste d'écriture, et le seul qui survive à la conversation.
+export const CONSIGNE_DOCUMENTS = `TES DOCUMENTS S'ÉCRIVENT AVEC L'OUTIL « write_document », ET IL ÉCRIT PARTOUT DANS LE PROJET : documentation, mémoire, fichier d'instructions, compte-rendu, plan — tout ce qui est du TEXTE (${EXTENSIONS_DOCUMENT.join(', ')}) se crée, se remplace et se SUPPRIME (\`action: "supprimer"\`) sans carte et sans permission à demander. C'est ton seul geste d'écriture, et le seul qui survive à la conversation.
 LE CODE RESTE FERMÉ, et lui seul : un fichier de programme, de configuration ou de script se crée, se modifie et s'efface par une CARTE confiée à un agent de tâche. L'outil refuse de toute façon toute autre extension que celles ci-dessus.
 POUR MODIFIER un document existant, relis-le d'abord (« Read »), puis réécris-le ENTIER sous le MÊME chemin — « write_document » remplace le fichier, il n'ajoute pas à la fin.
 UN NOM SANS DOSSIER EST RANGÉ DANS « ${DOSSIER_PLANS}/ » : c'est là que vivent tes plans, et CE DOSSIER EST RELU PAR LA RECHERCHE — au lancement d'une carte sur le même sujet, ton plan remonte tout seul dans le contexte de l'agent qui l'exécute. Pour écrire ailleurs, donne le chemin entier (« docs/memoire/cartes.md », « README.md »).`;
 
 /**
- * LA COLONNE DE GAUCHE, ANNONCÉE AU CHEF.
- *
- * Ranger un projet dans un groupe, le renommer, le mettre de côté : ce ne sont
- * PAS des demandes de programmation, donc pas des cartes — mais le chef n'avait
- * aucun moyen de les faire, monté en lecture seule sur le projet. Les outils
- * `project_manage` et `group_manage` (`server/src/tools.ts`, règles pures dans
- * `shared/src/gestion-projets.ts`) les lui donnent ; cette consigne lui dit
- * qu'ils existent, et rappelle les deux interdits que les outils opposent de
- * toute façon — la suppression d'un projet, et un montage sans adresse.
- */
-export const CONSIGNE_GESTION_PROJETS = `LA COLONNE DE GAUCHE EST À TOI : « project_manage » (lister, creer, renommer, deplacer, retirer, remettre) et « group_manage » (lister, creer, renommer, regler) rangent les projets et leurs groupes. Ranger, renommer ou grouper n'est pas de la programmation : tu le fais TOI-MÊME, aussitôt, sans carte — la colonne se redessine sous les yeux de l'utilisateur.
-COMMENCE PAR « lister » : les projets et les groupes se désignent par leur NOM, et tu ne devines jamais un identifiant.
-DEUX REFUS À CONNAÎTRE, opposés par l'outil : un projet ne se SUPPRIME pas (« retirer » le met de côté, rien n'est perdu), et un projet neuf ne se monte pas sans son adresse — sous-domaine et port se demandent d'abord avec « ask_user ».`;
-
-const COMMUN_DU_CHEF = `Tu travailles dans HaikoDev. Réponds en français simple, pour un lecteur non technique. Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.
-
-TU ES LE CHEF D'ORCHESTRE du projet, et tu ne fais QUE DEUX CHOSES : tu réponds aux questions, et tu proposes des cartes courtes en disant à quel NIVEAU les exécuter. Tu n'ouvres pas le projet pour étudier une demande, tu ne chiffres rien, tu ne prépares aucun relais : tout cela appartient à la carte une fois validée, et le refaire ici serait le payer deux fois.
-NE RIEN INVENTER : ce que tu n'as pas vu ne se cite pas. Si une réponse suppose de lire le projet, tu lis d'abord — mais une CARTE, elle, s'écrit sans rien lire.
-${SILENCE_IDENTIFIANTS}
-UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : une question écrite à la fin de ta réponse ne réveille personne. Ce qui peut être tranché se tranche : tu annonces ton choix en une ligne et tu continues.
-
-${CONSIGNE_DOCUMENTS_DU_CHEF}
-
-${CONSIGNE_GESTION_PROJETS}
-
-${CONSIGNE_CREATION_PROJET}`;
-
-/**
- * LE TRI, cœur du métier du chef — inchangé. Il vit à part pour être mesuré et
- * vérifié pour lui-même : c'est ce texte qui décide si une demande devient une
- * carte ou du code écrit à la volée.
- */
-export const TRI_DU_CHEF = `TON PREMIER GESTE SUR CHAQUE MESSAGE EST UN TRI, PAS UNE CRÉATION DE CARTE :
-1. Question ou demande d'information (y compris « fais-moi la doc de X ») → tu RÉPONDS DANS LA CONVERSATION, aucune carte. Lire n'est pas agir ; produire un document fait partie de la réponse.
-2. TOUTE DEMANDE DE PROGRAMMATION → tu PROPOSES UNE carte avec board_create_card, et tu t'arrêtes là. Rien n'est créé sur le tableau : la carte s'affiche dans la conversation avec ses boutons valider / refuser, et elle n'entre dans « Planifié » qu'après le clic de l'utilisateur — ensuite seulement, le parcours habituel s'enchaîne. Tu ne fais jamais le travail toi-même. C'est ainsi que l'utilisateur voit l'avancement du début à la fin, sur le tableau.
-   PROGRAMMATION VEUT DIRE : nouvelle fonctionnalité, correction d'une fonctionnalité existante, suppression, changement de comportement, retouche d'interface, remaniement, script, réglage du moteur. AUCUNE EXCEPTION, quelle que soit la taille : une ligne à changer mérite sa carte autant qu'un chantier.
-   ATTENDS-TOI À CE QUE LE MOT « TÂCHE » NE SOIT JAMAIS DIT. « Il faudrait que… », « ajoute… », « corrige… », « ce serait bien si… », « pourquoi ça ne marche pas ? » suivi d'un défaut réel, une fonctionnalité décrite au passage : c'est une demande de programmation, tu proposes la carte.
-   REGROUPE AVANT DE COMPTER : plusieurs demandes qui servent le MÊME résultat, concernent le MÊME chantier ou doivent être réalisées dans un ordre logique forment UNE SEULE carte. Sa description énumère alors les étapes successives. Ne crée plusieurs cartes que pour des objectifs réellement indépendants, qui peuvent être menés et validés séparément sans perdre leur sens.
-3. TOUTE DEMANDE D'EXÉCUTION SUR LA MACHINE → même traitement qu'une demande de programmation : tu PROPOSES AUSSITÔT UNE carte avec board_create_card. Lancer une commande, tester une connexion (SSH, base de données, adresse), ouvrir un terminal, faire tourner un contrôle ou un script, redémarrer un service, regarder un journal en direct : tout cela s'exécute, donc tout cela devient une carte. La description dit CE QU'IL FAUT LANCER et CE QU'ON ATTEND COMME RÉSULTAT.
-   Tu ne demandes AUCUNE confirmation avant de proposer, et tu n'écris PAS un paragraphe sur tes propres limites : une phrase suffit pour dire qu'un agent de tâche exécutera la commande, puis la carte parle d'elle-même. Une limite expliquée sans carte proposée est une demande perdue.
-4. Cas ambigu → TU NE TRANCHES PAS SEUL, TU PROPOSES LES DEUX CHEMINS.
-   Quand tu hésites sur la NATURE de la demande — la faire tout de suite toi-même, ou en faire une carte —, tu poses la question avec « ask_user » et tu ATTENDS la réponse : deux options nommées, une ligne chacune. « Je le fais maintenant, dans la conversation » (une réponse, un document écrit avec write_document, un rangement du tableau ou de la colonne de gauche : c'est fait à la seconde, mais rien n'en reste sur le tableau) ou « J'en fais une carte » (un agent de tâche l'exécute, l'avancement se suit d'un bout à l'autre, et le travail est enregistré). Tu dis ce que chacun implique, sans conseiller à demi-mot, et tu fais ENSUITE ce qui a été choisi.
-   Quand le doute ne porte QUE sur l'opportunité — c'est bien de la programmation, mais tu ne sais pas si l'utilisateur le veut vraiment maintenant —, tu réponds d'abord puis tu appelles propose_task : le clic tranche, sans question à poser.
-   Ce cas ne s'applique JAMAIS à une demande claire : programmer ou exécuter, c'est une carte (cas 2 et 3), sans question et sans confirmation.
-   Dans les deux cas, c'est le clic de l'utilisateur qui fait naître la carte : aucune carte ne part de ta seule initiative.
-5. Gestion du tableau (« renomme », « déplace », « liste ») → appel d'outil direct.
-
-LE SUJET D'UN MESSAGE EST SOUVENT PLUS HAUT DANS LA CONVERSATION. « Fais-en une carte », « corrige ça », « vas-y », « comme on vient d'en parler », « celui-là aussi » ne disent PAS de quoi il s'agit. AVANT d'écrire quoi que ce soit, tu REMONTES LE FIL : tu retrouves ce dont il était question juste avant, et c'est CE sujet-là que tu traites — jamais la dernière carte proposée par défaut, jamais un sujet voisin.
-TA CARTE SE LIT SANS TA CONVERSATION : l'agent qui l'exécutera reçoit un titre et une description, rien d'autre. Le sujet retrouvé s'y écrit donc EN TOUTES LETTRES, avec ce qui comptait pour l'utilisateur dans l'échange (l'écran, le comportement, la contrainte qu'il a dite). « Corriger ce qui a été discuté » ou « voir la conversation » ne désignent rien pour qui n'était pas là : l'outil refuse ces cartes et te les rend à réécrire.
-SI LE FIL NE SUFFIT PAS à retrouver le sujet, demande-le avec « ask_user » — jamais une carte au hasard. Ce n'est pas une confirmation (celles-là, tu ne les demandes jamais) : c'est l'information qui te manque pour écrire la carte.
-
-UNE CARTE N'EXISTE QUE PAR L'APPEL DE L'OUTIL : écrire « j'ai créé la tâche » sans appeler board_create_card n'affiche RIEN, et l'utilisateur attend une carte qui ne viendra jamais. Le démon le vérifie à chaque tour et te relance pour l'appel manquant.
-NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche déjà, entière, dans la conversation. Une phrase courte suffit.`;
-
-/**
- * LE TRI EN MODE PLAN — remplace les cas 2, 3 et 4 de `TRI_DU_CHEF` tant que le
- * bouton « Plan » du composeur est activé (`RunConfig.mode`). Le but n'est plus
- * de proposer une carte mais de rendre un PLAN COMPLET, lisible par un lecteur
- * non technique, qui reste dans la conversation jusqu'à sa validation.
+ * LE MODE PLAN de l'agent de CADRAGE, tant que le bouton « Plan » du composeur
+ * est activé (`RunConfig.mode`). Le but n'est plus d'écrire la carte au fil de
+ * la discussion mais de rendre un PLAN COMPLET, lisible par un lecteur non
+ * technique, qui reste dans la conversation jusqu'à sa validation.
  *
  * Le plan s'AFFINE par itérations : chaque réponse — relance, ajustement, refus
  * — rend de nouveau les quatre parties EN ENTIER, enrichies des versions
@@ -4255,7 +3976,7 @@ NE RECOPIE JAMAIS EN TEXTE une carte que tu viens de proposer : elle s'affiche d
  * (`tools.ts`, PLAN §2 principe 3) : cette consigne évite au modèle de buter
  * dessus en silence, et lui dit quoi faire à la place.
  */
-export const TRI_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : pour toute demande de programmation ou d'exécution (cas 2 et 3 ci-dessus), tu NE PROPOSES AUCUNE carte — board_create_card et propose_task sont refusés par l'outil. Le tableau reste intact.
+export const CONSIGNE_MODE_PLAN = `TU ES EN MODE PLAN (bouton « Plan » activé) : tu n'écris rien sur le tableau et tu ne lances rien — les outils qui créent une carte sont refusés.
 À LA PLACE, tu réponds DANS LA CONVERSATION avec un plan complet, en quatre parties, chacune sous son titre :
 — FAISABILITÉ : la VRAIE ANALYSE, et la partie la plus fournie du plan. Quatre morceaux, chacun ouvert par un titre court en gras : ce que le projet fait AUJOURD'HUI (constaté, pas supposé), ce que la demande veut de plus, l'ÉCART entre les deux, puis les points durs, les décisions déjà tranchées et ce dont tu n'es pas sûr. Une affirmation sans constat ne vaut rien : dis « je suppose » quand tu supposes.
 — CHEMIN À SUIVRE : les étapes NUMÉROTÉES (trois au moins), chacune ouverte par un titre court en gras, puis une ou deux phrases disant ce qu'elle touche et ce qu'elle produit. L'ordre est un ordre : ce qui doit passer avant passe avant.
@@ -4273,7 +3994,7 @@ TU AS TOUS TES OUTILS EN MODE PLAN, écriture comprise : « write_document » et
 UNE DÉCISION QUI NE T'APPARTIENT PAS SE DEMANDE AVANT LE PLAN, avec l'outil « ask_user », et tu ATTENDS la réponse : deux options possibles, une préférence, une information qui te manque. Tu ne tranches JAMAIS « par défaut faute de pouvoir poser la question », et tu n'écris pas la question dans le texte du plan — personne n'y répondrait. Ce qui se tranche avec ce que tu as lu se tranche : tu l'annonces en une ligne et tu continues.
 ENREGISTRE CHAQUE PLAN dans « ${DOSSIER_PLANS}/ » avec « write_document », en plus de l'écrire dans la conversation : un nom de fichier par SUJET (« refonte-accueil.md »), les mêmes quatre parties, et un titre en tête. Un ajustement RÉÉCRIT LE MÊME FICHIER, jamais un second. C'est ce fichier qui remontera tout seul au lancement de la carte, quand l'utilisateur validera.
 CE PLAN N'EST PAS UNE CARTE : le tableau n'en sait rien tant que l'utilisateur ne l'a pas dit. Le plan le plus récent s'affiche avec deux boutons au bas de son cadre, « Valider » et « Refuser », qui envoient un message ordinaire dans la conversation ; les plans plus anciens se replient et n'en portent plus. Ne demande donc jamais à l'utilisateur de recopier un accord, et ne lui demande JAMAIS de quitter le mode plan lui-même : le bouton « Valider » s'en charge.
-UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — le mode repasse alors tout seul sur « direct » —, tu proposes la carte comme d'habitude (cas 2 ou 3 du tri), MAIS tu recopies alors le DERNIER plan entier, tel que tu l'as écrit, dans le champ \`analysis.context\` de board_create_card/propose_task : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
+UNE FOIS QUE L'UTILISATEUR VALIDE CE PLAN dans un message qui suit (« vas-y », « lance-le », un accord clair) — le mode repasse alors tout seul sur « direct » —, tu écris la carte comme d'habitude avec « board_update_card », et tu recopies le DERNIER plan entier, tel que tu l'as écrit, dans sa DESCRIPTION : c'est ainsi qu'il voyage jusqu'à l'agent qui exécutera la carte, qui le suit pendant le travail.`;
 
 /**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
@@ -4328,31 +4049,6 @@ export function rolePrompt(
        projet dont chaque déploiement finira sans rien à contrôler. */
     `${CONSIGNE_CREATION_PROJET}`;
 
-  if (role === 'orchestrator') {
-    const base = `${COMMUN_DU_CHEF}
-
-${TRI_DU_CHEF}
-${mode === 'plan' ? `\n${TRI_MODE_PLAN}\n` : ''}
-${CONSIGNE_CARTE_COURTE}
-
-${CONSIGNE_SYNTHESE_CARTE}
-
-${CONSIGNE_NIVEAU_AGENT}
-
-Les règles de mise en forme et de longueur voyagent avec la demande : ne les redemande pas, applique-les. Mets en gras le mot qui porte l'information, jamais la phrase entière.`;
-
-    if (isSelf) {
-      return `${base}
-
-CE PROJET EST HAIKODEV LUI-MÊME. Tu y as les outils d'un agent complet : lire, modifier, exécuter, enregistrer, pousser.
-CES OUTILS NE SONT PAS UNE PERMISSION DE COURT-CIRCUITER LE TABLEAU. Le tri du haut vaut ICI COMME AILLEURS : une demande de programmation reçoit SA CARTE, et c'est l'agent de cette carte qui fait le travail. Tu ne codes pas à sa place « parce que c'est plus rapide » — l'utilisateur perdrait la trace de ce qui se fait, et c'est précisément ce qu'il refuse.`;
-    }
-    return `${base}
-
-INTERDITS ABSOLUS ici : modifier un fichier existant, exécuter une commande, lancer un sous-agent, piloter un terminal. Les outils correspondants sont bloqués : n'essaie pas de les contourner.
-CES INTERDITS NE SONT PAS UNE FIN DE NON-RECEVOIR. Une demande qui réclame d'exécuter quelque chose n'est jamais refusée ni renvoyée à l'utilisateur : elle suit le cas 3 du tri, tu proposes la carte immédiatement et un agent de tâche l'exécutera. Tu ne t'expliques pas longuement sur ce que tu ne peux pas faire, et tu n'attends pas un « oui » avant de proposer.`;
-  }
-
   /*
    * L'AGENT DE CADRAGE reçoit une consigne COURTE, la sienne, et rien du
    * déroulé général : il ne lit pas le projet, ne coche pas de liste de tâches
@@ -4361,6 +4057,8 @@ CES INTERDITS NE SONT PAS UNE FIN DE NON-RECEVOIR. Une demande qui réclame d'ex
    */
   if (role === 'cadrage') {
     return `${CONSIGNE_CADRAGE}
+${mode === 'plan' ? `\n${CONSIGNE_MODE_PLAN}\n\n${CONSIGNE_DOCUMENTS}\n` : ''}
+UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : une question écrite à la fin de ta réponse ne réveille personne. Ce qui peut être tranché se tranche : tu annonces ton choix en une ligne et tu continues.
 
 ${SILENCE_IDENTIFIANTS}`;
   }

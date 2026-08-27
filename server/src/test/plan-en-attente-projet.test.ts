@@ -34,7 +34,7 @@ function agentDEssai(projectId: string) {
   return store.saveAgent({
     id: store.newId(),
     projectId,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Chef d’essai',
     run: { mode: 'plan' },
     status: 'done',

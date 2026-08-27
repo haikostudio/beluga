@@ -16,18 +16,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  consigneEspaceDuChef,
+  consigneEspaceDeCadrage,
   detailDuRefus,
   expliquerRefus,
   natureDuRefus,
   reglagesClaudeDuChef,
-  surchargesCodexDuChef,
+  surchargesCodexBridees,
 } from '@haikodev/shared';
 
 const LISTES = { allowedTools: ['Bash'], disallowedTools: ['Edit', 'Write'] };
 
 test('aucun moteur n’enferme le chef dans un bac à sable', () => {
-  const codex = surchargesCodexDuChef(LISTES);
+  const codex = surchargesCodexBridees(LISTES);
   assert.ok(
     codex.includes('sandbox_mode="danger-full-access"'),
     'Codex laisse passer construction, déploiement et administration',
@@ -46,7 +46,7 @@ test('aucun moteur n’enferme le chef dans un bac à sable', () => {
 
 test('la frontière du CODE reste posée sur les outils du projet', () => {
   // C'est le verrou qui subsiste : il ne doit pas partir avec le bac à sable.
-  const codex = surchargesCodexDuChef({
+  const codex = surchargesCodexBridees({
     allowedTools: ['Bash', 'mcp__haikodev__board_create_card'],
     disallowedTools: ['Edit', 'Write', 'mcp__haikodev__make_archive'],
   });
@@ -112,7 +112,7 @@ test('le détail garde la sortie d’origine sous l’explication', () => {
 });
 
 test('la consigne du chef annonce l’accès complet et sa seule frontière', () => {
-  const consigne = consigneEspaceDuChef('/root/travail/chef', '/root/projet');
+  const consigne = consigneEspaceDeCadrage('/root/travail/chef', '/root/projet');
   assert.match(consigne, /ACCÈS COMPLET/);
   // Les gestes qu'il se croyait interdits sont nommés : sans cela, il s'arrête
   // avant d'essayer et rapporte un refus qui n'existe pas.
@@ -140,7 +140,7 @@ test('la consigne d’espace du chef part à CHAQUE tour, pas au seul premier', 
   // premier tour, celles du temps du bac à sable (constaté le 11/08/2026).
   const ici = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.resolve(ici, '../../src/runtime.ts'), 'utf8');
-  const appel = source.indexOf('consigneEspaceDuChef(scratch');
+  const appel = source.indexOf('consigneEspaceDeCadrage(scratch');
   assert.ok(appel > 0, 'le démon pose bien la consigne d’espace du chef');
   const blocSessionNeuve = source.indexOf('if (nouvelleSession) {');
   const finDuBloc = source.indexOf('\n  }\n', source.indexOf('} else {', blocSessionNeuve));

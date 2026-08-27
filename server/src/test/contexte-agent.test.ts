@@ -23,7 +23,7 @@ test('la mesure voyage entière dans Agent puis dans agent.upsert', () => {
   const agent = Agent.parse({
     id: 'agent-contexte',
     projectId: 'projet-contexte',
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Chef',
     run: { engine: 'codex', model: 'gpt-5', thinking: 'medium', mode: 'direct' },
     status: 'running',

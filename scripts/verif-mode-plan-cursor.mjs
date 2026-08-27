@@ -63,7 +63,7 @@ const { jugerLePlan } = await import(path.join(RACINE, 'shared', 'dist', 'index.
 {
   const plan = buildCursorArgs({ cwd: '/tmp', prompt: '', mode: 'plan', role: 'task', fullAccess: true }, 'composer-2.5');
   const direct = buildCursorArgs({ cwd: '/tmp', prompt: '', mode: 'direct', role: 'task', fullAccess: true }, 'composer-2.5');
-  const chef = buildCursorArgs({ cwd: '/tmp', prompt: '', mode: 'plan', role: 'orchestrator', fullAccess: true }, 'composer-2.5');
+  const chef = buildCursorArgs({ cwd: '/tmp', prompt: '', mode: 'plan', role: 'cadrage', fullAccess: true }, 'composer-2.5');
 
   noter('un agent de tâche en mode plan reçoit « --mode plan »', plan.join(' ').includes('--mode plan'));
   // `--mode plan` suffit à fermer l'écriture ; `--force` reste, sinon les

@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
-  Compass,
   Folder,
   FolderPlus,
   Github,
@@ -856,7 +855,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
       // « starting » compte aussi : c'est un tour PARTI, même avant que son
       // moteur n'écrive quoi que ce soit — sans quoi la pile restait muette
       // pendant toute la préparation (lecture du projet, mémoire…), y compris
-      // pour un chef d'orchestre, une analyse ou une mise en production, que
+      // pour un cadrage, une analyse ou une mise en production, que
       // ni le tableau ni la colonne de gauche ne montrent ailleurs.
       if (agent.status === 'running' || agent.status === 'starting') return true;
       // Un agent qui finit reste un instant avec sa mention « terminé ».
@@ -911,7 +910,7 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                   className="flex animate-slide-up items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1.5"
                 >
                   {/* Un agent de rôle « task » (une carte) est le seul que le
-                      tableau montre ailleurs — les trois autres (chef
+                      tableau montre ailleurs — les trois autres (cadrage
                       d'orchestre, analyse, publication) n'ont aucun autre
                       repère : leur icône ici est leur SEUL signe visible. */}
                   {agent.role === 'deploy' ? (
@@ -921,11 +920,6 @@ function PileAgentsColonne({ onOpenAgent }: { onOpenAgent: (agentId: string) => 
                         runningAgent ? 'text-publie animate-pulse-soft motion-reduce:animate-none' : 'text-faint',
                       )}
                       aria-label="Mise en production"
-                    />
-                  ) : agent.role === 'orchestrator' ? (
-                    <Compass
-                      className={cn('h-3 w-3 shrink-0', runningAgent ? 'text-en-cours' : 'text-faint')}
-                      aria-label="Chef d'orchestre"
                     />
                   ) : agent.role === 'analysis' ? (
                     <Microscope
@@ -1237,7 +1231,7 @@ function DialogueDeRedemarrage({
  * La palette des groupes : seize teintes franches, plus « aucune ». Elle vit
  * dans `shared/src/gestion-projets.ts` — un agent qui règle un groupe par outil
  * choisit dans la MÊME palette que ce sélecteur, sinon la pastille posée par le
- * chef ne serait dans aucune case du nuancier.
+ * cadrage ne serait dans aucune case du nuancier.
  */
 const COULEURS = COULEURS_DE_GROUPE;
 

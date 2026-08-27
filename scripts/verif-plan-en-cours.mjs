@@ -147,7 +147,7 @@ await page.waitForSelector('textarea[placeholder="Écrivez votre demande…"]', 
  * Le démon le crée à l'ouverture du projet — on lui laisse quelques secondes.
  */
 const chercherLeChef = () =>
-  db.prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'orchestrator' LIMIT 1").get(projetId)?.id ?? null;
+  db.prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'cadrage' LIMIT 1").get(projetId)?.id ?? null;
 let agentId = null;
 for (let essai = 0; essai < 40 && !agentId; essai += 1) {
   agentId = chercherLeChef();

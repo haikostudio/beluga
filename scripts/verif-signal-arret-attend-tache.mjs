@@ -158,7 +158,7 @@ function poserLeDecor(demon) {
   const agent = {
     id: AGENT_ID,
     projectId: PROJET_ID,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Conversation d’essai',
     run: { engine: 'claude', thinking: 'none', mode: 'direct' },
     status: 'idle',
@@ -168,7 +168,7 @@ function poserLeDecor(demon) {
   db.prepare(
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(agent.id, PROJET_ID, null, 'orchestrator', 'idle', JSON.stringify(agent), maintenant, maintenant);
+  ).run(agent.id, PROJET_ID, null, 'cadrage', 'idle', JSON.stringify(agent), maintenant, maintenant);
 
   db.prepare('INSERT INTO accounts (id, engine, data, updated_at) VALUES (?, ?, ?, ?)').run(
     'compte-essai',

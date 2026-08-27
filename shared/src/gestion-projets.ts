@@ -4,7 +4,7 @@
  * Jusqu'ici, créer un projet, le renommer, le ranger dans un groupe ou le mettre
  * de côté étaient des gestes de SOURIS : ils n'existaient que dans l'interface.
  * Le chef d'orchestre, lui, est monté en LECTURE SEULE sur le projet
- * (`bridage-chef.ts`) et n'a aucun moyen d'écrire dans la base — « range Haiko
+ * (`bridage-cadrage.ts`) et n'a aucun moyen d'écrire dans la base — « range Haiko
  * dans Clients » lui restait donc impossible à faire, même pour un geste qui ne
  * touche pas une ligne de code.
  *

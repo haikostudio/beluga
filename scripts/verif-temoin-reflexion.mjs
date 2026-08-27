@@ -190,7 +190,7 @@ function poserLeDecor() {
     {
       id: AGENT_TOMBE,
       projectId: PROJET_ID,
-      role: 'orchestrator',
+      role: 'cadrage',
       title: "Chef d'orchestre",
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
       status: 'failed',
@@ -209,7 +209,7 @@ function poserLeDecor() {
     {
       id: AGENT_QUI_DEMARRE,
       projectId: PROJET_ID,
-      role: 'orchestrator',
+      role: 'cadrage',
       title: "Chef d'orchestre (départ)",
       run: { engine: 'claude', thinking: 'none', mode: 'direct' },
       status: 'idle',

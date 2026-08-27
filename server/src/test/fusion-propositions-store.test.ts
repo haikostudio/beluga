@@ -27,7 +27,7 @@ function agent(id: string, projectId: string) {
   return store.saveAgent({
     id,
     projectId,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Chef',
     run: { engine: 'claude', thinking: 'medium', mode: 'direct' },
     status: 'done',

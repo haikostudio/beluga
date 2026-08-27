@@ -39,7 +39,7 @@ import {
   type NiveauAgent,
   DOSSIER_PLANS,
   EXTENSIONS_DOCUMENT,
-  cheminDuDocumentDuChef,
+  cheminDuDocument,
   GESTES_GROUPE,
   GESTES_PROJET,
   lireGesteGroupe,
@@ -282,7 +282,7 @@ function analyseDeProposition(args: any): Pick<TaskProposal, 'estimate' | 'analy
  * carte vient d'étudier le projet : il garde les quatre parties.
  */
 function exigenceDuRole(role: ToolContext['role']): ExigenceDescription {
-  return role === 'orchestrator' ? 'courte' : 'complete';
+  return role === 'cadrage' ? 'courte' : 'complete';
 }
 
 /**
@@ -791,7 +791,7 @@ export const TOOL_DEFS: ToolDef[] = [
   },
 ];
 
-/** Les outils réservés aux agents de tâche : le chef d'orchestre ne les voit pas. */
+/** Les outils réservés aux agents de tâche : l'agent de cadrage ne les voit pas. */
 export const TASK_ONLY_TOOLS = new Set(['remember', 'snapshot_site', 'snapshot_essai']);
 
 /**
@@ -811,7 +811,6 @@ export const CADRAGE_BLOCKED_TOOLS = new Set([
 ]);
 
 export function toolsFor(role: ToolContext['role']): ToolDef[] {
-  if (role === 'orchestrator') return TOOL_DEFS.filter((t) => !TASK_ONLY_TOOLS.has(t.name));
   if (role === 'cadrage') return TOOL_DEFS.filter((t) => !CADRAGE_BLOCKED_TOOLS.has(t.name));
   return TOOL_DEFS;
 }
@@ -819,7 +818,7 @@ export function toolsFor(role: ToolContext['role']): ToolDef[] {
 export interface ToolContext {
   agentId: string;
   projectId: string;
-  role: 'task' | 'orchestrator' | 'analysis' | 'deploy' | 'cadrage';
+  role: 'task' | 'analysis' | 'deploy' | 'cadrage';
   cardId?: string;
   /**
    * Les réglages de la CONVERSATION en cours (moteur, modèle, réflexion),
@@ -1173,7 +1172,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       /*
        * LE CHEF ÉCRIT LES DOCUMENTS, PARTOUT, ET JAMAIS LE CODE. Sa frontière
        * ne tient plus à un DOSSIER mais à la NATURE du fichier
-       * (`shared/src/documents-du-chef.ts`) : tout ce qui est du texte —
+       * (`shared/src/documents-de-cadrage.ts`) : tout ce qui est du texte —
        * documentation, mémoire, compte rendu, fichier d'instructions — se crée,
        * se remplace et s'efface librement ; le code est refusé par la liste des
        * extensions, pas par la bonne volonté du modèle. Un nom NU reste rangé
@@ -1184,8 +1183,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const demande = String(args.relativePath ?? '');
       const supprimer = String(args.action ?? 'ecrire') === 'supprimer';
       let rel = demande;
-      if (ctx.role === 'orchestrator') {
-        const choix = cheminDuDocumentDuChef(demande, (relatif) => {
+      if (ctx.role === 'cadrage') {
+        const choix = cheminDuDocument(demande, (relatif) => {
           const cible = safeJoin(project.path, relatif);
           return !!cible && fs.existsSync(cible);
         });
@@ -1217,11 +1216,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, args.content, 'utf8');
-      // Le chef doit savoir s'il a CRÉÉ ou REMPLACÉ : un plan qu'on croit
+      // L'agent doit savoir s'il a CRÉÉ ou REMPLACÉ : un plan qu'on croit
       // ajuster et qu'on écrase sous un autre nom se perd en silence.
       const geste = existait ? 'Document mis à jour' : 'Document créé';
       const rappel =
-        ctx.role === 'orchestrator'
+        ctx.role === 'cadrage'
           ? ` Pour le modifier, relis-le et réécris « ${rel} » en entier.` +
             (rel.startsWith(`${DOSSIER_PLANS}/`)
               ? " Il sera relu par la recherche au lancement d'une carte sur le même sujet."
@@ -1661,7 +1660,6 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'remember': {
-      if (ctx.role === 'orchestrator') return { ok: false, text: "Cet outil n'est pas autorisé ici." };
       const line = String(args.line ?? '').trim();
       if (!line) return { ok: false, text: 'Ligne vide.' };
       appendMemory(project.path, line, typeof args.replaces === 'string' ? args.replaces : undefined);
@@ -1904,7 +1902,7 @@ export function createCard(
  * Un outil ajouté plus tard par une mise à jour du CLI est bloqué par défaut
  * (voir le test de complétude dans test/orchestrator-tools.test.ts).
  */
-export const ORCHESTRATOR_ALLOWED_NATIVE = [
+export const CADRAGE_ALLOWED_NATIVE = [
   'Read',
   'Grep',
   'Glob',
@@ -1917,7 +1915,7 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
   // outils, mais le bac à sable : le projet est monté en lecture seule, une
   // commande qui tente d'y écrire échoue. Les outils d'ÉDITION de fichiers
   // (« Edit », « Write », « NotebookEdit »), eux, restent interdits plus bas —
-  // la ceinture par-dessus le bac à sable. Voir `shared/src/bridage-chef.ts`.
+  // la ceinture par-dessus le bac à sable. Voir `shared/src/bridage-cadrage.ts`.
   'Bash',
   'BashOutput',
   'KillShell',
@@ -1934,7 +1932,7 @@ export const ORCHESTRATOR_ALLOWED_NATIVE = [
   'TaskGet',
 ];
 
-export const ORCHESTRATOR_DENIED_NATIVE = [
+export const CADRAGE_DENIED_NATIVE = [
   // Les outils d'ÉDITION restent fermés au chef : modifier le code du projet
   // s'ouvre en carte confiée à un agent de tâche (règle absolue). Le shell, lui,
   // est désormais PERMIS plus haut ; c'est le bac à sable qui garde le projet en
@@ -1981,16 +1979,16 @@ export const ORCHESTRATOR_DENIED_NATIVE = [
   'AskUserQuestion',
 ];
 
-/** Les outils du démon autorisés au chef d'orchestre, préfixés pour le CLI. */
-export function orchestratorAllowList(): string[] {
+/** Les outils du démon autorisés à l'agent de cadrage, préfixés pour le CLI. */
+export function cadrageAllowList(): string[] {
   return [
-    ...ORCHESTRATOR_ALLOWED_NATIVE,
-    ...toolsFor('orchestrator').map((t) => `mcp__haikodev__${t.name}`),
+    ...CADRAGE_ALLOWED_NATIVE,
+    ...toolsFor('cadrage').map((t) => `mcp__haikodev__${t.name}`),
   ];
 }
 
-export function orchestratorDenyList(): string[] {
-  return [...ORCHESTRATOR_DENIED_NATIVE, ...[...TASK_ONLY_TOOLS].map((t) => `mcp__haikodev__${t}`)];
+export function cadrageDenyList(): string[] {
+  return [...CADRAGE_DENIED_NATIVE, ...[...CADRAGE_BLOCKED_TOOLS].map((t) => `mcp__haikodev__${t}`)];
 }
 
 /**

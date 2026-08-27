@@ -170,7 +170,7 @@ test('un texte d’intro se pose en tête, avant le Constat, sans intertitre', (
 for (const outil of ['board_create_card', 'propose_task']) {
   test(`${outil} : une description bâclée ne devient PAS une proposition`, async () => {
     const projet = projetDEssai();
-    const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
+    const resultat = await callTool({ projectId: projet.id, role: 'cadrage' } as any, outil, {
       title: 'Corriger le tableau',
       description: 'Il faudrait corriger ça.',
       niveau: 'leger',
@@ -183,7 +183,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
 
   test(`${outil} : un titre seul est refusé`, async () => {
     const projet = projetDEssai();
-    const resultat = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
+    const resultat = await callTool({ projectId: projet.id, role: 'cadrage' } as any, outil, {
       title: 'Corriger le tableau',
       niveau: 'leger',
     });
@@ -193,7 +193,7 @@ for (const outil of ['board_create_card', 'propose_task']) {
 
   test(`${outil} : la carte COURTE du chef passe, la même carte d’un autre rôle non`, async () => {
     const projet = projetDEssai();
-    const duChef = await callTool({ projectId: projet.id, role: 'orchestrator' } as any, outil, {
+    const duChef = await callTool({ projectId: projet.id, role: 'cadrage' } as any, outil, {
       title: 'Stabiliser la colonne « À déployer »',
       description: CARTE_COURTE,
       contexte: SYNTHESE,
@@ -252,14 +252,12 @@ for (const outil of ['board_create_card', 'propose_task']) {
 /* La même exigence sous les deux moteurs                               */
 /* ------------------------------------------------------------------ */
 
-test('le chef reçoit la MÊME consigne de carte courte, quel que soit le moteur', () => {
+test('l’agent de cadrage ne porte pas l’exigence en quatre parties : il n’ouvre pas le projet', () => {
   for (const isSelf of [false, true]) {
-    const claude = rolePrompt('orchestrator', isSelf, 'claude');
-    const codex = rolePrompt('orchestrator', isSelf, 'codex');
-    assert.ok(claude.includes(CONSIGNE_CARTE_COURTE), 'consigne absente du briefing Claude');
-    assert.ok(codex.includes(CONSIGNE_CARTE_COURTE), 'consigne absente du briefing Codex');
-    // Il ne reçoit PLUS l'exigence en quatre parties : il n'ouvre pas le projet.
-    assert.ok(!claude.includes(CONSIGNE_DESCRIPTION_CARTE), 'le chef ne doit plus porter les quatre parties');
+    const claude = rolePrompt('cadrage', isSelf, 'claude');
+    const codex = rolePrompt('cadrage', isSelf, 'codex');
+    assert.ok(!claude.includes(CONSIGNE_DESCRIPTION_CARTE), 'le cadrage ne doit pas porter les quatre parties');
+    assert.ok(!codex.includes(CONSIGNE_DESCRIPTION_CARTE), 'le cadrage ne doit pas porter les quatre parties');
   }
 });
 

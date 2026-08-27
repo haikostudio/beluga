@@ -91,7 +91,7 @@ export interface PartsDAccueil {
  * Le niveau d'accueil d'un agent qui démarre.
  *
  * Minimal UNIQUEMENT pour un agent de publication appelé sur un dépannage ; tri
- * pour le chef d'orchestre, qui ne lit plus le projet avant de proposer. Partout
+ * pour l'agent de cadrage, qui ne lit pas le projet. Partout
  * ailleurs — agent de tâche, analyse, et jusqu'à la mise en ligne confiée —
  * l'accueil reste complet. Dans le doute, on accueille : un motif inconnu ne
  * rogne rien.
@@ -100,8 +100,7 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
   // Un assistant appelé sur une tâche NOMMÉE — configurer un site à sauvegarder
   // — n'ouvre pas le projet : sa consigne dit tout, quel que soit son rôle.
   if (input.motif === 'configuration-snapshot') return 'minimal';
-  if (input.role === 'orchestrator') return 'tri';
-  // L'AGENT DE CADRAGE non plus n'ouvre pas le projet : il discute un besoin et
+  // L'AGENT DE CADRAGE n'ouvre pas le projet : il discute un besoin et
   // écrit la carte. L'index de la mémoire et les fichiers d'instructions
   // repartiraient à chaque carte neuve, pour un tour qui ne lit rien.
   if (input.role === 'cadrage') return 'tri';
@@ -118,7 +117,7 @@ export function partsDAccueil(niveau: NiveauDAccueil): PartsDAccueil {
   // Un dépannage de publication répare une chose NOMMÉE : ni mémoire, ni
   // compétences, ni GitHub — la demande dit déjà les commandes à lancer.
   if (niveau === 'minimal') return { instructions: false, competences: false, memoire: false, github: false };
-  // Le chef trie : ni instructions du projet, ni index de la mémoire. Les
+  // Le cadrage discute : ni instructions du projet, ni index de la mémoire. Les
   // compétences partagées restent, elles seules lui disent ce que HaikoDev sait
   // déjà faire (facturation…), et il n'a pas le droit d'aller les chercher.
   // L'accès GitHub reste lui aussi : consulter un dépôt ou lire une demande de

@@ -15,7 +15,7 @@ import {
   memorySummary,
   newFactsSince,
 } from '../memory.js';
-import { ORCHESTRATOR_ALLOWED_NATIVE, ORCHESTRATOR_DENIED_NATIVE } from '../tools.js';
+import { CADRAGE_ALLOWED_NATIVE, CADRAGE_DENIED_NATIVE } from '../tools.js';
 import { allDone, mergeTodos } from '../todos.js';
 
 /* ------------------------------------------------------------------ */
@@ -149,8 +149,8 @@ test('la reprise Codex n’utilise que les options acceptées par exec resume', 
 });
 
 test('le chef d\'orchestre peut annoncer sa liste de tâches, qui ne touche à rien', () => {
-  assert.ok(ORCHESTRATOR_ALLOWED_NATIVE.includes('TodoWrite'));
-  assert.equal(ORCHESTRATOR_DENIED_NATIVE.includes('TodoWrite'), false);
+  assert.ok(CADRAGE_ALLOWED_NATIVE.includes('TodoWrite'));
+  assert.equal(CADRAGE_DENIED_NATIVE.includes('TodoWrite'), false);
 });
 
 /* ------------------------------------------------------------------ */

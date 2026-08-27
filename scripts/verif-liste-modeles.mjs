@@ -128,7 +128,7 @@ function poserLeDecor() {
   const agent = {
     id: AGENT_ID,
     projectId: PROJET_ID,
-    role: 'orchestrator',
+    role: 'cadrage',
     title: 'Chef d’orchestre — Essai modèles',
     run: { engine: 'codex', thinking: 'medium', mode: 'direct' },
     status: 'done',
@@ -137,7 +137,7 @@ function poserLeDecor() {
   };
   db.prepare(
     `INSERT INTO agents (id, project_id, card_id, role, status, data, created_at, updated_at)
-     VALUES (?, ?, NULL, 'orchestrator', 'done', ?, ?, ?)`,
+     VALUES (?, ?, NULL, 'cadrage', 'done', ?, ?, ?)`,
   ).run(AGENT_ID, PROJET_ID, JSON.stringify(agent), t, t);
   db.close();
 }
@@ -240,8 +240,8 @@ if (ouvert) {
 
     noter(
       'choisir un autre modèle met à jour la configuration du prochain prompt',
-      agentEnregistre.run?.model === autre.id && reglagesEnregistres.orchestratorModel === autre.id,
-      `${agentEnregistre.run?.model ?? 'absent'} / ${reglagesEnregistres.orchestratorModel ?? 'absent'}`,
+      agentEnregistre.run?.model === autre.id && reglagesEnregistres.cadrageModel === autre.id,
+      `${agentEnregistre.run?.model ?? 'absent'} / ${reglagesEnregistres.cadrageModel ?? 'absent'}`,
     );
     noter('le modèle choisi est aussitôt affiché', modeleAffiche === autre.label, modeleAffiche ?? 'absent');
   } else {

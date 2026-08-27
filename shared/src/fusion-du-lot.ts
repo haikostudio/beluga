@@ -57,7 +57,7 @@ export const REFLEXION_DE_FUSION = 'medium';
 
 /**
  * Les familles reconnues comme légères quand le catalogue n'annonce pas
- * d'appétit. Même prudence que `chef-econome.ts` : on ne devine rien de plus,
+ * d'appétit. Même prudence que `modele-econome.ts` : on ne devine rien de plus,
  * un moteur dont on ne sait rien garde le modèle de la carte.
  */
 const FAMILLES_LEGERES = ['haiku', 'mini', 'flash'];

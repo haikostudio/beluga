@@ -70,7 +70,7 @@ function projet(nom) {
 
 const haiko = projet('Haiko Studio');
 const root = projet('Root');
-const CHEF = { projectId: haiko.id, role: 'orchestrator', agentId: 'chef-essai' };
+const CHEF = { projectId: haiko.id, role: 'cadrage', agentId: 'chef-essai' };
 
 /* ------------------------------------------------------------------ */
 /* 1. La colonne se lit                                                */
@@ -195,19 +195,12 @@ verifier(vus.some((e) => e.type === 'groups'), 'la liste des groupes est réémi
 verifier(vus.some((e) => e.type === 'toast'), 'le geste laisse sa trace sur le bus');
 
 /* ------------------------------------------------------------------ */
-/* 7. Le chef sait que ces outils existent                             */
+/* 7. Les outils de la colonne restent servis                          */
 /* ------------------------------------------------------------------ */
 
-console.log('7. La consigne du chef');
-const consigne = runtime.rolePrompt('orchestrator', false, 'claude');
-verifier(consigne.includes(runtime.CONSIGNE_GESTION_PROJETS), 'la consigne de la colonne est bien dans son briefing');
-verifier(
-  runtime.CONSIGNE_GESTION_PROJETS.includes('project_manage') &&
-    runtime.CONSIGNE_GESTION_PROJETS.includes('group_manage'),
-  'elle nomme les deux outils',
-);
-const noms = outils.toolsFor('orchestrator').map((t) => t.name);
-verifier(noms.includes('project_manage') && noms.includes('group_manage'), 'et les outils lui sont servis');
+console.log('7. Les outils de la colonne de gauche');
+const noms = outils.toolsFor('task').map((t) => t.name);
+verifier(noms.includes('project_manage') && noms.includes('group_manage'), 'les deux outils sont servis aux agents');
 
 console.log('');
 if (echecs.length) {

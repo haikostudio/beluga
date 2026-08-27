@@ -207,7 +207,7 @@ async function main() {
   let AGENT = null;
   for (let essai = 0; essai < 40 && !AGENT; essai += 1) {
     AGENT =
-      baseLecture().prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'orchestrator' LIMIT 1").get(PROJET_ID)
+      baseLecture().prepare("SELECT id FROM agents WHERE project_id = ? AND role = 'cadrage' LIMIT 1").get(PROJET_ID)
         ?.id ?? null;
     if (!AGENT) await page.waitForTimeout(500);
   }

@@ -161,7 +161,12 @@ async function main() {
   }
 
   const { project } = await session.call({ type: 'project.create', name: 'Essai orchestre', path: SANDBOX });
-  const { agent: orchestrator } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
+  const { agent: orchestrator } = await session.call({
+    type: 'card.create',
+    projectId: project.id,
+    title: 'Nouvelle tâche',
+    cadrage: true,
+  });
 
   /* ---------- 1. Dictée : synthèse puis transcription ---------- */
   const phrase = 'Ajoute une page de contact au site.';
@@ -313,8 +318,6 @@ async function main() {
   record('Évolutions : la réponse contient des suggestions cliquables', evolutions.length > 0, `${evolutions.length} suggestion(s)`);
 
   /* ---------- 6. Arrêt d'un agent ---------- */
-  const { agent: freeAgent } = await session.call({ type: 'agent.orchestrator', projectId: project.id });
-  record('Chef d\'orchestre : sa conversation est permanente (même agent)', freeAgent.id === orchestrator.id);
 
   /* ---------- 7. Facturation : lecture de l'outil certifié ---------- */
   const clients = await session.call({ type: 'billing.clients' }, 120000);

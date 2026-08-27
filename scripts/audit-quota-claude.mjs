@@ -634,7 +634,7 @@ const parJour = db
             AVG(u.cached_tokens) cache_moy,
             AVG(u.input_tokens) frais_moy
        FROM usage u JOIN agents a ON a.id = u.agent_id
-      WHERE u.engine='claude' AND a.role IN ('task','orchestrator') AND u.created_at > ?
+      WHERE u.engine='claude' AND a.role IN ('task','cadrage') AND u.created_at > ?
       GROUP BY jour, role ORDER BY role, jour`,
   )
   .all(Date.now() - Math.max(JOURS, 10) * 86400 * 1000);

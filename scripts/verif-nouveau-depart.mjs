@@ -41,7 +41,7 @@ const agent = db
   .prepare(
     `SELECT a.id, a.data, COUNT(m.id) AS n
      FROM agents a JOIN messages m ON m.agent_id = a.id
-     WHERE a.role = 'orchestrator'
+     WHERE a.role = 'cadrage'
      GROUP BY a.id ORDER BY n DESC LIMIT 1`,
   )
   .get();
