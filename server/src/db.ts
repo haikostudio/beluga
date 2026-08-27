@@ -1227,6 +1227,24 @@ export const MIGRATIONS: {
          OR json_extract(data, '$.role') = 'orchestrator';
     `,
   },
+  {
+    id: 42,
+    name: 'fusion-colonne-terminee-dans-a-deployer',
+    siTable: 'cards',
+    // LA COLONNE « TERMINÉ » N'EXISTE PLUS.
+    //
+    // Une carte dont l'agent a rendu tombait en « Terminé », en attendant un
+    // geste de lot (« Tout déployer ») pour rejoindre « À déployer ». Cette
+    // étape n'ajoutait rien : le travail rendu EST du travail à déployer, la
+    // fusion des deux colonnes le dit directement (`shared/src/columns.ts`,
+    // `shared/src/suivi-colonne.ts`). Les cartes qui dormaient dans l'ancienne
+    // colonne sont reprises ici, même mécanique que la migration 37 pour
+    // « en production » : la clé n'est plus reconnue par le modèle, la carte
+    // ne se relirait pas sans ce rattrapage. Position et historique inchangés.
+    sql: `
+      UPDATE cards SET column_key = 'to_deploy' WHERE column_key = 'done';
+    `,
+  },
 ];
 
 export function openDb(): DB {

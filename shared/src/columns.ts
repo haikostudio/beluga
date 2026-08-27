@@ -13,7 +13,10 @@ export const COLUMN_KEYS = [
   // étapes d'attente en moins sur le tableau, aucune dépense de plus.
   'planned',
   'running',
-  'done',
+  // « Terminé » a disparu : un rapport rendu range directement la carte dans
+  // « À déployer », plus aucune étape ni geste de lot entre les deux
+  // (`shared/src/suivi-colonne.ts`). Les cartes qui dormaient dans l'ancienne
+  // colonne sont reprises à la migration 42 (`server/src/db.ts`).
   'to_deploy',
   // « En production » a disparu : le DÉPLOIEMENT range désormais ses cartes
   // directement en « Archivé ». La mise en production, elle, ne porte plus de
@@ -29,7 +32,6 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   notes: 'Notes',
   planned: 'Planifié',
   running: 'En cours',
-  done: 'Terminé',
   to_deploy: 'À déployer',
   archived: 'Archivé',
 };
@@ -44,17 +46,18 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
 export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'planned'];
 
 /**
- * Colonnes que seul l'utilisateur peut atteindre. « Terminé » n'en fait plus
- * partie : la carte y va d'elle-même quand son agent a rendu.
+ * Colonnes que seul l'utilisateur peut atteindre. « À déployer » n'en fait
+ * plus partie : la carte y va d'elle-même quand son agent a rendu.
  */
-export const USER_ONLY_TARGETS: ColumnKey[] = ['to_deploy'];
+export const USER_ONLY_TARGETS: ColumnKey[] = [];
 
 /**
- * Colonnes que seule la machine peut attribuer. « Terminé » en fait partie
- * depuis que la carte suit l'état de son agent : elle y va d'elle-même quand
- * le travail est rendu (voir `suivi-colonne.ts`).
+ * Colonnes que seule la machine peut attribuer. « À déployer » en fait
+ * partie depuis que la carte suit l'état de son agent : elle y va
+ * d'elle-même quand le travail est rendu, sans passer par « Terminé »
+ * (voir `suivi-colonne.ts`).
  */
-export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running', 'done'];
+export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running', 'to_deploy'];
 
 export type Actor = 'user' | 'agent' | 'machine';
 

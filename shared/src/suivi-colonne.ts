@@ -13,16 +13,20 @@ import type { AgentRole } from './models.js';
  *
  * Parcours attendu : « Planifié » (où la carte NAÎT ; un clic de validation y
  * lance son chiffrage sur place, sans la déplacer) → (clic de lancement) →
- * « En cours » → (exécution rendue) → « Terminé ».
+ * « En cours » → (exécution rendue) → « À déployer ».
+ *
+ * La colonne « Terminé » a disparu : un rapport rendu range directement la
+ * carte dans « À déployer », sans étape intermédiaire ni geste de lot pour
+ * l'y pousser.
  *
  * Le piège : l'analyse, l'orchestration et la publication portent elles aussi
  * le numéro de carte. Appliquées à tout agent, les deux règles ci-dessous
  * faisaient sauter la carte en « En cours » dès que l'ANALYSE démarrait, puis
- * en « Terminé » quand cette même analyse rendait son chiffrage — alors que
+ * en « À déployer » quand cette même analyse rendait son chiffrage — alors que
  * rien n'avait encore été exécuté.
  *
  * D'où la règle unique : seul l'agent d'EXÉCUTION (rôle « task ») déplace une
- * carte. Il la met en « En cours » quand son tour démarre, en « Terminé »
+ * carte. Il la met en « En cours » quand son tour démarre, en « À déployer »
  * quand son tour réussit. Les autres rôles la laissent exactement où elle est.
  * Le passage de « Planifié » à « En cours » (lancement) reste le travail de
  * l'ordonnanceur : ces règles ne le doublent pas.
@@ -44,7 +48,7 @@ import type { AgentRole } from './models.js';
  * qui n'exécute pas ne déplace jamais rien.
  *
  * Conséquence ASSUMÉE, et qui doit se lire sur la carte : une carte peut être
- * « Terminée » sans qu'aucun code n'ait changé. Elle le DIT alors en clair
+ * « À déployée » sans qu'aucun code n'ait changé. Elle le DIT alors en clair
  * (`RAISON_RENDU_SANS_CODE`), plutôt que de laisser croire à une livraison.
  *
  * Les règles sont PURES : elles ne connaissent ni la base ni le moteur, elles
@@ -103,8 +107,9 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
  *   - « Archivé » → « Planifié » : la colonne où toute carte naît, celle d'où
  *     part le geste de lancement — personne ne rouvre une dépense sans le
  *     savoir, puisque rien n'y démarre tout seul ;
- *   - « À déployer » → « Terminé » : elle sort du lot à publier et revient à
- *     l'étape juste avant, celle d'où l'on décide de publier.
+ *   - « À déployer » → « En cours » : il n'y a plus d'étape « Terminé »
+ *     entre les deux, l'étape juste avant est donc celle où le travail
+ *     s'exécutait.
  *
  * Toujours l'étape JUSTE AVANT, jamais deux d'un coup.
  *
@@ -112,7 +117,7 @@ export function repriseAutorisee(colonne: ColumnKey, demandeur: Demandeur): Deci
  */
 export function colonneDeReprise(colonne: ColumnKey): ColumnKey | null {
   if (colonne === 'archived') return 'planned';
-  if (colonne === 'to_deploy') return 'done';
+  if (colonne === 'to_deploy') return 'running';
   return null;
 }
 
@@ -268,7 +273,7 @@ export function raisonDattente(
  * Une carte ne porte qu'un agent d'exécution à la fois (`card.agentId`), et un
  * relancement en crée un NOUVEAU. Le tour d'AVANT, lui, se termine à son
  * rythme : son processus peut rendre la main longtemps après, et il écrivait
- * alors « Terminé » sur une carte qu'un autre agent était déjà en train de
+ * alors « À déployer » sur une carte qu'un autre agent était déjà en train de
  * faire avancer — le tableau annonçait la fin pendant que quelqu'un écrivait.
  *
  * D'où la question posée avant TOUTE clôture : la carte reconnaît-elle encore
@@ -296,7 +301,7 @@ export const RAISON_SANS_MODIFICATION =
  *
  * C'est la conséquence assumée de la règle : le rapport rendu ferme la carte.
  * Une carte de vérification, une carte dont l'agent conclut qu'il n'y avait
- * rien à faire arrivent donc dans « Terminé » sans une ligne de code. La carte
+ * rien à faire arrivent donc dans « À déployer » sans une ligne de code. La carte
  * ne doit surtout pas laisser croire à une livraison : elle annonce le rapport
  * ET l'absence de code, dans la même phrase.
  */
@@ -376,7 +381,7 @@ export function natureDeLaMention(raison?: string | null): NatureDeLaMention {
 /**
  * Où va la carte quand le tour se TERMINE.
  *
- * Un tour RENDU par un agent d'EXÉCUTION la pose en « Terminé » — le rapport
+ * Un tour RENDU par un agent d'EXÉCUTION la pose en « À déployer » — le rapport
  * est la preuve, le dépôt n'est plus consulté pour en décider. Trois cas la
  * laissent où elle est :
  *   - le tour a échoué ou a été interrompu : le travail n'est pas rendu,
@@ -393,7 +398,7 @@ export function colonneEnFinDeTour(colonne: ColumnKey, reussi: boolean, role: Ag
   if (!reussi) return null;
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne !== 'running') return null;
-  return 'done';
+  return 'to_deploy';
 }
 
 /**
@@ -514,15 +519,15 @@ export const RAISON_SUSPENDU =
  * Un tour d'exécution RENDU ferme la carte, point. Ce qui varie n'est plus la
  * colonne mais la PHRASE, tirée du constat du dépôt :
  *
- *   - le dépôt a bougé → « Terminé », rien à expliquer : le travail parle ;
- *   - rien n'a bougé mais la carte avait DÉJÀ livré son code → « Terminé »,
+ *   - le dépôt a bougé → « À déployer », rien à expliquer : le travail parle ;
+ *   - rien n'a bougé mais la carte avait DÉJÀ livré son code → « À déployer »,
  *     avec la raison : il n'y avait rien à refaire, le travail est constaté sur
  *     un tour antérieur (`codeDejaEnregistre`) ;
- *   - du travail a été vu AILLEURS que dans la copie de la carte → « Terminé »,
+ *   - du travail a été vu AILLEURS que dans la copie de la carte → « À déployer »,
  *     en disant où le chercher : sa branche est vide, il n'y a rien à déployer ;
- *   - le dépôt n'a pas pu être consulté → « Terminé » sur la foi du rapport, le
+ *   - le dépôt n'a pas pu être consulté → « À déployer » sur la foi du rapport, le
  *     trou dit ;
- *   - rien n'a bougé du tout → « Terminé », en disant qu'aucun code n'a été
+ *   - rien n'a bougé du tout → « À déployer », en disant qu'aucun code n'a été
  *     livré. C'est le cas d'une carte de vérification, ou d'un agent qui conclut
  *     qu'il n'y avait rien à faire.
  *
@@ -553,7 +558,7 @@ export const CARTE_INCHANGEE: IssueDeFinDeTour = { colonne: null, raison: null }
  * clôt en disant ce qui s'est passé.
  */
 export const RAISON_TOUR_SANS_ISSUE =
-  'Le tour s’est terminé sans ranger la carte : elle passe en « Terminé » plutôt que de rester bloquée en « En cours ».';
+  'Le tour s’est terminé sans ranger la carte : elle passe en « À déployer » plutôt que de rester bloquée en « En cours ».';
 
 /** Ce qu'il faut savoir d'une carte pour dire si elle est OUBLIÉE. */
 export interface CarteOubliee {
@@ -578,7 +583,7 @@ export interface CarteOubliee {
    * copie de travail — des minutes entières, pendant lesquelles le statut de
    * l'agent dit « terminé » et la marque de vol a largement dépassé son seuil.
    * Le balayage voyait donc une carte « oubliée » là où un tour rangeait
-   * encore, la posait en « Terminé » avec la phrase « le tour s'est terminé
+   * encore, la posait en « À déployer » avec la phrase « le tour s'est terminé
    * sans ranger la carte », et le vrai rangement qui arrivait une minute plus
    * tard ne trouvait plus sa carte en « En cours » : il ne faisait plus rien.
    *
@@ -595,7 +600,7 @@ export interface CarteOubliee {
   /**
    * Une décision reste ouverte sur cette carte : question posée sans réponse,
    * ou liste de tâches refermée avec des étapes non faites. La ranger en
-   * « Terminé » maintenant annoncerait un travail abouti alors qu'une
+   * « À déployer » maintenant annoncerait un travail abouti alors qu'une
    * intervention de l'utilisateur reste due.
    */
   decisionOuverte?: boolean;
@@ -643,12 +648,12 @@ export const SEUIL_VOL_BLOQUE_MS = 5 * 60 * 1000;
  *     écrite, l'incident est dit en rouge et la carte reste là où on la relance ;
  *   - une DÉCISION reste OUVERTE (`decisionOuverte`) : une question posée sans
  *     réponse, ou une liste de tâches refermée avec des étapes non faites. La
- *     ranger dans « Terminé » ferait passer une carte qui attend l'utilisateur
+ *     ranger dans « À déployer » ferait passer une carte qui attend l'utilisateur
  *     pour un travail abouti — et donc, plus loin, pour une carte prête à être
  *     déployée.
  *
  * Restent les vraies oubliées, et leur issue est la MÊME que celle d'une fin de
- * tour sans changement : code déjà livré → « Terminé » avec sa raison ; rien
+ * tour sans changement : code déjà livré → « À déployer » avec sa raison ; rien
  * jamais enregistré → « Planifié », RETENUE, avec la sienne. On ne peut plus
  * constater le dépôt d'un tour terminé il y a des heures : le drapeau
  * `codeDejaEnregistre` est le seul témoin qui reste, et il suffit.
@@ -668,8 +673,8 @@ export function issueDeCarteOubliee(etat: CarteOubliee, maintenant: number): Iss
   if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
   if (etat.decisionOuverte) return CARTE_INCHANGEE;
 
-  if (etat.dejaEnregistre) return { colonne: 'done', raison: RAISON_DEJA_LIVRE };
-  return { colonne: 'done', raison: RAISON_TOUR_SANS_ISSUE };
+  if (etat.dejaEnregistre) return { colonne: 'to_deploy', raison: RAISON_DEJA_LIVRE };
+  return { colonne: 'to_deploy', raison: RAISON_TOUR_SANS_ISSUE };
 }
 
 export function issueDeFinDeTour(
