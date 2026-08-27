@@ -44,6 +44,15 @@ import {
 export const CLE_VOIX_MUETTE = 'voix.muet';
 
 /**
+ * La clé qui affiche le module vocal flottant. Cachée par défaut (`false`) :
+ * au premier chargement, personne n'a encore choisi de le montrer. Le module
+ * continue de tourner sans interface tant qu'elle reste éteinte — écoute
+ * permanente, conversation, lecture à voix haute — seul son affichage
+ * s'efface, comme sur téléphone (`ancreMenu`, plus bas).
+ */
+export const CLE_VOIX_VISIBLE = 'voix.visible';
+
+/**
  * La clé de l'ÉCOUTE PERMANENTE. Éteinte À CHAQUE OUVERTURE de l'application :
  * le micro ne s'ouvre jamais sans que l'interrupteur ait été allumé à la main,
  * DANS cette page. Elle était jadis retenue côté serveur, comme les autres
@@ -444,6 +453,7 @@ function useInterrupteurDEcoute(
 export function VoixAssistant() {
   const state = useApp();
   const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  const [visible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
   /*
    * ANCRÉ DANS LE MENU DU BAS, SUR TÉLÉPHONE. Là, le module ne flotte plus
    * librement : il vient se poser AU CENTRE du menu du bas (la colonne du milieu
@@ -1049,6 +1059,10 @@ export function VoixAssistant() {
    * Réglages › Voix (`settings-view.tsx`, `VoiceSection`).
    */
   if (ancreMenu) return null;
+  // Caché par défaut : le module tourne toujours (écoute, conversation, voix
+  // haute), seul son bloc flottant ne se pose pas tant que le réglage
+  // « Réglages › Voix » ne l'a pas rallumé.
+  if (!visible) return null;
 
   return (
     <>

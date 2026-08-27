@@ -44,6 +44,7 @@ import {
   type MesureDeTache,
 } from '@haikodev/shared';
 import { getDb, getMeta, setMeta } from './db.js';
+import { log } from './logger.js';
 
 export { getMeta as getMetaValue, setMeta as setMetaValue } from './db.js';
 
@@ -560,15 +561,38 @@ function listeDUneCarte(table: string, colonne: string, cardId: string): string[
   return rows.map((r) => r.valeur);
 }
 
+/**
+ * UNE LIGNE ILLISIBLE NE COÛTE PLUS LE PROJET ENTIER. Chaque carte se relit
+ * pour son compte : la ligne qui ne passe plus le modèle est ÉCARTÉE et DITE
+ * dans le journal, au lieu de faire tomber la lecture de tout le projet.
+ *
+ * Sans ce filet, une seule carte restée sur une valeur qu'une migration vient
+ * de retirer (le 27/08/2026 : une carte en « done » reposée par l'ancien
+ * processus APRÈS la migration 42) casse `project.snapshot` à l'ouverture du
+ * WebSocket et le tick de l'ordonnanceur : l'interface se charge, AUCUN projet
+ * n'arrive, et le service redémarre en boucle. Une carte perdue de vue vaut
+ * mieux qu'une application inaccessible — et le WARN dit laquelle rattraper.
+ */
 export function listCards(projectId: string): Card[] {
   const rows = getDb()
     .prepare('SELECT * FROM cards WHERE project_id = ? ORDER BY position DESC')
     .all(projectId) as LigneCarte[];
   const labels = listesDeCartes('card_labels', 'label', projectId);
   const attachments = listesDeCartes('card_attachments', 'path', projectId);
-  return rows.map((row) =>
-    carteDepuisLigne(row, { labels: labels.get(row.id), attachments: attachments.get(row.id) }),
-  );
+  const cartes: Card[] = [];
+  for (const row of rows) {
+    try {
+      cartes.push(
+        carteDepuisLigne(row, { labels: labels.get(row.id), attachments: attachments.get(row.id) }),
+      );
+    } catch (err: any) {
+      log.warn(
+        `carte illisible écartée : ${row.id} (projet ${projectId}, colonne « ${row.column_key} »)`,
+        err?.message ?? err,
+      );
+    }
+  }
+  return cartes;
 }
 
 export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] {
