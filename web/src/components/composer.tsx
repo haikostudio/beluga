@@ -45,6 +45,7 @@ import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
 import { AnneauContexte } from '@/components/anneau-contexte';
 import { nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
+import { estTelephone } from '@/lib/telephone';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -914,6 +915,15 @@ export function Composer({
     }
 
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      /*
+       * SUR TÉLÉPHONE, LA TOUCHE RETOUR FAIT UN RETOUR À LA LIGNE — L'ENVOI
+       * PASSE PAR LE BOUTON, ET PAR LUI SEUL. Le clavier d'un téléphone n'a
+       * pas de « Maj+Entrée » : la seule touche disponible envoyait le
+       * message, donc écrire un message en plusieurs lignes y était
+       * impossible. Au-dessus du seuil téléphone rien ne change : Entrée
+       * envoie, Maj+Entrée passe à la ligne.
+       */
+      if (estTelephone()) return;
       event.preventDefault();
       void submit();
       return;
@@ -1335,79 +1345,91 @@ export function Composer({
           }
           rows={1}
           className={cn(
-            'relative z-10 min-h-[38px] border-0 bg-transparent pr-14 focus-visible:ring-0',
+            'relative z-10 min-h-[38px] border-0 bg-transparent pr-10 focus-visible:ring-0',
             aDesDrapeaux && 'texte-sous-calque caret-text',
           )}
         />
 
-        {/* Barre du bas simplifiée : pièce jointe à gauche, puis micro, puis
-            le bouton d'envoi qui prend le reste de la largeur. Les réglages
-            (moteur, modèle, réflexion, compte, plan) se choisissent en haut,
-            dans la configuration de l'agent — plus ici. */}
+        <input
+          ref={fileRef}
+          type="file"
+          multiple
+          // Repère pour les contrôles : d'autres écrans ont aussi un champ
+          // de fichier, viser « le dernier » attrapait celui du tableau.
+          data-composer-file
+          className="hidden"
+          onChange={(event) => event.target.files && upload(event.target.files)}
+        />
+
+        {/* LE TROMBONE SE POSE DANS LE COIN HAUT DROIT DU CHAMP. Il quitte la
+            rangée du bas, laissée aux seules actions d'envoi : joindre un
+            fichier vise le TEXTE qu'on est en train d'écrire, sa place est donc
+            SUR le champ. Il passe au-dessus du calque des tags (`z-20`) pour
+            rester cliquable quand une pièce jointe est déjà nommée dans la
+            phrase, et le champ lui réserve sa colonne (`pr-10`). */}
+        <Tooltip label={t('Joindre un fichier')}>
+          <Button
+            variant="ghost"
+            size="icon"
+            data-composer-joindre
+            className="absolute right-1.5 top-1.5 z-30 shrink-0"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+          </Button>
+        </Tooltip>
+
+        {/* LA RANGÉE DU BAS SE LIT DE DROITE À GAUCHE : l'envoi tout au bord,
+            le micro juste à sa gauche, et rien d'autre — le trombone est monté
+            dans le coin du champ. L'envoi n'est plus une barre pleine largeur
+            mais un bouton icône : deux actions voisines de même taille, dont
+            une seule porte l'accent. Les réglages (moteur, modèle, réflexion,
+            compte, plan) se choisissent en haut, dans la configuration de
+            l'agent — plus ici. */}
         <div className="flex min-w-0 items-center gap-0.5 px-1.5 pb-1.5 sm:gap-1">
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            // Repère pour les contrôles : d'autres écrans ont aussi un champ
-            // de fichier, viser « le dernier » attrapait celui du tableau.
-            data-composer-file
-            className="hidden"
-            onChange={(event) => event.target.files && upload(event.target.files)}
-          />
-          <Tooltip label={t('Joindre un fichier')}>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
-            </Button>
-          </Tooltip>
-
-          <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
-
-          {/* LE CONTEXTE DU MODÈLE, EN ANNEAU. Rien ne s'affiche tant que le
-              moteur n'a rendu aucune mesure (voir anneau-contexte.tsx). */}
-          <AnneauContexte agent={agent} />
-
           {onProposeTask && !edition && (text.trim() || picked.length) ? (
-            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => submit(true)}>
+            <Button variant="ghost" size="sm" className="min-w-0 shrink" onClick={() => submit(true)}>
               {t('En faire une tâche')}</Button>
           ) : null}
 
-          {/* Le carré d'arrêt : seul quand rien n'est écrit, à côté de la
-              flèche dès qu'une phrase attend d'être envoyée. */}
-          {boutons.arret ? (
-            <Tooltip label={t('Arrêter l\'agent')}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Arrêter l'agent"
-                className="shrink-0 border border-border text-muted hover:border-danger hover:text-danger"
-                onClick={arret.demander}
-              >
-                <Square className="h-3 w-3 fill-current" />
-              </Button>
-            </Tooltip>
-          ) : null}
+          <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+            {/* Le carré d'arrêt : seul quand rien n'est écrit, à côté de la
+                flèche dès qu'une phrase attend d'être envoyée. */}
+            {boutons.arret ? (
+              <Tooltip label={t('Arrêter l\'agent')}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Arrêter l'agent"
+                  className="shrink-0 border border-border text-muted hover:border-danger hover:text-danger"
+                  onClick={arret.demander}
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </Button>
+              </Tooltip>
+            ) : null}
 
-          {boutons.envoi ? (
-            <div className="min-w-0 flex-1">
+            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
+
+            {/* LE CONTEXTE DU MODÈLE, EN ANNEAU. Rien ne s'affiche tant que le
+                moteur n'a rendu aucune mesure (voir anneau-contexte.tsx). */}
+            <AnneauContexte agent={agent} />
+
+            {boutons.envoi ? (
               <Button
                 variant="default"
                 size="icon"
-                className="w-full"
+                data-composer-envoi
+                className="shrink-0"
                 title={edition ? t('Enregistrer la modification') : t('Envoyer')}
                 disabled={edition ? !text.trim() : !agent || (!text.trim() && !picked.length)}
                 onClick={() => submit()}
               >
                 {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
               </Button>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
           {arret.dialogue}
         </div>
       </div>

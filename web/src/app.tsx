@@ -572,13 +572,13 @@ export function App() {
     setMobileView('board');
   };
 
-  if (!state.connected && !state.projects.length) {
+  if (state.connecting && !state.pret) {
     return (
       <div className="grid h-full place-items-center bg-bg">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-5 w-5 animate-spin text-faint" />
           <p className="text-[14px] text-faint">
-            {state.connecting ? t('Connexion au serveur…') : t('Serveur injoignable — nouvelle tentative…')}
+            {t('Connexion au serveur…')}
           </p>
         </div>
       </div>
@@ -750,8 +750,15 @@ export function App() {
               Pièces jointes), qui pose `--surface` — pas le fond
               de la zone du dessous : elle se détache par son filet, sans
               ombre portée. */}
+          {/* LE MENU DU BAS RESPIRE AUTANT EN HAUT ET EN BAS QU'À GAUCHE ET À
+              DROITE. La barre porte `p-1` sur ses quatre côtés, mais sa HAUTEUR
+              était dictée par le rond du centre (44 px) : les deux boutons
+              (28 px) flottaient alors dans 12 px de vide en haut comme en bas,
+              contre 4 px sur les côtés. Le rond et les boutons partagent
+              désormais la MÊME hauteur (36 px), et les 4 px de `p-1` sont les
+              seuls blancs de la barre, sur les quatre côtés. */}
           <div
-            className="grid grid-cols-[1fr_44px_1fr] items-center gap-1 rounded-2xl border border-border p-1"
+            className="grid grid-cols-[1fr_36px_1fr] items-center gap-1 rounded-2xl border border-border p-1"
             style={{ backgroundColor: 'hsl(var(--surface))' }}
           >
             {/* L'onglet ACTIF se dit à voix haute (`aria-current`) autant qu'il se
@@ -762,7 +769,7 @@ export function App() {
               size="sm"
               aria-current={mobileView === 'board' && !dashboardOpen ? 'page' : undefined}
               className={cn(
-                'w-full justify-center gap-1 rounded-xl px-1 text-xs',
+                'h-9 w-full justify-center gap-1 rounded-xl px-1 text-xs',
                 mobileView === 'board' && !dashboardOpen && 'bg-actif text-actif-fg hover:bg-actif hover:text-actif-fg',
               )}
               onClick={() => {
@@ -787,7 +794,7 @@ export function App() {
               size="sm"
               aria-current={mobileView === 'chat' && !dashboardOpen ? 'page' : undefined}
               className={cn(
-                'w-full justify-center gap-1 rounded-xl px-1 text-xs',
+                'h-9 w-full justify-center gap-1 rounded-xl px-1 text-xs',
                 mobileView === 'chat' && !dashboardOpen && 'bg-actif text-actif-fg hover:bg-actif hover:text-actif-fg',
               )}
               onClick={() => {
@@ -906,7 +913,17 @@ function BoutonRobot({
       aria-busy={busy}
       disabled={busy || !projectId}
       onClick={() => void ouvrir()}
-      className="mx-auto grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border bg-surface text-text shadow-sm transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-60"
+      /*
+       * LE ROND DU CENTRE EST PLUS FONCÉ QUE LA BARRE. Il portait `bg-surface`,
+       * exactement le fond de la barre : le rond ne se voyait pas. `--voile` est
+       * la teinte SOMBRE de chaque thème (celle qui assombrit la page derrière
+       * une fenêtre) : posée en faible part par-dessus le fond de la barre, elle
+       * fonce d'un cran sans inventer de couleur — et le fait dans les douze
+       * palettes, y compris les claires, où `--raised` ÉCLAIRCIT au lieu de
+       * foncer. Même hauteur que les deux boutons (36 px) : la barre garde ses
+       * 4 px de blanc sur ses quatre côtés.
+       */
+      className="mx-auto grid h-9 w-9 shrink-0 place-items-center rounded-full bg-voile/20 text-text transition-colors hover:bg-voile/30 disabled:cursor-not-allowed disabled:opacity-60"
     >
       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
     </button>

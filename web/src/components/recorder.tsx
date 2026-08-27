@@ -255,7 +255,15 @@ export function MicButton({
       onClick={onStart}
       disabled={working || disabled}
       title={t('Dicter')}
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-raised hover:text-text disabled:opacity-40"
+      /*
+       * LE MICRO EST UN BOUTON À PART ENTIÈRE, PAS UNE ICÔNE NUE. Il vit
+       * maintenant collé au bouton d'envoi, tout à droite de la barre
+       * d'écriture : sans cadre ni fond il se lisait comme une décoration du
+       * champ. Mêmes traits que la variante « outline » des boutons
+       * (`border-border` + `bg-controle`, translucide dans les thèmes plats),
+       * pour qu'il fasse paire avec l'envoi sans lui voler l'accent.
+       */
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-controle text-muted transition-colors hover:bg-raised hover:text-text disabled:opacity-40"
     >
       {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
     </button>
