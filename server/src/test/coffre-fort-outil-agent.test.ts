@@ -133,3 +133,46 @@ test('une action inconnue est refusée en clair', async () => {
   const resultat = await callTool({ projectId: p.id, role: 'task' } as any, 'coffre_fort', { action: 'effacer' });
   assert.equal(resultat.ok, false);
 });
+
+test('un agent supprime une fiche périmée de SON projet', async () => {
+  const p = projet('Projet G');
+  await callTool({ projectId: p.id, role: 'task' } as any, 'coffre_fort', {
+    action: 'enregistrer',
+    nom: 'Clé périmée',
+    type: 'jeton',
+    champs: { service: 'X', jeton: 'ancien' },
+  });
+  const id = /\[([a-f0-9-]+)\]/i.exec(
+    (await callTool({ projectId: p.id, role: 'task' } as any, 'coffre_fort', { action: 'lister', recherche: 'perimee' }))
+      .text,
+  )?.[1];
+  assert.ok(id);
+
+  const supprime = await callTool({ projectId: p.id, role: 'task' } as any, 'coffre_fort', { action: 'supprimer', id });
+  assert.equal(supprime.ok, true, supprime.text);
+
+  const liste = await callTool({ projectId: p.id, role: 'task' } as any, 'coffre_fort', { action: 'lister', recherche: 'perimee' });
+  assert.equal(liste.text.includes('Clé périmée'), false);
+});
+
+test('supprimer une fiche d’un AUTRE projet est refusé', async () => {
+  const a = projet('Projet H');
+  const b = projet('Projet I');
+  await callTool({ projectId: a.id, role: 'task' } as any, 'coffre_fort', {
+    action: 'enregistrer',
+    nom: 'Secret de H',
+    type: 'mot-de-passe',
+    champs: { identifiant: 'h', motDePasse: 'x' },
+  });
+  const id = /\[([a-f0-9-]+)\]/i.exec(
+    (await callTool({ projectId: a.id, role: 'task' } as any, 'coffre_fort', { action: 'lister', recherche: 'de h' })).text,
+  )?.[1];
+  assert.ok(id);
+
+  const refus = await callTool({ projectId: b.id, role: 'task' } as any, 'coffre_fort', { action: 'supprimer', id });
+  assert.equal(refus.ok, false);
+  assert.match(refus.text, /autre projet/);
+
+  const toujoursLa = await callTool({ projectId: a.id, role: 'task' } as any, 'coffre_fort', { action: 'lister', recherche: 'de h' });
+  assert.match(toujoursLa.text, /Secret de H/);
+});

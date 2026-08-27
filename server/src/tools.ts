@@ -73,7 +73,7 @@ import {
   champsDuType,
   filtrerAcces,
 } from '@haikodev/shared';
-import { listerAcces, enregistrerAcces } from './coffre-fort.js';
+import { listerAcces, enregistrerAcces, supprimerAcces } from './coffre-fort.js';
 import * as store from './store.js';
 import { createProjectFolder, sourceDHeritageDuProjet } from './projects.js';
 import { bus } from './bus.js';
@@ -715,14 +715,15 @@ export const TOOL_DEFS: ToolDef[] = [
       "trouvée par « lister » pour la corriger au lieu d'en créer une seconde. Chaque type a ses champs propres " +
       "(cle-api → service/cle/adresse, mot-de-passe → adresse/identifiant/motDePasse, ssh → hote/port/utilisateur/" +
       "cle/motDePasse, jeton → service/jeton, base-de-donnees → hote/port/base/utilisateur/motDePasse, autre → " +
-      "valeur) ; ne passe que ceux qui s'appliquent.",
+      "valeur) ; ne passe que ceux qui s'appliquent. « supprimer » retire une fiche périmée (donne son « id ») — " +
+      "uniquement celles du projet en cours, jamais celles partagées d'HaikoDev.",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['lister', 'enregistrer'], description: 'Ce que tu veux faire' },
+        action: { type: 'string', enum: ['lister', 'enregistrer', 'supprimer'], description: 'Ce que tu veux faire' },
         recherche: { type: 'string', description: "Mots cherchés (pour « lister » ; vide = tout montrer)" },
-        id: { type: 'string', description: "L'identifiant d'une fiche déjà rangée, pour la corriger (pour « enregistrer »)" },
+        id: { type: 'string', description: "L'identifiant d'une fiche déjà rangée, pour la corriger (pour « enregistrer ») ou la retirer (pour « supprimer »)" },
         nom: { type: 'string', description: "Le nom de la fiche (pour « enregistrer »)" },
         type: { type: 'string', enum: [...TYPES_ACCES], description: "Le type d'accès (pour « enregistrer »)" },
         champs: {
@@ -1843,7 +1844,18 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         };
       }
 
-      return { ok: false, text: 'Action inconnue : « lister » ou « enregistrer ».' };
+      if (action === 'supprimer') {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        if (!id) return { ok: false, text: "Donne l'« id » de la fiche à supprimer." };
+        const existante = listerAcces().find((a) => a.id === id);
+        if (!existante) return { ok: false, text: `Aucun accès du coffre-fort ne porte l'identifiant « ${id} ».` };
+        if (!dansLeScope(existante)) return { ok: false, text: 'Cet accès appartient à un autre projet.' };
+        const resultat = supprimerAcces(id);
+        if (!resultat.ok) return { ok: false, text: `Suppression refusée : ${resultat.raison}` };
+        return { ok: true, text: `Accès « ${existante.nom} » retiré du coffre-fort.` };
+      }
+
+      return { ok: false, text: 'Action inconnue : « lister », « enregistrer » ou « supprimer ».' };
     }
 
     case 'compta': {
