@@ -56,7 +56,7 @@ import {
   estLeMessageDeSynthese,
 } from '@haikodev/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
-import { Badge, Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote } from '@/components/todos';
@@ -997,6 +997,8 @@ function QuestionCard({
   question: Message['questions'][number];
 }) {
   const [choisis, setChoisis] = React.useState<string[]>([]);
+  /** Le texte libre de la réponse, écrit directement dans la bulle. */
+  const [texteLibre, setTexteLibre] = React.useState('');
   /** Les images jointes à la réponse, avant l'envoi. */
   const [images, setImages] = React.useState<Attachment[]>([]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
@@ -1091,7 +1093,7 @@ function QuestionCard({
    */
   const envoyer = async () => {
     const libelles = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
-    const reponse = texteDeReponse(libelles, '', images.length);
+    const reponse = texteDeReponse(libelles, texteLibre, images.length);
     if (!reponse) return;
     try {
       await client.call({
@@ -1128,13 +1130,12 @@ function QuestionCard({
     );
 
   const libellesChoisis = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
-  const pret = reponsePrete(libellesChoisis, '', images.length);
+  const pret = reponsePrete(libellesChoisis, texteLibre, images.length);
   /*
-   * LE BOUTON « RÉPONDRE » NE SERT PLUS QU'À VALIDER CE QUI SE CHOISIT DANS LA
-   * BULLE : une option cochée, une image jointe. Le TEXTE, lui, s'écrit dans la
-   * barre de la conversation, et c'est son propre bouton d'envoi qui le porte.
+   * LA BULLE PORTE TOUT : options, texte libre et images. C'est le SEUL endroit
+   * où répondre — le bouton « Répondre » valide ce qui s'y trouve.
    */
-  const aValiderIci = question.options.length > 0 || images.length > 0;
+  const aValiderIci = question.options.length > 0 || images.length > 0 || question.allowFreeText;
 
   return (
     <div
@@ -1197,21 +1198,26 @@ function QuestionCard({
         </div>
       ) : null}
 
-      {/* PLUS DE SECOND CHAMP D'ÉCRITURE ICI. La bulle en portait un, à côté de
-          la barre de la conversation : deux endroits pour écrire la même
-          chose, et ce qu'on tapait dans la barre — le geste naturel — partait
-          dans la file d'attente au lieu de répondre. La réponse écrite se tape
-          désormais dans la barre, qui la remet à la question
-          (`texteRepondALaQuestion`, `shared/src/attente-question.ts`). */}
+      {/* LA RÉPONSE SE TAPE ICI, dans la bulle — le SEUL endroit qui compte.
+          La barre de la conversation reste libre pour autre chose. */}
       {question.allowFreeText ? (
-        <p className="mt-2 flex items-start gap-1.5 text-[12.5px] text-muted" data-invite-reponse-barre>
-          <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
-          <span className="min-w-0">
-            {question.options.length
-              ? t('Écrivez une précision dans la barre ci-dessous, ou choisissez ci-dessus.')
-              : t('Écrivez votre réponse dans la barre ci-dessous.')}
-          </span>
-        </p>
+        <Textarea
+          value={texteLibre}
+          onChange={(event) => setTexteLibre(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            if (pret) void envoyer();
+          }}
+          placeholder={
+            question.options.length
+              ? t('Écrivez une précision, ou choisissez ci-dessus…')
+              : t('Écrivez votre réponse…')
+          }
+          rows={2}
+          className="mt-2 text-[13.5px]"
+          data-champ-reponse-question
+        />
       ) : null}
 
       {/* Les images jointes en attente : la croix retire celle qu'on ne veut

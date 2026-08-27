@@ -1351,17 +1351,17 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Diese Auswahl gilt für den Start dieser Aufgabe. Sie wird mit Beginn der Arbeit festgeschrieben.',
     '此选择适用于本任务的启动，工作开始后即固定。',
   ],
-  'Écrivez votre réponse dans la barre ci-dessous.': [
-    'Write your answer in the bar below.',
-    'Escriba su respuesta en la barra de abajo.',
-    'Schreiben Sie Ihre Antwort in die Leiste unten.',
-    '请在下方的输入栏中写下您的回答。',
+  'Écrivez votre réponse…': [
+    'Write your answer…',
+    'Escriba su respuesta…',
+    'Schreiben Sie Ihre Antwort…',
+    '请写下您的回答……',
   ],
-  'Écrivez une précision dans la barre ci-dessous, ou choisissez ci-dessus.': [
-    'Write a detail in the bar below, or pick an option above.',
-    'Escriba una precisión en la barra de abajo, o elija arriba.',
-    'Schreiben Sie eine Ergänzung in die Leiste unten, oder wählen Sie oben.',
-    '可在下方输入栏中补充说明，或在上方选择。',
+  'Écrivez une précision, ou choisissez ci-dessus…': [
+    'Write a detail, or pick an option above…',
+    'Escriba una precisión, o elija arriba…',
+    'Schreiben Sie eine Ergänzung, oder wählen Sie oben…',
+    '可补充说明，或在上方选择……',
   ],
   'Réglages qui ont servi': ['Settings that were used', 'Ajustes que se usaron', 'Verwendete Einstellungen', '实际使用的设置'],
   'Nom du projet': ['Project name', 'Nombre del proyecto', 'Projektname', '项目名称'],
