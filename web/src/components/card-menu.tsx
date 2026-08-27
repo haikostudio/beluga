@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Archive, ArrowRight, CircleDollarSign, MoreVertical, RotateCcw, Trash2 } from 'lucide-react';
+import { Archive, ArrowRight, MoreVertical, RotateCcw, Trash2 } from 'lucide-react';
 import { COLUMN_KEYS, COLUMN_LABELS, Card, canMove, colonneDeReprise, libelleDeReprise } from '@haikodev/shared';
 import {
   Button,
@@ -30,7 +30,6 @@ export function MenuCarte({
   open,
   onOpenChange,
   apresSuppression,
-  onOuvrirFacturation,
 }: {
   card: Card;
   /** « bouton » : les trois points se voient. « invisible » : ouverture au geste. */
@@ -39,8 +38,6 @@ export function MenuCarte({
   onOpenChange?: (ouvert: boolean) => void;
   /** Appelé une fois la carte réellement supprimée (referme son tiroir). */
   apresSuppression?: () => void;
-  /** Retirée de la barre d'onglets : la Facturation reste jointe depuis ce menu, quand le tiroir est ouvert. */
-  onOuvrirFacturation?: () => void;
 }) {
   const [confirmSuppression, setConfirmSuppression] = React.useState(false);
 
@@ -111,15 +108,6 @@ export function MenuCarte({
             if (boutonDroit || Date.now() - ouvertA.current < 600) event.preventDefault();
           }}
         >
-          {onOuvrirFacturation ? (
-            <>
-              <DropdownMenuItem onSelect={onOuvrirFacturation}>
-                <CircleDollarSign className="h-3.5 w-3.5" />  {t('Facturation')}
-</DropdownMenuItem>
-              <DropdownMenuSeparator />
-            </>
-          ) : null}
-
           {reprise ? (
             <DropdownMenuItem onSelect={() => client.moveCard(card, reprise)}>
               <RotateCcw className="h-3.5 w-3.5" />

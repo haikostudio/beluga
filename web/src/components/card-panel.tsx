@@ -204,7 +204,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     (peut('valider').affiche ||
     (card.column === 'planned' && !cadrageEnCours) ||
     peut('terminer').affiche ||
-    (peut('publier').affiche && ongletActif === 'chat') ||
     peut('reprendre').affiche ||
     !!card.closureDoc);
 
@@ -330,7 +329,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           {/* Les gestes rares vivent ici : ils prenaient une ligne entière en
               bas du tiroir. Menu déroulant sur ordinateur, tiroir pleine
               largeur sur téléphone — le composant s'en charge tout seul. */}
-          <MenuCarte card={card} apresSuppression={onClose} onOuvrirFacturation={() => setOnglet('billing')} />
+          <MenuCarte card={card} apresSuppression={onClose} />
         </div>
       </header>
 
@@ -390,8 +389,12 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 {t('Commentaires')}
 <RoueDOnglet visible={!!chargement.comments} />
             </TabsTrigger>
-            {/* La Facturation a quitté la barre : elle reste jointe depuis le
-                menu (les trois points), qui ouvre ce même onglet caché. */}
+            <TabsTrigger
+              value="billing"
+              className="flex-1 data-[state=active]:bg-bg/55 data-[state=active]:shadow-[inset_0_1px_3px_rgba(0,0,0,0.28)]"
+            >
+              {t('Facturation')}
+            </TabsTrigger>
             {simplifie ? null : (
             <TabsTrigger
               value="github"
@@ -513,13 +516,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   <Check className="h-3 w-3" />  {t('Terminer la tâche')}
 </Button>
               </Geste>
-            ) : null}
-            {/* Visible uniquement depuis la conversation : dans Facturation ou
-                GitHub, ce geste de publication n'a pas sa place. */}
-            {peut('publier').affiche && ongletActif === 'chat' ? (
-              <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
-                <Rocket className="h-3 w-3" />  {t('Mettre en file de publication')}
-</Button>
             ) : null}
             {/*
                 Le seul chemin volontaire pour ressortir une carte d'une fin de
