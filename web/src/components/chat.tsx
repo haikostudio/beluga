@@ -40,7 +40,7 @@ import {
   gesteDuPersonnage,
   imageDuPersonnage,
 } from '@haikodev/shared';
-import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import { ConfirmDialog, DialogTitle, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
@@ -979,35 +979,54 @@ function ReglagesAgent({
   }, [card.id]);
   const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
 
-  return (
-    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
-        <Cpu className="h-3 w-3" />
-        {t('Réglages qui ont servi')}
-        <Lock className="h-2.5 w-2.5" title={vu.raison} />
-      </div>
+  const [ouvert, setOuvert] = React.useState(false);
 
-      <div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-          <Etiquette nom={t('Moteur')} valeur={libelles.moteur} />
-          <Etiquette nom={t('Modèle')} valeur={libelles.modele} />
+  return (
+    <>
+      {/* Réduit à une ligne : le détail (Moteur / Modèle / Niveau / Compte /
+          Quotas, chacun avec son libellé au-dessus) ne s'affiche qu'au clic,
+          dans un tiroir en colonne verticale — la grille se cassait sur
+          téléphone. */}
+      <button
+        type="button"
+        onClick={() => setOuvert(true)}
+        className="flex w-full items-center gap-1.5 rounded-md border border-border bg-raised px-2.5 py-2 text-left text-[11.5px] uppercase tracking-wide text-faint transition-colors hover:bg-hover"
+      >
+        <Cpu className="h-3 w-3 shrink-0" />
+        <span className="shrink-0">{t('Réglages qui ont servi')}</span>
+        <Lock className="h-2.5 w-2.5 shrink-0" title={vu.raison} />
+        <span className="min-w-0 flex-1 truncate normal-case tracking-normal text-text/80">
+          {[libelles.moteur, libelles.modele, libelles.reflexion, vu.compte ?? '—'].join(' · ')}
+        </span>
+        <ChevronRight className="h-3 w-3 shrink-0" />
+      </button>
+
+      <Drawer open={ouvert} onClose={() => setOuvert(false)}>
+        <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
+          <Cpu className="h-3.5 w-3.5 shrink-0 text-accent" />
+          <DialogTitle className="min-w-0 flex-1 truncate">{t('Réglages qui ont servi')}</DialogTitle>
+          <Lock className="h-3 w-3 shrink-0 text-faint" title={vu.raison} />
+        </header>
+
+        <ZoneDefilement className="flex flex-col gap-3 px-3 pb-4">
+          <EtiquetteColonne nom={t('Moteur')} valeur={libelles.moteur} />
+          <EtiquetteColonne nom={t('Modèle')} valeur={libelles.modele} />
           {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
               mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
-          <Etiquette nom={t('Niveau')} valeur={libelles.reflexion} />
-          <Etiquette nom={t('Compte')} valeur={vu.compte ?? '—'} />
-        </div>
+          <EtiquetteColonne nom={t('Niveau')} valeur={libelles.reflexion} />
+          <EtiquetteColonne nom={t('Compte')} valeur={vu.compte ?? '—'} />
 
-        {/* La part de quota dépensée par cette carte, une seule ligne, en
-            clair. Rien quand aucun relevé n'existe : un zéro ferait croire à
-            une mesure. */}
-        {quotaVu ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-            <Etiquette nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
-            <Etiquette nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
-          </div>
-        ) : null}
-      </div>
-    </div>
+          {/* La part de quota dépensée par cette carte. Rien quand aucun
+              relevé n'existe : un zéro ferait croire à une mesure. */}
+          {quotaVu ? (
+            <>
+              <EtiquetteColonne nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
+              <EtiquetteColonne nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
+            </>
+          ) : null}
+        </ZoneDefilement>
+      </Drawer>
+    </>
   );
 }
 
@@ -1114,5 +1133,16 @@ function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
       <span className="shrink-0 text-[12px] text-faint">{nom}</span>
       <span className="truncate font-medium text-text">{valeur}</span>
     </span>
+  );
+}
+
+/** Une étiquette en colonne : le libellé au-dessus, la valeur en dessous —
+ * le détail du tiroir « Réglages qui ont servi », une ligne par réglage. */
+function EtiquetteColonne({ nom, valeur }: { nom: string; valeur: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11.5px] uppercase tracking-wide text-faint">{nom}</span>
+      <span className="text-[14px] font-medium text-text">{valeur}</span>
+    </div>
   );
 }
