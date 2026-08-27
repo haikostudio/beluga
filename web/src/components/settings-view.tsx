@@ -92,10 +92,13 @@ import {
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
 import { AppearancePicker } from '@/components/appearance-picker';
+import { CLE_VOIX_MUETTE } from '@/components/voix-assistant';
 import { client } from '@/lib/client';
 import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { useEstSimplifie, useModeSimplifie } from '@/lib/mode-simplifie';
 import { useApp } from '@/lib/use-app';
+import { usePref } from '@/lib/prefs';
+import { setConversationAllumeeGlobale, setEcouteAllumeeGlobale, useEtatVocalGlobal } from '@/lib/etat-vocal';
 import { bytes, cn, elapsed, relativeTime } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 
@@ -1748,11 +1751,34 @@ function VoiceSection({ open }: { open: boolean }) {
   const choisie = state.settings?.ttsVoice;
   const vitesse = state.settings?.voixVitesse ?? 'normale';
 
+  // Écoute permanente et conversation vocale : ÉTEINTES à chaque ouverture de
+  // l'app, jamais retenues — voir `lib/etat-vocal.ts`. Le rond du menu du bas
+  // qui les pilotait a cédé sa place au bouton Robo ; elles se règlent ici.
+  const etatVocal = useEtatVocalGlobal();
+  const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+
   return (
     <section>
       <h3 className="mb-2 flex items-center gap-1.5 text-[13.5px] font-medium text-text">
         <Volume2 className="h-3.5 w-3.5 text-faint" />  {t('La voix du point du jour')}
 </h3>
+
+      <div className="mb-3 space-y-2">
+        <label className="flex items-center gap-2 text-[14px] text-muted">
+          <Switch checked={etatVocal.ecouteAllumee} onCheckedChange={setEcouteAllumeeGlobale} />
+          {t('Écoute permanente (mot de réveil)')}
+        </label>
+        <label className="flex items-center gap-2 text-[14px] text-muted">
+          <Switch checked={etatVocal.conversationAllumee} onCheckedChange={setConversationAllumeeGlobale} />
+          {t('Mode conversation vocale')}
+        </label>
+        <label className="flex items-center gap-2 text-[14px] text-muted">
+          <Switch checked={!muet} onCheckedChange={(checked) => setMuet(!checked)} />
+          {t('Lire les réponses et notifications à voix haute')}
+        </label>
+        <p className="text-[11.5px] text-faint">
+          {t('L\'écoute et la conversation s\'éteignent à chaque fermeture de l\'application — jamais de micro ouvert tout seul.')}</p>
+      </div>
 
       <div className="mb-3">
         <label className="mb-1 block text-[12.5px] text-muted">{t('Le prénom que la voix emploie')}</label>

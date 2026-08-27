@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { LayoutGrid, Columns3, MessageSquare, Loader2 } from 'lucide-react';
+import { LayoutGrid, Columns3, MessageSquare, Loader2, Bot } from 'lucide-react';
 import { TooltipProvider, Button, Drawer, EmptyState, SidePanel } from '@/components/ui';
 import { QuotaBar } from '@/components/quota-bar';
 import { Sidebar } from '@/components/sidebar';
@@ -25,6 +25,9 @@ import {
   lireFragment,
   memeEcran,
   ongletAReprendre,
+  TITRE_CARTE_DE_CADRAGE,
+  carteRobotEstVide,
+  Card,
   type EcranNavigateur,
 } from '@haikodev/shared';
 import { t, useLangueAppliquee } from '@/lib/langue';
@@ -116,6 +119,19 @@ export function App() {
    */
   useModeSimplifieApplique();
   const [openCardId, setOpenCardId] = React.useState<string | null>(null);
+  /*
+   * LA CARTE OUVERTE PAR LE BOUTON ROBO (menu du bas) n'existe VRAIMENT que si
+   * quelque chose y a été saisi — un message envoyé, ou un brouillon en train
+   * de s'écrire. `carteRobotIdRef` porte son identifiant tant qu'elle reste à
+   * juger ; l'effet plus bas, déclenché à la FERMETURE du tiroir (un autre
+   * `openCardId` prend sa place, ou il retombe à `null`), la supprime si elle
+   * est restée vide. `state` est lu par une référence tenue à jour à chaque
+   * rendu : l'effet ne se réabonne qu'au changement d'`openCardId`, jamais à
+   * chaque frappe dans le brouillon.
+   */
+  const carteRobotIdRef = React.useRef<string | null>(null);
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
   const [openAgentId, setOpenAgentId] = React.useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   // La page « Tableau de bord » s'ouvre par-dessus le tableau, dans le
@@ -238,6 +254,29 @@ export function App() {
       }),
     [],
   );
+
+  /*
+   * LA CARTE DU BOUTON ROBO SE JUGE À SA FERMETURE. Dès que `openCardId`
+   * cesse d'être la carte tenue par `carteRobotIdRef` (le tiroir s'est
+   * refermé, ou une autre carte a pris sa place), on regarde si un message
+   * est parti ou si un brouillon reste dans le champ ; sans l'un ni l'autre,
+   * la carte n'a jamais vraiment existé pour l'utilisateur et repart en base.
+   */
+  const carteRobotPrecedenteRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const precedente = carteRobotPrecedenteRef.current;
+    carteRobotPrecedenteRef.current = openCardId;
+    if (!precedente || precedente === openCardId || precedente !== carteRobotIdRef.current) return;
+    carteRobotIdRef.current = null;
+    const s = stateRef.current;
+    const card = s.cards[precedente];
+    if (!card) return;
+    const conversation = s.cardMessages[precedente];
+    const agentId = card.agentId ?? conversation?.activeAgentId;
+    const brouillon = agentId ? (s.prefs[`draft.${agentId}`] as string | undefined) : undefined;
+    if (!carteRobotEstVide({ nbMessages: conversation?.messages?.length ?? 0, brouillon })) return;
+    void client.call({ type: 'card.delete', id: precedente }).catch(() => {});
+  }, [openCardId]);
 
   /*
    * « Emmène-moi à la décision. » Le triangle de la colonne de gauche mène
@@ -733,12 +772,16 @@ export function App() {
             >
               <Columns3 className="h-3.5 w-3.5 shrink-0" />  {t('Tableau')}
 </Button>
-            {/* La colonne du milieu est laissée VIDE, juste assez large pour le
-                rond du module de voix (fixe, par-dessus) qui vient s'y poser et
-                déborde un peu en haut et en bas, comme un bouton d'action. Les
-                deux autres colonnes se partagent tout le reste (`1fr`), pour que
-                Tableau et Fichiers s'étendent chacun jusqu'au rond, sans vide. */}
-            <div aria-hidden data-place-voix />
+            {/* La colonne du milieu tient le bouton Robo — à la place du rond
+                du module de voix, qui n'a plus d'affordance ici (ses réglages
+                vivent désormais dans Réglages › Voix). Il ouvre une nouvelle
+                carte d'agent, dans le projet affiché, en tiroir. */}
+            <BoutonRobot
+              projectId={activeProject?.id ?? null}
+              onCree={(cardId) => {
+                carteRobotIdRef.current = cardId;
+              }}
+            />
             <Button
               variant="ghost"
               size="sm"
@@ -815,5 +858,57 @@ export function App() {
         ) : null}
       </div>
     </TooltipProvider>
+  );
+}
+
+/**
+ * LE BOUTON ROBO, au centre du menu du bas — à la place de l'ancien rond du
+ * module de voix. Un clic fait naître une VRAIE carte de cadrage
+ * (`card.create`, `cadrage: true`, même geste que « Nouvelle tâche » en tête
+ * de « Planifié ») dans le projet affiché, et l'ouvre aussitôt en tiroir.
+ * Elle ne survit que si quelque chose y est saisi : `onCree` prévient
+ * l'appelant de son identifiant, pour qu'il la range si le tiroir se referme
+ * vide (voir l'effet sur `carteRobotIdRef` dans `App`).
+ */
+function BoutonRobot({
+  projectId,
+  onCree,
+}: {
+  projectId: string | null;
+  onCree: (cardId: string) => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const ouvrir = async () => {
+    if (busy || !projectId) return;
+    setBusy(true);
+    try {
+      const data = await client.call<{ card: Card }>({
+        type: 'card.create',
+        projectId,
+        title: TITRE_CARTE_DE_CADRAGE,
+        cadrage: true,
+      });
+      if (data?.card) {
+        onCree(data.card.id);
+        client.openCard(data.card.id);
+      }
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('création impossible'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      data-bouton-robot
+      aria-label={t('Nouvel agent')}
+      aria-busy={busy}
+      disabled={busy || !projectId}
+      onClick={() => void ouvrir()}
+      className="mx-auto grid h-11 w-11 shrink-0 place-items-center rounded-full border border-border bg-surface text-text shadow-sm transition-colors hover:bg-raised disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
+    </button>
   );
 }

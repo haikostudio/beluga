@@ -17,6 +17,7 @@ import {
   titreDepuisLaDiscussion,
   titreDeBloc,
   titreEncoreVide,
+  carteRobotEstVide,
 } from '@haikodev/shared';
 
 /* Une base jetable : le tour d'écriture de la carte passe par le VRAI outil. */
@@ -123,6 +124,15 @@ test('une carte sans titre en reçoit un tiré de la première demande', () => {
 
   const long = titreDepuisLaDiscussion([{ role: 'user', content: 'a'.repeat(300) }]);
   assert.ok(long.length <= 81, `titre trop long : ${long.length}`);
+});
+
+test('la carte du bouton Robo ne survit que si quelque chose y a été saisi', () => {
+  assert.equal(carteRobotEstVide({ nbMessages: 0 }), true);
+  assert.equal(carteRobotEstVide({ nbMessages: 0, brouillon: '' }), true);
+  assert.equal(carteRobotEstVide({ nbMessages: 0, brouillon: '   ' }), true);
+  assert.equal(carteRobotEstVide({ nbMessages: 0, brouillon: 'Exporter la liste en CSV' }), false);
+  assert.equal(carteRobotEstVide({ nbMessages: 1, brouillon: '' }), false);
+  assert.equal(carteRobotEstVide({ nbMessages: 1 }), false);
 });
 
 test('les tags « [fichier: …] » ne salissent jamais le titre généré', () => {

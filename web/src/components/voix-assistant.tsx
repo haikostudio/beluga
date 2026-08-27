@@ -34,6 +34,11 @@ import { lireNiveauxMicro, useEcoutePermanente } from '@/lib/ecoute';
 import { lireNiveauxConversation, useConversationVocale } from '@/lib/conversation-vocale';
 import { signalerEcouteVoulue } from '@/lib/micro';
 import { t } from '@/lib/langue';
+import {
+  setConversationAllumeeGlobale,
+  setEcouteAllumeeGlobale,
+  useEtatVocalGlobal,
+} from '@/lib/etat-vocal';
 
 /** La clé de préférence du bouton « Muet » (partagée avec la barre du haut). */
 export const CLE_VOIX_MUETTE = 'voix.muet';
@@ -415,9 +420,17 @@ function LigneOndes({
  * La valeur restée en base (d'avant cette règle, ou d'un autre appareil) est
  * ÉTEINTE une bonne fois : sans cela, elle mentirait sur ce que l'application
  * fait vraiment.
+ *
+ * L'interrupteur lui-même vit désormais dans `lib/etat-vocal.ts` — un magasin
+ * PARTAGÉ, non persisté — pour que la section « Voix » de Réglages puisse
+ * l'allumer et l'éteindre elle aussi : `valeur` et `ecrire` en viennent, ce
+ * hook ne fait plus qu'y greffer la purge d'une ancienne valeur retenue.
  */
-function useInterrupteurDEcoute(cle: string): [boolean, (valeur: boolean) => void] {
-  const [allume, setAllume] = React.useState(false);
+function useInterrupteurDEcoute(
+  cle: string,
+  valeur: boolean,
+  ecrire: (valeur: boolean) => void,
+): [boolean, (valeur: boolean) => void] {
   // La valeur retenue arrive du serveur APRÈS le premier rendu : on la surveille
   // au lieu de la lire une fois pour toutes, sinon on éteindrait un réglage
   // qu'on n'a pas encore reçu — et il resterait allumé en base pour toujours.
@@ -425,7 +438,7 @@ function useInterrupteurDEcoute(cle: string): [boolean, (valeur: boolean) => voi
   React.useEffect(() => {
     if (retenu) oublier(false);
   }, [retenu, oublier]);
-  return [allume, setAllume];
+  return [valeur, ecrire];
 }
 
 export function VoixAssistant() {
@@ -554,7 +567,12 @@ export function VoixAssistant() {
    * (micro, découpe par le silence, transcription) vit dans `useEcoutePermanente` ;
    * ici, on ne fait que l'afficher.
    */
-  const [ecouteAllumee, setEcouteAllumee] = useInterrupteurDEcoute(CLE_VOIX_ECOUTE);
+  const etatVocalGlobal = useEtatVocalGlobal();
+  const [ecouteAllumee, setEcouteAllumee] = useInterrupteurDEcoute(
+    CLE_VOIX_ECOUTE,
+    etatVocalGlobal.ecouteAllumee,
+    setEcouteAllumeeGlobale,
+  );
   // Le mot de réveil réglé (« Dis Haiko » par défaut), sous ses DEUX formes
   // comparées : ses lettres, et ce qu'il sonne — la transcription n'écrit
   // presque jamais « Haiko », mais elle en écrit toujours le son.
@@ -599,7 +617,11 @@ export function VoixAssistant() {
    * haute. Reparler coupe cette parole (`onParole` → `taireVoix`). Les ondes sont
    * BLEUES (le micro du réveil, lui, reste rouge).
    */
-  const [conversationAllumee, setConversationAllumee] = useInterrupteurDEcoute(CLE_VOIX_CONVERSATION);
+  const [conversationAllumee, setConversationAllumee] = useInterrupteurDEcoute(
+    CLE_VOIX_CONVERSATION,
+    etatVocalGlobal.conversationAllumee,
+    setConversationAllumeeGlobale,
+  );
   // Lu par les écouteurs (fermeture au survol-sort, appui-dehors) sans les
   // réabonner : tant qu'on converse, le panneau reste ouvert pour montrer le fil.
   const conversationAllumeeRef = React.useRef(conversationAllumee);
@@ -1017,6 +1039,16 @@ export function VoixAssistant() {
   });
   const corr = correctionOuverture(sens, tailleForme, { width: VOIX_ROND, height: VOIX_ROND });
   corrRef.current = corr;
+
+  /*
+   * SUR TÉLÉPHONE, LE ROND NE S'AFFICHE PLUS : sa place dans le menu du bas
+   * est prise par le bouton Robo (`app.tsx`), qui ouvre une nouvelle carte
+   * d'agent au lieu du panneau vocal. Tout ce qui précède continue de
+   * tourner SANS interface — écoute permanente, mode conversation, lecture
+   * à voix haute des réponses — ces réglages se pilotent désormais depuis
+   * Réglages › Voix (`settings-view.tsx`, `VoiceSection`).
+   */
+  if (ancreMenu) return null;
 
   return (
     <>

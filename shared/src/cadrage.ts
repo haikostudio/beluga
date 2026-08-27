@@ -183,6 +183,17 @@ export function titreEncoreVide(titre: string | undefined): boolean {
 }
 
 /**
+ * La carte ouverte par le BOUTON ROBO du menu du bas n'existe vraiment que si
+ * quelque chose y a été saisi — un message envoyé, ou un brouillon en train
+ * de s'écrire. Sans l'un ni l'autre, elle repart en base à la fermeture du
+ * tiroir : c'est cette décision, pure et testée seule, que `app.tsx` applique
+ * à la fermeture (voir `carteRobotIdRef` dans `web/src/app.tsx`).
+ */
+export function carteRobotEstVide(etat: { nbMessages: number; brouillon?: string }): boolean {
+  return etat.nbMessages <= 0 && !(etat.brouillon ?? '').trim();
+}
+
+/**
  * Les tags « [fichier: nom] » posés par le composeur : illisibles dans un
  * titre de carte, ils ne disent rien du besoin. On les retire avant d'en
  * tirer une phrase — le même motif que `TAG_FICHIER` de `ancres.ts`.
