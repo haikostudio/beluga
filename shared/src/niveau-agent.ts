@@ -30,6 +30,15 @@ export const NIVEAUX_AGENT: NiveauAgent[] = ['leger', 'standard', 'approfondi'];
 /** Le palier retenu quand le chef n'en dit rien. */
 export const NIVEAU_PAR_DEFAUT: NiveauAgent = 'standard';
 
+/**
+ * Le palier affiché sur une carte de cadrage qui vient de naître, avant tout
+ * échange : le plus économe, plutôt qu'un champ vide. Rien ne dit encore
+ * l'ampleur du travail, mieux vaut suggérer un modèle bon marché que de ne
+ * rien montrer dans le composant de saisie — l'agent de cadrage le relève dès
+ * qu'il comprend qu'il faut davantage (`CONSIGNE_CADRAGE`).
+ */
+export const NIVEAU_PAR_DEFAUT_CADRAGE: NiveauAgent = 'leger';
+
 export interface DefinitionNiveau {
   id: NiveauAgent;
   /** Ce qui s'affiche à l'écran. */

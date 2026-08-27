@@ -15,12 +15,14 @@
  * vide, et le premier tour n'a lieu qu'au premier message de l'utilisateur.
  */
 
-import { Agent, TITRE_CARTE_DE_CADRAGE } from '@haikodev/shared';
+import { Agent, NIVEAU_PAR_DEFAUT_CADRAGE, reglagesDuNiveau, TITRE_CARTE_DE_CADRAGE } from '@haikodev/shared';
 import * as store from './store.js';
 import { createAgent } from './runtime.js';
 import { bus } from './bus.js';
 import { listEngines } from './engines/index.js';
 import { orchestratorChoice, resolveModel } from './engines/catalog.js';
+import { catalogueMoteurs } from './catalogue-moteurs.js';
+import { log } from './logger.js';
 
 /**
  * L'agent de cadrage d'une carte, créé s'il n'existe pas encore.
@@ -65,6 +67,33 @@ export async function ouvrirLeCadrage(cardId: string): Promise<Agent | null> {
     run: { engine: engineId, model, thinking },
   });
   bus.emit({ type: 'agent.upsert', agent });
+
+  /*
+   * LA CARTE ELLE-MÊME AFFICHE DÉJÀ UN MODÈLE ÉCONOME, avant tout échange :
+   * le composant de saisie (`web/src/components/composer.tsx`) lit `card.run`
+   * pendant un cadrage, pas le réglage de l'agent qui discute. Sans ce
+   * réglage posé ici, il resterait vide tant que le cadrage n'a rien décidé.
+   * Une carte qui a DÉJÀ un niveau ou un modèle (reprise, héritage d'une
+   * proposition) n'est jamais touchée.
+   */
+  if (!card.run?.niveau && !card.run?.model) {
+    try {
+      const catalogue = await catalogueMoteurs();
+      const moteur = catalogue.find((m) => m.id === engineId) ?? catalogue.find((m) => m.installed) ?? catalogue[0];
+      if (moteur) {
+        const reglages = reglagesDuNiveau(moteur, NIVEAU_PAR_DEFAUT_CADRAGE);
+        const fraiche = store.saveCard({
+          ...card,
+          run: { ...(card.run ?? {}), engine: moteur.id, ...reglages, niveau: NIVEAU_PAR_DEFAUT_CADRAGE },
+        });
+        bus.emit({ type: 'card.upsert', card: fraiche });
+      }
+    } catch (err) {
+      // Catalogue illisible : la carte reste sans modèle affiché, comme avant.
+      log.warn('niveau par défaut du cadrage : catalogue des moteurs illisible', err);
+    }
+  }
+
   return agent;
 }
 

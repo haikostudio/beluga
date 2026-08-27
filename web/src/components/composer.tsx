@@ -729,9 +729,46 @@ export function Composer({
   /** La commande que le message porte déjà, telle qu'elle partira au moteur. */
   const commandeEcrite = commandeDuMessage(text);
 
+  /*
+   * PENDANT UN CADRAGE, LE RÉGLAGE AFFICHÉ N'EST PAS CELUI DE L'AGENT DE
+   * CADRAGE (un modèle économe, plafonné, qui ne sert qu'à discuter), MAIS
+   * CELUI DE LA CARTE : le moteur, le modèle et la réflexion qui exécuteront
+   * la tâche une fois « Lancer la tâche » cliqué (`card.run`, traduit du
+   * niveau par `board_update_card`, `shared/src/niveau-agent.ts`). Changer ce
+   * réglage ici doit donc écrire sur la carte, pas sur l'agent de cadrage.
+   */
+  const carteDeCadrage = agent?.role === 'cadrage' && agent.cardId ? state.cards[agent.cardId] : undefined;
+  const runAffiche = carteDeCadrage ? carteDeCadrage.run : agent?.run;
+
   // Le serveur tranche : il réinitialise les choix d'après et vérifie que la
   // combinaison existe vraiment (PLAN §14).
   const updateRun = async (patch: RunChoix) => {
+    if (carteDeCadrage) {
+      const souhait = patch.engine ? { engine: patch.engine } : { ...carteDeCadrage.run, ...patch };
+      const retenu = resoudreRun(engines, souhait);
+      if (!retenu.engine) return;
+      try {
+        await client.call({
+          type: 'card.update',
+          id: carteDeCadrage.id,
+          patch: {
+            run: {
+              ...carteDeCadrage.run,
+              engine: retenu.engine.id,
+              model: retenu.model?.id,
+              thinking: retenu.thinking?.id ?? 'none',
+              account: souhait.account,
+              // Un choix fait ici, à l'écran, l'emporte sur le niveau du
+              // cadrage : il ne doit plus être réécrit par lui.
+              niveau: undefined,
+            },
+          },
+        });
+      } catch (err: any) {
+        client.pushToast('error', err?.message ?? t('réglage impossible'));
+      }
+      return;
+    }
     if (!agent) return;
     try {
       await client.call({ type: 'agent.config', agentId: agent.id, run: patch });

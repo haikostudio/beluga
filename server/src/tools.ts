@@ -1051,7 +1051,16 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * plutôt que de la rabattre sur un modèle au hasard.
        */
       const palier = niveauDemande(args.niveau);
-      const reglages = palier ? await reglagesProposes(ctx.run, palier) : {};
+      /*
+       * UN MODÈLE CHOISI À L'ÉCRAN L'EMPORTE, ICI COMME POUR LES PROPOSITIONS
+       * DU CHEF. La barre d'écriture d'une carte de cadrage écrit `niveau:
+       * undefined` dès qu'un choix manuel est fait (`web/src/components/
+       * composer.tsx`) : un modèle posé sans niveau est donc un choix humain,
+       * jamais une traduction laissée en place, et le prochain palier annoncé
+       * par le cadrage ne doit plus l'écraser en silence.
+       */
+      const modeleFigeManuel = !!card.run?.model && card.run?.niveau === undefined;
+      const reglages = palier && !modeleFigeManuel ? await reglagesProposes(ctx.run, palier) : {};
       /*
        * LE PALIER EST RETENU MÊME QUAND LE CATALOGUE EST MUET. La traduction en
        * modèle réel demande le catalogue du moteur ; s'il est illisible, garder
@@ -1059,7 +1068,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * ferait exécuter au palier par défaut une carte cadrée « approfondi ».
        */
       let run = card.run;
-      if (palier) {
+      if (palier && !modeleFigeManuel) {
         const base = reglages.run ?? card.run;
         run = base
           ? { ...base, niveau: palier }
@@ -1074,9 +1083,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...heritageAnalyseDeProposition(card, title, description),
       });
       bus.emit({ type: 'card.upsert', card: updated });
+      const annonceModele =
+        palier && !modeleFigeManuel
+          ? resumeReglages(reglages)
+          : palier && modeleFigeManuel
+            ? ' Un modèle a été choisi à la main sur cette carte : il est conservé tel quel.'
+            : '';
       return {
         ok: true,
-        text: `Carte mise à jour : ${updated.title}.${palier ? ` Niveau d'exécution : ${palier}.` : ''}`,
+        text: `Carte mise à jour : ${updated.title}.${annonceModele}`,
       };
     }
 
