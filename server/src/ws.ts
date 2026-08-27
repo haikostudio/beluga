@@ -673,9 +673,13 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
       const updated = store.saveCard({
         ...card,
-        column: 'done',
-        position: store.nextPosition(card.projectId, 'done'),
+        column: 'to_deploy',
+        position: store.nextPosition(card.projectId, 'to_deploy'),
         doneAt: Date.now(),
+        // Une carte déjà mise en ligne, retravaillée puis close à la main,
+        // entre à nouveau dans « À déployer » : sa vieille date de mise en
+        // ligne ne doit plus l'écarter du lot (`dateDeMiseEnLignePerimee`).
+        deployedAt: undefined,
       });
       bus.emit({ type: 'card.upsert', card: updated });
       // Même événement que la clôture automatique par l'ordonnanceur : la

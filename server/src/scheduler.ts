@@ -763,12 +763,12 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
       if (!fresh) return;
       if (ok) {
         /*
-         * Le passage en « Terminé » est déjà fait : la carte suit l'issue de son
-         * tour (`carteApresFinDeTour`). On ne prévient que si elle y est
+         * Le passage en « À déployer » est déjà fait : la carte suit l'issue de
+         * son tour (`carteApresFinDeTour`). On ne prévient que si elle y est
          * VRAIMENT arrivée : un tour qui répond sans rien modifier au dépôt
          * renvoie la carte en file, il n'y a donc pas de travail à annoncer.
          */
-        if (fresh.column === 'done' || fresh.column === 'to_deploy') {
+        if (fresh.column === 'to_deploy') {
           /*
            * La voix préfère un résumé du VRAI contenu de la réponse au seul
            * titre : on le tire du texte que l'agent vient d'écrire (aucune

@@ -1,11 +1,10 @@
 /**
  * LE DÉPLOIEMENT AUTOMATIQUE D'UN PROJET.
  *
- * Un interrupteur, en tête de la colonne « Terminé », ÉTEINT PAR DÉFAUT. Une
- * fois allumé, il vaut consentement PERMANENT pour ce projet : dès que plus
- * rien ne travaille, les cartes de « Terminé » passent d'elles-mêmes dans « À
- * déployer » et celles qui y attendaient déjà partent avec elles, sans second
- * clic sur « Publier maintenant ».
+ * Un interrupteur, en tête de la colonne « À déployer », ÉTEINT PAR DÉFAUT.
+ * Une fois allumé, il vaut consentement PERMANENT pour ce projet : dès que
+ * plus rien ne travaille, les cartes qui attendent dans « À déployer »
+ * partent, sans second clic sur « Publier maintenant ».
  *
  * La règle d'or n'est pas enfreinte : rien ne part de la propre initiative
  * d'une machine ou d'un agent — c'est l'utilisateur qui a allumé
@@ -22,18 +21,17 @@
  *    « dès que possible ») : le calme est trompeur, le travail reprend dans
  *    quelques secondes ;
  *  - une publication déjà en cours sur ce projet ;
- *  - aucune carte dans « Terminé » ni « À déployer » : il n'y a rien à mettre
- *    en ligne ;
+ *  - aucune carte dans « À déployer » : il n'y a rien à mettre en ligne ;
  *  - un travail terminé il y a moins d'une minute : deux cartes d'un même lot
  *    finissent rarement à la même seconde, et on ne veut pas d'une publication
  *    par carte.
  *
  * UNE CARTE QUI ATTEND UNE RÉPONSE NE COMPTE JAMAIS DANS LE LOT, même arrivée
- * dans « Terminé » : une question posée par l'agent restée sans réponse, ou une
- * liste de tâches refermée avec des étapes non faites, disent toutes deux
+ * dans « À déployer » : une question posée par l'agent restée sans réponse, ou
+ * une liste de tâches refermée avec des étapes non faites, disent toutes deux
  * qu'une intervention de l'utilisateur reste due. L'interrupteur ne vaut
  * consentement que pour du travail RÉELLEMENT abouti — l'appelant (côté
- * serveur) exclut donc ces cartes de `cartesTerminees` avant d'appeler cette
+ * serveur) exclut donc ces cartes de `cartesADeployer` avant d'appeler cette
  * règle, et compte ce qu'il a retenu dans `cartesEnAttenteDeDecision`.
  *
  * Règle PURE : ni base, ni disque, ni git — l'appelant apporte ce qu'il a lu.
@@ -43,16 +41,14 @@
 export const DELAI_DE_CALME_MS = 60_000;
 
 export interface EtatDuDeploiementAutomatique {
-  /** L'interrupteur de la colonne « Terminé » de ce projet. */
+  /** L'interrupteur de la colonne « À déployer » de ce projet. */
   actif: boolean;
-  /** Combien de cartes de « Terminé » sont réellement prêtes à partir. */
-  cartesTerminees: number;
-  /** Combien de cartes attendent déjà dans « À déployer ». */
+  /** Combien de cartes attendent, réellement prêtes à partir, dans « À déployer ». */
   cartesADeployer: number;
   /**
-   * Combien de cartes de « Terminé » sont RETENUES par une décision ouverte
-   * (question sans réponse) ou une sous-tâche non faite — elles ne comptent
-   * pas dans `cartesTerminees`, et ne partiront jamais toutes seules.
+   * Combien de cartes de « À déployer » sont RETENUES par une décision
+   * ouverte (question sans réponse) ou une sous-tâche non faite — elles ne
+   * comptent pas dans `cartesADeployer`, et ne partiront jamais toutes seules.
    */
   cartesEnAttenteDeDecision: number;
   /** Combien de cartes sont encore dans « En cours ». */
@@ -77,7 +73,7 @@ export interface DecisionDeploiementAutomatique {
 }
 
 /**
- * Le lot de « Terminé » doit-il partir MAINTENANT ?
+ * Le lot de « À déployer » doit-il partir MAINTENANT ?
  *
  * Chaque refus NOMME ce qui retient, dans l'ordre où on le constate : c'est
  * cette phrase qu'on lit dans le journal quand rien ne part.
@@ -98,14 +94,14 @@ export function decisionDeDeploiementAutomatique(
   if (etat.cartesQuiVontPartir > 0) {
     return { partir: false, raison: `${etat.cartesQuiVontPartir} carte(s) sur le point de repartir` };
   }
-  if (etat.cartesTerminees + etat.cartesADeployer < 1) {
+  if (etat.cartesADeployer < 1) {
     if (etat.cartesEnAttenteDeDecision > 0) {
       return {
         partir: false,
-        raison: `${etat.cartesEnAttenteDeDecision} carte(s) terminée(s) attendent encore une décision de l'utilisateur`,
+        raison: `${etat.cartesEnAttenteDeDecision} carte(s) attendent encore une décision de l'utilisateur`,
       };
     }
-    return { partir: false, raison: 'rien à déployer dans « Terminé »' };
+    return { partir: false, raison: 'rien à déployer dans « À déployer »' };
   }
 
   const rendu = etat.dernierTravailRenduA;
@@ -115,8 +111,6 @@ export function decisionDeDeploiementAutomatique(
 
   return {
     partir: true,
-    raison:
-      `${etat.cartesTerminees} carte(s) terminée(s), ${etat.cartesADeployer} déjà prête(s) ` +
-      'et plus rien au travail : le lot part tout seul',
+    raison: `${etat.cartesADeployer} carte(s) prête(s) et plus rien au travail : le lot part tout seul`,
   };
 }

@@ -1,19 +1,18 @@
 /**
  * LE DÉPLOIEMENT AUTOMATIQUE, CÔTÉ SERVEUR.
  *
- * L'interrupteur de la colonne « Terminé » (`project.deploiementAutomatique`)
- * est ÉTEINT par défaut. Allumé, ce passage — joué par le filet de veille,
- * toutes les quinze secondes — pousse les cartes de « Terminé » dans « À
- * déployer » dès que plus rien ne travaille sur le projet, puis lance le lot,
- * y compris les cartes qui attendaient déjà dans cette colonne, sans qu'on ait
- * à cliquer sur « Publier maintenant ».
+ * L'interrupteur de la colonne « À déployer »
+ * (`project.deploiementAutomatique`) est ÉTEINT par défaut. Allumé, ce
+ * passage — joué par le filet de veille, toutes les quinze secondes — lance
+ * le lot déjà posé dans « À déployer » dès que plus rien ne travaille sur le
+ * projet, sans qu'on ait à cliquer sur « Publier maintenant ».
  *
  * La DÉCISION ne vit pas ici : elle est pure et testée
  * (`shared/src/deploiement-automatique.ts`). Ce fichier ne fait que lui
  * apporter ce qu'il lit dans la base, puis exécuter ce qu'elle a tranché.
  *
  * Pourquoi le filet plutôt que la fin de tour : une carte peut arriver dans
- * « Terminé » par la fin d'un tour, mais aussi par le balayage des cartes
+ * « À déployer » par la fin d'un tour, mais aussi par le balayage des cartes
  * oubliées, ou parce que le dernier agent a été arrêté à la main. Un seul point
  * de passage, régulier, les couvre tous — et il repasse tant que le lot n'est
  * pas parti, ce qui rattrape une publication refusée pour cause de file
@@ -28,8 +27,7 @@ import {
   type Project,
 } from '@haikodev/shared';
 import { agentsOccupes, deployableCards, startDeploy } from './deploy.js';
-import { carteAttendUneDecision, rangerLaCarte } from './deplacement-carte.js';
-import { bus } from './bus.js';
+import { carteAttendUneDecision } from './deplacement-carte.js';
 import { log } from './logger.js';
 import * as store from './store.js';
 
@@ -41,18 +39,18 @@ import * as store from './store.js';
 let enCours = false;
 
 /**
- * Les cartes de « Terminé » réellement prêtes à partir — celles qui ne
+ * Les cartes de « À déployer » réellement prêtes à partir — celles qui ne
  * portent ni question sans réponse ni sous-tâche non faite. Une carte qui
  * attend encore l'utilisateur n'est pas un travail abouti : elle ne doit
- * jamais être comptée pour le lot, ni y être poussée.
+ * jamais être comptée pour le lot.
  */
 function cartesDeployables(project: Project): { pretes: Card[]; retenues: Card[] } {
-  const terminees = store.listCardsInColumn(project.id, 'done');
+  const enAttente = deployableCards(project.id, 'to_deploy');
   const agents = store.listAgents(project.id);
   const decisions = store.decisionsEnAttente();
   const pretes: Card[] = [];
   const retenues: Card[] = [];
-  for (const card of terminees) {
+  for (const card of enAttente) {
     (carteAttendUneDecision(card, agents, decisions) ? retenues : pretes).push(card);
   }
   return { pretes, retenues };
@@ -66,11 +64,7 @@ function etatDuProjet(project: Project) {
   const maintenant = Date.now();
   return {
     actif: project.deploiementAutomatique === true,
-    cartesTerminees: pretes.length,
-    // Une fiche peut être posée directement dans « À déployer » par une tâche
-    // automatique du système. Elle doit suivre le même réglage que les cartes
-    // venues de « Terminé », sans exiger un second geste de l'utilisateur.
-    cartesADeployer: deployableCards(project.id, 'to_deploy').length,
+    cartesADeployer: pretes.length,
     cartesEnAttenteDeDecision: retenues.length,
     cartesEnCours: store.listCardsInColumn(project.id, 'running').length,
     /*
@@ -122,25 +116,20 @@ export async function passageDuDeploiementAutomatique(): Promise<void> {
 }
 
 /**
- * POUSSER le lot dans « À déployer », PUIS lancer la mise en ligne.
+ * LANCER LA MISE EN LIGNE du lot déjà posé dans « À déployer ».
  *
- * Les deux gestes sont exactement ceux de l'utilisateur : « Tout déployer »
- * (déplacement de colonne, aucune mise en ligne) puis « Publier maintenant ».
- * On rejoue donc `rangerLaCarte` et `startDeploy`, sans chemin parallèle — les
- * dates posées avec la colonne (`deployedAt` périmée) et tous les refus de
- * `startDeploy` valent ici comme au clic.
+ * Les cartes n'ont plus à être poussées : une carte rendue tombe désormais
+ * directement dans « À déployer », il ne reste qu'à rejouer le geste de
+ * l'utilisateur « Publier maintenant » (`startDeploy`), sans chemin parallèle.
  */
 async function envoyerLeLot(project: Project, raison: string): Promise<void> {
   const { pretes, retenues } = cartesDeployables(project);
-  for (const card of pretes) {
-    bus.emit({ type: 'card.upsert', card: rangerLaCarte(card, 'to_deploy') });
-  }
   log.info(
-    `déploiement automatique de « ${project.name} » : ${pretes.length} carte(s) poussée(s) dans « À déployer » (${raison})`,
+    `déploiement automatique de « ${project.name} » : ${pretes.length} carte(s) prête(s) (${raison})`,
   );
   if (retenues.length > 0) {
     log.info(
-      `déploiement automatique de « ${project.name} » : ${retenues.length} carte(s) retenue(s) dans « Terminé », en attente d'une décision de l'utilisateur`,
+      `déploiement automatique de « ${project.name} » : ${retenues.length} carte(s) retenue(s) dans « À déployer », en attente d'une décision de l'utilisateur`,
     );
   }
 

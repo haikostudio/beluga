@@ -92,12 +92,13 @@ export async function repondreErreurDeTour(
     if (choix === 'arreter') {
       suspendreLaCarte(card, RAISON_ARRET_APRES_ERREUR);
     } else {
-      // IGNORER : le travail déjà fait suffit, la carte est rangée « Terminé ».
+      // IGNORER : le travail déjà fait suffit, la carte est rangée « À déployer ».
       const rangee = store.saveCard({
         ...card,
-        column: 'done',
-        position: store.nextPosition(card.projectId, 'done'),
+        column: 'to_deploy',
+        position: store.nextPosition(card.projectId, 'to_deploy'),
         doneAt: Date.now(),
+        deployedAt: undefined,
       });
       bus.emit({ type: 'card.upsert', card: rangee });
     }

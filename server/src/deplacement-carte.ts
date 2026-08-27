@@ -62,7 +62,7 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number):
     ...card,
     column: target,
     position: position ?? store.nextPosition(card.projectId, target),
-    doneAt: target === 'done' ? Date.now() : card.doneAt,
+    doneAt: target === 'to_deploy' ? Date.now() : card.doneAt,
     deployedAt: dateDeMiseEnLignePerimee(card.column, target) ? undefined : card.deployedAt,
     // Toute carte qui entre dans le lot porte une photographie explicite. Une
     // carte ancienne sans relevé ne reçoit jamais quatre faux zéros.
@@ -191,7 +191,7 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
            * la carte attend un geste ») afficherait encore son horloge jaune au
            * pied d'une carte pourtant terminée.
            */
-          ...(cible === 'done' ? { suspendu: false, waitingReason: undefined } : {}),
+          ...(cible === 'to_deploy' ? { suspendu: false, waitingReason: undefined } : {}),
         }
       : card.scheduling;
 
@@ -201,7 +201,8 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
       ? {
           column: cible,
           position: store.nextPosition(card.projectId, cible),
-          ...(cible === 'done' ? { doneAt: Date.now() } : {}),
+          ...(cible === 'to_deploy' ? { doneAt: Date.now() } : {}),
+          deployedAt: dateDeMiseEnLignePerimee(card.column, cible) ? undefined : card.deployedAt,
         }
       : {}),
     scheduling: planification,
@@ -272,7 +273,8 @@ export function rangerLesCartesOubliees(): void {
       ...card,
       column: issue.colonne,
       position: store.nextPosition(card.projectId, issue.colonne),
-      ...(issue.colonne === 'done' ? { doneAt: card.doneAt ?? Date.now() } : {}),
+      ...(issue.colonne === 'to_deploy' ? { doneAt: card.doneAt ?? Date.now() } : {}),
+      deployedAt: dateDeMiseEnLignePerimee(card.column, issue.colonne) ? undefined : card.deployedAt,
       scheduling: {
         ...scheduling,
         // Une marque de vol trop vieille pour être crue (§ `issueDeCarteOubliee`)
@@ -281,7 +283,7 @@ export function rangerLesCartesOubliees(): void {
         tourEnVolDepuis: undefined,
         // Même règle que `carteApresFinDeTour` : une carte qui se ferme ne
         // garde pas l'attente d'un tour précédent.
-        ...(issue.colonne === 'done' ? { suspendu: false, waitingReason: undefined } : {}),
+        ...(issue.colonne === 'to_deploy' ? { suspendu: false, waitingReason: undefined } : {}),
       },
       sansModification: issue.raison ?? undefined,
     });
