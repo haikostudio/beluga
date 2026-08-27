@@ -26,7 +26,6 @@ const ICI = path.dirname(fileURLToPath(import.meta.url));
 const UI = path.resolve(ICI, '../../../web/src/components/ui/index.tsx');
 const PANNEAU = path.resolve(ICI, '../../../web/src/components/card-panel.tsx');
 const CLIENT = path.resolve(ICI, '../../../web/src/lib/client.ts');
-const PARCOURS = path.resolve(ICI, '../../../web/src/components/parcours-tache.tsx');
 const MESSAGES = path.resolve(ICI, '../../../web/src/components/message-view.tsx');
 const PANNEAU_DROIT = path.resolve(ICI, '../../../web/src/components/right-panel.tsx');
 
@@ -120,10 +119,8 @@ test('l’attente longue part du bouton et arrive aux messages passagers', () =>
 
 test('les onglets qui vont chercher leurs données le disent aussi', () => {
   const panneau = fs.readFileSync(PANNEAU, 'utf8');
-  const parcours = fs.readFileSync(PARCOURS, 'utf8');
   assert.ok(panneau.includes('useOngletsQuiChargent'));
   assert.ok(panneau.includes('data-onglet-charge'));
-  assert.ok(parcours.includes("useChargementOnglet('details'"));
   assert.ok(panneau.includes("useChargementOnglet('github'"));
 });
 

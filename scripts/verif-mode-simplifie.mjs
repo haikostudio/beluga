@@ -136,8 +136,8 @@ verifier(
     cardPanel.includes('{simplifie ? null : ('),
 );
 verifier(
-  'les onglets qui portent une fonction restent : conversation, détails, facturation',
-  ['value="chat"', 'value="details"', 'value="billing"'].every((marque) => cardPanel.includes(marque)),
+  'les onglets qui portent une fonction restent : conversation, facturation',
+  ['value="chat"', 'value="billing"'].every((marque) => cardPanel.includes(marque)),
 );
 
 const dashboard = lire('web/src/components/dashboard.tsx');
