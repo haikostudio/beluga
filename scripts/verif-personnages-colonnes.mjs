@@ -42,7 +42,7 @@ const PORT = Number(process.env.HAIKODEV_PERSONNAGES_PORT || 7213);
 const BASE = `http://127.0.0.1:${PORT}`;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'verif-personnages-'));
 
-const COLONNES = ['notes', 'planned', 'running', 'done', 'to_deploy', 'archived'];
+const COLONNES = ['notes', 'planned', 'running', 'to_deploy', 'archived'];
 
 const resultats = [];
 const noter = (nom, ok, detail = '') => {
@@ -316,7 +316,7 @@ async function passe(navigateur, viewport, etiquette) {
     // L'enveloppe ajoutée pour le personnage ne doit pas fausser `offsetLeft` :
     // sans quoi le tableau ne saurait plus amener une colonne au bord.
     const glisse = await page.evaluate(() => {
-      const cible = document.querySelector('[data-column="done"]');
+      const cible = document.querySelector(`[data-column="to_deploy"]`);
       const rail = cible?.parentElement;
       if (!cible || !rail) return null;
       rail.scrollLeft = cible.offsetLeft - 12;

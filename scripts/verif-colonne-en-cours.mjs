@@ -213,7 +213,7 @@ async function main() {
     position: maintenant + 0.2,
   });
   const discutee = await poser('discutee', {
-    column: 'done',
+    column: 'to_deploy',
     titre: 'Essai — terminée, chiffrage discuté',
     statutAgent: 'running',
     position: maintenant + 0.3,

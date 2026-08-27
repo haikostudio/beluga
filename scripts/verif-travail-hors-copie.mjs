@@ -88,7 +88,7 @@ console.log('\n1. L’agent sort de sa copie et écrit dans le dossier du projet
   const issue = issueDeFinDeTour('running', true, 'task', trace, false);
   verifier(issue.raison === RAISON_TRAVAIL_HORS_COPIE, 'la carte porte la phrase du travail fait hors de sa copie');
   verifier(issue.raison !== RAISON_RENDU_SANS_CODE, 'elle ne dit PLUS « aucun fichier n’a changé »');
-  verifier(issue.colonne === 'done', 'le rapport est rendu : la carte se ferme');
+  verifier(issue.colonne === 'to_deploy', 'le rapport est rendu : la carte se ferme');
   verifier(natureDeLaMention(issue.raison) === 'attente', 'mais la phrase reste une attente — le travail est à récupérer');
 }
 
@@ -120,7 +120,7 @@ console.log('\n4. Rien nulle part : la carte se ferme en disant qu’elle n’a 
   verifier(trace === 'non', `aucun des deux dossiers n’a bougé (rendu : « ${trace} »)`);
   const issue = issueDeFinDeTour('running', true, 'task', trace, false);
   verifier(issue.raison === RAISON_RENDU_SANS_CODE, 'la carte dit son rapport rendu ET l’absence de code');
-  verifier(issue.colonne === 'done', 'et elle ne reste pas coincée en « En cours »');
+  verifier(issue.colonne === 'to_deploy', 'et elle ne reste pas coincée en « En cours »');
   verifier(natureDeLaMention(issue.raison) === 'information', 'un constat, ni alerte ni promesse de livraison');
 }
 

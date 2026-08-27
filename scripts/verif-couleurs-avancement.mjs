@@ -8,7 +8,7 @@
  *    l'ICÔNE seule qui porte le signal ;
  *  - le robot de cette ligne est orange, comme celui des onglets du tableau ;
  *  - la colonne « En cours » du tableau, ELLE, garde son cadre orange ;
- *  - la colonne « Terminé » porte un cadre bleu ;
+ *  - la colonne « À déployer » porte un cadre bleu ;
  *  - la carte d'un travail en cours porte une roue ORANGE, celle d'un travail
  *    rendu une coche BLEUE, celle d'un travail rendu non lu un point BLEU ;
  *  - les autres états ne bougent pas : le triangle d'une décision reste orange
@@ -258,13 +258,13 @@ async function main() {
       position: maintenant + 0.1,
     });
     await poser('termine-non-lu', {
-      column: 'done',
+      column: 'to_deploy',
       titre: 'Essai — un travail terminé, pas encore lu',
       statutAgent: 'done',
       position: maintenant + 0.2,
     });
     await poser('termine-lu', {
-      column: 'done',
+      column: 'to_deploy',
       titre: 'Essai — un travail terminé et lu',
       statutAgent: 'done',
       luA: maintenant,
@@ -335,8 +335,8 @@ async function main() {
     const cadreColonne = await style('[data-column="running"]', 'borderTopColor');
     record(t('la colonne « En cours » a un cadre ORANGE'), estOrange(cadreColonne), cadreColonne ?? 'aucun');
 
-    const cadreTermine = await style('[data-column="done"]', 'borderTopColor');
-    record(t('la colonne « Terminé » a un cadre BLEU'), estBleu(cadreTermine), cadreTermine ?? 'aucun');
+    const cadreTermine = await style('[data-column="to_deploy"]', 'borderTopColor');
+    record(t('la colonne « À déployer » a un cadre BLEU'), estBleu(cadreTermine), cadreTermine ?? 'aucun');
 
     const robot = await style('[data-repere-robot] svg', 'color');
     record(t('le robot « un agent au travail » est ORANGE'), estOrange(robot), robot ?? 'absent');

@@ -52,7 +52,7 @@ function carteTerminee(db) {
     .prepare(
       `SELECT c.*, p.name AS projet
          FROM cards c JOIN projects p ON p.id = c.project_id
-        WHERE c.column_key IN ('done','to_deploy') AND p.archived = 0
+        WHERE c.column_key IN ('to_deploy') AND p.archived = 0
         ORDER BY c.updated_at DESC LIMIT 12`,
     )
     .all();
@@ -173,7 +173,7 @@ async function main() {
   noter('avant le départ, aucun compte n’est annoncé', aFaire.compte === undefined);
 
   const terminee = reglagesDeLaCarte({
-    colonne: 'done',
+    colonne: 'to_deploy',
     carte: prevu,
     agent: { engine: 'codex', model: 'gpt-5.6-sol', thinking: 'high', compte: 'codex-principal' },
   });
@@ -195,7 +195,7 @@ async function main() {
   console.log(`Carte terminée d’essai : « ${finie.title.slice(0, 50)} » (${finie.projet}).`);
 
   const attendu = reglagesDeLaCarte({
-    colonne: 'done',
+    colonne: 'to_deploy',
     carte: finie.carte.run,
     agent: {
       engine: finie.agent.run?.engine,

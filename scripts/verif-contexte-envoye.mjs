@@ -275,7 +275,7 @@ function poserDecor() {
     title: TITRE_CARTE,
     description: 'Carte d’essai posée par le script de vérification.',
     labels: [],
-    column: 'done',
+    column: 'to_deploy',
     position: 0,
     origin: 'agent',
     attachments: [],
@@ -289,7 +289,7 @@ function poserDecor() {
   };
   db.prepare(
     'INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(CARTE_ID, PROJET_ID, 'done', 0, TITRE_CARTE, JSON.stringify(carte), t, t);
+  ).run(CARTE_ID, PROJET_ID, 'to_deploy', 0, TITRE_CARTE, JSON.stringify(carte), t, t);
 
   const agentTache = {
     id: AGENT_TACHE,

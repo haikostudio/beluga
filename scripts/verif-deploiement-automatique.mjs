@@ -2,14 +2,14 @@
 /**
  * L'INTERRUPTEUR « DÉPLOIEMENT AUTOMATIQUE », VÉRIFIÉ DANS UN VRAI NAVIGATEUR.
  *
- * Il vit en tête de la colonne « Terminé », et NULLE PART AILLEURS. Éteint par
- * défaut sur tout projet, il vaut, une fois allumé, consentement permanent :
- * dès que plus rien ne travaille, le lot de « Terminé » passe dans « À
- * déployer » et la mise en ligne part sans clic.
+ * Il vit en tête de la colonne « À déployer », et NULLE PART AILLEURS. Éteint
+ * par défaut sur tout projet, il vaut, une fois allumé, consentement
+ * permanent : dès que plus rien ne travaille, le lot posé dans « À déployer »
+ * part et la mise en ligne suit, sans clic.
  *
  * Ce que ce contrôle juge, et pourquoi une relecture n'y suffit pas :
  *
- *  1. l'interrupteur est bien LÀ, dans l'entête de « Terminé » ;
+ *  1. l'interrupteur est bien LÀ, dans l'entête de « À déployer » ;
  *  2. il n'est nulle part ailleurs — une colonne qui le porterait laisserait
  *     croire qu'on règle la mise en production au même endroit ;
  *  3. il est ÉTEINT sur un projet qui n'a jamais rien réglé (la valeur par
@@ -109,7 +109,7 @@ async function dansLaPage(page) {
   }, projet.id);
   await page.waitForTimeout(1500);
 
-  /* 1 & 2 — UN SEUL interrupteur, dans l'entête de « Terminé ». */
+  /* 1 & 2 — UN SEUL interrupteur, dans l'entête de « À déployer ». */
   const places = await page.evaluate(() =>
     [...document.querySelectorAll('[data-deploiement-automatique]')].map((noeud) => ({
       colonne: noeud.closest('[data-tete-colonne]')?.getAttribute('data-tete-colonne') ?? null,
@@ -119,8 +119,8 @@ async function dansLaPage(page) {
   );
   juger(places.length === 1, `un seul interrupteur sur le tableau — ${places.length} trouvé(s)`);
   juger(
-    places.length === 1 && places[0].colonne === 'done',
-    `l’interrupteur vit dans l’entête de « Terminé » — vu dans « ${places[0]?.colonne ?? 'nulle part'} »`,
+    places.length === 1 && places[0].colonne === 'to_deploy',
+    `l’interrupteur vit dans l’entête de « À déployer » — vu dans « ${places[0]?.colonne ?? 'nulle part'} »`,
   );
 
   /* 3 — ÉTEINT par défaut : publier reste sinon un geste de l'utilisateur. */

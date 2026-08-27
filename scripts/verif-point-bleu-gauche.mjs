@@ -145,7 +145,7 @@ function poserLeDecor() {
   };
   db.prepare(
     `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
-     VALUES (?, ?, 'done', 1, ?, ?, ?, ?)`,
+     VALUES (?, ?, 'to_deploy', 1, ?, ?, ?, ?)`,
   ).run(CARD_ID, PROJET_ID, carte.title, JSON.stringify(carte), maintenant, maintenant);
 
   db.close();

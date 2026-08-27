@@ -124,7 +124,7 @@ store.saveCard({
   title: 'Le travail porté par une carte',
   description: '',
   labels: [],
-  column: 'done',
+  column: 'to_deploy',
   position: 1,
   origin: 'user',
   run: { engine: 'claude' },

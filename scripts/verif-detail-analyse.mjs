@@ -55,7 +55,7 @@ const etapes = construireParcours({
   origin: 'agent',
   createdAt: 1,
   autorisee: true,
-  colonne: 'done',
+  colonne: 'to_deploy',
   doneAt: 9,
   tri: { tours: [tour(300, 100, 40)], sujetsMemoire: ['cartes'] },
   agents: [

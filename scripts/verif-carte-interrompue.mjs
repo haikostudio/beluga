@@ -12,7 +12,7 @@
  *  2. LE REDÉMARRAGE. Ce script rouvre la même base et appelle la reprise du
  *     démon, celle qui tourne au lancement du service.
  *  3. LE CONSTAT. La carte est en « Planifié », elle porte la RAISON de son
- *     interruption, elle repartira d'elle-même, et elle n'est JAMAIS « Terminé ».
+ *     interruption, elle repartira d'elle-même, et elle n'est JAMAIS déployable.
  *
  * Deux pièges sont vérifiés en plus, parce qu'ils sont l'origine de la panne :
  *  - l'agent déjà passé en « terminé » avant que la carte ne soit rangée est
@@ -82,7 +82,7 @@ poser('coupee', 'running', { asap: false, attempts: 1, restarts: 0, tourEnVolDep
 // b) le trou d'origine : l'agent était DÉJÀ passé en « terminé », la carte pas encore rangée.
 poser('rangement', 'running', { asap: false, attempts: 1, restarts: 0, tourEnVolDepuis: maintenant }, 'done');
 // c) le témoin : un travail rendu, laissé ouvert. Rien ne le tient, rien ne doit le reprendre.
-poser('rendue', 'done', { asap: false, attempts: 1, restarts: 0 }, 'done');
+poser('rendue', 'to_deploy', { asap: false, attempts: 1, restarts: 0 }, 'done');
 
 process.kill(process.pid, 'SIGKILL');
 `;
@@ -114,7 +114,7 @@ console.log('\n3. La carte est rendue interrompue, et jamais terminée');
 
 for (const id of ['coupee', 'rangement']) {
   const carte = store.getCard(id);
-  verifier(carte?.column !== 'done', `« ${id} » n’est pas passée pour terminée`);
+  verifier(carte?.column !== 'to_deploy', `« ${id} » n’est pas passée pour terminée`);
   verifier(carte?.column === 'planned', `« ${id} » est revenue dans la file « Planifié »`);
   verifier(
     carte?.scheduling?.waitingReason === RAISON_COUPE_EN_VOL,
@@ -144,7 +144,7 @@ console.log('\n4. Le témoin : un travail rendu n’est pas repris');
 /* ------------------------------------------------------------------ */
 
 const rendue = store.getCard('rendue');
-verifier(rendue?.column === 'done', 'la carte rendue est restée dans « Terminé »');
+verifier(rendue?.column === 'to_deploy', 'la carte rendue est restée dans « À déployer »');
 verifier(rendue?.scheduling?.waitingReason === undefined, 'aucune raison d’attente ne lui a été collée');
 verifier(rendue?.scheduling?.restarts === 0, 'aucune reprise ne lui a été comptée');
 
@@ -157,7 +157,7 @@ const { traceAcquise, colonneEnFinDeTour, issueDeFinDeTour, RAISON_TRACE_INCONNU
 verifier(traceAcquise('oui') === true, 'un dépôt qui a bougé atteste une livraison');
 verifier(traceAcquise('non') === false, 'un dépôt qui n’a pas bougé n’en atteste aucune');
 verifier(
-  traceAcquise('inconnue') === false && colonneEnFinDeTour('running', true, 'task') === 'done',
+  traceAcquise('inconnue') === false && colonneEnFinDeTour('running', true, 'task') === 'to_deploy',
   'un dépôt qu’on n’a pas pu consulter n’empêche plus la clôture : le rapport suffit',
 );
 verifier(
@@ -169,7 +169,7 @@ verifier(
   'une carte close sans une ligne de code le dit, plutôt que de laisser croire à une livraison',
 );
 verifier(
-  issueDeFinDeTour('running', true, 'task', 'non', false).colonne === 'done',
+  issueDeFinDeTour('running', true, 'task', 'non', false).colonne === 'to_deploy',
   'et elle ne reste pas coincée en « En cours »',
 );
 

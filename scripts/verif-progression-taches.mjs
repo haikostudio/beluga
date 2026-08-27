@@ -238,7 +238,7 @@ async function main() {
     position: maintenant + 0.2,
   });
   const terminee = await poser('terminee', {
-    column: 'done',
+    column: 'to_deploy',
     titre: 'Essai — Terminé avec liste',
     statutAgent: 'done',
     todos: { done: 3, total: 3 },

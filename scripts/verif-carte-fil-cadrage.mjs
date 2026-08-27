@@ -414,7 +414,7 @@ async function main() {
      QUITTÉ « Planifié » — le cycle complet a son propre contrôle. */
   noter(
     'la carte quitte « Planifié » pour le travail',
-    lancee?.column_key === 'running' || lancee?.column_key === 'done',
+    lancee?.column_key === 'running' || lancee?.column_key === 'to_deploy',
     lancee?.column_key ?? '—',
   );
   noter(

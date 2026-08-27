@@ -151,7 +151,7 @@ async function main() {
   /* ---------- Refus des colonnes interdites aux agents ---------- */
   let refused = false;
   try {
-    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'done' });
+    await session.call({ type: 'card.move', id: carteManuelle.id, column: 'to_deploy' });
   } catch {
     refused = true;
   }

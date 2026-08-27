@@ -182,7 +182,7 @@ async function main() {
   // « done » : une carte terminée non lue ET une décision → triangle (priorité).
   const carteDecision = await poserCarte({
     suffixe: 'done-decision',
-    column: 'done',
+    column: 'to_deploy',
     titre: 'Essai — done, décision attendue',
     statutAgent: 'done',
     finiA: maintenant,

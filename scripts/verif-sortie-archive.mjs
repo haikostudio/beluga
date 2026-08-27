@@ -367,7 +367,7 @@ async function main() {
   );
   await cliquerReprise(page);
   const sortieLot = lireCarte(duLot.id);
-  noter('elle repasse en « Terminé », rien n’est mis en ligne', sortieLot?.column === 'done', sortieLot?.column);
+  noter('elle repasse en « En cours », rien n’est mis en ligne', sortieLot?.column === 'running', sortieLot?.column);
   noter('aucune date de publication n’a été inventée', !sortieLot?.deployedAt, String(sortieLot?.deployedAt));
 
   /* -------- 5. Un bouton qui n'a pas lieu d'être ne s'affiche pas -------- */

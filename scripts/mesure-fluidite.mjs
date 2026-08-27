@@ -106,7 +106,7 @@ async function attendrePort(limiteMs = 60000) {
 const sha = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const jeton = crypto.randomBytes(32).toString('hex');
 const PROJET_ID = 'p-mesure';
-const COLONNES = ['notes', 'planned', 'running', 'done', 'to_deploy', 'archived'];
+const COLONNES = ['notes', 'planned', 'running', 'to_deploy', 'archived'];
 
 /**
  * Le port peut s'ouvrir avant que la base ait fini ses migrations : on attend

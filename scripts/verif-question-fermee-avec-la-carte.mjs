@@ -4,9 +4,9 @@
  *
  * Deux relevés, du plus profond au plus visible :
  *   1. le DÉMON, par la vraie liaison : une carte déplacée hors du travail
- *      (« À déployer », « En production », « Archivé ») ferme d'office ses
- *      questions restées ouvertes — celle de l'outil `ask_user` comme celle
- *      écrite en texte ordinaire — tandis que « Terminé » les garde ;
+ *      (« À déployer », « Archivé ») ferme d'office ses questions restées
+ *      ouvertes — celle de l'outil `ask_user` comme celle écrite en texte
+ *      ordinaire — tandis que « En cours » les garde ;
  *   2. l'ÉCRAN, dans un vrai navigateur, sur téléphone puis sur ordinateur : la
  *      carte qui attend une réponse porte « Répondre » ET « Annuler », et le
  *      clic sur « Annuler » éteint les deux.
@@ -276,14 +276,6 @@ async function releveDuDemon() {
     noter(`démon : passer en « ${colonne} » ferme la question de l’outil`, question?.cancelled === true);
   }
 
-  // « Terminé » ne ferme rien : le travail peut y être repris.
-  {
-    const { cardId, messageId } = await carteQuiAttend('Question puis Terminé', 'running', 'outil');
-    await appelDemon({ type: 'card.move', id: cardId, column: 'done' });
-    const question = lireMessage(messageId)?.questions?.[0];
-    noter('démon : « Terminé » garde la question ouverte', question?.cancelled !== true);
-  }
-
   // La question écrite en TEXTE ORDINAIRE s'éteint elle aussi.
   {
     const { cardId, messageId } = await carteQuiAttend('Question en texte puis archivage', 'running', 'texte');
@@ -311,15 +303,6 @@ async function releveDuDemon() {
     noter(
       'démon : passer en « En production » ferme le choix de reprise de compte',
       lireMessage(messageId)?.repriseCompte?.abandonnee === true,
-    );
-  }
-
-  {
-    const { cardId, messageId } = await carteQuiAttend('Reprise puis Terminé', 'running', 'reprise');
-    await appelDemon({ type: 'card.move', id: cardId, column: 'done' });
-    noter(
-      'démon : « Terminé » garde le choix de reprise ouvert',
-      lireMessage(messageId)?.repriseCompte?.abandonnee !== true,
     );
   }
 

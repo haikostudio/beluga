@@ -334,7 +334,7 @@ async function main() {
   noter('une roue tourne à la place du texte', await roueVue(page));
 
   const carte = lireCarte(CARTE.id);
-  noter('le geste a réellement eu lieu : la carte est terminée', carte?.column === 'done', `colonne ${carte?.column}`);
+  noter('le geste a réellement eu lieu : la carte est terminée', carte?.column === 'to_deploy', `colonne ${carte?.column}`);
   /* Une tâche clôturée n'a plus de clôture à proposer : le bouton laisse la
      place au geste suivant. C'est un changement visible, pas une coche. */
   noter(

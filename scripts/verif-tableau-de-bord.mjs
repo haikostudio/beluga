@@ -114,9 +114,9 @@ async function main() {
         // carte a le plus de jetons mais PAS la plus grosse part de semaine :
         // c'est ce qui prouve que le classement suit bien la semaine.
         byCard: [
-          { cardId: 'c1', title: 'Refonte du volet des quotas', projectName: 'HaikoDev', column: 'done', quota5h: 9.5, quotaSemaine: 3.2, tokens: 42000, seconds: 3600, turns: 3 },
+          { cardId: 'c1', title: 'Refonte du volet des quotas', projectName: 'HaikoDev', column: 'to_deploy', quota5h: 9.5, quotaSemaine: 3.2, tokens: 42000, seconds: 3600, turns: 3 },
           { cardId: 'c2', title: 'Barre d’écriture mobile', projectName: 'Aikomail', column: 'deployable', quota5h: 2.1, quotaSemaine: 7.8, tokens: 18000, seconds: 1500, turns: 2 },
-          { cardId: 'c3', title: 'Sans part de quota (ancienne tâche)', projectName: 'Eloya', column: 'done', quota5h: 0, quotaSemaine: 0, quotaEstime: 0.05, tokens: 9000, seconds: 900, turns: 1 },
+          { cardId: 'c3', title: 'Sans part de quota (ancienne tâche)', projectName: 'Eloya', column: 'to_deploy', quota5h: 0, quotaSemaine: 0, quotaEstime: 0.05, tokens: 9000, seconds: 900, turns: 1 },
         ],
       };
     };

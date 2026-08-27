@@ -323,7 +323,7 @@ async function lireLeTableau(page) {
     return {
       cartes,
       enCours: compteur('running'),
-      termine: compteur('done'),
+      termine: compteur('to_deploy'),
       planifie: compteur('planned'),
     };
   }, CARTES.map((c) => c.id));
@@ -380,7 +380,7 @@ async function main() {
   const dejaLivre = apres.cartes['c-deja-livre'];
   noter(
     'la carte dont le travail était déjà livré quitte « En cours »',
-    dejaLivre?.colonne === 'done',
+    dejaLivre?.colonne === 'to_deploy',
     `colonne=${dejaLivre?.colonne}`,
   );
   noter(
@@ -419,7 +419,7 @@ async function main() {
   const neuve = apres.cartes['c-neuve'];
   noter(
     'la carte qui n’a jamais rien enregistré est CLOSE quand même',
-    neuve?.colonne === 'done',
+    neuve?.colonne === 'to_deploy',
     `colonne=${neuve?.colonne}`,
   );
   noter(
@@ -473,7 +473,7 @@ async function main() {
   const balaye = await attendreLeBalayage(page);
   noter(
     'sans aucune fin de tour, le démon range la carte oubliée dont le code était livré',
-    balaye.cartes['c-oubliee-livree']?.colonne === 'done',
+    balaye.cartes['c-oubliee-livree']?.colonne === 'to_deploy',
     `colonne=${balaye.cartes['c-oubliee-livree']?.colonne}`,
   );
   noter(
@@ -488,7 +488,7 @@ async function main() {
   );
   noter(
     'la carte oubliée qui n’avait rien livré est close, avec sa raison',
-    balaye.cartes['c-oubliee-neuve']?.colonne === 'done' &&
+    balaye.cartes['c-oubliee-neuve']?.colonne === 'to_deploy' &&
       /sans ranger la carte/.test(balaye.cartes['c-oubliee-neuve']?.texte ?? ''),
     `colonne=${balaye.cartes['c-oubliee-neuve']?.colonne} — ${(balaye.cartes['c-oubliee-neuve']?.texte ?? '').slice(0, 120)}`,
   );
@@ -504,7 +504,7 @@ async function main() {
   );
   // QUATRE désormais : les deux dont le code était livré, plus les deux qui
   // n'avaient rien livré — leur rapport avait bien été rendu.
-  noter('la colonne « Terminé » compte les quatre cartes rangées', balaye.termine === '4', `compteur=${balaye.termine}`);
+  noter('la colonne « À déployer » compte les quatre cartes rangées', balaye.termine === '4', `compteur=${balaye.termine}`);
 
   await page.screenshot({ path: path.join(TMP, 'carte-rangee-sans-changement.png') });
 

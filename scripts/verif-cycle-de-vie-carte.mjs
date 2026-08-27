@@ -7,9 +7,10 @@
  * Chaque pièce du parcours a déjà son contrôle (lancement, listes de tâches,
  * arrêt, carte interrompue, carte oubliée). Ce qu'aucun ne regardait, c'est le
  * TOUR COMPLET, ENCHAÎNÉ : « Planifié » → lancement → « En cours » → rapport
- * rendu → « Terminé », puis un nouveau message qui doit REMETTRE la carte en
- * « En cours » et refaire exactement le même chemin — trois fois d'affilée,
- * sans que rien ne se décale.
+ * rendu → « À déployer » (directement, « Terminé » a disparu), puis un
+ * nouveau message qui doit REMETTRE la carte en « En cours » et refaire
+ * exactement le même chemin — trois fois d'affilée, sans que rien ne se
+ * décale.
  *
  * Le script monte son PROPRE démon, sur un port libre, avec une base neuve et
  * un FAUX MOTEUR (un vrai processus, aucun jeton dépensé) qui annonce une liste
@@ -18,11 +19,11 @@
  * Ce qui est vérifié, sans navigateur (le canal temps réel et la base suffisent) :
  *   1. LE LANCEMENT — la carte passe en « En cours », un agent de tâche existe,
  *      la branche de la carte est notée ;
- *   2. LA FIN DE TOUR — la carte arrive en « Terminé », sa marque de vol est
- *      éteinte, sa liste de tâches est refermée et son décompte est d'accord
- *      avec elle ;
+ *   2. LA FIN DE TOUR — la carte arrive en « À déployer », sa marque de vol
+ *      est éteinte, sa liste de tâches est refermée et son décompte est
+ *      d'accord avec elle ;
  *   3. TROIS ALLERS-RETOURS — chaque nouveau message repose la carte en
- *      « En cours » puis la ramène en « Terminé », avec un agent unique ;
+ *      « En cours » puis la ramène en « À déployer », avec un agent unique ;
  *   4. UN TOUR TOMBÉ — la carte RESTE en « En cours » (c'est la règle) et le
  *      balayage de l'ordonnanceur ne la ramasse pas ; elle DIT alors qu'elle
  *      attend une relance, et ne promet plus de rangement automatique ;
@@ -441,8 +442,8 @@ async function main() {
   );
 
   /* -------- 3. La fin de tour -------- */
-  const close = await attendreColonne('done');
-  noter('le rapport rendu ferme la carte en « Terminé »', !!close, close ? '' : `colonne « ${laCarte()?.column} »`);
+  const close = await attendreColonne('to_deploy');
+  noter('le rapport rendu ferme la carte directement en « À déployer »', !!close, close ? '' : `colonne « ${laCarte()?.column} »`);
   noter(
     'la marque de vol s’éteint avec le tour',
     close?.scheduling?.tourEnVolDepuis === undefined,
@@ -484,7 +485,7 @@ async function main() {
       detail = `tour ${tour} : la carte n'est pas remontée en « En cours »`;
       break;
     }
-    const refermee = await attendreColonne('done');
+    const refermee = await attendreColonne('to_deploy');
     if (!refermee) {
       tousBons = false;
       detail = `tour ${tour} : la carte n'est pas revenue en « Terminé »`;
@@ -547,7 +548,7 @@ async function main() {
 
   /* -------- 6. La relance après échec -------- */
   await commande({ type: 'agent.prompt', agentId: agentDeLaCarte, text: 'Reprends, cette fois ça doit passer.' });
-  const reprise = await attendreColonne('done');
+  const reprise = await attendreColonne('to_deploy');
   noter(
     'un simple message suffit à refermer la carte après un échec',
     !!reprise,
@@ -578,7 +579,7 @@ async function main() {
       /moteur/i.test(injoignable?.scheduling?.waitingReason ?? ''),
     `${reprisesAvant} → ${injoignable?.scheduling?.restarts ?? 0}, « ${injoignable?.scheduling?.waitingReason ?? '—'} »`,
   );
-  const relancee = await attendreColonne('done', 120000);
+  const relancee = await attendreColonne('to_deploy', 120000);
   noter(
     'et l’ordonnanceur la ramène au bout du cycle sans un geste',
     !!relancee,
@@ -628,7 +629,7 @@ async function main() {
 
   /* -------- 9. LA RELANCE À LA MAIN EFFACE LA SUSPENSION -------- */
   await commande({ type: 'card.start', id: CARTE });
-  const reprisApresArret = await attendreColonne('done', 120000);
+  const reprisApresArret = await attendreColonne('to_deploy', 120000);
   noter(
     'un clic la relance et la mène au bout, la suspension effacée',
     !!reprisApresArret && !reprisApresArret.scheduling?.suspendu,
@@ -644,14 +645,14 @@ async function main() {
   armerLaReprise();
   const rejouee = await attendre(() => {
     const c = laCarte();
-    return c?.column === 'running' || c?.column === 'done' ? c : null;
+    return c?.column === 'running' || c?.column === 'to_deploy' ? c : null;
   }, 90000, 300);
   noter(
     'un lancement refusé faute de quota repart tout seul, sans second clic',
     !!rejouee,
     `colonne « ${laCarte()?.column} », marque=${laCarte()?.scheduling?.reprendreDesQuePossible ?? 'effacée'}`,
   );
-  const bouclee = await attendreColonne('done', 120000);
+  const bouclee = await attendreColonne('to_deploy', 120000);
   noter(
     'et le départ consomme la marque au lieu de la laisser traîner',
     !!bouclee && bouclee.scheduling?.reprendreDesQuePossible === undefined,
