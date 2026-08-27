@@ -42,6 +42,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
+import { AnneauContexte } from '@/components/anneau-contexte';
 import { nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
@@ -1367,6 +1368,10 @@ export function Composer({
           </Tooltip>
 
           <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
+
+          {/* LE CONTEXTE DU MODÈLE, EN ANNEAU. Rien ne s'affiche tant que le
+              moteur n'a rendu aucune mesure (voir anneau-contexte.tsx). */}
+          <AnneauContexte agent={agent} />
 
           {onProposeTask && !edition && (text.trim() || picked.length) ? (
             <Button variant="ghost" size="sm" className="shrink-0" onClick={() => submit(true)}>
