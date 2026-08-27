@@ -1351,17 +1351,17 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Diese Auswahl gilt für den Start dieser Aufgabe. Sie wird mit Beginn der Arbeit festgeschrieben.',
     '此选择适用于本任务的启动，工作开始后即固定。',
   ],
-  'Écrivez votre réponse dans la barre ci-dessous.': [
-    'Write your answer in the bar below.',
-    'Escriba su respuesta en la barra de abajo.',
-    'Schreiben Sie Ihre Antwort in die Leiste unten.',
-    '请在下方的输入栏中写下您的回答。',
+  'Écrivez votre réponse…': [
+    'Write your answer…',
+    'Escriba su respuesta…',
+    'Schreiben Sie Ihre Antwort…',
+    '请写下您的回答……',
   ],
-  'Écrivez une précision dans la barre ci-dessous, ou choisissez ci-dessus.': [
-    'Write a detail in the bar below, or pick an option above.',
-    'Escriba una precisión en la barra de abajo, o elija arriba.',
-    'Schreiben Sie eine Ergänzung in die Leiste unten, oder wählen Sie oben.',
-    '可在下方输入栏中补充说明，或在上方选择。',
+  'Écrivez une précision, ou choisissez ci-dessus…': [
+    'Write a detail, or pick an option above…',
+    'Escriba una precisión, o elija arriba…',
+    'Schreiben Sie eine Ergänzung, oder wählen Sie oben…',
+    '可补充说明，或在上方选择……',
   ],
   'Réglages qui ont servi': ['Settings that were used', 'Ajustes que se usaron', 'Verwendete Einstellungen', '实际使用的设置'],
   'Nom du projet': ['Project name', 'Nombre del proyecto', 'Projektname', '项目名称'],
@@ -2342,6 +2342,24 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   '{v0} ouverture{v1} de mémoire en {v2} ms · {v3} bloc{v4} demandé{v4} pour {v5} rendu{v6}': ['{v0} memory lookup{v1} in {v2} ms · {v3} block{v4} matched{v4} for {v5} returned{v6}', '{v0} consulta{v1} de memoria en {v2} ms · {v3} bloque{v4} encontrado{v4} para {v5} devuelto{v6}', '{v0} Gedächtnisabruf{v1} in {v2} ms · {v3} Block{v4} gefunden{v4} für {v5} zurückgegeben{v6}', '{v0} 次记忆查询{v1}，耗时 {v2} 毫秒 · 匹配 {v3} 个区块{v4}{v4}，返回 {v5} 个{v6}'],
   'La mémoire du projet n\'a pas été ouverte.': ['The project memory was never opened.', 'La memoria del proyecto no se abrió.', 'Das Projektgedächtnis wurde nicht geöffnet.', '未打开项目记忆。'],
   'Entrée neuve {v0} · relue au cache {v1} · sortie {v2}': ['Fresh input {v0} · read from cache {v1} · output {v2}', 'Entrada nueva {v0} · releída de caché {v1} · salida {v2}', 'Neue Eingabe {v0} · aus Cache gelesen {v1} · Ausgabe {v2}', '新输入 {v0} · 缓存重读 {v1} · 输出 {v2}'],
+
+  /* ---- Contexte du modèle (anneau de la barre d'écriture) --------- */
+  'Contexte du modèle': ['Model context', 'Contexto del modelo', 'Modellkontext', '模型上下文'],
+  'Contexte du modèle : {n} % — voir le détail': ['Model context: {n}% — see details', 'Contexto del modelo: {n} % — ver detalles', 'Modellkontext: {n} % — Details ansehen', '模型上下文：{n} % — 查看详情'],
+  'Fenêtre du modèle': ['Model window', 'Ventana del modelo', 'Modellfenster', '模型窗口'],
+  'Fenêtre du modèle {modele}': ['Window of model {modele}', 'Ventana del modelo {modele}', 'Fenster des Modells {modele}', '模型 {modele} 的窗口'],
+  '{n} jetons utilisés': ['{n} tokens used', '{n} tokens usados', '{n} Token verwendet', '已用 {n} 个 token'],
+  '{n} au total': ['{n} in total', '{n} en total', '{n} insgesamt', '共 {n} 个'],
+  'Jetons utilisés': ['Tokens used', 'Tokens usados', 'Verwendete Token', '已用 token'],
+  'Limite du modèle': ['Model limit', 'Límite del modelo', 'Modelllimit', '模型上限'],
+  'Place restante': ['Room left', 'Espacio restante', 'Verbleibender Platz', '剩余空间'],
+  'Remplissage': ['Fill level', 'Llenado', 'Füllstand', '填充率'],
+  'Compression à partir de': ['Compression from', 'Compresión a partir de', 'Komprimierung ab', '压缩起点'],
+  '{n} jetons ({p} %)': ['{n} tokens ({p}%)', '{n} tokens ({p} %)', '{n} Token ({p} %)', '{n} 个 token（{p} %）'],
+  'Avant compression': ['Before compression', 'Antes de comprimir', 'Vor der Komprimierung', '距离压缩'],
+  'seuil atteint': ['threshold reached', 'umbral alcanzado', 'Schwelle erreicht', '已达阈值'],
+  'Compressions déjà faites': ['Compressions so far', 'Compresiones realizadas', 'Bisherige Komprimierungen', '已完成压缩次数'],
+  'Cette mesure est celle du dernier appel au modèle, rapportée à la fenêtre du modèle qui porte le fil. Elle se rafraîchit à chaque réponse, et n’a rien à voir avec le quota du compte.': ['This figure is the size of the last call to the model, compared with the window of the model carrying the thread. It refreshes with every reply, and has nothing to do with the account quota.', 'Esta medida es la del último envío al modelo, comparada con la ventana del modelo que sostiene el hilo. Se actualiza con cada respuesta y no tiene nada que ver con la cuota de la cuenta.', 'Dieser Wert ist die Größe des letzten Aufrufs an das Modell, bezogen auf das Fenster des Modells, das den Verlauf trägt. Er wird bei jeder Antwort aktualisiert und hat nichts mit dem Kontingent des Kontos zu tun.', '该数值为最近一次调用模型的大小，与承载该会话的模型窗口相比。它随每次回复刷新，与账户配额无关。'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */
