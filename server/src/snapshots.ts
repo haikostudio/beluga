@@ -229,17 +229,35 @@ export function snapshotsEnCours(): string[] {
   return [...enCours];
 }
 
-function poidsDuDossier(cible: string): number {
+/*
+ * LES DOSSIERS QUI SE REFABRIQUENT, ÉCARTÉS DE LA COPIE. Ils pèsent l'essentiel
+ * du nombre de fichiers d'un projet web (plus de neuf sur dix) sans rien porter
+ * qu'on ne sache reconstruire avec « npm install » puis « npm run build ». Les
+ * recopier faisait passer une sauvegarde de quelques milliers à des dizaines de
+ * milliers de fichiers, pour rien.
+ */
+const DOSSIERS_REFABRIQUABLES = ['node_modules', '.next'];
+
+function estRefabriquable(chemin: string): boolean {
+  return chemin.split(path.sep).some((morceau) => DOSSIERS_REFABRIQUABLES.includes(morceau));
+}
+
+/*
+ * LE POIDS SE COMPTE SANS BLOQUER. Ce parcours voit passer autant de fichiers
+ * que la copie ; en version synchrone il gelait le démon une deuxième fois,
+ * juste après elle.
+ */
+async function poidsDuDossier(cible: string): Promise<number> {
   let total = 0;
-  const parcourir = (dossier: string) => {
-    for (const entree of fs.readdirSync(dossier, { withFileTypes: true })) {
+  const parcourir = async (dossier: string) => {
+    for (const entree of await fs.promises.readdir(dossier, { withFileTypes: true })) {
       const chemin = path.join(dossier, entree.name);
-      if (entree.isDirectory()) parcourir(chemin);
-      else if (entree.isFile()) total += fs.statSync(chemin).size;
+      if (entree.isDirectory()) await parcourir(chemin);
+      else if (entree.isFile()) total += (await fs.promises.stat(chemin)).size;
     }
   };
   try {
-    parcourir(cible);
+    await parcourir(cible);
   } catch {
     /* dossier parti : ce qui a été compté suffit */
   }
@@ -317,8 +335,19 @@ async function prendreLesFichiers(site: SiteASauvegarder, dossier: string): Prom
 
   if (fichiers.moyen === 'local') {
     if (!fs.existsSync(fichiers.chemin)) throw new Error(`dossier introuvable : ${fichiers.chemin}`);
-    fs.cpSync(fichiers.chemin, cible, { recursive: true });
-    return poidsDuDossier(cible);
+    /*
+     * LA COPIE LOCALE NE BLOQUE PLUS LE DÉMON. En `cpSync`, recopier un projet
+     * web (des dizaines de milliers de fichiers) gelait Node de bout en bout :
+     * plus de réponse au « /health », plus de WebSocket, et le surveillant
+     * relançait le service en pleine copie — qui repartait de zéro au tour
+     * suivant, sans fin. La version asynchrone rend la main entre les fichiers,
+     * exactement comme le fait déjà `rsync` pour un site distant.
+     */
+    await fs.promises.cp(fichiers.chemin, cible, {
+      recursive: true,
+      filter: (source) => !estRefabriquable(path.relative(fichiers.chemin, source)),
+    });
+    return await poidsDuDossier(cible);
   }
 
   if (fichiers.moyen === 'ssh') {
@@ -329,7 +358,7 @@ async function prendreLesFichiers(site: SiteASauvegarder, dossier: string): Prom
       ['-a', '--delete', '--timeout=600', '-e', `ssh -p ${port} -o BatchMode=yes -o StrictHostKeyChecking=accept-new`, distant, `${cible}/`],
       { timeout: 3_600_000, maxBuffer: 8 * 1024 * 1024 },
     );
-    return poidsDuDossier(cible);
+    return await poidsDuDossier(cible);
   }
 
   // FTP : `lftp` sait miroiter un site entier, et reçoit le mot de passe par son
@@ -355,7 +384,7 @@ async function prendreLesFichiers(site: SiteASauvegarder, dossier: string): Prom
     );
     processus.stdin.end(script);
   });
-  return poidsDuDossier(cible);
+  return await poidsDuDossier(cible);
 }
 
 /**
@@ -412,7 +441,7 @@ export async function prendreUnSnapshot(
     const statut: StatutDePoint = pris === 0 ? 'echec' : pris === attendus ? 'reussi' : 'partiel';
     if (statut === 'echec') {
       // Rien n'a été pris : le dossier vide ne reste pas sur le disque.
-      fs.rmSync(dossier, { recursive: true, force: true });
+      await fs.promises.rm(dossier, { recursive: true, force: true });
     }
 
     const point = enregistrerPoint({
@@ -428,7 +457,7 @@ export async function prendreUnSnapshot(
       origine,
     });
 
-    menageDuSite(site);
+    await menageDuSite(site);
 
     if (statut === 'echec') {
       log.warn(`snapshot de « ${site.nom} » impossible : ${point.detail}`);
@@ -535,8 +564,10 @@ async function restaurerLesFichiers(site: SiteASauvegarder, dossier: string): Pr
   if (!fs.existsSync(source)) throw new Error('ce point n’a pas de fichiers');
 
   if (fichiers.moyen === 'local') {
-    fs.rmSync(fichiers.chemin, { recursive: true, force: true });
-    fs.cpSync(source, fichiers.chemin, { recursive: true });
+    // Même raison que pour la prise : une restauration synchrone gèlerait le
+    // démon aussi longtemps que la copie qu'elle repose.
+    await fs.promises.rm(fichiers.chemin, { recursive: true, force: true });
+    await fs.promises.cp(source, fichiers.chemin, { recursive: true });
     return;
   }
 
@@ -776,13 +807,19 @@ export async function essayerLesAcces(site: SiteASauvegarder): Promise<EssaiDAcc
 /* Le ménage et le passage de nuit                                      */
 /* ------------------------------------------------------------------ */
 
-/** Ce qui dépasse la conservation du site quitte la base ET le disque. */
-export function menageDuSite(site: SiteASauvegarder, maintenant = Date.now()): number {
+/*
+ * Ce qui dépasse la conservation du site quitte la base ET le disque.
+ *
+ * L'effacement est asynchrone pour la même raison que la copie : un point de
+ * sauvegarde porte autant de fichiers que le projet qu'il garde, et le retirer
+ * d'un bloc gelait le démon aussi sûrement que de l'écrire.
+ */
+export async function menageDuSite(site: SiteASauvegarder, maintenant = Date.now()): Promise<number> {
   const aJeter = pointsAPurger(listerPoints(site.id), site.conservationJours, maintenant);
   for (const point of aJeter) {
     if (point.chemin) {
       try {
-        fs.rmSync(point.chemin, { recursive: true, force: true });
+        await fs.promises.rm(point.chemin, { recursive: true, force: true });
       } catch (err: any) {
         log.warn(`point de sauvegarde non retiré (${point.chemin})`, err?.message ?? err);
       }
@@ -863,7 +900,7 @@ export async function passageDesSnapshots(origine: 'automatique' | 'manuel' = 'a
   // LE MÉNAGE PASSE SUR TOUS LES SITES, PAS SEULEMENT SUR CEUX QUI VIENNENT
   // D'ÊTRE PRIS : une rétention d'un jour doit expirer même si le site est
   // éteint ou que sa prochaine prise est encore loin.
-  for (const site of sites) menageDuSite(site, maintenant);
+  for (const site of sites) await menageDuSite(site, maintenant);
 
   // CE QUI ÉCHOUE ENCORE ET ENCORE PART CHEZ L'ASSISTANT. L'import est fait ici
   // et pas en tête de fichier : le module de l'assistant tire tout le moteur,
