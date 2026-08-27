@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  ESPACE_MILLIERS,
   detailDuContexte,
   jetonsLisibles,
   mesurerContexte,
@@ -38,8 +39,10 @@ test('un pourcentage hors bornes ne déborde pas du cercle', () => {
 
 test('les jetons se lisent avec une espace, et s’abrègent au million', () => {
   assert.equal(jetonsLisibles(0), '0');
-  assert.equal(jetonsLisibles(18_000), '18 000');
-  assert.equal(jetonsLisibles(199_999), '199 999');
+  assert.equal(jetonsLisibles(18_000), `18${ESPACE_MILLIERS}000`);
+  assert.equal(jetonsLisibles(199_999), `199${ESPACE_MILLIERS}999`);
+  // Toujours la MÊME espace, quelle que soit la région de la machine.
+  assert.equal(ESPACE_MILLIERS, '\u202f');
   assert.equal(jetonsLisibles(1_200_000), '1,2 M');
   assert.equal(jetonsLisibles(12_000_000), '12 M');
 });

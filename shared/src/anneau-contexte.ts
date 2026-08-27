@@ -60,16 +60,23 @@ export function traceDeLAnneau(pourcentage: number, rayon: number): TraceAnneau 
 /**
  * Un nombre de jetons, court et lisible dans un anneau de seize pixels comme
  * dans une phrase : au-delà du million on abrège, en dessous on garde les
- * milliers pleins. Le séparateur est une espace FINE INSÉCABLE, celle des
- * nombres en français — jamais un point, qui se lirait comme une décimale.
+ * milliers pleins.
+ *
+ * LE GROUPEMENT EST FAIT À LA MAIN, jamais par `toLocaleString` : selon la
+ * région celui-ci rend une apostrophe (« 18'000 », suisse), une espace normale ou
+ * une espace fine insécable — trois résultats pour le même nombre, et un
+ * contrôle qui ne peut plus rien affirmer. On pose donc toujours la même
+ * espace insécable, celle des nombres en français.
  */
+export const ESPACE_MILLIERS = '\u202f';
+
 export function jetonsLisibles(jetons: number): string {
   const n = Number.isFinite(jetons) ? Math.max(0, Math.round(jetons)) : 0;
   if (n >= 1_000_000) {
     const millions = n / 1_000_000;
     return `${(millions >= 10 ? Math.round(millions) : Math.round(millions * 10) / 10).toString().replace('.', ',')} M`;
   }
-  return n.toLocaleString('fr-CH').replace(/ | |'/g, ' ');
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ESPACE_MILLIERS);
 }
 
 /**
