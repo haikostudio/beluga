@@ -23,42 +23,24 @@ import { log } from './logger.js';
  * L'ASSISTANT VOCAL GLOBAL : où va cette phrase ?
  *
  * Une phrase dictée n'a aucun destinataire tant que personne n'a dit « ça,
-<<<<<<< HEAD
  * c'est pour tel projet ». Ce module est ce quelqu'un — hors projet, au-dessus
  * du tableau.
  *
- * Il n'appelle AUCUN moteur pour router : il lit la liste des projets ouverts,
- * applique la règle pure (`shared/src/routage-vocal.ts`), et fait l'une de deux
- * choses.
- *
- *  - Projet clair : il OUVRE UNE CARTE dans « Planifié », lui donne son agent
- *    de CADRAGE et y écrit la phrase telle qu'elle a été entendue. C'est le
- *    chemin du « + » de la colonne, à la voix : la carte ne quitte pas
- *    « Planifié » tant que « Lancer la tâche » n'a pas été cliqué.
- *  - Doute : il POSE LA QUESTION, dans la carte de cadrage ouverte pour elle.
- *    Une vraie question d'agent, donc le triangle orange habituel, l'annonce
- *    vocale « une décision attend » et une réponse qui se donne à l'écran… ou à
- *    la voix, la phrase suivante étant lue comme la réponse tant que la
- *    question est fraîche.
-=======
- * c'est pour HaikoDev ». Ce module est ce quelqu'un — hors projet, au-dessus
- * du tableau.
- *
- * Il ne code pas et n'appelle AUCUN moteur payant : il lit la liste des
- * projets ouverts, applique la règle pure (`shared/src/routage-vocal.ts`), et
- * fait l'une de deux choses.
+ * Il ne code pas et n'appelle AUCUN moteur payant pour router : il lit la
+ * liste des projets ouverts, applique la règle pure
+ * (`shared/src/routage-vocal.ts`), et fait l'une de deux choses.
  *
  *  - Projet clair : il ouvre une carte-fil de cadrage dans ce projet (la même
  *    que le « + » de « Planifié ») et y dépose la phrase. Le fil montre la
  *    phrase telle qu'elle a été comprise, et l'agent de cadrage fait son tri
- *    habituel.
+ *    habituel ; la carte ne quitte pas « Planifié » tant que « Lancer la
+ *    tâche » n'a pas été cliqué.
  *  - Doute : il POSE LA QUESTION, dans une carte-fil de cadrage éphémère de ce
  *    projet — une vraie question d'agent, donc le triangle orange habituel,
  *    l'annonce vocale « une décision attend » et une réponse qui se donne à
  *    l'écran… ou à la voix, la phrase suivante étant lue comme la réponse tant
  *    que la question est fraîche. Cette carte de question, qui ne sert à
  *    rien d'autre, est retirée une fois la réponse reçue.
->>>>>>> main
  */
 
 export interface ResultatDictee {
