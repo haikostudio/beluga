@@ -3,21 +3,29 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { colonneAuDemarrage, effetDuDepot, tourDeLaCarte } from '@haikodev/shared';
+import { colonneAuDemarrage, tourDeLaCarte } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
-/* Une carte qui retravaille ne reste pas en « Terminé »                 */
+/* Une carte qui retravaille ne reste pas en « En cours » sans agent     */
 /* ------------------------------------------------------------------ */
 
 /*
- * Une carte a été vue dans « Terminé » avec le rond vert qui tournait : le
- * tableau annonçait la fin du travail pendant que l'agent écrivait encore.
+ * Une carte a été vue avec le rond vert qui tournait alors que sa colonne
+ * réelle n'avait pas suivi : le tableau annonçait la fin du travail pendant
+ * que l'agent écrivait encore.
  *
  * La règle, elle, était juste : `colonneAuDemarrage` ramène en « En cours »
  * toute carte dont un tour d'EXÉCUTION redémarre. Ce qui manquait, c'était la
  * garantie qu'aucun chemin de relance ne puisse l'éviter — et le constat que le
  * tour d'AVANT, qui rend la main à son rythme, ne doit plus rien écrire sur une
  * carte confiée depuis à quelqu'un d'autre.
+ *
+ * Depuis la fusion de « Terminé » dans « À déployer », il n'y a plus de
+ * colonne intermédiaire résumable : une carte rendue tombe directement dans
+ * une FIN DE PARCOURS, qui ne se rouvre que sur geste humain
+ * (`repriseAutorisee`). Les chemins de relance testés ici ne concernent donc
+ * plus que « En cours » elle-même — cf. `une relance ne rouvre jamais une fin
+ * de parcours`, plus bas.
  */
 
 const ICI = path.dirname(fileURLToPath(import.meta.url));
@@ -26,34 +34,6 @@ const SOURCES = path.resolve(ICI, '../../src');
 function lire(fichier: string): string {
   return fs.readFileSync(path.join(SOURCES, fichier), 'utf8');
 }
-
-/* -------- Chaque chemin de relance, un par un -------- */
-
-/**
- * Les six façons de faire repartir le travail d'une carte. Toutes finissent par
- * un tour d'agent de rôle « task » qui démarre : c'est le seul fait qui compte
- * pour la colonne.
- */
-const CHEMINS_DE_RELANCE = [
-  'le bouton « Lancer maintenant »',
-  'le dépôt de la carte dans « En cours »',
-  'un message écrit dans la conversation de la carte',
-  'un message qui attendait en file',
-  'la réponse à une question de l’agent',
-  'la reprise d’un travail mis en pause',
-] as const;
-
-test('depuis « À déployer », TOUT chemin de relance ramène la carte en cours', () => {
-  for (const chemin of CHEMINS_DE_RELANCE) {
-    assert.equal(colonneAuDemarrage('to_deploy', 'task'), 'running', chemin);
-  }
-});
-
-test('déposer une carte terminée dans « En cours » vaut un lancement', () => {
-  // Le glissement n'a pas de chemin à lui : il retombe sur le même départ.
-  assert.equal(effetDuDepot('to_deploy', 'running'), 'lancer');
-  assert.equal(colonneAuDemarrage('to_deploy', 'task'), 'running');
-});
 
 test('une relance ne rouvre jamais une fin de parcours', () => {
   // La limite posée par la carte : « À déployer » et « Archivé » ne bougent que

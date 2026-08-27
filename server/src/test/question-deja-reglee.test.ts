@@ -110,8 +110,8 @@ test('une carte rangée en « Archivé » ne réclame plus d’arbitrage', () =>
   assert.equal(decisionsDeLaCarte(carte.id).length, 0);
 });
 
-test('les trois colonnes rangées sont écartées, les autres non', () => {
-  for (const colonne of ['done', 'to_deploy', 'archived']) {
+test('les deux colonnes rangées sont écartées, les autres non', () => {
+  for (const colonne of ['to_deploy', 'archived']) {
     assert.equal(carteRangee(colonne), true, colonne);
     assert.equal(decisionEnTexteLibre({ statut: 'done', dernierMessage: message(), colonne }), null);
   }
@@ -132,8 +132,8 @@ function message(): MessageAJuger {
  * le dernier trou : la question écrite en texte ordinaire s'éteignait sur une
  * carte rangée, celle d'`ask_user` continuait d'allumer le triangle et le
  * bouton « Répondre » sur une carte archivée ou déjà en production, dont le
- * tour n'existait même plus. « Terminé », en revanche, garde ses questions : le
- * travail peut y être repris.
+ * tour n'existait même plus. « En cours », en revanche, garde ses questions :
+ * le travail y est toujours vivant.
  */
 function questionDOutil(agentId: string) {
   return store.saveMessage({
@@ -146,7 +146,7 @@ function questionDOutil(agentId: string) {
   } as any);
 }
 
-test('une question de l’outil s’éteint sur une carte fermée, pas sur une carte terminée', () => {
+test('une question de l’outil s’éteint sur une carte fermée, pas sur une carte EN COURS', () => {
   const projet = projetDEssai();
 
   for (const colonne of ['to_deploy', 'archived']) {
@@ -155,9 +155,7 @@ test('une question de l’outil s’éteint sur une carte fermée, pas sur une c
     assert.equal(decisionsDeLaCarte(carte.id).length, 0, colonne);
   }
 
-  for (const colonne of ['running', 'done']) {
-    const carte = carteDEssai(projet.id, colonne);
-    questionDOutil(agentDEssai(projet.id, carte.id).id);
-    assert.equal(decisionsDeLaCarte(carte.id).length, 1, colonne);
-  }
+  const carte = carteDEssai(projet.id, 'running');
+  questionDOutil(agentDEssai(projet.id, carte.id).id);
+  assert.equal(decisionsDeLaCarte(carte.id).length, 1, 'running');
 });

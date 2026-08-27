@@ -100,7 +100,7 @@ test('…tandis qu’une VRAIE oubliée, elle, est bien fermée', () => {
   rangerLesCartesOubliees();
 
   const apres = store.getCard('c-vraiment-oubliee');
-  assert.equal(apres?.column, 'done');
+  assert.equal(apres?.column, 'to_deploy');
   assert.equal(apres?.sansModification, RAISON_TOUR_SANS_ISSUE);
 });
 
@@ -113,7 +113,7 @@ test('le tour vivant se retire, et le balayage reprend alors ses droits', () => 
   // Le tour a fini de tout ranger : la marque tombe, plus rien ne le retient.
   store.saveAgent({ ...store.getAgent(agent.id)!, tourVivantDepuis: undefined });
   rangerLesCartesOubliees();
-  assert.equal(store.getCard('c-rangement-fini')?.column, 'done');
+  assert.equal(store.getCard('c-rangement-fini')?.column, 'to_deploy');
 });
 
 test('une publication refuse de partir pendant qu’un tour range encore', () => {

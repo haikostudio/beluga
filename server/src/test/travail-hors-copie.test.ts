@@ -54,7 +54,7 @@ test('« ailleurs » ferme la carte en disant où chercher le travail', () => {
   // la phrase reste une ATTENTE — il y a un geste à faire, aller récupérer le
   // travail dans le dossier du projet.
   const issue = issueDeFinDeTour('running', true, 'task', 'ailleurs', false);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(natureDeLaMention(issue.raison), 'attente');
 });
 
@@ -62,7 +62,7 @@ test('une carte dont le code est DÉJÀ sur sa branche reste close', () => {
   // Le drapeau passe devant : ce qu'un agent a touché à côté ne rouvre pas une
   // carte dont le travail est acquis.
   const issue = issueDeFinDeTour('running', true, 'task', 'ailleurs', true);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(issue.raison, RAISON_DEJA_LIVRE);
 });
 

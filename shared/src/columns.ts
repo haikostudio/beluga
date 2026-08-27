@@ -52,12 +52,12 @@ export const AGENT_MOVABLE_COLUMNS: ColumnKey[] = ['notes', 'planned'];
 export const USER_ONLY_TARGETS: ColumnKey[] = [];
 
 /**
- * Colonnes que seule la machine peut attribuer. « À déployer » en fait
- * partie depuis que la carte suit l'état de son agent : elle y va
- * d'elle-même quand le travail est rendu, sans passer par « Terminé »
- * (voir `suivi-colonne.ts`).
+ * Colonnes que la machine peut attribuer sans condition sur son départ.
+ * « À déployer » n'en fait PAS partie : la machine n'y range une carte
+ * qu'en clôturant un travail rendu depuis « En cours » (voir `canMove`,
+ * `suivi-colonne.ts`) — jamais depuis n'importe où.
  */
-export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running', 'to_deploy'];
+export const MACHINE_ONLY_TARGETS: ColumnKey[] = ['planned', 'running'];
 
 export type Actor = 'user' | 'agent' | 'machine';
 
@@ -90,6 +90,20 @@ export function canMove(actor: Actor, from: ColumnKey, to: ColumnKey): MoveDecis
   }
 
   if (actor === 'machine') {
+    /*
+     * « À déployer » n'est atteignable par la machine QUE depuis « En cours » :
+     * c'est la clôture d'un travail rendu, jamais un raccourci depuis une autre
+     * colonne (`shared/src/suivi-colonne.ts`).
+     */
+    if (to === 'to_deploy') {
+      if (from !== 'running') {
+        return {
+          allowed: false,
+          reason: `L'ordonnanceur ne pousse vers « ${COLUMN_LABELS.to_deploy} » qu'en clôturant un travail rendu depuis « ${COLUMN_LABELS.running} ».`,
+        };
+      }
+      return { allowed: true };
+    }
     if (!MACHINE_ONLY_TARGETS.includes(to) && to !== 'archived') {
       return {
         allowed: false,

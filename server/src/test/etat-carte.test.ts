@@ -104,9 +104,11 @@ test('« Lancer maintenant » s’éteint si un agent tourne déjà', () => {
   assert.equal(gesteCarte('lancer', { colonne: 'planned', etat: 'repos' }).possible, true);
 });
 
-test('les gestes de début et de publication restent simples', () => {
+test('le geste de début reste simple, celui de publication a disparu', () => {
   assert.deepEqual(gesteCarte('valider', { colonne: 'planned', etat: 'repos' }), { affiche: true, possible: true });
-  assert.deepEqual(gesteCarte('publier', { colonne: 'done', etat: 'repos' }), { affiche: true, possible: true });
+  // « Terminé » a disparu : une carte rendue tombe déjà dans « À déployer »,
+  // il n'y a plus de geste « publier » distinct de la clôture.
+  assert.deepEqual(gesteCarte('publier', { colonne: 'to_deploy', etat: 'repos' }), { affiche: false, possible: false });
 });
 
 test('une carte déjà chiffrée n’a plus de dépense à autoriser', () => {

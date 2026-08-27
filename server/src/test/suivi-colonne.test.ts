@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   COLONNES_HORS_REPRISE,
   COLUMN_KEYS,
-  MACHINE_ONLY_TARGETS,
   ROLES_QUI_CLOTURENT,
   ROLES_QUI_DEPLACENT,
   canMove,
@@ -41,10 +40,6 @@ import {
 /* ------------------------------------------------------------------ */
 
 /* -------- Le tour d'exécution démarre -------- */
-
-test('une carte terminée sur laquelle on relance une exécution repasse en cours', () => {
-  assert.equal(colonneAuDemarrage('to_deploy', 'task'), 'running');
-});
 
 test('une carte en amont du parcours part en cours quand l’exécution démarre', () => {
   for (const depart of ['notes', 'planned'] as const) {
@@ -222,20 +217,11 @@ test('validé, analyse, exécution : la carte ne bouge qu’au bon moment', () =
   assert.equal(colonneEnFinDeTour('running', true, 'task'), 'to_deploy');
 });
 
-test('rendue puis relancée puis rendue : la carte fait l’aller-retour', () => {
-  const apresPremierTour = colonneEnFinDeTour('running', true, 'task');
-  assert.equal(apresPremierTour, 'to_deploy');
-  // Un message dans la conversation de l'agent d'EXÉCUTION la relance.
-  const relance = colonneAuDemarrage(apresPremierTour!, 'task');
-  assert.equal(relance, 'running');
-  assert.equal(colonneEnFinDeTour(relance!, true, 'task'), 'to_deploy');
-});
-
 /* -------- Cohérence avec les droits de déplacement -------- */
 
-test('la machine a le droit de poser une carte directement à déployer', () => {
-  assert.equal(MACHINE_ONLY_TARGETS.includes('to_deploy'), true);
+test('la machine a le droit de poser une carte directement à déployer, mais SEULEMENT depuis « En cours »', () => {
   assert.equal(canMove('machine', 'running', 'to_deploy').allowed, true);
+  assert.equal(canMove('machine', 'planned', 'to_deploy').allowed, false);
 });
 
 test('l’ordonnanceur ne pousse jamais une carte vers une étape de publication', () => {

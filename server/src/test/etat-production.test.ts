@@ -281,6 +281,6 @@ test('le pied de « À déployer » archive, et plus aucun pied ne pousse « en 
   );
   assert.match(table, /to_deploy:\s*\{[^}]*cible:\s*'archived'/s);
   assert.ok(!table.includes('in_production'));
-  // « Terminé » ne change pas de cible : il pousse toujours dans le lot.
-  assert.match(table, /done:\s*\{[^}]*cible:\s*'to_deploy'/s);
+  // « Terminé » a disparu : plus aucun pied de colonne ne pousse vers « À déployer ».
+  assert.ok(!table.includes('done:'));
 });

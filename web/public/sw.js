@@ -62,9 +62,9 @@ function imageDeLAlerte(motif) {
  * pas : il garde l'image de son genre plutôt qu'un visage pris au hasard.
  */
 const PERSONNAGES = {
-  'tache-terminee': 'done',
-  'travail-sans-carte': 'done',
-  'liste-taches': 'done',
+  'tache-terminee': 'to_deploy',
+  'travail-sans-carte': 'to_deploy',
+  'liste-taches': 'to_deploy',
   'tache-echec': 'running',
   'decision-attendue': 'running',
   'publication-terminee': 'archived',

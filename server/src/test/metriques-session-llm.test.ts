@@ -17,7 +17,7 @@ function carteDeTest(id: string, llmSessionMetrics?: ReturnType<typeof metriques
     title: 'Carte de test',
     description: 'Vérifier les mesures',
     labels: [],
-    column: 'done',
+    column: 'running',
     position: 1,
     origin: 'user',
     attachments: [],
