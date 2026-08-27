@@ -137,10 +137,6 @@ const ACTIONS_DE_LOT: Partial<Record<ColumnKey, ActionDeLot>> = {
   // carte et le serveur passe par `startCard` — portes dures comprises. Une
   // carte refusée revient à sa colonne avec sa raison, et le lot continue.
   planned: { libelle: 'Tout lancer', icone: Play, verbe: 'Lancer', cible: 'running', participe: 'lancée', parallele: true },
-  // « Terminé » précède « À déployer » : le geste de masse à cet endroit est de
-  // POUSSER dans le lot à publier, jamais d'archiver par-dessus l'étape de
-  // publication. Rien n'est mis en ligne — les cartes changent de colonne.
-  done: { libelle: 'Tout déployer', icone: Rocket, verbe: 'Déployer', cible: 'to_deploy', participe: 'déployée' },
   // « En production » n'existe plus : le déploiement range lui-même ses cartes
   // en « Archivé ». Le pied de « À déployer » garde donc le seul geste de masse
   // qui reste à la main — sortir du lot sans rien mettre en ligne.
@@ -216,10 +212,10 @@ function MenuTeteColonne({ colonne, cartesNonLues }: { colonne: ColumnKey; carte
 
 /**
  * L'INTERRUPTEUR « DÉPLOIEMENT AUTOMATIQUE », en tête de la colonne
- * « Terminé ». ÉTEINT par défaut, et son état vit sur le PROJET : allumé, il
- * vaut consentement permanent pour ce projet-là — dès que plus rien ne
- * travaille, le lot de « Terminé » passe tout seul dans « À déployer » et la
- * mise en ligne part, sans clic sur « Publier maintenant ».
+ * « À déployer ». ÉTEINT par défaut, et son état vit sur le PROJET : allumé,
+ * il vaut consentement permanent pour ce projet-là — dès que plus rien ne
+ * travaille, le lot posé dans « À déployer » part tout seul, la mise en ligne
+ * part sans clic sur « Publier maintenant ».
  *
  * Il ne décide de rien lui-même : il n'écrit qu'un réglage. Ce qui retient ou
  * lance le lot est une règle pure, jouée par le serveur
@@ -761,7 +757,7 @@ export function Board({
    *
    * Second geste, au MÊME appui : l'onglet lui-même est amené au CENTRE de sa
    * barre défilante, pour que ses voisins de gauche et de droite redeviennent
-   * visibles — sinon « Terminé », tout à droite, reste collé au bord et l'on
+   * visibles — sinon « Archivé », tout à droite, reste collé au bord et l'on
    * perd le repère de là où on se trouve dans la suite des colonnes. On mesure
    * les rectangles réels (`getBoundingClientRect`) plutôt que `offsetLeft`,
    * insensible ainsi à l'élément positionné qui sert de repère. Sur ordinateur
@@ -831,8 +827,8 @@ export function Board({
   /*
    * QUELLE colonne a un geste en vol — pas un simple « oui / non ». Un seul
    * drapeau pour tout le tableau éteignait les boutons d'une colonne à cause du
-   * geste d'une AUTRE : on ouvrait le pied de « Terminé » pendant qu'un « Tout
-   * lancer » attendait encore, et « Déployer » y naissait déjà bloqué.
+   * geste d'une AUTRE : on ouvrait le pied d'« À déployer » pendant qu'un
+   * « Tout lancer » attendait encore, et « Archiver » y naissait déjà bloqué.
    */
   const [colonneQuiTravaille, setColonneQuiTravaille] = React.useState<ColumnKey | null>(null);
   /*
@@ -1276,19 +1272,19 @@ export function Board({
             tableau ne saurait plus faire glisser une colonne au bord.
             Le CADRE et le FOND restent sur elle pour la même raison : c'est sur
             `[data-column]` que se lit la couleur de la colonne — orange pour
-            « En cours », bleu pour « Terminé » (`verif-couleurs-avancement`).
+            « En cours », bleu pour « À déployer » (`verif-couleurs-avancement`).
             Seule la DÉCOUPE descend d'un cran.
           */
           <div
             key={column}
             data-column={column}
             className={cn(
-              'relative h-full min-h-0 w-[268px] shrink-0 rounded-lg border bg-surface/70 transition-colors',
+              'relative h-full min-h-0 w-[300px] shrink-0 rounded-lg border bg-surface/70 transition-colors',
               over === column && allowed
                 ? 'border-muted bg-surface'
                 : column === 'running'
                   ? 'border-en-cours/70'
-                  : column === 'done'
+                  : column === 'to_deploy'
                     ? 'border-termine/70'
                     : 'border-border/60',
               carteTiree && !allowed && 'opacity-40',
@@ -1348,7 +1344,7 @@ export function Board({
               )}
               data-tete-colonne={column}
             >
-              {/* Repère de colonne (« En cours » / « Terminé ») : un voile,
+              {/* Repère de colonne (« En cours » / « À déployer ») : un voile,
                   DERRIÈRE le libellé, en dégradé vertical qui part de la
                   couleur EN HAUT et s'efface jusqu'à zéro tout EN BAS — jamais
                   un aplat, jamais un trait qui coupe l'entête, jamais une
@@ -1367,7 +1363,7 @@ export function Board({
                   couche égale, c'est de nouveau l'ordre DOM qui tranche, et le
                   texte — placé après le voile dans le JSX — peint bien
                   au-dessus. */}
-              {column === 'running' || column === 'done' ? (
+              {column === 'running' || column === 'to_deploy' ? (
                 <div
                   aria-hidden
                   className={cn(
@@ -1427,10 +1423,11 @@ export function Board({
                   <RepereAttention compte={state.plans[projectId] ? 1 : 0} data-attention-plan-colonne={column} />
                 ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
-                {/* « Terminé » précède « À déployer » : c'est ici que se règle
-                    si le lot y va — et part en ligne — tout seul. Éteint par
-                    défaut ; publier reste sinon un geste de l'utilisateur. */}
-                {column === 'done' ? (
+                {/* Une carte rendue tombe directement ici : c'est en tête de
+                    « À déployer » que se règle si le lot part en ligne tout
+                    seul. Éteint par défaut ; publier reste sinon un geste de
+                    l'utilisateur. */}
+                {column === 'to_deploy' ? (
                   <InterrupteurDeploiementAuto
                     projectId={projectId}
                     actif={projetOuvert?.deploiementAutomatique === true}
@@ -1571,15 +1568,13 @@ export function Board({
                     ? t('Idées en vrac.')
                     : column === 'running'
                         ? t('Glissez ici pour lancer le travail.')
-                        : column === 'done'
-                          ? t('Aucun travail terminé pour l’instant.')
-                          : column === 'to_deploy'
-                            ? /* « Rien à mettre en ligne » était le mensonge le
-                                 plus direct : écrit alors que du travail
-                                 attendait juste au-dessus. Tant qu'il en
-                                 reste, la colonne ne dit plus « rien ». */
-                              phraseDeColonneVide(sansCarte.to_deploy ?? null)
-                            : t('Aucune carte rangée ici pour l’instant.')}
+                        : column === 'to_deploy'
+                          ? /* « Rien à mettre en ligne » était le mensonge le
+                               plus direct : écrit alors que du travail
+                               attendait juste au-dessus. Tant qu'il en
+                               reste, la colonne ne dit plus « rien ». */
+                            phraseDeColonneVide(sansCarte.to_deploy ?? null)
+                          : t('Aucune carte rangée ici pour l’instant.')}
                 </p>
               ) : null}
               </div>

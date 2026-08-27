@@ -204,7 +204,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     (peut('valider').affiche ||
     (card.column === 'planned' && !cadrageEnCours) ||
     peut('terminer').affiche ||
-    peut('publier').affiche ||
     peut('reprendre').affiche ||
     !!card.closureDoc);
 
@@ -504,11 +503,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   <Check className="h-3 w-3" />  {t('Terminer la tâche')}
 </Button>
               </Geste>
-            ) : null}
-            {peut('publier').affiche ? (
-              <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
-                <Rocket className="h-3 w-3" />  {t('Mettre en file de publication')}
-</Button>
             ) : null}
             {/*
                 Le seul chemin volontaire pour ressortir une carte d'une fin de
