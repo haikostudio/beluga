@@ -23,10 +23,33 @@ const verifier = (nom, ok) => {
   console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}`);
 };
 
+/*
+ * SECONDE EXCEPTION VOULUE, demandée le 27/08/2026 : le CONTEXTE DU MODÈLE
+ * revient dans la barre d'écriture, à côté du choix du modèle, sous la forme
+ * d'un ANNEAU cliquable qui ouvre une fenêtre détaillée. Ce n'est pas le
+ * compteur de jetons que le plan avait retiré (un total facturé, sans repère) :
+ * c'est un REMPLISSAGE rapporté à la fenêtre du modèle, la seule mesure qui dit
+ * s'il reste de la place avant la prochaine compression. L'ancienne capsule,
+ * elle, reste bannie.
+ */
 const composer = lire('web/src/components/composer.tsx');
 verifier(
-  'le composeur n’affiche plus de pourcentage de contexte',
+  'le composeur n’affiche plus l’ancienne capsule de contexte',
   !composer.includes('CapsuleContexte') && !composer.includes('data-pourcentage-contexte'),
+);
+verifier(
+  'la barre d’écriture porte l’anneau de contexte, à côté du modèle (exception voulue)',
+  composer.includes('<AnneauContexte agent={agent} />'),
+);
+
+const anneau = lire('web/src/components/anneau-contexte.tsx');
+verifier(
+  'l’anneau ne s’affiche sur AUCUNE mesure absente — jamais un faux 0 %',
+  anneau.includes('if (!agent || !usage) return null;'),
+);
+verifier(
+  'un clic sur l’anneau ouvre la fenêtre détaillée, avec sa barre de progression',
+  anneau.includes('data-anneau-contexte') && anneau.includes('data-fenetre-contexte') && anneau.includes('<Gauge'),
 );
 
 const parcours = lire('web/src/components/parcours-tache.tsx');
