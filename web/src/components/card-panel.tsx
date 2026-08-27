@@ -330,7 +330,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
           {/* Les gestes rares vivent ici : ils prenaient une ligne entière en
               bas du tiroir. Menu déroulant sur ordinateur, tiroir pleine
               largeur sur téléphone — le composant s'en charge tout seul. */}
-          <MenuCarte card={card} apresSuppression={onClose} />
+          <MenuCarte card={card} apresSuppression={onClose} onOuvrirFacturation={() => setOnglet('billing')} />
         </div>
       </header>
 
