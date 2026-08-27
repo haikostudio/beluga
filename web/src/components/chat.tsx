@@ -40,7 +40,7 @@ import {
   gesteDuPersonnage,
   imageDuPersonnage,
 } from '@haikodev/shared';
-import { ConfirmDialog, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
@@ -147,6 +147,7 @@ export function Chat({
    * d'outil (`questionEnTexteLibre` l'écarte).
    */
   const carte = cardId ? state.cards[cardId] : undefined;
+  const reglagesCarte = useReglagesCarte(carte);
   /*
    * LA CONVERSATION DE CADRAGE D'UNE CARTE. Tant que la carte dort en
    * « Planifié » et que c'est un agent de CADRAGE qui parle, le geste qui
@@ -243,15 +244,13 @@ export function Chat({
 
       {/* L'ANCIEN ONGLET « DÉTAILS » EST PARTI : le seul bloc qu'il portait et
           qui méritait de survivre — avec quoi la carte tourne — vit ici, dans
-          la conversation elle-même. Il ne se montre plus SEULEMENT une fois la
-          configuration figée : AVANT le lancement, la même ligne s'affiche et
-          se CLIQUE, et le tiroir qu'elle ouvre porte les mêmes menus moteur /
-          modèle / niveau / compte. Le choix se faisait jusqu'ici dans un menu
-          minuscule de la barre d'écriture, que rien n'annonçait : on lançait
-          une tâche sans avoir vu avec quoi elle allait tourner. */}
-      {carte ? (
+          la conversation elle-même, UNE FOIS LA CONFIGURATION FIGÉE. Avant le
+          lancement, ce n'est plus ce bloc fixe qui s'affiche : c'est une bulle
+          posée dans le fil (plus bas), qui défile avec les messages au lieu de
+          rester collée en haut. */}
+      {carte && reglagesCarte.vu && !reglagesCarte.vu.modifiable ? (
         <div className="shrink-0 px-3 pt-2">
-          <ReglagesAgent card={carte} />
+          <ReglagesAgent card={carte} vu={reglagesCarte.vu} libelles={reglagesCarte.libelles!} />
         </div>
       ) : null}
 
@@ -354,6 +353,12 @@ export function Chat({
               hint={motDeLaConversationVide.indice}
             />
           )}
+          {/* AVANT LE LANCEMENT, la configuration du moteur est une bulle DU
+              FIL — elle défile avec les messages plutôt que de rester collée
+              en haut. Elle reste modifiable jusqu'au démarrage du travail. */}
+          {carte && reglagesCarte.vu?.modifiable && reglagesCarte.libelles ? (
+            <BulleReglagesAModifier card={carte} libelles={reglagesCarte.libelles} />
+          ) : null}
           <div ref={bottomRef} />
         </div>
       </ZoneDefilement>
@@ -892,19 +897,14 @@ function libellesDuRun(
 }
 
 /**
- * AVEC QUOI CETTE CARTE TOURNE, OU VA TOURNER — vivait dans l'onglet
- * « Détails », retiré.
- * Elle vit maintenant dans la conversation elle-même, et seulement UNE FOIS
- * LA CONFIGURATION FIGÉE (`vu.modifiable` faux : le travail a démarré) — avant
- * ce moment, la barre d'écriture porte déjà ses propres menus moteur / modèle
- * / réflexion (`RunSelectors` dans `composer.tsx`, qui écrit sur la même
- * carte) : afficher un second sélecteur ici aurait doublé le même geste.
- *
- * Quatre étiquettes courtes sur UNE ligne qui se replie : moteur, modèle,
- * réflexion, compte — c'est ce qui permet de comprendre après coup pourquoi
- * une carte s'est bien ou mal passée.
+ * Calcule une fois ce qui vaut pour une carte — figé ou non, avec quels
+ * libellés — pour les deux affichages qui en dépendent : le bloc fixe une
+ * fois le travail démarré (`ReglagesAgent`), et la bulle du fil avant
+ * lancement (`BulleReglagesAModifier`). Sans carte, rend `vu` à `null` : les
+ * deux affichages restent des hooks appelés à chaque rendu, jamais
+ * conditionnels.
  */
-function ReglagesAgent({ card }: { card: Card }) {
+function useReglagesCarte(card: Card | undefined) {
   const state = useApp();
 
   /*
@@ -914,23 +914,49 @@ function ReglagesAgent({ card }: { card: Card }) {
    */
   const execution = React.useMemo(
     () =>
-      Object.values(state.agents)
-        .filter((item) => item.cardId === card.id && item.role === 'task')
-        .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null,
-    [state.agents, card.id],
+      card
+        ? Object.values(state.agents)
+            .filter((item) => item.cardId === card.id && item.role === 'task')
+            .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null
+        : null,
+    [state.agents, card?.id],
   );
 
-  const vu = reglagesDeLaCarte({
-    colonne: card.column,
-    carte: card.run,
-    agent: execution
-      ? { engine: execution.run.engine, model: execution.run.model, thinking: execution.run.thinking, compte: execution.account }
-      : undefined,
-    compteMesure: card.consumption?.account,
-  });
+  const vu = card
+    ? reglagesDeLaCarte({
+        colonne: card.column,
+        carte: card.run,
+        agent: execution
+          ? { engine: execution.run.engine, model: execution.run.model, thinking: execution.run.thinking, compte: execution.account }
+          : undefined,
+        compteMesure: card.consumption?.account,
+      })
+    : null;
 
-  const libelles = libellesDuRun(state.engines, vu);
+  const libelles = vu ? libellesDuRun(state.engines, vu) : null;
 
+  return { vu, libelles };
+}
+
+/**
+ * AVEC QUOI CETTE CARTE TOURNE — vivait dans l'onglet « Détails », retiré.
+ * Elle vit maintenant dans la conversation elle-même, et seulement UNE FOIS
+ * LA CONFIGURATION FIGÉE : avant ce moment, c'est la bulle du fil
+ * (`BulleReglagesAModifier`) qui s'affiche à sa place, plus bas.
+ *
+ * Quatre étiquettes courtes sur UNE ligne qui se replie : moteur, modèle,
+ * réflexion, compte — c'est ce qui permet de comprendre après coup pourquoi
+ * une carte s'est bien ou mal passée.
+ */
+function ReglagesAgent({
+  card,
+  vu,
+  libelles,
+}: {
+  card: Card;
+  vu: ReglagesCarte;
+  libelles: { moteur: string; modele: string; reflexion: string };
+}) {
   /*
    * La part de quota réellement consommée par cette carte, somme de ses lignes
    * de consommation. Elle vit dans la table `usage`, pas sur la carte : on la
@@ -939,7 +965,6 @@ function ReglagesAgent({ card }: { card: Card }) {
    */
   const [quota, setQuota] = React.useState<{ quota5h: number; quotaSemaine: number } | null>(null);
   React.useEffect(() => {
-    if (vu.modifiable) return;
     let vivant = true;
     setQuota(null);
     client
@@ -951,16 +976,8 @@ function ReglagesAgent({ card }: { card: Card }) {
     return () => {
       vivant = false;
     };
-  }, [card.id, vu.modifiable]);
+  }, [card.id]);
   const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
-
-  /*
-   * AVANT LE LANCEMENT, LA MÊME LIGNE SE CLIQUE. Elle dit ce qui SERVIRA, et
-   * le tiroir qu'elle ouvre change ce choix — moteur, modèle, niveau, compte —
-   * sans quitter la conversation. La barre d'écriture garde ses menus : ils
-   * écrivent sur la même carte, les deux affichages disent donc la même chose.
-   */
-  if (vu.modifiable) return <ReglagesAModifier card={card} libelles={libelles} />;
 
   return (
     <div className="rounded-md border border-border bg-raised px-2.5 py-2">
@@ -995,12 +1012,15 @@ function ReglagesAgent({ card }: { card: Card }) {
 }
 
 /**
- * LA CONFIGURATION DU MOTEUR AVANT LE LANCEMENT — la même ligne que les
- * réglages figés, mais CLIQUABLE : un tiroir porte les menus en cascade
- * (`RunSelectors`, ceux de la barre d'écriture) et écrit sur la CARTE, qui est
- * ce que le lancement lira.
+ * LA CONFIGURATION DU MOTEUR AVANT LE LANCEMENT — une bulle posée dans le
+ * fil, comme un message de plus, qui défile avec la conversation au lieu de
+ * rester collée en haut de l'écran. Le clic ouvre DIRECTEMENT le tiroir de
+ * configuration (l'aperçu à trois lignes de `RunSelectors`, piloté ici en
+ * mode contrôlé) — aucun tiroir intermédiaire à traverser avant d'atteindre
+ * les menus moteur / modèle / niveau / compte. Le choix écrit sur la CARTE,
+ * qui est ce que le lancement lira ; il reste modifiable jusqu'à ce moment.
  */
-function ReglagesAModifier({
+function BulleReglagesAModifier({
   card,
   libelles,
 }: {
@@ -1040,42 +1060,41 @@ function ReglagesAModifier({
     }
   };
 
+  const resume = [libelles.moteur, libelles.modele, libelles.reflexion].filter(Boolean).join(' · ');
+
   return (
-    <>
+    <div className="flex justify-start">
       <button
         type="button"
         onClick={() => setOuvert(true)}
         data-reglages-avant-lancement
-        className="w-full rounded-md border border-border bg-raised px-2.5 py-2 text-left transition-colors hover:border-accent/50"
+        className="w-[min(92%,420px)] min-w-0 rounded-lg border border-border bg-raised px-3 py-2.5 text-left transition-colors hover:border-accent/50"
       >
         <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
-          <Cpu className="h-3 w-3" />
+          <Cpu className="h-3 w-3 shrink-0" />
           {t('Réglages du moteur')}
-          <ChevronRight className="ml-auto h-3 w-3" />
+          <ChevronRight className="ml-auto h-3 w-3 shrink-0" />
         </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-          <Etiquette nom={t('Moteur')} valeur={libelles.moteur} />
-          <Etiquette nom={t('Modèle')} valeur={libelles.modele} />
-          <Etiquette nom={t('Niveau')} valeur={libelles.reflexion} />
-        </div>
+        <p className="mt-0.5 text-[12px] leading-snug text-muted">
+          {t('Ce choix vaut pour le lancement de cette tâche. Il se fige au démarrage du travail.')}
+        </p>
+        <p className="mt-1 truncate text-[13.5px] font-medium text-text">{resume}</p>
       </button>
 
-      <Drawer open={ouvert} onClose={() => setOuvert(false)}>
-        <div className="space-y-3 p-4">
-          <p className="text-[14px] font-medium text-text">{t('Réglages du moteur')}</p>
-          <p className="text-[13px] text-muted">
-            {t('Ce choix vaut pour le lancement de cette tâche. Il se fige au démarrage du travail.')}
-          </p>
-          <RunSelectors
-            engines={state.engines}
-            choix={card.run}
-            onSelect={choisir}
-            pleineLargeur
-            comptes={state.quotas}
-          />
-        </div>
-      </Drawer>
-    </>
+      {/* `masquerDeclencheur` : la bulle ci-dessus est déjà le déclencheur,
+          RunSelectors ne pose donc pas son propre bouton — sinon le clic sur
+          la bulle n'ouvrirait qu'un tiroir intermédiaire vide de tout menu. */}
+      <RunSelectors
+        engines={state.engines}
+        choix={card.run}
+        onSelect={choisir}
+        pleineLargeur
+        comptes={state.quotas}
+        masquerDeclencheur
+        ouvertControle={ouvert}
+        onOuvertControleChange={setOuvert}
+      />
+    </div>
   );
 }
 

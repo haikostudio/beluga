@@ -60,6 +60,9 @@ export function RunSelectors({
   onSelect,
   pleineLargeur,
   comptes,
+  masquerDeclencheur,
+  ouvertControle,
+  onOuvertControleChange,
 }: {
   engines: EngineInfo[];
   choix: RunChoix | undefined;
@@ -74,9 +77,20 @@ export function RunSelectors({
    * automatique suffit et n'a rien à montrer.
    */
   comptes?: Pick<AccountQuota, 'id' | 'engine' | 'label' | 'disabled'>[];
+  /**
+   * Cache le bouton d'entrée : celui qui appelle porte déjà son propre
+   * déclencheur (une bulle du fil, par exemple) et pilote l'ouverture du
+   * tiroir d'aperçu lui-même via `ouvertControle` / `onOuvertControleChange` —
+   * sans ce couple, le tiroir ne pourrait plus jamais s'ouvrir.
+   */
+  masquerDeclencheur?: boolean;
+  ouvertControle?: boolean;
+  onOuvertControleChange?: (ouvert: boolean) => void;
 }) {
   const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
-  const [ouvert, setOuvert] = React.useState(false);
+  const [ouvertInterne, setOuvertInterne] = React.useState(false);
+  const ouvert = ouvertControle ?? ouvertInterne;
+  const setOuvert = onOuvertControleChange ?? setOuvertInterne;
   const [sousVue, setSousVue] = React.useState<SousVue>(null);
   const avertissementModele = messageDeRepli(engine);
 
@@ -117,22 +131,24 @@ export function RunSelectors({
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setOuvert(true)}
-        className={cn(
-          'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
-          pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
-        )}
-        data-selecteur="config"
-      >
-        <SlidersHorizontal className="h-3 w-3 shrink-0" />
-        <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
-          {resume || t('Réglages')}
-        </span>
-        <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-      </Button>
+      {masquerDeclencheur ? null : (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setOuvert(true)}
+          className={cn(
+            'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
+            pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
+          )}
+          data-selecteur="config"
+        >
+          <SlidersHorizontal className="h-3 w-3 shrink-0" />
+          <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
+            {resume || t('Réglages')}
+          </span>
+          <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+        </Button>
+      )}
 
       {/* Le tiroir d'aperçu : trois lignes, chacune alignée à gauche. */}
       <Drawer open={ouvert} onClose={fermerTout}>
