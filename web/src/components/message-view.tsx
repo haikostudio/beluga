@@ -56,7 +56,7 @@ import {
   estLeMessageDeSynthese,
 } from '@haikodev/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
-import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
+import { Badge, Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
 import { Markdown } from '@/lib/markdown';
 import { Steps } from '@/components/steps';
 import { MemoryNote } from '@/components/todos';
@@ -997,7 +997,6 @@ function QuestionCard({
   question: Message['questions'][number];
 }) {
   const [choisis, setChoisis] = React.useState<string[]>([]);
-  const [complement, setComplement] = React.useState('');
   /** Les images jointes à la réponse, avant l'envoi. */
   const [images, setImages] = React.useState<Attachment[]>([]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
@@ -1092,7 +1091,7 @@ function QuestionCard({
    */
   const envoyer = async () => {
     const libelles = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
-    const reponse = texteDeReponse(libelles, complement, images.length);
+    const reponse = texteDeReponse(libelles, '', images.length);
     if (!reponse) return;
     try {
       await client.call({
@@ -1129,7 +1128,13 @@ function QuestionCard({
     );
 
   const libellesChoisis = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
-  const pret = reponsePrete(libellesChoisis, complement, images.length);
+  const pret = reponsePrete(libellesChoisis, '', images.length);
+  /*
+   * LE BOUTON « RÉPONDRE » NE SERT PLUS QU'À VALIDER CE QUI SE CHOISIT DANS LA
+   * BULLE : une option cochée, une image jointe. Le TEXTE, lui, s'écrit dans la
+   * barre de la conversation, et c'est son propre bouton d'envoi qui le porte.
+   */
+  const aValiderIci = question.options.length > 0 || images.length > 0;
 
   return (
     <div
@@ -1137,6 +1142,14 @@ function QuestionCard({
       data-question-agent={question.id}
       /* Une image lâchée n'importe où sur le bloc de la question se joint à la
          réponse : viser le champ au pixel près serait une contrainte inutile. */
+      /* Le champ ayant disparu, une image collée se dépose sur le BLOC : c'est
+         le geste le plus courant après une capture d'écran. */
+      onPaste={reponsePossible ? (event) => {
+        const fichiers = Array.from(event.clipboardData?.files ?? []);
+        if (!fichiers.length) return;
+        event.preventDefault();
+        void joindre(fichiers);
+      } : undefined}
       onDragOver={reponsePossible ? (event) => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault();
       } : undefined}
@@ -1184,22 +1197,21 @@ function QuestionCard({
         </div>
       ) : null}
 
+      {/* PLUS DE SECOND CHAMP D'ÉCRITURE ICI. La bulle en portait un, à côté de
+          la barre de la conversation : deux endroits pour écrire la même
+          chose, et ce qu'on tapait dans la barre — le geste naturel — partait
+          dans la file d'attente au lieu de répondre. La réponse écrite se tape
+          désormais dans la barre, qui la remet à la question
+          (`texteRepondALaQuestion`, `shared/src/attente-question.ts`). */}
       {question.allowFreeText ? (
-        <Textarea
-          value={complement}
-          onChange={(event) => setComplement(event.target.value)}
-          onPaste={(event) => {
-            // Une image collée depuis le presse-papiers se joint sans passer par
-            // un fichier : c'est le geste le plus courant après une capture.
-            const fichiers = Array.from(event.clipboardData.files);
-            if (!fichiers.length) return;
-            event.preventDefault();
-            void joindre(fichiers);
-          }}
-          rows={2}
-          placeholder={question.options.length ? t('Précision (facultative)…') : t('Votre réponse…')}
-          className="mt-2"
-        />
+        <p className="mt-2 flex items-start gap-1.5 text-[12.5px] text-muted" data-invite-reponse-barre>
+          <CornerDownRight className="mt-0.5 h-3 w-3 shrink-0 text-warning" />
+          <span className="min-w-0">
+            {question.options.length
+              ? t('Écrivez une précision dans la barre ci-dessous, ou choisissez ci-dessus.')
+              : t('Écrivez votre réponse dans la barre ci-dessous.')}
+          </span>
+        </p>
       ) : null}
 
       {/* Les images jointes en attente : la croix retire celle qu'on ne veut
@@ -1236,8 +1248,10 @@ function QuestionCard({
       >
         {reponsePossible ? (
           <>
-            <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
-              {t('Répondre')}</Button>
+            {aValiderIci ? (
+              <Button variant="default" size="sm" disabled={!pret} onClick={envoyer}>
+                {t('Répondre')}</Button>
+            ) : null}
             <input
               ref={fileRef}
               type="file"

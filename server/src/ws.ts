@@ -47,6 +47,7 @@ import {
   lireLienGithub,
   REFUS_LIEN_MAL_FORME,
   filAvecLaSynthese,
+  texteRepondALaQuestion,
 } from '@haikodev/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
@@ -96,7 +97,7 @@ import {
 } from './deploy.js';
 import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
-import { annulerLAttente, repondreALAttente } from './attente-question.js';
+import { annulerLAttente, questionEnAttenteDeLAgent, repondreALAttente } from './attente-question.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { envoyerAuCerveau, etatCerveau } from './cerveau.js';
@@ -841,6 +842,47 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
       // L'agent existe-t-il ? Ce contrôle-là doit répondre tout de suite.
       const agent = store.getAgent(cmd.agentId);
       if (!agent) throw new Error('agent introuvable');
+      /*
+       * L'AGENT EST ARRÊTÉ SUR SA QUESTION : CE QU'ON ÉCRIT EST LA RÉPONSE.
+       *
+       * La bulle de la question portait son propre champ de saisie, doublon de
+       * la barre d'écriture — laquelle invite pourtant à répondre là (« l'agent
+       * attend votre réponse… »). Ce qu'on y écrivait partait dans la FILE
+       * d'attente de l'agent, lue une fois son travail fini, et la question
+       * restait ouverte pour toujours : bouton « Annuler » et triangle orange
+       * compris. La barre répond donc à la question, par le MÊME chemin que le
+       * bouton de la bulle (`texteRepondALaQuestion`).
+       */
+      const enAttente = questionEnAttenteDeLAgent(cmd.agentId);
+      /*
+       * ET MÊME UN TOUR DÉJÀ REFERMÉ : plus personne n'attend dans le registre,
+       * mais la bulle du DERNIER message garde sa question ouverte, avec ses
+       * boutons. Y répondre par la barre la referme et relance l'agent, comme
+       * le ferait le bouton « Répondre ».
+       */
+      const porteur = enAttente ? store.messageDeLaQuestion(cmd.agentId, enAttente) : null;
+      const ouverte = porteur
+        ? {
+            messageId: porteur.id,
+            questionId: enAttente!,
+            texteLibre: porteur.questions.find((q) => q.id === enAttente)?.allowFreeText ?? true,
+          }
+        : store.questionOuverteDuDernierMessage(cmd.agentId);
+      const questionARepondre = texteRepondALaQuestion({
+        questionEnAttente: ouverte?.questionId ?? null,
+        texte: cmd.text,
+        texteLibreAutorise: ouverte?.texteLibre,
+      });
+      if (questionARepondre && ouverte) {
+        return handleCommand({
+          type: 'question.answer',
+          messageId: ouverte.messageId,
+          questionId: questionARepondre,
+          answer: cmd.text,
+          attachments: cmd.attachments,
+        } as ClientEnvelope['cmd']);
+      }
+
       /*
        * DISCUTER D'UN CHIFFRAGE. Le chiffrage vit désormais dans le tour de
        * l'agent d'exécution : c'est donc à LUI qu'on écrit pour corriger une

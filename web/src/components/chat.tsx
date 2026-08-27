@@ -6,6 +6,7 @@ import {
   CircleDot,
   CornerDownRight,
   Cpu,
+  ChevronRight,
   Loader2,
   Lock,
   MessageSquare,
@@ -39,7 +40,8 @@ import {
   gesteDuPersonnage,
   imageDuPersonnage,
 } from '@haikodev/shared';
-import { ConfirmDialog, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import { ConfirmDialog, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import { RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { useArretAgent } from '@/components/arret-agent';
@@ -241,9 +243,12 @@ export function Chat({
 
       {/* L'ANCIEN ONGLET « DÉTAILS » EST PARTI : le seul bloc qu'il portait et
           qui méritait de survivre — avec quoi la carte tourne — vit ici, dans
-          la conversation elle-même, dès que la configuration est FIGÉE (le
-          travail a démarré). Avant ce moment, le choix se fait dans la barre
-          d'écriture ci-dessous (`RunSelectors` du composeur) : pas de doublon. */}
+          la conversation elle-même. Il ne se montre plus SEULEMENT une fois la
+          configuration figée : AVANT le lancement, la même ligne s'affiche et
+          se CLIQUE, et le tiroir qu'elle ouvre porte les mêmes menus moteur /
+          modèle / niveau / compte. Le choix se faisait jusqu'ici dans un menu
+          minuscule de la barre d'écriture, que rien n'annonçait : on lançait
+          une tâche sans avoir vu avec quoi elle allait tourner. */}
       {carte ? (
         <div className="shrink-0 px-3 pt-2">
           <ReglagesAgent card={carte} />
@@ -887,7 +892,8 @@ function libellesDuRun(
 }
 
 /**
- * AVEC QUOI CETTE CARTE A TOURNÉ — vivait dans l'onglet « Détails », retiré.
+ * AVEC QUOI CETTE CARTE TOURNE, OU VA TOURNER — vivait dans l'onglet
+ * « Détails », retiré.
  * Elle vit maintenant dans la conversation elle-même, et seulement UNE FOIS
  * LA CONFIGURATION FIGÉE (`vu.modifiable` faux : le travail a démarré) — avant
  * ce moment, la barre d'écriture porte déjà ses propres menus moteur / modèle
@@ -948,9 +954,13 @@ function ReglagesAgent({ card }: { card: Card }) {
   }, [card.id, vu.modifiable]);
   const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
 
-  // Tant que la configuration n'est pas figée, la barre d'écriture porte déjà
-  // le sélecteur : rien à montrer ici.
-  if (vu.modifiable) return null;
+  /*
+   * AVANT LE LANCEMENT, LA MÊME LIGNE SE CLIQUE. Elle dit ce qui SERVIRA, et
+   * le tiroir qu'elle ouvre change ce choix — moteur, modèle, niveau, compte —
+   * sans quitter la conversation. La barre d'écriture garde ses menus : ils
+   * écrivent sur la même carte, les deux affichages disent donc la même chose.
+   */
+  if (vu.modifiable) return <ReglagesAModifier card={card} libelles={libelles} />;
 
   return (
     <div className="rounded-md border border-border bg-raised px-2.5 py-2">
@@ -981,6 +991,91 @@ function ReglagesAgent({ card }: { card: Card }) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * LA CONFIGURATION DU MOTEUR AVANT LE LANCEMENT — la même ligne que les
+ * réglages figés, mais CLIQUABLE : un tiroir porte les menus en cascade
+ * (`RunSelectors`, ceux de la barre d'écriture) et écrit sur la CARTE, qui est
+ * ce que le lancement lira.
+ */
+function ReglagesAModifier({
+  card,
+  libelles,
+}: {
+  card: Card;
+  libelles: { moteur: string; modele: string; reflexion: string };
+}) {
+  const state = useApp();
+  const [ouvert, setOuvert] = React.useState(false);
+
+  /*
+   * Le serveur tranche la cascade : on lui donne le souhait, il rend la
+   * combinaison qui existe vraiment. Même geste que la barre d'écriture pour
+   * une carte de cadrage (`updateRun`, `composer.tsx`).
+   */
+  const choisir = async (patch: Parameters<typeof RunSelectors>[0]['choix'] & object) => {
+    const souhait = patch.engine ? { engine: patch.engine } : { ...card.run, ...patch };
+    const retenu = resoudreRun(state.engines, souhait);
+    if (!retenu.engine) return;
+    try {
+      await client.call({
+        type: 'card.update',
+        id: card.id,
+        patch: {
+          run: {
+            ...card.run,
+            engine: retenu.engine.id,
+            model: retenu.model?.id,
+            thinking: retenu.thinking?.id ?? 'none',
+            account: souhait.account,
+            // Un choix fait à l'écran l'emporte sur le niveau du cadrage.
+            niveau: undefined,
+          },
+        },
+      });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('réglage impossible'));
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOuvert(true)}
+        data-reglages-avant-lancement
+        className="w-full rounded-md border border-border bg-raised px-2.5 py-2 text-left transition-colors hover:border-accent/50"
+      >
+        <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+          <Cpu className="h-3 w-3" />
+          {t('Réglages du moteur')}
+          <ChevronRight className="ml-auto h-3 w-3" />
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
+          <Etiquette nom={t('Moteur')} valeur={libelles.moteur} />
+          <Etiquette nom={t('Modèle')} valeur={libelles.modele} />
+          <Etiquette nom={t('Niveau')} valeur={libelles.reflexion} />
+        </div>
+      </button>
+
+      <Drawer open={ouvert} onClose={() => setOuvert(false)}>
+        <div className="space-y-3 p-4">
+          <p className="text-[14px] font-medium text-text">{t('Réglages du moteur')}</p>
+          <p className="text-[13px] text-muted">
+            {t('Ce choix vaut pour le lancement de cette tâche. Il se fige au démarrage du travail.')}
+          </p>
+          <RunSelectors
+            engines={state.engines}
+            choix={card.run}
+            onSelect={choisir}
+            pleineLargeur
+            comptes={state.quotas}
+          />
+        </div>
+      </Drawer>
+    </>
   );
 }
 

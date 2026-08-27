@@ -67,6 +67,22 @@ export function agentEnAttente(agentId: string): boolean {
 }
 
 /**
+ * LA QUESTION SUR LAQUELLE CET AGENT EST ARRÊTÉ. La plus ancienne encore
+ * ouverte, quand il y en a plusieurs — c'est celle qui bloque son appel
+ * d'outil. Sert à la barre d'écriture : un message écrit pendant qu'une
+ * question attend est la RÉPONSE à cette question
+ * (`texteRepondALaQuestion`, `shared/src/attente-question.ts`).
+ */
+export function questionEnAttenteDeLAgent(agentId: string): string | undefined {
+  let choisie: { id: string; poseeA: number } | undefined;
+  for (const [questionId, attente] of attentes) {
+    if (attente.agentId !== agentId || attente.issue) continue;
+    if (!choisie || attente.poseeA < choisie.poseeA) choisie = { id: questionId, poseeA: attente.poseeA };
+  }
+  return choisie?.id;
+}
+
+/**
  * Le tour de cet agent attend désormais la réponse à cette question. Le drapeau
  * est aussi posé SUR L'AGENT, pour que l'interface dise « l'agent attend votre
  * réponse » au lieu de « l'agent travaille ».

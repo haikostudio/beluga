@@ -418,8 +418,11 @@ async function ecran(navigateur, telephone) {
     noter(`${nom} : la croix retire l'image jointe`, (await vignettes(bloc)) === 0);
 
     /* ---- 3. Le collage depuis le presse-papiers ---- */
+    /* La bulle n'a plus de champ d'écriture à elle — la réponse écrite se tape
+       dans la barre de la conversation. Une image collée se dépose donc sur le
+       BLOC de la question. */
     const colle = [...fs.readFileSync(fabriqueImage(`collage-${nom}.png`))];
-    await bloc.locator('textarea').evaluate((node, octets) => {
+    await bloc.evaluate((node, octets) => {
       const transfert = new DataTransfer();
       transfert.items.add(new File([new Uint8Array(octets)], 'collage.png', { type: 'image/png' }));
       node.dispatchEvent(
