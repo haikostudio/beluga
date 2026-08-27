@@ -4,6 +4,8 @@ import {
   ArrowUp,
   ArrowUpDown,
   Check,
+  ChevronDown,
+  ChevronRight,
   Clock,
   Database,
   FolderTree,
@@ -125,7 +127,6 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
   const [etat, setEtat] = React.useState<EtatSnapshots>(ETAT_VIDE);
   const [chargement, setChargement] = React.useState(false);
   const [fiche, setFiche] = React.useState<SiteASauvegarder | null>(null);
-  const [historique, setHistorique] = React.useState(false);
   const [assistant, setAssistant] = React.useState(false);
   const [projetLance, setProjetLance] = React.useState('');
   const [relu, setRelu] = React.useState('');
@@ -268,10 +269,6 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
         <header className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2">
           <HardDriveDownload className="h-3.5 w-3.5 shrink-0 text-accent" />
           <DialogTitle className="min-w-0 flex-1 truncate">{t('Snapshots')}</DialogTitle>
-          <Button variant="ghost" size="sm" onClick={() => setHistorique(true)} data-snapshots-historique>
-            <History className="h-3 w-3" />
-            {t('Historique')}
-          </Button>
           <Button variant="secondary" size="sm" onClick={() => setAssistant(true)} data-snapshots-creer>
             <Sparkles className="h-3 w-3" />
             {t('Nouveau site')}
@@ -299,37 +296,7 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
         )}
 
         {etat.projets.length ? (
-          <div
-            className="mx-3 mb-2 flex shrink-0 flex-col gap-1.5 rounded-md border border-border bg-bg px-2.5 py-2"
-            data-snapshots-projets-sans-fiche
-          >
-            <p className="text-[12.5px] leading-relaxed text-text">
-              {etat.projets.length > 1
-                ? t('{n} projets de ce serveur n’ont pas encore de sauvegarde. Un clic, et l’assistant leur en écrit une.', {
-                    n: etat.projets.length,
-                  })
-                : t('Un projet de ce serveur n’a pas encore de sauvegarde. Un clic, et l’assistant lui en écrit une.')}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {etat.projets.map((projet) => (
-                <Button
-                  key={projet.id}
-                  variant="outline"
-                  size="sm"
-                  disabled={!!projetLance}
-                  onClick={() => void configurerProjet(projet)}
-                  data-snapshots-projet-sans-fiche={projet.id}
-                >
-                  {projetLance === projet.id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3 w-3" />
-                  )}
-                  {projet.nom}
-                </Button>
-              ))}
-            </div>
-          </div>
+          <ProjetsDuServeur projets={etat.projets} projetLance={projetLance} onConfigurer={configurerProjet} />
         ) : null}
 
         {resumes.length ? (
@@ -362,11 +329,11 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
                   <EnteteTriable colonne="nom" tri={tri} onTrier={trierPar} className="pl-1">
                     {t('Site')}
                   </EnteteTriable>
-                  <th className="px-2 py-1.5 font-normal">{t('Fréquence')}</th>
+                  <th className="hidden px-2 py-1.5 font-normal sm:table-cell">{t('Fréquence')}</th>
                   <EnteteTriable colonne="dernier" tri={tri} onTrier={trierPar}>
                     {t('Dernière prise')}
                   </EnteteTriable>
-                  <EnteteTriable colonne="volume" tri={tri} onTrier={trierPar}>
+                  <EnteteTriable colonne="volume" tri={tri} onTrier={trierPar} className="hidden sm:table-cell">
                     {t('Volume')}
                   </EnteteTriable>
                   <EnteteTriable colonne="statut" tri={tri} onTrier={trierPar}>
@@ -403,8 +370,17 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
         </ZoneDefilement>
       </Drawer>
 
-      {/* Le détail d'un site : empilé, la liste reste ouverte derrière. */}
-      <FicheSite fiche={fiche} onClose={() => setFiche(null)} onChange={() => void relire()} />
+      {/* Le détail d'un site : empilé, la liste reste ouverte derrière — son
+          historique (les points déjà pris, la restauration) y vit désormais,
+          plus besoin d'une fenêtre séparée. */}
+      <FicheSite
+        fiche={fiche}
+        onClose={() => setFiche(null)}
+        onChange={() => void relire()}
+        points={fiche ? (resumes.find((r) => r.site.id === fiche.id)?.points ?? []) : []}
+        restaurations={etat.restaurations}
+        onRestaurer={(point) => setPointARestaurer(point)}
+      />
 
       {/* L'assistant : le seul chemin de CRÉATION d'un site, depuis une phrase. */}
       <AssistantDeSite
@@ -423,15 +399,6 @@ export function Snapshots({ open, onClose }: { open: boolean; onClose: () => voi
         depart={conversation}
         onClose={() => setConversation(null)}
         agent={conversation ? (state.agents[conversation.agentId] ?? null) : null}
-      />
-
-      {/* L'historique : la seconde fenêtre demandée, empilée elle aussi. */}
-      <HistoriqueSnapshots
-        open={historique}
-        onClose={() => setHistorique(false)}
-        resumes={resumes}
-        restaurations={etat.restaurations}
-        onRestaurer={(point) => setPointARestaurer(point)}
       />
 
       <ConfirmDialog
@@ -564,9 +531,15 @@ function LigneSite({
               </span>
             ) : null}
           </span>
+          {/* SUR MOBILE, la fréquence et le volume n'ont plus leur propre
+              colonne (trop à l'étroit) : ils se lisent ici, sous le nom. */}
+          <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-faint sm:hidden">
+            <span>{cadenceLisible(site.frequenceMinutes)}</span>
+            <span>{t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}</span>
+          </span>
         </button>
       </td>
-      <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
+      <td className="hidden px-2 py-1.5 align-top text-[12.5px] text-faint sm:table-cell">
         {cadenceLisible(site.frequenceMinutes)}
       </td>
       <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
@@ -575,7 +548,7 @@ function LigneSite({
           {dernier ? dateLisible(dernier.debut) : t('jamais')}
         </span>
       </td>
-      <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
+      <td className="hidden px-2 py-1.5 align-top text-[12.5px] text-faint sm:table-cell">
         {t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}
       </td>
       <td className="px-2 py-1.5 align-top">
@@ -762,6 +735,100 @@ function AssistantDeSite({
 
 
 /* ------------------------------------------------------------------ */
+/* Les projets du serveur sans fiche : un dropdown, rétracté par défaut */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA LISTE DES PROJETS DU SERVEUR SANS SAUVEGARDE — repliée par défaut, avec
+ * son propre champ de recherche à l'ouverture. Le bloc noir reste, seule la
+ * disposition change : plus de 19 chips lâchés en vrac dès l'ouverture du
+ * tiroir.
+ */
+function ProjetsDuServeur({
+  projets,
+  projetLance,
+  onConfigurer,
+}: {
+  projets: { id: string; nom: string; chemin: string }[];
+  projetLance: string;
+  onConfigurer: (projet: { id: string; nom: string; chemin: string }) => void;
+}) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const [recherche, setRecherche] = React.useState('');
+
+  const filtres = React.useMemo(() => {
+    const mot = recherche.trim().toLowerCase();
+    return mot ? projets.filter((p) => p.nom.toLowerCase().includes(mot)) : projets;
+  }, [projets, recherche]);
+
+  return (
+    <div
+      className="mx-3 mb-2 flex shrink-0 flex-col gap-1.5 rounded-md border border-border bg-bg px-2.5 py-2"
+      data-snapshots-projets-sans-fiche
+    >
+      <button
+        type="button"
+        onClick={() => setOuvert((avant) => !avant)}
+        className="flex min-w-0 items-start gap-1.5 text-left"
+        data-snapshots-projets-toggle
+      >
+        {ouvert ? (
+          <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
+        ) : (
+          <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
+        )}
+        <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-text">
+          {projets.length > 1
+            ? t('{n} projets de ce serveur n’ont pas encore de sauvegarde. Un clic, et l’assistant leur en écrit une.', {
+                n: projets.length,
+              })
+            : t('Un projet de ce serveur n’a pas encore de sauvegarde. Un clic, et l’assistant lui en écrit une.')}
+        </p>
+      </button>
+
+      {ouvert ? (
+        <>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+            <Input
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder={t('Rechercher un projet…')}
+              className="h-8 pl-7 text-[13px]"
+              autoComplete="off"
+              data-snapshots-projets-recherche
+            />
+          </div>
+          {filtres.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {filtres.map((projet) => (
+                <Button
+                  key={projet.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={!!projetLance}
+                  onClick={() => onConfigurer(projet)}
+                  data-snapshots-projet-sans-fiche={projet.id}
+                >
+                  {projetLance === projet.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3 w-3" />
+                  )}
+                  {projet.nom}
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[12px] text-faint">{t('Aucun projet ne correspond à cette recherche.')}</p>
+          )}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* La fiche d'un site                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -781,10 +848,17 @@ function FicheSite({
   fiche,
   onClose,
   onChange,
+  points,
+  restaurations,
+  onRestaurer,
 }: {
   fiche: SiteASauvegarder | null;
   onClose: () => void;
   onChange: () => void;
+  /** L'historique de CE site — l'ancien tiroir séparé vit ici désormais. */
+  points: PointDeSauvegarde[];
+  restaurations: string[];
+  onRestaurer: (point: PointDeSauvegarde) => void;
 }) {
   const [site, setSite] = React.useState<SiteASauvegarder>(siteVierge());
   const [enCours, setEnCours] = React.useState(false);
@@ -1083,6 +1157,39 @@ function FicheSite({
                 'Les identifiants restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.',
               )}
             </p>
+
+            {/* L'HISTORIQUE DE CE SITE : ce qui vivait dans un tiroir séparé
+                se lit maintenant ici, au clic sur le site lui-même. */}
+            {site.id ? (
+              <div className="flex flex-col gap-1.5 border-t border-border/60 pt-3" data-snapshots-historique-site={site.id}>
+                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
+                    <History className="h-3.5 w-3.5 shrink-0 text-faint" />
+                    {t('Historique')}
+                  </h3>
+                  <span className="text-[12px] text-faint">
+                    {t('{n} point(s) — {volume}', {
+                      n: points.length,
+                      volume: formaterOctets(points.reduce((somme, point) => somme + volumeDuPoint(point), 0)),
+                    })}
+                  </span>
+                </div>
+                {!points.length ? (
+                  <p className="text-[12px] text-faint">{t('Jamais sauvegardé.')}</p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {points.map((point) => (
+                      <LignePoint
+                        key={point.id}
+                        point={point}
+                        enRestauration={restaurations.includes(point.id)}
+                        onRestaurer={() => onRestaurer(point)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </ZoneDefilement>
       </Drawer>
@@ -1101,70 +1208,8 @@ function FicheSite({
 }
 
 /* ------------------------------------------------------------------ */
-/* L'historique                                                         */
+/* Un point de sauvegarde, réutilisé dans l'historique de la fiche      */
 /* ------------------------------------------------------------------ */
-
-function HistoriqueSnapshots({
-  open,
-  onClose,
-  resumes,
-  restaurations,
-  onRestaurer,
-}: {
-  open: boolean;
-  onClose: () => void;
-  resumes: ResumeDeSite[];
-  restaurations: string[];
-  onRestaurer: (point: PointDeSauvegarde) => void;
-}) {
-  const total = resumes.reduce((somme, resume) => somme + resume.octets, 0);
-
-  return (
-    <Drawer open={open} onClose={onClose} empile>
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <History className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Historique des snapshots')}</DialogTitle>
-        <Badge tone="neutral">{t('Total : {volume}', { volume: formaterOctets(total) })}</Badge>
-      </header>
-
-      <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-        {!resumes.length ? (
-          <p className="py-3 text-[12.5px] text-faint">{t('Aucune sauvegarde prise pour l’instant.')}</p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {resumes.map((resume) => (
-              <section key={resume.site.id} data-snapshots-historique-site={resume.site.id}>
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pb-1">
-                  <h3 className="min-w-0 flex-1 truncate text-[13.5px] text-text">{resume.site.nom}</h3>
-                  <span className="text-[12px] text-faint">
-                    {t('{n} point(s) — {volume}', {
-                      n: resume.points.length,
-                      volume: formaterOctets(resume.octets),
-                    })}
-                  </span>
-                </div>
-                {!resume.points.length ? (
-                  <p className="text-[12px] text-faint">{t('Jamais sauvegardé.')}</p>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    {resume.points.map((point) => (
-                      <LignePoint
-                        key={point.id}
-                        point={point}
-                        enRestauration={restaurations.includes(point.id)}
-                        onRestaurer={() => onRestaurer(point)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
-            ))}
-          </div>
-        )}
-      </ZoneDefilement>
-    </Drawer>
-  );
-}
 
 /** Un point de sauvegarde : sa date, son issue, son poids, et ce qui a cloché. */
 function LignePoint({

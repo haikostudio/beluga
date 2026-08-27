@@ -440,38 +440,54 @@ async function main() {
       `base=${point?.octetsBase} fichiers=${point?.octetsFichiers}`,
     );
 
-    /* 6. La fenêtre d'HISTORIQUE. */
-    await page.click('[data-snapshots-historique]');
-    const historique = page.locator('[role="dialog"][data-state="open"]', {
+    /* 6. LE BOUTON « HISTORIQUE » A DISPARU, et son contenu vit désormais dans
+       la fiche du site, ouverte d'un clic sur le site lui-même. */
+    noter(
+      'Le bouton « Historique » n’existe plus',
+      (await fenetre.locator('[data-snapshots-historique]').count()) === 0,
+    );
+    await fenetre.locator('[data-snapshots-site] button').first().click();
+    const fiche = page.locator('[role="dialog"][data-state="open"]', {
       has: page.locator('[data-snapshots-point]'),
     });
-    await historique.waitFor({ state: 'visible', timeout: 10000 });
-    const texte = (await historique.innerText()).replace(/\s+/g, ' ');
-    noter('L’historique montre le point pris', (await historique.locator('[data-snapshots-point]').count()) === 1);
+    await fiche.waitFor({ state: 'visible', timeout: 10000 });
+    const texte = (await fiche.innerText()).replace(/\s+/g, ' ');
+    noter('La fiche du site montre le point pris', (await fiche.locator('[data-snapshots-point]').count()) === 1);
     noter(
-      'L’historique porte le volume total du site',
-      /Total\s*:/.test(texte) && /(o|Ko|Mo|Go)\b/.test(texte),
+      'La fiche porte le volume de l’historique du site',
+      /point\(s\)/.test(texte) && /(o|Ko|Mo|Go)\b/.test(texte),
       texte.slice(0, 160),
     );
     noter(
-      'L’historique dit la date de la sauvegarde',
+      'La fiche dit la date de la sauvegarde',
       /\d{1,2}\s+\p{L}+.*\d{2}:\d{2}/u.test(texte),
       texte.slice(0, 160),
     );
 
     await page.keyboard.press('Escape');
-    await historique.waitFor({ state: 'hidden', timeout: 10000 });
+    await fiche.waitFor({ state: 'hidden', timeout: 10000 });
 
     /* 8. Les projets de ce serveur qui n'ont pas encore de fiche sont PROPOSÉS,
-       avec leur nom déjà écrit : on ne clique pas (ce serait un vrai tour de
-       moteur), on vérifie que le chemin existe. */
+       dans un dropdown RÉTRACTÉ PAR DÉFAUT — un clic sur l'entête l'ouvre, et
+       un champ de recherche filtre les chips. */
     const encart = page.locator('[data-snapshots-projets-sans-fiche]');
     const proposes = encart.locator('[data-snapshots-projet-sans-fiche]');
+    noter('L’encart des projets sans fiche existe', (await encart.count()) === 1);
     noter(
-      'Les projets du serveur sans sauvegarde sont proposés d’un clic',
-      (await encart.count()) === 1 && (await proposes.count()) >= 1,
+      'La liste des projets est rétractée par défaut',
+      (await proposes.count()) === 0 && (await encart.locator('[data-snapshots-projets-recherche]').count()) === 0,
+    );
+    await encart.locator('[data-snapshots-projets-toggle]').click();
+    noter(
+      'Un clic sur l’entête déplie la liste, avec sa recherche',
+      (await encart.locator('[data-snapshots-projets-recherche]').count()) === 1 && (await proposes.count()) >= 1,
       (await proposes.count()) ? await proposes.first().innerText() : 'aucun projet proposé',
     );
+    await encart.locator('[data-snapshots-projets-recherche]').fill('zzz-introuvable');
+    await page.waitForTimeout(200);
+    noter('La recherche des projets filtre les chips', (await proposes.count()) === 0);
+    await encart.locator('[data-snapshots-projets-recherche]').fill('');
+    await page.waitForTimeout(200);
 
     /* 10. « Restaurer » écrase POUR DE VRAI ce que le site porte aujourd'hui.
        On fait dériver la base et les fichiers depuis la prise — une commande
@@ -486,9 +502,9 @@ async function main() {
       fs.writeFileSync(path.join(FICHIERS_DU_SITE, 'index.html'), '<h1>Piraté</h1>\n');
       fs.writeFileSync(path.join(FICHIERS_DU_SITE, 'malware.txt'), 'intrus');
 
-      await page.click('[data-snapshots-historique]');
-      await historique.waitFor({ state: 'visible', timeout: 10000 });
-      await page.click('[data-snapshots-restaurer]');
+      await fenetre.locator('[data-snapshots-site] button').first().click();
+      await fiche.waitFor({ state: 'visible', timeout: 10000 });
+      await fiche.locator('[data-snapshots-restaurer]').click();
       const confirmation = page.locator('[role="dialog"][data-state="open"]', {
         has: page.locator('text=/Restaurer ce point/'),
       });
