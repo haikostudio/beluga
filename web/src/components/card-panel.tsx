@@ -204,7 +204,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     (peut('valider').affiche ||
     (card.column === 'planned' && !cadrageEnCours) ||
     peut('terminer').affiche ||
-    peut('publier').affiche ||
+    (peut('publier').affiche && ongletActif === 'chat') ||
     peut('reprendre').affiche ||
     !!card.closureDoc);
 
@@ -505,7 +505,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 </Button>
               </Geste>
             ) : null}
-            {peut('publier').affiche ? (
+            {/* Visible uniquement depuis la conversation : dans Facturation ou
+                GitHub, ce geste de publication n'a pas sa place. */}
+            {peut('publier').affiche && ongletActif === 'chat' ? (
               <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
                 <Rocket className="h-3 w-3" />  {t('Mettre en file de publication')}
 </Button>
