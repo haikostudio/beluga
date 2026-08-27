@@ -15,10 +15,10 @@
  */
 
 /**
- * LES COLONNES QUI FERMENT LES QUESTIONS. « En cours » et « Terminé » en sont
- * exclues à dessein : le travail y est encore vivant — une carte terminée peut
- * être reprise, et sa question garde un sens. Dès qu'on la range plus loin, la
- * décision n'a plus d'objet.
+ * LES COLONNES QUI FERMENT LES QUESTIONS. « En cours » en est exclue à
+ * dessein : le travail y est encore vivant, et sa question garde un sens.
+ * Dès que la carte est rendue, elle tombe directement dans « À déployer » —
+ * qui ferme les questions restées sans réponse.
  */
 export const COLONNES_QUI_FERMENT_LES_QUESTIONS = ['to_deploy', 'archived'] as const;
 

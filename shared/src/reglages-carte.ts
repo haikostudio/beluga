@@ -20,7 +20,7 @@ import { ColumnKey } from './columns.js';
  * partie : une carte en file n'a pas encore de compte ni d'agent, on peut
  * encore changer d'avis jusqu'au départ.
  */
-export const COLONNES_DEMARREES: ColumnKey[] = ['running', 'done', 'to_deploy', 'archived'];
+export const COLONNES_DEMARREES: ColumnKey[] = ['running', 'to_deploy', 'archived'];
 
 export interface ChoixAgent {
   engine?: string;

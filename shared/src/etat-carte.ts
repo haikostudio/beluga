@@ -142,9 +142,10 @@ export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste
       return { affiche: true, possible: true };
 
     case 'publier':
-      // Une carte n'arrive dans « Terminé » qu'après clôture : le geste suivant
-      // est donc toujours légitime.
-      return ctx.colonne === 'done' ? { affiche: true, possible: true } : ABSENT;
+      // Une carte rendue tombe déjà directement dans « À déployer » : il n'y a
+      // plus de geste « publier » distinct de la clôture — la colonne
+      // « Terminé » qui le justifiait a disparu.
+      return ABSENT;
 
     case 'reprendre':
       /*

@@ -103,7 +103,6 @@ export function templateForColumn(column: ColumnKey | undefined, deployed = fals
     case 'planned':
       return 'pre_run';
     case 'running':
-    case 'done':
     case 'to_deploy':
       return 'in_run';
     case 'notes':

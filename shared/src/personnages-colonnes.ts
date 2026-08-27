@@ -210,10 +210,10 @@ export function jugerImageDePersonnage(depot: {
  * regarder. Ces motifs-là gardent l'image de leur genre (`imageDeLAlerte`).
  */
 export const COLONNE_DU_MOTIF: Partial<Record<MotifNotification, ColumnKey>> = {
-  // Un travail rendu : la carte vient d'arriver en « Terminé ».
-  'tache-terminee': 'done',
-  'travail-sans-carte': 'done',
-  'liste-taches': 'done',
+  // Un travail rendu : la carte vient d'arriver en « À déployer ».
+  'tache-terminee': 'to_deploy',
+  'travail-sans-carte': 'to_deploy',
+  'liste-taches': 'to_deploy',
   // Un échec ou une question arrêtent une carte EN COURS : c'est là qu'on va.
   'tache-echec': 'running',
   'decision-attendue': 'running',
