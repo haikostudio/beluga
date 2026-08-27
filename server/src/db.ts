@@ -1245,6 +1245,33 @@ export const MIGRATIONS: {
       UPDATE cards SET column_key = 'to_deploy' WHERE column_key = 'done';
     `,
   },
+  {
+    id: 43,
+    name: 'nettoyer-carte-tache-oubliee-e165f7a1',
+    siTable: 'cards',
+    // CARTE DE TÂCHE OUBLIÉE, PERDUE DANS L'INTERFACE.
+    //
+    // Une carte de décision attendue (colonne « Planifié ») qui n'a jamais reçu
+    // de réponse et n'a pas sa place en production. Suppression complète : la
+    // carte elle-même ET tout ce qui s'y rattache (commentaires, pièces jointes,
+    // étiquettes, agents qui travaillaient dessus, leurs messages en queue).
+    //
+    // À noter : le script `scripts/nettoyer-carte.mjs` peut faire le même travail
+    // manuellement, mais cette migration l'exécute automatiquement au redémarrage.
+    sql: `
+      DELETE FROM card_comments WHERE card_id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c';
+      DELETE FROM card_attachments WHERE card_id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c';
+      DELETE FROM card_labels WHERE card_id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c';
+      DELETE FROM queue WHERE agent_id IN (
+        SELECT id FROM agents WHERE card_id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c'
+      );
+      DELETE FROM messages WHERE agent_id IN (
+        SELECT id FROM agents WHERE card_id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c'
+      );
+      DELETE FROM agents WHERE card_id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c';
+      DELETE FROM cards WHERE id = 'e165f7a1-69f3-4fc2-b3bb-5ab4178cd71c';
+    `,
+  },
 ];
 
 export function openDb(): DB {
