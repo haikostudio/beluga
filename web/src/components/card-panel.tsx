@@ -69,6 +69,7 @@ import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-prev
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
 import { RepereAttention } from '@/components/repere-attention';
+import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } from '@/lib/chargement-onglet';
 import { useApp } from '@/lib/use-app';
@@ -81,10 +82,26 @@ export function CardPanel({ cardId, onClose }: { cardId: string | null; onClose:
   const state = useApp();
   const card = cardId ? state.cards[cardId] : null;
 
-  if (!card) return null;
+  if (!cardId) return null;
+
+  /*
+   * Une notification peut viser une carte d'un projet qu'on n'a pas encore
+   * sous les yeux : `allerVersDecision` change de projet puis demande la
+   * carte dans le même geste, avant que ses cartes soient revenues du
+   * serveur. Rendre `null` ici faisait le tiroir disparaître aussitôt ouvert
+   * — un clic qui « ne fait rien ». On garde le tiroir ouvert avec une
+   * silhouette : il se remplit tout seul dès que la carte arrive.
+   */
+  if (!card) {
+    return (
+      <Drawer open onClose={onClose}>
+        <SilhouetteConversation />
+      </Drawer>
+    );
+  }
 
   return (
-    <Drawer open={!!cardId} onClose={onClose}>
+    <Drawer open onClose={onClose}>
       <CardPanelBody card={card} onClose={onClose} />
     </Drawer>
   );
