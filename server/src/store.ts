@@ -29,6 +29,7 @@ import {
   cleNouveauDepart,
   colonneFermeLesQuestions,
   decisionEnTexteLibre,
+  messageAttendUneReponse,
   type StatutAgent,
   rendusParProjet,
   type AgregatHoraire,
@@ -1217,6 +1218,38 @@ function enrichisseurDeDecisions() {
       return undefined;
     },
   };
+}
+
+/**
+ * CETTE CARTE ATTEND-ELLE ENCORE UNE RÉPONSE À UNE QUESTION DE SON AGENT ?
+ *
+ * Volontairement PLUS ÉTROIT que `decisionsEnAttente` : on ne regarde QUE les
+ * questions posées par l'outil `ask_user` dans le fil de cette carte. Ni les
+ * cartes proposées, ni les incidents (tour coupé, compte à sec) — eux aussi
+ * comptés comme « décisions » ailleurs, mais qui ne disent rien du travail :
+ * un incident laisse déjà la carte là où on la relance, et le compter ici
+ * bloquerait la carte pour toujours, le tour suivant voyant encore celui d'avant.
+ *
+ * Sert à un seul endroit : la fin de tour (`carteApresFinDeTour`), qui ne ferme
+ * la carte que sur une réponse DÉFINITIVE.
+ */
+export function questionOuverteSurLaCarte(cardId: string): boolean {
+  const rows = getDb()
+    .prepare(
+      `SELECT m.data AS data
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
+       WHERE a.card_id = ? AND m.a_questions = 1`,
+    )
+    .all(cardId) as { data: string }[];
+  for (const row of rows) {
+    try {
+      if (messageAttendUneReponse(Message.parse(JSON.parse(row.data)))) return true;
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+  return false;
 }
 
 export function decisionsEnAttente(): DecisionAttendue[] {

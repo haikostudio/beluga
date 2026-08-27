@@ -4,7 +4,6 @@ import {
   RAISON_MOTEUR_INJOIGNABLE,
   RAISON_PANNE_MOTEUR,
   ROLES_QUI_DEPLACENT,
-  carteAttendUneQuestion,
   colonneApresArretALaMain,
   colonneApresMoteurMuet,
   colonneApresPanneDuMoteur,
@@ -160,7 +159,7 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
    */
   const irait =
     leSien && !relanceMoteurMuet && !relancePanne && !!colonneEnFinDeTour(card.column, fin.reussi, fin.role);
-  const questionOuverte = irait && carteAttendUneQuestion(store.decisionsEnAttente(), card.id);
+  const questionOuverte = irait && store.questionOuverteSurLaCarte(card.id);
 
   const issue = leSien
     ? issueDeFinDeTour(card.column, fin.reussi, fin.role, fin.trace, dejaEnregistreApres(card, fin), questionOuverte)

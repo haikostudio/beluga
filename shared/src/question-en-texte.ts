@@ -160,3 +160,31 @@ export function decisionEnTexteLibre(entree: {
   if (!entree.dernierMessage) return null;
   return questionEnTexteLibre(entree.dernierMessage);
 }
+
+/* ------------------------------------------------------------------ */
+/* LA QUESTION POSÉE PAR L'AGENT, ET RIEN D'AUTRE                      */
+/* ------------------------------------------------------------------ */
+
+/** Une question posée par l'outil `ask_user`, réduite à ce qui décide. */
+export interface QuestionAJuger {
+  answer?: string;
+  cancelled?: boolean;
+}
+
+/**
+ * CE MESSAGE ATTEND-IL ENCORE UNE RÉPONSE ?
+ *
+ * Une question de l'outil `ask_user` compte tant qu'elle n'a ni réponse ni
+ * annulation. C'est le seul signal qui retienne une carte en « En cours » à la
+ * fin d'un tour (`issueDeFinDeTour`) — et il est volontairement ÉTROIT :
+ *
+ *  - une carte PROPOSÉE en fin de travail attend bien une décision, mais elle
+ *    ne dit rien de la tâche qui vient de se finir ;
+ *  - un INCIDENT (tour coupé par une erreur, compte à sec) attend lui aussi un
+ *    choix, mais c'est un échec — et un échec laisse déjà la carte là où on la
+ *    relance, par sa propre règle. Le compter ici bloquerait la carte pour
+ *    toujours : le tour de relance verrait encore l'incident du tour d'avant.
+ */
+export function messageAttendUneReponse(message: { questions?: QuestionAJuger[] } | undefined): boolean {
+  return (message?.questions ?? []).some((q) => !q.answer && !q.cancelled);
+}

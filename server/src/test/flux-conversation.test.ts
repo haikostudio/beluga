@@ -17,11 +17,10 @@ import {
   RAISON_ATTEND_VOTRE_REPONSE,
   RAISON_RENDU_SANS_CODE,
   boutonLancerLaTache,
-  carteAttendUneQuestion,
   colonneAuDemarrage,
   issueDeFinDeTour,
+  messageAttendUneReponse,
   phaseDeCarte,
-  type DecisionAttendue,
 } from '@haikodev/shared';
 
 /* ------------------------------------------------------------------ */
@@ -60,14 +59,6 @@ test('une carte lancée n’a plus rien à configurer : elle TRAVAILLE', () => {
 /* 3 — la carte reste « En cours » tant qu'elle vous attend             */
 /* ------------------------------------------------------------------ */
 
-const question = (cardId: string, reglee = false): DecisionAttendue => ({
-  projectId: 'p1',
-  cardId,
-  genre: 'question',
-  reglee,
-  poseeA: 1,
-});
-
 test('une question sans réponse retient la carte en « En cours »', () => {
   const issue = issueDeFinDeTour('running', true, 'task', 'non', false, true);
   assert.equal(issue.colonne, null, 'la carte ne bouge pas');
@@ -82,17 +73,16 @@ test('sans question ouverte, le rapport rendu ferme la carte comme avant', () =>
   assert.deepEqual(issueDeFinDeTour('running', true, 'task', 'oui', false), { colonne: 'to_deploy', raison: null });
 });
 
-test('seule une QUESTION retient la carte — une carte proposée, non', () => {
-  const decisions: DecisionAttendue[] = [question('c1')];
-  assert.equal(carteAttendUneQuestion(decisions, 'c1'), true);
-  assert.equal(carteAttendUneQuestion(decisions, 'c2'), false);
-  // Répondue : plus rien n'est attendu.
-  assert.equal(carteAttendUneQuestion([question('c1', true)], 'c1'), false);
-  // Une validation de carte proposée n'est pas une question sur ce travail.
-  assert.equal(
-    carteAttendUneQuestion([{ projectId: 'p1', cardId: 'c1', genre: 'validation', reglee: false }], 'c1'),
-    false,
-  );
+test('seule une question de l’agent RESTÉE SANS RÉPONSE compte', () => {
+  assert.equal(messageAttendUneReponse({ questions: [{}] }), true);
+  // Répondue, ou annulée à la main : plus rien n'est attendu.
+  assert.equal(messageAttendUneReponse({ questions: [{ answer: 'oui' }] }), false);
+  assert.equal(messageAttendUneReponse({ questions: [{ cancelled: true }] }), false);
+  // Deux questions : une seule sans réponse suffit à retenir la carte.
+  assert.equal(messageAttendUneReponse({ questions: [{ answer: 'oui' }, {}] }), true);
+  // Un message ordinaire n'attend rien.
+  assert.equal(messageAttendUneReponse({ questions: [] }), false);
+  assert.equal(messageAttendUneReponse(undefined), false);
 });
 
 /* ------------------------------------------------------------------ */
