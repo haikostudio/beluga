@@ -92,7 +92,7 @@ import {
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
 import { AppearancePicker } from '@/components/appearance-picker';
-import { CLE_VOIX_MUETTE } from '@/components/voix-assistant';
+import { CLE_VOIX_MUETTE, CLE_VOIX_VISIBLE } from '@/components/voix-assistant';
 import { client } from '@/lib/client';
 import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { useEstSimplifie, useModeSimplifie } from '@/lib/mode-simplifie';
@@ -1756,6 +1756,7 @@ function VoiceSection({ open }: { open: boolean }) {
   // qui les pilotait a cédé sa place au bouton Robo ; elles se règlent ici.
   const etatVocal = useEtatVocalGlobal();
   const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
+  const [voixVisible, setVoixVisible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
 
   return (
     <section>
@@ -1764,6 +1765,10 @@ function VoiceSection({ open }: { open: boolean }) {
 </h3>
 
       <div className="mb-3 space-y-2">
+        <label className="flex items-center gap-2 text-[14px] text-muted">
+          <Switch checked={voixVisible} onCheckedChange={setVoixVisible} />
+          {t('Afficher le module vocal flottant')}
+        </label>
         <label className="flex items-center gap-2 text-[14px] text-muted">
           <Switch checked={etatVocal.ecouteAllumee} onCheckedChange={setEcouteAllumeeGlobale} />
           {t('Écoute permanente (mot de réveil)')}
