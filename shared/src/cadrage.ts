@@ -183,14 +183,31 @@ export function titreEncoreVide(titre: string | undefined): boolean {
 }
 
 /**
+ * Les tags « [fichier: nom] » posés par le composeur : illisibles dans un
+ * titre de carte, ils ne disent rien du besoin. On les retire avant d'en
+ * tirer une phrase — le même motif que `TAG_FICHIER` de `ancres.ts`.
+ */
+const TAG_FICHIER_DU_TITRE = /\[fichier:\s*[^\]\n]+\]/g;
+
+/** Le texte d'un message, débarrassé de ses tags de fichiers. */
+function sansTagsDeFichier(texte: string): string {
+  return texte.replace(TAG_FICHIER_DU_TITRE, ' ').replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+/**
  * Un titre tiré de la discussion, quand l'agent de cadrage n'a pas pris la
  * peine d'en écrire un : la première phrase de la première demande, coupée
- * court. Mieux qu'une colonne de cartes toutes appelées « Nouvelle tâche ».
+ * court et débarrassée de ses tags de fichiers. Mieux qu'une colonne de
+ * cartes toutes appelées « Nouvelle tâche » — ou toutes affublées d'un
+ * « [fichier: IMG_1234.jpeg] » en tête.
  */
 export function titreDepuisLaDiscussion(messages: MessageDeCadrage[], secours = TITRE_CARTE_DE_CADRAGE): string {
-  const premier = messages.find((m) => m.role === 'user' && (m.content ?? '').trim().length > 0);
+  const premier = messages.find(
+    (m) => m.role === 'user' && sansTagsDeFichier((m.content ?? '').trim()).length > 0,
+  );
   if (!premier) return secours;
-  const phrase = premier.content.trim().split(/\r?\n/)[0].trim();
+  const ligne = sansTagsDeFichier(premier.content.trim().split(/\r?\n/)[0]);
+  const phrase = ligne || sansTagsDeFichier(premier.content.trim());
   if (!phrase) return secours;
   if (phrase.length <= 80) return phrase;
   const coupe = phrase.slice(0, 80);
