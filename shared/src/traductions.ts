@@ -1345,6 +1345,20 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "Réglages de l'agent": ['Agent settings', 'Ajustes del agente', 'Agenteneinstellungen', '智能体设置'],
   'Réglages de l’espace de développement': ['Development space settings', 'Ajustes del espacio de desarrollo', 'Einstellungen des Entwicklungsbereichs', '开发空间设置'],
   'Réglages du moteur': ['Engine settings', 'Ajustes del motor', 'Engine-Einstellungen', '引擎设置'],
+  'Configuration de l’agent': ['Agent configuration', 'Configuración del agente', 'Agent-Konfiguration', '智能体配置'],
+  'Configurez l’agent de cette tâche': [
+    'Configure the agent for this task',
+    'Configure el agente de esta tarea',
+    'Konfigurieren Sie den Agenten dieser Aufgabe',
+    '为此任务配置智能体',
+  ],
+  'Choisissez le moteur, le modèle et le niveau de réflexion qui exécuteront cette tâche. Vous expliquerez votre besoin juste après ; ce réglage reste modifiable jusqu’au lancement.':
+    [
+      'Choose the engine, the model and the reasoning level that will run this task. You will explain what you need right after; this setting stays editable until launch.',
+      'Elija el motor, el modelo y el nivel de razonamiento que ejecutarán esta tarea. Explicará su necesidad justo después; este ajuste sigue siendo modificable hasta el lanzamiento.',
+      'Wählen Sie Engine, Modell und Denktiefe, die diese Aufgabe ausführen. Ihr Anliegen erklären Sie gleich danach; diese Einstellung bleibt bis zum Start änderbar.',
+      '请选择执行此任务的引擎、模型和推理级别。随后再说明您的需求；该设置在启动前均可修改。',
+    ],
   'Ce choix vaut pour le lancement de cette tâche. Il se fige au démarrage du travail.': [
     'This choice applies when the task is launched. It is locked once the work starts.',
     'Esta elección se aplica al lanzar la tarea. Queda fijada cuando empieza el trabajo.',
