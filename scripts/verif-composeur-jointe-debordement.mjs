@@ -72,6 +72,8 @@ function poserSession(db) {
  * passage.
  */
 const NOM_JOINT = 'notes-debordement.txt';
+/* Le serveur peut renvoyer « notes-debordement (3).txt » : on reconnaît la racine. */
+const RACINE_DU_NOM = 'notes-debordement';
 function fabriqueFichier() {
   const fichier = path.join(os.tmpdir(), NOM_JOINT);
   fs.writeFileSync(fichier, `Contrôle du débordement — ${crypto.randomBytes(12).toString('hex')}\n`);
@@ -80,13 +82,19 @@ function fabriqueFichier() {
 
 /* Assez long pour que le champ atteigne sa hauteur maximale et défile : c'est
    exactement le cas où le texte débordait sur les boutons. */
-const TEXTE =
+const TEXTE = (
   'Voici une demande assez longue pour occuper plusieurs lignes dans la barre ' +
   "d'écriture, de manière à dépasser la hauteur maximale du champ et à faire " +
   'apparaître un ascenseur vertical. On répète des phrases pour être certain ' +
   'que le texte déborde vraiment du cadre visible et que le calque des tags ' +
   'doit se couper quelque part. Encore une phrase pour faire bonne mesure, et ' +
-  'une autre derrière celle-là. Et une dernière ligne pour dépasser franchement.';
+  'une autre derrière celle-là. Et une dernière ligne pour dépasser franchement. ' +
+  /* Le champ du TIROIR D'UNE CARTE monte plus haut que celui du chef : il faut
+     davantage de texte pour le faire vraiment défiler. */
+  'On rallonge encore, parce que la barre d\u2019écriture d\u2019un tiroir de carte ' +
+  'grimpe plus haut avant de céder la place à un ascenseur, et le contrôle ne ' +
+  'vaut que si le texte déborde POUR DE BON de la part visible du champ. '
+).repeat(3);
 
 async function main() {
   const db = new Database(DB);
@@ -122,11 +130,17 @@ async function main() {
       await page.waitForTimeout(1200);
     }
 
-    const ongletChef = page.getByRole('button', { name: 'Chef', exact: true }).first();
-    if (await ongletChef.count()) {
-      await ongletChef.click({ force: true });
-      await page.waitForTimeout(2500);
-    }
+    /*
+     * OÙ TROUVER UNE BARRE D'ÉCRITURE. Le script visait l'onglet « Chef » du
+     * menu du bas : cet onglet n'existe plus (le menu ne porte que « Tableau »
+     * et « Fichiers », et le volet de droite montre les FICHIERS). La barre
+     * d'écriture sûrement présente est celle du TIROIR D'UNE CARTE, qui s'ouvre
+     * sur sa conversation. Le brouillon écrit ici est effacé en fin de contrôle.
+     */
+    const carte = page.locator('[data-carte]').first();
+    await carte.waitFor({ state: 'visible', timeout: 20000 });
+    await carte.click({ force: true });
+    await page.waitForTimeout(3000);
 
     // PIÈGE : plusieurs barres d'écriture coexistent (conversation, tiroir de
     // carte). On vise celle qu'on VOIT, champ de fichier compris.
@@ -148,10 +162,20 @@ async function main() {
         (nom) => {
           const champs = Array.from(document.querySelectorAll('textarea')).filter((t) => t.offsetParent !== null);
           const z = champs[champs.length - 1];
-          // Les espaces du tag sont INSÉCABLES dans le champ.
-          return Boolean(z && z.value.replace(/\u00A0/g, ' ').includes(`[fichier: ${nom}]`));
+          /*
+           * LE TAG EST MASQUÉ DANS LE CHAMP (`shared/src/ancres.ts`) : entre
+           * `\u2062` et `\u2063`, seul le NOM du fichier reste lisible — le
+           * « [fichier: … ] » ne s'écrit plus en toutes lettres dans la valeur,
+           * c'est le calque qui le dessine en pastille. On cherche donc le nom
+           * entre ses deux marques de masque.
+           */
+          return Boolean(z && new RegExp(`\u2062[^\u2063]*${nom.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\u2063]*\u2063`).test(z.value));
+
         },
-        NOM_JOINT,
+        // Le serveur DÉDOUBLONNE par le nom : un fichier déjà connu revient en
+        // « notes-debordement (3).txt ». On reconnaît donc le tag à la RACINE du
+        // nom, jamais à son orthographe exacte.
+        RACINE_DU_NOM,
         { timeout: 45000 },
       )
       .then(() => true)
