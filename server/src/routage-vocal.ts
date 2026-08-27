@@ -23,6 +23,7 @@ import { log } from './logger.js';
  * L'ASSISTANT VOCAL GLOBAL : où va cette phrase ?
  *
  * Une phrase dictée n'a aucun destinataire tant que personne n'a dit « ça,
+<<<<<<< HEAD
  * c'est pour tel projet ». Ce module est ce quelqu'un — hors projet, au-dessus
  * du tableau.
  *
@@ -39,6 +40,25 @@ import { log } from './logger.js';
  *    vocale « une décision attend » et une réponse qui se donne à l'écran… ou à
  *    la voix, la phrase suivante étant lue comme la réponse tant que la
  *    question est fraîche.
+=======
+ * c'est pour HaikoDev ». Ce module est ce quelqu'un — hors projet, au-dessus
+ * du tableau.
+ *
+ * Il ne code pas et n'appelle AUCUN moteur payant : il lit la liste des
+ * projets ouverts, applique la règle pure (`shared/src/routage-vocal.ts`), et
+ * fait l'une de deux choses.
+ *
+ *  - Projet clair : il ouvre une carte-fil de cadrage dans ce projet (la même
+ *    que le « + » de « Planifié ») et y dépose la phrase. Le fil montre la
+ *    phrase telle qu'elle a été comprise, et l'agent de cadrage fait son tri
+ *    habituel.
+ *  - Doute : il POSE LA QUESTION, dans une carte-fil de cadrage éphémère de ce
+ *    projet — une vraie question d'agent, donc le triangle orange habituel,
+ *    l'annonce vocale « une décision attend » et une réponse qui se donne à
+ *    l'écran… ou à la voix, la phrase suivante étant lue comme la réponse tant
+ *    que la question est fraîche. Cette carte de question, qui ne sert à
+ *    rien d'autre, est retirée une fois la réponse reçue.
+>>>>>>> main
  */
 
 export interface ResultatDictee {
@@ -67,26 +87,26 @@ function projetActif(): string | null {
 }
 
 /**
- * Ouvrir une carte de cadrage dans un projet : la carte naît en « Planifié »,
- * son agent de cadrage est posé, et rien n'est encore parti au moteur.
+ * Ouvrir une carte-fil de cadrage dans un projet, exactement comme le « + »
+ * de « Planifié ». La création émet elle-même l'événement `card.upsert` et
+ * `agent.upsert` : le tableau et la conversation apparaissent sous les yeux.
+ * Un titre optionnel peut être fourni (pour refléter le texte dictée) ; par
+ * défaut, c'est le titre de cadrage.
  */
-async function ouvrirUneCarte(projectId: string, titre: string): Promise<Agent | null> {
-  const card = createCard(projectId, { title: titre, origin: 'user' });
+async function ouvrirUneCarteDeCadrage(projectId: string, titre?: string) {
+  const card = createCard(projectId, { title: titre ?? TITRE_CARTE_DE_CADRAGE, origin: 'user' });
   bus.emit({ type: 'card.upsert', card });
-  return ouvrirLeCadrage(card.id).catch((err) => {
-    log.error('carte de cadrage impossible à ouvrir pour la demande dictée', err);
-    return null;
-  });
+  const agent = await ouvrirLeCadrage(card.id);
+  if (!agent) throw new Error('agent de cadrage introuvable pour la carte dictée');
+  return { card, agent };
 }
 
 /**
- * Déposer la phrase dans une carte neuve du projet, et lancer le tour de
- * cadrage. La phrase part TELLE QUELLE : ce que le fil montre est ce qui a été
- * entendu.
+ * Déposer la phrase dans une carte-fil de cadrage neuve, et lancer le tour.
+ * La phrase part TELLE QUELLE : ce que le fil montre est ce qui a été entendu.
  */
-async function deposer(projectId: string, texte: string): Promise<{ agentId?: string }> {
-  const agent = await ouvrirUneCarte(projectId, extrait(texte, 80));
-  if (!agent) return {};
+async function deposer(projectId: string, texte: string): Promise<{ agentId: string }> {
+  const { agent } = await ouvrirUneCarteDeCadrage(projectId, extrait(texte, 80));
   void sendPrompt(agent.id, texte).catch((err) => log.error('dépôt de la demande dictée impossible', err));
   return { agentId: agent.id };
 }
@@ -100,8 +120,7 @@ async function demander(
   lieu: string,
   motif: string,
 ): Promise<ResultatDictee> {
-  const accueil = await ouvrirUneCarte(lieu, TITRE_CARTE_DE_CADRAGE);
-  if (!accueil) return { motif: 'aucun-projet' };
+  const { agent } = await ouvrirUneCarteDeCadrage(lieu);
 
   const posee = AgentQuestion.parse({
     id: store.newId(),
@@ -114,7 +133,7 @@ async function demander(
   const message = store.saveMessage(
     Message.parse({
       id: store.newId(),
-      agentId: accueil.id,
+      agentId: agent.id,
       role: 'assistant',
       content: `J'ai entendu : « ${extrait(texte, 300)} ».`,
       questions: [posee],
@@ -127,7 +146,7 @@ async function demander(
     texte,
     projectId: projetRetenu,
     candidats,
-    agentId: accueil.id,
+    agentId: agent.id,
     messageId: message.id,
     questionId: posee.id,
   });
@@ -141,11 +160,11 @@ async function demander(
     body: question.slice(0, 120),
     reference: `dictee:${message.id}`,
     element: question.slice(0, 120),
-    projectId: accueil.projectId,
-    agentId: accueil.id,
+    projectId: agent.projectId,
+    agentId: agent.id,
   });
 
-  return { agentId: accueil.id, lieu: accueil.projectId, question, motif };
+  return { agentId: agent.id, lieu: agent.projectId, question, motif };
 }
 
 /**
@@ -230,9 +249,22 @@ export async function repondreALaDictee(
   }
 
   const { agentId } = await deposer(suite.projectId, suite.texte);
+  supprimerLaCarteDeLaQuestion(attente.agentId);
   bus.emit({ type: 'attention', ...store.signalAttention() });
   if (!agentId) return { motif: 'aucun-projet' };
   return { projectId: suite.projectId, agentId, motif: attente.projectId ? 'action-donnee' : 'projet-donne' };
+}
+
+/**
+ * La carte de cadrage ouverte pour poser « pour quel projet ? » ne sert à
+ * rien d'autre : une fois la réponse comprise et la vraie demande déposée
+ * ailleurs, elle ne fait que traîner dans « Planifié ».
+ */
+function supprimerLaCarteDeLaQuestion(agentId: string): void {
+  const agent = store.getAgent(agentId);
+  if (!agent?.cardId) return;
+  store.deleteCard(agent.cardId);
+  bus.emit({ type: 'card.delete', id: agent.cardId, projectId: agent.projectId });
 }
 
 /** Écrire la réponse DANS la question : c'est ce qui éteint le triangle. */

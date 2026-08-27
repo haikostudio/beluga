@@ -61,6 +61,16 @@ const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.V
 const ONGLETS_MOBILES = ['board', 'chat'] as const;
 type OngletMobile = (typeof ONGLETS_MOBILES)[number];
 
+/** Où l'on retient le choix « ouvert / replié » du volet de droite. */
+const CLE_VOLET_DROIT = 'haikodev.volet-droit.ouvert';
+
+/** Le volet de droite commence replié, sauf choix contraire déjà retenu. */
+function choixInitialVoletDroit(): boolean {
+  if (typeof window === 'undefined') return false;
+  const retenu = window.localStorage.getItem(CLE_VOLET_DROIT);
+  return retenu === '1';
+}
+
 
 /** La clé du serveur arrive en base64 « url » : le navigateur la veut en octets. */
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
@@ -112,7 +122,18 @@ export function App() {
   // conteneur central : le Kanban et le volet de droite sont alors masqués, la
   // colonne de gauche reste en place.
   const [dashboardOpen, setDashboardOpen] = React.useState(false);
-  const [rightOpen, setRightOpen] = React.useState(() => window.innerWidth >= 1100);
+  const [rightOpen, setRightOpenEtRetenir] = React.useState(choixInitialVoletDroit);
+  const setRightOpen = React.useCallback((valeur: boolean | ((precedent: boolean) => boolean)) => {
+    setRightOpenEtRetenir((precedent) => {
+      const suivant = typeof valeur === 'function' ? valeur(precedent) : valeur;
+      try {
+        window.localStorage.setItem(CLE_VOLET_DROIT, suivant ? '1' : '0');
+      } catch {
+        /* navigation privée : le choix vaut pour la session, c'est tout. */
+      }
+      return suivant;
+    });
+  }, []);
   /*
    * L'onglet du bas est retenu en base : on rouvre l'application là où on
    * l'avait laissée, et le même onglet suit d'un appareil à l'autre. Un onglet
