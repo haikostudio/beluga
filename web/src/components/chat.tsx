@@ -355,8 +355,12 @@ export function Chat({
           )}
           {/* AVANT LE LANCEMENT, la configuration du moteur est une bulle DU
               FIL — elle défile avec les messages plutôt que de rester collée
-              en haut. Elle reste modifiable jusqu'au démarrage du travail. */}
-          {carte && reglagesCarte.vu?.modifiable && reglagesCarte.libelles ? (
+              en haut. Elle reste modifiable jusqu'au démarrage du travail, et
+              ne paraît qu'une fois l'agent de cadrage ayant réellement défini
+              un moteur pour l'exécution : tant que la carte n'a encore que
+              son niveau (ou rien), `vu.engine` est vide et une bulle pleine de
+              tirets « — » n'apporterait rien. */}
+          {carte && reglagesCarte.vu?.modifiable && reglagesCarte.vu?.engine && reglagesCarte.libelles ? (
             <BulleReglagesAModifier card={carte} libelles={reglagesCarte.libelles} />
           ) : null}
           <div ref={bottomRef} />
@@ -1068,7 +1072,7 @@ function BulleReglagesAModifier({
         type="button"
         onClick={() => setOuvert(true)}
         data-reglages-avant-lancement
-        className="w-[min(92%,420px)] min-w-0 rounded-lg border border-border bg-raised px-3 py-2.5 text-left transition-colors hover:border-accent/50"
+        className="w-full min-w-0 rounded-lg border border-border bg-raised px-3 py-2.5 text-left transition-colors hover:border-accent/50"
       >
         <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
           <Cpu className="h-3 w-3 shrink-0" />
