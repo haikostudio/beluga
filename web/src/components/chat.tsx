@@ -5,7 +5,9 @@ import {
   ChevronUp,
   CircleDot,
   CornerDownRight,
+  Cpu,
   Loader2,
+  Lock,
   MessageSquare,
   Rocket,
   RotateCcw,
@@ -17,9 +19,12 @@ import {
   BOUTON_LANCER_LA_TACHE,
   BOUTON_DES_QUE_POSSIBLE,
   boutonLancerLaTache,
+  type Card,
+  type EngineInfo,
   type EtatBoutonLancer,
   MOT_CADRAGE,
   Message,
+  type ReglagesCarte,
   separateurDeJour,
   temoinDeTravail,
   carteRangee,
@@ -27,6 +32,7 @@ import {
   libellePrecedents,
   peutRepartir,
   questionEnTexteLibre,
+  reglagesDeLaCarte,
   titreDeBloc,
   TEXTE_BARRE_EN_ATTENTE,
   animeDuPersonnage,
@@ -45,7 +51,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useAnimationsReduites } from '@/lib/animations-reduites';
 import { cn, jourDuMessage } from '@/lib/utils';
-import { t } from '@/lib/langue';
+import { t, formatRegional } from '@/lib/langue';
 
 export function Chat({
   agent,
@@ -232,6 +238,17 @@ export function Chat({
   return (
     <div className="flex h-full min-h-0 flex-col">
       {header}
+
+      {/* L'ANCIEN ONGLET « DÉTAILS » EST PARTI : le seul bloc qu'il portait et
+          qui méritait de survivre — avec quoi la carte tourne — vit ici, dans
+          la conversation elle-même, dès que la configuration est FIGÉE (le
+          travail a démarré). Avant ce moment, le choix se fait dans la barre
+          d'écriture ci-dessous (`RunSelectors` du composeur) : pas de doublon. */}
+      {carte ? (
+        <div className="shrink-0 px-3 pt-2">
+          <ReglagesAgent card={carte} />
+        </div>
+      ) : null}
 
       {/* Une conversation ne défile que verticalement : ce qui dépasse en
           largeur (code, longue adresse) défile DANS son propre bloc.
@@ -843,5 +860,145 @@ function TravailEnCours({
 
       {arret.dialogue}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Les réglages de l'agent de la carte                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Un identifiant technique n'apprend rien : on cherche son libellé dans le
+ * catalogue des moteurs, et on retombe sur l'identifiant seulement s'il n'y
+ * figure plus (modèle retiré depuis, moteur désinstallé).
+ */
+function libellesDuRun(
+  engines: EngineInfo[],
+  vu: Pick<ReglagesCarte, 'engine' | 'model' | 'thinking'>,
+) {
+  const moteur = engines.find((e) => e.id === vu.engine);
+  const modele = moteur?.models.find((m) => m.id === vu.model);
+  const niveau = modele?.thinking?.find((t) => t.id === vu.thinking);
+  return {
+    moteur: moteur?.label ?? vu.engine ?? '—',
+    modele: modele?.label ?? vu.model ?? '—',
+    reflexion: niveau?.label ?? vu.thinking ?? '—',
+  };
+}
+
+/**
+ * AVEC QUOI CETTE CARTE A TOURNÉ — vivait dans l'onglet « Détails », retiré.
+ * Elle vit maintenant dans la conversation elle-même, et seulement UNE FOIS
+ * LA CONFIGURATION FIGÉE (`vu.modifiable` faux : le travail a démarré) — avant
+ * ce moment, la barre d'écriture porte déjà ses propres menus moteur / modèle
+ * / réflexion (`RunSelectors` dans `composer.tsx`, qui écrit sur la même
+ * carte) : afficher un second sélecteur ici aurait doublé le même geste.
+ *
+ * Quatre étiquettes courtes sur UNE ligne qui se replie : moteur, modèle,
+ * réflexion, compte — c'est ce qui permet de comprendre après coup pourquoi
+ * une carte s'est bien ou mal passée.
+ */
+function ReglagesAgent({ card }: { card: Card }) {
+  const state = useApp();
+
+  /*
+   * Ce qui a SERVI, c'est l'agent d'EXÉCUTION, pas l'analyse : celle-ci tourne
+   * souvent sur un autre modèle, et l'afficher ferait croire que la carte a été
+   * traitée avec lui.
+   */
+  const execution = React.useMemo(
+    () =>
+      Object.values(state.agents)
+        .filter((item) => item.cardId === card.id && item.role === 'task')
+        .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null,
+    [state.agents, card.id],
+  );
+
+  const vu = reglagesDeLaCarte({
+    colonne: card.column,
+    carte: card.run,
+    agent: execution
+      ? { engine: execution.run.engine, model: execution.run.model, thinking: execution.run.thinking, compte: execution.account }
+      : undefined,
+    compteMesure: card.consumption?.account,
+  });
+
+  const libelles = libellesDuRun(state.engines, vu);
+
+  /*
+   * La part de quota réellement consommée par cette carte, somme de ses lignes
+   * de consommation. Elle vit dans la table `usage`, pas sur la carte : on la
+   * demande au serveur dès que la configuration est figée. Une carte sans
+   * relevé rend deux zéros — on n'affiche alors rien, pas un zéro trompeur.
+   */
+  const [quota, setQuota] = React.useState<{ quota5h: number; quotaSemaine: number } | null>(null);
+  React.useEffect(() => {
+    if (vu.modifiable) return;
+    let vivant = true;
+    setQuota(null);
+    client
+      .call({ type: 'card.quota', cardId: card.id })
+      .then((data) => {
+        if (vivant) setQuota({ quota5h: data.quota5h ?? 0, quotaSemaine: data.quotaSemaine ?? 0 });
+      })
+      .catch(() => {});
+    return () => {
+      vivant = false;
+    };
+  }, [card.id, vu.modifiable]);
+  const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
+
+  // Tant que la configuration n'est pas figée, la barre d'écriture porte déjà
+  // le sélecteur : rien à montrer ici.
+  if (vu.modifiable) return null;
+
+  return (
+    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
+      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+        <Cpu className="h-3 w-3" />
+        {t('Réglages qui ont servi')}
+        <Lock className="h-2.5 w-2.5" title={vu.raison} />
+      </div>
+
+      <div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
+          <Etiquette nom={t('Moteur')} valeur={libelles.moteur} />
+          <Etiquette nom={t('Modèle')} valeur={libelles.modele} />
+          {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
+              mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
+          <Etiquette nom={t('Niveau')} valeur={libelles.reflexion} />
+          <Etiquette nom={t('Compte')} valeur={vu.compte ?? '—'} />
+        </div>
+
+        {/* La part de quota dépensée par cette carte, une seule ligne, en
+            clair. Rien quand aucun relevé n'existe : un zéro ferait croire à
+            une mesure. */}
+        {quotaVu ? (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
+            <Etiquette nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
+            <Etiquette nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Une part de quota, en clair : « 2,4 % » de la fenêtre. Sous un dixième de
+ * pour-cent, on ne prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
+ */
+function partQuota(part: number): string {
+  if (part > 0 && part < 0.1) return t('moins de 0,1 %');
+  return `${part.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
+}
+
+/** Une étiquette courte : le nom en gris pâle, la valeur juste après. */
+function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
+  return (
+    <span className="flex min-w-0 items-baseline gap-1">
+      <span className="shrink-0 text-[12px] text-faint">{nom}</span>
+      <span className="truncate font-medium text-text">{valeur}</span>
+    </span>
   );
 }

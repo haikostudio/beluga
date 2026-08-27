@@ -2,15 +2,12 @@ import * as React from 'react';
 import {
   Archive,
   ArchiveRestore,
-  CalendarClock,
   Check,
   ChevronDown,
   CircleDollarSign,
-  Cpu,
   FileText,
   GitBranch,
   Loader2,
-  Lock,
   MessageSquare,
   Paperclip,
   Play,
@@ -29,10 +26,8 @@ import {
   CardComment,
   DecisionGeste,
   DeployRun,
-  EngineInfo,
   EtatDeFichier,
   GesteCarte,
-  ReglagesCarte,
   carteSeReprend,
   etapesAMontrer,
   libelleCibleDeploiement,
@@ -47,16 +42,10 @@ import {
   decisionsParCarte,
   etatVisuelCarte,
   gesteCarte,
-  lireDateDeDepart,
   mentionArchivage,
   mentionDeReprise,
-  mentionCreneauApplique,
-  mentionCreneauConseille,
-  mentionDepartProgramme,
-  momentDuCreneau,
   motAnalyse,
   phaseAnalyse,
-  reglagesDeLaCarte,
 } from '@haikodev/shared';
 import {
   Badge,
@@ -79,12 +68,9 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
-import { ParcoursTache } from '@/components/parcours-tache';
 import { RepereAttention } from '@/components/repere-attention';
-import { RunChoix, RunSelectors, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } from '@/lib/chargement-onglet';
-import { useMinute } from '@/lib/horloge';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { useEstSimplifie } from '@/lib/mode-simplifie';
@@ -133,26 +119,15 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     analyseEnCours: agent?.status === 'running' || agent?.status === 'starting',
   });
 
-  /*
-   * L'onglet montré. Une carte ouverte AVANT sa validation resterait sur les
-   * détails pendant que son analyse écrit à côté : dès qu'il y a quelque chose
-   * à lire, on bascule sur la conversation — une seule fois, pour ne jamais
-   * ramener quelqu'un qui a choisi un autre onglet.
-   */
-  // Une carte de travail hors tâche n'a pas d'agent à elle : c'est la
-  // conversation empruntée qui dit qu'il y a quelque chose à lire.
-  // …et une carte qui porte déjà sa SYNTHÈSE a quelque chose à lire avant
-  // même d'avoir un agent : c'est le premier message de sa conversation.
-  const aLire = !!agent || !!card.conversationAgentId || !!card.briefing || phase !== 'aucune';
   /* Ce que cette carte attend de vous — le même compte que son triangle sur le
      tableau, posé ici sur l'onglet où la décision se prend. */
   const decisions = decisionsParCarte(state.decisions)[card.id] ?? 0;
   /*
-   * Une décision qui attend l'emporte sur tout le reste : le bouton
-   * « Répondre » du tableau doit tomber DIRECTEMENT sur la question, jamais sur
-   * l'onglet des détails qu'il faudrait ensuite quitter à la main.
+   * L'onglet « Détails » a disparu (réglages de l'agent et parcours vivent
+   * maintenant dans la conversation) : la conversation est le seul point
+   * d'entrée d'une carte, donc le seul onglet qui vaille au premier affichage.
    */
-  const [onglet, setOnglet] = React.useState(decisions > 0 || aLire ? 'chat' : 'details');
+  const [onglet, setOnglet] = React.useState('chat');
   /* L'onglet « GitHub » — branche, enregistrements, fichiers modifiés — est la
      matière du métier, pas le suivi du travail : le mode simplifié le retire.
      Si c'était l'onglet ouvert, on retombe sur la conversation. */
@@ -193,7 +168,7 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
    * L'ONGLET « COMMENTAIRES » NE PORTE JAMAIS CE PIED : ses boutons de
    * lancement tombaient juste sous le champ de saisie d'une note, et se
    * faisaient cliquer par erreur en croyant valider le commentaire. Ils
-   * restent atteignables depuis « Détails » et « Conversation ».
+   * restent atteignables depuis l'onglet « Conversation ».
    */
   /*
    * UNE CARTE-FIL DE CADRAGE PREND SES GESTES DE LANCEMENT DANS SON FIL, PAS
@@ -233,15 +208,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     }
     etatPrecedent.current = terminerActif;
   }, [terminerActif]);
-  /* Ce que les onglets vont chercher : « Détails » son parcours, « GitHub »
-     le déroulé de ses déploiements. Chacun l'annonce depuis son contenu. */
+  /* Ce que les onglets vont chercher : « GitHub » le déroulé de ses
+     déploiements. Chacun l'annonce depuis son contenu. */
   const [chargement, signalerChargement] = useOngletsQuiChargent();
-  const bascule = React.useRef(aLire);
-  React.useEffect(() => {
-    if (bascule.current || !aLire) return;
-    bascule.current = true;
-    setOnglet('chat');
-  }, [aLire]);
 
   /*
    * Sur téléphone, le haut du tiroir s'épure. Les tags (état, étiquettes,
@@ -391,14 +360,9 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 {t('Conversation')}
 <RepereAttention compte={decisions} data-attention-carte={card.id} />
             </TabsTrigger>
-            {/* Ces deux onglets vont CHERCHER leurs données : tant qu'elles ne
-                sont pas là, une petite roue le dit — sinon on ne sait pas si
-                l'onglet est vide ou s'il arrive. */}
-            <TabsTrigger value="details" className="flex-1 gap-1">
-              
-{t('Détails')}
-<RoueDOnglet visible={!!chargement.details} />
-            </TabsTrigger>
+            {/* Cet onglet va CHERCHER ses données : tant qu'elles ne sont pas
+                là, une petite roue le dit — sinon on ne sait pas si l'onglet
+                est vide ou s'il arrive. */}
             <TabsTrigger value="comments" className="flex-1 gap-1">
 
 {t('Commentaires')}
@@ -418,14 +382,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 
         <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           <Chat agent={agent} projectId={card.projectId} cardId={card.id} vide={motAnalyse(phase)} />
-        </TabsContent>
-
-        <TabsContent value="details" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <ZoneDefilement>
-            <FournisseurDeChargement signaler={signalerChargement}>
-              <CardSummary card={card} />
-            </FournisseurDeChargement>
-          </ZoneDefilement>
         </TabsContent>
 
         <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
@@ -601,391 +557,10 @@ function Geste({ decision, children }: { decision: DecisionGeste; children: Reac
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Les réglages de l'agent de la carte                                 */
-/* ------------------------------------------------------------------ */
-
-/**
- * Un identifiant technique n'apprend rien : on cherche son libellé dans le
- * catalogue des moteurs, et on retombe sur l'identifiant seulement s'il n'y
- * figure plus (modèle retiré depuis, moteur désinstallé).
- */
-function libellesDuRun(
-  engines: EngineInfo[],
-  vu: Pick<ReglagesCarte, 'engine' | 'model' | 'thinking'>,
-) {
-  const moteur = engines.find((e) => e.id === vu.engine);
-  const modele = moteur?.models.find((m) => m.id === vu.model);
-  const niveau = modele?.thinking?.find((t) => t.id === vu.thinking);
-  return {
-    moteur: moteur?.label ?? vu.engine ?? '—',
-    modele: modele?.label ?? vu.model ?? '—',
-    reflexion: niveau?.label ?? vu.thinking ?? '—',
-  };
-}
-
-/**
- * Avec quoi cette carte va tourner — ou a tourné. Quatre étiquettes courtes sur
- * UNE ligne qui se replie : moteur, modèle, réflexion, compte. Jamais un
- * tableau, il deviendrait illisible sur téléphone.
- *
- * Tant que rien n'a démarré, les trois premières sont des menus : c'est le
- * dernier moment où l'on peut changer d'avis. Dès que le travail est parti,
- * elles se lisent telles qu'elles ont servi — c'est ce qui permet de comprendre
- * après coup pourquoi une carte s'est bien ou mal passée.
- */
-function ReglagesAgent({ card }: { card: Card }) {
-  const state = useApp();
-
-  /*
-   * Ce qui a SERVI, c'est l'agent d'EXÉCUTION, pas l'analyse : celle-ci tourne
-   * souvent sur un autre modèle, et l'afficher ferait croire que la carte a été
-   * traitée avec lui.
-   */
-  const execution = React.useMemo(
-    () =>
-      Object.values(state.agents)
-        .filter((item) => item.cardId === card.id && item.role === 'task')
-        .sort((a, b) => b.createdAt - a.createdAt)[0] ?? null,
-    [state.agents, card.id],
-  );
-
-  const vu = reglagesDeLaCarte({
-    colonne: card.column,
-    carte: card.run,
-    agent: execution
-      ? { engine: execution.run.engine, model: execution.run.model, thinking: execution.run.thinking, compte: execution.account }
-      : undefined,
-    compteMesure: card.consumption?.account,
-  });
-
-  const libelles = libellesDuRun(state.engines, vu);
-
-  /*
-   * La part de quota réellement consommée par cette carte, somme de ses lignes
-   * de consommation. Elle vit dans la table `usage`, pas sur la carte : on la
-   * demande au serveur à l'ouverture du détail. Une carte sans relevé rend deux
-   * zéros — on n'affiche alors rien, pas un zéro trompeur.
-   */
-  const [quota, setQuota] = React.useState<{ quota5h: number; quotaSemaine: number } | null>(null);
-  React.useEffect(() => {
-    let vivant = true;
-    setQuota(null);
-    client
-      .call({ type: 'card.quota', cardId: card.id })
-      .then((data) => {
-        if (vivant) setQuota({ quota5h: data.quota5h ?? 0, quotaSemaine: data.quotaSemaine ?? 0 });
-      })
-      .catch(() => {});
-    return () => {
-      vivant = false;
-    };
-  }, [card.id]);
-  const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
-
-  // Changer de moteur remet modèle et réflexion à zéro : un modèle n'appartient
-  // qu'à son moteur. On enregistre le trio RÉSOLU, jamais un choix à trous.
-  const choisir = (patch: RunChoix) => {
-    const souhait = patch.engine ? { engine: patch.engine } : { ...card.run, ...patch };
-    const retenu = resoudreRun(state.engines, souhait);
-    if (!retenu.engine) return;
-    client.call({
-      type: 'card.update',
-      id: card.id,
-      patch: {
-        run: {
-          ...card.run,
-          engine: retenu.engine.id,
-          model: retenu.model?.id,
-          thinking: retenu.thinking?.id ?? 'none',
-          account: souhait.account,
-        },
-      },
-    });
-  };
-
-  return (
-    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
-        <Cpu className="h-3 w-3" />
-        {vu.modifiable ? t('Réglages de l\'agent') : t('Réglages qui ont servi')}
-        {vu.modifiable ? null : <Lock className="h-2.5 w-2.5" title={vu.raison} />}
-      </div>
-
-      {vu.modifiable ? (
-        /* Les mêmes menus que la barre d'écriture : sur téléphone, ils
-           s'ouvrent en tiroir pleine largeur. */
-        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-0.5 sm:gap-x-1">
-          <RunSelectors engines={state.engines} choix={card.run} onSelect={choisir} comptes={state.quotas} />
-          {!card.run.account ? (
-            <span className="px-1 text-[12.5px] text-faint">{t('compte choisi au lancement')}</span>
-          ) : null}
-        </div>
-      ) : (
-        <div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-            <Etiquette nom={t('Moteur')} valeur={libelles.moteur} />
-            <Etiquette nom={t('Modèle')} valeur={libelles.modele} />
-            {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
-                mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
-            <Etiquette nom={t('Niveau')} valeur={libelles.reflexion} />
-            <Etiquette nom={t('Compte')} valeur={vu.compte ?? '—'} />
-          </div>
-
-          {/* La part de quota dépensée par cette carte, une seule ligne, en
-              clair. Rien quand aucun relevé n'existe : un zéro ferait croire à
-              une mesure. */}
-          {quotaVu ? (
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13.5px]">
-              <Etiquette nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
-              <Etiquette nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
-            </div>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Une part de quota, en clair : « 2,4 % » de la fenêtre. Sous un dixième de
- * pour-cent, on ne prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
- */
-function partQuota(part: number): string {
-  if (part > 0 && part < 0.1) return t('moins de 0,1 %');
-  return `${part.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
-}
-
-/** Une étiquette courte : le nom en gris pâle, la valeur juste après. */
-function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
-  return (
-    <span className="flex min-w-0 items-baseline gap-1">
-      <span className="shrink-0 text-[12px] text-faint">{nom}</span>
-      <span className="truncate font-medium text-text">{valeur}</span>
-    </span>
-  );
-}
-
-/**
- * L'HEURE DITE : la carte attend dans « Planifié » et part toute seule au
- * moment choisi, sans qu'on ait à cliquer. Le champ ne s'affiche que là où la
- * date a encore un sens — avant le départ du travail ; une fois la carte
- * lancée, l'heure est passée et il n'y a plus rien à programmer.
- *
- * La phrase affichée se RECALCULE (`mentionDepartProgramme`, horloge partagée) :
- * une phrase figée en base dirait encore « demain » trois jours plus tard.
- */
-function DepartProgramme({ card }: { card: Card }) {
-  const maintenant = useMinute();
-  if (card.column !== 'todo' && card.column !== 'planned') return null;
-
-  const depart = card.scheduling?.departPrevu;
-  const mention = mentionDepartProgramme(card, maintenant);
-
-  /*
-   * LE CRÉNEAU CONSEILLÉ, calculé sans le moindre appel de moteur au moment où
-   * la carte a été posée (`shared/src/heure-de-lancement.ts`). Il ne fait que
-   * DIRE : tant qu'aucune date n'est choisie, il propose l'heure et le bouton
-   * qui la recopie. Poser cette date reste un geste de l'utilisateur.
-   */
-  const creneau = card.scheduling?.creneauConseille;
-  const conseil = mentionCreneauConseille(card, maintenant);
-  const heureConseillee = creneau ? momentDuCreneau(creneau, maintenant) : null;
-  const origineAutomatique = mentionCreneauApplique(card);
-
-  const poser = (valeur: string) => {
-    const date = lireDateDeDepart(valeur);
-    client.call({ type: 'card.schedule', id: card.id, at: date });
-  };
-
-  return (
-    <div className="rounded-md border border-border bg-raised px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
-        <CalendarClock className="h-3 w-3" />
-        
-{t('Départ programmé')}
-</div>
-
-      <div className="mt-1.5 flex flex-wrap items-center gap-2">
-        <Input
-          type="datetime-local"
-          aria-label="Date et heure de départ"
-          value={versChampDate(depart)}
-          onChange={(event) => poser(event.target.value)}
-          className="w-auto min-w-[200px] text-[13.5px]"
-        />
-        {depart ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => client.call({ type: 'card.schedule', id: card.id, at: null })}
-          >
-            {t('Retirer la date')}</Button>
-        ) : null}
-      </div>
-
-      <p className="mt-1.5 text-[13px] text-faint">
-        {mention ?? t('Sans date, la carte attend votre lancement : rien ne démarre tout seul.')}
-      </p>
-
-      {origineAutomatique ? (
-        <p className="mt-1 text-[12px] text-muted" data-creneau-applique={card.id}>
-          {origineAutomatique}
-        </p>
-      ) : null}
-
-      {conseil && heureConseillee ? (
-        <div
-          className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2"
-          data-creneau-conseille={card.id}
-        >
-          <p className="min-w-0 flex-1 text-[13px] text-muted">{conseil}</p>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => client.call({ type: 'card.schedule', id: card.id, at: heureConseillee })}
-          >
-            {t('Retenir cette heure')}</Button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Un instant vers ce qu'attend un champ « datetime-local » : la date LOCALE,
- * sans secondes ni fuseau. Passer par `toISOString` afficherait l'heure de
- * Greenwich, donc 6 h posées le soir d'été deviendraient 4 h.
- */
-function versChampDate(instant?: number): string {
-  if (!instant) return '';
-  const date = new Date(instant);
-  const deux = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${deux(date.getMonth() + 1)}-${deux(date.getDate())}T${deux(date.getHours())}:${deux(
-    date.getMinutes(),
-  )}`;
-}
-
-function CardSummary({ card }: { card: Card }) {
-  const [description, setDescription] = React.useState(card.description);
-  React.useEffect(() => setDescription(card.description), [card.id]);
-
-  /*
-   * La description est le CŒUR de la carte : le champ suit la hauteur du texte
-   * au lieu de le laisser défiler dans une fenêtre de trois lignes. Il garde un
-   * plancher confortable et un plafond, pour que les chiffres restent visibles
-   * sur une longue consigne.
-   */
-  const zone = React.useRef<HTMLTextAreaElement>(null);
-  React.useEffect(() => {
-    const champ = zone.current;
-    if (!champ) return;
-    champ.style.height = 'auto';
-    champ.style.height = `${champ.scrollHeight + 2}px`;
-  }, [description, card.id]);
-
-  return (
-    <div className="space-y-4 px-4 py-3">
-      {/* En PREMIER : avec quoi la carte va tourner. C'est ce qu'on vient
-          chercher avant de valider, et ce qu'on relit après coup quand le
-          résultat surprend. */}
-      <ReglagesAgent card={card} />
-      {/* Juste après « avec quoi » : QUAND. Les deux se règlent avant le
-          départ, au même endroit et de la même façon. */}
-      <DepartProgramme card={card} />
-
-      {/* LE CŒUR DE L'ONGLET : ce qui s'est passé, dans l'ordre, avec la mesure
-          réelle de chaque étape. Il remplace les quatre encadrés qui empilaient
-          « Analyse initiale », « Exécution réelle », la ventilation et les
-          jetons par agent — chacun vrai, aucun lisible ensemble. */}
-      <ParcoursTache cardId={card.id} />
-
-      <div>
-        <Label htmlFor="carte-description">{t('Description')}</Label>
-        <Textarea
-          id="carte-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          onBlur={() => {
-            if (description !== card.description) {
-              client.call({ type: 'card.update', id: card.id, patch: { description } });
-            }
-          }}
-          ref={zone}
-          rows={8}
-          placeholder={t('Ce qu\'il faut faire…')}
-          className="mt-1.5 max-h-[55vh] min-h-[160px] resize-none text-[14px]"
-        />
-      </div>
-
-      {card.scheduling?.waitingReason ? (
-        <p className="rounded-md border border-warning/30 bg-warning/5 px-2.5 py-1.5 text-[13.5px] text-warning">
-          {card.scheduling.waitingReason}
-        </p>
-      ) : null}
-
-      <CeQuiEtaitPrevu card={card} />
-    </div>
-  );
-}
-
-/**
- * CE QUI ÉTAIT PRÉVU, à part et clairement nommé prévision.
- *
- * Les chiffres du parcours sont MESURÉS ; ceux-ci sont ANNONCÉS, avant le
- * travail. Les mêler dans la même ligne de temps ferait lire une projection
- * comme un relevé — c'est exactement ce que cet onglet doit empêcher. D'où un
- * bloc séparé, SOUS le parcours, qui ne dit que le futur et le nomme.
- *
- * Le réel n'y est repris qu'une fois : l'ÉCART entre le prévu et le mesuré,
- * c'est-à-dire la seule chose que la prévision apprenne encore une fois le
- * travail fait.
- */
-function CeQuiEtaitPrevu({ card }: { card: Card }) {
-  if (!card.estimate) return null;
-
-  const prevue = card.estimate.machineSeconds;
-  const reelle = card.consumption?.machineSeconds;
-  const debordement = prevue && reelle ? reelle > prevue * 1.3 : false;
-
-  return (
-    <section className="space-y-2 rounded-lg border border-border bg-raised px-3 py-3" data-ce-qui-etait-prevu>
-      <div>
-        <h3 className="text-[14px] font-semibold text-text">{t('Ce qui était prévu')}</h3>
-        <p className="mt-0.5 text-[12.5px] text-faint">
-          {t('Annoncé avant le travail. Ce ne sont pas des mesures : les chiffres réels sont dans le parcours, au-dessus.')}</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <Metric
-          label={t('Durée machine prévue')}
-          value={duration(prevue)}
-          hint={t('Sert à l\'ordonnanceur, jamais à la facture')}
-        />
-        <Metric
-          label={t('Heures développeur senior')}
-          value={card.estimate.seniorHours ? `${card.estimate.seniorHours} h` : '—'}
-          hint={t('Base de la facture, jamais la durée machine')}
-        />
-      </div>
-
-      {/* L'ÉCART : la seule chose que la prévision apprenne encore, une fois le
-          travail fait. Rien à dire tant que l'un des deux manque. */}
-      {prevue && reelle ? (
-        <p className={cn('text-[13px]', debordement ? 'text-warning' : 'text-faint')}>
-          {t('Durée réelle {v0} — {v1} de la prévision.', { v0: duration(reelle), v1: debordement ? 'nettement au-delà' : 'dans l’ordre' })}</p>
-      ) : null}
-
-      {/* Le compte rendu d'analyse se lit EN ENTIER dans la conversation, mis en
-          forme. En recopier ici un extrait tronqué faisait lire deux fois la
-          même chose, et moins bien. */}
-      {card.estimate.summary ? (
-        <p className="text-[13px] text-faint">
-          {t('Le compte rendu complet de l’analyse est dans l’onglet « Conversation ».')}</p>
-      ) : null}
-    </section>
-  );
-}
+/* Les réglages de l'agent de la carte, le parcours et « ce qui était prévu »
+   vivaient ici, dans l'onglet « Détails » — retiré, avec cet onglet. Le seul
+   bloc repris (`ReglagesAgent`) vit maintenant dans le fil de conversation
+   (`web/src/components/chat.tsx`), affiché une fois la configuration figée. */
 
 /**
  * Un champ de formulaire : l'étiquette au-dessus, le champ en dessous sur
@@ -1007,29 +582,6 @@ export function Champ({
       <div className="mt-1.5">{children}</div>
       {aide ? <p className="mt-1 text-[12.5px] leading-relaxed text-faint">{aide}</p> : null}
     </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  hint,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: 'neutral' | 'warning';
-}) {
-  return (
-    <Tooltip label={hint}>
-      <div className="rounded-md border border-border bg-raised px-2 py-1.5">
-        <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
-        <p className={cn('mt-0.5 text-[14.5px] font-medium', tone === 'warning' ? 'text-warning' : 'text-text')}>
-          {value}
-        </p>
-      </div>
-    </Tooltip>
   );
 }
 

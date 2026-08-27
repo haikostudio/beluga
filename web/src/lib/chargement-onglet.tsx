@@ -4,8 +4,8 @@ import * as React from 'react';
  * UN ONGLET QUI VA CHERCHER SES DONNÉES LE DIT, comme un bouton qui part en
  * requête.
  *
- * « Détails » demande le parcours de la carte, « GitHub » le déroulé de ses
- * déploiements. Sur une liaison lente, on cliquait sur l'onglet et il ne se
+ * « GitHub » demande le déroulé de ses déploiements, « Commentaires » sa
+ * liste de notes. Sur une liaison lente, on cliquait sur l'onglet et il ne se
  * passait rien de visible : l'onglet changeait, le contenu restait vide, sans
  * qu'on sache s'il était vide ou s'il arrivait.
  *
