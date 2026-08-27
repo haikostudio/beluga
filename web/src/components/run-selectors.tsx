@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Check, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import { AccountQuota, EngineInfo, RunConfig, messageDeRepli } from '@haikodev/shared';
-import { Button, DialogTitle, Drawer } from '@/components/ui';
+import { Button, DialogTitle, Drawer, Switch } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 
@@ -218,6 +218,13 @@ export function RunSelectors({
               onClick={() => setSousVue('compte')}
             />
           ) : null}
+          {/* Plan : une bascule, pas une liste — activée, l'agent prépare sans
+              agir. Éteinte par défaut. Placée en dernier, sous « Compte ». */}
+          <LigneBascule
+            titre={t('Plan')}
+            actif={choix?.mode === 'plan'}
+            onChange={(actif) => onSelect({ mode: actif ? 'plan' : 'direct' })}
+          />
         </div>
       </Drawer>
 
@@ -341,6 +348,37 @@ function LigneApercu({
         <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
       </span>
     </button>
+  );
+}
+
+/**
+ * Une ligne de l'aperçu qui bascule DIRECTEMENT, sans ouvrir de sous-liste :
+ * un seul état à choisir (allumé / éteint), pas une valeur parmi d'autres.
+ */
+function LigneBascule({
+  titre,
+  actif,
+  onChange,
+}: {
+  titre: string;
+  actif: boolean;
+  onChange: (actif: boolean) => void;
+}) {
+  return (
+    <div
+      role="menuitem"
+      data-selecteur="plan"
+      data-valeur={actif ? t('Activé') : t('Désactivé')}
+      className="flex items-center justify-between gap-2 rounded-md px-2 py-2"
+    >
+      <span className="flex min-w-0 flex-col items-start gap-0.5">
+        <span className="text-[11px] uppercase tracking-wide text-faint">{titre}</span>
+        <span className="max-w-[220px] truncate text-[14px] text-text">
+          {actif ? t('Activé') : t('Désactivé')}
+        </span>
+      </span>
+      <Switch checked={actif} onCheckedChange={onChange} data-mode-plan={actif ? 'actif' : 'inactif'} />
+    </div>
   );
 }
 
