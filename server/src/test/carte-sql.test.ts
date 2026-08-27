@@ -241,3 +241,39 @@ test('les cartes d’un projet se relisent en lot, listes filles comprises', () 
   assert.deepEqual(cartes[0].labels, CARTE_ANCIENNE.labels);
   assert.deepEqual(cartes[0].attachments, CARTE_ANCIENNE.attachments);
 });
+
+/* ------------------------------------------------------------------ */
+/* UNE LIGNE ILLISIBLE N'EMPORTE PLUS LE PROJET                        */
+/*                                                                     */
+/* Le 27/08/2026, UNE carte restée en « done » après la migration 42    */
+/* a rendu TOUS les projets inaccessibles : `listCards` relisait le lot */
+/* d'un bloc, la ligne refusée par le modèle faisait tomber l'envoi de  */
+/* `project.snapshot` et le tick de l'ordonnanceur. L'interface se      */
+/* chargeait, vide, et le service redémarrait en boucle.                */
+/* ------------------------------------------------------------------ */
+
+test('une carte à la colonne inconnue est écartée, sans emporter les autres', () => {
+  getDb()
+    .prepare(
+      `INSERT INTO cards (id, project_id, column_key, position, title, data, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      'carte-colonne-disparue',
+      CARTE_ANCIENNE.projectId,
+      'done',
+      1,
+      'Carte restée sur une colonne retirée par une migration',
+      '{}',
+      1,
+      1,
+    );
+
+  // La lecture ne jette pas : elle rend les cartes lisibles, sans l'intruse.
+  const cartes = store.listCards(CARTE_ANCIENNE.projectId);
+  assert.equal(cartes.length, 1);
+  assert.equal(cartes[0].id, CARTE_ANCIENNE.id);
+  assert.ok(!cartes.some((c) => c.id === 'carte-colonne-disparue'));
+
+  getDb().prepare('DELETE FROM cards WHERE id = ?').run('carte-colonne-disparue');
+});
