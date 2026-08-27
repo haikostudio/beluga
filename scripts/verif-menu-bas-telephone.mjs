@@ -5,16 +5,20 @@
  *
  *  - le bloc est DÉTACHÉ des trois bords (marge à gauche, à droite, en bas) ;
  *  - aucun filet horizontal sur toute la largeur au-dessus du menu ;
- *  - le menu ne montre plus que DEUX boutons (« Tableau », « Chef »), la colonne
- *    du milieu étant laissée au module de voix ; leurs deux icônes diffèrent et
- *    leurs libellés tiennent sur une ligne ;
- *  - le module de voix se pose AU CENTRE du menu, centré horizontalement, et
- *    déborde un peu en haut et en bas de la barre ;
- *  - le rond ne recouvre pas les deux boutons (ils restent cliquables), et un
- *    appui déplie le panneau ;
+ *  - le menu montre TROIS boutons : « Tableau », le rond du centre (nouvel
+ *    agent), « Fichiers » ; les deux libellés tiennent sur une ligne et leurs
+ *    icônes diffèrent ;
+ *  - LA BARRE RESPIRE AUTANT EN HAUT ET EN BAS QU'À GAUCHE ET À DROITE : les
+ *    blancs mesurés sur ses quatre côtés sont égaux à un pixel près, et les
+ *    trois boutons ont la même hauteur ;
+ *  - LE ROND DU CENTRE EST PLUS FONCÉ QUE LA BARRE, sinon on ne le voit pas ;
+ *  - la barre se DISTINGUE de la bande qui la porte (fonds différents), la bande
+ *    reprenant elle le fond de la zone affichée au-dessus ;
  *  - le contenu du tableau s'arrête au-dessus du menu (place réservée) ;
- *  - au-dessus du seuil téléphone, aucun menu du bas, et le module redevient
- *    flottant (déplaçable, poignée présente).
+ *  - au-dessus du seuil téléphone, aucun menu du bas.
+ *
+ * Le module de voix ne vit PLUS dans ce menu (ses réglages sont passés dans
+ * Réglages › Voix) : la place du centre revient au bouton « nouvel agent ».
  *
  * Rien n'est écrit dans la base à part la session d'essai, retirée en partant.
  *
@@ -118,8 +122,12 @@ async function main() {
           icone: icone ? icone.getAttribute('class') || '' : '',
           formes: icone ? icone.innerHTML : '',
           hauteur: r.height,
+          top: r.top,
+          bottom: r.bottom,
           left: r.left,
           right: r.right,
+          fond: getComputedStyle(bouton).backgroundColor,
+          rond: parseFloat(getComputedStyle(bouton).borderTopLeftRadius) >= 999,
           debordement: bouton.scrollWidth > bouton.clientWidth + 1,
           lignes: bouton.getClientRects().length,
         };
@@ -166,18 +174,19 @@ async function main() {
       `${Math.round(ecran.hauteur - bloc.bottom)} px`,
     );
     record('les coins du bloc sont arrondis', mesures.rayon >= 8, `${mesures.rayon} px`);
-    record('le bloc porte une ombre', mesures.ombre !== 'none', mesures.ombre);
-    // LE FOND DU MENU PROLONGE CELUI DU CONTENU. La bande du menu ET la barre
-    // elle-même reprennent la teinte de la zone affichée au-dessus : plus de
-    // bande `--bg` noire sous un tableau gris.
+    // LE FOND DE LA BANDE PROLONGE CELUI DU CONTENU. La bande qui porte le menu
+    // reprend la teinte de la zone affichée au-dessus : plus de bande `--bg`
+    // noire sous un tableau gris.
     record(
       'le fond du menu reprend celui du contenu au-dessus',
       !!mesures.fondContenu && mesures.fondNav === mesures.fondContenu,
       `menu ${mesures.fondNav} / contenu ${mesures.fondContenu}`,
     );
+    // …ET LA BARRE, ELLE, SE VOIT : c'est le bloc intérieur (`--surface`) qui
+    // dessine le menu. Même teinte que la bande, il disparaîtrait.
     record(
-      'la barre du menu a le même fond que la bande qui la porte',
-      mesures.fondBloc === mesures.fondNav,
+      'la barre se distingue de la bande qui la porte',
+      mesures.fondBloc !== mesures.fondNav,
       `barre ${mesures.fondBloc} / bande ${mesures.fondNav}`,
     );
 
@@ -188,21 +197,86 @@ async function main() {
     );
 
     record(
-      'le menu ne montre plus que deux boutons',
-      mesures.boutons.length === 2,
-      mesures.boutons.map((bouton) => bouton.texte).join(' / ') || 'aucun',
+      'le menu montre trois boutons : Tableau, le rond du centre, Fichiers',
+      mesures.boutons.length === 3,
+      mesures.boutons.map((bouton) => bouton.texte || '(rond)').join(' / ') || 'aucun',
     );
-    const icones = mesures.boutons.map((bouton) => bouton.formes);
+    const nommes = mesures.boutons.filter((bouton) => bouton.texte);
+    const icones = nommes.map((bouton) => bouton.formes);
     record(
-      'les deux icônes sont différentes',
-      new Set(icones).size === mesures.boutons.length && mesures.boutons.length === 2,
-      mesures.boutons.map((bouton) => bouton.texte).join(' / '),
+      'les deux icônes de destination sont différentes',
+      new Set(icones).size === nommes.length && nommes.length === 2,
+      nommes.map((bouton) => bouton.texte).join(' / '),
     );
-    for (const bouton of mesures.boutons) {
+    for (const bouton of nommes) {
       record(
         `le libellé « ${bouton.texte} » tient sur une ligne`,
         !bouton.debordement && bouton.hauteur <= 40,
         `hauteur ${Math.round(bouton.hauteur)} px${bouton.debordement ? ', déborde' : ''}`,
+      );
+    }
+
+    /*
+     * LA BARRE RESPIRE PAREIL SUR SES QUATRE CÔTÉS. La hauteur du menu était
+     * dictée par le rond du centre, bien plus grand que les deux boutons : il
+     * restait 12 px de blanc en haut et en bas contre 4 px sur les côtés. Les
+     * trois boutons partagent maintenant la même hauteur, et les blancs mesurés
+     * sur les quatre côtés du bloc se valent.
+     */
+    const hauts = mesures.boutons.map((bouton) => bouton.top - bloc.top);
+    const bas = mesures.boutons.map((bouton) => bloc.bottom - bouton.bottom);
+    const gaucheBloc = mesures.boutons[0] ? mesures.boutons[0].left - bloc.left : NaN;
+    const droiteBloc = mesures.boutons.length
+      ? bloc.right - mesures.boutons[mesures.boutons.length - 1].right
+      : NaN;
+    const cotes = [...hauts, ...bas, gaucheBloc, droiteBloc];
+    const ecartCotes = Math.max(...cotes) - Math.min(...cotes);
+    record(
+      'la barre respire autant en haut et en bas qu\u2019à gauche et à droite',
+      Number.isFinite(ecartCotes) && ecartCotes <= 1,
+      `haut ${hauts.map((v) => Math.round(v)).join('/')} px, bas ${bas
+        .map((v) => Math.round(v))
+        .join('/')} px, gauche ${Math.round(gaucheBloc)} px, droite ${Math.round(droiteBloc)} px`,
+    );
+    const hauteurs = mesures.boutons.map((bouton) => Math.round(bouton.hauteur));
+    record(
+      'les trois boutons ont la même hauteur',
+      new Set(hauteurs).size === 1,
+      `${hauteurs.join(' / ')} px`,
+    );
+
+    /*
+     * LE ROND DU CENTRE EST PLUS FONCÉ QUE LA BARRE. Il portait exactement le
+     * fond de la barre : le rond ne se voyait pas. On le juge sur la LUMINOSITÉ
+     * réellement peinte — le fond du rond est translucide, on le recompose donc
+     * sur celui de la barre — pour que le contrôle tienne dans les douze
+     * palettes, claires comprises.
+     */
+    const rond = mesures.boutons.find((bouton) => bouton.rond && !bouton.texte);
+    record('le bouton du centre est un rond', !!rond, rond ? '' : 'rond introuvable');
+    if (rond) {
+      const lire = (couleur) => {
+        const n = (couleur || '').match(/[\d.]+/g);
+        if (!n || n.length < 3) return null;
+        return { r: +n[0], v: +n[1], b: +n[2], a: n.length > 3 ? +n[3] : 1 };
+      };
+      const fondBarre = lire(mesures.fondBloc);
+      const dessus = lire(rond.fond);
+      const clarte = (c) => 0.2126 * c.r + 0.7152 * c.v + 0.0722 * c.b;
+      const pose =
+        fondBarre && dessus
+          ? {
+              r: dessus.r * dessus.a + fondBarre.r * (1 - dessus.a),
+              v: dessus.v * dessus.a + fondBarre.v * (1 - dessus.a),
+              b: dessus.b * dessus.a + fondBarre.b * (1 - dessus.a),
+            }
+          : null;
+      record(
+        'le rond du centre est plus foncé que la barre',
+        !!pose && !!fondBarre && clarte(pose) < clarte(fondBarre) - 2,
+        pose && fondBarre
+          ? `rond ${clarte(pose).toFixed(1)} / barre ${clarte(fondBarre).toFixed(1)}`
+          : `rond ${rond.fond} / barre ${mesures.fondBloc}`,
       );
     }
 
@@ -212,65 +286,35 @@ async function main() {
       mesures.contenu ? `contenu ${Math.round(mesures.contenu.bottom)} / menu ${Math.round(mesures.nav.top)}` : 'contenu introuvable',
     );
 
-    // LE MODULE DE VOIX AU CENTRE DU MENU. Il se pose sur la barre, centré, et
-    // déborde un peu en haut comme en bas — un bouton d'action, pas une pièce du
-    // menu. Il ne recouvre pas les deux boutons : ils restent cliquables.
-    const voix = mesures.voix;
-    record('le module de voix est repéré', !!voix && !!voix.top, voix ? '' : 'non repéré');
-    if (voix) {
-      const centreVoix = (voix.left + voix.right) / 2;
-      const centreEcran = ecran.largeur / 2;
+    // LE ROND DU CENTRE RESTE DANS LA BARRE, entre les deux destinations : il ne
+    // les recouvre pas, elles restent cliquables.
+    if (rond) {
+      const gaucheBouton = mesures.boutons[0];
+      const droiteBouton = mesures.boutons[2];
       record(
-        'le module de voix est centré horizontalement',
-        Math.abs(centreVoix - centreEcran) <= 2,
-        `centre voix ${Math.round(centreVoix)} / écran ${Math.round(centreEcran)}`,
-      );
-      const centreVoixY = (voix.top + voix.bottom) / 2;
-      const centreBloc = (bloc.top + bloc.bottom) / 2;
-      record(
-        'le rond est centré sur la barre du menu',
-        Math.abs(centreVoixY - centreBloc) <= 3,
-        `centre voix ${Math.round(centreVoixY)} / barre ${Math.round(centreBloc)}`,
-      );
-      record(
-        'le rond déborde en haut et en bas de la barre',
-        voix.top < bloc.top - 1 && voix.bottom > bloc.bottom + 1,
-        `voix ${Math.round(voix.top)}–${Math.round(voix.bottom)} / barre ${Math.round(bloc.top)}–${Math.round(bloc.bottom)}`,
-      );
-      const gauche = mesures.boutons[0];
-      const droite = mesures.boutons[1];
-      record(
-        'le rond ne recouvre pas les deux boutons',
-        !!gauche && !!droite && voix.left > gauche.right && voix.right < droite.left,
-        gauche && droite
-          ? `rond ${Math.round(voix.left)}–${Math.round(voix.right)}, boutons ≤${Math.round(gauche.right)} et ≥${Math.round(droite.left)}`
+        'le rond du centre ne recouvre pas les deux destinations',
+        !!gaucheBouton &&
+          !!droiteBouton &&
+          rond.left >= gaucheBouton.right &&
+          rond.right <= droiteBouton.left,
+        gaucheBouton && droiteBouton
+          ? `rond ${Math.round(rond.left)}\u2013${Math.round(rond.right)}, boutons \u2264${Math.round(
+              gaucheBouton.right,
+            )} et \u2265${Math.round(droiteBouton.left)}`
           : 'boutons introuvables',
+      );
+      const centreRond = (rond.left + rond.right) / 2;
+      record(
+        'le rond du centre est centré sur l\u2019écran',
+        Math.abs(centreRond - ecran.largeur / 2) <= 2,
+        `centre rond ${Math.round(centreRond)} / écran ${Math.round(ecran.largeur / 2)}`,
       );
     }
 
-    // Un appui déplie le panneau du module (le module n'est pas déplaçable ici :
-    // l'appui sert donc bien à ouvrir).
-    const module = page.locator('[data-module-voix]');
-    await module.tap();
-    await page.waitForTimeout(500);
-    record(
-      'un appui déplie le module de voix',
-      (await module.getAttribute('data-ouvert')) !== null,
-      `data-ancre-menu ${(await module.getAttribute('data-ancre-menu')) !== null ? 'oui' : 'non'}`,
-    );
-    // On referme pour ne pas fausser la mesure de recadrage au changement d'écran.
-    await page.tap('body', { position: { x: 10, y: 200 } });
-    await page.waitForTimeout(400);
-
-    // Au-dessus du seuil téléphone : plus aucun menu du bas, et le module de voix
-    // redevient flottant et déplaçable (la poignée revient à la souris).
+    // Au-dessus du seuil téléphone : plus aucun menu du bas.
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.waitForTimeout(600);
     record('aucun menu du bas sur ordinateur', !(await menu.isVisible()));
-    record(
-      'le module de voix n’est plus ancré au menu sur ordinateur',
-      (await module.getAttribute('data-ancre-menu')) === null,
-    );
   } finally {
     await browser.close();
     retirerSession(cookie);
