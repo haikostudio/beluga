@@ -25,7 +25,7 @@ let db: DB | null = null;
  * Migrations NUMÉROTÉES, appliquées automatiquement au démarrage (PLAN §3).
  * On n'en réécrit jamais une : on en ajoute une nouvelle.
  */
-const MIGRATIONS: {
+export const MIGRATIONS: {
   id: number;
   name: string;
   sql: string;
@@ -1198,6 +1198,33 @@ const MIGRATIONS: {
         cree_le INTEGER NOT NULL
       );
       CREATE UNIQUE INDEX idx_sites_surveilles_url ON sites_surveilles(url);
+    `,
+  },
+  {
+    id: 41,
+    name: 'role-chef-d-orchestre-devenu-cadrage',
+    siTable: 'agents',
+    // LE CHEF D'ORCHESTRE EST PARTI, SES AGENTS SONT RESTÉS.
+    //
+    // Le rôle « orchestrator » a été retiré du code et de `AgentRole` avec le
+    // chef d'orchestre, mais RIEN n'a réparé les lignes déjà écrites. Or
+    // `listAgents()` relit chaque ligne au travers du modèle : une seule ligne
+    // portant l'ancien rôle faisait donc JETER la lecture ENTIÈRE — et avec
+    // elle « arrêter tous les agents », qui commence par cette liste. Un rôle
+    // disparu du code n'est pas un détail d'archive : il coupe une commande
+    // vivante.
+    //
+    // Le successeur du chef est l'agent de CADRAGE : c'est lui qui reprend la
+    // demande libre et propose une carte. On y range donc ces tours anciens,
+    // dans la colonne `role` ET dans le JSON relu par le modèle — les deux, ou
+    // la lecture retomberait sur l'ancienne valeur. Le rôle de cadrage ne
+    // déplace aucune carte : rien ne bouge sur le tableau.
+    sql: `
+      UPDATE agents
+      SET role = 'cadrage',
+          data = json_set(data, '$.role', 'cadrage')
+      WHERE role = 'orchestrator'
+         OR json_extract(data, '$.role') = 'orchestrator';
     `,
   },
 ];
