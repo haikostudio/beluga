@@ -1680,6 +1680,35 @@ export function getMessage(id: string): Message | null {
  * n'envoie que du texte et ne connaît pas cette bulle. On la retrouve donc ici,
  * par l'index partiel `a_questions`, sans relire tout le fil.
  */
+/**
+ * LA QUESTION ENCORE OUVERTE SUR LE DERNIER MESSAGE DE CET AGENT.
+ *
+ * Un tour peut se refermer sur une question sans réponse : plus personne
+ * n'attend dans le registre, mais la bulle, elle, garde ses boutons
+ * « Répondre » et « Annuler ». Ce qu'on écrit alors dans la barre doit
+ * toujours répondre à cette question — sinon elle reste ouverte pour
+ * toujours, avec son triangle orange. On ne regarde QUE le dernier message :
+ * une vieille question, plus bas dans le fil, n'a pas à avaler une demande
+ * nouvelle.
+ */
+export function questionOuverteDuDernierMessage(
+  agentId: string,
+): { messageId: string; questionId: string; texteLibre: boolean } | null {
+  const row = getDb()
+    .prepare('SELECT data FROM messages WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1')
+    .get(agentId) as { data: string } | undefined;
+  if (!row) return null;
+  try {
+    const message = Message.parse(JSON.parse(row.data));
+    const question = message.questions.find((q) => !q.answer && !q.cancelled);
+    return question
+      ? { messageId: message.id, questionId: question.id, texteLibre: question.allowFreeText }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function messageDeLaQuestion(agentId: string, questionId: string): Message | null {
   const rows = getDb()
     .prepare(

@@ -853,22 +853,34 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
        * compris. La barre répond donc à la question, par le MÊME chemin que le
        * bouton de la bulle (`texteRepondALaQuestion`).
        */
-      const questionOuverte = questionEnAttenteDeLAgent(cmd.agentId);
-      const questionARepondre = texteRepondALaQuestion({
-        questionEnAttente: questionOuverte,
-        texte: cmd.text,
-      });
-      if (questionARepondre) {
-        const porteur = store.messageDeLaQuestion(cmd.agentId, questionARepondre);
-        if (porteur) {
-          return handleCommand({
-            type: 'question.answer',
+      const enAttente = questionEnAttenteDeLAgent(cmd.agentId);
+      /*
+       * ET MÊME UN TOUR DÉJÀ REFERMÉ : plus personne n'attend dans le registre,
+       * mais la bulle du DERNIER message garde sa question ouverte, avec ses
+       * boutons. Y répondre par la barre la referme et relance l'agent, comme
+       * le ferait le bouton « Répondre ».
+       */
+      const porteur = enAttente ? store.messageDeLaQuestion(cmd.agentId, enAttente) : null;
+      const ouverte = porteur
+        ? {
             messageId: porteur.id,
-            questionId: questionARepondre,
-            answer: cmd.text,
-            attachments: cmd.attachments,
-          } as ClientEnvelope['cmd']);
-        }
+            questionId: enAttente!,
+            texteLibre: porteur.questions.find((q) => q.id === enAttente)?.allowFreeText ?? true,
+          }
+        : store.questionOuverteDuDernierMessage(cmd.agentId);
+      const questionARepondre = texteRepondALaQuestion({
+        questionEnAttente: ouverte?.questionId ?? null,
+        texte: cmd.text,
+        texteLibreAutorise: ouverte?.texteLibre,
+      });
+      if (questionARepondre && ouverte) {
+        return handleCommand({
+          type: 'question.answer',
+          messageId: ouverte.messageId,
+          questionId: questionARepondre,
+          answer: cmd.text,
+          attachments: cmd.attachments,
+        } as ClientEnvelope['cmd']);
       }
 
       /*

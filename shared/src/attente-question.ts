@@ -200,7 +200,14 @@ export function texteRepondALaQuestion(entree: {
   questionEnAttente?: string | null;
   /** Ce qui a été écrit dans la barre. */
   texte: string;
+  /**
+   * La question accepte-t-elle une réponse écrite ? Une question à choix PUR
+   * (aucun texte libre) attend un clic sur une option : ce qu'on écrit alors
+   * n'est pas sa réponse, c'est une demande de plus.
+   */
+  texteLibreAutorise?: boolean;
 }): string | null {
   if (!entree.questionEnAttente) return null;
+  if (entree.texteLibreAutorise === false) return null;
   return entree.texte.trim() ? entree.questionEnAttente : null;
 }
