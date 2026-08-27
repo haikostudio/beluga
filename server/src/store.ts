@@ -1674,6 +1674,30 @@ export function getMessage(id: string): Message | null {
   return row ? Message.parse(JSON.parse(row.data)) : null;
 }
 
+/**
+ * LE MESSAGE QUI PORTE CETTE QUESTION. Répondre à une question demande la bulle
+ * où elle vit ; quand la réponse arrive par la BARRE D'ÉCRITURE, le navigateur
+ * n'envoie que du texte et ne connaît pas cette bulle. On la retrouve donc ici,
+ * par l'index partiel `a_questions`, sans relire tout le fil.
+ */
+export function messageDeLaQuestion(agentId: string, questionId: string): Message | null {
+  const rows = getDb()
+    .prepare(
+      `SELECT data FROM messages WHERE agent_id = ? AND a_questions = 1
+       ORDER BY created_at DESC LIMIT 50`,
+    )
+    .all(agentId) as { data: string }[];
+  for (const row of rows) {
+    try {
+      const message = Message.parse(JSON.parse(row.data));
+      if (message.questions.some((q) => q.id === questionId)) return message;
+    } catch {
+      /* message illisible : on l'ignore */
+    }
+  }
+  return null;
+}
+
 export function saveMessage(message: Message): Message {
   const value = Message.parse(message);
   getDb()

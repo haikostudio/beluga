@@ -175,3 +175,32 @@ export function instantDuTemoin(maintenant: number, attendDepuis?: number): numb
 
 /** Ce que la barre d'écriture dit pendant que l'agent attend. */
 export const TEXTE_BARRE_EN_ATTENTE = 'L’agent attend votre réponse à sa question…';
+
+/* ------------------------------------------------------------------ */
+/* LA BARRE D'ÉCRITURE RÉPOND À LA QUESTION                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN MESSAGE ÉCRIT PENDANT QU'UNE QUESTION ATTEND EST LA RÉPONSE À CETTE
+ * QUESTION — pas une demande de plus.
+ *
+ * La bulle de la question portait son PROPRE champ de saisie, à côté de la
+ * barre d'écriture de la conversation : deux endroits pour écrire la même
+ * chose. Celui qui répondait dans la barre — le geste naturel, celui que le
+ * texte de la barre invite d'ailleurs à faire — voyait sa phrase tomber dans la
+ * FILE D'ATTENTE de l'agent, qui ne la lirait qu'après avoir fini. La question,
+ * elle, restait ouverte pour toujours : son bouton « Annuler » ne partait
+ * jamais, et le triangle orange non plus.
+ *
+ * La barre d'écriture devient donc la voie de réponse dès qu'une question
+ * attend. Un texte vide ne répond rien.
+ */
+export function texteRepondALaQuestion(entree: {
+  /** La question ouverte de cet agent, s'il y en a une. */
+  questionEnAttente?: string | null;
+  /** Ce qui a été écrit dans la barre. */
+  texte: string;
+}): string | null {
+  if (!entree.questionEnAttente) return null;
+  return entree.texte.trim() ? entree.questionEnAttente : null;
+}
