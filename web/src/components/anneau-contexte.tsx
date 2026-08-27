@@ -101,7 +101,9 @@ export function AnneauContexte({ agent }: { agent: Agent | undefined }) {
         <button
           type="button"
           data-anneau-contexte={usage.percentage}
-          aria-label={t('Contexte du modèle : {n} % — voir le détail', { n: usage.percentage })}
+          // Un repère technique ne change JAMAIS de langue : l'infobulle
+          // au-dessus, elle, est bien traduite.
+          aria-label="Contexte du modèle" 
           onClick={() => setOuvert(true)}
           className={cn(
             'flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[12.5px] tabular-nums hover:bg-raised',
