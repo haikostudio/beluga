@@ -204,7 +204,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
     (peut('valider').affiche ||
     (card.column === 'planned' && !cadrageEnCours) ||
     peut('terminer').affiche ||
-    (peut('publier').affiche && ongletActif === 'chat') ||
     peut('reprendre').affiche ||
     !!card.closureDoc);
 
@@ -351,44 +350,57 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
 
             Sur téléphone, cette barre se replie quand on descend dans le
             contenu et revient quand on remonte — l'enveloppe se ferme en
-            hauteur, l'onglet actif reste choisi. Sur ordinateur, rien ne bouge. */}
+            hauteur, l'onglet actif reste choisi. Sur ordinateur, rien ne bouge.
+
+            Style verre (glassmorphism) : un SEUL conteneur porte un fond et
+            un flou — plus l'ancien empilement piste (`bg-surface` sur
+            `TabsList`) + onglet actif (`bg-raised`), qui doublait le cadre.
+            La pilule de piste est neutralisée plus bas ; seul l'onglet actif
+            garde un fond, en creux (ombre intérieure) plutôt qu'en relief. */}
         <div
           data-barre-onglets
           data-cachee={telephone && !barreVisible ? '' : undefined}
           className={cn(
-            'mx-4 mt-1 flex-none overflow-hidden rounded-md bg-raised transition-all duration-200',
+            'mx-4 mt-1 flex-none overflow-hidden rounded-md border border-border/40 bg-raised/35 backdrop-blur-md transition-all duration-200',
             telephone && !barreVisible && 'max-h-0 opacity-0',
           )}
         >
-        {/* La barre d'onglets flottait sur le fond du tiroir (`bg-surface`
-            des deux côtés) : plus aucune limite visible depuis que la
-            bordure des thèmes plats s'efface. Elle pose maintenant son
-            propre fond — le même `bg-raised` que le champ de description,
-            plus bas — pour se détacher du tiroir comme un bloc à part ; la
-            piste de la pilule (`bg-surface`, posée par `TabsList`) et
-            l'onglet actif (`bg-raised`) gardent leur écart d'avant. */}
         <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
-          <TabsList className="w-full border border-border">
+          <TabsList className="w-full border-0 bg-transparent">
             {/* La décision se prend DANS ce fil : l'onglet porte le même
                 triangle que la carte du tableau, sinon le tiroir ouvert
                 n'apprendrait plus rien. */}
-            <TabsTrigger value="chat" className="flex-1 gap-1">
-              
+            <TabsTrigger
+              value="chat"
+              className="flex-1 gap-1 data-[state=active]:bg-bg/55 data-[state=active]:shadow-[inset_0_1px_3px_rgba(0,0,0,0.28)]"
+            >
+
 {t('Conversation')}
 <RepereAttention compte={decisions} data-attention-carte={card.id} />
             </TabsTrigger>
             {/* Cet onglet va CHERCHER ses données : tant qu'elles ne sont pas
                 là, une petite roue le dit — sinon on ne sait pas si l'onglet
                 est vide ou s'il arrive. */}
-            <TabsTrigger value="comments" className="flex-1 gap-1">
+            <TabsTrigger
+              value="comments"
+              className="flex-1 gap-1 data-[state=active]:bg-bg/55 data-[state=active]:shadow-[inset_0_1px_3px_rgba(0,0,0,0.28)]"
+            >
 
 {t('Commentaires')}
 <RoueDOnglet visible={!!chargement.comments} />
             </TabsTrigger>
-            <TabsTrigger value="billing" className="flex-1">{t('Facturation')}</TabsTrigger>
+            <TabsTrigger
+              value="billing"
+              className="flex-1 data-[state=active]:bg-bg/55 data-[state=active]:shadow-[inset_0_1px_3px_rgba(0,0,0,0.28)]"
+            >
+              {t('Facturation')}
+            </TabsTrigger>
             {simplifie ? null : (
-            <TabsTrigger value="github" className="flex-1 gap-1">
-              
+            <TabsTrigger
+              value="github"
+              className="flex-1 gap-1 data-[state=active]:bg-bg/55 data-[state=active]:shadow-[inset_0_1px_3px_rgba(0,0,0,0.28)]"
+            >
+
 {t('GitHub')}
 <RoueDOnglet visible={!!chargement.github} />
             </TabsTrigger>
@@ -504,13 +516,6 @@ function CardPanelBody({ card, onClose }: { card: Card; onClose: () => void }) {
                   <Check className="h-3 w-3" />  {t('Terminer la tâche')}
 </Button>
               </Geste>
-            ) : null}
-            {/* Visible uniquement depuis la conversation : dans Facturation ou
-                GitHub, ce geste de publication n'a pas sa place. */}
-            {peut('publier').affiche && ongletActif === 'chat' ? (
-              <Button size="sm" variant="default" onClick={() => client.moveCard(card, 'to_deploy')}>
-                <Rocket className="h-3 w-3" />  {t('Mettre en file de publication')}
-</Button>
             ) : null}
             {/*
                 Le seul chemin volontaire pour ressortir une carte d'une fin de
