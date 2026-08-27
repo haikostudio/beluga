@@ -2448,54 +2448,6 @@ export function CardTile({
         ) : null}
 
         {/*
-         * Le triangle DIT qu'une décision attend ; ce bouton y EMMÈNE. Sans
-         * lui, il fallait deviner qu'ouvrir la carte menait au champ de
-         * réponse — le repère montrait un travail à faire sans dire par où le
-         * prendre. Il ne s'affiche que lorsqu'il a du sens, comme tout bouton
-         * de décision, et ouvre le tiroir sur la conversation, là où la
-         * question et son champ attendent.
-         */}
-        {decisions > 0 ? (
-          <div className="mt-1.5 flex items-stretch gap-1">
-            <button
-              type="button"
-              data-repondre-carte={card.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpen();
-              }}
-              className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded border border-warning/40 bg-warning/10 px-1.5 py-1 text-[12px] font-medium leading-snug text-warning transition-colors hover:bg-warning/20"
-            >
-              <MessageSquare className="h-3 w-3 shrink-0" />
-              {decisions > 1 ? t('Répondre ({decisions})', { decisions }) : t('Répondre')}
-            </button>
-            {/*
-             * ET LA SORTIE, À CÔTÉ DE L'ENTRÉE. Une question peut dormir dans le
-             * fil d'un ancien agent, hors de vue : le tiroir s'ouvrait alors sur
-             * une conversation sans bloc de réponse et sans rien à annuler. Ce
-             * bouton coupe TOUTES les questions ouvertes de la carte sans avoir
-             * à les retrouver — même geste sur téléphone et sur ordinateur.
-             */}
-            <button
-              type="button"
-              data-annuler-question-carte={card.id}
-              title={t('Fermer la question sans répondre')}
-              aria-label="Fermer la question sans répondre"
-              onClick={(event) => {
-                event.stopPropagation();
-                client
-                  .call({ type: 'question.cancelCarte', cardId: card.id })
-                  .catch((err: any) => client.pushToast('error', err?.message ?? 'annulation impossible'));
-              }}
-              className="flex shrink-0 items-center justify-center gap-1 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[12px] font-medium leading-snug text-faint transition-colors hover:bg-warning/20 hover:text-danger"
-            >
-              <X className="h-3 w-3 shrink-0" />
-              {t('Annuler')}
-            </button>
-          </div>
-        ) : null}
-
-        {/*
          * La phrase du dernier tour, à l'endroit où l'on cherche l'état de la
          * carte. TROIS tons, jamais un seul. Une carte dont le CODE EST LÀ
          * (`natureDeLaMention` → « travail ») porte une information bleue, celle
