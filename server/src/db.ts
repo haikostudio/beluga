@@ -36,8 +36,14 @@ export const MIGRATIONS: {
    * tombait sur « no such table », et faisait échouer un test qui n'a rien à voir.
    * Nommer la table attendue REPORTE la migration au lieu de la faire échouer :
    * non inscrite, elle se rejouera dès que la table sera là.
+   *
+   * ON NOMME TOUTES LES TABLES TOUCHÉES, PAS SEULEMENT LA PRINCIPALE. Une
+   * migration qui nettoie une carte touche aussi ses étiquettes, ses agents et
+   * leur file d'attente : n'en garder qu'une laissait passer la migration sur
+   * une base partielle, qui tombait ensuite sur la DEUXIÈME table — et le
+   * report ne servait plus à rien. La liste entière se déclare donc ici.
    */
-  siTable?: string;
+  siTable?: string | string[];
 }[] = [
   {
     id: 1,
@@ -712,7 +718,7 @@ export const MIGRATIONS: {
   {
     id: 24,
     name: 'refaire-le-decompte-de-taches-porte-par-les-agents',
-    siTable: 'agents',
+    siTable: ['agents', 'messages'],
     // LE MÊME TRAVAIL, DEUX DÉCOMPTES QUI NE DISENT PAS PAREIL.
     //
     // Les étapes vivent sur les messages ; le décroché du TABLEAU, lui, lit un
@@ -1248,7 +1254,7 @@ export const MIGRATIONS: {
   {
     id: 43,
     name: 'nettoyer-carte-tache-oubliee-e165f7a1',
-    siTable: 'cards',
+    siTable: ['cards', 'card_comments', 'card_attachments', 'card_labels', 'queue', 'messages', 'agents'],
     // CARTE DE TÂCHE OUBLIÉE, PERDUE DANS L'INTERFACE.
     //
     // Une carte de décision attendue (colonne « Planifié ») qui n'a jamais reçu
@@ -1294,8 +1300,14 @@ export function openDb(): DB {
 
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.id)) continue;
-    if (migration.siTable && !tableExiste(migration.siTable)) {
-      log.info(`migration ${migration.id} (${migration.name}) reportée : table ${migration.siTable} absente`);
+    const attendues = migration.siTable
+      ? Array.isArray(migration.siTable)
+        ? migration.siTable
+        : [migration.siTable]
+      : [];
+    const absentes = attendues.filter((nom) => !tableExiste(nom));
+    if (absentes.length) {
+      log.info(`migration ${migration.id} (${migration.name}) reportée : table ${absentes.join(', ')} absente`);
       continue;
     }
     const run = database.transaction(() => {
