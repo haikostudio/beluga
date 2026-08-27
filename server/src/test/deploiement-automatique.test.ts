@@ -12,8 +12,7 @@ const MAINTENANT = 1_800_000_000_000;
 function pret(patch: Partial<EtatDuDeploiementAutomatique> = {}): EtatDuDeploiementAutomatique {
   return {
     actif: true,
-    cartesTerminees: 1,
-    cartesADeployer: 0,
+    cartesADeployer: 1,
     cartesEnAttenteDeDecision: 0,
     cartesEnCours: 0,
     cartesQuiVontPartir: 0,
@@ -42,11 +41,11 @@ test('allumé et tout au calme, le lot part', () => {
 
 test('une carte déjà dans « À déployer » part sans demander à être recréée', () => {
   const decision = decisionDeDeploiementAutomatique(
-    pret({ cartesTerminees: 0, cartesADeployer: 1, dernierTravailRenduA: undefined }),
+    pret({ cartesADeployer: 1, dernierTravailRenduA: undefined }),
     MAINTENANT,
   );
   assert.equal(decision.partir, true);
-  assert.match(decision.raison, /déjà prête/);
+  assert.match(decision.raison, /prête/);
 });
 
 /* ------------------------------------------------------------------ */
@@ -82,15 +81,15 @@ test('sans procédure de déploiement, rien ne part', () => {
   assert.match(decision.raison, /procédure/);
 });
 
-test('aucune carte dans « Terminé » ni « À déployer » ne déclenche de publication', () => {
-  const decision = decisionDeDeploiementAutomatique(pret({ cartesTerminees: 0 }), MAINTENANT);
+test('aucune carte dans « À déployer » ne déclenche de publication', () => {
+  const decision = decisionDeDeploiementAutomatique(pret({ cartesADeployer: 0 }), MAINTENANT);
   assert.equal(decision.partir, false);
   assert.match(decision.raison, /rien à déployer/);
 });
 
-test('une carte terminée qui attend une décision ne fait jamais partir le lot à elle seule', () => {
+test('une carte qui attend une décision ne fait jamais partir le lot à elle seule', () => {
   const decision = decisionDeDeploiementAutomatique(
-    pret({ cartesTerminees: 0, cartesEnAttenteDeDecision: 1 }),
+    pret({ cartesADeployer: 0, cartesEnAttenteDeDecision: 1 }),
     MAINTENANT,
   );
   assert.equal(decision.partir, false);
@@ -99,7 +98,7 @@ test('une carte terminée qui attend une décision ne fait jamais partir le lot 
 
 test('une carte qui attend une décision ne bloque pas les AUTRES cartes prêtes', () => {
   const decision = decisionDeDeploiementAutomatique(
-    pret({ cartesTerminees: 1, cartesEnAttenteDeDecision: 1 }),
+    pret({ cartesADeployer: 1, cartesEnAttenteDeDecision: 1 }),
     MAINTENANT,
   );
   assert.equal(decision.partir, true);
@@ -140,7 +139,7 @@ test('sans date de dernier travail connue, le calme ne bloque pas', () => {
 
 test('l’interrupteur éteint passe avant tout autre motif', () => {
   const decision = decisionDeDeploiementAutomatique(
-    pret({ actif: false, agentsAuTravail: 3, cartesTerminees: 0 }),
+    pret({ actif: false, agentsAuTravail: 3, cartesADeployer: 0 }),
     MAINTENANT,
   );
   assert.match(decision.raison, /éteint/);

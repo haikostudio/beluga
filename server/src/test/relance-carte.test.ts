@@ -43,16 +43,16 @@ const CHEMINS_DE_RELANCE = [
   'la reprise d’un travail mis en pause',
 ] as const;
 
-test('depuis « Terminé », TOUT chemin de relance ramène la carte en cours', () => {
+test('depuis « À déployer », TOUT chemin de relance ramène la carte en cours', () => {
   for (const chemin of CHEMINS_DE_RELANCE) {
-    assert.equal(colonneAuDemarrage('done', 'task'), 'running', chemin);
+    assert.equal(colonneAuDemarrage('to_deploy', 'task'), 'running', chemin);
   }
 });
 
 test('déposer une carte terminée dans « En cours » vaut un lancement', () => {
   // Le glissement n'a pas de chemin à lui : il retombe sur le même départ.
-  assert.equal(effetDuDepot('done', 'running'), 'lancer');
-  assert.equal(colonneAuDemarrage('done', 'task'), 'running');
+  assert.equal(effetDuDepot('to_deploy', 'running'), 'lancer');
+  assert.equal(colonneAuDemarrage('to_deploy', 'task'), 'running');
 });
 
 test('une relance ne rouvre jamais une fin de parcours', () => {
@@ -64,7 +64,7 @@ test('une relance ne rouvre jamais une fin de parcours', () => {
 
 test('une relance d’analyse ou de publication laisse la carte terminée', () => {
   for (const role of ['analysis', 'cadrage', 'deploy'] as const) {
-    assert.equal(colonneAuDemarrage('done', role), null, role);
+    assert.equal(colonneAuDemarrage('to_deploy', role), null, role);
   }
 });
 
@@ -156,7 +156,6 @@ test('relancer une carte aboutie grave le drapeau « code déjà enregistré »'
   // Au relancement depuis une fin de travail, le drapeau est posé pour de bon —
   // ce qui rattrape aussi les cartes abouties avant l'existence du drapeau.
   assert.match(corps, /codeDejaEnregistre:/);
-  assert.match(corps, /carte\.column === 'done'/);
   assert.match(corps, /carte\.column === 'to_deploy'/);
 });
 

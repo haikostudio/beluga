@@ -59,8 +59,8 @@ test('chaque phrase d’interruption donne son origine', () => {
 
 test('hors de « Planifié », rien ne se reprend : le bouton n’y est pas', () => {
   assert.equal(carteSeReprend({ ...coupee, column: 'running' }), false);
-  assert.equal(carteSeReprend({ ...coupee, column: 'done' }), false);
   assert.equal(carteSeReprend({ ...coupee, column: 'to_deploy' }), false);
+  assert.equal(carteSeReprend({ ...coupee, column: 'archived' }), false);
 });
 
 test('le pied de colonne ne dit « Tout reprendre » que si TOUTES se reprennent', () => {

@@ -26,7 +26,7 @@ test('une carte à faire ou planifiée se laisse encore modifier', () => {
 });
 
 test('une carte en cours ou terminée fige ses réglages', () => {
-  for (const colonne of ['running', 'done', 'to_deploy', 'archived'] as const) {
+  for (const colonne of ['running', 'to_deploy', 'archived'] as const) {
     const vu = reglagesDeLaCarte({ colonne, carte: PREVU });
     assert.equal(vu.modifiable, false, colonne);
     assert.match(vu.raison ?? '', /démarré/);
@@ -34,7 +34,7 @@ test('une carte en cours ou terminée fige ses réglages', () => {
 });
 
 test("ce qui a servi prime sur ce qui était prévu, compte compris", () => {
-  const vu = reglagesDeLaCarte({ colonne: 'done', carte: PREVU, agent: SERVI });
+  const vu = reglagesDeLaCarte({ colonne: 'to_deploy', carte: PREVU, agent: SERVI });
   assert.equal(vu.source, 'reel');
   assert.equal(vu.engine, 'codex');
   assert.equal(vu.model, 'gpt-5.1-codex-max');
@@ -51,7 +51,7 @@ test("un agent déjà passé fige la carte même revenue en arrière", () => {
 });
 
 test("sans agent retrouvé, le compte mesuré prend le relais", () => {
-  const vu = reglagesDeLaCarte({ colonne: 'done', carte: PREVU, compteMesure: 'claude-1' });
+  const vu = reglagesDeLaCarte({ colonne: 'to_deploy', carte: PREVU, compteMesure: 'claude-1' });
   assert.equal(vu.modifiable, false);
   assert.equal(vu.source, 'prevu');
   assert.equal(vu.compte, 'claude-1');

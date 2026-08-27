@@ -85,7 +85,7 @@ test('le constat du dépôt reste FIN, mais ne décide plus de la clôture', () 
   assert.equal(traceAcquise('non'), false);
   assert.equal(traceAcquise('inconnue'), false);
   assert.equal(traceAcquise('ailleurs'), false);
-  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
+  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'to_deploy');
 });
 
 test('un constat impossible se dit autrement que « rien n’a changé »', () => {
@@ -100,7 +100,7 @@ test('sans trace, la carte se ferme quand même — et le DIT', () => {
   const phrases = new Set<string>();
   for (const trace of ['non', 'inconnue'] as const) {
     const issue = issueDeFinDeTour('running', true, 'task', trace, false);
-    assert.equal(issue.colonne, 'done', `trace « ${trace} »`);
+    assert.equal(issue.colonne, 'to_deploy', `trace « ${trace} »`);
     assert.ok(issue.raison, `trace « ${trace} » : la carte ne se ferme pas en silence`);
     phrases.add(issue.raison!);
   }
@@ -159,7 +159,7 @@ test('la carte d’un agent DÉJÀ « terminé » est rattrapée elle aussi', ()
   recoverAfterRestart();
 
   const apres = store.getCard(c.id)!;
-  assert.notEqual(apres.column, 'done');
+  assert.notEqual(apres.column, 'to_deploy');
   assert.equal(apres.column, 'planned');
   assert.equal(apres.scheduling?.waitingReason, RAISON_COUPE_EN_VOL);
 
@@ -174,12 +174,12 @@ test('la carte d’un agent DÉJÀ « terminé » est rattrapée elle aussi', ()
 test('une carte rendue et laissée ouverte n’est PAS reprise', () => {
   // Aucune marque : son tour avait fini de tout ranger. On n'y touche pas —
   // sinon l'ordonnanceur relancerait tout seul un travail déjà rendu.
-  const c = carte({ column: 'done', scheduling: { asap: false, attempts: 1, restarts: 0 } });
+  const c = carte({ column: 'to_deploy', scheduling: { asap: false, attempts: 1, restarts: 0 } });
 
   recoverAfterRestart();
 
   const apres = store.getCard(c.id)!;
-  assert.equal(apres.column, 'done');
+  assert.equal(apres.column, 'to_deploy');
   assert.equal(apres.scheduling?.waitingReason, undefined);
   assert.equal(apres.scheduling?.restarts, 0);
 });

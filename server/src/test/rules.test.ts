@@ -48,12 +48,12 @@ test('la machine ne peut pas promouvoir vers le lot à publier', () => {
 });
 
 /*
- * « Terminé » fait exception depuis que la carte suit l'état de son agent :
+ * « À déployer » fait exception depuis que la carte suit l'état de son agent :
  * elle y va d'elle-même quand le travail est rendu. Le LANCEMENT, lui, reste un
  * geste humain — garde tenue par la règle de pause, pas par une colonne.
  */
-test('la machine peut en revanche poser une carte en terminé', () => {
-  assert.equal(canMove('machine', 'running', 'done').allowed, true);
+test('la machine peut en revanche poser une carte directement à déployer', () => {
+  assert.equal(canMove('machine', 'running', 'to_deploy').allowed, true);
 });
 
 test("l'utilisateur peut tout déplacer", () => {
@@ -71,7 +71,6 @@ test("l'utilisateur peut tout déplacer", () => {
 test('le gabarit dépend de la colonne', () => {
   assert.equal(templateForColumn('planned'), 'pre_run');
   assert.equal(templateForColumn('running'), 'in_run');
-  assert.equal(templateForColumn('done'), 'in_run');
   assert.equal(templateForColumn('to_deploy'), 'in_run');
   assert.equal(templateForColumn('notes'), 'free');
   assert.equal(templateForColumn(undefined), 'free');

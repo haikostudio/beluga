@@ -160,9 +160,9 @@ test('un personnage remplacé garde son adresse, avec un repère qui casse le ca
   // sert qu'à faire redemander l'image au navigateur.
   assert.equal(imageDuPersonnage('running'), '/personnages/running.png');
   assert.equal(imageDuPersonnage('running', 1_700_000_000_000), '/personnages/running.png?v=1700000000000');
-  assert.equal(portraitDuPersonnage('done', 42), '/personnages/done-rond.png?v=42');
+  assert.equal(portraitDuPersonnage('to_deploy', 42), '/personnages/to_deploy-rond.png?v=42');
   // Un instant absent ou nul ne pose aucun repère : l'adresse reste nue.
-  assert.equal(portraitDuPersonnage('done', 0), '/personnages/done-rond.png');
+  assert.equal(portraitDuPersonnage('to_deploy', 0), '/personnages/to_deploy-rond.png');
   for (const colonne of COLUMN_KEYS) {
     assert.equal(fichierDuPersonnage(colonne, 'silhouette'), `${colonne}.png`);
     assert.equal(fichierDuPersonnage(colonne, 'portrait'), `${colonne}-rond.png`);

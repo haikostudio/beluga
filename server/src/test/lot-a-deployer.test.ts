@@ -15,15 +15,15 @@ test('une carte repassée d’« Archivé » à « À déployer » perd sa date'
   assert.equal(dateDeMiseEnLignePerimee('archived', 'to_deploy'), true);
 });
 
-test('une carte qui revient de « Terminé » vers « À déployer » perd sa date', () => {
+test('une carte qui revient de « En cours » vers « À déployer » perd sa date', () => {
   // Le cas réel : la carte avait été déployée, elle a été retravaillée, puis
   // reposée dans le lot. Sa vieille date l'écartait de tous les lots suivants.
-  assert.equal(dateDeMiseEnLignePerimee('done', 'to_deploy'), true);
+  assert.equal(dateDeMiseEnLignePerimee('running', 'to_deploy'), true);
 });
 
 test('une carte qui QUITTE « À déployer » garde sa date de mise en ligne', () => {
   assert.equal(dateDeMiseEnLignePerimee('to_deploy', 'archived'), false);
-  assert.equal(dateDeMiseEnLignePerimee('to_deploy', 'done'), false);
+  assert.equal(dateDeMiseEnLignePerimee('to_deploy', 'running'), false);
 });
 
 test('un rangement sur place ne périme rien', () => {

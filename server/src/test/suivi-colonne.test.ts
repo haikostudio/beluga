@@ -43,7 +43,7 @@ import {
 /* -------- Le tour d'exécution démarre -------- */
 
 test('une carte terminée sur laquelle on relance une exécution repasse en cours', () => {
-  assert.equal(colonneAuDemarrage('done', 'task'), 'running');
+  assert.equal(colonneAuDemarrage('to_deploy', 'task'), 'running');
 });
 
 test('une carte en amont du parcours part en cours quand l’exécution démarre', () => {
@@ -65,13 +65,13 @@ test('une carte prête à publier ou archivée ne sort pas de son rangement', ()
 
 /* -------- Le tour d'exécution se termine -------- */
 
-test('un tour d’exécution réussi pose la carte en terminé', () => {
-  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
+test('un tour d’exécution réussi pose la carte directement à déployer', () => {
+  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'to_deploy');
 });
 
 test('un tour d’exécution en échec ne déplace rien : le travail n’est pas fait', () => {
   assert.equal(colonneEnFinDeTour('running', false, 'task'), null);
-  for (const depart of ['notes', 'planned', 'done'] as const) {
+  for (const depart of ['notes', 'planned', 'to_deploy'] as const) {
     assert.equal(colonneEnFinDeTour(depart, false, 'task'), null, `depuis « ${depart} »`);
   }
 });
@@ -87,8 +87,8 @@ test('une carte qui n’était pas en cours n’est pas déclarée terminée', (
 test('un rapport rendu ferme la carte même si le dépôt n’a pas bougé', () => {
   // La règle RENVERSÉE : le constat du dépôt ne décide plus de la colonne. Une
   // carte de vérification, ou une carte dont l'agent conclut qu'il n'y avait
-  // rien à faire, arrive bien dans « Terminé ».
-  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).colonne, 'done');
+  // rien à faire, arrive bien directement dans « À déployer ».
+  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).colonne, 'to_deploy');
 });
 
 test('le constat du dépôt n’entre plus dans le calcul de la colonne', () => {
@@ -100,7 +100,7 @@ test('le constat du dépôt n’entre plus dans le calcul de la colonne', () => 
 
 test('un tour qui a modifié le dépôt ferme la carte, sans rien à expliquer', () => {
   assert.deepEqual(issueDeFinDeTour('running', true, 'task', 'oui', false), {
-    colonne: 'done',
+    colonne: 'to_deploy',
     raison: null,
   });
 });
@@ -109,17 +109,17 @@ test('rien à changer parce que c’était DÉJÀ livré : la carte se range et 
   // Le bogue rapporté : la carte gardait la coche du travail rendu tout en
   // restant comptée dans « EN COURS », sans un mot.
   assert.deepEqual(issueDeFinDeTour('running', true, 'task', 'non', true), {
-    colonne: 'done',
+    colonne: 'to_deploy',
     raison: RAISON_DEJA_LIVRE,
   });
   assert.match(RAISON_DEJA_LIVRE, /livré lors d’un tour précédent/);
 });
 
 test('une carte NEUVE dont rien n’a bougé se ferme en le DISANT', () => {
-  // Conséquence assumée de la règle : « Terminé » sans une ligne de code. La
+  // Conséquence assumée de la règle : « À déployer » sans une ligne de code. La
   // carte ne doit surtout pas laisser croire à une livraison.
   assert.deepEqual(issueDeFinDeTour('running', true, 'task', 'non', false), {
-    colonne: 'done',
+    colonne: 'to_deploy',
     raison: RAISON_RENDU_SANS_CODE,
   });
   assert.match(RAISON_RENDU_SANS_CODE, /rien n’a été livré/);
@@ -130,7 +130,7 @@ test('plus aucune issue de fin de tour ne RETIENT la carte', () => {
   // jaune, alors que son rapport était rendu et sa liste cochée 5/5.
   for (const trace of ['oui', 'non', 'inconnue', 'ailleurs'] as const) {
     const issue = issueDeFinDeTour('running', true, 'task', trace, false);
-    assert.equal(issue.colonne, 'done', `trace « ${trace} »`);
+    assert.equal(issue.colonne, 'to_deploy', `trace « ${trace} »`);
     assert.equal('retenue' in issue, false, `trace « ${trace} »`);
   }
 });
@@ -139,7 +139,7 @@ test('un dépôt qu’on n’a pas pu consulter n’est pas « rien n’a bougé
   // Deux phrases différentes : une observation, et son absence — mais la même
   // colonne, puisque le rapport a été rendu dans les deux cas.
   const issue = issueDeFinDeTour('running', true, 'task', 'inconnue', false);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(issue.raison, RAISON_TRACE_INCONNUE);
   assert.notEqual(RAISON_TRACE_INCONNUE, RAISON_RENDU_SANS_CODE);
 });
@@ -169,13 +169,12 @@ test('échec, rôle qui n’exécute pas, colonne autre : l’issue ne touche à
   }
 });
 
-test('« À déployer » reste un GESTE, même sur une carte close sans code', () => {
-  // Une carte terminée sans une ligne de code arrive bien dans « Terminé »,
-  // mais rien ne l'y pousse toute seule vers le lot à publier : le déploiement
-  // reste une décision de l'utilisateur.
-  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).colonne, 'done');
-  assert.equal(canMove('machine', 'running', 'to_deploy').allowed, false);
-  assert.equal(canMove('machine', 'done', 'to_deploy').allowed, false);
+test('une carte close sans code tombe directement dans « À déployer »', () => {
+  // Il n'y a plus d'étape intermédiaire : la clôture VAUT l'entrée dans le lot
+  // à publier. La mise en LIGNE, elle, reste une décision de l'utilisateur
+  // (`decisionDeDeploiementAutomatique`).
+  assert.equal(issueDeFinDeTour('running', true, 'task', 'non', false).colonne, 'to_deploy');
+  assert.equal(canMove('machine', 'running', 'to_deploy').allowed, true);
 });
 
 /* -------- Seul l'agent d'exécution déplace la carte -------- */
@@ -198,7 +197,7 @@ test('un tour d’analyse réussi ne clôt pas la carte : rien n’a été exéc
 test('ni l’orchestration ni la publication ne déplacent une carte', () => {
   for (const role of ['cadrage', 'deploy'] as const) {
     assert.equal(colonneAuDemarrage('planned', role), null, `démarrage « ${role} »`);
-    assert.equal(colonneAuDemarrage('done', role), null, `démarrage « ${role} »`);
+    assert.equal(colonneAuDemarrage('to_deploy', role), null, `démarrage « ${role} »`);
     assert.equal(colonneEnFinDeTour('running', true, role), null, `fin « ${role} »`);
   }
 });
@@ -219,24 +218,24 @@ test('validé, analyse, exécution : la carte ne bouge qu’au bon moment', () =
   assert.equal(colonneEnFinDeTour('planned', true, 'analysis'), null);
   // 3. L'ordonnanceur lance l'exécution : la carte passe en cours.
   assert.equal(colonneAuDemarrage('planned', 'task'), 'running');
-  // 4. L'exécution rend son rapport : terminé.
-  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'done');
+  // 4. L'exécution rend son rapport : elle tombe directement à déployer.
+  assert.equal(colonneEnFinDeTour('running', true, 'task'), 'to_deploy');
 });
 
-test('terminé puis relancé puis terminé : la carte fait l’aller-retour', () => {
+test('rendue puis relancée puis rendue : la carte fait l’aller-retour', () => {
   const apresPremierTour = colonneEnFinDeTour('running', true, 'task');
-  assert.equal(apresPremierTour, 'done');
+  assert.equal(apresPremierTour, 'to_deploy');
   // Un message dans la conversation de l'agent d'EXÉCUTION la relance.
   const relance = colonneAuDemarrage(apresPremierTour!, 'task');
   assert.equal(relance, 'running');
-  assert.equal(colonneEnFinDeTour(relance!, true, 'task'), 'done');
+  assert.equal(colonneEnFinDeTour(relance!, true, 'task'), 'to_deploy');
 });
 
 /* -------- Cohérence avec les droits de déplacement -------- */
 
-test('la machine a le droit de poser une carte en terminé', () => {
-  assert.equal(MACHINE_ONLY_TARGETS.includes('done'), true);
-  assert.equal(canMove('machine', 'running', 'done').allowed, true);
+test('la machine a le droit de poser une carte directement à déployer', () => {
+  assert.equal(MACHINE_ONLY_TARGETS.includes('to_deploy'), true);
+  assert.equal(canMove('machine', 'running', 'to_deploy').allowed, true);
 });
 
 test('l’ordonnanceur ne pousse jamais une carte vers une étape de publication', () => {
@@ -252,7 +251,7 @@ test('l’ordonnanceur ne pousse jamais une carte vers une étape de publication
 /* ------------------------------------------------------------------ */
 
 test('déposer une carte dans « En cours » vaut un lancement, d’où qu’elle vienne', () => {
-  for (const depart of ['notes', 'planned', 'done'] as const) {
+  for (const depart of ['notes', 'planned', 'to_deploy'] as const) {
     assert.equal(effetDuDepot(depart, 'running'), 'lancer', `depuis « ${depart} »`);
   }
 });
@@ -264,7 +263,7 @@ test('sortir une carte de « En cours » vers « Planifié » suspend son agent'
 test('les autres sorties de « En cours » restent de simples rangements', () => {
   // Elles sont refusées EN AMONT quand l'agent travaille (`sortieAutorisee`) ;
   // quand il ne travaille plus, ranger la carte ne doit rien déclencher.
-  for (const arrivee of ['notes', 'done', 'to_deploy', 'archived'] as const) {
+  for (const arrivee of ['notes', 'to_deploy', 'archived'] as const) {
     assert.equal(effetDuDepot('running', arrivee), 'ranger', `vers « ${arrivee} »`);
   }
 });
@@ -277,7 +276,7 @@ test('reposer une carte dans sa propre colonne ne déclenche rien', () => {
 
 test('un rangement ordinaire n’est ni un lancement ni une suspension', () => {
   assert.equal(effetDuDepot('planned', 'notes'), 'ranger');
-  assert.equal(effetDuDepot('done', 'to_deploy'), 'ranger');
+  assert.equal(effetDuDepot('archived', 'to_deploy'), 'ranger');
   // « Planifié » n'est une suspension QUE depuis « En cours ».
   assert.equal(effetDuDepot('notes', 'planned'), 'ranger');
 });
@@ -291,7 +290,7 @@ test('la suspension passe même pendant que l’agent écrit : c’est sa raison
 });
 
 test('toute autre sortie reste refusée tant que l’agent écrit', () => {
-  for (const arrivee of ['notes', 'done', 'to_deploy', 'archived'] as const) {
+  for (const arrivee of ['notes', 'to_deploy', 'archived'] as const) {
     const decision = sortieAutorisee(enTravail, arrivee);
     assert.equal(decision.possible, false, `vers « ${arrivee} »`);
     assert.ok(decision.raison, 'un refus se dit en toutes lettres');
@@ -300,7 +299,7 @@ test('toute autre sortie reste refusée tant que l’agent écrit', () => {
 
 test('agent au repos : la carte se range librement', () => {
   const auRepos = { colonne: 'running', etat: etatVisuelCarte({ agentStatut: 'done' }), agentLance: true };
-  assert.equal(sortieAutorisee(auRepos, 'done').possible, true);
+  assert.equal(sortieAutorisee(auRepos, 'to_deploy').possible, true);
 });
 
 test('la raison d’une suspension est écrite pour être lue sur la carte', () => {
@@ -345,7 +344,7 @@ test('un tour d’agent reste bloqué : la règle par défaut n’a pas bougé',
 
 test('la carte ressortie retombe à l’étape juste avant sa fin de parcours', () => {
   assert.equal(colonneDeReprise('archived'), 'planned');
-  assert.equal(colonneDeReprise('to_deploy'), 'done');
+  assert.equal(colonneDeReprise('to_deploy'), 'running');
   for (const colonne of COLUMN_KEYS.filter((c) => !COLONNES_HORS_REPRISE.includes(c))) {
     assert.equal(colonneDeReprise(colonne), null, `« ${colonne} »`);
   }
@@ -374,12 +373,12 @@ test('rien à dire tant que la carte est encore dans « Archivé » : la colonne
 });
 
 test('une carte jamais archivée ne porte aucune mention', () => {
-  assert.equal(mentionArchivage({ column: 'done' }), null);
+  assert.equal(mentionArchivage({ column: 'to_deploy' }), null);
 });
 
 /* -------- Le moteur muet au lancement n'est pas un échec ordinaire -------- */
 
-test('un moteur muet remet la carte en « Planifié », jamais en « Terminé »', () => {
+test('un moteur muet remet la carte en « Planifié », jamais en « À déployer »', () => {
   assert.equal(colonneApresMoteurMuet('running', 'task', true), 'planned');
 });
 
@@ -424,13 +423,13 @@ test('une carte oubliée en « En cours », sans code livré, est CLOSE et le di
   // Son tour avait bien rendu la main : le rapport existe, c'est le rangement
   // qui a manqué. La renvoyer en « Planifié » la faisait recommencer pour rien.
   const issue = issueDeCarteOubliee(OUBLIEE, MAINTENANT);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(issue.raison, RAISON_TOUR_SANS_ISSUE);
 });
 
-test('une carte oubliée dont le code était DÉJÀ livré est rangée dans « Terminé », avec sa raison', () => {
+test('une carte oubliée dont le code était DÉJÀ livré est rangée dans « À déployer », avec sa raison', () => {
   const issue = issueDeCarteOubliee({ ...OUBLIEE, dejaEnregistre: true }, MAINTENANT);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(issue.raison, RAISON_DEJA_LIVRE);
 });
 
@@ -446,7 +445,7 @@ test('un tour qui TIENT encore la carte DEPUIS PEU (marque de vol récente) inte
 test('une marque de vol plus vieille que le seuil ne protège plus la carte : le tour est mort, pas en train de ranger', () => {
   const vieille = MAINTENANT - SEUIL_VOL_BLOQUE_MS - 1;
   const issue = issueDeCarteOubliee({ ...OUBLIEE, tourEnVolDepuis: vieille }, MAINTENANT);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(issue.raison, RAISON_TOUR_SANS_ISSUE);
 });
 
@@ -516,14 +515,14 @@ test('hors « En cours », le balayage ne touche à rien', () => {
 
 test('le balayage ne RETIENT plus rien : une carte close n’a rien à reprendre', () => {
   // La retenue servait à ne pas relancer en boucle un tour vide. Une carte
-  // posée en « Terminé » n'est plus reprise par l'ordonnanceur du tout.
+  // posée en « À déployer » n'est plus reprise par l'ordonnanceur du tout.
   const issue = issueDeCarteOubliee(OUBLIEE, MAINTENANT);
-  assert.equal(issue.colonne, 'done');
+  assert.equal(issue.colonne, 'to_deploy');
   assert.equal(demarrageAutomatiqueAutorise({ asap: true, attempts: 1, restarts: 1, suspendu: true }), false);
 });
 
 test('la raison du tour sans issue dit où va la carte, sans accuser le travail', () => {
-  assert.match(RAISON_TOUR_SANS_ISSUE, /Terminé/);
+  assert.match(RAISON_TOUR_SANS_ISSUE, /À déployer/);
   assert.match(RAISON_TOUR_SANS_ISSUE, /En cours/);
   assert.notEqual(RAISON_TOUR_SANS_ISSUE, RAISON_SANS_MODIFICATION);
 });

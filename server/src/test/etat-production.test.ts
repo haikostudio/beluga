@@ -48,7 +48,7 @@ const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..
 /* -------- La colonne a disparu -------- */
 
 test('« En production » n’est plus une colonne du tableau', () => {
-  assert.deepEqual(COLUMN_KEYS, ['notes', 'planned', 'running', 'done', 'to_deploy', 'archived']);
+  assert.deepEqual(COLUMN_KEYS, ['notes', 'planned', 'running', 'to_deploy', 'archived']);
   assert.ok(!(COLUMN_KEYS as readonly string[]).includes('in_production'));
   assert.ok(!Object.keys(COLUMN_LABELS).includes('in_production'));
 });
@@ -56,7 +56,7 @@ test('« En production » n’est plus une colonne du tableau', () => {
 test('aucune clé existante n’est renommée : les tableaux d’hier restent lisibles', () => {
   // Règle gravée : on change l'étiquette, jamais la clé. Une carte enregistrée
   // hier dans « À déployer » doit encore s'y retrouver aujourd'hui.
-  for (const cle of ['notes', 'planned', 'running', 'done', 'to_deploy', 'archived'] as const) {
+  for (const cle of ['notes', 'planned', 'running', 'to_deploy', 'archived'] as const) {
     assert.ok(COLUMN_KEYS.includes(cle), `la clé « ${cle} » a disparu`);
   }
   assert.equal(COLUMN_LABELS.to_deploy, 'À déployer');
@@ -72,8 +72,8 @@ test('les cartes de l’ancienne colonne sont reprises par une migration', () =>
   assert.match(source, /UPDATE cards SET column_key = 'archived' WHERE column_key = 'in_production'/);
 });
 
-test('« À déployer » reste la seule colonne réservée à l’utilisateur', () => {
-  assert.deepEqual(USER_ONLY_TARGETS, ['to_deploy']);
+test('« À déployer » n’est plus réservée à l’utilisateur : la machine y range aussi', () => {
+  assert.deepEqual(USER_ONLY_TARGETS, []);
   assert.equal(canMove('user', 'to_deploy', 'archived').allowed, true);
   assert.equal(canMove('agent', 'planned', 'to_deploy').allowed, false);
   assert.equal(canMove('machine', 'planned', 'to_deploy').allowed, false);
@@ -91,7 +91,7 @@ test('les fins de parcours sont désormais « À déployer » et « Archivé »'
 
 test('reprendre une carte la ramène à l’étape juste avant, sans étape fantôme', () => {
   assert.equal(colonneDeReprise('archived'), 'planned');
-  assert.equal(colonneDeReprise('to_deploy'), 'done');
+  assert.equal(colonneDeReprise('to_deploy'), 'running');
   assert.equal(colonneDeReprise('running'), null);
 });
 
@@ -157,7 +157,7 @@ test('sans cible, c’est la première étape — le déploiement', () => {
 test('chaque colonne de mise en ligne porte SON étape, les autres n’en ont aucune', () => {
   assert.equal(etapeDeLaColonne('to_deploy')?.cible, 'dev');
   assert.equal(etapeDeLaColonne('archived')?.cible, 'production');
-  for (const colonne of ['notes', 'planned', 'running', 'done'] as const) {
+  for (const colonne of ['notes', 'planned', 'running'] as const) {
     assert.equal(etapeDeLaColonne(colonne), null);
   }
 });
