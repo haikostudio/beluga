@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Check, FileText, GripVertical, Loader2, Paperclip, Pencil, Route, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, FileText, GripVertical, Loader2, Paperclip, Pencil, Square, Trash2, X } from 'lucide-react';
 import {
   Agent,
   Attachment,
@@ -42,8 +42,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
-import { AnneauContexte } from '@/components/anneau-contexte';
-import { RunChoix, nomCourtMoteur, resoudreRun, RunSelectors } from '@/components/run-selectors';
+import { nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
 import { client } from '@/lib/client';
@@ -676,8 +675,6 @@ export function Composer({
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
   }, [text]);
 
-  const modePlan = agent?.run?.mode === 'plan';
-
   /* ------------------------------------------------------------------ */
   /* LES COMMANDES « / » DU MOTEUR SÉLECTIONNÉ                            */
   /* ------------------------------------------------------------------ */
@@ -730,54 +727,6 @@ export function Composer({
 
   /** La commande que le message porte déjà, telle qu'elle partira au moteur. */
   const commandeEcrite = commandeDuMessage(text);
-
-  /*
-   * PENDANT UN CADRAGE, LE RÉGLAGE AFFICHÉ N'EST PAS CELUI DE L'AGENT DE
-   * CADRAGE (un modèle économe, plafonné, qui ne sert qu'à discuter), MAIS
-   * CELUI DE LA CARTE : le moteur, le modèle et la réflexion qui exécuteront
-   * la tâche une fois « Lancer la tâche » cliqué (`card.run`, traduit du
-   * niveau par `board_update_card`, `shared/src/niveau-agent.ts`). Changer ce
-   * réglage ici doit donc écrire sur la carte, pas sur l'agent de cadrage.
-   */
-  const carteDeCadrage = agent?.role === 'cadrage' && agent.cardId ? state.cards[agent.cardId] : undefined;
-  const runAffiche = carteDeCadrage ? carteDeCadrage.run : agent?.run;
-
-  // Le serveur tranche : il réinitialise les choix d'après et vérifie que la
-  // combinaison existe vraiment (PLAN §14).
-  const updateRun = async (patch: RunChoix) => {
-    if (carteDeCadrage) {
-      const souhait = patch.engine ? { engine: patch.engine } : { ...carteDeCadrage.run, ...patch };
-      const retenu = resoudreRun(engines, souhait);
-      if (!retenu.engine) return;
-      try {
-        await client.call({
-          type: 'card.update',
-          id: carteDeCadrage.id,
-          patch: {
-            run: {
-              ...carteDeCadrage.run,
-              engine: retenu.engine.id,
-              model: retenu.model?.id,
-              thinking: retenu.thinking?.id ?? 'none',
-              account: souhait.account,
-              // Un choix fait ici, à l'écran, l'emporte sur le niveau du
-              // cadrage : il ne doit plus être réécrit par lui.
-              niveau: undefined,
-            },
-          },
-        });
-      } catch (err: any) {
-        client.pushToast('error', err?.message ?? t('réglage impossible'));
-      }
-      return;
-    }
-    if (!agent) return;
-    try {
-      await client.call({ type: 'agent.config', agentId: agent.id, run: patch });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('réglage impossible'));
-    }
-  };
 
   /**
    * Joindre des fichiers. Chaque nouveau fichier écrit son ancre dans le
@@ -1390,8 +1339,10 @@ export function Composer({
           )}
         />
 
-        {/* Une seule ligne, même sur téléphone : les réglages rétrécissent,
-            les boutons d'envoi gardent leur taille. */}
+        {/* Barre du bas simplifiée : pièce jointe à gauche, puis micro, puis
+            le bouton d'envoi qui prend le reste de la largeur. Les réglages
+            (moteur, modèle, réflexion, compte, plan) se choisissent en haut,
+            dans la configuration de l'agent — plus ici. */}
         <div className="flex min-w-0 items-center gap-0.5 px-1.5 pb-1.5 sm:gap-1">
           <input
             ref={fileRef}
@@ -1415,72 +1366,43 @@ export function Composer({
             </Button>
           </Tooltip>
 
-          <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
+          <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
 
-          {/* Bascule direct / plan : l'agent réfléchit sans agir tant qu'elle
-              est allumée. Placée à gauche du choix de moteur, elle reste un
-              réglage à part — pas un quatrième maillon de la cascade. */}
-          <Tooltip label={modePlan ? t('Mode plan activé : repasser en exécution directe') : t('Passer en mode plan : l\'agent prépare sans exécuter')}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                'shrink-0 gap-1 px-1.5 text-[12.5px]',
-                modePlan ? 'border border-accent/60 bg-accent/10 text-text' : 'text-faint hover:text-text',
-              )}
-              onClick={() => updateRun({ mode: modePlan ? 'direct' : 'plan' })}
-              disabled={!agent}
-              data-mode-plan={modePlan ? 'actif' : 'inactif'}
-            >
-              <Route className="h-3 w-3 shrink-0" />
-              
-{t('Plan')}
-</Button>
-          </Tooltip>
+          {onProposeTask && !edition && (text.trim() || picked.length) ? (
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => submit(true)}>
+              {t('En faire une tâche')}</Button>
+          ) : null}
 
-          <div className="mx-0.5 hidden h-4 w-px shrink-0 bg-border sm:block" />
+          {/* Le carré d'arrêt : seul quand rien n'est écrit, à côté de la
+              flèche dès qu'une phrase attend d'être envoyée. */}
+          {boutons.arret ? (
+            <Tooltip label={t('Arrêter l\'agent')}>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Arrêter l'agent"
+                className="shrink-0 border border-border text-muted hover:border-danger hover:text-danger"
+                onClick={arret.demander}
+              >
+                <Square className="h-3 w-3 fill-current" />
+              </Button>
+            </Tooltip>
+          ) : null}
 
-          {/* Trois réglages EN CASCADE, alimentés par le serveur */}
-          <RunSelectors engines={engines} choix={agent?.run} onSelect={updateRun} comptes={state.quotas} />
-
-          {/* LE CONTEXTE DU MODÈLE, JUSTE APRÈS LE MODÈLE. Deux cercles, la
-              part remplie, et un clic pour le détail. Rien ne s'affiche tant
-              que le moteur n'a rendu aucune mesure. */}
-          <AnneauContexte agent={agent} />
-
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            {onProposeTask && !edition && (text.trim() || picked.length) ? (
-              <Button variant="ghost" size="sm" onClick={() => submit(true)}>
-                {t('En faire une tâche')}</Button>
-            ) : null}
-            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
-            {/* Le carré d'arrêt : seul quand rien n'est écrit, à côté de la
-                flèche dès qu'une phrase attend d'être envoyée. */}
-            {boutons.arret ? (
-              <Tooltip label={t('Arrêter l\'agent')}>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Arrêter l'agent"
-                  className="shrink-0 border border-border text-muted hover:border-danger hover:text-danger"
-                  onClick={arret.demander}
-                >
-                  <Square className="h-3 w-3 fill-current" />
-                </Button>
-              </Tooltip>
-            ) : null}
-            {boutons.envoi ? (
+          {boutons.envoi ? (
+            <div className="min-w-0 flex-1">
               <Button
                 variant="default"
                 size="icon"
+                className="w-full"
                 title={edition ? t('Enregistrer la modification') : t('Envoyer')}
                 disabled={edition ? !text.trim() : !agent || (!text.trim() && !picked.length)}
                 onClick={() => submit()}
               >
                 {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
               </Button>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           {arret.dialogue}
         </div>
       </div>
