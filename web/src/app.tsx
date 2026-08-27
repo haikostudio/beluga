@@ -572,13 +572,13 @@ export function App() {
     setMobileView('board');
   };
 
-  if (!state.connected && !state.projects.length) {
+  if (state.connecting && !state.pret) {
     return (
       <div className="grid h-full place-items-center bg-bg">
         <div className="flex flex-col items-center gap-2">
           <Loader2 className="h-5 w-5 animate-spin text-faint" />
           <p className="text-[14px] text-faint">
-            {state.connecting ? t('Connexion au serveur…') : t('Serveur injoignable — nouvelle tentative…')}
+            {t('Connexion au serveur…')}
           </p>
         </div>
       </div>
