@@ -122,11 +122,17 @@ async function main() {
       await page.waitForTimeout(1200);
     }
 
-    const ongletChef = page.getByRole('button', { name: 'Chef', exact: true }).first();
-    if (await ongletChef.count()) {
-      await ongletChef.click({ force: true });
-      await page.waitForTimeout(2500);
-    }
+    /*
+     * OÙ TROUVER UNE BARRE D'ÉCRITURE. Le script visait l'onglet « Chef » du
+     * menu du bas : cet onglet n'existe plus (le menu ne porte que « Tableau »
+     * et « Fichiers », et le volet de droite montre les FICHIERS). La barre
+     * d'écriture sûrement présente est celle du TIROIR D'UNE CARTE, qui s'ouvre
+     * sur sa conversation. Le brouillon écrit ici est effacé en fin de contrôle.
+     */
+    const carte = page.locator('[data-carte]').first();
+    await carte.waitFor({ state: 'visible', timeout: 20000 });
+    await carte.click({ force: true });
+    await page.waitForTimeout(3000);
 
     // PIÈGE : plusieurs barres d'écriture coexistent (conversation, tiroir de
     // carte). On vise celle qu'on VOIT, champ de fichier compris.
