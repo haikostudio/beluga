@@ -397,14 +397,47 @@ async function main() {
       (await page.getByText(TEXTES.carte).count()) > 0,
     );
 
-    /* ---- 7. Y répondre la retire de la liste ---- */
-    const bloc = page
-      .getByText(TEXTES.carte)
-      .first()
-      .locator('xpath=ancestor::div[contains(@class,"border-warning/40")][1]');
-    if ((await bloc.count()) > 0) {
-      await bloc.locator('textarea').fill('Bleu, comme le reste.');
-      await bloc.getByRole('button', { name: 'Répondre' }).click();
+    /*
+     * ---- 6bis. Une question SANS carte (chef d'orchestre d'un AUTRE projet,
+     * jamais visité) emmène aussi à sa conversation. Ce chemin est distinct de
+     * celui d'une carte : `allerVersDecision` bascule sur `openConversation`,
+     * qui ouvre le TIROIR d'agent (`data-tiroir-agent`) plutôt que le tiroir de
+     * carte. Jamais rejoué avant ce script, alors que c'est le même bouton.
+     */
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    await cloche.click();
+    await tiroir.waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('[data-notification]', { hasText: TEXTES.conversation }).click();
+    const tiroirAgentDepuisNotif = page.locator('[role="dialog"][data-state="open"]', {
+      has: page.locator('[data-tiroir-agent]'),
+    });
+    await tiroirAgentDepuisNotif.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    noter(
+      'une question sans carte ouvre le tiroir de conversation de son agent',
+      (await tiroirAgentDepuisNotif.count()) > 0 && (await page.getByText(TEXTES.conversation).count()) > 0,
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+    // On revient sur le premier projet et sur sa carte : les contrôles
+    // suivants en dépendent, et le passage par le projet B les a refermés.
+    await page.getByText(`Essai notifs A ${marque}`).first().click();
+    await page.waitForTimeout(500);
+    await cloche.click();
+    await tiroir.waitFor({ state: 'visible', timeout: 15000 });
+    await page.locator('[data-notification]', { hasText: TEXTES.carte }).click();
+    await page.waitForTimeout(1500);
+
+    /*
+     * ---- 7. Y répondre la retire de la liste ----
+     * La réponse libre ne se tape plus dans la bulle de la question (elle
+     * n'a plus de champ à elle, `message-view.tsx`) : elle se tape dans la
+     * barre de la conversation, qui la remet à la question ouverte
+     * (`texteRepondALaQuestion`, `shared/src/attente-question.ts`).
+     */
+    if ((await page.getByText(TEXTES.carte).count()) > 0) {
+      await page.getByPlaceholder('Écrivez votre demande…').fill('Bleu, comme le reste.');
+      await page.keyboard.press('Enter');
     }
     await pastille.filter({ hasText: '1' }).waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
     noter('la question réglée fait passer la pastille à 1', (await pastille.textContent())?.trim() === '1');
