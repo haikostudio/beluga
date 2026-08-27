@@ -112,6 +112,8 @@ import {
   arretAAchever,
   noteDeQualite,
   type IssueDeTache,
+  titreEncoreVide,
+  titreDepuisLaDiscussion,
 } from '@haikodev/shared';
 import type { DecisionDArret } from '@haikodev/shared';
 import * as store from './store.js';
@@ -2460,6 +2462,25 @@ async function startTurn(
    * continu pendant le streaming).
    */
   bus.emit({ type: 'plans', ...store.signalPlans() });
+
+  /*
+   * LE TITRE DE LA CARTE SE GÉNÈRE DÈS LE PREMIER ÉCHANGE, PAS SEULEMENT AU
+   * LANCEMENT. Une carte de cadrage encore appelée « Nouvelle tâche » — parce
+   * que l'agent n'a pas pris la peine d'écrire un titre, ou qu'un tour raté
+   * l'en a empêché — reçoit ici la première phrase de la première demande de
+   * l'utilisateur, débarrassée de ses tags « [fichier: …] ». Un titre déjà
+   * posé par l'agent (`board_update_card`) n'est jamais écrasé.
+   */
+  if (agent.role === 'cadrage' && agent.cardId) {
+    const carteDeCadrage = store.getCard(agent.cardId);
+    if (carteDeCadrage && titreEncoreVide(carteDeCadrage.title)) {
+      const titre = titreDepuisLaDiscussion(store.listMessages(agent.id), carteDeCadrage.title);
+      if (titre !== carteDeCadrage.title) {
+        const carteTitree = store.saveCard({ ...carteDeCadrage, title: titre });
+        bus.emit({ type: 'card.upsert', card: carteTitree });
+      }
+    }
+  }
 
   /*
    * LA COMPTABILITÉ DU TOUR VIENT APRÈS L'AFFICHAGE, JAMAIS AVANT.

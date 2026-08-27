@@ -125,6 +125,26 @@ test('une carte sans titre en reçoit un tiré de la première demande', () => {
   assert.ok(long.length <= 81, `titre trop long : ${long.length}`);
 });
 
+test('les tags « [fichier: …] » ne salissent jamais le titre généré', () => {
+  assert.equal(
+    titreDepuisLaDiscussion([
+      {
+        role: 'user',
+        content:
+          '[fichier: IMG_7055.jpeg] [fichier: IMG_7056.jpeg]il faut générer un titre lisible et adapté à la carte',
+      },
+    ]),
+    'il faut générer un titre lisible et adapté à la carte',
+  );
+  // Une ligne qui n'est FAITE que de tags : on descend à la ligne suivante.
+  assert.equal(
+    titreDepuisLaDiscussion([
+      { role: 'user', content: '[fichier: capture.png]\nRendre le tableau plus lisible' },
+    ]),
+    'Rendre le tableau plus lisible',
+  );
+});
+
 /* ------------------------------------------------------------------ */
 /* Le rôle « cadrage » : accueil léger, frontière du code               */
 /* ------------------------------------------------------------------ */
