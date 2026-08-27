@@ -24,7 +24,9 @@ import {
   type EngineInfo,
   type EtatBoutonLancer,
   MOT_CADRAGE,
+  MOT_CONFIGURATION,
   Message,
+  phaseDeCarte,
   type ReglagesCarte,
   separateurDeJour,
   temoinDeTravail,
@@ -159,6 +161,18 @@ export function Chat({
     colonne: carte?.column ?? 'planned',
     roleAgent: agent?.role,
     agentAuTravail: busy,
+    messages: messages.length,
+  });
+  /*
+   * OÙ EN EST CETTE CONVERSATION (`phaseDeCarte`, `shared/src/cadrage.ts`).
+   * La PREMIÈRE chose demandée sur une tâche neuve n'est pas le besoin : c'est
+   * AVEC QUOI on va travailler. La configuration monte donc en tête du fil,
+   * pleine largeur, tant que rien n'a été dit ; dès le premier message elle
+   * redescend en bulle compacte, à sa place d'avant.
+   */
+  const phase = phaseDeCarte({
+    colonne: carte?.column ?? 'planned',
+    roleAgent: agent?.role,
     messages: messages.length,
   });
   /* Une carte-fil encore vide n'attend pas une analyse : elle attend qu'on
@@ -306,6 +320,14 @@ export function Chat({
             messages.length && 'flex min-h-full flex-col justify-end',
           )}
         >
+          {/* PHASE 1 — LA CONFIGURATION DE L'AGENT, EN TÊTE ET EN PREMIER.
+              Une tâche neuve ne demande pas d'abord le besoin : elle demande
+              avec QUOI travailler. La carte est posée avant tout échange, elle
+              ne coûte aucun appel au moteur (le catalogue est déjà à l'écran),
+              et elle disparaît au premier message. */}
+          {carte && phase === 'configuration' && reglagesCarte.libelles ? (
+            <CarteDeConfiguration card={carte} libelles={reglagesCarte.libelles} />
+          ) : null}
           {messages.length ? (
             messages.map((message, index) => (
               <React.Fragment key={message.id}>
@@ -355,8 +377,11 @@ export function Chat({
           )}
           {/* AVANT LE LANCEMENT, la configuration du moteur est une bulle DU
               FIL — elle défile avec les messages plutôt que de rester collée
-              en haut. Elle reste modifiable jusqu'au démarrage du travail. */}
-          {carte && reglagesCarte.vu?.modifiable && reglagesCarte.libelles ? (
+              en haut. Elle reste modifiable jusqu'au démarrage du travail.
+              PENDANT LA PHASE DE CONFIGURATION, c'est la CARTE pleine largeur
+              qui est posée à sa place, plus haut : la même donnée, mais au
+              premier plan, puisque c'est le geste attendu. */}
+          {carte && reglagesCarte.vu?.modifiable && reglagesCarte.libelles && phase !== 'configuration' ? (
             <BulleReglagesAModifier card={carte} libelles={reglagesCarte.libelles} />
           ) : null}
           <div ref={bottomRef} />
@@ -1012,15 +1037,21 @@ function ReglagesAgent({
 }
 
 /**
- * LA CONFIGURATION DU MOTEUR AVANT LE LANCEMENT — une bulle posée dans le
- * fil, comme un message de plus, qui défile avec la conversation au lieu de
- * rester collée en haut de l'écran. Le clic ouvre DIRECTEMENT le tiroir de
- * configuration (l'aperçu à trois lignes de `RunSelectors`, piloté ici en
- * mode contrôlé) — aucun tiroir intermédiaire à traverser avant d'atteindre
- * les menus moteur / modèle / niveau / compte. Le choix écrit sur la CARTE,
- * qui est ce que le lancement lira ; il reste modifiable jusqu'à ce moment.
+ * LA CARTE DE CONFIGURATION D'UNE TÂCHE NEUVE — le PREMIER geste du flux.
+ *
+ * L'utilisateur clique « Nouvelle tâche » : avant de dire ce qu'il veut, il
+ * choisit AVEC QUOI ce sera fait — moteur, modèle, niveau de réflexion, et le
+ * compte quand plusieurs se disputent le travail. Rien de tout cela ne passe
+ * par un moteur : le catalogue est déjà à l'écran, la carte s'affiche seule et
+ * ne coûte pas un jeton.
+ *
+ * Elle porte les valeurs EN CLAIR, une ligne par réglage, et chaque ligne
+ * ouvre DIRECTEMENT la liste de ce réglage (`ouvrirSur`) — jamais un aperçu
+ * qu'il faudrait re-cliquer. Le choix écrit sur la CARTE, qui est ce que le
+ * lancement lira, exactement comme la bulle compacte qui prendra sa place dès
+ * le premier message (`BulleReglagesAModifier`, juste en dessous).
  */
-function BulleReglagesAModifier({
+function CarteDeConfiguration({
   card,
   libelles,
 }: {
@@ -1028,16 +1059,87 @@ function BulleReglagesAModifier({
   libelles: { moteur: string; modele: string; reflexion: string };
 }) {
   const state = useApp();
-  const [ouvert, setOuvert] = React.useState(false);
+  const [ouvrirSur, setOuvrirSur] = React.useState<'moteur' | 'modele' | 'reflexion' | 'compte' | undefined>(undefined);
+  const ouvert = ouvrirSur !== undefined;
 
-  /*
-   * Le serveur tranche la cascade : on lui donne le souhait, il rend la
-   * combinaison qui existe vraiment. Même geste que la barre d'écriture pour
-   * une carte de cadrage (`updateRun`, `composer.tsx`).
-   */
-  const choisir = async (patch: Parameters<typeof RunSelectors>[0]['choix'] & object) => {
+  const choisir = choixDeLaCarte(card, state.engines);
+
+  /* La ligne « Compte » ne paraît que si plusieurs comptes du moteur retenu
+     se disputent vraiment le travail — sinon le choix automatique suffit. */
+  const moteurChoisi = resoudreRun(state.engines, card.run).engine;
+  const comptes = (state.quotas ?? []).filter((c) => c.engine === moteurChoisi?.id && !c.disabled);
+  const compte = card.run?.account ? comptes.find((c) => c.id === card.run?.account) : undefined;
+
+  return (
+    <div data-carte-configuration className="rounded-lg border border-border bg-raised px-3 py-3">
+      <div className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-wide text-faint">
+        <Cpu className="h-3 w-3 shrink-0" />
+        {t('Configuration de l’agent')}
+      </div>
+      <p className="mt-1 text-[14px] font-medium leading-snug text-text">{t(MOT_CONFIGURATION.titre)}</p>
+      <p className="mt-0.5 text-[12.5px] leading-snug text-muted">{t(MOT_CONFIGURATION.indice)}</p>
+
+      <div className="mt-2.5 flex flex-col gap-1">
+        <LigneDeConfiguration nom={t('Moteur')} valeur={libelles.moteur} onClick={() => setOuvrirSur('moteur')} />
+        <LigneDeConfiguration nom={t('Modèle')} valeur={libelles.modele} onClick={() => setOuvrirSur('modele')} />
+        <LigneDeConfiguration
+          nom={t('Réflexion')}
+          valeur={libelles.reflexion}
+          onClick={() => setOuvrirSur('reflexion')}
+        />
+        {comptes.length > 1 ? (
+          <LigneDeConfiguration
+            nom={t('Compte')}
+            valeur={compte?.label ?? t('Automatique')}
+            onClick={() => setOuvrirSur('compte')}
+          />
+        ) : null}
+      </div>
+
+      {/* Les listes elles-mêmes : le même composant que partout ailleurs, sans
+          son bouton d'entrée — ce sont les lignes ci-dessus qui l'ouvrent. */}
+      <RunSelectors
+        engines={state.engines}
+        choix={card.run}
+        onSelect={choisir}
+        pleineLargeur
+        comptes={state.quotas}
+        masquerDeclencheur
+        ouvertControle={ouvert}
+        onOuvertControleChange={(o) => setOuvrirSur(o ? (ouvrirSur ?? 'moteur') : undefined)}
+        ouvrirSur={ouvrirSur}
+      />
+    </div>
+  );
+}
+
+/** Une ligne de la carte de configuration : le nom, la valeur, une flèche. */
+function LigneDeConfiguration({ nom, valeur, onClick }: { nom: string; valeur: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-ligne-configuration={nom}
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-left transition-colors hover:border-accent/50"
+    >
+      <span className="shrink-0 text-[12px] text-faint">{nom}</span>
+      <span data-valeur={valeur} className="min-w-0 flex-1 truncate text-[13.5px] font-medium text-text">
+        {valeur}
+      </span>
+      <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+    </button>
+  );
+}
+
+/**
+ * ÉCRIRE LE RÉGLAGE SUR LA CARTE — un seul geste, partagé par la carte de
+ * configuration et la bulle compacte. Le serveur tranche la cascade : on lui
+ * donne le souhait, il rend la combinaison qui existe vraiment.
+ */
+function choixDeLaCarte(card: Card, engines: EngineInfo[]) {
+  return async (patch: Parameters<typeof RunSelectors>[0]['choix'] & object) => {
     const souhait = patch.engine ? { engine: patch.engine } : { ...card.run, ...patch };
-    const retenu = resoudreRun(state.engines, souhait);
+    const retenu = resoudreRun(engines, souhait);
     if (!retenu.engine) return;
     try {
       await client.call({
@@ -1059,6 +1161,34 @@ function BulleReglagesAModifier({
       client.pushToast('error', err?.message ?? t('réglage impossible'));
     }
   };
+}
+
+/**
+ * LA CONFIGURATION DU MOTEUR AVANT LE LANCEMENT — une bulle posée dans le
+ * fil, comme un message de plus, qui défile avec la conversation au lieu de
+ * rester collée en haut de l'écran. Le clic ouvre DIRECTEMENT le tiroir de
+ * configuration (l'aperçu à trois lignes de `RunSelectors`, piloté ici en
+ * mode contrôlé) — aucun tiroir intermédiaire à traverser avant d'atteindre
+ * les menus moteur / modèle / niveau / compte. Le choix écrit sur la CARTE,
+ * qui est ce que le lancement lira ; il reste modifiable jusqu'à ce moment.
+ */
+function BulleReglagesAModifier({
+  card,
+  libelles,
+}: {
+  card: Card;
+  libelles: { moteur: string; modele: string; reflexion: string };
+}) {
+  const state = useApp();
+  const [ouvert, setOuvert] = React.useState(false);
+
+  /*
+   * Le serveur tranche la cascade : on lui donne le souhait, il rend la
+   * combinaison qui existe vraiment. Même geste que la barre d'écriture pour
+   * une carte de cadrage (`updateRun`, `composer.tsx`) et que la carte de
+   * configuration de la phase 1 : le geste est écrit une seule fois.
+   */
+  const choisir = choixDeLaCarte(card, state.engines);
 
   const resume = [libelles.moteur, libelles.modele, libelles.reflexion].filter(Boolean).join(' · ');
 

@@ -54,6 +54,58 @@ export const RAISONS_DU_BOUTON_LANCER = [
 ] as const;
 
 /* ------------------------------------------------------------------ */
+/* LES TROIS PHASES D'UNE CONVERSATION DE CARTE                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE FLUX D'UNE CONVERSATION SE LIT EN TROIS TEMPS, ET L'ÉCRAN LE DIT.
+ *
+ * 1. `configuration` — la carte vient de naître, rien n'a encore été dit. La
+ *    PREMIÈRE chose demandée n'est pas le besoin : c'est AVEC QUOI on va
+ *    travailler — moteur, modèle, niveau de réflexion. Ce choix appartient à
+ *    l'utilisateur, et il ne coûte RIEN : aucun moteur n'est appelé pour le
+ *    poser, le catalogue est déjà sur l'écran.
+ * 2. `discussion` — l'échange est engagé. La configuration reste modifiable,
+ *    mais elle n'occupe plus la place : elle redevient une bulle du fil.
+ * 3. `travail` — la carte est lancée, la configuration est figée, et ce qui
+ *    s'affiche est ce que l'agent d'exécution fait.
+ *
+ * Règle PURE : elle ne connaît ni l'écran ni la base, seulement l'état de la
+ * carte et de son fil.
+ */
+export type PhaseDeCarte = 'configuration' | 'discussion' | 'travail';
+
+export interface ContextePhase {
+  /** La colonne de la carte. */
+  colonne: ColumnKey;
+  /** Le rôle de l'agent qui tient la conversation de la carte. */
+  roleAgent?: string;
+  /** Combien de messages ont déjà été échangés dans ce fil. */
+  messages: number;
+}
+
+/**
+ * Où en est cette conversation. Une carte qui n'est plus en « Planifié », ou
+ * dont l'agent n'est plus celui du cadrage, TRAVAILLE : il n'y a plus rien à
+ * configurer, et la discussion préalable est derrière.
+ */
+export function phaseDeCarte(ctx: ContextePhase): PhaseDeCarte {
+  if (ctx.colonne !== 'planned' || ctx.roleAgent !== 'cadrage') return 'travail';
+  return ctx.messages > 0 ? 'discussion' : 'configuration';
+}
+
+/**
+ * Ce que la carte de configuration annonce, en tête d'une tâche neuve. Elle
+ * dit les deux choses qui comptent : ce choix est le vôtre, et il se fige au
+ * lancement.
+ */
+export const MOT_CONFIGURATION = {
+  titre: 'Configurez l’agent de cette tâche',
+  indice:
+    'Choisissez le moteur, le modèle et le niveau de réflexion qui exécuteront cette tâche. Vous expliquerez votre besoin juste après ; ce réglage reste modifiable jusqu’au lancement.',
+};
+
+/* ------------------------------------------------------------------ */
 /* Le bouton « Lancer la tâche »                                       */
 /* ------------------------------------------------------------------ */
 
@@ -238,9 +290,9 @@ export function titreDepuisLaDiscussion(messages: MessageDeCadrage[], secours = 
 export const CONSIGNE_CADRAGE = `TU ES L'AGENT DE CADRAGE D'UNE CARTE. Tu ne codes pas, tu ne lances aucune commande, tu ne modifies aucun fichier : la carte n'a pas encore de branche, et le travail sera fait après par un agent complet.
 
 TON TRAVAIL, ET RIEN D'AUTRE :
-1. COMPRENDRE le besoin. Réponds court — quelques phrases, jamais de compte rendu à titres. Si un point change ce qui sera fait, pose UNE question à la fois avec l'outil « ask_user ». Ce qui se devine se devine : tu n'interroges pas sur des détails.
+1. COMPRENDRE le besoin, DANS LE PROJET. Tu reçois la CARTE de la mémoire du projet : dès que la demande touche un sujet qui y figure, ouvre-le avec l'outil « project_memory » AVANT de répondre — il te rend ses faits, ses règles et ses contrôles. C'est ce qui évite de cadrer une tâche déjà faite, déjà refusée, ou contraire à une règle du projet. Réponds court — quelques phrases, jamais de compte rendu à titres. Si un point change ce qui sera fait, pose UNE question à la fois avec l'outil « ask_user ». Ce qui se devine se devine : tu n'interroges pas sur des détails.
 2. ÉCRIRE LA CARTE au fur et à mesure, avec l'outil « board_update_card » sur la carte de cette conversation : un titre court et parlant, une description qui dit ce qui est attendu, et le champ « niveau » (« leger », « standard » ou « approfondi ») selon l'ampleur du travail — « leger » pour un geste simple ou une tâche d'administration/rédaction, « standard » pour un travail de code ordinaire, « approfondi » pour un chantier. Tu la mets à jour à CHAQUE fois que la demande se précise.
 3. DIRE, dans cette même discussion, QUEL MODÈLE exécutera la tâche : l'outil te répond, à chaque changement de niveau, avec le moteur, le modèle et la réflexion réels qu'il a retenus — recopie cette phrase pour l'utilisateur, sans l'inventer toi-même. Rappelle que ce réglage est visible et modifiable juste en dessous du champ de saisie, avant de lancer.
 4. DIRE que le travail peut partir. Quand la demande est claire, annonce-le en une phrase : le bouton « Lancer la tâche », au-dessus du champ de saisie, confiera la carte à un agent complet qui recevra toute cette discussion.
 
-TU NE LANCES RIEN TOI-MÊME et tu ne proposes aucune autre carte : cette conversation EST la carte. Tu n'inventes rien du projet — tu ne l'as pas ouvert ; ce que tu supposes se dit comme une supposition.`;
+TU NE LANCES RIEN TOI-MÊME et tu ne proposes aucune autre carte : cette conversation EST la carte. Tu n'ouvres AUCUN fichier du projet et tu ne lances aucune commande : ce que tu sais du projet vient de sa mémoire, et rien d'autre. Ce que tu supposes se dit comme une supposition.`;

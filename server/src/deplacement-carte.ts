@@ -4,9 +4,11 @@ import {
   RAISON_MOTEUR_INJOIGNABLE,
   RAISON_PANNE_MOTEUR,
   ROLES_QUI_DEPLACENT,
+  carteAttendUneQuestion,
   colonneApresArretALaMain,
   colonneApresMoteurMuet,
   colonneApresPanneDuMoteur,
+  colonneEnFinDeTour,
   dateDeMiseEnLignePerimee,
   decisionsParCarte,
   fermetureDesQuestions,
@@ -150,8 +152,18 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
     leSien && !relanceMoteurMuet
       ? colonneApresPanneDuMoteur(card.column, fin.role, !!fin.panneDuMoteur)
       : null;
+  /*
+   * UNE QUESTION SANS RÉPONSE RETIENT LA CARTE EN « EN COURS ». On ne pose la
+   * question au registre que si le tour allait vraiment fermer la carte : la
+   * lecture parcourt les messages du projet, inutile de la payer sur un tour en
+   * échec, un rôle qui ne déplace rien ou une carte déjà rangée.
+   */
+  const irait =
+    leSien && !relanceMoteurMuet && !relancePanne && !!colonneEnFinDeTour(card.column, fin.reussi, fin.role);
+  const questionOuverte = irait && carteAttendUneQuestion(store.decisionsEnAttente(), card.id);
+
   const issue = leSien
-    ? issueDeFinDeTour(card.column, fin.reussi, fin.role, fin.trace, dejaEnregistreApres(card, fin))
+    ? issueDeFinDeTour(card.column, fin.reussi, fin.role, fin.trace, dejaEnregistreApres(card, fin), questionOuverte)
     : CARTE_INCHANGEE;
 
   // Le moteur muet passe devant : ce n'est pas une issue du travail, c'est un

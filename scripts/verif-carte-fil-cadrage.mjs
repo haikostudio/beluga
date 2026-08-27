@@ -306,6 +306,24 @@ async function main() {
   /* -------- 2. Le tiroir s'ouvre sur la conversation -------- */
 
   const tiroir = await page.locator('body').innerText();
+  /* PHASE 1 — LA CONFIGURATION D'ABORD. Une tâche neuve ne demande pas le
+     besoin : elle demande AVEC QUOI travailler. La carte de configuration est
+     posée en tête du fil, sans qu'aucun moteur n'ait été appelé, et la bulle
+     compacte des réglages ne paraît pas encore — deux fois le même réglage à
+     l'écran, ce serait deux endroits où le changer. */
+  noter(
+    'la tâche neuve s’ouvre sur la CONFIGURATION de son agent',
+    (await page.locator('[data-carte-configuration]').count()) === 1 && tiroir.includes('Configurez l'),
+  );
+  noter(
+    'elle porte les trois réglages en clair, chacun cliquable',
+    (await page.locator('[data-ligne-configuration]').count()) >= 3,
+  );
+  noter(
+    'et la bulle compacte des réglages ne double pas la carte',
+    (await page.locator('[data-reglages-avant-lancement]').count()) === 0,
+  );
+  noter('cette carte n’a coûté aucun appel au moteur', demandesRecues().length === 0);
   noter(
     'le tiroir s’ouvre sur la conversation, et invite à dire ce qu’on veut faire',
     tiroir.includes('Dites ce que vous voulez faire'),
@@ -374,6 +392,16 @@ async function main() {
     recues.length === 1 && recues[0].includes(apresCadrage.id),
   );
   noter('la réponse du cadrage s’affiche dans le fil', (await page.locator('body').innerText()).includes('Vous pouvez lancer la tâche'));
+  /* PHASE 2 — LA DISCUSSION. La carte de configuration a laissé la place ; le
+     réglage reste modifiable, mais en bulle compacte, dans le fil. */
+  noter(
+    'la carte de configuration s’efface dès le premier échange',
+    (await page.locator('[data-carte-configuration]').count()) === 0,
+  );
+  noter(
+    '…et le réglage reste modifiable en bulle compacte',
+    (await page.locator('[data-reglages-avant-lancement]').count()) === 1,
+  );
 
   /* -------- 4. Le bouton s'allume, en pleine largeur, au-dessus du champ -------- */
 

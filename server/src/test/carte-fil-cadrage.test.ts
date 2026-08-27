@@ -159,8 +159,8 @@ test('les tags « [fichier: …] » ne salissent jamais le titre généré', () 
 /* Le rôle « cadrage » : accueil léger, frontière du code               */
 /* ------------------------------------------------------------------ */
 
-test('l’agent de cadrage n’ouvre pas le projet : accueil de TRI, comme le chef', () => {
-  assert.equal(niveauDAccueil({ role: 'cadrage' }), 'tri');
+test('l’agent de cadrage discute AVEC la mémoire du projet, sans ouvrir ses fichiers', () => {
+  assert.equal(niveauDAccueil({ role: 'cadrage' }), 'cadrage');
   assert.equal(niveauDAccueil({ role: 'task' }), 'complet');
 });
 

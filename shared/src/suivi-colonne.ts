@@ -160,11 +160,27 @@ export const ROLES_QUI_CLOTURENT = ROLES_QUI_DEPLACENT;
  * bouger — l'agent n'exécute pas, elle y est déjà, ou sa colonne est une fin de
  * parcours assumée.
  */
-export function colonneAuDemarrage(colonne: ColumnKey, role: AgentRole): ColumnKey | null {
+export function colonneAuDemarrage(
+  colonne: ColumnKey,
+  role: AgentRole,
+  demandeur: Demandeur = 'automatique',
+): ColumnKey | null {
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne === 'running') return null;
-  // Un tour d'agent est une reprise AUTOMATIQUE : les fins de parcours lui
-  // restent fermées, quoi qu'il ait répondu.
+  /*
+   * RELANCER LA DISCUSSION D'UNE CARTE, C'EST LA REMETTRE AU TRAVAIL.
+   *
+   * Un tour d'agent reste, par défaut, une reprise AUTOMATIQUE : les fins de
+   * parcours lui sont fermées, quoi qu'il ait répondu. Mais un MESSAGE ÉCRIT
+   * PAR L'UTILISATEUR dans la conversation d'une carte est un geste humain, au
+   * même titre qu'un clic : demander autre chose à une carte rangée
+   * « À déployer », c'est rouvrir son travail — et le tableau doit le dire,
+   * sinon la carte annonce « prête à publier » pendant qu'un agent la modifie.
+   *
+   * « Archivé » reste fermé, même à la main : cette carte-là est en ligne, et
+   * la reprendre demande le geste explicite du tiroir (`colonneDeReprise`).
+   */
+  if (colonne === 'to_deploy' && demandeur === 'humain') return 'running';
   if (!repriseAutorisee(colonne, 'automatique').possible) return null;
   return 'running';
 }
@@ -677,15 +693,44 @@ export function issueDeCarteOubliee(etat: CarteOubliee, maintenant: number): Iss
   return { colonne: 'to_deploy', raison: RAISON_TOUR_SANS_ISSUE };
 }
 
+/**
+ * LA PHRASE D'UNE CARTE QUI RESTE EN TRAVAIL PARCE QU'ELLE VOUS ATTEND.
+ *
+ * Une réponse rendue n'est pas toujours une réponse DÉFINITIVE : l'agent peut
+ * avoir posé une question restée sans réponse. La carte n'a alors rien
+ * d'abouti — et l'annoncer « À déployer » ferait entrer dans le lot à publier
+ * un travail que personne n'a fini. Elle reste donc en « En cours », et elle
+ * DIT pourquoi.
+ */
+export const RAISON_ATTEND_VOTRE_REPONSE =
+  'La tâche attend votre réponse : elle reste en « En cours » et ne rejoindra le lot à déployer qu’une fois la discussion tranchée.';
+
 export function issueDeFinDeTour(
   colonne: ColumnKey,
   reussi: boolean,
   role: AgentRole,
   trace: TraceDuTravail,
   dejaEnregistre: boolean,
+  questionOuverte = false,
 ): IssueDeFinDeTour {
   const cloture = colonneEnFinDeTour(colonne, reussi, role);
   if (!cloture) return CARTE_INCHANGEE;
+
+  /*
+   * UNE RÉPONSE N'EST DÉFINITIVE QUE SI PLUS RIEN N'EST ATTENDU DE VOUS.
+   *
+   * Le balayage des cartes oubliées s'interdisait déjà de fermer une carte qui
+   * porte une décision ouverte (`issueDeCarteOubliee`) ; la FIN DE TOUR, elle,
+   * la fermait quand même — deux règles qui disaient le contraire l'une de
+   * l'autre sur la même carte. C'est ce qui faisait sauter en « À déployer »
+   * une carte dont l'agent venait justement de poser une question.
+   *
+   * La carte reste donc EN COURS, avec sa phrase. Elle en sortira au tour
+   * suivant — celui qui suit la réponse — quand il n'y aura plus rien à
+   * trancher ; et si la question est ANNULÉE sans relance, le balayage de
+   * l'ordonnanceur la range dans les quinze secondes.
+   */
+  if (questionOuverte) return { colonne: null, raison: RAISON_ATTEND_VOTRE_REPONSE };
 
   // Le dépôt a bougé : le travail parle tout seul, aucune phrase à ajouter.
   if (traceAcquise(trace)) return { colonne: cloture, raison: null };

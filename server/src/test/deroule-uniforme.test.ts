@@ -94,7 +94,10 @@ test('l’agent de cadrage porte sa méthode À LUI : discuter, écrire la carte
     const p = rolePrompt('cadrage', false, engine);
     assert.match(p, /TU ES L'AGENT DE CADRAGE D'UNE CARTE/, engine);
     assert.match(p, /Tu ne codes pas, tu ne lances aucune commande/, engine);
-    assert.match(p, /Tu n'inventes rien du projet/, engine);
+    // Ce qu'il sait du projet vient de sa MÉMOIRE, jamais de ses fichiers.
+    assert.match(p, /Tu n'ouvres AUCUN fichier du projet/, engine);
+    assert.match(p, /ce que tu sais du projet vient de sa mémoire/, engine);
+    assert.match(p, /project_memory/, engine);
     // Ce qu'il ne porte PLUS : le déroulé visible et la méthode en six points.
     assert.doesNotMatch(p, /MÉTHODE DE TRAVAIL IMPOSÉE/, engine);
     assert.doesNotMatch(p, /DÉROULÉ VISIBLE/, engine);

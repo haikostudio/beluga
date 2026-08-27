@@ -257,13 +257,13 @@ console.log(`${pad('Bloc', largeur)}  ${num('avant', 7)}  ${num('après', 7)}  $
 console.log('-'.repeat(largeur + 40));
 console.log(
   `${pad('Briefing', largeur)}  ${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')), 7)}  ` +
-    `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}  ` +
-    `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}`,
+    `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'cadrage' }))), 7)}  ` +
+    `${num(jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'cadrage' }))), 7)}`,
 );
 console.log(
   `${pad('Consigne de rôle', largeur)}  ${num(chefAvant - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')), 7)}  ` +
-    `${num(chefApres - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri')), 7)}  ` +
-    `${num(chefAvant - chefApres - (jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'tri'))), 7)}`,
+    `${num(chefApres - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'cadrage' }))), 7)}  ` +
+    `${num(chefAvant - chefApres - (jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, 'complet')) - jetons(memory.briefing(RACINE, 'HaikoDev', true, 'claude', undefined, partage.niveauDAccueil({ role: 'cadrage' })))), 7)}`,
 );
 console.log('-'.repeat(largeur + 40));
 console.log(`${pad('TOTAL', largeur)}  ${num(chefAvant, 7)}  ${num(chefApres, 7)}  ${num(chefAvant - chefApres, 7)}`);

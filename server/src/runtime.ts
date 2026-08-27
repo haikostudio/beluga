@@ -54,6 +54,7 @@ import {
   cleDeSession,
   partMoteurDeLaCle,
   colonneAuDemarrage,
+  type Demandeur,
   etatApresCoupure,
   TraceDuTravail,
   RAISON_COUPE_EN_VOL,
@@ -700,11 +701,11 @@ function mesurerContexteUtilisateur(messageId: string, usage: NonNullable<Engine
  * Appelée deux fois, elle ne fait le travail qu'une : une carte déjà en
  * « En cours » n'a rien à changer.
  */
-export function replacerCarteAuDemarrage(agent: Agent): void {
+export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'automatique'): void {
   if (!agent.cardId) return;
   const carte = store.getCard(agent.cardId);
   if (!carte) return;
-  const cible = colonneAuDemarrage(carte.column, agent.role);
+  const cible = colonneAuDemarrage(carte.column, agent.role, demandeur);
   /*
    * LA MARQUE DE VOL, posée AVANT tout le reste et même quand il n'y a aucune
    * colonne à changer : c'est elle qui, après un arrêt du serveur, distingue une
@@ -1011,9 +1012,16 @@ async function preparerLeTour(
     bus.emit({ type: 'message.upsert', message: userMessage });
   }
 
-  // La carte quitte « Terminé » AVANT qu'on écrive la demande : le bloc de
-  // contexte qui suit doit annoncer à l'agent la colonne où il repart.
-  replacerCarteAuDemarrage(agent);
+  /*
+   * La carte quitte sa colonne d'arrivée AVANT qu'on écrive la demande : le
+   * bloc de contexte qui suit doit annoncer à l'agent la colonne où il repart.
+   *
+   * `!options.silent` marque le GESTE HUMAIN : ce texte-là est un message que
+   * l'utilisateur vient d'écrire dans la conversation, et non un appel interne
+   * du démon. C'est lui, et lui seul, qui ressort une carte de « À déployer »
+   * pour la remettre « En cours » (`colonneAuDemarrage`).
+   */
+  replacerCarteAuDemarrage(agent, options.silent ? 'automatique' : 'humain');
 
   const card = agent.cardId ? store.getCard(agent.cardId) : null;
   const template: TemplateKind =

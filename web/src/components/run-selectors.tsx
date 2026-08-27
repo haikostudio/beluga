@@ -63,6 +63,7 @@ export function RunSelectors({
   masquerDeclencheur,
   ouvertControle,
   onOuvertControleChange,
+  ouvrirSur,
 }: {
   engines: EngineInfo[];
   choix: RunChoix | undefined;
@@ -86,6 +87,13 @@ export function RunSelectors({
   masquerDeclencheur?: boolean;
   ouvertControle?: boolean;
   onOuvertControleChange?: (ouvert: boolean) => void;
+  /**
+   * OUVRIR DIRECTEMENT SUR UN RÉGLAGE. La carte de configuration d'une tâche
+   * neuve affiche déjà les trois valeurs : cliquer « Modèle » doit donner la
+   * liste des modèles, pas un aperçu qu'il faut re-cliquer. Sans cette
+   * propriété, le tiroir s'ouvre sur son aperçu, comme partout ailleurs.
+   */
+  ouvrirSur?: 'moteur' | 'modele' | 'reflexion' | 'compte';
 }) {
   const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
   const [ouvertInterne, setOuvertInterne] = React.useState(false);
@@ -93,6 +101,18 @@ export function RunSelectors({
   const setOuvert = onOuvertControleChange ?? setOuvertInterne;
   const [sousVue, setSousVue] = React.useState<SousVue>(null);
   const avertissementModele = messageDeRepli(engine);
+
+  /*
+   * L'ouverture demandée sur un réglage PRÉCIS n'est jouée qu'au moment où le
+   * tiroir s'ouvre : rejouée à chaque rendu, elle rouvrirait la liste que
+   * l'utilisateur vient de refermer.
+   */
+  const etaitOuvert = React.useRef(false);
+  React.useEffect(() => {
+    if (ouvert && !etaitOuvert.current && ouvrirSur) setSousVue(ouvrirSur);
+    if (!ouvert) setSousVue(null);
+    etaitOuvert.current = ouvert;
+  }, [ouvert, ouvrirSur]);
 
   const comptesDuMoteur = (comptes ?? []).filter((c) => c.engine === engine?.id && !c.disabled);
   const compteChoisi = choix?.account ? comptesDuMoteur.find((c) => c.id === choix.account) : undefined;

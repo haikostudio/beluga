@@ -74,8 +74,14 @@ test('la règle de départ vit dans UNE fonction, appelée au vrai départ du to
     'la règle de départ doit être une fonction nommée, pas un bloc recopié',
   );
   // Elle est appelée à l'écriture de la demande ET au départ réel du moteur.
-  const appels = runtime.match(/replacerCarteAuDemarrage\(agent\)/g) ?? [];
+  // Le second argument (le DEMANDEUR : un message écrit à la main ressort la
+  // carte de « À déployer ») est facultatif : on compte donc les appels sur
+  // l'agent, avec ou sans lui.
+  const appels = runtime.match(/replacerCarteAuDemarrage\(agent[,)]/g) ?? [];
   assert.equal(appels.length, 2, 'appelée dans sendPrompt et dans startTurn');
+  // Et le GESTE HUMAIN est bien celui de la demande écrite : le tour interne
+  // (`silent`) reste automatique, sinon un appel du démon rouvrirait une carte.
+  assert.match(runtime, /replacerCarteAuDemarrage\(agent, options\.silent \? 'automatique' : 'humain'\)/);
 });
 
 test('aucun autre fichier du démon ne rejoue la règle dans son coin', () => {
@@ -144,7 +150,7 @@ test('la fin de tour tient compte du code DÉJÀ enregistré par la carte', () =
   // L'issue reçoit l'historique de la carte, pas ce seul tour : c'est lui qui
   // distingue « rien à changer, tout était déjà là » de « répondre n'est pas
   // travailler ».
-  assert.match(deplacement, /issueDeFinDeTour\([^)]*dejaEnregistreApres\(card, fin\)\)/s);
+  assert.match(deplacement, /issueDeFinDeTour\([^)]*dejaEnregistreApres\(card, fin\)/s);
   // Un tour qui produit du code grave le drapeau sur la carte, pour de bon.
   assert.match(deplacement, /return card\.codeDejaEnregistre \|\| aProduit;/);
 });

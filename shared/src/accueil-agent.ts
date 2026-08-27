@@ -35,7 +35,7 @@ import type { AgentRole } from './models.js';
  */
 
 /** Ce qu'un agent reçoit au premier tour de sa session. */
-export type NiveauDAccueil = 'complet' | 'tri' | 'minimal';
+export type NiveauDAccueil = 'complet' | 'cadrage' | 'tri' | 'minimal';
 
 /**
  * Pourquoi cet agent est lancé, quand ce n'est pas pour une carte.
@@ -90,8 +90,9 @@ export interface PartsDAccueil {
 /**
  * Le niveau d'accueil d'un agent qui démarre.
  *
- * Minimal UNIQUEMENT pour un agent de publication appelé sur un dépannage ; tri
- * pour l'agent de cadrage, qui ne lit pas le projet. Partout
+ * Minimal UNIQUEMENT pour un agent de publication appelé sur un dépannage ;
+ * « cadrage » pour l'agent qui discute la tâche — la mémoire du projet, pas ses
+ * fichiers d'instructions. Partout
  * ailleurs — agent de tâche, analyse, et jusqu'à la mise en ligne confiée —
  * l'accueil reste complet. Dans le doute, on accueille : un motif inconnu ne
  * rogne rien.
@@ -100,10 +101,18 @@ export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }):
   // Un assistant appelé sur une tâche NOMMÉE — configurer un site à sauvegarder
   // — n'ouvre pas le projet : sa consigne dit tout, quel que soit son rôle.
   if (input.motif === 'configuration-snapshot') return 'minimal';
-  // L'AGENT DE CADRAGE n'ouvre pas le projet : il discute un besoin et
-  // écrit la carte. L'index de la mémoire et les fichiers d'instructions
-  // repartiraient à chaque carte neuve, pour un tour qui ne lit rien.
-  if (input.role === 'cadrage') return 'tri';
+  /*
+   * L'AGENT QUI DISCUTE LA TÂCHE REÇOIT LA MÉMOIRE DU PROJET.
+   *
+   * Il n'ouvre toujours pas les fichiers du projet — il ne code pas, la carte
+   * n'a pas de branche — mais discuter un besoin SANS RIEN SAVOIR du projet
+   * produit un cadrage hors sol : on redit ce qui existe déjà, on propose ce
+   * qui a été refusé, on ignore la règle qui interdit justement ce qu'on
+   * propose. La CARTE de l'arbre de mémoire lui est donc donnée (quelques
+   * lignes, une seule fois par session), et l'outil `project_memory` — qu'il
+   * avait déjà — lui sert à descendre sur le sujet de la demande.
+   */
+  if (input.role === 'cadrage') return 'cadrage';
   if (input.role !== 'deploy') return 'complet';
   if (!input.motif) return 'complet';
   return MOTIFS_DE_DEPANNAGE.includes(input.motif) ? 'minimal' : 'complet';
@@ -122,6 +131,12 @@ export function partsDAccueil(niveau: NiveauDAccueil): PartsDAccueil {
   // déjà faire (facturation…), et il n'a pas le droit d'aller les chercher.
   // L'accès GitHub reste lui aussi : consulter un dépôt ou lire une demande de
   // fusion pour répondre à une question n'est pas modifier le code du projet.
+  /*
+   * Le CADRAGE discute : pas les fichiers d'instructions du projet (il ne code
+   * pas), mais la MÉMOIRE oui — c'est elle qui lui dit ce que le projet est
+   * déjà, et d'où il peut demander un sujet en entier.
+   */
+  if (niveau === 'cadrage') return { instructions: false, competences: true, memoire: true, github: true };
   if (niveau === 'tri') return { instructions: false, competences: true, memoire: false, github: true };
   return { instructions: true, competences: true, memoire: true, github: true };
 }

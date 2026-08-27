@@ -68,6 +68,20 @@ export function decisionsParCarte(decisions: DecisionAttendue[]): Record<string,
 }
 
 /**
+ * CETTE CARTE ATTEND-ELLE UNE RÉPONSE À UNE QUESTION ?
+ *
+ * Plus étroit que `decisionsParCarte`, et volontairement : une carte PROPOSÉE
+ * par l'agent en fin de travail est bien une décision attendue, mais elle ne
+ * dit rien de la tâche en cours — la fermer serait juste. Une QUESTION, si :
+ * tant qu'elle n'a pas sa réponse, le travail n'est pas tranché, et la carte
+ * n'a rien d'abouti. C'est ce seul signal qui retient une carte en
+ * « En cours » à la fin d'un tour (`issueDeFinDeTour`).
+ */
+export function carteAttendUneQuestion(decisions: DecisionAttendue[], cardId: string): boolean {
+  return decisionsOuvertes(decisions).some((d) => d.cardId === cardId && d.genre === 'question');
+}
+
+/**
  * Combien de décisions attend chaque CONVERSATION, par agent. Seules celles qui
  * ne tiennent à aucune carte : sinon la même décision serait marquée deux fois,
  * et le total annoncé sur le projet ne collerait plus.

@@ -52,9 +52,15 @@ test('les agents de tâche et d’analyse gardent leur accueil, quel que soit le
   }
 });
 
-test('le chef d’orchestre reçoit l’accueil de TRI : il ne lit plus le projet', () => {
-  assert.equal(niveauDAccueil({ role: 'cadrage' }), 'tri');
-  assert.equal(niveauDAccueil({ role: 'cadrage', motif: 'conflit' }), 'tri');
+test('l’agent de cadrage reçoit son propre accueil : la mémoire, pas les instructions', () => {
+  assert.equal(niveauDAccueil({ role: 'cadrage' }), 'cadrage');
+  assert.equal(niveauDAccueil({ role: 'cadrage', motif: 'conflit' }), 'cadrage');
+  assert.deepEqual(partsDAccueil('cadrage'), {
+    instructions: false,
+    competences: true,
+    memoire: true,
+    github: true,
+  });
 });
 
 test('l’accueil minimal n’emporte ni mémoire, ni compétences, ni instructions', () => {
