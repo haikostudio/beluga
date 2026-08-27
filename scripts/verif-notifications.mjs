@@ -418,7 +418,10 @@ async function main() {
       (await tiroirAgentDepuisNotif.count()) > 0 && (await page.getByText(TEXTES.conversation).count()) > 0,
     );
     await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
+    // Le voile de fond s'estompe encore un instant après l'Échap : un clic
+    // trop tôt le trouve encore là et vise le mauvais élément.
+    await page.locator('[role="dialog"][data-state="open"]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(400);
     // On revient sur le premier projet et sur sa carte : les contrôles
     // suivants en dépendent, et le passage par le projet B les a refermés.
     await page.getByText(`Essai notifs A ${marque}`).first().click();
