@@ -822,6 +822,37 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   if (!agent) throw new Error('agent introuvable');
 
   /*
+   * UNE CARTE DÉJÀ DÉPLOYÉE NE SE MODIFIE PAS SUR PLACE. Un message humain
+   * tapé dans une conversation archivée relancerait le même agent, sur la
+   * même branche déjà mise en ligne — donc un travail réécrit après coup, sans
+   * passer par la revue ni par une nouvelle mise en ligne. La règle qui
+   * protège déjà « Archivé » d'une réouverture automatique
+   * (`repriseAutorisee`) s'applique donc aussi ici : on REFUSE, en le disant,
+   * plutôt que de rouvrir le travail ou de créer une carte à la place de
+   * l'utilisateur. Une reprise volontaire (bouton « Reprendre ») sort d'abord
+   * la carte de « Archivé » — à ce moment-là, elle n'est plus déployée, et ce
+   * message-ci ne la concerne plus.
+   */
+  if (!options.silent && agent.cardId) {
+    const carte = store.getCard(agent.cardId);
+    if (carte && carte.column === 'archived' && carte.deployedAt) {
+      const message = store.saveMessage(
+        Message.parse({
+          id: store.newId(),
+          agentId,
+          role: 'assistant',
+          content:
+            "Cette carte est déjà en ligne : je ne peux pas la modifier sur place. Créez une nouvelle carte pour ce changement, ou utilisez « Reprendre » sur cette carte si vous voulez repartir de son travail.",
+          error: 'carte-deployee',
+          createdAt: store.now(),
+        }),
+      );
+      bus.emit({ type: 'message.upsert', message });
+      return;
+    }
+  }
+
+  /*
    * Un agent occupé ? La demande s'empile (PLAN §14).
    *
    * « OCCUPÉ » COMMENCE À LA PRÉPARATION, PLUS AU LANCEMENT DU MOTEUR. Seul
