@@ -51,6 +51,7 @@ export * from './preuve-competence.js';
 export * from './contradiction-cartes.js';
 export * from './confiance-competence.js';
 export * from './connexion-compte.js';
+export * from './anneau-contexte.js';
 export * from './contexte-agent.js';
 export * from './cout-tour.js';
 export * from './decharge-projets.js';

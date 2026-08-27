@@ -17,22 +17,61 @@ import { fileURLToPath } from 'node:url';
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const lire = (relatif) => fs.readFileSync(path.join(RACINE, relatif), 'utf8');
 
+/*
+ * UN ÉCRAN SUPPRIMÉ N'EST PAS UN CONTRÔLE EN ÉCHEC : ce contrôle vérifie des
+ * ABSENCES, et un fichier entièrement retiré est la plus radicale d'entre
+ * elles. Il crashait pourtant en le lisant — `parcours-tache.tsx` et
+ * `lecteur-prompt.tsx` sont partis avec l'onglet « Détails » d'une carte, et le
+ * script tombait avant même d'avoir affiché ses premiers résultats. Une absence
+ * de fichier est donc DITE, puis comptée au vert.
+ */
+const lireSiPresent = (relatif) => {
+  const chemin = path.join(RACINE, relatif);
+  return fs.existsSync(chemin) ? fs.readFileSync(chemin, 'utf8') : null;
+};
+
 const resultats = [];
 const verifier = (nom, ok) => {
   resultats.push(ok);
   console.log(`${ok ? '  OK  ' : ' ÉCHEC'} ${nom}`);
 };
 
+/*
+ * SECONDE EXCEPTION VOULUE, demandée le 27/08/2026 : le CONTEXTE DU MODÈLE
+ * revient dans la barre d'écriture, à côté du choix du modèle, sous la forme
+ * d'un ANNEAU cliquable qui ouvre une fenêtre détaillée. Ce n'est pas le
+ * compteur de jetons que le plan avait retiré (un total facturé, sans repère) :
+ * c'est un REMPLISSAGE rapporté à la fenêtre du modèle, la seule mesure qui dit
+ * s'il reste de la place avant la prochaine compression. L'ancienne capsule,
+ * elle, reste bannie.
+ */
 const composer = lire('web/src/components/composer.tsx');
 verifier(
-  'le composeur n’affiche plus de pourcentage de contexte',
+  'le composeur n’affiche plus l’ancienne capsule de contexte',
   !composer.includes('CapsuleContexte') && !composer.includes('data-pourcentage-contexte'),
 );
-
-const parcours = lire('web/src/components/parcours-tache.tsx');
 verifier(
-  'le volet Détails n’affiche plus de jetons (entrée/cache/sortie)',
-  !parcours.includes("jetons(") && !parcours.includes('Entrée hors cache') && !parcours.includes('Relu du cache'),
+  'la barre d’écriture porte l’anneau de contexte, à côté du modèle (exception voulue)',
+  composer.includes('<AnneauContexte agent={agent} />'),
+);
+
+const anneau = lire('web/src/components/anneau-contexte.tsx');
+verifier(
+  'l’anneau ne s’affiche sur AUCUNE mesure absente — jamais un faux 0 %',
+  anneau.includes('if (!agent || !usage) return null;'),
+);
+verifier(
+  'un clic sur l’anneau ouvre la fenêtre détaillée, avec sa barre de progression',
+  anneau.includes('data-anneau-contexte') && anneau.includes('data-fenetre-contexte') && anneau.includes('<Gauge'),
+);
+
+const parcours = lireSiPresent('web/src/components/parcours-tache.tsx');
+verifier(
+  parcours === null
+    ? 'le volet Détails n’existe plus du tout — donc aucun jeton à y montrer'
+    : 'le volet Détails n’affiche plus de jetons (entrée/cache/sortie)',
+  parcours === null ||
+    (!parcours.includes("jetons(") && !parcours.includes('Entrée hors cache') && !parcours.includes('Relu du cache')),
 );
 
 const messageView = lire('web/src/components/message-view.tsx');
@@ -70,16 +109,18 @@ verifier(
 const quotaBadge = lire('web/src/components/quota-badge.tsx');
 verifier('le journal des amorces n’affiche plus de tokens', !quotaBadge.includes('tokens'));
 
-const lecteur = lire('web/src/components/lecteur-prompt.tsx');
+const lecteur = lireSiPresent('web/src/components/lecteur-prompt.tsx');
 verifier(
-  'le lecteur de prompts partagé existe et ne montre aucun chiffre',
-  lecteur.includes('export function LecteurPrompt') && !/\d[\s]*tokens?\b/i.test(lecteur),
+  lecteur === null
+    ? 'le lecteur de prompts a été retiré avec l’onglet Détails — plus rien à y compter'
+    : 'le lecteur de prompts partagé existe et ne montre aucun chiffre',
+  lecteur === null || (lecteur.includes('export function LecteurPrompt') && !/\d[\s]*tokens?\b/i.test(lecteur)),
 );
 
 const cardPanel = lire('web/src/components/card-panel.tsx');
 verifier(
   'le chiffrage d’une carte reste en heures et en francs, jamais en jetons',
-  cardPanel.includes('Heures développeur senior') && !cardPanel.includes('Jetons projetés'),
+  cardPanel.includes('Heures (développeur senior)') && !cardPanel.includes('Jetons projetés'),
 );
 
 const echecs = resultats.filter((ok) => !ok).length;

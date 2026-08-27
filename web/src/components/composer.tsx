@@ -42,6 +42,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
+import { AnneauContexte } from '@/components/anneau-contexte';
 import { RunChoix, nomCourtMoteur, resoudreRun, RunSelectors } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { usePref } from '@/lib/prefs';
@@ -1441,6 +1442,11 @@ export function Composer({
 
           {/* Trois réglages EN CASCADE, alimentés par le serveur */}
           <RunSelectors engines={engines} choix={agent?.run} onSelect={updateRun} comptes={state.quotas} />
+
+          {/* LE CONTEXTE DU MODÈLE, JUSTE APRÈS LE MODÈLE. Deux cercles, la
+              part remplie, et un clic pour le détail. Rien ne s'affiche tant
+              que le moteur n'a rendu aucune mesure. */}
+          <AnneauContexte agent={agent} />
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
             {onProposeTask && !edition && (text.trim() || picked.length) ? (
