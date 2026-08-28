@@ -425,6 +425,19 @@ async function auNavigateur() {
 
 async function dansLaPage(page, navigateur) {
   await page.waitForTimeout(6000);
+  /* UN TIROIR LAISSÉ OUVERT N'EST PAS UN THÈME CASSÉ. Ce contrôle vise le démon
+     RÉEL : l'application y rouvre la dernière carte consultée, et le voile de ce
+     tiroir couvre tout l'écran. Chaque clic du parcours tombait alors en attente,
+     et le refus rendu — « session d'essai impossible » — ne disait rien du thème.
+     On referme donc ce qui traîne avant de juger quoi que ce soit. */
+  for (let essai = 0; essai < 3; essai += 1) {
+    const ouvert = await page.evaluate(
+      () => document.querySelectorAll('[role="dialog"],[role="alertdialog"]').length,
+    );
+    if (!ouvert) break;
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(500);
+  }
   /* Le témoin porte les classes réellement employées par le kit : le fond d'un
      bouton « contour », un trait de bordure, le voile d'une fenêtre. */
   await page.evaluate(() => {
