@@ -1,8 +1,12 @@
-# HaikoDev
+# Belouga
 
-Pilotage de projets par agents IA : un tableau kanban où **chaque carte validée ouvre son propre
-agent**, un **chef d'orchestre** par projet qui trie les demandes et propose des cartes sans jamais
-toucher au code, et un **démon** qui exécute réellement le travail sur le serveur.
+Pilotage de projets par agents IA : un tableau kanban où **chaque carte s'ouvre sur sa propre
+conversation de cadrage**, à moindre coût, avant qu'un clic ne confie le travail à un **agent
+complet** qui analyse et exécute lui-même, et un **démon** qui fait réellement tourner tout ça sur le
+serveur.
+
+Belouga est la version **open source** de HaikoDev, publiée pour être installée et adaptée
+librement — le code, les dossiers et les commandes ci-dessous portent encore le nom d'origine.
 
 Le plan complet, chapitre par chapitre, est dans [PLAN.md](PLAN.md).
 
@@ -14,7 +18,7 @@ Le plan complet, chapitre par chapitre, est dans [PLAN.md](PLAN.md).
 | `web/` | L'interface : tableau, conversations, réglages, application installable |
 | `shared/` | Les règles pures, sans base ni disque — donc testables seules |
 | `scripts/` | Service système, identifiants, scripts de vérification |
-| `docs/` | Règles par sujet (`regles/`), faits par sujet (`memoire/`), plans du chef (`plans/`), contrôles (`verifications.md`) |
+| `docs/` | Règles par sujet (`regles/`), faits par sujet (`memoire/`), plans en cours (`plans/`), contrôles (`verifications.md`) |
 | `outils/` | Les outils tiers dont le démon dépend, versionnés ici |
 | `data/live` | Ce qui est réellement servi — écrit uniquement par la publication |
 | `data/competences` | Les compétences partagées, un dossier par compétence |
@@ -22,14 +26,16 @@ Le plan complet, chapitre par chapitre, est dans [PLAN.md](PLAN.md).
 Les moteurs sont des outils en ligne de commande — Claude Code, Codex, Cursor — pilotés par le
 démon, chacun avec son propre coffre d'identifiants (un dossier par compte).
 
-## Ce que fait HaikoDev
+## Ce que fait Belouga
 
 - **Un tableau** (Notes → Planifié → En cours → Terminé → À déployer → En production → Archivé) où
   chaque carte suit le travail réel d'un agent, avec sa ligne de temps, ses jetons consommés et ses
   décisions en attente.
-- **Un chef d'orchestre par projet**, qui répond aux questions dans la conversation et propose des
-  cartes courtes (titre, description, niveau) pour toute demande de programmation ou d'exécution —
-  rien ne part au moteur avant votre clic de validation.
+- **Une carte qui se cadre avant de partir** : le « + » de la colonne « Planifié » ouvre directement
+  une carte et sa conversation, tenue par un agent léger qui discute le besoin et écrit au fur et à
+  mesure le titre, la description et le niveau — sans toucher au code. Le bouton « Lancer la tâche »
+  confie alors toute la discussion, comme contexte de départ, à un agent complet qui analyse ET
+  exécute ; rien ne part au moteur d'exécution avant ce clic.
 - **Une mémoire de projet par sujet** (`docs/memoire/`) : au lancement d'une carte, sa demande sert
   de question et seuls les passages réellement utiles sont envoyés à l'agent, jamais tout le sujet.
 - **Une publication maîtrisée** : enregistrer (commit), sauvegarder (push) et mettre en ligne restent
@@ -47,8 +53,9 @@ démon, chacun avec son propre coffre d'identifiants (un dossier par compte).
   seul autorise la dépense.
 - Un agent de tâche travaille en **accès complet**, sur sa **propre branche et copie de travail**,
   mais **ne publie jamais** de lui-même.
-- Le chef d'orchestre **ne modifie jamais le code** — il répond aux questions et propose des cartes ;
-  seuls les documents texte (`.md`, `.txt`…) s'écrivent directement.
+- L'agent de cadrage, dans la conversation d'une carte pas encore lancée, **ne modifie jamais le
+  code** — il discute le besoin et prépare la carte ; seuls les documents texte (`.md`, `.txt`…)
+  s'écrivent directement, et uniquement en mode plan.
 - Les heures facturées sont celles d'un **développeur senior**, jamais la durée machine de l'agent.
 - **Aucune publication ni aucun redémarrage du serveur ne se déclenche sans un geste explicite** de
   l'utilisateur (bouton « Publier maintenant » ou instruction claire).
@@ -60,8 +67,8 @@ service doit être exposé sur un sous-domaine public, et les moteurs en ligne d
 comptez utiliser (Claude Code, Codex — installés séparément, pas fournis par ce dépôt).
 
 ```bash
-git clone <adresse-du-depot> haikodev
-cd haikodev
+git clone <adresse-du-depot> belouga
+cd belouga
 npm install
 npm run build                              # shared, puis server, puis web
 node scripts/set-credentials.mjs           # identifiant + mot de passe de l'application, une fois
@@ -82,7 +89,7 @@ sous-domaine, son propre service systemd et sa propre entrée Caddy, sur le mêm
 ### Configuration des moteurs LLM
 
 Les moteurs (Claude Code, Codex) doivent être **installés sur le serveur** en tant qu'exécutables en
-ligne de commande, déjà authentifiés — HaikoDev ne facture aucune clé API à l'appel, il pilote des
+ligne de commande, déjà authentifiés — Belouga ne facture aucune clé API à l'appel, il pilote des
 comptes déjà connectés.
 
 La connexion d'un compte se fait **depuis l'interface**, jamais en ligne de commande directement sur
