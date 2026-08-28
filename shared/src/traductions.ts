@@ -59,7 +59,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Notes': ['Notes', 'Notas', 'Notizen', '笔记'],
   'Planifié': ['Planned', 'Planificado', 'Geplant', '已计划'],
   'En cours': ['In progress', 'En curso', 'Läuft', '进行中'],
-  'Terminé': ['Done', 'Terminado', 'Fertig', '已完成'],
   'À déployer': ['To deploy', 'Por desplegar', 'Zu veröffentlichen', '待部署'],
   'Archivé': ['Archived', 'Archivado', 'Archiviert', '已归档'],
 
@@ -316,7 +315,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Snapshot': ['Snapshot', 'Snapshot', 'Snapshot', '快照'],
   'Snapshots': ['Snapshots', 'Snapshots', 'Snapshots', '快照'],
   'Historique': ['History', 'Historial', 'Verlauf', '历史'],
-  'Historique des snapshots': ['Snapshot history', 'Historial de copias', 'Snapshot-Verlauf', '快照历史'],
   'Nouveau site': ['New site', 'Nuevo sitio', 'Neue Website', '新建站点'],
   'Réparer': ['Repair', 'Reparar', 'Reparieren', '修复'],
   'Faire relire cette fiche par l’assistant': [
@@ -401,7 +399,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Tout sauvegarder': ['Back up everything', 'Copiar todo', 'Alles sichern', '全部备份'],
   'Lecture des snapshots…': ['Reading snapshots…', 'Leyendo las copias…', 'Snapshots werden gelesen…', '正在读取快照…'],
   'Aucun site à sauvegarder pour l’instant.': ['No site to back up yet.', 'Todavía no hay ningún sitio que copiar.', 'Noch keine Website zu sichern.', '暂无需要备份的站点。'],
-  'Aucune sauvegarde prise pour l’instant.': ['No backup taken yet.', 'Aún no se ha hecho ninguna copia.', 'Noch keine Sicherung erstellt.', '尚未创建任何备份。'],
   'Jamais pris': ['Never taken', 'Nunca copiado', 'Nie erstellt', '从未备份'],
   'Éteint': ['Off', 'Apagado', 'Aus', '已关闭'],
   'jamais': ['never', 'nunca', 'nie', '从未'],
@@ -447,7 +444,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Son historique disparaît de la liste. Les sauvegardes déjà posées sur le disque restent.': ['Its history leaves the list. Backups already written to the disk stay.', 'Su historial desaparece de la lista. Las copias ya escritas en el disco se conservan.', 'Sein Verlauf verschwindet aus der Liste. Bereits geschriebene Sicherungen bleiben erhalten.', '其历史将从列表中消失。已写入磁盘的备份将保留。'],
   'Les identifiants restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.': ['Credentials stay on this server: they are what reads the site’s database and files, every night.', 'Las credenciales permanecen en este servidor: sirven para releer la base y los archivos del sitio cada noche.', 'Die Zugangsdaten bleiben auf diesem Server: Sie dienen dazu, Datenbank und Dateien der Website jede Nacht zu lesen.', '凭据保留在本服务器上：每晚用于读取站点的数据库和文件。'],
   'Jamais sauvegardé.': ['Never backed up.', 'Nunca copiado.', 'Nie gesichert.', '从未备份。'],
-  'Total : {volume}': ['Total: {volume}', 'Total: {volume}', 'Gesamt: {volume}', '合计：{volume}'],
   'Restaurer': ['Restore', 'Restaurar', 'Wiederherstellen', '恢复'],
   'Restauration…': ['Restoring…', 'Restaurando…', 'Wird wiederhergestellt…', '正在恢复…'],
   'Restaurer ce point ?': ['Restore this backup?', '¿Restaurar esta copia?', 'Diesen Punkt wiederherstellen?', '恢复此备份点？'],
@@ -705,7 +701,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Aucun dépôt ne correspond à cette recherche.': ['No repository matches this search.', 'Ningún repositorio coincide con esta búsqueda.', 'Kein Repository passt zu dieser Suche.', '没有匹配该搜索的仓库。'],
   'Aucun dépôt trouvé sur ce compte.': ['No repository found on this account.', 'No se encontró ningún repositorio en esta cuenta.', 'Auf diesem Konto wurde kein Repository gefunden.', '该账户下未找到仓库。'],
   "Aucun fichier touché par cette branche pour l'instant.": ['No file touched by this branch yet.', 'Ningún archivo tocado por esta rama por ahora.', 'Noch keine Datei von diesem Branch berührt.', '该分支目前尚未改动任何文件。'],
-  'Aucun travail terminé pour l’instant.': ['No finished work yet.', 'Ningún trabajo terminado por ahora.', 'Noch keine abgeschlossene Arbeit.', '暂无已完成的工作。'],
   'Aucun — cliquer pour régler': ['None — click to set', 'Ninguno — pulse para ajustar', 'Keiner — zum Einstellen klicken', '无 — 点击设置'],
   'Aucune (projet local)': ['None (local project)', 'Ninguna (proyecto local)', 'Keine (lokales Projekt)', '无（本地项目）'],
   'Aucune amorce enregistrée pour l’instant.': ['No warm-up recorded yet.', 'Ningún arranque registrado por ahora.', 'Noch kein Anstoß aufgezeichnet.', '暂无预热记录。'],
@@ -732,12 +727,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   ],
   "Aucune sauvegarde pour l'instant.": ['No backup yet.', 'Ninguna copia de seguridad por ahora.', 'Noch keine Sicherung.', '暂无备份。'],
   'Aucune tâche cochée : il n’y aurait rien à déployer.': ['No task ticked: there would be nothing to deploy.', 'Ninguna tarea marcada: no habría nada que desplegar.', 'Keine Aufgabe angehakt: Es gäbe nichts zu veröffentlichen.', '未勾选任何任务：没有可部署的内容。'],
-  "Aucune tâche ne porte encore de part de quota mesurée. Ce bloc se remplira à mesure que de nouvelles tâches s'exécutent.": [
-    'No task carries a measured quota share yet. This block fills up as new tasks run.',
-    'Ninguna tarea lleva todavía una parte de cuota medida. Este bloque se irá llenando conforme se ejecuten nuevas tareas.',
-    'Noch trägt keine Aufgabe einen gemessenen Kontingentanteil. Dieser Block füllt sich, sobald neue Aufgaben laufen.',
-    '尚无任务带有实测配额占比。随着新任务运行，此处会逐步填充。',
-  ],
   'Aucune voix installée sur le serveur.': ['No voice installed on the server.', 'Ninguna voz instalada en el servidor.', 'Keine Stimme auf dem Server installiert.', '服务器上未安装语音。'],
   'Ajoutez un projet depuis la colonne de gauche pour commencer.': [
     'Add a project from the left-hand column to get started.',
@@ -752,7 +741,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Rédaction en cours…': ['Drafting…', 'Redactando…', 'Wird verfasst…', '撰写中……'],
   'Connexion au serveur…': ['Connecting to the server…', 'Conectando al servidor…', 'Verbindung zum Server…', '正在连接服务器……'],
   'Le moteur prépare la connexion…': ['The engine is setting up the connection…', 'El motor prepara la conexión…', 'Die Engine bereitet die Verbindung vor…', '引擎正在准备连接……'],
-  'Serveur injoignable — nouvelle tentative…': ['Server unreachable — trying again…', 'Servidor inaccesible — nuevo intento…', 'Server nicht erreichbar — neuer Versuch…', '服务器无法访问 — 正在重试……'],
   'Fichiers en cours de lecture…': ['Reading files…', 'Leyendo archivos…', 'Dateien werden gelesen…', '正在读取文件……'],
   'Lecture des branches du dépôt…': ['Reading the repository’s branches…', 'Leyendo las ramas del repositorio…', 'Branches des Repositorys werden gelesen…', '正在读取仓库分支……'],
   'Lecture des clients…': ['Reading clients…', 'Leyendo clientes…', 'Kunden werden gelesen…', '正在读取客户……'],
@@ -843,7 +831,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Démarrer « {v0} » ?': ['Start “{v0}”?', '¿Iniciar «{v0}»?', '„{v0}“ starten?', '启动“{v0}”？'],
   'Dès que possible': ['As soon as possible', 'Lo antes posible', 'So bald wie möglich', '尽快'],
   'Retirer de la file': ['Remove from the queue', 'Quitar de la cola', 'Aus der Warteschlange nehmen', '移出队列'],
-  'Mettre en file de publication': ['Queue for publishing', 'Poner en cola de publicación', 'Für die Veröffentlichung einreihen', '加入发布队列'],
   'Mettre de côté': ['Set aside', 'Apartar', 'Beiseitelegen', '搁置'],
   'Mis de côté': ['Set aside', 'Apartados', 'Beiseitegelegt', '已搁置'],
   'Terminer la tâche': ['Finish the task', 'Finalizar la tarea', 'Aufgabe abschließen', '完成任务'],
@@ -946,18 +933,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     'Der Agent bereitet einen Plan vor: In diesem Modus ändert er nichts',
     '智能体正在制定方案：该模式下不会修改任何内容',
   ],
-  "Passer en mode plan : l'agent prépare sans exécuter": [
-    'Switch to plan mode: the agent prepares without executing',
-    'Pasar a modo plan: el agente prepara sin ejecutar',
-    'In den Planmodus wechseln: Der Agent bereitet vor, ohne auszuführen',
-    '切换到方案模式：智能体只制定不执行',
-  ],
-  'Mode plan activé : repasser en exécution directe': [
-    'Plan mode on: switch back to direct execution',
-    'Modo plan activado: volver a la ejecución directa',
-    'Planmodus an: zurück zur direkten Ausführung',
-    '方案模式已开启：切回直接执行',
-  ],
   'Plan proposé': ['Proposed plan', 'Plan propuesto', 'Vorgeschlagener Plan', '已提出方案'],
   'Un plan attend votre décision': ['A plan is waiting for your decision', 'Un plan espera su decisión', 'Ein Plan wartet auf Ihre Entscheidung', '有方案等待您决定'],
   'Refus écrit dans la barre — complétez-le, puis envoyez.': [
@@ -1041,7 +1016,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Refaire l’analyse du projet': ['Analyse the project again', 'Volver a analizar el proyecto', 'Projekt erneut analysieren', '重新分析项目'],
   'Plusieurs réponses possibles.': ['Several answers are possible.', 'Varias respuestas posibles.', 'Mehrere Antworten sind möglich.', '可以有多个答案。'],
   'Une décision est attendue.': ['A decision is expected.', 'Se espera una decisión.', 'Eine Entscheidung wird erwartet.', '需要您做出决定。'],
-  'Répondre ({decisions})': ['Answer ({decisions})', 'Responder ({decisions})', 'Antworten ({decisions})', '回复（{decisions}）'],
   'J\'ai noté': ['Noted', 'Anotado', 'Notiert', '已记录'],
   'Dicté : {texte}': ['Dictated: {texte}', 'Dictado: {texte}', 'Diktiert: {texte}', '已听写：{texte}'],
   'Je vous écoute…': ['Listening…', 'Le escucho…', 'Ich höre zu…', '正在聆听……'],
@@ -1129,7 +1103,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Fusionner (': ['Merge (', 'Fusionar (', 'Zusammenführen (', '合并（'],
   'Tâches à déployer': ['Tasks to deploy', 'Tareas por desplegar', 'Zu veröffentlichende Aufgaben', '待部署任务'],
   'Tâches exécutées': ['Tasks carried out', 'Tareas ejecutadas', 'Ausgeführte Aufgaben', '已执行任务'],
-  'tâche': ['task', 'tarea', 'Aufgabe', '任务'],
   'tâche(s)': ['task(s)', 'tarea(s)', 'Aufgabe(n)', '任务'],
   'À propos de la mise en ligne': ['About going live', 'Sobre la puesta en línea', 'Zur Veröffentlichung', '关于上线'],
   'Branche du déploiement': ['Deployment branch', 'Rama del despliegue', 'Branch der Bereitstellung', '部署分支'],
@@ -1629,7 +1602,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Explication client': ['Client explanation', 'Explicación para el cliente', 'Erklärung für den Kunden', '客户说明'],
   'Trois heures de travail seraient facturées {v0}.': ['Three hours of work would be billed {v0}.', 'Tres horas de trabajo se facturarían {v0}.', 'Drei Arbeitsstunden würden mit {v0} abgerechnet.', '三小时工作将按 {v0} 计费。'],
   'Heures (développeur senior)': ['Hours (senior developer)', 'Horas (desarrollador sénior)', 'Stunden (Senior-Entwickler)', '工时（资深开发者）'],
-  'Sert à l\'ordonnanceur, jamais à la facture': ['For the scheduler, never for the invoice', 'Sirve al planificador, nunca a la factura', 'Für den Planer, nie für die Rechnung', '供调度器使用，绝不用于计费'],
   'Sur les {v0} dernières cartes mesurées, le travail réel a pris en moyenne{v1} {v2} % du temps annoncé au chiffrage.': [
     'Over the last {v0} measured cards, the real work took on average{v1} {v2} % of the time announced at estimation.',
     'En las últimas {v0} tarjetas medidas, el trabajo real ha llevado de media{v1} el {v2} % del tiempo anunciado en la estimación.',
@@ -1638,21 +1610,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   ],
   'Ce qui a été consommé': ['What was used up', 'Lo que se ha consumido', 'Was verbraucht wurde', '实际消耗'],
   'Niveau de la carte :': ['Card level:', 'Nivel de la tarjeta:', 'Kartenstufe:', '卡片等级：'],
-  'Part de quota par carte': ['Quota share per card', 'Parte de cuota por tarjeta', 'Kontingentanteil je Karte', '各卡片的配额占比'],
-  "La part de quota que chaque tâche a réellement consommée : la semaine en tête, la fenêtre de 5 h juste après. Les tâches sont classées de la plus gourmande à la moins gourmande sur la semaine.": [
-    'The quota share each task actually used: the week first, the 5 h window right after. Tasks are ranked from the hungriest to the least hungry over the week.',
-    'La parte de cuota que cada tarea ha consumido realmente: la semana primero, la ventana de 5 h justo después. Las tareas se ordenan de la más glotona a la menos glotona sobre la semana.',
-    'Der Kontingentanteil, den jede Aufgabe wirklich verbraucht hat: die Woche zuerst, direkt danach das 5-Stunden-Fenster. Die Aufgaben sind von der hungrigsten zur genügsamsten über die Woche sortiert.',
-    '每个任务实际消耗的配额占比：先看一周，紧接着是 5 小时窗口。任务按一周内消耗从高到低排序。',
-  ],
-  '{v0} tâche{v1} sans relevé de quota — la mesure est récente, les tâches plus anciennes n\'en portent pas.': [
-    '{v0} task{v1} with no quota reading — the measurement is recent, older tasks do not carry one.',
-    '{v0} tarea{v1} sin lectura de cuota — la medición es reciente, las tareas más antiguas no la llevan.',
-    '{v0} Aufgabe{v1} ohne Kontingentmessung — die Messung ist neu, ältere Aufgaben tragen keine.',
-    '{v0} 个任务没有配额读数{v1} —— 该测量方式较新，更早的任务没有记录。',
-  ],
-  '{v0} estimés, jamais mesurés': ['{v0} estimated, never measured', '{v0} estimados, nunca medidos', '{v0} geschätzt, nie gemessen', '{v0} 为估算值，未经实测'],
-  'pas de relevé': ['no reading', 'sin lectura', 'keine Messung', '无读数'],
   'Temps de travail total': ['Total working time', 'Tiempo de trabajo total', 'Gesamte Arbeitszeit', '总工作时长'],
   'Activité au fil des jours': ['Activity day by day', 'Actividad día a día', 'Aktivität Tag für Tag', '逐日活动'],
   'Le temps de travail des agents chaque jour, tous moteurs confondus, sur le dernier mois.': [
@@ -1670,8 +1627,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Touchez une barre pour voir le détail du jour.': ['Tap a bar to see that day’s detail.', 'Toque una barra para ver el detalle del día.', 'Tippen Sie auf einen Balken, um den Tag im Detail zu sehen.', '点击柱状条可查看当天明细。'],
   'Pas encore assez de relevés pour tracer la courbe.': ['Not enough readings yet to draw the curve.', 'Aún no hay suficientes lecturas para trazar la curva.', 'Noch nicht genug Messwerte, um die Kurve zu zeichnen.', '读数还不足以绘制曲线。'],
   "Les statistiques n'ont pas pu être chargées. Réessayez dans un instant.": ['The statistics could not be loaded. Try again in a moment.', 'No se pudieron cargar las estadísticas. Reinténtelo en un momento.', 'Die Statistiken konnten nicht geladen werden. Versuchen Sie es gleich erneut.', '统计数据加载失败。请稍后重试。'],
-  'Total mesuré sur la période :': ['Total measured over the period:', 'Total medido en el periodo:', 'Über den Zeitraum gemessene Summe:', '该时段内的实测总计：'],
-  'de fenêtres de 5 h, sur': ['of 5 h windows, over', 'de ventanas de 5 h, sobre', 'an 5-Stunden-Fenstern, über', '个 5 小时窗口，共'],
   '{v0} tâche{v1} · {v2}': ['{v0} task{v1} · {v2}', '{v0} tarea{v1} · {v2}', '{v0} Aufgabe{v1} · {v2}', '{v0} 个任务{v1} · {v2}'],
   '{v0} tâche{v1} · {v2} min': ['{v0} task{v1} · {v2} min', '{v0} tarea{v1} · {v2} min', '{v0} Aufgabe{v1} · {v2} Min.', '{v0} 个任务{v1} · {v2} 分钟'],
   '{v0} carte(s) · dernier appel {v1}': ['{v0} card(s) · last call {v1}', '{v0} tarjeta(s) · última llamada {v1}', '{v0} Karte(n) · letzter Aufruf {v1}', '{v0} 张卡片 · 最后调用 {v1}'],
@@ -1863,7 +1818,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   /* ---- Gestes en lot, états d'agent, refus courts ------------------ */
   'Tout lancer': ['Start all', 'Lanzar todo', 'Alle starten', '全部启动'],
   'Tout reprendre': ['Resume all', 'Reanudar todo', 'Alle fortsetzen', '全部继续'],
-  'Tout déployer': ['Deploy all', 'Desplegar todo', 'Alles bereitstellen', '全部部署'],
   /* Restées en français quand le tiroir de procédure a été simplifié. */
   'Procédure par défaut': ['Default procedure', 'Procedimiento por defecto', 'Standardablauf', '默认流程'],
   'adapter la procédure par défaut': [
@@ -1879,7 +1833,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '自动部署：当该项目上再无任务运行时，已完成的卡片会自动移入「待部署」，上线流程也会自行开始。',
   ],
   'Tout archiver': ['Archive all', 'Archivar todo', 'Alles archivieren', '全部归档'],
-  'Déployer': ['Deploy', 'Desplegar', 'Bereitstellen', '部署'],
   'lancée': ['started', 'lanzada', 'gestartet', '已启动'],
   'déployée': ['deployed', 'desplegada', 'bereitgestellt', '已部署'],
   'arrêt refusé': ['stop refused', 'parada rechazada', 'Stopp abgelehnt', '停止被拒绝'],
@@ -2156,7 +2109,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'moins de 0,1 %': ['less than 0.1 %', 'menos del 0,1 %', 'weniger als 0,1 %', '不到 0.1 %'],
   'Copier le message': ['Copy the message', 'Copiar el mensaje', 'Nachricht kopieren', '复制该消息'],
   'Le point du jour': ['The daily briefing', 'El resumen del día', 'Der Tagesüberblick', '每日简报'],
-  'Reprise de session': ['Session resumed', 'Reanudación de sesión', 'Sitzung fortgesetzt', '会话已恢复'],
   'Projet supprimé · {v0}': ['Project deleted · {v0}', 'Proyecto eliminado · {v0}', 'Projekt gelöscht · {v0}', '项目已删除 · {v0}'],
   '{v0} projet{v1} concerné{v2}': ['{v0} project{v1} concerned{v2}', '{v0} proyecto{v1} afectado{v2}', '{v0} betroffene{v1} Projekt{v2}', '涉及 {v0} 个项目{v1}{v2}'],
   '{v0} fichier(s) envoyé(s) pour {v1} projet(s)': [
@@ -2203,12 +2155,8 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
 
   /* ---- Balayage complet des écrans -------------------------------- */
   ' (relu au cache)': [' (read from cache)', ' (leído desde la caché)', ' (aus dem Cache gelesen)', '（从缓存读取）'],
-  'relu au cache': ['read from cache', 'leído desde la caché', 'aus dem Cache gelesen', '从缓存读取'],
   '{label} : {raison}': ['{label}: {raison}', '{label}: {raison}', '{label}: {raison}', '{label}：{raison}'],
   '{v0} · {v1} min': ['{v0} · {v1} min', '{v0} · {v1} min', '{v0} · {v1} Min.', '{v0} · {v1} 分钟'],
-  '{v0} du quota de la semaine': ['{v0} of the weekly quota', '{v0} de la cuota semanal', '{v0} des Wochenkontingents', '每周额度的 {v0}'],
-  '{v0} semaine': ['{v0} week', '{v0} semana', '{v0} Woche', '{v0} 周'],
-  '{v0} sur 5 h': ['{v0} over 5 h', '{v0} en 5 h', '{v0} in 5 Std.', '5 小时内 {v0}'],
   '{jours} jour': ['{jours} day', '{jours} día', '{jours} Tag', '{jours} 天'],
   '{jours} jours': ['{jours} days', '{jours} días', '{jours} Tage', '{jours} 天'],
   '{v0} fait': ['{v0} fact', '{v0} hecho', '{v0} Fakt', '{v0} 条事实'],
@@ -2284,7 +2232,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
     '可并行工作的智能体上限。可用内存可能降低该数值，但不会提高它。',
   ],
   'non faite': ['not done', 'sin hacer', 'nicht erledigt', '未完成'],
-  'Nouvelle session': ['New session', 'Nueva sesión', 'Neue Sitzung', '新会话'],
   'plan': ['plan', 'plan', 'Plan', '计划'],
   'Prévenir quand la machine reste tendue trop longtemps.': [
     'Warn when the machine stays under strain for too long.',
@@ -2310,18 +2257,6 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Visuel': ['Visual', 'Visual', 'Visuell', '可视化'],
   '{v0} version précédente': ['{v0} previous version', '{v0} versión anterior', '{v0} vorherige Version', '前一版 {v0}'],
   '{v0} versions précédentes': ['{v0} previous versions', '{v0} versiones anteriores', '{v0} vorherige Versionen', '前 {v0} 个版本'],
-  'Mémoire évitée par le tri': ['Memory saved by filtering', 'Memoria ahorrada por el filtrado', 'Durch die Sortierung eingespartes Gedächtnis', '筛选节省的记忆'],
-  'Un sujet de mémoire n\'est plus envoyé en entier : seuls les passages qui parlent du travail de la carte partent. Voici ce que ce tri a évité d\'envoyer sur les {v0} derniers jours.': ['A memory topic is no longer sent in full: only the passages that speak to the card\'s work are sent. Here is what this filtering avoided sending over the last {v0} days.', 'Un tema de memoria ya no se envía entero: solo salen los pasajes que hablan del trabajo de la tarjeta. Esto es lo que este filtrado evitó enviar en los últimos {v0} días.', 'Ein Gedächtnisthema wird nicht mehr vollständig gesendet: Nur die Passagen, die zur Arbeit der Karte passen, gehen raus. Das hat die Sortierung in den letzten {v0} Tagen eingespart.', '记忆主题不再整体发送：只发送与卡片工作相关的段落。以下是这种筛选在过去 {v0} 天里避免发送的内容。'],
-  'Mémoire non envoyée': ['Memory not sent', 'Memoria no enviada', 'Nicht gesendetes Gedächtnis', '未发送的记忆'],
-  'sur {v0} ouverture{v1} de mémoire, {v2} carte{v3}': ['across {v0} memory lookup{v1}, {v2} card{v3}', 'en {v0} consulta{v1} de memoria, {v2} tarjeta{v3}', 'bei {v0} Gedächtnisabruf{v1}, {v2} Karte{v3}', '共 {v0} 次记忆查询{v1}，{v2} 张卡片{v3}'],
-  'Quota de semaine épargné': ['Weekly quota saved', 'Cuota semanal ahorrada', 'Eingesparte Wochenquote', '节省的每周配额'],
-  'déduit de la consommation réellement relevée sur la période': ['derived from the consumption actually recorded over the period', 'deducido del consumo realmente registrado en el periodo', 'abgeleitet aus dem tatsächlich erfassten Verbrauch des Zeitraums', '根据该时段实际记录的消耗推算'],
-  'aucune consommation relevée : la part de quota ne se déduit pas encore': ['no consumption recorded: the quota share cannot be derived yet', 'sin consumo registrado: aún no se puede deducir la parte de cuota', 'kein Verbrauch erfasst: der Quotenanteil lässt sich noch nicht ableiten', '尚无消耗记录：暂时无法推算配额占比'],
-  '{v0} ouverture{v1}': ['{v0} lookup{v1}', '{v0} consulta{v1}', '{v0} Abruf{v1}', '{v0} 次查询{v1}'],
-  '{v0} évités': ['{v0} saved', '{v0} ahorrado', '{v0} eingespart', '节省 {v0}'],
-  '{v0} de quota': ['{v0} of quota', '{v0} de cuota', '{v0} der Quote', '配额的 {v0}'],
-  'Aucune carte ne porte encore d\'économie : les ouvertures relevées viennent de conversations.': ['No card carries any saving yet: the lookups recorded come from conversations.', 'Ninguna tarjeta muestra todavía un ahorro: las consultas registradas vienen de conversaciones.', 'Noch keine Karte mit Einsparung: die erfassten Abrufe stammen aus Unterhaltungen.', '暂无卡片产生节省：已记录的查询来自对话。'],
-  'Rien de relevé pour l\'instant. Ce bloc se remplit à chaque fois qu\'un agent ouvre la mémoire du projet.': ['Nothing recorded yet. This block fills up each time an agent opens the project memory.', 'Nada registrado por ahora. Este bloque se llena cada vez que un agente abre la memoria del proyecto.', 'Noch nichts erfasst. Dieser Block füllt sich, sobald ein Agent das Projektgedächtnis öffnet.', '目前尚无记录。每当代理打开项目记忆时，此区块就会填充。'],
 
   /* ---- Télémétrie des tâches --------------------------------------- */
   'Télémétrie des tâches': ['Task telemetry', 'Telemetría de las tareas', 'Telemetrie der Aufgaben', '任务遥测'],
@@ -2394,6 +2329,33 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   '2. Connecter un compte': ['2. Connect an account', '2. Conectar una cuenta', '2. Ein Konto verbinden', '2. 连接账户'],
   'Connecter un compte': ['Connect an account', 'Conectar una cuenta', 'Ein Konto verbinden', '连接账户'],
   'Ouvrir les réglages': ['Open settings', 'Abrir los ajustes', 'Einstellungen öffnen', '打开设置'],
+
+  /* ---- L'historique des tâches du tableau de bord ----------------- */
+  'Historique des tâches': ['Task history', 'Historial de tareas', 'Aufgabenverlauf', '任务历史'],
+  "Chaque tâche exécutée, avec ses jetons d'entrée et de sortie réels, la plus récente en tête.": ['Every task run, with its real input and output tokens, the most recent first.', 'Cada tarea ejecutada, con sus tokens reales de entrada y salida, la más reciente primero.', 'Jede ausgeführte Aufgabe mit ihren tatsächlichen Ein- und Ausgabe-Tokens, die neueste zuerst.', '每个已执行的任务，附带真实的输入与输出词元，最新的排在最前。'],
+  "Aucune tâche exécutée pour l'instant. Ce bloc se remplira à mesure que des tâches s'exécutent.": ['No task run yet. This block fills up as tasks are run.', 'Ninguna tarea ejecutada por ahora. Este bloque se llenará a medida que se ejecuten tareas.', 'Noch keine Aufgabe ausgeführt. Dieser Block füllt sich, sobald Aufgaben ausgeführt werden.', '目前尚无已执行的任务。随着任务的执行，此区块会逐渐填充。'],
+  '{v0} jetons': ['{v0} tokens', '{v0} tokens', '{v0} Tokens', '{v0} 个词元'],
+  '{v0} entrée · {v1} sortie': ['{v0} in · {v1} out', '{v0} entrada · {v1} salida', '{v0} Eingabe · {v1} Ausgabe', '输入 {v0} · 输出 {v1}'],
+
+  /* ---- L'erreur qui a arrêté un tour, et sa décision -------------- */
+  'Une erreur a arrêté le travail': ['An error stopped the work', 'Un error detuvo el trabajo', 'Ein Fehler hat die Arbeit gestoppt', '一个错误中止了工作'],
+  'Ignorer': ['Ignore', 'Ignorar', 'Ignorieren', '忽略'],
+  'Le travail a été relancé.': ['The work has been restarted.', 'El trabajo se ha reanudado.', 'Die Arbeit wurde neu gestartet.', '工作已重新启动。'],
+  'L’erreur a été ignorée : la carte est rangée telle quelle.': ['The error was ignored: the card is filed as is.', 'El error se ha ignorado: la tarjeta se archiva tal cual.', 'Der Fehler wurde ignoriert: Die Karte wird unverändert abgelegt.', '该错误已被忽略：卡片按原样归档。'],
+  'Le travail a été arrêté : la carte est revenue en « Planifié ».': ['The work was stopped: the card is back in “Planned”.', 'El trabajo se ha detenido: la tarjeta ha vuelto a «Planificado».', 'Die Arbeit wurde gestoppt: Die Karte ist zurück in „Geplant“.', '工作已停止：卡片已回到“已计划”。'],
+
+  /* ---- Le module vocal, dans les réglages ------------------------- */
+  'Afficher le module vocal flottant': ['Show the floating voice module', 'Mostrar el módulo de voz flotante', 'Das schwebende Sprachmodul anzeigen', '显示悬浮语音模块'],
+  'Écoute permanente (mot de réveil)': ['Always-on listening (wake word)', 'Escucha permanente (palabra de activación)', 'Dauerhaftes Zuhören (Weckwort)', '持续聆听（唤醒词）'],
+  'Mode conversation vocale': ['Voice conversation mode', 'Modo de conversación por voz', 'Sprachkonversationsmodus', '语音对话模式'],
+  'Lire les réponses et notifications à voix haute': ['Read answers and notifications out loud', 'Leer en voz alta las respuestas y notificaciones', 'Antworten und Benachrichtigungen vorlesen', '朗读回复与通知'],
+  "L'écoute et la conversation s'éteignent à chaque fermeture de l'application — jamais de micro ouvert tout seul.": ['Listening and conversation switch off every time the application is closed — the microphone is never left open on its own.', 'La escucha y la conversación se apagan cada vez que se cierra la aplicación: nunca queda un micrófono abierto por sí solo.', 'Zuhören und Konversation schalten sich bei jedem Schließen der Anwendung ab — nie bleibt ein Mikrofon von allein offen.', '每次关闭应用时，聆听与对话都会关闭——绝不会自行保持麦克风开启。'],
+
+  /* ---- Un interrupteur des réglages d'un tour, et la recherche ---- */
+  'Activé': ['On', 'Activado', 'Ein', '已启用'],
+  'Désactivé': ['Off', 'Desactivado', 'Aus', '已停用'],
+  'Rechercher un projet…': ['Search for a project…', 'Buscar un proyecto…', 'Ein Projekt suchen…', '搜索项目…'],
+  'Aucun projet ne correspond à cette recherche.': ['No project matches this search.', 'Ningún proyecto coincide con esta búsqueda.', 'Kein Projekt entspricht dieser Suche.', '没有项目符合此搜索条件。'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */

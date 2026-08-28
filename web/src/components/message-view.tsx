@@ -1586,7 +1586,7 @@ function ErreurDeTourCard({ message }: { message: Message }) {
     try {
       await client.call({ type: 'erreur.repondre', messageId: message.id, choix });
     } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'réponse impossible');
+      client.pushToast('error', err?.message ?? t('réponse impossible'));
     } finally {
       setBusy(null);
     }

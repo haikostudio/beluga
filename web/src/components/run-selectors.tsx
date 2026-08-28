@@ -368,7 +368,7 @@ function LigneBascule({
     <div
       role="menuitem"
       data-selecteur="plan"
-      data-valeur={actif ? t('Activé') : t('Désactivé')}
+      data-valeur={actif ? 'Activé' : 'Désactivé'}
       className="flex items-center justify-between gap-2 rounded-md px-2 py-2"
     >
       <span className="flex min-w-0 flex-col items-start gap-0.5">

@@ -945,7 +945,7 @@ function BoutonRobot({
     <button
       type="button"
       data-bouton-robot
-      aria-label={t('Nouvel agent')}
+      aria-label="Nouvel agent"
       aria-busy={busy}
       disabled={busy || !projectId}
       onClick={() => void ouvrir()}
