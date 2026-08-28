@@ -373,7 +373,13 @@ async function avecSession(travail) {
     const fin = ouvrir();
     fin.prepare('DELETE FROM sessions WHERE token = ?').run(empreinte);
     if (langueDavant === null) fin.prepare("DELETE FROM preferences WHERE key = 'langue'").run();
-    else fin.prepare("UPDATE preferences SET value = ? WHERE key = 'langue'").run(langueDavant);
+    else
+      fin
+        .prepare(
+          `INSERT INTO preferences (key, value, updated_at) VALUES ('langue', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        )
+        .run(langueDavant, Date.now());
     fin.close();
   }
 }
