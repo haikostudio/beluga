@@ -204,7 +204,11 @@ function CourbeJetonsEtDuree({ tendances }: { tendances: PointDeTendance[] }) {
               className="flex min-w-0 flex-1 items-end self-stretch"
               aria-pressed={point.jour === actif}
               aria-label={`${jourEnClair(point.jour)} · ${jetonsEnClair(point.jetons)} · ${point.minutesParTache} min`}
-              title={`${jourEnClair(point.jour)} · ${jetonsEnClair(point.jetons)} · ${point.minutesParTache} min`}
+              title={t('{v0} · {v1} · {v2} min', {
+                v0: jourEnClair(point.jour),
+                v1: jetonsEnClair(point.jetons),
+                v2: point.minutesParTache,
+              })}
             >
               <div
                 className={`w-full rounded-t ${point.jour === actif ? 'ring-2 ring-accent ring-offset-1 ring-offset-surface' : ''}`}

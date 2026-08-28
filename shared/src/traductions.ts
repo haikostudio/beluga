@@ -2336,6 +2336,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "Aucune tâche exécutée pour l'instant. Ce bloc se remplira à mesure que des tâches s'exécutent.": ['No task run yet. This block fills up as tasks are run.', 'Ninguna tarea ejecutada por ahora. Este bloque se llenará a medida que se ejecuten tareas.', 'Noch keine Aufgabe ausgeführt. Dieser Block füllt sich, sobald Aufgaben ausgeführt werden.', '目前尚无已执行的任务。随着任务的执行，此区块会逐渐填充。'],
   '{v0} jetons': ['{v0} tokens', '{v0} tokens', '{v0} Tokens', '{v0} 个词元'],
   '{v0} entrée · {v1} sortie': ['{v0} in · {v1} out', '{v0} entrada · {v1} salida', '{v0} Eingabe · {v1} Ausgabe', '输入 {v0} · 输出 {v1}'],
+  '{v0} · {v1} · {v2} min': ['{v0} · {v1} · {v2} min', '{v0} · {v1} · {v2} min', '{v0} · {v1} · {v2} Min.', '{v0} · {v1} · {v2} 分钟'],
 
   /* ---- L'erreur qui a arrêté un tour, et sa décision -------------- */
   'Une erreur a arrêté le travail': ['An error stopped the work', 'Un error detuvo el trabajo', 'Ein Fehler hat die Arbeit gestoppt', '一个错误中止了工作'],
