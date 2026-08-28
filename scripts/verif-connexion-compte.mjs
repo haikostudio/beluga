@@ -159,10 +159,37 @@ const page = await contexte.newPage();
 await page.goto(BASE, { waitUntil: 'domcontentloaded', timeout: 60000 });
 await page.waitForTimeout(5000);
 
+/*
+ * L'ASSISTANT DE DÉMARRAGE BARRE L'ÉCRAN. Ce démon d'essai n'a qu'un compte
+ * mort : aucun moteur n'est en ligne, donc l'assistant s'ouvre — c'est
+ * précisément la règle que porte `shared/src/assistant-moteurs.ts`. On le
+ * constate, puis on passe par SA porte vers les réglages : la barre du haut est
+ * couverte, et c'est voulu.
+ */
+const assistant = page.locator('[data-assistant-moteurs="1"]');
+const assistantOuvert = (await assistant.count()) > 0;
+noter('sans moteur en ligne, l’assistant de démarrage barre l’écran', assistantOuvert);
+if (assistantOuvert) {
+  await page.screenshot({ path: path.join(SHOTS, 'assistant-moteurs.png') });
+  noter(
+    'l’assistant propose les trois moteurs',
+    (await page.locator('[data-moteur]').count()) === 3,
+    `${await page.locator('[data-moteur]').count()} moteur(s)`,
+  );
+  noter(
+    'le compte mort y porte son bouton « Reconnecter »',
+    (await page.locator('[data-reconnecter="codex-mort"]').count()) > 0,
+  );
+}
+
 /* Réglages → onglet « Comptes » */
-await page.getByRole('button', { name: 'Menu' }).first().click();
-await page.waitForTimeout(600);
-await page.getByRole('menuitem', { name: /Réglages/ }).first().click();
+if (assistantOuvert) {
+  await page.locator('[data-assistant-reglages="1"]').first().click();
+} else {
+  await page.getByRole('button', { name: 'Menu' }).first().click();
+  await page.waitForTimeout(600);
+  await page.getByRole('menuitem', { name: /Réglages/ }).first().click();
+}
 await page.waitForTimeout(1200);
 await page.getByRole('tab', { name: 'Comptes' }).first().click();
 await page.waitForTimeout(2500);

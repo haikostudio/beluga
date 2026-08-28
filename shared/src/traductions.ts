@@ -2384,6 +2384,8 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'à reconnecter': ['to reconnect', 'por reconectar', 'neu zu verbinden', '待重新连接'],
   'à connecter': ['to connect', 'por conectar', 'zu verbinden', '待连接'],
   '{n} compte(s) connecté(s).': ['{n} account(s) connected.', '{n} cuenta(s) conectada(s).', '{n} Konto/Konten verbunden.', '已连接 {n} 个账户。'],
+  "1. Outil installé sur le serveur": ['1. Tool installed on the server', '1. Herramienta instalada en el servidor', '1. Werkzeug auf dem Server installiert', '1. 工具已安装在服务器上'],
+  "Cette étape s'ouvrira une fois l'outil installé.": ['This step opens once the tool is installed.', 'Este paso se abrirá una vez instalada la herramienta.', 'Dieser Schritt öffnet sich, sobald das Werkzeug installiert ist.', '工具安装完成后，此步骤即会开启。'],
   "1. Installer l'outil sur le serveur": ['1. Install the tool on the server', '1. Instalar la herramienta en el servidor', '1. Das Werkzeug auf dem Server installieren', '1. 在服务器上安装工具'],
   'Copier la commande': ['Copy the command', 'Copiar el comando', 'Befehl kopieren', '复制命令'],
   'copie impossible depuis ce navigateur': ['copying is not possible from this browser', 'no se puede copiar desde este navegador', 'Kopieren ist in diesem Browser nicht möglich', '此浏览器无法复制'],
@@ -2391,6 +2393,7 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   "2. Déclarer une clé d'accès": ['2. Declare an access key', '2. Declarar una clave de acceso', '2. Einen Zugangsschlüssel hinterlegen', '2. 登记访问密钥'],
   '2. Connecter un compte': ['2. Connect an account', '2. Conectar una cuenta', '2. Ein Konto verbinden', '2. 连接账户'],
   'Connecter un compte': ['Connect an account', 'Conectar una cuenta', 'Ein Konto verbinden', '连接账户'],
+  'Ouvrir les réglages': ['Open settings', 'Abrir los ajustes', 'Einstellungen öffnen', '打开设置'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Copy, Loader2, LogIn, RefreshCw, Terminal } from 'lucide-react';
+import { Check, Copy, Loader2, LogIn, RefreshCw, Settings, Terminal } from 'lucide-react';
 import {
   ConnexionCompte,
   EngineId,
@@ -36,7 +36,7 @@ import { t } from '@/lib/langue';
  *     d'accès pour Cursor.
  */
 
-export function AssistantMoteurs() {
+export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () => void }) {
   const state = useApp();
   const moteurs = moteursDeLAssistant(state.engines, state.quotas);
   const [relecture, setRelecture] = React.useState(false);
@@ -65,7 +65,13 @@ export function AssistantMoteurs() {
   return (
     <div
       data-assistant-moteurs="1"
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-bg/95 p-3 backdrop-blur-sm"
+      /*
+       * SOUS les tiroirs (`z-50`) et les messages passagers (`z-[100]`), AU-DESSUS
+       * de tout le reste : l'écran de travail est bien barré, mais les réglages —
+       * le seul endroit qui permet de réparer un compte déjà déclaré — s'ouvrent
+       * encore par-dessus.
+       */
+      className="fixed inset-0 z-[45] flex items-center justify-center bg-bg/95 p-3 backdrop-blur-sm"
     >
       <div className="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-xl">
         <header className="shrink-0 border-b border-border px-4 py-3">
@@ -82,9 +88,15 @@ export function AssistantMoteurs() {
           </div>
         </ZoneDefilement>
 
-        <footer className="flex shrink-0 items-center gap-2 border-t border-border px-4 py-2.5">
+        <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
           <p className="flex-1 text-[12.5px] leading-relaxed text-faint">
             {t('Cet écran se referme tout seul dès qu\'un moteur répond.')}</p>
+          {/* LA RÉPARATION RESTE ATTEIGNABLE. Un compte simplement expiré se
+              renomme, se coupe ou se rallume depuis les réglages : barrer aussi
+              cette porte enfermerait l'utilisateur au lieu de l'aider. */}
+          <Button variant="ghost" size="sm" data-assistant-reglages="1" onClick={onOuvrirReglages}>
+            <Settings className="h-3 w-3" />
+            {t('Ouvrir les réglages')}</Button>
           <Button variant="outline" size="sm" data-assistant-relire="1" disabled={relecture} onClick={relire}>
             {relecture ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
             {t('Vérifier à nouveau')}</Button>
@@ -111,8 +123,8 @@ function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
   const state = useApp();
   const pret = moteur.etape === 'pret';
 
-  // Les tentatives de connexion NEUVES de ce moteur (jamais une reconnexion de
-  // compte existante, qui se suit depuis les réglages).
+  // Les tentatives de connexion NEUVES de ce moteur. La reconnexion d'un compte
+  // déjà déclaré se suit à part, sur la ligne de ce compte.
   const neuves = state.connexions.filter((c) => !c.accountId && c.engine === moteur.id);
   const enCours = neuves.find((c) => !connexionTerminee(c));
   const derniere = neuves[neuves.length - 1];
@@ -141,10 +153,11 @@ function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
         </p>
       ) : (
         <div className="mt-2 space-y-2">
-          {moteur.cliInstalle ? null : <EtapeInstallation moteur={moteur} />}
-          {moteur.cliInstalle ? (
-            <EtapeConnexion moteur={moteur} enCours={enCours} derniere={derniere} />
-          ) : null}
+          {/* LES DEUX ÉTAPES SONT TOUJOURS LÀ, dans l'ordre. Celle qui est faite
+              se replie sur une ligne cochée : on voit d'un coup d'œil ce qui
+              reste, sans se demander pourquoi le pas « 2 » n'a pas de « 1 ». */}
+          <EtapeInstallation moteur={moteur} />
+          <EtapeConnexion moteur={moteur} enCours={enCours} derniere={derniere} />
         </div>
       )}
     </section>
@@ -158,6 +171,19 @@ function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
 function EtapeInstallation({ moteur }: { moteur: MoteurDeLAssistant }) {
   const [copie, setCopie] = React.useState(false);
 
+  if (moteur.cliInstalle) {
+    return (
+      <p
+        data-etape-installation="faite"
+        className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 text-[12.5px] text-success"
+      >
+        <Check className="h-3 w-3 shrink-0" />
+        {t('1. Outil installé sur le serveur')}
+        {moteur.version ? <span className="truncate text-faint">{moteur.version}</span> : null}
+      </p>
+    );
+  }
+
   const copier = async () => {
     try {
       await navigator.clipboard.writeText(moteur.commandeDInstallation);
@@ -169,7 +195,7 @@ function EtapeInstallation({ moteur }: { moteur: MoteurDeLAssistant }) {
   };
 
   return (
-    <div className="rounded-md border border-border bg-surface px-2 py-1.5">
+    <div className="rounded-md border border-border bg-surface px-2 py-1.5" data-etape-installation="a-faire">
       <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
         <Terminal className="h-3 w-3" />
         {t('1. Installer l\'outil sur le serveur')}
@@ -205,12 +231,28 @@ function EtapeConnexion({
   enCours?: ConnexionCompte;
   derniere?: ConnexionCompte;
 }) {
+  // Rien à connecter tant que l'outil n'est pas là : l'étape s'annonce, grisée,
+  // plutôt que de disparaître — on doit voir ce qui vient après.
+  const enAttente = !moteur.cliInstalle;
+
   return (
-    <div className="rounded-md border border-border bg-surface px-2 py-1.5">
+    <div
+      className={cn('rounded-md border border-border bg-surface px-2 py-1.5', enAttente && 'opacity-50')}
+      data-etape-connexion={enAttente ? 'en-attente' : 'a-faire'}
+    >
       <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
         <LogIn className="h-3 w-3" />
         {moteur.connexionParCle ? t('2. Déclarer une clé d\'accès') : t('2. Connecter un compte')}
       </p>
+      {enAttente ? (
+        <p className="mt-1 text-[12.5px] leading-relaxed text-faint">
+          {t('Cette étape s\'ouvrira une fois l\'outil installé.')}</p>
+      ) : (
+        <>
+
+      {/* LES COMPTES DÉJÀ DÉCLARÉS D'ABORD : un jeton expiré se refait sur
+          place, il n'oblige pas à ouvrir un second compte. */}
+      <ComptesAReconnecter moteur={moteur} />
 
       {moteur.connexionParCle ? (
         <AjouterCleCursor deplie />
@@ -230,6 +272,51 @@ function EtapeConnexion({
           {derniere && connexionTerminee(derniere) ? <BlocConnexion connexion={derniere} /> : null}
         </>
       )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Les comptes de ce moteur dont la connexion ne tient plus. Chacun porte son
+ * bouton « Reconnecter » : la même commande que dans les réglages, avec
+ * l'identifiant du compte — le coffre existant est réemployé, aucun compte
+ * neuf n'est créé.
+ */
+function ComptesAReconnecter({ moteur }: { moteur: MoteurDeLAssistant }) {
+  const state = useApp();
+  const comptes = state.quotas.filter(
+    (q) => q.engine === moteur.id && !q.disabled && q.connexion?.doitReconnecter,
+  );
+  if (!comptes.length) return null;
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      {comptes.map((compte) => {
+        const enCours = state.connexions.find((c) => !connexionTerminee(c) && c.accountId === compte.id);
+        return (
+          <div key={compte.id} className="rounded-md border border-border bg-bg px-2 py-1.5">
+            <div className="flex items-center gap-1.5">
+              <span className="flex-1 truncate text-[13px] text-text">{compte.label}</span>
+              <span className="text-[12px] text-warning">{compte.connexion?.libelle}</span>
+              {enCours ? null : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-reconnecter={compte.id}
+                  onClick={() =>
+                    client.send({ type: 'account.connect', engine: moteur.id as EngineId, accountId: compte.id })
+                  }
+                >
+                  <LogIn className="h-3 w-3" />
+                  {t('Reconnecter')}</Button>
+              )}
+            </div>
+            {enCours ? <BlocConnexion connexion={enCours} /> : null}
+          </div>
+        );
+      })}
     </div>
   );
 }

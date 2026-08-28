@@ -857,7 +857,7 @@ export function App() {
             qu'un écran noir. */}
         <Filet zone="Assistant de démarrage" muet>
           <PanneauALaDemande monte={assistantOuvert}>
-            <AssistantMoteurs />
+            <AssistantMoteurs onOuvrirReglages={() => setSettingsOpen(true)} />
           </PanneauALaDemande>
         </Filet>
         {/* Le module de voix ouvre un micro et du son : ce qu'il fait de plus
