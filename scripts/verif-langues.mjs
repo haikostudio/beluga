@@ -69,6 +69,9 @@ const {
   BOUTON_LANCER_LA_TACHE,
   MOT_CADRAGE,
   RAISONS_DU_BOUTON_LANCER,
+  CATEGORIES_EXPORT,
+  LIBELLE_POLITIQUE,
+  EXPLICATION_POLITIQUE,
 } = partage;
 
 /* ------------------------------------------------------------------ */
@@ -159,6 +162,12 @@ const catalogues = [
   MOT_CADRAGE.titre,
   MOT_CADRAGE.indice,
   ...RAISONS_DU_BOUTON_LANCER,
+  /* L'export/import des données : les catégories exportables et les politiques
+     de conflit viennent d'un catalogue partagé, affiché tel quel. */
+  ...CATEGORIES_EXPORT.map((categorie) => categorie.libelle),
+  ...CATEGORIES_EXPORT.map((categorie) => categorie.description),
+  ...Object.values(LIBELLE_POLITIQUE),
+  ...Object.values(EXPLICATION_POLITIQUE),
 ];
 const aTraduire = [...new Set([...textes, ...catalogues])];
 

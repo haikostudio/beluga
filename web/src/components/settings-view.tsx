@@ -91,6 +91,13 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
+import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
+
+/** Le tiroir d'export/import : un écran qu'on ouvre deux fois par an, donc un
+ *  morceau à part, réclamé au premier clic et jamais au démarrage. */
+const TiroirDonnees = React.lazy(() =>
+  import('@/components/export-donnees').then((m) => ({ default: m.TiroirDonnees })),
+);
 import { AppearancePicker } from '@/components/appearance-picker';
 import { CLE_VOIX_MUETTE, CLE_VOIX_VISIBLE } from '@/components/voix-assistant';
 import { client } from '@/lib/client';
@@ -470,6 +477,8 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
 
       <SectionAccesVps />
 
+      <SectionExportDonnees />
+
       <SectionCerveau />
 
       {/* LE JOURNAL DES ERREURS DE LA PAGE est un outil de diagnostic pur :
@@ -493,6 +502,35 @@ function SectionSysteme({ history }: { history: { at: number; loadPct: number }[
         onClose={() => setAConfirmer(null)}
       />
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Déménager l'installation : tout exporter, tout réimporter            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * L'EXPORT ET L'IMPORT INTÉGRAL. Une sauvegarde répond à « la machine a brûlé,
+ * on remonte la même » ; celui-ci répond à « j'installe HaikoDev ailleurs et je
+ * veux y retrouver mes accès, mes projets et mes cartes ». Le tiroir se charge
+ * À LA DEMANDE : c'est un écran qu'on ouvre deux fois par an.
+ */
+function SectionExportDonnees() {
+  const [ouvert, setOuvert] = React.useState(false);
+  return (
+    <section className="rounded-lg border border-border bg-surface p-3">
+      <h3 className="mb-1 flex items-center gap-1.5 text-[13px] uppercase tracking-wide text-muted">
+        <Database className="h-3.5 w-3.5 text-faint" />  {t('Export et import des données')}</h3>
+      <p className="mb-2 text-[12.5px] leading-relaxed text-faint">
+        {t('Emporter le coffre-fort, les snapshots, les projets, les cartes, les conversations et les branches dans une seule archive — puis les remonter sur une autre installation.')}</p>
+      <Button variant="secondary" size="sm" data-ouvrir-export-donnees onClick={() => setOuvert(true)}>
+        <Database className="h-3 w-3" />
+        {t('Ouvrir')}
+      </Button>
+      <PanneauALaDemande monte={ouvert}>
+        <TiroirDonnees open={ouvert} onClose={() => setOuvert(false)} />
+      </PanneauALaDemande>
+    </section>
   );
 }
 
