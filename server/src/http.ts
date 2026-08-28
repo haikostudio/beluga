@@ -23,6 +23,7 @@ import {
 } from '@haikodev/shared';
 import { CONFIG, PATHS, ROOT, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
+import { deposerArchive, examinerArchive } from './export-donnees.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { callTool, createCard, toolsFor } from './tools.js';
@@ -668,6 +669,23 @@ export function createHttpServer(): http.Server {
           const zip = await makeZip(project.path, body.paths ?? [], body.label ?? project.name);
           const token = mintDownload(zip.file, zip.name);
           return json(res, 200, { token, name: zip.name, size: zip.size });
+        } catch (err: any) {
+          return json(res, 400, { error: err?.message ?? String(err) });
+        }
+      }
+
+      /*
+       * L'ARCHIVE DÉPOSÉE POUR IMPORT. Elle est binaire et peut peser lourd :
+       * elle passe par le tuyau HTTP, pas par le protocole. On la range sous un
+       * jeton et on rend TOUT DE SUITE ce qu'elle contient — c'est cet aperçu
+       * que le tiroir affiche avant que qui que ce soit ne lance l'import.
+       */
+      if (route === '/api/donnees/archive' && req.method === 'POST') {
+        try {
+          const archive = await readBody(req, 512 * 1024 * 1024);
+          const apercu = examinerArchive(archive);
+          if (!apercu.ok) return json(res, 400, { error: apercu.raison });
+          return json(res, 200, { depot: deposerArchive(archive), apercu });
         } catch (err: any) {
           return json(res, 400, { error: err?.message ?? String(err) });
         }

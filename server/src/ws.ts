@@ -135,6 +135,7 @@ import { testerConnexionVps } from './acces-vps.js';
 import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
+import { etatDesCategories, exporterDonnees, importerDonnees, lireDepot } from './export-donnees.js';
 import { digestText, listVoices } from './voice.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
@@ -2004,6 +2005,40 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
 
     case 'backup.list':
       return { backups: listBackups() };
+
+    /* -------- Export et import intégral des données -------- */
+
+    case 'donnees.categories':
+      return etatDesCategories();
+
+    case 'donnees.exporter': {
+      // L'archive est écrite dans les archives temporaires, comme celle d'un
+      // dossier de projet : l'écran ne reçoit qu'un JETON de téléchargement,
+      // jamais des mégaoctets par le canal du protocole.
+      const resultat = await exporterDonnees(Array.isArray(cmd.categories) ? cmd.categories.map(String) : undefined);
+      if (!resultat.ok) throw new Error(resultat.erreur);
+      return {
+        token: mintDownload(resultat.file, resultat.name),
+        name: resultat.name,
+        size: resultat.size,
+        manifeste: resultat.manifeste,
+      };
+    }
+
+    case 'donnees.importer': {
+      // L'archive a déjà été déposée par `/api/donnees/archive` : on ne la fait
+      // pas remonter une seconde fois pour la seule raison qu'on a coché des
+      // cases entre-temps.
+      const archive = lireDepot(String(cmd.depot ?? ''));
+      if (!archive) throw new Error('archive introuvable : elle a expiré, redéposez le fichier');
+      const bilan = importerDonnees(
+        archive,
+        Array.isArray(cmd.categories) ? cmd.categories.map(String) : [],
+        cmd.politique === 'remplacer' || cmd.politique === 'remettre-a-zero' ? cmd.politique : 'ignorer',
+      );
+      if (!bilan.ok) throw new Error(bilan.erreur ?? 'import impossible');
+      return { bilan };
+    }
 
     case 'digest.speak':
       return { text: digestText(cmd.projectId) };

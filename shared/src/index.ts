@@ -77,6 +77,7 @@ export * from './module-natif.js';
 export * from './etat-carte.js';
 export * from './economie-memoire.js';
 export * from './extrait-regles.js';
+export * from './export-donnees.js';
 export * from './conversation-vocale.js';
 export * from './fichiers-a-enregistrer.js';
 export * from './fin-de-tour.js';

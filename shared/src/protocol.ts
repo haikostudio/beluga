@@ -672,6 +672,22 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('daemon.restart'), force: z.boolean().optional() }),
   z.object({ type: z.literal('backup.now') }),
   z.object({ type: z.literal('backup.list') }),
+  /**
+   * L'EXPORT ET L'IMPORT INTÉGRAL DES DONNÉES (`shared/src/export-donnees.ts`).
+   * `donnees.categories` dit ce qu'il y a à emporter, catégorie par catégorie,
+   * avant même de cocher. `donnees.exporter` rend un JETON de téléchargement —
+   * l'archive ne passe JAMAIS par ce canal. `donnees.importer` travaille sur une
+   * archive déjà déposée par `POST /api/donnees/archive`, qui l'a validée et
+   * rendu son aperçu : on ne la fait pas remonter deux fois.
+   */
+  z.object({ type: z.literal('donnees.categories') }),
+  z.object({ type: z.literal('donnees.exporter'), categories: z.array(z.string()).optional() }),
+  z.object({
+    type: z.literal('donnees.importer'),
+    depot: z.string(),
+    categories: z.array(z.string()),
+    politique: z.enum(['ignorer', 'remplacer', 'remettre-a-zero']).optional(),
+  }),
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
