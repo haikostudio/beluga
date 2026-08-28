@@ -54,6 +54,14 @@ export const EngineInfo = z.object({
   id: EngineId,
   label: z.string(),
   installed: z.boolean(),
+  /**
+   * L'OUTIL EN LIGNE DE COMMANDE RÉPOND-IL, indépendamment des comptes ?
+   * `installed` ci-dessus veut dire « moteur utilisable » : sur Cursor il est
+   * déjà faux quand aucune clé n'est déclarée, alors même que `cursor-agent`
+   * est bien posé sur la machine. L'assistant de démarrage a besoin des deux
+   * repères séparés pour ne pas demander d'installer ce qui l'est déjà.
+   */
+  cliInstalle: z.boolean().optional(),
   version: z.string().optional(),
   models: z.array(ModelInfo).default([]),
   defaultModel: z.string().optional(),

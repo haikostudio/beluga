@@ -1695,8 +1695,14 @@ async function handleCommand(cmd: ClientEnvelope['cmd']): Promise<unknown> {
     case 'process.start':
       return controlProcess(cmd.id, 'start');
 
-    case 'engines.list':
-      return { engines: await listEngines(true) };
+    case 'engines.list': {
+      // Une relecture forcée du catalogue intéresse TOUS les écrans ouverts, pas
+      // seulement celui qui l'a demandée : l'assistant de démarrage s'en sert
+      // pour constater qu'un outil vient d'être installé sur le serveur.
+      const engines = await listEngines(true);
+      bus.emit({ type: 'engines', engines });
+      return { engines };
+    }
 
     /*
      * L'ÉTAT D'UN COMPTE CURSOR. Ce moteur ne publie aucune fenêtre de

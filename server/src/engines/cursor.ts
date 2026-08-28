@@ -337,6 +337,16 @@ export function buildCursorArgs(options: EngineRunOptions, modele: string): stri
   return args;
 }
 
+/** L'outil `cursor-agent` répond-il sur cette machine ? Aucune clé n'entre ici. */
+async function detecterLOutilCursor(): Promise<{ installed: boolean; version?: string }> {
+  try {
+    const { stdout } = await execFileAsync(cursorAdapter.binary, ['--version'], { timeout: 15_000 });
+    return { installed: true, version: stdout.trim().split('\n')[0] };
+  } catch {
+    return { installed: false };
+  }
+}
+
 export const cursorAdapter: EngineAdapter = {
   id: 'cursor',
   label: 'Cursor',
@@ -347,15 +357,16 @@ export const cursorAdapter: EngineAdapter = {
    * Le moteur n'existe que si l'outil répond ET qu'une clé est connue : sans
    * clé, aucun tour ne peut partir, et le proposer dans les menus reviendrait
    * à promettre un moteur qui refusera tout.
+   *
+   * L'OUTIL est néanmoins interrogé dans TOUS LES CAS, et son état voyage à
+   * part (`cliInstalle`) : l'assistant de démarrage doit pouvoir dire « outil
+   * installé, il manque une clé » plutôt que de redemander une installation
+   * déjà faite.
    */
   async detect() {
-    if (!clesCursor().length) return { installed: false };
-    try {
-      const { stdout } = await execFileAsync(cursorAdapter.binary, ['--version'], { timeout: 15_000 });
-      return { installed: true, version: stdout.trim().split('\n')[0] };
-    } catch {
-      return { installed: false };
-    }
+    const cli = await detecterLOutilCursor();
+    if (!clesCursor().length) return { installed: false, version: cli.version, cliInstalle: cli.installed };
+    return { ...cli, cliInstalle: cli.installed };
   },
 
   async models() {

@@ -75,6 +75,9 @@ async function dresserLeCatalogue(): Promise<EngineInfo[]> {
         id: adapter.id,
         label: adapter.label,
         installed: detected.installed,
+        // L'OUTIL, séparé du moteur utilisable : Cursor peut être installé sans
+        // clé. Un adaptateur qui ne dit rien de plus retombe sur `installed`.
+        cliInstalle: detected.cliInstalle ?? detected.installed,
         version: detected.version,
         models,
         // Le modèle par défaut suit l'intention de l'adaptateur (un modèle

@@ -27,6 +27,7 @@ import {
   ongletAReprendre,
   TITRE_CARTE_DE_CADRAGE,
   carteRobotEstVide,
+  assistantNecessaire,
   Card,
   type EcranNavigateur,
 } from '@haikodev/shared';
@@ -42,6 +43,12 @@ const chargerTableauDeBord = () => import('@/components/dashboard');
 const chargerTiroirCarte = () => import('@/components/card-panel');
 const chargerReglages = () => import('@/components/settings-view');
 const chargerVoix = () => import('@/components/voix-assistant');
+/*
+ * L'ASSISTANT DE DÉMARRAGE ne sert QUE sur un serveur où aucun moteur ne
+ * répond : sur toutes les autres ouvertures, son morceau n'a aucune raison
+ * d'être téléchargé.
+ */
+const chargerAssistantMoteurs = () => import('@/components/assistant-moteurs');
 /*
  * La CONVERSATION est le seul cas limite : sur un grand écran elle s'ouvre
  * d'entrée, sur téléphone elle attend son onglet. Elle emporte avec elle la
@@ -59,6 +66,9 @@ const Dashboard = React.lazy(() => chargerTableauDeBord().then((m) => ({ default
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
 const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
 const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.VoixAssistant })));
+const AssistantMoteurs = React.lazy(() =>
+  chargerAssistantMoteurs().then((m) => ({ default: m.AssistantMoteurs })),
+);
 
 /** Les destinations de la barre du bas, sur téléphone. */
 const ONGLETS_MOBILES = ['board', 'chat'] as const;
@@ -565,6 +575,19 @@ export function App() {
   const activeProject = state.projects.find((project) => project.id === state.activeProjectId);
   const openAgent = openAgentId ? state.agents[openAgentId] : null;
 
+  /*
+   * FAUT-IL BARRER L'ÉCRAN ? La réponse est une règle pure, jamais un calcul
+   * écrit ici : elle attend d'avoir REÇU le catalogue des moteurs et le relevé
+   * des comptes avant de juger, pour ne pas s'ouvrir une demi-seconde sur un
+   * serveur pourtant bien configuré.
+   */
+  const assistantOuvert = assistantNecessaire({
+    pret: state.pret,
+    engines: state.engines,
+    quotas: state.quotas,
+    quotasRecus: state.quotasRecus,
+  });
+
   // Ouvrir le tableau de bord : sur téléphone il vit dans le conteneur central,
   // donc on revient d'abord sur l'onglet « Tableau » pour qu'il soit visible.
   const ouvrirTableauDeBord = () => {
@@ -824,6 +847,19 @@ export function App() {
           </PanneauALaDemande>
         </Filet>
         <Toasts />
+
+        {/* AU MOINS UN MOTEUR AVANT D'UTILISER L'APPLICATION. Tant qu'aucun
+            assistant en ligne de commande n'est installé ET connecté sur le
+            serveur, chaque carte lancée retomberait aussitôt : l'écran est donc
+            barré, et il se rouvre tout seul dès qu'un moteur répond
+            (`shared/src/assistant-moteurs.ts`). Son filet est MUET : si
+            l'assistant lui-même tombait, mieux vaut une application ouverte
+            qu'un écran noir. */}
+        <Filet zone="Assistant de démarrage" muet>
+          <PanneauALaDemande monte={assistantOuvert}>
+            <AssistantMoteurs />
+          </PanneauALaDemande>
+        </Filet>
         {/* Le module de voix ouvre un micro et du son : ce qu'il fait de plus
             fragile ne doit pas emporter le tableau avec lui. Son filet ne
             REND RIEN quand il tombe — un bloc d'erreur flottant en bas de

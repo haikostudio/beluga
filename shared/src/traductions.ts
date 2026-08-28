@@ -2374,6 +2374,23 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'seuil atteint': ['threshold reached', 'umbral alcanzado', 'Schwelle erreicht', '已达阈值'],
   'Compressions déjà faites': ['Compressions so far', 'Compresiones realizadas', 'Bisherige Komprimierungen', '已完成压缩次数'],
   'Cette mesure est celle du dernier appel au modèle, rapportée à la fenêtre du modèle qui porte le fil. Elle se rafraîchit à chaque réponse, et n’a rien à voir avec le quota du compte.': ['This figure is the size of the last call to the model, compared with the window of the model carrying the thread. It refreshes with every reply, and has nothing to do with the account quota.', 'Esta medida es la del último envío al modelo, comparada con la ventana del modelo que sostiene el hilo. Se actualiza con cada respuesta y no tiene nada que ver con la cuota de la cuenta.', 'Dieser Wert ist die Größe des letzten Aufrufs an das Modell, bezogen auf das Fenster des Modells, das den Verlauf trägt. Er wird bei jeder Antwort aktualisiert und hat nichts mit dem Kontingent des Kontos zu tun.', '该数值为最近一次调用模型的大小，与承载该会话的模型窗口相比。它随每次回复刷新，与账户配额无关。'],
+
+  /* L'assistant de démarrage : au moins un moteur avant d'utiliser l'application. */
+  'Mettons un moteur en place': ['Let’s set up an engine', 'Vamos a configurar un motor', 'Richten wir eine Engine ein', '我们来配置一个引擎'],
+  'HaikoDev fait travailler des assistants installés sur ce serveur. Il en faut au moins un pour lancer une tâche : choisissez celui que vous préférez, les autres pourront venir plus tard.': ['HaikoDev works through assistants installed on this server. At least one is needed to start a task: pick the one you prefer, the others can come later.', 'HaikoDev trabaja con asistentes instalados en este servidor. Hace falta al menos uno para lanzar una tarea: elija el que prefiera, los demás pueden venir después.', 'HaikoDev arbeitet mit Assistenten, die auf diesem Server installiert sind. Mindestens einer wird benötigt, um eine Aufgabe zu starten: Wählen Sie den gewünschten, die anderen können später folgen.', 'HaikoDev 依靠安装在此服务器上的助手工作。启动任务至少需要一个：请选择您偏好的那个，其余的可以稍后再加。'],
+  "Cet écran se referme tout seul dès qu'un moteur répond.": ['This screen closes by itself as soon as an engine answers.', 'Esta pantalla se cierra sola en cuanto un motor responde.', 'Dieser Bildschirm schließt sich von selbst, sobald eine Engine antwortet.', '一旦有引擎响应，此界面会自动关闭。'],
+  'Vérifier à nouveau': ['Check again', 'Comprobar de nuevo', 'Erneut prüfen', '重新检查'],
+  'à installer': ['to install', 'por instalar', 'zu installieren', '待安装'],
+  'à reconnecter': ['to reconnect', 'por reconectar', 'neu zu verbinden', '待重新连接'],
+  'à connecter': ['to connect', 'por conectar', 'zu verbinden', '待连接'],
+  '{n} compte(s) connecté(s).': ['{n} account(s) connected.', '{n} cuenta(s) conectada(s).', '{n} Konto/Konten verbunden.', '已连接 {n} 个账户。'],
+  "1. Installer l'outil sur le serveur": ['1. Install the tool on the server', '1. Instalar la herramienta en el servidor', '1. Das Werkzeug auf dem Server installieren', '1. 在服务器上安装工具'],
+  'Copier la commande': ['Copy the command', 'Copiar el comando', 'Befehl kopieren', '复制命令'],
+  'copie impossible depuis ce navigateur': ['copying is not possible from this browser', 'no se puede copiar desde este navegador', 'Kopieren ist in diesem Browser nicht möglich', '此浏览器无法复制'],
+  'À coller dans un terminal du serveur, puis revenez ici et cliquez sur « Vérifier à nouveau ».': ['Paste this into a terminal on the server, then come back here and click “Check again”.', 'Péguelo en un terminal del servidor, luego vuelva aquí y pulse «Comprobar de nuevo».', 'Fügen Sie dies in ein Terminal auf dem Server ein, kommen Sie dann hierher zurück und klicken Sie auf „Erneut prüfen“.', '请将其粘贴到服务器的终端中，然后回到此处点击“重新检查”。'],
+  "2. Déclarer une clé d'accès": ['2. Declare an access key', '2. Declarar una clave de acceso', '2. Einen Zugangsschlüssel hinterlegen', '2. 登记访问密钥'],
+  '2. Connecter un compte': ['2. Connect an account', '2. Conectar una cuenta', '2. Ein Konto verbinden', '2. 连接账户'],
+  'Connecter un compte': ['Connect an account', 'Conectar una cuenta', 'Ein Konto verbinden', '连接账户'],
 };
 
 /** Le rang de chaque langue dans le quadruplet `[en, es, de, zh]`. */

@@ -143,7 +143,12 @@ export interface EngineAdapter {
   id: EngineId;
   label: string;
   binary: string;
-  detect: () => Promise<{ installed: boolean; version?: string }>;
+  /**
+   * `installed` dit si le moteur est UTILISABLE (outil présent et, sur Cursor,
+   * clé connue) ; `cliInstalle`, quand l'adaptateur le rend, ne parle que de
+   * l'OUTIL. Absent, il vaut `installed`.
+   */
+  detect: () => Promise<{ installed: boolean; version?: string; cliInstalle?: boolean }>;
   models: () => Promise<unknown[]>;
   defaultModel: string;
   run: (options: EngineRunOptions) => EngineHandle;

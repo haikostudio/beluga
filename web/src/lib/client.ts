@@ -96,6 +96,15 @@ export interface AppState {
   pool: EtatDuPool | null;
   quotas: AccountQuota[];
   /**
+   * LE RELEVÉ DES COMPTES A-T-IL ÉTÉ REÇU AU MOINS UNE FOIS ?
+   *
+   * Une liste vide veut dire deux choses opposées : « aucun compte déclaré » ou
+   * « pas encore lu ». Sans ce témoin, l'assistant de démarrage s'ouvrirait une
+   * demi-seconde sur un serveur pourtant bien configuré, entre le premier envoi
+   * et l'arrivée des quotas.
+   */
+  quotasRecus: boolean;
+  /**
    * LES SITES SURVEILLÉS et leur état actuel. Ils arrivent au premier envoi puis
    * à chaque tournée : c'est ce qui allume la pastille du menu « Surveillance »
    * sans qu'on ouvre sa fenêtre.
@@ -171,6 +180,7 @@ const initialState: AppState = {
   engines: [],
   pool: null,
   quotas: [],
+  quotasRecus: false,
   surveillance: [],
   connexions: [],
   capacity: null,
@@ -408,6 +418,9 @@ class Client {
           groups: event.groups ?? [],
           engines: event.engines,
           quotas: event.quotas,
+          // Le premier envoi peut partir AVANT la première lecture de quota :
+          // il ne fait foi que s'il porte vraiment des comptes.
+          quotasRecus: this.state.quotasRecus || event.quotas.length > 0,
           capacity: event.capacity,
           agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
           activeProjectId: choix.id,
@@ -595,7 +608,7 @@ class Client {
         break;
 
       case 'quotas':
-        this.set({ quotas: event.quotas });
+        this.set({ quotas: event.quotas, quotasRecus: true });
         break;
 
       case 'surveillance':

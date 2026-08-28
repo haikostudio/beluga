@@ -7,6 +7,7 @@ export * from './analyse-cout.js';
 export * from './apercu-fichier.js';
 export * from './arret-carte.js';
 export * from './arret-de-secours.js';
+export * from './assistant-moteurs.js';
 export * from './reprise-publication.js';
 export * from './reparation-publication.js';
 export * from './duree-des-etapes.js';
