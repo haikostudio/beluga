@@ -68,7 +68,12 @@ import {
   jugerSite,
   LIBELLE_MOTEUR_BASE,
   LIBELLE_MOYEN_FICHIERS,
+  TYPES_ACCES,
+  LIBELLE_TYPE_ACCES,
+  champsDuType,
+  filtrerAcces,
 } from '@haikodev/shared';
+import { listerAcces, enregistrerAcces, supprimerAcces } from './coffre-fort.js';
 import * as store from './store.js';
 import { createProjectFolder, sourceDHeritageDuProjet } from './projects.js';
 import { bus } from './bus.js';
@@ -694,6 +699,38 @@ export const TOOL_DEFS: ToolDef[] = [
             "Les arguments de la commande, dans l'ordre du mode d'emploi. Un spec JSON se passe comme un SEUL " +
             'argument (une chaîne JSON), ex. get → ["invoice", "FA-0012"], create → ["quote", "{…json…}"].',
         },
+      },
+    },
+  },
+  {
+    name: 'coffre_fort',
+    description:
+      "LE COFFRE-FORT CENTRAL DES IDENTIFIANTS (clés SSH, mots de passe, clés d'API, jetons, bases de données). " +
+      "N'écris JAMAIS un secret en clair dans un message, un fichier du dépôt ou une variable d'environnement " +
+      "versionnée : range-le ici. « lister » cherche et RELIT les accès déjà rangés — ceux du PROJET EN COURS et " +
+      "ceux d'HaikoDev (partagés), jamais ceux d'un autre projet. Sers-t'en AVANT de demander un identifiant à " +
+      "l'utilisateur : il est peut-être déjà là. « enregistrer » range une clé NOUVELLE que tu viens de découvrir ou " +
+      "de recevoir pendant le travail (une clé donnée dans la conversation, générée par toi, ou trouvée dans un " +
+      "fichier non versionné) — elle est TOUJOURS rattachée au projet en cours ; redonne l'« id » d'une fiche " +
+      "trouvée par « lister » pour la corriger au lieu d'en créer une seconde. Chaque type a ses champs propres " +
+      "(cle-api → service/cle/adresse, mot-de-passe → adresse/identifiant/motDePasse, ssh → hote/port/utilisateur/" +
+      "cle/motDePasse, jeton → service/jeton, base-de-donnees → hote/port/base/utilisateur/motDePasse, autre → " +
+      "valeur) ; ne passe que ceux qui s'appliquent. « supprimer » retire une fiche périmée (donne son « id ») — " +
+      "uniquement celles du projet en cours, jamais celles partagées d'HaikoDev.",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['lister', 'enregistrer', 'supprimer'], description: 'Ce que tu veux faire' },
+        recherche: { type: 'string', description: "Mots cherchés (pour « lister » ; vide = tout montrer)" },
+        id: { type: 'string', description: "L'identifiant d'une fiche déjà rangée, pour la corriger (pour « enregistrer ») ou la retirer (pour « supprimer »)" },
+        nom: { type: 'string', description: "Le nom de la fiche (pour « enregistrer »)" },
+        type: { type: 'string', enum: [...TYPES_ACCES], description: "Le type d'accès (pour « enregistrer »)" },
+        champs: {
+          type: 'object',
+          description: "Les valeurs, par champ du type choisi (pour « enregistrer »), ex. { \"hote\": \"…\", \"utilisateur\": \"…\", \"cle\": \"…\" }",
+        },
+        note: { type: 'string', description: 'Une note libre (pour « enregistrer »)' },
       },
     },
   },
@@ -1749,6 +1786,76 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           ? `Tout répond.\n${phraseDesEssais(issues)}`
           : `Un accès au moins ne répond pas.\n${phraseDesEssais(issues)}`,
       };
+    }
+
+    case 'coffre_fort': {
+      const action = String(args.action ?? '').trim();
+
+      /*
+       * LE SCOPE D'UN AGENT : son projet, plus ce qui est rattaché à HaikoDev
+       * lui-même (`projectId: null`, les accès partagés). Jamais les fiches
+       * d'un AUTRE projet — un agent qui travaille sur X ne doit pas se voir
+       * relire les mots de passe de Y.
+       */
+      const dansLeScope = (a: { projectId: string | null }) => a.projectId === null || a.projectId === ctx.projectId;
+
+      if (action === 'lister') {
+        const scoped = listerAcces().filter(dansLeScope);
+        const recherche = typeof args.recherche === 'string' ? args.recherche.trim() : '';
+        const filtres = recherche
+          ? filtrerAcces(scoped, recherche, (id) => (id ? store.getProject(id)?.name : undefined))
+          : scoped;
+        if (!filtres.length) {
+          return { ok: true, text: recherche ? `Aucun accès ne correspond à « ${recherche} ».` : 'Aucun accès rangé pour ce projet.' };
+        }
+        const lignes = filtres.map((a) => {
+          const valeurs = champsDuType(a.type)
+            .map((c) => (a.champs[c.cle] ? `${c.libelle} : ${a.champs[c.cle]}` : null))
+            .filter(Boolean)
+            .join(' · ');
+          const portee = a.projectId ? '' : ' · partagé HaikoDev';
+          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type]}${portee})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}`;
+        });
+        return { ok: true, text: lignes.join('\n') };
+      }
+
+      if (action === 'enregistrer') {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        if (id) {
+          const existante = listerAcces().find((a) => a.id === id);
+          if (!existante) return { ok: false, text: `Aucun accès du coffre-fort ne porte l'identifiant « ${id} ».` };
+          if (!dansLeScope(existante)) return { ok: false, text: 'Cet accès appartient à un autre projet.' };
+        }
+        // TOUJOURS rattaché au projet en cours : un agent ne range pas de fiche
+        // « HaikoDev » (projectId vide) à sa place, sinon un identifiant de X se
+        // relirait depuis n'importe quel autre projet.
+        const resultat = enregistrerAcces({
+          id,
+          nom: args.nom,
+          type: args.type,
+          projectId: ctx.projectId,
+          champs: args.champs,
+          note: args.note,
+        });
+        if (!resultat.ok) return { ok: false, text: `Accès refusé : ${resultat.raison}. Corrige et rappelle l'outil.` };
+        return {
+          ok: true,
+          text: `Accès « ${resultat.acces.nom} » (${LIBELLE_TYPE_ACCES[resultat.acces.type]}) ${id ? 'corrigé' : 'enregistré'} dans le coffre-fort de ce projet.`,
+        };
+      }
+
+      if (action === 'supprimer') {
+        const id = typeof args.id === 'string' ? args.id.trim() : '';
+        if (!id) return { ok: false, text: "Donne l'« id » de la fiche à supprimer." };
+        const existante = listerAcces().find((a) => a.id === id);
+        if (!existante) return { ok: false, text: `Aucun accès du coffre-fort ne porte l'identifiant « ${id} ».` };
+        if (!dansLeScope(existante)) return { ok: false, text: 'Cet accès appartient à un autre projet.' };
+        const resultat = supprimerAcces(id);
+        if (!resultat.ok) return { ok: false, text: `Suppression refusée : ${resultat.raison}` };
+        return { ok: true, text: `Accès « ${existante.nom} » retiré du coffre-fort.` };
+      }
+
+      return { ok: false, text: 'Action inconnue : « lister », « enregistrer » ou « supprimer ».' };
     }
 
     case 'compta': {
