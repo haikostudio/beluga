@@ -221,3 +221,85 @@ export function purgeOldArchives(): void {
     /* rien à purger */
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Archive ZIP RELUE (l'autre sens, sans dépendance externe non plus)  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * L'ARCHIVE SE RELIT PAR SA FIN, comme le veut le format ZIP : le catalogue
+ * central est écrit en dernier et dit où chaque fichier commence. On ne
+ * parcourt donc PAS le début du fichier en devinant — c'est ce qui rend la
+ * lecture insensible aux entrées supprimées ou réordonnées par un autre outil.
+ *
+ * Seules les deux compressions écrites par `zipBuffer` sont acceptées : brut
+ * (0) et « deflate » (8). Toute autre est refusée en clair plutôt que rendue en
+ * octets faux.
+ */
+export function lireZip(buffer: Buffer): Map<string, Buffer> {
+  const fichiers = new Map<string, Buffer>();
+
+  // Le repère de fin, cherché à reculons : il peut traîner un commentaire.
+  let fin = -1;
+  for (let i = buffer.length - 22; i >= 0 && i >= buffer.length - 22 - 65535; i--) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      fin = i;
+      break;
+    }
+  }
+  if (fin < 0) throw new Error('archive illisible : ce n’est pas un fichier ZIP');
+
+  const nombre = buffer.readUInt16LE(fin + 10);
+  let position = buffer.readUInt32LE(fin + 16);
+
+  for (let n = 0; n < nombre; n++) {
+    if (position + 46 > buffer.length || buffer.readUInt32LE(position) !== 0x02014b50) {
+      throw new Error('archive abîmée : son catalogue s’arrête en chemin');
+    }
+    const methode = buffer.readUInt16LE(position + 10);
+    const tailleCompressee = buffer.readUInt32LE(position + 20);
+    const tailleReelle = buffer.readUInt32LE(position + 24);
+    const longueurNom = buffer.readUInt16LE(position + 28);
+    const longueurExtra = buffer.readUInt16LE(position + 30);
+    const longueurCommentaire = buffer.readUInt16LE(position + 32);
+    const debutLocal = buffer.readUInt32LE(position + 42);
+    const nom = buffer.subarray(position + 46, position + 46 + longueurNom).toString('utf8');
+    position += 46 + longueurNom + longueurExtra + longueurCommentaire;
+
+    if (buffer.readUInt32LE(debutLocal) !== 0x04034b50) {
+      throw new Error(`archive abîmée : « ${nom} » ne se retrouve pas`);
+    }
+    const nomLocal = buffer.readUInt16LE(debutLocal + 26);
+    const extraLocal = buffer.readUInt16LE(debutLocal + 28);
+    const debutDonnees = debutLocal + 30 + nomLocal + extraLocal;
+    const brut = buffer.subarray(debutDonnees, debutDonnees + tailleCompressee);
+
+    if (nom.endsWith('/')) continue; // un dossier ne porte rien
+    if (methode === 0) {
+      fichiers.set(nom, Buffer.from(brut));
+    } else if (methode === 8) {
+      const clair = zlib.inflateRawSync(brut);
+      if (clair.length !== tailleReelle) {
+        throw new Error(`archive abîmée : « ${nom} » ne fait pas la taille annoncée`);
+      }
+      fichiers.set(nom, clair);
+    } else {
+      throw new Error(`archive écrite avec une compression inconnue : « ${nom} »`);
+    }
+  }
+
+  return fichiers;
+}
+
+/**
+ * Une archive ÉCRITE À PART, à partir d'entrées fabriquées en mémoire — pas
+ * ramassées dans un dossier de projet comme `makeZip`. C'est ce que produit
+ * l'export intégral des données, dont chaque fichier est calculé.
+ */
+export function ecrireArchive(entrees: { name: string; data: Buffer }[], nom: string): { file: string; name: string; size: number } {
+  const buffer = zipBuffer(entrees);
+  fs.mkdirSync(PATHS.archives, { recursive: true });
+  const file = path.join(PATHS.archives, `${crypto.randomBytes(8).toString('hex')}-${nom}`);
+  fs.writeFileSync(file, buffer);
+  return { file, name: nom, size: buffer.length };
+}
