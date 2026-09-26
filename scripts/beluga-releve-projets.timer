@@ -1,0 +1,11 @@
+[Unit]
+Description=Vérifie toutes les minutes que chaque projet est debout
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=60
+AccuracySec=10s
+Unit=beluga-releve-projets.service
+
+[Install]
+WantedBy=timers.target

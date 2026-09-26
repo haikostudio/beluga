@@ -1,0 +1,27 @@
+{
+  "name": "beluga",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Beluga Build — pilotage de projets par agents IA",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace shared && npm run build --workspace server && npm run build --workspace web",
+    "build:server": "npm run build --workspace shared && npm run build --workspace server",
+    "build:web": "npm run build --workspace web",
+    "dev:server": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace web",
+    "start": "node server/dist/main.js",
+    "test": "node --test server/dist/test/*.test.js scripts/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0"
+  }
+}

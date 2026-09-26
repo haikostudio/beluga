@@ -1,0 +1,21 @@
+node_modules/
+dist/
+data/
+# Un socle de données isolé pour un essai (serveur de test lancé avec un
+# BELUGA_DATA à soi) prend parfois ce nom à la racine du dépôt au lieu de
+# vivre sous data/ ou /tmp : il ne doit jamais polluer git status.
+/data-*/
+*.log
+.DS_Store
+.env
+.env.local
+
+# Python : le cache compilé se refait tout seul, il n’a rien à faire dans le dépôt.
+__pycache__/
+*.pyc
+
+# Laya : l'environnement Python (~1,2 Go) et les poids (650 Mo), posés sur la
+# machine, jamais versionnés. Installation et contrôle : scripts/installer-laya.mjs
+/outils/laya/
+# L'ancien juge (Needle 3), retiré.
+/outils/needle3/

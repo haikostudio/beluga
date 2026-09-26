@@ -1,0 +1,63 @@
+[Unit]
+Description=Beluga Build — pilotage de projets par agents IA
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+# LE CHEMIN CI-DESSOUS EST CELUI D'UNE INSTALLATION NEUVE (`/root/beluga`).
+# `scripts/installer-services.sh` le remplace par le dossier RÉEL du dépôt :
+# une machine installée avant le renommage garde le sien, sans rien casser.
+Type=simple
+User=haiko
+Group=haiko
+WorkingDirectory=/root/beluga
+Environment=NODE_ENV=production
+Environment=HOME=/home/utilisateur
+Environment=BELUGA_HOST=127.0.0.1
+Environment=BELUGA_PORT=7070
+Environment=PATH=/home/utilisateur/.local/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Les secrets vivent HORS du dépôt : fichier facultatif.
+EnvironmentFile=-/etc/beluga.env
+ExecStart=/usr/bin/node /root/beluga/server/dist/main.js
+Restart=always
+RestartSec=5
+# UN SIGNAL D'ARRÊT NE DÉCAPITE PLUS LES MOTEURS DU DÉMON.
+# Par défaut (`KillMode=control-group`), un `systemctl stop|restart` envoie
+# SIGTERM à TOUT le groupe : le démon, mais aussi chaque moteur d'agent et
+# chaque pont d'outils qu'il a lancés. Le démon, lui, sait RETENIR un arrêt tant
+# qu'une tâche travaille (`server/src/demon.ts`) — il survivait donc au signal…
+# au-dessus de moteurs déjà morts. Relevé le 08/09/2026 à 11:13:55 : « arrêt
+# (SIGTERM) RETENU : 4 agents travaillent en ce moment », puis, 70 ms plus tard,
+# quatre « tour refermé d'autorité : le moteur s'est arrêté sans rendre la
+# main ». La règle « un signal venu du dehors suit la MÊME règle que le bouton »
+# était vaine : l'arrêt était bien refusé, le travail perdu quand même.
+# `mixed` n'envoie SIGTERM qu'au démon ; ses enfants ne sont touchés qu'au
+# SIGKILL final, si l'arrêt va vraiment à son terme.
+KillMode=mixed
+TimeoutStopSec=20
+MemoryAccounting=true
+TasksAccounting=true
+# LE PLAFOND DE TÂCHES : LA PLACE DE CONSTRUIRE.
+# Tout ce que le démon lance vit dans ce plafond — agents, moteurs, compilateurs,
+# navigateurs de contrôle. Il valait 512, et le service en occupait déjà 286 le
+# 08.09.2026 quand une publication est tombée sur « sh: 1: Cannot fork » : le
+# refus venait de CE verrou, pas du code, et rien ne le disait. Le noyau de cette
+# machine autorise plus de soixante mille threads (`/proc/sys/kernel/threads-max`)
+# et l'utilisateur trente mille (`ulimit -u`) : 4096 reste très en deçà, tout en
+# laissant partir le plafond d'agents réglé, sa construction et ses contrôles.
+# Le garde-fou n'est PAS supprimé pour autant : la mémoire vive, le fichier
+# d'échange ET ce plafond suspendent désormais les départs (`shared/src/capacite.ts`).
+TasksMax=4096
+# LE NOYAU NE CHOISIT PLUS LE DÉMON COMME VICTIME. Quand la machine manquait de
+# mémoire, il tuait Beluga Build (quatre fois le 31/08/2026), ce qui coupait
+# toutes les connexions ouvertes — le « non connecté » rouge de l'interface. On
+# le rend moins désigné que les serveurs de développement des projets, qui eux
+# redémarrent sans conséquence visible. La protection est écrite ICI, dans
+# l'unité elle-même, jamais dans un fichier d'appoint qu'on oublierait.
+OOMScoreAdjust=-500
+StandardOutput=append:/root/beluga/data/logs/service.log
+StandardError=append:/root/beluga/data/logs/service.log
+
+[Install]
+WantedBy=multi-user.target

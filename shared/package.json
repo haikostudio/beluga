@@ -1,0 +1,27 @@
+{
+  "name": "@beluga/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./traductions": {
+      "types": "./dist/traductions.d.ts",
+      "default": "./dist/traductions.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../scripts/emonder-dist.mjs shared && tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

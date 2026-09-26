@@ -1,0 +1,10 @@
+[Unit]
+Description=Surveillance de Beluga Build (relance le service après plusieurs silences d'affilée)
+
+[Service]
+Type=oneshot
+# Le script est POSÉ hors du dépôt (copie faite à l'installation) : le
+# surveillant doit continuer de veiller même pendant qu'on travaille sur le
+# dépôt — une fusion en cours ne doit jamais le laisser sans filet.
+#   sudo install -m 755 scripts/beluga-watchdog.sh /usr/local/bin/
+ExecStart=/usr/local/bin/beluga-watchdog.sh

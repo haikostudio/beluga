@@ -1,0 +1,10 @@
+[Unit]
+Description=Relève des projets (relance tout serveur de projet activé qui est tombé)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Le script est POSÉ hors du dépôt (copie faite à l'installation) : la relève
+# doit continuer même pendant qu'on travaille sur le dépôt.
+#   sudo install -m 755 scripts/releve-des-projets.sh /usr/local/bin/
+ExecStart=/usr/local/bin/releve-des-projets.sh

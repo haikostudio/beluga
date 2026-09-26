@@ -1,0 +1,175 @@
+import * as React from 'react';
+import {
+  LANGUE_DORIGINE,
+  etiquetteDeLangue,
+  formatDeLangue,
+  langueValide,
+  traduire,
+  type Dictionnaire,
+  type LangueId,
+  type ValeursDeTexte,
+} from '@beluga/shared';
+import { usePref } from './prefs';
+
+/**
+ * LA LANGUE DE L'INTERFACE — un seul endroit qui la pose, une seule façon de
+ * l'écrire.
+ *
+ * Le thème a montré la marche à suivre et on la reprend telle quelle : le
+ * réglage vit EN BASE (`usePref`), donc il se retrouve sur le téléphone comme
+ * sur l'ordinateur et vider un cache ne le perd pas ; il s'applique depuis la
+ * RACINE de l'application, jamais depuis un panneau chargé à la demande ; et un
+ * REPÈRE local, écrit à chaque pose réelle, évite le clignotement du tout
+ * premier affichage. La source de vérité reste le serveur — le repère n'est
+ * qu'une devinette du premier instant.
+ *
+ * `t` N'EST PAS UN CROCHET, ET C'EST VOULU. Un crochet aurait obligé chaque
+ * fonction qui écrit un mot — une aide de survol, un message d'erreur du
+ * client, une phrase du module de voix — à devenir un composant React. `t` lit
+ * donc une variable de module, tenue à jour par la racine AVANT que ses enfants
+ * ne s'affichent. Changer de langue rend la racine, donc rend tout l'arbre en
+ * dessous : aucun écran ne garde un mot de l'ancienne langue. Aucun composant
+ * n'est mémoïsé dans cette application, rien ne peut donc rester en arrière.
+ */
+
+/** Le repère local du premier affichage — jamais la source de vérité. */
+const CLE_REPERE_LANGUE = 'beluga-langue';
+
+function repereEnregistre(): LangueId {
+  try {
+    return langueValide(window.localStorage.getItem(CLE_REPERE_LANGUE));
+  } catch {
+    return LANGUE_DORIGINE;
+  }
+}
+
+/**
+ * LA LANGUE DU PREMIER AFFICHAGE, SANS LE SERVEUR. Même raison que
+ * `themeInitial` : l'espace client n'a pas accès aux préférences du serveur, et
+ * son écran doit malgré tout exister dans les cinq langues.
+ */
+export function langueInitiale(): LangueId {
+  return repereEnregistre();
+}
+
+/**
+ * LA LANGUE QUE `t` EMPLOIE À CET INSTANT. Elle est posée par la racine, et
+ * jamais ailleurs. Avant la réponse du serveur elle vaut le repère du dernier
+ * affichage — soit, au tout premier lancement, le français.
+ */
+let langueCourante: LangueId = typeof window === 'undefined' ? LANGUE_DORIGINE : repereEnregistre();
+
+/**
+ * LE DICTIONNAIRE — VIDE AU DÉPART, CHARGÉ À LA DEMANDE.
+ *
+ * Il pèse 238 Ko bruts, presque tous en dehors du français (`fr: {}`, jamais
+ * consulté par `traduire()`). Un visiteur français n'en a donc jamais besoin,
+ * et un visiteur d'une autre langue ne le télécharge qu'une fois sa langue
+ * connue — `chargerTraductions` s'en charge, déclenché par `useLangueAppliquee`.
+ * Tant qu'il est vide, `traduire()` retombe sur le français : c'est le même
+ * chemin que pour une clé qui manquerait au dictionnaire.
+ */
+let traductions: Readonly<Record<string, Dictionnaire>> = {};
+let traductionsChargees = false;
+let chargementEnCours: Promise<void> | null = null;
+
+function chargerTraductions(): Promise<void> {
+  if (traductionsChargees) return Promise.resolve();
+  if (!chargementEnCours) {
+    chargementEnCours = import('@beluga/shared/traductions').then((module) => {
+      traductions = module.TRADUCTIONS;
+      traductionsChargees = true;
+    });
+  }
+  return chargementEnCours;
+}
+
+/**
+ * LE TEXTE À AFFICHER. On lui donne le texte FRANÇAIS, il rend la traduction —
+ * et le français lui-même quand elle manque, jamais un vide ni un nom de clé.
+ *
+ * Les valeurs se glissent dans les trous nommés de la phrase :
+ * `t('{n} agents travaillent', { n })`. C'est la phrase ENTIÈRE qui part au
+ * dictionnaire, pour que chaque langue range ses mots comme elle l'entend.
+ */
+export function t(texte: string, valeurs?: ValeursDeTexte): string {
+  return traduire(traductions, langueCourante, texte, valeurs);
+}
+
+/**
+ * LE FORMAT DES DATES, DES HEURES ET DES NOMBRES, dans la langue en vigueur.
+ *
+ * Traduire les mots sans traduire les chiffres laisserait « 17.08.2026 » et
+ * « 1 234,50 » au milieu d'une page anglaise. Tout ce qui passait par
+ * `toLocaleDateString('fr-CH')` passe donc par ici — et en français, la valeur
+ * rendue EST `fr-CH` : rien ne change pour qui n'a pas changé de langue.
+ */
+export function formatRegional(): string {
+  return formatDeLangue(langueCourante);
+}
+
+/**
+ * POSER LA LANGUE SUR LA PAGE. `lang` n'est pas décoratif : il commande la
+ * coupure des mots, les guillemets du navigateur, le correcteur d'orthographe
+ * du champ d'écriture et la voix de synthèse. Sans lui, un texte chinois se
+ * coupe comme du français.
+ */
+export function appliquerLaLangue(langue: LangueId): LangueId {
+  langueCourante = langue;
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = etiquetteDeLangue(langue);
+    document.documentElement.dataset.langue = langue;
+  }
+  try {
+    window.localStorage.setItem(CLE_REPERE_LANGUE, langue);
+  } catch {
+    /* stockage local indisponible : le premier affichage clignote une fois,
+       rien d'autre ne dépend de ce repère */
+  }
+  return langue;
+}
+
+/**
+ * Le réglage GÉNÉRAL, et de quoi le changer. Il ne POSE rien : seul
+ * `useLangueAppliquee`, appelé depuis la racine, pose.
+ */
+export function useLangueGenerale(): [LangueId, (langue: LangueId) => void] {
+  const [brut, ecrire] = usePref<string>('langue', LANGUE_DORIGINE);
+  return [langueValide(brut), ecrire as (langue: LangueId) => void];
+}
+
+/**
+ * LA LANGUE RÉELLEMENT EN VIGUEUR — et c'est elle qui la POSE.
+ *
+ * À appeler UNE SEULE FOIS, depuis la racine. La variable de module est mise à
+ * jour PENDANT le rendu, avant que le moindre enfant ne s'affiche : sans cela,
+ * le premier rendu après un changement de langue écrirait encore l'ancienne, et
+ * il faudrait un second rendu pour la rattraper. La pose sur la page, elle, est
+ * un effet — on ne touche pas au document pendant un rendu.
+ */
+export function useLangueAppliquee(): LangueId {
+  const [langue] = useLangueGenerale();
+  langueCourante = langue;
+
+  React.useEffect(() => {
+    appliquerLaLangue(langue);
+  }, [langue]);
+
+  /* Le dictionnaire n'arrive qu'une fois la langue connue et non française.
+     Tant qu'il n'est pas là, `t()` rend déjà du français lisible ; ce second
+     rendu ne fait que remplacer ces quelques mots par leur traduction dès que
+     le morceau est arrivé. */
+  const [, redemanderUnRendu] = React.useState(0);
+  React.useEffect(() => {
+    if (langue === LANGUE_DORIGINE || traductionsChargees) return;
+    let ecarte = false;
+    chargerTraductions().then(() => {
+      if (!ecarte) redemanderUnRendu((n) => n + 1);
+    });
+    return () => {
+      ecarte = true;
+    };
+  }, [langue]);
+
+  return langue;
+}

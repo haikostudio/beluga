@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- interactive-widget : le clavier réduit la page au lieu de la faire glisser. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="#09090b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Beluga" />
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <title>Beluga Build</title>
+    <script>
+      /*
+       * LE THÈME SE DÉCIDE AVANT LE PREMIER AFFICHAGE, depuis un REPÈRE LOCAL —
+       * jamais la source de vérité, qui reste le réglage enregistré côté serveur
+       * (projet, réglage général, mode automatique ; `web/src/lib/theme.ts`). Ce repère
+       * est écrit par `appliquerLeTheme` à chaque fois qu'un thème est VRAIMENT
+       * posé, et ne sert qu'à deviner juste au tout premier instant : sans lui,
+       * l'application flashait toujours en SOMBRE avant de rejoindre le vrai
+       * thème, quel qu'il soit — un clignotement à CHAQUE chargement, sur CHAQUE
+       * appareil, que l'on confondait avec « le thème change tout seul ». Le vrai
+       * thème reprend la main dès que la connexion au serveur est prête, y
+       * compris quand il diffère de ce repère (autre appareil, thème changé
+       * entre-temps).
+       *
+       * La table ci-dessous est une COPIE du catalogue (`shared/src/themes.ts`) :
+       * un script exécuté avant tout module ne peut rien importer sans perdre
+       * l'effet recherché (bloquer le premier affichage). Elle donne pour chaque
+       * palette sa CLARTÉ et son FOND DE PAGE, et `scripts/verif-theme-sans-geste.mjs`
+       * refuse toute divergence avec le catalogue — une copie qui dérive
+       * produirait exactement le symptôme qu'on cherche à supprimer : une page
+       * immobile qui change de couleur au bout d'une seconde.
+       *
+       * LA COULEUR DU BANDEAU SUIT DÈS CE PREMIER INSTANT. Sans elle, la barre
+       * d'état du téléphone restait NOIRE au-dessus d'une application beige
+       * jusqu'à la réponse du serveur.
+       */
+      (function () {
+        var PALETTES = {
+          sombre: ['sombre', 'hsl(0 0% 0%)'],
+          clair: ['clair', 'hsl(0 0% 100%)'],
+          sable: ['clair', 'hsl(40 27% 91%)'],
+          'sable-sombre': ['sombre', 'hsl(35 18% 9%)'],
+          ardoise: ['sombre', 'hsl(220 14% 11%)'],
+          'ardoise-clair': ['clair', 'hsl(220 18% 93%)'],
+          givre: ['clair', 'hsl(210 30% 94%)'],
+          'givre-sombre': ['sombre', 'hsl(210 24% 8%)'],
+          sapin: ['sombre', 'hsl(150 18% 9%)'],
+          'sapin-clair': ['clair', 'hsl(145 20% 92%)'],
+          contraste: ['clair', 'hsl(45 6% 92%)'],
+          'contraste-sombre': ['sombre', 'hsl(45 8% 4%)'],
+        };
+        var repere = null;
+        try {
+          repere = window.localStorage.getItem('beluga-theme-flash');
+        } catch (erreur) {
+          repere = null;
+        }
+        var theme = repere && PALETTES[repere] ? repere : 'sombre';
+        var sombre = PALETTES[theme][0] === 'sombre';
+        document.documentElement.classList.toggle('dark', sombre);
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = sombre ? 'dark' : 'light';
+        var bandeau = document.querySelector('meta[name="theme-color"]');
+        if (bandeau) bandeau.setAttribute('content', PALETTES[theme][1]);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
