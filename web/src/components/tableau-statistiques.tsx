@@ -126,8 +126,8 @@ export function TableauDeBlocs({
               <div
                 key={id}
                 className={cn(
-                  // Le graphique garde la place des deux boutons du coin, et s'étire à la hauteur de sa rangée.
-                  'group relative min-w-0 [&>*:first-child]:h-full [&>*:first-child]:pr-16',
+                  // Seule la rangée du titre garde la place des deux boutons du coin : le graphique, lui, prend toute la largeur. Le bloc s'étire à la hauteur de sa rangée.
+                  'group relative min-w-0 [&>*:first-child]:h-full [&_[data-stats-titre]]:pr-16',
                   bloc.large && 'sm:col-span-2',
                   dragging?.id === id && 'opacity-40',
                 )}

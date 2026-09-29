@@ -48,9 +48,10 @@ import {
   type VueCentrale,
   totalDesRendus,
   RUBRIQUE_CONFIG_PAR_DEFAUT,
+  etapeDeLAgentDeConfiguration,
   voletDeLAgentDePublication,
 } from '@beluga/shared';
-import { EVENEMENT_CONFIG_PROJET, type DemandeDeConfig } from '@/lib/ouvrir-config-projet';
+import { EVENEMENT_CONFIG_PROJET, ouvrirRubriqueDeLEtape, type DemandeDeConfig } from '@/lib/ouvrir-config-projet';
 import { t, useLangueAppliquee } from '@/lib/langue';
 
 /*
@@ -432,22 +433,27 @@ export function App() {
       // Aucun message éphémère pour les autres : un simple renseignement n'est
       // pas l'un des trois genres qui alertent (`messageAlerte`).
       if (agent.role === 'deploy') {
-        /* CHAQUE AGENT DE PUBLICATION OUVRE LE VOLET DE SON ÉTAPE
-           (`voletDeLAgentDePublication`). L'agent de configuration a sa
-           conversation DANS le tiroir de production, onglet « Conversation ».
-           Un DÉPANNEUR ouvre toujours son fil, même sans décision en attente :
-           c'est lui qu'on vient voir. La production s'ouvre alors sur
-           « Configuration », jamais sur « Conversation » — cet onglet lance
-           l'agent de configuration d'un projet qui n'en a pas (DEC-256). */
+        /* UN AGENT DE CONFIGURATION (déploiement ou mise en production) ouvre
+           la RUBRIQUE de son étape dans les réglages du projet : c'est là que
+           vivent sa conversation et le processus qu'il écrit (29/09/2026). */
+        const projetDeLAgent = etat.projects.find((p) => p.id === agent.projectId);
+        const etapeConfiguree = etapeDeLAgentDeConfiguration(projetDeLAgent, agent.id);
+        if (etapeConfiguree && !agent.depannagePublication) {
+          ouvrirRubriqueDeLEtape(agent.projectId, etapeConfiguree);
+          return;
+        }
+        /* CHAQUE AUTRE AGENT DE PUBLICATION OUVRE LE VOLET DE SON ÉTAPE
+           (`voletDeLAgentDePublication`). Un DÉPANNEUR ouvre toujours son fil,
+           même sans décision en attente : c'est lui qu'on vient voir. */
         const volet = voletDeLAgentDePublication({
           agent,
-          configurationId: etat.projects.find((p) => p.id === agent.projectId)?.miseEnProduction?.agentId,
+          configurationId: projetDeLAgent?.miseEnProduction?.agentId,
           derniere: etat.deploys[agent.projectId],
         });
         const fil = avecFil || !!agent.depannagePublication ? agentId : undefined;
-        if (volet === 'configuration') client.demanderProduction({ projectId: agent.projectId, onglet: 'conversation' });
+        if (volet === 'configuration') ouvrirRubriqueDeLEtape(agent.projectId, 'production');
         else if (volet === 'dev') client.demanderDeploiement({ projectId: agent.projectId, agentId: fil });
-        else client.demanderProduction({ projectId: agent.projectId, agentId: fil, onglet: 'configuration' });
+        else client.demanderProduction({ projectId: agent.projectId, agentId: fil });
       }
     },
     [setMobileView],

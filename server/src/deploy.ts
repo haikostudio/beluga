@@ -89,6 +89,7 @@ import {
   depotsDuProjet,
   type DepotsDeCarte,
   agentRetientLaPublication,
+  processusJoueAuDeploiement,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -285,6 +286,12 @@ export async function moyenDeMiseEnLigne(projectId: string, cible?: CiblePublica
       raison: processus?.etapes?.length
         ? `Fusion dans « ${branche} », envoi, puis le processus du projet en ${processus.etapes.length} étape(s). Aucun agent n’intervient.`
         : 'Aucun processus de mise en production : il faut d’abord l’initialiser.',
+    };
+  }
+  const processusEcrit = processusJoueAuDeploiement(project);
+  if (processusEcrit) {
+    return {
+      raison: `Fusion du lot dans « ${branche} », enregistrement et envoi, puis le processus du projet en ${processusEcrit.etapes.length} étape(s). Aucun agent n’intervient.`,
     };
   }
   return {
@@ -1565,8 +1572,39 @@ async function deployer(
     const relances: string[] = [];
     let aJoue = false;
     let aRelance = false;
+    /* LE PROCESSUS ÉCRIT PAR L'AGENT DE CONFIGURATION DU DÉPLOIEMENT
+       (29/09/2026) : présent, il REMPLACE la commande et les services du dépôt
+       principal, joué tel quel, arrêt net à la première étape qui échoue.
+       Absent, le déroulé commun ci-dessous reste en service. Les dépôts
+       annexes gardent leurs propres réglages. */
+    const processusEcrit = processusJoueAuDeploiement(project);
+    const parLeProcessus = (d: DepotAPublier) => d.principal && !!processusEcrit;
     current = setStep(current, 'build', 'running');
     for (const d of depots) {
+      if (parLeProcessus(d) && processusEcrit) {
+        if (inchange(d)) {
+          miseAJour.push(`${prefixe(d)}rien n’a changé depuis la dernière mise en ligne : le processus du projet n’est pas rejoué.`);
+          continue;
+        }
+        for (const [rang, etape] of processusEcrit.etapes.entries()) {
+          verifierArret();
+          const entete = `${prefixe(d)}${rang + 1}/${processusEcrit.etapes.length} · ${etape.libelle}`;
+          current = progresser(current, 'build', entete);
+          current = noter(current, 'build', `$ ${etape.commande}`, 'commande');
+          const sortie = await runCommand(d.projet.path, etape.commande, etape.delaiS * 1000, 4000, signal);
+          miseAJour.push(
+            `${entete} — ${sortie.ok ? `terminée en ${secondes(sortie.dureeMs ?? 0)}` : 'ÉCHEC'}\n$ ${etape.commande}\n${dernieresLignes(sortie.out, sortie.ok ? 400 : 2500)}`,
+          );
+          if (!sortie.ok) {
+            arreter(
+              'build',
+              `L’étape ${rang + 1} « ${etape.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${etape.delaiS} s` : 'a échoué'} : le processus s’arrête là.\n\n${miseAJour.join('\n\n')}`,
+            );
+          }
+        }
+        aJoue = true;
+        continue;
+      }
       const commande = commandeDeMiseAJour(d.projet.deploiement);
       if (!commande) continue;
       if (inchange(d)) {
@@ -1600,6 +1638,8 @@ async function deployer(
 
     current = setStep(current, 'restart', 'running');
     for (const d of depots) {
+      /* Le processus écrit porte lui-même ses redémarrages. */
+      if (parLeProcessus(d)) continue;
       const services = servicesARelancer(d.projet.deploiement);
       if (!services.length) continue;
       if (inchange(d)) {
@@ -1653,12 +1693,19 @@ async function deployer(
         if (perimee) arreter('restart', `${prefixe(d)}${relances.join('\n')}\n\n${prefixe(d)}${perimee}`);
       }
     }
-    const rienDeRegle = depots.every((d) => !commandeDeMiseAJour(d.projet.deploiement) && !servicesARelancer(d.projet.deploiement).length);
+    const rienDeRegle =
+      !processusEcrit &&
+      depots.every((d) => !commandeDeMiseAJour(d.projet.deploiement) && !servicesARelancer(d.projet.deploiement).length);
     current = setStep(
       current,
       'restart',
       aRelance ? 'done' : 'skipped',
-      relances.join('\n') || (rienDeRegle ? RECIT_SANS_MISE_A_JOUR : 'Aucun service réglé pour ce projet : rien à relancer.'),
+      relances.join('\n') ||
+        (processusEcrit
+          ? 'Le processus du projet porte lui-même ses redémarrages.'
+          : rienDeRegle
+            ? RECIT_SANS_MISE_A_JOUR
+            : 'Aucun service réglé pour ce projet : rien à relancer.'),
     );
   }
 

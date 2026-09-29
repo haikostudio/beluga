@@ -411,21 +411,19 @@ export function Backups({
           </div>
         )}
 
-        {etat.projets.length ? (
-          <ProjetsDuServeur projets={etat.projets} projetLance={projetLance} onConfigurer={configurerProjet} />
-        ) : null}
-
         {resumes.length ? (
-          <div className="relative shrink-0 px-3 pb-2">
-            <Search className="pointer-events-none absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <Input
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              placeholder={t('Rechercher un site…')}
-              className="h-8 pl-7 text-[13px]"
-              autoComplete="off"
-              data-backups-recherche
-            />
+          <div className="shrink-0 px-3 pb-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+              <Input
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                placeholder={t('Rechercher un site…')}
+                className="h-8 pl-7 text-[13px]"
+                autoComplete="off"
+                data-backups-recherche
+              />
+            </div>
           </div>
         ) : null}
 
@@ -506,6 +504,9 @@ export function Backups({
               </tbody>
             </table>
           )}
+          {etat.projets.length ? (
+            <TableauProjetsSansSauvegarde projets={etat.projets} projetLance={projetLance} onConfigurer={configurerProjet} />
+          ) : null}
         </ZoneDefilement>
       </Drawer>
 
@@ -686,6 +687,7 @@ function RecetteDuSite({ site }: { site: SiteASauvegarder }) {
         <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
           <Archive className="h-3.5 w-3.5 shrink-0 text-faint" />
           {t('Recette de backup')}
+          {site.recette?.explication ? <BulleInfo cote="start">{site.recette.explication}</BulleInfo> : null}
         </h3>
         <span className="text-[12px] text-faint">
           {site.recette
@@ -695,16 +697,15 @@ function RecetteDuSite({ site }: { site: SiteASauvegarder }) {
             : t('Déduite de la fiche, en attendant l’analyse')}
         </span>
       </div>
-      {site.recette?.explication ? (
-        <p className="text-[12px] leading-relaxed text-faint">{site.recette.explication}</p>
-      ) : null}
       {recette.etapes.length ? (
         <ol className="flex flex-col gap-1">
           {recette.etapes.map((etape) => (
             <li key={etape.id} className="flex flex-col gap-1 rounded-md bg-bloc px-2.5 py-1.5" data-backups-etape={etape.id}>
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 flex-1 text-[12.5px] text-text">{etape.libelle}</span>
-                <Badge tone="neutral">{t(LIBELLE_GENRE_D_ETAPE[etape.genre])}</Badge>
+              <span className="grid min-w-0 grid-cols-[minmax(0,1fr)_8.5rem] items-center gap-2">
+                <span className="min-w-0 text-[12.5px] text-text">{etape.libelle}</span>
+                <span className="flex justify-end whitespace-nowrap">
+                  <Badge tone="neutral">{t(LIBELLE_GENRE_D_ETAPE[etape.genre])}</Badge>
+                </span>
               </span>
               {commandes ? (
                 <>
@@ -1059,16 +1060,17 @@ function AssistantDeSite({
 
 
 /* ------------------------------------------------------------------ */
-/* Les projets du serveur sans fiche : un dropdown, rétracté par défaut */
+/* Les projets du serveur sans fiche : un tableau sous les sauvegardes  */
 /* ------------------------------------------------------------------ */
 
 /**
- * LA LISTE DES PROJETS DU SERVEUR SANS SAUVEGARDE — repliée par défaut, avec
- * son propre champ de recherche à l'ouverture. Le bloc noir reste, seule la
- * disposition change : plus de 19 chips lâchés en vrac dès l'ouverture du
- * tiroir.
+ * LES PROJETS DU SERVEUR SANS SAUVEGARDE — un tableau posé sous les sites déjà
+ * sauvegardés, avec son propre champ de recherche en tête. Il ne filtre que
+ * lui-même : la recherche du dessus ne touche que les sauvegardes. Une ligne
+ * = un projet, son dossier, et le geste qui fait écrire sa recette par
+ * l'assistant. Sur téléphone la colonne du dossier passe sous le nom.
  */
-function ProjetsDuServeur({
+function TableauProjetsSansSauvegarde({
   projets,
   projetLance,
   onConfigurer,
@@ -1077,78 +1079,76 @@ function ProjetsDuServeur({
   projetLance: string;
   onConfigurer: (projet: { id: string; nom: string; chemin: string }) => void;
 }) {
-  const [ouvert, setOuvert] = React.useState(false);
   const [recherche, setRecherche] = React.useState('');
 
   const filtres = React.useMemo(() => {
     const mot = recherche.trim().toLowerCase();
-    return mot ? projets.filter((p) => p.nom.toLowerCase().includes(mot)) : projets;
+    return mot ? projets.filter((p) => p.nom.toLowerCase().includes(mot) || p.chemin.toLowerCase().includes(mot)) : projets;
   }, [projets, recherche]);
 
   return (
-    <div
-      className="mx-3 mb-2 flex shrink-0 flex-col gap-1.5 rounded-md border border-border bg-bg px-2.5 py-2"
-      data-backups-projets-sans-fiche
-    >
-      <button
-        type="button"
-        onClick={() => setOuvert((avant) => !avant)}
-        className="flex min-w-0 items-start gap-1.5 text-left"
-        data-backups-projets-toggle
-      >
-        {ouvert ? (
-          <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
-        ) : (
-          <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-faint" />
-        )}
-        <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-text">
-          {projets.length > 1
-            ? t('{n} projets de ce serveur n’ont pas encore de sauvegarde. Un clic, et l’assistant leur en écrit une.', {
-                n: projets.length,
-              })
-            : t('Un projet de ce serveur n’a pas encore de sauvegarde. Un clic, et l’assistant lui en écrit une.')}
-        </p>
-      </button>
-
-      {ouvert ? (
-        <>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <Input
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              placeholder={t('Rechercher un projet…')}
-              className="h-8 pl-7 text-[13px]"
-              autoComplete="off"
-              data-backups-projets-recherche
-            />
-          </div>
-          {filtres.length ? (
-            <div className="flex flex-wrap gap-1.5">
-              {filtres.map((projet) => (
+    <section className="mt-4 flex flex-col gap-2" data-backups-projets-sans-fiche>
+      <div className="flex items-center gap-1.5 px-1">
+        <h3 className="text-[13px] text-text">{t('Projets sans sauvegarde')}</h3>
+        <Badge tone="neutral">{projets.length}</Badge>
+        <BulleInfo cote="start">{t('Un clic sur « Configurer », et l’assistant écrit la sauvegarde du projet.')}</BulleInfo>
+      </div>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+        <Input
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder={t('Rechercher un projet…')}
+          className="h-8 pl-7 text-[13px]"
+          autoComplete="off"
+          data-backups-projets-recherche
+        />
+      </div>
+      <div role="table" className="flex flex-col" data-backups-projets-tableau>
+        <div
+          role="row"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border px-1 py-1.5 text-[11.5px] uppercase tracking-wide text-faint sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
+        >
+          <span role="columnheader">{t('Projet')}</span>
+          <span role="columnheader" className="hidden sm:block">
+            {t('Dossier')}
+          </span>
+          <span role="columnheader" aria-hidden />
+        </div>
+        {filtres.length ? (
+          filtres.map((projet) => (
+            <div
+              key={projet.id}
+              role="row"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border/60 px-1 py-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
+              data-backups-projet-ligne={projet.id}
+            >
+              <span role="cell" className="flex min-w-0 flex-col">
+                <span className="truncate text-[12.5px] text-text">{projet.nom}</span>
+                <span className="truncate font-mono text-[11px] text-faint sm:hidden">{projet.chemin}</span>
+              </span>
+              <span role="cell" className="hidden truncate font-mono text-[11.5px] text-faint sm:block">
+                {projet.chemin}
+              </span>
+              <span role="cell" className="flex justify-end">
                 <Button
-                  key={projet.id}
                   variant="outline"
                   size="sm"
                   disabled={!!projetLance}
                   onClick={() => onConfigurer(projet)}
                   data-backups-projet-sans-fiche={projet.id}
                 >
-                  {projetLance === projet.id ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-3 w-3" />
-                  )}
-                  {projet.nom}
+                  {projetLance === projet.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                  {t('Configurer')}
                 </Button>
-              ))}
+              </span>
             </div>
-          ) : (
-            <p className="text-[12px] text-faint">{t('Aucun projet ne correspond à cette recherche.')}</p>
-          )}
-        </>
-      ) : null}
-    </div>
+          ))
+        ) : (
+          <p className="px-1 py-3 text-[12px] text-faint">{t('Aucun projet ne correspond à cette recherche.')}</p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1159,7 +1159,7 @@ function ProjetsDuServeur({
 function Champ({ libelle, aide, children }: { libelle: string; aide?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1">
+      <div className="flex min-h-5 items-center gap-1">
         <Label>{libelle}</Label>
         {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
       </div>
@@ -1582,11 +1582,14 @@ function LignePoint({
           {point.inventaire.etapes.map((etape) => (
             <li
               key={etape.id}
-              className={cn('flex min-w-0 items-center gap-1.5 text-[11.5px]', etape.ok ? 'text-faint' : 'text-warning')}
+              className={cn(
+                'grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)_8.5rem] items-center gap-x-1.5 text-[11.5px]',
+                etape.ok ? 'text-faint' : 'text-warning',
+              )}
             >
               {etape.ok ? <Check className="h-3 w-3 shrink-0" /> : <TriangleAlert className="h-3 w-3 shrink-0" />}
               <span className="min-w-0 truncate">{etape.libelle}</span>
-              <span className="shrink-0">
+              <span className="text-right tabular-nums">
                 {etape.ok
                   ? t('{n} fichier(s) — {volume}', { n: etape.fichiers, volume: formaterOctets(etape.octets) })
                   : etape.raison}

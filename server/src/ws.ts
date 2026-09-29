@@ -43,6 +43,7 @@ import {
   cadrageRouvertApresRapport,
   carteEnCadrage,
   messageDeLaCarteVaAuCadrage,
+  messageOuvreUneNouvelleCarte,
   gesteDuDepot,
   etapeDeLaColonne,
   etatVisuelCarte,
@@ -74,6 +75,7 @@ import {
   commandeAutorisee,
   evenementAutorise,
   type CompteUtilisateur,
+  fusionDesProcedures,
 } from '@beluga/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
@@ -103,6 +105,7 @@ import {
   listAccountRecords,
   refreshQuotas,
   renameAccount,
+  reglerForfaitMensuel,
   retirerCompte,
   setAccountDisabled,
 } from './accounts.js';
@@ -127,6 +130,7 @@ import {
   cadrageDeLaCarte,
   lancerLeCadrageDeLaProposition,
   ouvrirLeCadrage,
+  ouvrirUneNouvelleCarteDepuis,
   rouvrirLeCadrage,
 } from './cadrage.js';
 import { relancerLaRedaction } from './redaction-de-demande.js';
@@ -205,6 +209,7 @@ import {
   supprimerContenu as supprimerContenuMarketing,
   vueDEnsemble as vueDEnsembleMarketing,
   joursDeTendance as joursDeTendanceMarketing,
+  estAgentMarketing,
 } from './marketing.js';
 import { depannerLaPublication } from './depannage-publication.js';
 import {
@@ -791,7 +796,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       /* Les dépôts annexes ne se règlent plus depuis l'écran (DEC-258) : ce
          patch général ne les touche jamais. */
       const { depots: _depotsIgnores, ...patch } = cmd.patch as Record<string, unknown>;
-      const updated = store.saveProject(Project.parse({ ...current, ...patch, id: current.id }));
+      const updated = store.saveProject(
+        Project.parse({ ...current, ...patch, ...fusionDesProcedures(current, patch), id: current.id }),
+      );
       /*
        * L'icône se cherche dès que sa source a bougé — l'adresse OU le dossier
        * du dépôt — et aussi tant qu'aucune n'a été trouvée : un réglage
@@ -1671,6 +1678,17 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * l'agent qui reçoit qui dit s'il attend.
        */
       const carteDuFil = agent.cardId ? store.getCard(agent.cardId) : null;
+      /*
+       * UN MESSAGE SOUS UNE CARTE DÉJÀ EN LIGNE OUVRE UNE NOUVELLE CARTE : le
+       * verrou de publication, plus haut, est déjà passé. L'identifiant de la
+       * carte neuve revient au client, qui l'ouvre. L'ancienne carte n'est ni
+       * touchée ni marquée « action » : elle reste où elle est.
+       */
+      if (carteDuFil && messageOuvreUneNouvelleCarte(carteDuFil) && !estAgentMarketing(agent.id)) {
+        const nouvelle = await ouvrirUneNouvelleCarteDepuis(agent.id, cmd.text, cmd.attachments ?? []);
+        if (!nouvelle) throw new Error('la nouvelle carte n\'a pas pu être créée');
+        return { ok: true, nouvelleCarteId: nouvelle.id };
+      }
       if (carteDuFil && messageDeLaCarteVaAuCadrage(carteDuFil)) {
         const cadrage = await rouvrirLeCadrage(carteDuFil.id);
         if (!cadrage) throw new Error('le cadrage de cette carte ne peut pas être rouvert');
@@ -1771,8 +1789,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const planDuTour = annoncerPlanDuMemeTour(agent);
       const contextePlan = planDuTour?.consigne;
       /*
-       * L'AGENT DE CONFIGURATION DE LA MISE EN PRODUCTION se parle par cette
-       * même barre, depuis l'onglet « Conversation » du tiroir du bandeau :
+       * L'AGENT DE CONFIGURATION (déploiement ou mise en production) se parle par cette
+       * même barre, depuis la rubrique de son étape dans les réglages du projet :
        * chaque message emporte ce qu'il est et ce qu'il rend (le bloc du
        * processus), son premier message l'accueil entier.
        */
@@ -2759,6 +2777,20 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // remonte aussitôt partout où le compte est nommé (liste, volet, alertes).
       // Un nom vide est refusé et le compte garde son ancien nom (ok: false).
       const compte = renameAccount(cmd.id, cmd.label);
+      const quotas = await refreshQuotas(true);
+      bus.emit({ type: 'quotas', quotas });
+      return { ok: !!compte, quotas };
+    }
+
+    case 'account.forfaitMensuel': {
+      // Le forfait du mois d'un compte MiMo (plafond, renouvellement, consommé
+      // relevé chez Xiaomi) : écrit sur le compte, puis les quotas sont relus
+      // pour que la barre du mois se recale aussitôt.
+      const compte = reglerForfaitMensuel(cmd.id, {
+        plafond: cmd.plafond,
+        renouvellement: cmd.renouvellement,
+        consomme: cmd.consomme,
+      });
       const quotas = await refreshQuotas(true);
       bus.emit({ type: 'quotas', quotas });
       return { ok: !!compte, quotas };

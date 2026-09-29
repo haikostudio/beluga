@@ -1366,6 +1366,13 @@ export function decisionsDuParcours(etat: {
   parcours?: Pick<ParcoursDeCarte, 'incident'> | null;
   /** Le dernier message finit-il sur une question écrite en texte ordinaire ? */
   questionEnTexte?: boolean;
+  /**
+   * LA COLONNE DE LA CARTE ET SON RANGEMENT. L'incident du parcours parle d'un
+   * tour de CADRAGE : il ne vaut que tant que la carte est dans « Planifié »,
+   * jamais sur une carte lancée, rendue ou archivée (`incidentEncoreValable`).
+   */
+  colonne?: string;
+  archivee?: boolean;
 }): DecisionDuParcours[] {
   const decisions: DecisionDuParcours[] = [];
   for (const message of etat.messages) {
@@ -1381,6 +1388,21 @@ export function decisionsDuParcours(etat: {
   }
   const dernier = etat.messages[etat.messages.length - 1];
   if (etat.questionEnTexte && dernier) decisions.push({ sorte: 'question-texte', messageId: dernier.id });
-  if (etat.parcours?.incident?.texte) decisions.push({ sorte: 'incident', texte: etat.parcours.incident.texte });
+  if (etat.parcours?.incident?.texte && incidentEncoreValable(etat)) {
+    decisions.push({ sorte: 'incident', texte: etat.parcours.incident.texte });
+  }
   return decisions;
+}
+
+/**
+ * L'INCIDENT DU PARCOURS NE VAUT QUE PENDANT LE CADRAGE. « La compréhension
+ * n'est pas venue » ou « Le plan n'est pas venu » s'adressent à une carte qui
+ * attend encore dans « Planifié » : sur une carte lancée, rendue ou rangée,
+ * ils ne demandent plus rien à personne. Ils restaient pourtant affichés en
+ * rouge jusque dans « Archivé » (cartes d'installation du suivi des visites,
+ * 29/09/2026). Colonne inconnue : on garde l'incident, faute de mieux savoir.
+ */
+export function incidentEncoreValable(etat: { colonne?: string; archivee?: boolean }): boolean {
+  if (etat.archivee) return false;
+  return etat.colonne === undefined || etat.colonne === 'planned';
 }

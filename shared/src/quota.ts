@@ -172,6 +172,10 @@ export interface PrevisionEpuisement {
   at: number;
   /** Ce qui s'affiche : « épuisé lundi vers 17 h ». */
   texte: string;
+  /** Ce qui manquera entre l'épuisement (arrondi) et la remise à zéro, en ms. */
+  manqueMs: number;
+  /** Ce même manque dit court : « 1 j 4 h », « 3 h 05 », « 25 min ». */
+  manque: string;
   /** L'infobulle : l'heure exacte et le rythme observé. */
   detail: string;
   /** « manque » : le quota tombe bien avant la fin. « juste » : de peu. */
@@ -185,6 +189,36 @@ export interface PrevisionEpuisement {
    * pointillé du graphique en suivant les creux au lieu d'une droite.
    */
   trajectoire: { at: number; pct: number }[];
+  /**
+   * La même prévision, en morceaux NON ÉCRITS : `texte` et `detail` sont du
+   * français, l'écran assemble ces morceaux dans la langue choisie.
+   */
+  morceaux: MorceauxDePrevision;
+}
+
+/** Une durée découpée : la durée courte en est tirée, l'écran la traduit. */
+export interface DureeDecoupee {
+  jours: number;
+  heures: number;
+  /** Les minutes entières, sans zéro de tête. */
+  minutes: number;
+}
+
+export interface MorceauxDePrevision {
+  /** Le jour d'épuisement : aujourd'hui, demain, sinon un jour de la semaine à nommer depuis `at`. */
+  jour: 'aujourdhui' | 'demain' | 'semaine';
+  /** L'heure d'épuisement, de 0 à 23, dans le fuseau de référence. */
+  heure: number;
+  /** Vrai quand l'heure est « … h 30 ». */
+  demiHeure: boolean;
+  /** Ce qui manquera avant la remise à zéro. */
+  manque: DureeDecoupee;
+  /** L'instant estimé AVANT l'arrondi, pour la date exacte de l'infobulle. */
+  brut: number;
+  /** Le rythme retenu, dit à l'heure (fenêtre de cinq heures) ou au jour (semaine). */
+  cadence: { unite: 'heure' | 'jour'; pct: number };
+  /** D'où sort le chiffre : simple prolongement, profil de semaine, ou profil d'une journée type. */
+  base: 'prolongement' | 'semaine' | 'journee';
 }
 
 /* ------------------------------------------------------------------ */
@@ -558,10 +592,18 @@ function depuisLaDerniereRemiseAZero(releves: ReleveQuota[], serie: SerieQuota):
   return releves;
 }
 
+/** Le jour d'épuisement : aujourd'hui, demain, sinon un jour de la semaine à nommer. */
+function jourDePrevision(at: number, maintenant: number): MorceauxDePrevision['jour'] {
+  if (jourLocal(at) === jourLocal(maintenant)) return 'aujourdhui';
+  if (jourLocal(at) === jourLocal(maintenant + 24 * 3600 * 1000)) return 'demain';
+  return 'semaine';
+}
+
 /** « aujourd'hui », « demain », sinon le jour de la semaine en toutes lettres. */
 function jourEnClair(at: number, maintenant: number): string {
-  if (jourLocal(at) === jourLocal(maintenant)) return 'aujourd’hui';
-  if (jourLocal(at) === jourLocal(maintenant + 24 * 3600 * 1000)) return 'demain';
+  const jour = jourDePrevision(at, maintenant);
+  if (jour === 'aujourdhui') return 'aujourd’hui';
+  if (jour === 'demain') return 'demain';
   return new Date(at).toLocaleDateString('fr-CH', { timeZone: FUSEAU, weekday: 'long' });
 }
 
@@ -572,25 +614,45 @@ function heureEnClair(at: number): string {
 }
 
 /**
+ * Une durée découpée en jours, heures et minutes ENTIERS, sans arrondi vers le
+ * haut : « 28 h » donne 1 j et 4 h, minutes comprises seulement en dessous d'un jour.
+ */
+export function decouperDuree(ms: number): DureeDecoupee {
+  const minutes = Math.floor(Math.max(ms, 0) / 60_000);
+  const heures = Math.floor(minutes / 60);
+  const jours = Math.floor(heures / 24);
+  if (jours >= 1) return { jours, heures: heures - jours * 24, minutes: 0 };
+  return { jours: 0, heures, minutes: heures >= 1 ? minutes - heures * 60 : minutes };
+}
+
+/** Une durée dite court : « 2 j 4 h », « 1 h 30 », « 25 min », « moins d’une minute ». */
+function dureeJoursHeures(ms: number): string {
+  const { jours, heures, minutes } = decouperDuree(ms);
+  if (jours >= 1) return heures ? `${jours} j ${heures} h` : `${jours} j`;
+  if (heures >= 1) return minutes ? `${heures} h ${String(minutes).padStart(2, '0')}` : `${heures} h`;
+  return minutes >= 1 ? `${minutes} min` : 'moins d’une minute';
+}
+
+/**
  * Ce qui reste avant l'épuisement prévu, dit court : « dans 1 h 30 »,
- * « dans 25 min », « dans 2 j 4 h ». Se pose entre parenthèses après
- * « épuisé demain vers 0 h ». Un instant déjà atteint se dit « maintenant ».
+ * « dans 25 min », « dans 2 j 4 h ». Un instant déjà atteint se dit
+ * « maintenant ».
  */
 export function dansEnClair(at: number, maintenant = Date.now()): string {
   const restant = at - maintenant;
   if (restant <= 0) return 'maintenant';
-  const minutes = Math.floor(restant / 60_000);
-  const heures = Math.floor(minutes / 60);
-  const jours = Math.floor(heures / 24);
-  if (jours >= 1) {
-    const reste = heures - jours * 24;
-    return reste ? `dans ${jours} j ${reste} h` : `dans ${jours} j`;
-  }
-  if (heures >= 1) {
-    const reste = minutes - heures * 60;
-    return reste ? `dans ${heures} h ${String(reste).padStart(2, '0')}` : `dans ${heures} h`;
-  }
-  return minutes >= 1 ? `dans ${minutes} min` : 'dans moins d’une minute';
+  return `dans ${dureeJoursHeures(restant)}`;
+}
+
+/**
+ * Ce qui MANQUERA entre l'épuisement prévu et la remise à zéro, dit court :
+ * « 1 j 4 h », « 3 h 05 », « 25 min ». Se pose après « manque » dans
+ * « épuisé dimanche vers 13 h 30 (manque 1 j 4 h) ». Une durée nulle ou
+ * négative (épuisement arrondi jusque sur la remise à zéro) se dit
+ * « moins d’une minute ».
+ */
+export function manqueEnClair(ms: number): string {
+  return dureeJoursHeures(Math.max(ms, 0));
 }
 
 export function previsionEpuisement(
@@ -659,6 +721,11 @@ export function previsionEpuisement(
   const marge = fenetre.resetsAt - brut;
   const total = fenetre.resetsAt - maintenant;
   const parJour = retenu * 24 * 3600 * 1000;
+  // Calculé depuis l'instant ARRONDI, celui que l'écran affiche : les deux
+  // chiffres de la ligne (« vers 13 h 30 », « manque 1 j 4 h ») restent alors
+  // cohérents entre eux.
+  const manqueMs = fenetre.resetsAt - at;
+  const manque = manqueEnClair(manqueMs);
 
   const exact = new Date(brut).toLocaleString('fr-CH', {
     timeZone: FUSEAU,
@@ -687,11 +754,25 @@ export function previsionEpuisement(
   return {
     at,
     texte: `épuisé ${jourEnClair(at, maintenant)} vers ${heureEnClair(at)}`,
-    detail: `Au rythme observé (${cadence}), ${base}, épuisement estimé ${exact}, avant la remise à zéro.`,
+    manqueMs,
+    manque,
+    detail: `Au rythme observé (${cadence}), ${base}, épuisement estimé ${exact}, avant la remise à zéro : il manquerait ${manque} jusque-là.`,
     niveau: marge > total * MARGE_CONFORT ? 'manque' : 'juste',
     parJour,
     heuresCreuses: !!applique,
     trajectoire: allegerLaTrajectoire(avance.trajectoire),
+    morceaux: {
+      jour: jourDePrevision(at, maintenant),
+      heure: heureLocale(at),
+      demiHeure: minutesLocales(at) > 0,
+      manque: decouperDuree(manqueMs),
+      brut,
+      cadence:
+        serie === 'session'
+          ? { unite: 'heure', pct: retenu * 3600 * 1000 }
+          : { unite: 'jour', pct: parJour },
+      base: !applique ? 'prolongement' : applique.length === TRANCHES_SEMAINE ? 'semaine' : 'journee',
+    },
   };
 }
 

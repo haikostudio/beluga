@@ -18,12 +18,15 @@
 
 import {
   Agent,
+  Card,
+  Message,
   TITRE_CARTE_DE_CADRAGE,
   demandeAfficheeDeProposition,
   demandeDeCadrageDeProposition,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { createAgent, isRunning, sendPrompt } from './runtime.js';
+import { createCard } from './tools.js';
 import { bus } from './bus.js';
 import { ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
 import { log } from './logger.js';
@@ -225,4 +228,76 @@ async function creerLAgentDeCadrage(card: NonNullable<ReturnType<typeof store.ge
 export function agentDeCadrage(cardId: string): Agent | null {
   const dernier = store.getLastAgentByCard(cardId);
   return dernier && dernier.role === 'cadrage' ? dernier : null;
+}
+
+/** Les envois récents : un envoi rejoué (double clic, reconnexion) ne crée pas une seconde carte. */
+const nouvellesCartesRecentes = new Map<string, { cardId: string; at: number }>();
+const FENETRE_ENVOI_REJOUE_MS = 60_000;
+
+/**
+ * UN MESSAGE SUR UNE CARTE DÉJÀ EN LIGNE DEVIENT UNE NOUVELLE CARTE.
+ *
+ * Le travail d'une carte « Archivé » avec sa date de mise en ligne est publié :
+ * on ne le réécrit pas sur place (`messageOuvreUneNouvelleCarte`). Le texte et
+ * les pièces jointes du message ouvrent donc une carte neuve du même projet —
+ * elle naît dans « Planifié », comme celle du « + » —, dont le cadrage reçoit
+ * le message exactement comme un premier message tapé dans une carte vide.
+ * RIEN NE PART AU MOTEUR AVANT LE LANCEMENT : c'est un tour de cadrage.
+ *
+ * L'ancienne carte n'est pas touchée, hors une note qui pointe vers la
+ * nouvelle (une proposition déjà acceptée, que le fil affiche comme un lien).
+ * Un envoi rejoué dans la minute rend la même carte au lieu d'en créer une
+ * autre. Le verrou de publication est vérifié par l'appelant, AVANT.
+ */
+export async function ouvrirUneNouvelleCarteDepuis(
+  agentId: string,
+  texte: string,
+  attachments: string[] = [],
+): Promise<Card | null> {
+  const agent = store.getAgent(agentId);
+  const mere = agent?.cardId ? store.getCard(agent.cardId) : null;
+  if (!agent || !mere) return null;
+
+  const cle = `${agentId}\n${texte}\n${attachments.join(',')}`;
+  const maintenant = Date.now();
+  for (const [autre, vu] of nouvellesCartesRecentes) {
+    if (maintenant - vu.at > FENETRE_ENVOI_REJOUE_MS) nouvellesCartesRecentes.delete(autre);
+  }
+  const deja = nouvellesCartesRecentes.get(cle);
+  const dejaCree = deja ? store.getCard(deja.cardId) : null;
+  if (dejaCree) return dejaCree;
+
+  const card = createCard(mere.projectId, { title: TITRE_CARTE_DE_CADRAGE, origin: 'user', cadrage: true });
+  nouvellesCartesRecentes.set(cle, { cardId: card.id, at: maintenant });
+  bus.emit({ type: 'card.upsert', card });
+
+  const cadrage = await ouvrirLeCadrage(card.id);
+  if (!cadrage) return card;
+
+  const titreDeLaNote = (texte.trim().split('\n')[0] ?? '').slice(0, 80) || TITRE_CARTE_DE_CADRAGE;
+  const note = store.saveMessage(
+    Message.parse({
+      id: store.newId(),
+      agentId,
+      role: 'assistant',
+      content:
+        "Cette carte est déjà en ligne : je ne la modifie pas sur place. Votre message a ouvert une nouvelle carte, qui suit tout le parcours.",
+      proposals: [
+        {
+          id: store.newId(),
+          title: titreDeLaNote,
+          decision: 'accepted',
+          cardId: card.id,
+          decidedAt: store.now(),
+        },
+      ],
+      createdAt: store.now(),
+    }),
+  );
+  bus.emit({ type: 'message.upsert', message: note });
+
+  void sendPrompt(cadrage.id, texte, { attachments }).catch((err) =>
+    log.error(`le cadrage de la carte ouverte depuis « ${mere.title} » n'a pas pu partir`, err),
+  );
+  return card;
 }

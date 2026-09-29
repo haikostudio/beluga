@@ -424,7 +424,7 @@ export function digestText(projectId?: string): string {
     }
   }
 
-  const quotas = cachedQuotas();
+  const quotas = cachedQuotas().filter((q) => !q.suivi);
   if (quotas.length) {
     const worst = quotas
       .map((q) => ({ compte: q.label, pourcent: Math.max(q.session?.usedPct ?? 0, q.weekly?.usedPct ?? 0) }))

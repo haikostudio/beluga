@@ -907,6 +907,16 @@ function avecLePassageDuTourVivant(
    * (`planDemandeA`), jamais par un tour vivant.
    */
   if (etape === 'plan' && dernier && !ctx.parcours?.planDemandeA) return passages;
+  /*
+   * DE MÊME, UNE COMPRÉHENSION RENDUE SANS NOUVELLE DEMANDE N'OUVRE PAS DE
+   * SECOND POINT. Le tour qui vient d'appeler `rendre_comprehension` vit encore
+   * jusqu'à sa fermeture : sans cette garde, « L'agent lit le projet… » s'ouvrait
+   * sous le premier point, puis disparaissait avec le tour. Une itération ne
+   * s'annonce que par sa DEMANDE enregistrée après le passage rendu.
+   */
+  if (etape === 'comprehension' && dernier && !demandeApres(passages, dernier.debut ?? dernier.at ?? 0)) {
+    return passages;
+  }
   const rang = (dernier?.rang ?? 0) + 1;
   const debut =
     etape === 'plan' && ctx.parcours?.planDemandeA
@@ -1254,7 +1264,13 @@ export function pointsDuParcours(
       if (point.etape === 'comprehension' && courante === 'comprehension') {
         const rendue = !!ctx.parcours?.comprehension?.texte?.trim() || point.moments.some((m) => m.sorte === 'comprehension');
         /* UN TOUR QUI A RÉPONDU AU LIEU DE CADRER EST UN TOUR FINI. */
-        etat = ctx.tourEnCours || (!rendue && !tourDeReponseSeule(point, ctx.parcours)) ? 'encours' : 'fait';
+        /* UNE COMPRÉHENSION DÉJÀ RENDUE SUR CE PASSAGE RESTE FAITE SOUS LE TOUR
+           QUI SE REFERME : seule une nouvelle demande (qui ouvre son propre
+           passage) la remet à tourner. Le résumé rendu reste ainsi affiché. */
+        const renduIci =
+          point.moments.some((m) => m.sorte === 'comprehension') &&
+          !demandeApres(passages, point.debut ?? point.at ?? 0);
+        etat = (ctx.tourEnCours && !renduIci) || (!rendue && !tourDeReponseSeule(point, ctx.parcours)) ? 'encours' : 'fait';
         /* LE TOUR DE COMPRÉHENSION EST TOMBÉ : plus rien ne tourne. L'étape le
            dit tant que la décision du bas attend, puis retombe « à venir » —
            jamais un « L'agent lit le projet… » sur un agent à l'arrêt. */

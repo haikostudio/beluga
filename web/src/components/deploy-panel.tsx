@@ -39,11 +39,9 @@ import {
   etapeDeLaColonne,
   libelleCompteLot,
   procedureEnPlace,
-  ongletDEntreeDeProduction,
   raisonProductionDesactivee,
   etatDeLInitialisation,
   type EtatDeLInitialisation,
-  type OngletDeProduction,
   raisonLotBloque,
   rapportAGarder,
   runDeLEtape,
@@ -52,6 +50,7 @@ import {
 } from '@beluga/shared';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
 import { ExplicationDeConfiguration, TiroirProcedureProduction } from '@/components/tiroir-procedure-production';
+import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { BarreProgression } from '@/components/barre-progression';
 import { Chat } from '@/components/chat';
 /* LE SUIVI VIT DANS SON PROPRE VOLET : le parcours des étapes, le détail de
@@ -209,18 +208,9 @@ export function DeployPanel({
      mène : c'est là que vivent ses issues (relancer, ignorer, arrêter). Il n'y
      a plus de fenêtre d'agent à part dans l'application. */
   const [filAgent, setFilAgent] = React.useState<string | null>(null);
-  /* L'ONGLET DU TIROIR DE PRODUCTION : « Conversation » avec l'agent de
-     configuration, ou « Configuration » et son bouton. Posé à chaque
-     ouverture par `ongletDEntreeDeProduction`, ou par qui demande le tiroir. */
-  const [ongletProduction, setOngletProduction] = React.useState<OngletDeProduction>('conversation');
   const productionDemandee = presentation === 'bandeau' ? state.productionDemandee : null;
   React.useEffect(() => {
     if (!productionDemandee || productionDemandee.projectId !== projectId) return;
-    const projetDemande = client.lireEtat().projects.find((p) => p.id === projectId);
-    setOngletProduction(
-      productionDemandee.onglet ??
-        ongletDEntreeDeProduction({ enPlace: procedureEnPlace(projetDemande, 'production') }),
-    );
     setTiroirOuvert(true);
     setFilAgent(productionDemandee.agentId ?? null);
     client.demanderProduction(null);
@@ -708,7 +698,7 @@ export function DeployPanel({
   if (!enPlace) {
     /* SANS PROCÉDURE, LA BARRE EST LA MÊME : libellé et flèche. Le tiroir
        s'ouvre sur la CONVERSATION, où l'agent de configuration démarre ;
-       l'onglet « Configuration » dit ce qui manque, et son pied y ramène. */
+       le tiroir dit ce qui manque, et son pied mène aux réglages. */
     if (presentation === 'bandeau') {
       return (
         <BandeauProduction
@@ -718,15 +708,24 @@ export function DeployPanel({
           initialisation={initialisation}
           ouvert={tiroirOuvert}
           onOuvert={(v) => {
-            if (v) setOngletProduction(ongletDEntreeDeProduction({ enPlace: false }));
+            /* L'AGENT DE CONFIGURATION AU TRAVAIL : la barre mène à sa
+               conversation, dans la rubrique des réglages. */
+            if (v && initialisation && initialisation !== 'fini') {
+              ouvrirRubriqueDeLEtape(projectId, 'production');
+              return;
+            }
             setTiroirOuvert(v);
           }}
-          onglet={ongletProduction}
-          onOnglet={setOngletProduction}
           actions={actions}
           corps={<ExplicationDeConfiguration />}
           pied={
-            <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => setOngletProduction('conversation')} />
+            <BoutonInitierProcedure
+              cible={etape.cible}
+              onOuvrir={() => {
+                setTiroirOuvert(false);
+                ouvrirRubriqueDeLEtape(projectId, 'production');
+              }}
+            />
           }
         >
           {tiroirFilAgent}
@@ -820,16 +819,14 @@ export function DeployPanel({
         reconfiguration
         ouvert={tiroirOuvert}
         onOuvert={(v) => {
-          if (v)
-            setOngletProduction(
-              reconfiguration && reconfiguration !== 'fini'
-                ? 'conversation'
-                : ongletDEntreeDeProduction({ enPlace: true, deroule: modeDeroule }),
-            );
+          /* L'agent de configuration au travail : la barre mène à sa
+             conversation, dans la rubrique des réglages. */
+          if (v && reconfiguration && reconfiguration !== 'fini') {
+            ouvrirRubriqueDeLEtape(projectId, 'production');
+            return;
+          }
           setTiroirOuvert(v);
         }}
-        onglet={ongletProduction}
-        onOnglet={setOngletProduction}
         enRoute={enRoute}
         tombee={tombee}
         pourcent={suivi && (modeSuivi || reussiteVisible) ? suivi.pourcent : null}
@@ -1459,8 +1456,6 @@ function BandeauProduction({
   barre,
   corps,
   pied,
-  onglet,
-  onOnglet,
   children,
 }: {
   projectId: string;
@@ -1472,9 +1467,6 @@ function BandeauProduction({
   reconfiguration?: boolean;
   ouvert: boolean;
   onOuvert: (ouvert: boolean) => void;
-  /** L'onglet du tiroir : la conversation avec l'agent, ou la configuration. */
-  onglet: OngletDeProduction;
-  onOnglet: (onglet: OngletDeProduction) => void;
   enRoute?: boolean;
   tombee?: boolean;
   /** Le chiffre du déroulé, posé à côté du libellé pendant un suivi. */
@@ -1578,17 +1570,14 @@ function BandeauProduction({
       </button>
       {barre}
 
-      {/* LE TIROIR DE LA PROCÉDURE, calqué sur celui d'une tâche : la
-          conversation avec l'agent de configuration, puis la configuration et
-          son bouton. PENDANT UN DÉROULÉ, l'onglet « Configuration » le montre
-          sur la hauteur pleine ; au repos, l'explication défile au-dessus du
-          bouton, posé en pied. */}
+      {/* LE TIROIR DE LA PROCÉDURE : l'explication et le bouton de mise en
+          production (la conversation de l'agent vit dans les réglages).
+          PENDANT UN DÉROULÉ, il le montre sur la hauteur pleine ; au repos,
+          l'explication défile au-dessus du bouton, posé en pied. */}
       <TiroirProcedureProduction
         projectId={projectId}
         open={ouvert}
         onClose={() => onOuvert(false)}
-        onglet={onglet}
-        onOnglet={onOnglet}
         titre={titre}
         actions={actions}
         deroule={!!deroule}

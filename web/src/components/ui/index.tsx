@@ -2094,16 +2094,18 @@ export function SelecteurTiroir({
           {actionTitre ? actionTitre(() => setOuvert(false)) : null}
         </header>
         {options.length > seuilRecherche ? (
-          <div className="relative shrink-0 px-3 pb-2">
-            <Search className="pointer-events-none absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <Input
-              value={cherche}
-              onChange={(event) => setCherche(event.target.value)}
-              placeholder={t('Rechercher…')}
-              className="h-8 pl-7 text-[13px]"
-              data-selecteur-recherche={repere}
-              autoFocus
-            />
+          <div className="shrink-0 px-3 pb-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+              <Input
+                value={cherche}
+                onChange={(event) => setCherche(event.target.value)}
+                placeholder={t('Rechercher…')}
+                className="h-8 pl-7 text-[13px]"
+                data-selecteur-recherche={repere}
+                autoFocus
+              />
+            </div>
           </div>
         ) : null}
         <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 px-2 pb-3">

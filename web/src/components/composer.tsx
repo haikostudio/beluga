@@ -47,6 +47,7 @@ import {
   texteApresRetrait,
   TEXTE_BARRE_EN_ATTENTE,
   carteEnPublication,
+  messageOuvreUneNouvelleCarte,
   tailleLisible,
 } from '@beluga/shared';
 import { useArretAgent } from '@/components/arret-agent';
@@ -323,6 +324,11 @@ export function Composer({
     !!agent &&
     agent.role !== 'deploy' &&
     carteEnPublication(state.deploys[agent.projectId], agent.cardId ?? cardId);
+  /* UNE CARTE DÉJÀ EN LIGNE NE SE MODIFIE PAS SUR PLACE : un message qu'on y
+     écrit ouvre une NOUVELLE carte (`messageOuvreUneNouvelleCarte`). Le champ
+     le dit, et l'envoi n'affiche pas d'écho « Demande envoyée » ici. */
+  const carteDuChamp = state.cards[agent?.cardId ?? cardId ?? ''];
+  const ouvreUneNouvelleCarte = !!agent && agent.role !== 'deploy' && !!carteDuChamp && messageOuvreUneNouvelleCarte(carteDuChamp);
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
   const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
@@ -1133,7 +1139,7 @@ export function Composer({
 
     /* L'ÉCRAN BASCULE ICI, AVANT LA REQUÊTE : le parcours s'ouvre au clic,
        avec la bulle de la demande, sans attendre l'écho du serveur. */
-    onEnvoiCommence?.(body);
+    if (!ouvreUneNouvelleCarte) onEnvoiCommence?.(body);
     oublierBrouillon();
     setText('');
     onClearPicked();
@@ -1143,12 +1149,16 @@ export function Composer({
     setJointesEnregistrees([]);
     curseur.current = null;
     try {
-      await client.call({
+      const reponse = await client.call<{ nouvelleCarteId?: string } | undefined>({
         type: 'agent.prompt',
         agentId: agent.id,
         text: body,
         attachments: jointesEnvoyees.map((a) => a.id),
       });
+      if (reponse?.nouvelleCarteId) {
+        client.pushToast('success', t('Nouvelle carte créée : votre demande y suit son parcours.'));
+        client.openCard(reponse.nouvelleCarteId);
+      }
     } catch (err: any) {
       const raison = err?.message ?? t('envoi impossible');
       /*
@@ -1726,6 +1736,8 @@ export function Composer({
               ? t('Modifiez le message en attente…')
               : enPublication
                 ? t('Publication en cours — vous pourrez écrire ici dès la fin de la mise en ligne.')
+              : ouvreUneNouvelleCarte
+                ? t('Cette carte est en ligne — votre message ouvrira une nouvelle carte…')
               : /*
                  * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS « EN TRAIN DE
                  * TRAVAILLER » : son appel d'outil attend la réponse, et il ne

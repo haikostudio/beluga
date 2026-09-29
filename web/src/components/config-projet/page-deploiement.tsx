@@ -3,13 +3,17 @@ import { RefreshCw } from 'lucide-react';
 import { PLAGE_PORTS_PROJETS, mentionBrancheParDefaut } from '@beluga/shared';
 import { BulleInfo, Input, Label } from '@/components/ui';
 import { t } from '@/lib/langue';
+import { AgentDeConfiguration } from './agent-de-configuration';
+import { ProcessusEnPlace } from './processus-en-place';
 import { ChoixDeBranche, TeteDeRubrique, type ContexteConfig } from './communs';
 
 /**
  * LE DÉPLOIEMENT : rafraîchir la version de TRAVAIL de ce projet, sur CE
- * serveur. Le déroulé est le même pour tous les projets, sans agent
- * (`shared/src/publication-simple.ts`) ; il ne se règle qu'en deux choix : la
- * commande de mise à jour et le service à relancer.
+ * serveur. Tant qu'aucun processus propre au projet n'est écrit, le déroulé
+ * commun s'applique (`shared/src/publication-simple.ts`), réglé par la
+ * commande de mise à jour et les services à relancer. Depuis le 29/09/2026,
+ * un agent de configuration peut écrire un processus propre au projet : il se
+ * lit sous les champs (`ProcessusEnPlace`) et se discute juste en dessous.
  */
 export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
   return (
@@ -17,7 +21,7 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
       <TeteDeRubrique
         titre={t('Déploiement')}
         resume={t('Rafraîchir la version de travail de ce projet, sur ce serveur.')}
-        aide={t('Déployer fusionne les branches des cartes, enregistre et envoie sur le dépôt, puis lance la commande de mise à jour et relance le service réglés ci-dessous. Le déroulé est le même pour tous les projets, sans agent : chaque étape a une durée maximale, et une panne s’arrête net en disant pourquoi.')}
+        aide={t('Déployer fusionne les branches des cartes, enregistre et envoie sur le dépôt, puis joue le processus propre au projet s’il en a un, sinon la commande de mise à jour et les services réglés ci-dessous. Rien de tout cela ne passe par un agent : chaque étape a une durée maximale, et une panne s’arrête net en disant pourquoi.')}
       />
 
 
@@ -118,6 +122,12 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
           placeholder="autoproject-mon-projet"
           disabled={ctx.saving}
         />
+      </div>
+
+      <ProcessusEnPlace projet={ctx.project} cible="dev" branche={ctx.project.branchesDePublication?.dev} />
+
+      <div className="space-y-1.5" data-zone-procedure="dev">
+        <AgentDeConfiguration projectId={ctx.project.id} cible="dev" />
       </div>
     </div>
   );

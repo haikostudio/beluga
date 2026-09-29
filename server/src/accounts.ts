@@ -39,11 +39,19 @@ import {
   FORME_ID_MOTEUR_AJOUTE,
   estUneCleMimoAbonnement,
   forfaitMimo,
+  barreMensuelle,
+  type ForfaitMensuel,
+  cleGeminiDuCoffre,
+  etatDeCleGemini,
+  ID_SUIVI_GEMINI,
+  LIBELLE_SUIVI_GEMINI,
+  MOTEUR_SUIVI_GEMINI,
+  URL_SONDE_GEMINI,
 } from '@beluga/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
 import { comptesEcartesParLimite, effacerLesLimitesLevees, limitesConnues } from './limites-connues.js';
-import { dernieresAmorces, quotaHistory, quotaResume, recordQuotaSample, usageDuCompte } from './store.js';
+import { dernieresAmorces, quotaHistory, quotaResume, recordQuotaSample, usageDuCompte, evenementsDUsageDuCompte } from './store.js';
 import { bus } from './bus.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
@@ -66,6 +74,8 @@ export interface AccountRecord {
   priority: number;
   configDir: string;
   disabled?: boolean;
+  /** Le forfait mensuel saisi à la main (MiMo) : Xiaomi ne le publie pas. */
+  forfaitMensuel?: ForfaitMensuel;
 }
 
 const CLAUDE_OAUTH_BETA = 'oauth-2025-04-20';
@@ -1119,6 +1129,8 @@ async function fetchMimoQuota(account: AccountRecord): Promise<AccountQuota> {
     available: true,
     fetchedAt: Date.now(),
     usageLocal: usageDuCompte(account.id),
+    usageMesuree: usageMesureeMimo(account),
+    ...(account.forfaitMensuel ? { forfaitMensuel: account.forfaitMensuel } : {}),
   };
   if (!cle) return { ...base, error: 'aucune clé configurée', available: false };
   try {
@@ -1135,11 +1147,118 @@ async function fetchMimoQuota(account: AccountRecord): Promise<AccountQuota> {
     }
     if (sonde.soldeVide) {
       const resume = abonnement ? 'forfait du mois épuisé chez Xiaomi' : sonde.erreur;
-      return { ...base, available: false, credit: { resume, soldeEpuise: true } };
+      // Le fournisseur a refusé faute de solde : c'est le seul chiffre RÉEL, la barre du mois est pleine.
+      return {
+        ...base,
+        available: false,
+        credit: { resume, soldeEpuise: true },
+        usageMesuree: usageMesureeMimo(account, true),
+      };
     }
     return { ...base, available: false, error: sonde.erreur };
   } catch (err: any) {
     return { ...base, error: err?.message ?? 'lecture impossible' };
+  }
+}
+
+/**
+ * LA BARRE DU MOIS d'un compte MiMo : le forfait saisi dans ses réglages, plus
+ * les jetons que Beluga a envoyés depuis (`shared/src/usage-mesure.ts`). Sans
+ * plafond saisi : un objet sans `mois`, l'écran dit alors quoi renseigner. Une
+ * base illisible ne fait jamais tomber un relevé.
+ */
+function usageMesureeMimo(account: AccountRecord, soldeEpuise = false): AccountQuota['usageMesuree'] {
+  try {
+    const mois = barreMensuelle(account.forfaitMensuel, evenementsDUsageDuCompte(account.id), Date.now(), soldeEpuise);
+    return mois ? { mois } : {};
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * RÉGLER LE FORFAIT MENSUEL D'UN COMPTE MIMO. Un champ absent ne change pas, `null`
+ * l'efface. Donner le consommé date le relevé de cet instant — c'est le geste qui
+ * recale la barre ; l'effacer efface aussi sa date. Rend `null` pour un compte
+ * inconnu ou d'un autre moteur : un plafond n'a de sens que sur MiMo.
+ */
+export function reglerForfaitMensuel(
+  id: string,
+  patch: { plafond?: number | null; renouvellement?: number | null; consomme?: number | null },
+): AccountRecord | null {
+  const account = listAllAccountRecords().find((a) => a.id === id);
+  if (!account || account.engine !== 'mimo') return null;
+  const forfait: ForfaitMensuel = { ...account.forfaitMensuel };
+  if (patch.plafond !== undefined) {
+    if (patch.plafond === null) delete forfait.plafond;
+    else forfait.plafond = patch.plafond;
+  }
+  if (patch.renouvellement !== undefined) {
+    if (patch.renouvellement === null) delete forfait.renouvellement;
+    else forfait.renouvellement = patch.renouvellement;
+  }
+  if (patch.consomme !== undefined) {
+    if (patch.consomme === null) {
+      delete forfait.consommeAuReleve;
+      delete forfait.releveAt;
+    } else {
+      forfait.consommeAuReleve = patch.consomme;
+      forfait.releveAt = Date.now();
+    }
+  }
+  const updated: AccountRecord = { ...account, forfaitMensuel: forfait };
+  saveAccountRecord(updated);
+  return updated;
+}
+
+/**
+ * GOOGLE GEMINI : UNE LIGNE DE SUIVI, PAS UN COMPTE. La clé vient du coffre
+ * (jamais écrite ailleurs) et s'éprouve d'un simple comptage de jetons, qui ne
+ * consomme aucun quota. Rien n'est inventé : Google ne rend aucun plafond avec
+ * une clé d'API, seulement « répond » (200), « quota atteint » (429), « clé
+ * refusée » (401/403) ou « saturé » (5xx, qui ne dit rien de la clé). Sans clé
+ * dans le coffre, il n'y a pas de ligne. Aucun `AccountRecord` derrière : rien
+ * qui puisse être choisi pour un tour, une bascule ou une publication.
+ */
+async function fetchSuiviGemini(): Promise<AccountQuota | null> {
+  let cle: string | undefined;
+  try {
+    cle = cleGeminiDuCoffre(listerAcces());
+  } catch {
+    cle = undefined;
+  }
+  if (!cle) return null;
+  const base: AccountQuota = {
+    id: ID_SUIVI_GEMINI,
+    engine: MOTEUR_SUIVI_GEMINI as AccountQuota['engine'],
+    label: LIBELLE_SUIVI_GEMINI,
+    plan: "À l'usage",
+    priority: 1000,
+    active: false,
+    available: true,
+    fetchedAt: Date.now(),
+    suivi: true,
+  };
+  try {
+    const reponse = await fetch(URL_SONDE_GEMINI, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': cle, 'content-type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'ok' }] }] }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const etat = etatDeCleGemini(reponse.status);
+    if (etat.quotaAtteint) {
+      return {
+        ...base,
+        available: false,
+        credit: { resume: etat.resume, soldeEpuise: true },
+      };
+    }
+    if (etat.erreur) return { ...base, available: false, error: etat.erreur };
+    return { ...base, credit: { resume: etat.resume } };
+  } catch {
+    // Jamais le message de l'erreur : il peut citer l'adresse appelée.
+    return { ...base, error: 'Google Gemini ne répond pas' };
   }
 }
 
@@ -1484,6 +1603,11 @@ async function executerActualisationQuotas(force = false, seulement?: readonly s
   const demandes = seulement ? new Set(seulement) : null;
   const comptesActifs = listAccountRecords();
   const accounts = comptesActifs.filter((account) => !demandes || demandes.has(account.id));
+  // La ligne de suivi Gemini se lit EN MÊME TEMPS que la tournée, sous son propre
+  // plafond, et seulement dans une tournée générale : un relevé ciblé n'y touche pas.
+  const suiviGemini = seulement
+    ? null
+    : avecPlafond(fetchSuiviGemini(), PLAFOND_LECTURE_COMPTE_MS, () => quotaCache.get(ID_SUIVI_GEMINI) ?? null);
   let lecturesLancees = 0;
   for (const [index, account] of accounts.entries()) {
     // Un compte qui vient d'être refusé attend son tour : insister ne fait que
@@ -1574,9 +1698,16 @@ async function executerActualisationQuotas(force = false, seulement?: readonly s
   // Une tournée ciblée rend aussi les autres comptes depuis le cache, mais
   // seulement ceux qui existent encore et sont actifs. Les comptes coupés sont
   // ajoutés juste dessous avec leur vrai drapeau `disabled`.
+  if (suiviGemini) {
+    const releve = await suiviGemini;
+    if (releve) quotaCache.set(ID_SUIVI_GEMINI, releve);
+    else quotaCache.delete(ID_SUIVI_GEMINI);
+  }
   const results = comptesActifs
     .map((account) => quotaCache.get(account.id))
     .filter((quota): quota is AccountQuota => !!quota);
+  const ligneGemini = quotaCache.get(ID_SUIVI_GEMINI);
+  if (ligneGemini) results.push(ligneGemini);
   ajouterComptesDesactives(results);
   markActive(results);
   persistCache();

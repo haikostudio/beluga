@@ -8,9 +8,12 @@ import {
   Message,
   QuestionDeProcedure,
   consigneDeConfiguration,
+  empreinteDesReglages,
+  etapeDeLAgentDeConfiguration,
   issueDuTour,
   lireProcessusRendu,
   processusEnTexte,
+  promptInitialisationDeploiement,
   promptInitialisationProduction,
   promptSuiteInitialisation,
   type ProcessusDeProduction,
@@ -23,7 +26,10 @@ import { agentsActifs, createAgent, sendPrompt } from './runtime.js';
 import { attenteDeLAgent } from './attente-question.js';
 
 /**
- * LE TIROIR QUI INITIALISE LA MISE EN PRODUCTION (refonte du 22/09/2026).
+ * LES AGENTS QUI CONFIGURENT LE DÉPLOIEMENT ET LA MISE EN PRODUCTION
+ * (refonte du 22/09/2026 ; le déploiement a le sien depuis le 29/09/2026, et
+ * les deux conversations vivent dans la rubrique de leur étape, dans les
+ * réglages du projet).
  *
  * Un projet n'a AUCUNE information de production tant qu'on ne l'a pas
  * initialisé. Le bouton « Initialiser la mise en production » lance un AGENT
@@ -62,39 +68,51 @@ const dialogues = new Map<string, EtatDeProcedure>();
 
 const cleDuDialogue = (projectId: string, cible: CiblePublication): string => `${projectId}:${cible}`;
 
-/** Le titre de l'agent du tiroir : on doit le reconnaître dans la pile. */
+/** Le titre de l'agent de configuration : on doit le reconnaître dans la pile. */
 function titreDeLAgent(cible: CiblePublication): string {
-  return cible === 'production' ? 'Configuration de la mise en production' : 'Déploiement';
+  return cible === 'production' ? 'Configuration de la mise en production' : 'Configuration du déploiement';
+}
+
+/** Le champ du projet qui porte l'agent et le processus de cette étape. */
+function champDeLEtape(cible: CiblePublication): 'deploiement' | 'miseEnProduction' {
+  return cible === 'dev' ? 'deploiement' : 'miseEnProduction';
 }
 
 /**
  * L'AGENT DE CONFIGURATION DU PROJET — UN SEUL, GARDÉ SUR LE PROJET.
  *
  * Refonte du 24/09/2026. Le bandeau « Mise en production » ouvre un tiroir
- * calqué sur celui d'une tâche, dont l'onglet « Conversation » est le fil de
+ * calqué sur celui d'une tâche, dont l'onglet « Conversation » était le fil de
  * cet agent. La conversation doit se RETROUVER et se POURSUIVRE — tiroir
  * refermé, page rechargée, démon redémarré : son identifiant est donc écrit
  * sur le projet (`miseEnProduction.agentId`), jamais seulement en mémoire.
  * Aucune branche « tache/… » : il travaille dans le dossier du projet.
  */
-export function agentDeConfigurationDuProjet(projectId: string): Agent | null {
+export function agentDeConfigurationDuProjet(projectId: string, cible: CiblePublication = 'production'): Agent | null {
   const projet = store.getProject(projectId);
   if (!projet) return null;
-  const retenu = projet.miseEnProduction?.agentId ? store.getAgent(projet.miseEnProduction.agentId) : null;
+  const champ = champDeLEtape(cible);
+  const idRetenu = projet[champ]?.agentId;
+  const retenu = idRetenu ? store.getAgent(idRetenu) : null;
   if (retenu && retenu.projectId === projectId) return retenu;
-  const agent = createAgent({ projectId, role: 'deploy', title: titreDeLAgent('production') });
+  const agent = createAgent({ projectId, role: 'deploy', title: titreDeLAgent(cible) });
   const enregistre = store.saveProject({
     ...projet,
-    miseEnProduction: { ...(projet.miseEnProduction ?? {}), agentId: agent.id },
+    [champ]: { ...(projet[champ] ?? {}), agentId: agent.id },
   });
   bus.emit({ type: 'project.upsert', project: enregistre });
   return agent;
 }
 
-/** Cet agent est-il l'agent de configuration de son projet ? */
+/** L'étape que configure cet agent, ou `null` s'il n'est l'agent de configuration d'aucune. */
+export function etapeConfigureePar(agent: Pick<Agent, 'id' | 'projectId' | 'role'> | null | undefined): CiblePublication | null {
+  if (!agent || agent.role !== 'deploy') return null;
+  return etapeDeLAgentDeConfiguration(store.getProject(agent.projectId) ?? undefined, agent.id);
+}
+
+/** Cet agent est-il l'agent de configuration de son projet (l'une ou l'autre étape) ? */
 export function estAgentDeConfiguration(agent: Pick<Agent, 'id' | 'projectId' | 'role'> | null | undefined): boolean {
-  if (!agent || agent.role !== 'deploy') return false;
-  return store.getProject(agent.projectId)?.miseEnProduction?.agentId === agent.id;
+  return etapeConfigureePar(agent) !== null;
 }
 
 /**
@@ -105,16 +123,34 @@ export function estAgentDeConfiguration(agent: Pick<Agent, 'id' | 'projectId' | 
  * autre agent.
  */
 export async function contexteDeConfiguration(agent: Agent): Promise<string | undefined> {
-  if (!estAgentDeConfiguration(agent)) return undefined;
+  const cible = etapeConfigureePar(agent);
+  if (!cible) return undefined;
   const projet = store.getProject(agent.projectId);
   if (!projet) return undefined;
-  if (store.listMessages(agent.id, 1).length > 0) return consigneDeConfiguration();
-  return promptDAccueil(projet);
+  if (store.listMessages(agent.id, 1).length > 0) return consigneDeConfiguration(cible);
+  return promptDAccueil(projet, cible);
 }
 
 /** L'accueil entier de l'agent de configuration : ce qu'il lit à son premier tour. */
-async function promptDAccueil(projet: NonNullable<ReturnType<typeof store.getProject>>): Promise<string> {
+async function promptDAccueil(
+  projet: NonNullable<ReturnType<typeof store.getProject>>,
+  cible: CiblePublication = 'production',
+): Promise<string> {
   const [dev, production] = await Promise.all([brancheDeLEtape(projet, 'dev'), brancheDeLEtape(projet, 'production')]);
+  if (cible === 'dev') {
+    return promptInitialisationDeploiement({
+      projet: projet.name,
+      dossier: projet.path,
+      brancheTravail: dev.branche,
+      commande: projet.deploiement?.commande,
+      service: projet.deploiement?.service,
+      devUrl: projet.devUrl,
+      port: projet.port,
+      estBeluga: projet.isSelf,
+      actuel: processusEnTexte(projet.deploiement?.processus) || undefined,
+      automatismes: automatismesDuDepot(projet.path),
+    });
+  }
   return promptInitialisationProduction({
     projet: projet.name,
     dossier: projet.path,
@@ -139,16 +175,21 @@ async function promptDAccueil(projet: NonNullable<ReturnType<typeof store.getPro
 export function retenirProcessusDuMessage(message: Message): boolean {
   if (message.role !== 'assistant' || message.streaming || !message.content.includes(DEBUT_PROCESSUS)) return false;
   const agent = store.getAgent(message.agentId);
-  if (!agent || !estAgentDeConfiguration(agent)) return false;
+  const cible = etapeConfigureePar(agent);
+  if (!agent || !cible) return false;
   const projet = store.getProject(agent.projectId);
-  if (!projet || projet.miseEnProduction?.processus?.depuisMessage === message.id) return false;
+  if (!projet || projet[champDeLEtape(cible)]?.processus?.depuisMessage === message.id) return false;
   const lu = lireProcessusRendu(message.content);
   if (!lu.processus) return false;
-  return enregistrerProcessus(agent.projectId, {
-    ...lu.processus,
-    ...(lu.explication ? { explication: lu.explication } : {}),
-    depuisMessage: message.id,
-  });
+  return enregistrerProcessus(
+    agent.projectId,
+    {
+      ...lu.processus,
+      ...(lu.explication ? { explication: lu.explication } : {}),
+      depuisMessage: message.id,
+    },
+    cible,
+  );
 }
 
 bus.subscribe((event) => {
@@ -259,14 +300,26 @@ bus.subscribe((event) => {
   }
 });
 
-/** Enregistre le processus de mise en production du projet, et le diffuse. */
-export function enregistrerProcessus(projectId: string, processus: ProcessusDeProduction): boolean {
+/**
+ * Enregistre le processus d'une étape du projet, et le diffuse. L'EMPREINTE
+ * des réglages qui le décident est prise au même instant : un réglage changé
+ * ensuite fait dire « à revérifier » à la rubrique (`reglagesChangesDepuisLeProcessus`).
+ */
+export function enregistrerProcessus(
+  projectId: string,
+  processus: ProcessusDeProduction,
+  cible: CiblePublication = 'production',
+): boolean {
   const projet = store.getProject(projectId);
   if (!projet) return false;
+  const champ = champDeLEtape(cible);
   const enregistre = store.saveProject({
     ...projet,
     /* L'agent de configuration RESTE retenu : sa conversation se poursuit. */
-    miseEnProduction: { ...(projet.miseEnProduction ?? {}), processus: { ...processus, ecritLe: store.now() } },
+    [champ]: {
+      ...(projet[champ] ?? {}),
+      processus: { ...processus, ecritLe: store.now(), empreinte: empreinteDesReglages(projet, cible) },
+    },
   });
   bus.emit({ type: 'project.upsert', project: enregistre });
   return true;
@@ -319,9 +372,6 @@ export function tourDeProcedure(input: {
   const vide: EtatDeProcedure = { projectId: input.projectId, cible: input.cible, enCours: false, echanges: [] };
   const projet = store.getProject(input.projectId);
   if (!projet) return { ...vide, raison: 'Projet introuvable.' };
-  if (input.cible !== 'production') {
-    return { ...vide, raison: 'Le déploiement n’a pas de procédure : il est le même pour tous les projets, sans agent.' };
-  }
 
   const courant = etatDeProcedure(input.projectId, input.cible);
   if (courant?.enCours) return courant;
@@ -332,7 +382,7 @@ export function tourDeProcedure(input: {
    * poursuit donc d'une ouverture à l'autre, au lieu de repartir d'un agent
    * neuf qui relirait tout le projet.
    */
-  const agent = agentDeConfigurationDuProjet(input.projectId);
+  const agent = agentDeConfigurationDuProjet(input.projectId, input.cible);
   if (!agent) return { ...vide, raison: 'Projet introuvable.' };
   if (agentsActifs().includes(agent.id)) {
     /* Déjà au travail (un message écrit dans la conversation) : on ne double
@@ -357,9 +407,9 @@ export function tourDeProcedure(input: {
   void (async () => {
     let prompt: string;
     if (dialogueEnCours) {
-      prompt = promptSuiteInitialisation(reponse);
+      prompt = promptSuiteInitialisation(reponse, input.cible);
     } else {
-      prompt = await promptDAccueil(projet);
+      prompt = await promptDAccueil(projet, input.cible);
       if (reponse) prompt += `\n\nCe que l’utilisateur demande d’emblée : ${reponse}`;
     }
     await mener(etat, prompt);
@@ -389,15 +439,25 @@ async function mener(depart: EtatDeProcedure, prompt: string): Promise<void> {
   if ('processus' in issue) {
     /* Déjà enregistré au passage du message (`retenirProcessusDuMessage`) :
        on ne le réécrit que s'il ne l'a pas été. */
-    const deja = store.getProject(depart.projectId)?.miseEnProduction?.processus?.depuisMessage === dernier?.id;
-    if (!deja && !enregistrerProcessus(depart.projectId, { ...issue.processus, depuisMessage: dernier?.id })) {
+    const deja = store.getProject(depart.projectId)?.[champDeLEtape(depart.cible)]?.processus?.depuisMessage === dernier?.id;
+    if (!deja && !enregistrerProcessus(depart.projectId, { ...issue.processus, depuisMessage: dernier?.id }, depart.cible)) {
       poser({ ...fini, raison: 'Projet introuvable : le processus n’a pas pu être enregistré.' });
       return;
     }
     poser({
       ...fini,
       procedure: processusEnTexte(issue.processus),
-      echanges: [...fini.echanges, { qui: 'agent', texte: issue.resume || 'Le processus de mise en production est écrit et enregistré.' }],
+      echanges: [
+        ...fini.echanges,
+        {
+          qui: 'agent',
+          texte:
+            issue.resume ||
+            (depart.cible === 'dev'
+              ? 'Le processus de déploiement est écrit et enregistré.'
+              : 'Le processus de mise en production est écrit et enregistré.'),
+        },
+      ],
     });
     return;
   }

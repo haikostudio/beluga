@@ -3214,6 +3214,53 @@ export const MIGRATIONS: {
       ALTER TABLE marketing_espaces ADD COLUMN carte_objectifs_id TEXT;
     `,
   },
+  {
+    id: 99,
+    name: 'incident-de-cadrage-hors-planifie',
+    /*
+     * L'INCIDENT DU CADRAGE (« La compréhension n'est pas venue ») RESTAIT
+     * COLLÉ aux cartes lancées puis rangées : trois cartes archivées le
+     * montraient encore le 29/09/2026, dont celle du suivi des visites.
+     * Désormais le lancement l'efface (`lancerLaCarte`) et l'écran l'ignore
+     * hors de « Planifié » (`incidentEncoreValable`) ; ici on retire ceux
+     * déjà posés. Rejouable : une carte sans incident n'est pas touchée.
+     */
+    siTable: 'cards',
+    sql: `
+      UPDATE cards
+         SET data = json_remove(data, '$.parcours.incident')
+       WHERE json_extract(data, '$.parcours.incident') IS NOT NULL
+         AND (column_key <> 'planned' OR archived_at IS NOT NULL);
+    `,
+  },
+  {
+    id: 100,
+    name: 'statistiques-parcours',
+    /*
+     * PLUSIEURS PARCOURS PAR SITE (demande du 29/09/2026) : l'agent déclare
+     * des parcours nommés, chacun son objectif et ses étapes dans l'ordre
+     * (`etapes` : JSON de { repere, libelle, description }).
+     *
+     * Aucune reprise de données : tant qu'un site n'a aucun parcours déclaré,
+     * `parcoursDuSite` (shared) déduit à la lecture le « Parcours principal »
+     * de ses repères marqués « objectif » — l'entonnoir d'avant, à
+     * l'identique, et rien à rejouer.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS stats_parcours (
+        project_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        objectif TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        etapes TEXT NOT NULL DEFAULT '[]',
+        ordre INTEGER NOT NULL DEFAULT 0,
+        pose_par TEXT,
+        cree_le INTEGER NOT NULL,
+        PRIMARY KEY (project_id, id)
+      );
+    `,
+  },
 ];
 
 export function openDb(): DB {

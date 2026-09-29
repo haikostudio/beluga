@@ -154,6 +154,9 @@ function descriptionDeLaCarte(projectId: string, adresse: string, diagnostic: Di
  * comme posé : seul le code lu sur le site le fait (`ecrireDiagnostic`), ou la
  * première visite reçue.
  */
+const CONSIGNE_DU_CADRAGE_AUTOMATIQUE =
+  'Cette carte est née toute seule. Même si le suivi semble déjà en place, rends ta compréhension (le constat y figure) : c’est l’utilisateur qui décide de la lancer ou de la ranger.';
+
 async function naitreLaCarteDuSuivi(
   projectId: string,
   entree: { title: string; description: string; origineAgentId?: string },
@@ -169,7 +172,11 @@ async function naitreLaCarteDuSuivi(
       auteur: 'marketing',
       ...(entree.origineAgentId ? { origineAgentId: entree.origineAgentId, origineAt: Date.now() } : {}),
       title: entree.title,
-      description: entree.description,
+      /* Le cadrage part SEUL : s'il voit le suivi déjà posé, il répondait au
+         lieu de rendre sa compréhension, et la carte portait l'incident
+         « La compréhension n'est pas venue ». Il la rend toujours, constat
+         compris : c'est l'utilisateur qui décide ensuite. */
+      description: `${entree.description}\n\n${CONSIGNE_DU_CADRAGE_AUTOMATIQUE}`,
       labels: [LABEL_SUIVI_DES_VISITES],
       origin: 'agent',
     },

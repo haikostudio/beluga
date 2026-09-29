@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cheminLisse, type EtatAfficheDuSuivi, type FluxDeComportement, type MarcheDeConversion, type NoeudDeFlux } from '@beluga/shared';
+import { cheminLisse, type EtatAfficheDuSuivi, type FluxDeComportement, type FluxDUnParcours, type NoeudDeFlux, type ParcoursDeSuivi } from '@beluga/shared';
 import { ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { formatRegional, t } from '@/lib/langue';
@@ -163,7 +163,7 @@ export function CourbeParJour({
 
   return (
     <div className="flex flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-marketing-graphique={cle} data-total={total}>
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-2" data-stats-titre>
         <span className="flex-1 text-[12.5px] text-text">{titre}</span>
         <span className="text-[12px] text-faint">{point ? `${dateCourte(point.jour)} · ${format(point.valeur)}` : t('Total : {v0}', { v0: format(total) })}</span>
       </div>
@@ -247,7 +247,7 @@ export function Repartition({ titre, lignes, cle, pied }: { titre: string; ligne
   const max = Math.max(1, ...lignes.map(([, n]) => n));
   return (
     <div className="flex min-w-0 flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-marketing-repartition={cle}>
-      <span className="text-[12.5px] text-text">{titre}</span>
+      <span className="text-[12.5px] text-text" data-stats-titre>{titre}</span>
       {lignes.length ? (
         <ul className="flex flex-col gap-1.5">
           {lignes.map(([nom, n], rang) => (
@@ -332,7 +332,7 @@ export function CourbesActifs({ points }: { points: { jour: string; j1: number; 
   const point = survol !== null ? points[survol] : points[n - 1];
   return (
     <div className="flex flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-stats-graphique="actifs">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1" data-stats-titre>
         <span className="flex-1 text-[12.5px] text-text">{t('Utilisateurs actifs')}</span>
         {point ? <span className="text-[12px] text-faint">{dateCourte(point.jour)}</span> : null}
       </div>
@@ -418,7 +418,7 @@ export function BarresParCreneau({ titre, valeurs, etiquettes, graduations, note
   const total = valeurs.reduce((s, v) => s + v, 0);
   return (
     <div className="flex flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-stats-graphique={cle} data-total={total}>
-      <div className="flex items-baseline gap-2">
+      <div className="flex items-baseline gap-2" data-stats-titre>
         <span className="flex-1 text-[12.5px] text-text">{titre}</span>
         <span className="text-[12px] text-faint">
           {survol !== null ? `${etiquettes[survol]} · ${valeurs[survol].toLocaleString(formatRegional())}` : t('Total : {v0}', { v0: total.toLocaleString(formatRegional()) })}
@@ -461,125 +461,241 @@ export function BarresParCreneau({ titre, valeurs, etiquettes, graduations, note
   );
 }
 
+/** La largeur disponible d'un conteneur, suivie à chaque redimensionnement : un flux se répartit sur toute la place. */
+function useLargeur<E extends HTMLElement>(): [React.RefObject<E>, number] {
+  const ref = React.useRef<E>(null);
+  const [largeur, setLargeur] = React.useState(0);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const mesurer = () => setLargeur(el.clientWidth);
+    mesurer();
+    const suivi = new ResizeObserver(mesurer);
+    suivi.observe(el);
+    return () => suivi.disconnect();
+  }, []);
+  return [ref, largeur];
+}
+
+/** Une bande courbe entre deux segments verticaux : [x1, y1a → y1b] vers [x2, y2a → y2b]. */
+function bande(x1: number, y1a: number, y1b: number, x2: number, y2a: number, y2b: number): string {
+  const m = (x1 + x2) / 2;
+  return `M${x1},${y1a} C${m},${y1a} ${m},${y2a} ${x2},${y2a} L${x2},${y2b} C${m},${y2b} ${m},${y1b} ${x1},${y1b} Z`;
+}
+
+/** Un texte ramené à ce qui tient dans `px` pixels (≈ 0,58 em par signe). */
+function tenir(texte: string, px: number, taille: number): string {
+  const max = Math.max(4, Math.floor(px / (taille * 0.58)));
+  return texte.length > max ? `${texte.slice(0, max - 1)}…` : texte;
+}
+
+const nombre = (n: number) => n.toLocaleString(formatRegional());
+const pourcent = (n: number) => `${n.toLocaleString(formatRegional(), { maximumFractionDigits: 1 })} %`;
+
 /**
- * LE FLUX DE CONVERSION : une ligne par étape, avec ses sessions, le taux
- * de passage depuis l'étape précédente et les abandons. La barre montre la
- * part des sessions de départ.
+ * LE FLUX D'UN PARCOURS, à la Google Analytics (demande du 29/09/2026) : une
+ * colonne pour l'entrée, puis une par étape jusqu'à l'objectif. Chaque étape
+ * est une BOÎTE dont la hauteur suit ses sessions, son libellé écrit dedans ;
+ * une bande courbe mène à l'étape suivante (ceux qui continuent), une bande
+ * ROUGE plonge vers le bas (ceux qui s'arrêtent), avec leur nombre, leur part
+ * et les pages d'où ils quittent le site. La plus grosse perte est soulignée.
+ * Les colonnes se partagent toute la largeur ; sur un écran étroit, le flux
+ * défile à l'horizontale.
  */
-export function EntonnoirDeConversion({ marches }: { marches: MarcheDeConversion[] }) {
-  const n = Math.max(0, marches.length - 1);
-  const dernier = marches[marches.length - 1];
+export function FluxDeParcoursSvg({ parcours, flux, nomDeLaPage }: { parcours: ParcoursDeSuivi; flux: FluxDUnParcours; nomDeLaPage: (chemin: string | null) => string }) {
+  const [ref, dispo] = useLargeur<HTMLDivElement>();
+  const [survol, setSurvol] = React.useState<number | null>(null);
+  const marches = flux.marches;
+  const colonnes = marches.length;
+  const pas = Math.max(190, Math.min(360, (dispo || 900) / Math.max(1, colonnes)));
+  const largeurBoite = Math.round(Math.max(128, pas * 0.64));
+  const largeur = Math.max(pas * (colonnes - 1) + largeurBoite, 0);
+  const HAUT = 200;
+  const MIN = 50;
+  const depart = marches[0]?.sessions ?? 0;
+  const echelle = HAUT / Math.max(1, depart);
+  const hauteurs = marches.map((m) => Math.max(MIN, m.sessions * echelle));
+  const bas = Math.max(...hauteurs) + 34;
+  const TETE = 30;
+  const hauteurTotale = TETE + bas + 84;
+  const x = (i: number) => i * pas;
+  const titres = marches.map((_, i) => (i === 0 ? t('Entrée') : i === colonnes - 1 ? t('Objectif') : t('Étape {n}', { n: i })));
   return (
-    <div className="flex flex-col gap-2" data-stats-conversion={marches.length}>
-      <span className="text-[12px] text-faint">
-        {t('{n} étape(s) · conversion finale {taux} %', { n, taux: (dernier?.tauxGlobal ?? 0).toLocaleString(formatRegional()) })}
-      </span>
-      <ol className="flex flex-col gap-2">
-        {marches.map((m, i) => (
-          <li key={`${i}-${m.nom}`} className="flex flex-col gap-0.5" data-stats-marche={i}>
-            <span className="flex items-baseline gap-2 text-[12.5px]">
-              <span className="w-5 shrink-0 text-faint">{i === 0 ? '' : `${i}.`}</span>
-              <span className="min-w-0 flex-1 truncate text-text">{i === 0 ? t('Sessions') : m.nom}</span>
-              <span className="shrink-0 text-text">{m.sessions.toLocaleString(formatRegional())}</span>
-              <span className="w-16 shrink-0 text-right text-muted" data-stats-taux={m.tauxEtape}>
-                {i === 0 ? '' : `${m.tauxEtape.toLocaleString(formatRegional())} %`}
-              </span>
-            </span>
-            <span className="ml-7 block h-2 overflow-hidden rounded-full bg-faint/15">
-              <span className="block h-full rounded-full" style={{ width: `${m.tauxGlobal}%`, background: teinteDeSerie(i, 0.85) }} />
-            </span>
-            {i > 0 && m.abandons ? <span className="ml-7 text-[11px] text-faint">{t('{n} abandon(s) à cette étape', { n: m.abandons })}</span> : null}
-          </li>
-        ))}
-      </ol>
+    <div ref={ref} className="min-w-0">
+      <ZoneDefilement axe="horizontal" className="pb-1" data-stats-flux-parcours={colonnes}>
+        <svg
+          viewBox={`-2 ${-TETE} ${largeur + 4} ${hauteurTotale}`}
+          className="block h-auto"
+          style={{ width: largeur + 4, minWidth: largeur + 4 }}
+          role="img"
+          aria-label="Flux de conversion"
+        >
+          {titres.map((titre, i) => (
+            <text key={i} x={x(i)} y={-12} fontSize={11} fill="hsl(var(--faint))">
+              {titre}
+            </text>
+          ))}
+          {marches.slice(1).map((m, k) => {
+            const i = k + 1;
+            const avant = marches[i - 1];
+            const hA = hauteurs[i - 1];
+            const passe = avant.sessions ? (m.sessions / avant.sessions) * hA : 0;
+            const x1 = x(i - 1) + largeurBoite;
+            const pire = flux.plusGrosDecrochage === i;
+            const perte = avant.sessions ? Math.round((m.abandons / avant.sessions) * 1000) / 10 : 0;
+            const allume = survol === null || survol === i || survol === i - 1;
+            const xChute = x1 + 16;
+            const largeurChute = Math.max(3, Math.min(26, (hA - passe) * 0.5));
+            return (
+              <g key={`lien-${i}`} data-stats-abandons={m.abandons}>
+                {passe > 0 ? (
+                  <path d={bande(x1, 0, passe, x(i), 0, hauteurs[i])} fill={teinteDeSerie(0, allume ? 0.26 : 0.1)}>
+                    <title>{`${nombre(m.sessions)} ${t('sessions')} → ${parcours.etapes[i - 1]?.libelle ?? ''}`}</title>
+                  </path>
+                ) : null}
+                {m.abandons > 0 ? (
+                  <path
+                    d={`M${x1},${passe} C${xChute},${passe} ${xChute},${passe} ${xChute},${Math.max(passe + 10, (passe + hA) / 2)} L${xChute},${bas - 10} L${xChute - largeurChute / 2 - 3},${bas - 10} L${xChute + largeurChute / 2},${bas - 2} L${xChute + largeurChute + 3},${bas - 10} L${xChute + largeurChute},${bas - 10} L${xChute + largeurChute},${Math.max(passe + 10, (passe + hA) / 2)} C${xChute + largeurChute},${hA} ${x1 + 8},${hA} ${x1},${hA} Z`}
+                    fill="hsl(var(--danger))"
+                    fillOpacity={allume ? (pire ? 0.75 : 0.45) : 0.15}
+                  />
+                ) : null}
+                {m.abandons > 0 ? (
+                  <text x={xChute - 4} y={bas + 12} fontSize={11.5} fontWeight={pire ? 600 : 500} fill="hsl(var(--danger))">
+                    {tenir(t('{n} abandons · {part}', { n: nombre(m.abandons), part: pourcent(perte) }), pas - 14, 11.5)}
+                  </text>
+                ) : null}
+                {pire ? (
+                  <text x={xChute - 4} y={bas + 26} fontSize={10.5} fill="hsl(var(--danger))" data-stats-plus-grosse-perte={i}>
+                    {t('La plus grosse perte')}
+                  </text>
+                ) : null}
+                {m.departs.map((d, j) => (
+                  <text key={j} x={xChute - 4} y={bas + (pire ? 40 : 26) + j * 13} fontSize={10.5} fill="hsl(var(--faint))">
+                    {tenir(t('depuis {page} · {n}', { page: nomDeLaPage(d.chemin), n: nombre(d.sessions) }), pas - 14, 10.5)}
+                  </text>
+                ))}
+              </g>
+            );
+          })}
+          {marches.map((m, i) => {
+            const h = hauteurs[i];
+            const libelle = i === 0 ? t('Toutes les sessions') : parcours.etapes[i - 1]?.libelle ?? m.nom;
+            const derniere = i === colonnes - 1 && i > 0;
+            return (
+              <g key={`boite-${i}`} onPointerEnter={() => setSurvol(i)} onPointerLeave={() => setSurvol(null)} data-stats-marche={i} data-stats-taux={m.tauxEtape}>
+                <rect x={x(i)} y={0} width={largeurBoite} height={h} rx={6} fill={teinteDeSerie(derniere ? 1 : 0, 0.16)} />
+                <rect x={x(i)} y={0} width={4} height={h} rx={2} fill={teinteDeSerie(derniere ? 1 : 0)} />
+                <text x={x(i) + 12} y={17} fontSize={12} fontWeight={600} fill="hsl(var(--text))">
+                  {tenir(libelle, largeurBoite - 18, 12)}
+                </text>
+                <text x={x(i) + 12} y={33} fontSize={11} fill="hsl(var(--muted))">
+                  {t('{n} sessions', { n: nombre(m.sessions) })}
+                  {i > 0 ? <tspan fill="hsl(var(--faint))">{` · ${pourcent(m.tauxGlobal)}`}</tspan> : null}
+                </text>
+                <title>{`${libelle} — ${nombre(m.sessions)} ${t('sessions')}${i > 0 ? ` · ${t('{taux} de l’étape précédente', { taux: pourcent(m.tauxEtape) })}` : ''}`}</title>
+              </g>
+            );
+          })}
+        </svg>
+      </ZoneDefilement>
     </div>
   );
 }
 
+/** La teinte d'un nœud du flux : les sources, puis pages et clics chacun la sienne ; « autres » reste neutre. */
+function teinteDuNoeud(n: NoeudDeFlux, colonne: number, opacite = 1): string {
+  if (n.genre === 'autres') return `hsl(var(--faint)${opacite === 1 ? '' : ` / ${opacite}`})`;
+  return teinteDeSerie(colonne === 0 ? 2 : n.genre === 'page' ? 0 : 1, opacite);
+}
+
 /**
  * LE FLUX DE COMPORTEMENT, à la Google Analytics : source → page d'arrivée →
- * trois interactions. Chaque nœud est une barre dont la hauteur suit ses
- * sessions ; les bandes grises relient les nœuds de deux colonnes voisines, et
- * la part rouge au pied d'un nœud dit les abandons. Défile à l'horizontale
- * sur un écran étroit.
+ * trois interactions. Chaque nœud est une BOÎTE dont la hauteur suit ses
+ * sessions, son nom et son nombre écrits dedans ; des bandes courbes et
+ * légères relient deux colonnes voisines, et la languette rouge au bord droit
+ * d'un nœud dit la part de ceux qui s'arrêtent là. Défile à l'horizontale sur
+ * un écran étroit.
  */
 export function FluxDeComportementSvg({ flux, libelle }: { flux: FluxDeComportement; libelle: (n: NoeudDeFlux) => string }) {
+  const [ref, dispo] = useLargeur<HTMLDivElement>();
   const [survol, setSurvol] = React.useState<string | null>(null);
   const colonnes = flux.colonnes;
   if (!colonnes.length) return <span className="text-[12px] text-faint">{t('Aucune donnée sur cette période.')}</span>;
-  const LARGEUR_COLONNE = 170;
-  const LARGEUR_NOEUD = 10;
-  const ECART = 14;
+  const pas = Math.max(170, Math.min(300, (dispo || 900) / colonnes.length));
+  const largeurBoite = Math.round(Math.max(112, pas * 0.58));
   const HAUT = 260;
-  const total = Math.max(1, ...colonnes.map((c) => c.reduce((s, n) => s + n.sessions, 0)));
-  const echelle = (HAUT - ECART * 6) / total;
-  const places = new Map<string, { x: number; y: number; h: number; sortie: number; entree: number }>();
+  const ECART = 10;
+  const MIN = 32;
+  const plusGrande = Math.max(1, ...colonnes.map((c) => c.reduce((s, n) => s + n.sessions, 0)));
+  const plusLongue = Math.max(...colonnes.map((c) => c.length));
+  const echelle = (HAUT - ECART * (plusLongue - 1)) / plusGrande;
+  const places = new Map<string, { x: number; y: number; h: number; sessions: number; sortie: number; entree: number }>();
+  let hauteur = 0;
   colonnes.forEach((c, ci) => {
     let y = 0;
     for (const n of c) {
-      const h = Math.max(3, n.sessions * echelle);
-      places.set(`${ci}|${n.cle}`, { x: ci * LARGEUR_COLONNE, y, h, sortie: y, entree: y });
+      const h = Math.max(MIN, n.sessions * echelle);
+      places.set(`${ci}|${n.cle}`, { x: ci * pas, y, h, sessions: n.sessions, sortie: y, entree: y });
       y += h + ECART;
     }
+    hauteur = Math.max(hauteur, y - ECART);
   });
-  const largeur = colonnes.length * LARGEUR_COLONNE;
+  const largeur = (colonnes.length - 1) * pas + largeurBoite;
   const titres = [t('Source'), t('Page d’arrivée'), t('1re interaction'), t('2e interaction'), t('3e interaction')];
+  const TETE = 26;
   return (
-    <ZoneDefilement axe="horizontal" className="pb-1" data-stats-flux={colonnes.length}>
-      <svg viewBox={`-4 -24 ${largeur + 8} ${HAUT + 28}`} className="block h-auto" style={{ width: Math.max(largeur, 560), minWidth: 560 }} role="img" aria-label="Flux de comportement">
-        {titres.slice(0, colonnes.length).map((titre, i) => (
-          <text key={titre} x={i * LARGEUR_COLONNE} y={-10} fontSize={11} fill="hsl(var(--faint))">
-            {titre}
-          </text>
-        ))}
-        {flux.liens.map((l, i) => {
-          const a = places.get(`${l.colonne}|${l.de}`);
-          const b = places.get(`${l.colonne + 1}|${l.vers}`);
-          if (!a || !b) return null;
-          const h = Math.max(1, l.sessions * echelle);
-          const x1 = a.x + LARGEUR_NOEUD;
-          const x2 = b.x;
-          const y1 = a.sortie + h / 2;
-          const y2 = b.entree + h / 2;
-          a.sortie += h;
-          b.entree += h;
-          const allume = survol === null || survol === `${l.colonne}|${l.de}` || survol === `${l.colonne + 1}|${l.vers}`;
-          const milieu = (x1 + x2) / 2;
-          return (
-            <path
-              key={i}
-              d={`M${x1},${y1} C${milieu},${y1} ${milieu},${y2} ${x2},${y2}`}
-              fill="none"
-              stroke="hsl(var(--faint))"
-              strokeOpacity={allume ? 0.25 : 0.08}
-              strokeWidth={h}
-            >
-              <title>{`${l.sessions.toLocaleString(formatRegional())} ${t('sessions')}`}</title>
-            </path>
-          );
-        })}
-        {colonnes.map((c, ci) =>
-          c.map((n) => {
-            const p = places.get(`${ci}|${n.cle}`)!;
-            const hAbandon = n.sessions ? (n.abandons / n.sessions) * p.h : 0;
-            const nom = libelle(n);
+    <div ref={ref} className="min-w-0">
+      <ZoneDefilement axe="horizontal" className="pb-1" data-stats-flux={colonnes.length}>
+        <svg viewBox={`-2 ${-TETE} ${largeur + 4} ${hauteur + TETE + 8}`} className="block h-auto" style={{ width: largeur + 4, minWidth: largeur + 4 }} role="img" aria-label="Flux de comportement">
+          {titres.slice(0, colonnes.length).map((titre, i) => (
+            <text key={titre} x={i * pas} y={-10} fontSize={11} fill="hsl(var(--faint))">
+              {titre}
+            </text>
+          ))}
+          {flux.liens.map((l, i) => {
+            const a = places.get(`${l.colonne}|${l.de}`);
+            const b = places.get(`${l.colonne + 1}|${l.vers}`);
+            if (!a || !b) return null;
+            const hA = a.sessions ? (l.sessions / a.sessions) * a.h : 0;
+            const hB = b.sessions ? (l.sessions / b.sessions) * b.h : 0;
+            // Un demi-pixel de marge de part et d'autre : deux liens voisins se lisent séparés, pas en un seul pavé.
+            const marge = (h: number) => (h > 3 ? 0.75 : 0);
+            const d = bande(a.x + largeurBoite, a.sortie + marge(hA), a.sortie + hA - marge(hA), b.x, b.entree + marge(hB), b.entree + hB - marge(hB));
+            a.sortie += hA;
+            b.entree += hB;
+            const allume = survol === null || survol === `${l.colonne}|${l.de}` || survol === `${l.colonne + 1}|${l.vers}`;
             return (
-              <g key={`${ci}|${n.cle}`} onPointerEnter={() => setSurvol(`${ci}|${n.cle}`)} onPointerLeave={() => setSurvol(null)} data-stats-noeud={n.cle}>
-                <rect x={p.x} y={p.y} width={LARGEUR_NOEUD} height={p.h} rx={2} fill={n.genre === 'autres' ? 'hsl(var(--faint))' : teinteDeSerie(ci)} />
-                {hAbandon ? <rect x={p.x} y={p.y + p.h - hAbandon} width={LARGEUR_NOEUD} height={hAbandon} rx={2} fill="hsl(var(--danger))" /> : null}
-                <text x={p.x + LARGEUR_NOEUD + 5} y={p.y + Math.min(p.h / 2, 10) + 4} fontSize={11} fill="hsl(var(--text))">
-                  {nom.length > 22 ? `${nom.slice(0, 21)}…` : nom}
-                </text>
-                <text x={p.x + LARGEUR_NOEUD + 5} y={p.y + Math.min(p.h / 2, 10) + 17} fontSize={10} fill="hsl(var(--faint))">
-                  {n.sessions.toLocaleString(formatRegional())}
-                  {n.abandons ? ` · ${t('{n} abandons', { n: n.abandons })}` : ''}
-                </text>
-                <title>{`${nom} — ${n.sessions.toLocaleString(formatRegional())} ${t('sessions')}${n.abandons ? `, ${t('{n} abandons', { n: n.abandons })}` : ''}`}</title>
-              </g>
+              <path key={i} d={d} fill="hsl(var(--faint))" fillOpacity={allume ? 0.2 : 0.05}>
+                <title>{`${nombre(l.sessions)} ${t('sessions')}`}</title>
+              </path>
             );
-          }),
-        )}
-      </svg>
-    </ZoneDefilement>
+          })}
+          {colonnes.map((c, ci) =>
+            c.map((n) => {
+              const p = places.get(`${ci}|${n.cle}`)!;
+              const hAbandon = n.sessions ? (n.abandons / n.sessions) * p.h : 0;
+              const nom = libelle(n);
+              const teinte = teinteDuNoeud(n, ci);
+              return (
+                <g key={`${ci}|${n.cle}`} onPointerEnter={() => setSurvol(`${ci}|${n.cle}`)} onPointerLeave={() => setSurvol(null)} data-stats-noeud={n.cle}>
+                  <rect x={p.x} y={p.y} width={largeurBoite} height={p.h} rx={5} fill={teinteDuNoeud(n, ci, n.genre === 'autres' ? 0.14 : 0.16)} />
+                  <rect x={p.x} y={p.y} width={3} height={p.h} rx={1.5} fill={teinte} />
+                  {hAbandon ? <rect x={p.x + largeurBoite - 5} y={p.y + p.h - hAbandon} width={5} height={hAbandon} rx={1.5} fill="hsl(var(--danger))" data-stats-abandon-noeud={n.abandons} /> : null}
+                  <text x={p.x + 10} y={p.y + 14} fontSize={11.5} fontWeight={500} fill="hsl(var(--text))">
+                    {tenir(nom, largeurBoite - 20, 11.5)}
+                  </text>
+                  <text x={p.x + 10} y={p.y + 27} fontSize={10.5} fill="hsl(var(--muted))">
+                    {nombre(n.sessions)}
+                    {n.abandons ? <tspan fill="hsl(var(--danger))">{` · ↓ ${nombre(n.abandons)}`}</tspan> : null}
+                  </text>
+                  <title>{`${nom} — ${nombre(n.sessions)} ${t('sessions')}${n.abandons ? `, ${t('{n} abandons', { n: n.abandons })}` : ''}`}</title>
+                </g>
+              );
+            }),
+          )}
+        </svg>
+      </ZoneDefilement>
+    </div>
   );
 }

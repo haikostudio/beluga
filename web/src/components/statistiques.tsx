@@ -3,12 +3,14 @@ import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown,
 import {
   type AnalyseDesParcours,
   type Card,
-  type ConstatDeParcours,
   type DiagnosticSuivi,
   type EspaceMarketing,
+  type EtapeVisiteur,
   type EtatAfficheDuSuivi,
+  type FluxDUnParcours,
   type ModeSuivi,
   type NoeudDeFlux,
+  type ParcoursDeSuivi,
   type RepereDeSuivi,
   type ResultatsMarketing,
   type ColonneDeLaListe,
@@ -19,6 +21,7 @@ import {
   PROFONDEUR_STATISTIQUES_JOURS,
   filtrerLesSites,
   indicateursDe,
+  libelleDeRepere,
   separerProjetsActifs,
   tendanceDesVisites,
   triDeLaListe,
@@ -43,8 +46,8 @@ import {
   BarresParCreneau,
   CourbeParJour,
   CourbesActifs,
-  EntonnoirDeConversion,
   FluxDeComportementSvg,
+  FluxDeParcoursSvg,
   MiniCourbe,
   Repartition,
   copier,
@@ -110,6 +113,8 @@ interface DetailSite {
   parcours: AnalyseDesParcours;
   parcoursTronque: boolean;
   reperes: (RepereDeSuivi & { posePar: string | null; creeLe: number })[];
+  /** Les parcours déclarés (ou le principal déduit) ; leur flux : `tableau.parcours`, même ordre. */
+  parcoursDeclares: ParcoursDeSuivi[];
   extrait: string;
   confidentialite: string;
   modeDEmploi: string;
@@ -191,29 +196,31 @@ export function Statistiques({
               {t('Nouveau site')}
             </Button>
           </header>
-          <div className="relative shrink-0 px-3 pb-2">
-            <Search className="pointer-events-none absolute left-5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <Input
-              value={recherche}
-              onChange={(e) => setRecherche(e.target.value)}
-              onKeyDown={(e) => e.key === 'Escape' && recherche && (e.stopPropagation(), setRecherche(''))}
-              placeholder={t('Rechercher un projet ou un site')}
-              aria-label="Rechercher un projet ou un site"
-              className="pl-7 pr-8"
-              data-stats-recherche
-            />
-            {recherche ? (
-              <button
-                type="button"
-                onClick={() => setRecherche('')}
-                aria-label="Effacer la recherche"
-                title={t('Effacer la recherche')}
-                className="absolute right-4 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-faint hover:text-text"
-                data-stats-recherche-effacer
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
+          <div className="shrink-0 px-3 pb-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+              <Input
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && recherche && (e.stopPropagation(), setRecherche(''))}
+                placeholder={t('Rechercher un projet ou un site')}
+                aria-label="Rechercher un projet ou un site"
+                className="pl-7 pr-8"
+                data-stats-recherche
+              />
+              {recherche ? (
+                <button
+                  type="button"
+                  onClick={() => setRecherche('')}
+                  aria-label="Effacer la recherche"
+                  title={t('Effacer la recherche')}
+                  className="absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-faint hover:text-text"
+                  data-stats-recherche-effacer
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           </div>
           <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
             {liste === null ? <SilhouetteStatistiques /> : <ListeDesSites sites={liste.sites} recherche={recherche} onOuvrir={(id) => ouvrir(id)} />}
@@ -731,7 +738,7 @@ function Audience({ detail, dates, onInstaller }: { detail: DetailSite; dates: R
       titre: t('Chiffres clés'),
       large: true,
       rendu: () => (
-        <div className="grid grid-cols-2 gap-1.5 rounded-md bg-bloc p-1.5 sm:grid-cols-3" data-stats-bloc="chiffres">
+        <div className="grid grid-cols-2 gap-1.5 rounded-md bg-bloc p-1.5 sm:grid-cols-3" data-stats-bloc="chiffres" data-stats-titre>
           <Tuile cle="sessions" libelle={t('Sessions')} valeur={tb.sessions.toLocaleString(formatRegional())} explication={t('Une session : les pages vues d’affilée par une même personne, jusqu’à trente minutes d’absence.')} />
           <Tuile cle="utilisateurs" libelle={t('Utilisateurs')} valeur={tb.utilisateurs.toLocaleString(formatRegional())} explication={t('Les personnes différentes : reconnues en suivi complet, comptées jour par jour en suivi anonyme.')} />
           {indicateurs.map((i) => (
@@ -743,6 +750,7 @@ function Audience({ detail, dates, onInstaller }: { detail: DetailSite; dates: R
     { id: 'visites', titre: t('Visites par jour'), large: true, rendu: () => <CourbeParJour cle="visites" titre={t('Visites par jour')} points={parJour.map((j) => ({ jour: j.jour, valeur: j.visites }))} /> },
     { id: 'actifs', titre: t('Utilisateurs actifs'), large: true, rendu: () => <CourbesActifs points={tb.actifs} /> },
     { id: 'visiteurs', titre: t('Visiteurs par jour'), large: true, rendu: () => <CourbeParJour cle="visiteurs" titre={t('Visiteurs par jour')} points={parJour.map((j) => ({ jour: j.jour, valeur: j.visiteurs }))} /> },
+    { id: 'flux', titre: t('Flux de comportement'), large: true, rendu: () => <BlocFluxDeComportement detail={detail} onInstaller={onInstaller} /> },
     {
       id: 'pays',
       titre: t('Sessions par pays'),
@@ -818,46 +826,26 @@ function Tuile({ cle, libelle, valeur, explication }: { cle: string; libelle: st
 /* Parcours                                                             */
 /* ------------------------------------------------------------------ */
 
-/** Chaque constat de la lecture résumée, écrit dans la langue de l'écran. */
-function phraseDuConstat(c: ConstatDeParcours): string {
-  const v = c.valeurs;
-  switch (c.genre) {
-    case 'chemin':
-      return t('Le chemin le plus suivi : {chemin} ({part} % des sessions).', { chemin: String(v.chemin), part: Number(v.part) });
-    case 'decrochage':
-      return t('Le plus gros décrochage : {part} % des visiteurs arrivés à « {de} » ne vont pas jusqu’à « {vers} ».', { part: Number(v.part), de: String(v.de), vers: String(v.vers) });
-    case 'repere-vedette':
-      return t('Le repère le plus cliqué : « {nom} » ({clics} clics).', { nom: String(v.nom), clics: Number(v.clics) });
-    case 'repere-muet':
-      return t('{n} repère(s) jamais cliqué(s) : {noms}. À déplacer ou à rendre plus visible(s).', { n: Number(v.n), noms: String(v.noms) });
-    case 'retour':
-      return t('{part} % des visiteurs reconnus sont revenus.', { part: Number(v.part) });
-    case 'une-page':
-      return t('Les visiteurs voient en moyenne {pages} page(s) par session : la plupart repartent après la première.', { pages: Number(v.pages) });
-  }
+/** Le nom d'un parcours : le sien, ou « Parcours principal » pour celui déduit des anciens objectifs. */
+function nomDuParcours(p: ParcoursDeSuivi): string {
+  return p.nom || t('Parcours principal');
+}
+
+/** Une page de départ, en mots courants : « autres » regroupe le reste. */
+function nomDeLaPage(chemin: string | null): string {
+  return chemin === null ? t('autres pages') : chemin;
 }
 
 /**
- * LES OBJECTIFS, à gauche de la barre d'outils du Parcours (demande du
- * 28/09/2026) : les objectifs fixés et la date de la dernière analyse.
+ * LE RÉSUMÉ, à gauche de la barre d'outils du Parcours : combien de parcours
+ * l'agent a définis, et la date de sa dernière analyse.
  */
-function ObjectifsDuSite({ detail }: { detail: DetailSite }) {
-  const objectifs = detail.reperes.filter((r) => r.objectif);
+function ResumeDesParcours({ detail }: { detail: DetailSite }) {
+  const n = detail.parcoursDeclares.length;
   const derniere = detail.reperes.length ? Math.max(...detail.reperes.map((r) => r.creeLe)) : null;
   return (
-    <div className="flex min-w-0 flex-col gap-0.5" data-stats-objectifs={objectifs.length}>
-      <span className="flex min-w-0 flex-wrap items-center gap-1 text-[12.5px] text-text">
-        {objectifs.length ? (
-          objectifs.map((o, i) => (
-            <React.Fragment key={o.nom}>
-              {i ? <span className="text-faint">→</span> : null}
-              <Etape genre="objectif" nom={o.nom} />
-            </React.Fragment>
-          ))
-        ) : (
-          <span className="text-muted">{t('Aucun objectif fixé pour ce site.')}</span>
-        )}
-      </span>
+    <div className="flex min-w-0 flex-col gap-0.5" data-stats-objectifs={n}>
+      <span className="text-[12.5px] text-text">{n ? t('{n} parcours définis par l’agent', { n }) : <span className="text-muted">{t('Aucun parcours défini pour ce site.')}</span>}</span>
       <span className="text-[11.5px] text-faint">
         {derniere ? t('Dernière analyse : {date}', { date: new Date(derniere).toLocaleDateString(formatRegional(), { day: 'numeric', month: 'long', year: 'numeric' }) }) : t('Jamais analysé')}
       </span>
@@ -876,7 +864,6 @@ function BoutonDeLAgent({ detail, onOuvrirCarte }: { detail: DetailSite; onOuvri
   const [envoi, setEnvoi] = React.useState(false);
   const [lancee, setLancee] = React.useState<Card | null>(null);
   const carte = carteEnTravail(lancee) ?? carteEnTravail(detail.carteObjectifs) ?? (detail.autonome ? null : carteEnTravail(detail.carteSuivi));
-  const objectifs = detail.reperes.filter((r) => r.objectif);
   const analyser = async () => {
     setEnvoi(true);
     try {
@@ -897,7 +884,7 @@ function BoutonDeLAgent({ detail, onOuvrirCarte }: { detail: DetailSite; onOuvri
   ) : (
     <Button size="sm" variant="subtle" className="shrink-0" disabled={envoi || !!carte} onClick={() => void analyser()} data-stats-relancer-objectifs="relancer">
       {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-      {envoi ? t('Envoi…') : objectifs.length ? t('Relancer l’analyse des objectifs') : t('Analyser les objectifs')}
+      {envoi ? t('Envoi…') : detail.parcoursDeclares.length ? t('Relancer l’analyse des objectifs') : t('Analyser les objectifs')}
     </Button>
   );
 }
@@ -909,6 +896,234 @@ function nomDuNoeud(n: NoeudDeFlux): string {
   return n.nom;
 }
 
+/**
+ * LE FLUX DE COMPORTEMENT, bloc de l'onglet Audience (demande du 29/09/2026) :
+ * il ne se lit qu'en suivi complet, les pages d'une même session n'étant
+ * reliées qu'après l'accord du visiteur.
+ */
+function BlocFluxDeComportement({ detail, onInstaller }: { detail: DetailSite; onInstaller: () => void }) {
+  const complet = detail.espace.modeSuivi === 'visiteur' || detail.tableau.flux.colonnes.length > 0;
+  return (
+    <Bloc titre={t('Flux de comportement')} repere="flux" aide={t('D’où viennent les sessions, sur quelle page elles arrivent, puis leurs trois étapes suivantes. En rouge : celles qui s’arrêtent là.')}>
+      {complet ? (
+        <FluxDeComportementSvg flux={detail.tableau.flux} libelle={nomDuNoeud} />
+      ) : (
+        <p className="text-[12px] text-faint" data-stats-flux="anonyme">
+          {t('Le flux de comportement demande le Suivi complet : en anonyme, les pages d’une même visite ne sont pas reliées.')}{' '}
+          <button type="button" className="text-accent underline-offset-2 hover:underline" onClick={onInstaller}>
+            {t('Changer le type de suivi')}
+          </button>
+        </p>
+      )}
+    </Bloc>
+  );
+}
+
+/** Une étape vue dans un chemin : le libellé lisible d'un repère quand un parcours le nomme. */
+function libelleDEtape(x: EtapeVisiteur, libelles: Map<string, string>): string {
+  if (x.genre === 'page') return x.nom;
+  return libelles.get(x.nom) ?? libelleDeRepere(x.nom);
+}
+
+/** La teinte d'une étape dans une frise : page, repère cliqué, ou étape d'un parcours. */
+function teinteDEtape(x: EtapeVisiteur, libelles: Map<string, string>): string {
+  if (x.genre === 'page') return 'hsl(var(--faint))';
+  return libelles.has(x.nom) || x.genre === 'objectif' ? 'hsl(var(--serie-2))' : 'hsl(var(--serie-1))';
+}
+
+/**
+ * LES CHEMINS LES PLUS SUIVIS, EN BARRES (demande du 29/09/2026) : chaque
+ * chemin est une barre dont la longueur suit ses sessions, et ses étapes y
+ * sont dessinées en frise — un point par étape, relié au suivant, teinté selon
+ * qu'il s'agit d'une page, d'un clic ou d'une étape d'un parcours.
+ */
+function CheminsEnBarres({ detail }: { detail: DetailSite }) {
+  const p = detail.parcours;
+  const libelles = React.useMemo(() => new Map(detail.parcoursDeclares.flatMap((pc) => pc.etapes.map((e) => [e.repere, e.libelle] as const))), [detail.parcoursDeclares]);
+  const max = Math.max(1, ...p.chemins.map((c) => c.sessions));
+  if (!p.chemins.length) return <p className="text-[12px] text-faint">{t('Aucune donnée sur cette période.')}</p>;
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1.5">
+        {p.chemins.map((c, i) => (
+          <li key={i} className="flex items-center gap-2" data-stats-chemin={c.sessions}>
+            <div className="relative min-w-0 flex-1 overflow-hidden rounded-md">
+              <span className="absolute inset-y-0 left-0 rounded-md" style={{ width: `${Math.max(4, (c.sessions / max) * 100)}%`, background: 'hsl(var(--serie-1) / 0.14)' }} aria-hidden />
+              <ol className="relative flex min-w-0 items-center px-2 py-1.5">
+                {c.etapes.map((x, j) => {
+                  const nom = libelleDEtape(x, libelles);
+                  return (
+                    <li key={j} className="flex min-w-0 items-center" title={x.genre === 'page' ? x.nom : `${nom} (${x.nom})`}>
+                      {j ? <span className="mx-1 h-px w-3 shrink-0 sm:w-5" style={{ background: 'hsl(var(--faint))' }} aria-hidden /> : null}
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: teinteDEtape(x, libelles) }} aria-hidden />
+                      <span className={cn('ml-1 min-w-0 max-w-[140px] truncate text-[11.5px]', x.genre === 'page' ? 'text-muted' : 'text-text')}>{nom}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+            <span className="w-12 shrink-0 text-right text-[12.5px] tabular-nums text-text">{c.sessions.toLocaleString(formatRegional())}</span>
+            <span className="hidden w-11 shrink-0 text-right text-[11.5px] tabular-nums text-faint sm:inline">{p.sessions ? `${Math.round((c.sessions / p.sessions) * 100)} %` : ''}</span>
+          </li>
+        ))}
+      </ul>
+      <span className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-faint">
+        {(
+          [
+            [{ genre: 'page', nom: '' }, t('Page vue')],
+            [{ genre: 'repere', nom: '' }, t('Clic sur un repère')],
+            [{ genre: 'objectif', nom: '' }, t('Étape d’un parcours')],
+          ] as const
+        ).map(([exemple, legende]) => (
+          <span key={legende} className="flex items-center gap-1">
+            <span className="h-2 w-2 rounded-full" style={{ background: teinteDEtape(exemple, libelles) }} aria-hidden />
+            {legende}
+          </span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * LA LISTE DES PARCOURS (demande du 29/09/2026) : une ligne par parcours
+ * défini par l'agent — son nom, son objectif, ses étapes et la part des
+ * sessions qui vont jusqu'au bout. Un clic ouvre son flux.
+ */
+function ListeDesParcours({ detail, onOuvrir }: { detail: DetailSite; onOuvrir: (id: string) => void }) {
+  const tous = detail.parcoursDeclares;
+  if (!tous.length) return <p className="text-[12px] text-faint">{t('Aucun parcours défini : l’agent d’analyse des objectifs les déclare en étudiant le site.')}</p>;
+  return (
+    <ul className="flex flex-col gap-1">
+      {tous.map((pc, i) => {
+        const f = detail.tableau.parcours[i];
+        const fin = f?.marches[f.marches.length - 1];
+        const entree = f?.marches[0]?.sessions ?? 0;
+        return (
+          <li key={pc.id}>
+            <button
+              type="button"
+              onClick={() => onOuvrir(pc.id)}
+              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-surface"
+              data-stats-parcours-ligne={pc.id}
+            >
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-[13px] font-medium text-text">{nomDuParcours(pc)}</span>
+                <span className="truncate text-[12px] text-muted">{pc.objectif || pc.etapes.map((e) => e.libelle).join(' → ')}</span>
+                <span className="flex min-w-0 items-center gap-1 text-[11px] text-faint">
+                  {pc.etapes.map((e, j) => (
+                    <React.Fragment key={j}>
+                      {j ? <span className="h-px w-2 shrink-0" style={{ background: 'hsl(var(--faint))' }} aria-hidden /> : null}
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'hsl(var(--serie-2))' }} aria-hidden />
+                    </React.Fragment>
+                  ))}
+                  <span className="ml-1">{t('{n} étape(s)', { n: pc.etapes.length })}</span>
+                </span>
+              </span>
+              <span className="hidden w-32 shrink-0 flex-col gap-1 sm:flex">
+                <span className="block h-1.5 overflow-hidden rounded-full bg-faint/15">
+                  <span className="block h-full rounded-full" style={{ width: `${fin?.tauxGlobal ?? 0}%`, background: 'hsl(var(--serie-2))' }} />
+                </span>
+                <span className="text-[11px] text-faint">{t('{fin} sur {entree} sessions', { fin: (fin?.sessions ?? 0).toLocaleString(formatRegional()), entree: entree.toLocaleString(formatRegional()) })}</span>
+              </span>
+              <span className="w-16 shrink-0 text-right text-[15px] font-medium tabular-nums text-text" data-stats-conversion-finale={fin?.tauxGlobal ?? 0}>
+                {(fin?.tauxGlobal ?? 0).toLocaleString(formatRegional())} %
+              </span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * UN PARCOURS OUVERT : sa fiche (le but, la conversion, la plus grosse perte),
+ * son GRAND flux de conversion, puis la nomenclature complète de ses étapes.
+ */
+function DetailDuParcours({ detail, parcours, flux, barre }: { detail: DetailSite; parcours: ParcoursDeSuivi; flux: FluxDUnParcours; barre: React.ReactNode }) {
+  const marches = flux.marches;
+  const fin = marches[marches.length - 1];
+  const pire = flux.plusGrosDecrochage !== null ? parcours.etapes[flux.plusGrosDecrochage - 1] : null;
+  const nombre = (n: number) => n.toLocaleString(formatRegional());
+  return (
+    <div className="flex flex-col gap-3" data-stats-parcours-ouvert={parcours.id}>
+      {barre}
+      <section className="flex flex-col gap-2 rounded-md bg-bloc px-3 py-3">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="text-[15px] font-medium text-text">{nomDuParcours(parcours)}</h3>
+          {parcours.objectif ? (
+            <p className="text-[12.5px] text-text">
+              <span className="text-faint">{t('Objectif :')}</span> {parcours.objectif}
+            </p>
+          ) : null}
+          {parcours.description ? <p className="text-[12px] text-muted">{parcours.description}</p> : null}
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          <Chiffre libelle={t('Sessions au départ')} valeur={marches[0]?.sessions ?? 0} />
+          <Chiffre libelle={t('Objectif atteint')} valeur={fin?.sessions ?? 0} />
+          <Chiffre libelle={t('Conversion')} valeur={fin?.tauxGlobal ?? 0} suffixe=" %" />
+          <div className="flex min-w-0 flex-col gap-0.5 rounded-md bg-surface/40 px-3 py-2">
+            <span className="truncate text-[12px] text-faint">{t('La plus grosse perte')}</span>
+            <span className={cn('truncate text-[14px] font-medium', pire ? 'text-danger' : 'text-muted')} title={pire?.libelle}>
+              {pire ? t('avant « {etape} »', { etape: pire.libelle }) : '—'}
+            </span>
+          </div>
+        </div>
+      </section>
+      <Bloc titre={t('Flux de conversion')} repere="entonnoir" aide={t('De l’entrée jusqu’à l’objectif : chaque boîte est une étape, sa hauteur suit ses sessions. En rouge, ceux qui s’arrêtent avant l’étape suivante, et les pages d’où ils quittent le site.')}>
+        {marches[0]?.sessions ? null : <p className="text-[12px] text-faint">{t('Aucune session reconnue sur cette période : le flux se remplira avec les visites.')}</p>}
+        <FluxDeParcoursSvg parcours={parcours} flux={flux} nomDeLaPage={nomDeLaPage} />
+      </Bloc>
+      <Bloc titre={t('Les étapes du parcours')} repere="etapes">
+        <table className="w-full text-[12.5px]" data-stats-nomenclature={parcours.etapes.length}>
+          <thead>
+            <tr className="text-left text-[11.5px] text-faint">
+              <th className="w-8 py-1 font-normal">#</th>
+              <th className="py-1 font-normal">{t('Étape')}</th>
+              <th className="w-20 py-1 text-right font-normal">{t('Sessions')}</th>
+              <th className="hidden w-20 py-1 text-right font-normal sm:table-cell">{t('Passage')}</th>
+              <th className="hidden w-20 py-1 text-right font-normal sm:table-cell">{t('Du départ')}</th>
+              <th className="w-20 py-1 text-right font-normal">{t('Abandons')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parcours.etapes.map((e, i) => {
+              const m = marches[i + 1];
+              return (
+                <tr key={i} className="align-top" data-stats-etape={e.repere}>
+                  <td className="py-1.5">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-medium" style={{ background: 'hsl(var(--serie-2) / 0.18)', color: 'hsl(var(--text))' }}>
+                      {i + 1}
+                    </span>
+                  </td>
+                  <td className="py-1.5 pr-2">
+                    <span className="block text-text">{e.libelle}</span>
+                    {e.description ? <span className="block text-[11.5px] text-muted">{e.description}</span> : null}
+                    <span className="block font-mono text-[10.5px] text-faint">{e.repere}</span>
+                  </td>
+                  <td className="py-1.5 text-right tabular-nums text-text">{nombre(m?.sessions ?? 0)}</td>
+                  <td className="hidden py-1.5 text-right tabular-nums text-muted sm:table-cell">{(m?.tauxEtape ?? 0).toLocaleString(formatRegional())} %</td>
+                  <td className="hidden py-1.5 text-right tabular-nums text-muted sm:table-cell">{(m?.tauxGlobal ?? 0).toLocaleString(formatRegional())} %</td>
+                  <td className={cn('py-1.5 text-right tabular-nums', m?.abandons ? 'text-danger' : 'text-faint')}>{nombre(m?.abandons ?? 0)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </Bloc>
+      {detail.parcoursTronque ? <p className="text-[12px] text-warning">{t('Période très chargée : seuls les passages les plus récents sont comptés.')}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * L'ONGLET PARCOURS (refondu le 29/09/2026) : d'abord la LISTE des parcours
+ * définis par l'agent, puis, un parcours ouvert, son flux et ses étapes. Les
+ * chemins les plus suivis et les visiteurs récents restent des blocs de la
+ * liste ; le flux de comportement vit dans l'onglet Audience.
+ */
 function Parcours({
   detail,
   dates,
@@ -921,25 +1136,28 @@ function Parcours({
   onOuvrirCarte?: (card: Card) => void;
 }) {
   const p = detail.parcours;
-  const tb = detail.tableau;
   const [visiteur, setVisiteur] = React.useState<string | null>(null);
-  const objectifs = <ObjectifsDuSite detail={detail} />;
+  const [ouvert, setOuvert] = React.useState<string | null>(null);
+  const resume = <ResumeDesParcours detail={detail} />;
   const outils = (
     <>
       <BoutonDeLAgent detail={detail} onOuvrirCarte={onOuvrirCarte} />
       {dates}
     </>
   );
+  /* Sans tableau à blocs, la même barre, sans « Blocs ». */
+  const barre = (gauche: React.ReactNode) => (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-bloc px-3 py-2" data-stats-barre="parcours">
+      <div className="min-w-0 flex-1 basis-60">{gauche}</div>
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2 [&_[role=group]]:bg-surface/60" data-stats-outils>
+        {outils}
+      </div>
+    </div>
+  );
   if (detail.espace.modeSuivi !== 'visiteur' && !p.sessions) {
     return (
       <div className="flex flex-col gap-3">
-        {/* Sans tableau à blocs, la même barre, sans « Blocs ». */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md bg-bloc px-3 py-2" data-stats-barre="parcours">
-          <div className="min-w-0 flex-1 basis-60">{objectifs}</div>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2 [&_[role=group]]:bg-surface/60" data-stats-outils>
-            {outils}
-          </div>
-        </div>
+        {barre(resume)}
         <div className="flex flex-col gap-2 rounded-md bg-bloc px-3 py-3 text-[12.5px] text-muted" data-stats-parcours="anonyme">
           <p className="flex items-center gap-1">
             {t('Ce site est mesuré de façon anonyme : les parcours, le flux de conversion et le flux de comportement demandent le Suivi complet.')}
@@ -952,97 +1170,40 @@ function Parcours({
       </div>
     );
   }
+  const rang = ouvert ? detail.parcoursDeclares.findIndex((pc) => pc.id === ouvert) : -1;
+  if (rang >= 0 && detail.tableau.parcours[rang]) {
+    return (
+      <DetailDuParcours
+        detail={detail}
+        parcours={detail.parcoursDeclares[rang]}
+        flux={detail.tableau.parcours[rang]}
+        barre={barre(
+          <button type="button" onClick={() => setOuvert(null)} className="flex items-center gap-1.5 text-[12.5px] text-muted hover:text-text" data-stats-retour-parcours>
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {t('Tous les parcours')}
+          </button>,
+        )}
+      />
+    );
+  }
   const blocs: BlocDuTableau[] = [
     {
-      id: 'conversion',
-      titre: t('Flux de conversion'),
-      rendu: () => (
-        <Bloc titre={t('Flux de conversion')} repere="entonnoir" aide={t('Les sessions qui franchissent chaque objectif, dans l’ordre : le taux de passage d’une étape à la suivante et les abandons.')}>
-          {tb.conversion.length ? (
-            <EntonnoirDeConversion marches={tb.conversion} />
-          ) : (
-            <p className="text-[12px] text-faint">{t('Aucune étape visée : l’agent marque « objectif » les repères du parcours à suivre.')}</p>
-          )}
-        </Bloc>
-      ),
-    },
-    {
-      id: 'objectifs',
-      titre: t('Conversion par objectif'),
-      rendu: () => (
-        <Bloc titre={t('Conversion par objectif')} repere="objectifs" aide={t('Chaque objectif, atteint dans n’importe quel ordre : combien de sessions l’atteignent, et leur part.')}>
-          {tb.objectifs.length ? (
-            <ul className="flex flex-col gap-1.5">
-              {tb.objectifs.map((o) => (
-                <li key={o.nom} className="flex flex-col gap-0.5" data-stats-objectif={o.nom}>
-                  <span className="flex gap-2 text-[12.5px]">
-                    <span className="min-w-0 flex-1 truncate text-text">{o.nom}</span>
-                    <span className="shrink-0 text-text">{o.sessions.toLocaleString(formatRegional())}</span>
-                    <span className="w-14 shrink-0 text-right text-muted">{o.taux.toLocaleString(formatRegional())} %</span>
-                  </span>
-                  <span className="block h-1.5 overflow-hidden rounded-full bg-faint/15">
-                    <span className="block h-full rounded-full bg-termine/80" style={{ width: `${o.taux}%` }} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[12px] text-faint">{t('Aucun objectif fixé pour ce site.')}</p>
-          )}
-        </Bloc>
-      ),
-    },
-    {
-      id: 'flux',
-      titre: t('Flux de comportement'),
+      id: 'parcours',
+      titre: t('Parcours'),
       large: true,
       rendu: () => (
-        <Bloc titre={t('Flux de comportement')} repere="flux" aide={t('D’où viennent les sessions, sur quelle page elles arrivent, puis leurs trois étapes suivantes. En rouge : celles qui s’arrêtent là.')}>
-          <FluxDeComportementSvg flux={tb.flux} libelle={nomDuNoeud} />
-        </Bloc>
-      ),
-    },
-    {
-      id: 'lecture',
-      titre: t('Lecture'),
-      rendu: () => (
-        <Bloc titre={t('Lecture')} repere="lecture">
-          {p.constats.length ? (
-            <ul className="flex list-disc flex-col gap-1 pl-4 text-[12.5px] text-text">
-              {p.constats.map((c, i) => (
-                <li key={i}>{phraseDuConstat(c)}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[12px] text-faint">{t('Pas encore assez de visiteurs ayant donné leur accord pour tirer une lecture.')}</p>
-          )}
+        <Bloc titre={t('Parcours')} repere="parcours" aide={t('Les parcours que l’agent a définis en étudiant le site : chacun mène à un objectif. La part à droite : les sessions allées jusqu’au bout.')}>
+          <ListeDesParcours detail={detail} onOuvrir={setOuvert} />
         </Bloc>
       ),
     },
     {
       id: 'chemins',
       titre: t('Chemins les plus suivis'),
+      large: true,
       rendu: () => (
-        <Bloc titre={t('Chemins les plus suivis')} repere="chemins">
-          {p.chemins.length ? (
-            <ul className="flex flex-col gap-1.5">
-              {p.chemins.map((c, i) => (
-                <li key={i} className="flex items-start gap-2 text-[12.5px]">
-                  <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
-                    {c.etapes.map((x, j) => (
-                      <React.Fragment key={j}>
-                        {j ? <span className="text-faint">→</span> : null}
-                        <Etape genre={x.genre} nom={x.nom} />
-                      </React.Fragment>
-                    ))}
-                  </span>
-                  <span className="shrink-0 text-faint">{t('{n} sessions', { n: c.sessions })}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[12px] text-faint">{t('Aucune donnée sur cette période.')}</p>
-          )}
+        <Bloc titre={t('Chemins les plus suivis')} repere="chemins" aide={t('Le début de chaque session, étape par étape : la barre suit le nombre de sessions qui ont suivi exactement ce chemin.')}>
+          <CheminsEnBarres detail={detail} />
         </Bloc>
       ),
     },
@@ -1081,7 +1242,7 @@ function Parcours({
       <TableauDeBlocs
         onglet="parcours"
         blocs={blocs}
-        entete={objectifs}
+        entete={resume}
         outils={outils}
         avant={
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
@@ -1098,11 +1259,11 @@ function Parcours({
   );
 }
 
-function Chiffre({ libelle, valeur }: { libelle: string; valeur: number | null }) {
+function Chiffre({ libelle, valeur, suffixe = '' }: { libelle: string; valeur: number | null; suffixe?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5 rounded-md bg-bloc px-3 py-2">
       <span className="truncate text-[12px] text-faint">{libelle}</span>
-      <span className="text-[18px] font-medium text-text">{valeur === null ? '—' : valeur.toLocaleString(formatRegional())}</span>
+      <span className="text-[18px] font-medium text-text">{valeur === null ? '—' : `${valeur.toLocaleString(formatRegional())}${suffixe}`}</span>
     </div>
   );
 }
@@ -1110,7 +1271,7 @@ function Chiffre({ libelle, valeur }: { libelle: string; valeur: number | null }
 function Bloc({ titre, repere, aide, children }: { titre: string; repere: string; aide?: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-stats-bloc={repere}>
-      <h3 className="flex items-center gap-1 text-[12.5px] text-text">
+      <h3 className="flex items-center gap-1 text-[12.5px] text-text" data-stats-titre>
         {titre}
         {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
       </h3>

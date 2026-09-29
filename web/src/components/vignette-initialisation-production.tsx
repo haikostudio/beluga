@@ -3,7 +3,7 @@ import { agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { Dot } from '@/components/ui';
-import { client } from '@/lib/client';
+import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
@@ -17,8 +17,9 @@ import { cn } from '@/lib/utils';
  * l'agent travaille ou attend une réponse (`vignetteDInitialisationVisible`).
  * Elle ne compte ni dans le compteur de la colonne, ni dans son avancement.
  *
- * Le clic ouvre le tiroir du bandeau de production sur sa CONVERSATION
- * (`client.demanderProduction`), d'où qu'on vienne. Même règle que les autres
+ * Le clic ouvre la RUBRIQUE de son étape dans les réglages du projet, où
+ * vit sa conversation (`ouvrirRubriqueDeLEtape`), d'où qu'on vienne. Elle
+ * sert aux DEUX agents de configuration : déploiement et mise en production. Même règle que les autres
  * vignettes : l'ouverture est portée par le cadre, jamais par un `button` qui
  * contiendrait un texte replié.
  */
@@ -28,7 +29,10 @@ export function VignetteInitialisationProduction({
   projet,
   reconfiguration = false,
   avecProjet = false,
+  cible = 'production',
 }: {
+  /** L'étape que l'agent configure. */
+  cible?: 'dev' | 'production';
   agent: Agent;
   etat: EtatDeLInitialisation;
   projet?: Project;
@@ -38,9 +42,9 @@ export function VignetteInitialisationProduction({
   avecProjet?: boolean;
 }) {
   const auTravail = agentTientSonTour(agent);
-  const ouvrir = () => client.demanderProduction({ projectId: agent.projectId, onglet: 'conversation' });
+  const ouvrir = () => ouvrirRubriqueDeLEtape(agent.projectId, cible);
   return (
-    <div className="flex min-w-0 flex-col" data-vignette-initialisation-production={agent.projectId}>
+    <div className="flex min-w-0 flex-col" data-vignette-initialisation-production={agent.projectId} data-vignette-etape={cible}>
       <div
         role="button"
         tabIndex={0}
@@ -65,7 +69,7 @@ export function VignetteInitialisationProduction({
                 <span className="shrink-0 text-faint">·</span>
               </>
             ) : null}
-            <span className="min-w-0 truncate text-publie">{t('Mise en production')}</span>
+            <span className="min-w-0 truncate text-publie">{cible === 'dev' ? t('Déploiement') : t('Mise en production')}</span>
           </div>
           <span className="flex shrink-0 items-center gap-1" data-etat-vignette-initialisation={etat}>
             {etat === 'question' ? (
@@ -84,9 +88,11 @@ export function VignetteInitialisationProduction({
         </div>
         <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
           <UploadCloud className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
-          {reconfiguration
-            ? t('Configuration de la mise en production')
-            : t('Initialisation de la mise en production')}
+          {cible === 'dev'
+            ? t('Configuration du déploiement')
+            : reconfiguration
+              ? t('Configuration de la mise en production')
+              : t('Initialisation de la mise en production')}
         </h3>
       </div>
       {auTravail ? (

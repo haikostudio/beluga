@@ -162,7 +162,12 @@ import {
   paramsLisibles,
   consigneEnTeteDeSession,
 } from '@beluga/shared';
-import { carteEnPublication, migrationDeReglage, TEXTE_CARTE_EN_PUBLICATION } from '@beluga/shared';
+import {
+  carteEnPublication,
+  messageOuvreUneNouvelleCarte,
+  migrationDeReglage,
+  TEXTE_CARTE_EN_PUBLICATION,
+} from '@beluga/shared';
 import type { DecisionDArret } from '@beluga/shared';
 import { cheminDePieceJointe, dossiersDeDonneesOuverts } from './pieces-jointes.js';
 import { consigneDuCadrageReuni } from './regroupements.js';
@@ -1218,18 +1223,6 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   if (!options.motif && agentMarketing) options = { ...options, motif: 'configuration-marketing' };
 
   /*
-   * UNE CARTE DÉJÀ DÉPLOYÉE NE SE MODIFIE PAS SUR PLACE. Un message humain
-   * tapé dans une conversation archivée relancerait le même agent, sur la
-   * même branche déjà mise en ligne — donc un travail réécrit après coup, sans
-   * passer par la revue ni par une nouvelle mise en ligne. La règle qui
-   * protège déjà « Archivé » d'une réouverture automatique
-   * (`repriseAutorisee`) s'applique donc aussi ici : on REFUSE, en le disant,
-   * plutôt que de rouvrir le travail ou de créer une carte à la place de
-   * l'utilisateur. Une reprise volontaire (bouton « Reprendre ») sort d'abord
-   * la carte de « Archivé » — à ce moment-là, elle n'est plus déployée, et ce
-   * message-ci ne la concerne plus.
-   */
-  /*
    * NI PENDANT SA PUBLICATION. Le même verrou que la commande du client
    * (`agent.prompt`), redit ici pour tout autre chemin humain : un message
    * relancerait l'agent sur la branche qu'on est en train de pousser. Les
@@ -1244,22 +1237,22 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
     return;
   }
 
+  /*
+   * UNE CARTE DÉJÀ DÉPLOYÉE NE SE MODIFIE PAS SUR PLACE. Un message humain
+   * tapé dans une conversation archivée relancerait le même agent, sur la
+   * même branche déjà mise en ligne — donc un travail réécrit après coup, sans
+   * passer par la revue ni par une nouvelle mise en ligne. Le message ouvre
+   * donc une NOUVELLE carte (`ouvrirUneNouvelleCarteDepuis`), qui suit tout le
+   * parcours ; l'ancienne reste intacte. L'ancien refus n'existe plus.
+   * Le verrou de publication, plus haut, passe AVANT : aucune carte n'est créée
+   * pendant une mise en ligne.
+   */
   if (!options.silent && agent.cardId) {
     const carte = store.getCard(agent.cardId);
     // L'agent marketing ne livre aucun code : sa carte rangée avec un lot publié ne le rend pas muet.
-    if (carte && carte.column === 'archived' && carte.deployedAt && !agentMarketing) {
-      const message = store.saveMessage(
-        Message.parse({
-          id: store.newId(),
-          agentId,
-          role: 'assistant',
-          content:
-            "Cette carte est déjà en ligne : je ne peux pas la modifier sur place. Créez une nouvelle carte pour ce changement, ou utilisez « Reprendre » sur cette carte si vous voulez repartir de son travail.",
-          error: 'carte-deployee',
-          createdAt: store.now(),
-        }),
-      );
-      bus.emit({ type: 'message.upsert', message });
+    if (carte && messageOuvreUneNouvelleCarte(carte) && !agentMarketing) {
+      const { ouvrirUneNouvelleCarteDepuis } = await import('./cadrage.js');
+      await ouvrirUneNouvelleCarteDepuis(agentId, text, options.attachments ?? []);
       return;
     }
   }

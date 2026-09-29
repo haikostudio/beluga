@@ -67,6 +67,7 @@ import {
   carteDoitSecouer,
   friseDeSuivi,
   etatDeLInitialisation,
+  agentDeConfiguration,
   vignetteDInitialisationVisible,
   procedureEnPlace,
   estCarteMarketing,
@@ -729,18 +730,26 @@ export function Board({
   /* L'INITIALISATION DE LA MISE EN PRODUCTION, en tête de « En cours » : une
      vignette à part, pas une carte (DEC-256) — ni comptée dans l'entête, ni
      dans l'avancement de la colonne. */
-  const idConfiguration = projetOuvert?.miseEnProduction?.agentId;
-  const agentConfiguration = idConfiguration ? state.agents[idConfiguration] : undefined;
-  const etatInitialisation = etatDeLInitialisation(projetOuvert, agentConfiguration, Date.now());
-  const vignetteInitialisation =
-    agentConfiguration && etatInitialisation && vignetteDInitialisationVisible(etatInitialisation) ? (
-      <VignetteInitialisationProduction
-        agent={agentConfiguration}
-        etat={etatInitialisation}
-        projet={projetOuvert}
-        reconfiguration={procedureEnPlace(projetOuvert, 'production')}
-      />
-    ) : null;
+  /* LES DEUX AGENTS DE CONFIGURATION (déploiement, mise en production) ont
+     chacun leur vignette tant qu'ils travaillent ou attendent une réponse. */
+  const vignettesInitialisation = (['dev', 'production'] as const).flatMap((cible) => {
+    const idConfiguration = agentDeConfiguration(projetOuvert, cible);
+    const agentConfiguration = idConfiguration ? state.agents[idConfiguration] : undefined;
+    const etatInitialisation = etatDeLInitialisation(projetOuvert, agentConfiguration, Date.now(), cible);
+    return agentConfiguration && etatInitialisation && vignetteDInitialisationVisible(etatInitialisation)
+      ? [
+          <VignetteInitialisationProduction
+            key={cible}
+            cible={cible}
+            agent={agentConfiguration}
+            etat={etatInitialisation}
+            projet={projetOuvert}
+            reconfiguration={procedureEnPlace(projetOuvert, 'production')}
+          />,
+        ]
+      : [];
+  });
+  const vignetteInitialisation = vignettesInitialisation.length ? <>{vignettesInitialisation}</> : null;
 
   /*
    * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
@@ -1463,6 +1472,20 @@ export function Board({
                       projectId={projectId}
                       actif={projetOuvert?.deploiementAutomatique === true}
                     />
+                    {/* LES RÉGLAGES DU DÉPLOIEMENT, à droite de l'interrupteur :
+                        la rubrique où l'agent de configuration écrit le
+                        processus, et où il se discute. */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted"
+                      onClick={() => ouvrirRubriqueDeLEtape(projectId, 'dev')}
+                      aria-label="Réglages du déploiement"
+                      title={t('Réglages du déploiement')}
+                      data-reglages-deploiement-tete={column}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 ) : null}
                 {/* Le menu à trois points ne porte plus « Archives » : la
@@ -1558,7 +1581,7 @@ export function Board({
               )}
             >
               {column === 'running' && vignetteInitialisation ? (
-                <div className={cn(enColonnes ? 'w-full' : CLASSE_LARGEUR_CARTE, 'shrink-0')}>
+                <div className={cn(enColonnes ? 'w-full' : CLASSE_LARGEUR_CARTE, 'flex shrink-0 flex-col gap-2')}>
                   {vignetteInitialisation}
                 </div>
               ) : null}
@@ -2148,6 +2171,43 @@ export function CardTile({
   );
 
   /*
+   * LES MENTIONS DE LA CARTE SE LISENT DANS LA PASTILLE « i », plus en bandeaux
+   * sous le titre : coupés en une ligne, rognés par la frise, ils ne disaient
+   * rien d'entier. Trois tons pour la phrase du dernier tour (`natureDeLaMention`) :
+   * une carte dont le CODE EST LÀ porte une information bleue (l'afficher en
+   * triangle jaune démentait la coche verte d'à côté), une carte qui ATTEND
+   * garde son jaune, un rapport rendu sans code reste gris. Suivent la reprise
+   * possible, le tour sans suite et la date d'archivage, en gris pâle.
+   */
+  const mentions: Array<{
+    cle: string;
+    repere: Record<string, string | boolean>;
+    classe: string;
+    icone: React.ComponentType<{ className?: string }>;
+    texte: string;
+  }> = [];
+  if (card.sansModification) {
+    const nature = natureDeLaMention(card.sansModification);
+    mentions.push({
+      cle: 'carte',
+      repere: { 'data-mention-carte': nature },
+      classe: nature === 'travail' ? 'text-termine' : nature === 'information' ? 'text-faint' : 'text-warning',
+      icone: nature === 'travail' ? Check : nature === 'information' ? Info : AlertTriangle,
+      texte: card.sansModification,
+    });
+  }
+  if (mentionDeReprise(card)) {
+    mentions.push({ cle: 'reprise', repere: { 'data-mention-reprise': true }, classe: 'text-faint', icone: RotateCcw, texte: MENTION_REPRISE_COURTE });
+  }
+  if (sansSuite) {
+    mentions.push({ cle: 'sans-suite', repere: { 'data-mention-sans-suite': true }, classe: 'text-faint', icone: Clock, texte: sansSuite });
+  }
+  const archivage = mentionArchivage(card);
+  if (archivage) {
+    mentions.push({ cle: 'archivage', repere: { 'data-mention-archivage': true }, classe: 'text-faint', icone: Archive, texte: archivage });
+  }
+
+  /*
    * « QU'EST-CE QUI TOURNE ENCORE ? » Depuis qu'un rapport rendu ferme la carte,
    * une carte RESTÉE dans « En cours » a forcément une raison — et elle doit se
    * lire sans ouvrir la carte : l'étape, depuis quand, ce qu'on attend. La règle
@@ -2370,10 +2430,24 @@ export function CardTile({
             </Tooltip>
             {card.title}
           </h3>
-          {texteCoupe ? (
+          {texteCoupe || mentions.length ? (
             <BulleTexteCoupe>
-              <span className="block font-medium text-text">{card.title}</span>
-              {enRoute && extraitDescription ? <span className="mt-1 block">{extraitDescription}</span> : null}
+              {texteCoupe ? (
+                <>
+                  <span className="block font-medium text-text">{card.title}</span>
+                  {enRoute && extraitDescription ? <span className="mt-1 block">{extraitDescription}</span> : null}
+                </>
+              ) : null}
+              {mentions.length ? (
+                <span className={cn('block space-y-1.5', texteCoupe && 'mt-2')}>
+                  {mentions.map(({ cle, repere, classe, icone: Icone, texte }) => (
+                    <span key={cle} {...repere} className={cn('flex items-start gap-1.5 text-[12px] leading-snug', classe)}>
+                      <Icone className="mt-[2px] h-3 w-3 shrink-0" />
+                      <span className="min-w-0">{texte}</span>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
             </BulleTexteCoupe>
           ) : null}
           {/* Le triangle passe AVANT le voyant : une décision attendue prime
@@ -2429,92 +2503,6 @@ export function CardTile({
         {/* Sur « Tableaux de bord », le lien de regroupement rejoint les
             étiquettes en pied de carte (plus bas) : ici, la frise le rognait. */}
         {!enRoute ? <LienDeRegroupement card={card} /> : null}
-
-        {/*
-         * La phrase du dernier tour, à l'endroit où l'on cherche l'état de la
-         * carte. TROIS tons, jamais un seul. Une carte dont le CODE EST LÀ
-         * (`natureDeLaMention` → « travail ») porte une information bleue, celle
-         * du travail acquis — l'afficher en triangle jaune démentait la coche
-         * verte d'à côté et faisait lire « rien n'a été fait » sur un travail
-         * bel et bien livré. Une carte qui ATTEND garde son jaune. Et depuis
-         * qu'un rapport rendu ferme la carte, un troisième cas existe :
-         * « INFORMATION » — la carte est close, aucun code n'a été livré, et
-         * personne n'a rien à faire. Ni alerte ni promesse de livraison : du
-         * gris, et la phrase telle quelle.
-         */}
-        {card.sansModification ? (
-          natureDeLaMention(card.sansModification) === 'travail' ? (
-            <div
-              data-mention-carte="travail"
-              title={card.sansModification}
-              className="mt-1.5 flex items-start gap-1.5 rounded border border-termine/30 bg-termine/10 px-1.5 py-1 text-[12px] leading-snug text-termine"
-            >
-              <Check className="mt-[2px] h-3 w-3 shrink-0" />
-              <span className="min-w-0 truncate">{card.sansModification}</span>
-            </div>
-          ) : natureDeLaMention(card.sansModification) === 'information' ? (
-            <div
-              data-mention-carte="information"
-              title={card.sansModification}
-              className="mt-1.5 flex items-start gap-1.5 rounded border border-border bg-surface px-1.5 py-1 text-[12px] leading-snug text-faint"
-            >
-              <Info className="mt-[2px] h-3 w-3 shrink-0" />
-              <span className="min-w-0 truncate">{card.sansModification}</span>
-            </div>
-          ) : (
-            <div
-              data-mention-carte="attente"
-              title={card.sansModification}
-              className="mt-1.5 flex items-start gap-1.5 rounded border border-warning/30 bg-warning/10 px-1.5 py-1 text-[12px] leading-snug text-warning"
-            >
-              <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" />
-              <span className="min-w-0 truncate">{card.sansModification}</span>
-            </div>
-          )
-        ) : null}
-
-        {/*
-         * La carte a déjà travaillé : le prochain clic REPREND au lieu de tout
-         * refaire. On le dit là où on lit son état, sous la cause de son
-         * interruption — un seul mot, la phrase entière est dans son tiroir.
-         */}
-        {mentionDeReprise(card) ? (
-          <div className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-faint">
-            <RotateCcw className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0 truncate" data-mention-reprise>
-              {MENTION_REPRISE_COURTE}
-            </span>
-          </div>
-        ) : null}
-
-        {/*
-         * Le tour est fini, personne n'a repris : on l'écrit là où on cherche
-         * l'état de la carte, en gris pâle. Ce n'est pas une alerte — rien
-         * n'est cassé —, c'est une carte qui attend qu'on s'en occupe.
-         */}
-        {sansSuite ? (
-          <div className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-faint">
-            <Clock className="mt-[2px] h-3 w-3 shrink-0" />
-            <span className="min-w-0 truncate" data-mention-sans-suite>
-              {sansSuite}
-            </span>
-          </div>
-        ) : null}
-
-        {/*
-         * Une carte ressortie d'« Archivé » ne fait pas semblant de n'y être
-         * jamais allée : elle porte la date de son passage, en gris pâle. Dans
-         * la colonne « Archivé » elle-même, la mention ne s'affiche pas — la
-         * colonne le dit déjà.
-         */}
-        {mentionArchivage(card) ? (
-          <div className="mt-1.5 flex items-center gap-1 text-[12px] text-faint">
-            <Archive className="h-2.5 w-2.5 shrink-0" />
-            <span className="min-w-0 truncate" data-mention-archivage>
-              {mentionArchivage(card)}
-            </span>
-          </div>
-        ) : null}
 
         {/*
          * Le pied ne porte plus que l'ancienneté. Les repères techniques

@@ -958,6 +958,13 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
         suspendu: false,
         waitingReason: undefined,
       },
+      /*
+       * L'INCIDENT DU CADRAGE TOMBE AU LANCEMENT. « La compréhension n'est pas
+       * venue » parle d'un tour de cadrage : une carte qui part au travail n'a
+       * plus rien à en attendre. Il restait sinon collé à la carte jusque dans
+       * « Archivé » (cartes d'installation du suivi, 29/09/2026).
+       */
+      parcours: card.parcours?.incident ? { ...card.parcours, incident: undefined } : card.parcours,
     });
     bus.emit({ type: 'card.upsert', card });
   }

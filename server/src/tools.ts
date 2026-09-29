@@ -175,6 +175,7 @@ import {
 } from './marketing.js';
 import {
   LABEL_MARKETING,
+  jugerParcours,
   jugerReperes,
   METHODE_DES_REPERES,
   estSiteAutonome,
@@ -1162,11 +1163,11 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'statistiques',
     description:
-      "LE SUIVI DES VISITES DE CE PROJET (service Statistiques de Beluga) — à prendre dès que l'utilisateur demande de suivre, mesurer ou tracker les visites. « action » : « etat » (mode, adresse, code lu sur le site, repères) ; « activer » (mode anonyme|visiteur, adresse du site en production : rend l'EXTRAIT, la phrase de confidentialité et la MÉTHODE — tu poses toi-même le code et les repères dans le projet, sans carte) ; « reperes » (la liste ENTIÈRE des repères posés, qui remplace la précédente : nom, emplacement, raison, objectif) ; « lire » (chiffres et parcours sur « jours », 30 par défaut). Anonyme : rien n'est écrit sur l'appareil. Visiteur : le code montre SEUL son bandeau d'accord, puis garde un identifiant dans le stockage local — jamais de cookie. Tu enregistres et sauvegardes, tu ne publies jamais.",
+      "LE SUIVI DES VISITES DE CE PROJET (service Statistiques de Beluga) — à prendre dès que l'utilisateur demande de suivre, mesurer ou tracker les visites. « action » : « etat » (mode, adresse, code lu sur le site, repères) ; « activer » (mode anonyme|visiteur, adresse du site en production : rend l'EXTRAIT, la phrase de confidentialité et la MÉTHODE — tu poses toi-même le code et les repères dans le projet, sans carte) ; « reperes » (la liste ENTIÈRE des repères posés — nom, emplacement, raison — et, avec « parcours », la liste ENTIÈRE des parcours du site ; chacune remplace la précédente) ; « parcours » (les parcours seuls) ; « lire » (chiffres et parcours sur « jours », 30 par défaut). Anonyme : rien n'est écrit sur l'appareil. Visiteur : le code montre SEUL son bandeau d'accord, puis garde un identifiant dans le stockage local — jamais de cookie. Tu enregistres et sauvegardes, tu ne publies jamais.",
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['etat', 'activer', 'reperes', 'lire'] },
+        action: { type: 'string', enum: ['etat', 'activer', 'reperes', 'parcours', 'lire'] },
         mode: { type: 'string', enum: ['anonyme', 'visiteur'], description: 'Pour « activer » : anonyme par défaut ; visiteur pour analyser les parcours par personne (bandeau d’accord)' },
         adresse: { type: 'string', description: 'Pour « activer » : l’adresse publique du site en production (https://…)' },
         reperes: {
@@ -1178,13 +1179,38 @@ export const TOOL_DEFS: ToolDef[] = [
               nom: { type: 'string', description: 'Le nom posé sur l’élément : minuscules et tirets (« reserver-hero »)' },
               emplacement: { type: 'string', description: 'Où il se trouve : page et élément' },
               raison: { type: 'string', description: 'Ce que ses clics apprennent' },
-              objectif: { type: 'boolean', description: 'Une étape du parcours visé : il entre dans l’entonnoir, dans l’ordre de la liste' },
+              objectif: { type: 'boolean', description: 'Ancienne forme, sans « parcours » : une étape de l’unique parcours, dans l’ordre de la liste' },
             },
             required: ['nom'],
           },
         },
+        parcours: {
+          type: 'array',
+          description: 'Pour « reperes » ou « parcours » : un à quatre parcours du site, chacun un but réel, ses étapes dans l’ordre',
+          items: {
+            type: 'object',
+            properties: {
+              nom: { type: 'string', description: 'Nom lisible (« Réserver une table »)' },
+              objectif: { type: 'string', description: 'Quand il est réussi, en une phrase' },
+              description: { type: 'string', description: 'À quoi sert ce parcours pour le site' },
+              etapes: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    repere: { type: 'string', description: 'Le nom d’un repère ou d’un objectif posé, ou un chemin de page « /tarifs »' },
+                    libelle: { type: 'string', description: 'Court et lisible par un non-informaticien (« Choisit sa formule »)' },
+                    description: { type: 'string', description: 'Ce que fait le visiteur à cette étape, en une phrase' },
+                  },
+                  required: ['repere', 'libelle'],
+                },
+              },
+            },
+            required: ['nom', 'etapes'],
+          },
+        },
         jours: { type: 'number', description: 'Pour « lire » : 7, 30 ou 90' },
-        site: { type: 'string', description: 'Un SITE AUTONOME (identifiant « site:… », donné par une carte d’étude) au lieu de ce projet — pour « etat », « reperes » et « lire » seulement' },
+        site: { type: 'string', description: 'Un SITE AUTONOME (identifiant « site:… », donné par une carte d’étude) au lieu de ce projet — pour « etat », « reperes », « parcours » et « lire » seulement' },
       },
       required: ['action'],
     },
@@ -3715,16 +3741,22 @@ async function outilStatistiques(ctx: ToolContext, project: Project, args: Recor
             : 'MODE ANONYME : aucun bandeau de consentement à ajouter.',
           `PHRASE À AJOUTER À LA PAGE « CONFIDENTIALITÉ » (crée la page si elle manque, ou transmets la phrase à l’utilisateur) :\n${trousse.confidentialite}`,
           `APPELS À LA MAIN (facultatif) :\n${trousse.modeDEmploi}`,
-          'ENSUITE : « reperes » avec la liste entière, puis enregistre et sauvegarde (commit + push). Tu ne publies pas : le suivi sera confirmé tout seul quand le site mis en ligne portera le code, puis à la première visite.',
+          'ENSUITE : « reperes » avec la liste entière des repères et des parcours, puis enregistre et sauvegarde (commit + push). Tu ne publies pas : le suivi sera confirmé tout seul quand le site mis en ligne portera le code, puis à la première visite.',
         ].join('\n\n'),
       };
     }
     default:
-      return { ok: false, text: `Action inconnue : « ${action} ». Choisis etat, activer, reperes ou lire.` };
+      return { ok: false, text: `Action inconnue : « ${action} ». Choisis etat, activer, reperes, parcours ou lire.` };
   }
 }
 
-/** « etat », « reperes » et « lire » : sur le site du projet, ou sur un site autonome désigné. */
+/** Les parcours en quelques lignes, pour l'agent. */
+function decrireLesParcours(parcours: readonly import('@beluga/shared').ParcoursDeSuivi[]): string {
+  if (!parcours.length) return 'Aucun parcours déclaré : pas de flux de conversion.';
+  return `Parcours (${parcours.length}) :\n${parcours.map((p) => `- ${p.nom || 'Parcours principal (déduit des repères « objectif »)'} : ${p.etapes.map((e) => `${e.libelle} [${e.repere}]`).join(' → ')}${p.objectif ? ` — réussi quand : ${p.objectif}` : ''}`).join('\n')}`;
+}
+
+/** « etat », « reperes », « parcours » et « lire » : sur le site du projet, ou sur un site autonome désigné. */
 function outilStatistiquesSurLEspace(
   ctx: ToolContext,
   id: string,
@@ -3744,19 +3776,35 @@ function outilStatistiquesSurLEspace(
         text: [
           `Mode : ${espace.modeSuivi}. Adresse : ${espace.configuration.adresse ?? 'aucune'}. Sites autorisés : ${espace.configuration.origines.join(', ') || 'aucun'}.`,
           `État : ${espace.configuration.etatSuivi}${etat.diagnostic ? ` · code lu sur le site : ${etat.diagnostic}` : ''}${etat.carteId ? ` · carte de correction ${etat.carteId}` : ''}.`,
-          reperes.length ? `Repères (${reperes.length}) :\n${reperes.map((r) => `- ${r.nom}${r.objectif ? ' [objectif]' : ''} — ${r.emplacement} — ${r.raison}`).join('\n')}` : 'Aucun repère déclaré.',
+          reperes.length ? `Repères (${reperes.length}) :\n${reperes.map((r) => `- ${r.nom}${r.objectif ? ' [étape]' : ''} — ${r.emplacement} — ${r.raison}`).join('\n')}` : 'Aucun repère déclaré.',
+          decrireLesParcours(stats.lireLesParcoursDuSite(id, reperes)),
           `Extrait : ${stats.troussePourLeSite(espace, nom).extrait}`,
         ].join('\n'),
       };
     }
-    case 'reperes': {
-      const juge = jugerReperes(args.reperes);
-      if (!juge.ok) return { ok: false, text: juge.raison };
-      stats.ecrireLesReperes(id, juge.reperes, ctx.agentId);
-      const objectifs = juge.reperes.filter((r) => r.objectif).map((r) => r.nom);
+    case 'reperes':
+    case 'parcours': {
+      // « parcours » seuls, ou repères (avec ou sans parcours). L'ancienne forme — repères marqués
+      // « objectif », sans « parcours » — retire les parcours déclarés : le principal se déduit des objectifs.
+      const juge = action === 'reperes' ? jugerReperes(args.reperes) : null;
+      if (juge && !juge.ok) return { ok: false, text: juge.raison };
+      const avecParcours = action === 'parcours' || args.parcours !== undefined;
+      const jugeP = avecParcours ? jugerParcours(args.parcours) : null;
+      if (jugeP && !jugeP.ok) return { ok: false, text: jugeP.raison };
+      if (juge?.ok) stats.ecrireLesReperes(id, juge.reperes, ctx.agentId);
+      stats.ecrireLesParcours(id, jugeP?.ok ? jugeP.parcours : [], ctx.agentId);
+      const reperes = stats.lireLesReperes(id);
+      const connus = new Set(reperes.map((r) => r.nom));
+      const inconnues = [...new Set((jugeP?.ok ? jugeP.parcours : []).flatMap((p) => p.etapes.map((e) => e.repere)))].filter((r) => !r.startsWith('/') && !connus.has(r));
       return {
         ok: true,
-        text: `${juge.reperes.length} repère(s) enregistré(s)${objectifs.length ? ` ; entonnoir : ${objectifs.join(' → ')}` : ' ; aucun marqué « objectif » : pas d’entonnoir'}. Chaque nom doit figurer tel quel dans le code : data-beluga-repere="${juge.reperes[0].nom}".`,
+        text: [
+          juge?.ok ? `${juge.reperes.length} repère(s) enregistré(s). Chaque nom doit figurer tel quel dans le code : data-beluga-repere="${juge.reperes[0].nom}".` : '',
+          decrireLesParcours(stats.lireLesParcoursDuSite(id, reperes)),
+          inconnues.length ? `Étapes sans repère déclaré (${inconnues.join(', ')}) : un objectif atteint sans clic se compte avec belugaSuivi("objectif", { o: "<nom>" }) ; sinon déclare le repère.` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
       };
     }
     case 'lire': {
@@ -3771,13 +3819,20 @@ function outilStatistiquesSurLEspace(
           `Pages : ${r.pages.map((x) => `${x.chemin} (${x.vues})`).join(', ') || 'aucune'}. Sources : ${r.sources.map((x) => `${x.source} (${x.visites})`).join(', ') || 'aucune'}.`,
           `Repères : ${p.reperes.map((x) => `${x.nom} (${x.clics} clics)`).join(', ') || 'aucun clic'}.`,
           p.sessions
-            ? `Parcours : ${p.visiteurs} visiteur(s) reconnu(s), ${p.sessions} session(s), ${p.pagesParSession} page(s) par session, ${p.visiteursRevenus} revenu(s).\nChemins : ${p.chemins.map((c) => `${c.etapes.map((x) => x.nom).join(' → ')} (${c.sessions})`).join(' | ')}\nEntonnoir : ${p.entonnoir.map((m) => `${m.nom} ${m.sessions} (${m.decrochage ?? 0} % perdus)`).join(' → ') || 'aucun objectif déclaré'}`
+            ? `Visiteurs : ${p.visiteurs} reconnu(s), ${p.sessions} session(s), ${p.pagesParSession} page(s) par session, ${p.visiteursRevenus} revenu(s).\nChemins : ${p.chemins.map((c) => `${c.etapes.map((x) => x.nom).join(' → ')} (${c.sessions})`).join(' | ')}\n${
+                d.parcoursDeclares
+                  .map((pc, i) => {
+                    const f = d.tableau.parcours[i];
+                    return `Parcours « ${pc.nom || 'principal'} » : entrée ${f.marches[0].sessions} → ${pc.etapes.map((e, k) => `${e.libelle} ${f.marches[k + 1].sessions} (${f.marches[k + 1].abandons} perdus)`).join(' → ')}`;
+                  })
+                  .join('\n') || 'Aucun parcours déclaré.'
+              }`
             : 'Parcours : aucun visiteur reconnu (mode anonyme, ou aucun accord donné).',
         ].join('\n'),
       };
     }
     default:
-      return { ok: false, text: `Action inconnue : « ${action} ». Choisis etat, activer, reperes ou lire.` };
+      return { ok: false, text: `Action inconnue : « ${action} ». Choisis etat, activer, reperes, parcours ou lire.` };
   }
 }
 

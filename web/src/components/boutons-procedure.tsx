@@ -11,7 +11,7 @@ import { t } from '@/lib/langue';
  * largeur par défaut ; `compact` le réduit à la taille des autres boutons
  * d'action, pour vivre dans le bandeau de titre d'une rangée. L'icône de
  * réglages qui l'accompagnait a disparu (refonte du 24/09/2026) : le tiroir du
- * bandeau porte lui-même l'onglet « Conversation ».
+ * bandeau mène aux réglages par son propre bouton, à droite de l'interrupteur.
  */
 export function BoutonInitierProcedure({
   cible,

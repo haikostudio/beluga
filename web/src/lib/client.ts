@@ -15,7 +15,6 @@ import {
   ConnexionCompte,
   DecisionAttendue,
   CiblePublication,
-  type OngletDeProduction,
   DeployRun,
   EngineInfo,
   EntreeJournal,
@@ -72,6 +71,7 @@ import {
   estCarteMarketing,
   poserLesMoteursAjoutes,
   type FicheMoteur,
+  separerLesSuivis,
 } from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
@@ -210,7 +210,7 @@ export interface AppState {
    * cet agent, quand une décision l'y attend. Le bandeau l'efface une fois lue.
    */
   /** Le tiroir de mise en production demandé d'ailleurs : sur un onglet, avec ou sans fil empilé. */
-  productionDemandee: { projectId: string; agentId?: string; onglet?: OngletDeProduction; nonce: number } | null;
+  productionDemandee: { projectId: string; agentId?: string; nonce: number } | null;
   /**
    * LE VOLET DU DÉPLOIEMENT demandé d'ailleurs (vignette « Dépannage », menu
    * Agents, cloche) — le pendant de `productionDemandee`. Le bloc « À
@@ -242,6 +242,12 @@ export interface AppState {
    */
   moteursAjoutes: FicheMoteur[];
   quotas: AccountQuota[];
+  /**
+   * LES LIGNES DE SUIVI SEULEMENT (Google Gemini) : un état à regarder dans le
+   * volet des quotas, jamais un compte. Séparées de `quotas`, que lisent les
+   * réglages et tous les choix de compte.
+   */
+  quotasSuivi: AccountQuota[];
   /**
    * LE RELEVÉ DES COMPTES A-T-IL ÉTÉ REÇU AU MOINS UNE FOIS ?
    *
@@ -358,6 +364,12 @@ export interface AppState {
   annonces: AnnonceRecue[];
 }
 
+/** Le relevé, rangé en comptes et en lignes de suivi (`separerLesSuivis`). */
+function quotasSepares(releves: AccountQuota[]): { quotas: AccountQuota[]; quotasSuivi: AccountQuota[] } {
+  const { comptes, suivis } = separerLesSuivis(releves);
+  return { quotas: comptes, quotasSuivi: suivis };
+}
+
 const initialState: AppState = {
   connected: false,
   connecting: true,
@@ -383,6 +395,7 @@ const initialState: AppState = {
   engines: [],
   moteursAjoutes: [],
   quotas: [],
+  quotasSuivi: [],
   quotasRecus: false,
   surveillance: [],
   surveillanceRecue: false,
@@ -693,7 +706,7 @@ class Client {
     }));
   }
 
-  demanderProduction(lieu: { projectId: string; agentId?: string; onglet?: OngletDeProduction } | null): void {
+  demanderProduction(lieu: { projectId: string; agentId?: string } | null): void {
     if (!lieu) {
       if (this.state.productionDemandee) this.set({ productionDemandee: null });
       return;
@@ -1064,7 +1077,7 @@ class Client {
           projects: event.projects,
           groups: event.groups ?? [],
           engines: event.engines,
-          quotas: event.quotas,
+          ...quotasSepares(event.quotas),
           // Le premier envoi peut partir AVANT la première lecture de quota :
           // il ne fait foi que s'il porte vraiment des comptes.
           quotasRecus: this.state.quotasRecus || event.quotas.length > 0,
@@ -1383,7 +1396,7 @@ class Client {
         break;
 
       case 'quotas':
-        this.set({ quotas: event.quotas, quotasRecus: true });
+        this.set({ ...quotasSepares(event.quotas), quotasRecus: true });
         break;
 
       case 'surveillance':
@@ -2455,7 +2468,7 @@ if (import.meta.env.MODE !== 'production') {
         projects: options?.sansProjets ? [] : etat.projects,
         groups: etat.groups,
         engines: etat.engines,
-        quotas: etat.quotas,
+        quotas: [...etat.quotas, ...etat.quotasSuivi],
         capacity: etat.capacity,
         agents: Object.values(etat.agents),
       } as ServerEvent);

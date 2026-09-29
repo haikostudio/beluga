@@ -4,6 +4,7 @@ import {
   type EspaceMarketing,
   type EtatAfficheDuSuivi,
   type ModeSuivi,
+  type ParcoursDeSuivi,
   type RepereDeSuivi,
   PREFIXE_SITE_AUTONOME,
   analyserLesParcours,
@@ -17,6 +18,7 @@ import {
   modeDEmploiDuSuivi,
   nomDeSiteValide,
   origineDe,
+  parcoursDuSite,
   phraseDeConfidentialite,
   periodeDesStatistiques,
   tableauDeBord,
@@ -224,6 +226,7 @@ export function supprimerSiteAutonome(id: string): void {
     db.prepare('DELETE FROM marketing_evenements WHERE project_id = ?').run(id);
     db.prepare('DELETE FROM marketing_ventes WHERE project_id = ?').run(id);
     db.prepare('DELETE FROM stats_reperes WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM stats_parcours WHERE project_id = ?').run(id);
     db.prepare('DELETE FROM marketing_espaces WHERE project_id = ?').run(id);
   })();
   diffuser(id);
@@ -272,6 +275,52 @@ export function ecrireLesReperes(id: string, reperes: readonly RepereDeSuivi[], 
   diffuser(id);
 }
 
+/** LES PARCOURS DÉCLARÉS, dans leur ordre (sans le parcours principal déduit : voir `lireLesParcoursDuSite`). */
+export function lireLesParcours(id: string): (ParcoursDeSuivi & { posePar: string | null; creeLe: number })[] {
+  return (
+    getDb()
+      .prepare('SELECT id, nom, objectif, description, etapes, pose_par, cree_le FROM stats_parcours WHERE project_id = ? ORDER BY ordre ASC, id ASC')
+      .all(id) as { id: string; nom: string; objectif: string; description: string; etapes: string; pose_par: string | null; cree_le: number }[]
+  ).map((l) => {
+    let etapes: ParcoursDeSuivi['etapes'] = [];
+    try {
+      const brut = JSON.parse(l.etapes);
+      if (Array.isArray(brut)) etapes = brut.filter((e) => e && typeof e.repere === 'string').map((e) => ({ repere: e.repere, libelle: String(e.libelle ?? ''), description: String(e.description ?? '') }));
+    } catch {
+      /* une ligne illisible rend un parcours sans étape, ignoré à l'affichage */
+    }
+    return { id: l.id, nom: l.nom, objectif: l.objectif, description: l.description, etapes, posePar: l.pose_par, creeLe: l.cree_le };
+  });
+}
+
+/** Les parcours à montrer : les déclarés, sinon le principal déduit des repères « objectif ». */
+export function lireLesParcoursDuSite(id: string, reperes = lireLesReperes(id)): ParcoursDeSuivi[] {
+  return parcoursDuSite(lireLesParcours(id).filter((p) => p.etapes.length), reperes);
+}
+
+/**
+ * LA LISTE ENTIÈRE des parcours (déjà jugée par `jugerParcours`), qui remplace
+ * la précédente ; une liste vide les retire tous (retour au parcours principal
+ * déduit des repères). Les repères qui sont une étape d'un parcours sont
+ * marqués « objectif » : la liste des sites compte leurs atteintes.
+ */
+export function ecrireLesParcours(id: string, parcours: readonly ParcoursDeSuivi[], posePar: string | null, maintenant = Date.now()): void {
+  const db = getDb();
+  const etapes = new Set(parcours.flatMap((p) => p.etapes.map((e) => e.repere)));
+  db.transaction(() => {
+    db.prepare('DELETE FROM stats_parcours WHERE project_id = ?').run(id);
+    const inserer = db.prepare(
+      'INSERT INTO stats_parcours (project_id, id, nom, objectif, description, etapes, ordre, pose_par, cree_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    );
+    parcours.forEach((p, i) => inserer.run(id, p.id, p.nom, p.objectif, p.description, JSON.stringify(p.etapes), i, posePar, maintenant));
+    if (parcours.length) {
+      const marquer = db.prepare('UPDATE stats_reperes SET objectif = ? WHERE project_id = ? AND nom = ?');
+      for (const r of lireLesReperes(id)) marquer.run(etapes.has(r.nom) ? 1 : 0, id, r.nom);
+    }
+  })();
+  diffuser(id);
+}
+
 /* ------------------------------------------------------------------ */
 /* Détail                                                              */
 /* ------------------------------------------------------------------ */
@@ -297,6 +346,7 @@ export function detailDuSite(id: string, demande: { jours?: unknown; debut?: unk
   const nom = nomDeLEspace(espace);
   if (!nom) throw new Error('site introuvable');
   const reperes = lireLesReperes(id);
+  const parcoursDeclares = lireLesParcoursDuSite(id, reperes);
   const { evenements, tronque } = evenementsDuProjet(id, bornes, maintenant);
   const autonome = estSiteAutonome(id);
   const etat = lireEtatDuSuivi(id);
@@ -313,6 +363,8 @@ export function detailDuSite(id: string, demande: { jours?: unknown; debut?: unk
     parcours: analyserLesParcours({ evenements, reperes }),
     parcoursTronque: tronque,
     reperes,
+    /** Les parcours déclarés (ou le principal déduit), leur flux dans `tableau.parcours`, même ordre. */
+    parcoursDeclares,
     ...troussePourLeSite(espace, nom),
     diagnosticSuivi: etat.diagnostic,
     carteSuivi: carte,
@@ -321,7 +373,7 @@ export function detailDuSite(id: string, demande: { jours?: unknown; debut?: unk
     carteObjectifs: autonome ? carteEtude : carteDesObjectifs(id),
     etatAffiche: etatAfficheDeLEspace(espace),
     /** Le groupe de chiffres complet, heures comptées dans le fuseau du serveur. */
-    tableau: tableauDeBord({ evenements, reperes, depuis: periode.depuis, jusqua: periode.jusqua, fuseau: FUSEAU_DU_SERVEUR }),
+    tableau: tableauDeBord({ evenements, parcours: parcoursDeclares, depuis: periode.depuis, jusqua: periode.jusqua, fuseau: FUSEAU_DU_SERVEUR }),
   };
 }
 
@@ -387,7 +439,7 @@ export async function etudierLeSite(
     '',
     consigneDesObjectifs(espace.modeSuivi),
     '',
-    `Sur ce site, les repères se posent À LA MAIN : utilise l’outil « statistiques » avec « site » : « ${id} » (actions « etat », « reperes », « lire »), puis rends à l’utilisateur la liste des attributs data-beluga-repere à poser, élément par élément.`,
+    `Sur ce site, les repères se posent À LA MAIN : utilise l’outil « statistiques » avec « site » : « ${id} » (actions « etat », « reperes » avec ses parcours, « lire »), puis rends à l’utilisateur la liste des attributs data-beluga-repere à poser, élément par élément.`,
   ].join('\n');
   const { faireNaitreLaCarte } = await import('./naissance-de-carte.js');
   const { card } = await faireNaitreLaCarte(
@@ -443,6 +495,7 @@ export async function analyserLesObjectifs(id: string): Promise<{ card: Card; de
   const deja = carteDesObjectifsEnTravail(id) ?? carteDuSuiviEnTravail(id);
   if (deja) return { card: deja, deja: true };
   const reperes = lireLesReperes(id);
+  const parcours = lireLesParcours(id);
   const adresse = espace.configuration.adresse;
   const description = [
     `ANALYSER LES OBJECTIFS DU SITE de ce projet${adresse ? ` (${adresse})` : ''} pour son suivi des visites, en suivi ${espace.modeSuivi === 'visiteur' ? 'complet' : 'anonyme'}. Le code de suivi est déjà posé ou le sera par sa propre carte : ne le touche pas, sauf s’il manque dans le <head>.`,
@@ -451,9 +504,13 @@ export async function analyserLesObjectifs(id: string): Promise<{ card: Card; de
       ? `REPÈRES DÉJÀ DÉCLARÉS (${reperes.length}, le ${new Date(Math.max(...reperes.map((r) => r.creeLe))).toISOString().slice(0, 10)}) — le site a pu changer depuis : garde ceux qui existent encore, retire ceux dont l’élément a disparu, ajoute ce qui manque.\n${reperes.map((r) => `- ${r.nom}${r.objectif ? ' [objectif]' : ''} — ${r.emplacement}`).join('\n')}`
       : 'AUCUN REPÈRE DÉCLARÉ : pars de zéro.',
     '',
+    parcours.length
+      ? `PARCOURS DÉJÀ DÉCLARÉS (${parcours.length}) — garde ceux qui ont encore un sens, corrige leurs étapes, ajoutes-en si le site en a d’autres :\n${parcours.map((p) => `- ${p.nom} : ${p.etapes.map((e) => e.libelle || e.repere).join(' → ')}${p.objectif ? ` (réussi quand : ${p.objectif})` : ''}`).join('\n')}`
+      : 'AUCUN PARCOURS DÉCLARÉ : définis-les.',
+    '',
     consigneDesObjectifs('visiteur'),
     '',
-    'Chaque repère déclaré doit exister dans le code servi (data-beluga-repere). Déclare la liste ENTIÈRE (outil « statistiques », action « reperes »), puis enregistre et sauvegarde (commit + push). Tu ne publies pas.',
+    'Chaque repère déclaré doit exister dans le code servi (data-beluga-repere). Déclare la liste ENTIÈRE des repères ET des parcours (outil « statistiques », action « reperes » avec « reperes » et « parcours »), puis enregistre et sauvegarde (commit + push). Tu ne publies pas.',
   ].join('\n');
   const { faireNaitreLaCarte } = await import('./naissance-de-carte.js');
   const { card } = await faireNaitreLaCarte(

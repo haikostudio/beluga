@@ -1,5 +1,6 @@
 import * as React from 'react';
 import {
+  CalendarClock,
   Loader2,
   LogIn,
   Pencil,
@@ -25,11 +26,12 @@ import {
   Badge,
   Button,
   Input,
+  Label,
   Switch,
   Tooltip,
 } from '@/components/ui';
 import { BlocConnexion, RemplacerCle } from '@/components/connexion-compte';
-import { UsageCursor } from '@/components/quota-badge';
+import { LigneChiffresCursor, UsageCursor } from '@/components/quota-badge';
 import { AjouterUnMoteur } from '@/components/reglages/ajout-de-moteur';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -106,7 +108,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
    * confirmation s'ouvre DANS la fiche, sous les yeux, et elle NOMME le compte
    * visé — un compte de trop vite cliqué se corrigeait au terminal.
    */
-  const [confirmation, setConfirmation] = React.useState<'reconnecter' | 'cle' | 'retirer' | null>(null);
+  const [confirmation, setConfirmation] = React.useState<'reconnecter' | 'cle' | 'retirer' | 'forfait' | null>(null);
   /* Un moteur À CLÉ se reconnecte en recevant une nouvelle clé, jamais par une page. */
   const parCle = descriptionMoteur(quota.engine)?.connexion === 'cle';
   const [retrait, setRetrait] = React.useState(false);
@@ -286,6 +288,20 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
 {t('Reconnecter')}
 </Button>
             ) : null}
+            {/* Un abonnement MiMo n'a qu'un plafond par mois, que Xiaomi ne publie
+                pas : il se saisit ici, et la barre du volet des quotas en découle. */}
+            {quota.engine === 'mimo' ? (
+              <Tooltip label={t('Forfait du mois')}>
+                <Button
+                  data-forfait-mensuel-compte={quota.id}
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setConfirmation((v) => (v === 'forfait' ? null : 'forfait'))}
+                >
+                  <CalendarClock className="h-3 w-3" />
+                </Button>
+              </Tooltip>
+            ) : null}
             <Tooltip label={t('Renommer ce compte')}>
               <Button variant="ghost" size="icon-sm" onClick={() => setEdite(true)}>
                 <Pencil className="h-3 w-3" />
@@ -326,6 +342,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
       {confirmation === 'cle' && lignePleine ? (
         <RemplacerCle accountId={quota.id} engine={quota.engine} label={quota.label} onFini={() => setConfirmation(null)} />
       ) : null}
+      {confirmation === 'forfait' && lignePleine ? <FormulaireForfaitMensuel quota={quota} onFini={() => setConfirmation(null)} /> : null}
       {confirmation === 'retirer' && lignePleine ? (
         <div className="mt-1.5 rounded-md border border-danger bg-raised px-2 py-1.5" data-confirmation-retrait={quota.id}>
           <p className="text-[11.5px] leading-relaxed text-faint">
@@ -359,6 +376,119 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
         </p>
       ) : null}
       {connexion && phase !== 'aucune' ? <BlocConnexion connexion={connexion} /> : null}
+    </div>
+  );
+}
+
+const MILLION = 1_000_000;
+
+/** « 4,1 » ou « 4.1 » (en millions) en jetons ; `undefined` si ce n'est pas un nombre. */
+function millionsEnJetons(saisie: string): number | undefined {
+  const propre = saisie.replace(/\s/g, '').replace(',', '.');
+  if (!propre) return undefined;
+  const nombre = Number(propre);
+  return Number.isFinite(nombre) && nombre >= 0 ? Math.round(nombre * MILLION) : undefined;
+}
+
+const enMillions = (jetons?: number) => (jetons === undefined ? '' : String(Math.round((jetons / MILLION) * 1000) / 1000));
+const enJourSaisi = (ms?: number) => (ms === undefined ? '' : new Date(ms).toISOString().slice(0, 10));
+
+/**
+ * LE FORFAIT DU MOIS d'un compte MiMo : plafond, date de renouvellement, et le
+ * consommé que la console Xiaomi affiche. Xiaomi ne publie aucun de ces chiffres
+ * — ils se recopient d'ici, et la barre du volet des quotas y ajoute ce que
+ * Beluga envoie. Le consommé ne recale la barre que s'il a CHANGÉ : le renvoyer
+ * tel quel daterait à tort un relevé ancien d'aujourd'hui. Un champ vidé s'efface.
+ */
+function FormulaireForfaitMensuel({ quota, onFini }: { quota: AccountQuota; onFini: () => void }) {
+  const forfait = quota.forfaitMensuel;
+  const initial = {
+    plafond: enMillions(forfait?.plafond),
+    jour: enJourSaisi(forfait?.renouvellement),
+    consomme: enMillions(forfait?.consommeAuReleve),
+  };
+  const [plafond, setPlafond] = React.useState(initial.plafond);
+  const [jour, setJour] = React.useState(initial.jour);
+  const [consomme, setConsomme] = React.useState(initial.consomme);
+  const [envoi, setEnvoi] = React.useState(false);
+
+  const valider = async () => {
+    const patch: { type: 'account.forfaitMensuel'; id: string; plafond?: number | null; renouvellement?: number | null; consomme?: number | null } = {
+      type: 'account.forfaitMensuel',
+      id: quota.id,
+    };
+    if (plafond !== initial.plafond) {
+      const jetons = millionsEnJetons(plafond);
+      if (plafond.trim() && !jetons) return client.pushToast('error', t('Plafond illisible : indiquez un nombre de millions de jetons.'));
+      patch.plafond = plafond.trim() ? jetons : null;
+    }
+    if (jour !== initial.jour) patch.renouvellement = jour ? Date.parse(`${jour}T00:00:00Z`) : null;
+    if (consomme !== initial.consomme) {
+      const jetons = millionsEnJetons(consomme);
+      if (consomme.trim() && jetons === undefined) return client.pushToast('error', t('Consommé illisible : indiquez un nombre de millions de jetons.'));
+      patch.consomme = consomme.trim() ? jetons : null;
+    }
+    setEnvoi(true);
+    try {
+      const rendu = await client.call<{ ok: boolean }>(patch);
+      if (!rendu.ok) client.pushToast('error', t('Forfait refusé'));
+      else onFini();
+    } catch {
+      client.pushToast('error', t('Forfait impossible à enregistrer'));
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  return (
+    <div className="mt-1.5 rounded-md border border-border bg-raised px-2 py-1.5" data-forfait-mensuel={quota.id}>
+      <p className="text-[11.5px] leading-relaxed text-faint">
+        {t('Xiaomi ne publie pas ces chiffres : recopiez-les depuis votre console. Beluga y ajoute ce qu\'il envoie ensuite ; laisser le consommé inchangé ne recale pas la barre.')}
+      </p>
+      <div className="mt-1.5 grid gap-1.5 sm:grid-cols-3">
+        <div className="min-w-0">
+          <Label className="text-[11.5px] text-faint">{t('Plafond du mois (millions de jetons)')}</Label>
+          <Input
+            inputMode="decimal"
+            value={plafond}
+            disabled={envoi}
+            placeholder="4100"
+            onChange={(e) => setPlafond(e.target.value)}
+            className="mt-0.5 h-7 w-full min-w-0 text-[13px]"
+            data-forfait-plafond
+          />
+        </div>
+        <div className="min-w-0">
+          <Label className="text-[11.5px] text-faint">{t('Renouvellement')}</Label>
+          <Input
+            type="date"
+            value={jour}
+            disabled={envoi}
+            onChange={(e) => setJour(e.target.value)}
+            className="mt-0.5 h-7 w-full min-w-0 appearance-none text-[13px]"
+            data-forfait-renouvellement
+          />
+        </div>
+        <div className="min-w-0">
+          <Label className="text-[11.5px] text-faint">{t('Consommé lu dans la console (millions de jetons)')}</Label>
+          <Input
+            inputMode="decimal"
+            value={consomme}
+            disabled={envoi}
+            placeholder="441"
+            onChange={(e) => setConsomme(e.target.value)}
+            className="mt-0.5 h-7 w-full min-w-0 text-[13px]"
+            data-forfait-consomme
+          />
+        </div>
+      </div>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        <Button size="sm" disabled={envoi} onClick={valider} data-forfait-enregistrer>
+          {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+          {t('Enregistrer')}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={envoi} onClick={onFini}>{t('Annuler')}</Button>
+      </div>
     </div>
   );
 }
@@ -426,14 +556,23 @@ export function EtatCursor({ accountId }: { accountId: string }) {
   );
 }
 
-/** Le même affichage que la carte du volet des quotas : les deux écrans ne se contredisent pas. */
+function chiffresLisibles(credit: NonNullable<AccountQuota['credit']>): boolean {
+  return credit.cursorPct !== undefined || credit.autresPct !== undefined || credit.demandeCentimes !== undefined;
+}
+
+/** Les mêmes chiffres que la carte du volet des quotas : les deux écrans ne se contredisent pas. */
 export function CreditCursorLigne({ quota }: { quota: AccountQuota }) {
   const usage = quota.usageLocal
     ? usageCursorEnClair(quota.usageLocal.seconds, quota.usageLocal.tours)
     : null;
   return (
     <div className="mt-1 max-w-[320px]">
-      <UsageCursor credit={quota.credit} enErreur={Boolean(quota.error)} />
+      {/* Des chiffres, pas de barres : les barres restent dans le volet des quotas. */}
+      {quota.credit && chiffresLisibles(quota.credit) ? (
+        <LigneChiffresCursor credit={quota.credit} />
+      ) : (
+        <UsageCursor credit={quota.credit} enErreur={Boolean(quota.error)} />
+      )}
       {usage ? <p className="mt-1 text-[11.5px] text-faint">{usage}</p> : null}
     </div>
   );

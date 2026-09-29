@@ -85,6 +85,18 @@ export function messageDeLaCarteVaAuCadrage(carte: CarteRelancable): boolean {
 }
 
 /**
+ * UN MESSAGE SUR UNE CARTE DÉJÀ EN LIGNE OUVRE UNE NOUVELLE CARTE. Une carte
+ * rangée dans « Archivé » avec sa date de mise en ligne ne se modifie pas sur
+ * place : le travail est publié, le réécrire après coup contournerait la revue
+ * et la publication. Le message devient donc la demande d'une carte neuve, qui
+ * suit tout le parcours (Demande, Compréhension, Travail). Une carte archivée
+ * jamais publiée n'est pas concernée ; elle ne s'ouvre que sur geste humain.
+ */
+export function messageOuvreUneNouvelleCarte(carte: { column: ColumnKey | string; deployedAt?: number | null }): boolean {
+  return carte.column === 'archived' && !!carte.deployedAt;
+}
+
+/**
  * UNE CARTE RELANCÉE NE PART PAS TOUTE SEULE. Elle a déjà été lancée
  * (`attempts` > 0), ce que l'ordonnanceur lit comme « travail autorisé à
  * reprendre » : sans ce refus, elle repartait dès son arrivée en « Demande »,

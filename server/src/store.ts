@@ -63,7 +63,13 @@ import {
   pilesEnRoute,
   type TotauxParColonne,
 } from '@beluga/shared';
-import { REFUS_SUPPRESSION_GROUPE_LOCAL, choisirGroupeLocal, idDuGroupeLocal } from '@beluga/shared';
+import {
+  HISTOIRE_DU_MOIS_MS,
+  REFUS_SUPPRESSION_GROUPE_LOCAL,
+  choisirGroupeLocal,
+  idDuGroupeLocal,
+  type EvenementDUsage,
+} from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { carnetDesLectures } from './connaissances.js';
 import { log } from './logger.js';
@@ -283,6 +289,18 @@ export function usageDuCompte(account: string): { seconds: number; tours: number
     .prepare('SELECT COALESCE(SUM(seconds), 0) AS seconds, COUNT(*) AS tours FROM usage WHERE account = ?')
     .get(account) as { seconds: number; tours: number } | undefined;
   return { seconds: row?.seconds ?? 0, tours: row?.tours ?? 0 };
+}
+
+/**
+ * LES TOURS MESURÉS d'un compte sur les 35 derniers jours, en JETONS : c'est ce
+ * que le fournisseur compte. La barre du mois de MiMo s'en sert (règle pure :
+ * `shared/src/usage-mesure.ts`).
+ */
+export function evenementsDUsageDuCompte(compte: string, maintenant = now()): EvenementDUsage[] {
+  const rows = getDb()
+    .prepare('SELECT created_at AS at, tokens AS valeur FROM usage WHERE account = ? AND created_at > ? ORDER BY created_at')
+    .all(compte, maintenant - HISTOIRE_DU_MOIS_MS) as { at: number; valeur: number | null }[];
+  return rows.map((r) => ({ at: r.at, valeur: r.valeur ?? 0 }));
 }
 
 /* ------------------------------------------------------------------ */

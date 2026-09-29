@@ -1,14 +1,15 @@
 /**
- * L'INITIALISATION DE LA MISE EN PRODUCTION — le dialogue avec l'agent.
+ * LES AGENTS DE CONFIGURATION DES DEUX ÉTAPES — le dialogue avec l'agent.
  *
- * Refonte du 22/09/2026. Le DÉPLOIEMENT n'a plus de procédure : il est le même
- * pour tous les projets, sans agent (`publication-simple.ts`) — il est donc
- * toujours « en place ». La MISE EN PRODUCTION, elle, part d'une page blanche :
- * tant que le projet n'a pas de PROCESSUS, le bouton propose de l'INITIALISER.
- * Un agent étudie alors le projet, INTERROGE l'utilisateur (outil ask_user,
- * affiché dans le tiroir) sur l'instance qui accueille la production, puis rend
- * le processus — une suite d'étapes que le bouton « Mise en production »
- * déroulera ensuite telle quelle, sans agent.
+ * Refonte du 22/09/2026, complétée le 29/09/2026. La MISE EN PRODUCTION part
+ * d'une page blanche : tant que le projet n'a pas de PROCESSUS, rien ne peut
+ * partir. Le DÉPLOIEMENT a désormais le sien aussi, FACULTATIF : tant qu'aucun
+ * n'est écrit, le déroulé commun reste en service (`publication-simple.ts`) —
+ * il est donc toujours « en place ». Pour chaque étape, un agent étudie le
+ * projet, INTERROGE l'utilisateur (outil ask_user) puis rend le processus —
+ * une suite d'étapes que le bouton déroulera ensuite telle quelle, sans agent.
+ * Sa conversation vit dans la rubrique de son étape, dans les réglages du
+ * projet ; le processus rendu s'y lit juste au-dessus (`processus-en-place.ts`).
  *
  * Règles PURES : ni base, ni disque, ni date.
  */
@@ -25,6 +26,7 @@ import {
 
 export type ProjetAvecProcedures = {
   miseEnProduction?: { processus?: ProcessusDeProduction; agentId?: string };
+  deploiement?: { processus?: ProcessusDeProduction; agentId?: string };
 };
 
 /**
@@ -44,30 +46,23 @@ export function libelleInitier(_cible?: CiblePublication): string {
   return 'Configuration de la procédure';
 }
 
-/* ------------------------------------------------------------------ */
-/* LE TIROIR DE LA MISE EN PRODUCTION — deux onglets                    */
-/* ------------------------------------------------------------------ */
-
-/**
- * Le bandeau du bas ouvre UN tiroir, calqué sur celui d'une tâche, avec deux
- * onglets : la CONVERSATION avec l'agent de configuration, et la
- * CONFIGURATION qu'il a écrite, suivie du bouton de mise en production.
- */
-export type OngletDeProduction = 'conversation' | 'configuration';
-
-/**
- * L'ONGLET D'ENTRÉE : la conversation tant que rien n'est configuré (il n'y a
- * rien d'autre à faire que parler à l'agent), la configuration ensuite — et
- * toujours elle pendant qu'une mise en production se déroule, puisque c'est là
- * que son suivi s'affiche.
- */
-export function ongletDEntreeDeProduction(input: { enPlace: boolean; deroule?: boolean }): OngletDeProduction {
-  return input.enPlace || input.deroule ? 'configuration' : 'conversation';
+/** L'agent de configuration retenu sur le projet pour cette étape, s'il y en a un. */
+export function agentDeConfiguration(
+  projet: ProjetAvecProcedures | undefined,
+  cible: CiblePublication = 'production',
+): string | undefined {
+  return (cible === 'dev' ? projet?.deploiement?.agentId : projet?.miseEnProduction?.agentId) || undefined;
 }
 
-/** L'agent de configuration retenu sur le projet, s'il y en a un. */
-export function agentDeConfiguration(projet: ProjetAvecProcedures | undefined): string | undefined {
-  return projet?.miseEnProduction?.agentId || undefined;
+/** L'étape dont cet agent est l'agent de configuration, ou `null`. */
+export function etapeDeLAgentDeConfiguration(
+  projet: ProjetAvecProcedures | undefined,
+  agentId: string | undefined,
+): CiblePublication | null {
+  if (!agentId) return null;
+  if (projet?.miseEnProduction?.agentId === agentId) return 'production';
+  if (projet?.deploiement?.agentId === agentId) return 'dev';
+  return null;
 }
 
 /**
@@ -98,8 +93,9 @@ export function etatDeLInitialisation(
   projet: ProjetAvecProcedures | undefined,
   agent: AgentPourLInitialisation | null | undefined,
   maintenant: number,
+  cible: CiblePublication = 'production',
 ): EtatDeLInitialisation | null {
-  const retenu = agentDeConfiguration(projet);
+  const retenu = agentDeConfiguration(projet, cible);
   if (!retenu || !agent || agent.id !== retenu) return null;
   if (agent.attendReponse === true) return 'question';
   if (agentTientSonTour(agent)) return agent.status === 'starting' ? 'demarre' : 'travail';
@@ -133,7 +129,7 @@ export function vignetteDInitialisationVisible(etat: EtatDeLInitialisation | nul
 export type EchangeDeProcedure = { qui: 'agent' | 'moi'; texte: string };
 
 /**
- * LA QUESTION QUE L'AGENT POSE AVEC SON OUTIL, portée jusqu'au tiroir.
+ * LA QUESTION QUE L'AGENT POSE AVEC SON OUTIL, portée jusqu'à sa conversation.
  *
  * Un agent ne finit pas un tour sur une question écrite en texte : la méthode
  * du projet lui impose l'outil `ask_user`, qui ARRÊTE son tour jusqu'à la
@@ -222,7 +218,7 @@ export function issueDuTour(input: { contenu?: string; statut?: string; erreur?:
   if (!contenu) return { raison: 'L’agent n’a rien rendu : aucune question, aucun processus.' };
   const lu = lireProcessusRendu(contenu);
   /* L'explication écrite avant le bloc VOYAGE avec le processus : c'est elle
-     que l'onglet « Configuration » affiche. */
+     que la rubrique de l'étape affiche. */
   if (lu.processus) {
     return {
       processus: lu.explication ? { ...lu.processus, explication: lu.explication } : lu.processus,

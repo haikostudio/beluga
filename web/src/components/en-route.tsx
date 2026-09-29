@@ -37,6 +37,7 @@ import {
   depannagesDeLaBande,
   depanneurVivant,
   etatDeLInitialisation,
+  etapeDeLAgentDeConfiguration,
   procedureEnPlace,
   activiteDeLaMere,
   etapeCouranteDeSuivi,
@@ -273,13 +274,15 @@ export function EnRoute({
                 /* L'agent de configuration de la production garde sa vignette
                    à part, la même qu'en tête de « En cours » du tableau. */
                 const projet = state.projects.find((p) => p.id === agent.projectId);
-                const initialisation = etatDeLInitialisation(projet, agent, Date.now());
+                const etapeConfiguree = etapeDeLAgentDeConfiguration(projet, agent.id) ?? 'production';
+                const initialisation = etatDeLInitialisation(projet, agent, Date.now(), etapeConfiguree);
                 return initialisation ? (
                   <VignetteInitialisationProduction
                     key={agent.id}
                     agent={agent}
                     etat={initialisation}
                     projet={projet}
+                    cible={etapeConfiguree}
                     reconfiguration={procedureEnPlace(projet, 'production')}
                     avecProjet
                   />

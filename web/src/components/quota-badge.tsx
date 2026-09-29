@@ -4,7 +4,6 @@ import {
   AccountQuota,
   EngineId,
   compteDeSecours,
-  dansEnClair,
   fraicheurDuReleve,
   heureDeRemiseAZero,
   historiquePourProfil,
@@ -36,6 +35,7 @@ import {
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
+import { detailDePrevision, texteDePrevision, texteDuManque } from '@/lib/prevision-quota';
 
 /**
  * Le bouton de quota : DEUX ronds côte à côte — la fenêtre courte (5 h) à
@@ -240,6 +240,15 @@ function legendeCourbeCredit(points: { at: number; credit?: number }[]): string 
 }
 
 /**
+ * Ce compte n'a AUCUNE fenêtre de pourcentage à jauger : moteur payé à la
+ * dépense, ou ligne de suivi (Gemini, dont la fiche n'est pas active et que le
+ * registre ne connaît donc pas).
+ */
+function sansFenetre(quota: AccountQuota): boolean {
+  return moteurSansQuota(quota.engine) || Boolean(quota.suivi);
+}
+
+/**
  * CE QUE LA BULLE « i » D'UN COMPTE RACONTE : la légende de la courbe, le
  * moment le plus chargé, l'amorce réussie du serveur, le travail enregistré
  * ici. Rien de ce qui demande une réaction (alerte, erreur, prévision) : cela
@@ -252,8 +261,12 @@ function textesDAide(
   prevision: PrevisionEpuisement | null | undefined,
 ): string[] {
   const textes: (string | null | undefined)[] = [];
-  if (moteurSansQuota(quota.engine)) {
+  if (sansFenetre(quota)) {
     textes.push(legendeCourbeCredit(points));
+    if (quota.usageMesuree) {
+      textes.push(t("Xiaomi ne publie pas le solde de l'abonnement : la barre du mois part du chiffre saisi dans Réglages › Comptes, puis ajoute ce que Beluga envoie. Elle est estimée : l'usage de la même clé hors Beluga n'est pas compté."));
+    }
+    if (quota.suivi) textes.push(t('Suivi seulement : ce moteur ne reçoit jamais de travail.'));
     textes.push(quota.usageLocal ? usageCursorEnClair(quota.usageLocal.seconds, quota.usageLocal.tours) : null);
   } else {
     textes.push(legendeCourbe(points, prevision, Boolean(quota.session), Boolean(quota.weekly)));
@@ -268,7 +281,8 @@ function textesDAide(
 export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   const [open, setOpen] = React.useState(false);
   const state = client.lireEtat();
-  const quotas = state.quotas;
+  // Les lignes de suivi (Gemini) ne vivent que dans ce volet : ailleurs, `state.quotas` ne porte que des comptes.
+  const quotas = React.useMemo(() => [...state.quotas, ...state.quotasSuivi], [state.quotas, state.quotasSuivi]);
   /* Le bouton tourne pendant tout l'aller-retour, réussite comme échec : un
      `send` sans réponse ne le permettait pas, il faut le `call` qui attend
      la fin du relevé. */
@@ -378,7 +392,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
    * compte coupé ou rallumé en cours de route change la liste : l'indice est
    * ramené dans ses bornes par le modulo, rien ne casse.
    */
-  const enService = quotas.filter((q) => !q.disabled);
+  const enService = quotas.filter((q) => !q.disabled && !q.suivi);
   const [rang, setRang] = React.useState(() => {
     const depart = enService.findIndex((q) => q.engine === activeEngine && q.active);
     return depart >= 0 ? depart : Math.max(0, enService.findIndex((q) => q.engine === activeEngine));
@@ -485,7 +499,9 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   <PastilleEtatCompte quota={quota} />
                   {/* L'interrupteur coupe ou rallume le compte. Coupé, il n'est
                       plus choisi par l'ordonnanceur et sa fenêtre de 5 h n'est
-                      plus amorcée ; il reste dans la liste, éteint. */}
+                      plus amorcée ; il reste dans la liste, éteint. Une ligne de
+                      SUIVI (Gemini) n'est pas un compte : sa place reste vide. */}
+                  {quota.suivi ? <span className="h-5 w-9 shrink-0" aria-hidden /> : (
                   <Tooltip label={quota.disabled ? t('Compte désactivé — le remettre en service') : t('Désactiver ce compte')}>
                     <Switch
                       data-interrupteur-compte={quota.id}
@@ -495,11 +511,15 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                       aria-label={quota.disabled ? t('Réactiver {v0}', { v0: quota.label }) : t('Désactiver {v0}', { v0: quota.label })}
                     />
                   </Tooltip>
+                  )}
                 </div>
 
                 <div className="mt-1.5 space-y-1.5">
-                  {moteurSansQuota(quota.engine) ? (
-                    <UsageCursor credit={quota.credit} enErreur={Boolean(quota.error)} />
+                  {sansFenetre(quota) ? (
+                    <>
+                      <UsageCursor credit={quota.credit} enErreur={Boolean(quota.error)} />
+                      <UsageMesuree usage={quota.usageMesuree} />
+                    </>
                   ) : (
                     <>
                       {quota.session ? (
@@ -522,7 +542,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   )}
                 </div>
 
-                {moteurSansQuota(quota.engine) ? (
+                {sansFenetre(quota) ? (
                   <CourbeCredit points={histoire[quota.id] ?? []} />
                 ) : (
                   <Courbe
@@ -541,7 +561,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   <ReleveAncien
                     erreur={quota.error}
                     fetchedAt={quota.fetchedAt}
-                    aReconnecter={quota.connexion?.doitReconnecter}
+                    aReconnecter={!quota.suivi && quota.connexion?.doitReconnecter}
                   />
                 ) : null}
               </div>
@@ -641,6 +661,64 @@ export function UsageCursor({ credit, enErreur }: { credit?: CreditCursor; enErr
   );
 }
 
+/**
+ * LA BARRE DU MOIS d'un abonnement Xiaomi MiMo, seule fenêtre qu'il ait. Xiaomi
+ * ne publie pas le solde : le forfait vient des réglages du compte, plus ce que
+ * Beluga a envoyé depuis — une ESTIMATION, et l'écran le dit. Sans plafond saisi :
+ * une phrase qui dit quoi renseigner, jamais une jauge vide.
+ */
+function UsageMesuree({ usage }: { usage?: AccountQuota['usageMesuree'] }) {
+  if (!usage) return null;
+  if (!usage.mois) {
+    return (
+      <p className="text-[11.5px] leading-relaxed text-faint" data-essai="usage-mesure">
+        {t('Aucun plafond mensuel saisi : renseignez-le dans Réglages › Comptes pour voir la barre du mois.')}
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-1.5" data-essai="usage-mesure">
+      <Window label={libelleFenetre(usage.mois, 'weekly')} window={usage.mois} />
+      <p className="text-[11px] text-faint">{t('Estimé · le forfait saisi, plus ce que Beluga a envoyé depuis')}</p>
+    </div>
+  );
+}
+
+/**
+ * L'USAGE CURSOR EN UNE LIGNE DE CHIFFRES, pour les réglages : forfait, part des
+ * modèles Cursor et des autres modèles, remise à zéro, dépense à la demande. Les
+ * mêmes chiffres que les barres du volet — les écrans ne se contredisent pas —,
+ * sans les barres. `null` quand rien n'est lisible : l'appelant garde alors
+ * l'état du volet (lecture en cours, erreur).
+ */
+export function LigneChiffresCursor({ credit }: { credit?: CreditCursor }) {
+  if (!credit) return null;
+  const format = formatRegional();
+  const morceaux: string[] = [];
+  if (credit.forfait) morceaux.push(credit.prix ? `${credit.forfait} · ${credit.prix}` : credit.forfait);
+  if (credit.cursorPct !== undefined) morceaux.push(`${t('Modèles Cursor')} ${Math.round(credit.cursorPct)} %`);
+  if (credit.autresPct !== undefined) morceaux.push(`${t('Autres modèles')} ${Math.round(credit.autresPct)} %`);
+  if (credit.finDuCycle) {
+    morceaux.push(
+      t('Remise à zéro le {v0}', {
+        v0: new Date(credit.finDuCycle).toLocaleDateString(format, { day: 'numeric', month: 'long' }),
+      }),
+    );
+  }
+  if (credit.demandeCentimes !== undefined) {
+    const limite = credit.demandeLimiteCentimes;
+    morceaux.push(
+      `${t('À la demande')} ${montantCursorEnClair(credit.demandeCentimes, format)}${limite ? ` / ${montantCursorEnClair(limite, format)}` : ''}`,
+    );
+  }
+  if (!morceaux.length) return null;
+  return (
+    <p className="text-[11.5px] leading-relaxed text-faint" data-essai="quota-cursor-chiffres">
+      {morceaux.join(' · ')}
+    </p>
+  );
+}
+
 function ReleveAncien({
   erreur,
   fetchedAt,
@@ -719,6 +797,8 @@ function PastilleEtatCompte({ quota }: { quota: AccountQuota }) {
     ? { cle: 'desactive', ton: 'eteint', texte: t('Compte désactivé : il ne reçoit plus de travail.') }
     : compteEpuise(quota)
       ? { cle: 'epuise', ton: 'danger', texte: t('Quota épuisé : ce compte ne peut plus servir avant sa remise à zéro.') }
+      : quota.suivi
+        ? { cle: 'suivi', ton: 'pret', texte: t('Suivi seulement : ce moteur ne reçoit jamais de travail.') }
       : quota.connexion?.doitReconnecter
         ? {
             cle: 'reconnecter',
@@ -876,6 +956,8 @@ function libelleFenetre(
   const secondes = win.durationSeconds;
   if (secondes === 5 * 60 * 60) return t('Fenêtre 5 h');
   if (secondes === 7 * 24 * 60 * 60) return 'Semaine';
+  // Un forfait mensuel (MiMo) : de 28 à 31 jours selon le mois.
+  if (secondes && secondes >= 28 * 24 * 3600 && secondes <= 31 * 24 * 3600) return t('Mois');
   if (secondes && secondes < 24 * 60 * 60) {
     const heures = secondes / 3600;
     return Number.isInteger(heures) ? t('Fenêtre {heures} h', { heures }) : t('Fenêtre courte');
@@ -936,14 +1018,14 @@ function Window({
         // Orange quand le quota tombe nettement avant la fin de la semaine,
         // discret quand il tient presque jusqu'au bout. L'heure exacte et le
         // rythme observé restent en infobulle, comme pour le temps restant.
-        <Tooltip label={prevision.detail}>
+        <Tooltip label={detailDePrevision(prevision)}>
           <p
             className={cn(
               'mt-0.5 w-fit text-[11px]',
               prevision.niveau === 'manque' ? 'font-medium text-warning' : 'text-faint',
             )}
           >
-            {prevision.texte} ({dansEnClair(prevision.at, Date.now())})
+            {texteDePrevision(prevision)} ({texteDuManque(prevision)})
           </p>
         </Tooltip>
       ) : null}

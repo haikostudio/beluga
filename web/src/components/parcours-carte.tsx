@@ -577,8 +577,15 @@ export function PanneauDeDecision({
   questionEnTexte: boolean;
 }) {
   const decisions = React.useMemo(
-    () => decisionsDuParcours({ messages, parcours: carte.parcours, questionEnTexte }),
-    [messages, carte.parcours, questionEnTexte],
+    () =>
+      decisionsDuParcours({
+        messages,
+        parcours: carte.parcours,
+        questionEnTexte,
+        colonne: carte.column,
+        archivee: !!carte.archivedAt,
+      }),
+    [messages, carte.parcours, questionEnTexte, carte.column, carte.archivedAt],
   );
   const parId = React.useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   const questions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');

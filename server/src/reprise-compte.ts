@@ -70,7 +70,8 @@ export function comptesConnus(): CompteConnu[] {
   // Un compte à sa LIMITE CONNUE n'est pas disponible, quoi qu'en dise le
   // relevé : le moteur l'a refusé (`server/src/limites-connues.ts`).
   const ecartes = comptesEcartesParLimite();
-  return cachedQuotas().map((quota) => ({
+  // Une ligne de SUIVI (Gemini) n'est pas un compte : jamais proposée pour poursuivre un tour.
+  return cachedQuotas().filter((quota) => !quota.suivi).map((quota) => ({
     id: quota.id,
     label: quota.label,
     engine: quota.engine,

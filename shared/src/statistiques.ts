@@ -194,8 +194,8 @@ export const METHODE_DES_REPERES = [
   '1. Étudie les pages servies : à quoi sert le site, quel parcours mène au but (réserver, acheter, écrire, s’inscrire, télécharger).',
   '2. Repère ce qui compte : appels à l’action (en-tête, héros, pied), boutons de formulaire, liens sortants (téléphone, courriel, réseaux, boutique), onglets et zones clés (tarifs, galerie, FAQ). Dix à trente repères, pas un par lien.',
   '3. Pose sur chaque élément data-beluga-repere="<nom-en-kebab>" : un nom par INTENTION et par EMPLACEMENT (« reserver-hero », « reserver-pied », « tel-contact »). Un clic est compté tout seul, sans autre code.',
-  '4. Marque « objectif » les étapes du parcours visé, DANS L’ORDRE (« voir-tarifs » → « reserver-hero » → « envoyer-reservation ») : elles forment l’entonnoir. Un but atteint sans clic (page de remerciement) : belugaSuivi("objectif", { o: "<nom>" }) et un repère du même nom.',
-  '5. Déclare la liste entière avec « reperes » (nom, emplacement, raison, objectif).',
+  '4. Définis les PARCOURS du site — un à quatre, un par but réel (« Réserver une table », « Demander un devis », « S’inscrire à la lettre ») : pour chacun un « nom » lisible, un « objectif » (la phrase qui dit quand il est réussi), une « description », et ses « etapes » DANS L’ORDRE, du premier geste au but atteint. Chaque étape : « repere » (le nom d’un repère posé, d’un objectif, ou un chemin de page « /tarifs »), un « libelle » court et lisible par un non-informaticien (« Voit les tarifs », « Choisit sa formule », « Paie »), une « description » d’une phrase. Un but atteint sans clic (page de remerciement) : belugaSuivi("objectif", { o: "<nom>" }) et une étape de ce nom.',
+  '5. Déclare le tout avec l’action « reperes » : « reperes » (nom, emplacement, raison) ET « parcours » — chaque liste ENTIÈRE remplace la précédente.',
 ].join('\n');
 
 /**
@@ -208,10 +208,10 @@ export const METHODE_DES_REPERES = [
 export function consigneDesObjectifs(mode: 'anonyme' | 'visiteur'): string {
   return [
     mode === 'visiteur'
-      ? 'SUIVI COMPLET — OBJECTIFS OBLIGATOIRES : étudie CE site (ses pages, son offre, son public) et fixe SES objectifs — deux à cinq buts concrets (réserver, acheter, écrire, s’inscrire, télécharger…), marqués « objectif » dans l’ordre du parcours. Des objectifs génériques ne servent à rien : ils doivent se lire dans les pages de ce site.'
-      : 'SUIVI ANONYME : les repères comptent les clics ; marque aussi les étapes du parcours visé « objectif » quand le site en a un.',
+      ? 'SUIVI COMPLET — OBJECTIFS OBLIGATOIRES : étudie CE site (ses pages, son offre, son public) et fixe SES parcours — un à quatre buts concrets (réserver, acheter, écrire, s’inscrire, télécharger…), chacun avec ses étapes nommées dans l’ordre. Des objectifs génériques ne servent à rien : ils doivent se lire dans les pages de ce site.'
+      : 'SUIVI ANONYME : les repères comptent les clics ; déclare aussi les parcours du site quand il en a.',
     METHODE_DES_REPERES,
-    'DÉCLARE la liste avec l’outil « statistiques », action « reperes » : elle s’affiche aussitôt dans le service Statistiques.',
+    'DÉCLARE repères et parcours avec l’outil « statistiques », action « reperes » : ils s’affichent aussitôt dans le service Statistiques, onglet Parcours.',
   ].join('\n');
 }
 
@@ -259,6 +259,109 @@ export function jugerReperes(brut: unknown): { ok: true; reperes: RepereDeSuivi[
 }
 
 /* ------------------------------------------------------------------ */
+/* Parcours déclarés                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE ÉTAPE D'UN PARCOURS : un repère cliqué ou un objectif atteint (son nom,
+ * tel que posé sur la page), ou une page vue (un chemin qui commence par « / »).
+ * Le libellé et la phrase sont ce que l'écran montre : la nomenclature lisible.
+ */
+export interface EtapeDeSuiviDuParcours {
+  repere: string;
+  libelle: string;
+  description: string;
+}
+
+/**
+ * UN PARCOURS DÉCLARÉ PAR L'AGENT (demande du 29/09/2026) : un site en a
+ * plusieurs — réserver, écrire, s'inscrire… —, chacun son but et ses étapes
+ * dans l'ordre. Le parcours « principal » (nom vide) est celui qu'on déduit
+ * des anciens repères marqués « objectif », tant qu'aucun n'a été déclaré.
+ */
+export interface ParcoursDeSuivi {
+  id: string;
+  /** Le nom lisible ; vide pour le parcours principal déduit (l'écran écrit « Parcours principal »). */
+  nom: string;
+  /** Ce qui compte comme réussi, en une phrase. */
+  objectif: string;
+  description: string;
+  etapes: EtapeDeSuiviDuParcours[];
+}
+
+export const PARCOURS_MAX = 6;
+export const ETAPES_DE_PARCOURS_MAX = 10;
+export const ID_DU_PARCOURS_PRINCIPAL = 'principal';
+
+/** Un chemin de page (« /tarifs ») ou un nom de repère ; rien d'autre. */
+function repereDEtape(valeur: unknown): string | undefined {
+  if (typeof valeur !== 'string') return undefined;
+  const v = valeur.trim();
+  if (v.startsWith('/')) return v.split(/[?#\s]/)[0].slice(0, 120) || undefined;
+  return nomDeRepere(v);
+}
+
+/** « payer-formule » → « Payer formule » : le libellé d'un repère qui n'en a pas reçu. */
+export function libelleDeRepere(nom: string): string {
+  if (nom.startsWith('/')) return nom;
+  const mots = nom.replace(/-+/g, ' ').trim();
+  return mots ? mots[0].toUpperCase() + mots.slice(1) : nom;
+}
+
+const texte = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ').slice(0, max) : '');
+
+/**
+ * LES PARCOURS DÉCLARÉS PAR UN AGENT : la liste ENTIÈRE, qui remplace la
+ * précédente. Chaque parcours a un nom et au moins une étape lisible ; une
+ * étape s'écrit { repere, libelle, description } ou simplement son nom.
+ * Deux parcours du même nom : le premier est gardé.
+ */
+export function jugerParcours(brut: unknown): { ok: true; parcours: ParcoursDeSuivi[] } | { ok: false; raison: string } {
+  if (!Array.isArray(brut)) return { ok: false, raison: 'Donne « parcours » : une liste de { nom, objectif, description, etapes: [{ repere, libelle, description }] }.' };
+  const vus = new Set<string>();
+  const parcours: ParcoursDeSuivi[] = [];
+  for (const p of brut.slice(0, PARCOURS_MAX)) {
+    if (!p || typeof p !== 'object') continue;
+    const o = p as Record<string, unknown>;
+    const nom = texte(o.nom, 80);
+    const id = nomDeRepere(nom);
+    if (!id || vus.has(id)) continue;
+    const etapes: EtapeDeSuiviDuParcours[] = [];
+    for (const e of Array.isArray(o.etapes) ? o.etapes.slice(0, ETAPES_DE_PARCOURS_MAX) : []) {
+      const x = typeof e === 'string' ? { repere: e } : e && typeof e === 'object' ? (e as Record<string, unknown>) : null;
+      const repere = x ? repereDEtape(x.repere ?? x.nom) : undefined;
+      if (!x || !repere) continue;
+      etapes.push({ repere, libelle: texte(x.libelle, 60) || libelleDeRepere(repere), description: texte(x.description, 240) });
+    }
+    if (!etapes.length) continue;
+    vus.add(id);
+    parcours.push({ id, nom, objectif: texte(o.objectif, 240), description: texte(o.description, 400), etapes });
+  }
+  if (!parcours.length) return { ok: false, raison: 'Aucun parcours lisible : chaque parcours a un « nom » et au moins une étape (« repere » : le nom posé sur la page, ou un chemin « /page »).' };
+  return { ok: true, parcours };
+}
+
+/**
+ * LES PARCOURS À MONTRER : ceux déclarés, sinon le parcours principal déduit
+ * des repères marqués « objectif » (l'ancienne forme, un seul entonnoir),
+ * sinon aucun. Les libellés vides sont remplis depuis le nom du repère.
+ */
+export function parcoursDuSite(declares: readonly ParcoursDeSuivi[], reperes: readonly RepereDeSuivi[]): ParcoursDeSuivi[] {
+  if (declares.length) return declares.map((p) => ({ ...p, etapes: p.etapes.map((e) => ({ ...e, libelle: e.libelle || libelleDeRepere(e.repere) })) }));
+  const objectifs = reperes.filter((r) => r.objectif);
+  if (!objectifs.length) return [];
+  return [
+    {
+      id: ID_DU_PARCOURS_PRINCIPAL,
+      nom: '',
+      objectif: '',
+      description: '',
+      etapes: objectifs.map((r) => ({ repere: r.nom, libelle: libelleDeRepere(r.nom), description: r.raison || r.emplacement })),
+    },
+  ];
+}
+
+/* ------------------------------------------------------------------ */
 /* Parcours                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -289,12 +392,6 @@ export interface ClicsDuRepere {
   visiteurs: number;
 }
 
-export interface ConstatDeParcours {
-  genre: 'chemin' | 'decrochage' | 'repere-vedette' | 'repere-muet' | 'retour' | 'une-page';
-  /** Les valeurs de la phrase : l'écran l'écrit dans sa langue. */
-  valeurs: Record<string, string | number>;
-}
-
 export interface AnalyseDesParcours {
   /** Visiteurs reconnus (mode visiteur, après accord). */
   visiteurs: number;
@@ -304,11 +401,9 @@ export interface AnalyseDesParcours {
   /** Pages par session, arrondi au dixième ; null sans session. */
   pagesParSession: number | null;
   chemins: CheminFrequent[];
-  entonnoir: MarcheDEntonnoir[];
   reperes: ClicsDuRepere[];
   /** Les visiteurs les plus récents, pour ouvrir leur frise. */
   derniersVisiteurs: { id: string; sessions: number; pages: number; dernier: number }[];
-  constats: ConstatDeParcours[];
 }
 
 /** Une session sans identifiant de session (vieux navigateur) : le visiteur et 30 minutes d'inactivité. */
@@ -356,6 +451,11 @@ export function sessionsDesVisiteurs(evenements: readonly EvenementDeSuivi[]): {
   return [...sessions.values()].filter((s) => s.etapes.length).map(({ dernier: _d, ...s }) => s);
 }
 
+/** Une étape visée est atteinte : une page par son chemin (« /tarifs »), sinon un repère ou un objectif par son nom. */
+function etapeAtteinte(x: EtapeVisiteur, visee: string): boolean {
+  return visee.startsWith('/') ? x.genre === 'page' && x.nom === visee : x.genre !== 'page' && x.nom === visee;
+}
+
 /**
  * L'ENTONNOIR : les étapes visées (repères ou objectifs marqués « objectif »,
  * dans leur ordre), et combien de sessions les franchissent l'une après
@@ -368,7 +468,7 @@ export function entonnoirDesSessions(sessions: readonly { etapes: readonly Etape
     let rang = 0;
     for (const x of s.etapes) {
       if (rang >= etapesVisees.length) break;
-      if (x.genre !== 'page' && x.nom === etapesVisees[rang]) {
+      if (etapeAtteinte(x, etapesVisees[rang])) {
         atteintes[rang] += 1;
         rang += 1;
       }
@@ -387,7 +487,7 @@ export function entonnoirDesSessions(sessions: readonly { etapes: readonly Etape
  * ANALYSE LES PARCOURS d'une période. `evenements` : tous ceux de la période
  * (les repères se comptent dans les deux modes, les parcours seulement sur
  * ceux qui portent un visiteur reconnu). `reperes` : la liste déclarée, pour
- * l'entonnoir et pour signaler un repère que personne ne touche.
+ * compter aussi les repères que personne ne touche.
  */
 export function analyserLesParcours(entree: { evenements: readonly EvenementDeSuivi[]; reperes: readonly RepereDeSuivi[] }): AnalyseDesParcours {
   const sessions = sessionsDesVisiteurs(entree.evenements);
@@ -424,60 +524,20 @@ export function analyserLesParcours(entree: { evenements: readonly EvenementDeSu
   }
   const reperes = [...clics.entries()].map(([nom, c]) => ({ nom, clics: c.clics, visiteurs: c.visiteurs.size })).sort((a, b) => b.clics - a.clics || a.nom.localeCompare(b.nom));
 
-  const entonnoir = entonnoirDesSessions(sessions, entree.reperes.filter((r) => r.objectif).map((r) => r.nom));
   const visiteursRevenus = [...parVisiteur.values()].filter((v) => v.sessions > 1).length;
 
-  const analyse: AnalyseDesParcours = {
+  return {
     visiteurs: parVisiteur.size,
     sessions: sessions.length,
     visiteursRevenus,
     pagesParSession: sessions.length ? Math.round((pages / sessions.length) * 10) / 10 : null,
     chemins: cheminsTries,
-    entonnoir,
     reperes,
     derniersVisiteurs: [...parVisiteur.entries()]
       .map(([id, v]) => ({ id, ...v }))
       .sort((a, b) => b.dernier - a.dernier)
       .slice(0, DERNIERS_VISITEURS_MAX),
-    constats: [],
   };
-  analyse.constats = lectureDesParcours(analyse);
-  return analyse;
-}
-
-/**
- * LA LECTURE RÉSUMÉE : trois à cinq constats tirés des chiffres, sans moteur.
- * Chaque constat porte ses valeurs ; l'écran l'écrit dans sa langue.
- */
-export function lectureDesParcours(a: Omit<AnalyseDesParcours, 'constats'>): ConstatDeParcours[] {
-  const constats: ConstatDeParcours[] = [];
-  if (!a.sessions) return constats;
-  const premier = a.chemins[0];
-  if (premier && premier.sessions > 1) {
-    constats.push({
-      genre: 'chemin',
-      valeurs: { chemin: premier.etapes.map((x) => x.nom).join(' → '), part: Math.round((premier.sessions / a.sessions) * 100) },
-    });
-  }
-  let pire: MarcheDEntonnoir | null = null;
-  let avant: MarcheDEntonnoir | null = null;
-  for (let i = 1; i < a.entonnoir.length; i++) {
-    const m = a.entonnoir[i];
-    if (m.decrochage !== null && (!pire || m.decrochage > (pire.decrochage ?? 0))) {
-      pire = m;
-      avant = a.entonnoir[i - 1];
-    }
-  }
-  if (pire && avant && (pire.decrochage ?? 0) >= 30) {
-    constats.push({ genre: 'decrochage', valeurs: { de: avant.nom, vers: pire.nom, part: pire.decrochage ?? 0 } });
-  }
-  const vedette = a.reperes.find((r) => r.clics > 0);
-  if (vedette) constats.push({ genre: 'repere-vedette', valeurs: { nom: vedette.nom, clics: vedette.clics } });
-  const muets = a.reperes.filter((r) => r.clics === 0).map((r) => r.nom);
-  if (muets.length && a.sessions >= 20) constats.push({ genre: 'repere-muet', valeurs: { noms: muets.slice(0, 3).join(', '), n: muets.length } });
-  if (a.visiteurs >= 5) constats.push({ genre: 'retour', valeurs: { part: Math.round((a.visiteursRevenus / a.visiteurs) * 100) } });
-  if (a.pagesParSession !== null && a.pagesParSession < 1.5 && a.sessions >= 10) constats.push({ genre: 'une-page', valeurs: { pages: a.pagesParSession } });
-  return constats;
 }
 
 /** LA FRISE D'UN VISITEUR : ses sessions, de la plus récente à la plus ancienne, chacune ses étapes horodatées. */
@@ -650,6 +710,59 @@ export function fluxDeConversion(sessions: readonly { etapes: readonly EtapeVisi
   }));
 }
 
+/** Une marche du flux d'un parcours : celle d'une étape, plus les pages d'où partent ceux qui s'arrêtent avant elle. */
+export interface MarcheDeParcours extends MarcheDeConversion {
+  /** Les dernières pages vues par les sessions perdues juste avant cette étape : trois au plus, puis « autres » (chemin null, avec celles sans page). */
+  departs: { chemin: string | null; sessions: number }[];
+}
+
+export interface FluxDUnParcours {
+  id: string;
+  /** « Entrée » (toutes les sessions), puis chaque étape du parcours. */
+  marches: MarcheDeParcours[];
+  /** Le rang de la marche où l'on perd le plus de sessions ; null sans perte. */
+  plusGrosDecrochage: number | null;
+}
+
+const DEPARTS_MAX = 3;
+
+/**
+ * LE FLUX D'UN PARCOURS : l'entrée, puis chaque étape dans l'ordre — combien
+ * la franchissent, combien s'arrêtent avant, et d'où ils quittent le site
+ * (leur dernière page). Un seul passage par session.
+ */
+export function fluxDeParcours(sessions: readonly { etapes: readonly EtapeVisiteur[] }[], parcours: ParcoursDeSuivi): FluxDUnParcours {
+  const visees = parcours.etapes.map((e) => e.repere);
+  const marches = fluxDeConversion(sessions, visees);
+  const departs = visees.map(() => new Map<string, number>());
+  for (const s of sessions) {
+    let rang = 0;
+    let dernierePage: string | null = null;
+    for (const x of s.etapes) {
+      if (x.genre === 'page') dernierePage = x.nom;
+      if (rang < visees.length && etapeAtteinte(x, visees[rang])) rang += 1;
+    }
+    if (rang >= visees.length) continue;
+    // Sans page vue (des clics seuls), la session va dans « autres » : la clé vide.
+    const cle = dernierePage ?? '';
+    departs[rang].set(cle, (departs[rang].get(cle) ?? 0) + 1);
+  }
+  let pire: number | null = null;
+  for (let i = 1; i < marches.length; i++) if (marches[i].abandons > 0 && (pire === null || marches[i].abandons > marches[pire].abandons)) pire = i;
+  return {
+    id: parcours.id,
+    marches: marches.map((m, i) => {
+      if (i === 0) return { ...m, departs: [] };
+      const sansPage = departs[i - 1].get('') ?? 0;
+      const tries = [...departs[i - 1].entries()].filter(([c]) => c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      const gardes = tries.slice(0, DEPARTS_MAX).map(([chemin, n]) => ({ chemin, sessions: n }));
+      const reste = sansPage + tries.slice(DEPARTS_MAX).reduce((n, [, k]) => n + k, 0);
+      return { ...m, departs: reste ? [...gardes, { chemin: null, sessions: reste }] : gardes };
+    }),
+    plusGrosDecrochage: pire,
+  };
+}
+
 /** Un nœud du flux de comportement : une source, une page ou un repère, à un rang donné. */
 export interface NoeudDeFlux {
   cle: string;
@@ -748,10 +861,8 @@ export interface TableauDeBord {
   appareils: { appareil: string; sessions: number }[];
   entrees: { chemin: string; sessions: number }[];
   sorties: { chemin: string; sessions: number }[];
-  /** Suivi complet : le flux de conversion par objectif. */
-  conversion: MarcheDeConversion[];
-  /** Chaque objectif, atteint dans n'importe quel ordre : sessions et taux de conversion. */
-  objectifs: { nom: string; sessions: number; taux: number }[];
+  /** Suivi complet : le flux de chaque parcours déclaré, dans l'ordre des parcours. */
+  parcours: FluxDUnParcours[];
   flux: FluxDeComportement;
 }
 
@@ -775,7 +886,7 @@ function compterPar<T>(elements: readonly T[], cle: (x: T) => string | null): { 
  */
 export function tableauDeBord(entree: {
   evenements: readonly EvenementDeSuivi[];
-  reperes: readonly RepereDeSuivi[];
+  parcours: readonly ParcoursDeSuivi[];
   depuis: number;
   jusqua: number;
   fuseau: string;
@@ -825,7 +936,6 @@ export function tableauDeBord(entree: {
   const avecPages = sessions.filter((s) => s.pages.length);
   const rebonds = avecPages.filter((s) => s.pages.length === 1 && !s.interactions).length;
   const reconnues = sessions.filter((s) => s.reconnu);
-  const objectifs = entree.reperes.filter((r) => r.objectif).map((r) => r.nom);
   const top = <K extends string>(liste: { cle: string; n: number }[], nom: K) =>
     liste.slice(0, LISTES_DU_TABLEAU_MAX).map((x) => ({ [nom]: x.cle, sessions: x.n }) as { [P in K]: string } & { sessions: number });
 
@@ -844,11 +954,7 @@ export function tableauDeBord(entree: {
     appareils: top(compterPar(sessions, (s) => s.appareil), 'appareil'),
     entrees: top(compterPar(avecPages, (s) => s.pages[0]), 'chemin'),
     sorties: top(compterPar(avecPages, (s) => s.pages[s.pages.length - 1]), 'chemin'),
-    conversion: fluxDeConversion(reconnues, objectifs),
-    objectifs: objectifs.map((nom) => {
-      const atteintes = reconnues.filter((s) => s.etapes.some((x) => x.genre !== 'page' && x.nom === nom)).length;
-      return { nom, sessions: atteintes, taux: reconnues.length ? Math.round((atteintes / reconnues.length) * 1000) / 10 : 0 };
-    }),
+    parcours: entree.parcours.map((p) => fluxDeParcours(reconnues, p)),
     flux: fluxDeComportement(reconnues),
   };
 }
@@ -865,7 +971,9 @@ export interface DispositionDesBlocs {
 
 /**
  * LA DISPOSITION REMISE D'APLOMB : l'ordre gardé, sans les blocs qui
- * n'existent plus, puis les blocs nouveaux à leur place par défaut (à la fin).
+ * n'existent plus ; un bloc nouveau se range juste après celui qui le précède
+ * dans l'ordre par défaut (en tête s'il est le premier) — un graphique ajouté
+ * au milieu d'un onglet n'échoue pas en bas chez ceux qui ont déjà rangé.
  * Une préférence illisible rend la disposition par défaut.
  */
 export function dispositionDesBlocs(existants: readonly string[], gardee: unknown): DispositionDesBlocs {
@@ -873,7 +981,11 @@ export function dispositionDesBlocs(existants: readonly string[], gardee: unknow
   const connus = new Set(existants);
   const ordre = (Array.isArray(g.ordre) ? g.ordre : []).filter((id): id is string => typeof id === 'string' && connus.has(id));
   const vus = new Set(ordre);
-  for (const id of existants) if (!vus.has(id)) ordre.push(id);
+  existants.forEach((id, i) => {
+    if (vus.has(id)) return;
+    ordre.splice(i === 0 ? 0 : ordre.indexOf(existants[i - 1]) + 1, 0, id);
+    vus.add(id);
+  });
   const masques = (Array.isArray(g.masques) ? g.masques : []).filter((id): id is string => typeof id === 'string' && connus.has(id));
   return { ordre: [...new Set(ordre)], masques: [...new Set(masques)] };
 }

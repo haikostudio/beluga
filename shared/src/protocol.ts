@@ -775,6 +775,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('account.rename'), id: z.string(), label: z.string() }),
   /**
+   * RÉGLER LE FORFAIT MENSUEL d'un compte MiMo : plafond, renouvellement et
+   * consommé relevé dans la console Xiaomi (en jetons). Un champ absent ne
+   * change pas ; `null` l'efface. Donner `consomme` date le relevé de ce
+   * moment — c'est le geste qui recale la barre du mois.
+   */
+  z.object({
+    type: z.literal('account.forfaitMensuel'),
+    id: z.string(),
+    plafond: z.number().positive().nullable().optional(),
+    renouvellement: z.number().nullable().optional(),
+    consomme: z.number().nonnegative().nullable().optional(),
+  }),
+  /**
    * RETIRER UN COMPTE POUR DE BON. Il quitte la liste, le volet Quotas et
    * l'ordonnanceur, et son coffre est marqué pour qu'un redémarrage ne le
    * ressuscite pas. Les fichiers d'identifiants restent sur la machine. Le

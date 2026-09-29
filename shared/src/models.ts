@@ -115,14 +115,6 @@ export type BillingLink = z.infer<typeof BillingLink>;
  * projets — fusion, enregistrement, envoi — puis la commande de mise à jour et
  * le service à relancer, quand ils sont réglés. Aucun agent.
  */
-export const ProcedureDeDeploiement = z.object({
-  /** La commande lancée dans le dossier après l'envoi (« npm run build », un script du projet…). */
-  commande: z.string().optional(),
-  /** Le service système relancé à la fin. */
-  service: z.string().optional(),
-});
-export type ProcedureDeDeploiement = z.infer<typeof ProcedureDeDeploiement>;
-
 /** Une étape du processus de mise en production, jouée sans agent. */
 export const EtapeDuProcessusDeProduction = z.object({
   libelle: z.string(),
@@ -131,25 +123,55 @@ export const EtapeDuProcessusDeProduction = z.object({
 });
 
 /**
+ * LE PROCESSUS ÉCRIT PAR UN AGENT DE CONFIGURATION — celui de la mise en
+ * production, ou celui du déploiement (29/09/2026) : une suite d'étapes jouée
+ * telle quelle, sans agent, et lisible dans la rubrique de son étape.
+ */
+export const ProcessusEcrit = z.object({
+  resume: z.string().optional(),
+  /** Ce que l'agent a configuré, en mots courants : la rubrique le montre. */
+  explication: z.string().optional(),
+  /** L'ADRESSE VISÉE, déclarée par l'agent : la machine ou le site où le processus agit. */
+  cible: z.string().optional(),
+  etapes: z.array(EtapeDuProcessusDeProduction),
+  ecritLe: z.number().optional(),
+  /**
+   * L'EMPREINTE DES RÉGLAGES au moment de l'écriture (`empreinteDesReglages`) :
+   * un réglage changé depuis fait dire « à revérifier » au bloc du processus.
+   * Absente sur un processus d'avant : rien n'est alors signalé.
+   */
+  empreinte: z.string().optional(),
+  /** Le message de l'agent qui l'a rendu : un même message ne s'enregistre qu'une fois. */
+  depuisMessage: z.string().optional(),
+});
+
+export const ProcedureDeDeploiement = z.object({
+  /** La commande lancée dans le dossier après l'envoi (« npm run build », un script du projet…). */
+  commande: z.string().optional(),
+  /** Le service système relancé à la fin. */
+  service: z.string().optional(),
+  /**
+   * LE PROCESSUS DE DÉPLOIEMENT écrit par son agent de configuration. Présent,
+   * il REMPLACE la commande et les services ci-dessus pour le dépôt principal ;
+   * absent, le déroulé commun reste en service (`publication-simple.ts`).
+   */
+  processus: ProcessusEcrit.optional(),
+  /** L'agent de configuration du déploiement : sa conversation, reprenable. */
+  agentId: z.string().optional(),
+});
+export type ProcedureDeDeploiement = z.infer<typeof ProcedureDeDeploiement>;
+
+/**
  * LA MISE EN PRODUCTION d'un dépôt : le PROCESSUS écrit par l'agent
  * d'initialisation après avoir interrogé l'utilisateur. Absent = le projet n'a
  * pas encore été initialisé, et le bouton propose de le faire.
  */
 export const ProcedureDeMiseEnProduction = z.object({
-  processus: z
-    .object({
-      resume: z.string().optional(),
-      /** Ce que l'agent a configuré, en mots courants : l'onglet « Configuration » le montre. */
-      explication: z.string().optional(),
-      etapes: z.array(EtapeDuProcessusDeProduction),
-      ecritLe: z.number().optional(),
-      /** Le message de l'agent qui l'a rendu : un même message ne s'enregistre qu'une fois. */
-      depuisMessage: z.string().optional(),
-    })
-    .optional(),
+  processus: ProcessusEcrit.optional(),
   /**
    * L'AGENT DE CONFIGURATION de la mise en production : SA conversation, gardée
-   * et reprenable depuis le tiroir du bandeau, redémarrage compris. Aucune
+   * et reprenable depuis la rubrique « Mise en production » des réglages,
+   * redémarrage compris. Aucune
    * branche « tache/… » : il travaille dans le dossier du projet.
    */
   agentId: z.string().optional(),
@@ -1855,6 +1877,23 @@ export const QuotaWindow = z.object({
 });
 export type QuotaWindow = z.infer<typeof QuotaWindow>;
 
+/**
+ * LE FORFAIT MENSUEL D'UN COMPTE MIMO, saisi à la main : Xiaomi ne le publie
+ * pas. Tout est optionnel — un compte sans plafond n'a pas de barre.
+ * `consommeAuReleve` est ce que la console Xiaomi affichait à `releveAt`.
+ */
+export const ForfaitMensuel = z.object({
+  /** Le plafond du mois, en jetons. */
+  plafond: z.number().positive().optional(),
+  /** Une date de renouvellement (ms) : passée ou à venir, le cycle est mensuel. */
+  renouvellement: z.number().optional(),
+  /** Le consommé lu dans la console Xiaomi, en jetons. */
+  consommeAuReleve: z.number().nonnegative().optional(),
+  /** Quand ce consommé a été relevé (ms). */
+  releveAt: z.number().optional(),
+});
+export type ForfaitMensuel = z.infer<typeof ForfaitMensuel>;
+
 export const AccountQuota = z.object({
   id: z.string(),
   engine: EngineId,
@@ -1923,6 +1962,23 @@ export const AccountQuota = z.object({
       tours: z.number(),
     })
     .optional(),
+  /**
+   * LA BARRE DU MOIS d'un abonnement Xiaomi MiMo, calculée ici
+   * (`shared/src/usage-mesure.ts`) : le forfait saisi dans les réglages du
+   * compte, plus ce que Beluga a envoyé depuis. Une ESTIMATION — la même clé
+   * peut servir ailleurs —, volontairement À PART de `session` et `weekly` :
+   * rien — choix de compte, alertes, prévision — ne doit la lire comme un
+   * solde. Objet présent sans `mois` : aucun plafond saisi, donc aucune barre.
+   */
+  usageMesuree: z.object({ mois: QuotaWindow.optional() }).optional(),
+  /** Le forfait mensuel tel que l'utilisateur l'a saisi, pour préremplir son formulaire. */
+  forfaitMensuel: ForfaitMensuel.optional(),
+  /**
+   * LIGNE DE SUIVI SEULEMENT : un fournisseur dont on regarde l'état sans jamais
+   * lui confier un travail (Google Gemini). Aucun compte derrière — ni
+   * interrupteur, ni choix, ni secours.
+   */
+  suivi: z.boolean().optional(),
   /**
    * LES AUTRES COMPTES QUI RENDENT EXACTEMENT LE MÊME RELEVÉ (mêmes
    * pourcentages ET même échéance de fenêtre). Deux comptes réellement

@@ -216,9 +216,17 @@ export type ProcessusDeProduction = {
    * tel quel, avant le bouton de mise en production.
    */
   explication?: string;
+  /**
+   * L'ADRESSE VISÉE, déclarée par l'agent : la machine ou le site où le
+   * processus agit (« clients.haikostudio.cloud, dossier /srv/site »). La
+   * rubrique la montre en tête du bloc « Processus en place ».
+   */
+  cible?: string;
   etapes: EtapeDuProcessus[];
   /** Quand il a été écrit. */
   ecritLe?: number;
+  /** L'empreinte des réglages à l'écriture (`empreinteDesReglages`). */
+  empreinte?: string;
   /** Le message de l'agent qui l'a rendu : un même message ne s'enregistre qu'une fois. */
   depuisMessage?: string;
 };
@@ -228,6 +236,7 @@ export const DELAI_ETAPE_DEFAUT_S = 300;
 export const DELAI_ETAPE_MAX_S = 20 * 60;
 export const RESUME_PROCESSUS_MAX = 1500;
 export const EXPLICATION_PROCESSUS_MAX = 6000;
+export const CIBLE_PROCESSUS_MAX = 300;
 
 /** Un projet a-t-il un processus de mise en production ? */
 export function aUnProcessus(projet: { miseEnProduction?: { processus?: ProcessusDeProduction } } | undefined): boolean {
@@ -236,7 +245,7 @@ export function aUnProcessus(projet: { miseEnProduction?: { processus?: Processu
 
 /** La phrase dite quand la mise en production d'un projet est éteinte. */
 export const PRODUCTION_DESACTIVEE =
-  'La mise en production est désactivée pour ce projet : allumez l’interrupteur en haut du tiroir « Mise en production » pour la permettre.';
+  'La mise en production est désactivée pour ce projet : allumez son interrupteur, en haut du tiroir « Mise en production » ou dans les réglages du projet, pour la permettre.';
 
 /**
  * L'INTERRUPTEUR DE MISE EN PRODUCTION (`miseEnProductionActive`), éteint par
@@ -251,7 +260,7 @@ export function raisonProductionDesactivee(projet: { miseEnProductionActive?: bo
 /** Normalise un processus reçu (de l'agent ou de l'écran) : bornes, textes, délais. */
 export function normaliserProcessus(brut: unknown): { processus?: ProcessusDeProduction; erreur?: string } {
   if (!brut || typeof brut !== 'object') return { erreur: 'Le processus est vide.' };
-  const objet = brut as { resume?: unknown; etapes?: unknown };
+  const objet = brut as { resume?: unknown; cible?: unknown; etapes?: unknown };
   if (!Array.isArray(objet.etapes) || objet.etapes.length === 0) {
     return { erreur: 'Le processus n’a aucune étape.' };
   }
@@ -272,7 +281,8 @@ export function normaliserProcessus(brut: unknown): { processus?: ProcessusDePro
     });
   }
   const resume = typeof objet.resume === 'string' ? objet.resume.trim().slice(0, RESUME_PROCESSUS_MAX) : undefined;
-  return { processus: { ...(resume ? { resume } : {}), etapes } };
+  const cible = typeof objet.cible === 'string' ? objet.cible.trim().slice(0, CIBLE_PROCESSUS_MAX) : undefined;
+  return { processus: { ...(resume ? { resume } : {}), ...(cible ? { cible } : {}), etapes } };
 }
 
 export const DEBUT_PROCESSUS = '<<<PROCESSUS';
@@ -354,11 +364,12 @@ export function promptInitialisationProduction(ctx: ContexteDInitialisation): st
     '1. Analyse le projet : sa pile, sa construction, ses scripts de déploiement, ses automatismes GitHub, ses fichiers de configuration serveur. Le coffre-fort (outil coffre_fort) contient les accès : lis-le, ne recopie JAMAIS un secret dans une commande — réfère-toi aux fichiers ou variables déjà présents sur ce serveur.',
     '2. INTERROGE l’utilisateur avec l’outil ask_user sur tout ce qui décide du processus et que le projet ne dit pas avec certitude : où tourne la production (ce serveur, un autre serveur, un hébergeur, une procédure GitHub), comment on y accède, ce qu’il faut y faire, ce qu’on contrôle à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer l’instance de production, même si tu crois la connaître.',
     '3. Prépare ce qui doit l’être (fichiers du projet, machine de production), sans jamais mettre en production.',
-    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : où vit la production, ce que tu as configuré ou modifié, et ce que fera le bouton « Mise en production », étape par étape. Elle est affichée telle quelle dans l’onglet « Configuration ». Puis le processus dans ce bloc exact, en fin de réponse :',
+    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : où vit la production, ce que tu as configuré ou modifié, et ce que fera le bouton « Mise en production », étape par étape. Elle est affichée telle quelle dans la rubrique « Mise en production » des réglages du projet. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
-    '{"resume": "…ce qu’est la production de ce projet, en deux phrases…", "etapes": [{"libelle": "Construire le site", "commande": "npm run build", "delaiS": 300}]}',
+    '{"resume": "…ce qu’est la production de ce projet, en deux phrases…", "cible": "…la machine ou le site visé, par exemple « mon-site.ch, serveur clients, dossier /srv/mon-site »…", "etapes": [{"libelle": "Construire le site", "commande": "npm run build", "delaiS": 300}]}',
     FIN_PROCESSUS,
+    'Le champ « cible » dit en une ligne OÙ le processus agit : il est affiché en tête du processus, pour que l’utilisateur vérifie d’un coup d’œil l’adresse visée.',
     '',
     'Règles du processus :',
     `- ${PROCESSUS_ETAPES_MAX} étapes au plus, chaque commande autonome (non interactive), relançable sans dégât, avec un délai réaliste (${DELAI_ETAPE_MAX_S} s au plus).`,
@@ -376,12 +387,78 @@ export function promptInitialisationProduction(ctx: ContexteDInitialisation): st
     .join('\n');
 }
 
+/** Le contexte donné à l'agent de configuration du DÉPLOIEMENT. */
+export type ContexteDuDeploiement = {
+  projet: string;
+  dossier: string;
+  brancheTravail: string;
+  /** Les réglages actuels du déroulé commun. */
+  commande?: string;
+  service?: string;
+  devUrl?: string;
+  port?: number;
+  /** Le projet est-il Beluga Build lui-même ? Son déroulé propre reste alors en service. */
+  estBeluga?: boolean;
+  /** Le processus actuel, quand on le refait. */
+  actuel?: string;
+  automatismes?: string[];
+};
+
+/**
+ * LE PROMPT DE L'AGENT DE CONFIGURATION DU DÉPLOIEMENT (29/09/2026). Même
+ * démarche que la mise en production — analyser, interroger, rendre le
+ * processus — mais pour la version de TRAVAIL, sur CE serveur. Tant qu'aucun
+ * processus n'est écrit, le déroulé commun reste en service.
+ */
+export function promptInitialisationDeploiement(ctx: ContexteDuDeploiement): string {
+  return [
+    `Tu prépares le DÉPLOIEMENT du projet « ${ctx.projet} » (dossier ${ctx.dossier}) : la mise à jour de sa version de TRAVAIL, sur CE serveur.`,
+    '',
+    'Ce que Beluga Build fait déjà tout seul au clic sur « Publier », AVANT ton processus :',
+    `- fusionner les branches des cartes du lot dans « ${ctx.brancheTravail} », enregistrer, puis envoyer « ${ctx.brancheTravail} » sur le dépôt distant.`,
+    'Puis il joue TON processus : une suite de commandes shell, dans le dossier du projet, SANS AGENT, arrêt net à la première qui échoue. Il REMPLACE la commande de mise à jour et les services à relancer réglés à la main.',
+    ctx.devUrl ? `Enfin, il vérifie que l’adresse ${ctx.devUrl} répond : un échec y fait échouer le déploiement.` : 'Aucune adresse n’est contrôlée à la fin (aucune réglée).',
+    ctx.estBeluga
+      ? 'CE PROJET EST BELUGA BUILD LUI-MÊME : son déploiement garde son déroulé propre (construction, installation, redémarrage seulement quand plus rien ne tourne). Ton processus est affiché dans les réglages pour contrôle, mais il n’est PAS joué à la place de ce déroulé. Ne propose JAMAIS de redémarrer le démon toi-même.'
+      : '',
+    '',
+    'Réglages actuels du déroulé commun :',
+    `- commande de mise à jour : ${ctx.commande || '(aucune)'} ;`,
+    `- services à relancer : ${ctx.service || '(aucun)'} ;`,
+    `- port du projet : ${ctx.port ?? '(aucun)'}.`,
+    '',
+    'TU AS L’ACCÈS COMPLET, SANS BRANCHE « tache/… » : tu travailles dans le dossier du projet, sur sa branche de travail. Tu peux modifier les fichiers du projet (scripts de construction, configuration du service) et ranger dans le coffre-fort, une fiche par secret, tout accès que tu découvres.',
+    `Ce que tu modifies dans le dépôt s’enregistre sur « ${ctx.brancheTravail} » : « git add » NOMMÉ fichier par fichier (jamais « git add -A » ni « git add . »), un seul commit par tour, poussé ; puis tu dis en clair ce que tu as changé.`,
+    '',
+    'Ta démarche, dans cet ordre :',
+    '1. Analyse le projet : sa pile, sa construction, ses services système (systemctl), son serveur de développement, ses scripts de mise à jour.',
+    '2. INTERROGE l’utilisateur avec l’outil ask_user sur ce que le projet ne dit pas avec certitude : quoi construire, quel service relancer, quoi contrôler à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer le déroulé.',
+    '3. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : ce que fera chaque déploiement, étape par étape. Elle est affichée telle quelle dans la rubrique « Déploiement » des réglages. Puis le processus dans ce bloc exact, en fin de réponse :',
+    '',
+    DEBUT_PROCESSUS,
+    '{"resume": "…ce que fait le déploiement de ce projet, en deux phrases…", "cible": "…ce serveur, le service ou le site visé, par exemple « mon-projet.haikostudio.cloud, service autoproject-mon-projet »…", "etapes": [{"libelle": "Construire", "commande": "npm run build", "delaiS": 300}]}',
+    FIN_PROCESSUS,
+    'Le champ « cible » dit en une ligne OÙ le processus agit : il est affiché en tête du processus.',
+    '',
+    'Règles du processus :',
+    `- ${PROCESSUS_ETAPES_MAX} étapes au plus, chaque commande autonome (non interactive), relançable sans dégât, avec un délai réaliste (${DELAI_ETAPE_MAX_S} s au plus).`,
+    '- Ni fusion ni envoi git : c’est déjà fait avant toi.',
+    '- Un service se relance par « sudo systemctl restart <service> », suivi d’une attente qu’il réponde (par exemple une boucle curl bornée sur son port).',
+    '- Tu n’exécutes RIEN qui déploie pendant ce tour : tu écris le processus, c’est l’utilisateur qui décidera du moment.',
+    '',
+    ctx.automatismes?.length ? `Automatismes GitHub présents : ${ctx.automatismes.join(', ')}.` : '',
+    ctx.actuel ? `\nProcessus actuel (à refaire) :\n${ctx.actuel}` : '',
+  ]
+    .filter((ligne) => ligne !== '')
+    .join('\n');
+}
+
 /** La suite du dialogue : l'agent a déjà tout lu. */
-export function promptSuiteInitialisation(message: string): string {
+export function promptSuiteInitialisation(message: string, cible: 'dev' | 'production' = 'production'): string {
   return [
     `L’utilisateur écrit : ${message}`,
     '',
-    consigneDeConfiguration(),
+    consigneDeConfiguration(cible),
   ].join('\n');
 }
 
@@ -391,10 +468,12 @@ export function promptSuiteInitialisation(message: string): string {
  * tout, mais le bloc du processus est ce qui met à jour l'onglet
  * « Configuration » — il doit le rendre en entier dès que le processus change.
  */
-export function consigneDeConfiguration(): string {
+export function consigneDeConfiguration(cible: 'dev' | 'production' = 'production'): string {
+  const etape = cible === 'dev' ? 'du déploiement' : 'de la mise en production';
+  const rubrique = cible === 'dev' ? '« Déploiement »' : '« Mise en production »';
   return [
-    'Tu es l’agent de CONFIGURATION de la mise en production de ce projet : l’utilisateur te parle depuis le tiroir « Mise en production ».',
-    `Tiens-en compte. S’il te manque quelque chose de décisif, pose-le avec ask_user. Si le processus change, rends ton explication en mots simples puis le bloc ${DEBUT_PROCESSUS} … ${FIN_PROCESSUS} COMPLET, en fin de réponse : c’est lui qui met à jour l’onglet « Configuration ». Sinon, réponds simplement.`,
-    'Fichiers du projet modifiés : « git add » nommé fichier par fichier, un commit poussé sur la branche de travail, et dis ce que tu as changé. Tu ne lances JAMAIS la mise en production : seul le bouton de l’utilisateur le fait.',
+    `Tu es l’agent de CONFIGURATION ${etape} de ce projet : l’utilisateur te parle depuis la rubrique ${rubrique} des réglages du projet.`,
+    `Tiens-en compte. S’il te manque quelque chose de décisif, pose-le avec ask_user. Si le processus change, rends ton explication en mots simples puis le bloc ${DEBUT_PROCESSUS} … ${FIN_PROCESSUS} COMPLET (avec son champ « cible »), en fin de réponse : c’est lui qui met à jour le processus affiché dans la rubrique. Sinon, réponds simplement.`,
+    `Fichiers du projet modifiés : « git add » nommé fichier par fichier, un commit poussé sur la branche de travail, et dis ce que tu as changé. Tu ne lances JAMAIS ${cible === 'dev' ? 'le déploiement' : 'la mise en production'} : seul le bouton de l’utilisateur le fait.`,
   ].join('\n');
 }
