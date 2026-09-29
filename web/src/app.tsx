@@ -11,6 +11,7 @@ import {
   SilhouetteBackups,
   SilhouetteSurveillance,
   SilhouetteMarketing,
+  SilhouetteStatistiques,
   SilhouetteTableau,
   SilhouetteEnRoute,
 } from '@/components/silhouettes';
@@ -41,6 +42,7 @@ import {
   assistantNecessaire,
   Card,
   vuePleine,
+  menuBasTelephone,
   type EcranNavigateur,
   type ElementVise,
   type VueCentrale,
@@ -69,6 +71,7 @@ const chargerEspaceHaiko = () => import('@/espace/espace-haiko');
 const chargerBackups = () => import('@/components/backups');
 const chargerSurveillance = () => import('@/components/surveillance');
 const chargerMarketing = () => import('@/components/marketing');
+const chargerStatistiques = () => import('@/components/statistiques');
 /*
  * LA PAGE « EN ROUTE » : ouverte par le bouton des agents, et montrée quand
  * aucun projet n'est ouvert. Un morceau à part comme les autres destinations.
@@ -112,6 +115,7 @@ const Surveillance = React.lazy(() =>
   chargerSurveillance().then((m) => ({ default: m.Surveillance })),
 );
 const Marketing = React.lazy(() => chargerMarketing().then((m) => ({ default: m.Marketing })));
+const Statistiques = React.lazy(() => chargerStatistiques().then((m) => ({ default: m.Statistiques })));
 const EnRoute = React.lazy(() => chargerEnRoute().then((m) => ({ default: m.EnRoute })));
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
 const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
@@ -242,6 +246,10 @@ export function App() {
      « Nouvel agent » au lieu de Tableau / Fichiers. */
   const horsProjet =
     dashboardOpen || vueCentrale === 'en-route' || (vueCentrale === 'projet' && !state.activeProjectId);
+  /* LA BARRE DU BAS DU TÉLÉPHONE N'EXISTE QUE DANS UN PROJET (Tableau / agent /
+     Fichiers) ou sur les tableaux de bord (« Nouvel agent ») : aucune sur les
+     autres vues pleines — marketing, coffre, notes… (`menuBasTelephone`). */
+  const menuBas = menuBasTelephone(vueCentrale, !!state.activeProjectId);
   const [rightOpen, setRightOpenEtRetenir] = React.useState(choixInitialVoletDroit);
   const setRightOpen = React.useCallback((valeur: boolean | ((precedent: boolean) => boolean)) => {
     setRightOpenEtRetenir((precedent) => {
@@ -357,6 +365,9 @@ export function App() {
   React.useEffect(
     () =>
       client.onOpenCard((cardId) => {
+        // Une carte ouverte depuis les réglages (la carte d'un ajout de LLM)
+        // doit se voir : la fenêtre des réglages se referme devant elle.
+        setSettingsOpen(false);
         setVueCentrale('projet');
         setElementVise({});
         setEspaceVise(undefined);
@@ -669,8 +680,28 @@ export function App() {
       client.setActiveProject(deploiementDemande.projectId);
     }
     setVueCentrale('projet');
+    /* Demandé depuis le pied d'une carte : la fenêtre de sélection s'ouvre
+       sur le tableau, la carte ne doit plus la recouvrir. */
+    if (deploiementDemande.selection) setOpenCardId(null);
     if (window.innerWidth < 640) setMobileView('board');
   }, [deploiementDemande, setMobileView]);
+  /* LE TABLEAU D'UN PROJET DEMANDÉ D'AILLEURS : l'icône du projet devant le
+     titre d'une carte. On referme la carte, on ouvre son projet, et on montre
+     son tableau — même depuis « Tableaux de bord » ou un service plein. */
+  const tableauDemande = state.tableauDemande;
+  React.useEffect(() => {
+    if (!tableauDemande) return;
+    setConfigProjetId(null);
+    if (client.lireEtat().activeProjectId !== tableauDemande.projectId) {
+      client.setActiveProject(tableauDemande.projectId);
+    }
+    setVueCentrale('projet');
+    setElementVise({});
+    setEspaceVise(undefined);
+    setOpenCardId(null);
+    setMobileView('board');
+    client.demanderTableau(null);
+  }, [tableauDemande, setMobileView]);
 
   // Passé sur grand écran (rotation, écran externe), la colonne de gauche est
   // de nouveau posée là : le panneau qui la recouvre n'a plus lieu d'être.
@@ -1016,13 +1047,27 @@ export function App() {
                     onClose={() => ouvrirVue('projet')}
                     vise={elementVise.marketing ?? null}
                     onVise={(projectId) => setElementVise((v) => ({ ...v, marketing: projectId }))}
+                    onOuvrirCarte={ouvrirCarteEnRoute}
+                  />
+                </PanneauALaDemande>
+              </Filet>
+            ) : vueCentrale === 'statistiques' ? (
+              <Filet zone="Statistiques">
+                <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteStatistiques /></AttenteEcran>}>
+                  <Statistiques
+                    open
+                    enPage
+                    onClose={() => ouvrirVue('projet')}
+                    vise={elementVise.statistiques ?? null}
+                    onVise={(siteId) => setElementVise((v) => ({ ...v, statistiques: siteId }))}
+                    onOuvrirCarte={ouvrirCarteEnRoute}
                   />
                 </PanneauALaDemande>
               </Filet>
             ) : vueCentrale === 'en-route' ? (
               pageEnRoute
             ) : dashboardOpen ? (
-              <Filet zone="Statistiques">
+              <Filet zone="Résumé">
                 <PanneauALaDemande monte>
                   <Dashboard />
                 </PanneauALaDemande>
@@ -1153,8 +1198,9 @@ export function App() {
             choix du projet (`TiroirNouvelAgent`). Le module de voix reste positionné à part
             (voir plus bas, <VoixAssistant />, ancré par sa propre position
             fixe). */}
+        {menuBas ? (
         <nav
-          data-menu-bas
+          data-menu-bas={menuBas}
           // LE MENU DU BAS EMPRUNTE LE FOND DE LA ZONE QU'IL PROLONGE. Sans ce
           // repère il retombait sur `--bg`, une bande NOIRE en thème sombre
           // collée sous un tableau gris — deux fonds pour une seule page.
@@ -1179,7 +1225,7 @@ export function App() {
               contre 4 px sur les côtés. Le rond et les boutons partagent
               désormais la MÊME hauteur (36 px), et les 4 px de `p-1` sont les
               seuls blancs de la barre, sur les quatre côtés. */}
-          {horsProjet ? (
+          {menuBas === 'nouvel-agent' ? (
             <div
               className="grid grid-cols-1 items-center rounded-2xl border border-border p-1"
               style={{ backgroundColor: 'hsl(var(--fond-zone))' }}
@@ -1241,6 +1287,7 @@ export function App() {
           </div>
           )}
         </nav>
+        ) : null}
         {tiroirNouvelAgent ? (
           <TiroirNouvelAgent
             open

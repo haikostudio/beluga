@@ -8,9 +8,11 @@ import {
   connexionTerminee,
   lireInvite,
   raisonDeSortie,
+  descriptionMoteur,
+  nomCourtDuMoteur,
 } from '@beluga/shared';
 import { PATHS } from './config.js';
-import { listAccountRecords, saveAccountRecord, refreshQuotas, type AccountRecord } from './accounts.js';
+import { listAccountRecords, listAllAccountRecords, saveAccountRecord, refreshQuotas, type AccountRecord } from './accounts.js';
 import { relierCompetencesAuxCoffres } from './competences.js';
 import { listEngines } from './engines/index.js';
 import { bus } from './bus.js';
@@ -94,7 +96,19 @@ function coffreNeuf(engine: EngineId, label?: string): { record: AccountRecord; 
 /* ------------------------------------------------------------------ */
 
 export function demarrerConnexion(opts: { engine: EngineId; accountId?: string; label?: string }): ConnexionCompte {
-  const engine: EngineId = opts.engine === 'codex' ? 'codex' : 'claude';
+  /*
+   * LE MOTEUR VIENT DU COMPTE, et un moteur À CLÉ n'a pas de page de
+   * connexion. Autrefois, tout ce qui n'était pas Codex était ramené sur
+   * Claude : « Reconnecter » un compte MiMo ou Cursor ouvrait donc la page de
+   * connexion de Claude, pour un compte qui n'en a jamais eu. Ces comptes se
+   * reconnectent en remplaçant leur clé (`remplacerCleDuCompte`).
+   */
+  const compteVise = opts.accountId ? listAllAccountRecords().find((a) => a.id === opts.accountId) : undefined;
+  const demande = compteVise?.engine ?? opts.engine;
+  if (descriptionMoteur(demande)?.connexion !== 'page') {
+    throw new Error(`${nomCourtDuMoteur(demande)} se connecte par une clé d'accès, pas par une page de connexion`);
+  }
+  const engine: EngineId = demande === 'codex' ? 'codex' : 'claude';
 
   // Une seule tentative à la fois par compte : deux commandes de connexion dans
   // le même coffre se réécriraient leurs jetons.

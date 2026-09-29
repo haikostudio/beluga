@@ -11,6 +11,7 @@ import {
 } from './espace-client.js';
 import { NotificationEspace } from './espace-notifications.js';
 import { ConnexionCompte } from './connexion-compte.js';
+import { FicheMoteurZ } from './moteurs-ajoutes.js';
 import { EntreeJournal } from './journal-carte.js';
 import { LigneDuCarnet } from './carnet-memoire.js';
 import {
@@ -381,6 +382,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.get'), id: z.string() }),
   /** « J'ai tout lu sur ce projet » : le geste se fait depuis la liste. */
   z.object({ type: z.literal('project.read'), projectId: z.string() }),
+  /** Le badge bleu d'un projet : quelle carte non lue ouvrir (la plus récente) ? */
+  z.object({
+    type: z.literal('project.unreadCard'),
+    projectId: z.string(),
+    /** Un projet réuni cherche aussi chez ses membres : son tableau est commun. */
+    membres: z.array(z.string()).optional(),
+  }),
   /** Repartir de zéro : le fil d'avant est mis de côté, pas supprimé. */
   z.object({ type: z.literal('agent.reset'), agentId: z.string() }),
   z.object({
@@ -712,6 +720,26 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('cursor.ajouterCle'), label: z.string(), cle: z.string() }),
   /**
+   * DÉCLARER UNE CLÉ D'ACCÈS pour N'IMPORTE QUEL moteur qui se connecte par une
+   * clé (`connexion: 'cle'` au registre des moteurs) : Cursor, Xiaomi MiMo…
+   */
+  z.object({ type: z.literal('compte.ajouterCle'), engine: EngineId, label: z.string(), cle: z.string() }),
+  /**
+   * RECONNECTER UN COMPTE À CLÉ : la nouvelle clé est éprouvée, puis posée sur
+   * le MÊME compte (même identifiant, même nom). Une clé refusée ne remplace
+   * jamais l'ancienne.
+   */
+  z.object({ type: z.literal('compte.remplacerCle'), accountId: z.string(), cle: z.string() }),
+  /**
+   * L'AGENT « AJOUTER UN MOTEUR » : rend (ou crée) l'agent du tiroir des
+   * réglages. `neuf` repart d'un agent vierge pour un autre fournisseur.
+   */
+  z.object({ type: z.literal('moteurs.agent'), neuf: z.boolean().optional() }),
+  /** Retirer un moteur ajouté : ses comptes partent, ses cartes retombent sur le moteur par défaut. */
+  z.object({ type: z.literal('moteurs.retirer'), id: z.string() }),
+  /** « Réessayer l'essai » d'un moteur ajouté : la clé collée (facultative), éprouvée puis activée si verte. */
+  z.object({ type: z.literal('moteurs.eprouver'), id: z.string(), cle: z.string().max(4000).optional() }),
+  /**
    * LE CRÉDIT DÉPENSÉ chez Cursor, compte par compte. Cursor facture à la
    * dépense : là où les autres moteurs montrent une jauge de quota, c'est un
    * montant qui doit se lire. Un compte dont la clé n'a pas le droit de lire ce
@@ -902,6 +930,27 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * télécharge pas) ; parler à son agent attitré ; les gestes de l'utilisateur
    * sur un contenu. Chaque changement se rediffuse par l'événement `marketing`.
    */
+  /**
+   * LE SERVICE STATISTIQUES (`shared/src/statistiques.ts`,
+   * `server/src/statistiques.ts`). La liste des sites mesurés (projets et sites
+   * autonomes) ; le détail d'UN site, demandé à l'ouverture ; la frise d'un
+   * visiteur ; créer, corriger ou retirer un site autonome ; régler le mode.
+   * Chaque changement se rediffuse par l'événement `marketing`.
+   */
+  z.object({ type: z.literal('statistiques.lister') }),
+  z.object({ type: z.literal('statistiques.detail'), id: z.string(), jours: z.number().optional(), debut: z.number().optional(), fin: z.number().optional() }),
+  z.object({ type: z.literal('statistiques.visiteur'), id: z.string(), visiteur: z.string() }),
+  z.object({ type: z.literal('statistiques.creerSite'), nom: z.string(), adresse: z.string(), mode: z.enum(['anonyme', 'visiteur']).optional() }),
+  z.object({ type: z.literal('statistiques.modifierSite'), id: z.string(), nom: z.string().optional(), adresse: z.string().optional() }),
+  z.object({ type: z.literal('statistiques.supprimerSite'), id: z.string() }),
+  z.object({ type: z.literal('statistiques.reglerMode'), id: z.string(), mode: z.enum(['anonyme', 'visiteur']) }),
+  /* « Tester le suivi » : relit la page du site tout de suite. « Étudier le site » : l'agent de l'espace lit un site autonome et propose ses objectifs. */
+  z.object({ type: z.literal('statistiques.testerSuivi'), id: z.string() }),
+  /* La DERNIÈRE liste de tâches de l'agent d'une carte (installation du suivi) :
+     une lecture à l'ouverture, la suite arrive par `message.upsert`. Jamais la conversation entière. */
+  z.object({ type: z.literal('statistiques.etapesInstallation'), cardId: z.string() }),
+  z.object({ type: z.literal('statistiques.analyserObjectifs'), id: z.string() }),
+  z.object({ type: z.literal('statistiques.etudierSite'), id: z.string(), identifiant: z.string().optional(), motDePasse: z.string().optional() }),
   z.object({ type: z.literal('marketing.lister') }),
   z.object({ type: z.literal('marketing.espace'), projectId: z.string(), jours: z.number().optional() }),
   /* « demande » : une phrase libre ; « geste » : le bouton unique de l'écran (initialiser, réanalyser). */
@@ -912,6 +961,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
     geste: z.enum(['initialiser', 'reanalyser']).optional(),
   }),
   z.object({ type: z.literal('marketing.configurer'), projectId: z.string(), configuration: z.record(z.any()) }),
+  /* Couper (ou rendre) le suivi marketing d'un projet : il passe dans « Projets inactifs ». */
+  z.object({ type: z.literal('marketing.activer'), projectId: z.string(), actif: z.boolean() }),
+  z.object({ type: z.literal('marketing.installerSuivi'), projectId: z.string() }),
   z.object({ type: z.literal('marketing.fiche'), projectId: z.string(), fiche: z.record(z.any()) }),
   z.object({
     type: z.literal('marketing.contenu.creer'),
@@ -1289,6 +1341,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     projects: z.array(Project),
     groups: z.array(ProjectGroup).default([]),
     engines: z.array(EngineInfo),
+    /** Les moteurs ajoutés : le navigateur les pose dans son registre avant tout affichage. */
+    moteursAjoutes: z.array(FicheMoteurZ).optional(),
     quotas: z.array(AccountQuota),
     capacity: CapacityEtat,
     agents: z.array(Agent),
@@ -1469,6 +1523,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * sans attendre le rechargement de la page.
    */
   z.object({ type: z.literal('engines'), engines: z.array(EngineInfo) }),
+  /** Les fiches des moteurs AJOUTÉS, entières, rediffusées à chaque changement. */
+  z.object({ type: z.literal('moteurs.ajoutes'), fiches: z.array(FicheMoteurZ) }),
   /** Le pool de compétences a changé : une fiche écrite, complétée ou dépréciée. */
   /** Une connexion de compte qui avance : adresse, code, réussite ou échec. */
   z.object({ type: z.literal('connexion-compte'), connexion: ConnexionCompte }),

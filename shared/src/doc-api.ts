@@ -24,6 +24,7 @@ import {
 import {
   MESSAGES_LLM_MAX,
   MODELE_LLM_PAR_DEFAUT,
+  PREFIXE_MODELE_GEMINI,
   ROUTE_LLM_EXTERNE,
   ROUTE_LLM_MODELES_EXTERNE,
 } from './relais-llm.js';
@@ -141,7 +142,8 @@ function documentationRouteLlm(base: string): DocumentationRouteLecture {
   return {
     titre: 'Faire rédiger un texte, sans porter la clé du modèle',
     resume:
-      'Relaie une conversation vers OpenRouter avec la clé rangée dans le COFFRE-FORT de ' +
+      'Relaie une conversation vers OpenRouter — ou vers Gemini, chez Google, pour un modèle ' +
+      '« gemini/… » — avec la clé rangée dans le COFFRE-FORT de ' +
       'Beluga Build. Un site construit ne peut garder aucun secret : il appelle son propre ' +
       'serveur, qui ajoute la clé nommée et vient ici. La clé du modèle ne part jamais vers ' +
       'l’appelant. Le catalogue des modèles se lit en GET sur ' +
@@ -158,7 +160,7 @@ function documentationRouteLlm(base: string): DocumentationRouteLecture {
       {
         nom: 'modele',
         obligatoire: false,
-        description: `Le modèle visé — alias « model ». Sans lui : ${MODELE_LLM_PAR_DEFAUT}.`,
+        description: `Le modèle visé — alias « model ». Sans lui : ${MODELE_LLM_PAR_DEFAUT}. Préfixé « ${PREFIXE_MODELE_GEMINI} » (ex. « ${PREFIXE_MODELE_GEMINI}gemini-3.8-flash »), il part directement chez Google.`,
       },
       {
         nom: 'temperature',

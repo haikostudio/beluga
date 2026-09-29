@@ -129,3 +129,63 @@ export function raisonLotBloque(etat: EtatDuLot): string | null {
 
   return `Rien à ${etat.verbe} : la colonne est vide et aucun travail n’attend sur la branche.`;
 }
+
+/** Ce que la règle des agents occupés lit d'un agent. */
+export interface AgentPourLeLot {
+  status?: string;
+  tourVivantDepuis?: number;
+}
+
+/**
+ * CET AGENT RETIENT-IL LA PUBLICATION DE SON PROJET ? Oui tant qu'il démarre,
+ * tourne, ou garde un tour vivant. UNE SEULE RÈGLE pour le démon, qui refuse
+ * `deploy.start` dessus (`agentsOccupes`), et pour le bouton « Déployer » du
+ * pied d'une carte, qui s'éteint AVANT le clic : un bouton allumé que le démon
+ * refuserait ensuite ne dirait pas la vérité.
+ */
+export function agentRetientLaPublication(agent: AgentPourLeLot): boolean {
+  return agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined;
+}
+
+/** Ce que le bouton « Déployer » du pied d'une carte sait de son projet. */
+export interface EtatDuDeploiementDepuisLaCarte {
+  /** La procédure de déploiement du projet est-elle écrite ? */
+  procedureEnPlace: boolean;
+  /** Une publication de ce projet tourne déjà. */
+  publicationEnCours: boolean;
+  /** Les agents du projet, tels que l'écran les connaît. */
+  agents: readonly (AgentPourLeLot & { title?: string })[];
+  /** Les cartes de « À déployer » qui partiraient (ni écartées, ni déjà en ligne). */
+  cartesDuLot: number;
+  /** Les cartes physiquement posées dans « À déployer ». */
+  cartesDansLaColonne: number;
+  horsLigne?: boolean;
+}
+
+export const RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT =
+  'Ce projet n’a pas encore de procédure de déploiement : initialisez-la depuis la colonne « À déployer ».';
+
+/**
+ * POURQUOI le bouton « Déployer » du pied d'une carte ne part pas — ou `null`
+ * s'il part. Il n'ouvre que la fenêtre de sélection du lot, mais il s'éteint
+ * AVANT sur tout ce qui ferait refuser le déploiement : c'est la MÊME phrase
+ * que sous le bouton de la colonne (`raisonLotBloque`), plus l'absence de
+ * procédure, qui là-bas remplace le bouton lui-même.
+ *
+ * Le travail enregistré sans carte n'est pas connu de la carte : il ne compte
+ * pas ici. La carte étant dans la colonne, le lot n'est vide que si elle en a
+ * été écartée — et la phrase de la colonne le dit alors.
+ */
+export function raisonDeployerDepuisLaCarte(etat: EtatDuDeploiementDepuisLaCarte): string | null {
+  if (!etat.horsLigne && !etat.procedureEnPlace) return RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT;
+  return raisonLotBloque({
+    verbe: 'déployer',
+    aPublier: etat.cartesDuLot,
+    cartesDansLaColonne: etat.cartesDansLaColonne,
+    autrePublication: etat.publicationEnCours,
+    agentsOccupes: etat.agents
+      .filter(agentRetientLaPublication)
+      .map((agent) => agent.title || 'agent sans titre'),
+    horsLigne: etat.horsLigne,
+  });
+}

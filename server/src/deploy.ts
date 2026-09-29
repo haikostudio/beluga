@@ -37,6 +37,7 @@ import {
   DELAIS_DU_DEPLOIEMENT_MS,
   rienAReconstruire,
   aUnProcessus,
+  raisonProductionDesactivee,
   annonceDuDeploiement,
   commandeDeMiseAJour,
   servicesARelancer,
@@ -87,6 +88,7 @@ import {
   depotsDesTitres,
   depotsDuProjet,
   type DepotsDeCarte,
+  agentRetientLaPublication,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -210,7 +212,7 @@ export type AgentOccupe = { id: string; title: string };
 export function agentsOccupes(projectId: string): AgentOccupe[] {
   return store
     .listAgents(projectId)
-    .filter((agent) => agent.status === 'running' || agent.status === 'starting' || agent.tourVivantDepuis !== undefined)
+    .filter(agentRetientLaPublication)
     .map((agent) => ({ id: agent.id, title: agent.title || 'agent sans titre' }));
 }
 
@@ -305,24 +307,51 @@ export function blocageMiseEnProduction(projectId: string, cible?: CiblePublicat
     : 'Ce projet n’a pas encore de processus de mise en production : cliquez sur « Initialiser la mise en production ».';
 }
 
-/** La version en production, et de combien la branche l'a dépassée. Lecture pure. */
+/**
+ * La version en production, et de combien la version PRÊTE À PARTIR l'a dépassée.
+ * Lecture pure, faite sur le dépôt local (aucun envoi, aucun agent).
+ *
+ * L'écart se compte contre la branche de l'étape de DÉPLOIEMENT (« dev ») : c'est
+ * elle qui porte ce que le bouton « Mettre à jour la version prod » fusionnera
+ * puis enverra. La branche de production ne bouge qu'au clic — la mesurer
+ * contre elle donnerait « à jour » en permanence. Repli sur la branche de
+ * production quand les deux étapes partagent la même branche, ou que celle du
+ * déploiement n'existe pas encore (le clic la poserait sur la principale).
+ *
+ * La dernière tentative non réussie (échouée ou arrêtée) se dit à part : `commit`
+ * et `at` restent ceux de la dernière mise en production RÉUSSIE.
+ */
 export async function etatDeLaProduction(projectId: string): Promise<EtatProduction> {
   const project = store.getProject(projectId);
   if (!project) return { raison: 'projet introuvable' };
-  const derniere = store
+  const quand = (run: DeployRun) => run.endedAt ?? run.startedAt;
+  const essais = store
     .recentDeploys(projectId, 50)
-    .filter((run) => run.cible === 'production' && run.state === 'success')
-    .sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt))[0];
-  const etat: EtatProduction = { commit: derniere?.targetCommit, at: derniere?.endedAt ?? derniere?.startedAt };
+    .filter((run) => run.cible === 'production')
+    .sort((a, b) => quand(b) - quand(a));
+  const derniere = essais.find((run) => run.state === 'success');
+  const etat: EtatProduction = { commit: derniere?.targetCommit, at: derniere ? quand(derniere) : undefined };
+  // Le plus récent essai TERMINÉ : s'il a réussi, tout va bien ; sinon on le dit.
+  const dernierEssai = essais.find((run) => run.state !== 'running');
+  if (dernierEssai && (dernierEssai.state === 'failed' || dernierEssai.state === 'stopped')) {
+    etat.derniere = { etat: dernierEssai.state, at: quand(dernierEssai), erreur: dernierEssai.error };
+  }
   if (!derniere) etat.raison = 'Aucune mise en production n’a encore abouti sur ce projet.';
   const cwd = project.path;
   if (!(await runCommand(cwd, 'git rev-parse --git-dir', 20000)).ok) {
     etat.raison = 'Le dossier du projet n’est pas un dépôt git : l’écart ne peut pas se mesurer.';
     return etat;
   }
-  const branche = (await brancheDeLEtape(project, 'production')).branche;
+  const production = (await brancheDeLEtape(project, 'production')).branche;
+  const deploiement = (await brancheDeLEtape(project, 'dev')).branche;
+  let branche = production;
+  let tete = { ok: false, out: '' };
+  for (const candidate of deploiement === production ? [production] : [deploiement, production]) {
+    branche = candidate;
+    tete = await runCommand(cwd, `git rev-parse --verify --quiet ${candidate}`, 20000);
+    if (tete.ok && tete.out.trim()) break;
+  }
   etat.branche = branche;
-  const tete = await runCommand(cwd, `git rev-parse --verify --quiet ${branche}`, 20000);
   if (!tete.ok || !tete.out.trim()) {
     etat.raison = `La branche « ${branche} » est introuvable dans le dépôt : l’écart ne peut pas se mesurer.`;
     return etat;
@@ -1145,6 +1174,11 @@ export async function startDeploy(
   if (etape.cible === 'production' && !aUnProcessus(project)) {
     return { ok: false, error: blocageMiseEnProduction(projectId, 'production') ?? 'Aucun processus de mise en production.' };
   }
+  /* L'INTERRUPTEUR DE MISE EN PRODUCTION, éteint par défaut : tout chemin qui
+     relance une production (bouton, « Relancer », file d'attente, outil
+     d'agent) passe ici. Le déploiement sur ce serveur n'est jamais concerné. */
+  const desactivee = etape.cible === 'production' ? raisonProductionDesactivee(project) : null;
+  if (desactivee) return { ok: false, error: desactivee };
   if (active.has(projectId)) {
     waiting.set(projectId, { cible: etape.cible });
     const courante = store.latestDeploy(projectId);

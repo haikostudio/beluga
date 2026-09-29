@@ -66,8 +66,14 @@ import {
   gesteDuDepot,
   carteDoitSecouer,
   friseDeSuivi,
+  etatDeLInitialisation,
+  vignetteDInitialisationVisible,
+  procedureEnPlace,
+  estCarteMarketing,
 } from '@beluga/shared';
+import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
 import { RepereAttention } from '@/components/repere-attention';
+import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { nomCourtMoteur } from '@/components/run-selectors';
 import { SilhouetteTableau } from '@/components/silhouettes';
@@ -516,7 +522,10 @@ export function Board({
   const cards = React.useMemo(
     () =>
       Object.values(state.cards)
-        .filter((card) => card.projectId === projectId)
+        // Les cartes de l'agent marketing ne vivent que dans l'outil Marketing
+        // (`estCarteMarketing`) : le démon ne les envoie plus dans les paquets
+        // du tableau, et celles qui arrivent en direct sont écartées ici.
+        .filter((card) => card.projectId === projectId && !estCarteMarketing(card))
         // Un seul ordre de tri : le plus récent en premier (PLAN §16).
         .sort((a, b) => b.position - a.position),
     [state.cards, projectId],
@@ -717,6 +726,21 @@ export function Board({
   /* Le projet ouvert, tel que l'écran le connaît déjà : c'est lui qui dit si la
      procédure d'une colonne est définie, sans rien demander au serveur. */
   const projetOuvert = state.projects.find((p) => p.id === projectId);
+  /* L'INITIALISATION DE LA MISE EN PRODUCTION, en tête de « En cours » : une
+     vignette à part, pas une carte (DEC-256) — ni comptée dans l'entête, ni
+     dans l'avancement de la colonne. */
+  const idConfiguration = projetOuvert?.miseEnProduction?.agentId;
+  const agentConfiguration = idConfiguration ? state.agents[idConfiguration] : undefined;
+  const etatInitialisation = etatDeLInitialisation(projetOuvert, agentConfiguration, Date.now());
+  const vignetteInitialisation =
+    agentConfiguration && etatInitialisation && vignetteDInitialisationVisible(etatInitialisation) ? (
+      <VignetteInitialisationProduction
+        agent={agentConfiguration}
+        etat={etatInitialisation}
+        projet={projetOuvert}
+        reconfiguration={procedureEnPlace(projetOuvert, 'production')}
+      />
+    ) : null;
 
   /*
    * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
@@ -796,6 +820,29 @@ export function Board({
     if (enColonnes) rail.current!.scrollLeft = cible.offsetLeft - 12;
     else rail.current!.scrollTop = cible.offsetTop - 12;
   }, [projectId, tableauCharge, enColonnes]);
+
+  /*
+   * LA CARTE MONTRÉE PAR LE BADGE BLEU D'UN PROJET. Le tiroir l'ouvre ; le
+   * tableau, lui, défile jusqu'à SA rangée (sa colonne en large écran), puis
+   * jusqu'à la carte si elle est posée dans la page — sur téléphone surtout,
+   * où une carte « Planifié » restait hors de vue derrière la rangée retenue.
+   * La carte peut arriver après coup (projet déchargé, `chargerCarte`) : la
+   * visée attend donc sa colonne, puis s'efface une fois honorée.
+   */
+  const carteMontree = state.carteMontree;
+  const colonneMontree = carteMontree ? state.cards[carteMontree.cardId]?.column : undefined;
+  React.useEffect(() => {
+    if (!carteMontree || !tableauCharge || !colonneMontree) return;
+    const node = rail.current;
+    const rangee = node?.querySelector<HTMLElement>(`[data-column="${colonneMontree}"]`);
+    if (!node || !rangee) return;
+    if (enColonnes) node.scrollLeft = rangee.offsetLeft - 12;
+    else node.scrollTop = rangee.offsetTop - 12;
+    rangee
+      .querySelector<HTMLElement>(`[data-carte="${carteMontree.cardId}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    client.montrerCarte(null);
+  }, [carteMontree, colonneMontree, tableauCharge, enColonnes]);
 
   /*
    * Au défilement, on note la rangée en tête. L'écriture en base attend une
@@ -1510,6 +1557,11 @@ export function Board({
                 colonneEnLot === column && 'pl-[15px] pt-[15px]',
               )}
             >
+              {column === 'running' && vignetteInitialisation ? (
+                <div className={cn(enColonnes ? 'w-full' : CLASSE_LARGEUR_CARTE, 'shrink-0')}>
+                  {vignetteInitialisation}
+                </div>
+              ) : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
                 const tuile = (
@@ -1558,7 +1610,7 @@ export function Board({
                   onCharger={() => chargerLaSuite(column, totalDeColonne(column, columnCards.length))}
                 />
               ) : null}
-              {!columnCards.length ? (
+              {!columnCards.length && !(column === 'running' && vignetteInitialisation) ? (
                 <p className="shrink-0 px-1.5 py-3 text-[13px] text-faint">
                   {column === 'planned'
                     ? t('Aucune demande pour l’instant.')
@@ -1816,6 +1868,13 @@ export function CardTile({
     () => (formeEnRoute ? demande || debutDeLaDemande(card.description) : ''),
     [formeEnRoute, demande, card.description],
   );
+  /* Le titre et la demande se replient sur deux lignes, et le corps d'une carte
+     « En route » a une hauteur fixe : dès que l'un des trois coupe le texte, une
+     pastille « i » le donne en entier. */
+  const corpsRef = React.useRef<HTMLDivElement>(null);
+  const titreRef = React.useRef<HTMLHeadingElement>(null);
+  const descriptionRef = React.useRef<HTMLParagraphElement>(null);
+  const texteCoupe = useTexteCoupe([titreRef, descriptionRef, corpsRef], [card.title, extraitDescription, formeEnRoute]);
   /*
    * L'appui long est suivi d'un clic que le navigateur envoie quand même : sans
    * ce garde-fou, le tiroir de la carte s'ouvrirait derrière le menu.
@@ -1927,6 +1986,14 @@ export function CardTile({
   );
   const agentAuTravail = !!agentActif;
   /*
+   * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST EN TRAVAIL POUR PERSONNE. Son tour
+   * vit — `ask_user` bloque jusqu'à la réponse —, donc `agentTientSonTour` le
+   * garde ; mais la carte ne doit ni tourner ni dire « au travail » : elle
+   * attend la réponse (`Agent.attendReponse`, posé par le registre des
+   * attentes).
+   */
+  const attendQuestion = !!agentActif?.attendReponse;
+  /*
    * UNE MÈRE TRAVAILLE PAR SES FILLES. Elle ne lance aucun agent : ce qui
    * tourne se lit sur son seul relevé (`card.suiviDesFilles`), jamais sur les
    * agents ou cartes des filles, souvent déchargés de l'écran (DEC-258).
@@ -1964,7 +2031,7 @@ export function CardTile({
    * bouton d'arrêt — pas de place ici, et un second geste d'arrêt aurait
    * dérivé de celui du tiroir.
    */
-  const travailActuel = agentActif ?? null;
+  const travailActuel = agentActif && !attendQuestion ? agentActif : null;
 
   /*
    * L'avancement de la liste de tâches de l'agent de la carte, tel qu'il
@@ -2132,6 +2199,7 @@ export function CardTile({
 
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
+    attendReponse: attendQuestion,
     analyseEnCours: agentAuTravail || fillesAuTravail,
     enAttente: !!waiting,
     estimationEchouee: estimateFailed,
@@ -2282,7 +2350,7 @@ export function CardTile({
             frise tombe au même endroit sur toutes les cartes, et l'ancienneté
             reste toujours visible en bas. Au tableau, ce cadre
             n'existe pas (`contents`). */}
-        <div className={enRoute ? cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE) : 'contents'}>
+        <div ref={corpsRef} className={enRoute ? cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE) : 'contents'}>
         <div className="flex items-start gap-1.5">
           {/* Le titre est le texte que l'on cherche à COPIER, et le seul de la
               carte qui ne soit pas tronqué : il revient donc à la ligne, y
@@ -2291,6 +2359,7 @@ export function CardTile({
               à la taille d'une lettre : elle ne prend pas de ligne à elle
               seule, et ne bouge donc rien d'autre sur la carte. */}
           <h3
+            ref={titreRef}
             data-carte-texte
             className="texte-copiable line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text"
           >
@@ -2301,12 +2370,21 @@ export function CardTile({
             </Tooltip>
             {card.title}
           </h3>
+          {texteCoupe ? (
+            <BulleTexteCoupe>
+              <span className="block font-medium text-text">{card.title}</span>
+              {enRoute && extraitDescription ? <span className="mt-1 block">{extraitDescription}</span> : null}
+            </BulleTexteCoupe>
+          ) : null}
           {/* Le triangle passe AVANT le voyant : une décision attendue prime
               sur l'état d'avancement, elle est ce qui demande un geste. */}
           <RepereAttention
-            compte={decisions}
-            icone={iconeCarte}
-            libelle={phraseCarte}
+            /* La question ouverte se voit même avant que sa décision ne soit
+               arrivée dans la liste : le drapeau de l'agent suffit. */
+            compte={decisions || (attendQuestion ? 1 : 0)}
+            icone={decisions ? iconeCarte : attendQuestion ? 'message' : iconeCarte}
+            libelle={phraseCarte ?? (attendQuestion ? t('L’agent attend votre réponse à sa question') : undefined)}
+            vif={attendQuestion}
             className="mt-[2px]"
             data-attention-carte={card.id}
           />
@@ -2327,6 +2405,7 @@ export function CardTile({
             la carte n'a ni l'un ni l'autre. */}
         {enRoute && extraitDescription ? (
           <p
+            ref={descriptionRef}
             data-description-carte={card.id}
             data-source-extrait={demande ? 'demande' : 'description'}
             className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted"

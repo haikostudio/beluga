@@ -385,3 +385,13 @@ export function ligneDeRenouvellement(entree: {
   const vide = entree.coffreVide ? ' ; le moteur a VIDÉ le coffre (jeton de renouvellement refusé)' : '';
   return `${tete} : échoué${entree.raison ? ` (${entree.raison})` : ''}${vide}`;
 }
+
+/**
+ * « ÉPUISÉ » NE SE DIT QUE D'UN COMPTE QUI RÉPOND. Un compte hors du choix
+ * parce que sa connexion est refusée (clé rejetée, session morte) n'est pas à
+ * sec : l'étiquette de connexion le dit déjà, et « épuisé » à côté envoyait
+ * chercher un solde vide là où il fallait changer de clé.
+ */
+export function compteEpuise(quota: { available: boolean; connexion?: { doitReconnecter: boolean } }): boolean {
+  return !quota.available && !quota.connexion?.doitReconnecter;
+}

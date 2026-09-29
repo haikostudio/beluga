@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   Activity,
   Archive,
+  BarChart3,
   ArchiveRestore,
   Check,
   ChevronUp,
@@ -22,7 +23,6 @@ import {
   Palette,
   Pencil,
   Plus,
-  Power,
   Route,
   FileCheck2,
   Search,
@@ -45,11 +45,6 @@ import {
   lireLienGithub,
   agentTientSonTour,
   avancementDeLaColonne,
-  avertissementRedemarrage,
-  resumeDeCeQuiSeraInterrompu,
-  type EtatDemon,
-  raisonAgents,
-  raisonPublications,
   doitSecouerLigne,
   premiereDecision,
   repereVisible,
@@ -60,6 +55,7 @@ import {
   compterEnPanne,
   texteDuCompteur,
 } from '@beluga/shared';
+import { idDuGroupeLocal } from '@beluga/shared';
 import { libelleAttention, RepereAttention } from '@/components/repere-attention';
 import {
   BulleInfo,
@@ -67,9 +63,7 @@ import {
   ConfirmDialog,
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
-  DialogDescription,
   DialogTitle,
   Dot,
   DropdownMenu,
@@ -158,7 +152,9 @@ export function Sidebar({
     libelle: string;
     pastille?: React.ReactNode;
   }[] = [
-    { cle: 'tableau-de-bord', repere: 'tableau-de-bord', Icone: LayoutDashboard, libelle: t('Statistiques') },
+    { cle: 'tableau-de-bord', repere: 'tableau-de-bord', Icone: LayoutDashboard, libelle: t('Résumé') },
+    /* Le service Statistiques (27/09/2026) : le suivi des visites de chaque projet et des sites autonomes. */
+    { cle: 'statistiques', repere: 'statistiques', Icone: BarChart3, libelle: t('Statistiques') },
     { cle: 'coffre', repere: 'coffre', Icone: Key, libelle: t('Coffre-fort') },
     { cle: 'memoire', repere: 'memoire', Icone: Library, libelle: t('Mémoire') },
     {
@@ -359,11 +355,12 @@ export function Sidebar({
 
   /*
    * L'espace de développement de l'application (le projet marqué `isSelf`)
-   * n'est PAS un projet comme les autres : il ne se range pas, ne se glisse pas
-   * et n'entre dans aucun groupe. Il sort donc de la liste rangeable — et de
-   * tout ce qui en découle, groupes compris — mais s'affiche EN TÊTE de cette
-   * liste, sous le libellé « Projets », dans sa propre ligne ancrée. Cela ne
-   * l'empêche pas de RECEVOIR une carte : le dépôt suit la règle commune.
+   * n'est PAS un projet comme les autres : il ne se range pas et ne se glisse
+   * pas. Il sort donc de la liste rangeable, mais s'affiche FIXÉ EN TÊTE de son
+   * groupe « Local » (`shared/src/groupe-local.ts`), que le démon garantit au
+   * démarrage et qui ne se supprime pas. Sans ce groupe (démon plus ancien), il
+   * reste ancré sous le libellé « Projets ». Cela ne l'empêche pas de RECEVOIR
+   * une carte : le dépôt suit la règle commune.
    */
   const tousActifs = state.projects.filter((p) => !p.archived && !p.isSelf);
   /*
@@ -378,6 +375,8 @@ export function Sidebar({
     tousActifs.filter((p) => p.regroupementId === id).sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000));
   const espaceDev = state.projects.find((p) => !p.archived && p.isSelf) ?? null;
   const groups = state.groups;
+  /** Le groupe « Local » : celui où vit l'espace de développement. */
+  const groupeLocalId = idDuGroupeLocal(state.projects, groups);
 
   /*
    * UNE CARTE EST EN VOL AU-DESSUS DE LA COLONNE. Le tableau publie ce qu'il
@@ -832,7 +831,7 @@ export function Sidebar({
             sans en être un — pas de poignée, pas de rang, aucune prise pour la
             souris — mais il garde tous ses repères, sinon on cesserait de voir
             ce qui s'y passe. */}
-        {espaceDev ? (
+        {espaceDev && !groupeLocalId ? (
           <LigneEspaceDev
             project={espaceDev}
             active={espaceDev.id === state.activeProjectId && vue === 'projet'}
@@ -859,10 +858,14 @@ export function Sidebar({
             });
           }
 
+          // Le groupe « Local » porte l'espace de développement en tête : il
+          // compte parmi ses membres pour le nombre, les signaux et le repli.
+          const local = entry.id === groupeLocalId && espaceDev ? espaceDev : null;
+          const membresVus = local ? [local, ...entry.members] : entry.members;
           // Replié, un groupe cacherait ce que ses projets attendent ET ce
           // qu'ils ont rendu : les deux signaux remontent jusqu'à son en-tête.
           const signal = signalDuGroupe(
-            entry.members.map((p) => p.id),
+            membresVus.map((p) => p.id),
             state.attention,
             state.rendus,
           );
@@ -900,7 +903,7 @@ export function Sidebar({
                 rowProps={rowProps(entry.id, 'group')}
                 dimmed={dragging?.id === entry.id}
                 signal={signal}
-                regarde={entry.members.some((p) => p.id === state.activeProjectId)}
+                regarde={membresVus.some((p) => p.id === state.activeProjectId)}
                 bande={bandeSeule}
                 titre={entry.group.name}
               >
@@ -945,7 +948,7 @@ export function Sidebar({
                   className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-text hover:text-text"
                 >
                   <span className="min-w-0 truncate">{entry.group.name}</span>
-                  <span className="shrink-0 text-faint">{entry.members.length}</span>
+                  <span className="shrink-0 text-faint">{membresVus.length}</span>
                 </button>
                 {/* Replié, le groupe porte la SOMME des cartes non consultées de
                     ses projets ; un clic les marque consultées. */}
@@ -958,7 +961,7 @@ export function Sidebar({
                       onPointerDown={(event) => event.stopPropagation()}
                       onClick={(event) => {
                         event.stopPropagation();
-                        entry.members
+                        membresVus
                           .filter((p) => state.rendus[p.id])
                           .forEach((p) => client.call({ type: 'project.read', projectId: p.id }));
                       }}
@@ -971,7 +974,7 @@ export function Sidebar({
                 {/* Replié, un membre qui publie ne se voit plus : le repère jaune
                     remonte jusqu'à l'en-tête du groupe. Déplié, chaque ligne
                     porte le sien. */}
-                {replie && entry.members.some((p) => publieOf(p.id)) ? (
+                {replie && membresVus.some((p) => publieOf(p.id)) ? (
                   <RepereePublication publie />
                 ) : null}
                 {replie ? (
@@ -981,13 +984,13 @@ export function Sidebar({
                        attendent : un seul repère, jamais deux côte à côte. */
                     icone={iconeDuLot(
                       state.decisions.filter(
-                        (d) => !d.reglee && entry.members.some((p) => p.id === d.projectId),
+                        (d) => !d.reglee && membresVus.some((p) => p.id === d.projectId),
                       ),
                     )}
                     /* Replié, le groupe emmène à la décision du premier de ses
                        projets qui en attend une. */
                     onDecision={() => {
-                      const projet = entry.members.find((p) => state.attention[p.id]);
+                      const projet = membresVus.find((p) => state.attention[p.id]);
                       if (projet) allerALaDecision(projet.id, onChoose);
                     }}
                   />
@@ -1010,7 +1013,8 @@ export function Sidebar({
                   data-outil-groupe="supprimer"
                   className={cn(
                     'shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-danger group-hover/g:opacity-100',
-                    outilsCaches && 'hidden',
+                    // Le groupe « Local » abrite Beluga : il ne se supprime pas.
+                    (outilsCaches || local) && 'hidden',
                   )}
                   title={t('Supprimer le groupe')}
                 >
@@ -1032,7 +1036,27 @@ export function Sidebar({
 
               {!replie ? (
                 <div className={bandeSeule ? 'px-0' : 'pl-3 pr-0.5'}>
-                  {entry.members.length ? (
+                  {/* FIXÉ EN TÊTE du groupe « Local » : aucune prise pour la
+                      souris, les projets glissés ici se rangent sous lui. */}
+                  {local ? (
+                    <LigneEspaceDev
+                      project={local}
+                      active={local.id === state.activeProjectId && vue === 'projet'}
+                      running={runningOf(local.id)}
+                      publie={publieOf(local.id)}
+                      attention={state.attention[local.id]}
+                      rendus={state.rendus[local.id]}
+                      icone={iconeAttenteOf(local.id)}
+                      avancement={avancementOf(local.id)}
+                      cibleDeCarte={cibleDeCarteDe(local.id)}
+                      onSettings={() => ouvrirConfigProjet(local.id)}
+                      bande={bandeSeule}
+                      outilsCaches={outilsCaches}
+                      onChoose={onChoose}
+                      onQuitterTableauDeBord={() => onOuvrirVue('projet')}
+                    />
+                  ) : null}
+                  {entry.members.length || local ? (
                     entry.members.map((project) =>
                       rendreLigne(project, {
                         style: glisse(decales.membres.has(project.id)),
@@ -1042,7 +1066,17 @@ export function Sidebar({
                       }),
                     )
                   ) : (
-                    <p className="px-2 pb-1.5 text-[12px] text-faint">{t('Glissez un projet ici.')}</p>
+                    // Une seule ligne, jamais coupée ; INVISIBLE en colonne
+                    // réduite (elle y débordait mot par mot) mais gardant sa
+                    // hauteur, pour que les lignes suivantes ne sautent pas
+                    // d'un mode à l'autre (MEM-2899).
+                    <p
+                      data-groupe-vide={entry.id}
+                      aria-hidden={bandeSeule || undefined}
+                      className={cn('truncate px-2 pb-1.5 text-[12px] text-faint', bandeSeule && 'invisible')}
+                    >
+                      {t('Glissez un projet ici.')}
+                    </p>
                   )}
                 </div>
               ) : null}
@@ -1116,7 +1150,7 @@ export function Sidebar({
           (`h-9`). Chaque ligne garde son `data-ouvrir-*`. */}
       <div
         ref={navigationRef}
-        className="relative border-t border-border px-1.5 pt-1.5"
+        className="relative border-t border-border px-1.5 pb-1.5 pt-1.5"
         onPointerEnter={(event) => {
           if (event.pointerType === 'mouse') ouvrirNavigation();
         }}
@@ -1231,7 +1265,9 @@ export function Sidebar({
         </div>
       </div>
 
-      <BoutonRedemarrage bande={bandeSeule} />
+      {/* LE REDÉMARRAGE DU SERVEUR a quitté le pied de cette colonne : il vit
+          dans le bandeau du haut, à droite, en icône seule qui dit son état
+          (`bouton-redemarrage.tsx`). */}
       </>
       </div>
 
@@ -1319,224 +1355,6 @@ function BoutonEnRoute({ bande, actif, onOuvrir }: { bande: boolean; actif: bool
         )}
       </Button>
     </div>
-  );
-}
-
-/**
- * Le redémarrage du serveur, en bas de la colonne des projets.
- *
- * Publier remplace l'interface tout de suite, mais le serveur continue de
- * tourner avec le code chargé à son démarrage : une correction côté serveur
- * n'existe pas tant qu'on ne l'a pas relancé. Le triangle orange dit exactement
- * ce moment-là — sinon rien ne le signale, et la correction semble n'avoir eu
- * aucun effet.
- */
-function BoutonRedemarrage({ bande = false }: { bande?: boolean }) {
-  const state = useApp();
-  const [confirmer, setConfirmer] = React.useState(false);
-  const [enCours, setEnCours] = React.useState(false);
-
-  // Le serveur diffuse son état toutes les trente secondes, mais on le demande
-  // à l'ouverture : sinon le bouton reste muet jusqu'au premier battement.
-  React.useEffect(() => {
-    if (!state.connected) return;
-    void client.refreshDaemonStatus();
-  }, [state.connected]);
-
-  const demon = state.demon;
-  const attendu = !!demon?.redemarrageNecessaire;
-  // Une publication en cours interdit le redémarrage : le couper laisserait un
-  // lot à moitié parti. Le bouton s'éteint et dit d'attendre ; la demande, elle,
-  // partira toute seule dès la dernière publication terminée.
-  const publications = demon?.publications ?? [];
-  const publie = publications.length > 0;
-  const enAttente = !!demon?.redemarrageEnAttente;
-  // Le lien avec le serveur se coupe pendant qu'il redémarre : le dernier état
-  // connu (par exemple « Publication en cours ») devient alors faux, puisque le
-  // serveur qui l'a émis n'est plus celui qui répondra. Tant que la connexion
-  // n'est pas revenue, on ne se fie plus à cet état — seul le redémarrage
-  // compte, et il s'efface tout seul dès la reconnexion (l'état frais est
-  // redemandé juste au-dessus).
-  const deconnecte = !state.connected;
-
-  const libelle = enCours || deconnecte
-    ? t('Redémarrage…')
-    : publie
-      ? t('Publication en cours')
-      : enAttente
-        ? t('Redémarrage requis')
-        : attendu
-          ? t('Redémarrage attendu')
-          : t('Redémarrer le serveur');
-  const titre = enCours || deconnecte
-    ? t('Le serveur redémarre — l’application se reconnectera toute seule.')
-    : publie
-      ? raisonPublications(publications)
-      : enAttente
-        ? (demon?.agentsEnCours
-            ? t('{v0} Il partira tout seul dès qu’il aura fini.', { v0: raisonAgents(demon.agentsEnCours, demon.agentsDetail) })
-            : t('Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'))
-        : attendu
-          ? t('Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.')
-          : t('Redémarrer le serveur');
-
-  /*
-   * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PLUS LE BOUTON.
-   *
-   * Il était désactivé pendant une publication : impossible d'ouvrir la fenêtre,
-   * donc impossible de forcer — alors que c'est exactement la situation où l'on
-   * en a besoin. Le bouton s'ouvre donc toujours (sauf pendant que le serveur
-   * repart, où il n'y a plus personne à qui parler) ; c'est la FENÊTRE qui dit
-   * ce qui sera interrompu, et le forçage reste un second clic délibéré.
-   */
-  const retenu = publie || enAttente;
-  // Rétrécie, l'icône prend la taille de celles de la bande (`h-3.5`).
-  const iconeRedemarrage = bande ? 'h-3.5 w-3.5' : 'h-3 w-3';
-
-  return (
-    <>
-      {/* Sous le bouton de navigation, dont le trait sépare déjà le pied de
-          colonne des projets. RÉTRÉCIE, la colonne n'en garde que l'icône,
-          centrée sur le même axe que toutes les autres et à leur taille : le
-          libellé coupé après sa première lettre ne disait plus rien. Il se
-          lit au survol, avec la raison d'un redémarrage retenu. */}
-      <div className="px-1.5 pb-1.5 pt-0.5">
-        <button
-          data-bouton-redemarrage={bande ? 'bande' : 'deplie'}
-          onClick={() => setConfirmer(true)}
-          disabled={enCours || deconnecte}
-          className={cn(
-            'flex w-full items-center rounded-md text-left text-[13px] transition-colors',
-            bande ? 'h-9 justify-center px-0 sm:h-7' : 'gap-1.5 px-2 py-1.5',
-            'disabled:cursor-not-allowed',
-            publie || enAttente || deconnecte
-              ? 'text-muted'
-              : attendu
-                ? 'text-warning hover:bg-warning/10'
-                : 'text-faint hover:bg-surface hover:text-muted',
-          )}
-          title={bande && titre !== libelle ? `${libelle} — ${titre}` : titre}
-        >
-          {enCours || publie || enAttente || deconnecte ? (
-            <Loader2 className={cn('shrink-0', iconeRedemarrage, (enCours || deconnecte) && 'animate-spin')} />
-          ) : attendu ? (
-            <TriangleAlert className={cn('shrink-0', iconeRedemarrage)} />
-          ) : (
-            <Power className={cn('shrink-0', iconeRedemarrage)} />
-          )}
-          <span className={bande ? 'sr-only' : 'min-w-0 flex-1 truncate'}>{libelle}</span>
-        </button>
-      </div>
-
-      <DialogueDeRedemarrage
-        open={confirmer}
-        demon={demon}
-        retenu={retenu}
-        onClose={() => setConfirmer(false)}
-        onPartir={(force) => {
-          setEnCours(true);
-          // La réponse part avant la coupure ; la reconnexion se fait toute
-          // seule, on rend donc la main au bout de quelques secondes. Un refus
-          // (publication en cours) revient AVANT la coupure : on le dit et on
-          // rend la main tout de suite.
-          void client
-            .call<{ ok: boolean; raison?: string }>({ type: 'daemon.restart', force })
-            .then((res) => {
-              if (res && res.ok === false) {
-                setEnCours(false);
-                if (res.raison) client.pushToast('info', res.raison);
-              }
-            })
-            .catch(() => undefined);
-          window.setTimeout(() => setEnCours(false), 12000);
-        }}
-      />
-    </>
-  );
-}
-
-/**
- * LA FENÊTRE DU REDÉMARRAGE — ET SON SECOND BOUTON.
- *
- * Un redémarrage demandé pendant qu'un travail tourne est RETENU : il partira
- * tout seul dès la dernière tâche finie, et c'est la bonne règle tant que ce
- * travail avance vraiment. Le jour où plus rien n'avance, elle se retourne
- * contre l'utilisateur — le redémarrage attend un agent qui n'ira jamais au
- * bout, et il fallait un terminal pour s'en sortir.
- *
- * D'où le second bouton, et deux exigences qui vont avec : il ne part JAMAIS
- * tout seul (un clic de plus, sur un bouton nommé « Forcer le redémarrage »),
- * et la fenêtre DIT ce qui sera interrompu avant qu'on ne le clique
- * (`resumeDeCeQuiSeraInterrompu`). Quand rien ne tourne, il n'y a rien à forcer
- * et il ne s'affiche pas.
- */
-function DialogueDeRedemarrage({
-  open,
-  demon,
-  retenu,
-  onPartir,
-  onClose,
-}: {
-  open: boolean;
-  demon?: EtatDemon & { redemarrageNecessaire?: boolean };
-  retenu: boolean;
-  onPartir: (force: boolean) => void;
-  onClose: () => void;
-}) {
-  const etat = demon ?? { demarreA: 0 };
-  const quelqueChoseTourne = (etat.agentsEnCours ?? 0) > 0 || (etat.publications ?? []).length > 0;
-
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:w-[min(480px,100%)]">
-        <DialogHeader>
-          <DialogTitle>{t('Redémarrer le serveur ?')}</DialogTitle>
-        </DialogHeader>
-        <DialogDescription className="mt-0">{avertissementRedemarrage(etat)}</DialogDescription>
-        {quelqueChoseTourne ? (
-          <p className="mt-2 text-[13px] leading-relaxed text-warning" data-redemarrage-interrompu>
-            {resumeDeCeQuiSeraInterrompu(etat)}
-          </p>
-        ) : null}
-        <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            {t('Annuler')}</Button>
-          {quelqueChoseTourne ? (
-            <Button
-              variant="danger"
-              size="sm"
-              data-redemarrage-force
-              onClick={() => {
-                onPartir(true);
-                onClose();
-              }}
-            >
-              {t('Forcer le redémarrage')}</Button>
-          ) : null}
-          {/*
-            « Redémarrer » reste ACTIF même quand un travail tourne : il pose
-            alors la demande RETENUE, qui partira toute seule dès la dernière
-            tâche finie — c'est le comportement d'avant, et il est utile. On
-            n'ajoute rien à sa charge : c'est « Forcer » qui passe outre.
-          */}
-          <Button
-            variant="default"
-            size="sm"
-            title={
-              retenu
-                ? t('Le redémarrage sera retenu et partira tout seul dès la fin du travail en cours.')
-                : undefined
-            }
-            onClick={() => {
-              onPartir(false);
-              onClose();
-            }}
-          >
-            {retenu ? t('Redémarrer dès que possible') : t('Redémarrer')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -1824,9 +1642,10 @@ function RepereRobot({
         <span
           className={cn(
             'flex shrink-0 items-center gap-0.5',
-            mini && cn(pastilleMini, 'absolute -right-[7px] -top-[6px] bg-termine'),
+            mini && cn(pastilleMini, 'absolute -right-[7px] -top-[6px] cursor-pointer bg-termine'),
           )}
           data-repere-robot
+          data-repere-rendus
           aria-label={libelle}
         >
           <FileCheck2 className={cn('shrink-0', mini ? 'h-2 w-2 text-sur-etat' : 'h-[15px] w-[15px] text-termine')} />
@@ -1841,7 +1660,20 @@ function RepereRobot({
 function libelleNonConsultees(n: number, groupe = false): string {
   const base =
     n > 1 ? t('{n} cartes avec un rendu non consulté', { n }) : t('Une carte avec un rendu non consulté');
-  return groupe ? t('{v0} — cliquez pour tout marquer comme consulté', { v0: base }) : base;
+  return groupe
+    ? t('{v0} — cliquez pour tout marquer comme consulté', { v0: base })
+    : t('{v0} — cliquez pour l’ouvrir', { v0: base });
+}
+
+/**
+ * LE BADGE BLEU D'UNE LIGNE MÈNE À SA CARTE. Il vit DANS le bouton du projet
+ * (un bouton n'en contient pas un autre, et sortir le badge décalerait l'icône
+ * en colonne réduite) : le bouton regarde donc où le clic est tombé. Sur le
+ * badge `data-repere-rendus`, il ouvre la carte non lue la plus récente
+ * (`ouvrirCarteNonLue`) ; ailleurs, il garde son geste d'origine.
+ */
+function clicSurLeBadgeRendu(event: React.MouseEvent): boolean {
+  return !!(event.target as Element | null)?.closest?.('[data-repere-rendus]');
 }
 
 /**
@@ -2089,14 +1921,15 @@ function Trait({ ou }: { ou?: 'before' | 'after' }) {
 }
 
 /**
- * « Beluga » : l'espace de développement de l'application, ancré en tête.
+ * « Beluga » : l'espace de développement de l'application, fixé en tête de
+ * son groupe « Local ».
  *
  * Le projet posé sur le dossier de Beluga Build (marque `isSelf`) n'est pas un
  * projet client : c'est l'atelier où l'outil lui-même évolue. Il quitte donc le
- * RANGEMENT — plus de poignée, plus de groupe possible, pas de `data-drag-id` :
- * on ne peut ni le déplacer dans la liste ni le mettre dans un groupe
- * (`data-espace-dev-verrouille`) — pour occuper la PREMIÈRE place de la liste,
- * sous le libellé « Projets ». Il REÇOIT en revanche une carte glissée du
+ * RANGEMENT — plus de poignée, pas de `data-drag-id` : on ne peut ni le
+ * déplacer ni le sortir de son groupe (`data-espace-dev-verrouille`) — pour
+ * occuper la PREMIÈRE place du groupe « Local » (`shared/src/groupe-local.ts`),
+ * ou, sans ce groupe, celle de la liste sous le libellé « Projets ». Il REÇOIT en revanche une carte glissée du
  * tableau, exactement comme une ligne de projet (`data-projet-cible`) : c'est
  * le seul geste de souris qui lui reste, et il s'éclaire pendant le survol. Il porte l'icône de l'application
  * (`/icon.svg`, le beluga du favicon), qui le distingue d'un coup d'œil de
@@ -2143,8 +1976,9 @@ function LigneEspaceDev({
   onQuitterTableauDeBord?: () => void;
 }) {
   const secoue = useSecousse({ attention, rendus }, active);
-  const ouvrir = () => {
-    client.setActiveProject(project.id);
+  const ouvrir = (event: React.MouseEvent) => {
+    if (rendus && clicSurLeBadgeRendu(event)) void client.ouvrirCarteNonLue(project.id);
+    else client.setActiveProject(project.id);
     onQuitterTableauDeBord?.();
     onChoose?.();
   };
@@ -2396,8 +2230,12 @@ function ProjectRow({
         <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover:opacity-100 active:cursor-grabbing" />
       </span>
       <button
-        onClick={() => {
-          client.setActiveProject(project.id);
+        onClick={(event) => {
+          if (rendus && clicSurLeBadgeRendu(event)) {
+            // Un projet réuni REPLIÉ compte aussi les rendus de ses membres.
+            const membres = sousGroupe && !sousGroupe.ouvert ? sousGroupe.membres.map((m) => m.id) : [];
+            void client.ouvrirCarteNonLue(project.id, membres);
+          } else client.setActiveProject(project.id);
           // Choisir, c'est aussi refermer : même quand c'est déjà le projet
           // affiché, le panneau ne doit pas rester ouvert sur un choix fait.
           onChoose?.();

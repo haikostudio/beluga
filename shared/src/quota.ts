@@ -571,6 +571,28 @@ function heureEnClair(at: number): string {
   return minutesLocales(at) ? `${heure} h 30` : `${heure} h`;
 }
 
+/**
+ * Ce qui reste avant l'épuisement prévu, dit court : « dans 1 h 30 »,
+ * « dans 25 min », « dans 2 j 4 h ». Se pose entre parenthèses après
+ * « épuisé demain vers 0 h ». Un instant déjà atteint se dit « maintenant ».
+ */
+export function dansEnClair(at: number, maintenant = Date.now()): string {
+  const restant = at - maintenant;
+  if (restant <= 0) return 'maintenant';
+  const minutes = Math.floor(restant / 60_000);
+  const heures = Math.floor(minutes / 60);
+  const jours = Math.floor(heures / 24);
+  if (jours >= 1) {
+    const reste = heures - jours * 24;
+    return reste ? `dans ${jours} j ${reste} h` : `dans ${jours} j`;
+  }
+  if (heures >= 1) {
+    const reste = minutes - heures * 60;
+    return reste ? `dans ${heures} h ${String(reste).padStart(2, '0')}` : `dans ${heures} h`;
+  }
+  return minutes >= 1 ? `dans ${minutes} min` : 'dans moins d’une minute';
+}
+
 export function previsionEpuisement(
   releves: ReleveQuota[],
   fenetre: { usedPct?: number; resetsAt?: number } | undefined,

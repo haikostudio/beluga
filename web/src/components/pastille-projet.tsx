@@ -11,7 +11,7 @@ import type { Project } from '@beluga/shared';
  * cartes des tableaux de bord (`en-route.tsx`), pour qu'un projet ait le même
  * visage partout.
  */
-export function PastilleProjet({ project }: { project: Project }) {
+export function PastilleProjet({ project }: { project: Pick<Project, 'name' | 'favicon'> }) {
   // Une image qui ne se charge pas (fichier retiré, session expirée) laisse
   // sinon un carré vide : on revient aux initiales, jamais une image cassée.
   const [cassee, setCassee] = React.useState(false);

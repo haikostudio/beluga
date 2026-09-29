@@ -57,6 +57,8 @@ import {
   type PassageDePlanLu,
   phraseDeLErreurDeTour,
   modeleActuel,
+  procedureEnPlace,
+  raisonDeployerDepuisLaCarte,
 } from '@beluga/shared';
 import { BulleInfo, Button, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
 import { CarouselQuestions } from '@/components/carousel-questions';
@@ -932,7 +934,10 @@ export function BarreDAction({
    * repartirait sous le mot « Lancer ».
    */
   const departSansAgent = carte.column === 'planned' && !agent;
-  const rangement = !!repriseVers || avanceUtile;
+  /* LE LOT SE DÉPLOIE AUSSI D'ICI : une carte « À déployer » porte le bouton
+     qui ouvre la fenêtre de déploiement de tout le lot. */
+  const deployerLeLot = carte.column === 'to_deploy';
+  const rangement = !!repriseVers || avanceUtile || deployerLeLot;
 
   const duChapitre = principal && principal.geste !== 'aucun' ? gestes : [];
   if (!duChapitre.length && !rangement) return null;
@@ -1051,6 +1056,7 @@ export function BarreDAction({
               onAvancer={() => avancer([{ card: carte, agentActif: agentAuTravail }])}
             />
           ) : null}
+          {deployerLeLot ? <BoutonDeployerLeLot carte={carte} /> : null}
         </div>
       ) : null}
 
@@ -1060,6 +1066,62 @@ export function BarreDAction({
   );
 }
 
+
+/**
+ * « DÉPLOYER » AU PIED D'UNE CARTE « À DÉPLOYER ». Il n'envoie rien : il ouvre
+ * la MÊME fenêtre de sélection que le bouton de la colonne (toutes les cartes du
+ * lot cochées d'avance), en ramenant au tableau du projet — c'est là que le
+ * déploiement se confirme et se suit. Éteint, il DIT pourquoi, avec la règle
+ * du démon (`raisonDeployerDepuisLaCarte`) : jamais allumé sur un lot que
+ * `deploy.start` refuserait, un agent encore au travail en tête.
+ */
+function BoutonDeployerLeLot({ carte }: { carte: Card }) {
+  const etat = useApp();
+  const projectId = carte.projectId;
+  const raison = React.useMemo(() => {
+    const colonne = Object.values(etat.cards).filter(
+      (card) => card.projectId === projectId && card.column === 'to_deploy',
+    );
+    return raisonDeployerDepuisLaCarte({
+      procedureEnPlace: procedureEnPlace(
+        etat.projects.find((projet) => projet.id === projectId),
+        'dev',
+      ),
+      publicationEnCours: etat.deploys[projectId]?.state === 'running',
+      agents: Object.values(etat.agents).filter((agent) => agent.projectId === projectId),
+      cartesDuLot: colonne.filter((card) => !card.excludedFromDeploy && !card.deployedAt).length,
+      cartesDansLaColonne: colonne.length,
+      horsLigne: !etat.connected,
+    });
+  }, [etat.cards, etat.projects, etat.deploys, etat.agents, etat.connected, projectId]);
+  return (
+    <BoutonPrincipal raison={raison ?? undefined}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        data-geste="deployer-lot"
+        data-raison-eteint={raison ? '' : undefined}
+        aria-disabled={!!raison}
+        onClick={() =>
+          raison
+            ? client.pushToast('warning', t(raison), carte.id)
+            : client.demanderDeploiement({ projectId, selection: true })
+        }
+        title={raison ? t(raison) : undefined}
+        className={cn(
+          CLASSES_BOUTON_DU_FIL,
+          raison
+            ? 'cursor-not-allowed border-transparent bg-raised text-faint hover:bg-raised hover:text-faint'
+            : 'border-border bg-raised text-text hover:bg-accent/10',
+        )}
+      >
+        <Rocket className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{t('Déployer le lot')}</span>
+      </Button>
+    </BoutonPrincipal>
+  );
+}
 
 /**
  * TOUS LES BOUTONS SOUS LE FIL ONT LA MÊME HAUTEUR : celle de « Générer le

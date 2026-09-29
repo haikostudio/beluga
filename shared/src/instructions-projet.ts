@@ -1,3 +1,4 @@
+import { descriptionMoteur } from './registre-moteurs.js';
 /**
  * Quel fichier d'instructions fait FOI pour un projet.
  *
@@ -21,7 +22,7 @@ export const FICHIERS_INSTRUCTIONS = ['CLAUDE.md', 'AGENTS.md'] as const;
  * suit la même convention que Codex (`AGENTS.md`) ; seul Claude lit `CLAUDE.md`.
  */
 export function fichierNatif(engine?: string): string {
-  return engine === 'codex' || engine === 'cursor' ? 'AGENTS.md' : 'CLAUDE.md';
+  return descriptionMoteur(engine)?.instructions ?? 'CLAUDE.md';
 }
 
 /** Un corps de 600 signes ou plus porte du vrai contenu, pas un renvoi. */

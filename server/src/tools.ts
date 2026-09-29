@@ -105,9 +105,11 @@ import {
   lirePlanRendu,
   numeroDuProchainPlan,
   rendrePlan,
+  IDS_MOTEURS,
 } from '@beluga/shared';
 import { listerAcces, listerArchives, enregistrerAcces, restaurerAcces, supprimerAcces } from './coffre-fort.js';
 import * as store from './store.js';
+import { REFUS_SORTIE_GROUPE_LOCAL } from '@beluga/shared';
 import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
 import { completerDonneesDuJournal, dernierJalonDeDemande } from './journal-carte.js';
@@ -130,7 +132,7 @@ import {
   texteDUneUnite,
   texteDuResultat,
   uniteARemplacer,
-  unitesDeLaPortee,
+  unitesDeLaFiche,
 } from './connaissances.js';
 import {
   POIDS_CHANGELOG,
@@ -163,6 +165,7 @@ import {
   ecrireRapport as ecrireRapportMarketing,
   estAgentMarketing,
   lireContenu,
+  lireEspace,
   listerActions as listerActionsMarketing,
   listerContenus,
   supprimerAction as supprimerActionMarketing,
@@ -172,6 +175,10 @@ import {
 } from './marketing.js';
 import {
   LABEL_MARKETING,
+  jugerReperes,
+  METHODE_DES_REPERES,
+  estSiteAutonome,
+  origineDe,
   extraitDeSuivi,
   modeDEmploiDuSuivi,
   phraseDeConfidentialite,
@@ -1081,6 +1088,30 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'moteurs',
+    description:
+      "LES MOTEURS AJOUTÉS — réservé à l'agent « Ajouter un moteur ». « action » : « lister » (les fiches et leur statut) ; « declarer » (label, nomCourt, famille anthropic|openai, api responses|chat pour openai — sans « api », l'épreuve détecte le format —, urlDeBase, urlDesModeles, pageDesCles, modeleParDefaut, modeleLeger — crée ou remplace la fiche, en essai, rattachée à la carte de cette conversation) ; « eprouver » (id, cle — un vrai tour dans un dossier jetable ; rend le verdict et sa raison) ; « activer » (id, cle et nomDuCompte facultatifs — REFUSÉ tant que la dernière épreuve n'est pas verte).",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['lister', 'declarer', 'eprouver', 'activer'] },
+        id: { type: 'string', description: 'L’identifiant rendu par « declarer » (ext-…)' },
+        label: { type: 'string' },
+        nomCourt: { type: 'string' },
+        famille: { type: 'string', enum: ['anthropic', 'openai'] },
+        urlDeBase: { type: 'string' },
+        urlDesModeles: { type: 'string' },
+        pageDesCles: { type: 'string' },
+        modeleParDefaut: { type: 'string' },
+        modeleLeger: { type: 'string' },
+        api: { type: 'string', enum: ['responses', 'chat'] },
+        cle: { type: 'string', description: 'La clé d’accès (pour « eprouver », et « activer » au besoin)' },
+        nomDuCompte: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'relancer_publication',
     description:
       "RELANCE LA PUBLICATION TOMBÉE QUE TU DÉPANNES — réservé à l'agent ouvert par « Résoudre le problème ». Appelle-le UNE fois, après ta réparation : la même publication repartira, à la même étape, dès la fin de ton tour. Aucun autre geste de publication ne t'est permis.",
@@ -1089,7 +1120,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'marketing',
     description:
-      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, varianteDe, lienCible) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité) ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés). Tu ne valides, ne programmes, ne publies et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
+      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, varianteDe, lienCible) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés). Tu ne valides, ne programmes, ne publies et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1107,6 +1138,7 @@ export const TOOL_DEFS: ToolDef[] = [
               pertinence: { type: 'string', enum: ['haute', 'moyenne', 'faible'] },
               raison: { type: 'string', description: 'Pourquoi, pour CE produit, en une phrase simple' },
               premierPas: { type: 'string', description: 'Le premier geste concret' },
+              etapes: { type: 'array', items: { type: 'string' }, description: 'Deux à quatre conseils concrets propres à CE produit, qui complètent le parcours de base du canal' },
             },
             required: ['canal', 'pertinence', 'raison'],
           },
@@ -1123,6 +1155,36 @@ export const TOOL_DEFS: ToolDef[] = [
         etape: { type: 'string', enum: ['brouillon', 'a_valider'] },
         varianteDe: { type: 'string', description: 'L’identifiant de la version A, pour écrire sa version B' },
         lienCible: { type: 'string', description: 'La page vers laquelle le lien de suivi du contenu mène (par défaut : l’adresse du produit)' },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'statistiques',
+    description:
+      "LE SUIVI DES VISITES DE CE PROJET (service Statistiques de Beluga) — à prendre dès que l'utilisateur demande de suivre, mesurer ou tracker les visites. « action » : « etat » (mode, adresse, code lu sur le site, repères) ; « activer » (mode anonyme|visiteur, adresse du site en production : rend l'EXTRAIT, la phrase de confidentialité et la MÉTHODE — tu poses toi-même le code et les repères dans le projet, sans carte) ; « reperes » (la liste ENTIÈRE des repères posés, qui remplace la précédente : nom, emplacement, raison, objectif) ; « lire » (chiffres et parcours sur « jours », 30 par défaut). Anonyme : rien n'est écrit sur l'appareil. Visiteur : le code montre SEUL son bandeau d'accord, puis garde un identifiant dans le stockage local — jamais de cookie. Tu enregistres et sauvegardes, tu ne publies jamais.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['etat', 'activer', 'reperes', 'lire'] },
+        mode: { type: 'string', enum: ['anonyme', 'visiteur'], description: 'Pour « activer » : anonyme par défaut ; visiteur pour analyser les parcours par personne (bandeau d’accord)' },
+        adresse: { type: 'string', description: 'Pour « activer » : l’adresse publique du site en production (https://…)' },
+        reperes: {
+          type: 'array',
+          description: 'Pour « reperes » : chaque élément marqué data-beluga-repere dans le code',
+          items: {
+            type: 'object',
+            properties: {
+              nom: { type: 'string', description: 'Le nom posé sur l’élément : minuscules et tirets (« reserver-hero »)' },
+              emplacement: { type: 'string', description: 'Où il se trouve : page et élément' },
+              raison: { type: 'string', description: 'Ce que ses clics apprennent' },
+              objectif: { type: 'boolean', description: 'Une étape du parcours visé : il entre dans l’entonnoir, dans l’ordre de la liste' },
+            },
+            required: ['nom'],
+          },
+        },
+        jours: { type: 'number', description: 'Pour « lire » : 7, 30 ou 90' },
+        site: { type: 'string', description: 'Un SITE AUTONOME (identifiant « site:… », donné par une carte d’étude) au lieu de ce projet — pour « etat », « reperes » et « lire » seulement' },
       },
       required: ['action'],
     },
@@ -1277,7 +1339,7 @@ export const TOOL_DEFS: ToolDef[] = [
         },
         moteur: {
           type: 'string',
-          enum: ['claude', 'codex', 'cursor'],
+          enum: [...IDS_MOTEURS],
           description: 'Rôle « avis » seulement : viser un des moteurs d’avis réglés (facultatif)',
         },
       },
@@ -1305,7 +1367,7 @@ export const TOOL_DEFS: ToolDef[] = [
       required: ['role', 'moteur', 'raison'],
       properties: {
         role: { type: 'string', enum: ['texte', 'code', 'avis'] },
-        moteur: { type: 'string', enum: ['claude', 'codex', 'cursor'] },
+        moteur: { type: 'string', enum: [...IDS_MOTEURS] },
         modele: { type: 'string', description: 'Un modèle réel de ce moteur (facultatif : son modèle par défaut)' },
         raison: { type: 'string', description: 'Pourquoi ce modèle servirait mieux, en une ou deux phrases' },
       },
@@ -1387,7 +1449,7 @@ function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
     .join('\n');
 }
 
-export const TASK_ONLY_TOOLS = new Set(['remember', 'relancer_publication', 'backup_recette', 'backup_essai', 'surveillance_essai', 'surveillance_recette', 'marketing']);
+export const TASK_ONLY_TOOLS = new Set(['remember', 'relancer_publication', 'backup_recette', 'backup_essai', 'surveillance_essai', 'surveillance_recette', 'marketing', 'statistiques']);
 
 /**
  * LES OUTILS D'UN SEUL GENRE D'AGENT : « marketing » n'est servi qu'à un agent
@@ -1396,6 +1458,7 @@ export const TASK_ONLY_TOOLS = new Set(['remember', 'relancer_publication', 'bac
  */
 export function outilServiA(nom: string, agentId: string): boolean {
   if (nom === 'marketing') return estAgentMarketing(agentId);
+  if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
   return true;
 }
 
@@ -2087,6 +2150,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
 
       if (demande.geste === 'deplacer') {
+        if (vise.isSelf) return { ok: false, text: REFUS_SORTIE_GROUPE_LOCAL };
         let groupeId = vise.groupId;
         let ou = '';
         if (demande.horsGroupe) {
@@ -2743,7 +2807,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         if (lus.has(cle)) return { ok: true, text: `La fiche ${fiche.id} est déjà dans ton contexte : tu l'as lue plus tôt dans cette session.` };
         let rendu = markdownDeLaFiche(portee, fiche.id) ?? '';
         if (rendu.length > LECTURE_FICHE_MAX) {
-          const unites = unitesDeLaPortee(portee).filter((u) => fiche.types.includes(u.type));
+          const unites = unitesDeLaFiche(portee, fiche);
           rendu = `# ${fiche.id} — ${fiche.titre} : ${unites.length} unité(s), trop long pour un seul bloc\n\n${unites.map((u) => ligneDUnite(u, 160)).join('\n')}\n\nLis une unité entière avec « lire » et son « id ».`;
         } else {
           noterEtDiffuserLaLecture(cle, ctx);
@@ -2830,6 +2894,52 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return { ok: true, text: `${texteDuResultat(resultat)}${ou}${sansCible}` };
     }
 
+    case 'moteurs': {
+      if (!store.getAgent(ctx.agentId)?.ajoutDeMoteur) {
+        return { ok: false, text: 'Cet outil est réservé à l’agent « Ajouter un moteur » des réglages.' };
+      }
+      // Chargé à l'appel : le module passe par les comptes et les moteurs.
+      const moteurs = await import('./moteurs-ajoutes.js');
+      const action = String(args.action ?? '');
+      if (action === 'lister') {
+        const fiches = moteurs.listerFiches();
+        if (!fiches.length) return { ok: true, text: 'Aucun moteur ajouté pour l’instant.' };
+        return {
+          ok: true,
+          text: fiches
+            .map((f) => `- ${f.id} · ${f.label} · ${f.famille}${f.api ? ` (${f.api})` : ''} · ${f.statut}${f.epreuve ? ` · ${f.epreuve.resume}` : ''}`)
+            .join('\n'),
+        };
+      }
+      if (action === 'declarer') {
+        const rendu = moteurs.declarerMoteur({
+          label: String(args.label ?? ''),
+          nomCourt: typeof args.nomCourt === 'string' ? args.nomCourt : undefined,
+          famille: String(args.famille ?? ''),
+          urlDeBase: String(args.urlDeBase ?? ''),
+          urlDesModeles: typeof args.urlDesModeles === 'string' ? args.urlDesModeles : undefined,
+          pageDesCles: typeof args.pageDesCles === 'string' ? args.pageDesCles : undefined,
+          modeleParDefaut: String(args.modeleParDefaut ?? ''),
+          modeleLeger: typeof args.modeleLeger === 'string' ? args.modeleLeger : undefined,
+          api: typeof args.api === 'string' ? args.api : undefined,
+        }, store.getAgent(ctx.agentId)?.cardId);
+        if (!rendu.ok) return { ok: false, text: `Fiche refusée : ${rendu.raison}` };
+        return { ok: true, text: `Fiche ${rendu.fiche.id} déclarée, en essai. Éprouve-la maintenant (action « eprouver », id « ${rendu.fiche.id} », avec la clé).` };
+      }
+      if (action === 'eprouver') {
+        const rendu = await moteurs.eprouverMoteur(String(args.id ?? ''), String(args.cle ?? ''));
+        return { ok: rendu.ok, text: rendu.ok ? `${rendu.resume} Tu peux l’activer (action « activer »).` : rendu.resume };
+      }
+      if (action === 'activer') {
+        const rendu = await moteurs.activerMoteur(String(args.id ?? ''), {
+          cle: typeof args.cle === 'string' ? args.cle : undefined,
+          nomDuCompte: typeof args.nomDuCompte === 'string' ? args.nomDuCompte : undefined,
+        });
+        return { ok: rendu.ok, text: rendu.ok ? rendu.raison : `Activation refusée : ${rendu.raison}` };
+      }
+      return { ok: false, text: 'Action inconnue : lister, declarer, eprouver ou activer.' };
+    }
+
     case 'relancer_publication': {
       // Chargé à l'appel : le module passe par le runtime, qui charge ce fichier-ci.
       const { demanderLaRelance } = await import('./depannage-publication.js');
@@ -2841,6 +2951,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (!estAgentMarketing(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent marketing du projet.' };
       return outilMarketing(ctx, project, args);
     }
+
+    case 'statistiques':
+      return outilStatistiques(ctx, project, args);
 
     case 'surveillance_essai': {
       const existante = typeof args.id === 'string' && args.id.trim() ? lireSurveillance(args.id.trim()) : null;
@@ -3555,12 +3668,125 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
   }
 }
 
+/**
+ * L'OUTIL « STATISTIQUES » (demande du 27/09/2026) : tout agent de projet
+ * active le suivi des visites et pose LUI-MÊME le code dans le projet, avec
+ * des repères choisis après avoir étudié le site. Aucune carte n'est posée ;
+ * l'installation est marquée « par un agent » pour que le démon ne pose pas
+ * sa carte de correction en doublon (`installationParUnAgentEnCours`).
+ */
+async function outilStatistiques(ctx: ToolContext, project: Project, args: Record<string, any>): Promise<ToolResult> {
+  const stats = await import('./statistiques.js');
+  const suivi = await import('./suivi-par-defaut.js');
+  const action = String(args.action ?? '');
+  /* UN SITE AUTONOME n'a pas de projet : la carte qui l'étudie vit dans le
+     projet Beluga et désigne le site par « site ». On lit et on déclare ses
+     repères ; on n'y pose rien (pas d'« activer »). */
+  if (typeof args.site === 'string' && args.site.trim()) {
+    const id = args.site.trim();
+    const autonome = estSiteAutonome(id) ? lireEspace(id) : null;
+    if (!autonome) return { ok: false, text: `Site autonome introuvable : « ${id} ».` };
+    if (action === 'activer') return { ok: false, text: 'Un site autonome se pose à la main : « activer » ne vaut que pour le site du projet.' };
+    return outilStatistiquesSurLEspace(ctx, id, autonome.nom ?? id, autonome, action, args, stats, suivi);
+  }
+  const espace = assurerEspace(project.id);
+  if (action !== 'activer') return outilStatistiquesSurLEspace(ctx, project.id, project.name, espace, action, args, stats, suivi);
+  switch (action) {
+    case 'activer': {
+      const adresse = typeof args.adresse === 'string' && args.adresse.trim() ? args.adresse.trim() : espace.configuration.adresse;
+      const origine = origineDe(adresse);
+      if (!adresse || !origine) return { ok: false, text: 'Donne « adresse » : l’adresse publique du site en production (https://…). Sans elle le script refuse les visites. Inconnue ? Demande-la à l’utilisateur (« ask_user »).' };
+      suivi.assurerLEspaceDeSuivi(project.id, adresse);
+      if (espace.configuration.adresse !== adresse || !espace.configuration.origines.includes(origine)) {
+        ecrireConfiguration(project.id, { adresse, origines: [...new Set([...espace.configuration.origines, origine])] });
+      }
+      const mode = args.mode === 'visiteur' ? 'visiteur' : args.mode === 'anonyme' ? 'anonyme' : espace.modeSuivi;
+      const regle = stats.reglerLeMode(project.id, mode);
+      suivi.marquerInstallationParUnAgent(project.id);
+      const trousse = stats.troussePourLeSite(regle, project.name);
+      return {
+        ok: true,
+        text: [
+          `SUIVI ACTIVÉ en mode ${mode} pour ${adresse}.`,
+          `EXTRAIT, à poser dans le <head> de CHAQUE page servie en production (gabarit commun, jamais un cache compilé) — ne change jamais d’une page à l’autre :\n${trousse.extrait}`,
+          METHODE_DES_REPERES,
+          mode === 'visiteur'
+            ? 'MODE VISITEUR : le script affiche LUI-MÊME son bandeau d’accord — n’en ajoute aucun. Ajoute seulement, sur la page de confidentialité, un lien « gérer mon choix » qui appelle belugaSuivi.accord().'
+            : 'MODE ANONYME : aucun bandeau de consentement à ajouter.',
+          `PHRASE À AJOUTER À LA PAGE « CONFIDENTIALITÉ » (crée la page si elle manque, ou transmets la phrase à l’utilisateur) :\n${trousse.confidentialite}`,
+          `APPELS À LA MAIN (facultatif) :\n${trousse.modeDEmploi}`,
+          'ENSUITE : « reperes » avec la liste entière, puis enregistre et sauvegarde (commit + push). Tu ne publies pas : le suivi sera confirmé tout seul quand le site mis en ligne portera le code, puis à la première visite.',
+        ].join('\n\n'),
+      };
+    }
+    default:
+      return { ok: false, text: `Action inconnue : « ${action} ». Choisis etat, activer, reperes ou lire.` };
+  }
+}
+
+/** « etat », « reperes » et « lire » : sur le site du projet, ou sur un site autonome désigné. */
+function outilStatistiquesSurLEspace(
+  ctx: ToolContext,
+  id: string,
+  nom: string,
+  espace: ReturnType<typeof assurerEspace>,
+  action: string,
+  args: Record<string, any>,
+  stats: typeof import('./statistiques.js'),
+  suivi: typeof import('./suivi-par-defaut.js'),
+): ToolResult {
+  switch (action) {
+    case 'etat': {
+      const etat = suivi.lireEtatDuSuivi(id);
+      const reperes = stats.lireLesReperes(id);
+      return {
+        ok: true,
+        text: [
+          `Mode : ${espace.modeSuivi}. Adresse : ${espace.configuration.adresse ?? 'aucune'}. Sites autorisés : ${espace.configuration.origines.join(', ') || 'aucun'}.`,
+          `État : ${espace.configuration.etatSuivi}${etat.diagnostic ? ` · code lu sur le site : ${etat.diagnostic}` : ''}${etat.carteId ? ` · carte de correction ${etat.carteId}` : ''}.`,
+          reperes.length ? `Repères (${reperes.length}) :\n${reperes.map((r) => `- ${r.nom}${r.objectif ? ' [objectif]' : ''} — ${r.emplacement} — ${r.raison}`).join('\n')}` : 'Aucun repère déclaré.',
+          `Extrait : ${stats.troussePourLeSite(espace, nom).extrait}`,
+        ].join('\n'),
+      };
+    }
+    case 'reperes': {
+      const juge = jugerReperes(args.reperes);
+      if (!juge.ok) return { ok: false, text: juge.raison };
+      stats.ecrireLesReperes(id, juge.reperes, ctx.agentId);
+      const objectifs = juge.reperes.filter((r) => r.objectif).map((r) => r.nom);
+      return {
+        ok: true,
+        text: `${juge.reperes.length} repère(s) enregistré(s)${objectifs.length ? ` ; entonnoir : ${objectifs.join(' → ')}` : ' ; aucun marqué « objectif » : pas d’entonnoir'}. Chaque nom doit figurer tel quel dans le code : data-beluga-repere="${juge.reperes[0].nom}".`,
+      };
+    }
+    case 'lire': {
+      const jours = typeof args.jours === 'number' ? args.jours : 30;
+      const d = stats.detailDuSite(id, { jours });
+      const r = d.resultats;
+      const p = d.parcours;
+      return {
+        ok: true,
+        text: [
+          `Sur ${jours} jours (mode ${d.espace.modeSuivi}) : ${JSON.stringify(r.totaux)}`,
+          `Pages : ${r.pages.map((x) => `${x.chemin} (${x.vues})`).join(', ') || 'aucune'}. Sources : ${r.sources.map((x) => `${x.source} (${x.visites})`).join(', ') || 'aucune'}.`,
+          `Repères : ${p.reperes.map((x) => `${x.nom} (${x.clics} clics)`).join(', ') || 'aucun clic'}.`,
+          p.sessions
+            ? `Parcours : ${p.visiteurs} visiteur(s) reconnu(s), ${p.sessions} session(s), ${p.pagesParSession} page(s) par session, ${p.visiteursRevenus} revenu(s).\nChemins : ${p.chemins.map((c) => `${c.etapes.map((x) => x.nom).join(' → ')} (${c.sessions})`).join(' | ')}\nEntonnoir : ${p.entonnoir.map((m) => `${m.nom} ${m.sessions} (${m.decrochage ?? 0} % perdus)`).join(' → ') || 'aucun objectif déclaré'}`
+            : 'Parcours : aucun visiteur reconnu (mode anonyme, ou aucun accord donné).',
+        ].join('\n'),
+      };
+    }
+    default:
+      return { ok: false, text: `Action inconnue : « ${action} ». Choisis etat, activer, reperes ou lire.` };
+  }
+}
+
 async function poserLeSuivi(ctx: ToolContext, project: Project, espace: ReturnType<typeof assurerEspace>): Promise<ToolResult> {
   const config = espace.configuration;
   if (!config.methodeSuivi) return { ok: false, text: 'Choisis d’abord la méthode (« configurer » avec methodeSuivi : carte-code, plateforme ou manuel).' };
   if (!config.origines.length) return { ok: false, text: 'Aucune adresse déclarée : « configurer » avec « adresse » (ou « origines ») d’abord — le script refuse les sites non déclarés.' };
   const extrait = extraitDeSuivi(adresseDeBeluga(), espace.cleSuivi);
-  const confidentialite = phraseDeConfidentialite(config.langue, project.name);
+  const confidentialite = phraseDeConfidentialite(config.langue, project.name, espace.modeSuivi);
   const commun = [
     `EXTRAIT À POSER dans le <head> de chaque page : ${extrait}`,
     `OBJECTIFS ET ACHATS :\n${modeDEmploiDuSuivi()}`,
@@ -3568,32 +3794,17 @@ async function poserLeSuivi(ctx: ToolContext, project: Project, espace: ReturnTy
   ];
   if (config.methodeSuivi === 'carte-code') {
     /*
-     * LA CARTE DU SUIVI SUIT LE PARCOURS COMMUN (MEM-3555). Posée par un simple
-     * `createCard`, elle s'ouvrait sur une conversation VIDE — ni demande, ni
-     * cadrage (capture du 26.09.2026). Elle naît désormais avec sa demande,
-     * son agent de cadrage et un premier tour jusqu'à la compréhension.
+     * LA CARTE DU SUIVI SUIT LE PARCOURS COMMUN (MEM-3555) et c'est LA carte
+     * du suivi du projet (`carte_suivi_id`), partagée avec le démon et le
+     * bouton « Installer le suivi » : une déjà posée est rendue, jamais
+     * doublée. Sa naissance ne marque plus le suivi « posé » : seul le code lu
+     * sur le site le fait, ou la première visite (27/09/2026).
      */
-    const { faireNaitreLaCarte } = await import('./naissance-de-carte.js');
-    const { card } = await faireNaitreLaCarte(project.id, {
-      auteur: 'marketing',
-      origineAgentId: ctx.agentId,
-      origineAt: Date.now(),
-      title: 'Installer le suivi marketing anonyme',
-      description: [
-        'Ajouter le script de suivi de l’atelier marketing à toutes les pages du produit, sans rien changer d’autre.',
-        '',
-        ...commun,
-        '',
-        `Objectifs à déclarer : ${config.objectifs.join(', ') || 'aucun pour l’instant'}.`,
-        'Le script est anonyme et sans cookie : aucun bandeau de consentement à ajouter pour lui.',
-      ].join('\n'),
-      labels: [LABEL_MARKETING],
-      origin: 'agent',
-    });
-    marquerSuiviPose(project.id);
+    const { installerLeSuivi } = await import('./suivi-par-defaut.js');
+    const { card, deja } = await installerLeSuivi(project.id, ctx.agentId);
     return {
       ok: true,
-      text: `Carte « ${card.title} » posée dans « Planifié » du projet : l'utilisateur la relit et la lance. Le suivi sera confirmé à la première visite reçue.\n\n${commun[2]}`,
+      text: `${deja ? `La carte « ${card.title} » existe déjà (colonne ${card.column}) : aucune autre n'est posée.` : `Carte « ${card.title} » posée dans « Planifié » du projet : l'utilisateur la relit et la lance.`} Le suivi sera confirmé quand le code sera lu sur le site, puis à la première visite reçue.\n\n${commun[2]}`,
     };
   }
   marquerSuiviPose(project.id);

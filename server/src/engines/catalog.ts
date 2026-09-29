@@ -6,9 +6,12 @@ import {
   limiterAuxPlusRecents,
   ModelInfo,
   ThinkingOption,
+  type FicheMoteur,
 } from '@beluga/shared';
-import { listAccountRecords } from '../accounts.js';
+import { cleDUnCompteDuMoteur, cleDuCompteMimo, cleMimoDuServeur, listAccountRecords } from '../accounts.js';
+import { catalogueDeFicheDepuisIds, modelesDeLaFiche } from './ajoutes.js';
 import { clesCursor, modelesCursor } from './cursor.js';
+import { catalogueMimoDeSecours, catalogueMimoDepuisIds, modelesMimo } from './mimo.js';
 import { log } from '../logger.js';
 
 /**
@@ -51,14 +54,18 @@ async function raisonHttp(res: Response): Promise<string> {
   return `refus du moteur (réponse ${res.status})`;
 }
 
-/** Traduit les mots des moteurs dans le vocabulaire de l'interface. */
+/**
+ * Les niveaux gardent les TERMES DES MOTEURS eux-mêmes (Low, Medium, High,
+ * Extra high, Max), jamais une traduction : ce sont eux que la documentation
+ * des moteurs emploie. Ils sont invariants d'une langue à l'autre.
+ */
 const LIBELLES: Record<string, string> = {
-  minimal: 'Réflexion minimale',
-  low: 'Réflexion légère',
-  medium: 'Réflexion moyenne',
-  high: 'Réflexion poussée',
-  xhigh: 'Réflexion très poussée',
-  max: 'Réflexion maximale',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
 };
 
 const DESCRIPTIONS: Record<string, string> = {
@@ -107,7 +114,7 @@ function appetiteOf(id: string, label: string): 'light' | 'medium' | 'heavy' {
 function niveau(id: string, description?: string): ThinkingOption {
   return {
     id,
-    label: LIBELLES[id] ?? `Réflexion « ${id} »`,
+    label: LIBELLES[id] ?? id,
     description: description || DESCRIPTIONS[id],
   };
 }
@@ -391,6 +398,67 @@ function cursorFallback(): ModelInfo[] {
     { id: 'composer-2.5', label: 'Composer 2.5', thinking: [NIVEAU_SANS], defaultThinking: 'none' },
     { id: 'claude-sonnet-5', label: 'Sonnet 5', thinking: efforts, defaultThinking: defautReflexion(efforts) },
   ].map((m) => ModelInfo.parse(m));
+}
+
+/* ------------------------------------------------------------------ */
+/* Xiaomi MiMo                                                         */
+/* ------------------------------------------------------------------ */
+
+/** Les clés MiMo connues, du compte prioritaire au dernier, puis celle du serveur. */
+function clesMimo(): string[] {
+  const cles: string[] = [];
+  for (const compte of listAccountRecords()
+    .filter((a) => a.engine === 'mimo')
+    .sort((a, b) => a.priority - b.priority)) {
+    const cle = cleDuCompteMimo(compte);
+    if (cle && !cles.includes(cle)) cles.push(cle);
+  }
+  const serveur = cleMimoDuServeur();
+  if (serveur && !cles.includes(serveur)) cles.push(serveur);
+  return cles;
+}
+
+/**
+ * Le catalogue MiMo, DEMANDÉ À XIAOMI (`GET /v1/models`) : la liste publie aussi
+ * les voix et la transcription, que `catalogueMimoDepuisIds` écarte. La liste
+ * se lit même quand le solde est vide — le 402 ne touche que la génération.
+ */
+export async function mimoCatalog(): Promise<Catalogue> {
+  const cles = clesMimo();
+  if (!cles.length) return { models: catalogueMimoDeSecours(), live: false, error: SANS_COMPTE };
+  let dernierEchec = SANS_COMPTE;
+  for (const cle of cles) {
+    try {
+      const models = catalogueMimoDepuisIds(await modelesMimo(cle));
+      if (!models.length) throw new Error('catalogue vide');
+      return { models, live: true };
+    } catch (err: any) {
+      dernierEchec = err?.message ?? String(err);
+    }
+  }
+  log.warn('catalogue MiMo indisponible, repli local', dernierEchec);
+  return { models: catalogueMimoDeSecours(), live: false, error: dernierEchec };
+}
+
+/* ------------------------------------------------------------------ */
+/* Moteurs ajoutés                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le catalogue d'un moteur AJOUTÉ : la liste du fournisseur quand la fiche en
+ * donne l'adresse et qu'une clé est connue, sinon ses deux modèles déclarés.
+ */
+export async function catalogueDeFiche(fiche: FicheMoteur): Promise<Catalogue> {
+  const repli = catalogueDeFicheDepuisIds(fiche, fiche.modeleLeger ? [fiche.modeleLeger] : []);
+  const cle = cleDUnCompteDuMoteur(fiche.id);
+  if (!cle) return { models: repli, live: false, error: SANS_COMPTE };
+  if (!fiche.urlDesModeles) return { models: repli, live: false };
+  try {
+    const models = catalogueDeFicheDepuisIds(fiche, await modelesDeLaFiche(fiche, cle));
+    return { models, live: true };
+  } catch (err: any) {
+    return { models: repli, live: false, error: err?.message ?? String(err) };
+  }
 }
 
 /** Le niveau retenu doit exister pour le modèle choisi. */

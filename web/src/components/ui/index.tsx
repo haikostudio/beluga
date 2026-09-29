@@ -1662,8 +1662,8 @@ export function Gauge({
             ? 'bg-warning'
             : 'bg-muted';
   return (
-    <div className={cn('w-full overflow-hidden rounded-full bg-raised', height, className)}>
-      <div className={cn('h-full rounded-full transition-all duration-500', color)} style={{ width: `${pct}%` }} />
+    <div className={cn('w-full overflow-hidden rounded-full bg-faint/25', height, className)} data-jauge-rail>
+      <div className={cn('h-full rounded-full transition-all duration-500', color)} style={{ width: `${pct}%`, minWidth: pct > 0 ? 4 : 0 }} />
     </div>
   );
 }

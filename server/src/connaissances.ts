@@ -22,7 +22,7 @@ import {
   dossierDuProjet,
   empreinteDEntree,
   estIdentifiantDUnite,
-  ficheDuType,
+  ficheDeLUnite,
   fichesDeLaPortee,
   formaterIdentifiant,
   jugerEntreeChangelog,
@@ -39,6 +39,7 @@ import {
   requetePleinTexte,
   requeteTrigrammes,
   scoreDUnite,
+  uniteDansLaFiche,
   scoreParMot,
   similariteDuRang,
   texteDAccueilConnaissances,
@@ -52,7 +53,9 @@ import {
   type Importance,
   type LigneDuCarnet,
   type PropositionPropre,
+  type FicheNumerotee,
   type PropositionUnite,
+  type RenduDeFiche,
   type TypeUnite,
   type Unite,
 } from '@beluga/shared';
@@ -804,12 +807,36 @@ function ecrireSiChange(fichier: string, contenu: string): boolean {
   return true;
 }
 
+/**
+ * Les unités d'une fiche. Les compétences vivent toutes dans le classeur Global : la fiche
+ * « Compétences » d'un projet va les y chercher, celle du Global ne garde que celles qui valent pour tous.
+ */
+export function unitesDeLaFiche(portee: string, fiche: FicheNumerotee, statut: 'active' | 'deprecated' | 'toutes' = 'active', dejaLues?: readonly Unite[]): Unite[] {
+  if (fiche.competences && portee !== PORTEE_GLOBALE) {
+    const nom = nomDeLaPortee(portee);
+    return unitesDeLaPortee(PORTEE_GLOBALE, statut).filter((u) => uniteDansLaFiche(fiche, u, nom));
+  }
+  const unites = dejaLues ?? unitesDeLaPortee(portee, statut);
+  return unites.filter((u) => (statut === 'toutes' || u.statut === (statut === 'active' ? 'active' : 'deprecated')) && uniteDansLaFiche(fiche, u));
+}
+
+function renduDeLaFiche(portee: string, fiche: FicheNumerotee, unitesDeLaPorteeToutes: readonly Unite[]): RenduDeFiche {
+  const competencesDeProjet = fiche.competences && portee !== PORTEE_GLOBALE;
+  return {
+    portee,
+    nomDeLaPortee: nomDeLaPortee(portee),
+    fiche,
+    unites: competencesDeProjet ? unitesDeLaFiche(portee, fiche, 'toutes') : unitesDeLaPorteeToutes,
+    competencesDe: competencesDeProjet ? nomDeLaPortee(portee) : undefined,
+  };
+}
+
 /** Une fiche numérotée d'une portée, en Markdown (ou son archive). */
 export function markdownDeLaFiche(portee: string, ficheId: string, archive = false): string | null {
   const fiche = fichesDeLaPortee(portee).find((f) => f.id === ficheId);
   if (!fiche) return null;
   const unites = unitesDeLaPortee(portee, 'toutes');
-  const rendu = { portee, nomDeLaPortee: nomDeLaPortee(portee), fiche, unites };
+  const rendu = renduDeLaFiche(portee, fiche, unites);
   if (archive) return rendreArchive(rendu);
   const toutes = portee === PORTEE_GLOBALE ? unites : [...unites, ...unitesDeLaPortee(PORTEE_GLOBALE).filter((u) => u.jamaisSupposer)];
   return rendreFicheNumerotee(rendu, toutes);
@@ -827,9 +854,9 @@ export function rendreLesFichiers(portee: string): number {
   const nom = nomDeLaPortee(portee);
   const toutes = portee === PORTEE_GLOBALE ? unites : [...unites, ...unitesDeLaPortee(PORTEE_GLOBALE).filter((u) => u.jamaisSupposer)];
   for (const fiche of fichesDeLaPortee(portee)) {
-    const rendu = { portee, nomDeLaPortee: nom, fiche, unites };
+    const rendu = renduDeLaFiche(portee, fiche, unites);
     if (ecrireSiChange(path.join(dossier, `${fiche.id}.md`), rendreFicheNumerotee(rendu, toutes))) ecrits++;
-    if (unites.some((u) => u.statut === 'deprecated' && fiche.types.includes(u.type))) {
+    if (rendu.unites.some((u) => u.statut === 'deprecated' && uniteDansLaFiche(fiche, u, rendu.competencesDe))) {
       if (ecrireSiChange(path.join(dossier, 'archive', `${fiche.id}.md`), rendreArchive(rendu))) ecrits++;
     }
   }
@@ -1757,7 +1784,7 @@ export function rendreUnitesTrouvees(demande: string, trouvees: readonly UniteTr
   const lignes = trouvees.map(({ unite: u }) => {
     const deja = lus.has(u.id) ? ' — déjà lue dans cette session' : '';
     const resume = u.resume.length > 240 ? `${u.resume.slice(0, 239).trim()}…` : u.resume;
-    return `- ${u.id} · ${u.type} · ${u.importance}${u.portee === PORTEE_GLOBALE ? ' · global' : ''} · ${u.titre} (fiche ${ficheDuType(u.portee, u.type).id})${deja}\n  ${resume}`;
+    return `- ${u.id} · ${u.type} · ${u.importance}${u.portee === PORTEE_GLOBALE ? ' · global' : ''} · ${u.titre} (fiche ${ficheDeLUnite(u).id})${deja}\n  ${resume}`;
   });
   return `${trouvees.length} unité(s) pour « ${demande} » :\n${lignes.join('\n')}\n\nLis une unité entière avec « lire » et son « id ».`;
 }
@@ -1765,7 +1792,7 @@ export function rendreUnitesTrouvees(demande: string, trouvees: readonly UniteTr
 export function texteDUneUnite(u: Unite): string {
   const versions = versionsDeLUnite(u.id).length;
   const notes = [
-    `fiche ${ficheDuType(u.portee, u.type).id}${u.portee === PORTEE_GLOBALE ? ' (global)' : ''}`,
+    `fiche ${ficheDeLUnite(u).id}${u.portee === PORTEE_GLOBALE ? ' (global)' : ''}`,
     versions ? `${versions} version(s) antérieure(s) gardée(s)` : '',
     u.statut === 'deprecated' ? `DÉPRÉCIÉE${u.supersededBy ? `, remplacée par ${u.supersededBy}` : ''} : ne t'y fie plus` : '',
   ].filter(Boolean);
@@ -1775,7 +1802,7 @@ export function texteDUneUnite(u: Unite): string {
 export function texteDuResultat(r: ResultatDeProposition): string {
   if (!r.ok) return `Proposition refusée :\n- ${r.raisons.join('\n- ')}`;
   const u = r.unite;
-  const fiche = ficheDuType(u.portee, u.type).id;
+  const fiche = ficheDeLUnite(u).id;
   switch (r.geste) {
     case 'cree':
       return `Unité créée : ${u.id} (${u.type}, ${u.importance}) → fiche ${fiche}.${r.remplace ? ` ${r.remplace} est dépréciée et reliée à elle.` : ''}`;
@@ -1804,4 +1831,4 @@ export function uniteARemplacer(portee: string, debut: string): Unite | null {
   );
 }
 
-export { FICHES_GLOBAL, FICHES_PROJET, ficheDuType };
+export { FICHES_GLOBAL, FICHES_PROJET, ficheDeLUnite };

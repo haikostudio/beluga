@@ -234,6 +234,20 @@ export function aUnProcessus(projet: { miseEnProduction?: { processus?: Processu
   return (projet?.miseEnProduction?.processus?.etapes?.length ?? 0) > 0;
 }
 
+/** La phrase dite quand la mise en production d'un projet est éteinte. */
+export const PRODUCTION_DESACTIVEE =
+  'La mise en production est désactivée pour ce projet : allumez l’interrupteur en haut du tiroir « Mise en production » pour la permettre.';
+
+/**
+ * L'INTERRUPTEUR DE MISE EN PRODUCTION (`miseEnProductionActive`), éteint par
+ * défaut : sa raison quand il bloque, `null` quand la production est permise.
+ * Lu par l'écran (bouton gris, raison au-dessus) ET par le serveur
+ * (`startDeploy` refuse) — jamais pour le déploiement sur ce serveur.
+ */
+export function raisonProductionDesactivee(projet: { miseEnProductionActive?: boolean } | undefined): string | null {
+  return projet?.miseEnProductionActive === true ? null : PRODUCTION_DESACTIVEE;
+}
+
 /** Normalise un processus reçu (de l'agent ou de l'écran) : bornes, textes, délais. */
 export function normaliserProcessus(brut: unknown): { processus?: ProcessusDeProduction; erreur?: string } {
   if (!brut || typeof brut !== 'object') return { erreur: 'Le processus est vide.' };

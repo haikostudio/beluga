@@ -1,3 +1,4 @@
+import { MOTEURS } from './registre-moteurs.js';
 /**
  * UN SEUL AGENT PAR CARTE, DU CADRAGE À LA LIVRAISON.
  *
@@ -38,7 +39,9 @@ export interface ReglageDuFil {
  * avant le tour (`dossierDesFilsClaude`) ; Codex les range par date, hors de tout
  * dossier. Cursor n'offre ni l'un ni l'autre : on garde le relais.
  */
-const MOTEURS_SANS_REPRISE_HORS_DOSSIER = new Set(['cursor']);
+const MOTEURS_SANS_REPRISE_HORS_DOSSIER = new Set(
+  MOTEURS.filter((m) => !m.repriseHorsDossier).map((m) => m.id as string),
+);
 
 export type AgentDeLaCarteAuLancement =
   | { reprendre: true }

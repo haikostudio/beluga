@@ -1,16 +1,47 @@
-import { EngineId, EngineInfo } from '@beluga/shared';
+import { EngineId, EngineInfo, ficheDuMoteur, idsDesMoteurs, type IdDeMoteurIntegre } from '@beluga/shared';
 import { EngineAdapter } from './types.js';
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
 import { cursorAdapter } from './cursor.js';
-import { claudeCatalog, codexCatalog, cursorCatalog, resolveModel } from './catalog.js';
+import { mimoAdapter } from './mimo.js';
+import { Catalogue, catalogueDeFiche, claudeCatalog, codexCatalog, cursorCatalog, mimoCatalog, resolveModel } from './catalog.js';
+import { adaptateurDeFiche, adaptateurIntrouvable } from './ajoutes.js';
 
 export * from './types.js';
 
+/**
+ * LES ADAPTATEURS, UN PAR MOTEUR DU REGISTRE (`shared/src/registre-moteurs.ts`).
+ * Le type `Record<EngineId, …>` refuse de compiler tant qu'un moteur déclaré
+ * n'a pas son adaptateur ET son catalogue : aucun oubli ne passe en silence.
+ */
+type Branchement = { adapter: EngineAdapter; catalogue: (version: string) => Promise<Catalogue> };
+
+const ADAPTATEURS: Record<IdDeMoteurIntegre, Branchement> = {
+  claude: { adapter: claudeAdapter, catalogue: () => claudeCatalog() },
+  codex: { adapter: codexAdapter, catalogue: (version) => codexCatalog(version) },
+  cursor: { adapter: cursorAdapter, catalogue: () => cursorCatalog() },
+  mimo: { adapter: mimoAdapter, catalogue: () => mimoCatalog() },
+};
+
+/**
+ * LE BRANCHEMENT D'UN MOTEUR : intégré, ou AJOUTÉ (fiche en base, `ext-…`).
+ * Un moteur ajouté inconnu ou retiré reçoit un adaptateur qui REFUSE de
+ * partir — jamais un repli silencieux sur Claude, qui consommerait un
+ * abonnement à la place d'une clé.
+ */
+function branchement(engine: EngineId | string | undefined): Branchement | undefined {
+  if (!engine) return undefined;
+  if (engine in ADAPTATEURS) return ADAPTATEURS[engine as IdDeMoteurIntegre];
+  if (!engine.startsWith('ext-')) return undefined;
+  const fiche = ficheDuMoteur(engine);
+  if (!fiche || fiche.statut === 'retire') {
+    return { adapter: adaptateurIntrouvable(engine as `ext-${string}`), catalogue: async () => ({ models: [], live: false }) };
+  }
+  return { adapter: adaptateurDeFiche(fiche), catalogue: () => catalogueDeFiche(fiche) };
+}
+
 export function adapterFor(engine: EngineId | string | undefined): EngineAdapter {
-  if (engine === 'codex') return codexAdapter;
-  if (engine === 'cursor') return cursorAdapter;
-  return claudeAdapter;
+  return branchement(engine)?.adapter ?? claudeAdapter;
 }
 
 let cache: { at: number; engines: EngineInfo[] } | null = null;
@@ -55,18 +86,14 @@ async function dresserLeCatalogue(): Promise<EngineInfo[]> {
    * pourtant pas les uns des autres. L'ordre de la liste, lui, ne bouge pas.
    */
   const engines = await Promise.all(
-    [claudeAdapter, codexAdapter, cursorAdapter].map(async (adapter) => {
+    idsDesMoteurs().map(async (id) => {
+      const { adapter, catalogue: lireCatalogue } = branchement(id) as Branchement;
       const detected = await adapter.detect();
       let models: EngineInfo['models'] = [];
       let live = false;
       let catalogError: string | undefined;
       if (detected.installed) {
-        const catalogue =
-          adapter.id === 'claude'
-            ? await claudeCatalog()
-            : adapter.id === 'cursor'
-              ? await cursorCatalog()
-              : await codexCatalog(detected.version ?? '');
+        const catalogue = await lireCatalogue(detected.version ?? '');
         models = catalogue.models;
         live = catalogue.live;
         catalogError = catalogue.error;

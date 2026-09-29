@@ -2,6 +2,7 @@ import * as React from 'react';
 import { mentionBrancheParDefaut } from '@beluga/shared';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
 import { ExplicationDeConfiguration } from '@/components/tiroir-procedure-production';
+import { BulleInfo, Input, Label } from '@/components/ui';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { ChoixDeBranche, TeteDeRubrique, type ContexteConfig } from './communs';
@@ -35,6 +36,20 @@ export function RubriqueProduction({ ctx }: { ctx: ContexteConfig }) {
         raison={ctx.branchesRaison}
         mention={mentionBrancheParDefaut('production', ctx.branches)}
       />
+
+      <div data-adresse-production>
+        <div className="flex items-center gap-1">
+          <Label>{t('Adresse publique du site')}</Label>
+          <BulleInfo cote="start">{t('L’adresse où le public voit la version en production. Remplie, elle ouvre d’office le suivi anonyme des visites du site : Beluga autorise cette adresse et fait poser le bon code de suivi par une carte, que vous lancez. Laissée vide, aucun suivi n’est posé.')}</BulleInfo>
+        </div>
+        <Input
+          value={ctx.adresseProduction}
+          onChange={(event) => ctx.setAdresseProduction(event.target.value)}
+          className="mt-1"
+          data-champ-adresse-production
+          placeholder="https://mon-site.ch"
+        />
+      </div>
 
       <div className="space-y-3" data-zone-procedure="production">
         <ExplicationDeConfiguration processus={ctx.project.miseEnProduction?.processus} />

@@ -1,4 +1,5 @@
 import { AccountQuota, EngineId, EngineInfo } from './models.js';
+import { MOTEURS, descriptionMoteur } from './registre-moteurs.js';
 
 /**
  * AU MOINS UN MOTEUR AVANT D'OUVRIR L'APPLICATION.
@@ -40,15 +41,14 @@ export interface MoteurDeLAssistant {
 }
 
 /**
- * Les trois moteurs, dans l'ordre où l'assistant les propose. Le nom affiché
- * suit le catalogue quand il est là ; ces libellés ne servent qu'au cas où le
- * catalogue n'a pas encore répondu.
+ * Les moteurs, dans l'ordre où l'assistant les propose — celui du registre
+ * (`shared/src/registre-moteurs.ts`). Le nom affiché suit le catalogue quand il
+ * est là ; ces libellés ne servent qu'au cas où le catalogue n'a pas encore répondu.
  */
-export const MOTEURS_DE_L_ASSISTANT: readonly { id: EngineId; label: string }[] = [
-  { id: 'claude', label: 'Claude' },
-  { id: 'codex', label: 'Codex (GPT)' },
-  { id: 'cursor', label: 'Cursor' },
-];
+export const MOTEURS_DE_L_ASSISTANT: readonly { id: EngineId; label: string }[] = MOTEURS.map((m) => ({
+  id: m.id,
+  label: m.label,
+}));
 
 /**
  * Les commandes d'installation, telles que chaque éditeur les publie. Elles
@@ -56,15 +56,13 @@ export const MOTEURS_DE_L_ASSISTANT: readonly { id: EngineId; label: string }[] 
  * démon n'a pas les droits d'installer un outil pour l'utilisateur, et un
  * installateur lancé en aveugle poserait l'outil dans le mauvais compte.
  */
-export const COMMANDES_D_INSTALLATION: Record<EngineId, string> = {
-  claude: 'curl -fsSL https://claude.ai/install.sh | bash',
-  codex: 'npm install -g @openai/codex',
-  cursor: 'curl https://cursor.com/install -fsS | bash',
-};
+export const COMMANDES_D_INSTALLATION = Object.fromEntries(
+  MOTEURS.map((m) => [m.id, m.commandeDInstallation]),
+) as Record<EngineId, string>;
 
-/** Cursor n'a pas de page de connexion : il se déclare par une clé d'accès. */
+/** Un moteur qui n'a pas de page de connexion se déclare par une clé d'accès. */
 function parCle(id: EngineId): boolean {
-  return id === 'cursor';
+  return descriptionMoteur(id)?.connexion === 'cle';
 }
 
 /**

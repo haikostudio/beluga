@@ -76,6 +76,25 @@ export function rendusParProjet(entrees: CarteRendue[]): Record<string, number> 
 }
 
 /**
+ * LA CARTE QUE LE BADGE BLEU D'UN PROJET OUVRE. Le badge comptait des cartes
+ * non consultées sans mener à aucune : une carte posée par un agent du démon
+ * (l'atelier marketing, la nuit) restait introuvable. Un clic ouvre la plus
+ * RÉCEMMENT rendue — la même règle que le compteur (`carteNonLue`), donc
+ * jamais une archive. `null` quand il n'y en a aucune.
+ */
+export function carteNonLueLaPlusRecente(
+  entrees: Pick<CarteRendue, 'cardId' | 'colonne' | 'renduA' | 'luA'>[],
+): string | null {
+  let meilleure: { cardId: string; renduA: number } | null = null;
+  for (const entree of entrees) {
+    if (!carteNonLue(entree)) continue;
+    const renduA = entree.renduA ?? 0;
+    if (!meilleure || renduA > meilleure.renduA) meilleure = { cardId: entree.cardId, renduA };
+  }
+  return meilleure?.cardId ?? null;
+}
+
+/**
  * Le compte d'un groupe replié : la somme de ses projets. Sans cela, refermer
  * un groupe cacherait précisément l'information qu'on veut voir.
  */

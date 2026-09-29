@@ -1,9 +1,10 @@
 import * as React from 'react';
-import { ChevronDown, RefreshCw } from 'lucide-react';
+import { Check, ChevronDown, RefreshCw, Settings, TriangleAlert, X } from 'lucide-react';
 import {
   AccountQuota,
   EngineId,
   compteDeSecours,
+  dansEnClair,
   fraicheurDuReleve,
   heureDeRemiseAZero,
   historiquePourProfil,
@@ -20,6 +21,8 @@ import {
   type PrevisionEpuisement,
   type ReleveQuota,
   type SerieQuota,
+  compteEpuise,
+  construireFragment,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -27,7 +30,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   Gauge,
-  Badge,
   Switch,
   Tooltip,
 } from '@/components/ui';
@@ -424,7 +426,13 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         </button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="p-2 sm:w-[310px]">
+      {/* Sur grand écran, le panneau s'arrête à la hauteur disponible et
+          défile : sinon sa dernière ligne (journal, roue des réglages) sortait
+          de l'écran, hors d'atteinte. */}
+      <DropdownMenuContent
+        align="end"
+        className="p-2 sm:max-h-[var(--radix-dropdown-menu-content-available-height)] sm:w-[310px]"
+      >
         <div className="mb-1.5 flex items-center justify-between gap-1.5">
           <span className="text-[12px] uppercase tracking-wide text-faint">{t('Quotas')}</span>
           <DernierReleveReussi quotas={quotas} />
@@ -453,46 +461,28 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                   quota.disabled ? 'border-border opacity-60' : quota.active ? 'border-muted' : 'border-border',
                 )}
               >
-                {/* La rangée d'entête se REPLIE : sur un téléphone étroit, les
-                    badges et l'interrupteur passent sous le nom du compte au
-                    lieu de l'écraser sur un caractère de large. */}
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span
-                    className={cn(
-                      'h-1.5 w-1.5 shrink-0 rounded-full',
-                      quota.disabled
-                        ? 'bg-faint'
-                        : !quota.available
-                          ? 'bg-danger'
-                          : quota.active
-                            ? 'bg-success'
-                            : 'bg-faint',
-                    )}
-                  />
-                  <span className="min-w-0 flex-1 basis-[8rem] truncate text-[13.5px] text-text">{quota.label}</span>
-                  {/* Les explications du compte, rangées derrière un « i » à
-                      gauche des badges : la carte ne garde que ce qui se lit
-                      d'un coup d'œil ou appelle une réaction. */}
-                  {aide.length ? (
-                    <BulleInfo label={t('Explications sur {v0}', { v0: quota.label })}>
-                      <ul className="space-y-1" data-essai="bulle-quota" data-compte={quota.id}>
-                        {aide.map((texte) => (
-                          <li key={texte}>{texte}</li>
-                        ))}
-                      </ul>
-                    </BulleInfo>
-                  ) : null}
-                  <span className="flex min-w-0 flex-wrap items-center gap-1">
-                    {quota.disabled ? (
-                      <Badge tone="neutral">{t('désactivé')}</Badge>
-                    ) : (
-                      <>
-                        {quota.active ? <Badge tone="success">{t('actif')}</Badge> : null}
-                        {!quota.available ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
-                        {quota.jumeaux?.length ? <Badge tone="warning">{t('même abonnement')}</Badge> : null}
-                      </>
-                    )}
+                {/* L'entête tient sur UNE rangée, en colonnes de largeur fixe :
+                    le nom prend le reste et se tronque, puis le « i », la
+                    pastille d'état et l'interrupteur tombent sur la même
+                    verticale d'une carte à l'autre — même quand le « i » manque,
+                    sa place reste réservée. Plus aucun badge texte pour pousser
+                    la rangée sur deux lignes. */}
+                <div className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{quota.label}</span>
+                  {/* Les explications du compte, rangées derrière un « i » : la
+                      carte ne garde que ce qui se lit d'un coup d'œil. */}
+                  <span className="flex w-5 shrink-0 justify-center">
+                    {aide.length ? (
+                      <BulleInfo label={t('Explications sur {v0}', { v0: quota.label })}>
+                        <ul className="space-y-1" data-essai="bulle-quota" data-compte={quota.id}>
+                          {aide.map((texte) => (
+                            <li key={texte}>{texte}</li>
+                          ))}
+                        </ul>
+                      </BulleInfo>
+                    ) : null}
                   </span>
+                  <PastilleEtatCompte quota={quota} />
                   {/* L'interrupteur coupe ou rallume le compte. Coupé, il n'est
                       plus choisi par l'ordonnanceur et sa fenêtre de 5 h n'est
                       plus amorcée ; il reste dans la liste, éteint. */}
@@ -562,7 +552,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
           <p className="px-1 py-2 text-[13px] text-faint">{t('Aucun compte connecté.')}</p>
         )}
 
-        <JournalDesAmorces ouvertMenu={open} />
+        <JournalDesAmorces ouvertMenu={open} onReglages={() => setOpen(false)} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -584,11 +574,23 @@ export function UsageCursor({ credit, enErreur }: { credit?: CreditCursor; enErr
 
   const lisible =
     credit?.cursorPct !== undefined || credit?.autresPct !== undefined || credit?.demandeCentimes !== undefined;
+  /* UN MOTEUR QUI NE PUBLIE AUCUN CHIFFRE (Xiaomi MiMo) : une ligne d'état,
+     « clé active » ou « solde épuisé », jamais une jauge inventée. */
+  if (credit?.resume && !lisible) {
+    return (
+      <p
+        className={cn('text-[11.5px] leading-relaxed', credit.soldeEpuise ? 'text-danger' : 'text-faint')}
+        data-essai="quota-depense"
+      >
+        {credit.resume}
+      </p>
+    );
+  }
   if (!credit || !lisible) {
     if (!credit && enErreur) return null;
     return (
       <p className={cn('text-[11.5px] leading-relaxed', credit ? 'text-warning' : 'text-faint')} data-essai="quota-cursor">
-        {credit ? (credit.indisponible ?? t("L'usage Cursor n'a pas pu être lu.")) : t('Lecture de l’usage Cursor…')}
+        {credit ? (credit.indisponible ?? t("L'usage n'a pas pu être lu.")) : t('Lecture de l’usage…')}
       </p>
     );
   }
@@ -704,6 +706,56 @@ function heureCourte(at: number): string {
  * seul : l'heure à laquelle il a posé son amorce.
  */
 /**
+ * L'ÉTAT D'UN COMPTE EN UNE PASTILLE : un rond de taille fixe, toujours à la
+ * même place, dont la couleur et l'icône disent l'essentiel — coche verte (en
+ * usage) ou grise (prêt), triangle orange (un geste à faire : reconnecter,
+ * séparer deux coffres jumeaux), croix rouge (plus utilisable). Le détail vit
+ * dans l'infobulle ; les phrases sous la carte restent pour le téléphone, où
+ * rien ne survole. Ordre : désactivé, puis panne, puis alerte, puis bon état.
+ */
+function PastilleEtatCompte({ quota }: { quota: AccountQuota }) {
+  const jumeaux = quota.jumeaux?.map((j) => j.label).join(', ');
+  const etat: { cle: string; ton: 'eteint' | 'danger' | 'warning' | 'success' | 'pret'; texte: string } = quota.disabled
+    ? { cle: 'desactive', ton: 'eteint', texte: t('Compte désactivé : il ne reçoit plus de travail.') }
+    : compteEpuise(quota)
+      ? { cle: 'epuise', ton: 'danger', texte: t('Quota épuisé : ce compte ne peut plus servir avant sa remise à zéro.') }
+      : quota.connexion?.doitReconnecter
+        ? {
+            cle: 'reconnecter',
+            ton: 'warning',
+            texte: t('{v0} — à reconnecter dans Réglages › Comptes.', {
+              v0: quota.connexion.libelle.charAt(0).toUpperCase() + quota.connexion.libelle.slice(1),
+            }),
+          }
+        : jumeaux
+          ? { cle: 'jumeaux', ton: 'warning', texte: t('Même abonnement que {v0}.', { v0: jumeaux }) }
+          : quota.active
+            ? { cle: 'actif', ton: 'success', texte: t('Compte actif : utilisé en ce moment.') }
+            : { cle: 'pret', ton: 'pret', texte: t('Compte prêt, pas utilisé en ce moment.') };
+  const Icone = etat.ton === 'danger' ? X : etat.ton === 'warning' ? TriangleAlert : Check;
+  return (
+    <Tooltip label={etat.texte}>
+      <span
+        role="img"
+        aria-label={etat.texte}
+        data-essai="etat-compte"
+        data-etat={etat.cle}
+        className={cn(
+          'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full',
+          etat.ton === 'success' && 'bg-success/15 text-success',
+          etat.ton === 'warning' && 'bg-warning/15 text-warning',
+          etat.ton === 'danger' && 'bg-danger/15 text-danger',
+          etat.ton === 'pret' && 'bg-raised text-faint ring-1 ring-inset ring-faint/40',
+          etat.ton === 'eteint' && 'text-faint ring-1 ring-inset ring-faint/40',
+        )}
+      >
+        {etat.ton === 'eteint' ? null : <Icone className="h-2.5 w-2.5" strokeWidth={3} />}
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
  * DEUX COMPTES, UN SEUL ABONNEMENT — ET L'ÉCRAN LE DIT.
  *
  * Chaque compte est relevé avec le jeton de son propre coffre : deux jauges
@@ -747,7 +799,7 @@ function AmorceRefusee({ amorce }: { amorce?: AccountQuota['derniereAmorce'] }) 
  * Le journal complet, replié par défaut : il raconte le travail de fond, il ne
  * doit pas prendre la place des chiffres qu'on vient lire.
  */
-function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
+function JournalDesAmorces({ ouvertMenu, onReglages }: { ouvertMenu: boolean; onReglages: () => void }) {
   const [ouvert, setOuvert] = React.useState(false);
   const [entrees, setEntrees] = React.useState<
     { account: string; at: number; ok: boolean; model?: string; error?: string }[]
@@ -762,17 +814,39 @@ function JournalDesAmorces({ ouvertMenu }: { ouvertMenu: boolean }) {
   }, [ouvertMenu, ouvert]);
 
   const nom = (id: string) => client.lireEtat().quotas.find((q) => q.id === id)?.label ?? id;
+  const libelleReglages = t('Réglages des comptes');
 
   return (
     <div className="mt-2 border-t border-border pt-1.5">
-      <button
-        type="button"
-        onClick={() => setOuvert((valeur) => !valeur)}
-        className="flex w-full items-center gap-1.5 text-left text-[12px] text-faint hover:text-text"
-      >
-        <ChevronDown className={cn('h-2.5 w-2.5 shrink-0 transition-transform', !ouvert && '-rotate-90')} />
-        <span>{t('Journal des amorces')}</span>
-      </button>
+      {/* Le repli du journal à gauche, la roue des réglages des comptes à
+          droite, sur la même ligne : le panneau finit sur le geste qui répare
+          ce qu'il signale (reconnecter, ajouter, couper un compte). */}
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setOuvert((valeur) => !valeur)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[12px] text-faint hover:text-text"
+        >
+          <ChevronDown className={cn('h-2.5 w-2.5 shrink-0 transition-transform', !ouvert && '-rotate-90')} />
+          <span>{t('Journal des amorces')}</span>
+        </button>
+        <Tooltip label={libelleReglages}>
+          <button
+            type="button"
+            data-essai="reglages-comptes"
+            aria-label={libelleReglages}
+            onClick={() => {
+              onReglages();
+              // Même chemin qu'un Précédent/Suivant : l'adresse commande l'écran.
+              window.history.pushState(null, '', `#${construireFragment({ vue: 'reglages', page: 'comptes' })}`);
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            }}
+            className="shrink-0 rounded p-1 text-faint hover:bg-raised hover:text-text"
+          >
+            <Settings className="h-3 w-3" />
+          </button>
+        </Tooltip>
+      </div>
 
       {ouvert ? (
         entrees.length ? (
@@ -869,7 +943,7 @@ function Window({
               prevision.niveau === 'manque' ? 'font-medium text-warning' : 'text-faint',
             )}
           >
-            {prevision.texte}
+            {prevision.texte} ({dansEnClair(prevision.at, Date.now())})
           </p>
         </Tooltip>
       ) : null}

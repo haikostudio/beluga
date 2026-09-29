@@ -8,7 +8,7 @@ import {
   moteursDeLAssistant,
 } from '@beluga/shared';
 import { BulleInfo, Badge, Button, ZoneDefilement } from '@/components/ui';
-import { AjouterCleCursor, BlocConnexion } from '@/components/connexion-compte';
+import { AjouterCle, BlocConnexion } from '@/components/connexion-compte';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -258,7 +258,7 @@ function EtapeConnexion({
       <ComptesAReconnecter moteur={moteur} />
 
       {moteur.connexionParCle ? (
-        <AjouterCleCursor deplie />
+        <AjouterCle engine={moteur.id} deplie />
       ) : enCours ? (
         <BlocConnexion connexion={enCours} />
       ) : (

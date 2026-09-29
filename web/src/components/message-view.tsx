@@ -60,7 +60,6 @@ import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
 import { BulleQuestion, PiecesJointes } from '@/components/bulle-question';
 import { Steps } from '@/components/steps';
-import { MemoryNote } from '@/components/todos';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { RunChoix, RunSelectors, nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
@@ -321,7 +320,11 @@ export function MessageView({
    * liste des tâches, elle, ne défile PLUS avec les messages : elle vit dans
    * son volet fixe, au bas de la conversation.
    */
-  const memoire = message.steps.find((step) => step.id === MEMORY_STEP_ID);
+  // L'étape « Base de connaissances » qu'un agent SANS carte posait en tête de
+  // réponse (une ligne « N unités à portée », dépliée sur la mémoire entière)
+  // ne s'affiche plus : la mémoire lue par l'agent se lit comme chez un agent
+  // de tâche, en bulles de recherche (`BullesDuPromptEnvoye`, plus haut). Les
+  // anciens messages qui portent encore l'étape s'affichent donc sans elle.
   const etapes = message.steps.filter((step) => step.id !== MEMORY_STEP_ID);
 
   /* Les cartes proposées ENCORE EN ATTENTE ne vivent plus ici : elles sont
@@ -337,7 +340,6 @@ export function MessageView({
           au-dessus de la réponse et du déroulé. */}
       {message.sentContext && !filAgentMasque ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
       <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
-        {memoire ? <MemoryNote step={memoire} projectId={projectId} /> : null}
         <Steps steps={etapes} streaming={message.streaming} projectId={projectId} agentAuTravail={agentAuTravail} />
 
         {contenuSansStructure ? (
@@ -1055,7 +1057,7 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
                 setModele(undefined);
               }}
             >
-              {nomCourtMoteur(engines.find((e) => e.id === id) ?? { id, label: id })}
+              {nomCourtMoteur(engines.find((e) => e.id === id) ?? ({ id, label: id } as Parameters<typeof nomCourtMoteur>[0]))}
             </Button>
           ))}
         </div>

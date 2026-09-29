@@ -12,6 +12,8 @@ import { ensureCredentials } from './auth.js';
 import { createHttpServer } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { bootstrapAccounts, prochaineTentativeQuota, refreshQuotas } from './accounts.js';
+import { chargerLesMoteursAjoutes, rattraperLesCartesDesMoteurs } from './moteurs-ajoutes.js';
+import { demarrerRelaisChat } from './engines/relais-chat.js';
 import {
   adopterLesCompetencesDuCoffre,
   preparerLeDepotDuPool,
@@ -29,7 +31,7 @@ import { scheduleNightlyBackup } from './backup.js';
 import { planifierLesBackups } from './backups.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
-import { getSettings, listProjects, saveSettings } from './store.js';
+import { ensureLocalGroup, getSettings, listProjects, saveSettings } from './store.js';
 import { iconeManquante, recupererFaviconEnTache, planifierRevisionFavicons } from './favicon.js';
 import { aChaqueCatalogue, listEngines } from './engines/index.js';
 import { suivreLesModelesRetires } from './modeles-retires.js';
@@ -54,8 +56,9 @@ import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
 import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
 import { demarrerMarketing } from './marketing.js';
+import { demarrerLeSuiviParDefaut } from './suivi-par-defaut.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
-import { completerLesDemandesManquantes } from './naissance-de-carte.js';
+import { completerLesDemandesManquantes, relancerLesCadragesJamaisPartis } from './naissance-de-carte.js';
 
 /*
  * LE DÉMON NE S'APPELLE PLUS DU NOM DE SON FICHIER CONSTRUIT — ET UN SERVEUR
@@ -113,6 +116,12 @@ async function main(): Promise<void> {
     log.info('════════════════════════════════════════════════');
   }
 
+  // Les moteurs AJOUTÉS entrent au registre AVANT les comptes et le catalogue :
+  // sans eux, leurs comptes passeraient pour des moteurs inconnus.
+  chargerLesMoteursAjoutes();
+  // Le relais « responses → chat » écoute AVANT le premier tour : sans lui, un
+  // moteur ajouté au format chat (Gemini) refuse de partir.
+  await demarrerRelaisChat().catch((err) => log.warn('relais des moteurs ajoutés (chat) indisponible', err?.message ?? err));
   bootstrapAccounts();
   // Les compétences partagées entrent dans le coffre de chaque compte : c'est
   // là que le moteur va les chercher, et un coffre neuf n'en a aucune.
@@ -133,6 +142,10 @@ async function main(): Promise<void> {
   // L'avancement d'une carte liée à une demande prévient les clients de celle-ci.
   brancherLAvancementDesCartes();
   await ensureSelfProject();
+  // Les moteurs ajoutés avant les cartes d'ajout reçoivent la leur (projet Beluga Build).
+  await rattraperLesCartesDesMoteurs();
+  // Beluga vit dans son groupe « Local », créé ou repris ici (`shared/src/groupe-local.ts`).
+  ensureLocalGroup();
   await adoptServerProjects();
   await refreshGitInfo();
 
@@ -212,6 +225,20 @@ async function main(): Promise<void> {
   } catch (err) {
     log.warn('complément des demandes de cartes impossible', err);
   }
+  /*
+   * LE FILET DES CADRAGES JAMAIS PARTIS : une carte dont l'agent de cadrage est
+   * né sans jamais recevoir son premier tour (panne, ancienne règle) le reçoit,
+   * une carte après l'autre, jusqu'à la compréhension seulement. Trente
+   * secondes après le démarrage, une fois les tours d'avant repris.
+   */
+  setTimeout(() => {
+    try {
+      const relances = relancerLesCadragesJamaisPartis();
+      if (relances) log.info(`cadrages jamais partis : ${relances} carte(s) remise(s) en route`);
+    } catch (err) {
+      log.warn('relance des cadrages jamais partis impossible', err);
+    }
+  }, 30_000).unref?.();
 
   // Boucles de fond
   const scheduler = startScheduler();
@@ -268,6 +295,8 @@ async function main(): Promise<void> {
    * plan de la semaine du dimanche soir (`server/src/marketing.ts`).
    */
   const marketingTimer = demarrerMarketing();
+  // Le suivi des visites posé par défaut : une minute après le démarrage, puis chaque jour.
+  const suiviParDefautTimer = demarrerLeSuiviParDefaut();
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   // Les backups des sites en production : leur propre heure, après celle de
@@ -412,6 +441,7 @@ async function main(): Promise<void> {
     suivreReprises();
     clearInterval(surveillanceTimer);
     clearInterval(marketingTimer);
+    if (suiviParDefautTimer) clearInterval(suiviParDefautTimer);
     void fermerNavigateur();
     clearInterval(backupTimer);
     clearInterval(digestTimer);

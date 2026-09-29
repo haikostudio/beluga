@@ -102,6 +102,10 @@ export const COMMANDES_INTEGREES: Readonly<Record<EngineId, readonly CommandeSla
     { nom: 'usage', origine: 'moteur' },
   ],
   cursor: [],
+  get mimo() {
+    // MiMo tourne dans l'outil de Claude : ses commandes sont les siennes.
+    return COMMANDES_INTEGREES.claude;
+  },
 };
 
 /** Un nom de commande valable : lettres, chiffres, tirets, deux-points. */

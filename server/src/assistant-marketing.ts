@@ -11,7 +11,8 @@
  * suivante lui est envoyée à LUI, pour qu'il garde ce qu'il a compris. Une
  * conversation disparue (retirée à la main) en fait naître une nouvelle.
  *
- * LE DIMANCHE SOIR (`lancerLesPlansDeLaSemaine`), chaque projet actif qui a une
+ * LE DIMANCHE SOIR (`lancerLesPlansDeLaSemaine`), chaque projet actif (suivi
+ * marketing non coupé, `EspaceMarketing.actif`) qui a une
  * fiche reçoit un tour court sur SA PROPRE carte, rangée ensuite directement
  * en archive (comme le rendez-vous de nuit, DEC-247) : l'agent lit tout avec
  * l'outil « marketing », il n'a pas besoin de la conversation de la semaine.
@@ -24,6 +25,7 @@ import {
   raisonDemandeMarketingRefusee,
   reglagesDuNiveau,
   titreDeLAgentMarketing,
+  estSiteAutonome,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
@@ -98,8 +100,14 @@ export async function lancerAgentMarketing(entree: { projectId: string; demande:
  * LE PLAN DE LA SEMAINE, le dimanche soir. Un projet après l'autre : jamais
  * dix agents lancés d'un coup sur le même compte.
  */
+/** Les espaces qui reçoivent le plan du dimanche : suivi non coupé, fiche remplie, nature connue. */
+export function espacesDuPlanDeLaSemaine() {
+  // Un site autonome du service Statistiques n'a ni projet ni agent marketing.
+  return listerEspaces().filter((e) => !estSiteAutonome(e.projectId) && e.actif && ficheRemplie(e.fiche) && e.configuration.nature);
+}
+
 export async function lancerLesPlansDeLaSemaine(lundi: string): Promise<number> {
-  const espaces = listerEspaces().filter((e) => ficheRemplie(e.fiche) && e.configuration.nature);
+  const espaces = espacesDuPlanDeLaSemaine();
   let lances = 0;
   for (const espace of espaces) {
     const projet = store.getProject(espace.projectId);

@@ -64,6 +64,7 @@ import {
   titreDeBloc,
   TEXTE_BARRE_EN_ATTENTE,
   modeleActuel,
+  idDuMessageDeSynthese,
 } from '@beluga/shared';
 import { BulleInfo, Button, ConfirmDialog, DialogTitle, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { IndicateurActivite } from '@/components/indicateur-activite';
@@ -431,6 +432,18 @@ export function Chat({
      les données de la carte (`client.ouvrirLesDonneesDeCarte`). */
   const questionsOuvertes = React.useMemo(() => questionsOuvertesDuFil(messages), [messages]);
   const decisionsDeTour = React.useMemo(() => decisionsEnAttente(messages), [messages]);
+  /* LE CADRAGE N'A JAMAIS DÉMARRÉ (carte posée par un agent, aucun message,
+     aucun tour, rien en file) : le point « Compréhension » attend, il ne
+     tourne pas à vide. */
+  const cadrageEnAttente =
+    !chargement &&
+    !canal.gele &&
+    agent?.role === 'cadrage' &&
+    carte?.origin === 'agent' &&
+    !busy &&
+    queue.length === 0 &&
+    !carte?.parcours?.comprehension?.texte?.trim() &&
+    !messages.some((message) => !cardId || message.id !== idDuMessageDeSynthese(cardId));
   const points = React.useMemo(
     () =>
       pointsDuParcours(
@@ -457,6 +470,7 @@ export function Chat({
              décision du bas attend — jamais sur Travail ni Rapport. */
           dernierTourEnEchec: contexteDuParcours.dernierTourEnEchec,
           decisionDeTourOuverte: decisionsDeTour > 0,
+          cadrageEnAttente,
           /* LA PHRASE PORTÉE PAR LA CARTE, la même que sur sa vignette : le
              tableau et le tiroir ne peuvent plus se contredire. */
           mentionDeLaCarte: carte?.sansModification,
@@ -492,6 +506,7 @@ export function Chat({
       carte?.sansModification,
       carte?.suiviDesFilles,
       canal.gele,
+      cadrageEnAttente,
     ],
   );
   const flux = React.useMemo(() => fluxDuParcours(points), [points]);
@@ -1686,9 +1701,7 @@ function ReglagesAgent({
         <ZoneDefilement className="flex flex-col gap-3 px-3 pb-4" data-tiroir-reglages="lecture">
           <EtiquetteColonne nom={t('Moteur')} valeur={libelles.moteur} />
           <EtiquetteColonne nom={t('Modèle')} valeur={libelles.modele} />
-          {/* « Niveau », pas « Réflexion » : le libellé du niveau porte déjà le
-              mot, et « Réflexion — Réflexion poussée » se lisait deux fois. */}
-          <EtiquetteColonne nom={t('Niveau')} valeur={libelles.reflexion} />
+          <EtiquetteColonne nom={t('Réflexion')} valeur={libelles.reflexion} />
           <EtiquetteColonne nom={t('Compte')} valeur={vu.compte ?? '—'} />
 
           {/* La part de quota dépensée par cette carte. Rien quand aucun

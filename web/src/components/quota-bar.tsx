@@ -41,6 +41,7 @@ import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
 const TerminalServeur = React.lazy(() =>
   import('@/components/terminal-serveur').then((m) => ({ default: m.TerminalServeur })),
 );
+import { BoutonRedemarrage } from '@/components/bouton-redemarrage';
 import { ClocheNotifications } from '@/components/notifications';
 import { QuotaBadge } from '@/components/quota-badge';
 import { AMBIANCES, LANGUES, ambianceParId, langueParId } from '@beluga/shared';
@@ -366,6 +367,12 @@ export function QuotaBar({
           le nom du projet et les pastilles, et un clic gagné ne valait pas la
           place perdue. Son entrée se trouve plus bas, avant le choix du thème. */}
 
+      {/* LE REDÉMARRAGE DU SERVEUR, juste avant les trois points : une icône
+          seule qui dit son état (marche/arrêt, triangle orange, roue). Il a
+          quitté le pied de la colonne des projets ; visible aussi sur
+          téléphone. */}
+      <BoutonRedemarrage />
+
       {/* Un seul bouton : son, thème et réglages vivent derrière les trois
           points (menu sur ordinateur, tiroir en bas sur téléphone). */}
       <DropdownMenu>
@@ -383,7 +390,7 @@ export function QuotaBar({
               <DropdownMenuItem onSelect={onOpenDashboard}>
                 <BarChart3 className="h-3.5 w-3.5" />
                 
-{t('Statistiques')}
+{t('Résumé')}
 </DropdownMenuItem>
               <DropdownMenuSeparator />
             </>

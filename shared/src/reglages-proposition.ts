@@ -22,8 +22,9 @@
  */
 
 import { reglagesDuNiveau, type NiveauAgent } from './niveau-agent.js';
+import type { IdDeMoteur } from './registre-moteurs.js';
 
-export type IdMoteur = 'claude' | 'codex' | 'cursor';
+export type IdMoteur = IdDeMoteur;
 
 export interface ModeleCatalogue {
   id: string;

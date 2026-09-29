@@ -39,6 +39,7 @@ export function RepereAttention({
   className,
   onClick,
   badge,
+  vif,
   ...rest
 }: {
   compte: number;
@@ -61,11 +62,17 @@ export function RepereAttention({
    * colonne réduite.
    */
   badge?: { mini: boolean };
+  /**
+   * L'ATTENTE EST ACTUELLE : un agent est arrêté, là, maintenant, sur cette
+   * question. Le repère prend alors le ton d'une décision attendue au lieu du
+   * gris du texte, pour qu'on le voie du premier coup d'œil.
+   */
+  vif?: boolean;
 } & React.HTMLAttributes<HTMLSpanElement>) {
   if (compte <= 0) return null;
   const libelle = libelleForce ?? libelleAttention(compte);
   const Dessin = icone === 'message' ? MessageSquare : icone === 'plan' ? Route : TriangleAlert;
-  const couleur = icone && icone !== 'triangle' ? 'text-text' : 'text-warning';
+  const couleur = icone && icone !== 'triangle' && !vif ? 'text-text' : 'text-warning';
 
   if (badge) {
     const { mini } = badge;

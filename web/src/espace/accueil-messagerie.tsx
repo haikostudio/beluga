@@ -22,7 +22,7 @@
  */
 import * as React from 'react';
 import { ListChecks, MessagesSquare } from 'lucide-react';
-import { Button, Pastille, Tooltip, ZoneDefilement } from '@/components/ui';
+import { Pastille, Tooltip, ZoneDefilement } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import {
@@ -34,6 +34,7 @@ import {
   totauxDuTableau,
   type FicheClientTableau,
 } from '@beluga/shared';
+import { SelecteurPeriode } from '@/components/selecteur-periode';
 import { TON_COLONNE, jourCourt, jourDe } from './formats';
 
 /** La période affichée, telle que le serveur l'a retenue. */
@@ -56,115 +57,6 @@ const TEINTES_CLIENTS = ['--info', '--publie', '--success', '--warning', '--dang
 
 function couleurDuClient(rang: number): string {
   return `hsl(var(${TEINTES_CLIENTS[rang % TEINTES_CLIENTS.length]}))`;
-}
-
-/** Les libellés des échelles toutes prêtes — traduits, jamais fabriqués à la volée. */
-function libelleDEchelle(jours: number): string {
-  if (jours === 7) return t('7 jours');
-  if (jours === 30) return t('30 jours');
-  if (jours === 90) return t('90 jours');
-  if (jours === 365) return t('1 an');
-  return t('{v0} jours', { v0: String(jours) });
-}
-
-/** Le jour « 2026-09-18 » tel qu'un champ de date le veut, dans l'heure locale. */
-function pourChampDate(at: number): string {
-  const d = new Date(at);
-  const deux = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${deux(d.getMonth() + 1)}-${deux(d.getDate())}`;
-}
-
-/* ------------------------------------------------------------------ */
-/* Le choix de la période                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * LES ÉCHELLES TOUTES PRÊTES, PUIS LE CHOIX LIBRE.
- *
- * Les durées courantes se prennent d'un clic ; deux champs de date ouvrent le
- * reste. Le choix est retenu d'une visite à l'autre — il vit dans les réglages
- * et suit donc l'appareil, comme le thème.
- */
-function SelecteurPeriode({
-  echelle,
-  debut,
-  fin,
-  onEchelle,
-  onLibre,
-}: {
-  /** L'échelle retenue, en jours ; `null` quand deux dates ont été posées. */
-  echelle: number | null;
-  debut: number;
-  fin: number;
-  onEchelle: (jours: number) => void;
-  onLibre: (debut: number, fin: number) => void;
-}) {
-  const [libre, setLibre] = React.useState(echelle === null);
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5" data-selecteur-periode={echelle ?? 'libre'}>
-      {ECHELLES_DU_TABLEAU.map((jours) => (
-        <Button
-          key={jours}
-          variant={echelle === jours ? 'outline' : 'ghost'}
-          size="sm"
-          className={cn('h-7 px-2 text-[12px]', echelle === jours && 'bg-raised text-text')}
-          aria-pressed={echelle === jours}
-          data-echelle-periode={jours}
-          onClick={() => {
-            setLibre(false);
-            onEchelle(jours);
-          }}
-        >
-          {libelleDEchelle(jours)}
-        </Button>
-      ))}
-      <Button
-        variant={libre ? 'outline' : 'ghost'}
-        size="sm"
-        className={cn('h-7 px-2 text-[12px]', libre && 'bg-raised text-text')}
-        aria-pressed={libre}
-        data-periode-libre={libre ? 'ouverte' : 'fermee'}
-        onClick={() => setLibre((v) => !v)}
-      >
-        {t('Dates précises')}
-      </Button>
-
-      {/* LES DEUX BORNES, quand on les veut à la main. Le serveur remet de
-          toute façon la période d'aplomb : une saisie à l'envers ou trop
-          profonde ne casse pas l'écran, elle est simplement ramenée. */}
-      {libre ? (
-        <span className="flex items-center gap-1">
-          <input
-            type="date"
-            value={pourChampDate(debut)}
-            max={pourChampDate(fin)}
-            data-periode-debut
-            aria-label="Debut de la periode"
-            title={t('Début de la période')}
-            className="h-7 rounded-md bg-raised px-1.5 text-[12px] text-text outline-none"
-            onChange={(event) => {
-              const choisi = new Date(`${event.target.value}T00:00:00`).getTime();
-              if (Number.isFinite(choisi)) onLibre(choisi, fin);
-            }}
-          />
-          <span className="text-[12px] text-faint">→</span>
-          <input
-            type="date"
-            value={pourChampDate(fin)}
-            data-periode-fin
-            aria-label="Fin de la periode"
-            title={t('Fin de la période')}
-            className="h-7 rounded-md bg-raised px-1.5 text-[12px] text-text outline-none"
-            onChange={(event) => {
-              const choisi = new Date(`${event.target.value}T23:59:59`).getTime();
-              if (Number.isFinite(choisi)) onLibre(debut, choisi);
-            }}
-          />
-        </span>
-      ) : null}
-    </div>
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -497,6 +389,7 @@ export function AccueilMessagerie({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-[11px] uppercase tracking-wide text-faint">{t('Échanges jour par jour')}</h2>
           <SelecteurPeriode
+            echelles={ECHELLES_DU_TABLEAU}
             echelle={echelle}
             debut={periode.debut}
             fin={periode.fin}

@@ -33,6 +33,12 @@ import {
   memeFenetre,
   previsionEpuisement,
   tempsRestant,
+  descriptionMoteur,
+  ficheDuMoteur,
+  idsDesMoteurs,
+  FORME_ID_MOTEUR_AJOUTE,
+  estUneCleMimoAbonnement,
+  forfaitMimo,
 } from '@beluga/shared';
 import { PATHS, CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
@@ -41,6 +47,9 @@ import { dernieresAmorces, quotaHistory, quotaResume, recordQuotaSample, usageDu
 import { bus } from './bus.js';
 import { notify } from './notify.js';
 import { log } from './logger.js';
+import { listerAcces } from './coffre-fort.js';
+import { environnementMimo, modelesMimo, sonderLeCompteMimo } from './engines/mimo.js';
+import { environnementAnthropique, environnementOpenAI, sonderLaFiche } from './engines/ajoutes.js';
 
 /**
  * Les comptes des moteurs (PLAN §13). Chaque compte a SON PROPRE COFFRE : un
@@ -188,6 +197,12 @@ function signalerCoffreVide(account: AccountRecord): void {
 export const COMPTE_CURSOR_PRINCIPAL = 'cursor-principal';
 
 /**
+ * Le compte MiMo que le serveur déclare de lui-même, avec la clé trouvée dans
+ * `MIMO_API_KEY` ou, à défaut, dans le coffre-fort (voir `cleDuCompteMimo`).
+ */
+export const COMPTE_MIMO_PRINCIPAL = 'mimo-principal';
+
+/**
  * Les comptes RÉELLEMENT utilisables : un compte coupé à la main (`disabled`)
  * est écarté. C'est la liste que voient l'ordonnanceur, l'amorçage des fenêtres,
  * le catalogue des modèles — partout où un compte éteint ne doit plus servir.
@@ -306,7 +321,7 @@ function oublierLeRetrait(id: string): void {
  */
 export function retirerCompte(
   id: string,
-  opts: { comptesOccupes?: readonly string[] } = {},
+  opts: { comptesOccupes?: readonly string[]; memeLeDernier?: boolean } = {},
 ): { ok: boolean; erreur?: string } {
   const compte = listAllAccountRecords().find((a) => a.id === id);
   if (!compte) return { ok: false, erreur: 'ce compte n’existe plus' };
@@ -316,7 +331,8 @@ export function retirerCompte(
   }
 
   const actifsRestants = listAccountRecords().filter((a) => a.engine === compte.engine && a.id !== id);
-  if (!actifsRestants.length) {
+  // Retirer un moteur AJOUTÉ emporte tous ses comptes, dernier compris.
+  if (!actifsRestants.length && !opts.memeLeDernier) {
     return { ok: false, erreur: `c’est le dernier compte ${compte.engine} encore actif` };
   }
 
@@ -396,6 +412,27 @@ export function bootstrapAccounts(): void {
       label: 'Cursor — compte principal',
       priority: 10,
       configDir: path.join(PATHS.accounts, COMPTE_CURSOR_PRINCIPAL),
+    });
+  }
+
+  /*
+   * XIAOMI MIMO : une clé payée à l'usage, comme Cursor. Le compte principal
+   * naît dès qu'une clé est connue — variable d'environnement ou fiche du
+   * coffre-fort dont le service nomme MiMo.
+   */
+  if (!dejaVu(COMPTE_MIMO_PRINCIPAL) && cleMimoDuServeur()) {
+    const configDir = path.join(PATHS.accounts, COMPTE_MIMO_PRINCIPAL);
+    try {
+      fs.mkdirSync(configDir, { recursive: true });
+    } catch {
+      /* le moteur dira lui-même ce qui lui manque */
+    }
+    saveAccountRecord({
+      id: COMPTE_MIMO_PRINCIPAL,
+      engine: 'mimo',
+      label: 'MiMo — compte principal',
+      priority: 10,
+      configDir,
     });
   }
 
@@ -527,6 +564,22 @@ export function applyAccountEnv(account: AccountRecord): Record<string, string> 
   if (account.engine === 'cursor') {
     const cle = cleDuCompteCursor(account);
     return cle ? { CURSOR_API_KEY: cle } : {};
+  }
+  if (account.engine === 'mimo') {
+    // Sans clé, aucun environnement : l'adaptateur refuse alors de partir,
+    // plutôt que de retomber sur le coffre d'un compte Claude.
+    const cle = cleDuCompteMimo(account);
+    return cle ? environnementMimo(cle, account.configDir) : {};
+  }
+  if (estUnMoteurAjoute(account.engine)) {
+    // Même règle pour un moteur AJOUTÉ : sans fiche ni clé, aucun
+    // environnement, et son adaptateur refuse de partir.
+    const fiche = ficheDuMoteur(account.engine);
+    const cle = cleDuFichier(account);
+    if (!fiche || !cle) return {};
+    return fiche.famille === 'anthropic'
+      ? environnementAnthropique(fiche, cle, account.configDir)
+      : environnementOpenAI(fiche, cle, account.configDir);
   }
   return { CODEX_HOME: account.configDir };
 }
@@ -887,6 +940,21 @@ export function cleDuCompteCursor(account: AccountRecord): string {
   return account.id === COMPTE_CURSOR_PRINCIPAL ? (process.env.CURSOR_API_KEY ?? '').trim() : '';
 }
 
+/** Éprouve une clé Cursor : `null` si elle répond, sinon la raison du refus. */
+async function eprouverCleCursor(secret: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${API_CURSOR}/v1/me`, {
+      headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (res.ok) return null;
+    const corps: any = await res.json().catch(() => null);
+    return raisonDeRefusCursor(res.status, corps?.message ?? corps?.error?.message);
+  } catch (err: any) {
+    return err?.message ?? "la clé n'a pas pu être éprouvée";
+  }
+}
+
 /**
  * DÉCLARER UNE CLÉ CURSOR DE PLUS, depuis les réglages.
  *
@@ -911,18 +979,8 @@ export async function declarerCleCursor(
 
   // La clé est éprouvée AVANT d'être retenue : le moteur ne doit pas se
   // retrouver avec un compte qui ne répondra jamais.
-  try {
-    const res = await fetch(`${API_CURSOR}/v1/me`, {
-      headers: { authorization: `Bearer ${secret}` },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) {
-      const corps: any = await res.json().catch(() => null);
-      return { ok: false, erreur: raisonDeRefusCursor(res.status, corps?.message ?? corps?.error?.message) };
-    }
-  } catch (err: any) {
-    return { ok: false, erreur: err?.message ?? "la clé n'a pas pu être éprouvée" };
-  }
+  const refus = await eprouverCleCursor(secret);
+  if (refus) return { ok: false, erreur: refus };
 
   const base = `cursor-${nom
     .toLowerCase()
@@ -1003,6 +1061,247 @@ async function fetchCursorQuota(account: AccountRecord): Promise<AccountQuota> {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Xiaomi MiMo                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA CLÉ MIMO DU SERVEUR : `MIMO_API_KEY`, sinon la fiche « clé d'API » du
+ * coffre-fort dont le service ou le nom parle de MiMo. Lue à chaque fois — une
+ * clé rangée dans le coffre sert sans redémarrer.
+ */
+export function cleMimoDuServeur(): string {
+  const environnement = (process.env.MIMO_API_KEY ?? '').trim();
+  if (environnement) return environnement;
+  try {
+    const fiche = listerAcces().find(
+      (acces) => acces.type === 'cle-api' && /mimo/i.test(`${acces.champs.service ?? ''} ${acces.nom}`) && acces.champs.cle,
+    );
+    return (fiche?.champs.cle ?? '').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * LA CLÉ D'UN COMPTE MIMO : son fichier `api-key`, sinon — pour le compte
+ * principal SEULEMENT, comme chez Cursor — la clé du serveur. Un compte de
+ * relève sans fichier n'a pas de clé : un doublon silencieux ne basculerait rien.
+ */
+export function cleDuCompteMimo(account: AccountRecord): string {
+  try {
+    const contenu = fs.readFileSync(path.join(account.configDir, 'api-key'), 'utf8').trim();
+    if (contenu) return contenu;
+  } catch {
+    /* pas de fichier de clé */
+  }
+  return account.id === COMPTE_MIMO_PRINCIPAL ? cleMimoDuServeur() : '';
+}
+
+/**
+ * MIMO N'A NI FENÊTRE DE CINQ HEURES NI SEMAINE. Deux sortes de clés
+ * (`shared/src/adresse-mimo.ts`) : « sk-… » facturée À L'USAGE, « tp-… »
+ * d'ABONNEMENT mensuel (Token Plan). Xiaomi ne publie aucun solde lisible ; on
+ * sonde la clé d'une demande d'un jeton, et un 402 dit « solde épuisé » — le
+ * compte sort alors du choix, comme un compte Claude à sec, sans passer pour
+ * une panne. Un 401 reste un refus de clé, jamais un solde vide.
+ */
+async function fetchMimoQuota(account: AccountRecord): Promise<AccountQuota> {
+  const cle = cleDuCompteMimo(account);
+  const abonnement = estUneCleMimoAbonnement(cle);
+  const base: AccountQuota = {
+    id: account.id,
+    engine: 'mimo',
+    label: account.label,
+    plan: account.plan ?? forfaitMimo(cle),
+    priority: account.priority,
+    active: false,
+    available: true,
+    fetchedAt: Date.now(),
+    usageLocal: usageDuCompte(account.id),
+  };
+  if (!cle) return { ...base, error: 'aucune clé configurée', available: false };
+  try {
+    const sonde = await sonderLeCompteMimo(cle);
+    if (sonde.ok) {
+      return {
+        ...base,
+        credit: {
+          resume: abonnement
+            ? 'Clé active chez Xiaomi · abonnement mensuel (Token Plan)'
+            : 'Clé active chez Xiaomi · facturée à l’usage',
+        },
+      };
+    }
+    if (sonde.soldeVide) {
+      const resume = abonnement ? 'forfait du mois épuisé chez Xiaomi' : sonde.erreur;
+      return { ...base, available: false, credit: { resume, soldeEpuise: true } };
+    }
+    return { ...base, available: false, error: sonde.erreur };
+  } catch (err: any) {
+    return { ...base, error: err?.message ?? 'lecture impossible' };
+  }
+}
+
+/**
+ * DÉCLARER UNE CLÉ D'ACCÈS DE PLUS, pour tout moteur qui se connecte par une
+ * clé (`connexion: 'cle'` dans `shared/src/registre-moteurs.ts`). Même règle que
+ * Cursor : la clé est ÉPROUVÉE avant d'entrer, et chaque compte a son dossier.
+ */
+export async function declarerCleDeMoteur(
+  engine: EngineId,
+  label: string,
+  cle: string,
+): Promise<{ ok: boolean; erreur?: string; account?: AccountRecord }> {
+  if (engine === 'cursor') return declarerCleCursor(label, cle);
+  if (engine !== 'mimo' && !estUnMoteurAjoute(engine)) return { ok: false, erreur: 'ce moteur ne se déclare pas par une clé' };
+  const nom = label.trim();
+  const secret = cle.trim();
+  if (!nom) return { ok: false, erreur: 'il faut un nom pour ce compte' };
+  if (!secret) return { ok: false, erreur: "il faut une clé d'accès" };
+  const refus = await eprouverCleDeMoteur(engine, secret);
+  if (refus) return { ok: false, erreur: refus };
+  const base = `${engine}-${nom
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 30) || 'compte'}`;
+  const connus = new Set(listAllAccountRecords().map((a) => a.id));
+  let id = base;
+  for (let suffixe = 2; connus.has(id); suffixe += 1) id = `${base}-${suffixe}`;
+  const configDir = path.join(PATHS.accounts, id);
+  try {
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'meta.json'), JSON.stringify({ engine, label: nom, priority: 50 }, null, 2));
+    fs.writeFileSync(path.join(configDir, 'api-key'), `${secret}\n`, { mode: 0o600 });
+  } catch (err: any) {
+    return { ok: false, erreur: err?.message ?? "le compte n'a pas pu être écrit sur le serveur" };
+  }
+  const account: AccountRecord = { id, engine, label: nom, priority: 50, configDir };
+  saveAccountRecord(account);
+  return { ok: true, account };
+}
+
+/**
+ * ÉPROUVER UNE CLÉ, quel que soit le moteur à clé : `null` si elle répond,
+ * sinon la raison du refus, en français. Le seul endroit qui sait comment
+ * chaque fournisseur se laisse interroger.
+ */
+export async function eprouverCleDeMoteur(engine: EngineId, cle: string): Promise<string | null> {
+  const secret = cle.trim();
+  if (!secret) return "il faut une clé d'accès";
+  if (engine === 'cursor') return eprouverCleCursor(secret);
+  if (engine === 'mimo') {
+    try {
+      await modelesMimo(secret);
+      return null;
+    } catch (err: any) {
+      return err?.message ?? "la clé n'a pas pu être éprouvée";
+    }
+  }
+  if (estUnMoteurAjoute(engine)) {
+    const fiche = ficheDuMoteur(engine);
+    if (!fiche || fiche.statut === 'retire') return "ce moteur n'existe plus dans l'application";
+    try {
+      const sonde = await sonderLaFiche(fiche, secret);
+      return sonde.ok ? null : (sonde.erreur ?? 'clé refusée');
+    } catch (err: any) {
+      return err?.message ?? "la clé n'a pas pu être éprouvée";
+    }
+  }
+  return 'ce moteur ne se connecte pas par une clé';
+}
+
+/** Un identifiant de moteur AJOUTÉ (`ext-…`), actif ou non. */
+function estUnMoteurAjoute(engine: string): boolean {
+  return FORME_ID_MOTEUR_AJOUTE.test(engine);
+}
+
+/** La clé posée dans le dossier du compte (`api-key`), sans repli sur le serveur. */
+function cleDuFichier(account: AccountRecord): string {
+  try {
+    return fs.readFileSync(path.join(account.configDir, 'api-key'), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/** Les comptes actifs d'un moteur ajouté qui portent une clé. */
+export function comptesDuMoteurAvecCle(engine: string): AccountRecord[] {
+  return listAccountRecords().filter((a) => a.engine === engine && Boolean(cleDuFichier(a)));
+}
+
+/** Une clé utilisable pour ce moteur ajouté (catalogue des modèles), ou `''`. */
+export function cleDUnCompteDuMoteur(engine: string): string {
+  const compte = comptesDuMoteurAvecCle(engine)[0];
+  return compte ? cleDuFichier(compte) : '';
+}
+
+/**
+ * UN MOTEUR AJOUTÉ FACTURE À L'USAGE, comme MiMo : on sonde la clé d'une
+ * demande d'un jeton, et un 402 dit « solde épuisé » — le compte sort alors du
+ * choix sans passer pour une panne.
+ */
+async function fetchQuotaDeMoteurAjoute(account: AccountRecord): Promise<AccountQuota> {
+  const fiche = ficheDuMoteur(account.engine);
+  const base: AccountQuota = {
+    id: account.id,
+    engine: account.engine,
+    label: account.label,
+    plan: account.plan ?? "À l'usage",
+    priority: account.priority,
+    active: false,
+    available: true,
+    fetchedAt: Date.now(),
+    usageLocal: usageDuCompte(account.id),
+  };
+  if (!fiche || fiche.statut !== 'actif') return { ...base, available: false, error: "ce moteur n'est plus actif" };
+  const cle = cleDuFichier(account);
+  if (!cle) return { ...base, error: 'aucune clé configurée', available: false };
+  try {
+    const sonde = await sonderLaFiche(fiche, cle);
+    if (sonde.ok) return { ...base, credit: { resume: `Clé active chez ${fiche.nomCourt} · facturée à l’usage` } };
+    if (sonde.soldeVide) return { ...base, available: false, credit: { resume: sonde.erreur, soldeEpuise: true } };
+    return { ...base, available: false, error: sonde.erreur };
+  } catch (err: any) {
+    return { ...base, error: err?.message ?? 'lecture impossible' };
+  }
+}
+
+/**
+ * REMPLACER LA CLÉ D'UN COMPTE EXISTANT — le « Reconnecter » d'un moteur à
+ * clé. Le compte garde son identifiant, son nom, sa priorité et son historique
+ * de consommation ; seule sa clé change.
+ *
+ * Deux règles : la nouvelle clé est ÉPROUVÉE avant d'écrire quoi que ce soit
+ * (une clé refusée n'écrase jamais l'ancienne), et elle s'écrit dans le
+ * fichier `api-key` du compte — qui passe avant la clé du serveur, y compris
+ * pour le compte principal.
+ */
+export async function remplacerCleDuCompte(
+  accountId: string,
+  cle: string,
+): Promise<{ ok: boolean; erreur?: string; account?: AccountRecord }> {
+  const account = listAllAccountRecords().find((a) => a.id === accountId);
+  if (!account) return { ok: false, erreur: 'compte introuvable' };
+  if (descriptionMoteur(account.engine)?.connexion !== 'cle') {
+    return { ok: false, erreur: 'ce compte se reconnecte par sa page de connexion, pas par une clé' };
+  }
+  const refus = await eprouverCleDeMoteur(account.engine, cle);
+  if (refus) return { ok: false, erreur: refus };
+  try {
+    fs.mkdirSync(account.configDir, { recursive: true });
+    fs.writeFileSync(path.join(account.configDir, 'api-key'), `${cle.trim()}\n`, { mode: 0o600 });
+    // Un fichier déjà là garde ses droits d'origine : on les resserre.
+    fs.chmodSync(path.join(account.configDir, 'api-key'), 0o600);
+  } catch (err: any) {
+    return { ok: false, erreur: err?.message ?? "la clé n'a pas pu être écrite sur le serveur" };
+  }
+  return { ok: true, account };
+}
+
 /**
  * La lecture de quota du moteur de CE compte. Un seul endroit décide : ajouter
  * un moteur, c'est ajouter une ligne ici, jamais chercher les trois appels
@@ -1044,6 +1343,8 @@ function lireQuotaDuMoteur(account: AccountRecord): Promise<AccountQuota> {
   if (factice) return Promise.resolve(factice);
   if (account.engine === 'claude') return fetchClaudeQuota(account);
   if (account.engine === 'cursor') return fetchCursorQuota(account);
+  if (account.engine === 'mimo') return fetchMimoQuota(account);
+  if (estUnMoteurAjoute(account.engine)) return fetchQuotaDeMoteurAjoute(account);
   return fetchCodexQuota(account);
 }
 
@@ -1773,7 +2074,7 @@ function markActive(list: AccountQuota[]): void {
   attacherEtatConnexion(list);
   attacherJumeaux(list);
   const signatures = signaturesDeGroupe(list.map(releveComparable));
-  for (const engine of ['claude', 'codex', 'cursor'] as EngineId[]) {
+  for (const engine of idsDesMoteurs()) {
     // Un compte coupé ne peut pas être « celui qui sert » : on l'écarte du choix.
     const candidates = list
       .filter((q) => q.engine === engine && !q.disabled)

@@ -32,6 +32,36 @@ export const SERVICE_OPENROUTER = 'openrouter';
 export const URL_OPENROUTER = 'https://openrouter.ai/api/v1/chat/completions';
 export const URL_OPENROUTER_MODELES = 'https://openrouter.ai/api/v1/models';
 
+/**
+ * GEMINI, SECOND FOURNISSEUR, APPELÉ EN DIRECT CHEZ GOOGLE. Un modèle nommé
+ * « gemini/<modèle> » part vers le point compatible OpenAI de Google, avec la
+ * clé « Google Gemini API » du coffre ; TOUT autre nom part vers OpenRouter,
+ * exactement comme avant — les appelants existants ne voient aucun changement.
+ */
+export const SERVICE_GEMINI = 'gemini';
+export const PREFIXE_MODELE_GEMINI = 'gemini/';
+export const URL_GEMINI_OPENAI = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+export const URL_GEMINI_OPENAI_MODELES = 'https://generativelanguage.googleapis.com/v1beta/openai/models';
+
+export type FournisseurLlm = 'openrouter' | 'gemini';
+
+/** Qui sert ce modèle, et sous quel nom il faut le lui demander. */
+export function fournisseurDuModele(modele: string): { fournisseur: FournisseurLlm; modele: string } {
+  if (modele.startsWith(PREFIXE_MODELE_GEMINI) && modele.length > PREFIXE_MODELE_GEMINI.length) {
+    return { fournisseur: 'gemini', modele: modele.slice(PREFIXE_MODELE_GEMINI.length) };
+  }
+  return { fournisseur: 'openrouter', modele };
+}
+
+/**
+ * Le catalogue de Google (« models/gemini-… ») remis au nom que la porte
+ * accepte (« gemini/gemini-… »), pour qu'un appelant puisse recopier l'id lu
+ * dans le catalogue tel quel.
+ */
+export function modeleGeminiAuCatalogue(id: string): string {
+  return PREFIXE_MODELE_GEMINI + id.replace(/^models\//, '');
+}
+
 /** Le modèle servi quand l'appelant n'en nomme aucun. */
 export const MODELE_LLM_PAR_DEFAUT = 'google/gemini-2.5-flash-lite';
 
@@ -169,11 +199,23 @@ export function jugerDemandeLlm(brut: unknown): JugementDemandeLlm {
  * la place de l'ancienne sans qu'on ait à effacer quoi que ce soit.
  */
 export function cleOpenRouterDuCoffre(acces: AccesCoffre[]): string | undefined {
+  return cleDuServiceDansLeCoffre(acces, SERVICE_OPENROUTER);
+}
+
+/**
+ * La clé Gemini, trouvée de la même façon. Une fiche qui nomme AUSSI OpenRouter
+ * (une clé OpenRouter notée « pour Gemini ») n'est pas une clé Google.
+ */
+export function cleGeminiDuCoffre(acces: AccesCoffre[]): string | undefined {
+  return cleDuServiceDansLeCoffre(acces, SERVICE_GEMINI, SERVICE_OPENROUTER);
+}
+
+function cleDuServiceDansLeCoffre(acces: AccesCoffre[], service: string, sauf?: string): string | undefined {
   const candidates = acces
     .filter((a) => a.type === 'cle-api' && typeof a.champs?.cle === 'string' && a.champs.cle.trim())
     .filter((a) => {
       const empreinte = [a.champs.service, a.nom, a.champs.adresse].join(' ').toLowerCase();
-      return empreinte.includes(SERVICE_OPENROUTER);
+      return empreinte.includes(service) && !(sauf && empreinte.includes(sauf));
     })
     .sort((a, b) => (b.modifieLe || b.creeLe || 0) - (a.modifieLe || a.creeLe || 0));
   return candidates[0]?.champs.cle.trim();

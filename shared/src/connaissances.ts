@@ -212,6 +212,44 @@ export interface FicheNumerotee {
   id: string;
   titre: string;
   types: readonly TypeUnite[];
+  /** Fiche des compétences : elle réunit les unités par leur SOURCE, jamais par leur type. */
+  competences?: boolean;
+}
+
+/** Ce que la fiche « Compétences » réunit, dit à l'écran Mémoire. */
+export const DEFINITION_COMPETENCES =
+  'Les modes d’emploi déjà écrits que les agents suivent : ceux du Global valent pour tous les projets, ceux d’un projet ne valent que pour lui.';
+
+/** Le genre de SOURCE qui marque l'unité d'une compétence ; `ref` porte le nom de la fiche. */
+export const GENRE_SOURCE_COMPETENCE = 'competence' as const;
+
+/** L'unité est-elle celle d'une compétence ? Reconnu à sa source, jamais à son titre. */
+export function estUniteDeCompetence(u: Pick<Unite, 'source'>): boolean {
+  return u.source?.genre === GENRE_SOURCE_COMPETENCE && Boolean(u.source.ref);
+}
+
+const PREFIXE_SUJET_PROJET = 'projet-';
+
+/** Le sujet qui rattache une compétence à un projet (par son nom, dans le champ « projets » de la fiche). */
+export function sujetDeProjetDeCompetence(nomDuProjet: string): string {
+  return idDeSujetDUnite(`${PREFIXE_SUJET_PROJET}${nomDuProjet}`);
+}
+
+function estCompetenceDeProjet(u: Pick<Unite, 'sujets'>): boolean {
+  return u.sujets.some((s) => s.startsWith(PREFIXE_SUJET_PROJET));
+}
+
+/**
+ * L'unité range-t-elle dans cette fiche ? Une compétence n'est JAMAIS dans une fiche de type :
+ * elle est dans « Compétences » — celle du Global si elle vaut pour tous, celle du projet
+ * (`projetNom`) si sa fiche le nomme.
+ */
+export function uniteDansLaFiche(fiche: FicheNumerotee, u: Pick<Unite, 'type' | 'source' | 'sujets'>, projetNom?: string): boolean {
+  if (fiche.competences) {
+    if (!estUniteDeCompetence(u)) return false;
+    return projetNom ? u.sujets.includes(sujetDeProjetDeCompetence(projetNom)) : !estCompetenceDeProjet(u);
+  }
+  return !estUniteDeCompetence(u) && fiche.types.includes(u.type);
 }
 
 /** Les fiches d'un projet, dans l'ordre. Chaque type n'a qu'une fiche d'arrivée. */
@@ -229,6 +267,7 @@ export const FICHES_PROJET: readonly FicheNumerotee[] = [
   { id: '10_operations', titre: 'Exploitation et accès', types: ['operation'] },
   { id: '11_issues', titre: 'Problèmes connus', types: ['issue'] },
   { id: '12_lessons', titre: 'Leçons', types: ['lesson'] },
+  { id: '13_skills', titre: 'Compétences', types: [], competences: true },
 ];
 
 /** Les fiches du Global : moins nombreuses, les mêmes types regroupés. */
@@ -240,6 +279,7 @@ export const FICHES_GLOBAL: readonly FicheNumerotee[] = [
   { id: '04_integrations', titre: 'Intégrations', types: ['integration'] },
   { id: '05_operations', titre: 'Environnement, exploitation et sécurité', types: ['environment', 'operation', 'security'] },
   { id: '06_lessons', titre: 'Leçons et problèmes', types: ['lesson', 'issue'] },
+  { id: '07_skills', titre: 'Compétences', types: [], competences: true },
 ];
 
 export function fichesDeLaPortee(portee: string): readonly FicheNumerotee[] {
@@ -249,6 +289,12 @@ export function fichesDeLaPortee(portee: string): readonly FicheNumerotee[] {
 /** La fiche d'arrivée d'un type, dans une portée. */
 export function ficheDuType(portee: string, type: TypeUnite): FicheNumerotee {
   return fichesDeLaPortee(portee).find((f) => f.types.includes(type))!;
+}
+
+/** La fiche d'arrivée d'une unité : celle des compétences pour une compétence, sinon celle de son type. */
+export function ficheDeLUnite(u: Pick<Unite, 'portee' | 'type' | 'source'>): FicheNumerotee {
+  if (estUniteDeCompetence(u)) return fichesDeLaPortee(u.portee).find((f) => f.competences)!;
+  return ficheDuType(u.portee, u.type);
 }
 
 /** Une fiche désignée par son numéro, son identifiant ou son titre (« 05 », « decisions », « Décisions »). */
@@ -675,6 +721,8 @@ export interface RenduDeFiche {
   nomDeLaPortee: string;
   fiche: FicheNumerotee;
   unites: readonly Unite[];
+  /** Pour la fiche des compétences d'un projet : le nom du projet dont on garde les compétences. */
+  competencesDe?: string;
   maintenant?: number;
 }
 
@@ -691,7 +739,7 @@ export function trierUnites<T extends Pick<Unite, 'importance' | 'id' | 'modifie
  * sommaire des unités P0 du projet.
  */
 export function rendreFicheNumerotee(r: RenduDeFiche, toutesLesUnites: readonly Unite[] = r.unites): string {
-  const actives = trierUnites(r.unites.filter((u) => u.statut === 'active' && r.fiche.types.includes(u.type)));
+  const actives = trierUnites(r.unites.filter((u) => u.statut === 'active' && uniteDansLaFiche(r.fiche, u, r.competencesDe)));
   const numero = r.fiche.id.slice(0, 2);
   const derniere = actives.reduce((m, u) => Math.max(m, u.modifieLe), 0);
   const sortie = [
@@ -704,10 +752,10 @@ export function rendreFicheNumerotee(r: RenduDeFiche, toutesLesUnites: readonly 
     const jamais = trierUnites(toutesLesUnites.filter((u) => u.statut === 'active' && u.jamaisSupposer));
     sortie.push('', '## À ne jamais supposer', '');
     sortie.push(jamais.length ? jamais.map((u) => `- **${u.id}** — ${u.titre} : ${u.resume}`).join('\n') : NON_RENSEIGNE);
-    const vitales = trierUnites(toutesLesUnites.filter((u) => u.statut === 'active' && u.importance === 'P0' && !r.fiche.types.includes(u.type)));
+    const vitales = trierUnites(toutesLesUnites.filter((u) => u.statut === 'active' && u.importance === 'P0' && !uniteDansLaFiche(r.fiche, u)));
     if (vitales.length) {
       sortie.push('', '## Unités vitales (P0) ailleurs dans la base', '');
-      sortie.push(vitales.map((u) => `- **${u.id}** (${ficheDuType(r.portee, u.type).id}) — ${u.titre}`).join('\n'));
+      sortie.push(vitales.map((u) => `- **${u.id}** (${ficheDeLUnite(u).id}) — ${u.titre}`).join('\n'));
     }
   }
   if (!actives.length) sortie.push('', NON_RENSEIGNE);
@@ -717,7 +765,7 @@ export function rendreFicheNumerotee(r: RenduDeFiche, toutesLesUnites: readonly 
 
 /** L'archive d'une fiche : ses unités dépréciées, chacune avec ce qui l'a remplacée. */
 export function rendreArchive(r: RenduDeFiche): string {
-  const depreciees = trierUnites(r.unites.filter((u) => u.statut === 'deprecated' && r.fiche.types.includes(u.type)));
+  const depreciees = trierUnites(r.unites.filter((u) => u.statut === 'deprecated' && uniteDansLaFiche(r.fiche, u, r.competencesDe)));
   const sortie = [`# Archive — ${r.fiche.id.slice(0, 2)} — ${r.fiche.titre} — ${r.nomDeLaPortee}`, '', `_${depreciees.length} unité(s) dépréciée(s)._`];
   for (const u of depreciees) sortie.push('', rendreUnite(u));
   return `${sortie.join('\n')}\n`;

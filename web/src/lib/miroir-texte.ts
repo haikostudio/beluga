@@ -41,6 +41,87 @@ const REGLAGES = [
 const TROP_LONG = 8000;
 
 /**
+ * LA MARGE CACHÉE DU CHAMP, MESURÉE — JAMAIS DEVINÉE.
+ *
+ * Sur iPhone et iPad, un `textarea` écrit son texte quelques pixels (≈ 3 px)
+ * plus loin du bord que sa marge intérieure déclarée, des DEUX côtés, et
+ * aucune propriété calculée ne le dit. Un calque ou un miroir qui recopie les
+ * réglages du champ a donc des lignes PLUS LARGES que les vraies : elles se
+ * coupent ailleurs, et l'écart s'accumule de ligne en ligne — le curseur réel
+ * clignotait au milieu d'un mot du texte affiché (« poin|ts »), et un tag
+ * glissé se posait à côté de l'endroit visé.
+ *
+ * Aucun navigateur n'est nommé ici : on MESURE. La même phrase est posée dans
+ * un bloc ordinaire et dans un champ, et on cherche la largeur à partir de
+ * laquelle chacun la tient sur une seule ligne. L'écart entre les deux est la
+ * marge cachée, partagée entre gauche et droite. Zéro partout ailleurs
+ * qu'iOS ; la mesure n'est faite qu'une fois par police.
+ */
+const retraitsMesures = new Map<string, number>();
+
+export function retraitCacheDuChamp(zone: HTMLTextAreaElement): number {
+  const calcule = window.getComputedStyle(zone);
+  const police = `${calcule.fontStyle} ${calcule.fontWeight} ${calcule.fontSize} ${calcule.fontFamily}`;
+  const connu = retraitsMesures.get(police);
+  if (connu !== undefined) return connu;
+  const phrase = 'mmmm mmmm mmmm';
+  const commun = (element: HTMLElement) => {
+    const s = element.style;
+    s.position = 'fixed';
+    s.left = '-10000px';
+    s.top = '0';
+    s.visibility = 'hidden';
+    s.font = police;
+    s.lineHeight = '20px';
+    s.letterSpacing = calcule.letterSpacing;
+    s.padding = '0';
+    s.border = '0';
+    s.margin = '0';
+    s.boxSizing = 'content-box';
+    s.whiteSpace = 'pre-wrap';
+    s.overflowWrap = 'break-word';
+    s.overflow = 'hidden';
+  };
+  const bloc = document.createElement('div');
+  commun(bloc);
+  bloc.textContent = phrase;
+  const champ = document.createElement('textarea');
+  commun(champ);
+  champ.rows = 1;
+  champ.style.height = '20px';
+  champ.style.resize = 'none';
+  champ.value = phrase;
+  document.body.append(bloc, champ);
+  let retrait = 0;
+  try {
+    bloc.style.width = 'max-content';
+    const naturel = Math.ceil(bloc.getBoundingClientRect().width);
+    /** La plus petite largeur (en plus de la largeur naturelle) qui tient la phrase sur une ligne. */
+    const seuil = (element: HTMLElement, hauteur: () => number) => {
+      for (let ecart = 0; ecart <= 24; ecart += 1) {
+        element.style.width = `${naturel + ecart}px`;
+        if (hauteur() <= 30) return ecart;
+      }
+      return 24;
+    };
+    const seuilBloc = seuil(bloc, () => bloc.getBoundingClientRect().height);
+    const seuilChamp = seuil(champ, () => champ.scrollHeight);
+    retrait = Math.max(0, seuilChamp - seuilBloc) / 2;
+  } finally {
+    bloc.remove();
+    champ.remove();
+  }
+  retraitsMesures.set(police, retrait);
+  return retrait;
+}
+
+/** Une marge intérieure calculée, augmentée de la marge cachée. */
+function avecRetrait(valeur: string, retrait: number): string {
+  if (!retrait) return valeur;
+  return `${(Number.parseFloat(valeur) || 0) + retrait}px`;
+}
+
+/**
  * LES MÊMES RÉGLAGES, POUR UN CALQUE POSÉ SUR LE CHAMP.
  *
  * Un calque qui redit les styles du champ en classes finit toujours par en
@@ -69,6 +150,9 @@ export function reglagesDuChamp(zone: HTMLTextAreaElement): {
     if (nom === 'width' || nom === 'boxSizing' || nom.startsWith('border')) continue;
     style[nom] = calcule[nom];
   }
+  const retrait = retraitCacheDuChamp(zone);
+  style.paddingLeft = avecRetrait(calcule.paddingLeft, retrait);
+  style.paddingRight = avecRetrait(calcule.paddingRight, retrait);
   const hautBordure = Number.parseFloat(calcule.borderTopWidth) || 0;
   const gaucheBordure = Number.parseFloat(calcule.borderLeftWidth) || 0;
   return {
@@ -90,6 +174,10 @@ function avecMiroir<T>(zone: HTMLTextAreaElement, travail: (texte: Text, miroir:
   const miroir = document.createElement('div');
   const copie = miroir.style as unknown as Record<string, string>;
   for (const nom of REGLAGES) copie[nom] = style[nom];
+  // La marge cachée d'iOS décide, elle aussi, des retours à la ligne.
+  const retrait = retraitCacheDuChamp(zone);
+  miroir.style.paddingLeft = avecRetrait(style.paddingLeft, retrait);
+  miroir.style.paddingRight = avecRetrait(style.paddingRight, retrait);
   // La largeur EXACTE du champ, bordure comprise : c'est elle qui décide des
   // retours à la ligne.
   miroir.style.boxSizing = 'border-box';
@@ -187,7 +275,7 @@ export function pointDeLIndex(
     const repere = miroir.getBoundingClientRect();
     if (total === 0) {
       const style = window.getComputedStyle(zone);
-      const padG = Number.parseFloat(style.paddingLeft) || 0;
+      const padG = (Number.parseFloat(style.paddingLeft) || 0) + retraitCacheDuChamp(zone);
       const padH = Number.parseFloat(style.paddingTop) || 0;
       const hauteur = Number.parseFloat(style.lineHeight) || 20;
       return { x: cadre.left + padG, y: cadre.top + padH, hauteur };

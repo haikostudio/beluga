@@ -10,7 +10,18 @@ import { CONFIG, PATHS } from './config.js';
 import { cachedQuotas } from './accounts.js';
 import { runningAgentIds } from './runtime.js';
 import { log } from './logger.js';
-import { echelleDeVitesse } from '@beluga/shared';
+import {
+  PREFIXE_VOIX_GEMINI,
+  MODELE_TTS_GEMINI,
+  URL_TTS_GEMINI,
+  VOIX_GEMINI,
+  cleGeminiDuCoffre,
+  echelleDeVitesse,
+  sonGeminiEnWav,
+  texteGeminiAvecDebit,
+  voixGeminiDeLId,
+} from '@beluga/shared';
+import { listerAcces } from './coffre-fort.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,6 +78,53 @@ function kokoroInstalle(): boolean {
 }
 
 /* ------------------------------------------------------------------ */
+/* Le troisième moteur : Gemini, chez Google                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Les voix Gemini ne tournent PAS sur le serveur : elles partent chez Google
+ * avec la clé du coffre (règles pures dans `shared/src/voix-gemini.ts`). Elles
+ * ne sont proposées que si une clé Gemini est rangée, et la clé est RELUE à
+ * chaque son : la remplacer dans le coffre suffit, sans redémarrage.
+ */
+function cleGemini(): string | undefined {
+  try {
+    return cleGeminiDuCoffre(listerAcces());
+  } catch {
+    /* base pas encore ouverte (contrôle isolé) : pas de voix Gemini */
+    return undefined;
+  }
+}
+
+/** Combien on attend Google pour une phrase avant de retomber sur Piper. */
+const DELAI_GEMINI_MS = 45_000;
+
+async function synthetiserParGemini(voix: string, texte: string, echelle: number, sortie: string): Promise<void> {
+  const cle = cleGemini();
+  if (!cle) throw new Error('aucune clé Gemini dans le coffre-fort');
+  const reponse = await fetch(URL_TTS_GEMINI, {
+    method: 'POST',
+    signal: AbortSignal.timeout(DELAI_GEMINI_MS),
+    headers: { 'Content-Type': 'application/json', 'X-goog-api-key': cle },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: texteGeminiAvecDebit(texte, echelle) }] }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voix } } },
+      },
+    }),
+  });
+  const corps = (await reponse.json().catch(() => ({}))) as any;
+  if (!reponse.ok) {
+    throw new Error(`Gemini a refusé la synthèse (${reponse.status}) : ${String(corps?.error?.message ?? '').slice(0, 160)}`);
+  }
+  const part = corps?.candidates?.[0]?.content?.parts?.find((p: any) => p?.inlineData?.data);
+  if (!part) throw new Error('Gemini a répondu sans son');
+  const brut = Buffer.from(part.inlineData.data, 'base64');
+  fs.writeFileSync(sortie, sonGeminiEnWav(brut, String(part.inlineData.mimeType ?? '')));
+}
+
+/* ------------------------------------------------------------------ */
 /* Les voix disponibles                                                */
 /* ------------------------------------------------------------------ */
 
@@ -103,17 +161,22 @@ export interface VoiceInfo {
  * moteurs différents se partageraient le même son.
  */
 export interface VoixResolue {
-  moteur: 'piper' | 'kokoro';
-  /** Le fichier de modèle : une voix Piper, ou le modèle unique de Kokoro. */
+  moteur: 'piper' | 'kokoro' | 'gemini';
+  /** Le fichier de modèle : une voix Piper, le modèle unique de Kokoro, ou le modèle Gemini. */
   modele: string;
   /** Piper : le numéro de la personne dans un modèle qui en porte plusieurs. */
   personne?: number;
-  /** Kokoro : le nom de la voix à prendre dans le fichier de voix. */
+  /** Kokoro et Gemini : le nom de la voix à prendre. */
   voix?: string;
 }
 
 /** Le fichier de modèle d'une voix, et la personne à demander dedans. */
 function resoudre(id: string): VoixResolue | null {
+  if (id.startsWith(PREFIXE_VOIX_GEMINI)) {
+    const voix = voixGeminiDeLId(id);
+    if (!voix || !cleGemini()) return null;
+    return { moteur: 'gemini', modele: MODELE_TTS_GEMINI, voix };
+  }
   if (id.startsWith(KOKORO_PREFIXE)) {
     const voix = id.slice(KOKORO_PREFIXE.length);
     if (!VOIX_KOKORO[voix] || !kokoroInstalle()) return null;
@@ -173,6 +236,12 @@ export function listVoices(): VoiceInfo[] {
     }
   }
 
+  if (cleGemini()) {
+    for (const [nom, connue] of Object.entries(VOIX_GEMINI)) {
+      voix.push({ id: `${PREFIXE_VOIX_GEMINI}${nom}`, label: connue.label, description: connue.description });
+    }
+  }
+
   // La voix d'origine en tête : c'est celle qu'on entend sans rien régler.
   return voix.sort((a, b) => (a.id === DEFAULT_VOICE ? -1 : b.id === DEFAULT_VOICE ? 1 : a.label.localeCompare(b.label)));
 }
@@ -221,8 +290,8 @@ export const EXTRAIT =
 export function voiceAvailable(): { transcribe: boolean; speak: boolean } {
   return {
     transcribe: fs.existsSync(PYTHON) && fs.existsSync(TRANSCRIBE_SCRIPT),
-    // Un seul des deux moteurs suffit à faire parler le serveur.
-    speak: (fs.existsSync(PIPER) || kokoroInstalle()) && listVoices().length > 0,
+    // Un seul des moteurs suffit à faire parler le serveur.
+    speak: (fs.existsSync(PIPER) || kokoroInstalle() || Boolean(cleGemini())) && listVoices().length > 0,
   };
 }
 
@@ -389,7 +458,7 @@ export function cleDuSon(retenue: VoixResolue, texte: string, echelle: number): 
   return crypto
     .createHash('sha256')
     .update(
-      `${retenue.moteur} ${retenue.modele} ${retenue.personne ?? ''} ${retenue.voix ?? ''} ${echelle} ${texte}`,
+      `${retenue.moteur}\u0000${retenue.modele}\u0000${retenue.personne ?? ''}\u0000${retenue.voix ?? ''}\u0000${echelle}\u0000${texte}`,
     )
     .digest('hex')
     .slice(0, 32);
@@ -461,6 +530,7 @@ function lancerLaSynthese(
   echelle: number,
   sortie: string,
 ): Promise<void> {
+  if (retenue.moteur === 'gemini') return synthetiserParGemini(String(retenue.voix), texte, echelle, sortie);
   const [commande, arguments_] =
     retenue.moteur === 'kokoro'
       ? [
@@ -546,12 +616,19 @@ export async function speak(
       rangerLeCache();
       return { ok: true, file };
     } catch (err: any) {
-      log.warn('synthèse vocale impossible', err?.message);
       try {
         fs.unlinkSync(provisoire);
       } catch {
         /* rien à retirer */
       }
+      // Google a refusé ou n'a pas répondu : la voix du serveur prend le relais,
+      // sous SA propre empreinte — le son de repli ne passe jamais pour celui
+      // de Gemini, et la prochaine demande retentera Google.
+      if (retenue.moteur === 'gemini' && resoudre(DEFAULT_VOICE)) {
+        log.warn('voix Gemini indisponible, repli sur la voix du serveur', err?.message);
+        return speak(text, DEFAULT_VOICE, vitesse);
+      }
+      log.warn('synthèse vocale impossible', err?.message);
       return { ok: false, error: 'synthèse vocale impossible' };
     }
   })();

@@ -69,6 +69,9 @@ import {
   suiteDuChargementRate,
   PROTOCOL_VERSION,
   doitRechargerPourLeProtocole,
+  estCarteMarketing,
+  poserLesMoteursAjoutes,
+  type FicheMoteur,
 } from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
@@ -213,11 +216,31 @@ export interface AppState {
    * Agents, cloche) — le pendant de `productionDemandee`. Le bloc « À
    * déployer » du tableau l'ouvre à son arrivée ; `agentId` y empile le fil de
    * l'agent (dépanneur, ou conducteur du déploiement). Effacé une fois lu.
+   * `selection` : le bouton « Déployer » du pied d'une carte — le bloc ouvre
+   * alors directement la FENÊTRE DE SÉLECTION du lot, comme son propre bouton,
+   * et l'écran referme le tiroir de la carte pour la laisser voir.
    */
-  deploiementDemande: { projectId: string; agentId?: string; nonce: number } | null;
+  deploiementDemande: { projectId: string; agentId?: string; selection?: boolean; nonce: number } | null;
+  /**
+   * LE TABLEAU D'UN PROJET demandé d'ailleurs : l'icône du projet devant le
+   * titre d'une carte. L'écran referme la carte, ouvre le projet et montre son
+   * tableau (onglet « Tableau » sur téléphone). Effacé une fois lu.
+   */
+  tableauDemande: { projectId: string; nonce: number } | null;
+  /**
+   * UNE CARTE À MONTRER DANS LE TABLEAU : le tableau défile jusqu'à sa rangée
+   * (sa colonne, sur un large écran). Posée par le badge bleu d'un projet.
+   */
+  carteMontree: { cardId: string; nonce: number } | null;
   /** Projets dont un agent a rendu son travail sans qu'on l'ait encore lu. */
   rendus: Record<string, number>;
   engines: EngineInfo[];
+  /**
+   * LES MOTEURS AJOUTÉS depuis les réglages, fiches entières. Posés aussi dans
+   * le registre partagé (`poserLesMoteursAjoutes`) : c'est lui que lisent les
+   * menus, les comptes et les icônes.
+   */
+  moteursAjoutes: FicheMoteur[];
   quotas: AccountQuota[];
   /**
    * LE RELEVÉ DES COMPTES A-T-IL ÉTÉ REÇU AU MOINS UNE FOIS ?
@@ -354,8 +377,11 @@ const initialState: AppState = {
   messageVise: null,
   productionDemandee: null,
   deploiementDemande: null,
+  tableauDemande: null,
+  carteMontree: null,
   rendus: {},
   engines: [],
+  moteursAjoutes: [],
   quotas: [],
   quotasRecus: false,
   surveillance: [],
@@ -677,7 +703,50 @@ class Client {
     }));
   }
 
-  demanderDeploiement(lieu: { projectId: string; agentId?: string } | null): void {
+  demanderTableau(projectId: string | null): void {
+    if (!projectId) {
+      if (this.state.tableauDemande) this.set({ tableauDemande: null });
+      return;
+    }
+    this.set((state) => ({
+      tableauDemande: { projectId, nonce: (state.tableauDemande?.nonce ?? 0) + 1 },
+    }));
+  }
+
+  /**
+   * LE BADGE BLEU D'UN PROJET MÈNE À SA CARTE NON LUE. Le projet s'ouvre tout
+   * de suite ; la carte — la plus récemment rendue — est demandée à la base,
+   * car celles d'un projet qu'on ne consultait plus ont pu quitter la mémoire
+   * de l'écran. Le tiroir la réclame lui-même au besoin (`chargerCarte`), et
+   * le tableau défile jusqu'à elle. Rend l'identifiant ouvert, ou `null`.
+   */
+  async ouvrirCarteNonLue(projectId: string, membres: string[] = []): Promise<string | null> {
+    this.setActiveProject(projectId);
+    let cardId: string | null = null;
+    try {
+      const reponse = await this.call<{ cardId: string | null }>(
+        { type: 'project.unreadCard', projectId, membres },
+        15000,
+      );
+      cardId = reponse?.cardId ?? null;
+    } catch {
+      return null;
+    }
+    if (!cardId || this.state.activeProjectId !== projectId) return null;
+    this.montrerCarte(cardId);
+    this.openCard(cardId);
+    return cardId;
+  }
+
+  montrerCarte(cardId: string | null): void {
+    if (!cardId) {
+      if (this.state.carteMontree) this.set({ carteMontree: null });
+      return;
+    }
+    this.set((state) => ({ carteMontree: { cardId, nonce: (state.carteMontree?.nonce ?? 0) + 1 } }));
+  }
+
+  demanderDeploiement(lieu: { projectId: string; agentId?: string; selection?: boolean } | null): void {
     if (!lieu) {
       if (this.state.deploiementDemande) this.set({ deploiementDemande: null });
       return;
@@ -984,7 +1053,10 @@ class Client {
         // On rouvre sur le dernier projet consulté, retenu en base. S'il a été
         // archivé ou supprimé, on retombe sans bruit sur le premier de la liste.
         const choix = choisirProjetAOuvrir(event.projects, prefs[CLE_PROJET_ACTIF], this.state.activeProjectId);
+        // Les moteurs ajoutés entrent au registre AVANT le premier affichage.
+        poserLesMoteursAjoutes(event.moteursAjoutes ?? []);
         this.set({
+          moteursAjoutes: event.moteursAjoutes ?? [],
           pret: true,
           version: event.version,
           settings: event.settings,
@@ -1120,7 +1192,11 @@ class Client {
       case 'card.upsert':
         this.set((state) => ({
           cards: { ...state.cards, [event.card.id]: event.card },
-          cartesTotaux: this.totauxApresCarte(state, event.card.projectId, state.cards[event.card.id]?.column, event.card.column),
+          // Une carte de l'agent marketing n'est pas comptée au tableau : le
+          // démon l'écarte de ses totaux (`SANS_MARKETING`), l'écran aussi.
+          cartesTotaux: estCarteMarketing(event.card)
+            ? state.cartesTotaux
+            : this.totauxApresCarte(state, event.card.projectId, state.cards[event.card.id]?.column, event.card.column),
           ...this.pageApresCarte(state, event.card),
         }));
         break;
@@ -1170,7 +1246,9 @@ class Client {
           delete cards[event.id];
           return {
             cards,
-            cartesTotaux: this.totauxApresCarte(state, event.projectId, disparue?.column, undefined),
+            cartesTotaux: estCarteMarketing(disparue)
+              ? state.cartesTotaux
+              : this.totauxApresCarte(state, event.projectId, disparue?.column, undefined),
             enRoute: this.enRouteSansCarte(state.enRoute, event.id),
             enRouteTermine: this.enRouteSansCarte(state.enRouteTermine, event.id),
           };
@@ -1327,6 +1405,11 @@ class Client {
       // complète sans qu'on ait à recharger la page.
       case 'engines':
         this.set({ engines: event.engines });
+        break;
+
+      case 'moteurs.ajoutes':
+        poserLesMoteursAjoutes(event.fiches);
+        this.set({ moteursAjoutes: event.fiches });
         break;
 
       case 'connexion-compte':
@@ -1961,7 +2044,7 @@ class Client {
   compteDeColonne(projectId: string, column: ColumnKey): { recues: number; total: number } {
     let recues = 0;
     for (const carte of Object.values(this.state.cards)) {
-      if (carte.projectId === projectId && carte.column === column) recues += 1;
+      if (carte.projectId === projectId && carte.column === column && !estCarteMarketing(carte)) recues += 1;
     }
     const total = Math.max(recues, this.state.cartesTotaux[projectId]?.[column] ?? 0);
     return { recues, total };
@@ -2282,6 +2365,15 @@ if (import.meta.env.MODE !== 'production') {
       const projet = client.lireEtat().projects.find((candidat) => candidat.id === projectId);
       if (!projet) return false;
       client.handleEssai({ type: 'project.upsert', project: { ...projet, ...patch } as typeof projet });
+      return true;
+    },
+    /* L'ÉTAT D'UN AGENT, habillé sans moteur : un démon d'essai remet au
+       repos un agent « au travail » qu'aucun processus ne porte, et le suivi
+       de l'initialisation de la production doit pourtant se voir. */
+    agent: (agentId: string, patch: Record<string, unknown>) => {
+      const agent = client.lireEtat().agents[agentId];
+      if (!agent) return false;
+      client.handleEssai({ type: 'agent.upsert', agent: { ...agent, ...patch } as typeof agent });
       return true;
     },
     /*

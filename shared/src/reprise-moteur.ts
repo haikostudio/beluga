@@ -1,3 +1,4 @@
+import { MOTEURS } from './registre-moteurs.js';
 /**
  * REPRENDRE LE FIL D'UN MOTEUR, SANS SE TROMPER DE MODÈLE NI DE COMPTE.
  *
@@ -36,7 +37,7 @@ export const MODELE_PAR_DEFAUT = 'defaut';
 export const COMPTE_INCONNU = 'compte-inconnu';
 
 /** Les moteurs dont le fil est lié au modèle qui l'a ouvert. */
-const MOTEURS_LIES_AU_MODELE = new Set(['codex']);
+const MOTEURS_LIES_AU_MODELE = new Set(MOTEURS.filter((m) => m.filLieAuModele).map((m) => m.id as string));
 
 /**
  * La clé sous laquelle le fil d'un agent est rangé et relu.

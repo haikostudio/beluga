@@ -65,6 +65,7 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
+import { PastilleProjet } from '@/components/pastille-projet';
 import { RepereAttention } from '@/components/repere-attention';
 import { SilhouetteTiroirCarte } from '@/components/silhouettes';
 import { client, donneesDeCarteRecues } from '@/lib/client';
@@ -404,6 +405,28 @@ function CardPanelBody({
               data-titre-carte={telephone ? (tagsOuverts ? 'deplie' : 'replie') : 'ouvert'}
               onClick={telephone ? () => setTagsOuverts((v) => !v) : undefined}
             >
+              {/* Le visage du projet devant le titre : on sait de quel projet
+                  parle la tâche sans lire les étiquettes. */}
+              {project ? (
+                /* …ET IL MÈNE AU TABLEAU DE CE PROJET : la carte se referme,
+                   le projet s'ouvre sur son tableau — même depuis « Tableaux
+                   de bord ». Le clic ne remonte pas au titre, qui déplie les
+                   étiquettes sur téléphone. */
+                <button
+                  type="button"
+                  data-favicon-titre
+                  data-ouvrir-tableau-projet={project.id}
+                  aria-label="Ouvrir le tableau du projet"
+                  title={t('Ouvrir le tableau du projet')}
+                  className="mt-[3px] flex shrink-0 cursor-pointer rounded-sm transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    client.demanderTableau(project.id);
+                  }}
+                >
+                  <PastilleProjet project={project} />
+                </button>
+              ) : null}
               {titreGenere ? (
                 <Lightbulb data-titre-genere className="mt-[3px] h-4 w-4 shrink-0 text-en-cours" />
               ) : null}

@@ -13,10 +13,12 @@ import {
   Button,
   DialogTitle,
   Drawer,
+  Switch,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
+  Tooltip,
   ZoneDefilement,
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
@@ -84,6 +86,9 @@ export function TiroirProcedureProduction({
         <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]" data-entete-tiroir-production>
           <Rocket className="h-3.5 w-3.5 shrink-0 text-muted" />
           <DialogTitle className="min-w-0 flex-1 truncate">{titre ?? t('Mise en production')}</DialogTitle>
+          {/* L'INTERRUPTEUR DE MISE EN PRODUCTION, à gauche du « i » : éteint
+              par défaut, il grise le bouton du pied et le serveur refuse. */}
+          <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
           {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
           <Button
             variant="ghost"
@@ -111,6 +116,13 @@ export function TiroirProcedureProduction({
             <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className="px-1.5 py-1">
               <TabsList className="w-full border-0 bg-transparent">
                 <TabsTrigger
+                  value="configuration"
+                  className="flex-1 data-[state=active]:bg-bg/55"
+                  data-onglet-tiroir-production="configuration"
+                >
+                  {t('Configuration')}
+                </TabsTrigger>
+                <TabsTrigger
                   value="conversation"
                   className="flex-1 gap-1 data-[state=active]:bg-bg/55"
                   data-onglet-tiroir-production="conversation"
@@ -118,27 +130,62 @@ export function TiroirProcedureProduction({
                   {t('Conversation')}
                   <RepereAttention compte={attente} />
                 </TabsTrigger>
-                <TabsTrigger
-                  value="configuration"
-                  className="flex-1 data-[state=active]:bg-bg/55"
-                  data-onglet-tiroir-production="configuration"
-                >
-                  {t('Configuration')}
-                </TabsTrigger>
               </TabsList>
             </ZoneDefilement>
           </div>
 
-          <TabsContent value="conversation" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <ConversationDeConfiguration projectId={projectId} active={open && onglet === 'conversation'} />
-          </TabsContent>
-
           <TabsContent value="configuration" className="flex min-h-0 flex-1 flex-col pt-2 data-[state=inactive]:hidden">
             {configuration}
+          </TabsContent>
+
+          <TabsContent value="conversation" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+            <ConversationDeConfiguration projectId={projectId} active={open && onglet === 'conversation'} />
           </TabsContent>
         </Tabs>
       </div>
     </Drawer>
+  );
+}
+
+/**
+ * L'INTERRUPTEUR QUI PERMET OU NON LA MISE EN PRODUCTION DU PROJET
+ * (`miseEnProductionActive`), sur le modèle de celui du déploiement
+ * automatique : l'affichage suit l'état voulu pendant l'aller-retour, puis
+ * reprend le projet revenu du serveur — diffusé à tous les appareils.
+ */
+function InterrupteurMiseEnProduction({ projectId, actif }: { projectId: string; actif: boolean }) {
+  const [enVol, setEnVol] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    setEnVol((vise) => (vise === null || vise === actif ? null : vise));
+  }, [actif]);
+
+  const basculer = (valeur: boolean) => {
+    setEnVol(valeur);
+    client
+      .call({ type: 'project.update', id: projectId, patch: { miseEnProductionActive: valeur } })
+      .catch(() => setEnVol(null));
+  };
+
+  const affiche = enVol ?? actif;
+  return (
+    <Tooltip
+      label={
+        affiche
+          ? t('Mise en production activée pour ce projet. Éteindre pour l’empêcher.')
+          : t('Mise en production désactivée pour ce projet. Allumer pour la permettre.')
+      }
+    >
+      <span className="mr-1 inline-flex shrink-0 items-center">
+        <Switch
+          checked={affiche}
+          attente={enVol !== null}
+          onCheckedChange={basculer}
+          aria-label="Mise en production activée"
+          data-interrupteur-mise-en-production={affiche ? 'oui' : 'non'}
+        />
+      </span>
+    </Tooltip>
   );
 }
 

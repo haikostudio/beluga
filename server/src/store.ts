@@ -6,6 +6,7 @@ import {
   CardComment,
   CarteRendue,
   carteNonLue,
+  carteNonLueLaPlusRecente,
   peutRedevenirNonLue,
   instantDuRendu,
   carteDepuisLigne,
@@ -62,6 +63,7 @@ import {
   pilesEnRoute,
   type TotauxParColonne,
 } from '@beluga/shared';
+import { REFUS_SUPPRESSION_GROUPE_LOCAL, choisirGroupeLocal, idDuGroupeLocal } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { carnetDesLectures } from './connaissances.js';
 import { log } from './logger.js';
@@ -492,6 +494,9 @@ export function saveGroup(group: ProjectGroup): ProjectGroup {
 }
 
 export function deleteGroup(id: string): void {
+  // Le groupe « Local » abrite l'espace de développement : il ne se supprime
+  // pas, quel que soit le chemin (`shared/src/groupe-local.ts`).
+  if (id === groupeLocalId()) throw new Error(REFUS_SUPPRESSION_GROUPE_LOCAL);
   const db = getDb();
   db.transaction(() => {
     // Les projets du groupe ne sont pas perdus : ils remontent hors groupe.
@@ -500,6 +505,37 @@ export function deleteGroup(id: string): void {
     }
     db.prepare('DELETE FROM project_groups WHERE id = ?').run(id);
   })();
+}
+
+/** Le groupe « Local » : celui où vit le projet `isSelf`, s'il en a un. */
+export function groupeLocalId(): string | undefined {
+  return idDuGroupeLocal(listProjects(true), listGroups());
+}
+
+/**
+ * Garantit le groupe « Local » et y range l'espace de développement. Appelé au
+ * démarrage, juste après `ensureSelfProject` ; idempotent : un groupe déjà
+ * nommé « Local » est repris, jamais doublé.
+ */
+export function ensureLocalGroup(): ProjectGroup | undefined {
+  const soi = listProjects(true).find((p) => p.isSelf && !p.archived);
+  if (!soi) return undefined;
+  const groupes = listGroups();
+  const rangs = [
+    ...groupes.map((g) => g.rank),
+    ...listProjects().filter((p) => !p.groupId && !p.isSelf).map((p) => p.rank ?? 1000),
+  ];
+  const choix = choisirGroupeLocal(soi.groupId, groupes, rangs);
+  if (choix.geste === 'garder') return groupes.find((g) => g.id === choix.id);
+  const groupe =
+    choix.geste === 'reprendre'
+      ? groupes.find((g) => g.id === choix.id)!
+      : saveGroup({ id: newId(), name: choix.nom, rank: choix.rang, collapsed: false });
+  // Premier de son groupe : son rang passe sous celui de tous les membres.
+  const membres = listProjects(true).filter((p) => p.groupId === groupe.id);
+  const rang = membres.length ? Math.min(...membres.map((p) => p.rank ?? 1000)) - 10 : 0;
+  saveProject({ ...soi, groupId: groupe.id, rank: rang });
+  return groupe;
 }
 
 export function nextGroupRank(): number {
@@ -574,6 +610,15 @@ export function listCards(projectId: string): Card[] {
 }
 
 /**
+ * LES CARTES DE L'AGENT MARKETING NE PARAISSENT NI SUR LE TABLEAU NI SUR « EN
+ * ROUTE » (`estCarteMarketing`, `shared/src/marketing.ts`) : elles se suivent
+ * dans l'outil Marketing. Écarté ICI, en SQL, pour que les paquets et les
+ * compteurs de colonne disent ce que la liste montre. Leurs décisions en
+ * attente, elles, ne passent pas par ces lectures : la cloche les garde.
+ */
+const SANS_MARKETING = `NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label = 'marketing')`;
+
+/**
  * LA PREMIÈRE TRANCHE DE CHAQUE COLONNE, ET LE TOTAL RÉEL DE CHACUNE
  * (`shared/src/tranches-de-cartes.ts`). C'est ce qui part à l'ouverture d'un
  * projet, à la place de toutes ses cartes : un paquet de l'écran par colonne,
@@ -590,12 +635,12 @@ export function premiereTrancheDeCartes(
     .prepare(
       `SELECT * FROM (
          SELECT c.*, ROW_NUMBER() OVER (PARTITION BY column_key ORDER BY position DESC) AS rang
-           FROM cards c WHERE project_id = ?
+           FROM cards c WHERE project_id = ? AND ${SANS_MARKETING}
        ) WHERE rang <= ? ORDER BY position DESC`,
     )
     .all(projectId, parColonne) as (LigneCarte & { rang: number })[];
   const comptes = getDb()
-    .prepare('SELECT column_key AS colonne, COUNT(*) AS n FROM cards WHERE project_id = ? GROUP BY column_key')
+    .prepare(`SELECT column_key AS colonne, COUNT(*) AS n FROM cards c WHERE project_id = ? AND ${SANS_MARKETING} GROUP BY column_key`)
     .all(projectId) as { colonne: string; n: number }[];
   const totaux: TotauxParColonne = {};
   for (const compte of comptes) totaux[compte.colonne] = compte.n;
@@ -624,17 +669,17 @@ export function trancheDeCartes(
   const rows = (
     avantPosition === undefined
       ? getDb()
-          .prepare('SELECT * FROM cards WHERE project_id = ? AND column_key = ? ORDER BY position DESC LIMIT ?')
+          .prepare(`SELECT * FROM cards c WHERE project_id = ? AND column_key = ? AND ${SANS_MARKETING} ORDER BY position DESC LIMIT ?`)
           .all(projectId, column, limite)
       : getDb()
           .prepare(
-            'SELECT * FROM cards WHERE project_id = ? AND column_key = ? AND position < ? ORDER BY position DESC LIMIT ?',
+            `SELECT * FROM cards c WHERE project_id = ? AND column_key = ? AND position < ? AND ${SANS_MARKETING} ORDER BY position DESC LIMIT ?`,
           )
           .all(projectId, column, avantPosition, limite)
   ) as LigneCarte[];
   const total = (
     getDb()
-      .prepare('SELECT COUNT(*) AS n FROM cards WHERE project_id = ? AND column_key = ?')
+      .prepare(`SELECT COUNT(*) AS n FROM cards c WHERE project_id = ? AND column_key = ? AND ${SANS_MARKETING}`)
       .get(projectId, column) as { n: number }
   ).n;
   return { cards: cartesDepuisLignes(rows, projectId), total };
@@ -691,7 +736,7 @@ function famillesParDerniereAction(
     WITH cand AS (
       SELECT DISTINCT COALESCE(c.carte_mere_id, c.id) AS fam
         FROM cards c JOIN projects p ON p.id = c.project_id
-       WHERE p.archived = 0 AND ${candidate}
+       WHERE p.archived = 0 AND ${candidate} AND ${SANS_MARKETING}
     ),
     membres AS (
       SELECT cand.fam, m.id, m.updated_at, m.column_key, m.deployed_at, m.project_id
@@ -1464,6 +1509,11 @@ function readSessions(agentId: string): Record<string, string> {
 export function setSessionId(agentId: string, sessionId: string, cle: string): void {
   const sessions = { ...readSessions(agentId), [cle]: sessionId };
   getDb().prepare('UPDATE agents SET session_id = ? WHERE id = ?').run(JSON.stringify(sessions), agentId);
+}
+
+/** Cet agent a-t-il déjà ouvert un fil moteur, quel qu'il soit ? */
+export function aUneSession(agentId: string): boolean {
+  return Object.keys(readSessions(agentId)).length > 0;
 }
 
 export function getSessionId(agentId: string, cle: string): string | null {
@@ -2450,6 +2500,11 @@ export function unreadCards(projectId: string): string[] {
   return etatDesCartesRendues(projectId)
     .filter(carteNonLue)
     .map((entree) => entree.cardId);
+}
+
+/** La carte non lue que le badge bleu du projet ouvre : la plus récemment rendue. */
+export function lastUnreadCard(projectIds: string[]): string | null {
+  return carteNonLueLaPlusRecente(projectIds.flatMap((id) => etatDesCartesRendues(id)));
 }
 
 /**

@@ -27,6 +27,9 @@ export const VUES_CENTRALES = [
   /* L'atelier marketing : un espace de commercialisation par projet
      (`shared/src/marketing.ts`). */
   'marketing',
+  /* Le service Statistiques : le suivi des visites de chaque projet mesuré
+     et des sites autonomes (`shared/src/statistiques.ts`). */
+  'statistiques',
 ] as const;
 
 export type VueCentrale = (typeof VUES_CENTRALES)[number];
@@ -37,4 +40,25 @@ export type VueCentrale = (typeof VUES_CENTRALES)[number];
  */
 export function vuePleine(vue: VueCentrale): boolean {
   return vue !== 'projet';
+}
+
+/**
+ * LA BARRE DU BAS DU TÉLÉPHONE, SELON L'ÉCRAN AFFICHÉ (demande du 26/09/2026 :
+ * « visible uniquement à l'intérieur d'un projet, là où il y a le tableau »).
+ *
+ *  - `projet` : Tableau, le rond de l'agent, Fichiers — seulement dans un
+ *    projet ouvert ;
+ *  - `nouvel-agent` : le seul bouton « Nouvel agent », sur les deux tableaux de
+ *    bord généraux (« en-route », « tableau-de-bord ») et quand aucun projet
+ *    n'est ouvert ;
+ *  - `null` : AUCUNE barre sur les autres vues pleines (marketing, statistiques, coffre,
+ *    notes, mémoire, espace client, sauvegardes, surveillance) : Tableau et
+ *    Fichiers n'y ont aucun sens, et l'écran reprend la place.
+ */
+export type MenuBasTelephone = 'projet' | 'nouvel-agent' | null;
+
+export function menuBasTelephone(vue: VueCentrale, projetActif: boolean): MenuBasTelephone {
+  if (vue === 'projet') return projetActif ? 'projet' : 'nouvel-agent';
+  if (vue === 'en-route' || vue === 'tableau-de-bord') return 'nouvel-agent';
+  return null;
 }

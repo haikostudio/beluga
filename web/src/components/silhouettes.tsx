@@ -696,6 +696,28 @@ export function SilhouetteMarketing({ lignes = 4 }: { lignes?: number }) {
   );
 }
 
+/**
+ * LE SERVICE STATISTIQUES : la liste des sites mesurés — un nom, son adresse,
+ * sa petite courbe de tendance —, en attendant `statistiques.lister`.
+ */
+export function SilhouetteStatistiques({ lignes = 5 }: { lignes?: number }) {
+  return (
+    <Bloc zone="statistiques" className="flex flex-col gap-1">
+      {Array.from({ length: lignes }, (_, index) => (
+        <LigneEnSilhouette key={index} className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="min-w-0 max-w-[260px]">
+              <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
+            </div>
+            <Barre className="mt-0.5 h-3 w-[200px] max-w-full" />
+          </div>
+          <Barre className="h-5 w-16 shrink-0 rounded" />
+        </LigneEnSilhouette>
+      ))}
+    </Bloc>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* La messagerie : le kanban des demandes, ses deux visages             */
 /* ------------------------------------------------------------------ */

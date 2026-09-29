@@ -1,3 +1,4 @@
+import { descriptionMoteur } from './registre-moteurs.js';
 /**
  * LE MOTEUR CURSOR — les règles PURES, sans réseau ni disque.
  *
@@ -396,7 +397,7 @@ export function raisonDeLaSortieCursor(sortie: string | undefined, code: number 
  * déjà mesuré ici — jamais un vide.
  */
 export function moteurSansQuota(engine: string | undefined): boolean {
-  return engine === 'cursor';
+  return descriptionMoteur(engine)?.facturation === 'depense';
 }
 
 /** L'état d'un compte Cursor tel que les réglages l'affichent. */

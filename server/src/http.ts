@@ -57,6 +57,7 @@ import { bus } from './bus.js';
 import { callTool, outilServiA, toolsFor } from './tools.js';
 import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
+import { paysDeLaRequete } from './pays-des-visites.js';
 import { scriptDeSuivi } from '@beluga/shared';
 import { creationAllumeePourLAgent } from './mode-creation.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
@@ -420,7 +421,16 @@ export function createHttpServer(): http.Server {
           res.writeHead(413, entetes);
           return res.end();
         }
-        const recu = recevoirEvenement({ corps, origine, ip: clientIp(req), userAgent: String(req.headers['user-agent'] ?? '') });
+        const ip = clientIp(req);
+        // Le pays se déduit ici, puis l'adresse est oubliée (`pays-des-visites.ts`).
+        const recu = recevoirEvenement({ corps, origine, ip, userAgent: String(req.headers['user-agent'] ?? ''), pays: paysDeLaRequete(ip, req.headers['cf-ipcountry']) });
+        /* LA PREMIÈRE PAGE VUE APPREND SON MODE AU SCRIPT (« a » anonyme, « v »
+           visiteur : bandeau d'accord) — l'extrait posé sur le site ne change
+           jamais d'un mode à l'autre. */
+        if (recu.ok && recu.mode) {
+          res.writeHead(200, { ...entetes, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+          return res.end(JSON.stringify(recu.mode));
+        }
         res.writeHead(recu.ok ? 204 : recu.statut, entetes);
         return res.end();
       }

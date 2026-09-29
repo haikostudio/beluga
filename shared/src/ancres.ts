@@ -562,6 +562,54 @@ export function curseurHorsDesTags(
   return gauche === debut && droite === fin ? null : { debut: gauche, fin: droite };
 }
 
+/** Le sens d'une sélection de champ, tel que le rend `selectionDirection`. */
+export type SensDeSelection = 'forward' | 'backward' | 'none';
+
+/**
+ * LES FLÈCHES FRANCHISSENT UN TAG D'UN SEUL PAS (demande du 28/09/2026).
+ *
+ * Le navigateur avance d'un caractère : la flèche droite posée juste avant un
+ * tag entrait dedans, `curseurHorsDesTags` repoussait au bord LE PLUS PROCHE —
+ * celui de départ — et le curseur ne bougeait plus. Maj+flèche, elle, étendait
+ * d'un caractère, la sélection était élargie au tag entier en perdant son sens,
+ * et le pas suivant repartait vers la gauche.
+ *
+ * Cette règle calcule le pas à la place du navigateur quand il toucherait un
+ * tag : le point mobile (le curseur, ou le bout actif d'une sélection) saute au
+ * bord OPPOSÉ du tag ; en sélection, l'ancre reste où elle est et le sens rendu
+ * garde le bout actif du bon côté. Deux tags collés se franchissent l'un après
+ * l'autre. Rend `null` quand le pas ne touche aucun tag : la touche suit alors
+ * son chemin normal. Une sélection repliée sans Maj est laissée au navigateur
+ * (il la replie sur un bord, toujours hors d'un tag).
+ */
+export function pasAuClavier(
+  texte: string,
+  debutSelection: number,
+  finSelection: number,
+  sensSelection: SensDeSelection,
+  vers: 'gauche' | 'droite',
+  etendre: boolean,
+): { debut: number; fin: number; sens: SensDeSelection } | null {
+  const tags = tagsDuTexte(texte);
+  if (!tags.length) return null;
+  const debut = Math.min(debutSelection, finSelection);
+  const fin = Math.max(debutSelection, finSelection);
+  if (debut !== fin && !etendre) return null;
+  const ancreSel = sensSelection === 'backward' ? fin : debut;
+  const mobile = sensSelection === 'backward' ? debut : fin;
+  const tag =
+    vers === 'droite'
+      ? tags.find((t) => t.debut <= mobile && mobile < t.fin)
+      : tags.find((t) => t.debut < mobile && mobile <= t.fin);
+  if (!tag) return null;
+  const arrivee = vers === 'droite' ? tag.fin : tag.debut;
+  if (!etendre) return { debut: arrivee, fin: arrivee, sens: 'none' };
+  if (arrivee === ancreSel) return { debut: arrivee, fin: arrivee, sens: 'none' };
+  return arrivee > ancreSel
+    ? { debut: ancreSel, fin: arrivee, sens: 'forward' }
+    : { debut: arrivee, fin: ancreSel, sens: 'backward' };
+}
+
 /**
  * CETTE FRAPPE COUPERAIT-ELLE UN TAG EN DEUX ?
  *

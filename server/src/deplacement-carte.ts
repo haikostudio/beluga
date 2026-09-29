@@ -1,5 +1,6 @@
 import {
   CARTE_INCHANGEE,
+  ETIQUETTE_AJOUT_DE_MOTEUR,
   DELAI_AVANT_REPRISE_APRES_PANNE_MS,
   RAISON_MACHINE_SATUREE,
   RAISON_MOTEUR_INJOIGNABLE,
@@ -405,6 +406,10 @@ export function rangerLesCartesOubliees(): void {
     /* UNE CARTE MÈRE n'a jamais d'agent : ce sont ses filles qui travaillent,
        et c'est leur suivi qui la range (`suivreLaMere`). */
     if (card.cartesFilles?.length) continue;
+    /* LA CARTE D'UN AJOUT DE MOTEUR n'est jamais « oubliée » : le démon la
+       range d'après la fiche (`suivreLaCarteDuMoteur`), et un essai raté y
+       reste en « En cours » avec sa raison, sans agent au travail. */
+    if (card.labels?.includes(ETIQUETTE_AJOUT_DE_MOTEUR)) continue;
     const issue = issueDeCarteOubliee(
       {
         colonne: card.column,

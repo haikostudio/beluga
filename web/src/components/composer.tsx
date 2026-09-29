@@ -30,6 +30,7 @@ import {
   deplacerJointe,
   coupeUnTag,
   curseurHorsDesTags,
+  pasAuClavier,
   effacementDeTag,
   indexDeLAncre,
   insereAncre,
@@ -366,6 +367,8 @@ export function Composer({
     nom: string;
     x: number;
     y: number;
+    /** Au doigt, l'étiquette monte AU-DESSUS du doigt : dessous, elle cachait le trait d'insertion. */
+    doigt: boolean;
     trait: { x: number; y: number; hauteur: number } | null;
   } | null>(null);
   const origineDrapeau = React.useRef<{
@@ -421,7 +424,9 @@ export function Composer({
        champ et du texte réel sont les mêmes : le masque a la même longueur que
        le tag qu'il remplace. */
     const hors = curseurHorsDesTags(text, node.selectionStart, node.selectionEnd);
-    if (hors) node.setSelectionRange(hors.debut, hors.fin);
+    // Le SENS de la sélection est gardé : sans lui, Maj+flèche repartait du
+    // mauvais bout une fois la sélection élargie au tag entier.
+    if (hors) node.setSelectionRange(hors.debut, hors.fin, node.selectionDirection);
     const simple = node.selectionStart === node.selectionEnd ? node.selectionStart : null;
     curseur.current = simple;
     // Le menu des commandes « / » suit la place du curseur : elle doit donc
@@ -532,7 +537,7 @@ export function Composer({
       const vise = zone ? viserDrapeau(zone, x, y, pointerType) : null;
       viseDrapeau.current = vise;
       const trait = zone && vise !== null ? pointDeLIndex(zone, vise) : null;
-      setDrapeauGlisse({ nom: origine.nom, x, y, trait });
+      setDrapeauGlisse({ nom: origine.nom, x, y, doigt: pointerType === 'touch', trait });
     });
   };
 
@@ -1243,6 +1248,36 @@ export function Composer({
      * tag n'est touché, et la touche suit alors son chemin normal — le champ
      * garde ainsi son historique d'annulation partout ailleurs.
      */
+    /*
+     * LES FLÈCHES FRANCHISSENT UN TAG D'UN SEUL PAS, avec ou sans Maj. Laissé
+     * au navigateur, le pas d'un caractère entrait dans le tag, et la garde
+     * qui en repousse le curseur le renvoyait au bord de départ : la flèche
+     * droite ne faisait plus rien, Maj+flèche revenait en arrière. La règle
+     * pure (`pasAuClavier`) rend `null` quand aucun tag n'est touché.
+     */
+    if (
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+      !event.nativeEvent.isComposing &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
+    ) {
+      const zone = event.currentTarget;
+      const pas = pasAuClavier(
+        text,
+        zone.selectionStart,
+        zone.selectionEnd,
+        zone.selectionDirection,
+        event.key === 'ArrowRight' ? 'droite' : 'gauche',
+        event.shiftKey,
+      );
+      if (!pas) return;
+      event.preventDefault();
+      zone.setSelectionRange(pas.debut, pas.fin, pas.sens);
+      retientCurseur();
+      return;
+    }
+
     if (event.key !== 'Backspace' && event.key !== 'Delete') return;
     if (event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
     const zone = event.currentTarget;
@@ -1540,7 +1575,11 @@ export function Composer({
               <>
                 <div
                   className="pointer-events-none fixed z-[80] inline-flex max-w-[220px] items-center gap-1 rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[13px] text-accent shadow-md"
-                  style={{ left: drapeauGlisse.x, top: drapeauGlisse.y, transform: 'translate(-50%, -50%)' }}
+                  style={{
+                    left: drapeauGlisse.x,
+                    top: drapeauGlisse.y,
+                    transform: drapeauGlisse.doigt ? 'translate(-50%, calc(-100% - 28px))' : 'translate(-50%, -50%)',
+                  }}
                 >
                   <Paperclip className="h-3 w-3 shrink-0" />
                   {/* Le tag qu'on déplace porte la même étiquette que sa

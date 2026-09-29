@@ -45,6 +45,8 @@ export interface ContexteConfig {
   /* --- Déploiement --- */
   devUrl: string;
   setDevUrl: (valeur: string) => void;
+  adresseProduction: string;
+  setAdresseProduction: (valeur: string) => void;
   port: string;
   setPort: (valeur: string) => void;
   portLu: number | null;

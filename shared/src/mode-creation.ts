@@ -1,3 +1,4 @@
+import { aLaFormeDUnMoteur, nomCourtDuMoteur, type IdDeMoteur } from './registre-moteurs.js';
 /**
  * LE MODE « CRÉATION » — les règles pures, sans moteur, sans base ni disque.
  *
@@ -31,7 +32,7 @@ export const ROLES_CREATION = ['texte', 'code', 'avis'] as const;
 export type RoleCreation = (typeof ROLES_CREATION)[number];
 
 export const AffectationCreation = z.object({
-  moteur: z.enum(['claude', 'codex', 'cursor']),
+  moteur: z.custom<IdDeMoteur>(aLaFormeDUnMoteur, { message: 'moteur inconnu' }),
   /** Vide : le modèle par défaut du moteur, lu dans son catalogue. */
   modele: z.string().optional(),
 });
@@ -73,11 +74,11 @@ export interface ChoixCreation {
   repli?: string;
 }
 
-const NOMS: Record<IdMoteur, string> = { claude: 'Claude', codex: 'GPT (Codex)', cursor: 'Cursor' };
+const NOMS: Partial<Record<IdMoteur, string>> = { codex: 'GPT (Codex)' };
 
 /** Le nom lisible d'un moteur. */
 export function nomDuMoteurCreation(moteur: IdMoteur): string {
-  return NOMS[moteur] ?? moteur;
+  return NOMS[moteur] ?? nomCourtDuMoteur(moteur);
 }
 
 function utilisable(catalogue: readonly MoteurCatalogue[], moteur: IdMoteur): MoteurCatalogue | undefined {
@@ -172,7 +173,7 @@ export const SuggestionCreation = z.object({
   /** L'agent qui a posé la question : c'est dans SON fil que vit la réponse. */
   agentId: z.string().optional(),
   role: z.enum(ROLES_CREATION),
-  moteur: z.enum(['claude', 'codex', 'cursor']),
+  moteur: z.custom<IdDeMoteur>(aLaFormeDUnMoteur, { message: 'moteur inconnu' }),
   modele: z.string().optional(),
   at: z.number(),
 });

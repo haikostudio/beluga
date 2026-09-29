@@ -420,7 +420,7 @@ export function Dashboard() {
       {/* L'ENTÊTE NE PORTE QUE LE TITRE : on quitte la page par la colonne de
           gauche, ou par le menu du bas sur téléphone — plus de bouton retour. */}
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
-        <h1 className="text-[15px] font-semibold text-text">{t('Statistiques')}</h1>
+        <h1 className="text-[15px] font-semibold text-text">{t('Résumé')}</h1>
       </header>
 
       <ZoneDefilement className="px-3 py-3 sm:pb-20" data-fil="tableau-de-bord">

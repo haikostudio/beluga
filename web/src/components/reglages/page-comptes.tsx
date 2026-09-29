@@ -13,11 +13,12 @@ import {
   EngineId,
   EtatCompteCursor,
   moteurSansQuota,
-  connexionTerminee,
+  compteEpuise,
   DUREE_RESULTAT_CONNEXION_MS,
   phaseDeLigneCompte,
   usageCursorEnClair,
   tempsRestant,
+  descriptionMoteur,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -27,8 +28,9 @@ import {
   Switch,
   Tooltip,
 } from '@/components/ui';
-import { AjouterCleCursor, BlocConnexion } from '@/components/connexion-compte';
+import { BlocConnexion, RemplacerCle } from '@/components/connexion-compte';
 import { UsageCursor } from '@/components/quota-badge';
+import { AjouterUnMoteur } from '@/components/reglages/ajout-de-moteur';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -70,7 +72,7 @@ export function SectionComptes() {
         ))}
       </div>
 
-      <ConnecterUnCompte />
+      <AjouterUnMoteur />
 
 
       {/* Les réglages n'arrivent qu'avec la réponse du serveur : avant, il
@@ -104,7 +106,9 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
    * confirmation s'ouvre DANS la fiche, sous les yeux, et elle NOMME le compte
    * visé — un compte de trop vite cliqué se corrigeait au terminal.
    */
-  const [confirmation, setConfirmation] = React.useState<'reconnecter' | 'retirer' | null>(null);
+  const [confirmation, setConfirmation] = React.useState<'reconnecter' | 'cle' | 'retirer' | null>(null);
+  /* Un moteur À CLÉ se reconnecte en recevant une nouvelle clé, jamais par une page. */
+  const parCle = descriptionMoteur(quota.engine)?.connexion === 'cle';
   const [retrait, setRetrait] = React.useState(false);
   /** La demande de reconnexion voyage : le bouton le dit, et rien ne se referme. */
   const [reconnexion, setReconnexion] = React.useState(false);
@@ -233,7 +237,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
               5 h / semaine. À la place : état de la clé, montant dépensé. */}
           {!edite && moteurSansQuota(quota.engine) ? (
             <>
-              <EtatCursor accountId={quota.id} />
+              {quota.engine === 'cursor' ? <EtatCursor accountId={quota.id} /> : null}
               <CreditCursorLigne quota={quota} />
             </>
           ) : null}
@@ -250,7 +254,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
         {!edite && lignePleine ? (
           <div className="flex min-w-0 flex-wrap items-center gap-1" data-actions-compte={quota.id}>
             {quota.active ? <Badge tone="success">{t('actif')}</Badge> : null}
-            {!quota.available ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
+            {compteEpuise(quota) ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
             {quota.jumeaux?.length ? <Badge tone="warning">{t('même abonnement')}</Badge> : null}
             {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
                 un compte qui marche n'a pas besoin d'un badge de plus. */}
@@ -266,9 +270,11 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
                 size="sm"
                 disabled={reconnexion}
                 onClick={() =>
-                  quota.connexion?.doitReconnecter
-                    ? void reconnecter()
-                    : setConfirmation((v) => (v === 'reconnecter' ? null : 'reconnecter'))
+                  parCle
+                    ? setConfirmation((v) => (v === 'cle' ? null : 'cle'))
+                    : quota.connexion?.doitReconnecter
+                      ? void reconnecter()
+                      : setConfirmation((v) => (v === 'reconnecter' ? null : 'reconnecter'))
                 }
               >
                 {/* L'ATTENTE SE VOIT SUR LE BOUTON QUI A ÉTÉ CLIQUÉ. Un compte
@@ -316,6 +322,9 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
             <Button size="sm" variant="ghost" disabled={reconnexion} onClick={() => setConfirmation(null)}>{t('Annuler')}</Button>
           </div>
         </div>
+      ) : null}
+      {confirmation === 'cle' && lignePleine ? (
+        <RemplacerCle accountId={quota.id} engine={quota.engine} label={quota.label} onFini={() => setConfirmation(null)} />
       ) : null}
       {confirmation === 'retirer' && lignePleine ? (
         <div className="mt-1.5 rounded-md border border-danger bg-raised px-2 py-1.5" data-confirmation-retrait={quota.id}>
@@ -430,48 +439,3 @@ export function CreditCursorLigne({ quota }: { quota: AccountQuota }) {
   );
 }
 
-/**
- * Ajouter un compte qui n'existe pas encore. Le compte n'entre dans la liste
- * qu'une fois la connexion réussie : une tentative ratée ne laisse pas une
- * ligne morte dans les réglages.
- */
-export function ConnecterUnCompte() {
-  const state = useApp();
-  const neuves = state.connexions.filter((c) => !c.accountId);
-  const enCours = neuves.find((c) => !connexionTerminee(c));
-  const derniere = neuves[neuves.length - 1];
-
-  return (
-    <div className="mt-2">
-      {enCours ? (
-        <div className="rounded-md border border-border bg-bloc px-2 py-1.5">
-          <p className="text-[13.5px] text-text">{enCours.label}</p>
-          <BlocConnexion connexion={enCours} />
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap gap-1.5">
-            {/* Les deux moteurs qui se CONNECTENT : un compte s'y ouvre par une
-                page de connexion, dans le coffre du compte. Cursor n'est pas de
-                ceux-là — il s'authentifie par une CLÉ posée sur le serveur
-                (`CURSOR_API_KEY`), donc aucun bouton n'aurait rien à ouvrir. */}
-            {(['claude', 'codex'] as EngineId[]).map((engine) => (
-              <Button
-                key={engine}
-                variant="outline"
-                size="sm"
-                onClick={() => void client.geste({ type: 'account.connect', engine }, t('Connexion d’un compte'))}
-              >
-                <LogIn className="h-3 w-3" />
-                
-{t('Connecter un compte {moteur}', { moteur: engine === 'codex' ? 'Codex' : 'Claude' })}
-              </Button>
-            ))}
-          </div>
-          {derniere && connexionTerminee(derniere) ? <BlocConnexion connexion={derniere} /> : null}
-        </>
-      )}
-      <AjouterCleCursor />
-    </div>
-  );
-}

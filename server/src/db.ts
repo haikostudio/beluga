@@ -3092,6 +3092,128 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_marketing_actions_projet ON marketing_actions(project_id, date_prevue);
     `,
   },
+  {
+    id: 93,
+    name: 'suivi-par-defaut',
+    /*
+     * LE SUIVI DES VISITES POSÉ PAR DÉFAUT (`server/src/suivi-par-defaut.ts`) :
+     * ce que porte la page d'accueil en production (`diagnostic_suivi`, lu le
+     * `diagnostic_le`), et la carte de correction déjà posée pour ce projet
+     * (`carte_suivi_id`) — tant qu'elle existe, aucune autre ne naît.
+     */
+    sql: `
+      ALTER TABLE marketing_espaces ADD COLUMN diagnostic_suivi TEXT;
+      ALTER TABLE marketing_espaces ADD COLUMN diagnostic_le INTEGER;
+      ALTER TABLE marketing_espaces ADD COLUMN carte_suivi_id TEXT;
+    `,
+  },
+  {
+    id: 94,
+    name: 'moteurs-ajoutes',
+    /*
+     * LES MOTEURS AJOUTÉS depuis Réglages › Comptes (`server/src/moteurs-ajoutes.ts`) :
+     * une fiche par fournisseur compatible Anthropic ou OpenAI, en JSON.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS moteurs_ajoutes (
+        id TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    id: 95,
+    name: 'marketing-suivi-actif',
+    /*
+     * LE SUIVI MARKETING SE COUPE PAR PROJET (`actif`) : un projet sans besoin
+     * de marketing passe dans « Projets inactifs », sort des chiffres du
+     * tableau de bord et ne reçoit plus ni plan du dimanche ni carte de
+     * correction du suivi. Défaut 1 : tout projet existant reste suivi.
+     */
+    sql: `
+      ALTER TABLE marketing_espaces ADD COLUMN actif INTEGER NOT NULL DEFAULT 1;
+    `,
+  },
+  {
+    id: 96,
+    name: 'suivi-pose-sans-code',
+    /*
+     * « POSÉ » NE VEUT PLUS DIRE « CARTE CRÉÉE » (`etatSuiviApresDiagnostic`) :
+     * les espaces marqués posés à la naissance de leur carte alors que la page
+     * servie ne porte pas le code (diagnostic absent, mauvaise clé, ancien
+     * outil) redeviennent « absent ». La carte reste connue par `carte_suivi_id`.
+     */
+    sql: `
+      UPDATE marketing_espaces SET etat_suivi = 'absent'
+       WHERE etat_suivi = 'pose' AND diagnostic_suivi IN ('absent', 'mauvaise-cle', 'ancien-outil');
+    `,
+  },
+  {
+    id: 97,
+    name: 'service-statistiques',
+    /*
+     * LE SERVICE « STATISTIQUES » (`shared/src/statistiques.ts`,
+     * `server/src/statistiques.ts`), sorti de l'atelier marketing :
+     *
+     *  - `marketing_espaces.nom` : le nom d'un SITE AUTONOME (sans projet
+     *    Beluga), dont `project_id` vaut « site:<id> » — jamais pris pour un
+     *    projet par les parcours de l'atelier ;
+     *  - `mode_suivi` : « anonyme » (défaut, rien n'est écrit sur l'appareil)
+     *    ou « visiteur » (bandeau d'accord, puis identifiant dans le stockage
+     *    local du navigateur, jamais de cookie) ;
+     *  - `installation_agent_le` : un agent de projet pose le code lui-même
+     *    (outil « statistiques ») — le démon ne pose pas de carte de
+     *    correction en doublon pendant ce temps ;
+     *  - `marketing_evenements.visiteur_persistant`, `session`, `repere` :
+     *    remplis seulement en mode visiteur, après accord (les deux premiers),
+     *    ou pour un clic sur un repère posé par l'agent ;
+     *  - `stats_reperes` : les repères déclarés par l'agent, avec leur raison.
+     *
+     * Additive : aucune donnée existante n'est touchée.
+     */
+    sql: `
+      ALTER TABLE marketing_espaces ADD COLUMN nom TEXT;
+      ALTER TABLE marketing_espaces ADD COLUMN mode_suivi TEXT NOT NULL DEFAULT 'anonyme';
+      ALTER TABLE marketing_espaces ADD COLUMN installation_agent_le INTEGER;
+      ALTER TABLE marketing_evenements ADD COLUMN visiteur_persistant TEXT;
+      ALTER TABLE marketing_evenements ADD COLUMN session TEXT;
+      ALTER TABLE marketing_evenements ADD COLUMN repere TEXT;
+      CREATE INDEX IF NOT EXISTS idx_marketing_evenements_persistant
+        ON marketing_evenements(project_id, visiteur_persistant, instant) WHERE visiteur_persistant IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS stats_reperes (
+        project_id TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        emplacement TEXT NOT NULL DEFAULT '',
+        raison TEXT NOT NULL DEFAULT '',
+        objectif INTEGER NOT NULL DEFAULT 0,
+        ordre INTEGER NOT NULL DEFAULT 0,
+        pose_par TEXT,
+        cree_le INTEGER NOT NULL,
+        PRIMARY KEY (project_id, nom)
+      );
+    `,
+  },
+  {
+    id: 98,
+    name: 'statistiques-pays-et-objectifs',
+    /*
+     * STATISTIQUES COMPLÈTES (demande du 28/09/2026) :
+     *  - `marketing_evenements.pays` : le code ISO du pays, déduit de l'adresse
+     *    IP AU MOMENT de la collecte (`pays-des-visites.ts`) — l'adresse, elle,
+     *    n'est jamais écrite ;
+     *  - `marketing_espaces.carte_objectifs_id` : la carte qui analyse les
+     *    objectifs d'un projet (passage en suivi complet, ou bouton « Relancer
+     *    l'analyse des objectifs ») — tant qu'elle est en demande ou au travail,
+     *    aucune autre ne naît.
+     *
+     * Additive : aucune donnée existante n'est touchée.
+     */
+    sql: `
+      ALTER TABLE marketing_evenements ADD COLUMN pays TEXT;
+      ALTER TABLE marketing_espaces ADD COLUMN carte_objectifs_id TEXT;
+    `,
+  },
 ];
 
 export function openDb(): DB {

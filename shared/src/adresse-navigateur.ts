@@ -63,6 +63,8 @@ export type EcranNavigateur =
   | { vue: 'surveillance'; siteId?: string }
   /* L'atelier marketing, ouvert sur UN projet : « #marketing/<projet> ». */
   | { vue: 'marketing'; projectId?: string }
+  /* Le service Statistiques, ouvert sur UN site mesuré : « #statistiques/<espace> ». */
+  | { vue: 'statistiques'; siteId?: string }
   /*
    * L'ESPACE CLIENT, OUVERT SUR UNE FICHE. C'est l'adresse que portent les
    * courriels envoyés à Haiko : un clic doit tomber sur le bon client ET la
@@ -84,6 +86,7 @@ const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
   backups: 'backups',
   surveillance: 'surveillance',
   marketing: 'marketing',
+  statistiques: 'statistiques',
 };
 
 /** Et le chemin inverse, calculé une fois plutôt que réécrit à la main. */
@@ -165,6 +168,8 @@ export function construireFragment(ecran: EcranNavigateur): string {
       return ecran.siteId ? `surveillance/${encodeURIComponent(ecran.siteId)}` : 'surveillance';
     case 'marketing':
       return ecran.projectId ? `marketing/${encodeURIComponent(ecran.projectId)}` : 'marketing';
+    case 'statistiques':
+      return ecran.siteId ? `statistiques/${encodeURIComponent(ecran.siteId)}` : 'statistiques';
     case 'espace': {
       if (!ecran.clientId) return 'espace';
       const base = `espace/${encodeURIComponent(ecran.clientId)}`;
@@ -254,6 +259,10 @@ export function lireFragment(hash: string): EcranNavigateur {
     const projectId = decodeSegment(morceaux[1] ?? '');
     return projectId ? { vue: 'marketing', projectId } : { vue: 'marketing' };
   }
+  if (tete === 'statistiques') {
+    const siteId = decodeSegment(morceaux[1] ?? '');
+    return siteId ? { vue: 'statistiques', siteId } : { vue: 'statistiques' };
+  }
   if (tete === 'espace') {
     const clientId = decodeSegment(morceaux[1] ?? '');
     const demandeId = morceaux[2] === 'demande' ? decodeSegment(morceaux[3] ?? '') : '';
@@ -326,6 +335,7 @@ export function memeEcran(a: EcranNavigateur, b: EcranNavigateur): boolean {
   if (a.vue === 'backups' && b.vue === 'backups') return (a.siteId ?? '') === (b.siteId ?? '');
   if (a.vue === 'surveillance' && b.vue === 'surveillance') return (a.siteId ?? '') === (b.siteId ?? '');
   if (a.vue === 'marketing' && b.vue === 'marketing') return (a.projectId ?? '') === (b.projectId ?? '');
+  if (a.vue === 'statistiques' && b.vue === 'statistiques') return (a.siteId ?? '') === (b.siteId ?? '');
   /*
    * DEUX ADRESSES D'ESPACE MÈNENT AU MÊME ÉCRAN. La fiche ouverte est un
    * détail d'affichage à l'intérieur de cet écran, pas une destination à part :
@@ -462,6 +472,7 @@ export type ElementVise = {
   backups?: string | null;
   surveillance?: string | null;
   marketing?: string | null;
+  statistiques?: string | null;
 };
 
 /**
@@ -479,6 +490,7 @@ export function elementViseDeLEcran(ecran: EcranNavigateur): ElementVise {
     backups: ecran.vue === 'backups' ? ecran.siteId ?? null : null,
     surveillance: ecran.vue === 'surveillance' ? ecran.siteId ?? null : null,
     marketing: ecran.vue === 'marketing' ? ecran.projectId ?? null : null,
+    statistiques: ecran.vue === 'statistiques' ? ecran.siteId ?? null : null,
   };
 }
 
@@ -528,6 +540,8 @@ export function ecranDeLaVue(etat: {
       return { vue: 'surveillance', ...(element.surveillance ? { siteId: element.surveillance } : {}) };
     case 'marketing':
       return { vue: 'marketing', ...(element.marketing ? { projectId: element.marketing } : {}) };
+    case 'statistiques':
+      return { vue: 'statistiques', ...(element.statistiques ? { siteId: element.statistiques } : {}) };
     case 'espace-client':
       return {
         vue: 'espace',

@@ -19,6 +19,7 @@ import {
   COLONNES_AVANT_LE_TRAVAIL,
   LABEL_AUTO_AMELIORATION,
   LABEL_MARKETING,
+  cadrageJamaisParti,
   carteSansDemande,
   demandeAfficheeDeProposition,
   demandeDeCadrageApresDeplacement,
@@ -30,13 +31,23 @@ import {
 } from '@beluga/shared';
 import { bus } from './bus.js';
 import { ouvrirLeCadrage } from './cadrage.js';
+import { getMeta, setMeta } from './db.js';
 import { ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
 import { log } from './logger.js';
-import { agentsActifs, sendPrompt } from './runtime.js';
+import { agentsActifs, isRunning, sendPrompt } from './runtime.js';
 import * as store from './store.js';
 import { createCard } from './tools.js';
 
 type EntreeDeCarte = Parameters<typeof createCard>[1];
+
+/**
+ * LE PREMIER TOUR : `true` part aussitôt (quelqu'un regarde) ; `'en-serie'`
+ * part sans témoin, dans la file des cadrages — une carte après l'autre, le
+ * tour d'avant refermé (une vérification qui pose une carte par projet ne
+ * lance jamais cinq agents d'un coup) ; `false` ne part pas (réservé aux
+ * appelants qui envoient eux-mêmes leur premier tour).
+ */
+export type PremierTour = boolean | 'en-serie';
 
 /**
  * FAIRE NAÎTRE UNE CARTE PAR LE PARCOURS COMMUN. Rend la carte dès qu'elle est
@@ -45,7 +56,7 @@ type EntreeDeCarte = Parameters<typeof createCard>[1];
 export async function faireNaitreLaCarte(
   projectId: string,
   entree: EntreeDeCarte & { auteur: AuteurDeCarte },
-  options: { premierTour?: boolean } = {},
+  options: { premierTour?: PremierTour } = {},
 ): Promise<{ card: Card; cadrage: Agent | null }> {
   const card = createCard(projectId, entree);
   bus.emit({ type: 'card.upsert', card });
@@ -62,7 +73,7 @@ export async function faireNaitreLaCarte(
 export async function ouvrirLeCadrageDeLaCarte(
   card: Card,
   auteur: AuteurDeCarte,
-  premierTour: boolean,
+  premierTour: PremierTour,
 ): Promise<Agent | null> {
   if (store.getLastAgentByCard(card.id)) return null;
   const cadrage = await ouvrirLeCadrage(card.id).catch((err) => {
@@ -82,7 +93,9 @@ export async function ouvrirLeCadrageDeLaCarte(
     donnees: demande.resume ? { resumeDemande: demande.resume } : undefined,
   });
   if (jalon) bus.emit({ type: 'journal.entree', entree: jalon });
-  if (premierTour) {
+  if (premierTour === 'en-serie') {
+    void cadrerEnSerie(cadrage.id, card.id, demandeDeCadrageDeNaissance(card, auteur, { sansTemoin: true }), card.title);
+  } else if (premierTour) {
     /* `silent` : la demande ouvre DÉJÀ la conversation (`filAvecLaSynthese`),
        une bulle d'utilisateur la redirait. Passe par `sendPrompt` : choix du
        compte, file d'attente faute de quota. */
@@ -91,6 +104,105 @@ export async function ouvrirLeCadrageDeLaCarte(
     );
   }
   return cadrage;
+}
+
+/* ------------------------------------------------------------------ */
+/* La file des cadrages sans témoin                                    */
+/* ------------------------------------------------------------------ */
+
+const ATTENTE_MAX_TOUR_EN_SERIE_MS = 30 * 60 * 1000;
+const SONDE_TOUR_EN_SERIE_MS = 2000;
+let fileDesCadrages: Promise<void> = Promise.resolve();
+
+/** La marque « premier tour déjà envoyé » : posée AVANT l'envoi, un échec ne relance pas en boucle. */
+const marqueDuPremierTour = (cardId: string) => `premier-tour-cadrage:${cardId}`;
+
+/** Attend que le tour de cet agent soit refermé (préparation comprise), sans jamais bloquer au-delà du plafond. */
+async function attendreLaFinDuTour(agentId: string, plafondMs = ATTENTE_MAX_TOUR_EN_SERIE_MS): Promise<void> {
+  const debut = Date.now();
+  while (agentsActifs().includes(agentId) && Date.now() - debut < plafondMs) {
+    await new Promise<void>((fin) => setTimeout(fin, SONDE_TOUR_EN_SERIE_MS).unref?.());
+  }
+}
+
+/**
+ * UN CADRAGE SANS TÉMOIN, DANS LA FILE : il part quand le précédent a refermé
+ * son tour. Sans quota, `sendPrompt` range la demande dans la file de l'agent
+ * (DEC-039) et la suivante enchaîne — rien n'est perdu. Un échec n'arrête pas
+ * les cartes suivantes.
+ */
+export function cadrerEnSerie(agentId: string, cardId: string, demande: string, titre: string): Promise<void> {
+  setMeta(marqueDuPremierTour(cardId), String(Date.now()));
+  const suite = fileDesCadrages.then(async () => {
+    try {
+      await sendPrompt(agentId, demande, { template: 'none', silent: true });
+      await attendreLaFinDuTour(agentId);
+    } catch (err) {
+      log.error(`le cadrage de « ${titre} » n'a pas pu partir`, err);
+    }
+  });
+  fileDesCadrages = suite;
+  return suite;
+}
+
+/**
+ * CE CADRAGE N'EST-IL JAMAIS PARTI ? Lit la base et le démon, puis s'en remet à
+ * la règle pure (`cadrageJamaisParti`).
+ */
+export function cadrageDeLaCarteJamaisParti(card: Card): Agent | null {
+  const agent = store.getLastAgentByCard(card.id);
+  if (!agent) return null;
+  const jamaisParti = cadrageJamaisParti({
+    carte: card,
+    agent,
+    auRepos: !isRunning(agent.id) && !agentsActifs().includes(agent.id),
+    messages: store.listMessages(agent.id).length,
+    enFile: store.listQueue(agent.id).length,
+    aUneSession: store.aUneSession(agent.id),
+    dejaRelance: !!getMeta(marqueDuPremierTour(card.id)) || !!getMeta(`comprehension-rattrapee:${card.id}`),
+  });
+  return jamaisParti ? agent : null;
+}
+
+function auteurDeLaCarte(card: Card): AuteurDeCarte {
+  if (card.labels.includes(LABEL_MARKETING)) return 'marketing';
+  if (card.labels.includes(LABEL_AUTO_AMELIORATION)) return 'nuit';
+  return card.origin === 'agent' ? 'agent' : 'utilisateur';
+}
+
+/**
+ * LE FILET : une carte dont l'agent de cadrage est né mais n'a JAMAIS reçu de
+ * premier tour le reçoit. `'en-serie'` au démarrage (personne ne regarde, une
+ * carte après l'autre), `true` à l'ouverture (sous les yeux). Rend vrai si un
+ * tour a été envoyé ou mis dans la file.
+ */
+export function relancerLeCadrageJamaisParti(card: Card, mode: 'en-serie' | 'ouverture'): boolean {
+  const agent = cadrageDeLaCarteJamaisParti(card);
+  if (!agent) return false;
+  const auteur = auteurDeLaCarte(card);
+  if (mode === 'en-serie') {
+    void cadrerEnSerie(agent.id, card.id, demandeDeCadrageDeNaissance(card, auteur, { sansTemoin: true }), card.title);
+    return true;
+  }
+  setMeta(marqueDuPremierTour(card.id), String(Date.now()));
+  void sendPrompt(agent.id, demandeDeCadrageDeNaissance(card, auteur), { template: 'none', silent: true }).catch((err) =>
+    log.error(`le cadrage de « ${card.title} » n'a pas pu partir`, err),
+  );
+  return true;
+}
+
+/**
+ * AU DÉMARRAGE : toutes les cartes dont le cadrage n'est jamais parti le
+ * reçoivent, en série. Rend le nombre de cadrages remis en route.
+ */
+export function relancerLesCadragesJamaisPartis(): number {
+  let relances = 0;
+  for (const projet of store.listProjects(true)) {
+    for (const card of store.listCards(projet.id)) {
+      if (relancerLeCadrageJamaisParti(card, 'en-serie')) relances += 1;
+    }
+  }
+  return relances;
 }
 
 /* ------------------------------------------------------------------ */

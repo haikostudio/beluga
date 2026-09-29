@@ -28,6 +28,18 @@
 
 export const LABEL_MARKETING = 'marketing';
 
+/**
+ * UNE CARTE DE L'AGENT MARKETING NE VIT QUE DANS L'OUTIL MARKETING (demande du
+ * 26/09/2026). Son analyse, le plan de la semaine, la pose du suivi : ces
+ * cartes ne paraissent ni sur le tableau du projet, ni sur « En route », ni
+ * sur les tableaux de bord — elles se suivent dans l'onglet Contenus de
+ * l'atelier. Leurs QUESTIONS, elles, alertent toujours (cloche, triangle) :
+ * seule la carte est retirée des listes, jamais la décision qu'elle attend.
+ */
+export function estCarteMarketing(carte: { labels?: readonly string[] | null } | null | undefined): boolean {
+  return !!carte?.labels?.includes(LABEL_MARKETING);
+}
+
 export const NATURES_PRODUIT = ['site', 'boutique', 'app', 'saas'] as const;
 export type NatureProduit = (typeof NATURES_PRODUIT)[number];
 
@@ -88,8 +100,160 @@ export const CATALOGUE_CANAUX: readonly CanalDuCatalogue[] = [
 
 export const CLES_CANAUX = CATALOGUE_CANAUX.map((c) => c.cle);
 
-/** Les anciens noms, gardés pour relire une configuration déjà enregistrée. */
-export const RESEAUX = CLES_CANAUX;
+/** Le nom de chaque famille, en tête de son groupe sur l'écran Canaux. */
+export const LIBELLE_FAMILLE_CANAL: Readonly<Record<FamilleCanal, string>> = {
+  reseaux: 'Réseaux sociaux',
+  direct: 'Contact direct',
+  recherche: 'Être trouvé',
+  payant: 'Publicité',
+  relais: 'Relais et rencontres',
+};
+
+/**
+ * LE PARCOURS PAS À PAS D'UN CANAL — la base, écrite une fois, valable pour
+ * tous les produits : par où passer, dans l'ordre, pour qu'un débutant sache
+ * quoi faire. L'agent la COMPLÈTE par ses conseils propres au produit
+ * (`RecommandationCanal.premierPas` et `.etapes`), il ne la remplace pas.
+ * Chaque texte est traduit dans le dictionnaire, comme la description du canal.
+ */
+export interface EtapeDeParcours {
+  titre: string;
+  detail: string;
+}
+
+export const PARCOURS_DES_CANAUX: Readonly<Record<string, readonly EtapeDeParcours[]>> = {
+  linkedin: [
+    { titre: 'Créer le compte', detail: 'Créez une page entreprise depuis votre profil personnel, qui reste la voix principale.' },
+    { titre: 'Soigner le profil', detail: 'Un titre qui dit ce que vous apportez, une photo nette et un lien vers le site.' },
+    { titre: 'Publier un premier contenu', detail: 'Racontez un problème concret de vos clients et comment vous le résolvez, en quelques paragraphes courts.' },
+    { titre: 'Tenir le rythme', detail: 'Deux publications par semaine, et commentez chaque jour quelques messages de votre milieu.' },
+    { titre: 'Mesurer et ajuster', detail: 'Regardez chaque mois quels messages amènent des visites ou des contacts, et refaites-en de semblables.' },
+  ],
+  facebook: [
+    { titre: 'Créer le compte', detail: 'Créez une page pour votre activité, distincte de votre profil personnel.' },
+    { titre: 'Soigner le profil', detail: 'Photo de couverture, description courte, horaires ou lien vers le site : tout ce qu’un curieux cherche.' },
+    { titre: 'Échanger avec le public', detail: 'Rejoignez deux ou trois groupes où vos clients se retrouvent, et aidez avant de parler de vous.' },
+    { titre: 'Tenir le rythme', detail: 'Une à deux publications par semaine, avec une photo ou une courte vidéo à chaque fois.' },
+    { titre: 'Mesurer et ajuster', detail: 'Les statistiques de la page disent ce qui plaît : gardez ce qui fait réagir, abandonnez le reste.' },
+  ],
+  instagram: [
+    { titre: 'Créer le compte', detail: 'Créez un compte professionnel : il donne les statistiques et un bouton de contact.' },
+    { titre: 'Soigner le profil', detail: 'Une bio d’une phrase qui dit pour qui vous êtes, et un lien vers votre site.' },
+    { titre: 'Publier un premier contenu', detail: 'Commencez par neuf publications soignées pour que la grille donne envie dès la première visite.' },
+    { titre: 'Tenir le rythme', detail: 'Trois publications par semaine, dont des vidéos courtes, et des stories presque chaque jour.' },
+    { titre: 'Mesurer et ajuster', detail: 'Chaque mois, repérez les publications les plus enregistrées et partagées, et déclinez-les.' },
+  ],
+  tiktok: [
+    { titre: 'Créer le compte', detail: 'Créez un compte professionnel et regardez une semaine de vidéos de votre sujet pour en saisir le ton.' },
+    { titre: 'Publier un premier contenu', detail: 'Une vidéo de 15 à 30 secondes, filmée au téléphone, qui montre le produit en action dès la première seconde.' },
+    { titre: 'Tenir le rythme', detail: 'Trois à cinq vidéos par semaine : la régularité compte plus que la perfection.' },
+    { titre: 'Échanger avec le public', detail: 'Répondez aux commentaires, parfois par une nouvelle vidéo : c’est ce qui fait revenir.' },
+    { titre: 'Mesurer et ajuster', detail: 'Regardez combien de temps on reste sur chaque vidéo, et gardez les débuts qui retiennent le mieux.' },
+  ],
+  youtube: [
+    { titre: 'Créer le compte', detail: 'Créez une chaîne au nom du produit, avec une bannière et une description claire.' },
+    { titre: 'Trouver les sujets', detail: 'Listez les questions que vos clients tapent dans une recherche : chacune peut devenir une vidéo.' },
+    { titre: 'Publier un premier contenu', detail: 'Une démonstration de 3 à 8 minutes, avec un titre qui reprend la question et une miniature lisible.' },
+    { titre: 'Tenir le rythme', detail: 'Une vidéo tous les quinze jours suffit, et découpez-en des extraits courts pour les autres réseaux.' },
+    { titre: 'Mesurer et ajuster', detail: 'Suivez le taux de clics sur la miniature et la durée de visionnage, puis améliorez-les.' },
+  ],
+  x: [
+    { titre: 'Créer le compte', detail: 'Créez le compte au nom du produit, avec une bio claire et un lien vers le site.' },
+    { titre: 'Observer d’abord', detail: 'Suivez les personnes qui comptent dans votre milieu et lisez ce qui les fait réagir.' },
+    { titre: 'Publier un premier contenu', detail: 'Un fil de quelques messages qui raconte ce que vous construisez et pourquoi.' },
+    { titre: 'Tenir le rythme', detail: 'Un message par jour et des réponses aux autres : ici, la conversation compte plus que l’annonce.' },
+  ],
+  threads: [
+    { titre: 'Créer le compte', detail: 'Ouvrez Threads depuis votre compte Instagram : le profil et les abonnés suivent.' },
+    { titre: 'Publier un premier contenu', detail: 'Présentez-vous simplement et posez une question à votre public.' },
+    { titre: 'Tenir le rythme', detail: 'Quelques messages courts par semaine, sur un ton détendu, et répondez à chacun.' },
+    { titre: 'Mesurer et ajuster', detail: 'Gardez les sujets qui lancent des conversations, et renvoyez-les vers Instagram ou le site.' },
+  ],
+  pinterest: [
+    { titre: 'Créer le compte', detail: 'Créez un compte professionnel et reliez-le à votre site pour que vos épingles portent votre nom.' },
+    { titre: 'Soigner le profil', detail: 'Ouvrez quelques tableaux thématiques, nommés comme les gens cherchent.' },
+    { titre: 'Publier un premier contenu', detail: 'Des images verticales avec un court texte dessus, chacune menant vers une page précise du site.' },
+    { titre: 'Tenir le rythme', detail: 'Quelques épingles par semaine, régulièrement : elles continuent d’amener des visites pendant des mois.' },
+  ],
+  reddit: [
+    { titre: 'Observer d’abord', detail: 'Trouvez deux ou trois communautés de votre sujet et lisez leurs règles avant tout.' },
+    { titre: 'Échanger avec le public', detail: 'Répondez utilement pendant quelques semaines, sans lien vers vous : la confiance se gagne ainsi.' },
+    { titre: 'Publier un premier contenu', detail: 'Partagez une expérience honnête ou un retour d’expérience, là où les règles l’autorisent.' },
+    { titre: 'Mesurer et ajuster', detail: 'Notez quelles questions reviennent : elles donnent des idées de contenus et d’améliorations.' },
+  ],
+  courriel: [
+    { titre: 'Choisir l’outil', detail: 'Choisissez un outil d’envoi de lettres (gratuit au début) et reliez-le au site.' },
+    { titre: 'Récolter des inscriptions', detail: 'Posez un formulaire d’inscription sur le site, avec une bonne raison de s’inscrire.' },
+    { titre: 'Écrire l’accueil', detail: 'Un premier courriel automatique qui remercie, se présente et donne quelque chose d’utile.' },
+    { titre: 'Tenir le rythme', detail: 'Une lettre toutes les deux semaines, toujours le même jour, avec un seul message principal.' },
+    { titre: 'Mesurer et ajuster', detail: 'Regardez le taux d’ouverture et les clics, et essayez d’autres objets de message.' },
+  ],
+  'bouche-a-oreille': [
+    { titre: 'Inviter à recommander', detail: 'Après une bonne expérience, demandez simplement au client s’il connaît quelqu’un que ça aiderait.' },
+    { titre: 'Récompenser', detail: 'Offrez un petit avantage au client qui recommande et à celui qui arrive.' },
+    { titre: 'Préparer le dossier', detail: 'Donnez-leur de quoi parler de vous : un lien à partager, une phrase toute prête.' },
+    { titre: 'Suivre les résultats', detail: 'Demandez à chaque nouveau client comment il vous a connu, et notez-le.' },
+  ],
+  site: [
+    { titre: 'Trouver les sujets', detail: 'Listez les questions que vos clients se posent avant d’acheter : chacune est un article possible.' },
+    { titre: 'Publier un premier contenu', detail: 'Un article qui répond vraiment à une question, avec la question en titre.' },
+    { titre: 'Tenir le rythme', detail: 'Un article par semaine ou tous les quinze jours, et reliez les articles entre eux.' },
+    { titre: 'Mesurer et ajuster', detail: 'Inscrivez le site dans l’outil gratuit de Google pour voir sur quelles recherches il apparaît.' },
+  ],
+  'google-business': [
+    { titre: 'Créer le compte', detail: 'Créez ou réclamez la fiche de votre activité, puis validez-la avec le code reçu.' },
+    { titre: 'Soigner le profil', detail: 'Horaires, adresse, catégorie juste et une dizaine de photos réelles.' },
+    { titre: 'Demander des avis', detail: 'Demandez à vos clients contents de laisser un avis, et répondez à chacun.' },
+    { titre: 'Tenir le rythme', detail: 'Une nouvelle photo ou une actualité par mois garde la fiche vivante.' },
+  ],
+  annuaires: [
+    { titre: 'Dresser la liste', detail: 'Repérez les annuaires, comparateurs ou magasins d’applications où vos clients comparent.' },
+    { titre: 'Soigner le profil', detail: 'Remplissez chaque fiche en entier : mêmes nom, description et lien partout.' },
+    { titre: 'Demander des avis', detail: 'Invitez vos premiers clients à y laisser une note : c’est elle qui fait choisir.' },
+    { titre: 'Suivre les résultats', detail: 'Regardez chaque trimestre lesquels amènent des visites, et laissez tomber les autres.' },
+  ],
+  'publicite-recherche': [
+    { titre: 'Préparer la page d’arrivée', detail: 'Une page claire qui répond exactement à ce que la personne a cherché, avec un seul bouton.' },
+    { titre: 'Choisir la cible', detail: 'Choisissez quelques mots très précis, ceux qu’emploie quelqu’un prêt à acheter.' },
+    { titre: 'Fixer un petit budget', detail: 'Commencez petit, avec un plafond par jour, pendant deux à trois semaines.' },
+    { titre: 'Mesurer et ajuster', detail: 'Comparez le coût d’un client obtenu à ce qu’il rapporte, puis coupez ce qui ne rapporte pas.' },
+  ],
+  'publicite-reseaux': [
+    { titre: 'Choisir la cible', detail: 'Décrivez votre client type : âge, région, centres d’intérêt.' },
+    { titre: 'Rédiger l’annonce', detail: 'Préparez deux ou trois visuels et textes différents pour voir lequel marche.' },
+    { titre: 'Fixer un petit budget', detail: 'Un petit budget quotidien pendant une à deux semaines, jamais plus au départ.' },
+    { titre: 'Mesurer et ajuster', detail: 'Gardez l’annonce qui amène des clients au meilleur prix, arrêtez les autres.' },
+  ],
+  communautes: [
+    { titre: 'Observer d’abord', detail: 'Repérez les forums et groupes où votre sujet passionne, et participez avant de présenter quoi que ce soit.' },
+    { titre: 'Préparer le lancement', detail: 'Préparez une présentation courte, des images, et prévenez vos proches de la date.' },
+    { titre: 'Le jour du lancement', detail: 'Publiez tôt, restez disponible toute la journée et répondez à chaque question.' },
+    { titre: 'Relancer après', detail: 'Remerciez, notez les retours et écrivez aux personnes intéressées.' },
+  ],
+  partenariats: [
+    { titre: 'Dresser la liste', detail: 'Listez les marques ou créateurs qui parlent déjà à vos clients sans vous faire concurrence.' },
+    { titre: 'Préparer le dossier', detail: 'Décidez ce que vous offrez : une commission, un échange, un code de réduction.' },
+    { titre: 'Prendre contact', detail: 'Un message court et personnel à chacun, qui dit ce qu’il y gagne.' },
+    { titre: 'Suivre les résultats', detail: 'Donnez à chaque partenaire son lien de suivi pour savoir qui amène des clients.' },
+  ],
+  presse: [
+    { titre: 'Préparer le dossier', detail: 'Une page presse avec une présentation courte, des photos et votre contact.' },
+    { titre: 'Dresser la liste', detail: 'Repérez les journalistes et blogueurs qui ont déjà écrit sur votre sujet.' },
+    { titre: 'Prendre contact', detail: 'Un message personnel avec un angle qui intéresse leurs lecteurs, pas une publicité.' },
+    { titre: 'Relancer après', detail: 'Une relance polie une semaine plus tard, puis partagez chaque article obtenu.' },
+  ],
+  evenements: [
+    { titre: 'Choisir les rendez-vous', detail: 'Repérez les salons, marchés ou conférences où vos clients se rendent vraiment.' },
+    { titre: 'Préparer le dossier', detail: 'Un support simple à montrer, de quoi noter les contacts et une offre du jour.' },
+    { titre: 'Sur place', detail: 'Faites essayer ou montrez le produit, et notez chaque personne intéressée.' },
+    { titre: 'Relancer après', detail: 'Écrivez à chaque contact dans la semaine qui suit, tant que le souvenir est frais.' },
+  ],
+};
+
+export function parcoursDuCanal(cle: string): readonly EtapeDeParcours[] {
+  return PARCOURS_DES_CANAUX[cle] ?? [];
+}
+
 export type Reseau = string;
 
 export function canalDuCatalogue(cle: string): CanalDuCatalogue | undefined {
@@ -109,6 +273,8 @@ export interface RecommandationCanal {
   pertinence: Pertinence;
   raison: string;
   premierPas?: string;
+  /** Les conseils de l'agent propres au produit, affichés avec le parcours de base. */
+  etapes?: string[];
 }
 
 export const GENRES_CONTENU = ['post', 'courriel', 'page', 'annonce', 'argumentaire'] as const;
@@ -174,9 +340,28 @@ export interface EspaceMarketing {
    */
   rapport?: string;
   rapportLe?: number;
+  /**
+   * LE SUIVI MARKETING EST-IL VOULU pour ce projet ? Coupé à la main depuis
+   * l'entête de son écran : le projet passe dans « Projets inactifs », sort
+   * des chiffres du tableau de bord, et ne reçoit plus de plan du dimanche.
+   */
+  actif: boolean;
+  /**
+   * LE MODE DU SUIVI (service Statistiques) : « anonyme » par défaut — rien
+   * n'est écrit sur l'appareil —, ou « visiteur » : le script montre un
+   * bandeau d'accord et, seulement après accord, garde un identifiant dans le
+   * stockage local du navigateur (jamais de cookie) pour relier les pages
+   * d'une même personne.
+   */
+  modeSuivi: ModeSuivi;
+  /** Le nom d'un SITE AUTONOME (sans projet Beluga, `projectId` « site:<id> »). */
+  nom?: string;
   creeLe: number;
   majLe: number;
 }
+
+export const MODES_SUIVI = ['anonyme', 'visiteur'] as const;
+export type ModeSuivi = (typeof MODES_SUIVI)[number];
 
 export interface ContenuMarketing {
   id: string;
@@ -295,7 +480,8 @@ export function fusionnerRecommandations(actuelles: readonly RecommandationCanal
     const raison = texteBorne(r.raison, 400);
     if (!canal || !pertinence || !raison) continue;
     const premierPas = texteBorne(r.premierPas, 300);
-    parCanal.set(canal, { canal, pertinence, raison, ...(premierPas ? { premierPas } : {}) });
+    const etapes = Array.isArray(r.etapes) ? r.etapes.map((e) => texteBorne(e, 300)).filter((e): e is string => !!e).slice(0, 6) : [];
+    parCanal.set(canal, { canal, pertinence, raison, ...(premierPas ? { premierPas } : {}), ...(etapes.length ? { etapes } : {}) });
   }
   return [...parCanal.values()];
 }
@@ -415,6 +601,86 @@ export function transitionPermise(entree: {
   return null;
 }
 
+/* ------------------------------------------------------------------ */
+/* Les colonnes de l'onglet « Contenus » et les dépôts entre elles     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES COLONNES DE L'ONGLET « CONTENUS » :
+ *  - Brouillons : ce qu'on écrit encore (l'utilisateur ou l'agent) ;
+ *  - À valider : ce qui est écrit et attend une relecture ;
+ *  - Programmés : relu, avec ou sans date de publication (« Prêt » sans date,
+ *    « Programmé » avec date et heure) — un repère de calendrier, rien ne part
+ *    tout seul ;
+ *  - Publiés : marqués comme publiés par l'utilisateur.
+ */
+export type ColonneContenu = 'brouillons' | 'a_valider' | 'programmes' | 'publies';
+
+export const COLONNES_CONTENU: readonly ColonneContenu[] = ['brouillons', 'a_valider', 'programmes', 'publies'];
+
+/** La colonne d'un contenu ; null pour un contenu abandonné, qui ne se montre plus. */
+export function colonneDeContenu(etape: EtapeContenu): ColonneContenu | null {
+  switch (etape) {
+    case 'brouillon':
+      return 'brouillons';
+    case 'a_valider':
+      return 'a_valider';
+    case 'pret':
+    case 'programme':
+    case 'echec':
+      return 'programmes';
+    case 'publie':
+      return 'publies';
+    default:
+      return null;
+  }
+}
+
+export type DepotContenu =
+  | {
+      ok: true;
+      /** Les étapes à poser, dans l'ordre (vide : rien à changer). */
+      etapes: EtapeContenu[];
+      /** Une date (et une heure facultative) doivent être choisies AVANT les étapes. */
+      exigeDate: boolean;
+    }
+  | { ok: false; raison: string };
+
+/**
+ * UN CONTENU PEUT-IL ÊTRE DÉPOSÉ DANS CETTE COLONNE, ET PAR QUELLES ÉTAPES ?
+ * Le chemin ne sort jamais de la matrice `PASSAGES` : « À valider » ne passe pas
+ * directement à « Programmé », il traverse « Prêt ». C'est un geste de
+ * l'utilisateur ; l'agent, lui, ne dépose qu'en Brouillon ou À valider.
+ */
+export function depotContenu(contenu: { etape: EtapeContenu }, cible: ColonneContenu): DepotContenu {
+  const source = colonneDeContenu(contenu.etape);
+  if (!source) return { ok: false, raison: 'Ce contenu est abandonné.' };
+  if (contenu.etape === 'publie') return { ok: false, raison: 'Un contenu publié ne bouge plus.' };
+  const chemin = (etapes: EtapeContenu[]): DepotContenu => ({ ok: true, etapes, exigeDate: etapes.includes('programme') });
+
+  switch (cible) {
+    case 'brouillons':
+      if (contenu.etape === 'brouillon') return chemin([]);
+      if (contenu.etape === 'a_valider') return chemin(['brouillon']);
+      return { ok: false, raison: 'Repassez-le d’abord en « À valider ».' };
+    case 'a_valider':
+      if (contenu.etape === 'a_valider') return chemin([]);
+      if (contenu.etape === 'brouillon' || contenu.etape === 'pret') return chemin(['a_valider']);
+      if (contenu.etape === 'programme') return chemin(['pret', 'a_valider']);
+      return { ok: false, raison: 'Un contenu en échec se reprogramme : déposez-le dans « Programmés ».' };
+    case 'programmes':
+      if (contenu.etape === 'programme') return chemin([]);
+      if (contenu.etape === 'pret' || contenu.etape === 'echec') return chemin(['programme']);
+      return chemin(['pret', 'programme']);
+    case 'publies':
+      if (contenu.etape === 'pret' || contenu.etape === 'programme') return chemin(['publie']);
+      if (contenu.etape === 'echec') return { ok: false, raison: 'Reprogrammez d’abord ce contenu.' };
+      return { ok: false, raison: 'Un contenu se publie depuis « Programmés ».' };
+    default:
+      return { ok: false, raison: 'Ce dépôt n’est pas possible.' };
+  }
+}
+
 export function jourValide(jour: unknown): jour is string {
   if (typeof jour !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(jour)) return false;
   const d = new Date(`${jour}T00:00:00Z`);
@@ -455,6 +721,8 @@ export function guideDuProjet(entree: {
   contenusPublies: number;
   contenusEnAttente: number;
   ventes: number;
+  /** Une carte d'installation du suivi existe : elle ne vaut pas code posé. */
+  carteDuSuivi?: boolean;
 }): GuideMarketing {
   const config = entree.espace?.configuration ?? configurationVide();
   const fiche = entree.espace?.fiche ?? {};
@@ -487,8 +755,10 @@ export function guideDuProjet(entree: {
       fait: config.etatSuivi === 'verifie',
       action:
         config.etatSuivi === 'pose'
-          ? 'Attendez la première visite : le suivi sera confirmé tout seul.'
-          : 'Faites installer le script de suivi par l’agent.',
+          ? 'Le code est posé : attendez la première visite, le suivi sera confirmé tout seul.'
+          : entree.carteDuSuivi
+            ? 'La carte d’installation est posée : lancez-la, puis mettez le site en ligne.'
+            : 'Faites installer le script de suivi : bouton « Installer le suivi » dans Statistiques.',
     },
     {
       cle: 'canaux',
@@ -579,7 +849,7 @@ export function indicateursDe(nature: NatureProduit | undefined): Indicateur[] {
 /* Événements de suivi                                                 */
 /* ------------------------------------------------------------------ */
 
-export const TYPES_EVENEMENT = ['vue', 'sortie', 'objectif', 'achat', 'panier', 'session', 'ecran', 'installation', 'clic'] as const;
+export const TYPES_EVENEMENT = ['vue', 'sortie', 'objectif', 'achat', 'panier', 'session', 'ecran', 'installation', 'clic', 'repere'] as const;
 export type TypeEvenement = (typeof TYPES_EVENEMENT)[number];
 
 /** Un événement tel qu'il est gardé : aucune donnée personnelle, aucune adresse IP. */
@@ -604,6 +874,18 @@ export interface EvenementDeSuivi {
   /** Une ouverture d'application par quelqu'un qui l'avait déjà utilisée. */
   retour?: boolean;
   appareil?: 'mobile' | 'tablette' | 'ordinateur';
+  /**
+   * MODE VISITEUR SEULEMENT, APRÈS ACCORD : l'identifiant tiré au hasard par
+   * le navigateur et gardé dans son stockage local (renouvelé au plus tard
+   * après 13 mois), et celui de la session (stockage de l'onglet). Le serveur
+   * les jette pour un espace en mode anonyme.
+   */
+  visiteurPersistant?: string;
+  session?: string;
+  /** Le repère cliqué (`data-beluga-repere`), pour un événement « repere ». */
+  repere?: string;
+  /** Le code ISO du pays, déduit de l'adresse à la collecte — l'adresse n'est jamais gardée. */
+  pays?: string;
 }
 
 export const TAILLE_EVENEMENT_MAX = 2048;
@@ -658,7 +940,15 @@ export function appareilDe(userAgent: string | undefined): EvenementDeSuivi['app
 }
 
 export type EvenementJuge =
-  | { ok: true; evenement: Omit<EvenementDeSuivi, 'instant' | 'visiteur' | 'appareil' | 'source'>; referent?: string; utm?: string }
+  | {
+      ok: true;
+      evenement: Omit<EvenementDeSuivi, 'instant' | 'visiteur' | 'appareil' | 'source' | 'visiteurPersistant' | 'session'>;
+      referent?: string;
+      utm?: string;
+      /** Les identifiants du mode visiteur, lus mais PAS encore acceptés : le serveur décide selon le mode de l'espace. */
+      visiteurPersistant?: string;
+      session?: string;
+    }
   | { ok: false; raison: string };
 
 /**
@@ -673,7 +963,7 @@ export function jugerEvenementDeSuivi(brut: unknown): EvenementJuge {
   if (!type || type === 'clic') return { ok: false, raison: 'type inconnu' };
   const cheminBrut = typeof (b.p ?? b.chemin) === 'string' ? String(b.p ?? b.chemin) : '';
   const chemin = cheminBrut ? (cheminBrut.split(/[?#]/)[0] || '/').slice(0, 200) : undefined;
-  const evenement: Omit<EvenementDeSuivi, 'instant' | 'visiteur' | 'appareil' | 'source'> = { type };
+  const evenement: Omit<EvenementDeSuivi, 'instant' | 'visiteur' | 'appareil' | 'source' | 'visiteurPersistant' | 'session'> = { type };
   if (chemin) evenement.chemin = chemin;
   const visite = typeof b.v === 'string' && /^[a-z0-9]{6,32}$/i.test(b.v) ? b.v : undefined;
   if (visite) evenement.visite = visite;
@@ -694,11 +984,48 @@ export function jugerEvenementDeSuivi(brut: unknown): EvenementJuge {
     if (!objectif) return { ok: false, raison: 'objectif sans nom' };
     evenement.objectif = objectif;
   }
+  if (type === 'repere') {
+    const repere = nomDeRepere(b.n);
+    if (!repere) return { ok: false, raison: 'repère sans nom' };
+    evenement.repere = repere;
+  }
   if (b.ab === 'A' || b.ab === 'B') evenement.variante = b.ab;
   if (type === 'session' && (b.ret === 1 || b.ret === true || b.ret === '1')) evenement.retour = true;
   const referent = typeof b.r === 'string' ? b.r.slice(0, 400) : undefined;
   const utm = typeof b.u === 'string' ? b.u : undefined;
-  return { ok: true, evenement, referent, utm };
+  const visiteurPersistant = identifiantDeNavigateur(b.vp);
+  const session = identifiantDeNavigateur(b.vs);
+  return {
+    ok: true,
+    evenement,
+    referent,
+    utm,
+    ...(visiteurPersistant ? { visiteurPersistant } : {}),
+    ...(visiteurPersistant && session ? { session } : {}),
+  };
+}
+
+/** Un identifiant tiré au hasard par le script : lettres et chiffres, 12 à 40 signes — rien d'autre ne passe. */
+export function identifiantDeNavigateur(valeur: unknown): string | undefined {
+  return typeof valeur === 'string' && /^[a-z0-9]{12,40}$/i.test(valeur) ? valeur : undefined;
+}
+
+/**
+ * LE NOM D'UN REPÈRE (`data-beluga-repere="<nom>"`) : minuscules, chiffres et
+ * tirets, 60 signes au plus. Les accents et espaces d'un nom écrit à la main
+ * sont ramenés à cette forme ; un nom vide est refusé.
+ */
+export function nomDeRepere(valeur: unknown): string | undefined {
+  if (typeof valeur !== 'string') return undefined;
+  const nom = valeur
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/, '');
+  return nom || undefined;
 }
 
 /** L'origine d'une requête est-elle déclarée pour ce projet ? */
@@ -974,6 +1301,8 @@ export function modeDEmploiDuSuivi(): string {
     'Achat : belugaSuivi("achat", { m: 49.9, cur: "EUR", ref: "<numéro de commande>" })',
     'Panier rempli : belugaSuivi("panier", { m: 49.9, cur: "EUR" })',
     'Application — ouverture : belugaSuivi("session") (ou belugaSuivi("session", { ret: 1 }) pour quelqu’un qui revient) ; écran : belugaSuivi("ecran", { p: "Accueil" }) ; installation : belugaSuivi("installation")',
+    'Repère (bouton, lien, formulaire, zone clé) : l’attribut data-beluga-repere="nom-du-repere" sur l’élément suffit, chaque clic est compté ; à la main : belugaSuivi("repere", { n: "nom-du-repere" })',
+    'Mode visiteur : belugaSuivi.accord() rouvre le bandeau d’accord (lien « gérer mon choix » de la page de confidentialité).',
   ].join('\n');
 }
 
@@ -990,27 +1319,99 @@ const PHRASES_CONFIDENTIALITE: Record<LangueMarketing, (nom: string) => string> 
     `Medición de audiencia — ${nom} mide las visitas a sus páginas de forma anónima, sin cookies y sin servicios externos: ningún dato permite identificarle y su visita no se sigue de un día a otro. Estas cifras solo sirven para mejorar el sitio.`,
 };
 
-/** LA PHRASE À AJOUTER À LA PAGE « CONFIDENTIALITÉ » du produit, dans sa langue. */
-export function phraseDeConfidentialite(langue: LangueMarketing | undefined, nomProjet: string): string {
-  return PHRASES_CONFIDENTIALITE[langue ?? 'fr'](nomProjet.trim() || 'Ce site');
+/**
+ * LE MODE VISITEUR NE PEUT PAS PROMETTRE L'ANONYMAT : sa phrase dit ce qui est
+ * gardé (un identifiant tiré au hasard, dans le navigateur, après accord),
+ * combien de temps, et comment reprendre son accord.
+ */
+const PHRASES_CONFIDENTIALITE_VISITEUR: Record<LangueMarketing, (nom: string) => string> = {
+  fr: (nom) =>
+    `Mesure d’audience — ${nom} mesure la fréquentation de ses pages sans cookie et sans service extérieur. Si vous l’acceptez dans le bandeau prévu, un identifiant tiré au hasard est gardé dans votre navigateur (stockage local, renouvelé au plus tard après 13 mois) pour comprendre votre parcours d’une page à l’autre ; il ne contient aucune donnée personnelle et les passages enregistrés sont effacés après 90 jours. Sans votre accord, votre visite est comptée de façon anonyme. Vous pouvez changer d’avis à tout moment avec le lien « gérer mon choix ».`,
+  en: (nom) =>
+    `Audience measurement — ${nom} measures visits to its pages without cookies and without any third-party service. If you accept it in the banner provided, a random identifier is kept in your browser (local storage, renewed after 13 months at the latest) to understand your journey from one page to the next; it contains no personal data and recorded visits are deleted after 90 days. Without your consent, your visit is counted anonymously. You can change your mind at any time with the “manage my choice” link.`,
+  de: (nom) =>
+    `Reichweitenmessung — ${nom} misst die Besuche seiner Seiten ohne Cookies und ohne externe Dienste. Wenn Sie im dafür vorgesehenen Banner zustimmen, wird eine zufällige Kennung in Ihrem Browser gespeichert (lokaler Speicher, spätestens nach 13 Monaten erneuert), um Ihren Weg von Seite zu Seite zu verstehen; sie enthält keine personenbezogenen Daten, und die erfassten Besuche werden nach 90 Tagen gelöscht. Ohne Ihre Zustimmung wird Ihr Besuch anonym gezählt. Über den Link «Meine Wahl verwalten» können Sie Ihre Entscheidung jederzeit ändern.`,
+  it: (nom) =>
+    `Misurazione del pubblico — ${nom} misura le visite alle sue pagine senza cookie e senza servizi esterni. Se lo accettate nell’apposito banner, un identificativo casuale viene conservato nel vostro browser (memoria locale, rinnovato al più tardi dopo 13 mesi) per capire il vostro percorso da una pagina all’altra; non contiene dati personali e le visite registrate vengono cancellate dopo 90 giorni. Senza il vostro consenso, la visita viene contata in modo anonimo. Potete cambiare idea in qualsiasi momento con il link «gestisci la mia scelta».`,
+  es: (nom) =>
+    `Medición de audiencia — ${nom} mide las visitas a sus páginas sin cookies y sin servicios externos. Si lo acepta en el aviso previsto, se guarda en su navegador un identificador aleatorio (almacenamiento local, renovado como máximo a los 13 meses) para entender su recorrido de una página a otra; no contiene ningún dato personal y las visitas registradas se borran a los 90 días. Sin su consentimiento, su visita se cuenta de forma anónima. Puede cambiar de opinión en cualquier momento con el enlace «gestionar mi elección».`,
+};
+
+/** LA PHRASE À AJOUTER À LA PAGE « CONFIDENTIALITÉ » du produit, dans sa langue et selon le mode du suivi. */
+export function phraseDeConfidentialite(langue: LangueMarketing | undefined, nomProjet: string, mode: ModeSuivi = 'anonyme'): string {
+  const phrases = mode === 'visiteur' ? PHRASES_CONFIDENTIALITE_VISITEUR : PHRASES_CONFIDENTIALITE;
+  return phrases[langue ?? 'fr'](nomProjet.trim() || 'Ce site');
 }
 
 /**
- * LE SCRIPT SERVI AUX PAGES. Minuscule et différé ; il n'écrit RIEN sur
- * l'appareil (ni cookie, ni stockage local) et se tait quand le navigateur
- * demande à ne pas être suivi (Do Not Track, Global Privacy Control).
- * L'identifiant de visite vit en mémoire le temps de la page.
+ * LE BANDEAU D'ACCORD DU MODE VISITEUR, dans la langue de la page (`<html
+ * lang>`) ou, à défaut, celle de l'espace. Deux boutons de même poids : refuser
+ * est aussi simple qu'accepter.
+ */
+export const TEXTES_BANDEAU: Record<LangueMarketing, readonly [texte: string, accepter: string, refuser: string]> = {
+  fr: ['Ce site aimerait se souvenir de votre passage d’une page à l’autre pour comprendre comment il est utilisé. Aucun cookie, aucune donnée personnelle, rien n’est partagé.', 'Accepter', 'Refuser'],
+  en: ['This site would like to remember your visit from one page to the next to understand how it is used. No cookies, no personal data, nothing is shared.', 'Accept', 'Decline'],
+  de: ['Diese Website möchte sich Ihren Besuch von Seite zu Seite merken, um zu verstehen, wie sie genutzt wird. Keine Cookies, keine personenbezogenen Daten, nichts wird weitergegeben.', 'Akzeptieren', 'Ablehnen'],
+  it: ['Questo sito vorrebbe ricordare la vostra visita da una pagina all’altra per capire come viene usato. Nessun cookie, nessun dato personale, nulla viene condiviso.', 'Accetta', 'Rifiuta'],
+  es: ['Este sitio quiere recordar su visita de una página a otra para entender cómo se usa. Sin cookies, sin datos personales, nada se comparte.', 'Aceptar', 'Rechazar'],
+};
+
+/** Au-delà, l'identifiant du mode visiteur est tiré à nouveau (13 mois). */
+export const DUREE_IDENTIFIANT_VISITEUR_MS = 396 * 86_400_000;
+
+/**
+ * LE SCRIPT SERVI AUX PAGES. Minuscule et différé ; il se tait quand le
+ * navigateur demande à ne pas être suivi (Do Not Track, Global Privacy
+ * Control). L'identifiant de visite vit en mémoire le temps de la page.
+ *
+ * LE MODE EST DIT PAR LE SERVEUR, dans la réponse à la première page vue
+ * (`{"m":"v"}` pour le mode visiteur) : l'extrait posé sur le site ne change
+ * jamais, et passer d'un mode à l'autre ne demande pas de retoucher le site.
+ *
+ *  - MODE ANONYME : le script n'écrit RIEN sur l'appareil (ni cookie, ni
+ *    stockage). S'il trouve un accord laissé par un ancien mode visiteur, il
+ *    l'efface.
+ *  - MODE VISITEUR : un bandeau d'accord, isolé du site (ombre DOM), deux
+ *    boutons de même poids. Le choix est gardé dans le stockage local
+ *    (`beluga_accord_<clé>`). Après accord seulement : un identifiant tiré au
+ *    hasard (`beluga_v_<clé>`, renouvelé après 13 mois) et celui de la
+ *    session (stockage de l'onglet) partent avec chaque événement. Refus ou
+ *    absence de choix : la visite reste anonyme. JAMAIS de cookie.
+ *  - REPÈRES : un clic sur un élément `[data-beluga-repere]` envoie
+ *    l'événement « repere » avec son nom, dans les deux modes.
  */
 export function scriptDeSuivi(adresseCollecte: string): string {
   const url = JSON.stringify(`${adresseCollecte.replace(/\/+$/, '')}/m/c`);
+  const textes = JSON.stringify(TEXTES_BANDEAU);
   return `(function(){var d=document,n=navigator,w=window;var s=d.currentScript;if(!s)return;var k=s.getAttribute('data-cle');if(!k)return;
-if(n.doNotTrack==='1'||w.doNotTrack==='1'||n.globalPrivacyControl){w.belugaSuivi=function(){};return;}
+if(n.doNotTrack==='1'||w.doNotTrack==='1'||n.globalPrivacyControl){w.belugaSuivi=function(){};w.belugaSuivi.accord=function(){};return;}
 var v=Math.random().toString(36).slice(2,12)+Math.random().toString(36).slice(2,8),t0=Date.now(),q=new URLSearchParams(location.search);
 var c=q.get('bm')||'',u=q.get('utm_source')||'';
-function e(t,x){x=x||{};var b={k:k,t:t,v:v,p:x.p||location.pathname,r:d.referrer||'',u:u,c:x.c||c};for(var i in x)if(!(i in b))b[i]=x[i];
-var j=JSON.stringify(b);try{if(t==='sortie'&&n.sendBeacon){n.sendBeacon(${url},new Blob([j],{type:'text/plain'}));return;}
-fetch(${url},{method:'POST',body:j,keepalive:true,mode:'cors',credentials:'omit',headers:{'content-type':'text/plain'}});}catch(_){}}
-w.belugaSuivi=e;e('vue');var fini=false;function sortie(){if(fini)return;fini=true;e('sortie',{d:Date.now()-t0});}
+var A='beluga_accord_'+k,V='beluga_v_'+k,S='beluga_s_'+k,vp='',vs='',M='',L='';
+function rid(){var a='';while(a.length<24)a+=Math.random().toString(36).slice(2);return a.slice(0,24);}
+function st(x){try{return w[x];}catch(_){return null;}}
+function ids(){var l=st('localStorage'),g=st('sessionStorage');if(!l||!g)return;try{var o=JSON.parse(l.getItem(V)||'null');
+if(!o||!o.i||Date.now()-o.t>${DUREE_IDENTIFIANT_VISITEUR_MS}){o={i:rid(),t:Date.now()};l.setItem(V,JSON.stringify(o));}vp=o.i;vs=g.getItem(S)||'';if(!vs){vs=rid();g.setItem(S,vs);}}catch(_){vp='';vs='';}}
+function choix(){var l=st('localStorage');try{return l?l.getItem(A):null;}catch(_){return null;}}
+function oublier(){var l=st('localStorage'),g=st('sessionStorage');try{if(l&&(l.getItem(A)!==null||l.getItem(V)!==null)){l.removeItem(A);l.removeItem(V);}if(g&&g.getItem(S)!==null)g.removeItem(S);}catch(_){}vp='';vs='';}
+if(choix()==='1')ids();
+function e(t,x){x=x||{};var b={k:k,t:t,v:v,p:x.p||location.pathname,r:d.referrer||'',u:u,c:x.c||c};if(vp){b.vp=vp;b.vs=vs;}for(var i in x)if(!(i in b))b[i]=x[i];
+var j=JSON.stringify(b);try{if(t==='sortie'&&n.sendBeacon){n.sendBeacon(${url},new Blob([j],{type:'text/plain'}));return null;}
+return fetch(${url},{method:'POST',body:j,keepalive:true,mode:'cors',credentials:'omit',headers:{'content-type':'text/plain'}});}catch(_){return null;}}
+var T=${textes},bd=null;
+function bandeau(){if(bd||M!=='v')return;var h=(d.documentElement.lang||L||'fr').slice(0,2).toLowerCase(),x=T[h]||T[L]||T.fr;
+bd=d.createElement('div');bd.setAttribute('data-beluga-bandeau','');bd.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;max-width:560px;margin:0 auto';
+var r=bd.attachShadow?bd.attachShadow({mode:'open'}):bd,y='font:14px/1.45 system-ui,sans-serif;';
+r.innerHTML='<div style="'+y+'background:#fff;color:#1a1a1a;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:14px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center"><p style="margin:0;flex:1 1 260px"></p><span style="display:flex;gap:8px;flex:0 0 auto"><button data-r="0" style="'+y+'padding:7px 14px;border-radius:7px;border:1px solid #1a1a1a;background:#fff;color:#1a1a1a;cursor:pointer"></button><button data-r="1" style="'+y+'padding:7px 14px;border-radius:7px;border:1px solid #1a1a1a;background:#fff;color:#1a1a1a;cursor:pointer"></button></span></div>';
+r.querySelector('p').textContent=x[0];r.querySelector('[data-r="1"]').textContent=x[1];r.querySelector('[data-r="0"]').textContent=x[2];
+r.addEventListener('click',function(ev){var g=ev.target&&ev.target.getAttribute&&ev.target.getAttribute('data-r');if(g===null||g===undefined)return;
+var l=st('localStorage');try{if(l)l.setItem(A,g);}catch(_){}if(g==='1')ids();else{vp='';vs='';try{if(l)l.removeItem(V);var ss=st('sessionStorage');if(ss)ss.removeItem(S);}catch(_){}}
+if(bd&&bd.parentNode)bd.parentNode.removeChild(bd);bd=null;});(d.body||d.documentElement).appendChild(bd);}
+function mode(p){if(!p||!p.then)return;p.then(function(r){return r&&r.status===200?r.json():null;}).then(function(o){if(!o)return;M=o.m==='v'?'v':'a';L=o.l||'';
+if(M==='v'){if(choix()===null)bandeau();}else oublier();})['catch'](function(){});}
+w.belugaSuivi=function(t,x){return e(t,x);};w.belugaSuivi.accord=function(){if(M!=='v')return;var l=st('localStorage');try{if(l)l.removeItem(A);}catch(_){}bandeau();};
+mode(e('vue'));var fini=false;function sortie(){if(fini)return;fini=true;e('sortie',{d:Date.now()-t0});}
+d.addEventListener('click',function(ev){var el=ev.target&&ev.target.closest?ev.target.closest('[data-beluga-repere]'):null;if(el)e('repere',{n:el.getAttribute('data-beluga-repere')||''});},true);
 d.addEventListener('visibilitychange',function(){if(d.visibilityState==='hidden')sortie();});w.addEventListener('pagehide',sortie);})();`;
 }
 
@@ -1085,7 +1486,7 @@ TON OUTIL : « marketing ». Ses actions : « lire » (tout ce qui est enregistr
 
 3. LE SUIVI. « poser_suivi » prépare l'installation du script de suivi anonyme et sans cookie : il crée une carte à lancer par l'utilisateur (carte-code), ou te rend l'extrait et la marche à suivre (plateforme, manuel). Il rend TOUJOURS la phrase à ajouter à la page « confidentialité » : transmets-la. Sur une plateforme, un geste dans son administration ne se fait qu'APRÈS l'avoir annoncé à l'utilisateur et avec son accord (« ask_user »), avec les accès du coffre-fort (« coffre_fort », « lister » d'abord). Jamais en cachette.
 
-4. LES CANAUX. L'utilisateur est DÉBUTANT : c'est toi qui l'orientes. Passe en revue TOUT le catalogue (${CATALOGUE_CANAUX.map((c) => c.cle).join(', ')}) et donne ton avis sur chacun avec « canaux » : « recommandations » = [{ canal, pertinence haute|moyenne|faible, raison (une phrase simple, propre à CE produit), premierPas (le premier geste concret) }], et « choisis » = les deux à quatre canaux par lesquels commencer. Pas tous à la fois : mieux vaut peu de canaux bien tenus.
+4. LES CANAUX. L'utilisateur est DÉBUTANT : c'est toi qui l'orientes. Passe en revue TOUT le catalogue (${CATALOGUE_CANAUX.map((c) => c.cle).join(', ')}) et donne ton avis sur chacun avec « canaux » : « recommandations » = [{ canal, pertinence haute|moyenne|faible, raison (une phrase simple, propre à CE produit), premierPas (le premier geste concret), etapes (deux à quatre conseils concrets propres à CE produit, qui complètent le parcours de base du canal déjà affiché à l'utilisateur : créer le compte, soigner le profil, publier, tenir le rythme — ne les redis pas, précise-les) }], et « choisis » = les deux à quatre canaux par lesquels commencer. Pas tous à la fois : mieux vaut peu de canaux bien tenus.
 
 5. LE PLAN D'ACTION. Pose un plan daté sur les quatre à six semaines qui viennent avec « action » (titre, detail : quoi faire et comment, en pas simples ; canal ; datePrevue AAAA-MM-JJ) : créer les comptes et fiches qui manquent, préparer une page, contacter des partenaires, lancer une publicité test, faire le point. Deux ou trois actions par semaine au plus. Il s'affiche dans le calendrier ; l'utilisateur coche ce qui est fait. « lire » d'abord : n'ajoute pas une action qui existe déjà, corrige-la (« id »).
 

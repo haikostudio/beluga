@@ -3,20 +3,20 @@ import { ColumnKey } from './columns.js';
 import { AgentContextUsage } from './contexte-agent.js';
 import { MetriquesSessionLlm } from './metriques-session.js';
 import { ReglageCreation, SuggestionCreation } from './mode-creation.js';
+import { aLaFormeDUnMoteur, type IdDeMoteur } from './registre-moteurs.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
 /* ------------------------------------------------------------------ */
 
 /**
- * Les moteurs branchés. « claude » et « codex » sont des OUTILS EN LIGNE DE
- * COMMANDE déjà authentifiés sur le serveur ; « cursor » est une API distante
- * (agents cloud, clé d'accès) — voir `shared/src/moteur-cursor.ts`. Un moteur
- * ajouté ici doit l'être partout où cette liste est parcourue : catalogue des
- * modèles, comptes et quotas, nom court affiché.
+ * UN MOTEUR, tel que le déclare LE REGISTRE (`shared/src/registre-moteurs.ts`) : intégré, ou ajouté (`ext-…`). Le schéma ne juge que la FORME :
+ * une carte qui porte un moteur ajouté puis retiré doit se relire sans
+ * planter. C'est au lancement que le moteur doit être ACTIF
+ * (`adapterFor`, qui refuse de partir sinon).
  */
-export const EngineId = z.enum(['claude', 'codex', 'cursor']);
-export type EngineId = z.infer<typeof EngineId>;
+export const EngineId = z.custom<IdDeMoteur>(aLaFormeDUnMoteur, { message: 'moteur inconnu' });
+export type EngineId = IdDeMoteur;
 
 /**
  * Le niveau de réflexion est une chaîne LIBRE : chaque moteur a son propre
@@ -269,6 +269,13 @@ export const Project = z.object({
   deploiement: ProcedureDeDeploiement.default({}),
   miseEnProduction: ProcedureDeMiseEnProduction.default({}),
   /**
+   * L'ADRESSE PUBLIQUE DE LA VERSION EN PRODUCTION (« https://formations.haiko.studio »),
+   * saisie dans la rubrique « Mise en production » des réglages. C'est elle qui
+   * ouvre d'office le suivi des visites du projet (`server/src/suivi-par-defaut.ts`) :
+   * jamais devinée, puisqu'une mauvaise adresse déclarerait un site étranger.
+   */
+  adresseProduction: z.string().optional(),
+  /**
    * LE DÉPLOIEMENT AUTOMATIQUE, commandé par l'interrupteur posé en tête de la
    * colonne « Terminé ». ÉTEINT par défaut, et pour tous les projets déjà
    * inscrits : rien ne change tant que l'utilisateur ne l'allume pas lui-même.
@@ -276,6 +283,15 @@ export const Project = z.object({
    * déclenchement vivent dans `deploiement-automatique.ts`.
    */
   deploiementAutomatique: z.boolean().default(false),
+  /**
+   * LA MISE EN PRODUCTION EST-ELLE PERMISE ? Commandée par l'interrupteur de
+   * l'entête du tiroir « Mise en production ». ÉTEINTE par défaut, et pour
+   * tous les projets déjà inscrits : le bouton du tiroir reste gris et le
+   * serveur refuse le lancement tant que l'utilisateur ne l'allume pas. Ne
+   * touche QUE la production, jamais le déploiement sur ce serveur. La règle
+   * vit dans `raisonProductionDesactivee` (`publication-simple.ts`).
+   */
+  miseEnProductionActive: z.boolean().default(false),
   /**
    * LES DÉPÔTS ANNEXES (`DepotAnnexe`, `shared/src/depots-du-projet.ts`). Vide =
    * un projet à dépôt simple, exactement comme avant : rien à convertir.
@@ -1280,6 +1296,11 @@ export const Agent = z.object({
    * « Tableaux de bord », et le seul droit de relancer cette publication.
    */
   depannagePublication: z.object({ runId: z.string(), cible: z.enum(['dev', 'production']) }).optional(),
+  /**
+   * L'AGENT « AJOUTER UN MOTEUR » des réglages des comptes : lui seul reçoit
+   * l'outil `moteurs` (déclarer, éprouver, activer un fournisseur).
+   */
+  ajoutDeMoteur: z.boolean().optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */
@@ -1882,6 +1903,13 @@ export const AccountQuota = z.object({
       demandeCentimes: z.number().optional(),
       demandeLimiteCentimes: z.number().optional(),
       indisponible: z.string().optional(),
+      /**
+       * UNE LIGNE D'ÉTAT, pour un moteur payé à l'usage qui ne publie aucun
+       * chiffre (Xiaomi MiMo) : « clé active », « solde épuisé ».
+       */
+      resume: z.string().optional(),
+      /** Le fournisseur a refusé faute de solde : le compte est à recharger. */
+      soldeEpuise: z.boolean().optional(),
     })
     .optional(),
   /**

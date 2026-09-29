@@ -1,3 +1,4 @@
+import { descriptionMoteur } from './registre-moteurs.js';
 /**
  * LE DÉBUT D'UNE SESSION NE CHANGE PLUS D'UN TOUR À L'AUTRE.
  *
@@ -48,7 +49,7 @@ export interface ChoixDEntete {
  * la plus sûre (au pire on renvoie un texte déjà en cache).
  */
 export function consigneEnTeteDeSession(engine?: string): boolean {
-  return engine !== 'codex' && engine !== 'cursor';
+  return descriptionMoteur(engine)?.consigneEnTete ?? true;
 }
 
 /**

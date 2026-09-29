@@ -23,9 +23,16 @@ export interface EtatVisuelEntree {
   estimationEchouee?: boolean;
   /** La carte est en ligne. */
   enLigne?: boolean;
+  /**
+   * L'agent est ARRÊTÉ SUR SA QUESTION (`Agent.attendReponse`). Son tour vit
+   * encore — l'outil `ask_user` bloque jusqu'à la réponse —, mais il n'est en
+   * travail pour personne : la carte ne tourne pas, elle attend.
+   */
+  attendReponse?: boolean;
 }
 
 export type EtatVisuelCarte =
+  | 'question'
   | 'travaille'
   | 'echec'
   | 'attente'
@@ -34,7 +41,9 @@ export type EtatVisuelCarte =
   | 'repos';
 
 export function etatVisuelCarte(entree: EtatVisuelEntree): EtatVisuelCarte {
-  // Ce qui tourne prime sur tout : c'est l'information la plus fraîche.
+  // Une question ouverte passe devant le travail : le tour vit, mais il attend vous.
+  if (entree.attendReponse) return 'question';
+  // Ce qui tourne prime sur tout le reste : c'est l'information la plus fraîche.
   if (entree.agentStatut === 'running' || entree.agentStatut === 'starting') return 'travaille';
   if (entree.analyseEnCours) return 'travaille';
 
@@ -90,6 +99,15 @@ export interface DecisionGeste {
 
 const ABSENT: DecisionGeste = { affiche: false, possible: false };
 
+/**
+ * Le tour de l'agent vit-il encore ? Une carte arrêtée sur sa question ne
+ * TRAVAILLE pas à l'écran, mais son tour est ouvert : les gestes qui
+ * supposeraient un tour rendu restent fermés.
+ */
+function tourVivant(etat: EtatVisuelCarte): boolean {
+  return etat === 'travaille' || etat === 'question';
+}
+
 export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste {
   switch (geste) {
     case 'valider':
@@ -106,13 +124,13 @@ export function gesteCarte(geste: GesteCarte, ctx: ContexteGeste): DecisionGeste
       /* Un lancement part de « Demande » COMME de « Plan » : la carte attend
          le clic dans les deux colonnes du cadrage. */
       if (!COLONNES_AVANT_LE_TRAVAIL.includes(ctx.colonne as ColumnKey)) return ABSENT;
-      return ctx.etat === 'travaille'
+      return tourVivant(ctx.etat)
         ? { affiche: true, possible: false, raison: 'Un agent travaille déjà sur cette carte.' }
         : { affiche: true, possible: true };
 
     case 'terminer':
       if (ctx.colonne !== 'running') return ABSENT;
-      if (ctx.etat === 'travaille') {
+      if (tourVivant(ctx.etat)) {
         return {
           affiche: true,
           possible: false,
@@ -164,7 +182,7 @@ export function sortieAutorisee(ctx: ContexteGeste, vers: string): DecisionGeste
    * Toutes les autres destinations perdraient le fil du travail en cours.
    */
   if (ctx.colonne === 'running' && vers === 'planned') return { affiche: true, possible: true };
-  if (ctx.colonne === 'running' && ctx.etat === 'travaille') {
+  if (ctx.colonne === 'running' && tourVivant(ctx.etat)) {
     return {
       affiche: true,
       possible: false,

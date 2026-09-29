@@ -160,6 +160,7 @@ import {
   tagsAvecAlias,
   tagsDuTexte,
   paramsLisibles,
+  consigneEnTeteDeSession,
 } from '@beluga/shared';
 import { carteEnPublication, migrationDeReglage, TEXTE_CARTE_EN_PUBLICATION } from '@beluga/shared';
 import type { DecisionDArret } from '@beluga/shared';
@@ -899,7 +900,7 @@ export function instantaneContexteEnvoye(input: {
       content: input.systemPrompt,
       // Claude porte cette consigne dans une option séparée ; Codex la place
       // devant le prompt. Le tiroir peut ainsi décrire le transport exact.
-      transport: input.engine === 'claude' ? 'separate' : 'prefixed',
+      transport: consigneEnTeteDeSession(input.engine) ? 'separate' : 'prefixed',
     },
     blocks: [
       ...input.blocks,
@@ -912,7 +913,7 @@ export function instantaneContexteEnvoye(input: {
         // partir du deuxième tour, c'est le même texte relu au cache — pas
         // renvoyé neuf. Codex, qui la colle derrière l'historique, n'a pas ce
         // repère de cache moteur (`enteteDuTour`, shared/src/prefixe-cache.ts).
-        cached: input.engine === 'claude' && !input.nouvelleSession,
+        cached: consigneEnTeteDeSession(input.engine) && !input.nouvelleSession,
       },
     ],
     passages: input.passages ?? [],
@@ -5363,6 +5364,8 @@ const OUTIL_LISTE: Record<EngineId, string> = {
   // Cursor n'expose aucun outil de liste par son API : l'agent annonce donc son
   // déroulé dans sa réponse, en clair, plutôt qu'un outil qu'il n'a pas.
   cursor: 'une liste écrite en tête de ta réponse, une ligne par action prévue',
+  // MiMo tourne dans l'outil de Claude : mêmes outils de liste.
+  mimo: "l'outil « TaskCreate » puis « TaskUpdate » (une tâche par appel, mise à jour par son numéro)",
 };
 
 /**

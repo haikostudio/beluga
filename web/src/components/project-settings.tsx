@@ -121,6 +121,7 @@ export function ProjectSettings({
   /* La SEULE chose que le déploiement demande de régler : l'adresse de
      l'instance de dev, contrôlée à la fin de chaque déploiement. */
   const [devUrl, setDevUrl] = React.useState('');
+  const [adresseProduction, setAdresseProduction] = React.useState('');
   /*
    * LES DEUX BRANCHES DE MISE EN LIGNE : où le déploiement fusionne, où la mise
    * en production fusionne. Vide = rien de choisi, et le comportement d'avant
@@ -197,6 +198,7 @@ export function ProjectSettings({
     if (!project) return;
     setName(project.name);
     setDevUrl(project.devUrl ?? '');
+    setAdresseProduction(project.adresseProduction ?? '');
     setPort(project.port ? String(project.port) : '');
     setBrancheDev(project.branchesDePublication?.dev ?? '');
     setBrancheProduction(project.branchesDePublication?.production ?? '');
@@ -297,6 +299,7 @@ export function ProjectSettings({
           defaultEngine: engine,
           theme: themeProjet ? themeChoisiDepuisReglage(themeProjet) : null,
           devUrl: devUrl.trim() || undefined,
+          adresseProduction: adresseProduction.trim() || undefined,
           /* `null`, et non `undefined` : seul lui RETIRE un port enregistré. */
           port: portLu,
           /* Les deux branches partent ensemble ; vides, elles ne sont pas
@@ -353,6 +356,8 @@ export function ProjectSettings({
     systemeSombre,
     devUrl,
     setDevUrl,
+    adresseProduction,
+    setAdresseProduction,
     port,
     setPort,
     portLu,

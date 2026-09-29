@@ -36,6 +36,8 @@ import {
   colonneAffichee,
   depannagesDeLaBande,
   depanneurVivant,
+  etatDeLInitialisation,
+  procedureEnPlace,
   activiteDeLaMere,
   etapeCouranteDeSuivi,
   LIBELLE_ETAPE_DE_SUIVI,
@@ -50,6 +52,7 @@ import {
   type Card,
   type Project,
   type OngletEnRoute,
+  estCarteMarketing,
 } from '@beluga/shared';
 import { client } from '@/lib/client';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
@@ -59,8 +62,10 @@ import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 import { cn, dateHeure, relativeTime } from '@/lib/utils';
 import { Badge, Button, Dot, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { CardTile, avalerLeRelachement } from '@/components/board';
 import { BandeauTravail } from '@/components/bandeau-travail';
+import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { usePointerDrag } from '@/lib/dnd';
 import { GRILLE_EN_ROUTE, SilhouetteListeEnRoute } from '@/components/silhouettes';
@@ -140,7 +145,7 @@ export function EnRoute({
   const cartesActives = React.useMemo(
     () =>
       pilesEnRoute(
-        Object.values(state.enRoute?.cartes ?? {}).filter((card) => enService.has(card.projectId)),
+        Object.values(state.enRoute?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
         'actif',
       ),
     [state.enRoute?.cartes, enService],
@@ -148,7 +153,7 @@ export function EnRoute({
   const cartesTerminees = React.useMemo(
     () =>
       pilesEnRoute(
-        Object.values(state.enRouteTermine?.cartes ?? {}).filter((card) => enService.has(card.projectId)),
+        Object.values(state.enRouteTermine?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
         'termine',
       ),
     [state.enRouteTermine?.cartes, enService],
@@ -187,7 +192,8 @@ export function EnRoute({
       if (state.enRoute?.cartes[cardId]) return false;
       if (state.enRouteTermine?.cartes[cardId]) return true;
       const connue = state.cards[cardId];
-      return !!connue && !estEnRoute(connue);
+      // Une carte de l'agent marketing ne se montre que dans l'outil Marketing.
+      return !!connue && (!estEnRoute(connue) || estCarteMarketing(connue));
     };
     return Math.min(nombreActif, nombreEnCoursEnRoute(Object.values(state.agents), enService, horsDeLaListe));
   }, [nombreActif, state.agents, enService, state.enRoute, state.enRouteTermine, state.cards]);
@@ -263,9 +269,24 @@ export function EnRoute({
           <section className="mb-1" data-bande-agents>
             <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Agents sans carte')}</h2>
             <div className={GRILLE}>
-              {bande.map((agent) => (
-                <VignetteAgent key={agent.id} agent={agent} onOpen={() => ouvrirAgent(agent)} />
-              ))}
+              {bande.map((agent) => {
+                /* L'agent de configuration de la production garde sa vignette
+                   à part, la même qu'en tête de « En cours » du tableau. */
+                const projet = state.projects.find((p) => p.id === agent.projectId);
+                const initialisation = etatDeLInitialisation(projet, agent, Date.now());
+                return initialisation ? (
+                  <VignetteInitialisationProduction
+                    key={agent.id}
+                    agent={agent}
+                    etat={initialisation}
+                    projet={projet}
+                    reconfiguration={procedureEnPlace(projet, 'production')}
+                    avecProjet
+                  />
+                ) : (
+                  <VignetteAgent key={agent.id} agent={agent} onOpen={() => ouvrirAgent(agent)} />
+                );
+              })}
             </div>
           </section>
         ) : null}
@@ -569,7 +590,8 @@ function PileDeCartes({
         <div
           role="button"
           tabIndex={0}
-          aria-label={t('Déplier les {n} cartes de cette demande', { n: pile.cartes.length })}
+          aria-label={`Deplier les ${pile.cartes.length} cartes de cette demande`}
+          title={t('Déplier les {n} cartes de cette demande', { n: pile.cartes.length })}
           data-masque-pile={pile.cle}
           className="absolute inset-0 z-30 cursor-pointer rounded-md"
           onClick={(event) => {
@@ -695,8 +717,17 @@ function CarteEnRoute({
             </>
           ),
           droite: (
-            <span className="flex items-center gap-1" data-temoin-en-route={agent || fillesAuTravail ? 'travail' : 'repos'}>
-              {!agent && fillesAuTravail ? (
+            <span
+              className="flex items-center gap-1"
+              data-temoin-en-route={agent?.attendReponse ? 'question' : agent || fillesAuTravail ? 'travail' : 'repos'}
+            >
+              {/* UN AGENT ARRÊTÉ SUR SA QUESTION N'EST EN TRAVAIL POUR
+                  PERSONNE : ni point qui bat, ni « en cours » — la carte
+                  attend votre réponse (même règle que la vignette de
+                  dépannage plus bas). */}
+              {agent?.attendReponse ? (
+                <span className="text-warning">{t('Attend votre réponse')}</span>
+              ) : !agent && fillesAuTravail ? (
                 <>
                   <Dot tone="running" pulse />
                   <span className="text-en-cours">{t('Au travail')}</span>
@@ -748,6 +779,8 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
   const projet = state.projects.find((p) => p.id === agent.projectId);
   const auTravail = agentTientSonTour(agent);
   const Icone = agent.role === 'deploy' ? UploadCloud : agent.role === 'analysis' ? Microscope : Bot;
+  const titreRef = React.useRef<HTMLHeadingElement>(null);
+  const titreCoupe = useTexteCoupe([titreRef], [agent.title]);
   return (
     <div className="flex min-w-0 flex-col" data-vignette-agent-en-route={agent.id}>
       <div
@@ -810,7 +843,8 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
             ) : null}
           </div>
         </div>
-        <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
+        <div className="flex items-start gap-1.5">
+        <h3 ref={titreRef} className="line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text">
           <Icone
             className={cn(
               'relative -top-px mr-1 inline h-[13px] w-[13px] align-middle',
@@ -819,6 +853,8 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
           />
           {agent.title}
         </h3>
+        {titreCoupe ? <BulleTexteCoupe>{agent.title}</BulleTexteCoupe> : null}
+        </div>
       </div>
       {auTravail ? <BandeauTravail agent={agent} onClick={onOpen} data-barre-agent-en-route={agent.id} /> : null}
     </div>

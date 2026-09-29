@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { MousePointer2 } from 'lucide-react';
+import { Cpu, MousePointer2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { EngineId } from '@beluga/shared';
 
@@ -34,10 +34,31 @@ function TraitCodex({ className }: { className?: string }) {
   );
 }
 
-const PAR_MOTEUR: Record<EngineId, { trait: React.ComponentType<{ className?: string }>; nom: string }> = {
-  claude: { trait: TraitClaude, nom: 'Claude' },
-  codex: { trait: TraitCodex, nom: 'GPT' },
-  cursor: { trait: (p) => <MousePointer2 {...p} />, nom: 'Cursor' },
+/** MiMo : un « m » arrondi, repris du nom. */
+function TraitMimo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M4 19V10a4 4 0 0 1 8 0v9M12 10a4 4 0 0 1 8 0v9"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+/**
+ * Les traits dessinés. Un moteur du registre qui n'a pas le sien garde une
+ * icône NEUTRE (`Cpu`) : ajouter un moteur ne laisse jamais un trou dans la carte.
+ */
+const PAR_MOTEUR: Partial<Record<EngineId, React.ComponentType<{ className?: string }>>> = {
+  claude: TraitClaude,
+  codex: TraitCodex,
+  cursor: (p) => <MousePointer2 {...p} />,
+  mimo: TraitMimo,
 };
 
 /**
@@ -47,8 +68,6 @@ const PAR_MOTEUR: Record<EngineId, { trait: React.ComponentType<{ className?: st
  * reste des repères de la carte.
  */
 export function IconeMoteur({ engine, className }: { engine: EngineId; className?: string }) {
-  const info = PAR_MOTEUR[engine];
-  if (!info) return null;
-  const Trait = info.trait;
+  const Trait = PAR_MOTEUR[engine] ?? ((p: { className?: string }) => <Cpu {...p} />);
   return <Trait className={cn('h-3 w-3 shrink-0 text-faint', className)} />;
 }

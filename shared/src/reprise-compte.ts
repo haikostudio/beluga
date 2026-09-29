@@ -69,6 +69,12 @@ const TOURNURES_DE_LIMITE: RegExp[] = [
   /requires usage credits/,
   /(insufficient|out of|no( more)?) (usage )?credits/,
   /credits? (are |is )?(exhausted|depleted)/,
+  /*
+   * UN SOLDE VIDE CHEZ UN MOTEUR PAYÉ À L'USAGE (Xiaomi MiMo : « API Error: 402
+   * Insufficient account balance ») : le compte est à sec, pas en panne.
+   */
+  /insufficient (account )?balance/,
+  /insufficient.balance/,
 ];
 
 /**

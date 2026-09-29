@@ -58,6 +58,13 @@ export interface CreditCursor {
   demandeCentimes?: number;
   /** Limite mensuelle de la dépense à la demande, en centimes de dollar. */
   demandeLimiteCentimes?: number;
+  /**
+   * Une ligne d'état, pour un moteur payé à l'usage qui ne publie aucun chiffre
+   * (Xiaomi MiMo) : « clé active », « solde épuisé ».
+   */
+  resume?: string;
+  /** Le fournisseur a refusé faute de solde : le compte est à recharger. */
+  soldeEpuise?: boolean;
   /** Pourquoi l'usage n'a pas pu être lu, en français. */
   indisponible?: string;
 }

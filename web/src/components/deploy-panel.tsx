@@ -28,6 +28,7 @@ import {
   type DepotsDeCarte,
   annonceDeHeurts,
   annonceMiseAJourProduction,
+  derniereMiseAJourProduction,
   ecartProduction,
   empreinteCourte,
   productionEnRetard,
@@ -39,6 +40,9 @@ import {
   libelleCompteLot,
   procedureEnPlace,
   ongletDEntreeDeProduction,
+  raisonProductionDesactivee,
+  etatDeLInitialisation,
+  type EtatDeLInitialisation,
   type OngletDeProduction,
   raisonLotBloque,
   rapportAGarder,
@@ -61,6 +65,7 @@ import {
   BulleInfo,
   Button,
   ConfirmDialog,
+  Dot,
   Dialog,
   DialogContent,
   DialogFooter,
@@ -70,11 +75,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
+  Pastille,
   Tooltip,
   ZoneDefilement,
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { useMinute } from '@/lib/horloge';
 import { cn, duration, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -262,10 +269,18 @@ export function DeployPanel({
   const deploiementDemande =
     presentation !== 'bandeau' && etape?.cible === 'dev' ? state.deploiementDemande : null;
   const [agentDemande, setAgentDemande] = React.useState<{ id: string; nonce: number } | null>(null);
+  /* `selection` (le bouton « Déployer » du pied d'une carte) : on ouvre la
+     MÊME fenêtre de sélection que le bouton de ce bloc — un seul chemin vers
+     `deploy.start`. Posée plus bas, une fois le lot connu. */
+  const [selectionDemandee, setSelectionDemandee] = React.useState(0);
   React.useEffect(() => {
     if (!deploiementDemande || deploiementDemande.projectId !== projectId) return;
-    setProcessOuvert(true);
-    setAgentDemande(deploiementDemande.agentId ? { id: deploiementDemande.agentId, nonce: deploiementDemande.nonce } : null);
+    if (deploiementDemande.selection) {
+      setSelectionDemandee(deploiementDemande.nonce);
+    } else {
+      setProcessOuvert(true);
+      setAgentDemande(deploiementDemande.agentId ? { id: deploiementDemande.agentId, nonce: deploiementDemande.nonce } : null);
+    }
     client.demanderDeploiement(null);
   }, [deploiementDemande, projectId]);
   /* Volet refermé, la demande est honorée : le chevron le rouvre ensuite sur
@@ -287,6 +302,15 @@ export function DeployPanel({
    */
   const projet = state.projects.find((p) => p.id === projectId);
   const enPlace = !!etape && procedureEnPlace(projet, etape.cible);
+  /* L'AGENT DE CONFIGURATION AU TRAVAIL se lit à droite du bandeau, et le clic
+     ouvre alors sa CONVERSATION (`etatDeLInitialisation`). La minute fait
+     tomber l'état « terminé » une fois sa garde passée. */
+  const minute = useMinute();
+  const idConfiguration = projet?.miseEnProduction?.agentId;
+  const initialisation =
+    presentation === 'bandeau'
+      ? etatDeLInitialisation(projet, idConfiguration ? state.agents[idConfiguration] : undefined, Math.max(minute, Date.now()))
+      : null;
 
   /*
    * Ce que le lot va embarquer. Même règle que `deployableCards` côté serveur,
@@ -461,6 +485,22 @@ export function DeployPanel({
     setAvertissements([]);
     setSelectionOuverte(true);
   };
+
+  /* La fenêtre de sélection demandée d'ailleurs : toutes les cartes du lot
+     cochées d'avance, rien ne part avant « Déployer ». Un lot vide (carte
+     écartée entre-temps) ouvre le déroulé plutôt que de partir sans
+     confirmation, comme le ferait `demarrer`. */
+  React.useEffect(() => {
+    if (!selectionDemandee) return;
+    setSelectionDemandee(0);
+    if (!embarked.length) {
+      setProcessOuvert(true);
+      return;
+    }
+    setSelection(new Set(embarked.map((card) => card.id)));
+    setAvertissements([]);
+    setSelectionOuverte(true);
+  }, [selectionDemandee]);
 
   const aPublier = embarked.length + enAttente.nombre;
   /*
@@ -675,6 +715,7 @@ export function DeployPanel({
           projectId={projectId}
           colonne={colonne}
           suivi="repos"
+          initialisation={initialisation}
           ouvert={tiroirOuvert}
           onOuvert={(v) => {
             if (v) setOngletProduction(ongletDEntreeDeProduction({ enPlace: false }));
@@ -757,18 +798,34 @@ export function DeployPanel({
        à raconter : les six étapes restent « à venir ». */
     const runDuDeroule = modeSuivi || reussiteVisible ? run : undefined;
     const ecart = ecartProduction(etatProduction);
+    const derniere = derniereMiseAJourProduction(etatProduction);
     /* UN BOUTON ÉTEINT DIT POURQUOI, en clair au-dessus de lui : dans un tiroir,
        l'infobulle d'un bouton désactivé ne se lit pas. */
-    const eteint = !modeSuivi && (busy || active || busyAgents.length > 0 || !!productionBloquee);
-    const raisonEteint = eteint && !busy ? productionBloquee || raisonBloquee || undefined : undefined;
+    /* L'INTERRUPTEUR DE L'ENTÊTE DU TIROIR, lu sur le projet et non sur le
+       contrôle d'avant-clic : le bouton suit le geste à l'instant, sans
+       attendre les vingt secondes du prochain contrôle. */
+    const desactivee = raisonProductionDesactivee(projet);
+    const eteint = !modeSuivi && (busy || active || busyAgents.length > 0 || !!productionBloquee || !!desactivee);
+    const raisonEteint =
+      eteint && !busy ? (desactivee ? t(desactivee) : undefined) || productionBloquee || raisonBloquee || undefined : undefined;
+    /* UN DÉROULÉ GARDE LA PRIORITÉ : l'état de la reconfiguration ne se lit
+       qu'au repos, jamais à la place de la barre d'une mise en production. */
+    const reconfiguration = modeDeroule ? null : initialisation;
     return (
       <BandeauProduction
         projectId={projectId}
         colonne={colonne}
         suivi={suivi && (modeSuivi || reussiteVisible) ? suivi.etat : 'repos'}
+        initialisation={reconfiguration}
+        reconfiguration
         ouvert={tiroirOuvert}
         onOuvert={(v) => {
-          if (v) setOngletProduction(ongletDEntreeDeProduction({ enPlace: true, deroule: modeDeroule }));
+          if (v)
+            setOngletProduction(
+              reconfiguration && reconfiguration !== 'fini'
+                ? 'conversation'
+                : ongletDEntreeDeProduction({ enPlace: true, deroule: modeDeroule }),
+            );
           setTiroirOuvert(v);
         }}
         onglet={ongletProduction}
@@ -776,6 +833,15 @@ export function DeployPanel({
         enRoute={enRoute}
         tombee={tombee}
         pourcent={suivi && (modeSuivi || reussiteVisible) ? suivi.pourcent : null}
+        enAttente={
+          etatProduction?.commit && etatProduction.ecart !== undefined
+            ? {
+                nombre: etatProduction.ecart,
+                enRetard: productionEnRetard(etatProduction),
+                resume: t(ecart.texte, ecart.valeurs),
+              }
+            : null
+        }
         actions={actions}
         titre={
           modeDeroule && runDuDeroule
@@ -817,43 +883,58 @@ export function DeployPanel({
             />
           ) : null
         }
-        corps={
-          /* L'ÉTAT DE LA VERSION EN PRODUCTION, une information par ligne :
-             l'enregistrement en ligne et sa date, l'écart avec le dépôt (orange
-             s'il y a du retard), sa raison, puis ce qui a échoué. */
-          <div className="flex flex-col gap-3">
-          <ExplicationDeConfiguration processus={projet?.miseEnProduction?.processus} />
-          <div className="flex flex-col gap-1.5 text-[13px] leading-snug" data-etat-production>
-            <p className="flex min-w-0 items-center gap-1.5 text-muted">
-              <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0" />
-              {etatProduction?.commit ? (
-                <>
-                  <span className="shrink-0 font-mono text-text" data-commit-production>
-                    {empreinteCourte(etatProduction.commit)}
-                  </span>
-                  {etatProduction.at ? <span className="truncate text-faint">· {elapsed(etatProduction.at)}</span> : null}
-                </>
-              ) : (
-                <span className="truncate" data-commit-production="">{t('Aucune version en production')}</span>
-              )}
-            </p>
-            <p
-              className={productionEnRetard(etatProduction) ? 'text-warning' : 'text-muted'}
-              data-ecart-production
-            >
-              {t(ecart.texte, ecart.valeurs)}</p>
-            {etatProduction?.raison && etatProduction.commit ? (
-              <p className="text-faint" data-raison-production>{etatProduction.raison}</p>
-            ) : null}
-            {!publicationEnCours && erreurControle ? (
-              <p className="text-danger" data-erreur-controle-publication>
-                {t('Le contrôle d’avant-clic a échoué : {erreurControle}', { erreurControle })}</p>
-            ) : null}
-          </div>
-          </div>
-        }
+        corps={<ExplicationDeConfiguration processus={projet?.miseEnProduction?.processus} />}
         pied={
           <>
+            {/* L'ÉTAT DE LA VERSION EN PRODUCTION, UNE LIGNE FIXE AU-DESSUS DU
+                BOUTON : il ne défile plus avec l'explication. À gauche l'écart
+                avec le dépôt (orange s'il y a du retard), à droite la version
+                en ligne et le temps écoulé depuis sa mise en production. Les
+                messages rares (raison d'un état illisible, contrôle tombé)
+                se posent juste au-dessus. */}
+            <div className="mb-2 flex flex-col gap-1 text-[12.5px] leading-snug" data-etat-production>
+              {etatProduction?.raison && etatProduction.commit ? (
+                <p className="text-faint" data-raison-production>{etatProduction.raison}</p>
+              ) : null}
+              {!publicationEnCours && erreurControle ? (
+                <p className="text-danger" data-erreur-controle-publication>
+                  {t('Le contrôle d’avant-clic a échoué : {erreurControle}', { erreurControle })}</p>
+              ) : null}
+              {derniere ? (
+                <p
+                  className="text-danger"
+                  data-derniere-production={etatProduction?.derniere?.etat}
+                  title={etatProduction?.derniere?.erreur}
+                >
+                  {t(derniere.texte)}
+                </p>
+              ) : null}
+              <div className="flex min-w-0 items-center justify-between gap-3" data-ligne-etat-production>
+                <span
+                  className={cn('min-w-0 truncate', productionEnRetard(etatProduction) ? 'text-warning' : 'text-muted')}
+                  data-ecart-production
+                >
+                  {t(ecart.texte, ecart.valeurs)}
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5 text-muted">
+                  <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0" />
+                  {etatProduction?.commit ? (
+                    <>
+                      <span className="font-mono text-text" data-commit-production>
+                        {empreinteCourte(etatProduction.commit)}
+                      </span>
+                      {etatProduction.at ? (
+                        <span className="text-faint" data-date-production title={new Date(etatProduction.at).toLocaleString()}>
+                          · {elapsed(etatProduction.at)}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span data-commit-production="">{t('Aucune version en production')}</span>
+                  )}
+                </span>
+              </div>
+            </div>
             {raisonEteint ? (
               <p className="mb-1.5 text-[12px] leading-snug text-faint" data-raison-bouton-production>
                 {raisonEteint}
@@ -1246,6 +1327,15 @@ export function DeployPanel({
               <span data-commit-production="">{t('Aucune version en production')}</span>
             )}
           </p>
+          {derniereMiseAJourProduction(etatProduction) ? (
+            <p
+              className="text-danger"
+              data-derniere-production={etatProduction?.derniere?.etat}
+              title={etatProduction?.derniere?.erreur}
+            >
+              {t(derniereMiseAJourProduction(etatProduction)!.texte)}
+            </p>
+          ) : null}
           <p
             className={cn(productionEnRetard(etatProduction) ? 'text-warning' : 'text-faint')}
             data-ecart-production
@@ -1355,11 +1445,14 @@ function BandeauProduction({
   projectId,
   colonne,
   suivi,
+  initialisation = null,
+  reconfiguration = false,
   ouvert,
   onOuvert,
   enRoute = false,
   tombee = false,
   pourcent = null,
+  enAttente = null,
   actions,
   titre,
   deroule,
@@ -1373,6 +1466,10 @@ function BandeauProduction({
   projectId: string;
   colonne: ColumnKey;
   suivi: string;
+  /** L'état de l'agent de configuration, lu à droite de la barre au repos. */
+  initialisation?: EtatDeLInitialisation | null;
+  /** La procédure existe déjà : l'agent la RECONFIGURE plutôt que l'initialiser. */
+  reconfiguration?: boolean;
   ouvert: boolean;
   onOuvert: (ouvert: boolean) => void;
   /** L'onglet du tiroir : la conversation avec l'agent, ou la configuration. */
@@ -1382,6 +1479,15 @@ function BandeauProduction({
   tombee?: boolean;
   /** Le chiffre du déroulé, posé à côté du libellé pendant un suivi. */
   pourcent?: number | null;
+  /**
+   * LES VERSIONS EN ATTENTE, dites par une pastille à la place du libellé :
+   * `nombre` est l'écart de la production avec la version prête à partir (le
+   * même que la ligne d'état du tiroir), `enRetard` orange la pastille, `resume`
+   * est la phrase de cet écart, déjà traduite, pour le survol. Absent tant que
+   * le chiffre n'est pas fiable (état non chargé, écart inconnu, jamais mise
+   * en production) : le libellé texte reste alors.
+   */
+  enAttente?: { nombre: number; enRetard: boolean; resume: string } | null;
   actions?: React.ReactNode;
   /** Le titre de l'entête du volet — daté pendant un déroulé. */
   titre?: string;
@@ -1402,6 +1508,7 @@ function BandeauProduction({
       data-bloc-publication={colonne}
       data-bandeau-production={projectId}
       data-suivi={suivi}
+      data-initialisation-production={initialisation ?? undefined}
     >
       <button
         type="button"
@@ -1418,7 +1525,37 @@ function BandeauProduction({
         ) : (
           <Rocket className="h-3.5 w-3.5 shrink-0 text-faint" />
         )}
-        <span className="min-w-0 truncate text-[13px] font-medium text-text">{t('Mise en production')}</span>
+        {enAttente ? (
+          <>
+            {/* Le nom du bandeau reste lu par les lecteurs d'écran : la pastille
+                le remplace à l'œil, pas à l'oreille. */}
+            <span className="sr-only">{t('Mise en production')}</span>
+            {enAttente.nombre > 0 ? (
+              <Pastille
+                nombre={enAttente.nombre}
+                ton="repondre"
+                className="h-5 min-w-5 px-1.5 text-[11px]"
+                title={enAttente.resume}
+                data-mises-a-jour-en-attente={enAttente.nombre}
+                data-en-retard=""
+              />
+            ) : (
+              <span
+                className={cn(
+                  'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-semibold leading-none',
+                  enAttente.enRetard ? 'bg-warning text-sur-etat' : 'bg-raised text-muted',
+                )}
+                title={enAttente.resume}
+                data-mises-a-jour-en-attente={0}
+                data-en-retard={enAttente.enRetard ? '' : undefined}
+              >
+                {enAttente.enRetard ? '!' : <Check className="h-3 w-3" />}
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="min-w-0 truncate text-[13px] font-medium text-text">{t('Mise en production')}</span>
+        )}
         {pourcent !== null ? (
           <span
             className={cn('shrink-0 text-[13px] font-semibold tabular-nums', teintePourcent)}
@@ -1428,6 +1565,9 @@ function BandeauProduction({
           </span>
         ) : null}
         <span className="flex-1" />
+        {initialisation ? (
+          <EtatDInitialisation etat={initialisation} reconfiguration={reconfiguration} />
+        ) : null}
         <span
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted"
           data-fleche-production={ouvert ? 'bas' : 'haut'}
@@ -1472,6 +1612,31 @@ function BandeauProduction({
 
       {children}
     </div>
+  );
+}
+
+/**
+ * LA ZONE DROITE DU BANDEAU PENDANT L'INITIALISATION : « Initialisation ·
+ * Au travail » (ou « Configuration · … » quand la procédure existe déjà), avec
+ * le point orange qui pulse, « attend votre réponse » en orange d'avertissement,
+ * puis « terminé » une minute. Le clic sur la barre ouvre la conversation.
+ */
+function EtatDInitialisation({ etat, reconfiguration }: { etat: EtatDeLInitialisation; reconfiguration: boolean }) {
+  return (
+    <span className="flex min-w-0 shrink items-center gap-1.5 text-[12px]" data-etat-initialisation={etat}>
+      {etat === 'demarre' || etat === 'travail' ? <Dot tone="running" pulse /> : null}
+      <span className="truncate text-muted">{reconfiguration ? t('Configuration') : t('Initialisation')}</span>
+      <span className="shrink-0 text-faint">·</span>
+      {etat === 'question' ? (
+        <span className="shrink-0 text-warning">{t('attend votre réponse')}</span>
+      ) : etat === 'fini' ? (
+        <span className="shrink-0 text-faint">{t('terminé')}</span>
+      ) : etat === 'demarre' ? (
+        <span className="shrink-0 text-faint">{t('démarre…')}</span>
+      ) : (
+        <span className="shrink-0 text-en-cours">{t('Au travail')}</span>
+      )}
+    </span>
   );
 }
 

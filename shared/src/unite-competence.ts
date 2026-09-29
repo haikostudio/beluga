@@ -25,18 +25,18 @@
 import { ficheEnService, type Competence } from './competences.js';
 import {
   DETAIL_UNITE_MAX,
+  GENRE_SOURCE_COMPETENCE,
   PORTEE_GLOBALE,
   RESUME_UNITE_MAX,
   RESUME_UNITE_MIN,
   TITRE_UNITE_MAX,
+  estUniteDeCompetence,
   idDeSujetDUnite,
+  sujetDeProjetDeCompetence,
   type Importance,
   type PropositionUnite,
   type Unite,
 } from './connaissances.js';
-
-/** Le genre de SOURCE qui marque l'unité d'une compétence ; `ref` porte le nom de la fiche. */
-export const GENRE_SOURCE_COMPETENCE = 'competence' as const;
 
 /** Le sujet commun à toutes les unités de compétence : il les regroupe à la recherche. */
 export const SUJET_COMPETENCES = 'competences';
@@ -52,11 +52,6 @@ export const MODE_D_EMPLOI_DANS_L_UNITE_MAX = 8_000;
 
 /** Les fichiers de détail cités dans l'unité, au plus. */
 const ANNEXES_CITEES_MAX = 25;
-
-/** L'unité est-elle celle d'une compétence ? Reconnu à sa source, jamais à son titre. */
-export function estUniteDeCompetence(u: Pick<Unite, 'source'>): boolean {
-  return u.source?.genre === GENRE_SOURCE_COMPETENCE && Boolean(u.source.ref);
-}
 
 /** Le nom de la fiche d'une unité de compétence, ou `undefined`. */
 export function nomDeCompetenceDeLUnite(u: Pick<Unite, 'source'>): string | undefined {
@@ -163,7 +158,7 @@ export function propositionDeLaCompetence(
   texteDuSkill: string,
   options: { confiance: number; id?: string },
 ): PropositionUnite {
-  const sujets = [SUJET_COMPETENCES, ...fiche.themes, ...(fiche.bibliotheque ? [`bibliotheque-${fiche.bibliotheque}`] : [])];
+  const sujets = [SUJET_COMPETENCES, ...fiche.projets.map(sujetDeProjetDeCompetence), ...fiche.themes, ...(fiche.bibliotheque ? [`bibliotheque-${fiche.bibliotheque}`] : [])];
   return {
     action: options.id ? 'update' : 'create',
     id: options.id,

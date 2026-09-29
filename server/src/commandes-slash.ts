@@ -14,7 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CommandeSlash, EngineId, OrigineCommande, nomDeCommandeValable } from '@beluga/shared';
+import { CommandeSlash, EngineId, IDS_MOTEURS, OrigineCommande, nomDeCommandeValable } from '@beluga/shared';
 import { listAccountRecords } from './accounts.js';
 import { log } from './logger.js';
 
@@ -27,6 +27,8 @@ const DOSSIERS: Record<EngineId, { compte: string[]; projet: string[] }> = {
   claude: { compte: ['commands', 'skills'], projet: ['.claude/commands', '.claude/skills'] },
   codex: { compte: ['prompts', 'skills'], projet: ['.codex/prompts', '.codex/skills'] },
   cursor: { compte: ['commands'], projet: ['.cursor/commands', '.cursor/rules'] },
+  // MiMo tourne dans l'outil de Claude : mêmes dossiers de commandes.
+  mimo: { compte: ['commands', 'skills'], projet: ['.claude/commands', '.claude/skills'] },
 };
 
 /** La première ligne « description: » de l'entête, quand il y en a une. */
@@ -121,7 +123,7 @@ function coffresDuMoteur(moteur: EngineId): string[] {
  */
 export function relevesDesCommandes(racineDuProjet: string | undefined): Record<string, CommandeSlash[]> {
   const releve: Record<string, CommandeSlash[]> = {};
-  for (const moteur of ['claude', 'codex', 'cursor'] as EngineId[]) {
+  for (const moteur of IDS_MOTEURS) {
     releve[moteur] = commandesSurLeDisque(moteur, racineDuProjet, coffresDuMoteur(moteur));
   }
   return releve;

@@ -40,6 +40,7 @@ import {
   texteDeLIndexDesSymptomes,
   texteDeLaFiche,
   texteDuSommaireDesCompetences,
+  descriptionMoteur,
 } from '@beluga/shared';
 import { PATHS } from './config.js';
 import { listAccountRecords } from './accounts.js';
@@ -289,7 +290,8 @@ export function relierCompetencesAuxCoffres(): BilanDeLiaison {
   for (const compte of listAccountRecords()) {
     // Seul Claude Code lit un dossier de compétences ; Codex ne connaît pas la
     // notion, et le briefing s'en charge pour lui.
-    if (compte.engine !== 'claude') continue;
+    // MiMo tourne dans l'outil de Claude : il lit le même dossier.
+    if (descriptionMoteur(compte.engine)?.outil !== 'claude') continue;
     const dossierSkills = path.join(compte.configDir, NOM_DOSSIER_COMPETENCES);
     try {
       fs.mkdirSync(dossierSkills, { recursive: true });

@@ -72,6 +72,13 @@
        change là où la convention était déjà tenue. */
     --en-cours: 38 90% 62%;
     --termine: 205 90% 60%;
+    /* LES SÉRIES D'UN GRAPHIQUE à plusieurs lignes (« Utilisateurs actifs »
+       des Statistiques) : violet, vert d'eau, rose. Trois teintes franches et
+       éloignées, qui n'empruntent NI l'orange du travail en cours NI le bleu du
+       terminé — une courbe n'est pas un état d'avancement. */
+    --serie-1: 262 83% 72%;
+    --serie-2: 168 70% 50%;
+    --serie-3: 335 80% 70%;
     --travail: 46 90% 60%;
     --termine-fg: 205 45% 12%;
     /* EXCEPTION À LA CONVENTION, limitée à la frise des cartes et à la barre
@@ -171,6 +178,9 @@
     /* Même convention, assombrie pour rester lisible sur fond blanc. */
     --en-cours: 32 90% 36%;
     --termine: 205 90% 38%;
+    --serie-1: 262 70% 50%;
+    --serie-2: 170 85% 30%;
+    --serie-3: 335 75% 45%;
     --travail: 46 90% 40%;
     --termine-fg: 205 45% 98%;
     /* Sur fond blanc, le même repère : un gris clair LÉGER, assez marqué pour
@@ -240,6 +250,9 @@
     --publie: 272 44% 47%;
     --en-cours: 28 78% 40%;
     --termine: 205 62% 37%;
+    --serie-1: 264 45% 45%;
+    --serie-2: 166 55% 30%;
+    --serie-3: 338 55% 45%;
     --travail: 46 78% 38%;
     --termine-fg: 205 31% 98%;
     /* Le cadre d'un plan descend SOUS le fond de page, seul sens qui lui reste
@@ -297,6 +310,9 @@
     --publie: 265 74% 72%;
     --en-cours: 36 85% 62%;
     --termine: 205 78% 64%;
+    --serie-1: 260 75% 74%;
+    --serie-2: 169 60% 55%;
+    --serie-3: 333 75% 72%;
     --travail: 46 85% 60%;
     --termine-fg: 205 39% 12%;
     --fond-plan: 220 12% 22%;
@@ -354,6 +370,9 @@
     --publie: 262 55% 46%;
     --en-cours: 30 85% 38%;
     --termine: 205 85% 38%;
+    --serie-1: 263 65% 48%;
+    --serie-2: 171 80% 28%;
+    --serie-3: 336 70% 44%;
     --travail: 46 85% 40%;
     --termine-fg: 205 42% 98%;
     --fond-plan: 210 26% 84%;
@@ -408,6 +427,9 @@
     --publie: 265 65% 68%;
     --en-cours: 36 80% 58%;
     --termine: 205 75% 60%;
+    --serie-1: 261 70% 75%;
+    --serie-2: 164 55% 58%;
+    --serie-3: 334 70% 74%;
     --travail: 46 80% 56%;
     --termine-fg: 205 37% 12%;
     --fond-plan: 148 13% 24%;
@@ -463,6 +485,9 @@
     --publie: 268 85% 32%;
     --en-cours: 28 100% 30%;
     --termine: 205 100% 28%;
+    --serie-1: 265 90% 38%;
+    --serie-2: 172 100% 22%;
+    --serie-3: 337 90% 36%;
     --travail: 46 100% 32%;
     --termine-fg: 205 50% 98%;
     --fond-plan: 45 6% 84%;
@@ -506,6 +531,9 @@
     --publie: 270 62% 72%;
     --en-cours: 34 88% 64%;
     --termine: 203 72% 64%;
+    --serie-1: 259 60% 74%;
+    --serie-2: 167 50% 56%;
+    --serie-3: 332 65% 72%;
     --travail: 46 88% 62%;
     --termine-fg: 203 36% 12%;
     --fond-plan: 34 14% 23%;
@@ -540,6 +568,9 @@
     --publie: 266 53% 45%;
     --en-cours: 31 82% 37%;
     --termine: 206 76% 36%;
+    --serie-1: 258 55% 46%;
+    --serie-2: 173 70% 27%;
+    --serie-3: 339 65% 42%;
     --travail: 46 82% 38%;
     --termine-fg: 206 38% 98%;
     --fond-plan: 220 17% 83%;
@@ -574,6 +605,9 @@
     --publie: 260 67% 73%;
     --en-cours: 32 84% 66%;
     --termine: 198 81% 66%;
+    --serie-1: 257 80% 76%;
+    --serie-2: 170 65% 55%;
+    --serie-3: 331 80% 74%;
     --travail: 46 84% 64%;
     --termine-fg: 198 40% 12%;
     --fond-plan: 210 18% 22%;
@@ -608,6 +642,9 @@
     --publie: 264 51% 44%;
     --en-cours: 29 84% 36%;
     --termine: 202 74% 35%;
+    --serie-1: 266 50% 44%;
+    --serie-2: 165 65% 26%;
+    --serie-3: 334 60% 43%;
     --travail: 46 84% 38%;
     --termine-fg: 202 37% 98%;
     --fond-plan: 145 18% 82%;
@@ -642,6 +679,9 @@
     --publie: 271 80% 76%;
     --en-cours: 30 100% 68%;
     --termine: 201 96% 69%;
+    --serie-1: 263 100% 80%;
+    --serie-2: 168 90% 62%;
+    --serie-3: 330 100% 78%;
     --travail: 46 100% 66%;
     --termine-fg: 201 48% 12%;
     --fond-plan: 45 5% 21%;

@@ -207,4 +207,19 @@ function marquerLAgent(agentId: string, attend: boolean): void {
   if (Boolean(agent.attendReponse) === attend) return;
   const frais = store.saveAgent({ ...agent, attendReponse: attend ? true : undefined });
   bus.emit({ type: 'agent.upsert', agent: frais });
+  /*
+   * UNE QUESTION POSÉE EST UN RENDU : elle attend quelqu'un, exactement comme
+   * une compréhension ou un rapport. On écrit l'instant sur la carte, ce qui
+   * allume la pastille bleue (`carteNonLue`) — et le compteur du projet — tant
+   * que la carte n'a pas été ouverte depuis. La réponse ne l'éteint pas : c'est
+   * la consultation qui le fait, comme pour tout rendu.
+   */
+  if (attend && frais.cardId) {
+    try {
+      const carte = store.marquerRendu(frais);
+      if (carte) bus.emit({ type: 'card.upsert', card: carte });
+    } catch {
+      /* la pastille est un confort : une carte illisible n'empêche pas la question */
+    }
+  }
 }

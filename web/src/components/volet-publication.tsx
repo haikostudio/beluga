@@ -900,9 +900,12 @@ export function CorpsDuVolet({
  * LE VOLET DANS SON TIROIR — la porte ouverte par le bouton de déploiement, et
  * par la relecture d'une publication passée.
  *
- * `plein` : le volet prend la HAUTEUR entière, il ne s'arrête pas sur son
- * contenu. Une liste dont une seule étape est dépliée s'ajusterait sinon à
- * quelques lignes, et le pied remonterait au milieu de l'écran.
+ * LA FEUILLE SUIT SON CONTENU, plafonnée par le tiroir (92 % de l'écran) : un
+ * parcours court ne s'ouvre plus en plein écran sur une grande zone vide.
+ * Déplier une étape fait grandir la feuille jusqu'au plafond ; au-delà, seul
+ * le parcours défile (`ZoneDefilement` en `flex-1 min-h-0`) et le pied des
+ * gestes reste collé en bas. Le fil du conducteur, lui, garde son tiroir
+ * `plein` : une conversation a besoin de la place.
  */
 export function VoletDePublication({
   open,
@@ -925,7 +928,7 @@ export function VoletDePublication({
   agentAOuvrir?: { id: string; nonce: number } | null;
 }) {
   return (
-    <Drawer open={open} onClose={onClose} empile={empile} plein>
+    <Drawer open={open} onClose={onClose} empile={empile}>
       <CorpsDuVolet cible={cible} run={run} sousTitre={sousTitre} controls={controls} agentAOuvrir={agentAOuvrir} />
     </Drawer>
   );

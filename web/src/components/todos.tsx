@@ -1,61 +1,10 @@
 import * as React from 'react';
-import { BookOpen, Check, ChevronRight, CircleDot, Loader2, X } from 'lucide-react';
-import { RunStep, TodoItem, mentionTachesNonFaites } from '@beluga/shared';
-import { client } from '@/lib/client';
-import { useApp } from '@/lib/use-app';
+import { Check, CircleDot, Loader2, X } from 'lucide-react';
+import { TodoItem, mentionTachesNonFaites } from '@beluga/shared';
 import { ZoneDefilement } from '@/components/ui';
 import { estTelephone } from '@/lib/telephone';
 import { cn, duration } from '@/lib/utils';
 import { t } from '@/lib/langue';
-
-/**
- * Le premier repère de chaque réponse (PLAN §26) : l'agent a relu la mémoire du
- * projet AVANT de répondre. Un clic déplie ce qu'il avait sous les yeux — le
- * texte vient du projet, il n'est pas recopié sous chaque message.
- */
-export function MemoryNote({ step, projectId }: { step: RunStep; projectId?: string }) {
-  const [open, setOpen] = React.useState(false);
-  const state = useApp();
-  const texte = projectId ? state.memory[projectId] : undefined;
-  const vide = step.state === 'skipped';
-
-  React.useEffect(() => {
-    if (open && projectId && texte === undefined) client.send({ type: 'memory.get', projectId });
-  }, [open, projectId, texte]);
-
-  const ouvrable = !vide && !!projectId;
-
-  return (
-    <div className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
-      <button
-        type="button"
-        disabled={!ouvrable}
-        onClick={() => setOpen((value) => !value)}
-        className={cn('flex w-full items-center gap-2 px-2.5 py-1.5 text-left', ouvrable && 'hover:bg-raised')}
-      >
-        <BookOpen className={cn('h-3 w-3 shrink-0', vide ? 'text-faint' : 'text-accent')} />
-        <span className="flex-1 truncate text-[13.5px] text-muted">{step.label}</span>
-        {ouvrable ? (
-          <ChevronRight className={cn('h-3 w-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
-        ) : null}
-      </button>
-      {open ? (
-        <div className="mx-2 mb-2">
-          <p className="px-1 pb-1 text-[12px] text-faint">{t('La mémoire du projet, telle qu\'elle est aujourd\'hui :')}</p>
-          <ZoneDefilement
-            fond="hsl(var(--raised))"
-            classeEnveloppe="max-h-64 flex-none rounded bg-raised"
-            className="p-2"
-          >
-            <pre className="whitespace-pre-wrap text-[12.5px] leading-relaxed text-muted">
-              {texte ?? t('Lecture…')}
-            </pre>
-          </ZoneDefilement>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 /** Où l'on retient le choix « replié / déplié » d'une personne. */
 const CLE_VOLET = 'beluga.volet-taches.ouvert';

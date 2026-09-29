@@ -19,6 +19,8 @@
  * Règle PURE : aucun accès à la base ni au moteur, elle se teste seule.
  */
 
+import { COLONNES_AVANT_LE_TRAVAIL } from './columns.js';
+
 /** Qui pose la carte : c'est ce que la demande de secours nomme. */
 export type AuteurDeCarte =
   | 'utilisateur'
@@ -94,6 +96,7 @@ export function carteSansDemande(carte: CarteANaitre): boolean {
 export function demandeDeCadrageDeNaissance(
   carte: { title: string; description?: string; briefing?: string },
   auteur: AuteurDeCarte,
+  options: { sansTemoin?: boolean } = {},
 ): string {
   const demande = String(carte.briefing ?? '').trim() || String(carte.description ?? '').trim();
   return `CETTE CARTE A ÉTÉ POSÉE PAR ${LIBELLE_AUTEUR_DE_CARTE[auteur].toUpperCase()}, pas tapée par l'utilisateur. Sa demande ouvre déjà ta conversation : c'est ce besoin-là que tu cadres maintenant, exactement comme si l'utilisateur venait de te l'écrire. C'est un TRAVAIL À CADRER, pas une question : ce tour se termine par ta compréhension rendue.
@@ -102,7 +105,61 @@ TITRE POSÉ : ${carte.title}
 ${demande ? `\nLA DEMANDE :\n${demande}\n` : ''}
 DÉROULE TON PROCESSUS HABITUEL DE CADRAGE, sans en sauter un temps : garde le titre s'il dit juste le besoin et affine-le sinon, écris la synthèse de cette demande (« resumeDemande »), ouvre la mémoire des sujets touchés, écris la carte (description et niveau), puis RENDS CE QUE TU AS COMPRIS avec « rendre_comprehension » — ET ARRÊTE-TOI LÀ. Rien ne se lance : c'est l'utilisateur qui décide.
 
-VÉRIFIE D'ABORD QUE CETTE DEMANDE RELÈVE BIEN DE CE PROJET. Si elle vise clairement un autre projet, déplace la carte avec « deplacer_vers_projet » et arrête ton tour : le cadrage reprend là-bas.`;
+VÉRIFIE D'ABORD QUE CETTE DEMANDE RELÈVE BIEN DE CE PROJET. Si elle vise clairement un autre projet, déplace la carte avec « deplacer_vers_projet » et arrête ton tour : le cadrage reprend là-bas.${
+    options.sansTemoin ? `\n\n${CONSIGNE_DU_CADRAGE_SANS_TEMOIN}` : ''
+  }`;
+}
+
+/**
+ * UN CADRAGE QUI PART SANS PERSONNE DEVANT L'ÉCRAN (carte posée par une
+ * vérification automatique, cadrage rattrapé au démarrage) : aucune question —
+ * elle figerait la carte jusqu'à ce que quelqu'un l'ouvre — et aucun plan, qui
+ * ne se produit jamais de lui-même (MEM-0472, même règle que la nuit).
+ */
+export const CONSIGNE_DU_CADRAGE_SANS_TEMOIN =
+  "PERSONNE N'EST DEVANT L'ÉCRAN : NE POSE AUCUNE QUESTION AVEC « ask_user », elle laisserait cette carte figée jusqu'à ce que quelqu'un l'ouvre. Ce qui manque se tranche : tu annonces ton choix et tu l'écris en hypothèse (« Je suppose que… »). N'APPELLE JAMAIS « rendre_plan » : le plan ne se produit jamais de lui-même. Ton tour s'arrête avec la compréhension rendue ; l'utilisateur la lira, l'affinera au besoin, puis lancera la carte d'un clic.";
+
+/**
+ * LE CADRAGE DE CETTE CARTE N'EST-IL JAMAIS PARTI ? (constaté le 26.09.2026 :
+ * cinq cartes « suivi des visites » nées avec un agent de cadrage, mais sans
+ * que rien ne lui soit jamais envoyé — l'écran les disait « en cours » pour
+ * toujours, et aucun rattrapage ne les voyait, puisqu'elles avaient un agent.)
+ *
+ * Vrai seulement quand TOUT dit « rien n'a jamais bougé » : carte POSÉE PAR UN
+ * AGENT (personne n'a de premier message à y taper), avant le
+ * travail et non rangée, une demande écrite, un agent de CADRAGE au repos, sans
+ * un seul message, sans demande en file, sans session moteur, sans
+ * compréhension ni plan sur la carte, et pas déjà relancée (marque posée AVANT
+ * l'envoi, pour qu'un échec ne relance pas en boucle). Une carte de
+ * l'utilisateur dont l'agent a parlé, une carte lancée ou rangée ne sont
+ * jamais touchées.
+ */
+export function cadrageJamaisParti(etat: {
+  carte: {
+    column: string;
+    origin?: string | null;
+    archivedAt?: number | null;
+    briefing?: string | null;
+    parcours?: { comprehension?: { texte?: string } | null; plans?: readonly unknown[] | null; planDemandeA?: number | null } | null;
+  };
+  agent: { role: string } | null;
+  auRepos: boolean;
+  messages: number;
+  enFile: number;
+  aUneSession: boolean;
+  dejaRelance: boolean;
+}): boolean {
+  const { carte, agent } = etat;
+  if (!agent || agent.role !== 'cadrage') return false;
+  /* Une carte de l'utilisateur attend SON premier message, même quand sa
+     description lui a déjà composé une demande : on ne parle pas à sa place. */
+  if (carte.origin !== 'agent') return false;
+  if (!(COLONNES_AVANT_LE_TRAVAIL as readonly string[]).includes(carte.column) || carte.archivedAt) return false;
+  if (!String(carte.briefing ?? '').trim()) return false;
+  if (!etat.auRepos || etat.messages > 0 || etat.enFile > 0 || etat.aUneSession || etat.dejaRelance) return false;
+  const p = carte.parcours;
+  if (p?.comprehension?.texte?.trim() || (p?.plans?.length ?? 0) > 0 || p?.planDemandeA) return false;
+  return true;
 }
 
 /* ------------------------------------------------------------------ */

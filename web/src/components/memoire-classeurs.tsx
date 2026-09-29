@@ -24,25 +24,25 @@ import {
   MessageSquare,
   MoreVertical,
   Pencil,
-  RefreshCw,
   Scale,
   Search,
   ShieldCheck,
   Sparkles,
   Target,
-  Upload,
   Workflow,
   X,
   XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import {
+  DEFINITION_COMPETENCES,
   DEFINITION_TYPE,
   EXPLICATION_CHANGELOG_MAX,
   LIBELLE_TYPE,
   POIDS_CHANGELOG,
   TITRE_CHANGELOG_MAX,
   detailSansSectionsVides,
+  ficheDeLUnite,
   fichesDeLaPortee,
   motsDeRecherche,
   poidsDeLEntree,
@@ -62,7 +62,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
@@ -88,7 +87,6 @@ import { cn } from '@/lib/utils';
  *
  * Une unité se CONFIRME (elle quitte « à relire ») ou se DÉPRÉCIE d'un clic, par
  * la même porte d'écriture que les agents ; son historique se déplie. La portée
- * se RÉGÉNÈRE par un modèle (le rapport s'affiche quand le lot est importé) et
  * s'exporte en un seul Markdown. Les règles vivent dans
  * `shared/src/connaissances.ts`.
  */
@@ -109,21 +107,11 @@ interface FicheResumee {
   depreciees: number;
 }
 
-interface Rapport {
-  creees: number;
-  fusionnees: number;
-  dejaLa: number;
-  refusees: { titre: string; raisons: string[] }[];
-  at: number;
-}
-
 interface EtatDesFiches {
   /** La portée dont ces fiches sont la liste : une réponse d'avant ne s'affiche jamais sous une autre portée. */
   portee: string;
   fiches: FicheResumee[];
   changelog: number | null;
-  rapport: Rapport | null;
-  generation: { depuis: number; journal: string[] } | null;
 }
 
 interface Version {
@@ -206,16 +194,6 @@ export function MemoireClasseurs({
     void relireFiches();
   }, [open, relireFiches]);
 
-  // Pendant une génération, le rapport se relit toutes les cinq secondes.
-  React.useEffect(() => {
-    if (!open || !etat?.generation) return;
-    const minuteur = window.setInterval(() => {
-      void relireFiches();
-      void relirePortees();
-    }, 5000);
-    return () => window.clearInterval(minuteur);
-  }, [open, etat?.generation, relireFiches, relirePortees]);
-
   // La recherche part après une courte pause de frappe : une requête par mot, pas par lettre.
   React.useEffect(() => {
     if (!open) return;
@@ -242,27 +220,6 @@ export function MemoireClasseurs({
         lien.download = `connaissances-${sansAccents(nom).replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase()}.md`;
         lien.click();
         window.setTimeout(() => URL.revokeObjectURL(lien.href), 2000);
-      })
-      .catch(erreur);
-  };
-
-  const regenerer = () => {
-    client
-      .call<{ lance: boolean }>({ type: 'memoire.regenerer', portee: porteeId })
-      .then((data) => {
-        client.pushToast(data.lance ? 'success' : 'info', data.lance ? t('Génération lancée : le rapport s’affichera ici.') : t('Une génération tourne déjà pour cette portée.'));
-        void relireFiches();
-      })
-      .catch(erreur);
-  };
-
-  const importer = () => {
-    client
-      .call<{ rapports: Rapport[] }>({ type: 'memoire.importer', portee: porteeId })
-      .then((data) => {
-        client.pushToast('success', t('Lots importés : {n}', { n: data.rapports?.length ?? 0 }));
-        void relireFiches();
-        void relirePortees();
       })
       .catch(erreur);
   };
@@ -346,16 +303,6 @@ export function MemoireClasseurs({
   const portee = portees.find((p) => p.id === porteeId);
   // Tant que les fiches de la portée choisie ne sont pas arrivées, rien de la portée d'avant ne s'affiche.
   const etatCourant = etat?.portee === porteeId ? etat : null;
-  const rapport = etatCourant?.rapport;
-
-  const phraseDuRapport = rapport
-    ? t('Dernière génération : {c} créées, {f} fusionnées, {d} déjà là, {r} refusées.', {
-        c: rapport.creees,
-        f: rapport.fusionnees,
-        d: rapport.dejaLa,
-        r: rapport.refusees.length,
-      })
-    : null;
   const nomDePortee = portee ? (portee.id === 'global' ? t('Global') : portee.nom) : '';
   const ficheCourante = etatCourant?.fiches.find((f) => f.id === ouverte);
   const nomDuSujet =
@@ -571,22 +518,6 @@ export function MemoireClasseurs({
                 <Download className="h-3.5 w-3.5" />
                 {t('Exporter')}
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={importer} data-memoire-importer>
-                <Upload className="h-3.5 w-3.5" />
-                {t('Importer les lots')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={regenerer} disabled={Boolean(etatCourant?.generation)} data-memoire-regenerer>
-                {etatCourant?.generation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                {etatCourant?.generation ? t('Génération en cours…') : t('Régénérer')}
-              </DropdownMenuItem>
-              {phraseDuRapport ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="whitespace-normal text-[12px] font-normal text-faint" data-memoire-rapport>
-                    {phraseDuRapport}
-                  </DropdownMenuLabel>
-                </>
-              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
@@ -603,26 +534,8 @@ export function MemoireClasseurs({
             <Download className="h-3 w-3" />
             {t('Exporter')}
           </Button>
-          <Button variant="ghost" size="sm" onClick={importer} data-memoire-importer>
-            <Upload className="h-3 w-3" />
-            {t('Importer les lots')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={regenerer} disabled={Boolean(etatCourant?.generation)} data-memoire-regenerer>
-            {etatCourant?.generation ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            {etatCourant?.generation ? t('Génération en cours…') : t('Régénérer')}
-          </Button>
         </header>
       )}
-      {etatCourant?.generation ? (
-        <p className="shrink-0 truncate px-3 pb-2 text-[12px] text-faint" data-memoire-generation>
-          {etatCourant.generation.journal.at(-1) ?? t('Génération en cours…')}
-        </p>
-      ) : phraseDuRapport && !telephone ? (
-        <p className="shrink-0 px-3 pb-2 text-[12px] text-faint" data-memoire-rapport>
-          {phraseDuRapport}
-        </p>
-      ) : null}
-
       {telephone ? (
         /*
          * LE TÉLÉPHONE EN TROIS PAGES : une seule zone à la fois, en plein
@@ -699,15 +612,8 @@ export function MemoireClasseurs({
 /** Ce qui entre dans une fiche : la définition de chacun de ses types (une fiche peut en réunir plusieurs). */
 function definitionsDeLaFiche(portee: string, ficheId: string): { type: Unite['type']; texte: string }[] {
   const fiche = fichesDeLaPortee(portee).find((f) => f.id === ficheId);
+  if (fiche?.competences) return [{ type: 'operation', texte: DEFINITION_COMPETENCES }];
   return (fiche?.types ?? []).map((type) => ({ type, texte: DEFINITION_TYPE[type] }));
-}
-
-function ficheDuTypeCote(unite: Unite): string {
-  const projet = ['00_project', '01_requirements', '02_architecture', '03_domain', '04_conventions', '05_decisions', '06_components', '07_integrations', '08_constraints', '09_environment', '10_operations', '11_issues', '12_lessons'];
-  const global = ['00_principles', '01_conventions', '02_architecture', '03_decisions', '04_integrations', '05_operations', '06_lessons'];
-  const typesProjet: Record<string, number> = { project: 0, requirement: 1, architecture: 2, domain: 3, convention: 4, decision: 5, component: 6, integration: 7, constraint: 8, security: 8, environment: 9, operation: 10, issue: 11, lesson: 12 };
-  const typesGlobal: Record<string, number> = { project: 0, requirement: 0, constraint: 0, convention: 1, architecture: 2, component: 2, domain: 2, decision: 3, integration: 4, environment: 5, operation: 5, security: 5, lesson: 6, issue: 6 };
-  return unite.portee === 'global' ? global[typesGlobal[unite.type]] : projet[typesProjet[unite.type]];
 }
 
 function ListeDesTrouvees({
@@ -730,7 +636,7 @@ function ListeDesTrouvees({
         <button
           key={u.id}
           type="button"
-          onClick={() => onOuvrir(u, ficheDuTypeCote(u))}
+          onClick={() => onOuvrir(u, ficheDeLUnite(u).id)}
           data-memoire-trouvee={u.id}
           className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised"
         >

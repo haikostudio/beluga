@@ -44,6 +44,8 @@ import {
   type ChoixCreation,
   type IdMoteur,
   type RoleCreation,
+  estUnMoteur,
+  descriptionMoteur,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -158,7 +160,7 @@ function roleLu(brut: unknown): RoleCreation | undefined {
 }
 
 function moteurLu(brut: unknown): IdMoteur | undefined {
-  return ['claude', 'codex', 'cursor'].includes(String(brut)) ? (brut as IdMoteur) : undefined;
+  return estUnMoteur(brut) ? brut : undefined;
 }
 
 /** Le dossier que le délégué lit : la copie de la carte, sinon le projet. */
@@ -253,7 +255,8 @@ export async function deleguer(ctx: ContexteCreation, args: Record<string, unkno
   if (role === 'avis') compte.avis += 1;
 
   const dossier = dossierALire(ctx.agentId, ctx.projectId);
-  const isole = choix.moteur === 'cursor' || !dossier;
+  // Un moteur dont le fil ne se reprend pas hors dossier (Cursor) travaille à part.
+  const isole = !descriptionMoteur(choix.moteur)?.repriseHorsDossier || !dossier;
   const cwd = isole ? fs.mkdtempSync(path.join(os.tmpdir(), 'beluga-creation-')) : dossier!;
   const runtime = await import('./runtime.js');
   const depart = Date.now();

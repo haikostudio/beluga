@@ -14,6 +14,8 @@
  */
 
 import type { CiblePublication } from './etapes-publication.js';
+import { BANDE_GARDE_UN_FINI_MS } from './en-route.js';
+import { agentTientSonTour } from './travail-en-cours.js';
 import {
   aUnProcessus,
   lireProcessusRendu,
@@ -66,6 +68,48 @@ export function ongletDEntreeDeProduction(input: { enPlace: boolean; deroule?: b
 /** L'agent de configuration retenu sur le projet, s'il y en a un. */
 export function agentDeConfiguration(projet: ProjetAvecProcedures | undefined): string | undefined {
   return projet?.miseEnProduction?.agentId || undefined;
+}
+
+/**
+ * LE SUIVI DE L'INITIALISATION — ce que montrent le bandeau du bas et la
+ * vignette spéciale de « En cours » pendant que l'agent de configuration
+ * travaille (demande du 26/09/2026 : la zone droite du bandeau restait vide et
+ * rien, au tableau, ne disait qu'un agent écrivait la procédure).
+ *
+ * L'agent n'a ni carte ni branche (DEC-256) : ce n'est PAS une carte, et la
+ * vignette ne compte ni dans le compteur de la colonne ni dans son avancement.
+ *   - `demarre` / `travail` : il tient son tour (`agentTientSonTour`) ;
+ *   - `question` : il attend la réponse de l'utilisateur (ask_user) ;
+ *   - `fini` : il vient de finir, depuis moins d'une minute (la même garde que
+ *     la bande des agents sans carte) — le BANDEAU le dit, la vignette non ;
+ *   - `null` : rien à suivre (pas d'agent retenu, ou agent au repos).
+ */
+export type EtatDeLInitialisation = 'demarre' | 'travail' | 'question' | 'fini';
+
+export interface AgentPourLInitialisation {
+  id: string;
+  status?: string;
+  tourVivantDepuis?: number;
+  attendReponse?: boolean;
+  endedAt?: number;
+}
+
+export function etatDeLInitialisation(
+  projet: ProjetAvecProcedures | undefined,
+  agent: AgentPourLInitialisation | null | undefined,
+  maintenant: number,
+): EtatDeLInitialisation | null {
+  const retenu = agentDeConfiguration(projet);
+  if (!retenu || !agent || agent.id !== retenu) return null;
+  if (agent.attendReponse === true) return 'question';
+  if (agentTientSonTour(agent)) return agent.status === 'starting' ? 'demarre' : 'travail';
+  if (agent.endedAt && maintenant - agent.endedAt < BANDE_GARDE_UN_FINI_MS) return 'fini';
+  return null;
+}
+
+/** La vignette de « En cours » : seulement tant que l'agent travaille ou attend. */
+export function vignetteDInitialisationVisible(etat: EtatDeLInitialisation | null): boolean {
+  return etat === 'demarre' || etat === 'travail' || etat === 'question';
 }
 
 /* ------------------------------------------------------------------ */

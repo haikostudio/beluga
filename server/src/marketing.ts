@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {
+  agentEstUnRobot,
   type ActionMarketing,
   type ConfigurationMarketing,
   type ContenuMarketing,
@@ -16,8 +17,10 @@ import {
   LABEL_MARKETING,
   TAILLE_EVENEMENT_MAX,
   annonceDeLivraison,
+  agentTientSonTour,
   appareilDe,
   configurationVide,
+  estUnRegroupement,
   estLHeureDuPlanHebdo,
   extraitDeSuivi,
   fusionnerConfiguration,
@@ -88,6 +91,9 @@ interface LigneEspace {
   rapport: string | null;
   rapport_le: number | null;
   recommandations_canaux: string | null;
+  actif: number | null;
+  nom: string | null;
+  mode_suivi: string | null;
   cree_le: number;
   maj_le: number;
 }
@@ -128,6 +134,9 @@ function depuisLigneEspace(l: LigneEspace): EspaceMarketing {
     suiviVerifieLe: l.suivi_verifie_le ?? undefined,
     rapport: l.rapport ?? undefined,
     rapportLe: l.rapport_le ?? undefined,
+    actif: l.actif !== 0,
+    modeSuivi: l.mode_suivi === 'visiteur' ? 'visiteur' : 'anonyme',
+    ...(l.nom ? { nom: l.nom } : {}),
     creeLe: l.cree_le,
     majLe: l.maj_le,
   };
@@ -142,7 +151,7 @@ export function listerEspaces(): EspaceMarketing[] {
   return (getDb().prepare('SELECT * FROM marketing_espaces ORDER BY cree_le ASC').all() as LigneEspace[]).map(depuisLigneEspace);
 }
 
-function espaceParCle(cle: string): EspaceMarketing | null {
+export function espaceParCle(cle: string): EspaceMarketing | null {
   const l = getDb().prepare('SELECT * FROM marketing_espaces WHERE cle_suivi = ?').get(cle) as LigneEspace | undefined;
   return l ? depuisLigneEspace(l) : null;
 }
@@ -162,8 +171,19 @@ export function assurerEspace(projectId: string, maintenant = Date.now()): Espac
   return lireEspace(projectId)!;
 }
 
-function diffuser(projectId: string): void {
+export function diffuser(projectId: string): void {
   bus.emit({ type: 'marketing', projectId });
+}
+
+/**
+ * COUPER OU RENDRE LE SUIVI MARKETING D'UN PROJET. Un projet sans espace en
+ * reçoit un : c'est lui qui porte le drapeau.
+ */
+export function ecrireActif(projectId: string, actif: boolean, maintenant = Date.now()): EspaceMarketing {
+  assurerEspace(projectId, maintenant);
+  getDb().prepare('UPDATE marketing_espaces SET actif = ?, maj_le = ? WHERE project_id = ?').run(actif ? 1 : 0, maintenant, projectId);
+  diffuser(projectId);
+  return lireEspace(projectId)!;
 }
 
 export function ecrireConfiguration(projectId: string, recue: Record<string, unknown>, maintenant = Date.now()): EspaceMarketing {
@@ -247,7 +267,11 @@ export function estAgentMarketing(agentId: string): boolean {
   return !!store.getCard(agent.cardId)?.labels.includes(LABEL_MARKETING);
 }
 
-/** Le script est POSÉ (carte lancée, geste annoncé) : il reste à voir passer la première visite. */
+/**
+ * Le script est POSÉ par un geste annoncé (plateforme, marche à suivre) : il
+ * reste à voir passer la première visite. Jamais appelé à la naissance d'une
+ * carte : une carte n'est pas un code posé (`etatSuiviApresDiagnostic`).
+ */
 export function marquerSuiviPose(projectId: string): void {
   getDb()
     .prepare("UPDATE marketing_espaces SET etat_suivi = CASE WHEN etat_suivi = 'verifie' THEN 'verifie' ELSE 'pose' END, maj_le = ? WHERE project_id = ?")
@@ -549,7 +573,12 @@ function debitDepasse(ip: string, maintenant: number): boolean {
   return c.n > DEBIT_MAX_PAR_MINUTE;
 }
 
-export type RecuDeSuivi = { ok: true } | { ok: false; statut: number; raison: string };
+/**
+ * `mode` : rendu à la première page vue, pour que le script sache s'il doit
+ * montrer le bandeau d'accord (« v ») ou rester anonyme (« a »), et dans quelle
+ * langue par défaut.
+ */
+export type RecuDeSuivi = { ok: true; mode?: { m: 'a' | 'v'; l: string } } | { ok: false; statut: number; raison: string };
 
 /**
  * REÇOIT UN ÉVÉNEMENT D'UNE PAGE. Refusé : trop gros, trop fréquent, clé
@@ -561,6 +590,8 @@ export function recevoirEvenement(entree: {
   origine?: string;
   ip: string;
   userAgent?: string;
+  /** Le code pays déjà déduit de l'adresse (`paysDeLaRequete`) : seul lui est écrit. */
+  pays?: string;
   maintenant?: number;
 }): RecuDeSuivi {
   const maintenant = entree.maintenant ?? Date.now();
@@ -578,13 +609,22 @@ export function recevoirEvenement(entree: {
   if (!origineAutorisee(entree.origine, espace.configuration)) return { ok: false, statut: 403, raison: 'site non déclaré' };
   const juge = jugerEvenementDeSuivi(brut);
   if (!juge.ok) return { ok: false, statut: 400, raison: juge.raison };
+  // Un robot (navigateur sans écran, indexeur, contrôle) n'est ni compté ni pris pour la première visite.
+  if (agentEstUnRobot(entree.userAgent)) return { ok: true };
   const e = juge.evenement;
+  /* LES IDENTIFIANTS DU MODE VISITEUR ne sont gardés que si l'espace est EN
+     mode visiteur : un script resté avec un ancien accord, ou une page qui les
+     invente, n'écrit rien de persistant sur un site anonyme. */
+  const visiteurMode = espace.modeSuivi === 'visiteur';
   const evenement: EvenementDeSuivi = {
     ...e,
+    ...(visiteurMode && juge.visiteurPersistant ? { visiteurPersistant: juge.visiteurPersistant } : {}),
+    ...(visiteurMode && juge.visiteurPersistant && juge.session ? { session: juge.session } : {}),
     instant: maintenant,
     visiteur: visiteurDuJour(entree.ip, entree.userAgent ?? '', cle, maintenant),
     source: e.type === 'vue' || e.type === 'session' ? sourceDeLaVisite({ referent: juge.referent, utm: juge.utm, origineDuSite: entree.origine }) : undefined,
     appareil: appareilDe(entree.userAgent),
+    ...(entree.pays ? { pays: entree.pays } : {}),
   };
   // Un contenu inconnu de ce projet n'est pas crédité : un paramètre recopié ne fausse pas les chiffres.
   if (evenement.contenuId && !contenuDuProjetParCode(espace.projectId, evenement.contenuId)) delete evenement.contenuId;
@@ -606,6 +646,7 @@ export function recevoirEvenement(entree: {
     diffuser(espace.projectId);
     log.info(`marketing : première visite reçue pour ${espace.projectId}, suivi vérifié`);
   }
+  if (evenement.type === 'vue') return { ok: true, mode: { m: visiteurMode ? 'v' : 'a', l: espace.configuration.langue } };
   return { ok: true };
 }
 
@@ -618,8 +659,8 @@ function contenuDuProjetParCode(projectId: string, code: string): string | null 
 function ecrireEvenement(projectId: string, e: EvenementDeSuivi): void {
   getDb()
     .prepare(
-      `INSERT INTO marketing_evenements (project_id, instant, type, chemin, source, contenu_id, visiteur, visite, duree_ms, montant_centimes, devise, reference, objectif, variante, retour, appareil)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO marketing_evenements (project_id, instant, type, chemin, source, contenu_id, visiteur, visite, duree_ms, montant_centimes, devise, reference, objectif, variante, retour, appareil, visiteur_persistant, session, repere, pays)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       projectId,
@@ -638,6 +679,10 @@ function ecrireEvenement(projectId: string, e: EvenementDeSuivi): void {
       e.variante ?? null,
       e.retour ? 1 : 0,
       e.appareil ?? null,
+      e.visiteurPersistant ?? null,
+      e.session ?? null,
+      e.repere ?? null,
+      e.pays ?? null,
     );
 }
 
@@ -706,16 +751,72 @@ interface LigneEvenement {
   variante: string | null;
   retour: number | null;
   appareil: string | null;
+  visiteur_persistant: string | null;
+  session: string | null;
+  repere: string | null;
+  pays: string | null;
 }
 
 /** Au-delà, les plus vieux événements de la période sont ignorés — et l'écran le dit. */
 const EVENEMENTS_LUS_MAX = 200_000;
 
-export function resultatsDuProjet(projectId: string, jours = 30, maintenant = Date.now()) {
-  const depuis = maintenant - Math.max(1, Math.min(90, jours)) * 86_400_000;
-  const lignes = getDb()
-    .prepare('SELECT * FROM marketing_evenements WHERE project_id = ? AND instant >= ? ORDER BY instant DESC LIMIT ?')
-    .all(projectId, depuis, EVENEMENTS_LUS_MAX) as LigneEvenement[];
+function lignesDEvenements(projectId: string, depuis: number, jusqua = Number.MAX_SAFE_INTEGER): LigneEvenement[] {
+  return getDb()
+    .prepare('SELECT * FROM marketing_evenements WHERE project_id = ? AND instant >= ? AND instant <= ? ORDER BY instant DESC LIMIT ?')
+    .all(projectId, depuis, jusqua, EVENEMENTS_LUS_MAX) as LigneEvenement[];
+}
+
+/** Une période lue : un nombre de jours jusqu'à maintenant, ou deux bornes (`periodeDesStatistiques`). */
+export type PeriodeLue = number | { depuis: number; jusqua: number };
+
+function bornesDe(periode: PeriodeLue, maintenant: number): { depuis: number; jusqua: number } {
+  if (typeof periode === 'number') return { depuis: maintenant - Math.max(1, Math.min(90, periode)) * 86_400_000, jusqua: maintenant };
+  return periode;
+}
+
+/** Les événements bruts d'une période, pour l'analyse des parcours (`shared/src/statistiques.ts`). */
+export function evenementsDuProjet(projectId: string, periode: PeriodeLue = 30, maintenant = Date.now()): { evenements: EvenementDeSuivi[]; tronque: boolean } {
+  const { depuis, jusqua } = bornesDe(periode, maintenant);
+  const lignes = lignesDEvenements(projectId, depuis, jusqua);
+  return { evenements: lignes.map(depuisLigneEvenement), tronque: lignes.length >= EVENEMENTS_LUS_MAX };
+}
+
+/** Les événements d'UN visiteur reconnu (mode visiteur), sur toute la conservation — index `idx_marketing_evenements_persistant`. */
+export function evenementsDuVisiteur(projectId: string, visiteur: string): EvenementDeSuivi[] {
+  return (
+    getDb()
+      .prepare('SELECT * FROM marketing_evenements WHERE project_id = ? AND visiteur_persistant = ? ORDER BY instant ASC LIMIT 5000')
+      .all(projectId, visiteur) as LigneEvenement[]
+  ).map(depuisLigneEvenement);
+}
+
+function depuisLigneEvenement(l: LigneEvenement): EvenementDeSuivi {
+  return {
+    instant: l.instant,
+    type: l.type as EvenementDeSuivi['type'],
+    chemin: l.chemin ?? undefined,
+    source: l.source ?? undefined,
+    contenuId: l.contenu_id ?? undefined,
+    visiteur: l.visiteur,
+    visite: l.visite ?? undefined,
+    dureeMs: l.duree_ms ?? undefined,
+    montantCentimes: l.montant_centimes ?? undefined,
+    devise: l.devise ?? undefined,
+    reference: l.reference ?? undefined,
+    objectif: l.objectif ?? undefined,
+    variante: (l.variante as 'A' | 'B' | null) ?? undefined,
+    retour: l.retour ? true : undefined,
+    appareil: (l.appareil as EvenementDeSuivi['appareil']) ?? undefined,
+    visiteurPersistant: l.visiteur_persistant ?? undefined,
+    session: l.session ?? undefined,
+    repere: l.repere ?? undefined,
+    pays: l.pays ?? undefined,
+  };
+}
+
+export function resultatsDuProjet(projectId: string, periode: PeriodeLue = 30, maintenant = Date.now()) {
+  const { depuis, jusqua } = bornesDe(periode, maintenant);
+  const lignes = lignesDEvenements(projectId, depuis, jusqua);
   const evenements: EvenementDeSuivi[] = lignes.map((l) => ({
     instant: l.instant,
     type: l.type as EvenementDeSuivi['type'],
@@ -734,7 +835,7 @@ export function resultatsDuProjet(projectId: string, jours = 30, maintenant = Da
     appareil: (l.appareil as EvenementDeSuivi['appareil']) ?? undefined,
   }));
   const ventes = (
-    getDb().prepare('SELECT * FROM marketing_ventes WHERE project_id = ? AND instant >= ?').all(projectId, depuis) as {
+    getDb().prepare('SELECT * FROM marketing_ventes WHERE project_id = ? AND instant >= ? AND instant <= ?').all(projectId, depuis, jusqua) as {
       instant: number;
       montant_centimes: number;
       devise: string;
@@ -754,7 +855,7 @@ export function resultatsDuProjet(projectId: string, jours = 30, maintenant = Da
       contenuId: v.contenu_id ?? undefined,
     }),
   );
-  return { ...resumeDesResultats({ evenements, ventes, depuis, jusqua: maintenant }), tronque: lignes.length >= EVENEMENTS_LUS_MAX };
+  return { ...resumeDesResultats({ evenements, ventes, depuis, jusqua }), tronque: lignes.length >= EVENEMENTS_LUS_MAX };
 }
 
 function compteursDuGuide(projectId: string) {
@@ -764,28 +865,178 @@ function compteursDuGuide(projectId: string) {
     )
     .get(projectId) as { publies: number | null; attente: number | null };
   const ventes = (getDb().prepare('SELECT COUNT(*) AS n FROM marketing_ventes WHERE project_id = ?').get(projectId) as { n: number }).n;
-  return { contenusPublies: r.publies ?? 0, contenusEnAttente: r.attente ?? 0, ventes };
+  return { contenusPublies: r.publies ?? 0, contenusEnAttente: r.attente ?? 0, ventes, carteDuSuivi: !!carteDuSuivi(projectId) };
 }
 
-/** La ligne d'un projet dans la liste de l'écran : où il en est, sans rien charger d'autre. */
-export function vueDEnsemble() {
+/** Combien de jours la vue d'ensemble trace, du plus ancien à aujourd'hui. */
+export const JOURS_DE_TENDANCE = 28;
+
+/** Les `n` derniers jours (UTC, comme `jourDe`), le plus ancien d'abord. */
+function derniersJours(maintenant: number, n = JOURS_DE_TENDANCE): string[] {
+  return Array.from({ length: n }, (_, i) => new Date(maintenant - (n - 1 - i) * 86_400_000).toISOString().slice(0, 10));
+}
+
+/**
+ * LES VISITES PAR JOUR ET PAR PROJET, sur les quatre dernières semaines, en
+ * UNE requête pour tous les projets (index `idx_marketing_evenements_instant`) :
+ * la vue d'ensemble ne relit jamais les statistiques complètes de chaque
+ * projet. Une visite = une clé de visite distincte, comme `resumeDesResultats`.
+ */
+function visitesParProjetEtJour(depuis: number): Map<string, Map<string, number>> {
+  const lignes = getDb()
+    .prepare(
+      `SELECT project_id AS projet, strftime('%Y-%m-%d', instant / 1000, 'unixepoch') AS jour,
+              COUNT(DISTINCT COALESCE(visite, visiteur || ':' || strftime('%Y-%m-%d', instant / 1000, 'unixepoch'))) AS n
+         FROM marketing_evenements
+        WHERE instant >= ? AND type IN ('vue', 'session')
+        GROUP BY projet, jour`,
+    )
+    .all(depuis) as { projet: string; jour: string; n: number }[];
+  const parProjet = new Map<string, Map<string, number>>();
+  for (const l of lignes) {
+    if (!parProjet.has(l.projet)) parProjet.set(l.projet, new Map());
+    parProjet.get(l.projet)!.set(l.jour, l.n);
+  }
+  return parProjet;
+}
+
+/** Les contenus de chaque projet, comptés par étape — une requête pour tous. */
+function contenusParProjet(): Map<string, Record<string, number>> {
+  const lignes = getDb()
+    .prepare('SELECT project_id AS projet, etape, COUNT(*) AS n FROM marketing_contenus GROUP BY project_id, etape')
+    .all() as { projet: string; etape: string; n: number }[];
+  const parProjet = new Map<string, Record<string, number>>();
+  for (const l of lignes) {
+    const r = parProjet.get(l.projet) ?? {};
+    r[l.etape] = l.n;
+    parProjet.set(l.projet, r);
+  }
+  return parProjet;
+}
+
+/**
+ * LA LIGNE D'UN PROJET DANS LE TABLEAU DE BORD de l'outil : où il en est, ce
+ * qui attend, sa tendance, et si son agent travaille — sans rien charger
+ * d'autre. UN REGROUPEMENT N'Y PARAÎT JAMAIS (demande du 26/09/2026) : on voit
+ * ses membres (« ProjetA Saas », « ProjetA Interface VPS »), jamais « ProjetA ».
+ */
+export function vueDEnsemble(maintenant = Date.now()) {
   const espaces = new Map(listerEspaces().map((e) => [e.projectId, e]));
+  const jours = derniersJours(maintenant);
+  const visites = visitesParProjetEtJour(Date.parse(`${jours[0]}T00:00:00Z`));
+  const contenus = contenusParProjet();
   return store
     .listProjects()
-    .filter((p) => !p.archived)
+    .filter((p) => !p.archived && !estUnRegroupement(p))
     .map((p) => {
       const espace = espaces.get(p.id) ?? null;
       const guide = guideDuProjet({ espace, ...(espace ? compteursDuGuide(p.id) : { contenusPublies: 0, contenusEnAttente: 0, ventes: 0 }) });
+      const agent = espace?.agentId ? store.getAgent(espace.agentId) : null;
+      const parEtape = contenus.get(p.id) ?? {};
+      const parJour = visites.get(p.id);
       return {
         projectId: p.id,
         nom: p.name,
         nature: espace?.configuration.nature ?? null,
         etatSuivi: espace?.configuration.etatSuivi ?? 'absent',
+        /* Ce que la page en production porte, lu par le suivi par défaut
+           (`suivi-par-defaut.ts`) ; `null` tant qu'aucune adresse n'est connue. */
+        diagnosticSuivi: espace ? diagnosticDeLEspace(p.id) : null,
+        /* La carte d'installation du suivi : posée, elle ne vaut pas code posé. */
+        carteSuivi: espace ? resumeCarteDuSuivi(p.id) : null,
         avancement: guide.avancement,
         prochaineAction: guide.prochainesActions[0] ?? null,
         aUnAgent: !!espace?.agentId,
+        agentId: espace?.agentId ?? null,
+        // L'état au moment de la lecture ; l'écran le suit ensuite en direct sur l'agent.
+        travaille: !!agent && agentTientSonTour(agent),
+        attendReponse: !!agent?.attendReponse,
+        aValider: (parEtape.a_valider ?? 0) + (parEtape.brouillon ?? 0),
+        programmes: (parEtape.pret ?? 0) + (parEtape.programme ?? 0),
+        publies: parEtape.publie ?? 0,
+        visites: jours.map((j) => parJour?.get(j) ?? 0),
+        actif: espace ? espace.actif : true,
+        enCours: espace && espace.actif ? travauxEnCours(p.id) : [],
       };
     });
+}
+
+/**
+ * LES TRAVAUX MARKETING EN COURS D'UN PROJET, pour la colonne « En cours » du
+ * tableau de bord : les cartes de l'atelier (`LABEL_MARKETING`) encore dans
+ * « En cours », ou dont l'agent tient son tour. Ces cartes ne partent jamais
+ * dans les paquets du tableau (`SANS_MARKETING`) : c'est ici qu'elles
+ * atteignent l'écran, qui suit ensuite leur agent en direct.
+ */
+function travauxEnCours(projectId: string): { cardId: string; agentId: string | null; titre: string; colonne: string; depuis: number }[] {
+  const travaux: { cardId: string; agentId: string | null; titre: string; colonne: string; depuis: number }[] = [];
+  const cartes = cartesDeLAgent(projectId, 10);
+  if (!cartes.length) return travaux;
+  const agents = store.listAgents(projectId);
+  for (const carte of cartes) {
+    const agent = agents.find((a) => a.id === carte.agentId) ?? agents.find((a) => a.cardId === carte.id && agentTientSonTour(a)) ?? null;
+    if (carte.column !== 'running' && !(agent && agentTientSonTour(agent))) continue;
+    travaux.push({ cardId: carte.id, agentId: agent?.id ?? null, titre: carte.title, colonne: carte.column, depuis: carte.updatedAt });
+  }
+  return travaux;
+}
+
+/**
+ * LA CARTE DU SUIVI déjà posée pour ce projet (`carte_suivi_id`), si elle
+ * existe encore et n'est pas ARCHIVÉE : une seule par projet, partagée par le
+ * démon, le bouton « Installer le suivi » et l'agent de l'atelier. Une carte
+ * archivée est un travail fini : elle ne compte plus comme « installation en
+ * cours » et ne bloque plus la naissance d'une nouvelle carte (capture #5113 du
+ * 28/09/2026 : l'assistant rouvrait une carte archivée au lieu de lancer).
+ */
+export function carteDuSuivi(projectId: string) {
+  const l = getDb().prepare('SELECT carte_suivi_id FROM marketing_espaces WHERE project_id = ?').get(projectId) as { carte_suivi_id: string | null } | undefined;
+  const carte = l?.carte_suivi_id ? store.getCard(l.carte_suivi_id) ?? null : null;
+  return carte && carte.column !== 'archived' ? carte : null;
+}
+
+/** Une carte du suivi où le travail n'est pas encore fait : on la rouvre plutôt que d'en lancer une autre. */
+export function carteDuSuiviEnTravail(projectId: string) {
+  const carte = carteDuSuivi(projectId);
+  return carte && (carte.column === 'planned' || carte.column === 'running') ? carte : null;
+}
+
+/** Ce que l'écran montre de la carte du suivi : de quoi l'ouvrir, et où elle en est. */
+function resumeCarteDuSuivi(projectId: string): { cardId: string; titre: string; colonne: string } | null {
+  const c = carteDuSuivi(projectId);
+  return c ? { cardId: c.id, titre: c.title, colonne: c.column } : null;
+}
+
+function diagnosticDeLEspace(projectId: string): string | null {
+  const l = getDb().prepare('SELECT diagnostic_suivi FROM marketing_espaces WHERE project_id = ?').get(projectId) as { diagnostic_suivi: string | null } | undefined;
+  return l?.diagnostic_suivi ?? null;
+}
+
+/** Les jours tracés par la vue d'ensemble, pour lire `visites` de chaque ligne. */
+export function joursDeTendance(maintenant = Date.now()): string[] {
+  return derniersJours(maintenant);
+}
+
+/**
+ * LES CARTES DE L'AGENT MARKETING D'UN PROJET — analyse, plan de la semaine,
+ * pose du suivi. Elles ne paraissent plus sur le tableau (`estCarteMarketing`) :
+ * c'est ici, dans l'onglet Contenus, qu'on les suit. Les plus récentes d'abord.
+ */
+export function cartesDeLAgent(projectId: string, limite = 20) {
+  const ids = getDb()
+    .prepare(
+      `SELECT c.id FROM cards c
+         JOIN card_labels l ON l.card_id = c.id AND l.label = ?
+        WHERE c.project_id = ?
+        ORDER BY c.updated_at DESC LIMIT ?`,
+    )
+    .all(LABEL_MARKETING, projectId, limite) as { id: string }[];
+  const cartes = [];
+  for (const { id } of ids) {
+    const carte = store.getCard(id);
+    if (carte) cartes.push(carte);
+  }
+  return cartes;
 }
 
 /** L'espace complet d'un projet, tel que l'écran le montre. */
@@ -806,8 +1057,12 @@ export function espaceComplet(projectId: string, jours = 30) {
     guide,
     resultats: espace ? resultatsDuProjet(projectId, jours) : null,
     extrait: espace ? extraitDeSuivi(adresse, espace.cleSuivi) : null,
-    confidentialite: phraseDeConfidentialite(espace?.configuration.langue, projet.name),
+    confidentialite: phraseDeConfidentialite(espace?.configuration.langue, projet.name, espace?.modeSuivi),
     adresseLiens: `${adresse}/m/l/`,
+    cartes: cartesDeLAgent(projectId),
+    /* Ce que porte la page servie, et la carte d'installation (onglet Statistiques). */
+    diagnosticSuivi: espace ? diagnosticDeLEspace(projectId) : null,
+    carteSuivi: espace ? carteDuSuivi(projectId) : null,
   };
 }
 
@@ -868,6 +1123,8 @@ export function demarrerMarketing(): NodeJS.Timeout {
         dernierRangement = maintenant;
         const n = purgerEvenements(maintenant);
         if (n) log.info(`marketing : ${n} événement(s) de plus de 90 jours retiré(s)`);
+        // La base des pays (DB-IP, mensuelle) : téléchargée si elle manque ou a vieilli.
+        void import('./pays-des-visites.js').then(({ assurerLaBaseDesPays }) => assurerLaBaseDesPays(maintenant)).catch(() => undefined);
       }
       if (process.env.BELUGA_MARKETING_NUIT === '0') return;
       const dejaFait = getMeta(CLE_PLAN_HEBDO);

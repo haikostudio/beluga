@@ -749,6 +749,12 @@ export interface ContexteDesPoints {
   dernierTourEnEchec?: boolean;
   decisionDeTourOuverte?: boolean;
   /**
+   * LE CADRAGE N'A JAMAIS DÉMARRÉ : son agent existe, mais sans un message,
+   * sans tour vivant et sans demande en file. Le point « Compréhension » dit
+   * alors qu'il attend, au lieu de tourner à vide.
+   */
+  cadrageEnAttente?: boolean;
+  /**
    * LA PHRASE PORTÉE PAR LA CARTE (`card.sansModification`).
    *
    * Elle ne se lisait QUE sur la vignette du tableau : on y voyait « Travail
@@ -1055,6 +1061,15 @@ export function phraseDeLaPreparation(etape?: EtapeDeLancement): string {
 export const PHRASE_COMPREHENSION_REPONDUE = 'L’agent a répondu à votre question.';
 
 /**
+ * LA COMPRÉHENSION N'A PAS ENCORE DÉMARRÉ : l'agent de cadrage existe, mais
+ * aucun tour n'est parti ni n'attend en file (constaté le 26.09.2026 : des
+ * cartes « suivi des visites » affichaient « L'agent lit le projet… » pour
+ * toujours, sur un agent qui n'avait jamais rien reçu). Le point reste « à
+ * venir », jamais orange.
+ */
+export const PHRASE_COMPREHENSION_EN_ATTENTE = 'La compréhension n’a pas encore démarré : elle attend son tour.';
+
+/**
  * CE PASSAGE EST-IL UN TOUR DE RÉPONSE SEULE ? Il porte une réponse rendue —
  * rangée en TRACE, parce qu'un jalon de rapport du cadrage tombe sous l'étape
  * « Compréhension » (`etapeDeLEntree`) — et aucune compréhension. Autrement
@@ -1246,6 +1261,8 @@ export function pointsDuParcours(
         if (etat === 'encours' && !ctx.tourEnCours && ctx.dernierTourEnEchec) {
           etat = ctx.decisionDeTourOuverte ? 'erreur' : 'avenir';
         }
+        /* RIEN N'EST JAMAIS PARTI : l'étape attend, elle ne tourne pas. */
+        if (etat === 'encours' && !ctx.tourEnCours && ctx.cadrageEnAttente) etat = 'avenir';
       }
       /* LA COMPRÉHENSION MANQUÉE SE LIT SUR SON POINT, pas sur celui du plan :
          l'incident nommé par la relance porte l'étape qu'il vise, et il la
@@ -1308,7 +1325,9 @@ export function pointsDuParcours(
           : /* LE TOUR A RÉPONDU, IL N'A PAS COMPRIS : la phrase le dit. */
             point.etape === 'comprehension' && etat === 'fait' && dernier && tourDeReponseSeule(point, ctx.parcours)
             ? PHRASE_COMPREHENSION_REPONDUE
-            : PHRASES_DU_POINT[point.etape][etat];
+            : point.etape === 'comprehension' && etat === 'avenir' && dernier && ctx.cadrageEnAttente && !ctx.tourEnCours
+              ? PHRASE_COMPREHENSION_EN_ATTENTE
+              : PHRASES_DU_POINT[point.etape][etat];
     /* LA RÉPONSE QUITTE LE RÉCIT, et se lit dans son propre cadre. */
     const reponse = reponseDuPassage(point, ctx.parcours);
     if (reponse) return { ...point, total, etat, phrase, erreurs, reponse, traces: point.traces.filter((trace) => trace !== reponse) };

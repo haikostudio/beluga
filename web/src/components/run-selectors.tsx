@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
-import { AccountQuota, EngineInfo, RunConfig, messageDeRepli, resoudreRun } from '@beluga/shared';
+import { AccountQuota, EngineInfo, RunConfig, messageDeRepli, nomCourtDuMoteur, resoudreRun } from '@beluga/shared';
 import { Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -29,10 +29,8 @@ export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' |
  */
 export function nomCourtMoteur(engine: Pick<EngineInfo, 'id' | 'label'> | undefined): string {
   if (!engine) return 'moteur';
-  if (engine.id === 'codex') return 'GPT';
-  if (engine.id === 'claude') return 'Claude';
-  if (engine.id === 'cursor') return 'Cursor';
-  return engine.label;
+  // Le nom court vient du registre des moteurs : un moteur ajouté l'a d'office.
+  return nomCourtDuMoteur(engine.id, engine.label);
 }
 
 /**
