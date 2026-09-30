@@ -1237,53 +1237,6 @@ export function resumeDesResultats(entree: {
 }
 
 /* ------------------------------------------------------------------ */
-/* Tests à deux versions                                               */
-/* ------------------------------------------------------------------ */
-
-export const VUES_MIN_PAR_VERSION = 100;
-
-export interface VerdictAB {
-  verdict: 'trop-tot' | 'egalite' | 'A' | 'B';
-  tauxA: number | null;
-  tauxB: number | null;
-  /** La confiance, de 0 à 1 (test de deux proportions). */
-  confiance: number | null;
-}
-
-/** Fonction de répartition de la loi normale (approximation d'Abramowitz et Stegun). */
-function phi(z: number): number {
-  const t = 1 / (1 + 0.2316419 * Math.abs(z));
-  const d = 0.3989423 * Math.exp((-z * z) / 2);
-  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-  return z > 0 ? 1 - p : p;
-}
-
-/**
- * QUELLE VERSION A GAGNÉ ? Aucune tant que chaque version n'a pas été vue
- * `VUES_MIN_PAR_VERSION` fois : conclure sur trente visites, c'est tirer à
- * pile ou face. Ensuite, une version ne gagne qu'avec 95 % de confiance.
- */
-export function verdictAB(a: { vues: number; conversions: number }, b: { vues: number; conversions: number }): VerdictAB {
-  const tauxA = a.vues ? a.conversions / a.vues : null;
-  const tauxB = b.vues ? b.conversions / b.vues : null;
-  if (a.vues < VUES_MIN_PAR_VERSION || b.vues < VUES_MIN_PAR_VERSION) return { verdict: 'trop-tot', tauxA, tauxB, confiance: null };
-  const p = (a.conversions + b.conversions) / (a.vues + b.vues);
-  const ecart = Math.sqrt(p * (1 - p) * (1 / a.vues + 1 / b.vues));
-  if (!ecart) return { verdict: 'egalite', tauxA, tauxB, confiance: 0 };
-  const z = (tauxB! - tauxA!) / ecart;
-  const confiance = 2 * phi(Math.abs(z)) - 1;
-  if (confiance < 0.95) return { verdict: 'egalite', tauxA, tauxB, confiance };
-  return { verdict: z > 0 ? 'B' : 'A', tauxA, tauxB, confiance };
-}
-
-/** La version montrée à un visiteur : stable pour la journée, sans cookie. */
-export function versionPourVisiteur(visiteur: string, experience: string): 'A' | 'B' {
-  let h = 2166136261;
-  for (const c of `${experience}:${visiteur}`) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
-  return (h >>> 0) % 2 === 0 ? 'A' : 'B';
-}
-
-/* ------------------------------------------------------------------ */
 /* Le script de suivi et la confidentialité                            */
 /* ------------------------------------------------------------------ */
 

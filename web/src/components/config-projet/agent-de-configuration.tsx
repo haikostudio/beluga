@@ -1,6 +1,14 @@
 import * as React from 'react';
 import { Loader2, RotateCw, Sparkles } from 'lucide-react';
-import { agentDeConfiguration, libelleInitier, type CiblePublication, type EtatProcedure } from '@beluga/shared';
+import {
+  LIBELLE_BOUTON_DE_CONFIGURATION,
+  agentDeConfiguration,
+  agentTientSonTour,
+  etatDuBoutonDeConfiguration,
+  processusDeLEtape,
+  type CiblePublication,
+  type EtatProcedure,
+} from '@beluga/shared';
 import { Button, DialogTitle, Drawer } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
@@ -8,37 +16,39 @@ import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { estTelephone } from '@/lib/telephone';
+import {
+  EVENEMENT_AGENT_CONFIGURATION,
+  ouvrirAgentDeConfiguration,
+  type DemandeDAgentDeConfiguration,
+} from '@/lib/ouvrir-config-projet';
 import { t } from '@/lib/langue';
 
 /**
- * L'AGENT DE CONFIGURATION D'UNE ÉTAPE — dans la rubrique de cette étape, dans
- * les réglages du projet (29/09/2026).
+ * L'AGENT DE CONFIGURATION D'UNE ÉTAPE — un bouton dans l'EN-TÊTE de la
+ * rubrique de cette étape (réglages du projet), et un TIROIR monté une seule
+ * fois pour toute l'application (refonte du 30/09/2026).
  *
- * Elle vivait dans l'onglet « Conversation » du tiroir de mise en production,
- * et le déploiement n'en avait pas. Les deux agents parlent désormais depuis
- * la rubrique de leur étape, sous le processus qu'ils ont écrit : on lit ce qui
- * est en place, et on en parle au même endroit. Tous les boutons qui menaient à
- * ces agents ouvrent cette rubrique (`ouvrirRubriqueDeLEtape`).
+ * LE BOUTON vit en haut à droite du titre « Déploiement » ou « Mise en
+ * production » ; il n'est plus pleine largeur en bas de page. Son libellé suit
+ * l'état (`etatDuBoutonDeConfiguration`) : « Initialiser » tant qu'aucun
+ * processus n'est écrit, « Agent au travail… » avec une roue pendant un tour,
+ * « Répondre à l'agent » quand il attend sa réponse, « Reconfigurer » ensuite.
+ * `voile` : la mise en production est désactivée, le bouton s'éteint et dit
+ * pourquoi au survol — le bloc de l'interrupteur, juste dessous, le dit aussi.
  *
- * LA CONVERSATION N'EST PLUS DANS LE CONTENU : un bouton pleine largeur l'ouvre
- * dans un TIROIR posé par-dessus la fenêtre de réglages. Posée en ligne, avec
- * sa hauteur fixe, elle doublait le défilement de la page (règle de
- * l'utilisateur : jamais deux zones qui défilent l'une dans l'autre). Dans le
- * tiroir, le fil est seul à défiler.
+ * LE TIROIR (`TiroirAgentDeConfiguration`) écoute `ouvrirAgentDeConfiguration`.
+ * Le bouton d'en-tête l'ouvre par-dessus la fenêtre de réglages ; la vignette
+ * de l'agent au tableau et l'aiguillage des agents l'ouvrent seul, sans
+ * fenêtre de réglages. Une conversation d'agent ne se pose jamais en ligne
+ * dans une page qui défile : dans le tiroir, le fil est seul à défiler.
  *
- * Aucun agent encore : rien ne part tout seul à la simple visite des réglages
- * — le bouton « Configuration de la procédure » ouvre le tiroir, et c'est là
- * qu'un second bouton lance le premier tour, où l'agent étudie le projet puis
- * pose ses questions (`ask_user`, qui l'arrête jusqu'à la réponse, affichée dans
- * ce fil). Un agent qui a déjà parlé ne se relance JAMAIS seul : on lui écrit
- * par la barre, et le serveur y joint ce qu'il doit savoir
- * (`contexteDeConfiguration`).
- *
- * `voile` : la mise en production est désactivée. Le bouton s'éteint et la
- * phrase dit pourquoi, dessous — plus de flou : un bouton éteint suffit à
- * ne rien laisser d'atteignable.
+ * Rien ne part tout seul à la simple visite : sans agent, le tiroir s'ouvre
+ * sur une phrase et un second bouton lance le premier tour, où l'agent étudie
+ * le projet puis pose ses questions (`ask_user`, affichée dans ce fil). Un
+ * agent qui a déjà parlé ne se relance JAMAIS seul : on lui écrit par la
+ * barre, et le serveur y joint ce qu'il doit savoir (`contexteDeConfiguration`).
  */
-export function AgentDeConfiguration({
+export function BoutonAgentDeConfiguration({
   projectId,
   cible,
   voile,
@@ -47,46 +57,71 @@ export function AgentDeConfiguration({
   cible: CiblePublication;
   voile?: string | null;
 }) {
-  const [ouvert, setOuvert] = React.useState(false);
-  /* Le libellé du bouton dit où l'on en est : une conversation qui existe se
-     reprend, une qui n'existe pas se commence. */
   const state = useApp();
-  const commencee =
-    !!agentDeConfiguration(state.projects.find((p) => p.id === projectId), cible) ||
-    !!state.procedures[`${projectId}:${cible}`]?.enCours;
+  const projet = state.projects.find((p) => p.id === projectId);
+  const agentId = agentDeConfiguration(projet, cible);
+  const agent = agentId ? state.agents[agentId] : undefined;
+  const procedure = state.procedures[`${projectId}:${cible}`];
+  const etat = etatDuBoutonDeConfiguration({
+    processus: !!processusDeLEtape(projet, cible),
+    auTravail: !!procedure?.enCours || (!!agent && agentTientSonTour(agent)),
+    question: !!procedure?.question || agent?.attendReponse === true,
+  });
   return (
-    <div
+    <Button
+      variant={etat === 'initialiser' ? 'default' : 'subtle'}
+      size="sm"
+      disabled={!!voile}
+      title={voile ?? undefined}
+      onClick={() => ouvrirAgentDeConfiguration(projectId, cible)}
       data-agent-configuration={cible}
-      data-conversation-commencee={commencee ? 'oui' : 'non'}
+      data-ouvrir-agent-configuration={cible}
+      data-etat-bouton-agent={etat}
       data-voile-configuration={voile ? 'oui' : 'non'}
+      className="shrink-0"
     >
-      <Button
-        variant="outline"
-        size="pied"
-        disabled={!!voile}
-        onClick={() => setOuvert(true)}
-        data-ouvrir-agent-configuration={cible}
-      >
+      {etat === 'travail' ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-en-cours" />
+      ) : (
         <Sparkles className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">{commencee ? t('Parler à l’agent de configuration') : t(libelleInitier(cible))}</span>
-      </Button>
-      {voile ? (
-        <p className="mt-1.5 text-[12px] leading-snug text-faint" data-voile-agent={cible}>
-          {voile}
-        </p>
-      ) : null}
-      <Drawer open={ouvert && !voile} onClose={() => setOuvert(false)} empile plein={estTelephone()} hauteurFixe>
-        <div className="flex min-h-0 flex-1 flex-col" data-tiroir-agent-configuration={cible}>
+      )}
+      <span className="truncate">{t(LIBELLE_BOUTON_DE_CONFIGURATION[etat])}</span>
+    </Button>
+  );
+}
+
+/** Le tiroir de l'agent, monté une fois en haut de l'application. */
+export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAgentDeConfiguration | null }) {
+  /* La demande qui a fait monter le tiroir : il n'écoutait pas encore. */
+  const [demande, setDemande] = React.useState<DemandeDAgentDeConfiguration | null>(initiale ?? null);
+  React.useEffect(() => {
+    const ouvrir = (event: Event) => {
+      const detail = (event as CustomEvent<DemandeDAgentDeConfiguration>).detail;
+      if (detail?.projectId) setDemande({ projectId: detail.projectId, cible: detail.cible });
+    };
+    window.addEventListener(EVENEMENT_AGENT_CONFIGURATION, ouvrir);
+    return () => window.removeEventListener(EVENEMENT_AGENT_CONFIGURATION, ouvrir);
+  }, []);
+  return (
+    <Drawer open={!!demande} onClose={() => setDemande(null)} empile plein={estTelephone()} hauteurFixe>
+      {demande ? (
+        <div className="flex min-h-0 flex-1 flex-col" data-tiroir-agent-configuration={demande.cible}>
           <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted" />
-            <DialogTitle className="min-w-0 flex-1 truncate">{t('Agent de configuration')}</DialogTitle>
+            <DialogTitle className="min-w-0 flex-1 truncate">
+              {demande.cible === 'dev' ? t('Agent de configuration du déploiement') : t('Agent de configuration de la mise en production')}
+            </DialogTitle>
           </header>
           <div className="flex min-h-0 flex-1 flex-col" data-contenu-agent-configuration>
-            <ConversationDeConfiguration projectId={projectId} cible={cible} />
+            <ConversationDeConfiguration
+              key={`${demande.projectId}:${demande.cible}`}
+              projectId={demande.projectId}
+              cible={demande.cible}
+            />
           </div>
         </div>
-      </Drawer>
-    </div>
+      ) : null}
+    </Drawer>
   );
 }
 
@@ -129,7 +164,7 @@ function ConversationDeConfiguration({ projectId, cible }: { projectId: string; 
     return (
       <div className="flex flex-col items-start gap-2 px-4 py-3" data-erreur-procedure>
         <p className="text-[13px] leading-snug text-danger">{raison}</p>
-        <Button size="sm" variant="outline" onClick={demarrer} data-relancer-procedure>
+        <Button size="sm" variant="subtle" onClick={demarrer} data-relancer-procedure>
           <RotateCw className="h-3 w-3" /> {t('Réessayer')}
         </Button>
       </div>

@@ -58,6 +58,7 @@ import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
 import { demarrerMarketing } from './marketing.js';
 import { demarrerLeSuiviParDefaut } from './suivi-par-defaut.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
+import { rattraperLesAdressesDeControle } from './rattrapage-adresses.js';
 import { completerLesDemandesManquantes, relancerLesCadragesJamaisPartis } from './naissance-de-carte.js';
 
 /*
@@ -212,6 +213,15 @@ async function main(): Promise<void> {
         if (enregistres || laisses) log.info(`ports des projets : ${enregistres} enregistré(s), ${laisses} laissé(s) sans port`);
       })
       .catch((err) => log.warn('rattrapage des ports des projets incomplet', err));
+  }, 10_000).unref?.();
+
+  /*
+   * LES ADRESSES DE CONTRÔLE DES PROJETS D'AVANT (`rattrapage-adresses.ts`) :
+   * relevées le 30/09/2026, re-contrôlées puis écrites UNE fois, sans ouvrir
+   * aucun suivi des visites. Même délai, sans être attendu.
+   */
+  setTimeout(() => {
+    void rattraperLesAdressesDeControle().catch((err) => log.warn('rattrapage des adresses de contrôle incomplet', err));
   }, 10_000).unref?.();
 
   /*

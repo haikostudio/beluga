@@ -46,6 +46,36 @@ export function libelleInitier(_cible?: CiblePublication): string {
   return 'Configuration de la procédure';
 }
 
+/**
+ * LE BOUTON D'EN-TÊTE DES RUBRIQUES « DÉPLOIEMENT » ET « MISE EN PRODUCTION »
+ * (30/09/2026). Posé en haut à droite du titre, il ouvre le tiroir de l'agent
+ * de configuration, et son libellé dit où l'on en est :
+ *   - `question` : l'agent est arrêté sur sa question (ask_user) ;
+ *   - `travail` : il tient son tour — une roue tourne à côté du libellé ;
+ *   - `reconfigurer` : un processus est écrit et l'agent est au repos ;
+ *   - `initialiser` : aucun processus encore.
+ * La question passe avant le travail : un agent arrêté sur sa question n'est
+ * en travail pour personne.
+ */
+export type EtatDuBoutonDeConfiguration = 'initialiser' | 'travail' | 'question' | 'reconfigurer';
+
+export function etatDuBoutonDeConfiguration(entree: {
+  processus: boolean;
+  auTravail: boolean;
+  question: boolean;
+}): EtatDuBoutonDeConfiguration {
+  if (entree.question) return 'question';
+  if (entree.auTravail) return 'travail';
+  return entree.processus ? 'reconfigurer' : 'initialiser';
+}
+
+export const LIBELLE_BOUTON_DE_CONFIGURATION: Record<EtatDuBoutonDeConfiguration, string> = {
+  initialiser: 'Initialiser',
+  travail: 'Agent au travail…',
+  question: 'Répondre à l’agent',
+  reconfigurer: 'Reconfigurer',
+};
+
 /** L'agent de configuration retenu sur le projet pour cette étape, s'il y en a un. */
 export function agentDeConfiguration(
   projet: ProjetAvecProcedures | undefined,

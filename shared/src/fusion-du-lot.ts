@@ -159,11 +159,6 @@ export function documentRecollable(chemin: string): boolean {
   return DOSSIERS_RECOLLABLES.some((dossier) => propre.startsWith(dossier) && propre.endsWith('.md'));
 }
 
-/** Tous les fichiers en conflit sont-ils de la documentation recollable ? */
-export function conflitPurementDocumentaire(fichiers: readonly string[]): boolean {
-  return fichiers.length > 0 && fichiers.every((fichier) => documentRecollable(fichier));
-}
-
 const DEBUT_CONFLIT = /^<{7}(\s|$)/;
 const BASE_CONFLIT = /^\|{7}(\s|$)/;
 const MILIEU_CONFLIT = /^={7}(\s|$)/;

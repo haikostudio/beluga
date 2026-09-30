@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { PLAGE_PORTS_PROJETS, mentionBrancheParDefaut } from '@beluga/shared';
 import { BulleInfo, Input, Label } from '@/components/ui';
 import { t } from '@/lib/langue';
-import { AgentDeConfiguration } from './agent-de-configuration';
+import { BoutonAgentDeConfiguration } from './agent-de-configuration';
 import { ProcessusEnPlace } from './processus-en-place';
 import { ChoixDeBranche, TeteDeRubrique, type ContexteConfig } from './communs';
 
@@ -13,7 +13,8 @@ import { ChoixDeBranche, TeteDeRubrique, type ContexteConfig } from './communs';
  * commun s'applique (`shared/src/publication-simple.ts`), réglé par la
  * commande de mise à jour et les services à relancer. Depuis le 29/09/2026,
  * un agent de configuration peut écrire un processus propre au projet : il se
- * lit sous les champs (`ProcessusEnPlace`) et se discute juste en dessous.
+ * lit sous les champs (`ProcessusEnPlace`) ; son agent s'ouvre par le bouton
+ * posé en haut à droite du titre, dans un tiroir.
  */
 export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
   return (
@@ -22,6 +23,7 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
         titre={t('Déploiement')}
         resume={t('Rafraîchir la version de travail de ce projet, sur ce serveur.')}
         aide={t('Déployer fusionne les branches des cartes, enregistre et envoie sur le dépôt, puis joue le processus propre au projet s’il en a un, sinon la commande de mise à jour et les services réglés ci-dessous. Rien de tout cela ne passe par un agent : chaque étape a une durée maximale, et une panne s’arrête net en disant pourquoi.')}
+        action={<BoutonAgentDeConfiguration projectId={ctx.project.id} cible="dev" />}
       />
 
 
@@ -44,7 +46,7 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
             disabled={ctx.faviconEnCours}
             title={t('Aller rechercher l\'icône du site : sur cette adresse, ou dans le dépôt du projet')}
             onClick={ctx.relancerFavicon}
-            className="flex shrink-0 items-center gap-1 rounded-md border border-border bg-bloc px-2 py-1.5 text-[12.5px] text-muted hover:text-text disabled:opacity-50"
+            className="flex shrink-0 items-center gap-1 rounded-md bg-raised px-2 py-1.5 text-[12.5px] text-text hover:bg-border disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${ctx.faviconEnCours ? 'animate-spin' : ''}`} />
             {t('Icône')}
@@ -125,10 +127,6 @@ export function RubriqueDeploiement({ ctx }: { ctx: ContexteConfig }) {
       </div>
 
       <ProcessusEnPlace projet={ctx.project} cible="dev" branche={ctx.project.branchesDePublication?.dev} />
-
-      <div className="space-y-1.5" data-zone-procedure="dev">
-        <AgentDeConfiguration projectId={ctx.project.id} cible="dev" />
-      </div>
     </div>
   );
 }

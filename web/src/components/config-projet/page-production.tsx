@@ -3,7 +3,7 @@ import { mentionBrancheParDefaut } from '@beluga/shared';
 import { InterrupteurMiseEnProduction } from '@/components/interrupteur-mise-en-production';
 import { BulleInfo, Input, Label } from '@/components/ui';
 import { t } from '@/lib/langue';
-import { AgentDeConfiguration } from './agent-de-configuration';
+import { BoutonAgentDeConfiguration } from './agent-de-configuration';
 import { ProcessusEnPlace } from './processus-en-place';
 import { ChoixDeBranche, TeteDeRubrique, type ContexteConfig } from './communs';
 
@@ -13,9 +13,10 @@ import { ChoixDeBranche, TeteDeRubrique, type ContexteConfig } from './communs';
  * Refonte du 29/09/2026 : tout ce qui touche la mise en production se règle
  * ICI. En tête, l'interrupteur qui la permet ou non (`miseEnProductionActive`,
  * enregistré au clic, comme dans l'entête du tiroir). Allumé : la branche,
- * l'adresse publique, le PROCESSUS EN PLACE lisible d'un coup d'œil, puis le
- * bouton qui ouvre la conversation avec l'agent qui l'écrit. Éteint : le contenu
- * se masque et le bouton de l'agent s'éteint en disant pourquoi.
+ * l'adresse publique et le PROCESSUS EN PLACE lisible d'un coup d'œil ; le
+ * bouton de l'agent qui l'écrit vit en haut à droite du titre et ouvre sa
+ * conversation dans un tiroir. Éteint : le contenu se masque et ce bouton
+ * s'éteint, en disant pourquoi au survol.
  */
 export function RubriqueProduction({ ctx }: { ctx: ContexteConfig }) {
   const actif = ctx.project.miseEnProductionActive === true;
@@ -25,6 +26,13 @@ export function RubriqueProduction({ ctx }: { ctx: ContexteConfig }) {
         titre={t('Mise en production')}
         resume={t('Envoyer le résultat là où le public le voit, souvent ailleurs.')}
         aide={t('Au clic sur « Mise en production », la branche de travail rejoint la branche de production, elle est envoyée sur le dépôt, puis le processus ci-dessous est joué étape par étape, sans agent. La première étape qui échoue arrête tout, et dit pourquoi.')}
+        action={
+          <BoutonAgentDeConfiguration
+            projectId={ctx.project.id}
+            cible="production"
+            voile={actif ? null : t('La mise en production est désactivée pour ce projet : allumez l’interrupteur ci-dessous pour parler à l’agent de configuration.')}
+          />
+        }
       />
 
       <div className="flex items-center gap-3 rounded-lg bg-raised/35 px-3 py-2.5" data-activation-production={actif ? 'oui' : 'non'}>
@@ -70,14 +78,6 @@ export function RubriqueProduction({ ctx }: { ctx: ContexteConfig }) {
           <ProcessusEnPlace projet={ctx.project} cible="production" branche={ctx.project.branchesDePublication?.production} />
         </>
       ) : null}
-
-      <div className="space-y-1.5" data-zone-procedure="production">
-        <AgentDeConfiguration
-          projectId={ctx.project.id}
-          cible="production"
-          voile={actif ? null : t('La mise en production est désactivée pour ce projet : allumez l’interrupteur ci-dessus pour parler à l’agent de configuration.')}
-        />
-      </div>
     </div>
   );
 }

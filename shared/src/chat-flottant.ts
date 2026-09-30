@@ -142,13 +142,3 @@ export function chatRedimensionne(depart: ChatFlottant, dx: number, dy: number, 
   return chatVisible({ ...depart, largeur: depart.largeur - dx, hauteur: depart.hauteur - dy }, fenetre);
 }
 
-/** Deux états sont-ils les mêmes ? (au pixel près, pour ne rien réécrire pour rien) */
-export function memeChat(a: ChatFlottant, b: ChatFlottant): boolean {
-  return (
-    a.ouvert === b.ouvert &&
-    Math.round(a.droite) === Math.round(b.droite) &&
-    Math.round(a.bas) === Math.round(b.bas) &&
-    Math.round(a.largeur) === Math.round(b.largeur) &&
-    Math.round(a.hauteur) === Math.round(b.hauteur)
-  );
-}

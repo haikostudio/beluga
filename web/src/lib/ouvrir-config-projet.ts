@@ -26,12 +26,29 @@ export function ouvrirConfigProjet(projectId: string, rubrique?: string): void {
 }
 
 /**
- * LA RUBRIQUE D'UNE ÉTAPE, OÙ VIT SON AGENT DE CONFIGURATION (29/09/2026).
- * Tous les boutons qui mènent à un agent de configuration passent par ici —
- * bandeau de mise en production, tête de « À déployer », vignette de l'agent
- * au travail, aiguillage des agents : la conversation et le processus qu'elle
- * a écrit vivent dans la rubrique de l'étape, jamais dans un volet à part.
+ * LA RUBRIQUE D'UNE ÉTAPE, OÙ SE LIT LE PROCESSUS DE SON AGENT (29/09/2026).
+ * Le bandeau de mise en production et la tête de « À déployer » y mènent :
+ * on y règle l'étape. L'AGENT lui-même s'ouvre dans son tiroir
+ * (`ouvrirAgentDeConfiguration`), sans passer par cette fenêtre.
  */
 export function ouvrirRubriqueDeLEtape(projectId: string, cible: 'dev' | 'production'): void {
   ouvrirConfigProjet(projectId, cible === 'production' ? RUBRIQUE_PRODUCTION : RUBRIQUE_DEPLOIEMENT);
+}
+
+export const EVENEMENT_AGENT_CONFIGURATION = 'beluga:agent-configuration';
+
+export type DemandeDAgentDeConfiguration = { projectId: string; cible: 'dev' | 'production' };
+
+/**
+ * LE TIROIR DE L'AGENT DE CONFIGURATION D'UNE ÉTAPE, DEPUIS N'IMPORTE OÙ
+ * (30/09/2026). Il est monté UNE fois, en haut de l'application : le bouton
+ * d'en-tête des rubriques « Déploiement » et « Mise en production » l'ouvre
+ * par-dessus la fenêtre de réglages, la vignette de l'agent au tableau et
+ * l'aiguillage des agents (cloche, tableaux de bord) l'ouvrent seul, sans
+ * fenêtre de réglages. Même mécanique d'événement que `ouvrirConfigProjet`.
+ */
+export function ouvrirAgentDeConfiguration(projectId: string, cible: 'dev' | 'production'): void {
+  window.dispatchEvent(
+    new CustomEvent<DemandeDAgentDeConfiguration>(EVENEMENT_AGENT_CONFIGURATION, { detail: { projectId, cible } }),
+  );
 }

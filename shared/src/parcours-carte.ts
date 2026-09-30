@@ -1353,7 +1353,7 @@ export type DecisionDuParcours =
   | { sorte: 'question-texte'; messageId: string }
   | { sorte: 'erreur'; messageId: string }
   | { sorte: 'reprise'; messageId: string }
-  | { sorte: 'incident'; texte: string };
+  | { sorte: 'incident'; texte: string; etape: 'comprehension' | 'plan' };
 
 /**
  * UN SEUL PANNEAU POUR TOUT CE QUI ATTEND L'UTILISATEUR — question d'outil,
@@ -1363,7 +1363,7 @@ export type DecisionDuParcours =
  */
 export function decisionsDuParcours(etat: {
   messages: readonly MessageDeDecision[];
-  parcours?: Pick<ParcoursDeCarte, 'incident'> | null;
+  parcours?: (Pick<ParcoursDeCarte, 'incident'> & { comprehension?: { at: number } | null }) | null;
   /** Le dernier message finit-il sur une question écrite en texte ordinaire ? */
   questionEnTexte?: boolean;
   /**
@@ -1388,8 +1388,14 @@ export function decisionsDuParcours(etat: {
   }
   const dernier = etat.messages[etat.messages.length - 1];
   if (etat.questionEnTexte && dernier) decisions.push({ sorte: 'question-texte', messageId: dernier.id });
-  if (etat.parcours?.incident?.texte && incidentEncoreValable(etat)) {
-    decisions.push({ sorte: 'incident', texte: etat.parcours.incident.texte });
+  const incident = etat.parcours?.incident;
+  if (incident?.texte && incidentEncoreValable(etat)) {
+    const etape = incident.etape ?? 'plan';
+    /* UNE COMPRÉHENSION RENDUE DEPUIS EFFACE SON INCIDENT : « la compréhension
+       n'est pas venue » ne se lit plus, et son bouton — qui redemande le plan
+       dès qu'une compréhension existe — ne peut plus lancer un plan par erreur. */
+    const perime = etape === 'comprehension' && (etat.parcours?.comprehension?.at ?? 0) >= incident.at;
+    if (!perime) decisions.push({ sorte: 'incident', texte: incident.texte, etape });
   }
   return decisions;
 }

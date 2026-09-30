@@ -21,6 +21,9 @@ import {
   DeployRun,
   Message,
   demandeDeDepannage,
+  MAX_DEPANNAGES_AUTOMATIQUES,
+  depannageAutomatiqueAPoser,
+  depannageAutomatiqueEpuise,
   depanneurVivant,
   moteurDuTriAutomatique,
   publicationADepanner,
@@ -65,6 +68,8 @@ export async function depannerLaPublication(
   runId: string,
   /* Les tests remplacent le moteur et le catalogue : aucun vrai tour ne part. */
   outils: { envoyer?: typeof sendPrompt; catalogue?: () => Promise<unknown[]> } = {},
+  /* `automatique` : ouvert par le démon à la chute de la publication, pas par le bouton. */
+  options: { automatique?: boolean } = {},
 ): Promise<{ agentId: string; deja: boolean }> {
   const envoyer = outils.envoyer ?? sendPrompt;
   const lireCatalogue = outils.catalogue ?? catalogueMoteurs;
@@ -100,6 +105,10 @@ export async function depannerLaPublication(
   } else {
     const moteur = moteurDuTriAutomatique('programmation_avancee', catalogue as any).engine;
     const entree = (catalogue as any[]).find((m) => m.id === moteur);
+    // Sans clic, on ne lance pas dans le vide : aucun compte disponible → on le DIT.
+    if (options.automatique && !(entree?.installed && entree.comptesDisponibles > 0)) {
+      throw new Error('aucun moteur n’a de compte disponible pour dépanner');
+    }
     const reglages = entree ? reglagesDuNiveau(entree, 'standard') : { model: undefined, thinking: 'none' };
     const cree = createAgent({
       projectId: run.projectId,
@@ -111,7 +120,7 @@ export async function depannerLaPublication(
     bus.emit({ type: 'agent.upsert', agent: marque });
     agentId = marque.id;
   }
-  enregistrer({ ...run, depannage: { agentId, at: Date.now() } });
+  enregistrer({ ...run, depannage: { agentId, at: Date.now(), ...(options.automatique ? { automatique: true } : {}) } });
 
   const tombee = run.steps.find((step) => step.state === 'failed');
   const demande = demandeDeDepannage({
@@ -122,6 +131,7 @@ export async function depannerLaPublication(
     erreur: run.error,
     journal: tombee?.log ? dernieresLignes(tombee.log, 3000) : undefined,
     branche,
+    origine: options.automatique ? 'automatique' : 'manuel',
   });
   void envoyer(agentId, demande, { template: 'none', silent: true, motif: 'depannage-manuel' }).catch((err) => {
     log.error('dépannage de publication : le tour n’a pas pu partir', err);
@@ -129,6 +139,43 @@ export async function depannerLaPublication(
   });
   log.info(`publication ${run.id} : agent de dépannage ${agentId}${retenu ? ' relancé' : ' ouvert'}`);
   return { agentId, deja: false };
+}
+
+/**
+ * À LA CHUTE D'UNE PUBLICATION : le dépanneur part seul, si la règle le veut.
+ *
+ * Appelée par `startDeploy` APRÈS avoir libéré le projet (jamais dedans : le
+ * `finally` relance la file et le redémarrage en attente). Ne lève jamais : une
+ * publication qui tombe ne doit pas tomber une seconde fois par ici. Quand la
+ * chaîne a épuisé son plafond, ou qu'aucun moteur n'a de place, la raison se DIT
+ * (toast) au lieu d'un silence — le bouton « Résoudre le problème » reste offert.
+ */
+export async function depannerSeulApresLaChute(
+  runId: string,
+  outils: { envoyer?: typeof sendPrompt; catalogue?: () => Promise<unknown[]> } = {},
+): Promise<'lance' | 'epuise' | 'sans-moteur' | 'non'> {
+  try {
+    const run = store.getDeploy(runId);
+    const derniere = store.latestDeploy(run?.projectId ?? '');
+    if (!depannageAutomatiqueAPoser(run, derniere)) {
+      if (run && !run.depannage && publicationADepanner(run, derniere) && depannageAutomatiqueEpuise(run)) {
+        const projet = store.getProject(run.projectId);
+        bus.toast(
+          'info',
+          `Dépannage automatique épuisé (${MAX_DEPANNAGES_AUTOMATIQUES} essais)${projet ? ` sur « ${projet.name} »` : ''} : à vous de jouer, « Résoudre le problème » reste disponible.`,
+        );
+        return 'epuise';
+      }
+      return 'non';
+    }
+    await depannerLaPublication(runId, outils, { automatique: true });
+    return 'lance';
+  } catch (err: any) {
+    const raison = err?.message ?? String(err);
+    log.warn(`publication ${runId} : dépannage automatique non lancé — ${raison}`);
+    bus.toast('info', `Dépannage automatique non lancé : ${raison}. « Résoudre le problème » reste disponible.`);
+    return 'sans-moteur';
+  }
 }
 
 /**
@@ -171,7 +218,7 @@ async function relancerApresLeTour(agentId: string, runId: string): Promise<void
   }
   const run = store.getDeploy(runId);
   if (!run?.depannage?.relanceDemandee) return;
-  const issue = await retryDeploy(runId).catch((err) => ({ ok: false, error: err?.message ?? String(err) }));
+  const issue = await retryDeploy(runId, { enChaine: true }).catch((err) => ({ ok: false, error: err?.message ?? String(err) }));
   if (issue.ok) {
     direDansLeFil(agentId, 'La publication est relancée. Son avancement se suit dans le volet de publication.');
     return;

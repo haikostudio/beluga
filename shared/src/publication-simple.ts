@@ -222,6 +222,13 @@ export type ProcessusDeProduction = {
    * rubrique la montre en tête du bloc « Processus en place ».
    */
   cible?: string;
+  /**
+   * L'ADRESSE DE CONTRÔLE déclarée par l'agent (30/09/2026) : l'URL seule, que
+   * l'étape doit rendre joignable — site de travail pour le déploiement, site
+   * public pour la mise en production. Écrite dans le réglage du projet
+   * (`devUrl` / `adresseProduction`) quand il est vide (`adresseDeControleAEcrire`).
+   */
+  adresse?: string;
   etapes: EtapeDuProcessus[];
   /** Quand il a été écrit. */
   ecritLe?: number;
@@ -260,7 +267,7 @@ export function raisonProductionDesactivee(projet: { miseEnProductionActive?: bo
 /** Normalise un processus reçu (de l'agent ou de l'écran) : bornes, textes, délais. */
 export function normaliserProcessus(brut: unknown): { processus?: ProcessusDeProduction; erreur?: string } {
   if (!brut || typeof brut !== 'object') return { erreur: 'Le processus est vide.' };
-  const objet = brut as { resume?: unknown; cible?: unknown; etapes?: unknown };
+  const objet = brut as { resume?: unknown; cible?: unknown; adresse?: unknown; etapes?: unknown };
   if (!Array.isArray(objet.etapes) || objet.etapes.length === 0) {
     return { erreur: 'Le processus n’a aucune étape.' };
   }
@@ -282,7 +289,54 @@ export function normaliserProcessus(brut: unknown): { processus?: ProcessusDePro
   }
   const resume = typeof objet.resume === 'string' ? objet.resume.trim().slice(0, RESUME_PROCESSUS_MAX) : undefined;
   const cible = typeof objet.cible === 'string' ? objet.cible.trim().slice(0, CIBLE_PROCESSUS_MAX) : undefined;
-  return { processus: { ...(resume ? { resume } : {}), ...(cible ? { cible } : {}), etapes } };
+  const adresse = adresseDeControleValide(objet.adresse);
+  return {
+    processus: { ...(resume ? { resume } : {}), ...(cible ? { cible } : {}), ...(adresse ? { adresse } : {}), etapes },
+  };
+}
+
+/**
+ * UNE ADRESSE DE CONTRÔLE LISIBLE : une URL http(s) avec un hôte qui a un
+ * point, sans espace. Rendue sans barre finale quand elle n'a pas de chemin
+ * (« https://mon-site.ch »). `undefined` pour tout le reste — un texte libre
+ * (« le serveur clients ») n'est jamais écrit dans un réglage.
+ */
+export function adresseDeControleValide(brut: unknown): string | undefined {
+  if (typeof brut !== 'string') return undefined;
+  const texte = brut.trim();
+  if (!texte || /\s/.test(texte) || texte.length > CIBLE_PROCESSUS_MAX) return undefined;
+  try {
+    const url = new URL(texte);
+    if ((url.protocol !== 'https:' && url.protocol !== 'http:') || !url.hostname.includes('.')) return undefined;
+    return url.pathname === '/' && !url.search && !url.hash ? url.origin : url.href;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * CE QUE L'ADRESSE DÉCLARÉE PAR L'AGENT FAIT DU RÉGLAGE DU PROJET.
+ *   - `ecrire` : le réglage est vide, l'adresse y est écrite ;
+ *   - `ecart` : le réglage porte déjà une AUTRE adresse — rien n'est écrasé,
+ *     la réponse de l'agent doit le dire ;
+ *   - `null` : pas d'adresse, ou la même que celle en place.
+ * Déploiement → `devUrl` ; mise en production → `adresseProduction`.
+ */
+export function adresseDeControleAEcrire(
+  projet: { devUrl?: string; adresseProduction?: string } | undefined,
+  cible: 'dev' | 'production',
+  adresse: string | undefined,
+):
+  | { action: 'ecrire'; champ: 'devUrl' | 'adresseProduction'; adresse: string }
+  | { action: 'ecart'; champ: 'devUrl' | 'adresseProduction'; adresse: string; enPlace: string }
+  | null {
+  const valide = adresseDeControleValide(adresse);
+  if (!valide) return null;
+  const champ = cible === 'dev' ? 'devUrl' : 'adresseProduction';
+  const enPlace = (projet?.[champ] ?? '').trim();
+  if (!enPlace) return { action: 'ecrire', champ, adresse: valide };
+  const memes = (a: string) => a.replace(/\/+$/, '').toLowerCase();
+  return memes(enPlace) === memes(valide) ? null : { action: 'ecart', champ, adresse: valide, enPlace };
 }
 
 export const DEBUT_PROCESSUS = '<<<PROCESSUS';
@@ -336,6 +390,8 @@ export type ContexteDInitialisation = {
   dossier: string;
   brancheTravail: string;
   brancheProduction: string;
+  /** L'adresse publique réglée sur le projet, si elle l'est. */
+  adresseProduction?: string;
   /** L'ancienne recette de mise en production, archivée lors de la refonte. */
   ancienneRecette?: string;
   /** Le processus actuel, quand on le refait. */
@@ -367,9 +423,12 @@ export function promptInitialisationProduction(ctx: ContexteDInitialisation): st
     '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : où vit la production, ce que tu as configuré ou modifié, et ce que fera le bouton « Mise en production », étape par étape. Elle est affichée telle quelle dans la rubrique « Mise en production » des réglages du projet. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
-    '{"resume": "…ce qu’est la production de ce projet, en deux phrases…", "cible": "…la machine ou le site visé, par exemple « mon-site.ch, serveur clients, dossier /srv/mon-site »…", "etapes": [{"libelle": "Construire le site", "commande": "npm run build", "delaiS": 300}]}',
+    '{"resume": "…ce qu’est la production de ce projet, en deux phrases…", "cible": "…la machine ou le site visé, par exemple « mon-site.ch, serveur clients, dossier /srv/mon-site »…", "adresse": "https://mon-site.ch", "etapes": [{"libelle": "Construire le site", "commande": "npm run build", "delaiS": 300}]}',
     FIN_PROCESSUS,
     'Le champ « cible » dit en une ligne OÙ le processus agit : il est affiché en tête du processus, pour que l’utilisateur vérifie d’un coup d’œil l’adresse visée.',
+    ctx.adresseProduction
+      ? `Le champ « adresse » est l’URL SEULE du site public, celle que l’on contrôle après la mise en production. Adresse réglée aujourd’hui : ${ctx.adresseProduction}. Si le site public en a une autre, mets la bonne dans « adresse » et DIS l’écart dans ton explication : l’adresse réglée n’est jamais remplacée sans l’utilisateur.`
+      : 'Le champ « adresse » est l’URL SEULE du site public, celle que l’on contrôle après la mise en production : aucune n’est réglée, celle que tu déclares sera enregistrée dans les réglages du projet. Déduis-la du projet ; ne pose une question que si tu ne peux pas la trouver.',
     '',
     'Règles du processus :',
     `- ${PROCESSUS_ETAPES_MAX} étapes au plus, chaque commande autonome (non interactive), relançable sans dégât, avec un délai réaliste (${DELAI_ETAPE_MAX_S} s au plus).`,
@@ -436,9 +495,12 @@ export function promptInitialisationDeploiement(ctx: ContexteDuDeploiement): str
     '3. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : ce que fera chaque déploiement, étape par étape. Elle est affichée telle quelle dans la rubrique « Déploiement » des réglages. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
-    '{"resume": "…ce que fait le déploiement de ce projet, en deux phrases…", "cible": "…ce serveur, le service ou le site visé, par exemple « mon-projet.haikostudio.cloud, service autoproject-mon-projet »…", "etapes": [{"libelle": "Construire", "commande": "npm run build", "delaiS": 300}]}',
+    '{"resume": "…ce que fait le déploiement de ce projet, en deux phrases…", "cible": "…ce serveur, le service ou le site visé, par exemple « mon-projet.haikostudio.cloud, service autoproject-mon-projet »…", "adresse": "https://mon-projet.haikostudio.cloud", "etapes": [{"libelle": "Construire", "commande": "npm run build", "delaiS": 300}]}',
     FIN_PROCESSUS,
     'Le champ « cible » dit en une ligne OÙ le processus agit : il est affiché en tête du processus.',
+    ctx.devUrl
+      ? `Le champ « adresse » est l’URL SEULE de la version de travail, celle que l’on contrôle à la fin de chaque déploiement (réglée aujourd’hui : ${ctx.devUrl}). Si elle est fausse, mets la bonne dans « adresse » et DIS l’écart dans ton explication : l’adresse réglée n’est jamais remplacée sans l’utilisateur. Jamais l’adresse de la production.`
+      : 'Le champ « adresse » est l’URL SEULE de la version de travail sur ce serveur, celle que l’on contrôle à la fin de chaque déploiement : aucune n’est réglée, celle que tu déclares sera enregistrée dans les réglages du projet. Déduis-la du projet (vhost Caddy du port du projet) ; jamais l’adresse de la production.',
     '',
     'Règles du processus :',
     `- ${PROCESSUS_ETAPES_MAX} étapes au plus, chaque commande autonome (non interactive), relançable sans dégât, avec un délai réaliste (${DELAI_ETAPE_MAX_S} s au plus).`,
@@ -473,7 +535,7 @@ export function consigneDeConfiguration(cible: 'dev' | 'production' = 'productio
   const rubrique = cible === 'dev' ? '« Déploiement »' : '« Mise en production »';
   return [
     `Tu es l’agent de CONFIGURATION ${etape} de ce projet : l’utilisateur te parle depuis la rubrique ${rubrique} des réglages du projet.`,
-    `Tiens-en compte. S’il te manque quelque chose de décisif, pose-le avec ask_user. Si le processus change, rends ton explication en mots simples puis le bloc ${DEBUT_PROCESSUS} … ${FIN_PROCESSUS} COMPLET (avec son champ « cible »), en fin de réponse : c’est lui qui met à jour le processus affiché dans la rubrique. Sinon, réponds simplement.`,
+    `Tiens-en compte. S’il te manque quelque chose de décisif, pose-le avec ask_user. Si le processus change, rends ton explication en mots simples puis le bloc ${DEBUT_PROCESSUS} … ${FIN_PROCESSUS} COMPLET (avec ses champs « cible » et « adresse »), en fin de réponse : c’est lui qui met à jour le processus affiché dans la rubrique. Sinon, réponds simplement.`,
     `Fichiers du projet modifiés : « git add » nommé fichier par fichier, un commit poussé sur la branche de travail, et dis ce que tu as changé. Tu ne lances JAMAIS ${cible === 'dev' ? 'le déploiement' : 'la mise en production'} : seul le bouton de l’utilisateur le fait.`,
   ].join('\n');
 }

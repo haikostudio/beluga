@@ -796,8 +796,18 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       /* Les dépôts annexes ne se règlent plus depuis l'écran (DEC-258) : ce
          patch général ne les touche jamais. */
       const { depots: _depotsIgnores, ...patch } = cmd.patch as Record<string, unknown>;
+      /* UNE ADRESSE PUBLIQUE SAISIE OU CHANGÉE n'est plus une adresse
+         rattrapée : sa marque tombe, et son suivi part (ci-dessous). */
+      const adresseChangee =
+        typeof patch.adresseProduction === 'string' && patch.adresseProduction !== (current.adresseProduction ?? '');
       const updated = store.saveProject(
-        Project.parse({ ...current, ...patch, ...fusionDesProcedures(current, patch), id: current.id }),
+        Project.parse({
+          ...current,
+          ...patch,
+          ...fusionDesProcedures(current, patch),
+          ...(adresseChangee ? { adresseProductionRattrapee: undefined } : {}),
+          id: current.id,
+        }),
       );
       /*
        * L'icône se cherche dès que sa source a bougé — l'adresse OU le dossier

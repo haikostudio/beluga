@@ -91,11 +91,6 @@ export function tagsEnEspacesOrdinaires(texte: string): string {
   return texte.replace(TAG_FICHIER, (brut) => brut.replace(/\u00A0/g, ' '));
 }
 
-/** Combien de fois cette ancre apparaît dans le texte. */
-export function compteAncres(texte: string, nom: string): number {
-  return tagsDuTexte(texte).filter((tag) => tag.nom === nom).length;
-}
-
 /**
  * Poser une ancre. Sans curseur connu (dépôt sur la zone, collage), elle
  * s'ajoute à la fin, comme avant. Avec un curseur, elle se glisse à sa place,

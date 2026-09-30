@@ -107,6 +107,7 @@ import { remonterLeDossierDuProjet } from './remontage.js';
 import { fusionnerVersLaProduction } from './fusion-vers-production.js';
 import { garderLEnvoi } from './garde-contenu.js';
 import { portServi, serviceDuProjet } from './services-du-projet.js';
+import { depannerSeulApresLaChute } from './depannage-publication.js';
 
 export { portServi, serviceDuProjet };
 
@@ -1169,7 +1170,7 @@ async function adresseRepond(url: string): Promise<{ ok: boolean; detail: string
 
 export async function startDeploy(
   projectId: string,
-  options: { cible?: CiblePublication; selectedCardIds?: string[]; depot?: string; reprises?: number } = {},
+  options: { cible?: CiblePublication; selectedCardIds?: string[]; depot?: string; reprises?: number; depannagesAuto?: number } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -1210,6 +1211,7 @@ export async function startDeploy(
     taches: cards.map((c) => ({ cardId: c.id, titre: c.title, branche: c.github?.branch, etat: 'attente' as const })),
     cible: etape.cible,
     reprises: options.reprises ?? 0,
+    depannagesAuto: options.depannagesAuto ?? 0,
     url: etape.cible === 'dev' ? project.devUrl : undefined,
     startedAt: Date.now(),
     queued: false,
@@ -1308,6 +1310,12 @@ export async function startDeploy(
           element: `Publication en échec — ${raison}`,
           projectId,
         });
+        /* LE DÉPANNEUR PART SEUL, mais APRÈS le `finally` (différé) : il ne retient
+           ni `active`, ni la file, ni le redémarrage en attente. Seule la chute
+           d'une vraie casse le déclenche (jamais un arrêt, une coupure, une
+           saturation — la règle pure tranche). */
+        const tombee = current.id;
+        setTimeout(() => void depannerSeulApresLaChute(tombee), 2000);
       }
     } finally {
       journaux.delete(current.id);
@@ -1804,8 +1812,13 @@ export function stopDeploy(runId: string): boolean {
 }
 
 /** Relancer, c'est refaire LA MÊME publication, à la même étape. */
-export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?: string }> {
+export async function retryDeploy(
+  runId: string,
+  /* `enChaine` : la relance vient du dépanneur — le compte des essais automatiques suit. */
+  options: { enChaine?: boolean } = {},
+): Promise<{ ok: boolean; error?: string }> {
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };
-  return startDeploy(run.projectId, { cible: run.cible });
+  const depannagesAuto = options.enChaine && run.depannage?.automatique ? (run.depannagesAuto ?? 0) + 1 : 0;
+  return startDeploy(run.projectId, { cible: run.cible, depannagesAuto });
 }

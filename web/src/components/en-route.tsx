@@ -54,6 +54,8 @@ import {
   type Project,
   type OngletEnRoute,
   estCarteMarketing,
+  estUnRegroupement,
+  membresActifsDuRegroupement,
 } from '@beluga/shared';
 import { client } from '@/lib/client';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
@@ -67,7 +69,7 @@ import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { CardTile, avalerLeRelachement } from '@/components/board';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
-import { PastilleProjet } from '@/components/pastille-projet';
+import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { usePointerDrag } from '@/lib/dnd';
 import { GRILLE_EN_ROUTE, SilhouetteListeEnRoute } from '@/components/silhouettes';
 import {
@@ -653,12 +655,16 @@ function PileDeCartes({
 
 /**
  * Le projet d'une carte, en haut à gauche : son avatar (favicon ou initiales,
- * comme dans la colonne de gauche), puis son nom.
+ * comme dans la colonne de gauche), puis son nom. Un PROJET RÉUNI montre, comme
+ * sa ligne de la colonne de gauche, la pile des favicons de ses membres actifs ;
+ * sans membre actif, il garde son avatar simple, jamais une pile vide.
  */
 function NomDuProjet({ projet }: { projet?: Project }) {
+  const state = useApp();
+  const membres = projet && estUnRegroupement(projet) ? membresActifsDuRegroupement(state.projects, projet.id) : [];
   return (
     <>
-      {projet && <PastilleProjet project={projet} />}
+      {projet && (membres.length ? <PastillesEmpilees projects={membres} fond="hsl(var(--raised))" /> : <PastilleProjet project={projet} />)}
       <span className="min-w-0 truncate text-muted" data-projet-carte>
         {projet?.name ?? t('Projet inconnu')}
       </span>

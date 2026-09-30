@@ -13,9 +13,12 @@
  *   - indéterminé (Laya absent, silencieux ou peu sûr de lui) → Claude
  *     d'abord, comme le réglage par défaut d'avant cette carte.
  *
- * JAMAIS CURSOR PAR BASCULE AUTOMATIQUE (DEC-156, même règle que la
- * publication) : il se facture au crédit, pas à la fenêtre, et y basculer sans
- * qu'on l'ait demandé dépenserait de l'argent au nom de personne.
+ * JAMAIS DE REPLI PAYANT PAR BASCULE AUTOMATIQUE (DEC-156, même règle que la
+ * publication) : un moteur facturé au crédit, pas à la fenêtre (Cursor, MiMo,
+ * les moteurs ajoutés), ne se choisit pas sans qu'on l'ait demandé — cela
+ * dépenserait de l'argent au nom de personne. La SOURCE de cette règle est le
+ * registre (`secoursAutomatique`, lu par `moteursDeSecours()`) ; la liste
+ * ci-dessous ne donne que l'ORDRE de préférence.
  *
  * Le PLAFOND du modèle le plus cher, lui, ne vit pas ici : il continue de
  * passer par `niveauPlancherAutomatique`/`runPlancherAutomatique`
@@ -24,6 +27,7 @@
  */
 
 import type { IdMoteur, MoteurCatalogue } from './reglages-proposition.js';
+import { moteursDeSecours } from './registre-moteurs.js';
 
 export const GENRES_CARTE = ['programmation_avancee', 'administratif', 'indetermine'] as const;
 export type GenreCarte = (typeof GENRES_CARTE)[number];
@@ -38,9 +42,9 @@ export type GenreCarte = (typeof GENRES_CARTE)[number];
 export const SEUIL_CONFIANCE_TRI = 0.6;
 
 /**
- * Chaque liste ne contient QUE Claude et Codex — jamais Cursor (DEC-156) — dans
- * l'ordre de préférence du genre : le second sert déjà de repli si le premier
- * n'a plus de quota, sans qu'un troisième moteur de bascule soit nécessaire.
+ * L'ordre de préférence du genre. Tout moteur absent de `moteursDeSecours()`
+ * en est écarté au moment du choix : le second sert de repli si le premier n'a
+ * plus de quota, sans qu'un troisième moteur de bascule soit nécessaire.
  */
 const PREFERENCE_PAR_GENRE: Record<GenreCarte, IdMoteur[]> = {
   programmation_avancee: ['claude', 'codex'],
@@ -70,7 +74,11 @@ export interface ChoixDeMoteurAutomatique {
  * par `reglagesDeLaProposition`, plutôt que d'échouer à choisir un moteur.
  */
 export function moteurDuTriAutomatique(genre: GenreCarte, catalogue: MoteurCatalogue[]): ChoixDeMoteurAutomatique {
-  const ordre = PREFERENCE_PAR_GENRE[genre];
+  const preference = PREFERENCE_PAR_GENRE[genre];
+  const secours = moteursDeSecours();
+  const permis = preference.filter((id) => secours.includes(id));
+  // Registre sans aucun moteur de secours parmi eux : le premier de la liste, comme avant.
+  const ordre = permis.length > 0 ? permis : preference.slice(0, 1);
   const choisi = ordre.find((id) => aDuQuota(catalogue, id)) ?? ordre[0];
   return { engine: choisi, bascule: choisi !== ordre[0] };
 }

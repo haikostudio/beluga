@@ -634,17 +634,6 @@ function dureeJoursHeures(ms: number): string {
 }
 
 /**
- * Ce qui reste avant l'épuisement prévu, dit court : « dans 1 h 30 »,
- * « dans 25 min », « dans 2 j 4 h ». Un instant déjà atteint se dit
- * « maintenant ».
- */
-export function dansEnClair(at: number, maintenant = Date.now()): string {
-  const restant = at - maintenant;
-  if (restant <= 0) return 'maintenant';
-  return `dans ${dureeJoursHeures(restant)}`;
-}
-
-/**
  * Ce qui MANQUERA entre l'épuisement prévu et la remise à zéro, dit court :
  * « 1 j 4 h », « 3 h 05 », « 25 min ». Se pose après « manque » dans
  * « épuisé dimanche vers 13 h 30 (manque 1 j 4 h) ». Une durée nulle ou

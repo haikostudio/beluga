@@ -485,7 +485,7 @@ export function ProjectSettings({
         </Filet>
 
         <DialogFooter data-pied-reglages-projet className="border-t border-border">
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="subtle" size="sm" onClick={onClose}>
             {t('Annuler')}
           </Button>
           <Button variant="default" size="sm" onClick={save} disabled={saving}>

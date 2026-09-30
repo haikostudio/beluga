@@ -668,7 +668,7 @@ export function PanneauDeDecision({
               ) : null}
               {autres.map((decision) => {
                 if (decision.sorte === 'incident') {
-                  return <IncidentDuParcours key="incident" carte={carte} texte={decision.texte} />;
+                  return <IncidentDuParcours key="incident" carte={carte} texte={decision.texte} etape={decision.etape} />;
                 }
                 const message = parId.get(decision.messageId);
                 if (!message) return null;
@@ -712,10 +712,12 @@ function titreDeLaDecision(decision: DecisionDuParcours, parId: Map<string, Mess
  * même relancé. Il se lit en clair, avec le bouton pour redemander — et se
  * referme d'un clic quand on préfère préciser d'abord.
  */
-function IncidentDuParcours({ carte, texte }: { carte: Card; texte: string }) {
+function IncidentDuParcours({ carte, texte, etape }: { carte: Card; texte: string; etape: 'comprehension' | 'plan' }) {
   const [busy, setBusy] = React.useState<'redemander' | 'fermer' | null>(null);
-  /* Sans compréhension, le bouton la redemande : jamais un plan sans elle. */
-  const sansComprehension = !comprehensionPourLePlan(carte);
+  /* Le bouton redemande CE QUE L'INCIDENT NOMME : un incident de compréhension
+     ne lance jamais un plan (carte « Application iPhone ProjetA », 30/09/2026),
+     et sans compréhension le plan lui-même se redemande par elle. */
+  const sansComprehension = etape === 'comprehension' || !comprehensionPourLePlan(carte);
   const agir = async (geste: 'redemander' | 'fermer') => {
     setBusy(geste);
     try {

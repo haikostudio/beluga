@@ -108,14 +108,26 @@ export interface ClientEntry {
  * rubrique s'ouvre dessus : on doit savoir où l'on vient d'atterrir sans avoir
  * à relire le menu — la phrase d'explication, elle, ne prend plus de place.
  */
-export function TeteDeRubrique({ titre, resume, aide }: { titre: string; resume: string; aide?: string }) {
+export function TeteDeRubrique({
+  titre,
+  resume,
+  aide,
+  action,
+}: {
+  titre: string;
+  resume: string;
+  aide?: string;
+  /** Un bouton posé en haut à droite du titre (l'agent de configuration d'une étape). */
+  action?: React.ReactNode;
+}) {
   return (
-    <header className="mb-3 flex items-center gap-1">
+    <header className="mb-3 flex min-h-7 items-center gap-1" data-tete-de-rubrique>
       <h2 className="text-[15px] font-medium text-text">{titre}</h2>
       <BulleInfo cote="start">
         {resume}
         {aide ? `\n\n${aide}` : null}
       </BulleInfo>
+      {action ? <div className="ml-auto flex shrink-0 items-center pl-2">{action}</div> : null}
     </header>
   );
 }

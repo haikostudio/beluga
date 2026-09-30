@@ -51,7 +51,14 @@ import {
   etapeDeLAgentDeConfiguration,
   voletDeLAgentDePublication,
 } from '@beluga/shared';
-import { EVENEMENT_CONFIG_PROJET, ouvrirRubriqueDeLEtape, type DemandeDeConfig } from '@/lib/ouvrir-config-projet';
+import {
+  EVENEMENT_AGENT_CONFIGURATION,
+  EVENEMENT_CONFIG_PROJET,
+  ouvrirAgentDeConfiguration,
+  ouvrirRubriqueDeLEtape,
+  type DemandeDAgentDeConfiguration,
+  type DemandeDeConfig,
+} from '@/lib/ouvrir-config-projet';
 import { t, useLangueAppliquee } from '@/lib/langue';
 
 /*
@@ -120,6 +127,9 @@ const Statistiques = React.lazy(() => chargerStatistiques().then((m) => ({ defau
 const EnRoute = React.lazy(() => chargerEnRoute().then((m) => ({ default: m.EnRoute })));
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
 const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
+const TiroirAgentDeConfiguration = React.lazy(() =>
+  import('@/components/config-projet/agent-de-configuration').then((m) => ({ default: m.TiroirAgentDeConfiguration })),
+);
 const ProjectSettings = React.lazy(() =>
   chargerConfigProjet().then((m) => ({ default: m.ProjectSettings })),
 );
@@ -434,12 +444,11 @@ export function App() {
       // pas l'un des trois genres qui alertent (`messageAlerte`).
       if (agent.role === 'deploy') {
         /* UN AGENT DE CONFIGURATION (déploiement ou mise en production) ouvre
-           la RUBRIQUE de son étape dans les réglages du projet : c'est là que
-           vivent sa conversation et le processus qu'il écrit (29/09/2026). */
+           son TIROIR, sans fenêtre de réglages (30/09/2026). */
         const projetDeLAgent = etat.projects.find((p) => p.id === agent.projectId);
         const etapeConfiguree = etapeDeLAgentDeConfiguration(projetDeLAgent, agent.id);
         if (etapeConfiguree && !agent.depannagePublication) {
-          ouvrirRubriqueDeLEtape(agent.projectId, etapeConfiguree);
+          ouvrirAgentDeConfiguration(agent.projectId, etapeConfiguree);
           return;
         }
         /* CHAQUE AUTRE AGENT DE PUBLICATION OUVRE LE VOLET DE SON ÉTAPE
@@ -648,6 +657,19 @@ export function App() {
    * que le panneau des décisions, et elle évite de faire traverser une fonction
    * à trois composants qui n'ont rien à voir entre eux.
    */
+  /* Le tiroir de l'agent de configuration se monte à la PREMIÈRE demande, puis
+     reste monté et écoute seul : la demande qui l'a fait monter lui est
+     donnée comme demande initiale, puisqu'il n'écoutait pas encore. */
+  const [demandeInitialeConfiguration, setDemandeInitialeConfiguration] =
+    React.useState<DemandeDAgentDeConfiguration | null>(null);
+  React.useEffect(() => {
+    const monter = (event: Event) => {
+      const detail = (event as CustomEvent<DemandeDAgentDeConfiguration>).detail;
+      if (detail?.projectId) setDemandeInitialeConfiguration((deja) => deja ?? detail);
+    };
+    window.addEventListener(EVENEMENT_AGENT_CONFIGURATION, monter);
+    return () => window.removeEventListener(EVENEMENT_AGENT_CONFIGURATION, monter);
+  }, []);
   React.useEffect(() => {
     const ouvrir = (event: Event) => {
       const detail = (event as CustomEvent<DemandeDeConfig>).detail;
@@ -1342,6 +1364,15 @@ export function App() {
               rubrique={configRubrique}
               onRubrique={setConfigRubrique}
             />
+          </PanneauALaDemande>
+        </Filet>
+        {/* LE TIROIR DE L'AGENT DE CONFIGURATION D'UNE ÉTAPE, monté UNE fois :
+            le bouton d'en-tête des rubriques l'ouvre par-dessus les réglages,
+            la vignette du tableau et l'aiguillage des agents l'ouvrent seul.
+            Son morceau n'est demandé qu'à la première ouverture. */}
+        <Filet zone="Agent de configuration" onReprendre={() => setDemandeInitialeConfiguration(null)}>
+          <PanneauALaDemande monte={!!demandeInitialeConfiguration}>
+            <TiroirAgentDeConfiguration initiale={demandeInitialeConfiguration} />
           </PanneauALaDemande>
         </Filet>
         <Toasts />

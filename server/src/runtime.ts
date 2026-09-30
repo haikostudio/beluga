@@ -2412,6 +2412,21 @@ async function startTurn(
     quotaSemaine: 0,
   };
 
+  /*
+   * L'INCIDENT « LA COMPRÉHENSION N'EST PAS VENUE » TOMBE À L'OUVERTURE D'UN
+   * NOUVEAU TOUR DE CADRAGE, y compris le tour silencieux de reprise après un
+   * déplacement de carte : il parle du tour précédent, et resté affiché il
+   * contredisait « L'agent réfléchit… ». Si ce tour-ci échoue à son tour, il
+   * repose son propre incident à sa fermeture.
+   */
+  if (agent.role === 'cadrage' && agent.cardId) {
+    const carteDuDepart = store.getCard(agent.cardId);
+    if (carteDuDepart?.parcours?.incident?.etape === 'comprehension') {
+      const rangee = store.saveCard({ ...carteDuDepart, parcours: { ...carteDuDepart.parcours, incident: undefined } });
+      bus.emit({ type: 'card.upsert', card: rangee });
+    }
+  }
+
   // Le premier tour du groupe pose le repère commun. Les suivants le gardent
   // jusqu'à ce que le dernier tour du compte soit rangé.
   if (!dernierQuotaReparti.has(account.id)) dernierQuotaReparti.set(account.id, quotaAvant);
@@ -3515,6 +3530,10 @@ async function startTurn(
         echec: failed || !!reprise || !!panneDefinitive,
         arretDemande: runState.stopping,
         planDemande: !!demandeDePlan || planRenduCeTour,
+        /* `agent` est la copie prise au DÉPART du tour : si la carte porte
+           aujourd'hui un autre projet, c'est que CE tour l'a déplacée. Un
+           déplacement refusé ne change pas le projet, donc ne compte pas. */
+        carteDeplacee: carteDuTour.projectId !== agent.projectId,
       };
       let relance: 'cadrage' | 'reponse' | 'incident' | undefined;
       if (comprehensionManquante(jugement)) {

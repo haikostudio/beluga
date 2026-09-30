@@ -81,7 +81,7 @@ export function diagnosticACorriger(d: DiagnosticSuivi | null | undefined): bool
  * déjà son suivi : il n'en reçoit pas.
  */
 export function adresseDeProductionDuProjet(
-  projet: { adresseProduction?: string; isSelf?: boolean; archived?: boolean },
+  projet: { adresseProduction?: string; adresseProductionRattrapee?: boolean; isSelf?: boolean; archived?: boolean },
   adresseDeLEspace?: string | null,
   sitesRattachesALaMain: readonly string[] = [],
 ): string | null {
@@ -93,7 +93,10 @@ export function adresseDeProductionDuProjet(
       return '';
     }
   });
-  const candidates = [projet.adresseProduction, adresseDeLEspace, ...surveille];
+  /* Une adresse RATTRAPÉE (remplie sans l'utilisateur) n'ouvre aucun suivi :
+     seule une adresse saisie, changée ou écrite par l'agent le fait. */
+  const declaree = projet.adresseProductionRattrapee ? undefined : projet.adresseProduction;
+  const candidates = [declaree, adresseDeLEspace, ...surveille];
   return candidates.map((a) => a?.trim() ?? '').find((a) => a.length > 0) || null;
 }
 

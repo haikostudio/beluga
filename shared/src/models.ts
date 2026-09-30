@@ -133,6 +133,8 @@ export const ProcessusEcrit = z.object({
   explication: z.string().optional(),
   /** L'ADRESSE VISÉE, déclarée par l'agent : la machine ou le site où le processus agit. */
   cible: z.string().optional(),
+  /** L'adresse de contrôle déclarée par l'agent (URL seule). */
+  adresse: z.string().optional(),
   etapes: z.array(EtapeDuProcessusDeProduction),
   ecritLe: z.number().optional(),
   /**
@@ -297,6 +299,14 @@ export const Project = z.object({
    * jamais devinée, puisqu'une mauvaise adresse déclarerait un site étranger.
    */
   adresseProduction: z.string().optional(),
+  /**
+   * L'ADRESSE PUBLIQUE A ÉTÉ RATTRAPÉE, pas saisie (30/09/2026) : remplie par
+   * le rattrapage des adresses de contrôle (`server/src/rattrapage-adresses.ts`),
+   * elle n'ouvre AUCUN suivi des visites (`adresseDeProductionDuProjet` l'ignore).
+   * La marque tombe dès que l'utilisateur saisit ou change l'adresse, ou que
+   * l'agent de configuration l'écrit : le suivi part alors normalement.
+   */
+  adresseProductionRattrapee: z.boolean().optional(),
   /**
    * LE DÉPLOIEMENT AUTOMATIQUE, commandé par l'interrupteur posé en tête de la
    * colonne « Terminé ». ÉTEINT par défaut, et pour tous les projets déjà
@@ -2353,8 +2363,21 @@ export const DeployRun = z.object({
    * est l'instant où l'agent a demandé la relance de la publication.
    */
   depannage: z
-    .object({ agentId: z.string(), at: z.number(), relanceDemandee: z.number().optional() })
+    .object({
+      agentId: z.string(),
+      at: z.number(),
+      relanceDemandee: z.number().optional(),
+      /** Vrai quand le démon l'a ouvert seul, à la chute de la publication (sans clic). */
+      automatique: z.boolean().optional(),
+    })
     .optional(),
+  /**
+   * Combien de dépanneurs AUTOMATIQUES ont déjà travaillé sur les publications
+   * précédentes de cette même chaîne de relances. Une relance crée une NOUVELLE
+   * publication : le plafond ne peut pas se compter sur une seule. Une réussite
+   * ou une relance à la main repart de 0 (`MAX_DEPANNAGES_AUTOMATIQUES`).
+   */
+  depannagesAuto: z.number().default(0),
   error: z.string().optional(),
   /**
    * Ce qui a bronché SANS empêcher la mise en ligne : une carte qu'on n'a pas

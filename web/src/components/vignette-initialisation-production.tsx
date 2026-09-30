@@ -3,7 +3,7 @@ import { agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { Dot } from '@/components/ui';
-import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
+import { ouvrirAgentDeConfiguration } from '@/lib/ouvrir-config-projet';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
@@ -17,8 +17,8 @@ import { cn } from '@/lib/utils';
  * l'agent travaille ou attend une réponse (`vignetteDInitialisationVisible`).
  * Elle ne compte ni dans le compteur de la colonne, ni dans son avancement.
  *
- * Le clic ouvre la RUBRIQUE de son étape dans les réglages du projet, où
- * vit sa conversation (`ouvrirRubriqueDeLEtape`), d'où qu'on vienne. Elle
+ * Le clic ouvre le TIROIR de l'agent (`ouvrirAgentDeConfiguration`), d'où
+ * qu'on vienne, sans passer par la fenêtre de réglages (30/09/2026). Elle
  * sert aux DEUX agents de configuration : déploiement et mise en production. Même règle que les autres
  * vignettes : l'ouverture est portée par le cadre, jamais par un `button` qui
  * contiendrait un texte replié.
@@ -42,7 +42,7 @@ export function VignetteInitialisationProduction({
   avecProjet?: boolean;
 }) {
   const auTravail = agentTientSonTour(agent);
-  const ouvrir = () => ouvrirRubriqueDeLEtape(agent.projectId, cible);
+  const ouvrir = () => ouvrirAgentDeConfiguration(agent.projectId, cible);
   return (
     <div className="flex min-w-0 flex-col" data-vignette-initialisation-production={agent.projectId} data-vignette-etape={cible}>
       <div

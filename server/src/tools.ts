@@ -2521,7 +2521,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const runtime = runtimeDuCadrage;
       const tourId = tourDuCadrage;
       const comprehension = ComprehensionDeCarte.parse({ ...lecture.valeur, at: Date.now(), tourId });
-      const parcours = { ...(carte.parcours ?? { plans: [] }), comprehension };
+      /* « La compréhension n'est pas venue » tombe avec la compréhension : son
+         bouton, resté affiché, demandait un plan que personne n'avait voulu. */
+      const incident = carte.parcours?.incident?.etape === 'comprehension' ? undefined : carte.parcours?.incident;
+      const parcours = { ...(carte.parcours ?? { plans: [] }), comprehension, incident };
       /*
        * UNE COMPRÉHENSION RENDUE SUR UNE CARTE RELANCÉE VAUT « NOUVEAU TRAVAIL ».
        *

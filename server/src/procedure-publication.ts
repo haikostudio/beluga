@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  adresseDeControleAEcrire,
   Agent,
   CiblePublication,
   DEBUT_PROCESSUS,
@@ -22,6 +23,7 @@ import * as store from './store.js';
 import { CONFIG } from './config.js';
 import { brancheDeLEtape } from './deploy.js';
 import { bus } from './bus.js';
+import { log } from './logger.js';
 import { agentsActifs, createAgent, sendPrompt } from './runtime.js';
 import { attenteDeLAgent } from './attente-question.js';
 
@@ -156,6 +158,7 @@ async function promptDAccueil(
     dossier: projet.path,
     brancheTravail: dev.branche,
     brancheProduction: production.branche,
+    adresseProduction: projet.adresseProduction,
     ancienneRecette: ancienneRecette(projet.id),
     actuel: processusEnTexte(projet.miseEnProduction?.processus) || undefined,
     automatismes: automatismesDuDepot(projet.path),
@@ -313,15 +316,42 @@ export function enregistrerProcessus(
   const projet = store.getProject(projectId);
   if (!projet) return false;
   const champ = champDeLEtape(cible);
+  /*
+   * L'ADRESSE DE CONTRÔLE DÉCLARÉE PAR L'AGENT (30/09/2026) rejoint le réglage
+   * du projet quand il est VIDE — jamais par-dessus une adresse en place : un
+   * écart se dit dans la réponse de l'agent (sa consigne le lui demande) et se
+   * note au journal. Elle est écrite AVANT de prendre l'empreinte : sinon le
+   * processus s'afficherait « à revérifier » à peine écrit.
+   */
+  const decision = adresseDeControleAEcrire(projet, cible, processus.adresse);
+  const avecAdresse =
+    decision?.action === 'ecrire'
+      ? {
+          ...projet,
+          [decision.champ]: decision.adresse,
+          ...(decision.champ === 'adresseProduction' ? { adresseProductionRattrapee: undefined } : {}),
+        }
+      : projet;
+  if (decision?.action === 'ecart') {
+    log.info(
+      `adresse déclarée par l'agent de configuration de « ${projet.name} » (${decision.adresse}) différente du réglage en place (${decision.enPlace}) : réglage gardé`,
+    );
+  }
   const enregistre = store.saveProject({
-    ...projet,
+    ...avecAdresse,
     /* L'agent de configuration RESTE retenu : sa conversation se poursuit. */
     [champ]: {
       ...(projet[champ] ?? {}),
-      processus: { ...processus, ecritLe: store.now(), empreinte: empreinteDesReglages(projet, cible) },
+      processus: { ...processus, ecritLe: store.now(), empreinte: empreinteDesReglages(avecAdresse, cible) },
     },
   });
   bus.emit({ type: 'project.upsert', project: enregistre });
+  /* Une adresse publique écrite par l'agent ouvre son suivi, comme une saisie. */
+  if (decision?.action === 'ecrire' && decision.champ === 'adresseProduction') {
+    void import('./suivi-par-defaut.js')
+      .then(({ assurerLeSuiviDuProjet }) => assurerLeSuiviDuProjet(projectId))
+      .catch((err) => log.warn('suivi par défaut : relecture du projet impossible', err));
+  }
   return true;
 }
 

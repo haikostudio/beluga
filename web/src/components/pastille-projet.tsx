@@ -70,7 +70,14 @@ export function largeurPile(nombre: number): number {
   return 15 + DECALAGE_PILE * (Math.min(Math.max(nombre, 1), PILE_MAX) - 1);
 }
 
-export function PastillesEmpilees({ projects }: { projects: Project[] }) {
+export function PastillesEmpilees({
+  projects,
+  fond = 'hsl(var(--fond-zone, var(--bg)))',
+}: {
+  projects: Project[];
+  /** La couleur du support de la pile : celle de la zone par défaut, `--raised` sur une carte. */
+  fond?: string;
+}) {
   const pile = projects.slice(0, PILE_MAX);
   return (
     <span
@@ -88,8 +95,8 @@ export function PastillesEmpilees({ projects }: { projects: Project[] }) {
             zIndex: pile.length - i,
             // Fond PLEIN en plus du liseré : un favicon transparent laisserait
             // sinon voir celui de derrière à travers lui.
-            backgroundColor: 'hsl(var(--fond-zone, var(--bg)))',
-            boxShadow: '0 0 0 1px hsl(var(--fond-zone, var(--bg)))',
+            backgroundColor: fond,
+            boxShadow: `0 0 0 1px ${fond}`,
           }}
         >
           <PastilleProjet project={membre} />

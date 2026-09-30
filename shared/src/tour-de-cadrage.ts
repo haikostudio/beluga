@@ -51,16 +51,26 @@ export interface TourDeCadrageFini {
    * ferait deux relances dans le même tour.
    */
   planDemande?: boolean;
+  /**
+   * LA CARTE A CHANGÉ DE PROJET PENDANT CE TOUR (outil `deplacer_vers_projet`).
+   * Le cadrage part alors reprendre la demande dans le projet d'accueil, avec
+   * une session neuve : ce tour-ci n'a rien à rendre, la compréhension est
+   * l'affaire du tour suivant. Le lui réclamer relançait le moteur pendant des
+   * minutes, puis posait « La compréhension n'est pas venue » au-dessus d'un
+   * cadrage qui travaillait déjà ailleurs.
+   */
+  carteDeplacee?: boolean;
 }
 
 /**
  * CE TOUR A-T-IL MANQUÉ SA COMPRÉHENSION ? Les exceptions sont exactement
  * celles du plan : une question ouverte, un tour tombé, un arrêt demandé — et
- * la demande de plan, qui a sa propre relance.
+ * la demande de plan, qui a sa propre relance. S'y ajoute la carte déplacée
+ * vers un autre projet : sa compréhension se rend dans le tour de reprise.
  */
 export function comprehensionManquante(tour: TourDeCadrageFini): boolean {
   if (tour.comprehensionRendue) return false;
-  if (tour.questionPosee || tour.echec || tour.arretDemande || tour.planDemande) return false;
+  if (tour.questionPosee || tour.echec || tour.arretDemande || tour.planDemande || tour.carteDeplacee) return false;
   return true;
 }
 
@@ -134,8 +144,12 @@ export function issueAEcrire(etat: {
   questionPosee?: boolean;
   echec?: boolean;
   arretDemande?: boolean;
+  carteDeplacee?: boolean;
 }): IssueDeTourDeCadrage | null {
   if (etat.echec || etat.arretDemande || etat.questionPosee) return null;
+  /* Un tour qui a déplacé la carte n'a pas d'issue : la reprise dans le projet
+     d'accueil écrira la sienne (sauf compréhension déjà rendue, plus bas). */
+  if (etat.carteDeplacee && !etat.comprehensionRendue) return null;
   if (etat.comprehensionRendue || etat.relance === 'cadrage') return 'cadrage';
   if (etat.relance === 'reponse') return 'reponse';
   if (etat.relance === 'incident') return null;

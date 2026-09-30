@@ -42,6 +42,8 @@ import {
   mentionDeReprise,
   cadrageRouvertApresRapport,
   avisSurLUrgence,
+  estUnRegroupement,
+  membresActifsDuRegroupement,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -65,7 +67,7 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
-import { PastilleProjet } from '@/components/pastille-projet';
+import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { RepereAttention } from '@/components/repere-attention';
 import { SilhouetteTiroirCarte } from '@/components/silhouettes';
 import { client, donneesDeCarteRecues } from '@/lib/client';
@@ -267,6 +269,9 @@ function CardPanelBody({
     (conversation?.activeAgentId ? state.agents[conversation.activeAgentId] : null) ??
     dernierAgent;
   const project = state.projects.find((p) => p.id === card.projectId);
+  /* Un projet réuni montre la pile des favicons de ses projets, comme la colonne
+     de gauche et la page « En route » ; sans membre actif, la pastille simple. */
+  const membresDuGroupe = project && estUnRegroupement(project) ? membresActifsDuRegroupement(state.projects, project.id) : [];
 
   /* Ce que cette carte attend de vous — le même compte que son triangle sur le
      tableau, posé ici sur l'onglet où la décision se prend. */
@@ -424,7 +429,11 @@ function CardPanelBody({
                     client.demanderTableau(project.id);
                   }}
                 >
-                  <PastilleProjet project={project} />
+                  {membresDuGroupe.length ? (
+                    <PastillesEmpilees projects={membresDuGroupe} fond="hsl(var(--surface))" />
+                  ) : (
+                    <PastilleProjet project={project} />
+                  )}
                 </button>
               ) : null}
               {titreGenere ? (

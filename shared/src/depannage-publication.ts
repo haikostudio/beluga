@@ -16,13 +16,18 @@
  */
 
 import { BANDE_GARDE_UN_FINI_MS } from './en-route.js';
+import { natureDePublication } from './mise-en-ligne.js';
 
 /** Ce que la règle lit d'une publication. */
 export interface PublicationPourLeDepannage {
   id: string;
   state: string;
   cible?: 'dev' | 'production';
-  depannage?: { agentId: string; at: number; relanceDemandee?: number };
+  depannage?: { agentId: string; at: number; relanceDemandee?: number; automatique?: boolean };
+  error?: string;
+  steps?: readonly { key: string; state: string }[];
+  /** Les dépanneurs automatiques déjà passés sur la chaîne de relances. */
+  depannagesAuto?: number;
 }
 
 /** Ce que la règle lit d'un agent. */
@@ -47,6 +52,38 @@ export function publicationADepanner(
 ): boolean {
   if (!run || !derniere || derniere.id !== run.id) return false;
   return run.state === 'failed' || run.state === 'stopped';
+}
+
+/**
+ * Combien de dépanneurs AUTOMATIQUES d'affilée, au plus, sur une chaîne de
+ * relances : au-delà, l'humain reprend la main (le bouton reste offert).
+ */
+export const MAX_DEPANNAGES_AUTOMATIQUES = 2;
+
+/**
+ * LE DÉPANNEUR SE LANCE-T-IL TOUT SEUL À LA CHUTE DE LA PUBLICATION ?
+ *
+ * Oui seulement pour une publication CASSÉE (`natureDePublication`) : un arrêt
+ * demandé, une coupure de redémarrage ou une machine saturée n'appellent jamais
+ * d'agent (appeler un agent sur une saturation l'a DOUBLÉE le 08.09.2026). Il faut
+ * aussi que ce soit la dernière du projet, qu'aucun dépanneur ne soit déjà lié,
+ * et que la chaîne de relances n'ait pas épuisé son plafond.
+ */
+export function depannageAutomatiqueAPoser(
+  run: PublicationPourLeDepannage | null | undefined,
+  derniere: { id: string } | null | undefined,
+): boolean {
+  if (!run || !publicationADepanner(run, derniere)) return false;
+  if (run.depannage) return false;
+  const etapeTombee = run.steps?.find((step) => step.state === 'failed')?.key;
+  const nature = natureDePublication({ etat: run.state as 'failed' | 'stopped', etapeTombee, motif: run.error });
+  if (nature !== 'cassee') return false;
+  return (run.depannagesAuto ?? 0) < MAX_DEPANNAGES_AUTOMATIQUES;
+}
+
+/** Le plafond de la chaîne est-il atteint sur une publication cassée ? (pour le DIRE) */
+export function depannageAutomatiqueEpuise(run: PublicationPourLeDepannage | null | undefined): boolean {
+  return !!run && (run.depannagesAuto ?? 0) >= MAX_DEPANNAGES_AUTOMATIQUES;
 }
 
 /**
@@ -127,6 +164,8 @@ export interface PanneAResoudre {
   /** La fin du journal de l'étape tombée. */
   journal?: string;
   branche?: string;
+  /** Qui a lancé le dépannage : le bouton (défaut) ou le démon, à la chute. */
+  origine?: 'manuel' | 'automatique';
 }
 
 /**
@@ -137,7 +176,9 @@ export interface PanneAResoudre {
 export function demandeDeDepannage(panne: PanneAResoudre): string {
   const quoi = panne.cible === 'production' ? 'la mise en production' : 'le déploiement';
   const lignes = [
-    `L'utilisateur a cliqué « Résoudre le problème » : ${quoi} du projet « ${panne.projet} » est tombé${panne.cible === 'production' ? 'e' : ''}.`,
+    panne.origine === 'automatique'
+      ? `${quoi[0].toUpperCase()}${quoi.slice(1)} du projet « ${panne.projet} » est tombé${panne.cible === 'production' ? 'e' : ''} ; le dépannage a été lancé automatiquement.`
+      : `L'utilisateur a cliqué « Résoudre le problème » : ${quoi} du projet « ${panne.projet} » est tombé${panne.cible === 'production' ? 'e' : ''}.`,
     `Dossier du projet : ${panne.dossier}`,
     panne.branche ? `Branche concernée : ${panne.branche}` : null,
     panne.etape ? `Étape tombée : « ${panne.etape} »` : "Étape tombée : inconnue (la publication s'est arrêtée sans en marquer une).",

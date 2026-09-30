@@ -66,7 +66,7 @@ export function EtudeRepliee({ texte }: { texte: string }) {
         ) : null}
       </div>
       {tronquee ? (
-        <Button variant="ghost" size="sm" className="mt-1 px-1.5" onClick={() => setOuvert(true)} data-etude-voir-plus>
+        <Button variant="subtle" size="sm" className="mt-1.5" onClick={() => setOuvert(true)} data-etude-voir-plus>
           {t('Voir plus')}
         </Button>
       ) : null}

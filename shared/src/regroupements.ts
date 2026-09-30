@@ -51,6 +51,19 @@ export function sansRegroupements<T extends { regroupement?: boolean }>(projets:
   return projets.filter((p) => !estUnRegroupement(p));
 }
 
+/**
+ * Les membres ACTIFS d'un regroupement, dans l'ordre de la colonne de gauche
+ * (`rank`) : ni mis de côté, ni l'espace de développement. C'est ce que montre
+ * la pile de favicons, en colonne de gauche comme sur les cartes du tableau.
+ */
+export function membresActifsDuRegroupement<
+  T extends { regroupementId?: string; archived?: boolean; isSelf?: boolean; rank?: number },
+>(projets: readonly T[], regroupementId: string): T[] {
+  return projets
+    .filter((p) => p.regroupementId === regroupementId && !p.archived && !p.isSelf)
+    .sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000));
+}
+
 /** Les membres d'un regroupement, dans l'ordre reçu. Un membre mis de côté reste membre. */
 export function membresDuRegroupement<T extends { regroupementId?: string }>(
   projets: readonly T[],

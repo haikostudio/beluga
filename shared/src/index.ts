@@ -147,6 +147,7 @@ export * from './parcours-de-publication.js';
 export * from './fusion-du-lot.js';
 export * from './rattrapage-ecartee.js';
 export * from './procedure-publication.js';
+export * from './rattrapage-adresses.js';
 export * from './publication-simple.js';
 export * from './processus-en-place.js';
 export * from './micro-demande.js';

@@ -52,6 +52,7 @@ import {
   type IconeDAttention,
   signalDuGroupe,
   estUnRegroupement,
+  membresActifsDuRegroupement,
   compterEnPanne,
   texteDuCompteur,
 } from '@beluga/shared';
@@ -371,8 +372,7 @@ export function Sidebar({
    */
   const regroupementsActifs = new Set(tousActifs.filter((p) => estUnRegroupement(p)).map((p) => p.id));
   const actifs = tousActifs.filter((p) => !(p.regroupementId && regroupementsActifs.has(p.regroupementId)));
-  const membresDe = (id: string) =>
-    tousActifs.filter((p) => p.regroupementId === id).sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000));
+  const membresDe = (id: string) => membresActifsDuRegroupement(tousActifs, id);
   const espaceDev = state.projects.find((p) => !p.archived && p.isSelf) ?? null;
   const groups = state.groups;
   /** Le groupe « Local » : celui où vit l'espace de développement. */

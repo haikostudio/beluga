@@ -1747,7 +1747,8 @@ function avecLIncident(erreurs: ErreurDuPoint[], etape: EtapeDuParcours, ctx: Co
   /* L'INCIDENT VA AU POINT QU'IL NOMME. Il ne visait que le plan ; la
      compréhension a désormais le sien, et son geste de reprise n'est pas
      « redemander le plan » mais RELANCER le cadrage par un message. */
-  if (incident?.texte && (incident.etape ?? 'plan') === etape) {
+  const perime = etape === 'comprehension' && (ctx.parcours?.comprehension?.at ?? 0) >= (incident?.at ?? 0);
+  if (incident?.texte && (incident.etape ?? 'plan') === etape && !perime) {
     liste.push({
       cle: 'incident',
       texte: incident.texte,
@@ -1837,15 +1838,6 @@ export interface SegmentDeLaBarre {
  * même où l'utilisateur la regarde. Elle se lit dans le flux, à sa place.
  */
 export const ETAPES_DE_LA_BARRE = ETAPES_DU_PARCOURS.filter((etape) => etape !== 'preparation');
-
-/**
- * LE SEGMENT MIS EN AVANT PAR LA BARRE. La préparation n'a pas de segment à
- * elle : c'est « Travail » qu'on est en train de préparer, et c'est donc lui
- * que la barre montre — encore gris, mais désigné.
- */
-export function segmentActifDeLaBarre(courante: EtapeDuParcours): EtapeDuParcours {
-  return courante === 'preparation' ? 'travail' : courante;
-}
 
 /**
  * LA BARRE GARDE UN SEGMENT PAR ÉTAPE, QUOI QU'IL ARRIVE AU FLUX. Elle replie
