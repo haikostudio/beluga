@@ -34,10 +34,7 @@ import {
   passageViseParLeSegment,
   segmentActifDeSuivi,
   type EtapeDeSuivi,
-  etapeCourante,
-  repriseDuCadrageApresLePlan,
   messageDeLaCarteVaAuCadrage,
-  comprehensionApresLePlan,
   filDesRecherchesAffiche,
   fluxDuParcours,
   gesteDuParcours,
@@ -86,6 +83,8 @@ import { useApp, useCanal } from '@/lib/use-app';
 import { cn, jourDuMessage } from '@/lib/utils';
 import { useMinute } from '@/lib/horloge';
 import { t, formatRegional } from '@/lib/langue';
+import { useSeconde } from '@/lib/horloge';
+import { useIntervalleVisible } from '@/lib/veille';
 
 export function Chat({
   agent,
@@ -212,11 +211,7 @@ export function Chat({
    * témoin allumé sous un compte rendu déjà rendu.
    */
   const [, battre] = React.useReducer((n: number) => n + 1, 0);
-  React.useEffect(() => {
-    if (!busy || reponseRendueA === undefined) return;
-    const battement = window.setInterval(battre, 30_000);
-    return () => window.clearInterval(battement);
-  }, [busy, reponseRendueA]);
+  useIntervalleVisible(battre, 30_000, busy && reponseRendueA !== undefined);
 
   /*
    * L'agent a fini son tour sur une question posée en TEXTE ORDINAIRE (pas par
@@ -561,11 +556,7 @@ export function Chat({
     () => ({ etat: etatDuDeploiement(suivi), deployeeA: suivi.deployeeA }),
     [suivi],
   );
-  const aUneDemande = points.some((point) => point.etape === 'demande' && point.moments.length > 0);
-  const repriseApresPlan =
-    repriseDuCadrageApresLePlan(points.map((point) => point.etape)) || comprehensionApresLePlan(carte?.parcours);
-  const courante = etapeCourante(geste.chapitre, aUneDemande, !!carte?.parcours?.planDemandeA, repriseApresPlan);
-  const ouvertsDOffice = React.useMemo(() => pointsOuvertsDOffice(points, courante), [points, courante]);
+  const ouvertsDOffice = React.useMemo(() => pointsOuvertsDOffice(points), [points]);
   /* LA BARRE EST UN RACCOURCI : toucher un segment ouvre le point et défile jusqu'à lui ;
      le segment actif suit ensuite le point visible. */
   const [ouverture, setOuverture] = React.useState<OuvertureDemandee | null>(null);
@@ -1311,7 +1302,6 @@ function TravailEnCours({
   /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
   cardId?: string;
 }) {
-  const [, forcer] = React.useState(0);
   const state = useApp();
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
   // texte, donc le même contrôle, la même commande et la même confirmation.
@@ -1322,11 +1312,7 @@ function TravailEnCours({
   const [listeOuverte, basculerListe] = usePliDesTaches();
 
   // Le temps écoulé avance tout seul, seconde par seconde.
-  React.useEffect(() => {
-    if (!busy) return;
-    const timer = window.setInterval(() => forcer((n) => n + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [busy]);
+  useSeconde(busy);
 
   const dernier = messages[messages.length - 1];
   // La liste complète ne se déplie que si l'agent en a annoncé une — un
@@ -1798,7 +1784,7 @@ function CarteDeConfiguration({
 }
 
 /** Une ligne de la carte de configuration : le nom, la valeur, une flèche. */
-function LigneDeConfiguration({
+export function LigneDeConfiguration({
   nom,
   valeur,
   onClick,

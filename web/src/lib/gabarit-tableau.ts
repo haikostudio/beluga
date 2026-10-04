@@ -49,6 +49,13 @@ export const CLASSE_HAUTEUR_CARTE_EN_ROUTE = 'h-[178px]';
  */
 export const CLASSE_HAUTEUR_CORPS_EN_ROUTE = 'h-[72px]';
 
+/**
+ * LE CADRE VIOLET DES CARTES SYSTÈME (agents sans carte, dépannages, agents de
+ * configuration) : le jeton `--publie`, déjà décliné dans les douze palettes.
+ */
+export const CLASSE_CADRE_SYSTEME =
+  'relative z-10 flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-md border border-publie/60 bg-raised px-2.5 py-2 transition-colors hover:border-publie';
+
 /** Le rail qui porte les rangées (vertical) ou les colonnes (horizontal). */
 export const classesRail = (enColonnes: boolean): string =>
   enColonnes ? 'flex gap-2.5 scroll-px-3 px-3 py-3' : 'flex flex-col gap-2.5 px-3 py-3';

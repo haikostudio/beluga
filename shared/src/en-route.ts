@@ -18,7 +18,7 @@
  *
  * LE MÊME ORDRE DES DEUX CÔTÉS : le démon trie en SQL sur la clé
  * `updated_at DESC, id DESC`, l'écran re-trie ce qu'il a reçu avec
- * `comparerEnRoute` après chaque événement. Une carte qui bouge remonte donc en
+ * `comparerDerniereAction` après chaque événement. Une carte qui bouge remonte donc en
  * tête sans rien redemander au démon.
  *
  * Règle pure : ni base, ni disque, ni navigateur — elle se teste seule.
@@ -61,16 +61,6 @@ function comparerDerniereAction(a: { id: string; updatedAt: number }, b: { id: s
   const [ub, ib] = cleEnRoute(b);
   if (ua !== ub) return ub - ua;
   return ia < ib ? 1 : ia > ib ? -1 : 0;
-}
-
-/** L'ordre de l'onglet « Actif ». */
-export function comparerEnRoute(a: CarteEnRoute, b: CarteEnRoute): number {
-  return comparerDerniereAction(a, b);
-}
-
-/** Les cartes en route, dans l'ordre de la page. Les autres sont écartées. */
-export function trierEnRoute<T extends CarteEnRoute>(cartes: readonly T[]): T[] {
-  return cartes.filter(estEnRoute).sort(comparerEnRoute);
 }
 
 /** Le curseur de la page suivante : la clé de la dernière carte reçue. */
@@ -200,16 +190,6 @@ export interface CarteDeployee {
  */
 export function estDeployee(carte: CarteDeployee): carte is CarteDeployee & { deployedAt: number } {
   return carte.column === 'archived' && typeof carte.deployedAt === 'number' && carte.deployedAt > 0;
-}
-
-/** L'ordre de l'onglet « Terminé » : la dernière action d'abord, comme « Actif ». */
-export function comparerDeployees(a: CarteDeployee, b: CarteDeployee): number {
-  return comparerDerniereAction(a, b);
-}
-
-/** Les cartes terminées, dans l'ordre de l'onglet. Les autres sont écartées. */
-export function trierDeployees<T extends CarteDeployee>(cartes: readonly T[]): T[] {
-  return cartes.filter(estDeployee).sort(comparerDeployees);
 }
 
 /** Le curseur de la page suivante de l'onglet « Terminé ». */

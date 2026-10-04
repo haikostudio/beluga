@@ -112,6 +112,18 @@ export type EtatDuPool = z.infer<typeof EtatDuPool>;
 export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello'), protocol: z.number().optional() }),
   z.object({ type: z.literal('ping') }),
+  /**
+   * CE QUE CET ÉCRAN REGARDE, EN PLUS DE SON PROJET (`shared/src/perimetre-ecran.ts`).
+   * Le serveur déduit déjà le périmètre des demandes de l'écran (`project.open`,
+   * `agent.open`, `card.conversation`, `card.journal`) ; cette commande le
+   * REDIT sans rien redemander — après une reconnexion, où le serveur a tout
+   * oublié, ou pour une conversation déjà chargée qu'on rouvre.
+   */
+  z.object({
+    type: z.literal('ecran.perimetre'),
+    agents: z.array(z.string()).optional(),
+    cartes: z.array(z.string()).optional(),
+  }),
 
   // Projets
   z.object({ type: z.literal('project.list'), includeArchived: z.boolean().optional() }),
@@ -337,6 +349,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * lancement (`gesteDuParcours`), et l'écran enchaîne les deux dans le même
    * clic. Une compréhension rendue ensuite périme la validation.
    */
+  /**
+   * VALIDER (ou retirer) UNE SUPPOSITION de la compréhension en cours, par son
+   * texte exact. Écrit sur la carte et rien d'autre : aucun tour d'agent.
+   */
+  z.object({
+    type: z.literal('card.comprehension.supposition'),
+    cardId: z.string(),
+    hypothese: z.string(),
+    validee: z.boolean(),
+  }),
   z.object({
     type: z.literal('card.comprehension.validate'),
     cardId: z.string(),
@@ -396,6 +418,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
     agentId: z.string(),
     text: z.string(),
     attachments: z.array(z.string()).optional(),
+    /* Ce que les bulles de question de cet agent tenaient déjà à l'envoi, par
+       identifiant de question : si ce message répond à l'une d'elles, ses
+       choix cochés partent avec lui (`reponseParLaBarre`). */
+    saisiesDeQuestion: z
+      .record(
+        z.string(),
+        z.object({
+          libelles: z.array(z.string()),
+          texte: z.string().optional(),
+          images: z.array(z.string()).optional(),
+        }),
+      )
+      .optional(),
   }),
   /* `cardId` : l'arrêt part du tiroir de CETTE carte, et ne vaut que pour elle
      — le démon refuse un agent qui ne lui appartient pas. */
@@ -735,6 +770,24 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * réglages. `neuf` repart d'un agent vierge pour un autre fournisseur.
    */
   z.object({ type: z.literal('moteurs.agent'), neuf: z.boolean().optional() }),
+  /**
+   * L'ASSISTANT GLOBAL du robot en bas à droite (`shared/src/assistant-global.ts`) :
+   * sa conversation, gardée par le serveur, et l'état de l'interrupteur
+   * « validation automatique ». `neuf` repart d'une conversation vierge.
+   */
+  z.object({ type: z.literal('assistant.agent'), neuf: z.boolean().optional() }),
+  /** L'interrupteur « validation automatique » de l'assistant global. */
+  z.object({ type: z.literal('assistant.validation'), auto: z.boolean() }),
+  /**
+   * Le NIVEAU de l'assistant global : « auto » (le juge range chaque message sous
+   * `plafond`) ou « fige » (le modèle posé à la main ne bouge plus). Sans
+   * champ, la commande rend le réglage tel qu'il est.
+   */
+  z.object({
+    type: z.literal('assistant.niveau'),
+    mode: z.enum(['auto', 'fige']).optional(),
+    plafond: z.enum(['leger', 'standard', 'approfondi']).optional(),
+  }),
   /** Retirer un moteur ajouté : ses comptes partent, ses cartes retombent sur le moteur par défaut. */
   z.object({ type: z.literal('moteurs.retirer'), id: z.string() }),
   /** « Réessayer l'essai » d'un moteur ajouté : la clé collée (facultative), éprouvée puis activée si verte. */

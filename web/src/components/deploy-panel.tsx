@@ -53,6 +53,8 @@ import { ExplicationDeConfiguration, TiroirProcedureProduction } from '@/compone
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { BarreProgression } from '@/components/barre-progression';
 import { Chat } from '@/components/chat';
+import { useSeconde } from '@/lib/horloge';
+import { lancerIntervalleVisible } from '@/lib/veille';
 /* LE SUIVI VIT DANS SON PROPRE VOLET : le parcours des étapes, le détail de
    l'étape choisie et la conversation de celui qui publie ne sont plus dessinés
    ici. Ce fichier garde ce qui DÉCIDE (le bouton, la sélection, les alertes de
@@ -414,10 +416,11 @@ export function DeployPanel({
           setErreurControle(err?.message ?? t('contrôle impossible'));
         });
     void controler();
-    const timer = window.setInterval(controler, 20000);
+    // Page cachée, le contrôle se tait ; il repart au retour à l'écran.
+    const arreter = lancerIntervalleVisible(() => void controler(), 20000);
     return () => {
       vivant = false;
-      window.clearInterval(timer);
+      arreter();
     };
   }, [projectId, signature, active, run?.state, colonne, enPlace]);
 
@@ -606,12 +609,7 @@ export function DeployPanel({
   const tombee = suivi?.etat === 'en-echec' || suivi?.etat === 'arretee';
   /* Le chronomètre du bouton avance seconde par seconde, PENDANT la
      publication seulement. */
-  const [, battre] = React.useState(0);
-  React.useEffect(() => {
-    if (!enRoute) return;
-    const timer = window.setInterval(() => battre((n) => n + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, [enRoute]);
+  useSeconde(enRoute);
   /* Une réussite remplit la barre jusqu'au bout, puis elle s'efface : seule une
      réussite RÉCENTE se montre, jamais celle retrouvée au rechargement. */
   const reussieRecente =
@@ -1438,7 +1436,7 @@ export function DeployPanel({
  * puis le bouton en pied (`size="pied"`). La barre d'avancée reste collée sous
  * la barre, pour suivre une publication tiroir fermé.
  */
-function BandeauProduction({
+export function BandeauProduction({
   projectId,
   colonne,
   suivi,
@@ -1457,10 +1455,16 @@ function BandeauProduction({
   corps,
   pied,
   children,
+  groupe = false,
+  avant,
 }: {
   projectId: string;
   colonne: ColumnKey;
   suivi: string;
+  /** Le bandeau d'un REGROUPEMENT : son tiroir liste des projets, sans interrupteur ni réglages. */
+  groupe?: boolean;
+  /** Ce qui remplace la fusée de l'entête du tiroir (le retour vers la liste). */
+  avant?: React.ReactNode;
   /** L'état de l'agent de configuration, lu à droite de la barre au repos. */
   initialisation?: EtatDeLInitialisation | null;
   /** La procédure existe déjà : l'agent la RECONFIGURE plutôt que l'initialiser. */
@@ -1581,6 +1585,8 @@ function BandeauProduction({
         titre={titre}
         actions={actions}
         deroule={!!deroule}
+        groupe={groupe}
+        avant={avant}
         configuration={
           deroule ? (
             <div className="flex min-h-0 flex-1 flex-col" data-tiroir-production={projectId} data-deroule-production>

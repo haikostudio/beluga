@@ -112,9 +112,16 @@ export interface PhotoDeCarte {
  * L'ÉTAPE FRANCHIE ENTRE DEUX ENREGISTREMENTS, ou `null`. La mise en ligne
  * l'emporte : une carte qui reçoit sa date de mise en ligne en changeant de
  * colonne ne dit qu'une chose au client — c'est en ligne. Réordonner une
- * colonne, réécrire un titre, ranger une carte déjà en ligne : rien.
+ * colonne, réécrire un titre, ranger une carte déjà en ligne : rien. Une carte
+ * relancée qui retourne dans « À déployer » parce que son cadrage n'a fait que
+ * répondre (`retourSansTravail`) non plus : rien n'y a été terminé.
  */
-export function etapeDeLaCarteLiee(avant: PhotoDeCarte | null | undefined, apres: PhotoDeCarte): EtapeCarteLiee | null {
+export function etapeDeLaCarteLiee(
+  avant: PhotoDeCarte | null | undefined,
+  apres: PhotoDeCarte,
+  details?: { retourSansTravail?: boolean },
+): EtapeCarteLiee | null {
+  if (details?.retourSansTravail) return null;
   if (apres.deployedAt && !avant?.deployedAt) return 'en-ligne';
   if (avant && avant.column === apres.column) return null;
   if (apres.column === 'running') return 'demarree';

@@ -21,6 +21,7 @@ import {
   questionGenreDeCarte,
   questionNatureDeLaDemande,
   questionNiveauDeCarte,
+  questionNiveauDeLAssistant,
   questionUrgence,
   questionsDePertinence,
   questionsProposition,
@@ -484,6 +485,22 @@ export async function proposerUnNiveau(
     questionNiveauDeCarte(),
     { usage: 'niveau-carte', cardId: ctx.cardId, projectId: ctx.projectId, suite: 'niveau suggéré à l’agent ; rien n’est écrit sur la carte' },
   );
+  return niveauPropose(reponses?.niveau);
+}
+
+/**
+ * 6 bis. QUEL NIVEAU POUR CE MESSAGE À L'ASSISTANT DU ROBOT ?
+ *
+ * Express : si Laya dort ou doute, rien — l'appelant retombe sur « standard »
+ * (`niveauDuTourDeLAssistant`). Le verdict reste sous le plafond réglé et ne
+ * touche jamais un modèle posé à la main.
+ */
+export async function jugerLeNiveauDeLAssistant(texte: string): Promise<NiveauProposable | undefined> {
+  if (!texte.trim()) return undefined;
+  const reponses = await interroger(tronquer(texte, 2500), questionNiveauDeLAssistant(), {
+    usage: 'niveau-assistant',
+    suite: 'modèle de l’assistant pour ce message ; plafonné, repli standard',
+  });
   return niveauPropose(reponses?.niveau);
 }
 

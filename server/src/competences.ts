@@ -16,6 +16,7 @@ import {
   ProvenanceDeFiche,
   type RegistreDesBibliotheques,
   annonceeEnTeteDeSession,
+  ficheCommune,
   bibliothequeDuRegistre,
   confianceInitialeDeLaFiche,
   registreDepuisTexte,
@@ -268,7 +269,7 @@ export interface BilanDeLiaison {
   dejaLa: string[];
   /** La place était prise par autre chose : on n'y touche pas, on le dit. */
   occupees: string[];
-  /** Liens retirés : fiches de bibliothèque (servies par la mémoire seulement) ou archivées. */
+  /** Liens retirés : fiches de bibliothèque (servies par la mémoire seulement), propres à un projet, ou archivées. */
   retirees: string[];
 }
 
@@ -280,10 +281,16 @@ export interface BilanDeLiaison {
 export function relierCompetencesAuxCoffres(): BilanDeLiaison {
   const bilan: BilanDeLiaison = { posees: [], dejaLa: [], occupees: [], retirees: [] };
   const { fiches } = lirePool();
-  // Seules les fiches MAISON en service sont posées. Une fiche de BIBLIOTHÈQUE
-  // est servie par la mémoire seulement : l'outil de compétences de Claude
-  // charge la description de TOUT ce que le coffre porte, à chaque session.
-  const competences = fiches.filter((fiche) => ficheEnService(fiche.etat) && annonceeEnTeteDeSession(fiche));
+  // Seules les fiches MAISON COMMUNES en service sont posées. Une fiche de
+  // BIBLIOTHÈQUE est servie par la mémoire seulement : l'outil de compétences de
+  // Claude charge la description de TOUT ce que le coffre porte, à chaque
+  // session. Une fiche PROPRE À UN PROJET non plus : le coffre est celui d'un
+  // COMPTE, partagé par tous les projets — y poser les centaines de fiches que
+  // les projets apprennent ferait payer à chaque agent celles des autres. Elle
+  // est servie par le briefing de SON projet (`ficheServieAuProjet`).
+  const competences = fiches.filter(
+    (fiche) => ficheEnService(fiche.etat) && annonceeEnTeteDeSession(fiche) && ficheCommune(fiche),
+  );
   const aRetirer = fiches.filter((fiche) => !competences.includes(fiche));
   if (!competences.length && !aRetirer.length) return bilan;
 
@@ -559,10 +566,20 @@ export function ecrireLaFiche(
   // La PROVENANCE d'origine ne bouge jamais : c'est elle qui dit où la leçon est
   // née. La carte du jour ne fait que s'ajouter à celles qui l'ont renforcée.
   let provenance: ProvenanceDeFiche = redaction.provenance ?? {};
+  /*
+   * LA PORTÉE D'UNE FICHE COMPLÉTÉE NE CHANGE PAS EN SILENCE. Un agent qui
+   * complète une fiche sans redire ses « projets » la garde où elle était :
+   * sans cela, la fiche propre à un projet devenait commune à tous à la première
+   * retouche — servie partout, pour une leçon qui ne vaut que chez elle. Une
+   * portée DONNÉE (même vide) est, elle, une décision et s'applique.
+   */
+  let projets = redaction.projets;
   if (existe) {
     try {
-      const ancienne = provenanceDepuisEnTete(enTeteDeCompetence(fs.readFileSync(fichier, 'utf8')));
+      const entete = enTeteDeCompetence(fs.readFileSync(fichier, 'utf8'));
+      const ancienne = provenanceDepuisEnTete(entete);
       provenance = options.carte ? provenanceRenforcee(ancienne, options.carte) : ancienne;
+      if (projets === undefined) projets = listeDEnTete(entete.projets);
     } catch {
       /* fiche illisible : on repart de la provenance donnée */
     }
@@ -570,7 +587,7 @@ export function ecrireLaFiche(
     provenance = { ...provenance, creeeLe: Date.now() };
   }
 
-  const texte = texteDeLaFiche({ ...redaction, nom, provenance });
+  const texte = texteDeLaFiche({ ...redaction, nom, provenance, projets });
   const jugement = jugerLaFiche(texte);
   if (!jugement.ok) return { ok: false, raisons: jugement.raisons };
 

@@ -234,6 +234,73 @@ export function paramsLisibles(args: unknown): string {
   }
 }
 
+/**
+ * LES DONNÉES D'UNE ENTRÉE NE SE COUPENT JAMAIS AU MILIEU DU JSON.
+ *
+ * `params` est un AFFICHAGE : le borner à 2000 signes en disant ce qui manque
+ * est juste. `donnees`, elles, sont RELUES PAR L'ÉCRAN comme un objet — les
+ * pièces jointes d'une demande, les résumés d'une compréhension, la version
+ * d'un plan. Passées par le même bornage, les 54 images d'une demande
+ * donnaient un JSON coupé en plein tableau, donc illisible : plus une vignette
+ * sous « Votre demande », et l'enrichissement suivant
+ * (`completerDonneesDuJournal`) repartait de zéro et effaçait la liste.
+ *
+ * Les données sont donc écrites ENTIÈRES. Au-delà d'un plafond très large —
+ * un garde-fou contre un texte démesuré, pas une borne courante —, ce sont les
+ * TEXTES LONGS qu'on raccourcit, chacun en disant ce qui manque, jamais la
+ * chaîne finale : les listes (identifiants de pièces) et la structure restent
+ * entières, et le résultat est toujours un JSON relisible.
+ */
+export const PLAFOND_DONNEES = 200_000;
+const PALIERS_DE_TEXTE = [PLAFOND_RESULTAT, PLAFOND_PARAMS, 400] as const;
+
+function textesBornes(valeur: unknown, plafond: number): unknown {
+  if (typeof valeur === 'string') return bornerTexte(valeur, plafond);
+  if (Array.isArray(valeur)) return valeur.map((element) => textesBornes(element, plafond));
+  if (valeur && typeof valeur === 'object') {
+    return Object.fromEntries(Object.entries(valeur).map(([cle, v]) => [cle, textesBornes(v, plafond)]));
+  }
+  return valeur;
+}
+
+export function donneesDuJournal(donnees: unknown): string {
+  if (donnees === undefined || donnees === null) return '';
+  if (typeof donnees === 'string') return donnees;
+  try {
+    /* Un passage par JSON d'abord : ce qui ne se sérialise pas (`undefined`,
+       fonctions) tombe ici, et le bornage travaille sur des valeurs simples. */
+    let texte = JSON.stringify(donnees, null, 2) ?? '';
+    for (const palier of PALIERS_DE_TEXTE) {
+      if (texte.length <= PLAFOND_DONNEES) break;
+      texte = JSON.stringify(textesBornes(JSON.parse(texte), palier), null, 2);
+    }
+    return texte;
+  } catch {
+    return '[données illisibles]';
+  }
+}
+
+/**
+ * LA FUSION D'UN ENRICHISSEMENT DANS DES DONNÉES DÉJÀ ÉCRITES.
+ *
+ * Rend `null` quand l'existant n'est PAS un objet JSON relisible : enrichir
+ * par-dessus reviendrait à l'écraser, et c'est exactement ce qui a effacé les
+ * pièces jointes de deux demandes. L'appelant garde alors la ligne telle
+ * quelle et le dit — un enrichissement perdu se rattrape, une liste de pièces
+ * écrasée non.
+ */
+export function donneesFusionnees(existant: string | null | undefined, ajout: Record<string, unknown>): string | null {
+  const texte = (existant ?? '').trim();
+  if (!texte) return donneesDuJournal(ajout);
+  try {
+    const lu: unknown = JSON.parse(texte);
+    if (!lu || typeof lu !== 'object' || Array.isArray(lu)) return null;
+    return donneesDuJournal({ ...(lu as Record<string, unknown>), ...ajout });
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* LE FLUX VERTICAL : UN GENRE D'ACTION PAR ÉVÉNEMENT                   */
 /* ------------------------------------------------------------------ */
@@ -723,21 +790,117 @@ export function nomNuDOutil(nom: string | undefined): string {
  * pour le même outil : deux appels séparés par autre chose racontent deux
  * moments, et le parcours raconte le temps.
  *
+ * UN APPEL = UNE TRACE DU PONT + UNE TRACE DU MOTEUR, JAMAIS UNE TROISIÈME. La
+ * ligne réunie porte l'étiquette du moteur : relue comme une trace « du moteur »,
+ * elle avalait la trace du pont de l'appel SUIVANT. Deux questions posées coup
+ * sur coup se lisaient alors l'une sous la réponse de l'autre, et une question
+ * disparaissait. Une ligne déjà réunie ne se réunit donc plus — le repère vit
+ * dans cette boucle, pas sur l'entrée.
+ *
+ * …ET LES PARAMÈTRES TRANCHENT : deux traces qui portent chacune les leurs ne
+ * racontent le même appel que s'ils disent la même chose
+ * (`paramsCanoniques`). Des appels lancés ensemble s'écrivent croisés (pont A,
+ * pont B, moteur A, moteur B) : chaque trace cherche sa moitié parmi celles
+ * encore seules de la suite en cours, la plus ancienne d'abord, et jamais le
+ * simple voisin.
+ *
  * Règle pure : ni base, ni disque. Le JSON intégral, lui, garde les entrées
  * telles qu'elles ont été écrites — c'est la trace, elle ne se réécrit pas.
  */
 export function fusionnerLesAppelsEnDouble(entrees: readonly EntreeJournal[]): EntreeJournal[] {
   const ordonnees = ordonnerJournal(entrees);
   const sortie: EntreeJournal[] = [];
+  /* Les places, dans `sortie`, des traces ENCORE SEULES de la suite en cours :
+     des requêtes du même tour et du même outil, sans rien entre elles. */
+  let seules: number[] = [];
   for (const entree of ordonnees) {
     const avant = sortie[sortie.length - 1];
-    if (avant && memeAppel(avant, entree)) {
-      sortie[sortie.length - 1] = reunirDeuxTraces(avant, entree);
+    if (!avant || !memeSuite(avant, entree)) seules = [];
+    const place = laMoitieDeCetAppel(sortie, seules, entree);
+    if (place !== undefined) {
+      sortie[place] = reunirDeuxTraces(sortie[place], entree);
+      seules = seules.filter((p) => p !== place);
       continue;
     }
     sortie.push(entree);
+    if (entree.nature === 'requete') seules.push(sortie.length - 1);
   }
   return sortie;
+}
+
+/** Deux requêtes qui se suivent, du même tour et du même outil. */
+function memeSuite(a: EntreeJournal, b: EntreeJournal): boolean {
+  if (a.nature !== 'requete' || b.nature !== 'requete') return false;
+  if ((a.tourId ?? '') !== (b.tourId ?? '')) return false;
+  const nom = nomNuDOutil(a.outil);
+  return nom !== '' && nom === nomNuDOutil(b.outil);
+}
+
+/**
+ * LA TRACE ENCORE SEULE QUI RACONTE LE MÊME APPEL QUE CELLE-CI, s'il y en a une.
+ *
+ * Celle qui porte les MÊMES paramètres passe d'abord ; à défaut, une trace dont
+ * l'une des deux n'a pas de paramètres du tout (rien ne les contredit). Deux
+ * traces aux paramètres différents sont deux appels : elles restent deux lignes.
+ */
+function laMoitieDeCetAppel(
+  sortie: readonly EntreeJournal[],
+  seules: readonly number[],
+  entree: EntreeJournal,
+): number | undefined {
+  const candidates = seules.filter((place) => memeAppel(sortie[place], entree));
+  if (candidates.length === 0) return undefined;
+  const params = paramsCanoniques(entree.params);
+  if (params !== '') {
+    const identique = candidates.find((place) => paramsCanoniques(sortie[place].params) === params);
+    if (identique !== undefined) return identique;
+  }
+  return candidates.find((place) => params === '' || paramsCanoniques(sortie[place].params) === '');
+}
+
+/**
+ * LES PARAMÈTRES D'UN APPEL, SOUS UNE SEULE ÉCRITURE — pour les comparer.
+ *
+ * Les deux chemins n'écrivent pas toujours le même texte pour le même appel :
+ * un moteur enveloppe les siens (`{"name":"beluga-attach_file","args":{…},
+ * "toolCallId":"…","toolName":"attach_file",…}`), et l'ordre des clés peut
+ * changer. On compare donc ce qui est DIT : l'enveloppe retirée, les clés
+ * triées. Un texte qui n'est pas du JSON se compare tel quel.
+ */
+export function paramsCanoniques(params: string | undefined): string {
+  const texte = (params ?? '').trim();
+  if (!texte) return '';
+  let valeur: unknown;
+  try {
+    valeur = JSON.parse(texte);
+  } catch {
+    return texte;
+  }
+  if (estUneEnveloppe(valeur)) valeur = valeur.args;
+  return JSON.stringify(clesTriees(valeur));
+}
+
+/**
+ * L'enveloppe d'un moteur autour des paramètres : un nom d'outil, les vrais
+ * paramètres sous `args`, et l'identifiant de l'appel. Un outil qui aurait
+ * lui-même un paramètre `args` parmi d'autres n'en est pas une.
+ */
+function estUneEnveloppe(valeur: unknown): valeur is { args: Record<string, unknown> } {
+  if (!estUnObjet(valeur) || typeof valeur.name !== 'string' || !estUnObjet(valeur.args)) return false;
+  if (typeof valeur.toolCallId === 'string') return true;
+  return Object.keys(valeur).every((cle) => cle === 'name' || cle === 'args');
+}
+
+function estUnObjet(valeur: unknown): valeur is Record<string, unknown> {
+  return typeof valeur === 'object' && valeur !== null && !Array.isArray(valeur);
+}
+
+function clesTriees(valeur: unknown): unknown {
+  if (Array.isArray(valeur)) return valeur.map(clesTriees);
+  if (!estUnObjet(valeur)) return valeur;
+  const trie: Record<string, unknown> = {};
+  for (const cle of Object.keys(valeur).sort()) trie[cle] = clesTriees(valeur[cle]);
+  return trie;
 }
 
 /**
@@ -767,9 +930,9 @@ function memeAppel(a: EntreeJournal, b: EntreeJournal): boolean {
    * une affaire de secondes : deux commandes lancées coup sur coup s'écrivent
    * toutes deux par le moteur, et se réunir les faisait disparaître l'une dans
    * l'autre. Ce qui prouve un même appel, c'est que les DEUX chemins l'aient
-   * écrit — le pont une fois, le moteur une fois — et qu'aucune autre requête
-   * ne se soit glissée entre les deux (la fusion ne regarde que des traces qui
-   * se suivent).
+   * écrit — le pont une fois, le moteur une fois — et qu'aucun autre outil ne
+   * se soit glissé entre les deux (la fusion ne regarde que des traces qui se
+   * suivent).
    */
   if (provenanceDeLaTrace(a) === provenanceDeLaTrace(b)) return false;
   /*
@@ -816,6 +979,19 @@ function leResultatQuiDitQuelqueChose(a: string | undefined, b: string | undefin
   return lePlusComplet(a, b);
 }
 
+/**
+ * Les paramètres de la ligne réunie. Quand les deux traces disent la même
+ * chose, ceux du PONT passent : il les écrit tels que l'outil les a reçus, sans
+ * l'enveloppe qu'un moteur pose autour des siens.
+ */
+function lesParamsDeLAppel(a: EntreeJournal, b: EntreeJournal): string | undefined {
+  const canonA = paramsCanoniques(a.params);
+  if (canonA !== '' && canonA === paramsCanoniques(b.params)) {
+    return provenanceDeLaTrace(b) === 'pont' ? b.params : a.params;
+  }
+  return lePlusComplet(a.params, b.params);
+}
+
 /** Réunit deux traces d'un même appel en gardant ce que chacune apporte. */
 function reunirDeuxTraces(a: EntreeJournal, b: EntreeJournal): EntreeJournal {
   const nom = nomNuDOutil(a.outil);
@@ -827,7 +1003,7 @@ function reunirDeuxTraces(a: EntreeJournal, b: EntreeJournal): EntreeJournal {
     ...a,
     libelle: etiquettes[0] || a.libelle || b.libelle,
     outil: a.outil || b.outil,
-    params: lePlusComplet(a.params, b.params),
+    params: lesParamsDeLAppel(a, b),
     resultat: leResultatQuiDitQuelqueChose(a.resultat, b.resultat),
     reussie: a.reussie === false || b.reussie === false ? false : (a.reussie ?? b.reussie),
     dureeMs: durees.length ? Math.max(...durees) : undefined,

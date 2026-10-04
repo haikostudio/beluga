@@ -36,6 +36,8 @@ import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 import { detailDePrevision, texteDePrevision, texteDuManque } from '@/lib/prevision-quota';
+import { useMinute } from '@/lib/horloge';
+import { lancerIntervalleVisible } from '@/lib/veille';
 
 /**
  * Le bouton de quota : DEUX ronds côte à côte — la fenêtre courte (5 h) à
@@ -400,8 +402,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   const defile = enService.length > 1;
   React.useEffect(() => {
     if (!defile) return;
-    const timer = window.setInterval(() => setRang((valeur) => valeur + 1), DUREE_PAR_COMPTE_MS);
-    return () => window.clearInterval(timer);
+    return lancerIntervalleVisible(() => setRang((valeur) => valeur + 1), DUREE_PAR_COMPTE_MS);
   }, [defile]);
   // Tous comptes coupés : on montre quand même le premier, plutôt qu'un bouton vide.
   const current = enService.length ? enService[rang % enService.length] : quotas[0];
@@ -586,11 +587,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
  * chiffre illisible ne s'affiche pas — ni jauge vide, ni zéro.
  */
 export function UsageCursor({ credit, enErreur }: { credit?: CreditCursor; enErreur?: boolean }) {
-  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
-  React.useEffect(() => {
-    const timer = window.setInterval(battre, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useMinute();
 
   const lisible =
     credit?.cursorPct !== undefined || credit?.autresPct !== undefined || credit?.demandeCentimes !== undefined;
@@ -728,11 +725,7 @@ function ReleveAncien({
   fetchedAt?: number;
   aReconnecter?: boolean;
 }) {
-  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
-  React.useEffect(() => {
-    const timer = window.setInterval(battre, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useMinute();
   const fraicheur = fraicheurDuReleve(fetchedAt);
   return (
     <div className="mt-1 text-[11.5px] text-warning">
@@ -752,11 +745,7 @@ function ReleveAncien({
  * par le serveur sur chaque compte lu sans erreur.
  */
 function DernierReleveReussi({ quotas }: { quotas: AccountQuota[] }) {
-  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
-  React.useEffect(() => {
-    const timer = window.setInterval(battre, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useMinute();
 
   const dernier = quotas.reduce<number | undefined>((plusRecent, quota) => {
     if (quota.error || !quota.fetchedAt) return plusRecent;
@@ -990,11 +979,7 @@ function Window({
    * Le temps restant vieillit tout seul : sans ce battement d'une minute, il
    * resterait figé sur la valeur du moment où le menu s'est ouvert.
    */
-  const [, battre] = React.useReducer((valeur: number) => valeur + 1, 0);
-  React.useEffect(() => {
-    const timer = window.setInterval(battre, 60_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  useMinute();
 
   const restant = tempsRestant(win?.resetsAt);
   const exact = heureDeRemiseAZero(win?.resetsAt);

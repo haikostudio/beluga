@@ -73,6 +73,9 @@ import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet'
 import { usePointerDrag } from '@/lib/dnd';
 import { GRILLE_EN_ROUTE, SilhouetteListeEnRoute } from '@/components/silhouettes';
 import {
+  CLASSE_CADRE_SYSTEME,
+  CLASSE_HAUTEUR_CARTE_EN_ROUTE,
+  CLASSE_HAUTEUR_CORPS_EN_ROUTE,
   CLASSES_LISTE_COLONNE_EN_ROUTE,
   CLASSES_TETE_COLONNE_EN_ROUTE,
   classesColonneEnRoute,
@@ -287,6 +290,7 @@ export function EnRoute({
                     cible={etapeConfiguree}
                     reconfiguration={procedureEnPlace(projet, 'production')}
                     avecProjet
+                    formatCarte
                   />
                 ) : (
                   <VignetteAgent key={agent.id} agent={agent} onOpen={() => ouvrirAgent(agent)} />
@@ -632,19 +636,25 @@ function PileDeCartes({
           data-dessous-pile={pile.cle}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="flex flex-col gap-4 pt-4">
-              {dessous.map((card, i) => (
-                <div
-                  key={card.id}
-                  className={cn(
-                    'flex min-w-0 flex-col transition-[transform,opacity] ease-out motion-reduce:transition-none',
-                    etalee ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0',
-                  )}
-                  style={{ transitionDuration: `${DUREE_PILE_MS}ms`, transitionDelay: etalee ? `${i * 40}ms` : '0ms' }}
-                >
-                  {rendre(card)}
-                </div>
-              ))}
+            {/* L'ÉCART SOUS LA MÈRE EST COURT (8 px en tout) : 4 px au-dessus
+                du bloc, 4 px de marge haute dedans. Deux marges de 12 px s'y
+                additionnaient, et les filles semblaient détachées de leur mère.
+                Les côtés, le bas et l'écart entre filles gardent 12 px. */}
+            <div className="pt-1">
+              <div className="bloc-sous-cartes flex flex-col gap-3 rounded-lg px-3 pb-3 pt-1" data-bloc-sous-cartes={pile.cle}>
+                {dessous.map((card, i) => (
+                  <div
+                    key={card.id}
+                    className={cn(
+                      'flex min-w-0 flex-col transition-[transform,opacity] ease-out motion-reduce:transition-none',
+                      etalee ? 'translate-y-0 opacity-100' : '-translate-y-6 opacity-0',
+                    )}
+                    style={{ transitionDuration: `${DUREE_PILE_MS}ms`, transitionDelay: etalee ? `${i * 40}ms` : '0ms' }}
+                  >
+                    {rendre(card)}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -763,6 +773,18 @@ function CarteEnRoute({
   );
 }
 
+/** Le pied d'une carte Système : l'ancienneté seule, comme sous une carte ordinaire. */
+function PiedSysteme({ agent, auTravail }: { agent: Agent; auTravail: boolean }) {
+  return (
+    <div
+      className={cn('mt-auto flex shrink-0 items-center text-[12px] text-faint', !auTravail && 'pb-1.5 pt-1')}
+      data-anciennete-systeme={agent.id}
+    >
+      <span className="shrink-0">{relativeTime(agent.updatedAt)}</span>
+    </div>
+  );
+}
+
 /** Le rôle d'un agent sans carte, dit en clair dans la tête de sa vignette. */
 function libelleDuRole(role: Agent['role']): string {
   if (role === 'deploy') return t('Mise en ligne');
@@ -771,12 +793,22 @@ function libelleDuRole(role: Agent['role']): string {
   return t('Agent');
 }
 
+/** Ce que fait un agent sans carte, en une phrase : la description de sa vignette. */
+function descriptionDuRole(role: Agent['role']): string {
+  if (role === 'deploy') return t('Fusionne le lot « À déployer », l’enregistre, l’envoie puis le met en ligne.');
+  if (role === 'analysis') return t('Cherche ce qui peut être amélioré dans le projet.');
+  if (role === 'cadrage') return t('Cadre une demande avant qu’elle devienne une carte.');
+  return t('Agent au travail sans carte.');
+}
+
 /**
- * UN AGENT DE LA BANDE, AU FORMAT D'UNE CARTE DE LA LISTE : même cadre, même
- * tête (projet · rôle à gauche, état à droite), le titre, et la barre de
- * travail en pied tant qu'il travaille (`BandeauTravail`, la même que sous une
- * carte). Pas de description, donc pas la hauteur fixe des cartes : la
- * vignette est plus basse.
+ * UN AGENT DE LA BANDE, AU FORMAT D'UNE CARTE DE LA LISTE : même hauteur fixe
+ * (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`), même tête (projet · rôle à gauche, état à
+ * droite), le titre puis une description (`descriptionDuRole`) dans le même
+ * corps de 72 px, l'ancienneté en pied, et la barre de travail dessous tant
+ * qu'il travaille (`BandeauTravail`, la même que sous une carte). Cadre VIOLET
+ * (`--publie`) : c'est ce qui distingue d'un coup d'œil une carte Système. Pas
+ * de frise d'étapes : sa place reste vide.
  *
  * L'ouverture est portée par le CADRE (`data-ouvrir-agent-en-route`), pas par
  * un `button` : le titre revient à la ligne (`line-clamp-2`), et un texte
@@ -791,7 +823,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
   const titreRef = React.useRef<HTMLHeadingElement>(null);
   const titreCoupe = useTexteCoupe([titreRef], [agent.title]);
   return (
-    <div className="flex min-w-0 flex-col" data-vignette-agent-en-route={agent.id}>
+    <div className={cn('flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-agent-en-route={agent.id}>
       <div
         role="button"
         tabIndex={0}
@@ -803,7 +835,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
           onOpen();
         }}
         className={cn(
-          'relative z-10 cursor-pointer rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
+          CLASSE_CADRE_SYSTEME,
           auTravail && 'rounded-b-none',
         )}
       >
@@ -852,18 +884,24 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
             ) : null}
           </div>
         </div>
-        <div className="flex items-start gap-1.5">
-        <h3 ref={titreRef} className="line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text">
-          <Icone
-            className={cn(
-              'relative -top-px mr-1 inline h-[13px] w-[13px] align-middle',
-              auTravail ? (agent.role === 'deploy' ? 'text-publie' : 'text-en-cours') : 'text-faint',
-            )}
-          />
-          {agent.title}
-        </h3>
-        {titreCoupe ? <BulleTexteCoupe>{agent.title}</BulleTexteCoupe> : null}
+        <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
+          <div className="flex items-start gap-1.5">
+            <h3 ref={titreRef} className="line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text">
+              <Icone
+                className={cn(
+                  'relative -top-px mr-1 inline h-[13px] w-[13px] align-middle',
+                  auTravail ? (agent.role === 'deploy' ? 'text-publie' : 'text-en-cours') : 'text-faint',
+                )}
+              />
+              {agent.title}
+            </h3>
+            {titreCoupe ? <BulleTexteCoupe>{agent.title}</BulleTexteCoupe> : null}
+          </div>
+          <p data-description-carte className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted">
+            {descriptionDuRole(agent.role)}
+          </p>
         </div>
+        <PiedSysteme agent={agent} auTravail={auTravail} />
       </div>
       {auTravail ? <BandeauTravail agent={agent} onClick={onOpen} data-barre-agent-en-route={agent.id} /> : null}
     </div>
@@ -873,11 +911,12 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
 /**
  * LA CARTE SPÉCIALE D'UN DÉPANNAGE DE PUBLICATION : l'agent ouvert par
  * « Résoudre le problème » sur un déploiement ou une mise en production tombé.
- * Bord et clé à molette ORANGE d'avertissement — elle se distingue d'un coup
- * d'œil des cartes de travail —, le projet, l'étape dépannée, et son état :
+ * Bord VIOLET des cartes Système (comme les autres vignettes de la bande), clé
+ * à molette et libellé ORANGE d'avertissement, le projet, l'étape dépannée, et son état :
  * au travail, attend votre réponse, ou terminé. Le clic rouvre sa conversation,
  * d'où qu'on vienne. Même règle que `VignetteAgent` : l'ouverture est portée
- * par le cadre, jamais par un `button` qui contiendrait un texte replié.
+ * par le cadre, jamais par un `button` qui contiendrait un texte replié. Même
+ * hauteur fixe qu'une carte de la liste.
  */
 function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
   const state = useApp();
@@ -886,7 +925,7 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
   const auTravail = agentTientSonTour(agent);
   const cible = agent.depannagePublication?.cible;
   return (
-    <div className="flex min-w-0 flex-col" data-vignette-depannage={agent.id}>
+    <div className={cn('flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-depannage={agent.id}>
       <div
         role="button"
         tabIndex={0}
@@ -898,7 +937,7 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
           onOpen();
         }}
         className={cn(
-          'relative z-10 cursor-pointer rounded-md border border-warning/60 bg-raised px-2.5 py-2 transition-colors hover:border-warning',
+          CLASSE_CADRE_SYSTEME,
           auTravail && 'rounded-b-none',
         )}
       >
@@ -921,11 +960,16 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
             )}
           </span>
         </div>
-        <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
-          <Wrench className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-warning" />
-          {cible === 'production' ? t('Dépannage de la mise en production') : t('Dépannage du déploiement')}
-        </h3>
-        <p className="mt-0.5 text-[12px] text-muted">{t('Répare, puis relance l’étape tombée.')}</p>
+        <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
+          <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
+            <Wrench className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-warning" />
+            {cible === 'production' ? t('Dépannage de la mise en production') : t('Dépannage du déploiement')}
+          </h3>
+          <p data-description-carte className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted">
+            {t('Répare, puis relance l’étape tombée.')}
+          </p>
+        </div>
+        <PiedSysteme agent={agent} auTravail={auTravail} />
       </div>
       {auTravail ? <BandeauTravail agent={agent} onClick={onOpen} data-barre-depannage={agent.id} /> : null}
     </div>

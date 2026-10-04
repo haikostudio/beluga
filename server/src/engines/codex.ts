@@ -238,6 +238,8 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
   // Bridé : le bac à sable vient des surcharges, valables en reprise comme au
   // premier tour — une seule écriture de la règle, pas deux.
   for (const surcharge of surchargesCodexBridees(options)) args.push('-c', surcharge);
+  // Posée APRÈS les surcharges du bridage : c'est elle qui l'emporte.
+  if (options.sandboxLectureSeule) args.push('-c', 'sandbox_mode="read-only"');
   if (options.mcpBridgePath) {
     // Codex reçoit ses serveurs d'outils par surcharge de configuration, et il
     // veut la COMMANDE à lancer : le pont lui-même, jamais le fichier de

@@ -75,6 +75,7 @@ import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
+import { lancerIntervalleVisible } from '@/lib/veille';
 
 /**
  * LES BACKUPS DES SITES EN PRODUCTION — un tiroir, deux fenêtres.
@@ -207,12 +208,12 @@ export function Backups({
     void relire().finally(() => {
       if (vivant) setChargement(false);
     });
-    const minuteur = setInterval(() => {
+    const arreter = lancerIntervalleVisible(() => {
       if (vivant) void relire();
     }, 5000);
     return () => {
       vivant = false;
-      clearInterval(minuteur);
+      arreter();
     };
   }, [open, relire]);
 

@@ -706,7 +706,7 @@ export function trancheDeCartes(
 /**
  * LA PAGE « EN ROUTE » (`shared/src/en-route.ts`) : les cartes de tous les
  * projets EN SERVICE (un projet mis de côté n'y paraît pas) qui sont en
- * « Demande », « Travail » ou « À déployer », dans l'ordre de `comparerEnRoute`
+ * « Demande », « Travail » ou « À déployer », dans l'ordre de `comparerDerniereAction`
  * — la même clé écrite en SQL : la DERNIÈRE ACTION (`updated_at`) d'abord. Par
  * paquet, sous la clé de la dernière FAMILLE reçue : une carte qui change de
  * place entre deux demandes ne décale rien. `restant` compte les familles qui
@@ -824,7 +824,7 @@ function famillesParDerniereAction(
  * L'ONGLET « TERMINÉ » DE LA PAGE « EN ROUTE » (`estDeployee`) : les cartes de
  * tous les projets en service rangées en « Archivé » AVEC une date de mise en
  * ligne — une archivée sans date est abandonnée, elle n'y paraît pas. La
- * dernière action d'abord (`comparerDeployees`, la même clé que « Actif »),
+ * dernière action d'abord (`comparerDerniereAction`, la même clé que « Actif »),
  * par paquet sous le curseur de la dernière famille reçue. La liste vient
  * d'ici et non du magasin du tableau : les cartes d'un projet déchargé y sont
  * aussi. Une demande commune n'y entre qu'une fois TOUTES ses cartes sorties
@@ -1052,7 +1052,21 @@ export function getCard(id: string): Card | null {
  * fait JAMAIS échouer l'enregistrement : l'erreur est avalée, la carte est
  * écrite. Un observateur doit rester bref ; ce qui prend du temps se diffère.
  */
-export type ObservateurDeCarte = (avant: { column: string; deployedAt?: number } | null, apres: Card) => void;
+export type ObservateurDeCarte = (
+  avant: { column: string; deployedAt?: number } | null,
+  apres: Card,
+  details?: DetailsDEnregistrement,
+) => void;
+
+/**
+ * CE QUE L'ÉCRITURE DIT D'ELLE-MÊME AUX OBSERVATEURS. `retourSansTravail` : une
+ * carte relancée revient dans « À déployer » parce que son cadrage n'a fait
+ * que répondre — du dehors, elle n'a jamais quitté le lot, et rien n'y a été
+ * terminé (`colonneApresReponseSansCadrage`).
+ */
+export interface DetailsDEnregistrement {
+  retourSansTravail?: boolean;
+}
 const observateursDeCarte = new Set<ObservateurDeCarte>();
 
 export function observerLesCartes(observateur: ObservateurDeCarte): () => void {
@@ -1081,7 +1095,7 @@ function empreinteDuContenu(card: Card): string {
   return JSON.stringify(trier({ ...card, updatedAt: undefined, lastReadAt: undefined }));
 }
 
-export function saveCard(card: Card, options: { action?: boolean } = {}): Card {
+export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnregistrement = {}): Card {
   const db = getDb();
   const instant = now();
   // La photo d'avant : une clé primaire, rien de plus. Elle sert aux observateurs
@@ -1177,7 +1191,7 @@ export function saveCard(card: Card, options: { action?: boolean } = {}): Card {
     const photo = avant ? { column: avant.column_key, deployedAt: avant.deployed_at ?? undefined } : null;
     for (const observateur of observateursDeCarte) {
       try {
-        observateur(photo, value);
+        observateur(photo, value, { retourSansTravail: options.retourSansTravail });
       } catch {
         /* un observateur en panne ne défait jamais l'enregistrement d'une carte */
       }
@@ -2643,7 +2657,7 @@ export function getMessage(id: string): Message | null {
  */
 export function questionOuverteDuDernierMessage(
   agentId: string,
-): { messageId: string; questionId: string; texteLibre: boolean } | null {
+): { messageId: string; questionId: string; texteLibre: boolean; options: string[] } | null {
   const row = getDb()
     .prepare(`SELECT data FROM messages WHERE agent_id = ? ${ORDRE_DES_MESSAGES_DESC} LIMIT 1`)
     .get(agentId) as { data: string } | undefined;
@@ -2652,7 +2666,12 @@ export function questionOuverteDuDernierMessage(
     const message = Message.parse(JSON.parse(row.data));
     const question = message.questions.find((q) => !q.answer && !q.cancelled);
     return question
-      ? { messageId: message.id, questionId: question.id, texteLibre: question.allowFreeText }
+      ? {
+          messageId: message.id,
+          questionId: question.id,
+          texteLibre: question.allowFreeText,
+          options: question.options.map((option) => option.label),
+        }
       : null;
   } catch {
     return null;

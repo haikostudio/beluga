@@ -19,7 +19,7 @@ import {
   Hash,
   type LucideIcon,
 } from 'lucide-react';
-import { MOTIF_MARKDOWN_EN_LIGNE, paragraphBreakAfter } from '@beluga/shared';
+import { MOTIF_MARKDOWN_EN_LIGNE, paragraphBreakAfter, titreSansEmoji } from '@beluga/shared';
 import { cn } from './utils';
 import { t } from '@/lib/langue';
 
@@ -75,12 +75,6 @@ const TONE_CLASSES: Record<Tone, string> = {
 function styleFor(title: string, level = 2): { icon: LucideIcon; tone: Tone } {
   const entry = SECTION_ICONS.find((e) => e.test.test(title));
   return { icon: entry?.icon ?? (level === 1 ? FileText : Hash), tone: entry?.tone ?? 'neutral' };
-}
-
-/** Un emoji écrit par le moteur en tête d'un titre ferait double emploi avec l'icône : retiré à l'affichage seulement. */
-const EMOJI_DE_TETE = /^(?:[\p{Extended_Pictographic}\p{Regional_Indicator}]\uFE0F?\u200D?)+\s*/u;
-export function titreSansEmoji(title: string): string {
-  return title.replace(EMOJI_DE_TETE, '');
 }
 
 const CALLOUTS: Record<string, { icon: React.ReactNode; className: string; label: string }> = {

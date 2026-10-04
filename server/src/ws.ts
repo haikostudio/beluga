@@ -3,6 +3,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import {
   Agent,
   JALON_PLAN_DEMANDE,
+  agentTientSonTour,
+  basculerSupposition,
   consigneDAffinageDuPlan,
   consigneDuConducteur,
   publicationTerminee,
@@ -67,6 +69,7 @@ import {
   lireLienGithub,
   REFUS_LIEN_MAL_FORME,
   filAvecLaSynthese,
+  reponseParLaBarre,
   texteRepondALaQuestion,
   motDeContexteDeCommande,
   programmerLeDepart,
@@ -139,6 +142,15 @@ import { rattraperLaCarteSansCadrage, relancerLeCadrageJamaisParti } from './nai
 import { getMeta, setMeta } from './db.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { contexteDeConfiguration, etatDeProcedure, tourDeProcedure } from './procedure-publication.js';
+import {
+  agentAssistantGlobal,
+  estAssistantGlobal,
+  poserLeModeleDeDepart,
+  reglageDuNiveau,
+  reglerLeNiveau,
+  reglerValidationAutomatique,
+  validationAutomatique,
+} from './assistant-global.js';
 import {
   agentAjoutDeMoteur,
   carteDeLAjout,
@@ -255,6 +267,7 @@ import {
 import { generationEnCours, lancerLaGeneration } from './generation-connaissances.js';
 import { carteEnPublication, TEXTE_CARTE_EN_PUBLICATION } from '@beluga/shared';
 import { PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee } from '@beluga/shared';
+import { detailPourCetEcran, elargirLePerimetre } from './perimetre-ecran.js';
 import { consigneAjoutDeMoteur, rappelAjoutDeMoteur } from '@beluga/shared';
 import {
   FICHES_DES_USAGES,
@@ -342,10 +355,18 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
      * publication — et un événement de l'espace client ne part que vers celui
      * qu'il concerne, jamais vers le voisin qui partage son projet.
      */
+    /*
+     * CE QUE CET ÉCRAN REGARDE (`shared/src/perimetre-ecran.ts`). Le détail du
+     * travail d'un agent — son fil qui s'écrit, sa file, le journal et le
+     * carnet de sa carte — ne part que vers l'écran qui affiche son projet ou
+     * qui a demandé cette conversation. Tout le reste part comme avant.
+     */
+    const perimetre = { projet: null as string | null, agents: new Set<string>(), cartes: new Set<string>() };
     const send = (event: ServerEvent) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       if (!evenementAutorise(compte.role, event.type)) return;
       if (compte.role === 'client' && !evenementPourCeClient(event, compte)) return;
+      if (compte.role !== 'client' && !detailPourCetEcran(event, perimetre)) return;
       /*
        * UN ÉVÉNEMENT QUI NOMME SON DESTINATAIRE NE VA QU'À LUI — administrateur
        * compris. L'écran de Haiko recevait les chiffres des pastilles de TOUS
@@ -427,6 +448,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     // attendre qu'il les demande — un aller-retour de moins avant le tableau.
     const choix = choisirProjetAOuvrir(projets, prefs[CLE_PROJET_ACTIF]);
     const projetOuvert = choix.id && store.getProject(choix.id) ? choix.id : null;
+    perimetre.projet = projetOuvert;
 
     send({
       type: 'ready',
@@ -470,6 +492,8 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       }
       try {
         if (!commandeAutorisee(compte.role, envelope.cmd.type)) throw new Error(REFUS_HORS_PORTEE);
+        // AVANT la commande : sa réponse passe déjà par le périmètre mis à jour.
+        elargirLePerimetre(perimetre, envelope.cmd);
         const data = await handleCommand(envelope.cmd, compte);
         if (envelope.id) send({ type: 'ack', id: envelope.id, ok: true, data });
       } catch (err: any) {
@@ -764,6 +788,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'hello':
     case 'ping':
       return { at: Date.now() };
+
+    // Le périmètre est posé à la réception (`elargirLePerimetre`) : rien d'autre à faire.
+    case 'ecran.perimetre':
+      return { ok: true };
 
     /* -------- Projets -------- */
 
@@ -1333,6 +1361,25 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * Aucun message à l'agent, aucun tour : le lancement qui suit dans le même
      * clic lit cet état (`validerLaComprehension`, `server/src/scheduler.ts`).
      */
+    /*
+     * VALIDER UNE SUPPOSITION : un état écrit sur la compréhension en cours,
+     * et rien d'autre — aucun message, aucun tour. Le cadrage suivant et
+     * l'agent d'exécution la reçoivent comme une décision de l'utilisateur.
+     */
+    case 'card.comprehension.supposition': {
+      const card = store.getCard(cmd.cardId);
+      const comprise = card?.parcours?.comprehension;
+      if (!card || !comprise) throw new Error('cette carte ne porte aucune compréhension.');
+      const validees = basculerSupposition(comprise, cmd.hypothese, cmd.validee);
+      if (!validees) throw new Error('cette supposition n’appartient plus à la compréhension en cours.');
+      const ecrite = store.saveCard({
+        ...card,
+        parcours: { ...card.parcours!, comprehension: { ...comprise, hypothesesValidees: validees } },
+      });
+      bus.emit({ type: 'card.upsert', card: ecrite });
+      return { card: ecrite };
+    }
+
     case 'card.comprehension.validate': {
       const result = validerLaComprehension(cmd.cardId, cmd.niveau);
       if (!result.ok) throw new Error(result.error ?? 'validation de la compréhension impossible');
@@ -1731,11 +1778,13 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * le ferait le bouton « Répondre ».
        */
       const porteur = enAttente ? store.messageDeLaQuestion(cmd.agentId, enAttente) : null;
+      const posee = porteur?.questions.find((q) => q.id === enAttente);
       const ouverte = porteur
         ? {
             messageId: porteur.id,
             questionId: enAttente!,
-            texteLibre: porteur.questions.find((q) => q.id === enAttente)?.allowFreeText ?? true,
+            texteLibre: posee?.allowFreeText ?? true,
+            options: (posee?.options ?? []).map((option) => option.label),
           }
         : store.questionOuverteDuDernierMessage(cmd.agentId);
       const questionARepondre = texteRepondALaQuestion({
@@ -1744,12 +1793,21 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         texteLibreAutorise: ouverte?.texteLibre,
       });
       if (questionARepondre && ouverte) {
+        /*
+         * …ET ELLE EMPORTE CE QUE LA BULLE TENAIT DÉJÀ. Un choix coché dans la
+         * bulle, puis une précision écrite dans la barre : seul le texte
+         * partait, et le choix était perdu. La réponse prend la forme de celle
+         * du bouton « Répondre » (`reponseParLaBarre`), images de la bulle
+         * comprises.
+         */
+        const saisie = cmd.saisiesDeQuestion?.[questionARepondre];
+        const jointes = [...new Set([...(cmd.attachments ?? []), ...(saisie?.images ?? [])])];
         return handleCommand({
           type: 'question.answer',
           messageId: ouverte.messageId,
           questionId: questionARepondre,
-          answer: cmd.text,
-          attachments: cmd.attachments,
+          answer: reponseParLaBarre({ texte: cmd.text, options: ouverte.options, saisie }),
+          attachments: jointes,
         } as ClientEnvelope['cmd'], compte);
       }
 
@@ -2004,6 +2062,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         thinking,
         account,
       };
+      // Un modèle, un moteur ou une réflexion posés à la main sur l'assistant le FIGENT :
+      // le tri automatique ne le réécrit plus (DEC-213). Le compte, lui, n'y touche pas.
+      if (estAssistantGlobal(agent) && (cmd.run.engine !== undefined || cmd.run.model !== undefined || cmd.run.thinking !== undefined)) {
+        reglerLeNiveau({ mode: 'fige' });
+      }
       const updated = store.saveAgent({
         ...agent,
         run: run as any,
@@ -2744,6 +2807,31 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (!agent) throw new Error('aucun projet pour porter l’agent : créez d’abord un projet');
       return { agent };
     }
+
+    /* -------- L'assistant global -------- */
+
+    case 'assistant.agent': {
+      const ouvert = agentAssistantGlobal(cmd.neuf === true);
+      if (!ouvert) throw new Error('aucun projet pour porter l’assistant : créez d’abord un projet');
+      const agent = await poserLeModeleDeDepart(ouvert, await catalogueMoteurs());
+      return { agent, validationAuto: validationAutomatique(), niveau: reglageDuNiveau() };
+    }
+
+    case 'assistant.niveau': {
+      const niveau = reglerLeNiveau({ mode: cmd.mode, plafond: cmd.plafond });
+      // Revenir en automatique : le modèle se range tout de suite sous le plafond.
+      const agent = agentAssistantGlobal();
+      if (agent && niveau.mode === 'auto' && (cmd.mode || cmd.plafond)) {
+        const { appliquerLeNiveauDeLAssistant } = await import('./assistant-global.js');
+        if (!agentTientSonTour(agent)) {
+          await appliquerLeNiveauDeLAssistant(agent, '', async () => undefined, await catalogueMoteurs());
+        }
+      }
+      return { niveau };
+    }
+
+    case 'assistant.validation':
+      return { validationAuto: reglerValidationAutomatique(cmd.auto === true) };
 
     case 'moteurs.eprouver':
       return eprouverDepuisLesReglages(cmd.id, cmd.cle);

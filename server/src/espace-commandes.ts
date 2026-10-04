@@ -375,8 +375,8 @@ const AUTEUR_AVANCEMENT = { id: 'beluga-avancement', nom: 'Haiko', role: 'admin'
  * son déplacement ; elle se journalise, en silence pour l'écran.
  */
 export function brancherLAvancementDesCartes(): () => void {
-  return store.observerLesCartes((avant, carte) => {
-    const etape = etapeDeLaCarteLiee(avant, carte);
+  return store.observerLesCartes((avant, carte, details) => {
+    const etape = etapeDeLaCarteLiee(avant, carte, details);
     if (!etape) return;
     setImmediate(() => {
       try {

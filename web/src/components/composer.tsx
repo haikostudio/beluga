@@ -48,8 +48,10 @@ import {
   TEXTE_BARRE_EN_ATTENTE,
   carteEnPublication,
   messageOuvreUneNouvelleCarte,
+  reponseParLaBarre,
   tailleLisible,
 } from '@beluga/shared';
+import { saisiesDeLAgent } from '@/lib/saisie-de-question';
 import { useArretAgent } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { Button, Textarea, Tooltip } from '@/components/ui';
@@ -402,6 +404,8 @@ export function Composer({
    * porte l'endroit voulu jusqu'après le rendu, où il est appliqué.
    */
   const curseurAPoser = React.useRef<number | null>(null);
+  /** La sélection à reposer après une réécriture venue d'ailleurs (`retenirLaSelection`). */
+  const selectionAGarder = React.useRef<{ debut: number; fin: number } | null>(null);
 
   /**
    * Reposer le curseur APRÈS que le nouveau texte est peint : le faire avant
@@ -410,18 +414,43 @@ export function Composer({
    */
   React.useLayoutEffect(() => {
     const vise = curseurAPoser.current;
-    if (vise === null) return;
+    const garde = selectionAGarder.current;
     curseurAPoser.current = null;
+    selectionAGarder.current = null;
     const zone = textareaRef.current;
     if (!zone) return;
-    const position = Math.max(0, Math.min(vise, zone.value.length));
-    zone.focus();
-    zone.setSelectionRange(position, position);
-  }, [text]);
+    if (vise !== null) {
+      const position = Math.max(0, Math.min(vise, zone.value.length));
+      zone.focus();
+      zone.setSelectionRange(position, position);
+      return;
+    }
+    // Une réécriture venue d'ailleurs : la sélection revient où elle était,
+    // sans jamais PRENDRE le curseur à un champ qui ne l'avait pas.
+    if (!garde || document.activeElement !== zone) return;
+    const debut = Math.min(garde.debut, zone.value.length);
+    const fin = Math.min(garde.fin, zone.value.length);
+    if (zone.selectionStart !== debut || zone.selectionEnd !== fin) zone.setSelectionRange(debut, fin);
+  }, [text, texteDuChamp]);
+
+  /**
+   * UNE RÉÉCRITURE VENUE D'AILLEURS NE DÉPLACE PAS LE CURSEUR. Quand un autre
+   * écran change le brouillon ou ses pièces jointes, le navigateur réécrit la
+   * valeur du champ et renvoie le curseur À LA FIN. On relève donc la sélection
+   * juste avant, et l'effet ci-dessus la repose (bornée au nouveau texte).
+   * Appelé dans la fonction de mise à jour de l'état, donc seulement quand la
+   * réécriture a vraiment lieu ; tout geste de la personne l'annule.
+   */
+  const retenirLaSelection = () => {
+    const zone = textareaRef.current;
+    if (!zone || document.activeElement !== zone) return;
+    selectionAGarder.current = { debut: zone.selectionStart, fin: zone.selectionEnd };
+  };
 
   const retientCurseur = () => {
     const node = textareaRef.current;
     if (!node) return;
+    selectionAGarder.current = null;
     /* LE CURSEUR N'ENTRE PAS DANS UN TAG. Un clic, un double-clic, une flèche
        ou un glissement de sélection pouvaient le poser AU MILIEU de
        « [fichier: … ] » — la frappe suivante y écrivait, et la pièce jointe
@@ -852,7 +881,11 @@ export function Composer({
     // Le champ ne suit QUE s'il reflétait encore l'ancien brouillon : une
     // personne qui a déjà écrit autre chose n'est jamais recouverte — mais un
     // envoi fait ailleurs (le brouillon redevient vide) vide bien SON champ.
-    setText((current) => (current === brouillonPrecedent ? draft : current));
+    setText((current) => {
+      if (current !== brouillonPrecedent || current === draft) return current;
+      retenirLaSelection();
+      return draft;
+    });
   }, [agentId, draft]);
 
   React.useEffect(() => {
@@ -926,7 +959,12 @@ export function Composer({
     const jointesPrecedentes = dernieresJointesDistantes.current;
     dernieresJointesDistantes.current = jointesEnregistrees;
     jointesIgnorerProchaineSauvegarde.current = true;
-    setAttachments((current) => (memeJointes(current, jointesPrecedentes) ? jointesEnregistrees : current));
+    setAttachments((current) => {
+      if (!memeJointes(current, jointesPrecedentes)) return current;
+      // L'étiquette d'un tag dépend des pièces connues : le champ peut être réécrit.
+      retenirLaSelection();
+      return jointesEnregistrees;
+    });
   }, [agentId, jointesEnregistrees]);
 
   React.useEffect(() => {
@@ -1149,11 +1187,23 @@ export function Composer({
     setJointesEnregistrees([]);
     curseur.current = null;
     try {
+      /*
+       * CE MESSAGE RÉPOND PEUT-ÊTRE À UNE QUESTION OUVERTE : il emporte ce que
+       * sa bulle tenait déjà (choix cochés, texte, images), lu au moment
+       * d'envoyer. Le serveur sait à quelle question il répond et compose la
+       * réponse (`reponseParLaBarre`) ; une question écrite en texte ordinaire
+       * n'a pas d'identifiant d'outil, et sa réponse se compose donc ici, de la
+       * même façon.
+       */
+      const { parQuestion, enTexte } = saisiesDeLAgent(agent.id);
       const reponse = await client.call<{ nouvelleCarteId?: string } | undefined>({
         type: 'agent.prompt',
         agentId: agent.id,
-        text: body,
-        attachments: jointesEnvoyees.map((a) => a.id),
+        text: enTexte
+          ? reponseParLaBarre({ texte: body, options: enTexte.libelles, saisie: enTexte })
+          : body,
+        attachments: [...new Set([...jointesEnvoyees.map((a) => a.id), ...(enTexte?.images ?? [])])],
+        ...(Object.keys(parQuestion).length ? { saisiesDeQuestion: parQuestion } : {}),
       });
       if (reponse?.nouvelleCarteId) {
         client.pushToast('success', t('Nouvelle carte créée : votre demande y suit son parcours.'));
@@ -1619,6 +1669,7 @@ export function Composer({
             // retrouvent leur « [fichier: …] », et rien d'invisible ne reste
             // dans l'état du composeur — pas même la moitié d'un masque
             // qu'une frappe aurait coupé.
+            selectionAGarder.current = null;
             majTexte(sansMasque(event.target.value, attachments));
             curseur.current = event.target.selectionStart;
             setPointeur(event.target.selectionStart);

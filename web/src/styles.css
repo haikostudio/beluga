@@ -1408,6 +1408,31 @@
   background-color: color-mix(in srgb, hsl(var(--text)) 15%, hsl(var(--fond-plan)));
 }
 
+/* LE BLOC DES SOUS-CARTES D'UNE PILE DÉPLIÉE (page « En route »). Il pose un
+   fond entre la zone et les cartes, pour distinguer les filles de la mère.
+   Sombre : la moitié de l'écart entre `--fond-zone` et `--raised` (les cartes
+   sont ≥ 1,25 au-dessus de la zone, chaque moitié reste donc ≥ 1,10). Un
+   voile ne foncerait rien : le fond de zone y est déjà à 3-18 % de clarté.
+   Clair : un voile à 12 % (MEM-0735, `--raised` n'y fonce jamais ; il frôle le
+   blanc). MESURÉ sur les douze palettes, zone → bloc et bloc → carte : ≥ 1,10
+   en sombre, ≥ 1,19 en clair — `verif-en-route.mjs` (point 15) le rejoue.
+
+   CE FOND S'ESTOMPE EN HAUT : plein du bas jusqu'à 90 % de la hauteur, puis
+   fondu vers la transparence au bord haut, sous la mère — les filles semblent
+   sortir d'elle au lieu de former un rectangle à part. La couleur vit donc
+   dans `--fond-bloc-sous-cartes` (c'est ELLE que le contrôle mesure) et se
+   pose en `background-image`. Jamais un `mask-image` : il estomperait aussi
+   les sous-cartes. */
+html.dark .bloc-sous-cartes {
+  --fond-bloc-sous-cartes: color-mix(in srgb, hsl(var(--raised)) 50%, hsl(var(--fond-zone)));
+}
+html:not(.dark) .bloc-sous-cartes {
+  --fond-bloc-sous-cartes: color-mix(in srgb, hsl(var(--voile)) 12%, hsl(var(--fond-zone)));
+}
+.bloc-sous-cartes {
+  background-image: linear-gradient(to top, var(--fond-bloc-sous-cartes) 90%, transparent);
+}
+
 /* LE RELIEF DANS LES SIX PALETTES CLAIRES : UN VOILE QUI FONCE, JAMAIS UN
    BLANC QUI S'AJOUTE AU BLANC.
 
@@ -1456,4 +1481,16 @@ html:not(.dark) [data-point-avenir] {
 html:not(.dark) [data-point-etat='avenir'] > [data-point-rond] {
   background-image: linear-gradient(hsl(var(--voile) / 0.06), hsl(var(--voile) / 0.06));
   border-color: hsl(var(--faint) / 0.6);
+}
+
+/*
+ * LA VEILLE FIGE AUSSI LES ANIMATIONS SANS FIN. La classe `en-veille` est posée
+ * sur <html> quand la page dort (`web/src/lib/veille.ts`) : témoins qui
+ * pulsent, roues qui tournent et silhouettes qui scintillent s'arrêtent avec
+ * le canal, et repartent d'où elles en étaient au retour à l'écran.
+ */
+html.en-veille *,
+html.en-veille *::before,
+html.en-veille *::after {
+  animation-play-state: paused !important;
 }

@@ -42,7 +42,7 @@ import { planifierAutoAmelioration } from './auto-amelioration.js';
 import { veillerSurLesCartes } from './juge-des-cartes.js';
 import { convertirLesDepotsAnnexes, rafraichirLesMeres, veillerSurLesMeres } from './regroupements.js';
 import { planifierLesCourriels } from './courriels-clients.js';
-import { planifierCapitalisation } from './capitalisation.js';
+import { planifierMenageDesCompetences } from './menage-competences.js';
 import { planifierRangementDesInstructions } from './instructions-en-attente.js';
 import { planifierLaMemoireDeNuit } from './memoire-de-nuit.js';
 import { planifierLeMenage } from './menage.js';
@@ -347,10 +347,10 @@ async function main(): Promise<void> {
    * pool de compétences que ce qui vient de la PLATEFORME, pas du seul code
    * d'un projet. Presque toutes les nuits, il n'a rien à faire et ne coûte rien.
    */
-  const capitalisationTimer = planifierCapitalisation();
+  const menageDesCompetencesTimer = planifierMenageDesCompetences();
   /*
-   * LE COMPACTAGE DE LA BASE : vers 4 h, entre l'auto-amélioration et la
-   * capitalisation. Les pages libérées par les purges (messages, cartes
+   * LE COMPACTAGE DE LA BASE : vers 4 h, entre l'auto-amélioration et le
+   * ménage des compétences. Les pages libérées par les purges (messages, cartes
    * effacées, migrations) ne sont jamais rendues au disque par les VACUUM
    * INTO existants, qui écrivent tous une copie séparée. Un VACUUM classique
    * ne part que si aucune publication ni aucun agent ne travaille, et
@@ -460,7 +460,7 @@ async function main(): Promise<void> {
     clearInterval(rattrapageTimer);
     clearInterval(autoAmeliorationTimer);
     clearInterval(recapitulatifTimer);
-    clearInterval(capitalisationTimer);
+    clearInterval(menageDesCompetencesTimer);
     clearInterval(compactageTimer);
     clearInterval(instructionsTimer);
     clearInterval(menageTimer);

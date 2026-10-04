@@ -20,6 +20,7 @@ import { PanneauALaDemande, prechargerAuRepos } from '@/lib/panneau-a-la-demande
 import { useResizable, ResizeHandle } from '@/components/resizer';
 import { abonnerAuxNotifications } from '@/lib/abonnement-push';
 import { client } from '@/lib/client';
+import { lancerIntervalleVisible } from '@/lib/veille';
 import { usePref, writePref } from '@/lib/prefs';
 import { useThemeApplique } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
@@ -60,6 +61,7 @@ import {
   type DemandeDeConfig,
 } from '@/lib/ouvrir-config-projet';
 import { t, useLangueAppliquee } from '@/lib/langue';
+import { VisionneuseDeLien } from '@/components/visionneuse-de-lien';
 
 /*
  * LES ÉCRANS QU'ON OUVRE PAR UN BOUTON SONT DES MORCEAUX À PART
@@ -133,6 +135,7 @@ const TiroirAgentDeConfiguration = React.lazy(() =>
 const ProjectSettings = React.lazy(() =>
   chargerConfigProjet().then((m) => ({ default: m.ProjectSettings })),
 );
+import { AssistantGlobal } from '@/components/assistant-global';
 const VoixAssistant = React.lazy(() => chargerVoix().then((m) => ({ default: m.VoixAssistant })));
 const AssistantMoteurs = React.lazy(() =>
   chargerAssistantMoteurs().then((m) => ({ default: m.AssistantMoteurs })),
@@ -766,7 +769,7 @@ export function App() {
     };
     suivreAbonnement();
     // L'abonnement se pose quelques secondes après l'ouverture : on redemande.
-    const rappel = window.setInterval(suivreAbonnement, 15_000);
+    const arreterLeRappel = lancerIntervalleVisible(suivreAbonnement, 15_000);
 
     const arreter = client.onNotify((event) => {
       if (abonne) return;
@@ -786,7 +789,7 @@ export function App() {
       };
     });
     return () => {
-      window.clearInterval(rappel);
+      arreterLeRappel();
       arreter();
     };
   }, []);
@@ -950,6 +953,7 @@ export function App() {
           rightOpen={rightOpen}
           onToggleRight={() => setRightOpen((value) => !value)}
           titreDeVue={vueCentrale === 'en-route' ? t('Tableaux de bord') : undefined}
+          onOuvrirVue={ouvrirVue}
         />
 
         {/* LE LIEN AVEC LE DÉMON SE DIT DANS LA PILE DE MESSAGES, en haut au
@@ -1376,6 +1380,9 @@ export function App() {
           </PanneauALaDemande>
         </Filet>
         <Toasts />
+        {/* Dans l'application installée, un lien vers un fichier s'ouvre ICI,
+            dans une fenêtre refermable — il ne remplace plus tout l'écran. */}
+        <VisionneuseDeLien />
 
         {/* AU MOINS UN MOTEUR AVANT D'UTILISER L'APPLICATION. Tant qu'aucun
             assistant en ligne de commande n'est installé ET connecté sur le
@@ -1397,6 +1404,11 @@ export function App() {
         {/* La voix reste TOUJOURS montée — elle écoute et parle sans qu'on
             l'ouvre —, mais son morceau arrive APRÈS le premier affichage au
             lieu de le retarder. */}
+        {/* L'ASSISTANT GLOBAL, le robot en bas à droite de tous les écrans. Son
+            filet est muet : s'il tombe, l'application continue sans lui. */}
+        <Filet zone="Assistant global" muet>
+          <AssistantGlobal />
+        </Filet>
         <Filet zone="Module de voix" muet>
           <PanneauALaDemande monte>
             <VoixAssistant />

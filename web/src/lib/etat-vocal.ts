@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { garderEveilleTantQue } from './veille';
 
 /**
  * L'ÉCOUTE PERMANENTE et LE MODE CONVERSATION VOCALE, PARTAGÉS entre
@@ -34,6 +35,9 @@ export function setConversationAllumeeGlobale(valeur: boolean): void {
   etat = { ...etat, conversationAllumee: valeur };
   publier();
 }
+
+// Une écoute permanente ou une conversation vocale allumée continue sans écran.
+garderEveilleTantQue(() => etat.ecouteAllumee || etat.conversationAllumee);
 
 function abonner(prevenir: () => void): () => void {
   ecouteurs.add(prevenir);

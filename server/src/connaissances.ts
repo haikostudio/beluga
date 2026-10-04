@@ -40,6 +40,7 @@ import {
   requeteTrigrammes,
   scoreDUnite,
   uniteDansLaFiche,
+  competenceDUnAutreProjet,
   scoreParMot,
   similariteDuRang,
   texteDAccueilConnaissances,
@@ -994,14 +995,27 @@ function unitesParNumeros(nums: readonly number[]): Map<number, Unite & { num: n
   return sortie;
 }
 
+/** Le nom d'un projet, pour reconnaître SES compétences (sujet `projet-<nom>`). */
+function nomDuProjet(projectId: string): string | undefined {
+  try {
+    return (getDb().prepare('SELECT name FROM projects WHERE id = ?').get(projectId) as { name?: string } | undefined)?.name;
+  } catch {
+    return undefined;
+  }
+}
+
 function ponderer(texte: string, o: OptionsDeRecherche, similarites: Map<number, number>): UniteTrouvee[] {
   const limite = Math.max(1, Math.min(o.limite ?? 8, 60));
   const types = o.types?.length ? o.types : typesProbables(texte);
   const sujet = o.sujet ? o.sujet.toLowerCase() : '';
   const unites = unitesParNumeros([...similarites.keys()]);
   const maintenant = Date.now();
+  // Une recherche MENÉE DEPUIS UN PROJET ne remonte pas les compétences propres
+  // aux autres ; l'écran (« tous ») ou une portée choisie voient tout.
+  const projet = o.projectId && !o.tous && !o.portees?.length ? nomDuProjet(o.projectId) : undefined;
   return [...unites.values()]
     .filter((u) => !sujet || u.sujets.includes(sujet))
+    .filter((u) => !projet || !competenceDUnAutreProjet(u, projet))
     .map((u) => ({
       unite: u,
       score: scoreDUnite({

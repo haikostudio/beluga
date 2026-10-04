@@ -11,8 +11,8 @@
  * TROIS NIVEAUX, PAS QUATRE : au repos, chargé, critique. Le seuil de
  * compression n'est pas un niveau de couleur — il se dit en toutes lettres dans
  * la fenêtre, parce qu'il ne dépend pas du pourcentage mais d'un nombre de
- * JETONS (`seuilDeCompression`) : sur une fenêtre d'un million, la compression
- * part bien avant 50 %.
+ * JETONS (`seuilDeCompression`) : 80 % de la fenêtre, ou le plafond propre au
+ * rôle quand il en a un (cadrage), qui part alors bien avant 80 %.
  */
 
 import type { AgentContextUsage } from './contexte-agent.js';

@@ -1,6 +1,9 @@
 /**
- * LES COMPÉTENCES PARTAGÉES : un POOL de modes d'emploi, valable pour TOUS les
- * projets et TOUS les agents — Beluga Build compris.
+ * LES COMPÉTENCES PARTAGÉES : un POOL de modes d'emploi pour TOUS les agents —
+ * Beluga Build compris. Une fiche est COMMUNE (elle vaut partout) ou PROPRE à
+ * un ou plusieurs projets (leur interface, leur fonctionnement, leur structure,
+ * leurs technologies), et chaque agent ne reçoit que les communes et celles de
+ * son projet (`ficheServieAuProjet`).
  *
  * Une compétence (« skill ») est un DOSSIER portant un `SKILL.md` : un en-tête
  * qui dit son nom et à quoi elle sert, puis le mode d'emploi. Elles vivaient
@@ -10,7 +13,9 @@
  *
  *   1. LE COFFRE. Claude Code lit les compétences de son dossier de
  *      configuration (`<coffre>/skills/<nom>`) : le démon y pose un lien vers
- *      chaque compétence partagée, sans jamais écraser ce qui s'y trouve.
+ *      chaque compétence COMMUNE, sans jamais écraser ce qui s'y trouve. Le
+ *      coffre est celui d'un compte, partagé par tous les projets : une fiche
+ *      propre à un projet n'y entre pas, le briefing de son projet la sert.
  *   2. LE BRIEFING. Codex n'a aucun mécanisme de compétences, et le chef
  *      d'orchestre n'a pas le droit d'ouvrir celles de son moteur. Le briefing
  *      les ANNONCE donc à tout agent — par un SOMMAIRE, jamais par une
@@ -119,8 +124,8 @@ export interface Competence {
   /** Les symptômes déclarés : les mots par lesquels on la cherche. */
   symptomes: string[];
   /**
-   * Les projets auxquels elle s'applique. VIDE = tous : une leçon de plateforme
-   * sert partout, c'est tout l'objet du pool.
+   * Les projets auxquels elle s'applique. VIDE = commune : elle sert partout.
+   * Sinon elle n'est servie qu'à ces projets (`ficheServieAuProjet`).
    */
   projets: string[];
   /** D'où elle vient, et ce qui l'a renforcée. */
@@ -157,6 +162,32 @@ export interface Competence {
  */
 export function annonceeEnTeteDeSession(fiche: Pick<Competence, 'bibliotheque'>): boolean {
   return !fiche.bibliotheque;
+}
+
+/** Deux noms de projet se comparent sans tenir compte de la casse ni des espaces autour. */
+function memeProjet(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+/**
+ * UNE FICHE EST COMMUNE OU PROPRE À DES PROJETS — ET UN AGENT NE REÇOIT QUE LES
+ * SIENNES. Décision de l'utilisateur (2026-10-02) : chaque projet apprend de son
+ * propre travail (interface, fonctionnement, structure, technologies), et ses
+ * fiches s'écrivent dès la fin d'une carte. Servir à ProjetA la fiche d'un
+ * composant de ProjetB ferait payer — et suivre — une leçon qui n'y vaut rien.
+ *
+ * Une fiche COMMUNE (`projets` vide) sert partout. Une fiche PROPRE ne sert qu'aux
+ * projets qu'elle nomme. Sans projet connu, seules les communes passent.
+ */
+export function ficheServieAuProjet(fiche: Pick<Competence, 'projets'>, nomDuProjet?: string): boolean {
+  if (!fiche.projets.length) return true;
+  if (!nomDuProjet?.trim()) return false;
+  return fiche.projets.some((projet) => memeProjet(projet, nomDuProjet));
+}
+
+/** La fiche est-elle COMMUNE à tous les projets ? */
+export function ficheCommune(fiche: Pick<Competence, 'projets'>): boolean {
+  return !fiche.projets.length;
 }
 
 /** Pourquoi une entrée du dossier n'a PAS été retenue comme compétence. */
@@ -250,6 +281,27 @@ export function enTeteDeCompetence(texte: string): EnTeteDeCompetence {
       }
       i = j - 1;
       valeur = suite.join(bloc === '>' ? ' ' : '\n').trim();
+    } else {
+      /*
+       * LE SCALAIRE SIMPLE SUR PLUSIEURS LIGNES. `description:` seul, puis le
+       * texte indenté dessous (ou une première ligne continuée en retrait) :
+       * YAML le recolle par des espaces. Des bibliothèques publiques l'écrivent
+       * ainsi (vercel-labs/agent-skills), et l'import les écartait « sans
+       * description ». Un retrait qui ouvre une table (`  author: x`) ou une
+       * liste (`  - x`) n'est pas une continuation : il reste ignoré.
+       */
+      const suite: string[] = [];
+      let j = i + 1;
+      for (; j < lignes.length; j += 1) {
+        const prochaine = lignes[j];
+        if (prochaine.trim() === '---' || !/^\s/.test(prochaine)) break;
+        if (!suite.length && /^\s+(-\s|[\w-]+\s*:(\s|$))/.test(prochaine)) break;
+        suite.push(prochaine.trim());
+      }
+      if (suite.length) {
+        i = j - 1;
+        valeur = [valeur, ...suite].filter(Boolean).join(' ').trim().replace(/^["']|["']$/g, '');
+      }
     }
     if (!valeur) continue;
     entete.brut[cle] = valeur;
@@ -508,8 +560,17 @@ export function texteDesCompetences(
    * graphique ». Absent : le classement par les mots, comme avant.
    */
   pertinentes?: ReadonlySet<string>,
+  /**
+   * LE PROJET DE L'AGENT. Donné, il ne reçoit que les fiches communes et celles
+   * de CE projet (`ficheServieAuProjet`), et apprend quand ce projet n'en a encore
+   * aucune à lui — c'est à ce signe que le cadrage reconnaît un projet NEUF.
+   * Absent (tests, scripts), le pool entier est annoncé, comme avant.
+   */
+  projet?: string,
 ): string {
-  const enService = liste.filter((fiche) => ficheEnService(fiche.etat));
+  const enService = liste
+    .filter((fiche) => ficheEnService(fiche.etat))
+    .filter((fiche) => projet === undefined || ficheServieAuProjet(fiche, projet));
   // Les fiches de BIBLIOTHÈQUE ne sont pas annoncées : une ligne les COMPTE et
   // dit où les chercher, sans jamais les énumérer (`annonceeEnTeteDeSession`).
   const servies = enService.filter(annonceeEnTeteDeSession);
@@ -519,7 +580,19 @@ export function texteDesCompetences(
       `vien${deBibliotheques > 1 ? 'nent' : 't'} de bibliothèques importées : elles ne sont pas listées ici, ` +
       `cherche-les avec l'outil « memoire » (geste « chercher »).`
     : '';
-  if (!servies.length) return ligneBibliotheques.trim();
+  /*
+   * UN PROJET QUI N'A ENCORE RIEN APPRIS PAR ÉCRIT LE DIT. C'est le signe d'un
+   * projet NEUF : son cadrage propose alors les compétences COMMUNES qui
+   * conviennent à son genre (`CONSIGNE_CADRAGE`, `shared/src/cadrage.ts`).
+   */
+  const lignePropres =
+    projet?.trim() && !servies.some((fiche) => !ficheCommune(fiche))
+      ? `\n« ${projet.trim()} » n'a encore aucune compétence propre.`
+      : '';
+  if (!servies.length) return `${ligneBibliotheques}${lignePropres}`.trim();
+  const portee = projet?.trim()
+    ? `communes à tous les projets ou propres à « ${projet.trim()} »`
+    : 'valables pour TOUS les projets';
 
   const entree = dossier
     ? `\nLe sommaire complet et l'index par symptôme sont dans ${dossier}/${FICHIER_SOMMAIRE} et ${dossier}/${FICHIER_INDEX_SYMPTOMES}.`
@@ -540,8 +613,8 @@ export function texteDesCompetences(
    * la liste entière part, comme avant.
    */
   const entier =
-    `COMPÉTENCES PARTAGÉES (${servies.length}) — des modes d'emploi déjà écrits, valables pour TOUS les projets, ` +
-    `rangés par thème :\n${lignesParTheme(servies)}\n${entree}${ligneBibliotheques}\n${consigne}`;
+    `COMPÉTENCES PARTAGÉES (${servies.length}) — des modes d'emploi déjà écrits, ${portee}, ` +
+    `rangés par thème :\n${lignesParTheme(servies)}\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}`;
 
   if (travail.trim() && servies.length >= COMPETENCES_MINIMUM_POUR_FILTRER) {
     const { retenues, ecartees } = pertinentes
@@ -553,8 +626,8 @@ export function texteDesCompetences(
     /* Le juge peut dire « aucune » : c'est une réponse, pas un silence. */
     if (pertinentes && !retenues.length && ecartees.length) {
       const aucune =
-        `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, valables pour TOUS les ` +
-        `projets. Aucune ne touche le travail de ta carte ; le sommaire les donne toutes si le travail change.\n${entree}${ligneBibliotheques}\n${consigne}`;
+        `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, ${portee}. ` +
+        `Aucune ne touche le travail de ta carte ; le sommaire les donne toutes si le travail change.\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}`;
       if (aucune.length < entier.length) return aucune;
     }
     if (retenues.length && ecartees.length) {
@@ -564,8 +637,8 @@ export function texteDesCompetences(
           ecartees.length > 1 ? 'sont' : 'est'
         } pas listée${ecartees.length > 1 ? 's' : ''} ici — le sommaire les donne toutes.)`;
       const trie =
-        `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, valables pour TOUS les ` +
-        `projets. Celles qui touchent le travail de ta carte :\n${lignesParTheme(retenues)}\n${reste}\n${entree}${ligneBibliotheques}\n${consigne}`;
+        `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, ${portee}. ` +
+        `Celles qui touchent le travail de ta carte :\n${lignesParTheme(retenues)}\n${reste}\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}`;
       /*
        * UN TRI QUI COÛTE PLUS CHER QUE CE QU'IL CACHE N'EST PAS UN TRI. La
        * phrase qui COMPTE les fiches écartées pèse elle aussi ; sur un pool de

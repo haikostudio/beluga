@@ -30,6 +30,7 @@ import {
   type NotificationEspace,
 } from '@beluga/shared';
 import { PileDeMessages, usePileDeMessages } from '@/components/messages-passagers';
+import { VisionneuseDeLien } from '@/components/visionneuse-de-lien';
 import { BoutonTheme, type EtatDeTheme } from './bouton-theme';
 import { canalEspace } from './canal-espace';
 import { phraseDeNotification } from './cloche-espace';
@@ -282,6 +283,9 @@ export function PorteClient() {
        * ouvertures `avant` et `apres` — le titre à gauche du nom du projet, le
        * nom du client et sa déconnexion à droite, devant les trois boutons.
        */}
+      {/* Installée, la porte n'a pas de bouton « retour » : un lien vers une
+          pièce s'ouvre dans une fenêtre refermable, il ne remplace pas l'écran. */}
+      <VisionneuseDeLien />
       <main className="min-h-0 flex-1">
         <EspaceClient
           moi={moi}

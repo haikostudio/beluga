@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { InfoTravail } from '@/components/info-travail';
 import { BarreProgression } from '@/components/barre-progression';
 import { dureeLisible } from '@/components/arret-agent';
+import { useSeconde } from '@/lib/horloge';
 
 /**
  * LA BARRE DE TRAVAIL SOUS UNE CARTE, ÉCRITE UNE SEULE FOIS.
@@ -35,11 +36,8 @@ export function BandeauTravail({
   onClick?: (event: React.MouseEvent<HTMLDivElement>) => void;
   className?: string;
 } & Record<`data-${string}`, string | undefined>) {
-  const [, forcer] = React.useState(0);
-  React.useEffect(() => {
-    const timer = window.setInterval(() => forcer((n) => n + 1), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // Une seule horloge pour toutes les cartes au travail, arrêtée page cachée.
+  useSeconde();
   const temps = agent.startedAt ? dureeLisible(Math.round((Date.now() - agent.startedAt) / 1000)) : null;
   const avancement = agent.todos && agent.todos.total > 0 ? agent.todos : null;
   const { 'data-barre-carte': barreCarte, ...autres } = attributs;

@@ -70,7 +70,7 @@ export function compacterLaBase(options: { force?: boolean } = {}): ResultatComp
 }
 
 /**
- * Vers 4 h, entre l'auto-amélioration (3 h) et la capitalisation (5 h) : un
+ * Vers 4 h, entre l'auto-amélioration (3 h) et le ménage des compétences (5 h) : un
  * contrôle toutes les cinq minutes, comme la sauvegarde nocturne, une seule
  * tentative par jour.
  */

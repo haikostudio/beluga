@@ -4,6 +4,8 @@ import {
   PLAFOND_RESULTAT,
   PhaseJournal,
   bornerTexte,
+  donneesDuJournal,
+  donneesFusionnees,
   ordonnerJournal,
   paramsLisibles,
   phaseDuTour,
@@ -124,7 +126,9 @@ export function ajouterAuJournal(ajout: AjoutJournal): EntreeJournal | null {
       reussie: ajout.reussie,
       dureeMs: ajout.dureeMs,
       etat: ajout.etat,
-      donnees: ajout.donnees === undefined ? undefined : paramsLisibles(ajout.donnees),
+      /* Les données sont RELUES par l'écran : entières, jamais coupées comme un
+         affichage (`donneesDuJournal`). */
+      donnees: ajout.donnees === undefined ? undefined : donneesDuJournal(ajout.donnees),
     });
     getDb()
       .prepare(
@@ -194,6 +198,11 @@ export function dernierJalonDeDemande(cardId: string, agentId: string): EntreeJo
  * `ecriteLe` et les pièces jointes doivent survivre, faute de quoi une capture
  * déposée avec la phrase disparaît du point « Demande ».
  *
+ * UN EXISTANT ILLISIBLE N'EST JAMAIS ÉCRASÉ. Repartir de `{}` en silence est
+ * ce qui a effacé les 54 images d'une demande : la liste, coupée par l'ancien
+ * bornage, ne se relisait plus, et la synthèse du tour a pris sa place. La
+ * ligne reste alors telle quelle, et le refus se journalise.
+ *
  * Rend l'entrée relue, ou `null` si rien n'a pu être écrit — jamais une
  * exception : perdre un enrichissement de trace ne coupe pas un tour.
  */
@@ -202,16 +211,11 @@ export function completerDonneesDuJournal(entreeId: string, ajout: Record<string
   try {
     const ligne = getDb().prepare('SELECT * FROM card_journal WHERE id = ?').get(entreeId) as Ligne | undefined;
     if (!ligne) return null;
-    let existant: Record<string, unknown> = {};
-    if (ligne.donnees) {
-      try {
-        const lu = JSON.parse(ligne.donnees);
-        if (lu && typeof lu === 'object' && !Array.isArray(lu)) existant = lu as Record<string, unknown>;
-      } catch {
-        /* Données illisibles : on repart de ce qu'on sait écrire, sans casser. */
-      }
+    const donnees = donneesFusionnees(ligne.donnees, ajout);
+    if (donnees === null) {
+      log.warn(`journal de carte : données illisibles sur l'entrée ${entreeId}, laissées telles quelles`);
+      return null;
     }
-    const donnees = paramsLisibles({ ...existant, ...ajout });
     getDb().prepare('UPDATE card_journal SET donnees = ? WHERE id = ?').run(donnees, entreeId);
     return versEntree({ ...ligne, donnees });
   } catch (err: any) {

@@ -87,7 +87,7 @@ export const PLAFOND_ANNONCES = 50;
  * sans toucher au texte gardé pour la notification système elle-même.
  */
 export function titreSansEmoji(titre: string): string {
-  return titre.replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]+\s*/u, '');
+  return titre.replace(/^(?:[\p{Extended_Pictographic}\p{Regional_Indicator}]️?‍?)+\s*/u, '');
 }
 
 /**

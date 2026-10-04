@@ -24,6 +24,7 @@ import { AlertCircle, Check, Copy, Info, PlugZap, RefreshCw, TriangleAlert, X } 
 import { DUREE_MESSAGE_MS, heureEtDate, pileAvecMessage } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useSeconde } from '@/lib/horloge';
 
 /** À partir de combien de pixels glissés vers la gauche, on relâche pour masquer. */
 const SEUIL_GLISSEMENT_PX = 80;
@@ -173,12 +174,7 @@ function UnMessage({
   /* LE TEMPS QUE L'ÉTAT DURE, À LA SECONDE. Il vit dans son propre état : le
      message se remet à l'heure tout seul, sans que le porteur ait à diffuser
      une seconde de plus. */
-  const [, redessiner] = React.useState(0);
-  React.useEffect(() => {
-    if (!message.depuis) return;
-    const minuteur = window.setInterval(() => redessiner((n) => n + 1), 1000);
-    return () => window.clearInterval(minuteur);
-  }, [message.depuis]);
+  useSeconde(!!message.depuis);
   const secondes = message.depuis ? Math.max(0, Math.round((Date.now() - message.depuis) / 1000)) : 0;
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {

@@ -28,6 +28,7 @@ import {
   DeployRun,
   EtatDeFichier,
   titreEncoreVide,
+  titreEnConstruction,
   etapesAMontrer,
   libelleCibleDeploiement,
   libelleEtapeDeploiement,
@@ -353,6 +354,9 @@ function CardPanelBody({
    * au premier tour, ou par la main de l'utilisateur —, l'ampoule le montre.
    */
   const titreGenere = !titreEncoreVide(card.title);
+  /* L'ampoule ci-dessus ne change pas ; le TEXTE de l'en-tête, lui, attend le
+     vrai titre de l'agent tant que le titre est vide ou provisoire. */
+  const titreEnCours = titreEnConstruction(card);
   const [tagsOuverts, setTagsOuverts] = React.useState(false);
   const tagsVisibles = !telephone || tagsOuverts;
 
@@ -439,7 +443,16 @@ function CardPanelBody({
               {titreGenere ? (
                 <Lightbulb data-titre-genere className="mt-[3px] h-4 w-4 shrink-0 text-en-cours" />
               ) : null}
-              <span className={cn('min-w-0', titreGenere && 'font-semibold', telephone && !tagsOuverts && 'truncate')}>{card.title}</span>
+              {titreEnCours ? (
+                <span
+                  data-titre-en-construction
+                  className={cn('min-w-0 animate-pulse font-normal italic text-muted', telephone && !tagsOuverts && 'truncate')}
+                >
+                  {t('Titre en cours de création…')}
+                </span>
+              ) : (
+                <span className={cn('min-w-0', titreGenere && 'font-semibold', telephone && !tagsOuverts && 'truncate')}>{card.title}</span>
+              )}
             </DialogTitle>
             {tagsVisibles ? (
             <div data-tags-carte className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">

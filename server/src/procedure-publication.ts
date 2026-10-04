@@ -112,11 +112,6 @@ export function etapeConfigureePar(agent: Pick<Agent, 'id' | 'projectId' | 'role
   return etapeDeLAgentDeConfiguration(store.getProject(agent.projectId) ?? undefined, agent.id);
 }
 
-/** Cet agent est-il l'agent de configuration de son projet (l'une ou l'autre étape) ? */
-export function estAgentDeConfiguration(agent: Pick<Agent, 'id' | 'projectId' | 'role'> | null | undefined): boolean {
-  return etapeConfigureePar(agent) !== null;
-}
-
 /**
  * CE QUI ACCOMPAGNE UN MESSAGE ÉCRIT À L'AGENT DE CONFIGURATION depuis la
  * conversation du tiroir (`agent.prompt`). Son tout premier message emporte

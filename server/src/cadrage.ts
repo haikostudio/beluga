@@ -18,11 +18,13 @@
 
 import {
   Agent,
+  COLONNE_DE_LA_RELANCE,
   Card,
   Message,
   TITRE_CARTE_DE_CADRAGE,
   demandeAfficheeDeProposition,
   demandeDeCadrageDeProposition,
+  messageVaAuCadrage,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { createAgent, isRunning, sendPrompt } from './runtime.js';
@@ -98,20 +100,23 @@ export function cadrageDeLaCarte(cardId: string): Agent | null {
 }
 
 /**
- * UNE CARTE PRÊTE À PUBLIER QUI REÇOIT UN MESSAGE ROUVRE SON CADRAGE — SANS
- * BOUGER DU TABLEAU.
+ * UNE CARTE PRÊTE À PUBLIER QUI REÇOIT UN MESSAGE ROUVRE SON CADRAGE — ET
+ * PASSE AUSSITÔT EN « DEMANDE ».
  *
  * L'agent de cadrage d'origine reprend la discussion — ou naît, pour une carte
  * qui n'en a jamais eu (proposée par le chef, écrite à la main). La date de
  * réouverture est posée, UNE fois, pour que les messages suivants de la même
  * relance ne la repoussent pas (`shared/src/relance-apres-rapport.ts`).
  *
- * LA CARTE, ELLE, NE CHANGE PLUS DE COLONNE ICI. Un message peut n'être qu'une
- * QUESTION sur le travail rendu : la sortir du lot à publier dès sa réception
- * vidait « À déployer » sur une simple demande d'explication. C'est le RENDU
- * DE COMPRÉHENSION du cadrage qui la renvoie en « Demande », et lui seul
- * (`colonneApresComprehensionDeRelance`, `server/src/tools.ts`) : l'agent de
- * cadrage a alors tranché qu'un nouveau travail se prépare.
+ * LA CARTE QUITTE « À DÉPLOYER » DANS LA MÊME ÉCRITURE, à l'instant du clic.
+ * Attendre le rendu de la compréhension (une bonne minute) laissait la carte
+ * en « À déployer » sous un agent qui réfléchit : elle avait l'air oubliée
+ * (capture #f374, 23.09.2026), et son tiroir montrait « Actions de la tâche »
+ * et « La carte attend la prochaine mise en ligne » pendant la réflexion
+ * (capture #35079, 04.10.2026). Une simple QUESTION ne vide pas pour autant le
+ * lot à publier : la fin du tour de cadrage la RAMÈNE en « À déployer » quand
+ * l'agent n'a fait que répondre (`colonneApresReponseSansCadrage`,
+ * `server/src/runtime.ts`).
  *
  * L'agent de tâche n'est pas touché, ni `doneAt` ni le code enregistré : le
  * lancement les reprend.
@@ -122,10 +127,21 @@ export async function rouvrirLeCadrage(cardId: string): Promise<Agent | null> {
   const agent =
     cadrageDeLaCarte(cardId) ?? agentDeLaCarteRenduAuCadrage(card) ?? (await creerLAgentDeCadrage(card));
   const fraiche = store.getCard(cardId);
-  if (fraiche && !fraiche.parcours?.cadrageRouvertA) {
+  /* Une carte déjà relancée mais restée en « À déployer » (écrite avant ce
+     déplacement immédiat) part elle aussi en « Demande » : sa date, elle, ne
+     bouge pas. */
+  const aDeplacer = !!fraiche && messageVaAuCadrage(fraiche.column);
+  if (fraiche && (aDeplacer || !fraiche.parcours?.cadrageRouvertA)) {
     const rouverte = store.saveCard({
       ...fraiche,
-      parcours: { ...(fraiche.parcours ?? { plans: [] }), cadrageRouvertA: Date.now(), incident: undefined },
+      ...(aDeplacer
+        ? { column: COLONNE_DE_LA_RELANCE, position: store.nextPosition(fraiche.projectId, COLONNE_DE_LA_RELANCE) }
+        : {}),
+      parcours: {
+        ...(fraiche.parcours ?? { plans: [] }),
+        cadrageRouvertA: fraiche.parcours?.cadrageRouvertA ?? Date.now(),
+        incident: undefined,
+      },
     });
     bus.emit({ type: 'card.upsert', card: rouverte });
   }

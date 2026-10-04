@@ -73,6 +73,17 @@ export const DELAI_VIDAGE_SORTIE_MS = 2_000;
 export const PLAFOND_APPEL_APRES_REPONSE_MS = 90_000;
 
 /**
+ * LA COMPRESSION NATIVE RÉSUME LE CONTEXTE ENTIER, elle ne se coupe donc pas à
+ * 90 s. Relevé : 542 refus « le moteur ne rendait pas la main » contre quelques
+ * erreurs de compte — la compression native était arrêtée en plein travail,
+ * puis le résumé de repli repayait un second appel. À 80 % d'une fenêtre, le
+ * contexte à résumer pèse de 160 000 jetons à plusieurs centaines de milliers.
+ * Quatre minutes, plus le repli borné à 90 s, tiennent sous
+ * `PLAFOND_FERMETURE_MS`.
+ */
+export const PLAFOND_COMPRESSION_NATIVE_MS = 4 * 60_000;
+
+/**
  * LE RATTRAPAGE DU PLAN ÉCRIT UN PLAN ENTIER, PAS UNE REMISE EN FORME. Un plan
  * complet sous Codex en réflexion poussée dépasse souvent la minute et demie :
  * coupé à 90 s, il posait « Le plan n'est pas venu » sur un plan presque écrit.

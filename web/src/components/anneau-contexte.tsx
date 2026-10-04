@@ -2,6 +2,8 @@ import * as React from 'react';
 import {
   Agent,
   AgentContextUsage,
+  type EntreeCompression,
+  type RaisonDeRepli,
   detailDuContexte,
   jetonsLisibles,
   niveauDeContexte,
@@ -9,8 +11,8 @@ import {
   traceDeLAnneau,
   type NiveauContexte,
 } from '@beluga/shared';
-import { BulleInfo, Dialog, DialogContent, DialogHeader, DialogTitle, Gauge, Tooltip } from '@/components/ui';
-import { cn } from '@/lib/utils';
+import { BulleInfo, Dialog, DialogContent, DialogHeader, DialogTitle, Gauge, Tooltip, ZoneDefilement } from '@/components/ui';
+import { cn, heureDuMessage } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
@@ -141,6 +143,7 @@ function FenetreContexte({
   const detail = detailDuContexte(usage, plafondDeContexte(agent.role));
   const modele = agent.run?.model;
   const compressions = agent.context?.compressionCount ?? 0;
+  const historique = agent.context?.historiqueCompressions ?? [];
 
   return (
     <Dialog open={ouvert} onOpenChange={(next) => !next && onClose()}>
@@ -200,8 +203,69 @@ function FenetreContexte({
           ) : null}
         </dl>
 
+        {historique.length > 0 ? <HistoriqueCompressions entrees={historique} /> : null}
       </DialogContent>
     </Dialog>
+  );
+}
+
+const TEXTE_RAISON: Record<RaisonDeRepli, () => string> = {
+  delai: () => t('le moteur ne répondait pas'),
+  quota: () => t('limite du compte atteinte'),
+  refus: () => t('refusée par le moteur'),
+  mesure: () => t('taille non mesurée'),
+  indisponible: () => t('moteur introuvable'),
+};
+
+/**
+ * LE SUIVI DES COMPRESSIONS : quand le contexte est tombé, et de combien à
+ * combien. Le niveau d'après d'un résumé n'est connu qu'au tour suivant — il
+ * se dit « à mesurer », jamais 0 %.
+ */
+function HistoriqueCompressions({ entrees }: { entrees: EntreeCompression[] }) {
+  return (
+    <section className="mt-4" data-historique-compressions>
+      <h3 className="text-[12.5px] font-medium text-muted">{t('Historique des compressions')}</h3>
+      <ZoneDefilement
+        classeEnveloppe="mt-1.5 max-h-48"
+        className="max-h-48 overflow-y-auto"
+      >
+        <ul className="space-y-1.5 text-[13px]">
+          {entrees.map((entree) => (
+            <LigneCompression key={entree.at} entree={entree} />
+          ))}
+        </ul>
+      </ZoneDefilement>
+    </section>
+  );
+}
+
+function LigneCompression({ entree }: { entree: EntreeCompression }) {
+  const native = entree.method === 'native';
+  const apres = entree.pourcentageApres !== undefined ? `${entree.pourcentageApres} %` : t('à mesurer');
+  const detail = [
+    t('{n} jetons', { n: jetonsLisibles(entree.tokensAvant) }),
+    entree.tokensApres !== undefined ? t('{n} jetons', { n: jetonsLisibles(entree.tokensApres) }) : null,
+  ]
+    .filter(Boolean)
+    .join(' → ');
+  return (
+    <li
+      data-compression={entree.method}
+      title={detail}
+      className="flex items-baseline justify-between gap-3 border-b border-faint/20 pb-1.5 last:border-0"
+    >
+      <span className="shrink-0 text-muted tabular-nums">{heureDuMessage(entree.at)}</span>
+      <span className="min-w-0 truncate text-right">
+        <span className="font-medium text-text tabular-nums">
+          {entree.pourcentageAvant} % → {apres}
+        </span>
+        <span className="ml-2 text-faint">
+          {native ? t('compression native') : t('résumé de repli')}
+          {!native && entree.raison ? ` · ${TEXTE_RAISON[entree.raison]()}` : ''}
+        </span>
+      </span>
+    </li>
   );
 }
 

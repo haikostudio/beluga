@@ -28,6 +28,7 @@ import { useApp } from '@/lib/use-app';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { Mesure, Sparkline, gigas } from '@/components/reglages/communs';
+import { lancerIntervalleVisible } from '@/lib/veille';
 
 
 export function SectionSysteme() {
@@ -41,8 +42,7 @@ export function SectionSysteme() {
     client
       .call<{ history: { at: number; loadPct: number }[] }>({ type: 'capacity.history' })
       .then((data) => setHistory(data.history ?? []));
-    const minuteur = setInterval(() => client.send({ type: 'capacity.processes' }), 5000);
-    return () => clearInterval(minuteur);
+    return lancerIntervalleVisible(() => client.send({ type: 'capacity.processes' }), 5000);
   }, []);
 
   const state = useApp();

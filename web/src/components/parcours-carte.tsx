@@ -1,7 +1,6 @@
 import * as React from 'react';
 import {
   AlertCircle,
-  ArchiveRestore,
   ArrowUp,
   Calendar,
   Check,
@@ -9,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   FileText,
+  ListChecks,
   Loader2,
   MessageSquare,
   RotateCcw,
@@ -21,7 +21,6 @@ import {
 import {
   Agent,
   BOUTON_DES_QUE_POSSIBLE,
-  COLUMN_LABELS,
   comprehensionPourLePlan,
   Card,
   DEFINITIONS_NIVEAU,
@@ -31,6 +30,7 @@ import {
   GesteCarte,
   GesteDuParcours,
   LIBELLES_GESTE,
+  libelleDeValidation,
   Message,
   NIVEAU_DU_PLAN,
   PlanDeCarte,
@@ -38,7 +38,8 @@ import {
 
   agentTientSonTour,
   avanceDEtape,
-  colonneDeReprise,
+  barreEnFinDeTache,
+  lotDeployableDepuisLaCarte,
   decisionDePlanOuverte,
   travailDeLaCarteDejaLance,
   decisionsDuParcours,
@@ -46,7 +47,6 @@ import {
   etatVisuelCarte,
   gesteCarte,
   libelleDeLancement,
-  libelleDeReprise,
   lireDateDeDepart,
   momentDeDepart,
   momentDuCreneau,
@@ -932,8 +932,24 @@ export function BarreDAction({
     });
   const avance = avanceDEtape({ colonne: carte.column, agentActif: agentAuTravail });
   const avanceUtile = !!avance.cible && avance.cible !== 'running' && !peut('terminer').affiche;
-  const repriseVers = peut('reprendre').affiche ? colonneDeReprise(carte.column) : null;
   const principal = gestes[0];
+  /*
+   * LA FIN DE TÂCHE N'A PLUS QU'UN BOUTON (demande du 02.10.2026). Un rapport
+   * rendu, une carte « À déployer » ou « Archivé » alignaient jusqu'à quatre
+   * boutons — terminer, reprendre, passer à l'étape suivante, déployer le lot,
+   * remettre en demande. Ils vivent désormais dans un TIROIR, ouvert par un
+   * seul bouton « Actions de la tâche ». « Remettre en demande » (« Retirer du
+   * lot à publier », « Sortir de l'archive ») a disparu : écrire à l'agent
+   * ramène déjà la carte en « Demande ». Le « Reprendre » d'une carte
+   * INTERROMPUE (chapitre travail) n'est pas une fin de tâche : il reste direct.
+   *
+   * UNE CARTE RELANCÉE N'EST PLUS EN FIN DE TÂCHE (`barreEnFinDeTache`) : un
+   * message sous son rapport a rouvert son cadrage, et la rangée montre le
+   * geste du cadrage — « Valider et lancer », éteint pendant la réflexion —,
+   * jamais « Actions de la tâche » (capture #35079, 04.10.2026).
+   */
+  const finDeTache = barreEnFinDeTache({ carte, chapitre: principal?.chapitre });
+  const [tiroirFin, setTiroirFin] = React.useState(false);
   /*
    * LE PREMIER DÉPART D'UNE CARTE DONT AUCUN AGENT NE S'EST SAISI. Le pied du
    * tiroir portait ici un second bouton de lancement, à côté de celui du
@@ -944,9 +960,10 @@ export function BarreDAction({
    */
   const departSansAgent = carte.column === 'planned' && !agent;
   /* LE LOT SE DÉPLOIE AUSSI D'ICI : une carte « À déployer » porte le bouton
-     qui ouvre la fenêtre de déploiement de tout le lot. */
-  const deployerLeLot = carte.column === 'to_deploy';
-  const rangement = !!repriseVers || avanceUtile || deployerLeLot;
+     qui ouvre la fenêtre de déploiement de tout le lot — sauf relancée
+     (`lotDeployableDepuisLaCarte`). */
+  const deployerLeLot = lotDeployableDepuisLaCarte(carte);
+  const rangement = avanceUtile || deployerLeLot;
 
   const duChapitre = principal && principal.geste !== 'aucun' ? gestes : [];
   if (!duChapitre.length && !rangement) return null;
@@ -978,6 +995,62 @@ export function BarreDAction({
     return undefined;
   };
 
+  if (finDeTache) {
+    /* Un geste du tiroir le referme dès qu'il a abouti : la carte change
+       d'état, et le tiroir n'a plus rien à proposer de juste. */
+    const agirPuisFermer = async (geste: EtatDuGeste) => {
+      await agir(geste);
+      setTiroirFin(false);
+    };
+    return (
+      <div
+        data-barre-action={principal?.geste ?? 'aucun'}
+        data-geste-possible={principal?.possible ? 'oui' : 'non'}
+        data-gestes={duChapitre.map((g) => g.geste).join(',')}
+        data-fin-de-tache
+      >
+        <Button
+          type="button"
+          size="sm"
+          variant="default"
+          data-bouton-fin-de-tache
+          onClick={() => setTiroirFin(true)}
+          className={cn(CLASSES_BOUTON_DU_FIL, 'w-full')}
+        >
+          <ListChecks className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{t('Actions de la tâche')}</span>
+        </Button>
+        <Drawer open={tiroirFin} onClose={() => setTiroirFin(false)} empile>
+          <div className="flex flex-col gap-3 px-4 pb-5" data-tiroir-fin-de-tache={carte.id}>
+            <DialogTitle>{t('Actions de la tâche')}</DialogTitle>
+            <p className="text-[13px] leading-snug text-muted">
+              {t('Pour reprendre le travail, écrivez simplement à l’agent : la carte revient d’elle-même en « Demande ».')}
+            </p>
+            <div className="flex flex-col gap-1.5 [&>*]:w-full">
+              {duChapitre.map((geste, index) => (
+                <BoutonDeGeste key={geste.geste} geste={geste} principal={index === 0} onAgir={agirPuisFermer} />
+              ))}
+              {avanceUtile ? (
+                <BoutonEtapeSuivante
+                  card={carte}
+                  agentActif={agentAuTravail}
+                  className={CLASSES_BOUTON_DU_FIL}
+                  onAvancer={() => {
+                    setTiroirFin(false);
+                    avancer([{ card: carte, agentActif: agentAuTravail }]);
+                  }}
+                />
+              ) : null}
+              {deployerLeLot ? <BoutonDeployerLeLot carte={carte} /> : null}
+            </div>
+          </div>
+        </Drawer>
+        {arret.dialogue}
+        {dialogueAvance}
+      </div>
+    );
+  }
+
   return (
     <div
       data-barre-action={principal?.geste ?? 'aucun'}
@@ -1004,7 +1077,7 @@ export function BarreDAction({
               geste.geste === 'valider-et-lancer'
                 ? /* LE MODÈLE QUI PARTIRA SE LIT SUR LE BOUTON : celui de la carte,
                      modifiable jusqu'à ce clic ; à défaut, le palier du cadrage. */
-                  `${t(LIBELLES_GESTE['valider-et-lancer'])} · ${modeleQuiPart}`
+                  `${t(libelleDeValidation(carte.scheduling))} · ${modeleQuiPart}`
                 : geste.geste === 'lancer' && departSansAgent
                   ? t(libelleDeLancement(carte))
                   : undefined;
@@ -1038,25 +1111,6 @@ export function BarreDAction({
             duChapitre.length && 'mt-1.5',
           )}
         >
-          {/* Le seul chemin volontaire pour ressortir une carte d'une fin de
-              parcours. Rien ne la ressort tout seul : ni un agent, ni une
-              question posée dans sa conversation. */}
-          {repriseVers ? (
-            <Button
-              size="sm"
-              variant="outline"
-              data-geste="reprendre"
-              onClick={() => client.moveCard(carte, repriseVers)}
-              className={CLASSES_BOUTON_DU_FIL}
-            >
-              <ArchiveRestore className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 truncate">
-                {libelleDeReprise(carte.column)}
-                {' → '}
-                {t(COLUMN_LABELS[repriseVers])}
-              </span>
-            </Button>
-          ) : null}
           {avanceUtile ? (
             <BoutonEtapeSuivante
               card={carte}

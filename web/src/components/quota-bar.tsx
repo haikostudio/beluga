@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   Check,
+  ChevronsUpDown,
   Menu,
   MonitorCog,
   PanelLeftClose,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import {
   Button,
+  CLASSE_POINT_DE_BOUTON,
   ConfirmDialog,
   DropdownMenu,
   DropdownMenuContent,
@@ -41,7 +43,9 @@ import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
 const TerminalServeur = React.lazy(() =>
   import('@/components/terminal-serveur').then((m) => ({ default: m.TerminalServeur })),
 );
-import { BoutonRedemarrage } from '@/components/bouton-redemarrage';
+import { EntreeRedemarrage, PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
+import { TiroirProjets } from '@/components/tiroir-projets';
+import { BoutonAssistantEntete } from '@/components/assistant-global';
 import { ClocheNotifications } from '@/components/notifications';
 import { QuotaBadge } from '@/components/quota-badge';
 import { AMBIANCES, LANGUES, ambianceParId, langueParId } from '@beluga/shared';
@@ -63,6 +67,7 @@ export function QuotaBar({
   rightOpen,
   onToggleRight,
   titreDeVue,
+  onOuvrirVue,
 }: {
   onOpenSettings: () => void;
   /** Sur téléphone seulement : ouvre la liste des projets en panneau latéral. */
@@ -83,9 +88,16 @@ export function QuotaBar({
    * il prend la place du nom du projet ouvert, qui n'y dirait rien.
    */
   titreDeVue?: string;
+  /**
+   * Ouvre une vue du centre. Avec lui, le NOM en haut devient un bouton : il
+   * ouvre le tiroir de changement de projet (`TiroirProjets`), sur téléphone
+   * comme sur ordinateur.
+   */
+  onOuvrirVue?: (vue: 'en-route' | 'projet') => void;
 }) {
   const state = useApp();
   const telephone = useTelephone();
+  const redemarrage = useRedemarrage();
   /* LE MÊME RÉGLAGE QUE LA COLONNE DES PROJETS, lu depuis le magasin partagé :
      le bouton vit ici, la colonne là-bas, et aucun état ne circule entre les
      deux — ils lisent la même clé, ils ne peuvent pas diverger. */
@@ -103,6 +115,7 @@ export function QuotaBar({
   const [arretGroupe, setArretGroupe] = React.useState(false);
   const [arretTous, setArretTous] = React.useState(false);
   const [terminalOuvert, setTerminalOuvert] = React.useState(false);
+  const [projetsOuverts, setProjetsOuverts] = React.useState(false);
 
   /*
    * Les agents qui travaillent à cet instant : tous pour le compteur du coin
@@ -249,9 +262,10 @@ export function QuotaBar({
           colonne est déjà là. Il porte le MÊME habillage que les boutons de
           droite (cadre arrondi, fond transparent, même taille, même survol) :
           les deux côtés de la barre se répondent au lieu d'une icône nue à
-          gauche et de boutons encadrés à droite. Le point d'état est posé dans
-          son coin haut droit, DANS le cadre — il ne déborde pas et ne prend
-          aucune place au nom du projet. */}
+          gauche et de boutons encadrés à droite. Le point d'état est posé À
+          CHEVAL sur son coin haut droit, à la place et à la taille de celui de
+          la cloche (`CLASSE_POINT_DE_BOUTON`) : hors flux, il ne prend aucune
+          place au nom du projet. */}
       {onOpenProjects ? (
         <Tooltip label={t('Projets · {v0}', { v0: pointEtat.texte })}>
           <Button
@@ -265,7 +279,7 @@ export function QuotaBar({
             <Menu className="h-3.5 w-3.5" />
             <span
               data-point-etat
-              className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full', pointEtat.classe)}
+              className={cn(CLASSE_POINT_DE_BOUTON, pointEtat.classe)}
             />
           </Button>
         </Tooltip>
@@ -296,7 +310,7 @@ export function QuotaBar({
           {colonneReduite ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
           <span
             data-point-etat
-            className={cn('absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full', pointEtat.classe)}
+            className={cn(CLASSE_POINT_DE_BOUTON, pointEtat.classe)}
           />
         </Button>
       </Tooltip>
@@ -315,18 +329,49 @@ export function QuotaBar({
       {/* Le nom du projet ouvert, juste à côté du voyant de liaison : on sait
           toujours dans quel projet on travaille, sans ouvrir la liste. Il prend
           la place libre et se coupe proprement si le nom est long. Sur une
-          page de tous les projets (« Tableaux de bord »), c'est son titre. */}
+          page de tous les projets (« Tableaux de bord »), c'est son titre.
+
+          C'EST UN BOUTON : un clic ouvre le tiroir de changement de projet
+          (`TiroirProjets`) — recherche, « Tableaux de bord » en tête, puis les
+          projets de la colonne. Le bouton ne s'étire pas sur toute la place
+          libre : il s'arrête à son texte, et c'est son enveloppe qui pousse
+          les boutons de droite. */}
       {titreDeVue || projetOuvert ? (
-        <span
-          className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text"
-          title={titreDeVue ?? projetOuvert?.name}
-          data-titre-bandeau
-        >
-          {titreDeVue ?? projetOuvert?.name}
-        </span>
+        <div className="flex min-w-0 flex-1">
+          {onOuvrirVue ? (
+            <Tooltip label={t('Changer de projet')}>
+              <button
+                type="button"
+                className="-mx-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left text-[14.5px] font-medium text-text transition-colors hover:bg-raised"
+                data-titre-bandeau
+                aria-haspopup="dialog"
+                onClick={() => setProjetsOuverts(true)}
+              >
+                <span className="min-w-0 truncate">{titreDeVue ?? projetOuvert?.name}</span>
+                <ChevronsUpDown className="h-3 w-3 shrink-0 text-faint" aria-hidden />
+              </button>
+            </Tooltip>
+          ) : (
+            <span
+              className="min-w-0 truncate text-[14.5px] font-medium text-text"
+              title={titreDeVue ?? projetOuvert?.name}
+              data-titre-bandeau
+            >
+              {titreDeVue ?? projetOuvert?.name}
+            </span>
+          )}
+        </div>
       ) : (
         <div className="flex-1" />
       )}
+      {onOuvrirVue ? (
+        <TiroirProjets
+          open={projetsOuverts}
+          onClose={() => setProjetsOuverts(false)}
+          surTableauxDeBord={!!titreDeVue}
+          onOuvrirVue={onOuvrirVue}
+        />
+      ) : null}
 
       <QuotaBadge activeEngine={activeEngine} />
 
@@ -367,18 +412,22 @@ export function QuotaBar({
           le nom du projet et les pastilles, et un clic gagné ne valait pas la
           place perdue. Son entrée se trouve plus bas, avant le choix du thème. */}
 
-      {/* LE REDÉMARRAGE DU SERVEUR, juste avant les trois points : une icône
-          seule qui dit son état (marche/arrêt, triangle orange, roue). Il a
-          quitté le pied de la colonne des projets ; visible aussi sur
-          téléphone. */}
-      <BoutonRedemarrage />
+      {/* L'ASSISTANT, SUR TÉLÉPHONE : un bouton juste avant les trois points
+          remplace le robot flottant ; le chat s'ouvre juste en dessous. Sur
+          ordinateur, le robot flottant en bas à droite reste seul. */}
+      {telephone ? <BoutonAssistantEntete /> : null}
 
-      {/* Un seul bouton : son, thème et réglages vivent derrière les trois
-          points (menu sur ordinateur, tiroir en bas sur téléphone). */}
+      {/* Un seul bouton : son, thème, redémarrage et réglages vivent derrière
+          les trois points (menu sur ordinateur, tiroir en bas sur téléphone).
+          LE REDÉMARRAGE DU SERVEUR y est une entrée, et son ÉTAT se lit sur ce
+          bouton, menu fermé : le point commun des boutons de l'entête, sur
+          son coin haut droit (vert, orange, gris). Sa fenêtre de confirmation est rendue HORS du menu,
+          juste après : dedans, elle se démonterait avec lui. */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" aria-label="Menu" title={t('Menu')}>
+          <Button variant="outline" size="icon" className="relative shrink-0" aria-label="Menu" title={t('Menu')}>
             <EllipsisVertical className="h-3.5 w-3.5" />
+            <PointRedemarrage etat={redemarrage.etat} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -424,6 +473,7 @@ export function QuotaBar({
             <TerminalSquare className="h-3.5 w-3.5" />
             {t('Terminal du serveur')}
           </DropdownMenuItem>
+          <EntreeRedemarrage redemarrage={redemarrage} />
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
@@ -525,6 +575,7 @@ export function QuotaBar({
 </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {redemarrage.dialogue}
 
       {/* L'afficheur de terminal ne se télécharge qu'au premier clic. */}
       <PanneauALaDemande monte={terminalOuvert}>

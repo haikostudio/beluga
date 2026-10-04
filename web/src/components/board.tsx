@@ -71,6 +71,9 @@ import {
   vignetteDInitialisationVisible,
   procedureEnPlace,
   estCarteMarketing,
+  titreEnConstruction,
+  estUnRegroupement,
+  membresActifsDuRegroupement,
 } from '@beluga/shared';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
 import { RepereAttention } from '@/components/repere-attention';
@@ -133,6 +136,7 @@ import {
   InfosPublication,
   AlerteTravailSansCarte,
 } from '@/components/deploy-panel';
+import { BandeauProductionGroupe } from '@/components/bandeau-production-groupe';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { t, formatRegional } from '@/lib/langue';
@@ -727,6 +731,8 @@ export function Board({
   /* Le projet ouvert, tel que l'écran le connaît déjà : c'est lui qui dit si la
      procédure d'une colonne est définie, sans rien demander au serveur. */
   const projetOuvert = state.projects.find((p) => p.id === projectId);
+  /* Les projets membres, quand le tableau affiché est celui d'un regroupement. */
+  const membresDuGroupe = estUnRegroupement(projetOuvert) ? membresActifsDuRegroupement(state.projects, projectId) : [];
   /* L'INITIALISATION DE LA MISE EN PRODUCTION, en tête de « En cours » : une
      vignette à part, pas une carte (DEC-256) — ni comptée dans l'entête, ni
      dans l'avancement de la colonne. */
@@ -1715,6 +1721,12 @@ export function Board({
         rail garde `min-h-0 flex-1` et remonte de la hauteur du bandeau au lieu
         de passer dessous.
       */}
+      {/* UN REGROUPEMENT NE PUBLIE RIEN LUI-MÊME : son bandeau liste ses projets
+          membres, chacun avec son bouton, plus un bouton qui les lance tous
+          (`bandeau-production-groupe.tsx`). Un projet ordinaire garde le sien. */}
+      {membresDuGroupe.length && projetOuvert ? (
+        <BandeauProductionGroupe groupe={projetOuvert} membres={membresDuGroupe} />
+      ) : (
       <DeployPanel
         projectId={projectId}
         cards={parColonne.archived}
@@ -1726,6 +1738,7 @@ export function Board({
            « Conversation » avec l'agent de configuration. */
         actions={<BoutonInfosPublication colonne="archived" infos={infosPublication.archived ?? null} />}
       />
+      )}
 
       {/* LA CONFIRMATION D'UN DÉPÔT QUI DÉPENSE. Elle nomme le geste exact et la
           carte concernée ; refuser ne laisse partir AUCUNE requête, et la carte
@@ -1897,7 +1910,13 @@ export function CardTile({
   const corpsRef = React.useRef<HTMLDivElement>(null);
   const titreRef = React.useRef<HTMLHeadingElement>(null);
   const descriptionRef = React.useRef<HTMLParagraphElement>(null);
-  const texteCoupe = useTexteCoupe([titreRef, descriptionRef, corpsRef], [card.title, extraitDescription, formeEnRoute]);
+  /* Titre vide ou éclair : un petit texte tient la place, et la bulle de texte
+     coupé ne s'ouvre pas dessus (on ne lui passe pas le titre recopié). */
+  const titreEnCours = titreEnConstruction(card);
+  const texteCoupe = useTexteCoupe(
+    [titreRef, descriptionRef, corpsRef],
+    [titreEnCours ? '' : card.title, extraitDescription, formeEnRoute],
+  );
   /*
    * L'appui long est suivi d'un clic que le navigateur envoie quand même : sans
    * ce garde-fou, le tiroir de la carte s'ouvrirait derrière le menu.
@@ -2428,13 +2447,19 @@ export function CardTile({
                 <IconeMoteur engine={card.run.engine} className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle" />
               </span>
             </Tooltip>
-            {card.title}
+            {titreEnCours ? (
+              <span data-titre-en-construction className="animate-pulse font-normal italic text-muted">
+                {t('Titre en cours de création…')}
+              </span>
+            ) : (
+              card.title
+            )}
           </h3>
           {texteCoupe || mentions.length ? (
             <BulleTexteCoupe>
               {texteCoupe ? (
                 <>
-                  <span className="block font-medium text-text">{card.title}</span>
+                  {titreEnCours ? null : <span className="block font-medium text-text">{card.title}</span>}
                   {enRoute && extraitDescription ? <span className="mt-1 block">{extraitDescription}</span> : null}
                 </>
               ) : null}
@@ -2488,9 +2513,8 @@ export function CardTile({
           </p>
         ) : null}
 
-        {/* Sur « Tableaux de bord », les étiquettes quittent le corps à
-            hauteur fixe, où elles se faisaient couper : elles vont en petit
-            à droite de l'ancienneté, en pied de carte (plus bas). */}
+        {/* Sur « Tableaux de bord », la carte ne montre aucune étiquette :
+            elles se lisent dans le tableau du projet et dans le tiroir. */}
         {!enRoute && (card.labels.length || card.billing) ? (
           <div className="mt-1.5 flex flex-wrap gap-1">
             {card.labels.slice(0, 3).map((label) => (
@@ -2500,8 +2524,8 @@ export function CardTile({
           </div>
         ) : null}
 
-        {/* Sur « Tableaux de bord », le lien de regroupement rejoint les
-            étiquettes en pied de carte (plus bas) : ici, la frise le rognait. */}
+        {/* Sur « Tableaux de bord », le lien de regroupement ne s'écrit pas :
+            la pile (`PileDeCartes`) montre la mère et ses filles ensemble. */}
         {!enRoute ? <LienDeRegroupement card={card} /> : null}
 
         {/*
@@ -2535,36 +2559,21 @@ export function CardTile({
             )}
           />
         ) : null}
-        {/* L'ANCIENNETÉ À GAUCHE ; sur « Tableaux de bord », les étiquettes à
-            DROITE, en plus petit, sur la même ligne. Elles se tronquent avant
-            de pousser l'heure, qui ne se coupe jamais. Une bande de travail en
-            pied raccourcit la tuile : l'ancienneté y perd ses retraits, et
+        {/* LE PIED NE PORTE QUE L'ANCIENNETÉ. Sur « Tableaux de bord », rien
+            d'autre ne s'y pose : ni étiquettes, ni pastilles des sous-cartes —
+            la pile dépliée les montre déjà, une par une. Une bande de travail
+            en pied raccourcit la tuile : l'ancienneté y perd ses retraits, et
             l'air qu'elle garde au-dessus de la bande vient de la hauteur de
             la carte (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`). Sans bande, le retrait
             bas rend ces pixels : l'heure reste où elle était. */}
         <div
           className={cn(
             'text-[12px] text-faint',
-            enRoute ? cn('mt-auto flex shrink-0 items-center gap-2', !(statut || travailActuel || restant) && 'pb-1.5 pt-1') : 'mt-1.5',
+            enRoute ? cn('mt-auto flex shrink-0 items-center', !(statut || travailActuel || restant) && 'pb-1.5 pt-1') : 'mt-1.5',
           )}
           data-anciennete-carte={enRoute ? card.id : undefined}
         >
           <span className="shrink-0">{relativeTime(card.updatedAt)}</span>
-          {enRoute && (card.labels.length || card.billing || card.cartesFilles?.length || card.carteMereId) ? (
-            <span data-etiquettes-carte={card.id} className="flex min-w-0 flex-1 justify-end gap-1 overflow-hidden">
-              <LienDeRegroupement card={card} compact />
-              {card.labels.slice(0, 3).map((label) => (
-                <Badge key={label} className="min-w-0 shrink truncate px-1 py-px text-[10px]">
-                  <span className="truncate">{label}</span>
-                </Badge>
-              ))}
-              {card.billing ? (
-                <Badge tone="success" className="min-w-0 shrink truncate px-1 py-px text-[10px]">
-                  <span className="truncate">{t('déjà facturée')}</span>
-                </Badge>
-              ) : null}
-            </span>
-          ) : null}
         </div>
       </article>
 
@@ -2719,15 +2728,11 @@ function IconeEtape({ etape, cardId }: { etape: EtapeDeCarte; cardId: string }) 
  * et où en est chacun. Sur le tableau d'un projet, la fille dit de quelle
  * demande commune elle est la part. Une carte ordinaire n'affiche rien.
  */
-function LienDeRegroupement({ card, compact = false }: { card: Card; compact?: boolean }) {
+function LienDeRegroupement({ card }: { card: Card }) {
   const state = useApp();
-  /* `compact` : sur « Tableaux de bord », en petit dans la ligne des
-     étiquettes, à droite de l'ancienneté — chaque pastille se tronque avant
-     de pousser l'heure (`contents` : elles se rangent dans cette ligne). */
-  const classePastille = compact ? 'min-w-0 shrink truncate px-1 py-px text-[10px]' : undefined;
   if (card.cartesFilles?.length) {
     return (
-      <div className={compact ? 'contents' : 'mt-1.5 flex flex-wrap gap-1'} data-cartes-filles={card.cartesFilles.length}>
+      <div className="mt-1.5 flex flex-wrap gap-1" data-cartes-filles={card.cartesFilles.length}>
         {card.cartesFilles.map((fille) => {
           const projet = state.projects.find((p) => p.id === fille.projectId);
           /* LE RELEVÉ PORTÉ PAR LA MÈRE FAIT FOI : la fille vit dans un autre
@@ -2741,7 +2746,6 @@ function LienDeRegroupement({ card, compact = false }: { card: Card; compact?: b
               /* ORANGE pour ce qui est EN COURS : la fille au travail se voit
                  d'un coup d'œil, une question en jaune d'attente. */
               className={cn(
-                classePastille,
                 suivi?.etat === 'travail'
                   ? 'border-en-cours/30 bg-en-cours/10 text-en-cours'
                   : suivi?.etat === 'question' || suivi?.etat === 'panne'
@@ -2749,7 +2753,7 @@ function LienDeRegroupement({ card, compact = false }: { card: Card; compact?: b
                     : undefined,
               )}
             >
-              <span className={compact ? 'truncate' : undefined}>
+              <span>
                 {projet?.name ?? suivi?.projet ?? '?'}
                 {suivi
                   ? ` · ${t(LIBELLES_DE_LA_FILLE[suivi.etat])}`
@@ -2769,13 +2773,6 @@ function LienDeRegroupement({ card, compact = false }: { card: Card; compact?: b
     (p) => p.id === (mere?.projectId ?? state.projects.find((q) => q.id === card.projectId)?.regroupementId),
   );
   const phrase = t('Part d’une demande de « {v0} »', { v0: regroupement?.name ?? t('projet réuni') });
-  if (compact) {
-    return (
-      <Badge className={classePastille} data-carte-mere={card.carteMereId}>
-        <span className="truncate">{phrase}</span>
-      </Badge>
-    );
-  }
   return (
     <p className="mt-1.5 truncate text-[12px] text-faint" data-carte-mere={card.carteMereId}>
       {phrase}

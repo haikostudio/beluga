@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { EntreeCompression, RaisonDeRepli } from './models.js';
 
 /**
  * La place réellement occupée dans le contexte d'un agent. Les trois nombres
@@ -43,48 +44,72 @@ export function mesurerContexte(
  * Claude, Codex et leurs tests.
  */
 
-export const SEUIL_COMPRESSION_CONTEXTE = 0.5;
+/** Le remplissage de la fenêtre à partir duquel le contexte se compresse : 80 %. */
+export const SEUIL_COMPRESSION_CONTEXTE = 0.8;
 
 /**
- * LE SEUIL NE PEUT PLUS DÉPENDRE DE LA SEULE FENÊTRE ANNONCÉE.
+ * UN AGENT DE TÂCHE SE COMPRESSE À 80 % DE SA FENÊTRE, SANS PLAFOND EN JETONS.
  *
- * Une PART de fenêtre paraissait raisonnable tant que les modèles annonçaient
- * 200 000 jetons : la moitié faisait 100 000, et la compression partait. Le
- * jour où les modèles sont passés à UN MILLION, le même 0,5 a mis le seuil à
- * 500 000 — hors de portée. Relevé du 17/08/2026 : sur 376 agents en fenêtre
- * d'un million, UNE seule compression en sept jours, pour des contextes qui
- * tournent entre 148 000 et 190 000 jetons de moyenne. La compression n'avait
- * pas été retirée ; elle s'était éteinte toute seule, en silence.
- *
- * Le seuil est donc le PLUS PETIT des deux : la part de la fenêtre (qui protège
- * les petites fenêtres) et un plafond en JETONS (qui survit au prochain modèle
- * à deux millions). 100 000 est la valeur que la règle visait à l'origine.
+ * C'est le chiffre que l'anneau affiche : l'utilisateur voit « 80 % » et la
+ * compression part là. Elle remplace la règle DEC-119 (le plus petit entre
+ * 0,5 de la fenêtre et 100 000 jetons), posée parce que 0,5 d'une fenêtre d'un
+ * million (500 000) n'était jamais atteint — UNE compression en sept jours sur
+ * 376 agents. Revenir à une part de fenêtre pure rouvre ce piège : sur un
+ * million de jetons le seuil monte à 800 000, hors de portée des contextes qui
+ * tournent autour de 150 000. Le choix est assumé (carte « Compression auto du
+ * contexte à 80 % ») ; le relevé de quota (section 5 bis) dit si la compression
+ * s'éteint de nouveau.
  */
-export const PLAFOND_CONTEXTE_JETONS = 100_000;
 
 /**
- * L'agent de CADRAGE a son propre plafond, plus bas : il discute un besoin sur
- * un modèle économe, sans ouvrir le projet. Un fil de discussion accumulé et
- * relu à CHAQUE message coûte plus cher que la compression qui l'évite — un
- * agent mesuré portait 107 155 jetons relus pour reformuler une phrase, soit
- * 28,8 % de tout le quota du serveur.
+ * Le plafond en jetons propre à un RÔLE, quand il en a un. L'agent de CADRAGE
+ * garde le sien, plus bas : il discute un besoin sur un modèle économe, sans
+ * ouvrir le projet, et un fil accumulé relu à CHAQUE message coûte plus cher
+ * que la compression qui l'évite — un agent mesuré portait 107 155 jetons
+ * relus pour reformuler une phrase, soit 28,8 % de tout le quota du serveur.
  */
 export const PLAFOND_CONTEXTE_PAR_ROLE: Record<string, number> = {
   cadrage: 60_000,
 };
 
-/** Le plafond en jetons qui s'applique à un rôle. */
+/** Le plafond en jetons d'un rôle ; `Infinity` quand il n'en a pas (agent de tâche). */
 export function plafondDeContexte(role?: string): number {
-  return (role && PLAFOND_CONTEXTE_PAR_ROLE[role]) || PLAFOND_CONTEXTE_JETONS;
+  return (role && PLAFOND_CONTEXTE_PAR_ROLE[role]) || Infinity;
 }
 
 /**
- * Le seuil RÉEL de compression, en jetons. Jamais au-dessus du plafond, jamais
- * au-dessus de la moitié de la fenêtre.
+ * Le seuil RÉEL de compression, en jetons : 80 % de la fenêtre, jamais
+ * au-dessus du plafond du rôle quand il en a un.
  */
-export function seuilDeCompression(window: number, plafond = PLAFOND_CONTEXTE_JETONS): number {
+export function seuilDeCompression(window: number, plafond = Infinity): number {
   const fenetre = Number.isFinite(window) && window > 0 ? window : 0;
   return Math.min(fenetre * SEUIL_COMPRESSION_CONTEXTE, plafond);
+}
+
+/** Combien d'entrées garde l'historique des compressions d'un agent. */
+export const LIMITE_HISTORIQUE_COMPRESSIONS = 50;
+
+/**
+ * Classe l'échec de la compression native. Un moteur qui ne rend pas la main ou
+ * dont le compte a touché sa limite ne rendra pas davantage la main pour un
+ * résumé : ces deux causes ne paient PAS un second appel.
+ */
+export function raisonDeRepli(erreur: string | undefined | null): RaisonDeRepli {
+  const texte = (erreur ?? '').toLowerCase();
+  if (/ne rendait pas la main|timeout|délai|delai/.test(texte)) return 'delai';
+  if (/session limit|usage limit|limit reached|rate.?limit|quota/.test(texte)) return 'quota';
+  if (/enoent|introuvable|not found|indisponible/.test(texte)) return 'indisponible';
+  if (/mesur/.test(texte)) return 'mesure';
+  return 'refus';
+}
+
+/** Le résumé sémantique fait un second appel au moteur : inutile s'il vient d'échouer ainsi. */
+export function repliSansSecondAppel(raison: RaisonDeRepli): boolean {
+  return raison === 'delai' || raison === 'quota' || raison === 'indisponible';
+}
+
+function pourcent(tokens: number, window: number): number {
+  return window > 0 ? Math.min(100, Math.max(0, Math.round((tokens / window) * 100))) : 0;
 }
 
 export interface EtatContexteAgent {
@@ -99,6 +124,8 @@ export interface EtatContexteAgent {
   lastCompressionTokens?: number;
   lastCompressionMethod?: 'native' | 'summary';
   compressionCount?: number;
+  /** Les compressions passées, la plus récente en premier, bornées à `LIMITE_HISTORIQUE_COMPRESSIONS`. */
+  historiqueCompressions?: EntreeCompression[];
   /** Résumé à remettre au premier tour de la nouvelle session de repli. */
   continuitySummary?: string;
 }
@@ -124,7 +151,7 @@ export function observerContexte(
   precedent: EtatContexteAgent | undefined,
   tokens: number,
   window: number,
-  plafond = PLAFOND_CONTEXTE_JETONS,
+  plafond = Infinity,
 ): ObservationContexte | null {
   const remplissage = remplissageContexte(tokens, window);
   if (!remplissage) return null;
@@ -146,8 +173,26 @@ export function observerContexte(
       armed,
       pending: shouldCompress,
       continuitySummary: precedent?.continuitySummary,
+      historiqueCompressions: completerLeNiveauApres(precedent?.historiqueCompressions, remplissage),
     },
   };
+}
+
+/**
+ * Après un résumé de repli, la nouvelle session n'a pas de mesure : le niveau
+ * d'après se lit à la PREMIÈRE mesure qui suit, et complète l'entrée restée
+ * ouverte. Une entrée déjà complète ne bouge plus.
+ */
+function completerLeNiveauApres(
+  historique: EntreeCompression[] | undefined,
+  remplissage: Pick<EtatContexteAgent, 'tokens' | 'window'>,
+): EntreeCompression[] | undefined {
+  const derniere = historique?.[0];
+  if (!historique || !derniere || derniere.tokensApres !== undefined) return historique;
+  return [
+    { ...derniere, tokensApres: remplissage.tokens, pourcentageApres: pourcent(remplissage.tokens, remplissage.window) },
+    ...historique.slice(1),
+  ];
 }
 
 /** Grave la compression et abaisse immédiatement le remplissage retenu. */
@@ -159,12 +204,28 @@ export function contexteApresCompression(
     tokens?: number;
     window?: number;
     summary?: string;
+    /** Pour un résumé de repli : pourquoi la compression native n'a pas abouti. */
+    raison?: RaisonDeRepli;
   },
 ): EtatContexteAgent {
   const remplissage = remplissageContexte(options.tokens ?? 0, options.window ?? precedent.window) ?? {
     tokens: 0,
     window: precedent.window,
     ratio: 0,
+  };
+  // Un niveau d'après n'est connu que si le moteur l'a mesuré : un résumé
+  // repart sans mesure (tokens à 0), ce qui n'est PAS un contexte vide.
+  const apresConnu = options.method === 'native' && (options.tokens ?? 0) > 0;
+  const entree: EntreeCompression = {
+    at: options.at,
+    method: options.method,
+    tokensAvant: precedent.tokens,
+    pourcentageAvant: pourcent(precedent.tokens, precedent.window),
+    ...(apresConnu
+      ? { tokensApres: remplissage.tokens, pourcentageApres: pourcent(remplissage.tokens, remplissage.window) }
+      : {}),
+    window: precedent.window,
+    ...(options.raison ? { raison: options.raison } : {}),
   };
   return {
     ...precedent,
@@ -175,6 +236,7 @@ export function contexteApresCompression(
     lastCompressionTokens: precedent.tokens,
     lastCompressionMethod: options.method,
     compressionCount: (precedent.compressionCount ?? 0) + 1,
+    historiqueCompressions: [entree, ...(precedent.historiqueCompressions ?? [])].slice(0, LIMITE_HISTORIQUE_COMPRESSIONS),
     continuitySummary: options.summary,
   };
 }

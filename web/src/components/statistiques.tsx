@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, FileText, Globe, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
+import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Globe, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
 import {
   type AnalyseDesParcours,
   type Card,
@@ -878,7 +878,7 @@ function BoutonDeLAgent({ detail, onOuvrirCarte }: { detail: DetailSite; onOuvri
   };
   return carte && onOuvrirCarte ? (
     <Button size="sm" variant="subtle" className="shrink-0" onClick={() => onOuvrirCarte(carte)} data-stats-relancer-objectifs="ouvrir">
-      <Play className="h-3.5 w-3.5" />
+      <Loader2 className="h-3.5 w-3.5 animate-spin" />
       {t('Voir l’agent au travail')}
     </Button>
   ) : (
@@ -1497,7 +1497,7 @@ function AssistantInstallation({
        carte se perdait au milieu de la frise. */
     principal = (
       <Button variant="default" size="pied" className="min-w-0 flex-1" onClick={() => onOuvrirCarte(carte)} data-marketing-installer-suivi="ouvrir">
-        <Play className="h-3.5 w-3.5" />
+        {chargement}
         {t('Voir l’agent au travail')}
       </Button>
     );
@@ -1771,7 +1771,12 @@ function EtapesDeLAgent({ carte }: { carte: Card }) {
     let vivant = true;
     client
       .call<{ agentId: string | null; etapes: TodoItem[] }>({ type: 'statistiques.etapesInstallation', cardId: carte.id })
-      .then((r) => vivant && setLu(r))
+      .then((r) => {
+        if (!vivant) return;
+        setLu(r);
+        // Sa liste de tâches se lit en direct : on dit au serveur qu'on la regarde.
+        if (r?.agentId) client.suivre({ agents: [r.agentId] });
+      })
       .catch(() => vivant && setLu({ agentId: null, etapes: [] }));
     return () => {
       vivant = false;
@@ -1852,8 +1857,8 @@ function EtudeDuSite({ detail, onOuvrirCarte }: { detail: DetailSite; onOuvrirCa
         <div className="flex flex-col gap-1.5" data-stats-etude="ouverte">
           <p className="text-[12.5px] text-en-cours">{t('Étude en cours : la carte « {titre} » est ouverte.', { titre: carte.title })}</p>
           {onOuvrirCarte ? (
-            <Button size="sm" variant="ghost" className="self-start" onClick={() => onOuvrirCarte(carte)}>
-              <FileText className="h-3.5 w-3.5" />
+            <Button size="sm" variant="ghost" className="self-start" onClick={() => onOuvrirCarte(carte)} data-stats-etude-carte="ouvrir">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {t('Ouvrir la carte d’étude')}
             </Button>
           ) : null}

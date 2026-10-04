@@ -61,6 +61,7 @@ export const USAGES_JUGE = [
   'genre-carte-auto',
   'famille-erreur',
   'niveau-carte',
+  'niveau-assistant',
   'nature-demande',
   'doublon-carte',
   'pertinence-competences',
@@ -142,6 +143,13 @@ export const FICHES_DES_USAGES: readonly FicheDUsage[] = [
     titre: 'Niveau proposé d’une carte',
     explication:
       'Propose un niveau (léger, standard, approfondi) à l’agent qui prépare une carte. Ce n’est qu’une suggestion : un niveau déjà choisi n’est jamais changé.',
+    parDefaut: false,
+  },
+  {
+    cle: 'niveau-assistant',
+    titre: 'Niveau de l’assistant',
+    explication:
+      'Avant chaque message à l’assistant du robot, choisit léger, standard ou approfondi pour prendre un modèle moins coûteux quand la demande est simple. Jamais au-dessus du plafond réglé ; sans réponse, l’assistant reste en standard.',
     parDefaut: false,
   },
   {
@@ -772,6 +780,21 @@ export function questionNiveauDeCarte(): Record<string, QuestionDuJuge> {
   };
 }
 
+/** « Quel niveau pour ce message ? » — l'assistant du robot, consultation ou action. */
+export function questionNiveauDeLAssistant(): Record<string, QuestionDuJuge> {
+  return {
+    niveau: {
+      type: 'choice',
+      instructions: 'Quel niveau de modèle ce message demande-t-il à un assistant qui consulte et modifie des projets ?',
+      criteria: {
+        leger: 'Consulter, lire, chercher, résumer, parcourir : une réponse courte tirée de ce qui existe.',
+        standard: 'Ajouter, modifier, rédiger, répondre à un client, préparer une carte ou une note.',
+        approfondi: 'Une analyse lourde : comparer plusieurs projets ou services, enquêter sur une panne, décider d’une architecture.',
+      },
+    },
+  };
+}
+
 /** Le niveau proposé, lu d'une réponse — ou rien. */
 export function niveauPropose(reponse: ReponseDuJuge | undefined): NiveauProposable | undefined {
   if (reponse?.type !== 'choice') return undefined;
@@ -958,6 +981,8 @@ export const REGLAGES_DES_USAGES: Partial<Record<UsageDuJuge, ReglageDUsage>> = 
   'famille-erreur': { seuil: SEUIL_CONFIANCE_TRI, delaiMs: DELAI_LAYA_ERREUR_MS, express: true },
   /* Suggéré pendant un appel d'outil du cadrage : jamais d'attente d'un modèle qui dort. */
   'niveau-carte': { seuil: 0.5, delaiMs: 4_000, express: true },
+  /* Sur le chemin d'un message : jamais d'attente d'un modèle qui dort. */
+  'niveau-assistant': { seuil: 0.5, delaiMs: 4_000, express: true },
   'nature-demande': { seuil: 0.6, delaiMs: DELAI_LAYA_EXPRESS_MS, express: true },
   'doublon-carte': { seuil: 0.5, delaiMs: 15_000, partiel: true },
   /* Un oui/non incertain (probabilité entre 0,4 et 0,6) reste sans réponse,

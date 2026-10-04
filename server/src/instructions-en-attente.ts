@@ -488,8 +488,8 @@ export async function rangerUnProjet(racine: string, projet = projetDeLaRacine(r
  * NE LISEZ LE DISQUE QUE SI L'HEURE ET LA PÉRIODE LE PERMETTENT. Sans cela,
  * on lira tous les fichiers d'attente de tous les projets toutes les dix
  * minutes pour ne rien trouver 141 fois sur 144 par jour. Les tests de l'heure
- * et de la périodicité doivent passer EN PREMIER — voir capitalisation.ts,
- * rendezVousDeCapitalisation, pour le même principe appliqué ailleurs.
+ * et de la périodicité doivent passer EN PREMIER — voir menage-competences.ts,
+ * rendezVousDuMenage, pour le même principe appliqué ailleurs.
  */
 export async function rendezVousDeRangement(maintenant = new Date()): Promise<BilanDeFusion> {
   const heure = maintenant.getHours();

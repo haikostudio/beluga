@@ -802,6 +802,14 @@ export const ComprehensionDeCarte = z.object({
   hypotheses: z.array(z.string()).default([]),
   /** L'ancien champ « ce qui reste flou », gardé pour relire les cartes déjà écrites. */
   questionsOuvertes: z.array(z.string()).optional(),
+  /**
+   * LES SUPPOSITIONS VALIDÉES D'UN CLIC par l'utilisateur (« Valider » sous
+   * « Ce que l'agent suppose »), par leur texte exact. Aucun tour d'agent : le
+   * cadrage suivant et l'agent d'exécution les reçoivent comme des DÉCISIONS
+   * de l'utilisateur (`suppositionsValidees`). Une compréhension rendue
+   * ensuite repart d'une liste neuve. Absent sur les cartes d'avant.
+   */
+  hypothesesValidees: z.array(z.string()).optional(),
   /** Les sujets de mémoire ouverts pour comprendre. */
   sujets: z.array(z.string()).default([]),
   /**
@@ -1232,6 +1240,25 @@ export type AgentRole = z.infer<typeof AgentRole>;
 export const AgentStatus = z.enum(['idle', 'starting', 'running', 'stopped', 'failed', 'done']);
 export type AgentStatus = z.infer<typeof AgentStatus>;
 
+/**
+ * UNE COMPRESSION DU CONTEXTE, gardée dans l'agent pour la fenêtre « Contexte du
+ * modèle ». Le niveau d'après est absent tant qu'il n'a pas été mesuré.
+ */
+/** Pourquoi la compression native n'a pas abouti et le résumé a pris le relais. */
+export type RaisonDeRepli = 'delai' | 'quota' | 'refus' | 'mesure' | 'indisponible';
+
+export const EntreeCompression = z.object({
+  at: z.number(),
+  method: z.enum(['native', 'summary']),
+  tokensAvant: z.number().nonnegative(),
+  pourcentageAvant: z.number().int().min(0).max(100),
+  tokensApres: z.number().nonnegative().optional(),
+  pourcentageApres: z.number().int().min(0).max(100).optional(),
+  window: z.number().positive(),
+  raison: z.enum(['delai', 'quota', 'refus', 'mesure', 'indisponible']).optional(),
+});
+export type EntreeCompression = z.infer<typeof EntreeCompression>;
+
 export const AgentContext = z.object({
   /** Jetons réellement présents dans le dernier appel au modèle. */
   tokens: z.number().nonnegative(),
@@ -1244,6 +1271,8 @@ export const AgentContext = z.object({
   lastCompressionTokens: z.number().nonnegative().optional(),
   lastCompressionMethod: z.enum(['native', 'summary']).optional(),
   compressionCount: z.number().int().nonnegative().optional(),
+  /** Un agent enregistré avant cette liste n'en a pas : absent = aucune compression tracée. */
+  historiqueCompressions: z.array(EntreeCompression).max(50).optional(),
   continuitySummary: z.string().optional(),
 });
 export type AgentContext = z.infer<typeof AgentContext>;
@@ -1333,6 +1362,14 @@ export const Agent = z.object({
    * l'outil `moteurs` (déclarer, éprouver, activer un fournisseur).
    */
   ajoutDeMoteur: z.boolean().optional(),
+  /**
+   * L'ASSISTANT GLOBAL, ouvert par le robot en bas à droite de l'application
+   * (`shared/src/assistant-global.ts`) : il reçoit SES outils, sans commande ni
+   * édition de fichier, et chacun de ses gestes passe par la porte d'accord.
+   */
+  assistantGlobal: z.boolean().optional(),
+  /** Le dernier niveau servi à l'assistant global (léger, standard, approfondi) — pour l'affichage. */
+  niveauServi: z.enum(['leger', 'standard', 'approfondi']).optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */
@@ -1361,6 +1398,15 @@ export const RunStep = z.object({
    * déjà en base n'en ont pas.
    */
   capture: z.string().optional(),
+  /**
+   * LA PIÈCE JOINTE OÙ CETTE CAPTURE A ÉTÉ RANGÉE. Le démon recopie l'image
+   * regardée dans les pièces jointes du projet (`server/src/captures-auto.ts`)
+   * — souvent sous un autre nom (« image.png » reçoit le titre de la carte, un
+   * doublon reçoit « (2) ») : ce lien permet à la bande « Ce que l'agent a vu »
+   * de montrer la pièce À LA PLACE de l'étape, sans doublon
+   * (`shared/src/captures-du-flux.ts`).
+   */
+  capturePiece: z.string().optional(),
   /**
    * L'OUTIL BRUT ET SON ENTRÉE, pour que le déroulé en direct montre le MÊME
    * encadré que le parcours de la carte.

@@ -98,6 +98,13 @@ export interface EngineRunOptions {
   allowedTools?: string[];
   disallowedTools?: string[];
   /**
+   * LE BAC À SABLE RESTE EN LECTURE SEULE, même bridé : l'assistant global
+   * (`shared/src/assistant-global.ts`) ne doit écrire ni lancer de commande
+   * qui modifie la machine. Sous Claude, ses outils d'écriture sont retirés ;
+   * sous Codex, c'est cette surcharge qui le tient.
+   */
+  sandboxLectureSeule?: boolean;
+  /**
    * La racine du PROJET, montée en LECTURE SEULE pour un chef bridé. Son `cwd`
    * (ci-dessus) est un dossier de travail à part, le seul écrivable ; le projet,
    * lui, se lit sans se modifier. Claude l'ajoute à sa portée par `--add-dir` ;

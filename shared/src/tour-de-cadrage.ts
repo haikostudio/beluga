@@ -1,26 +1,30 @@
 /**
- * UN TOUR DE CADRAGE A DEUX FINS, ET IL EN ÉCRIT TOUJOURS UNE.
+ * UN TOUR DE CADRAGE PARLE, ET IL ÉCRIT TOUJOURS SON ISSUE.
  *
- * L'agent de cadrage peut CADRER un travail (il appelle `rendre_comprehension`,
- * et la carte porte ce qu'il a compris) ou RÉPONDRE à une question posée dans
- * le fil (il n'écrit rien sur la carte). Rien ne verrouillait ce cheminement :
+ * Le cadrage est une DISCUSSION (30/09/2026, `CONSIGNE_CADRAGE`) : chaque tour
+ * RÉPOND en texte dans le fil, et ne met la compréhension à jour (outil
+ * `rendre_comprehension`) que quand il a fait avancer le travail. Un tour qui
+ * a parlé sans rendre de compréhension est donc un tour NORMAL — il écrit
+ * l'issue `reponse` — et n'est plus relancé : la relance « Compréhension
+ * réclamée » transformait chaque question en incident probable, et forçait
+ * l'agent à justifier sa simple réponse par un mot convenu.
  *
- *   1. UN TOUR QUI OUBLIAIT SA COMPRÉHENSION NE DISAIT RIEN. Le démon savait
- *      déjà relancer un tour qui n'avait pas tenu sa promesse — mot pour mot,
- *      pour le PLAN (`planManquant`, `shared/src/parcours-carte.ts`) —, mais
- *      rien d'équivalent n'existait pour la compréhension. La carte restait
- *      dans un entre-deux : l'écran proposait de générer le plan alors
- *      qu'aucune compréhension n'avait jamais été rendue, ou l'inverse.
+ * La relance ne vise plus que le TOUR MUET — ni texte, ni compréhension, ni
+ * question : un moteur qui a travaillé sans rien dire. Celui-là est rattrapé
+ * une fois ; s'il ne rend toujours rien, l'incident est posé.
+ *
+ * Deux défauts d'avant restent fermés :
+ *
+ *   1. UN TOUR QUI NE RENDAIT RIEN NE DISAIT RIEN. La carte restait dans un
+ *      entre-deux : l'écran proposait la suite au-dessus d'une étape jamais
+ *      franchie. Le tour muet est toujours relancé.
  *   2. L'ISSUE DU TOUR SE DEVINAIT. Le flux en points cherchait la TRACE d'une
- *      réponse rendue dans le passage pour conclure « l'agent a répondu »
- *      (`tourDeReponseSeule`) : dès que cette trace manquait — tour coupé,
- *      journal purgé —, le passage « Compréhension » restait allumé « L'agent
- *      lit le projet… » des heures après la fin du tour.
+ *      réponse rendue pour conclure « l'agent a répondu »
+ *      (`tourDeReponseSeule`) : dès qu'elle manquait, le passage
+ *      « Compréhension » restait allumé des heures. L'issue s'écrit sur la
+ *      carte (`ParcoursDeCarte.issueDuTour`).
  *
- * Cette règle tranche donc, sans base ni disque : ce qu'un tour de cadrage
- * DOIT rendre, quand son absence est un manquement, et ce que le démon ÉCRIT
- * sur la carte à la fermeture. Elle se rejoue seule
- * (`server/src/test/tour-de-cadrage.test.ts`).
+ * Règle pure, sans base ni disque (`server/src/test/tour-de-cadrage.test.ts`).
  */
 
 import type { IssueDeTourDeCadrage } from './cadrage.js';
@@ -52,6 +56,11 @@ export interface TourDeCadrageFini {
    */
   planDemande?: boolean;
   /**
+   * LE TOUR A RENDU UN TEXTE À L'UTILISATEUR. C'est une DISCUSSION : l'agent a
+   * répondu, et la compréhension déjà rendue (ou à venir) n'a pas à bouger.
+   */
+  texteRendu?: boolean;
+  /**
    * LA CARTE A CHANGÉ DE PROJET PENDANT CE TOUR (outil `deplacer_vers_projet`).
    * Le cadrage part alors reprendre la demande dans le projet d'accueil, avec
    * une session neuve : ce tour-ci n'a rien à rendre, la compréhension est
@@ -63,13 +72,14 @@ export interface TourDeCadrageFini {
 }
 
 /**
- * CE TOUR A-T-IL MANQUÉ SA COMPRÉHENSION ? Les exceptions sont exactement
- * celles du plan : une question ouverte, un tour tombé, un arrêt demandé — et
- * la demande de plan, qui a sa propre relance. S'y ajoute la carte déplacée
- * vers un autre projet : sa compréhension se rend dans le tour de reprise.
+ * CE TOUR EST-IL RESTÉ MUET ? Seul un tour qui n'a rendu NI compréhension NI
+ * texte manque quelque chose. Les exceptions : une question ouverte, un tour
+ * tombé, un arrêt demandé, la demande de plan (qui a sa propre relance,
+ * `planManquant`), et la carte déplacée vers un autre projet — sa
+ * compréhension se rend dans le tour de reprise.
  */
 export function comprehensionManquante(tour: TourDeCadrageFini): boolean {
-  if (tour.comprehensionRendue) return false;
+  if (tour.comprehensionRendue || tour.texteRendu) return false;
   if (tour.questionPosee || tour.echec || tour.arretDemande || tour.planDemande || tour.carteDeplacee) return false;
   return true;
 }
@@ -83,22 +93,16 @@ export const ETAPE_COMPREHENSION_RECLAMEE = 'Compréhension réclamée';
 export const ETAPE_COMPREHENSION_RECLAMEE_ID = 'comprehension-reclamee';
 
 /**
- * LE MOT QUI DIT « CE TOUR N'ÉTAIT QU'UNE RÉPONSE ». La relance n'a que deux
- * sorties possibles, et aucune n'est le silence : appeler l'outil, ou écrire
- * ce mot. C'est ce qui distingue un oubli d'une discussion — sans quoi le
- * démon poserait un incident sur une simple question bien répondue.
+ * La consigne de la relance d'un tour MUET : il n'a rien dit à l'utilisateur.
+ * Deux sorties : rendre la compréhension, ou répondre enfin — le texte rendu
+ * par la relance devient alors la réponse du tour.
  */
-export const MOT_DE_LA_REPONSE_SEULE = 'REPONSE SEULE';
-
-/** La consigne de la relance : elle réclame l'outil, ou le mot, rien d'autre. */
 export const CONSIGNE_COMPREHENSION_RECLAMEE = [
-  "Ta réponse précédente n'a appelé « rendre_comprehension » à aucun moment.",
+  "Ton tour précédent s'est terminé sans rien dire à l'utilisateur : aucun texte, et aucun appel à « rendre_comprehension ».",
   '',
   'DEUX SORTIES, PAS UNE DE PLUS :',
-  "— ce message demandait un TRAVAIL à cadrer : appelle « rendre_comprehension » MAINTENANT, avec ce que tu as compris de TOUTE la conversation ;",
-  `— ce message n'était qu'une QUESTION, et tu y as répondu dans le fil : réponds exactement « ${MOT_DE_LA_REPONSE_SEULE} », sans rien d'autre.`,
-  '',
-  "Dans le doute, on CADRE : appelle l'outil.",
+  "— la carte n'a encore aucune compréhension et le travail est clair, ou ton tour l'a fait avancer : appelle « rendre_comprehension » MAINTENANT, avec ce que tu as compris de TOUTE la conversation, puis dis-le en une phrase ;",
+  "— sinon : écris MAINTENANT ta réponse au dernier message, en texte, comme tu l'aurais fait dans le fil.",
 ].join('\n');
 
 /** Ce que porte l'incident posé sur la carte quand rien n'est venu. */
@@ -111,20 +115,16 @@ export const INCIDENT_COMPREHENSION_NON_RENDUE =
  * APRÈS la relance et sur le texte qu'elle a rendu :
  *
  *   — `cadrage` : la compréhension est là, le tour est rattrapé ;
- *   — `reponse` : l'agent dit que son tour n'était qu'une réponse — on le
- *     croit, et le passage se referme sur sa phrase propre ;
- *   — `incident` : ni l'un ni l'autre. La carte porte l'incident nommé.
+ *   — `reponse` : l'agent a enfin répondu en texte — ce texte devient la
+ *     réponse du tour ;
+ *   — `incident` : toujours rien. La carte porte l'incident nommé.
  */
 export function issueDeLaRelance(etat: {
   comprehensionRendue: boolean;
   texte?: string;
 }): 'cadrage' | 'reponse' | 'incident' {
   if (etat.comprehensionRendue) return 'cadrage';
-  const dit = (etat.texte ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toUpperCase();
-  return dit.includes(MOT_DE_LA_REPONSE_SEULE) ? 'reponse' : 'incident';
+  return (etat.texte ?? '').trim() ? 'reponse' : 'incident';
 }
 
 /* ------------------------------------------------------------------ */
@@ -145,6 +145,8 @@ export function issueAEcrire(etat: {
   echec?: boolean;
   arretDemande?: boolean;
   carteDeplacee?: boolean;
+  texteRendu?: boolean;
+  planDemande?: boolean;
 }): IssueDeTourDeCadrage | null {
   if (etat.echec || etat.arretDemande || etat.questionPosee) return null;
   /* Un tour qui a déplacé la carte n'a pas d'issue : la reprise dans le projet
@@ -153,6 +155,9 @@ export function issueAEcrire(etat: {
   if (etat.comprehensionRendue || etat.relance === 'cadrage') return 'cadrage';
   if (etat.relance === 'reponse') return 'reponse';
   if (etat.relance === 'incident') return null;
+  /* UN TOUR QUI A PARLÉ SANS METTRE LA COMPRÉHENSION À JOUR A DISCUTÉ. Un
+     tour de PLAN n'en est pas un : sa promesse se juge sous `planManquant`. */
+  if (etat.texteRendu && !etat.planDemande) return 'reponse';
   /* Aucune relance n'a eu lieu et rien n'a été rendu : le tour ne portait pas
      de travail à cadrer (une demande de plan, par exemple). On n'invente pas
      d'issue pour lui. */

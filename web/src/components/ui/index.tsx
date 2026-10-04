@@ -270,6 +270,18 @@ Badge.displayName = 'Badge';
 /* ----------------------------- Pastille ----------------------------- */
 
 /**
+ * LE POINT D'ÉTAT D'UN BOUTON DE L'ENTÊTE : UNE SEULE PLACE, UNE SEULE TAILLE.
+ *
+ * Tout point posé sur un bouton du bandeau du haut (menu, repli de la colonne,
+ * cloche, assistant, trois points) est un rond de 8 px À CHEVAL sur le coin
+ * haut droit du bouton, 2 px dehors — la place de celui de la cloche, qui sert
+ * de modèle. Seule la COULEUR change d'un bouton à l'autre : elle s'ajoute à
+ * cette classe. Le bouton porte `relative` et ne rogne pas ce qui déborde.
+ * Contrôle : `scripts/verif-curseur-pastilles-selecteur.mjs`.
+ */
+export const CLASSE_POINT_DE_BOUTON = 'pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full';
+
+/**
  * LA PASTILLE CHIFFRÉE, UNE SEULE POUR TOUTE L'APPLICATION.
  *
  * Elle était écrite à la main à six endroits, en rouge, en orange ou en bleu,

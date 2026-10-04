@@ -1266,8 +1266,8 @@ export function Sidebar({
       </div>
 
       {/* LE REDÉMARRAGE DU SERVEUR a quitté le pied de cette colonne : il vit
-          dans le bandeau du haut, à droite, en icône seule qui dit son état
-          (`bouton-redemarrage.tsx`). */}
+          dans le menu des trois points du bandeau, son état en point sur le
+          bouton du menu (`redemarrage.tsx`). */}
       </>
       </div>
 

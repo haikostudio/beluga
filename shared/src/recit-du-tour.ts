@@ -72,6 +72,8 @@ export interface QuestionRacontee {
   description?: string;
   /** Les réponses proposées, dans l'ordre où elles ont été posées. */
   options: string[];
+  /** Un seul choix, plusieurs, ou une réponse libre — ce que dit l'entête. */
+  choix: 'single' | 'multiple' | 'text';
   /** La réponse retenue, quand elle est venue. */
   reponse?: string;
 }
@@ -391,6 +393,7 @@ export function recitDeLEntree(entree: EntreeJournal): RecitDEntree {
           intitule: vue.question,
           ...(vue.description ? { description: vue.description } : {}),
           options: vue.options.map((option) => option.label).filter(Boolean),
+          choix: vue.choix,
           ...(vue.reponse ? { reponse: vue.reponse } : {}),
         },
       });

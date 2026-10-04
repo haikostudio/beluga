@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
@@ -18,9 +17,6 @@ import {
   SouhaitReglages,
   TaskProposal,
   canMove,
-  aliasDePieceJointe,
-  nomSansCollision,
-  nomSurDisque,
   heritageAnalyseDeProposition,
   repriseAutorisee,
   reglagesDeLaProposition,
@@ -42,6 +38,8 @@ import {
   NIVEAUX_AGENT,
   NIVEAU_PAR_DEFAUT,
   niveauDemande,
+  niveauPlancherAutomatique,
+  ficheServieAuProjet,
   type NiveauAgent,
   moteurDuTriAutomatique,
   DOSSIER_PLANS,
@@ -99,6 +97,7 @@ import {
   JALON_PLAN_PROPOSE,
   descriptionDepuisLePlanRendu,
   lireComprehensionRendue,
+  renvoiAuxQuestions,
   FORME_DE_LA_COMPREHENSION,
   FORME_DES_RESUMES_DU_FIL,
   SIGNES_MINIMUM_EN_CLAIR,
@@ -114,7 +113,7 @@ import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
 import { completerDonneesDuJournal, dernierJalonDeDemande } from './journal-carte.js';
 import { CONFIG, PATHS } from './config.js';
-import { dossierDEcriture } from './pieces-jointes.js';
+import { joindreUnFichier } from './joindre-fichier.js';
 import { mintDownload } from './auth.js';
 import {
   LECTURE_FICHE_MAX,
@@ -198,8 +197,6 @@ import {
   GENRES_D_ETAPE,
   formaterOctets,
   jugerRecette,
-  mimeDuFichier,
-  refusDeTaille,
   phraseDInventaire,
   phraseDeRecette,
   recetteEffective,
@@ -949,21 +946,32 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'competences',
     description:
-      "Le POOL DE COMPÉTENCES PARTAGÉ, valable pour TOUS les projets. Chaque fiche est aussi une unité de la mémoire " +
-      "(classeur global) : l'outil « memoire », geste « chercher », les trouve. Cinq actions. « lister » rend les fiches, " +
-      "leur état, leur confiance et leur bibliothèque. « ecrire » crée ou COMPLÈTE une fiche à partir d'une leçon PROUVÉE — une fiche " +
-      "sans section « Vérification », ou dont la description ne dit pas quand s'en servir, est refusée avec sa raison. " +
+      "Le POOL DE COMPÉTENCES : des fiches COMMUNES (valables partout) et des fiches PROPRES À UN PROJET (son interface, " +
+      "son fonctionnement, sa structure, ses technologies). Chaque fiche est aussi une unité de la mémoire : l'outil " +
+      "« memoire », geste « chercher », les trouve. Six actions. « lister » rend les fiches communes et celles de TON projet " +
+      "(« tous » : vrai pour le pool entier), leur portée, leur état et leur confiance. « ecrire » crée ou COMPLÈTE une fiche " +
+      "— « projets » = le nom EXACT du projet pour une fiche propre, absent ou « tous » pour une commune ; compléter une fiche " +
+      "sans redonner « projets » garde sa portée, et l'écriture REMPLACE son texte : relis-la, puis redonne-la entière. Une " +
+      "fiche sans section « Vérification », ou dont la description ne dit pas quand s'en servir, est refusée avec sa raison. " +
       "« retour » dit ce qu'une compétence servie t'a réellement apporté : c'est ce qui fait monter ou descendre sa " +
       "confiance. « importer » installe (ou met à jour) une BIBLIOTHÈQUE entière de compétences publiées ailleurs : « source » = " +
       "un mot connu (« anthropic » ou « claude », « openai » ou « codex »), « propriétaire/dépôt » GitHub, une adresse de dépôt git ou un " +
       "chemin absolu ; « sous_dossier » et « bibliotheque » (son nom court) facultatifs. Les fiches importées sont servies par la " +
       "mémoire SEULEMENT, jamais annoncées en tête de session. « etat » passe une fiche (« nom ») en active, depreciee ou archivee " +
-      "(« etat ») : archivée, elle sort du service sans être effacée. Une leçon qui ne vaut que pour un seul projet ne se capitalise pas.",
+      "(« etat ») : archivée, elle sort du service sans être effacée. « rattrapage » pose une carte « Rattrapage des compétences » " +
+      "dans chaque projet actif qui a du travail terminé, et les lance ensemble (« lancer » : faux pour les laisser dans « Planifié ») " +
+      "— UNIQUEMENT sur demande explicite de l'utilisateur.",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['lister', 'ecrire', 'retour', 'importer', 'etat'], description: 'Ce que tu veux faire' },
+        action: {
+          type: 'string',
+          enum: ['lister', 'ecrire', 'retour', 'importer', 'etat', 'rattrapage'],
+          description: 'Ce que tu veux faire',
+        },
+        tous: { type: 'boolean', description: 'Pour « lister » : le pool entier, fiches des autres projets comprises' },
+        lancer: { type: 'boolean', description: 'Pour « rattrapage » : lancer les cartes posées (vrai par défaut)' },
         source: {
           type: 'string',
           description: 'Pour « importer » : « anthropic », « openai », « propriétaire/dépôt », une adresse de dépôt git ou un chemin absolu',
@@ -983,7 +991,9 @@ export const TOOL_DEFS: ToolDef[] = [
         symptomes: { type: 'string', description: 'Ce qu’on CONSTATE, séparé par des virgules' },
         projets: {
           type: 'string',
-          description: 'Les projets concernés, séparés par des virgules. VIDE = tous (le cas normal)',
+          description:
+            'Le nom EXACT du projet pour une fiche propre (plusieurs : séparés par des virgules) ; « tous » ou absent pour une ' +
+            'fiche commune. Absent quand on COMPLÈTE : la portée de la fiche est gardée',
         },
         symptome: { type: 'string', description: 'Section « Symptôme »' },
         cause: { type: 'string', description: 'Section « Cause »' },
@@ -2156,7 +2166,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             .join('\n');
           return {
             ok: true,
-            text: `Projet « ${monte.project.name} » monté (${monte.project.path}), inscrit dans la colonne de gauche.\n${deroule}`,
+            text:
+              `Projet « ${monte.project.name} » monté (${monte.project.path}), inscrit dans la colonne de gauche.\n${deroule}\n\n` +
+              // UN PROJET NEUF PART DE CE QUI EST DÉJÀ APPRIS AILLEURS (décision du
+              // 2026-10-02) : les compétences communes qui conviennent à son genre
+              // se proposent, et l'utilisateur choisit.
+              `Ce projet n'a encore aucune compétence propre. Avant d'en proposer la première carte, regarde les compétences ` +
+              `COMMUNES qui conviennent à son genre (« competences », action « lister » : démarrage d'interface, pile, structure) ` +
+              `et demande à l'utilisateur, en UNE question « ask_user » à choix multiples, lesquelles lui servent de base ; ` +
+              `nomme les retenues dans la carte proposée.`,
           };
         } catch (err: any) {
           return { ok: false, text: `Montage impossible : ${err?.message ?? err}` };
@@ -2323,50 +2341,22 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
       if (!full) return { ok: false, text: `Fichier introuvable : ${demande}` };
       /*
-       * PLUS AUCUN REFUS SUR L'EXTENSION. Le type sert à l'AFFICHAGE (vignette
-       * d'image, cadre de PDF), jamais à filtrer : un format inconnu retombe sur
-       * `application/octet-stream`, que le navigateur propose à télécharger.
+       * PLUS AUCUN REFUS SUR L'EXTENSION, ET LE SEUL REFUS QUI RESTE EST LE
+       * POIDS : la mécanique (type, plafond de 200 Mo, empreinte, dédoublonnage,
+       * stockage, événement) vit dans `joindreUnFichier`, partagée avec la
+       * détection automatique des captures.
        */
-      const mime = mimeDuFichier(full);
-      /*
-       * LE SEUL REFUS QUI RESTE EST LE POIDS, ET IL SE DIT EN CLAIR. Le fichier
-       * est recopié ENTIER en mémoire puis sur disque : sans borne, un agent
-       * pouvait joindre un dump de plusieurs gigaoctets et faire tomber le
-       * démon sans un mot. Même plafond que l'espace client (200 Mo).
-       */
-      const poids = fs.statSync(full).size;
-      const refus = refusDeTaille(poids);
-      if (refus) return { ok: false, text: `${refus} (${demande})` };
-      const data = fs.readFileSync(full);
-      const sha = crypto.createHash('sha256').update(data).digest('hex');
-      const existant = store.findAttachmentBySha(project.id, sha);
-      let attachment: Attachment;
-      if (existant) {
-        attachment = existant;
-      } else {
-        const conversation = ctx.cardId ?? ctx.agentId;
-        const dejaUtilises = store
-          .listAttachments(project.id)
-          .filter((a) => (a.cardId ?? a.agentId) === conversation)
-          .map((a) => a.name);
-        const nomVoulu = typeof args.label === 'string' && args.label.trim() ? args.label.trim() : path.basename(full);
-        const id = store.newId();
-        attachment = Attachment.parse({
-          id,
-          alias: aliasDePieceJointe(id, store.aliasDesPiecesJointes()),
-          projectId: project.id,
-          name: nomSansCollision(nomVoulu, dejaUtilises),
-          mime,
-          size: data.length,
-          sha,
-          cardId: ctx.cardId,
-          agentId: ctx.agentId,
-          createdAt: Date.now(),
-        });
-        fs.writeFileSync(path.join(dossierDEcriture(), nomSurDisque(attachment)), data);
-        store.saveAttachment(attachment);
-        bus.emit({ type: 'attachments', projectId: project.id, items: store.listAttachments(project.id) });
-      }
+      const nomVoulu = typeof args.label === 'string' && args.label.trim() ? args.label.trim() : undefined;
+      const jointure = await joindreUnFichier({
+        projectId: project.id,
+        agentId: ctx.agentId,
+        cardId: ctx.cardId,
+        fichier: full,
+        nom: nomVoulu,
+      });
+      if (!jointure.ok) return { ok: false, text: `${jointure.refus} (${demande})` };
+      const { attachment } = jointure;
+      const data = { length: jointure.taille };
       return {
         ok: true,
         text: `Fichier joint à la conversation : ${attachment.name} (${Math.round(data.length / 1024)} ko). Il se télécharge d'un clic.`,
@@ -2514,6 +2504,23 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       }
       const lecture = lireComprehensionRendue(args, { questionsPosees });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
+      /*
+       * LES CHOIX DE PRODUIT SE POSENT : une compréhension pleine de
+       * suppositions, rendue sans une seule question, repart UNE fois aux
+       * questions (`renvoiAuxQuestions`). Jamais pour le cadrage de la nuit,
+       * qui n'a pas le droit de demander.
+       */
+      const tourVivant = runtimeDuCadrage.liveRun(ctx.agentId);
+      const renvoi = renvoiAuxQuestions({
+        hypotheses: lecture.valeur.hypotheses,
+        questionsPosees,
+        questionsInterdites: !tourVivant || tourVivant.questionsInterdites,
+        dejaRenvoye: tourVivant?.renvoiAuxQuestionsFait,
+      });
+      if (renvoi && tourVivant) {
+        tourVivant.renvoiAuxQuestionsFait = true;
+        return { ok: false, text: renvoi };
+      }
       /* SUR UN PROJET RÉUNI, la compréhension DOIT dire quels projets elle
          touche : c'est ce qui décide des cartes posées au lancement. */
       const refusDesTouches = refusDesProjetsTouches(carte.projectId, lecture.valeur.projetsTouches);
@@ -2528,14 +2535,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       /*
        * UNE COMPRÉHENSION RENDUE SUR UNE CARTE RELANCÉE VAUT « NOUVEAU TRAVAIL ».
        *
-       * Un message écrit sous un rapport rendu rouvre la discussion sans
-       * déplacer la carte : elle reste dans « À déployer », prête à publier,
-       * tant que l'échange n'est qu'une QUESTION. Si le cadrage choisit au
-       * contraire de CADRER — c'est-à-dire de rendre une compréhension —, alors
-       * un travail se prépare, et la carte doit quitter le lot à publier pour
-       * reprendre le parcours d'une carte neuve
-       * (`shared/src/relance-apres-rapport.ts`). C'est le SEUL chemin
-       * automatique qui ressort une carte de « À déployer ».
+       * Le message l'a déjà posée en « Demande » (`rouvrirLeCadrage`) ; la
+       * compréhension rendue, elle, l'y RETIENT : la fin du tour ne la ramène
+       * plus dans « À déployer » (`colonneApresReponseSansCadrage`). Ce qui
+       * suit n'est qu'un filet, pour une carte relancée restée en « À
+       * déployer » (`shared/src/relance-apres-rapport.ts`).
        */
       const retour = colonneApresComprehensionDeRelance({ column: carte.column, parcours });
       const ecrite = store.saveCard({
@@ -2563,8 +2567,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return {
         ok: true,
         text: comprehension.hypotheses.length
-          ? `Compréhension enregistrée, avec ${comprehension.hypotheses.length} hypothèse(s) assumée(s). Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas, elle dit seulement où en est la carte.`
-          : 'Compréhension enregistrée. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas, elle dit seulement où en est la carte.',
+          ? `Compréhension enregistrée, avec ${comprehension.hypotheses.length} hypothèse(s) assumée(s). Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.`
+          : 'Compréhension enregistrée. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.',
       };
     }
 
@@ -2634,28 +2638,49 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'competences': {
       /*
        * LE SEUL CHEMIN D'ÉCRITURE DU POOL. Il passe par `ecrireLaFiche`, donc
-       * par le contrôle de qualité : la nuit, le forçage et un agent de tâche
-       * qui veut capitaliser franchissent tous la même porte, et un refus
-       * revient toujours avec sa raison.
+       * par le contrôle de qualité : l'agent de tâche en fin de carte, le
+       * rattrapage et le ménage de nuit franchissent tous la même porte, et un
+       * refus revient toujours avec sa raison.
        */
       const action = String(args.action ?? '').trim();
       const liste = () => {
-        const { fiches, refus } = lirePool();
+        const { fiches: toutes, refus } = lirePool();
+        /*
+         * LE POOL D'UN PROJET, PAS CELUI DES AUTRES. Les projets écrivent leurs
+         * fiches dès la fin de chaque carte : la liste entière en compterait
+         * des centaines, dont aucune ne parle du travail ici. « tous » rend le
+         * pool entier — pour le ménage de nuit, ou une recherche délibérée.
+         */
+        const fiches = args.tous === true ? toutes : toutes.filter((fiche) => ficheServieAuProjet(fiche, project.name));
         const lignes = fiches.map((fiche) => {
           const compteurs = compteursDeLaFiche(fiche.nom);
           const confiance = confianceMesureeDeLaFiche(fiche);
           const anomalies = fiche.anomalies.length ? ` — à revoir : ${fiche.anomalies.join(' ; ')}` : '';
           const origine = fiche.bibliotheque ? `, bibliothèque ${fiche.bibliotheque} — mémoire seulement` : '';
+          const portee = fiche.projets.length ? `propre à ${fiche.projets.join(', ')}` : 'commune';
           return (
-            `- ${fiche.nom} [${fiche.etat}, confiance ${confiance.toFixed(2)}, servie ${compteurs.servie}×${origine}] : ` +
+            `- ${fiche.nom} [${portee}, ${fiche.etat}, confiance ${confiance.toFixed(2)}, servie ${compteurs.servie}×${origine}] : ` +
             `${fiche.description}${anomalies}`
           );
         });
         const ecartes = refus.map((r) => `- écarté : ${raisonDuRefus(r)}`);
-        return [`POOL DE COMPÉTENCES (${fiches.length}) :`, ...lignes, ...ecartes].join('\n');
+        const titre =
+          args.tous === true
+            ? `POOL DE COMPÉTENCES (${fiches.length}) :`
+            : `POOL DE COMPÉTENCES — communes et propres à « ${project.name} » (${fiches.length} sur ${toutes.length}) :`;
+        return [titre, ...lignes, ...ecartes].join('\n');
       };
 
       if (action === 'lister' || !action) return { ok: true, text: liste() };
+
+      if (action === 'rattrapage') {
+        const { poserLeRattrapage, texteDuBilanDeRattrapage } = await import('./rattrapage-competences.js');
+        // Une carte posée sans clic part au palier « standard » : ni le plus
+        // faible, ni le plus cher (`niveauPlancherAutomatique`).
+        const { run } = await reglagesProposes(undefined, niveauPlancherAutomatique(undefined));
+        const bilan = poserLeRattrapage({ lancer: args.lancer !== false, run, createCard });
+        return { ok: bilan.posees.length > 0, text: texteDuBilanDeRattrapage(bilan) };
+      }
 
       if (action === 'importer') {
         const source = String(args.source ?? '').trim();
@@ -2703,13 +2728,18 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         return typeof valeur === 'string' && valeur.trim() ? valeur.trim() : undefined;
       };
       const listeOuVide = (cle: string) => decouperListe(texteOuVide(cle));
+      // « tous » (ou « commune ») est une portée DONNÉE : la fiche devient commune.
+      // Absent, la portée d'une fiche complétée est gardée (`ecrireLaFiche`).
+      const projets = /^(tous|toutes|commune|communes|aucun)$/i.test(texteOuVide('projets') ?? '')
+        ? []
+        : listeOuVide('projets');
       const ecriture = ecrireLaFiche(
         {
           nom,
           description: String(args.description ?? '').trim(),
           themes: listeOuVide('themes'),
           symptomes: listeOuVide('symptomes'),
-          projets: listeOuVide('projets'),
+          projets,
           symptome: texteOuVide('symptome'),
           cause: texteOuVide('cause'),
           procedure: texteOuVide('procedure'),
@@ -2731,12 +2761,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       relierCompetencesAuxCoffres();
       // Et la mémoire aussi : la fiche doit se trouver par « memoire chercher » dès ce tour.
       synchroniserSansEchec([nom]);
+      const ecrite = lirePool().fiches.find((fiche) => fiche.nom === nom);
+      const portee = ecrite?.projets.length ? `propre à ${ecrite.projets.join(', ')}` : 'commune à tous les projets';
       return {
         ok: true,
         text:
           ecriture.geste === 'creee'
-            ? `Compétence « ${nom} » créée dans le pool partagé.`
-            : `Compétence « ${nom} » complétée : sa provenance d'origine est gardée.`,
+            ? `Compétence « ${nom} » créée (${portee}).`
+            : `Compétence « ${nom} » complétée (${portee}) : sa provenance d'origine est gardée.`,
       };
     }
 
@@ -2977,7 +3009,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     case 'marketing': {
-      if (!estAgentMarketing(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent marketing du projet.' };
+      // L'assistant global y a accès aussi, pour TOUT projet (`assistant-global.ts`).
+      if (!estAgentMarketing(ctx.agentId) && !store.getAgent(ctx.agentId)?.assistantGlobal) {
+        return { ok: false, text: 'Cet outil est réservé à l’agent marketing du projet.' };
+      }
       return outilMarketing(ctx, project, args);
     }
 

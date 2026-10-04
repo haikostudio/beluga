@@ -1102,22 +1102,28 @@ export function tourDeReponseSeule(
 }
 
 /**
- * LA RÉPONSE D'UN TOUR-QUESTION, À LIRE SANS DÉPLIER.
+ * LA RÉPONSE DU TOUR DE CADRAGE, À LIRE SANS DÉPLIER.
  *
- * Un tour de cadrage qui RÉPOND rend son texte dans une trace « Réponse
- * rendue », rangée parmi les actions du passage : le récit en faisait un carton
- * comme les autres, et le plafond le cachait derrière « voir les N de plus »
- * (cartes #f9af et #7430). La règle rend cette trace — la DERNIÈRE, c'est le
- * texte final du tour — pour qu'elle sorte du récit et se lise dans un cadre.
+ * Un tour de cadrage rend son texte dans une trace « Réponse rendue », rangée
+ * parmi les actions du passage : le récit en faisait un carton comme les
+ * autres, et le plafond le cachait derrière « voir les N de plus » (cartes
+ * #f9af et #7430). La règle rend cette trace — la DERNIÈRE, c'est le texte
+ * final du tour — pour qu'elle sorte du récit et se lise dans un cadre.
  *
- * Rien pour un tour qui a CADRÉ (sa compréhension est déjà son cadre), ni pour
- * un passage hors « Compréhension », ni pour une réponse vide.
+ * LE CADRAGE EST UNE DISCUSSION (30/09/2026) : la réponse est le cœur de CHAQUE
+ * tour, y compris celui qui a aussi mis la compréhension à jour. Elle sort donc
+ * du récit dans les deux cas, et l'écran la pose AU-DESSUS du cadre de la
+ * compréhension — on lit d'abord ce que l'agent répond, puis ce qu'il a
+ * compris. Rien pour un passage hors « Compréhension », ni pour une réponse
+ * vide.
  */
 export function reponseDuPassage(
   passage: Pick<PassageNu, 'etape' | 'moments' | 'traces'>,
   parcours?: Pick<ParcoursDeCarte, 'issueDuTour'> | null,
 ): EntreeJournal | undefined {
-  if (passage.etape !== 'comprehension' || !tourDeReponseSeule(passage, parcours)) return undefined;
+  if (passage.etape !== 'comprehension') return undefined;
+  const aCompris = passage.moments.some((moment) => moment.sorte === 'comprehension');
+  if (!aCompris && !tourDeReponseSeule(passage, parcours)) return undefined;
   const reponses = passage.traces.filter((trace) => estReponseRendue(trace) && (trace.resultat ?? '').trim());
   return reponses[reponses.length - 1];
 }
@@ -1126,8 +1132,9 @@ export function reponseDuPassage(
 export type BlocDeFin = 'reponse' | 'comprehension' | 'plan';
 
 /**
- * LE BLOC DE FIN D'UN PASSAGE, s'il en porte un : la réponse d'un tour-question,
- * la compréhension d'un tour cadré, ou la version de plan rendue. C'est lui qui
+ * LE BLOC DE FIN D'UN PASSAGE, s'il en porte un : la réponse du tour (posée
+ * au-dessus de la compréhension quand il a aussi cadré), la compréhension d'un
+ * tour cadré sans texte, ou la version de plan rendue. C'est lui qui
  * s'ouvre d'office, que l'écran vise par son DÉBUT, et devant lequel la
  * réflexion se replie.
  */
@@ -1978,35 +1985,20 @@ export function dernierPassage(
 }
 
 /**
- * LES PASSAGES OUVERTS D'OFFICE, par leur ANCRE : la CONFIGURATION, le dernier
- * de l'étape courante, le dernier plan dès qu'il est rendu tant qu'on n'a pas
- * lancé — c'est lui qu'on vient relire —, et celui qui porte une question ou
- * une erreur. Jamais deux passages de la MÊME étape : c'est l'accordéon.
+ * LES PASSAGES OUVERTS D'OFFICE, par leur ANCRE : TOUS.
+ *
+ * Le flux jouait en accordéon — un seul passage ouvert par étape, le dernier —
+ * et il fallait rouvrir un à un la demande, la compréhension et le travail de
+ * chaque itération pour relire une carte. Depuis que le fil est découpé en
+ * grands points, chacun se lit donc sans clic, sur toutes les itérations ; un
+ * point refermé à la main le reste tant que la carte est à l'écran.
+ *
+ * Ce qui reste replié vit À L'INTÉRIEUR d'un point : les actions de l'agent
+ * tiennent en une ligne chacune, et ne se déplient qu'au clic. Un passage qui
+ * n'a encore rien à montrer (« à venir ») n'affiche rien de plus, ouvert ou non.
  */
-export function pointsOuvertsDOffice(points: readonly PointDuParcours[], courante: EtapeDuParcours): string[] {
-  const ouverts = new Set<string>();
-  const courant = dernierPassage(points, courante);
-  if (courant) ouverts.add(courant.ancre);
-  /* LA CONFIGURATION EST OUVERTE D'OFFICE : c'est le point d'accès aux
-     réglages du moteur, qui vivait jusqu'ici en bande fixe au-dessus de la
-     barre. Il reste visible sans un clic, et se referme comme les autres. */
-  const configuration = dernierPassage(points, 'configuration');
-  if (configuration) ouverts.add(configuration.ancre);
-  const plan = dernierPassage(points, 'plan');
-  if (plan && plan.etat === 'fait' && (courante === 'plan' || courante === 'comprehension')) ouverts.add(plan.ancre);
-  /* LA RÉPONSE OU LA COMPRÉHENSION RENDUE S'OUVRE COMME LE PLAN : c'est elle
-     qu'on vient lire, sans un clic. */
-  const comprehension = dernierPassage(points, 'comprehension');
-  if (courante === 'comprehension' && comprehension && comprehension.etat !== 'avenir' && blocDeFinDuPassage(comprehension)) {
-    ouverts.add(comprehension.ancre);
-  }
-  const enQuestion = points.find((p) => p.etat === 'question' || p.etat === 'erreur');
-  if (enQuestion) {
-    /* Un seul passage ouvert par étape : celui qui arrête tout l'emporte. */
-    for (const autre of points) if (autre.etape === enQuestion.etape) ouverts.delete(autre.ancre);
-    ouverts.add(enQuestion.ancre);
-  }
-  return points.filter((point) => ouverts.has(point.ancre)).map((point) => point.ancre);
+export function pointsOuvertsDOffice(points: readonly PointDuParcours[]): string[] {
+  return points.map((point) => point.ancre);
 }
 
 /* ------------------------------------------------------------------ */

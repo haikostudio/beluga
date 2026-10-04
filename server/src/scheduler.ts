@@ -24,11 +24,9 @@ import {
   cadrageRouvertApresRapport,
   carteEnCadrage,
   messagesDepuisLaRelance,
-  relanceRetenueAvantLancement,
   planRenduDepuisLaRelance,
   comprehensionDepuisLaRelance,
-  demarrageAutomatiqueAutorise,
-  cartePrisonniereDuCadrage,
+  carteLibreDePartirSeule,
   estLaBrancheDeLaCarte,
   etatDuDepart,
   raisonDattente,
@@ -42,6 +40,7 @@ import {
   PERIODE_VEILLE_MS,
   decisionDeBoucle,
   contexteDeDepart,
+  suppositionsValidees,
   titreDepuisLaDiscussion,
   planCourant,
   titreEncoreVide,
@@ -1040,6 +1039,14 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
            c'est elle qui porte les faits du projet que l'agent d'exécution
            n'irait pas chercher (deux tiers des tours ne l'ont jamais fait). */
         card.parcours?.comprehension?.partieTechnique,
+        /* LES SUPPOSITIONS PARTENT AUSSI, celles validées d'un clic marquées
+           comme décisions de l'utilisateur. */
+        card.parcours?.comprehension
+          ? {
+              hypotheses: card.parcours.comprehension.hypotheses ?? [],
+              validees: suppositionsValidees(card.parcours.comprehension),
+            }
+          : undefined,
       )
     : '';
 
@@ -1550,8 +1557,6 @@ export async function tick(): Promise<void> {
 
       for (const card of planned) {
         if (card.agentId && isRunning(card.agentId)) continue;
-        // Suspendue à la main : elle reste en file, mais elle attend un geste.
-        if (card.scheduling?.suspendu) continue;
         // Une carte validée ne s'exécute pas toute seule : lancer, c'est
         // dépenser. L'ordonnanceur ne reprend d'office qu'une carte déjà
         // autorisée (« Dès que possible », HEURE DITE arrivée, ou déjà lancée
@@ -1560,24 +1565,16 @@ export async function tick(): Promise<void> {
         // secondes, une heure manquée pendant un arrêt du démon est RATTRAPÉE
         // au retour. Plus rien ne tourne avant ce moment : il n'y a donc plus
         // de chiffrage en vol dont il faudrait se garder.
-        if (!demarrageAutomatiqueAutorise(card.scheduling)) continue;
-        /* Une carte RELANCÉE a déjà été lancée : ses essais ne valent pas un
-           nouveau clic, elle attend le sien (`relanceRetenueAvantLancement`). */
-        if (relanceRetenueAvantLancement(card)) continue;
         /*
-         * ET LE CADRAGE ENCORE OUVERT RETIENT LA CARTE. Une carte née du « + »
-         * discute son besoin : tant qu'aucun plan n'en est sorti, il n'y a rien
-         * à exécuter. Les cartes neuves n'ont plus de date du tout
-         * (`createCard`) ; ce refus couvre celles qui en portent déjà une.
+         * LES QUATRE REFUS TIENNENT EN UNE RÈGLE (`carteLibreDePartirSeule`,
+         * `shared/src/parcours-carte.ts`) : la suspension à la main, l'absence
+         * d'autorisation, la carte RELANCÉE qui attend son propre clic, et le
+         * CADRAGE ENCORE OUVERT. Ce dernier ne lit plus les seuls plans : une
+         * carte née du « + » dont la compréhension a été VALIDÉE est sortie de
+         * son cadrage, plan ou pas — sans quoi sa date de départ, posée par le
+         * tiroir de programmation, n'était jamais honorée.
          */
-        if (
-          cartePrisonniereDuCadrage({
-            aUnCadrage: !!agentDeCadrage(card.id),
-            plansRendus: card.parcours?.plans?.length ?? 0,
-          })
-        ) {
-          continue;
-        }
+        if (!carteLibreDePartirSeule(card, !!agentDeCadrage(card.id))) continue;
         const gate = await checkGates(card);
         if (!gate.ok) {
           if (card.scheduling?.waitingReason !== gate.reason) {

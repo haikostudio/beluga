@@ -72,6 +72,7 @@ import { client } from '@/lib/client';
 import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
+import { ApercuDesCaptures, BandeDesCaptures, OuvrirUneCapture, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { useTelephone } from '@/lib/telephone';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { cn, dateHeure, dureeFine, heureEtDuree } from '@/lib/utils';
@@ -314,41 +315,16 @@ export function FluxEnPoints({
   const telephone = useTelephone();
   const mesures = telephone ? MESURES_DU_FLUX.telephone : MESURES_DU_FLUX.ordinateur;
   /*
-   * L'OUVERTURE EST UN CHOIX DE LECTURE, ET ELLE JOUE EN ACCORDÉON : un seul
-   * passage ouvert par ÉTAPE. Ouvrir le deuxième plan referme le premier ;
-   * rouvrir le premier referme le deuxième. C'est ce qui garde le flux lisible
-   * une fois qu'une carte a beaucoup itéré. Entre étapes, rien ne se ferme :
-   * on peut lire le plan et la compréhension ensemble.
+   * L'OUVERTURE EST UN CHOIX DE LECTURE, POINT PAR POINT. Tous les grands
+   * points s'ouvrent d'office (`pointsOuvertsDOffice`), sur toutes les
+   * itérations, et ouvrir l'un ne referme plus son voisin : l'accordéon, qui ne
+   * gardait qu'un passage ouvert par étape, obligeait à rouvrir chaque point
+   * pour relire une carte.
    *
-   * Les passages ouverts d'office le restent tant qu'on ne les referme pas, et
-   * un passage fermé à la main ne se rouvre pas tout seul au tour suivant. Un
-   * passage qui DEVIENT ouvert d'office (le plan qui arrive) s'ouvre, lui.
+   * `choisis` ne retient donc que les gestes faits À LA MAIN : un point refermé
+   * le reste tant que la carte est à l'écran, et un point neuf arrive ouvert.
    */
   const [choisis, setChoisis] = React.useState<Record<string, boolean>>({});
-  const dOffice = React.useRef<Set<string>>(new Set());
-  React.useEffect(() => {
-    const neufs = ouvertsDOffice.filter((ancre) => !dOffice.current.has(ancre));
-    dOffice.current = new Set(ouvertsDOffice);
-    if (!neufs.length) return;
-    /* Un passage neuf ouvert d'office RÉTRACTE celui de son étape. */
-    const parEtape = new Map<EtapeDuParcours, string>();
-    for (const element of flux) if (element.sorte === 'point') parEtape.set(element.point.etape, element.point.ancre);
-    setChoisis((avant) => {
-      const suite = { ...avant };
-      for (const ancre of neufs) {
-        const point = flux.find((e) => e.sorte === 'point' && e.point.ancre === ancre);
-        if (point?.sorte === 'point') {
-          for (const autre of flux) {
-            if (autre.sorte === 'point' && autre.point.etape === point.point.etape && autre.point.ancre !== ancre) {
-              suite[autre.point.ancre] = false;
-            }
-          }
-        }
-        suite[ancre] = true;
-      }
-      return suite;
-    });
-  }, [ouvertsDOffice.join('|')]);
   React.useEffect(() => setChoisis({}), [carte.id]);
 
   /* LA VUE TECHNIQUE, ÉTAPE PAR ÉTAPE : basculer « Travail » ne change pas la
@@ -365,18 +341,7 @@ export function FluxEnPoints({
   const estOuvert = (point: PointDuParcours) => choisis[point.ancre] ?? ouvertsDOffice.includes(point.ancre);
   const basculer = (point: PointDuParcours) => {
     const ouvrir = !estOuvert(point);
-    setChoisis((avant) => {
-      const suite = { ...avant };
-      if (ouvrir) {
-        for (const autre of flux) {
-          if (autre.sorte === 'point' && autre.point.etape === point.etape && autre.point.ancre !== point.ancre) {
-            suite[autre.point.ancre] = false;
-          }
-        }
-      }
-      suite[point.ancre] = ouvrir;
-      return suite;
-    });
+    setChoisis((avant) => ({ ...avant, [point.ancre]: ouvrir }));
   };
 
   /* LA BARRE D'ÉTAPES EST UN RACCOURCI : toucher un segment ouvre le DERNIER
@@ -384,18 +349,11 @@ export function FluxEnPoints({
   const racine = React.useRef<HTMLOListElement>(null);
   React.useEffect(() => {
     if (!ouverture) return;
-    setChoisis((avant) => {
-      const suite = { ...avant };
-      for (const autre of flux) {
-        if (autre.sorte === 'point' && autre.point.etape === ouverture.etape) {
-          suite[autre.point.ancre] = autre.point.ancre === ouverture.ancre;
-        }
-      }
-      return suite;
-    });
-    /* ON DÉFILE APRÈS QUE L'ACCORDÉON A JOUÉ, pas pendant : refermer le passage
-       précédent de la même étape raccourcit ce qui est au-dessus, et la cible
-       serait sortie par le haut si on visait avant que la page se recale. */
+    /* Le point visé se rouvre s'il avait été refermé à la main ; les autres
+       passages de son étape restent comme on les a laissés. */
+    setChoisis((avant) => ({ ...avant, [ouverture.ancre]: true }));
+    /* ON DÉFILE APRÈS QUE LE POINT S'EST ROUVERT, pas pendant : la page doit
+       s'être recalée avant qu'on vise, sinon la cible n'est pas à sa place. */
     const viser = () => {
       const point =
         racine.current?.querySelector<HTMLElement>(`[data-point-ancre="${ouverture.ancre}"]`) ??
@@ -443,6 +401,24 @@ export function FluxEnPoints({
     for (const element of flux) if (element.sorte === 'point' && element.point.etape === 'demande') derniere = element.point.ancre;
     return derniere;
   }, [flux]);
+
+  /*
+   * LES IMAGES DE L'AGENT SE LISENT EN BAS DU FLUX : ce que ses étapes ont
+   * regardé (`RunStep.capture`) et les pièces image de SES messages (captures
+   * rangées, illustrations) — jamais celles que l'utilisateur a jointes
+   * (`capturesDuFlux`). La bande grandit en direct. Une vignette du fil ouvre
+   * le MÊME aperçu sur la MÊME liste (`OuvrirUneCapture`) : de n'importe quelle
+   * image, on passe à ses voisines.
+   */
+  const messagesDeLaCarte = useApp().cardMessages[carte.id]?.messages;
+  const { etapesDesCaptures, idsDesPieces } = React.useMemo(() => {
+    const deLAgent = (messagesDeLaCarte ?? []).filter((m) => m.role === 'assistant');
+    return {
+      etapesDesCaptures: deLAgent.flatMap((m) => m.steps.filter((step) => step.capture)),
+      idsDesPieces: [...new Set(deLAgent.flatMap((m) => m.attachments))],
+    };
+  }, [messagesDeLaCarte]);
+  const galerieDesCaptures = useGalerieDesCaptures(etapesDesCaptures, idsDesPieces, projectId);
 
   /* LES PASSAGES SEULS : c'est sur eux que chaque point « Plan » lit sa version. */
   const passages = React.useMemo(
@@ -493,6 +469,7 @@ export function FluxEnPoints({
 
   return (
     <MesuresContexte.Provider value={mesures}>
+      <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
       <div className="px-3 py-3" data-flux-points={carte.id}>
         {/* LA LIGNE VERTICALE EST POSÉE UNE FOIS, SUR LE FLUX ENTIER : elle
             court du premier rond au dernier, et les ronds opaques la percent. */}
@@ -527,7 +504,14 @@ export function FluxEnPoints({
             <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} />
           ) : null}
         </ol>
+        {galerieDesCaptures.captures.length && projectId ? (
+          <div className="pl-1 pt-1" data-captures-de-la-carte={galerieDesCaptures.captures.length}>
+            <BandeDesCaptures galerie={galerieDesCaptures} />
+          </div>
+        ) : null}
+        {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
       </div>
+      </OuvrirUneCapture.Provider>
     </MesuresContexte.Provider>
   );
 }
@@ -977,9 +961,11 @@ function PointDuFlux({
               récit — et cassait la lecture chronologique du fil. */}
           {entete}
           {recit}
-          {carton}
-          {/* LA RÉPONSE D'UN TOUR-QUESTION, dans le cadre contrasté du plan :
-              elle ne se cache plus parmi les actions du récit. */}
+          {/* LA RÉPONSE DU TOUR, dans le cadre contrasté du plan : elle ne se
+              cache plus parmi les actions du récit. Le cadrage est une
+              DISCUSSION : elle se lit AVANT la compréhension que le même tour
+              a pu mettre à jour — d'abord ce que l'agent répond, puis ce
+              qu'il a compris. */}
           {point.reponse ? (
             <SousPointDuFlux
               attrs={{ 'data-sous-point-flux': 'reponse' }}
@@ -987,6 +973,7 @@ function PointDuFlux({
               <MomentDeReponse entree={point.reponse} />
             </SousPointDuFlux>
           ) : null}
+          {carton}
         </ol>
       ) : null}
     </li>
@@ -1190,6 +1177,8 @@ function MomentsDuPoint({
           pickedEvolutions={pickedEvolutions}
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
+          carte={carte}
+          onEcrireDansLeChamp={onEcrireDansLeChamp}
         />
       ))}
     </>
@@ -1260,12 +1249,18 @@ function Moment({
   pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
+  carte,
+  onEcrireDansLeChamp,
 }: {
   moment: MomentDuPoint;
   projectId?: string;
   pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
+  /** La carte : ses suppositions validées se lisent sur sa compréhension en cours. */
+  carte?: Card;
+  /** « Corriger » une supposition écrit dans la barre d'écriture, sans rien envoyer. */
+  onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   const { entree } = moment;
   switch (moment.sorte) {
@@ -1286,7 +1281,15 @@ function Moment({
         </div>
       );
     case 'comprehension':
-      return <MomentDeComprehension entree={entree} numero={moment.numero} derniere={moment.derniere} />;
+      return (
+        <MomentDeComprehension
+          entree={entree}
+          numero={moment.numero}
+          derniere={moment.derniere}
+          carte={carte}
+          onEcrireDansLeChamp={onEcrireDansLeChamp}
+        />
+      );
     case 'plan-demande':
       return (
         <p className="text-[12.5px] text-faint" data-moment="plan-demande">
@@ -1327,7 +1330,19 @@ function Moment({
  * mémoire ouverts. La dernière version se lit d'office, les précédentes se
  * déplient.
  */
-function MomentDeComprehension({ entree, numero, derniere }: { entree: EntreeJournal; numero: number; derniere: boolean }) {
+function MomentDeComprehension({
+  entree,
+  numero,
+  derniere,
+  carte,
+  onEcrireDansLeChamp,
+}: {
+  entree: EntreeJournal;
+  numero: number;
+  derniere: boolean;
+  carte?: Card;
+  onEcrireDansLeChamp?: (texte: string) => void;
+}) {
   const [choisi, setChoisi] = React.useState<boolean | undefined>(undefined);
   const ouvert = choisi ?? derniere;
   const donnees = React.useMemo(() => {
@@ -1456,11 +1471,11 @@ function MomentDeComprehension({ entree, numero, derniere }: { entree: EntreeJou
                       vient vérifier avant de lancer, il ne se cache pas. */}
                   {donnees.hypotheses.length ? (
                     <PointDeLaComprehension intitule={t('Ce que l’agent suppose')} derniere attrs={{ 'data-hypotheses': '' }}>
-                      <ul className="list-disc space-y-1 pl-5">
-                        {donnees.hypotheses.map((hypothese, index) => (
-                          <li key={index}>{hypothese}</li>
-                        ))}
-                      </ul>
+                      <ListeDesSuppositions
+                        hypotheses={donnees.hypotheses}
+                        carte={derniere ? carte : undefined}
+                        onEcrireDansLeChamp={onEcrireDansLeChamp}
+                      />
                     </PointDeLaComprehension>
                   ) : null}
                 </ol>
@@ -1476,11 +1491,12 @@ function MomentDeComprehension({ entree, numero, derniere }: { entree: EntreeJou
             {!range.conforme && donnees.hypotheses.length ? (
               <div data-hypotheses>
                 <p className="font-semibold">{t('Ce que l’agent suppose')}</p>
-                <ul className="mt-1 list-disc space-y-1 pl-5">
-                  {donnees.hypotheses.map((hypothese, index) => (
-                    <li key={index}>{hypothese}</li>
-                  ))}
-                </ul>
+                <ListeDesSuppositions
+                  className="mt-1"
+                  hypotheses={donnees.hypotheses}
+                  carte={derniere ? carte : undefined}
+                  onEcrireDansLeChamp={onEcrireDansLeChamp}
+                />
               </div>
             ) : null}
             {donnees.sujets.length ? (
@@ -1491,6 +1507,106 @@ function MomentDeComprehension({ entree, numero, derniere }: { entree: EntreeJou
         </Panneau>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * « CE QUE L'AGENT SUPPOSE », LIGNE PAR LIGNE, AVEC SES DEUX GESTES.
+ *
+ * « Valider » confirme la supposition sur la carte — aucun tour d'agent : le
+ * cadrage suivant et l'agent d'exécution la reçoivent comme une décision de
+ * l'utilisateur. « Corriger » CITE la supposition dans la barre d'écriture,
+ * sans rien envoyer, comme « Refuser » sous un plan.
+ *
+ * Les gestes ne paraissent que sur la compréhension EN COURS de la carte
+ * (`carte` absente sur une version ancienne) et pour une ligne qu'elle porte
+ * encore. Le texte reste dans un `li`, jamais dans un `button`.
+ */
+function ListeDesSuppositions({
+  hypotheses,
+  carte,
+  onEcrireDansLeChamp,
+  className,
+}: {
+  hypotheses: string[];
+  carte?: Card;
+  onEcrireDansLeChamp?: (texte: string) => void;
+  className?: string;
+}) {
+  const comprise = carte?.parcours?.comprehension;
+  const enCours = new Set(comprise?.hypotheses?.length ? comprise.hypotheses : (comprise?.questionsOuvertes ?? []));
+  const validees = new Set(comprise?.hypothesesValidees ?? []);
+  /* L'ÉTAT OPTIMISTE, et la ligne dont la requête est partie. */
+  const [optimiste, setOptimiste] = React.useState<Record<string, boolean>>({});
+  const [enVol, setEnVol] = React.useState<string | null>(null);
+  React.useEffect(() => setOptimiste({}), [comprise?.at, comprise?.hypothesesValidees?.join('\n')]);
+
+  const basculer = async (hypothese: string, validee: boolean) => {
+    if (!carte) return;
+    setOptimiste((avant) => ({ ...avant, [hypothese]: validee }));
+    setEnVol(hypothese);
+    try {
+      await client.call({ type: 'card.comprehension.supposition', cardId: carte.id, hypothese, validee });
+    } catch (err: any) {
+      setOptimiste((avant) => {
+        const apres = { ...avant };
+        delete apres[hypothese];
+        return apres;
+      });
+      client.afficherMessage('error', err?.message ?? t('La supposition n’a pas pu être validée.'));
+    } finally {
+      setEnVol(null);
+    }
+  };
+
+  return (
+    <ul className={cn('space-y-1.5', className)} data-suppositions>
+      {hypotheses.map((hypothese, index) => {
+        const gestes = !!carte && enCours.has(hypothese);
+        const validee = optimiste[hypothese] ?? validees.has(hypothese);
+        const partie = enVol === hypothese;
+        return (
+          <li key={index} className="flex items-start gap-2" data-supposition={validee ? 'validee' : 'ouverte'}>
+            {validee ? (
+              <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-termine" aria-hidden />
+            ) : (
+              <span className="mt-[0.6em] h-1.5 w-1.5 shrink-0 rounded-full bg-faint" aria-hidden />
+            )}
+            <span className="min-w-0 flex-1">{hypothese}</span>
+            {gestes ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  data-valider-supposition
+                  aria-pressed={validee}
+                  disabled={partie}
+                  onClick={() => void basculer(hypothese, !validee)}
+                  title={validee ? t('Retirer la validation') : t('Valider cette supposition')}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] transition-colors hover:bg-raised',
+                    validee ? 'text-termine' : 'text-faint hover:text-text',
+                  )}
+                >
+                  {partie ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  {validee ? t('Validée') : t('Valider')}
+                </button>
+                {onEcrireDansLeChamp ? (
+                  <button
+                    type="button"
+                    data-corriger-supposition
+                    onClick={() => onEcrireDansLeChamp(t('À propos de « {v0} » : ', { v0: hypothese }))}
+                    title={t('Corriger cette supposition')}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] text-faint transition-colors hover:bg-raised hover:text-text"
+                  >
+                    {t('Corriger')}
+                  </button>
+                ) : null}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -2416,6 +2532,14 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
   const [enFenetre, setEnFenetre] = React.useState(false);
   const [imagePerdue, setImagePerdue] = React.useState(false);
   const vignette = bloc.vignette && projectId && !imagePerdue ? bloc.vignette : null;
+  /* LA CAPTURE EN GRAND S'OUVRE DANS LA GALERIE DE LA CARTE, feuilletable avec
+     les autres images de la bande ; la fenêtre seule ne sert plus que si la
+     bande ne connaît pas cette image. */
+  const ouvrirDansLaGalerie = React.useContext(OuvrirUneCapture);
+  const agrandir = () => {
+    if (vignette && ouvrirDansLaGalerie?.(vignette)) return;
+    setEnFenetre(true);
+  };
   const titre = t(bloc.titre.motif, bloc.titre.valeurs);
   const phrase = React.useMemo(() => phraseDuBloc(bloc), [bloc]);
   const dite = phrase.dit === 'agent' ? phrase.texte : t(phrase.motif, phrase.valeurs);
@@ -2462,6 +2586,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
       <EncadreQuestion
         question={bloc.question.intitule}
         description={bloc.question.description}
+        choix={bloc.question.choix}
         options={bloc.question.options.map((label, rang) => ({ id: `o${rang}`, label }))}
         reponse={bloc.question.reponse}
       />
@@ -2566,7 +2691,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
             <button
               type="button"
               data-bloc-raconte-vignette={bloc.cle}
-              onClick={() => setEnFenetre(true)}
+              onClick={agrandir}
               title={t('Voir la capture en grand')}
               className="shrink-0 overflow-hidden rounded border border-faint/40 bg-raised p-0.5"
             >
@@ -2657,7 +2782,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
         <button
           type="button"
           data-bloc-raconte-vignette={bloc.cle}
-          onClick={() => setEnFenetre(true)}
+          onClick={agrandir}
           title={t('Voir la capture en grand')}
           className="mt-1 block overflow-hidden rounded-md border border-faint/40 bg-raised p-0.5"
         >

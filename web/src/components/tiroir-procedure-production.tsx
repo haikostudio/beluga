@@ -29,6 +29,8 @@ export function TiroirProcedureProduction({
   actions,
   configuration,
   deroule,
+  groupe = false,
+  avant,
 }: {
   projectId: string;
   open: boolean;
@@ -40,6 +42,14 @@ export function TiroirProcedureProduction({
   configuration: React.ReactNode;
   /** Un déroulé est affiché : il prend la hauteur pleine, sans zone qui défile autour. */
   deroule?: boolean;
+  /**
+   * LE TIROIR D'UN REGROUPEMENT : il liste ses projets membres et ne règle
+   * rien lui-même — ni interrupteur, ni réglages, qui restent ceux de chaque
+   * projet.
+   */
+  groupe?: boolean;
+  /** Ce qui remplace la fusée de l'entête (le retour vers la liste des membres). */
+  avant?: React.ReactNode;
 }) {
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
@@ -47,29 +57,33 @@ export function TiroirProcedureProduction({
     <Drawer open={open} onClose={onClose} plein={deroule || estTelephone()} hauteurFixe>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-procedure-production={projectId}>
         <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]" data-entete-tiroir-production>
-          <Rocket className="h-3.5 w-3.5 shrink-0 text-muted" />
+          {avant ?? <Rocket className="h-3.5 w-3.5 shrink-0 text-muted" />}
           <DialogTitle className="min-w-0 flex-1 truncate">{titre ?? t('Mise en production')}</DialogTitle>
-          {/* L'INTERRUPTEUR DE MISE EN PRODUCTION : éteint par défaut, il
-              grise le bouton du pied et le serveur refuse. */}
-          <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
-          {/* LES RÉGLAGES, À DROITE DE L'INTERRUPTEUR : la rubrique où l'agent
-              de configuration écrit le processus, et où il se discute. Le
-              tiroir se referme d'abord — deux fenêtres modales ne s'empilent
-              pas. */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 text-muted"
-            onClick={() => {
-              onClose();
-              ouvrirRubriqueDeLEtape(projectId, 'production');
-            }}
-            aria-label="Réglages de la mise en production"
-            title={t('Réglages de la mise en production')}
-            data-reglages-tiroir-production
-          >
-            <Settings2 className="h-4 w-4" />
-          </Button>
+          {groupe ? null : (
+            <>
+              {/* L'INTERRUPTEUR DE MISE EN PRODUCTION : éteint par défaut, il
+                  grise le bouton du pied et le serveur refuse. */}
+              <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
+              {/* LES RÉGLAGES, À DROITE DE L'INTERRUPTEUR : la rubrique où l'agent
+                  de configuration écrit le processus, et où il se discute. Le
+                  tiroir se referme d'abord — deux fenêtres modales ne s'empilent
+                  pas. */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-muted"
+                onClick={() => {
+                  onClose();
+                  ouvrirRubriqueDeLEtape(projectId, 'production');
+                }}
+                aria-label="Réglages de la mise en production"
+                title={t('Réglages de la mise en production')}
+                data-reglages-tiroir-production
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            </>
+          )}
           {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
         </header>
 

@@ -8,6 +8,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { oublierLaSaisie, retenirLaSaisie } from '@/lib/saisie-de-question';
 
 /**
  * Les pièces jointes d'un message : les images se voient tout de suite, les
@@ -38,7 +39,12 @@ export function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: s
           ? items.map((item) => <AttachmentThumb key={item.id} item={item} onOpen={() => setApercu(item)} />)
           : ids.map((id) => <PastilleDeFichier key={id} id={id} />)}
       </div>
-      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+      <AttachmentPreview
+        item={apercu}
+        onClose={() => setApercu(null)}
+        galerie={items.filter((item) => item.mime.startsWith('image/'))}
+        onNaviguer={setApercu}
+      />
     </>
   );
 }
@@ -95,6 +101,7 @@ export function BulleQuestion({
   onRepondre,
   onAnnuler,
   repere,
+  cleDeSaisie,
 }: {
   question: QuestionAAfficher;
   /** Le projet : c'est lui qui porte les pièces jointes. */
@@ -116,6 +123,11 @@ export function BulleQuestion({
   onAnnuler?: () => Promise<void>;
   /** Le repère de test posé sur le bloc. */
   repere?: Record<string, string>;
+  /**
+   * La clé sous laquelle la barre d'écriture retrouve ce que cette bulle tient
+   * (`saisie-de-question.ts`). Absente : la barre ne répond pas à cette question.
+   */
+  cleDeSaisie?: string;
 }) {
   const [choisis, setChoisis] = React.useState<string[]>([]);
   /** Le texte libre de la réponse, écrit directement dans la bulle. */
@@ -200,6 +212,25 @@ export function BulleQuestion({
     );
 
   const libellesChoisis = question.options.filter((o) => choisis.includes(o.id)).map((o) => o.label);
+
+  /*
+   * LA BARRE D'ÉCRITURE RÉPOND À LA MÊME QUESTION : elle doit voir ce qui est
+   * coché ici. Le reflet se dépose à chaque changement et se retire avec la
+   * bulle — rien ne s'y abonne, la frappe ne redessine que ce champ.
+   */
+  const bulle = React.useId();
+  React.useEffect(() => {
+    if (!cleDeSaisie || !agentId) return;
+    retenirLaSaisie(cleDeSaisie, agentId, bulle, {
+      libelles: libellesChoisis,
+      texte: texteLibre,
+      images: images.map((image) => image.id),
+    });
+  }, [cleDeSaisie, agentId, bulle, choisis, texteLibre, images, question.options]);
+  React.useEffect(() => {
+    if (!cleDeSaisie) return;
+    return () => oublierLaSaisie(cleDeSaisie, bulle);
+  }, [cleDeSaisie, bulle]);
   const pret = reponsePrete(libellesChoisis, texteLibre, images.length) && !envoi;
   /*
    * LA BULLE PORTE TOUT : options, texte libre et images. C'est le SEUL endroit

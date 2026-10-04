@@ -4,8 +4,9 @@ import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { Dot } from '@/components/ui';
 import { ouvrirAgentDeConfiguration } from '@/lib/ouvrir-config-projet';
+import { CLASSE_CADRE_SYSTEME, CLASSE_HAUTEUR_CARTE_EN_ROUTE, CLASSE_HAUTEUR_CORPS_EN_ROUTE } from '@/lib/gabarit-tableau';
 import { t } from '@/lib/langue';
-import { cn } from '@/lib/utils';
+import { cn, relativeTime } from '@/lib/utils';
 
 /**
  * LA VIGNETTE SPÉCIALE DE L'INITIALISATION DE LA MISE EN PRODUCTION.
@@ -29,6 +30,7 @@ export function VignetteInitialisationProduction({
   projet,
   reconfiguration = false,
   avecProjet = false,
+  formatCarte = false,
   cible = 'production',
 }: {
   /** L'étape que l'agent configure. */
@@ -40,11 +42,36 @@ export function VignetteInitialisationProduction({
   reconfiguration?: boolean;
   /** Le nom du projet en tête — utile hors du tableau d'un projet. */
   avecProjet?: boolean;
+  /** Sur « Tableaux de bord » : hauteur fixe, description et ancienneté, comme une carte. */
+  formatCarte?: boolean;
 }) {
   const auTravail = agentTientSonTour(agent);
   const ouvrir = () => ouvrirAgentDeConfiguration(agent.projectId, cible);
+  const titreEtDescription = (
+    <>
+      <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
+        <UploadCloud className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
+        {cible === 'dev'
+          ? t('Configuration du déploiement')
+          : reconfiguration
+            ? t('Configuration de la mise en production')
+            : t('Initialisation de la mise en production')}
+      </h3>
+      {formatCarte ? (
+        <p data-description-carte className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted">
+          {cible === 'dev'
+            ? t('Prépare comment le projet se déploie sur ce serveur.')
+            : t('Prépare comment le projet se met en production.')}
+        </p>
+      ) : null}
+    </>
+  );
   return (
-    <div className="flex min-w-0 flex-col" data-vignette-initialisation-production={agent.projectId} data-vignette-etape={cible}>
+    <div
+      className={cn('flex min-w-0 flex-col', formatCarte && CLASSE_HAUTEUR_CARTE_EN_ROUTE)}
+      data-vignette-initialisation-production={agent.projectId}
+      data-vignette-etape={cible}
+    >
       <div
         role="button"
         tabIndex={0}
@@ -56,7 +83,9 @@ export function VignetteInitialisationProduction({
           ouvrir();
         }}
         className={cn(
-          'relative z-10 cursor-pointer rounded-md border border-publie/60 bg-raised px-2.5 py-2 transition-colors hover:border-publie',
+          formatCarte
+            ? CLASSE_CADRE_SYSTEME
+            : 'relative z-10 cursor-pointer rounded-md border border-publie/60 bg-raised px-2.5 py-2 transition-colors hover:border-publie',
           auTravail && 'rounded-b-none',
         )}
       >
@@ -86,14 +115,21 @@ export function VignetteInitialisationProduction({
             )}
           </span>
         </div>
-        <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
-          <UploadCloud className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
-          {cible === 'dev'
-            ? t('Configuration du déploiement')
-            : reconfiguration
-              ? t('Configuration de la mise en production')
-              : t('Initialisation de la mise en production')}
-        </h3>
+        {formatCarte ? (
+          <>
+            <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
+              {titreEtDescription}
+            </div>
+            <div
+              className={cn('mt-auto flex shrink-0 items-center text-[12px] text-faint', !auTravail && 'pb-1.5 pt-1')}
+              data-anciennete-systeme={agent.projectId}
+            >
+              <span className="shrink-0">{relativeTime(agent.updatedAt)}</span>
+            </div>
+          </>
+        ) : (
+          titreEtDescription
+        )}
       </div>
       {auTravail ? (
         <BandeauTravail agent={agent} onClick={ouvrir} data-barre-initialisation-production={agent.projectId} />

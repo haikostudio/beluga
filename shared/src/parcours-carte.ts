@@ -42,7 +42,9 @@ import {
   cadrageRouvertApresRapport,
   comprehensionDepuisLaRelance,
   planRenduDepuisLaRelance,
+  relanceRetenueAvantLancement,
 } from './relance-apres-rapport.js';
+import { demarrageAutomatiqueAutorise } from './suivi-colonne.js';
 
 /* ------------------------------------------------------------------ */
 /* Les chapitres                                                       */
@@ -418,11 +420,11 @@ export function chapitreDuParcours(ctx: ContexteParcours): ChapitreDuParcours {
     return enPreparation(ctx) ? 'preparation' : 'rapport';
   }
   /*
-   * UN MESSAGE SOUS LE RAPPORT A ROUVERT LE CADRAGE : la carte, restée dans
-   * « À déployer » tant que l'échange n'est qu'une discussion, joue une
-   * nouvelle demande — compréhension, puis plan sur le bouton. Ses anciens
-   * plans ne comptent pas, et son agent de tâche ne fait pas d'elle une carte
-   * « au travail » (`shared/src/relance-apres-rapport.ts`).
+   * UN MESSAGE SOUS LE RAPPORT A ROUVERT LE CADRAGE : la carte, posée en
+   * « Demande » dès le message, joue une nouvelle demande — compréhension,
+   * puis plan sur le bouton. Ses anciens plans ne comptent pas, et son agent
+   * de tâche ne fait pas d'elle une carte « au travail »
+   * (`shared/src/relance-apres-rapport.ts`).
    */
   if (cadrageRouvertApresRapport({ column: ctx.colonne, parcours: ctx.parcours })) {
     return (ctx.parcours?.plans?.length ?? 0) > 0 ? 'plan' : 'cadrage';
@@ -461,6 +463,20 @@ export const LIBELLES_GESTE: Record<Exclude<GesteDuParcours, 'aucun'>, string> =
   terminer: 'Terminer la tâche',
   reprendre: 'Reprendre',
 };
+
+/** Le libellé de « Valider et lancer » quand une heure de départ est posée : le clic part tout de suite. */
+export const LIBELLE_NE_PAS_ATTENDRE = 'Ne pas attendre, lancer maintenant';
+
+/**
+ * LE MOT DU GESTE « VALIDER ET LANCER ». Une carte qui a une heure de départ
+ * posée (`scheduling.departPrevu`, posée par un geste humain) partirait seule à
+ * l'heure dite : le bouton dit alors qu'on peut ne pas attendre. Un simple
+ * créneau conseillé n'est pas un départ planifié et ne change rien.
+ */
+export function libelleDeValidation(scheduling: { departPrevu?: number } | undefined): string {
+  const date = scheduling?.departPrevu;
+  return date && Number.isFinite(date) ? LIBELLE_NE_PAS_ATTENDRE : LIBELLES_GESTE['valider-et-lancer'];
+}
 
 /**
  * LES RAISONS QUI ÉTEIGNENT UN GESTE, réunies pour être traduites : elles
@@ -976,6 +992,94 @@ export function lireComprehensionRendue(
 }
 
 /**
+ * À PARTIR DE COMBIEN DE SUPPOSITIONS UNE COMPRÉHENSION RENDUE SANS AUCUNE
+ * QUESTION EST RENVOYÉE AUX QUESTIONS. En dessous, deux détails techniques
+ * tranchés ne justifient pas d'interrompre l'utilisateur.
+ */
+export const SUPPOSITIONS_AVANT_RENVOI = 3;
+
+/**
+ * LE MARQUEUR DU CADRAGE DE NUIT, tel que `demandeDeCadrageDeLaNuit`
+ * (`auto-amelioration.ts`) ouvre sa demande. La relance après panne recopie la
+ * demande entière (DEC-036) : le marqueur survit donc à un nouvel essai.
+ */
+export const MARQUEUR_DU_CADRAGE_DE_NUIT = "CETTE DEMANDE VIENT DU RENDEZ-VOUS D'AUTO-AMÉLIORATION DE LA NUIT";
+
+/** Ce tour de cadrage interdit-il `ask_user` ? Vrai pour le cadrage de la nuit, que personne ne lit à 3 h. */
+export function tourDeCadrageSansQuestion(demande: string | undefined): boolean {
+  return !!demande && demande.includes(MARQUEUR_DU_CADRAGE_DE_NUIT);
+}
+
+/**
+ * LE GARDE-FOU DES SUPPOSITIONS : UNE COMPRÉHENSION PLEINE DE « JE SUPPOSE »,
+ * RENDUE SANS AVOIR RIEN DEMANDÉ, EST RENVOYÉE UNE FOIS AUX QUESTIONS.
+ *
+ * Constat du 30/09/2026 (carte ProjetA « former ses agents ») : six questions
+ * sur les trois premiers tours, puis plus aucune, et treize suppositions dont
+ * des choix de PRODUIT — qui voit les conversations, prix du pack, crédit,
+ * invitations. La consigne dit que ces choix se posent ; l'outil le tient.
+ *
+ * BORNÉ POUR NE JAMAIS BOUCLER : un seul renvoi par tour (le second appel
+ * passe), aucun renvoi quand le tour interdit la question (cadrage de nuit,
+ * MEM-0472) — sinon aucune compréhension ne pourrait jamais s'écrire.
+ *
+ * Rend le texte du refus, ou `undefined` quand la compréhension passe.
+ */
+export function renvoiAuxQuestions(etat: {
+  hypotheses: readonly string[];
+  questionsPosees: number;
+  /** Ce tour interdit-il `ask_user` (cadrage de nuit) ? */
+  questionsInterdites?: boolean;
+  /** Ce tour a-t-il déjà reçu ce renvoi ? */
+  dejaRenvoye?: boolean;
+}): string | undefined {
+  if (etat.questionsInterdites || etat.dejaRenvoye) return undefined;
+  if (etat.questionsPosees > 0) return undefined;
+  if (etat.hypotheses.length < SUPPOSITIONS_AVANT_RENVOI) return undefined;
+  return (
+    `${etat.hypotheses.length} suppositions et aucune question posée : rien n’a été enregistré. ` +
+    'Relis-les : tout CHOIX DE PRODUIT — ce que voit chaque personne, qui a le droit de faire quoi, prix, qui paie, limites, ' +
+    'vie des comptes, données gardées ou perdues, ce qui s’affiche au client — se POSE à l’utilisateur avec « ask_user », ' +
+    'UNE question à la fois — la suivante découle de la réponse, sans question conditionnelle —, et la réponse te revient dans ce tour. Ne garde en « Je suppose que… » que les détails techniques. ' +
+    'Puis rends la compréhension de nouveau. S’il ne reste vraiment que des détails techniques, rends-la telle quelle : ce renvoi ne se fait qu’une fois.'
+  );
+}
+
+/**
+ * LES SUPPOSITIONS VALIDÉES D'UN CLIC PAR L'UTILISATEUR, lues sur la
+ * compréhension en cours. Seules comptent celles qui y figurent encore : une
+ * compréhension réécrite repart d'une liste neuve (son objet est remplacé).
+ */
+export function suppositionsValidees(comprise: {
+  hypotheses?: readonly string[];
+  questionsOuvertes?: readonly string[];
+  hypothesesValidees?: readonly string[];
+} | undefined): string[] {
+  if (!comprise) return [];
+  const toutes = comprise.hypotheses?.length ? comprise.hypotheses : (comprise.questionsOuvertes ?? []);
+  const validees = new Set(comprise.hypothesesValidees ?? []);
+  return toutes.filter((ligne) => validees.has(ligne));
+}
+
+/**
+ * VALIDER OU RETIRER UNE SUPPOSITION : la nouvelle liste des validées, dans
+ * l'ordre des hypothèses. `undefined` quand la ligne n'appartient pas à la
+ * compréhension (écran en retard sur une compréhension réécrite).
+ */
+export function basculerSupposition(
+  comprise: { hypotheses?: readonly string[]; questionsOuvertes?: readonly string[]; hypothesesValidees?: readonly string[] },
+  hypothese: string,
+  validee: boolean,
+): string[] | undefined {
+  const toutes = comprise.hypotheses?.length ? comprise.hypotheses : (comprise.questionsOuvertes ?? []);
+  if (!toutes.includes(hypothese)) return undefined;
+  const validees = new Set(comprise.hypothesesValidees ?? []);
+  if (validee) validees.add(hypothese);
+  else validees.delete(hypothese);
+  return toutes.filter((ligne) => validees.has(ligne));
+}
+
+/**
  * RELIT LA PART TECHNIQUE D'UNE COMPRÉHENSION. Un refus DIT ce qui manque,
  * d'un coup, pour que la relance rende tout à la fois.
  */
@@ -1236,15 +1340,80 @@ export function etapeDeCarteAbandonnee(
 /**
  * UNE CARTE DONT LE CADRAGE EST ENCORE OUVERT NE PART PAS TOUTE SEULE.
  *
- * Le cadrage est une DISCUSSION : tant qu'aucun plan n'en est sorti, la carte
- * n'a pas encore de travail défini. La faire partir à l'heure creuse, c'est
- * lancer un agent d'exécution sur une carte dont personne n'a écrit ce qu'elle
- * doit faire. Les cartes neuves ne reçoivent d'ailleurs plus de date tant que
- * leur cadrage est ouvert (`createCard`) ; ce refus-ci est le FILET, pour
- * celles qui en portent déjà une, posée avant cette règle ou à la main.
+ * Le cadrage est une DISCUSSION : tant que personne n'a ACCEPTÉ ce qui en est
+ * sorti, la carte n'a pas de travail défini. La faire partir à l'heure dite,
+ * ce serait lancer un agent d'exécution sur une carte dont personne n'a dit
+ * « oui ». Les cartes neuves ne reçoivent d'ailleurs plus de date tant que leur
+ * cadrage est ouvert (`createCard`) ; ce refus-ci est le FILET, pour celles qui
+ * en portent déjà une, posée avant cette règle ou à la main.
+ *
+ * TROIS CHOSES FERMENT LE CADRAGE, chacune suffit :
+ *
+ *  - UN PLAN RENDU — la règle d'origine, du temps où le plan était un passage
+ *    obligé ;
+ *  - UNE COMPRÉHENSION VALIDÉE (`parcours.comprehensionValidee`). Le plan est
+ *    devenu facultatif (interrupteur éteint à la naissance) : le seul point
+ *    d'arrêt avant la dépense est la compréhension. Ne regarder que les plans
+ *    retenait donc TOUTE carte cadrée sans plan, même validée et datée — la
+ *    carte « Vraies images de la page d'accueil » (04.10.2026) a attendu six
+ *    heures un départ que sa mention promettait. La validation vaut pour la
+ *    carte, PAS pour une version : une compréhension affinée après coup ne
+ *    retient pas la carte, elle part à l'heure avec la DERNIÈRE compréhension
+ *    (décision de l'utilisateur, même date). Ne pas brancher ici
+ *    `comprehensionValideePourLaVersionCourante` ;
+ *  - UN LANCEMENT DÉJÀ DEMANDÉ, qu'une porte qui se rouvre seule a refusé
+ *    (`scheduling.reprendreDesQuePossible`) : le geste a eu lieu, il se rejoue
+ *    sans second clic.
  */
-export function cartePrisonniereDuCadrage(etat: { aUnCadrage: boolean; plansRendus: number }): boolean {
-  return etat.aUnCadrage && etat.plansRendus === 0;
+export function cartePrisonniereDuCadrage(etat: {
+  aUnCadrage: boolean;
+  plansRendus: number;
+  /** La compréhension de la carte a été validée, quelle qu'en soit la version. */
+  comprehensionValidee?: boolean;
+  /** Un lancement demandé attend qu'une porte se rouvre (quota, place). */
+  lancementDemande?: boolean;
+}): boolean {
+  if (!etat.aUnCadrage || etat.plansRendus > 0) return false;
+  return !etat.comprehensionValidee && !etat.lancementDemande;
+}
+
+/**
+ * L'ORDONNANCEUR PEUT-IL FAIRE PARTIR CETTE CARTE SANS CLIC ? Les quatre refus
+ * de sa boucle, dans leur ordre, réunis en UNE règle qui se rejoue sans base ni
+ * démon : la suspension, l'autorisation (`demarrageAutomatiqueAutorise`), la
+ * relance (`relanceRetenueAvantLancement`) et le cadrage encore ouvert
+ * (`cartePrisonniereDuCadrage`). Les PORTES — quota, dossier, heures creuses —
+ * ne sont pas d'ici : elles font PATIENTER une carte libre, elles ne décident
+ * pas si elle l'est.
+ */
+export function carteLibreDePartirSeule(
+  carte: {
+    column: ColumnKey | string;
+    scheduling?: {
+      asap?: boolean;
+      attempts?: number;
+      restarts?: number;
+      departPrevu?: number;
+      suspendu?: boolean;
+      reprendreDesQuePossible?: boolean;
+    } | null;
+    parcours?: Pick<ParcoursDeCarte, 'plans' | 'comprehensionValidee' | 'cadrageRouvertA'> | null;
+  },
+  /** Le DERNIER agent de la carte est-il son agent de cadrage ? */
+  aUnCadrage: boolean,
+  maintenant: number = Date.now(),
+): boolean {
+  if (carte.scheduling?.suspendu) return false;
+  if (!demarrageAutomatiqueAutorise(carte.scheduling ?? undefined, maintenant)) return false;
+  /* Une carte RELANCÉE a déjà été lancée : ses essais ne valent pas un nouveau
+     clic, elle attend le sien — ou l'heure dite qu'on lui a donnée depuis. */
+  if (relanceRetenueAvantLancement(carte, maintenant)) return false;
+  return !cartePrisonniereDuCadrage({
+    aUnCadrage,
+    plansRendus: carte.parcours?.plans?.length ?? 0,
+    comprehensionValidee: !!carte.parcours?.comprehensionValidee,
+    lancementDemande: !!carte.scheduling?.reprendreDesQuePossible,
+  });
 }
 
 /** L'étape visible dans le fil quand le démon réclame le plan manquant. */
@@ -1288,7 +1457,7 @@ export function consigneDePlanDansLeMemeTour(numero: number): string {
     `Le plan porte TOUTES ses parties (titre, enClair, synthese, taches, decisions, resume, faisabilite, chemin, consequences, ameliorations, verifications), ` +
     `et il s'ouvre sur « enClair », L'OUVERTURE DU PLAN, AVANT la liste des tâches — deux à quatre courts paragraphes adressés à l'utilisateur, en mots courants, qui lui font se représenter le résultat : ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira au quotidien. Le ton attendu, par exemple : « Vous n'avez pas besoin de connaître le marketing… L'agent rédige, illustre, publie après votre accord… Vous, vous décidez. » ` +
     `Toutes les parties s'écrivent en mots courants pour quelqu'un qui ne programme pas ; le détail technique va dans « notesTechniques ». ` +
-    `Ne pose aucune question ici : écris le plan avec ce que tu sais, et marque tes suppositions. Ta réponse en texte tient en une ou deux phrases.`
+    `Ne pose aucune question ici : écris le plan avec ce que tu sais, et marque tes suppositions. Ta réponse en texte répond d'abord aux questions que le message pose, puis dit en une phrase que la compréhension et le plan sont rendus.`
   );
 }
 

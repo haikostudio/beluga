@@ -17,6 +17,7 @@ import {
   TRANCHE_ATTENTE_MS,
   attenteExpiree,
   texteDAnnulation,
+  texteDeQuestionSimultanee,
   texteDExpiration,
   texteDePerte,
   texteDeReponseALaQuestion,
@@ -35,6 +36,17 @@ interface Attente {
   issue: IssueDAttente | null;
   /** Les tranches en cours de sommeil, réveillées d'un coup dès qu'une issue tombe. */
   reveils: Set<() => void>;
+  /**
+   * LA SUITE D'UNE DEMANDE D'ACCORD (assistant global, `assistant-global.ts`) :
+   * ce qu'on exécute une fois la réponse donnée. Le texte qu'elle rend REMPLACE
+   * la réponse brute dans ce que reçoit le moteur — c'est le résultat du geste
+   * autorisé, ou son refus. Absente pour une question ordinaire.
+   */
+  suite?: (reponse: string) => Promise<string>;
+  /** La réponse telle que cliquée, avant d'être mise en phrase pour le moteur. */
+  reponseBrute?: string;
+  /** La suite en cours : deux tranches simultanées n'exécutent jamais deux fois le geste. */
+  suiteEnCours?: Promise<IssueDAttente>;
 }
 
 const attentes = new Map<string, Attente>();
@@ -68,6 +80,20 @@ export function agentEnAttente(agentId: string): boolean {
   return attenteDeLAgent(agentId) !== undefined;
 }
 
+/** Les outils dont le résultat est une QUESTION posée à l'utilisateur. */
+const OUTILS_QUI_QUESTIONNENT = new Set(['ask_user', 'suggerer_modele']);
+
+/**
+ * UNE SEULE QUESTION À LA FOIS, PAR AGENT. Rend le texte de refus quand l'outil
+ * appelé pose une question alors qu'une autre de CE MÊME agent attend encore sa
+ * réponse ; rien sinon. Les autres agents ne sont jamais concernés : le registre
+ * se lit par agent. Un refus ne pose aucune attente et n'attache aucune bulle.
+ */
+export function refusDeQuestionSimultanee(agentId: string, outil: string): string | undefined {
+  if (!OUTILS_QUI_QUESTIONNENT.has(outil)) return undefined;
+  return agentEnAttente(agentId) ? texteDeQuestionSimultanee() : undefined;
+}
+
 /**
  * LA QUESTION SUR LAQUELLE CET AGENT EST ARRÊTÉ. La plus ancienne encore
  * ouverte, quand il y en a plusieurs — c'est celle qui bloque son appel
@@ -89,8 +115,13 @@ export function questionEnAttenteDeLAgent(agentId: string): string | undefined {
  * est aussi posé SUR L'AGENT, pour que l'interface dise « l'agent attend votre
  * réponse » au lieu de « l'agent travaille ».
  */
-export function poserLAttente(questionId: string, agentId: string, maintenant = Date.now()): void {
-  attentes.set(questionId, { agentId, poseeA: maintenant, issue: null, reveils: new Set() });
+export function poserLAttente(
+  questionId: string,
+  agentId: string,
+  maintenant = Date.now(),
+  suite?: (reponse: string) => Promise<string>,
+): void {
+  attentes.set(questionId, { agentId, poseeA: maintenant, issue: null, reveils: new Set(), suite });
   marquerLAgent(agentId, true);
 }
 
@@ -107,6 +138,8 @@ export function repondreALAttente(questionId: string, reponse: string, jointes: 
     .map((id) => store.getAttachment(id))
     .filter(Boolean)
     .map((piece) => `#${aliasDe(piece!)} — ${cheminDePieceJointe(piece!)}`);
+  const attente = attentes.get(questionId);
+  if (attente && !attente.issue) attente.reponseBrute = reponse;
   return poserLIssue(questionId, { etat: 'repondu', text: texteDeReponseALaQuestion(reponse, fichiers) });
 }
 
@@ -146,7 +179,7 @@ export async function attendreUneTranche(
   const attente = attentes.get(questionId);
   // Question inconnue : le tour a déjà été refermé, ou le serveur a redémarré.
   if (!attente) return { etat: 'perdue', text: texteDePerte() };
-  if (attente.issue) return fermer(questionId, attente.issue);
+  if (attente.issue) return rendreLIssue(questionId, attente, attente.issue);
 
   if (attenteExpiree(attente.poseeA, Date.now(), PLAFOND_ATTENTE_MS)) {
     return fermer(questionId, { etat: 'expiree', text: texteDExpiration(PLAFOND_ATTENTE_MS) });
@@ -170,7 +203,7 @@ export async function attendreUneTranche(
 
   const frais = attentes.get(questionId);
   if (!frais) return { etat: 'perdue', text: texteDePerte() };
-  if (frais.issue) return fermer(questionId, frais.issue);
+  if (frais.issue) return rendreLIssue(questionId, frais, frais.issue);
   if (attenteExpiree(frais.poseeA, Date.now(), PLAFOND_ATTENTE_MS)) {
     return fermer(questionId, { etat: 'expiree', text: texteDExpiration(PLAFOND_ATTENTE_MS) });
   }
@@ -187,6 +220,31 @@ function poserLIssue(questionId: string, issue: IssueDAttente): boolean {
   attente.issue = issue;
   for (const reveil of [...attente.reveils]) reveil();
   return true;
+}
+
+/**
+ * L'ISSUE PART AU MOTEUR — après la SUITE, quand il y en a une. Une demande
+ * d'accord exécute le geste sur « Autoriser » et rend son résultat ; toute
+ * autre issue (refus, annulation, expiration) le dit non exécuté.
+ */
+function rendreLIssue(questionId: string, attente: Attente, issue: IssueDAttente): IssueDAttente | Promise<IssueDAttente> {
+  if (!attente.suite) return fermer(questionId, issue);
+  if (!attente.suiteEnCours) {
+    const suite = attente.suite;
+    attente.suiteEnCours = (async () => {
+      if (issue.etat !== 'repondu') {
+        return fermer(questionId, { ...issue, text: `${issue.text}\nLe geste N'A PAS été exécuté.` });
+      }
+      let texte: string;
+      try {
+        texte = await suite(attente.reponseBrute ?? '');
+      } catch (err: any) {
+        texte = `Le geste autorisé a échoué : ${err?.message ?? String(err)}`;
+      }
+      return fermer(questionId, { ...issue, text: texte });
+    })();
+  }
+  return attente.suiteEnCours;
 }
 
 /** L'attente est consommée : elle sort du registre et l'agent cesse d'attendre. */

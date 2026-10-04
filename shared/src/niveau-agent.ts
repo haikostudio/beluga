@@ -196,6 +196,11 @@ export function niveauPlancherAutomatique(niveau: NiveauAgent | undefined): Nive
   return NIVEAUX_AGENT[indice];
 }
 
+/** Ramène un niveau sous un plafond : jamais plus ample que lui. */
+export function plafonnerLeNiveau(niveau: NiveauAgent, plafond: NiveauAgent): NiveauAgent {
+  return NIVEAUX_AGENT[Math.min(NIVEAUX_AGENT.indexOf(niveau), NIVEAUX_AGENT.indexOf(plafond))];
+}
+
 /** Le modèle est-il du palier le plus faible ? Appétit d'abord, familles à défaut. */
 export function modeleDuPalierLeger(moteur: MoteurCatalogue | undefined, modele: string | undefined): boolean {
   if (!modele) return false;

@@ -33,6 +33,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { lancerIntervalleVisible } from '@/lib/veille';
 
 export function RightPanel({ projectId }: { projectId: string }) {
   return (
@@ -78,8 +79,7 @@ function FilesTab({ projectId }: { projectId: string }) {
 
   // L'arborescence se rafraîchit quand un agent touche au projet.
   React.useEffect(() => {
-    const timer = setInterval(() => client.send({ type: 'files.list', projectId, path }), 20000);
-    return () => clearInterval(timer);
+    return lancerIntervalleVisible(() => client.send({ type: 'files.list', projectId, path }), 20000);
   }, [projectId, path]);
 
   const RECENT_MS = 5 * 60 * 1000;
@@ -231,7 +231,7 @@ function FilePreview({
           {/* Le fichier se récupère tel quel, sans passer par une archive. */}
           <Tooltip label={t('Télécharger')}>
             <Button variant="ghost" size="icon-sm" asChild>
-              <a href={href} download>
+              <a href={href} download data-enregistrer-direct>
                 <Download className="h-3 w-3" />
               </a>
             </Button>

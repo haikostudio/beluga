@@ -10,6 +10,7 @@ import {
   texteDesCompetences,
   annonceeEnTeteDeSession,
   ficheEnService,
+  ficheServieAuProjet,
   COMPETENCES_MINIMUM_POUR_FILTRER,
   type InstructionsDuProjet,
   type NiveauDAccueil,
@@ -159,11 +160,18 @@ export interface BriefingSepare {
  */
 export async function competencesPertinentes(
   travail: string,
-  ctx: { cardId?: string; projectId?: string },
+  ctx: { cardId?: string; projectId?: string; projet?: string },
 ): Promise<Set<string> | undefined> {
   if (!travail.trim()) return undefined;
   try {
-    const servies = listerCompetences().filter((f) => ficheEnService(f.etat) && annonceeEnTeteDeSession(f));
+    // Seules les fiches que CE projet recevra sont jugées : celles d'un autre
+    // projet ne lui sont jamais servies (`ficheServieAuProjet`).
+    const servies = listerCompetences().filter(
+      (f) =>
+        ficheEnService(f.etat) &&
+        annonceeEnTeteDeSession(f) &&
+        (ctx.projet === undefined || ficheServieAuProjet(f, ctx.projet)),
+    );
     if (servies.length < COMPETENCES_MINIMUM_POUR_FILTRER) return undefined;
     const gardees = await garderLesPertinents(
       travail,
@@ -244,7 +252,7 @@ export function briefingSepare(
    */
   const socle: string[] = [];
   const competences = emporte.competences
-    ? texteDesCompetences(listerCompetences(), dossierDesCompetences(), travail, competencesPertinentes)
+    ? texteDesCompetences(listerCompetences(), dossierDesCompetences(), travail, competencesPertinentes, projectName)
     : '';
   if (competences) socle.push(competences);
 

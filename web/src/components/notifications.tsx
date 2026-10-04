@@ -7,7 +7,7 @@ import {
   journalDesNotifications,
   lieuAtteignable,
 } from '@beluga/shared';
-import { Button, Drawer, EmptyState, Pastille, ZoneDefilement } from '@/components/ui';
+import { Button, CLASSE_POINT_DE_BOUTON, Drawer, EmptyState, Pastille, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, relativeTime } from '@/lib/utils';
@@ -117,7 +117,7 @@ export function ClocheNotifications() {
         ) : aLire > 0 ? (
           <span
             data-point-notifications
-            className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-info"
+            className={cn(CLASSE_POINT_DE_BOUTON, 'bg-info')}
           />
         ) : null}
       </Button>

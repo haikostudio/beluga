@@ -3261,6 +3261,122 @@ export const MIGRATIONS: {
       );
     `,
   },
+  {
+    id: 101,
+    name: 'donnees-du-journal-coupees',
+    siTable: ['card_journal', 'messages', 'cards'],
+    /*
+     * LES DONNÉES D'UN JALON ÉTAIENT COUPÉES À 2000 SIGNES, donc illisibles
+     * dès qu'elles pesaient plus (`donneesDuJournal`, shared/src/journal-carte.ts,
+     * les écrit désormais entières). Trois réparations, chacune rejouable :
+     *
+     *  1. « Demande » : une demande à 53 ou 54 images avait perdu la liste de
+     *     ses pièces — coupée, puis écrasée par la synthèse du tour. Le message
+     *     de l'utilisateur les porte toujours : on les repose, en gardant la
+     *     synthèse. Ne sont touchés QUE les jalons appariés à un message
+     *     porteur de pièces (même agent, même instant).
+     *  2. « Compréhension » : la partie technique, longue, coupait le JSON —
+     *     hypothèses, sujets, détail technique et résumés ne s'affichaient plus
+     *     sur le passage. Quand la carte porte encore la compréhension de CE
+     *     tour, on la recopie entière.
+     *  3. Les compréhensions d'itérations plus anciennes, que la carte ne
+     *     porte plus : on garde ce qui précédait la coupure (hypothèses et
+     *     sujets) en refermant le JSON avant la partie technique, perdue.
+     *
+     * Ce qui reste illisible après cela (coupé avant la partie technique) est
+     * laissé tel quel : l'écran retombe déjà sur le texte du jalon.
+     */
+    sql: `
+      UPDATE card_journal
+         SET donnees = (
+           SELECT json_patch(
+                    json_object(
+                      'messageId', m.id,
+                      'ecriteLe', m.created_at,
+                      'pieces', json(json_extract(m.data, '$.attachments'))),
+                    CASE WHEN json_valid(card_journal.donnees) THEN card_journal.donnees ELSE '{}' END)
+             FROM messages m
+            WHERE m.agent_id = card_journal.agent_id
+              AND m.created_at = card_journal.at
+              AND m.role = 'user'
+              AND json_array_length(m.data, '$.attachments') > 0
+            LIMIT 1)
+       WHERE nature = 'jalon'
+         AND libelle = 'Demande'
+         AND agent_id IS NOT NULL
+         AND (donnees IS NULL OR NOT json_valid(donnees) OR json_extract(donnees, '$.pieces') IS NULL)
+         AND EXISTS (
+           SELECT 1 FROM messages m
+            WHERE m.agent_id = card_journal.agent_id
+              AND m.created_at = card_journal.at
+              AND m.role = 'user'
+              AND json_array_length(m.data, '$.attachments') > 0);
+
+      UPDATE card_journal
+         SET donnees = (
+           SELECT json_patch('{}', json_object(
+                    'hypotheses', json(coalesce(json_extract(c.data, '$.parcours.comprehension.hypotheses'), '[]')),
+                    'sujets', json(coalesce(json_extract(c.data, '$.parcours.comprehension.sujets'), '[]')),
+                    'partieTechnique', json_extract(c.data, '$.parcours.comprehension.partieTechnique'),
+                    'resumeDemande', json_extract(c.data, '$.parcours.comprehension.resumeDemande'),
+                    'resumeComprehension', json_extract(c.data, '$.parcours.comprehension.resumeComprehension')))
+             FROM cards c
+            WHERE c.id = card_journal.card_id)
+       WHERE nature = 'jalon'
+         AND libelle = 'Compréhension'
+         AND tour_id IS NOT NULL
+         AND donnees IS NOT NULL AND donnees <> ''
+         AND NOT json_valid(donnees)
+         AND EXISTS (
+           SELECT 1 FROM cards c
+            WHERE c.id = card_journal.card_id
+              AND json_extract(c.data, '$.parcours.comprehension.tourId') = card_journal.tour_id);
+
+      UPDATE card_journal
+         SET donnees = rtrim(substr(donnees, 1, instr(donnees, '"partieTechnique"') - 1), ' ,' || char(10)) || char(10) || '}'
+       WHERE nature = 'jalon'
+         AND libelle = 'Compréhension'
+         AND donnees IS NOT NULL AND donnees <> ''
+         AND NOT json_valid(donnees)
+         AND instr(donnees, '"partieTechnique"') > 0
+         AND json_valid(rtrim(substr(donnees, 1, instr(donnees, '"partieTechnique"') - 1), ' ,' || char(10)) || char(10) || '}');
+    `,
+  },
+  {
+    id: 102,
+    name: 'relances-sans-suite-rendues-au-lot',
+    siTable: 'cards',
+    /*
+     * UNE RELANCE QUI N'ÉTAIT QU'UNE QUESTION NE RETIENT PLUS SA CARTE.
+     *
+     * Un message sous un rapport date la réouverture du cadrage
+     * (`parcours.cadrageRouvertA`). Jusqu'au 04.10.2026, la carte restait dans
+     * « À déployer » et ce repère ne tombait jamais quand l'agent n'avait fait
+     * que répondre : la carte restait « relancée » pour toujours, retenue par
+     * le déploiement automatique. Depuis, la fin du tour l'efface
+     * (`colonneApresReponseSansCadrage`, `shared/src/relance-apres-rapport.ts`)
+     * et le tiroir d'une carte relancée ne montre plus « Actions de la tâche »
+     * (`barreEnFinDeTache`) — une carte restée dans cet état l'aurait perdu.
+     *
+     * La reprise applique donc la même règle aux cartes d'avant : dans
+     * « À déployer », un repère sans compréhension, plan rendu, plan demandé ni
+     * incident POSTÉRIEURS tombe. Une carte qui a cadré depuis garde le sien.
+     * IDEMPOTENTE : rejouée, elle ne touche plus aucune ligne.
+     */
+    sql: `
+      UPDATE cards
+         SET data = json_remove(data, '$.parcours.cadrageRouvertA')
+       WHERE column_key = 'to_deploy'
+         AND json_extract(data, '$.parcours.cadrageRouvertA') IS NOT NULL
+         AND COALESCE(json_extract(data, '$.parcours.comprehension.at'), 0) < json_extract(data, '$.parcours.cadrageRouvertA')
+         AND COALESCE(json_extract(data, '$.parcours.planDemandeA'), 0) < json_extract(data, '$.parcours.cadrageRouvertA')
+         AND COALESCE(json_extract(data, '$.parcours.incident.at'), 0) < json_extract(data, '$.parcours.cadrageRouvertA')
+         AND NOT EXISTS (
+           SELECT 1 FROM json_each(cards.data, '$.parcours.plans') AS plan
+            WHERE json_extract(plan.value, '$.at') >= json_extract(cards.data, '$.parcours.cadrageRouvertA')
+         );
+    `,
+  },
 ];
 
 export function openDb(): DB {

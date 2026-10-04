@@ -30,6 +30,7 @@ import {
   NIVEAU_PAR_DEFAUT,
   NiveauAgent,
   TYPE_JOINTES_COLLABLES,
+  htmlDeLaDemandeCopiable,
   reconnaitreErreur,
   choixDeQuestionEnTexte,
   choixPossible,
@@ -59,11 +60,14 @@ import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
 import { BulleQuestion, PiecesJointes } from '@/components/bulle-question';
+import { SAISIE_EN_TEXTE } from '@/lib/saisie-de-question';
 import { Steps } from '@/components/steps';
+import { CapturesDuFlux } from '@/components/captures-du-flux';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { RunChoix, RunSelectors, nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
+import { pieceEmbarquee } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, heureDuMessage, jetons } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -438,6 +442,14 @@ export function MessageView({
           </div>
         ) : null}
 
+        {/* CE QUE L'AGENT A VU : ses captures d'étape et les images qu'il a
+            jointes, en bande de vignettes tout en bas de sa réponse. */}
+        <CapturesDuFlux
+          steps={etapes}
+          idsJointes={message.attachments}
+          projectId={projectId}
+        />
+
         {message.error ? <ErreurDeMessage texte={message.error} /> : null}
 
         {/* L'heure se montre TOUJOURS, ordinateur comme téléphone, et des deux
@@ -503,51 +515,19 @@ function BoutonEcoute({ texte, cle }: { texte: string; cle: string }) {
   );
 }
 
-/** Au-delà de ce poids, les images ne sont plus recopiées en clair dans le
- *  presse-papiers : le collage HORS de l'application perdra l'aperçu, jamais
- *  les fichiers eux-mêmes (qui voyagent par leur identifiant, sans poids). */
-const POIDS_IMAGES_COPIEES = 4 * 1024 * 1024;
-
-/** Le texte d'un message, échappé pour tenir dans la version HTML de la copie. */
-function echapperHtml(texte: string): string {
-  return texte
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
 /**
- * La version HTML de la copie : le texte, puis les images en clair. Elle ne
- * sert QU'AU DEHORS (un courriel, un traitement de texte) ; dans Beluga Build, ce
- * sont les pièces jointes d'origine qui sont recréées. Trop lourde, elle est
- * abandonnée : le texte et les fichiers, eux, passent toujours.
+ * La version HTML de la copie : même recette que la copie d'une demande
+ * (images lourdes réduites, noms échappés). Elle ne sert QU'AU DEHORS (un
+ * courriel, un traitement de texte) ; dans Beluga Build, ce sont les pièces
+ * jointes d'origine qui sont recréées. Aucune image lisible : pas de HTML.
  */
 async function htmlDeLaCopie(texte: string, images: Attachment[]): Promise<string | null> {
   if (!images.length) return null;
-  const poids = images.reduce((total, item) => total + (item.size || 0), 0);
-  if (poids > POIDS_IMAGES_COPIEES) return null;
-  try {
-    const morceaux = await Promise.all(
-      images.map(async (item) => {
-        const reponse = await fetch(`/api/attachment?id=${item.id}`);
-        if (!reponse.ok) return null;
-        const blob = await reponse.blob();
-        if (!blob.type.startsWith('image/')) return null;
-        const donnee = await new Promise<string | null>((resoudre) => {
-          const lecteur = new FileReader();
-          lecteur.onload = () => resoudre(typeof lecteur.result === 'string' ? lecteur.result : null);
-          lecteur.onerror = () => resoudre(null);
-          lecteur.readAsDataURL(blob);
-        });
-        return donnee ? `<img src="${donnee}" alt="${echapperHtml(item.name)}">` : null;
-      }),
-    );
-    const balises = morceaux.filter(Boolean).join('');
-    if (!balises) return null;
-    return `${texte?.trim() ? `<pre>${echapperHtml(texte)}</pre>` : ''}${balises}`;
-  } catch {
-    return null;
-  }
+  const pieces = await Promise.all(
+    images.map((item) => pieceEmbarquee({ id: item.id, nom: item.name, mime: item.mime })),
+  );
+  if (!pieces.some((piece) => piece.source)) return null;
+  return htmlDeLaDemandeCopiable(texte, pieces);
 }
 
 /**
@@ -746,6 +726,9 @@ export function QuestionCard({
         )
       }
       repere={{ 'data-question-agent': question.id }}
+      /* UNE QUESTION À CHOIX PUR N'EST PAS RÉPONDUE PAR LA BARRE : ce qu'on y
+         écrit reste une demande de plus, et le choix coché reste dans la bulle. */
+      cleDeSaisie={question.allowFreeText ? question.id : undefined}
       onRepondre={async (reponse, attachments) => {
         try {
           await client.call({
@@ -829,6 +812,7 @@ export function QuestionEnTexteCard({
         agentId={agentId}
         /* Voir `QuestionCard` : le panneau de décision porte déjà son cadre. */
         variante={sansEntete ? 'contraste' : 'attention'}
+        cleDeSaisie={`${SAISIE_EN_TEXTE}${messageId}`}
         entete={
           sansEntete ? undefined : (
             <p className="flex items-start gap-1.5 text-[14.5px] leading-relaxed text-text">

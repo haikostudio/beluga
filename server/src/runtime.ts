@@ -6,6 +6,8 @@ import {
   AgentRole,
   CONSIGNE_CADRAGE,
   analyseDeCadrageFaite,
+  suppositionsValidees,
+  tourDeCadrageSansQuestion,
   Ampleur,
   CONSIGNE_CREATION_PROJET,
   CONSIGNE_CARTE_COURTE,
@@ -54,6 +56,7 @@ import {
   messageDePanneDefinitive,
   erreurDeTourAPoser,
   jalonDeFinDeTour,
+  colonneApresReponseSansCadrage,
   JALON_NOTE_DE_L_AGENT,
   noteAvantLAction,
   texteRenduDuTour,
@@ -93,6 +96,8 @@ import {
   CONSIGNE_ASSISTANT_SURVEILLANCE,
   CONSIGNE_AGENT_MARKETING,
   CONSIGNE_DE_VULGARISATION,
+  CONSIGNE_ASSISTANT_GLOBAL,
+  DISALLOWED_NATIVE_ASSISTANT,
   RAPPEL_DE_VULGARISATION,
   consigneDeLangue,
   LANGUE_DORIGINE,
@@ -123,6 +128,9 @@ import {
   nomDeBranche,
   observerContexte,
   plafondDeContexte,
+  raisonDeRepli,
+  repliSansSecondAppel,
+  type RaisonDeRepli,
   poidsDeTour,
   RAISON_ARBRE,
   type OrigineDeBloc,
@@ -138,6 +146,7 @@ import {
   metriquesSessionLlmIndisponibles,
   jetonsMessageEnvoye,
   PLAFOND_APPEL_APRES_REPONSE_MS,
+  PLAFOND_COMPRESSION_NATIVE_MS,
   PLAFOND_RATTRAPAGE_PLAN_MS,
   delaiOutilMoteurMs,
   statutDeFermetureForcee,
@@ -180,6 +189,7 @@ import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { estAgentMarketing } from './marketing.js';
 import { AjoutJournal, ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
+import { repererLesCaptures } from './captures-auto.js';
 import { getInternalToken } from './auth.js';
 import { briefingSepare, competencesPertinentes } from './memory.js';
 import { garderLesPertinents, indiquerLaNatureDeLaDemande } from './jugement-rapide.js';
@@ -260,6 +270,14 @@ export interface LiveRun {
    * tour au point de celui qu'il poursuit.
    */
   repriseDe?: string;
+  /**
+   * CE TOUR INTERDIT `ask_user` : le cadrage de la nuit, que personne ne lit
+   * à 3 h (`tourDeCadrageSansQuestion`). Le garde-fou des suppositions ne le
+   * renvoie donc jamais à des questions qu'il n'a pas le droit de poser.
+   */
+  questionsInterdites?: boolean;
+  /** Le garde-fou des suppositions a déjà renvoyé ce tour aux questions : il ne le refait pas (`renvoiAuxQuestions`). */
+  renvoiAuxQuestionsFait?: boolean;
   startedAt: number;
   steps: Map<string, RunStep>;
   /**
@@ -1373,6 +1391,19 @@ async function preparerLeTour(
   /** Le jeton de CETTE préparation : il dit jusqu'au bout si elle a toujours cours. */
   preparation: number,
 ): Promise<boolean> {
+  /*
+   * LE MODÈLE DE L'ASSISTANT SE CHOISIT ICI, AVANT TOUTE CLÉ DE SESSION : un
+   * message par message, sous le plafond réglé (`appliquerLeNiveauDeLAssistant`).
+   * Une demande silencieuse du démon, elle, garde le modèle en place.
+   */
+  if (agent.assistantGlobal && !options.silent) {
+    const [{ appliquerLeNiveauDeLAssistant }, { jugerLeNiveauDeLAssistant }, { catalogueMoteurs }] = await Promise.all([
+      import('./assistant-global.js'),
+      import('./jugement-rapide.js'),
+      import('./catalogue-moteurs.js'),
+    ]);
+    agent = await appliquerLeNiveauDeLAssistant(agent, text, jugerLeNiveauDeLAssistant, await catalogueMoteurs());
+  }
   const agentId = agent.id;
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
@@ -1648,7 +1679,7 @@ async function preparerLeTour(
       travailDeLaCarte,
       // …et d'abord selon le juge local, quand il est éveillé et allumé.
       card && partsDAccueil(niveau).competences
-        ? await competencesPertinentes(travailDeLaCarte, { cardId: card.id, projectId: project.id })
+        ? await competencesPertinentes(travailDeLaCarte, { cardId: card.id, projectId: project.id, projet: project.name })
         : undefined,
     );
     contextParts.push({
@@ -1858,16 +1889,23 @@ async function preparerLeTour(
      */
     const precedente = agent.role === 'cadrage' ? card.parcours?.comprehension : undefined;
     if (precedente?.texte?.trim()) {
-      const hypotheses = precedente.hypotheses?.length
-        ? `\n\nHypothèses de cette compréhension :\n${precedente.hypotheses.map((ligne) => `- ${ligne}`).join('\n')}`
-        : '';
+      /* LES SUPPOSITIONS VALIDÉES D'UN CLIC sont des DÉCISIONS de
+         l'utilisateur : la compréhension suivante les écrit comme décidées. */
+      const validees = new Set(suppositionsValidees(precedente));
+      const restantes = (precedente.hypotheses ?? []).filter((ligne) => !validees.has(ligne));
+      const hypotheses =
+        (validees.size
+          ? `\n\nDÉCISIONS DE L'UTILISATEUR — suppositions qu'il a VALIDÉES d'un clic sur la carte : intègre-les au texte comme décidées, et ne les remets plus en hypothèse :\n${[...validees].map((ligne) => `- ${ligne}`).join('\n')}`
+          : '') +
+        (restantes.length ? `\n\nHypothèses de cette compréhension :\n${restantes.map((ligne) => `- ${ligne}`).join('\n')}` : '');
       contextParts.push({
         label: 'Dernière compréhension rendue',
         kind: 'card',
         origine: 'projet',
         content:
-          'DERNIÈRE COMPRÉHENSION RENDUE SUR CETTE CARTE — la prochaine la reprend EN ENTIER et y ajoute ce que ' +
-          `les nouveaux messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${hypotheses}`,
+          'DERNIÈRE COMPRÉHENSION RENDUE SUR CETTE CARTE — elle reste valable tant que la discussion ne change pas ' +
+          'le travail ; si ce tour la met à jour, la nouvelle la reprend EN ENTIER et y ajoute ce que les nouveaux ' +
+          `messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${hypotheses}`,
       });
     }
     /*
@@ -2399,6 +2437,7 @@ async function startTurn(
     phaseJournal: agent.cardId ? phaseDeLaCarte(agent.cardId, agent.role) : 'execution',
     dejaJournalise: new Set<string>(),
     repriseDe: tour.repriseDe,
+    questionsInterdites: tourDeCadrageSansQuestion(prompt),
     startedAt: Date.now(),
     // Le moteur n'a encore rien dit : son lancement vaut premier signe de vie.
     dernierSigneDeVie: Date.now(),
@@ -2460,7 +2499,13 @@ async function startTurn(
    * part.
    */
   const bride = agent.role === 'cadrage';
-  const fullAccess = !bride;
+  /*
+   * L'ASSISTANT GLOBAL N'A NI COMMANDE NI ÉDITEUR (`shared/src/assistant-global.ts`) :
+   * ses outils natifs d'écriture et de commande sont retirés, et il n'a pas
+   * l'accès complet — sous Codex, son bac à sable reste en lecture seule.
+   */
+  const assistantGlobal = Boolean(agent.assistantGlobal);
+  const fullAccess = !bride && !assistantGlobal;
 
   /*
    * LA FRONTIÈRE DE L'AGENT BRIDÉ. Il a tous les droits sauf modifier le code
@@ -2499,7 +2544,9 @@ async function startTurn(
    * copie de travail.
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId && agent.workdir ? 'task' : agent.role;
-  const systemPrompt = rolePrompt(
+  const systemPrompt = assistantGlobal
+    ? `${consigneDeLangue(langueDesAgents())}\n${CONSIGNE_DE_VULGARISATION}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`
+    : rolePrompt(
     roleMoteur,
     project.isSelf,
     agent.run.engine,
@@ -2646,7 +2693,8 @@ async function startTurn(
     fullAccess,
     role: agent.role,
     allowedTools: bride ? cadrageAllowList() : undefined,
-    disallowedTools: bride ? cadrageDenyList() : undefined,
+    disallowedTools: bride ? cadrageDenyList() : assistantGlobal ? [...DISALLOWED_NATIVE_ASSISTANT] : undefined,
+    sandboxLectureSeule: assistantGlobal || undefined,
     env,
   };
 
@@ -2735,6 +2783,8 @@ async function startTurn(
                    l'étape déjà en place, sinon la capture disparaîtrait juste
                    au moment où l'étape se coche. */
                 capture: event.step.capture ?? existing?.capture,
+                // Posé plus tard par le rangement des captures : la fin de l'étape ne l'efface pas.
+                capturePiece: existing?.capturePiece,
                 /* L'OUTIL ET SON ENTRÉE SUIVENT L'ÉTAPE JUSQU'À L'ÉCRAN. Ils
                    n'arrivent qu'au DÉPART de l'étape : la fin les reprend de
                    l'étape déjà en place, comme la capture — sans quoi le
@@ -2748,6 +2798,42 @@ async function startTurn(
               runState.steps.set(event.step.key, step);
               pushMessage(runState, { steps: [...runState.steps.values()], streaming: true });
               poserLetapeDesSteps(agent.id, [...runState.steps.values()]);
+              /*
+               * LES IMAGES QUE CETTE ÉTAPE A ÉCRITES SE RANGENT EN PIÈCES JOINTES
+               * et rejoignent le message du tour : la bande du flux les montre en
+               * direct, sans que l'agent les relise ni les joigne
+               * (`server/src/captures-auto.ts`). Rien n'attend ici.
+               */
+              if (step.state !== 'running' && step.state !== 'todo') {
+                const appelFini = runState.outilsDesEtapes.get(step.id);
+                const outilBrut = String(appelFini?.outil ?? step.outil ?? '');
+                if (!/attach_(file|screenshot)$/.test(outilBrut)) {
+                  repererLesCaptures(
+                    runState,
+                    {
+                      projectId: project.id,
+                      projectPath: project.path,
+                      workdir: agent.workdir ?? undefined,
+                      cardId: agent.cardId ?? undefined,
+                      agentId: agent.id,
+                      debutDuTour: runState.startedAt,
+                      titreDeCarte: agent.cardId ? store.getCard(agent.cardId)?.title : undefined,
+                      surJointe: (piece, fichier) => {
+                        attachToCurrentMessage(agent.id, { attachment: piece.id });
+                        relierLaCaptureASaPiece(runState, piece.id, fichier, agent.workdir ?? project.path);
+                      },
+                      vivant: () => live.get(agent.id) === runState,
+                    },
+                    {
+                      // L'image regardée se range toujours, sans plafond (la bande la montre).
+                      capture: step.capture,
+                      textes: [JSON.stringify(appelFini?.entree ?? step.entree ?? ''), step.detail],
+                      // Un script d'essai écrit son image sans la nommer dans la commande.
+                      balayer: !/^(Read|Glob|Grep|TodoWrite|Task|Edit|Write|mcp__beluga__)/.test(outilBrut),
+                    },
+                  );
+                }
+              }
               /*
                * LA REQUÊTE REJOINT LE JOURNAL DE LA CARTE, une fois ACHEVÉE.
                * Une étape « en cours » ne porte pas encore son résultat : la
@@ -3499,16 +3585,15 @@ async function startTurn(
     }
 
     /*
-     * ET LA MÊME EXIGENCE POUR LA COMPRÉHENSION.
+     * ET UN TOUR MUET SE RATTRAPE.
      *
-     * Un tour de cadrage a DEUX fins : cadrer (il appelle
-     * `rendre_comprehension`) ou répondre à une question. Rien ne le
-     * vérifiait : un tour qui oubliait l'outil laissait la carte à mi-chemin,
-     * et l'écran proposait la suite au-dessus d'une étape jamais franchie.
-     * On le relance donc UNE FOIS, dans la même session, avec le seul outil de
-     * compréhension ouvert ; la relance n'a que deux sorties — l'appeler, ou
-     * dire que ce tour n'était qu'une réponse. Rien d'autre pose un INCIDENT
-     * nommé sur la carte (`shared/src/tour-de-cadrage.ts`).
+     * Le cadrage est une DISCUSSION : un tour qui a répondu en texte sans
+     * mettre la compréhension à jour est un tour normal (issue `reponse`).
+     * Seul le tour MUET — ni texte, ni compréhension, ni question — est
+     * relancé UNE FOIS, dans la même session, avec le seul outil de
+     * compréhension ouvert ; la relance rend la compréhension, ou enfin une
+     * réponse en texte, qui devient celle du tour. Rien du tout pose un
+     * INCIDENT nommé sur la carte (`shared/src/tour-de-cadrage.ts`).
      *
      * L'ISSUE DU TOUR EST ÉCRITE DANS TOUS LES CAS : c'est elle que le flux en
      * points lit, au lieu de deviner la fin du tour dans les traces.
@@ -3534,6 +3619,8 @@ async function startTurn(
            aujourd'hui un autre projet, c'est que CE tour l'a déplacée. Un
            déplacement refusé ne change pas le projet, donc ne compte pas. */
         carteDeplacee: carteDuTour.projectId !== agent.projectId,
+        /* LE TOUR A PARLÉ : c'est une discussion, pas un oubli (30/09/2026). */
+        texteRendu: runState.text.trim().length > 0,
       };
       let relance: 'cadrage' | 'reponse' | 'incident' | undefined;
       if (comprehensionManquante(jugement)) {
@@ -3555,16 +3642,22 @@ async function startTurn(
         }).catch(() => '');
         const apres = store.getCard(agent.cardId);
         relance = issueDeLaRelance({
-          comprehensionRendue: !!apres?.parcours?.comprehension?.texte?.trim(),
+          comprehensionRendue: apres?.parcours?.comprehension?.tourId === runState.messageId,
           texte: texteRelance,
         });
+        /* Le tour était muet : ce que la relance a dit devient SA réponse,
+           dans la bulle et au journal (« Réponse rendue »). */
+        if (texteRelance.trim() && !finalText.trim()) {
+          finalText = texteRelance.trim();
+          runState.text = finalText;
+        }
         runState.steps.set(ETAPE_COMPREHENSION_RECLAMEE_ID, {
           id: ETAPE_COMPREHENSION_RECLAMEE_ID,
           label:
             relance === 'cadrage'
               ? `${ETAPE_COMPREHENSION_RECLAMEE} — rendue`
               : relance === 'reponse'
-                ? `${ETAPE_COMPREHENSION_RECLAMEE} — le tour ne faisait que répondre`
+                ? `${ETAPE_COMPREHENSION_RECLAMEE} — réponse rendue`
                 : `${ETAPE_COMPREHENSION_RECLAMEE} — sans réponse`,
           state: relance === 'incident' ? 'failed' : 'done',
           startedAt: Date.now(),
@@ -3605,6 +3698,46 @@ async function startTurn(
           bus.emit({ type: 'card.upsert', card: rangee });
         }
       }
+    }
+
+    /*
+     * UNE RELANCE QUI N'ÉTAIT QU'UNE QUESTION RENVOIE LA CARTE AU LOT.
+     *
+     * Le message a posé la carte en « Demande » dès son envoi
+     * (`rouvrirLeCadrage`). Si ce tour, RÉUSSI, n'a fait que répondre — ni
+     * compréhension, ni plan, ni question laissée ouverte —, rien ne se
+     * prépare : elle retourne dans « À déployer », et le repère de relance
+     * tombe pour qu'un message suivant la redate. Un tour tombé, arrêté ou
+     * coupé par un quota la laisse en « Demande » : l'échange n'est pas fini.
+     * La carte est relue FRAÎCHE : déplacée à la main entre-temps, elle n'est
+     * plus relancée, et la règle rend `null`. Ni `doneAt` ni `deployedAt` ne
+     * sont touchés, et l'écriture se dit `retourSansTravail` : l'espace client
+     * n'annonce pas « terminé » pour un travail qui n'a pas eu lieu.
+     *
+     * UNE DEMANDE EN FILE RETIENT LA CARTE : un second message écrit pendant
+     * ce tour part dès sa fin, sans repasser par `rouvrirLeCadrage`. Rendre la
+     * carte au lot entre les deux la laisserait en « À déployer » sous un agent
+     * qui réfléchit — le défaut même que le déplacement immédiat corrige.
+     */
+    const questionOuverteDuTour = (messageDuTour?.questions ?? []).some((q) => !q.answer && !q.cancelled);
+    const demandeEnFile = store.listQueue(agent.id).length > 0;
+    const carteRelancee = store.getCard(agent.cardId);
+    const tourAbouti = !failed && !reprise && !panneDefinitive && !runState.stopping;
+    const retour =
+      carteRelancee && tourAbouti && !questionOuverteDuTour && !demandeEnFile
+        ? colonneApresReponseSansCadrage(carteRelancee)
+        : null;
+    if (carteRelancee && retour) {
+      const revenue = store.saveCard(
+        {
+          ...carteRelancee,
+          column: retour,
+          position: store.nextPosition(carteRelancee.projectId, retour),
+          parcours: { ...(carteRelancee.parcours ?? { plans: [] }), cadrageRouvertA: undefined },
+        },
+        { retourSansTravail: true },
+      );
+      bus.emit({ type: 'card.upsert', card: revenue });
     }
   }
 
@@ -4247,6 +4380,7 @@ type SocleDuLancement = Pick<
   | 'role'
   | 'allowedTools'
   | 'disallowedTools'
+  | 'sandboxLectureSeule'
   | 'env'
 >;
 
@@ -4340,7 +4474,11 @@ function memoireDeReprise(projectId: string, agent: Agent, card: Card | null): M
 async function compresserContexte(agent: Agent, options: OptionsCompression): Promise<void> {
   if (!agent.context?.pending) return;
 
+  // La compression NATIVE du moteur passe d'abord : c'est elle que l'utilisateur
+  // veut. Le résumé n'est qu'un repli, et il dit POURQUOI il a servi.
+  let raison: RaisonDeRepli | undefined;
   if (options.adapter.compact && options.sessionId) {
+    const debut = Date.now();
     const native = await options.adapter.compact({
       ...options.lancement,
       prompt: '/compact',
@@ -4348,9 +4486,10 @@ async function compresserContexte(agent: Agent, options: OptionsCompression): Pr
       thinking: agent.run.thinking,
       sessionId: options.sessionId,
       systemPrompt: options.systemPrompt,
-      // Un appel de SERVICE, passé après la réponse : il ne retient jamais la
-      // barre d'écriture plus que son plafond.
-      plafondMs: PLAFOND_APPEL_APRES_REPONSE_MS,
+      // Un appel de SERVICE passé après la réponse, mais qui résume le contexte
+      // ENTIER : il a son propre plafond, plus large que les autres appels de
+      // service (`PLAFOND_COMPRESSION_NATIVE_MS`).
+      plafondMs: PLAFOND_COMPRESSION_NATIVE_MS,
       // …et il se fait suivre, pour que le bouton d'arrêt puisse le couper.
       surLancement: suivreLeService(agent.id),
       onEvent: () => {},
@@ -4371,17 +4510,25 @@ async function compresserContexte(agent: Agent, options: OptionsCompression): Pr
       bus.emit({ type: 'agent.upsert', agent: maj });
       return;
     }
-    log.warn(`compression native impossible pour l'agent ${agent.id} : ${native.error ?? 'raison inconnue'}`);
+    raison = raisonDeRepli(native.error);
+    log.warn(
+      `compression native impossible pour l'agent ${agent.id} (${raison}, ${Math.round((Date.now() - debut) / 1000)} s, ` +
+        `${agent.context.tokens} jetons) : ${native.error ?? 'raison inconnue'}`,
+    );
   }
 
   // Repli commun : aucun message visible n'est touché. Seul le fil du moteur
   // courant est remplacé, avec un résumé borné qui repart au prochain tour.
   // Le socle déterministe garantit les champs indispensables ; le moteur
-  // ajoute la compréhension des décisions formulées librement dans un fil long.
+  // ajoute la compréhension des décisions formulées librement dans un fil long
+  // — SAUF quand la compression native vient d'échouer faute de réponse ou de
+  // quota : le moteur ne répondrait pas davantage, et le second appel serait
+  // payé pour rien.
   const socle = resumePourAgent(agent);
-  const semantique = options.sessionId
-    ? await resumeSemantique(agent, options)
-    : '';
+  const semantique =
+    options.sessionId && !(raison && repliSansSecondAppel(raison))
+      ? await resumeSemantique(agent, options)
+      : '';
   const summary = semantique
     ? `${socle}\n\nSYNTHÈSE SÉMANTIQUE DU FIL\n${semantique.slice(0, 8_000)}`
     : socle;
@@ -4392,6 +4539,7 @@ async function compresserContexte(agent: Agent, options: OptionsCompression): Pr
     method: 'summary',
     tokens: 0,
     summary,
+    raison,
   });
   const maj = store.saveAgent({ ...frais, context, contextUsage: undefined });
   bus.emit({ type: 'agent.upsert', agent: maj });
@@ -4643,6 +4791,23 @@ function poserLetapeDesSteps(agentId: string, steps: readonly RunStep[]): void {
   if (!frais || frais.todos?.total || frais.etapeEnCours === etape) return;
   const maj = store.saveAgent({ ...frais, etapeEnCours: etape });
   bus.emit({ type: 'agent.upsert', agent: maj });
+}
+
+/**
+ * UNE CAPTURE RANGÉE SE RELIE À SON ÉTAPE. La pièce porte souvent un autre nom
+ * que le fichier regardé (nom vague préfixé du titre de la carte, « (2) » d'un
+ * doublon) : le lien posé ici (`RunStep.capturePiece`) permet à la bande « Ce
+ * que l'agent a vu » de montrer la pièce À LA PLACE de l'étape, une seule fois.
+ */
+function relierLaCaptureASaPiece(run: LiveRun, pieceId: string, fichier: string, base: string): void {
+  let relie = false;
+  for (const [cle, step] of run.steps) {
+    if (!step.capture || step.capturePiece) continue;
+    if (path.resolve(base, step.capture.trim()) !== fichier) continue;
+    run.steps.set(cle, { ...step, capturePiece: pieceId });
+    relie = true;
+  }
+  if (relie) pushMessage(run, { steps: [...run.steps.values()] });
 }
 
 /**
@@ -5482,6 +5647,27 @@ SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fich
 S'IL TE FAUT UN ACCÈS, CHERCHE-LE D'ABORD DANS LE COFFRE-FORT (outil « coffre_fort », action « lister ») : il t'est ouvert en lecture et en écriture. Ne dis JAMAIS « je n'ai pas accès » sans l'avoir listé.`;
 
 /**
+ * CE QUE LE PROJET APPREND DE CHAQUE CARTE — la compétence de fin de tâche.
+ *
+ * Décision de l'utilisateur (2026-10-02) : chaque projet apprend de son propre
+ * travail — interface, fonctionnement, structure, technologies —, et la fiche
+ * s'écrit DÈS LA FIN de la carte, plus après sept jours en production (DEC-104,
+ * remplacée). Elle sert tout de suite. Exemple donné : la barre de sélection des
+ * jours des statistiques — la prochaine barre du même genre doit hériter
+ * d'emblée de tout ce qui y a été fait.
+ *
+ * Réservée au rôle de TÂCHE : le chef, l'analyse et la publication n'ont pas
+ * produit le travail ; le ménage de nuit (`server/src/menage-competences.ts`)
+ * range ensuite ce que les tâches ont écrit vite. EXPORTÉE pour son test.
+ */
+export const CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE =
+  "PUIS LA COMPÉTENCE — CE QUE CE PROJET A APPRIS : demande-toi ce que ton travail apprend de DURABLE sur la façon de faire ici — un écran ou un composant d'interface (TOUT ce qu'il sait faire désormais : réglages, raccourcis, états, comportement sur téléphone, choix tranchés), un enchaînement, la structure du projet, une technologie et son piège. " +
+  "Cherche d'abord la fiche qui en parle (le bloc des compétences de ton accueil, outil « competences » action « lister », ou « memoire » geste « chercher ») : si elle existe, LIS-LA puis redonne-la ENTIÈRE sous le MÊME nom avec ton apport — l'écriture remplace son texte. " +
+  "Sinon crée-la : outil « competences », action « ecrire », « projets » = le nom exact de ce projet, « carte » = cette carte, et ses preuves (cartes, commits) dans le texte. " +
+  "Si la leçon vaut AUSSI ailleurs (une bibliothèque, un service, une façon de faire qui ne dépend pas de ce code), écris EN PLUS une fiche commune, « projets » = « tous », sans rien de propre au projet. " +
+  "Rien de durable — une faute, un réglage, un libellé — : aucune fiche, et ton compte rendu le dit en une ligne.";
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
@@ -5561,6 +5747,7 @@ TU ES L'AGENT DE PUBLICATION. Tu CONFIGURES la mise en production d'un projet : 
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
 Travaille sur la branche de la carte. Pendant la tâche, ce que tu manipules (pistes, hypothèses, points à revoir) peut aller au « brouillon » de la carte (outil « memoire », geste « brouillon ») : il n'est jamais servi comme mémoire et s'efface à la fermeture de la carte.
 À LA FIN, L'ÉTAPE DE PROMOTION : relis ton travail et PROPOSE à la base de connaissances zéro, une ou quelques unités durables — outil « memoire », geste « proposer » (ou « remember » pour un fait d'une ligne) —, en remplaçant (« remplace ») l'unité que ta tâche a rendue fausse. Ne se mémorise JAMAIS : ${CE_QUI_NE_SE_MEMORISE_JAMAIS.join(' ; ')}. Une proposition refusée te dit pourquoi : corrige-la ou renonce. Puis appelle l'outil « memoire », geste « changelog », qui écrit l'entrée du JOURNAL DES CHANGEMENTS, lue par quelqu'un qui ne programme pas (la branche s'ajoute toute seule) : ${CONSIGNES_REDACTION_CHANGELOG.map((c) => c.replace(/^Le TITRE/, '« titre »').replace(/^L’EXPLICATION/, '« explication »').replace(/^Le POIDS/, '« poids »')).join(' ')} Une entrée sans explication, ou dont le titre est un nom de branche, est refusée : réécris-la.
+${CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE}
 Si ta tâche a changé une règle durable, une architecture ou une commande, dépose-la dans le fichier d'attente que le briefing nomme — jamais dans le fichier d'instructions du moteur, que tu ne modifies pas.`;
 }
 

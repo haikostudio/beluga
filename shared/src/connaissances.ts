@@ -240,6 +240,19 @@ function estCompetenceDeProjet(u: Pick<Unite, 'sujets'>): boolean {
 }
 
 /**
+ * LA COMPÉTENCE PROPRE À UN AUTRE PROJET NE REMONTE PAS DANS LA RECHERCHE D'UN
+ * PROJET. Toutes les compétences vivent dans le classeur Global ; depuis que
+ * chaque projet écrit les siennes à la fin de chaque carte (2026-10-02), une
+ * recherche sur « barre de sélection » depuis ProjetA remonterait celle de
+ * ProjetB. Une compétence COMMUNE (sans sujet `projet-…`) et celle de CE projet
+ * passent ; une unité qui n'est pas une compétence n'est jamais concernée.
+ */
+export function competenceDUnAutreProjet(u: Pick<Unite, 'source' | 'sujets'>, nomDuProjet: string): boolean {
+  if (!estUniteDeCompetence(u) || !estCompetenceDeProjet(u)) return false;
+  return !u.sujets.includes(sujetDeProjetDeCompetence(nomDuProjet));
+}
+
+/**
  * L'unité range-t-elle dans cette fiche ? Une compétence n'est JAMAIS dans une fiche de type :
  * elle est dans « Compétences » — celle du Global si elle vaut pour tous, celle du projet
  * (`projetNom`) si sa fiche le nomme.

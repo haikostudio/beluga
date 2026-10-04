@@ -1,8 +1,9 @@
 /**
  * UNE CARTE EN CONTREDIT-ELLE UNE AUTRE ?
  *
- * C'est le point dur du pool : sans cette réponse, on capitalise un travail que
- * la semaine suivante a défait. Les mêmes FICHIERS ne suffisent pas — un
+ * C'est le point dur du pool : sans cette réponse, une fiche continue
+ * d'enseigner un travail que la semaine suivante a défait — le ménage de nuit
+ * s'en sert pour revoir ces fiches (`server/src/menage-competences.ts`). Les mêmes FICHIERS ne suffisent pas — un
  * correctif touche souvent d'AUTRES fichiers du même écran —, et un seul signal
  * ne suffit jamais : deux cartes voisines mais indépendantes se ressemblent
  * beaucoup dans un projet qui travaille toujours au même endroit.

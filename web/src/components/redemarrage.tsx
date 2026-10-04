@@ -9,13 +9,14 @@ import {
 } from '@beluga/shared';
 import {
   Button,
+  CLASSE_POINT_DE_BOUTON,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  Tooltip,
+  DropdownMenuItem,
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
@@ -23,36 +24,43 @@ import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 
 /**
- * LE REDÉMARRAGE DU SERVEUR, DANS LE BANDEAU DU HAUT (demande du 28/09/2026).
+ * LE REDÉMARRAGE DU SERVEUR, DANS LE MENU DES TROIS POINTS (demande du
+ * 02/10/2026, sur tous les écrans).
  *
- * Il vivait au pied de la colonne des projets, avec son libellé ; il rejoint
- * la rangée d'icônes du bandeau, juste avant les trois points, en ICÔNE SEULE
- * — c'est la PASTILLE en haut à droite qui dit l'état, l'icône restant celle
- * de l'alimentation :
- *  - pastille verte : le serveur tourne, rien n'attend ;
- *  - pastille orange : un redémarrage est requis (du code serveur plus récent
+ * Il a vécu au pied de la colonne des projets, puis en icône dans le bandeau ;
+ * il devient une ENTRÉE du menu, à côté du terminal du serveur
+ * (`EntreeRedemarrage`). Son état reste visible menu fermé : le POINT commun
+ * des boutons de l'entête, sur le coin haut droit des trois points (`PointRedemarrage`) :
+ *  - point vert : le serveur tourne, rien n'attend ;
+ *  - point orange : un redémarrage est requis (du code serveur plus récent
  *    attend), y compris demandé mais retenu par une publication ou un travail
  *    en cours (il partira tout seul) ;
- *  - pastille grise et roue qui tourne à la place de l'icône : le serveur
- *    redémarre.
- * Le libellé et la raison se lisent au survol (et par les lecteurs d'écran).
+ *  - point gris : le serveur redémarre (l'entrée montre une roue qui tourne).
+ * L'entrée dit son libellé et, en dessous, la raison.
+ *
+ * LA FENÊTRE DE CONFIRMATION VIT HORS DU MENU (`dialogue`, rendu par le
+ * bandeau à côté du menu) : posée dans le menu, elle se démonterait avec lui à
+ * l'instant où l'entrée le referme.
  *
  * Publier remplace l'interface tout de suite, mais le serveur continue de
  * tourner avec le code chargé à son démarrage : une correction côté serveur
- * n'existe pas tant qu'on ne l'a pas relancé. La pastille orange dit exactement
+ * n'existe pas tant qu'on ne l'a pas relancé. Le point orange dit exactement
  * ce moment-là — sinon rien ne le signale, et la correction semble n'avoir eu
  * aucun effet.
  *
- * Repères des contrôles : `data-bouton-redemarrage="bandeau"` et
- * `data-etat-redemarrage` (`repos`, `attendu`, `retenu`, `en-cours`).
+ * Repères des contrôles : `data-bouton-redemarrage="menu"` sur l'entrée,
+ * `data-etat-redemarrage` (`repos`, `attendu`, `retenu`, `en-cours`) sur
+ * l'entrée ET sur le point (`data-point-redemarrage`).
  */
-export function BoutonRedemarrage() {
+export type EtatRedemarrage = 'repos' | 'attendu' | 'retenu' | 'en-cours';
+
+export function useRedemarrage() {
   const state = useApp();
   const [confirmer, setConfirmer] = React.useState(false);
   const [enCours, setEnCours] = React.useState(false);
 
   // Le serveur diffuse son état toutes les trente secondes, mais on le demande
-  // à l'ouverture : sinon le bouton reste muet jusqu'au premier battement.
+  // à l'ouverture : sinon le point reste muet jusqu'au premier battement.
   React.useEffect(() => {
     if (!state.connected) return;
     void client.refreshDaemonStatus();
@@ -82,7 +90,7 @@ export function BoutonRedemarrage() {
         : attendu
           ? t('Redémarrage attendu')
           : t('Redémarrer le serveur');
-  const titre = repart
+  const raison = repart
     ? t('Le serveur redémarre — l’application se reconnectera toute seule.')
     : publie
       ? raisonPublications(publications)
@@ -92,67 +100,84 @@ export function BoutonRedemarrage() {
             : t('Un redémarrage a été demandé mais un travail en cours le retient : il partira tout seul dès qu’il aura fini.'))
         : attendu
           ? t('Du code serveur plus récent attend : redémarrez pour qu’il prenne effet.')
-          : t('Redémarrer le serveur');
+          : null;
 
   /*
-   * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PAS LE BOUTON : c'est la FENÊTRE qui
+   * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PAS L'ENTRÉE : c'est la FENÊTRE qui
    * dit ce qui sera interrompu, et le forçage reste un second clic délibéré.
    * Seul le temps où le serveur repart l'éteint — il n'y a plus personne à qui
    * parler.
    */
   const retenu = publie || enAttente;
-  const etat = repart ? 'en-cours' : retenu ? 'retenu' : attendu ? 'attendu' : 'repos';
+  const etat: EtatRedemarrage = repart ? 'en-cours' : retenu ? 'retenu' : attendu ? 'attendu' : 'repos';
 
+  const dialogue = (
+    <DialogueDeRedemarrage
+      open={confirmer}
+      demon={demon ?? undefined}
+      retenu={retenu}
+      onClose={() => setConfirmer(false)}
+      onPartir={(force) => {
+        // L'entrée et le point passent à « en cours » DÈS LE CLIC.
+        setEnCours(true);
+        // La réponse part avant la coupure ; la reconnexion se fait toute
+        // seule, on rend donc la main au bout de quelques secondes. Un refus
+        // (publication en cours) revient AVANT la coupure : on le dit et on
+        // rend la main tout de suite.
+        void client
+          .call<{ ok: boolean; raison?: string }>({ type: 'daemon.restart', force })
+          .then((res) => {
+            if (res && res.ok === false) {
+              setEnCours(false);
+              if (res.raison) client.pushToast('info', res.raison);
+            }
+          })
+          .catch(() => undefined);
+        window.setTimeout(() => setEnCours(false), 12000);
+      }}
+    />
+  );
+
+  return { etat, libelle, raison, repart, ouvrir: () => setConfirmer(true), dialogue };
+}
+
+const COULEUR_DU_POINT: Record<EtatRedemarrage, string> = {
+  repos: 'bg-success',
+  attendu: 'bg-warning',
+  retenu: 'bg-warning',
+  'en-cours': 'bg-faint',
+};
+
+/** Le point d'état, à cheval sur le coin haut droit du bouton des trois points (`CLASSE_POINT_DE_BOUTON`). */
+export function PointRedemarrage({ etat }: { etat: EtatRedemarrage }) {
   return (
-    <>
-      <Tooltip label={titre !== libelle ? `${libelle} — ${titre}` : libelle}>
-        <Button
-          variant="outline"
-          size="icon"
-          className="relative shrink-0"
-          data-bouton-redemarrage="bandeau"
-          data-etat-redemarrage={etat}
-          aria-label={libelle}
-          disabled={repart}
-          onClick={() => setConfirmer(true)}
-        >
-          {repart ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
-          <span
-            aria-hidden
-            data-pastille-redemarrage={etat === 'en-cours' ? 'grise' : etat === 'repos' ? 'verte' : 'orange'}
-            className={cn(
-              'absolute right-1 top-1 h-2 w-2 rounded-full',
-              etat === 'en-cours' ? 'bg-faint' : etat === 'repos' ? 'bg-success' : 'bg-warning',
-            )}
-          />
-          <span className="sr-only">{libelle}</span>
-        </Button>
-      </Tooltip>
+    <span
+      aria-hidden
+      data-point-redemarrage={etat === 'en-cours' ? 'gris' : etat === 'repos' ? 'vert' : 'orange'}
+      data-etat-redemarrage={etat}
+      className={cn(CLASSE_POINT_DE_BOUTON, COULEUR_DU_POINT[etat])}
+    />
+  );
+}
 
-      <DialogueDeRedemarrage
-        open={confirmer}
-        demon={demon ?? undefined}
-        retenu={retenu}
-        onClose={() => setConfirmer(false)}
-        onPartir={(force) => {
-          setEnCours(true);
-          // La réponse part avant la coupure ; la reconnexion se fait toute
-          // seule, on rend donc la main au bout de quelques secondes. Un refus
-          // (publication en cours) revient AVANT la coupure : on le dit et on
-          // rend la main tout de suite.
-          void client
-            .call<{ ok: boolean; raison?: string }>({ type: 'daemon.restart', force })
-            .then((res) => {
-              if (res && res.ok === false) {
-                setEnCours(false);
-                if (res.raison) client.pushToast('info', res.raison);
-              }
-            })
-            .catch(() => undefined);
-          window.setTimeout(() => setEnCours(false), 12000);
-        }}
-      />
-    </>
+/** L'entrée « Redémarrer le serveur » du menu des trois points. */
+export function EntreeRedemarrage({ redemarrage }: { redemarrage: ReturnType<typeof useRedemarrage> }) {
+  const { etat, libelle, raison, repart, ouvrir } = redemarrage;
+  return (
+    <DropdownMenuItem
+      data-bouton-redemarrage="menu"
+      data-etat-redemarrage={etat}
+      disabled={repart}
+      onSelect={ouvrir}
+      className="items-start"
+    >
+      {repart ? <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin" /> : <Power className="mt-0.5 h-3.5 w-3.5" />}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span>{libelle}</span>
+        {raison ? <span className="whitespace-normal text-[12px] leading-snug text-muted">{raison}</span> : null}
+      </span>
+      <span aria-hidden className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', COULEUR_DU_POINT[etat])} />
+    </DropdownMenuItem>
   );
 }
 

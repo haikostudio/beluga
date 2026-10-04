@@ -1,5 +1,7 @@
+import { garderEveilleTantQue } from './veille';
 import * as React from 'react';
 import { formatRegional } from '@/lib/langue';
+import { lireNiveaux as lireNiveauxDe } from '@/lib/micro-tranches';
 
 /**
  * LA VOIX PARTAGÉE — un seul son à la fois, d'où qu'il vienne.
@@ -210,19 +212,7 @@ function brancherAnalyse(element: HTMLAudioElement): void {
  * BASSES à MÉDIUMS, là où vit la voix ; le haut du spectre resterait plat.
  */
 export function lireNiveaux(nombre: number): number[] | null {
-  if (!analyseur || !donneesFreq) return null;
-  analyseur.getByteFrequencyData(donneesFreq);
-  const bins = donneesFreq.length;
-  const utile = Math.max(nombre, Math.floor(bins * 0.7));
-  const niveaux: number[] = [];
-  for (let i = 0; i < nombre; i += 1) {
-    const debut = Math.floor((i * utile) / nombre);
-    const fin = Math.max(debut + 1, Math.floor(((i + 1) * utile) / nombre));
-    let somme = 0;
-    for (let j = debut; j < fin; j += 1) somme += donneesFreq[j];
-    niveaux.push(Math.min(1, somme / (fin - debut) / 255));
-  }
-  return niveaux;
+  return lireNiveauxDe(analyseur, donneesFreq, nombre);
 }
 
 /** Coupe net ce qui parle, sans rien relancer. */
@@ -332,6 +322,9 @@ export function direVoix(texte: string, cle: string | null = null): void {
   element.addEventListener('error', repli);
   void element.play().catch(repli);
 }
+
+// Une réponse lue à voix haute va jusqu'au bout, écran éteint compris.
+garderEveilleTantQue(() => etat.parle);
 
 /** L'état de la voix, réactif : le composant se redessine à chaque changement. */
 export function useVoix(): EtatVoix {

@@ -11,6 +11,7 @@
  */
 import type { ClientCommand, ServerEvent } from '@beluga/shared';
 import { t } from '@/lib/langue';
+import { estEnVeille, surLaVeille } from '@/lib/veille';
 
 export type EtatCanalEspace = 'connexion' | 'en-ligne' | 'coupe';
 
@@ -33,10 +34,35 @@ class CanalEspace {
   ouvrir(): void {
     if (this.ouvert) return;
     this.ouvert = true;
+    // Page hors de l'écran : le canal se ferme, et le retour le rouvre — les
+    // écrans de l'espace se rechargent déjà à chaque retour « en ligne ».
+    surLaVeille((enVeille) => (enVeille ? this.dormir() : this.connecter()));
     this.connecter();
   }
 
+  /** La veille (`lib/veille.ts`) : une fermeture VOULUE, jamais dite « coupée ». */
+  private dormir(): void {
+    if (this.minuteur !== null) window.clearInterval(this.minuteur);
+    this.minuteur = null;
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000);
+      } catch {
+        /* déjà fermé */
+      }
+    }
+    this.poserEtat('connexion');
+  }
+
   private connecter(): void {
+    if (estEnVeille()) return;
+    if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) return;
     const protocole = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocole}//${location.host}/ws`);
     this.socket = socket;

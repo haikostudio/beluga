@@ -1,3 +1,4 @@
+import { garderEveilleTantQue } from './veille';
 import { fermetureExigee } from '@beluga/shared';
 
 /**
@@ -136,6 +137,9 @@ export function signalerEcouteVoulue(voulue: boolean): void {
 }
 
 if (typeof window !== 'undefined') {
+  // Un micro ouvert (dictée, enregistrement, conversation, mot de réveil) tient
+  // la page éveillée : la veille ne coupe jamais ce qu'on est en train de dire.
+  garderEveilleTantQue(() => prises.size > 0 || ecouteVoulue);
   const juger = (evenement: string) => {
     const visible = typeof document === 'undefined' ? true : document.visibilityState !== 'hidden';
     if (fermetureExigee({ evenement, visible, ecouteVoulue })) fermerTousLesMicros();

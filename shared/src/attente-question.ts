@@ -19,6 +19,8 @@
  * `server/src/attente-question.ts`, le va-et-vient dans `server/mcp-bridge.mjs`.
  */
 
+import { texteDeReponse } from './images-reponse.js';
+
 /**
  * COMBIEN DE TEMPS UN AGENT ATTEND UNE RÉPONSE. Trente minutes : assez pour que
  * l'utilisateur voie l'alerte et réponde, pas assez pour qu'un agent oublié
@@ -134,6 +136,21 @@ export function texteSansAttente(): string {
 }
 
 /**
+ * Ce que l'agent reçoit quand il pose une question alors qu'une autre attend
+ * encore sa réponse. Une question rédigée avant de connaître la réponse à la
+ * précédente peut devenir sans objet (« si vous gardez cette option… » après
+ * « on supprime ») : la seconde n'est donc PAS posée, et l'agent est prié de
+ * la reformuler, s'il en a encore besoin, une fois la réponse reçue.
+ */
+export function texteDeQuestionSimultanee(): string {
+  return (
+    "Refusé : une question est déjà posée à l'utilisateur et attend sa réponse. Ne pose UNE SEULE question à la fois. " +
+    "Rends la main ; quand la réponse te revient, relis-la, puis pose la question suivante seulement si elle en découle " +
+    "(jamais une question conditionnelle, jamais une question que cette réponse rend sans objet)."
+  );
+}
+
+/**
  * CE TEXTE S'ADRESSE À L'AGENT, PAS AU LECTEUR — IL NE SE LIT DONC PAS DANS LE
  * PARCOURS D'UNE CARTE.
  *
@@ -225,4 +242,43 @@ export function texteRepondALaQuestion(entree: {
   if (!entree.questionEnAttente) return null;
   if (entree.texteLibreAutorise === false) return null;
   return entree.texte.trim() ? entree.questionEnAttente : null;
+}
+
+/**
+ * CE QUE LA BULLE D'UNE QUESTION TIENT DÉJÀ, avant tout envoi : les choix
+ * cochés (par leur libellé), ce qui est écrit dans son champ, ses images.
+ */
+export interface SaisieDeQuestion {
+  libelles: string[];
+  texte?: string;
+  images?: string[];
+}
+
+/**
+ * LA RÉPONSE ÉCRITE DANS LA BARRE EMPORTE CE QUE LA BULLE TENAIT DÉJÀ.
+ *
+ * On coche un choix dans la bulle, puis on écrit sa précision dans la barre du
+ * bas — le geste naturel. Seul le texte de la barre partait : le choix coché
+ * était perdu, et la question se lisait ensuite sans rien de retenu. La
+ * réponse prend donc la MÊME forme que celle du bouton « Répondre » :
+ * « libellés — complément » (`texteDeReponse`), que l'affichage sait redécouper.
+ *
+ * Seuls les libellés RÉELLEMENT proposés par la question passent, dans l'ordre
+ * où elle les a posés : ce qui vient de l'écran ne s'écrit pas tel quel.
+ */
+export function reponseParLaBarre(entree: {
+  /** Ce qui a été écrit dans la barre. */
+  texte: string;
+  /** Les libellés que la question propose. */
+  options: readonly string[];
+  /** Ce que la bulle de cette question tenait au moment de l'envoi. */
+  saisie?: SaisieDeQuestion;
+}): string {
+  const coches = new Set(entree.saisie?.libelles ?? []);
+  const libelles = entree.options.filter((libelle) => coches.has(libelle));
+  const complement = [entree.saisie?.texte ?? '', entree.texte]
+    .map((morceau) => morceau.trim())
+    .filter(Boolean)
+    .join('\n');
+  return texteDeReponse(libelles, complement, 0);
 }

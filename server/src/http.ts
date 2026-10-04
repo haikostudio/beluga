@@ -55,6 +55,16 @@ import { pipeline } from 'node:stream/promises';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { callTool, outilServiA, toolsFor } from './tools.js';
+import {
+  demandeLAccord,
+  estAssistantGlobal,
+  executerPourLAssistant,
+  outilServiALAssistant,
+  outilsDeLAssistant,
+  preparerLAppel,
+  questionDeLAccord,
+  suiteDeLAccord,
+} from './assistant-global.js';
 import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
@@ -72,7 +82,7 @@ import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils, pontAAbouti } from './pont.js';
-import { attendreUneTranche, poserLAttente } from './attente-question.js';
+import { attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
 import { fichierFavicon } from './favicon.js';
 import { log } from './logger.js';
@@ -702,9 +712,12 @@ export function createHttpServer(): http.Server {
           return json(res, 200, { ok: true });
         }
         if (route === '/internal/tools') {
-          const tools = toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId) }).filter((tool) =>
-            outilServiA(tool.name, agentId),
-          );
+          // L'ASSISTANT GLOBAL A SA PROPRE LISTE, sans aucun outil de code (`assistant-global.ts`).
+          const tools = estAssistantGlobal(agent)
+            ? outilsDeLAssistant()
+            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId) }).filter((tool) =>
+                outilServiA(tool.name, agentId),
+              );
           pontAServiLesOutils(agentId, tools.length);
           return json(res, 200, { tools });
         }
@@ -748,15 +761,27 @@ export function createHttpServer(): http.Server {
         }
         if (route === '/internal/call') {
           const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
-          const allowed = toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId) }).some(
-            (tool) => tool.name === body.name && outilServiA(tool.name, agentId),
-          );
+          const assistant = estAssistantGlobal(agent);
+          const allowed = assistant
+            ? outilServiALAssistant(String(body.name))
+            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId) }).some(
+                (tool) => tool.name === body.name && outilServiA(tool.name, agentId),
+              );
           if (!allowed) {
             return json(res, 200, {
               ok: false,
               text: `Refusé : l'outil « ${body.name} » n'est pas autorisé pour ce rôle.`,
             });
           }
+          /*
+           * UNE SEULE QUESTION À LA FOIS. Une seconde question émise pendant que
+           * la première attend est rédigée SANS connaître la réponse : elle peut
+           * être devenue sans objet (« si vous gardez… » après « on supprime »).
+           * Le refus est un résultat d'outil lisible, jamais une exception : le
+           * tour continue, l'agent reposera la suivante après la réponse.
+           */
+          const refusDeQuestion = refusDeQuestionSimultanee(agentId, String(body.name));
+          if (refusDeQuestion) return json(res, 200, { ok: false, text: refusDeQuestion });
           const debutAppel = Date.now();
           /*
            * L'APPEL EST PORTÉ JUSQU'AU DÉMON : le pont a donc bel et bien servi
@@ -767,19 +792,55 @@ export function createHttpServer(): http.Server {
            * répondu, et ne fait pas rejouer le tour.
            */
           pontAAbouti(agentId);
-          const result = await callTool(
-            {
-              agentId,
-              projectId: agent.projectId,
-              role: agent.role,
-              cardId: agent.cardId,
-              // Les réglages visibles dans la barre d'écriture au moment du
-              // clic : une carte proposée en hérite.
-              run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
-            },
-            body.name,
-            body.args ?? {},
-          );
+          const contexteDeLAppel = {
+            agentId,
+            projectId: agent.projectId,
+            role: agent.role,
+            cardId: agent.cardId,
+            // Les réglages visibles dans la barre d'écriture au moment du
+            // clic : une carte proposée en hérite.
+            run: { engine: agent.run.engine, model: agent.run.model, thinking: agent.run.thinking },
+          };
+          /*
+           * LA PORTE D'ACCORD DE L'ASSISTANT GLOBAL, TENUE ICI ET NULLE PART
+           * AILLEURS (demande du 02.10.2026). L'appel est classé
+           * (`genreDeLAppel`) ; s'il faut l'accord — suppression, envoi au
+           * client, écriture sur un serveur, ou modification interrupteur
+           * éteint —, RIEN n'est exécuté : une question « Autoriser /
+           * Refuser » est posée dans le fil, le moteur reste arrêté sur son
+           * appel, et le geste ne part qu'au clic (`suiteDeLAccord`). La
+           * consigne du modèle ne joue aucun rôle dans cette garde.
+           */
+          let result: Awaited<ReturnType<typeof callTool>>;
+          if (assistant) {
+            const prepare = preparerLAppel(String(body.name), body.args ?? {});
+            if (!prepare.ok) return json(res, 200, { ok: false, text: prepare.text });
+            const executer = () => executerPourLAssistant(contexteDeLAppel, String(body.name), prepare.args, prepare.projectId);
+            if (body.name !== 'ask_user' && demandeLAccord(prepare.genre)) {
+              const dejaUneQuestion = refusDeQuestionSimultanee(agentId, 'ask_user');
+              if (dejaUneQuestion) return json(res, 200, { ok: false, text: dejaUneQuestion });
+              const question = questionDeLAccord(String(body.name), prepare.args, prepare.genre, prepare.pourquoi);
+              poserLAttente(question.id, agentId, Date.now(), suiteDeLAccord(executer));
+              attachToCurrentMessage(agentId, { question });
+              journaliserDansLeTour(agentId, {
+                nature: 'requete',
+                libelle: String(body.name),
+                outil: String(body.name),
+                params: body.args ?? {},
+                resultat: '',
+                reussie: true,
+                dureeMs: Date.now() - debutAppel,
+              });
+              return json(res, 200, {
+                ok: true,
+                text: 'En attente de l’accord de l’utilisateur.',
+                attente: { questionId: question.id, trancheMs: TRANCHE_ATTENTE_MS },
+              });
+            }
+            result = await executer();
+          } else {
+            result = await callTool(contexteDeLAppel, body.name, body.args ?? {});
+          }
           /*
            * TOUT APPEL D'OUTIL REJOINT LE JOURNAL DE LA CARTE, réussi ou non.
            * `consultationsMemoire`, juste en dessous, ne garde que la mémoire
@@ -857,6 +918,10 @@ export function createHttpServer(): http.Server {
            * n'être lue qu'une fois tout le travail fini.
            */
           if (result.question) {
+            /* Deux appels simultanés passent tous deux le contrôle d'entrée : on
+               tranche ici, au moment même de poser l'attente, sans rien d'asynchrone. */
+            const secondeQuestion = refusDeQuestionSimultanee(agentId, String(body.name));
+            if (secondeQuestion) return json(res, 200, { ok: false, text: secondeQuestion });
             /*
              * L'ATTENTE EST POSÉE AVANT LA QUESTION, pas après. Attacher la
              * question au message DIFFUSE aussitôt l'événement que les écrans

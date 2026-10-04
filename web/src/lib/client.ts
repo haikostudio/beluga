@@ -49,6 +49,8 @@ import {
   mentionDeLancement,
   EtapeDeLancement,
   alerteServeurInjoignable,
+  attenteAvantAvis,
+  retenirDansLePerimetre,
   etatDuCanal,
   messageDuCanal,
   CLE_MESSAGE_DU_CANAL,
@@ -72,9 +74,11 @@ import {
   poserLesMoteursAjoutes,
   type FicheMoteur,
   separerLesSuivis,
+  reglagesSansRecul,
 } from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
+import { estEnVeille, surLaVeille } from '@/lib/veille';
 
 /**
  * DEUX PILES SONT-ELLES LA MÊME ? Le message persistant est recalculé toutes
@@ -831,6 +835,8 @@ class Client {
       // Le fil peut n'avoir jamais été demandé : on le réclame quand même, sans
       // attendre — sans quoi le tiroir s'ouvrirait sur une conversation vide.
       if (!this.state.messages[agentId]) this.send({ type: 'agent.open', id: agentId });
+      // Fil déjà chargé : on redit seulement au serveur qu'on le regarde.
+      else this.suivre({ agents: [agentId] });
       return deja;
     }
     try {
@@ -844,13 +850,130 @@ class Client {
     }
   }
 
-  private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {
-    const next = typeof patch === 'function' ? patch(this.state) : patch;
-    this.state = { ...this.state, ...next };
+  /*
+   * LES REDESSINS EN RAFALE SE REGROUPENT (`attenteAvantAvis`, `shared`).
+   *
+   * L'état est posé TOUT DE SUITE, toujours : qui lit `this.state` ou
+   * `lireEtat()` lit le dernier état. Seul l'AVIS aux composants est regroupé,
+   * et seulement pour ce qui vient du CANAL (`enRafale`) : un agent qui écrit
+   * sa réponse envoyait des dizaines d'événements par seconde, et chacun
+   * faisait redessiner tous les composants abonnés. Un changement né d'un
+   * geste de l'utilisateur prévient sans délai — et emporte avec lui ce qui
+   * attendait.
+   */
+  private enRafale = false;
+  private avisPrevu: number | null = null;
+  private dernierAvisA: number | null = null;
+
+  private prevenir(): void {
+    if (this.avisPrevu != null) window.clearTimeout(this.avisPrevu);
+    this.avisPrevu = null;
+    this.dernierAvisA = Date.now();
     for (const listener of this.listeners) listener();
   }
 
+  /*
+   * CE QUE CET ÉCRAN REGARDE (`shared/src/perimetre-ecran.ts`). Le serveur
+   * n'envoie le DÉTAIL d'un agent (son fil qui s'écrit, sa file, le journal de
+   * sa carte) qu'à l'écran qui affiche son projet ou qui l'a demandé. Il le
+   * déduit de nos demandes — mais il oublie tout à chaque reconnexion : on
+   * garde donc ici la même liste bornée, et `ready` la lui redit.
+   */
+  private agentsSuivis = new Set<string>();
+  private cartesSuivies = new Set<string>();
+
+  private noterLePerimetre(cmd: ClientCommand): void {
+    if (cmd.type === 'agent.open') retenirDansLePerimetre(this.agentsSuivis, cmd.id);
+    else if (cmd.type === 'card.conversation' || cmd.type === 'card.journal')
+      retenirDansLePerimetre(this.cartesSuivies, cmd.cardId);
+  }
+
+  /** Dire au serveur qu'on regarde ces conversations ou ces cartes, sans rien redemander. */
+  suivre(lieux: { agents?: string[]; cartes?: string[] }): void {
+    const agents = (lieux.agents ?? []).filter((id) => !this.agentsSuivis.has(id));
+    const cartes = (lieux.cartes ?? []).filter((id) => !this.cartesSuivies.has(id));
+    for (const id of lieux.agents ?? []) retenirDansLePerimetre(this.agentsSuivis, id);
+    for (const id of lieux.cartes ?? []) retenirDansLePerimetre(this.cartesSuivies, id);
+    if (agents.length || cartes.length) this.send({ type: 'ecran.perimetre', agents, cartes });
+  }
+
+  private set(patch: Partial<AppState> | ((current: AppState) => Partial<AppState>)): void {
+    const next = typeof patch === 'function' ? patch(this.state) : patch;
+    this.state = { ...this.state, ...next };
+    if (!this.enRafale) {
+      this.prevenir();
+      return;
+    }
+    if (this.avisPrevu != null) return;
+    const attente = attenteAvantAvis(this.dernierAvisA, Date.now());
+    this.avisPrevu = window.setTimeout(() => this.prevenir(), attente);
+  }
+
+  /*
+   * LA VEILLE (`lib/veille.ts`, `shared/src/veille-ecran.ts`). Page cachée
+   * depuis quelques secondes, sans voix ni micro en cours : le canal est fermé
+   * PAR NOUS, et rien ne le rouvre avant le retour à l'écran. Ce n'est PAS une
+   * coupure — aucune heure de coupure n'est posée, aucun message de lien
+   * n'est affiché, aucun échec n'est compté : l'alerte « le serveur ne répond
+   * pas » reste réservée à une indisponibilité réelle et durable.
+   *
+   * Le réveil emprunte le chemin de toute reconnexion : `ready` rend l'état
+   * complet, la conversation et la carte sous les yeux sont redemandées. Le
+   * décompte de la coupure part du RÉVEIL, jamais de l'endormissement.
+   */
+  private veilleBranchee = false;
+
+  private brancherLaVeille(): void {
+    if (this.veilleBranchee) return;
+    this.veilleBranchee = true;
+    surLaVeille((enVeille) => (enVeille ? this.entrerEnVeille() : this.sortirDeVeille()));
+  }
+
+  private entrerEnVeille(): void {
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.arreterLeBattement();
+    if (this.veilleDuCanal != null) window.clearInterval(this.veilleDuCanal);
+    this.veilleDuCanal = null;
+    if (this.veilleDechargement) window.clearInterval(this.veilleDechargement);
+    this.veilleDechargement = 0;
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
+      // Détaché AVANT d'être fermé : cette fermeture n'est pas une coupure, et
+      // ne doit lancer ni reconnexion ni message.
+      socket.onopen = null;
+      socket.onclose = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      try {
+        socket.close(1000);
+      } catch {
+        /* déjà fermé */
+      }
+    }
+    // Plus aucun accusé n'arrivera par ce canal : le serveur reprend la main.
+    this.reglagesEnVol.clear();
+  }
+
+  private sortirDeVeille(): void {
+    // Les projets quittés avant la veille ont pu dépasser leur quart d'heure.
+    this.dechargerLesProjetsOublies();
+    this.retry = 0;
+    this.echecsReseau = 0;
+    // La coupure se compte à partir d'ICI : si le serveur ne répond vraiment
+    // pas au réveil, le message paraît après son délai ordinaire.
+    this.coupeDepuis = Date.now();
+    this.resynchronise = false;
+    this.set({ connected: false, connecting: true });
+    this.rafraichirLeCanal();
+    this.connect();
+  }
+
   connect(): void {
+    this.brancherLaVeille();
+    // En veille, rien ne rouvre le canal : c'est le retour à l'écran qui le fait.
+    if (estEnVeille()) return;
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -891,8 +1014,15 @@ class Client {
         return;
       }
       this.dernierEvenementA = Date.now();
-      this.handle(parsed);
-      this.rafraichirLeCanal();
+      // Ce qui vient du canal se regroupe ; la réponse à une requête, elle,
+      // suit un geste : son effet s'affiche sans délai.
+      this.enRafale = parsed.type !== 'ack';
+      try {
+        this.handle(parsed);
+        this.rafraichirLeCanal();
+      } finally {
+        this.enRafale = false;
+      }
     };
   }
 
@@ -927,6 +1057,8 @@ class Client {
     // distingue une reconnexion ordinaire d'une vraie panne.
     if (this.coupeDepuis == null) this.coupeDepuis = Date.now();
     this.resynchronise = false;
+    // Plus aucun accusé n'arrivera par ce canal : le serveur reprend la main.
+    this.reglagesEnVol.clear();
     this.set({ connected: false, connecting: true });
     this.rafraichirLeCanal();
     // Reconnexion automatique : fermer l'onglet n'arrête aucun agent, et le
@@ -1107,6 +1239,25 @@ class Client {
          * traité par le serveur, dont l'écho avait été diffusé sur le socket
          * mort.
          */
+        /*
+         * LE PÉRIMÈTRE D'ABORD : le serveur vient d'ouvrir un canal neuf, il ne
+         * sait plus ce que cet écran regardait. Les conversations secondaires
+         * (assistant, agent de configuration, conducteur d'une publication)
+         * les plus récentes sont redemandées aussi — depuis la veille, un
+         * retour à l'écran est une reconnexion, et leur fil a pu avancer.
+         */
+        if (this.agentsSuivis.size || this.cartesSuivies.size) {
+          this.send({ type: 'ecran.perimetre', agents: [...this.agentsSuivis], cartes: [...this.cartesSuivies] });
+        }
+        {
+          const principal = this.dernierAgentOuvert;
+          const secondaires = [...this.agentsSuivis].filter((id) => id !== principal?.id).slice(-3);
+          for (const id of secondaires) {
+            if (this.state.messages[id]) this.send({ type: 'agent.open', id });
+          }
+          // `send` retient la dernière conversation demandée : la principale passe en dernier.
+          this.dernierAgentOuvert = principal;
+        }
         if (this.dernierAgentOuvert) {
           this.send({ type: 'agent.open', id: this.dernierAgentOuvert.id, tout: this.dernierAgentOuvert.tout });
         }
@@ -1451,7 +1602,13 @@ class Client {
         break;
 
       case 'prefs':
-        this.set({ prefs: event.prefs });
+        // Un réglage envoyé d'ici et pas encore confirmé ne recule pas.
+        this.set({
+          prefs: reglagesSansRecul(
+            event.prefs,
+            Array.from(this.reglagesEnVol, ([cle, enVol]) => [cle, enVol.valeur] as const),
+          ),
+        });
         break;
 
       case 'attachments':
@@ -1691,11 +1848,54 @@ class Client {
   send(cmd: ClientCommand): boolean {
     if (cmd.type === 'agent.open') this.dernierAgentOuvert = { id: cmd.id, tout: !!cmd.tout };
     if (cmd.type === 'card.conversation') this.derniereCarteOuverte = cmd.cardId;
+    this.noterLePerimetre(cmd);
+    if (cmd.type === 'prefs.set') return this.envoyerReglage(cmd.key, cmd.value);
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(JSON.stringify({ cmd }));
       return true;
     }
     return false;
+  }
+
+  /**
+   * UN RÉGLAGE ENVOYÉ D'ICI NE RECULE PAS AVANT D'ÊTRE CONFIRMÉ
+   * (`reglagesSansRecul`, `shared/src/reglages-en-vol.ts`).
+   *
+   * Le serveur répond à chaque `prefs.set` par le bloc ENTIER des réglages.
+   * Deux réglages envoyés coup sur coup — le brouillon d'une conversation et
+   * ses pièces jointes, à chaque image jointe — se défaisaient donc l'un
+   * l'autre à l'écran : la réponse au premier ne connaît pas encore le second.
+   * Le champ d'écriture était réécrit deux fois, et son curseur finissait au
+   * bout du texte.
+   *
+   * L'envoi porte donc un identifiant : tant que son accusé n'est pas revenu,
+   * la valeur envoyée vaut pour sa clé, quel que soit le bloc reçu. Le serveur
+   * diffuse le bloc AVANT d'accuser réception ; après l'accusé, il fait foi.
+   * Un canal qui tombe libère tout (`apresFermetureDuCanal`) : le bloc complet
+   * de la reconnexion repart du serveur.
+   */
+  private reglagesEnVol = new Map<string, { valeur: unknown; envois: Set<string> }>();
+
+  private envoyerReglage(key: string, value: unknown): boolean {
+    if (this.socket?.readyState !== WebSocket.OPEN) return false;
+    const id = Math.random().toString(36).slice(2);
+    const enVol = this.reglagesEnVol.get(key) ?? { valeur: value, envois: new Set<string>() };
+    enVol.valeur = value;
+    enVol.envois.add(id);
+    this.reglagesEnVol.set(key, enVol);
+    const liberer = () => {
+      // Le MÊME objet seulement : une reconnexion a pu repartir d'une table neuve.
+      if (this.reglagesEnVol.get(key) !== enVol) return;
+      enVol.envois.delete(id);
+      if (!enVol.envois.size) this.reglagesEnVol.delete(key);
+    };
+    this.pending.set(id, { resolve: liberer, reject: liberer });
+    this.socket.send(JSON.stringify({ id, cmd: { type: 'prefs.set', key, value } }));
+    // Un accusé qui ne revient pas ne fige pas la clé : le serveur reprend la main.
+    window.setTimeout(() => {
+      if (this.pending.delete(id)) liberer();
+    }, 15000);
+    return true;
   }
 
   /**
@@ -1739,6 +1939,9 @@ class Client {
    * l'utilisateur réessayer dans le vide pendant douze secondes.
    */
   private signalerGesteRefuse(quoi?: string): void {
+    // En veille, personne n'a fait ce geste : c'est un automatisme resté en
+    // marche. Ni message, ni reconnexion — le retour à l'écran s'en charge.
+    if (estEnVeille()) return;
     this.gesteRefuseA = Date.now();
     this.pushToast('error', quoi ? t(MOT_GESTE_NOMME_NON_PARTI, { geste: quoi }) : t(MOT_GESTE_NON_PARTI));
     this.rafraichirLeCanal();
@@ -1759,6 +1962,7 @@ class Client {
       }
       const id = Math.random().toString(36).slice(2);
       this.pending.set(id, { resolve, reject });
+      this.noterLePerimetre(cmd);
       this.socket.send(JSON.stringify({ id, cmd }));
       window.setTimeout(() => {
         if (this.pending.has(id)) {
@@ -1766,7 +1970,9 @@ class Client {
           // Une requête qui expire compte, mais ne conclut rien à elle seule :
           // un lancement de carte ne répond qu'À LA FIN du tour. C'est
           // `alerteServeurInjoignable` qui dira si cela vaut une alerte.
-          this.echecsReseau += 1;
+          // Sauf en veille : le canal a été fermé PAR NOUS, ce silence n'est pas
+          // celui du serveur.
+          if (!estEnVeille()) this.echecsReseau += 1;
           reject(new Error(RAISON_SANS_REPONSE));
         }
       }, timeoutMs);
@@ -2366,6 +2572,35 @@ if (import.meta.env.MODE !== 'production') {
         createdAt: Date.now(),
       };
       client.handleEssai({ type: 'message.upsert', message });
+    },
+    /*
+     * UNE RÉPONSE QUI PORTE DES CAPTURES, sans attendre un vrai tour : les
+     * pièces jointes désignées (déjà connues du démon) sont posées sur un
+     * message d'agent, ce qui permet de juger la bande « Ce que l'agent a vu »
+     * et le feuilletage de l'aperçu dans un vrai navigateur.
+     */
+    captures: (agentId: string | null, idsJointes: string[], options?: { id?: string }) => {
+      // Sans agent donné : celui de la carte ouverte à l'écran.
+      const agentCible = agentId ?? Object.values(client.lireEtat().cardMessages)[0]?.activeAgentId;
+      if (!agentCible) return false;
+      const message: Message = {
+        id: options?.id ?? `essai-${Math.random().toString(36).slice(2)}`,
+        agentId: agentCible,
+        role: 'assistant',
+        content: '',
+        steps: [],
+        todos: [],
+        proposals: [],
+        questions: [],
+        downloads: [],
+        attachments: idsJointes,
+        streaming: false,
+        plan: false,
+        texteLibreAnnulee: false,
+        createdAt: Date.now(),
+      };
+      client.handleEssai({ type: 'message.upsert', message });
+      return true;
     },
     /*
      * Un RÉGLAGE DE PROJET posé par le canal, sans passer par le serveur : c'est

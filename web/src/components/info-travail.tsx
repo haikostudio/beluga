@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { lancerIntervalleVisible } from '@/lib/veille';
 
 /**
  * LES TROIS DONNÉES DU TRAVAIL EN COURS, ÉCRITES UNE SEULE FOIS.
@@ -52,8 +53,7 @@ export function InfoTravail({
   const rotationActive = alterner && !!avancement && !!temps;
   React.useEffect(() => {
     if (!rotationActive) return;
-    const timer = window.setInterval(() => setAfficherAvancement((v) => !v), RYTHME_ALTERNANCE_MS);
-    return () => window.clearInterval(timer);
+    return lancerIntervalleVisible(() => setAfficherAvancement((v) => !v), RYTHME_ALTERNANCE_MS);
   }, [rotationActive]);
 
   return (

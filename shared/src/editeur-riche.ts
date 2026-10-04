@@ -19,6 +19,8 @@
  * et se relisent telles quelles.
  */
 
+import { echapperHtml } from './demande-copiable.js';
+
 /** Un nœud de l'éditeur, réduit à ce qui porte du sens. */
 export type NoeudRiche =
   | { texte: string }
@@ -180,15 +182,6 @@ export function noeudsVersMarkdown(noeuds: NoeudRiche[]): string {
 
   parcourir(noeuds);
   return blocs.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-/** Le HTML se lit dans le navigateur : tout texte y est échappé, sans exception. */
-function echapperHtml(texte: string): string {
-  return texte
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 /** Une adresse acceptée dans un lien ou une image : rien d'exécutable. */

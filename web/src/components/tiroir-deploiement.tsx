@@ -70,6 +70,7 @@ import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, elapsed, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useSeconde } from '@/lib/horloge';
 
 type EtapeRun = DeployRun['steps'][number];
 type EtatEtape = EtapeRun['state'];
@@ -403,13 +404,7 @@ function LigneDEcart({ tache, runId }: { tache: TacheDuLot; runId?: string }) {
 }
 
 export function DeployControls({ run, actions = true }: { run: DeployRun; actions?: boolean }) {
-  const [, force] = React.useReducer((value: number) => value + 1, 0);
-
-  React.useEffect(() => {
-    if (run.state !== 'running') return;
-    const timer = setInterval(force, 1000);
-    return () => clearInterval(timer);
-  }, [run.state]);
+  useSeconde(run.state === 'running');
 
   const libelleEtape = etapeDePublication(run.cible).libelle;
 
