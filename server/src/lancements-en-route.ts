@@ -26,11 +26,15 @@
 
 import { PLAFOND_LANCEMENT_EN_ROUTE_MS, travailAbandonne } from '@beluga/shared';
 
-const lancementsEnRoute = new Map<string, number>();
+const lancementsEnRoute = new Map<string, { depuis: number; projectId?: string }>();
 
-/** Le lancement de cette carte part maintenant. */
-export function marquerLancementEnRoute(cardId: string): void {
-  lancementsEnRoute.set(cardId, Date.now());
+/**
+ * Le lancement de cette carte part maintenant. Le PROJET est noté avec elle :
+ * une mise en ligne se refuse tant qu'un lancement est en préparation dans le
+ * même dépôt (`lancementsEnRouteDuProjet`).
+ */
+export function marquerLancementEnRoute(cardId: string, projectId?: string): void {
+  lancementsEnRoute.set(cardId, { depuis: Date.now(), projectId });
 }
 
 /** Le lancement de cette carte est fini — abouti ou refusé, peu importe. */
@@ -50,5 +54,15 @@ export function oublierLancementEnRoute(cardId: string): void {
 export function lancementEnRoute(cardId: string): boolean {
   const engage = lancementsEnRoute.get(cardId);
   if (engage === undefined) return false;
-  return !travailAbandonne(Date.now() - engage, PLAFOND_LANCEMENT_EN_ROUTE_MS);
+  return !travailAbandonne(Date.now() - engage.depuis, PLAFOND_LANCEMENT_EN_ROUTE_MS);
+}
+
+/**
+ * Les cartes d'un projet dont le lancement est ENCORE en route (même plafond
+ * daté : un lancement pendu ne retient pas la mise en ligne pour toujours).
+ */
+export function lancementsEnRouteDuProjet(projectId: string): string[] {
+  return [...lancementsEnRoute.entries()]
+    .filter(([cardId, engage]) => engage.projectId === projectId && lancementEnRoute(cardId))
+    .map(([cardId]) => cardId);
 }

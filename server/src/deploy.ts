@@ -89,10 +89,12 @@ import {
   depotsDuProjet,
   type DepotsDeCarte,
   agentRetientLaPublication,
+  raisonLancementEnPreparation,
   processusJoueAuDeploiement,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
+import { lancementsEnRouteDuProjet } from './lancements-en-route.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
 import { lancerCommandeBornee } from './commande-bornee.js';
@@ -208,14 +210,33 @@ export function deployableCards(projectId: string, source: ColumnKey = 'to_deplo
 }
 
 export type ConflitPrevu = { cardId: string; title: string; branch: string; files: string[] };
-export type AgentOccupe = { id: string; title: string };
+export type AgentOccupe = { id: string; title: string; enPreparation?: boolean };
 
 /** Les agents qui écrivent dans le dossier PARTAGÉ du projet : publier dessous est refusé. */
 export function agentsOccupes(projectId: string): AgentOccupe[] {
-  return store
+  const agents: AgentOccupe[] = store
     .listAgents(projectId)
     .filter(agentRetientLaPublication)
     .map((agent) => ({ id: agent.id, title: agent.title || 'agent sans titre' }));
+  /*
+   * ET LES CARTES DONT LE LANCEMENT SE PRÉPARE ENCORE. Entre le clic et la
+   * création de l'agent (copie de travail, branche, choix du compte) aucun agent
+   * n'existe : sans cette ligne, une mise en ligne partait pendant cette fenêtre
+   * et la carte s'ouvrait sur un dépôt à moitié fusionné. Le registre est daté :
+   * un lancement pendu ne bloque pas la mise en ligne pour toujours.
+   */
+  const dejaVues = new Set(store.listAgents(projectId).filter(agentRetientLaPublication).map((a) => a.id));
+  for (const cardId of lancementsEnRouteDuProjet(projectId)) {
+    const card = store.getCard(cardId);
+    if (!card || (card.agentId && dejaVues.has(card.agentId))) continue;
+    agents.push({ id: cardId, title: card.title || 'carte sans titre', enPreparation: true });
+  }
+  return agents;
+}
+
+/** Une publication de ce projet tourne-t-elle MAINTENANT (dans ce démon) ? */
+export function publicationEnCours(projectId: string): boolean {
+  return active.has(projectId);
 }
 
 /** Les fichiers en conflit rendus par `git merge-tree --name-only`. */
@@ -895,6 +916,8 @@ export async function depotsTouchesParLesCartes(project: Project, cards: Card[])
 const active = new Map<string, { controleur: AbortController }>();
 /** La publication qui attend son tour, AVEC son étape. */
 const waiting = new Map<string, { cible?: CiblePublication }>();
+/** La table des publications en cours, exposée pour les contrôles : jamais écrite hors d'eux. */
+export const publicationsActivesPourEssai = active;
 
 /** Le temps laissé à une publication toute neuve avant que le balayage la juge. */
 const DELAI_AVANT_JUGEMENT_MS = 2 * 60 * 1000;
@@ -958,6 +981,12 @@ function emit(run: DeployRun): DeployRun {
   });
   const saved = store.saveDeploy({ ...run, steps });
   bus.emit({ type: 'deploy.upsert', run: saved });
+  /* UNE MISE EN PRODUCTION QUI SE TERMINE ATTEND D'ÊTRE LUE : sa carte violette
+     compte dans le chiffre bleu de son projet (`shared/src/cartes-systeme.ts`),
+     qui se recalcule donc ici — à la fin seulement, pas à chaque étape. */
+  if (saved.cible === 'production' && saved.state !== 'running') {
+    bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+  }
   return saved;
 }
 
@@ -1194,6 +1223,10 @@ export async function startDeploy(
     return { ok: true, error: 'une publication est déjà en cours' };
   }
   const occupes = agentsOccupes(projectId);
+  const enPreparation = occupes.filter((a) => a.enPreparation);
+  if (enPreparation.length) {
+    return { ok: false, error: raisonLancementEnPreparation(enPreparation.map((a) => a.title)) };
+  }
   if (occupes.length) {
     return {
       ok: false,

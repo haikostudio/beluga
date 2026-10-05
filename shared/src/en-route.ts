@@ -26,6 +26,7 @@
 
 import type { ColumnKey } from './columns.js';
 import { extraitDeNote } from './editeur-riche.js';
+import { agentSystemeNonLu } from './cartes-systeme.js';
 import { agentTientSonTour } from './travail-en-cours.js';
 
 /** Les colonnes que la page montre : tout sauf « Archivé ». */
@@ -83,25 +84,33 @@ export interface AgentPourLaBande {
   endedAt?: number;
   startedAt?: number;
   tourVivantDepuis?: number;
+  attendReponse?: boolean;
+  /** Quand il a été consulté pour la dernière fois (`Agent.luA`). */
+  luA?: number;
   depannagePublication?: unknown;
 }
 
-/** Combien de temps un agent qui vient de finir reste dans la bande. */
+/**
+ * Combien de temps le BANDEAU de mise en production garde la mention
+ * « terminé » d'un agent de configuration (`etatDeLInitialisation`). Les cartes
+ * Système, elles, ne se règlent plus sur ce délai : elles attendent d'être lues.
+ */
 export const BANDE_GARDE_UN_FINI_MS = 60_000;
 
 /**
  * LA BANDE DES AGENTS QU'AUCUNE CARTE NE PORTE : la mise en ligne, l'analyse
  * de nuit, le chef. C'est ce que montrait la pile flottante du pied de
- * colonne, qui a disparu : ce qui travaille, ou vient de finir il y a moins
- * d'une minute (l'analyse de nuit exceptée, qui finit sans que personne
- * l'attende).
+ * colonne, qui a disparu : ce qui travaille, ou a fini SANS AVOIR ÉTÉ LU
+ * (`agentSystemeNonLu` — l'analyse de nuit exceptée, qui finit sans que
+ * personne l'attende). Une carte Système ne s'efface plus seule au bout d'une
+ * minute : elle attend d'être ouverte, point bleu allumé (05/10/2026).
  *
  * UN AGENT POSÉ SUR UNE CARTE N'Y ENTRE JAMAIS, que sa carte soit affichée ou
  * non (demande de l'utilisateur, 24.09.2026) : comparer aux seules cartes de
  * l'onglet ouvert faisait paraître dans « Terminé » l'agent d'une carte qui
  * travaille dans « Actif ». Son travail se lit sur sa carte.
  */
-export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], maintenant: number): T[] {
+export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], _maintenant?: number): T[] {
   return agents
     .filter((agent) => {
       if (agent.cardId) return false;
@@ -109,9 +118,7 @@ export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]
       if (agent.depannagePublication) return false;
       if (agent.status === 'running' || agent.status === 'starting') return true;
       if (agent.tourVivantDepuis !== undefined) return true;
-      return (
-        !!agent.endedAt && maintenant - agent.endedAt < BANDE_GARDE_UN_FINI_MS && agent.role !== 'analysis'
-      );
+      return agentSystemeNonLu(agent);
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }

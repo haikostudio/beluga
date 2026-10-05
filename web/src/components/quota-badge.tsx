@@ -32,6 +32,7 @@ import {
   Switch,
   Tooltip,
 } from '@/components/ui';
+import { IconeMoteur } from '@/components/icone-moteur';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
@@ -468,6 +469,8 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
               return (
               <div
                 key={quota.id}
+                data-carte-quota={quota.id}
+                data-moteur={quota.engine}
                 // Chaque compte est une carte à part entière : bordure et fond
                 // pour tous. Le compte qui sert est marqué par sa bordure, pas
                 // par l'absence de carte chez les autres.
@@ -483,7 +486,10 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
                     sa place reste réservée. Plus aucun badge texte pour pousser
                     la rangée sur deux lignes. */}
                 <div className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{quota.label}</span>
+                  {/* Le logo du moteur ouvre la rangée : on lit la marque avant
+                      le nom. Il ne rétrécit pas, c'est le nom qui se tronque. */}
+                  <IconeMoteur engine={quota.engine} className="h-3.5 w-3.5" />
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] text-text" data-nom-compte={quota.id}>{quota.label}</span>
                   {/* Les explications du compte, rangées derrière un « i » : la
                       carte ne garde que ce qui se lit d'un coup d'œil. */}
                   <span className="flex w-5 shrink-0 justify-center">

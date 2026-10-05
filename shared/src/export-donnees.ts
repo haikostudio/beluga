@@ -134,6 +134,10 @@ export const CATEGORIES_EXPORT: readonly DefinitionCategorie[] = [
   },
   {
     cle: 'coffre-fort',
+    // Les IMAGES des fiches ne partent pas avec cette catégorie : l'export
+    // n'emporte que des tables, jamais les fichiers des pièces jointes. La
+    // colonne `images` voyage, et une image absente à l'arrivée est
+    // simplement ignorée (`imagesDesAcces`, `server/src/coffre-fort.ts`).
     libelle: 'Coffre-fort',
     description: 'Tous les accès rangés dans le coffre-fort, valeurs comprises.',
     tables: ['secrets'],

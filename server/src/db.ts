@@ -3377,6 +3377,72 @@ export const MIGRATIONS: {
          );
     `,
   },
+  {
+    id: 103,
+    name: 'cartes-systeme-attendent-la-lecture',
+    siTable: ['agents', 'deploys'],
+    /*
+     * LES CARTES SYSTÈME ATTENDENT D'ÊTRE LUES (05/10/2026).
+     *
+     * Un agent sans carte et une mise en production terminés gardent désormais
+     * leur carte violette, point bleu allumé, tant que `luA` ne dépasse pas
+     * leur fin (`shared/src/cartes-systeme.ts`) — et ils comptent dans le
+     * chiffre bleu de leur projet. Sans reprise, TOUT l'historique surgirait
+     * d'un coup : des centaines d'agents finis et de mises en production
+     * passées, tous « jamais lus ». Ce qui est déjà terminé à cet instant est
+     * donc réputé LU ; seul ce qui finira ensuite attendra une lecture.
+     *
+     * Les deux repères deviennent de vraies colonnes (calculées) avec leur
+     * index : le compteur est recalculé à chaque fin de tour, et il ne doit
+     * pas relire le JSON de toutes les publications pour ça. Une ligne au
+     * JSON illisible (base d'essai, reprise à moitié faite) vaut « rien à
+     * lire » : elle ne doit faire tomber ni la reprise ni les lectures.
+     */
+    sql: `
+      UPDATE agents
+         SET data = json_set(data, '$.luA', CAST(strftime('%s', 'now') AS INTEGER) * 1000 + 999)
+       WHERE card_id IS NULL AND json_valid(data) AND json_extract(data, '$.endedAt') IS NOT NULL;
+      UPDATE deploys
+         SET data = json_set(data, '$.luA', CAST(strftime('%s', 'now') AS INTEGER) * 1000 + 999)
+       WHERE state <> 'running' AND json_valid(data) AND json_extract(data, '$.cible') = 'production';
+      ALTER TABLE agents ADD COLUMN fini_a INTEGER GENERATED ALWAYS AS (CASE WHEN json_valid(data) THEN json_extract(data, '$.endedAt') END) VIRTUAL;
+      ALTER TABLE agents ADD COLUMN lu_a INTEGER GENERATED ALWAYS AS (CASE WHEN json_valid(data) THEN json_extract(data, '$.luA') END) VIRTUAL;
+      CREATE INDEX idx_agents_sans_carte ON agents(fini_a, lu_a) WHERE card_id IS NULL;
+      ALTER TABLE deploys ADD COLUMN cible TEXT GENERATED ALWAYS AS (CASE WHEN json_valid(data) THEN json_extract(data, '$.cible') END) VIRTUAL;
+      ALTER TABLE deploys ADD COLUMN lu_a INTEGER GENERATED ALWAYS AS (CASE WHEN json_valid(data) THEN json_extract(data, '$.luA') END) VIRTUAL;
+      CREATE INDEX idx_deploys_cible ON deploys(cible, project_id, started_at, lu_a);
+    `,
+  },
+  {
+    id: 104,
+    name: 'coffre-fort-images',
+    siTable: 'secrets',
+    /*
+     * UNE FICHE DU COFFRE PORTE DES IMAGES (capture, code QR, document
+     * scanné) : la liste des identifiants de pièces jointes, en JSON, comme
+     * `notes.pieces_jointes`. Les fichiers sont rangés sous le projet réservé
+     * `PROJET_DU_COFFRE` (`shared/src/coffre-fort.ts`).
+     */
+    sql: `
+      ALTER TABLE secrets ADD COLUMN images TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
+  {
+    id: 105,
+    name: 'competences-proposees-au-cadrage',
+    siTable: 'competence_stats',
+    /*
+     * LES COMPÉTENCES PROPOSÉES PAR BELUGA AU CADRAGE
+     * (`server/src/proposition-competences.ts`) : combien de fois une fiche a
+     * été proposée, puis validée (« Utiliser ») ou écartée (« Pas utile »).
+     * C'est ce qui dit si la proposition automatique vise juste.
+     */
+    sql: `
+      ALTER TABLE competence_stats ADD COLUMN proposee INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE competence_stats ADD COLUMN acceptee INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE competence_stats ADD COLUMN refusee INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export function openDb(): DB {

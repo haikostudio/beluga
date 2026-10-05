@@ -5,7 +5,7 @@
  * la place locale n'intéressait personne, et rien n'a jamais été nettoyé.
  * Mesuré le 21.09.2026 sur les 150 Go du serveur : 13 Go de fichiers
  * temporaires, 4 Go de caches d'outils, 762 Mo de paquets téléchargés, des
- * restes de construction et des emplacements de copies déjà refermées. Les
+ * emplacements de copies déjà refermées. Les
  * projets étant maintenant ICI, cette accumulation se paie.
  *
  * Ce module EXÉCUTE ce que `shared/src/menage-du-disque.ts` autorise, et rien

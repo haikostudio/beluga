@@ -62,6 +62,7 @@ import {
   TEXTE_BARRE_EN_ATTENTE,
   modeleActuel,
   idDuMessageDeSynthese,
+  agentSystemeNonLu,
 } from '@beluga/shared';
 import { BulleInfo, Button, ConfirmDialog, DialogTitle, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { IndicateurActivite } from '@/components/indicateur-activite';
@@ -678,6 +679,21 @@ export function Chat({
    * JUGEMENT PAR RENDU : revenir sur l'onglet après « Marquer comme non lu »
    * ne relit pas la carte.
    */
+  /*
+   * LA MÊME LECTURE POUR UN AGENT SANS CARTE (05/10/2026). Sa carte Système
+   * reste affichée, point bleu allumé, tant qu'il n'a pas été lu
+   * (`agentSystemeNonLu`) : avoir sa conversation sous les yeux quand il finit
+   * — le cas du chef, de l'assistant, d'un agent de configuration — vaut
+   * lecture, sinon le chiffre bleu du projet monterait à chaque tour. Même
+   * garde que pour une carte : l'écran doit être réellement regardé.
+   */
+  const agentSansCarteNonLu = !!agent && !cardId && agentSystemeNonLu(agent);
+  const idAgentALire = agentSansCarteNonLu && !busy ? agent!.id : null;
+  React.useEffect(() => {
+    if (!idAgentALire) return;
+    return quandLEcranEstRegarde(() => client.send({ type: 'agent.read', agentId: idAgentALire }));
+  }, [idAgentALire, agent?.endedAt]);
+
   const renduA = carte?.renduA;
   const renduNonConsulte = !!renduA && renduA > (carte?.lastReadAt ?? 0);
   const renduNonConsulteRef = React.useRef(renduNonConsulte);

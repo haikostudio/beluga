@@ -106,7 +106,7 @@ import {
   rendrePlan,
   IDS_MOTEURS,
 } from '@beluga/shared';
-import { listerAcces, listerArchives, enregistrerAcces, restaurerAcces, supprimerAcces } from './coffre-fort.js';
+import { listerAcces, listerArchives, enregistrerAcces, imagesDesAcces, restaurerAcces, supprimerAcces } from './coffre-fort.js';
 import * as store from './store.js';
 import { REFUS_SORTIE_GROUPE_LOCAL } from '@beluga/shared';
 import { createProjectFolder } from './projects.js';
@@ -170,7 +170,10 @@ import {
   supprimerAction as supprimerActionMarketing,
   marquerSuiviPose,
   modifierContenu,
+  nouveautesEnReserve,
+  retirerDeLaReserve,
   resultatsDuProjet,
+  rythmeDuProjet,
 } from './marketing.js';
 import {
   LABEL_MARKETING,
@@ -178,6 +181,7 @@ import {
   jugerReperes,
   METHODE_DES_REPERES,
   estSiteAutonome,
+  phraseDuRythme,
   origineDe,
   extraitDeSuivi,
   modeDEmploiDuSuivi,
@@ -784,9 +788,21 @@ export const TOOL_DEFS: ToolDef[] = [
         },
         hypotheses: {
           type: 'array',
-          items: { type: 'string' },
+          items: {
+            type: 'object',
+            required: ['texte', 'nature'],
+            properties: {
+              texte: { type: 'string', description: 'La supposition, en une ligne qui commence par « Je suppose que… »' },
+              nature: {
+                type: 'string',
+                enum: ['technique', 'produit'],
+                description:
+                  '« technique » : la manière de construire, ce qu’un développeur choisirait seul. « produit » : tout ce que l’utilisateur peut juger sans programmer.',
+              },
+            },
+          },
           description:
-            'Ce que tu ASSUMES faute de réponse, une ligne chacune, chacune commençant par « Je suppose que… ». Un point qui CHANGE le travail se pose avec « ask_user », pas ici : une question déposée dans ce champ est refusée. Tableau vide si rien.',
+            'TABLEAU VIDE dès que quelqu’un est devant l’écran : toute ligne y est REFUSÉE, même technique. Un point incertain se VÉRIFIE d’abord (projet, commande, documentation) ; ce que la demande ou le projet tranche s’écrit comme décidé dans « texte » ; le reste se POSE avec « ask_user » AVANT de rendre la compréhension. Des lignes ne s’écrivent ici que si ta demande t’interdit « ask_user » (personne devant l’écran) : une par supposition, avec sa nature.',
         },
         sujets: {
           type: 'array',
@@ -1080,7 +1096,10 @@ export const TOOL_DEFS: ToolDef[] = [
       "coffre refuse une fiche qui en regroupe plusieurs. « supprimer » retire une fiche périmée (donne son « id ») : " +
       "elle n'est pas effacée mais ARCHIVÉE six mois, puis effacée pour de bon ; « archives » liste les fiches " +
       "retirées et « restaurer » (avec « id ») en remet une en service. N'archive que ce qui est VRAIMENT périmé, " +
-      "une fiche d'un autre projet sert peut-être encore à quelqu'un.",
+      "une fiche d'un autre projet sert peut-être encore à quelqu'un. UNE FICHE PEUT PORTER DES IMAGES (capture " +
+      "d'écran, code QR, document scanné) : « lister » en donne le chemin sur une ligne « image : … », et tu les " +
+      "ouvres comme n'importe quel fichier (outil de lecture) quand elles servent ton travail. Tu n'en ajoutes pas " +
+      "et tu n'en retires pas : c'est l'utilisateur qui les pose, et corriger une fiche garde ses images.",
     inputSchema: {
       type: 'object',
       required: ['action'],
@@ -1131,7 +1150,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'marketing',
     description:
-      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, varianteDe, lienCible) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés). Tu ne valides, ne programmes, ne publies et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
+      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés). Tu ne valides, ne programmes, ne publies et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1163,7 +1182,8 @@ export const TOOL_DEFS: ToolDef[] = [
         titre: { type: 'string' },
         texte: { type: 'string' },
         datePrevue: { type: 'string', description: 'AAAA-MM-JJ' },
-        etape: { type: 'string', enum: ['brouillon', 'a_valider'] },
+        etape: { type: 'string', enum: ['brouillon', 'a_valider', 'abandonne', 'archive'], description: 'abandonne (ou archive) : seulement pour retirer une de tes propositions encore en brouillon ou à valider' },
+        nouveaute: { type: 'string', description: 'La référence d’une nouveauté en réserve (donnée par « lire ») que ce nouveau contenu annonce' },
         varianteDe: { type: 'string', description: 'L’identifiant de la version A, pour écrire sa version B' },
         lienCible: { type: 'string', description: 'La page vers laquelle le lien de suivi du contenu mène (par défaut : l’adresse du produit)' },
       },
@@ -2486,7 +2506,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const tourDuCadrage = runtimeDuCadrage.liveRun(ctx.agentId)?.messageId;
       const questionsPosees = tourDuCadrage
-        ? (store.listMessages(ctx.agentId).find((m) => m.id === tourDuCadrage)?.questions ?? []).length
+        ? (store.listMessages(ctx.agentId).find((m) => m.id === tourDuCadrage)?.questions ?? []).filter((q) => !q.competence).length
         : 0;
       const carte = store.getCard(ctx.cardId);
       if (!carte || carte.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
@@ -2505,29 +2525,26 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const lecture = lireComprehensionRendue(args, { questionsPosees });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
       /*
-       * LES CHOIX DE PRODUIT SE POSENT : une compréhension pleine de
-       * suppositions, rendue sans une seule question, repart UNE fois aux
-       * questions (`renvoiAuxQuestions`). Jamais pour le cadrage de la nuit,
-       * qui n'a pas le droit de demander.
+       * QUELQU'UN EST DEVANT L'ÉCRAN : PLUS AUCUNE SUPPOSITION, MÊME TECHNIQUE.
+       * Toute ligne de « hypotheses » est refusée à chaque appel
+       * (`renvoiAuxQuestions`) : elle se vérifie, s'écrit comme décidée ou se
+       * pose. Jamais pour un cadrage à qui l'on interdit de demander, ni hors
+       * d'un tour vivant : il bouclerait — là, les suppositions subsistent.
        */
       const tourVivant = runtimeDuCadrage.liveRun(ctx.agentId);
+      const { suppositions, ...rendue } = lecture.valeur;
       const renvoi = renvoiAuxQuestions({
-        hypotheses: lecture.valeur.hypotheses,
-        questionsPosees,
+        suppositions,
         questionsInterdites: !tourVivant || tourVivant.questionsInterdites,
-        dejaRenvoye: tourVivant?.renvoiAuxQuestionsFait,
       });
-      if (renvoi && tourVivant) {
-        tourVivant.renvoiAuxQuestionsFait = true;
-        return { ok: false, text: renvoi };
-      }
+      if (renvoi) return { ok: false, text: renvoi };
       /* SUR UN PROJET RÉUNI, la compréhension DOIT dire quels projets elle
          touche : c'est ce qui décide des cartes posées au lancement. */
-      const refusDesTouches = refusDesProjetsTouches(carte.projectId, lecture.valeur.projetsTouches);
+      const refusDesTouches = refusDesProjetsTouches(carte.projectId, rendue.projetsTouches);
       if (refusDesTouches) return { ok: false, text: refusDesTouches };
       const runtime = runtimeDuCadrage;
       const tourId = tourDuCadrage;
-      const comprehension = ComprehensionDeCarte.parse({ ...lecture.valeur, at: Date.now(), tourId });
+      const comprehension = ComprehensionDeCarte.parse({ ...rendue, at: Date.now(), tourId });
       /* « La compréhension n'est pas venue » tombe avec la compréhension : son
          bouton, resté affiché, demandait un plan que personne n'avait voulu. */
       const incident = carte.parcours?.incident?.etape === 'comprehension' ? undefined : carte.parcours?.incident;
@@ -3250,7 +3267,16 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             : ' · partagé Beluga Build';
           const echeance = echeanceArchive(a);
           const archive = echeance ? ` · archivée, effacée le ${new Date(echeance).toISOString().slice(0, 10)}` : '';
-          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type]}${portee}${archive})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}`;
+          /*
+           * LES IMAGES DE LA FICHE, par leur CHEMIN : une capture, un code QR
+           * ou un document scanné se REGARDE, et un moteur en ligne de
+           * commande n'ouvre qu'un fichier. Le dossier des pièces jointes est
+           * ouvert à tout tour (`dossiersDeDonneesOuverts`).
+           */
+          const images = imagesDesAcces([a])
+            .map((piece) => `\n  image : ${piece.chemin} (${piece.name})`)
+            .join('');
+          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type]}${portee}${archive})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
         });
         return { ok: true, text: lignes.join('\n') };
       }
@@ -3639,6 +3665,7 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
       const actions = listerActionsMarketing(project.id);
       const r = resultatsDuProjet(project.id, 30);
       const parContenu = new Map(r.parContenu.map((l) => [l.contenuId, l]));
+      const nouveautes = nouveautesEnReserve(project.id);
       return {
         ok: true,
         text: [
@@ -3656,6 +3683,10 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
             }`;
           }),
           contenus.length > 40 ? `(${contenus.length - 40} contenu(s) plus ancien(s) non listé(s))` : '',
+          phraseDuRythme(rythmeDuProjet(project.id)),
+          nouveautes.length
+            ? `NOUVEAUTÉS EN RÉSERVE (${nouveautes.length}) — livraisons non annoncées faute de place ; pour en annoncer une, crée un contenu avec « nouveaute » = sa référence :\n${nouveautes.map((n) => `- [${n.ref}] ${n.poids} · « ${n.titre} »`).join('\n')}`
+            : 'NOUVEAUTÉS EN RÉSERVE : aucune.',
           `RÉSULTATS DES 30 DERNIERS JOURS : ${JSON.stringify(r.totaux)}`,
           `SOURCES : ${r.sources.map((x) => `${x.source} ${x.visites}`).join(', ') || 'aucune visite'}`,
           `PAGES : ${r.pages.map((x) => `${x.chemin} ${x.vues}`).join(', ') || '—'}`,
@@ -3696,8 +3727,10 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
       if (typeof args.id === 'string' && args.id) {
         const r = modifierContenu(args.id, args, 'agent', project.id);
         if (!r.ok) return { ok: false, text: r.raison };
-        if (args.etape === 'brouillon' || args.etape === 'a_valider') {
-          const e = changerEtapeMarketing(args.id, args.etape, 'agent', project.id);
+        // « archive » est un synonyme d'« abandonne » : l'agent archive SES propositions, jamais plus loin.
+        const etapeDemandee = args.etape === 'archive' ? 'abandonne' : args.etape;
+        if (etapeDemandee === 'brouillon' || etapeDemandee === 'a_valider' || etapeDemandee === 'abandonne') {
+          const e = changerEtapeMarketing(args.id, etapeDemandee, 'agent', project.id);
           if (!e.ok) return { ok: false, text: e.raison };
         }
         return { ok: true, text: `Contenu ${args.id} modifié (${lireContenu(args.id)?.etape}).` };
@@ -3712,9 +3745,13 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
         etape: args.etape,
         varianteDe: args.varianteDe,
         lienCible: args.lienCible,
-        origine: 'agent',
+        // Une nouveauté en réserve annoncée : même clé que l'annonce automatique, donc jamais deux fois.
+        ...(typeof args.nouveaute === 'string' && args.nouveaute.trim()
+          ? { origine: 'nouveaute' as const, sourceRef: `changelog:${args.nouveaute.trim()}` }
+          : { origine: 'agent' as const }),
       });
       if (!r.ok) return { ok: false, text: r.raison };
+      if (typeof args.nouveaute === 'string' && args.nouveaute.trim()) retirerDeLaReserve(project.id, args.nouveaute.trim());
       return {
         ok: true,
         text: `Contenu créé : ${r.contenu.id} (${r.contenu.etape}). Son lien de suivi : ${adresseDeBeluga()}/m/l/${r.contenu.lienCode} — à utiliser dans le texte à la place de l'adresse du site.`,
@@ -3735,9 +3772,7 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
 /**
  * L'OUTIL « STATISTIQUES » (demande du 27/09/2026) : tout agent de projet
  * active le suivi des visites et pose LUI-MÊME le code dans le projet, avec
- * des repères choisis après avoir étudié le site. Aucune carte n'est posée ;
- * l'installation est marquée « par un agent » pour que le démon ne pose pas
- * sa carte de correction en doublon (`installationParUnAgentEnCours`).
+ * des repères choisis après avoir étudié le site. Aucune carte n'est posée.
  */
 async function outilStatistiques(ctx: ToolContext, project: Project, args: Record<string, any>): Promise<ToolResult> {
   const stats = await import('./statistiques.js');
@@ -3766,7 +3801,6 @@ async function outilStatistiques(ctx: ToolContext, project: Project, args: Recor
       }
       const mode = args.mode === 'visiteur' ? 'visiteur' : args.mode === 'anonyme' ? 'anonyme' : espace.modeSuivi;
       const regle = stats.reglerLeMode(project.id, mode);
-      suivi.marquerInstallationParUnAgent(project.id);
       const trousse = stats.troussePourLeSite(regle, project.name);
       return {
         ok: true,
@@ -3813,7 +3847,7 @@ function outilStatistiquesSurLEspace(
         ok: true,
         text: [
           `Mode : ${espace.modeSuivi}. Adresse : ${espace.configuration.adresse ?? 'aucune'}. Sites autorisés : ${espace.configuration.origines.join(', ') || 'aucun'}.`,
-          `État : ${espace.configuration.etatSuivi}${etat.diagnostic ? ` · code lu sur le site : ${etat.diagnostic}` : ''}${etat.carteId ? ` · carte de correction ${etat.carteId}` : ''}.`,
+          `État : ${espace.configuration.etatSuivi}${etat.diagnostic ? ` · code lu sur le site : ${etat.diagnostic}` : ''}${etat.carteId ? ` · carte du suivi ${etat.carteId}` : ''}.`,
           reperes.length ? `Repères (${reperes.length}) :\n${reperes.map((r) => `- ${r.nom}${r.objectif ? ' [étape]' : ''} — ${r.emplacement} — ${r.raison}`).join('\n')}` : 'Aucun repère déclaré.',
           decrireLesParcours(stats.lireLesParcoursDuSite(id, reperes)),
           `Extrait : ${stats.troussePourLeSite(espace, nom).extrait}`,

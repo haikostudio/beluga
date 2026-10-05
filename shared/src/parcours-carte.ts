@@ -825,6 +825,21 @@ export interface PartieTechniqueRendue {
   risques: string;
 }
 
+/**
+ * LA NATURE D'UNE SUPPOSITION, DÉCLARÉE PAR L'AGENT LIGNE PAR LIGNE.
+ * « technique » : la manière de construire, ce qu'un développeur choisirait
+ * seul. « produit » : tout ce que l'utilisateur peut juger sans programmer —
+ * et qui, à ce titre, se POSE au lieu de se supposer.
+ */
+export type NatureDeSupposition = 'technique' | 'produit';
+
+/** Une ligne de « hypotheses » relue : son texte, et sa nature quand elle est dite. */
+export interface SuppositionRendue {
+  texte: string;
+  /** Absente pour une chaîne nue (l'ancien format) ou une nature inconnue. */
+  nature?: NatureDeSupposition;
+}
+
 /** Ce que l'outil `rendre_comprehension` reçoit, une fois relu. */
 export interface ComprehensionRendue {
   texte: string;
@@ -834,10 +849,17 @@ export interface ComprehensionRendue {
    * CE QUE L'AGENT ASSUME, faute d'avoir eu la réponse. Ce champ portait
    * autrefois « ce qui reste flou » : une rubrique où déposer ses doutes, donc
    * une invitation à ne PAS poser la question. Un point qui change le travail
-   * se pose avec `ask_user` ; un point resté sans réponse se TRANCHE et
-   * s'écrit « Je suppose que… ».
+   * se pose avec `ask_user`. Depuis le 05/10/2026, la liste est VIDE dès que
+   * quelqu'un est devant l'écran (`renvoiAuxQuestions`) : « Je suppose que… »
+   * ne s'écrit plus que dans un cadrage à qui l'on interdit de questionner.
    */
   hypotheses: string[];
+  /**
+   * LES MÊMES LIGNES, AVEC LA NATURE QUE L'AGENT LEUR A DÉCLARÉE. Lu par le
+   * garde-fou (`renvoiAuxQuestions`), JAMAIS enregistré : la carte ne garde que
+   * le texte (`hypotheses`), donc ni l'écran ni « Valider » ne changent.
+   */
+  suppositions: SuppositionRendue[];
   sujets: string[];
   /** Sur un projet réuni : les projets membres que la carte touche (noms ou identifiants). */
   projetsTouches?: string[];
@@ -897,6 +919,26 @@ const listeDe = (valeur: unknown): string[] =>
   Array.isArray(valeur) ? valeur.map((v) => texteDe(v)).filter((v) => v.length > 0) : [];
 
 /**
+ * RELIT « hypotheses » DANS SES DEUX FORMES : l'objet `{ texte, nature }` que
+ * l'outil déclare, et la chaîne nue d'avant — une session de cadrage déjà
+ * ouverte garde l'ancien schéma en tête. Une chaîne nue se LIT (nature non
+ * dite) : c'est le garde-fou qui la refuse, avec la marche à suivre, jamais une
+ * erreur de lecture.
+ */
+function suppositionsDe(valeur: unknown): SuppositionRendue[] {
+  if (!Array.isArray(valeur)) return [];
+  return valeur.flatMap((ligne): SuppositionRendue[] => {
+    if (typeof ligne === 'string') return ligne.trim() ? [{ texte: ligne.trim() }] : [];
+    if (!ligne || typeof ligne !== 'object') return [];
+    const objet = ligne as Record<string, unknown>;
+    const texte = texteDe(objet.texte ?? objet.text ?? objet.hypothese);
+    if (!texte) return [];
+    const nature = sansAccent(texteDe(objet.nature));
+    return [{ texte, ...(nature === 'technique' || nature === 'produit' ? { nature } : {}) }];
+  });
+}
+
+/**
  * LE PLAFOND DES HYPOTHÈSES — large, et DIT quand il est dépassé.
  *
  * L'outil coupait autrefois la liste à six lignes, sans rien dire : une
@@ -936,7 +978,8 @@ export function lireComprehensionRendue(
       raison: `Il manque ${resumesManquants.join(' et ')} : ${FORME_DES_RESUMES_DU_FIL}. Rien n’a été enregistré ; rends la compréhension de nouveau avec ces champs.`,
     };
   }
-  const hypotheses = listeDe(args?.hypotheses ?? args?.questions_ouvertes ?? args?.questionsOuvertes);
+  const suppositions = suppositionsDe(args?.hypotheses ?? args?.questions_ouvertes ?? args?.questionsOuvertes);
+  const hypotheses = suppositions.map((ligne) => ligne.texte);
   if (hypotheses.length > HYPOTHESES_MAX) {
     return {
       ok: false,
@@ -983,6 +1026,7 @@ export function lireComprehensionRendue(
       texte,
       partieTechnique: partieTechnique.valeur,
       hypotheses,
+      suppositions,
       sujets: listeDe(args?.sujets).slice(0, 8),
       resumeDemande,
       resumeComprehension,
@@ -992,56 +1036,81 @@ export function lireComprehensionRendue(
 }
 
 /**
- * À PARTIR DE COMBIEN DE SUPPOSITIONS UNE COMPRÉHENSION RENDUE SANS AUCUNE
- * QUESTION EST RENVOYÉE AUX QUESTIONS. En dessous, deux détails techniques
- * tranchés ne justifient pas d'interrompre l'utilisateur.
- */
-export const SUPPOSITIONS_AVANT_RENVOI = 3;
-
-/**
  * LE MARQUEUR DU CADRAGE DE NUIT, tel que `demandeDeCadrageDeLaNuit`
  * (`auto-amelioration.ts`) ouvre sa demande. La relance après panne recopie la
  * demande entière (DEC-036) : le marqueur survit donc à un nouvel essai.
  */
 export const MARQUEUR_DU_CADRAGE_DE_NUIT = "CETTE DEMANDE VIENT DU RENDEZ-VOUS D'AUTO-AMÉLIORATION DE LA NUIT";
 
-/** Ce tour de cadrage interdit-il `ask_user` ? Vrai pour le cadrage de la nuit, que personne ne lit à 3 h. */
+/**
+ * LA PHRASE QUI INTERDIT `ask_user`, COMMUNE AUX TROIS CADRAGES SANS PERSONNE
+ * DEVANT L'ÉCRAN : la nuit (`auto-amelioration.ts`), la carte posée par un
+ * agent ou une vérification (`CONSIGNE_DU_CADRAGE_SANS_TEMOIN`,
+ * `naissance-de-carte.ts`) et l'enquête sur un site tombé
+ * (`depannage-site.ts`). Le refus des suppositions n'étant pas borné, un
+ * cadrage à qui l'on interdit de questionner DOIT être reconnu — sinon il ne
+ * pourrait plus rendre de compréhension. Ce sont aussi les SEULS où une
+ * supposition s'écrit encore.
+ */
+export const MARQUEUR_DU_CADRAGE_SANS_QUESTION = 'NE POSE AUCUNE QUESTION AVEC « ask_user »';
+
+/** Ce tour de cadrage interdit-il `ask_user` ? Vrai dès que sa demande le lui interdit : la nuit, une carte posée sans témoin, un site tombé. */
 export function tourDeCadrageSansQuestion(demande: string | undefined): boolean {
-  return !!demande && demande.includes(MARQUEUR_DU_CADRAGE_DE_NUIT);
+  return !!demande && (demande.includes(MARQUEUR_DU_CADRAGE_DE_NUIT) || demande.includes(MARQUEUR_DU_CADRAGE_SANS_QUESTION));
 }
 
+const citer = (lignes: readonly SuppositionRendue[]): string => lignes.map((ligne) => `« ${ligne.texte} »`).join(' ; ');
+
 /**
- * LE GARDE-FOU DES SUPPOSITIONS : UNE COMPRÉHENSION PLEINE DE « JE SUPPOSE »,
- * RENDUE SANS AVOIR RIEN DEMANDÉ, EST RENVOYÉE UNE FOIS AUX QUESTIONS.
+ * LE GARDE-FOU DES SUPPOSITIONS : QUAND QUELQU'UN EST DEVANT L'ÉCRAN, PLUS
+ * AUCUNE SUPPOSITION NE S'ÉCRIT — MÊME TECHNIQUE.
  *
  * Constat du 30/09/2026 (carte ProjetA « former ses agents ») : six questions
  * sur les trois premiers tours, puis plus aucune, et treize suppositions dont
- * des choix de PRODUIT — qui voit les conversations, prix du pack, crédit,
- * invitations. La consigne dit que ces choix se posent ; l'outil le tient.
+ * des choix de PRODUIT. Le garde-fou d'alors ne renvoyait qu'une compréhension
+ * rendue sans AUCUNE question.
  *
- * BORNÉ POUR NE JAMAIS BOUCLER : un seul renvoi par tour (le second appel
- * passe), aucun renvoi quand le tour interdit la question (cadrage de nuit,
- * MEM-0472) — sinon aucune compréhension ne pourrait jamais s'écrire.
+ * Constat du 04/10/2026 (carte ProjetA « Admin propre, tickets d'assistance et
+ * graphiques ») : trois questions posées, puis cinq suppositions qui étaient
+ * toutes des choix de produit. Chaque ligne a donc déclaré sa NATURE, et seule
+ * la « technique » passait — une ou deux du premier coup, trois après un rappel.
+ *
+ * Constat du 05/10/2026 (carte Kipou « Fabrication Android prête pour la
+ * production ») : la règle a fait ce qui était écrit — deux questions, un
+ * rappel, puis UNE ligne technique affichée (« Je suppose que les clés de
+ * Google Play et de Firebase peuvent être émises depuis un seul projet »).
+ * C'était un FAIT à vérifier, pas un choix, et l'utilisateur l'a lu comme le
+ * défaut de la veille. Sa décision : « tout devient une question, même
+ * technique ». La nature ne lève donc plus rien quand la question est permise.
+ *
+ * TOUTE ligne est REFUSÉE, à chaque appel et sans borne, quelle que soit sa
+ * nature. Le refus ne peut pas boucler : ses trois issues sont toutes à la main
+ * de l'agent — VÉRIFIER lui-même, écrire comme DÉCIDÉ ce que la demande ou le
+ * projet tranche (une question évidente ne se pose pas), ou POSER la question.
+ * Un tableau vide passe toujours.
+ *
+ * AUCUN REFUS quand le tour interdit la question (`tourDeCadrageSansQuestion`,
+ * ou aucun tour vivant) — sinon aucune compréhension ne pourrait s'écrire. Là
+ * seulement les suppositions subsistent, validées ou corrigées d'un clic.
  *
  * Rend le texte du refus, ou `undefined` quand la compréhension passe.
  */
 export function renvoiAuxQuestions(etat: {
-  hypotheses: readonly string[];
-  questionsPosees: number;
-  /** Ce tour interdit-il `ask_user` (cadrage de nuit) ? */
+  suppositions: readonly SuppositionRendue[];
+  /** Ce tour interdit-il `ask_user` (personne devant l'écran) ? */
   questionsInterdites?: boolean;
-  /** Ce tour a-t-il déjà reçu ce renvoi ? */
-  dejaRenvoye?: boolean;
 }): string | undefined {
-  if (etat.questionsInterdites || etat.dejaRenvoye) return undefined;
-  if (etat.questionsPosees > 0) return undefined;
-  if (etat.hypotheses.length < SUPPOSITIONS_AVANT_RENVOI) return undefined;
+  if (etat.questionsInterdites || !etat.suppositions.length) return undefined;
+  const nombre = etat.suppositions.length;
   return (
-    `${etat.hypotheses.length} suppositions et aucune question posée : rien n’a été enregistré. ` +
-    'Relis-les : tout CHOIX DE PRODUIT — ce que voit chaque personne, qui a le droit de faire quoi, prix, qui paie, limites, ' +
-    'vie des comptes, données gardées ou perdues, ce qui s’affiche au client — se POSE à l’utilisateur avec « ask_user », ' +
-    'UNE question à la fois — la suivante découle de la réponse, sans question conditionnelle —, et la réponse te revient dans ce tour. Ne garde en « Je suppose que… » que les détails techniques. ' +
-    'Puis rends la compréhension de nouveau. S’il ne reste vraiment que des détails techniques, rends-la telle quelle : ce renvoi ne se fait qu’une fois.'
+    'Rien n’a été enregistré : quelqu’un est devant l’écran, donc « hypotheses » doit être un tableau VIDE — plus aucune supposition ne s’écrit, même technique. ' +
+    `${nombre === 1 ? 'Cette ligne reste à traiter' : `Ces ${nombre} lignes restent à traiter`} : ${citer(etat.suppositions)}. ` +
+    'Pour chacune, trois issues, toutes à ta main : ' +
+    '(1) la VÉRIFIER toi-même — lire le projet, lancer une commande, ouvrir la documentation —, puis l’écrire comme un fait établi dans « texte » ou dans « partieTechnique.faits » ; ' +
+    '(2) si la demande ou le projet y répond déjà, si l’utilisateur t’a laissé choisir, ou si ce n’est que ta manière de construire, l’écrire comme DÉCIDÉE dans « texte » ou dans « partieTechnique.taches » — une question dont la réponse est évidente ne se pose pas ; ' +
+    '(3) sinon la POSER avec « ask_user », même si tu as déjà posé des questions dans ce tour : UNE question à la fois — la suivante découle de la réponse, sans question conditionnelle —, ' +
+    'en mots courants pour quelqu’un qui ne programme pas (ce que change chaque réponse), avec la réponse que tu recommandes ; elle te revient dans ce tour. ' +
+    'Puis rends la compréhension de nouveau, « hypotheses » vide.'
   );
 }
 
@@ -1457,7 +1526,7 @@ export function consigneDePlanDansLeMemeTour(numero: number): string {
     `Le plan porte TOUTES ses parties (titre, enClair, synthese, taches, decisions, resume, faisabilite, chemin, consequences, ameliorations, verifications), ` +
     `et il s'ouvre sur « enClair », L'OUVERTURE DU PLAN, AVANT la liste des tâches — deux à quatre courts paragraphes adressés à l'utilisateur, en mots courants, qui lui font se représenter le résultat : ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira au quotidien. Le ton attendu, par exemple : « Vous n'avez pas besoin de connaître le marketing… L'agent rédige, illustre, publie après votre accord… Vous, vous décidez. » ` +
     `Toutes les parties s'écrivent en mots courants pour quelqu'un qui ne programme pas ; le détail technique va dans « notesTechniques ». ` +
-    `Ne pose aucune question ici : écris le plan avec ce que tu sais, et marque tes suppositions. Ta réponse en texte répond d'abord aux questions que le message pose, puis dit en une phrase que la compréhension et le plan sont rendus.`
+    `Ce qui reste incertain se vérifie ou se pose AVANT la compréhension, comme toujours ; une fois celle-ci rendue, plus aucune question : écris le plan avec ce que tu sais, et marque DANS LE PLAN ce que tu supposes. Ta réponse en texte répond d'abord aux questions que le message pose, puis dit en une phrase que la compréhension et le plan sont rendus.`
   );
 }
 

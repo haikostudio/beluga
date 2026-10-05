@@ -1088,6 +1088,37 @@ export async function chercherUnitesMelees(texte: string, o: OptionsDeRecherche 
   return ponderer(texte, o, similarites);
 }
 
+/**
+ * LA PROXIMITÉ BRUTE PAR LE SENS, unité par unité : le cosinus entre la demande
+ * et chaque unité active des portées visées. `chercherUnitesMelees` rend un
+ * CLASSEMENT — son meilleur score vaut toujours à peu près la même chose, qu'il
+ * y ait une bonne réponse ou non. Qui doit décider s'il y a QUELQUE CHOSE à
+ * proposer (les compétences du cadrage, `server/src/proposition-competences.ts`)
+ * a besoin d'une mesure absolue : celle-ci. Sans vectoriseur, ou s'il tarde, la
+ * carte revient vide — à l'appelant d'en conclure qu'il ne sait pas.
+ */
+export async function proximitesParLeSens(
+  texte: string,
+  o: { portees: readonly string[]; types?: readonly TypeUnite[] },
+  delaiMs = 6_000,
+): Promise<Map<string, number>> {
+  const proximites = new Map<string, number>();
+  if (!texte.trim() || !vectoriseurDisponible()) return proximites;
+  const memoire = vecteursDesUnites();
+  if (!memoire.length) return proximites;
+  try {
+    const [demande] = await vectoriser([demandeAVectoriser(texte)], delaiMs);
+    for (const v of memoire) {
+      if (v.statut !== 'active' || !o.portees.includes(v.portee)) continue;
+      if (o.types?.length && !o.types.includes(v.type as TypeUnite)) continue;
+      proximites.set(v.id, cosinus(demande, v.vecteur));
+    }
+  } catch (err) {
+    log.warn(`base de connaissances : proximité par le sens indisponible (${(err as Error).message})`);
+  }
+  return proximites;
+}
+
 /* Les vecteurs des unités. */
 
 interface VecteurDUnite {

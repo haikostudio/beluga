@@ -32,6 +32,7 @@ import {
 } from '@/components/ui';
 import { BlocConnexion, RemplacerCle } from '@/components/connexion-compte';
 import { LigneChiffresCursor, UsageCursor } from '@/components/quota-badge';
+import { IconeMoteur } from '@/components/icone-moteur';
 import { AjouterUnMoteur } from '@/components/reglages/ajout-de-moteur';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -193,7 +194,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
   const identite = quota.identite?.adresse ?? quota.identite?.compteFournisseur;
 
   return (
-    <div className="rounded-md border border-border bg-bloc px-2 py-1.5" data-ligne-compte={quota.id} data-phase-connexion={phase}>
+    <div className="rounded-md border border-border bg-bloc px-2 py-1.5" data-ligne-compte={quota.id} data-moteur={quota.engine} data-phase-connexion={phase}>
       {/* SOUS 400 px, LES BADGES ET LES BOUTONS PASSENT SOUS LE NOM au lieu de
           l'écraser en une colonne d'un caractère de large : la rangée se replie
           (`flex-wrap`), et le bloc du nom garde une base assez large pour ne
@@ -202,6 +203,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
         <div className="min-w-0 flex-1 basis-[11rem]">
           {edite ? (
             <div className="flex items-center gap-1.5">
+              <IconeMoteur engine={quota.engine} className="h-3.5 w-3.5" />
               <Input
                 autoFocus
                 value={nom}
@@ -223,8 +225,13 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
 </Button>
             </div>
           ) : (
-            <p className="truncate text-[13.5px] text-text">
-              {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
+            // Le logo du moteur ouvre la ligne et ne rétrécit pas : c'est le
+            // nom, dans son propre bloc, qui se tronque.
+            <p className="flex items-center gap-1.5 text-[13.5px] text-text">
+              <IconeMoteur engine={quota.engine} className="h-3.5 w-3.5" />
+              <span className="min-w-0 truncate" data-nom-compte={quota.id}>
+                {quota.label} {quota.plan ? <span className="text-faint">· {quota.plan}</span> : null}
+              </span>
             </p>
           )}
           {/* À QUEL COMPTE CETTE FICHE EST BRANCHÉE. Seul Claude publie un

@@ -23,6 +23,7 @@ import {
   PlanDeMiseEnLigne,
   TravailSansCarte,
   alerteTravailSansCarte,
+  miseEnProductionNonLue,
   depotsAPublierSeuls,
   depotsEntraines,
   type DepotsDeCarte,
@@ -81,6 +82,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { client } from '@/lib/client';
+import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
 import { useApp } from '@/lib/use-app';
 import { useMinute } from '@/lib/horloge';
 import { cn, duration, elapsed } from '@/lib/utils';
@@ -217,6 +219,15 @@ export function DeployPanel({
     setFilAgent(productionDemandee.agentId ?? null);
     client.demanderProduction(null);
   }, [productionDemandee, projectId]);
+  /* REGARDER LE TIROIR DE PRODUCTION, C'EST LIRE SA DERNIÈRE MISE EN
+     PRODUCTION : terminée, elle perd son point bleu et sa carte violette
+     s'efface (`shared/src/cartes-systeme.ts`). */
+  const productionALire = presentation === 'bandeau' && tiroirOuvert ? state.productions[projectId] : undefined;
+  const idProductionALire = productionALire && miseEnProductionNonLue(productionALire) ? productionALire.id : null;
+  React.useEffect(() => {
+    if (!idProductionALire) return;
+    return quandLEcranEstRegarde(() => client.send({ type: 'deploy.read', runId: idProductionALire }));
+  }, [idProductionALire]);
   const tiroirFilAgent = (
     <Drawer open={!!filAgent} onClose={() => setFilAgent(null)} empile>
       {filAgent ? (
@@ -326,7 +337,7 @@ export function DeployPanel({
    * qu'une publication se termine.
    */
   const [conflicts, setConflicts] = React.useState<Conflict[]>([]);
-  const [busyAgents, setBusyAgents] = React.useState<{ id: string; title: string }[]>([]);
+  const [busyAgents, setBusyAgents] = React.useState<{ id: string; title: string; enPreparation?: boolean }[]>([]);
   /* Du travail enregistré sur la branche principale sans carte : il doit
      pouvoir partir en ligne, sinon il reste bloqué là indéfiniment. */
   const [enAttente, setEnAttente] = React.useState<{ nombre: number; titres: string[] }>({ nombre: 0, titres: [] });
@@ -523,7 +534,8 @@ export function DeployPanel({
           aPublier,
           cartesDansLaColonne: cards.length,
           autrePublication: active && !mienne,
-          agentsOccupes: busyAgents.map((agent) => agent.title),
+          agentsOccupes: busyAgents.filter((agent) => !agent.enPreparation).map((agent) => agent.title),
+          lancementsEnPreparation: busyAgents.filter((agent) => agent.enPreparation).map((agent) => agent.title),
           productionBloquee: productionBloquee ?? undefined,
           horsLigne: !state.connected,
         })

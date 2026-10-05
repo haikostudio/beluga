@@ -79,6 +79,7 @@ import {
   evenementAutorise,
   type CompteUtilisateur,
   fusionDesProcedures,
+  PROJET_DU_COFFRE,
 } from '@beluga/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
@@ -190,10 +191,11 @@ import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 
 import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
 import { annulerLAttente, questionEnAttenteDeLAgent, repondreALAttente } from './attente-question.js';
+import { fermerLesPropositionsDeLAgent, trancherLaCompetence } from './proposition-competences.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
-import { enregistrerAcces, listerAcces, listerArchives, restaurerAcces, supprimerAcces } from './coffre-fort.js';
+import { enregistrerAcces, imagesDesAcces, listerAcces, listerArchives, restaurerAcces, supprimerAcces } from './coffre-fort.js';
 import { phrasePourLEcran } from './explication-d-erreur.js';
 import { enregistrerNote, listerNotes, piecesDesNotes, supprimerNote } from './notes.js';
 import { etatDuJuge, listerLesTraces } from './jugement-rapide.js';
@@ -207,7 +209,7 @@ import {
   verifierSites,
 } from './surveillance.js';
 import { lancerAssistantDeSurveillance } from './assistant-surveillance.js';
-import { lancerAgentMarketing } from './assistant-marketing.js';
+import { demandeDeLaSuite, lancerAgentMarketing } from './assistant-marketing.js';
 import {
   changerEtape as changerEtapeMarketing,
   creerContenu as creerContenuMarketing,
@@ -222,6 +224,7 @@ import {
   vueDEnsemble as vueDEnsembleMarketing,
   joursDeTendance as joursDeTendanceMarketing,
   estAgentMarketing,
+  lireEspace as lireEspaceMarketing,
 } from './marketing.js';
 import { depannerLaPublication } from './depannage-publication.js';
 import {
@@ -464,7 +467,12 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       capacity: etatCapacite(),
       // Les agents au travail et ceux qui viennent de finir, tous projets
       // confondus ; ceux du projet ouvert arrivent avec ses cartes, juste après.
-      agents: agentsDuPremierEnvoi(store.agentsActifsOuRecents(Date.now() - FRAICHEUR_AGENT_MS), null, Date.now()),
+      // …PLUS les agents sans carte qui ont fini sans avoir été lus, quel que
+      // soit leur âge : leur carte violette les attend sur « Tableaux de bord ».
+      agents: avecLesAgentsNonLus(
+        agentsDuPremierEnvoi(store.agentsActifsOuRecents(Date.now() - FRAICHEUR_AGENT_MS), null, Date.now()),
+      ),
+      productions: store.productionsAAfficher(),
       openedProjectId: projetOuvert ?? undefined,
     });
 
@@ -558,6 +566,12 @@ function envoyerConversation(agentId: string, tout = false): void {
  * Marquer une carte comme lue, et rediffuser le compte des pastilles. Deux
  * chemins y mènent : ouvrir sa conversation, ou le dire explicitement.
  */
+/** Le premier envoi, complété des agents sans carte restés non lus (sans doublon). */
+function avecLesAgentsNonLus(agents: Agent[]): Agent[] {
+  const connus = new Set(agents.map((agent) => agent.id));
+  return [...agents, ...store.agentsSystemeNonLus().filter((agent) => !connus.has(agent.id))];
+}
+
 function marquerLue(cardId: string): void {
   const carte = store.markCardRead(cardId);
   if (!carte) return;
@@ -850,12 +864,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         recupererFaviconEnTache(updated);
       }
       bus.emit({ type: 'project.upsert', project: updated });
-      /* UNE ADRESSE DE PRODUCTION NOUVELLE OUVRE SON SUIVI tout de suite,
-         sans attendre le tour du jour ; la réponse n'attend pas la lecture. */
+      /* UNE ADRESSE DE PRODUCTION NOUVELLE EST AUTORISÉE dans l'espace de
+         suivi ; le site n'est pas lu et aucune carte ne naît. */
       if (updated.adresseProduction && updated.adresseProduction !== current.adresseProduction) {
         void import('./suivi-par-defaut.js')
-          .then(({ assurerLeSuiviDuProjet }) => assurerLeSuiviDuProjet(updated.id))
-          .catch((err) => log.warn('suivi par défaut : relecture du projet impossible', err));
+          .then(({ preparerLeSuiviDuProjet }) => preparerLeSuiviDuProjet(updated.id))
+          .catch((err) => log.warn('suivi des visites : préparation de l’espace impossible', err));
       }
       return { project: updated };
     }
@@ -1616,6 +1630,25 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: marquerNonLue(cmd.cardId) };
     }
 
+    /* « J'ai lu », pour une carte SYSTÈME : un agent sans carte, ou une mise
+       en production terminée. Sa carte violette s'efface et le chiffre bleu
+       de son projet redescend, sur tous les écrans. */
+    case 'agent.read': {
+      const agent = store.markAgentRead(cmd.agentId);
+      if (!agent) return { ok: false };
+      bus.emit({ type: 'agent.upsert', agent });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return { ok: true };
+    }
+
+    case 'deploy.read': {
+      const run = store.markDeployRead(cmd.runId);
+      if (!run) return { ok: false };
+      bus.emit({ type: 'deploy.lu', run });
+      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return { ok: true };
+    }
+
     /*
      * UNE CARTE RÉCLAMÉE PAR SON LIEN DIRECT. Le tiroir n'a que l'identifiant
      * de l'adresse : il demande ici la carte elle-même, hors de tout
@@ -1649,12 +1682,18 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * qui dit laquelle ouvrir, avec la même règle que le compteur.
      */
     case 'project.unreadCard': {
-      return { cardId: store.lastUnreadCard([cmd.projectId, ...(cmd.membres ?? [])]) };
+      /* Le rendu le plus récent, carte Système comprise : `cardId`, ou
+         `agentId` (un agent sans carte), ou `production` (le projet dont la
+         mise en production attend d'être lue). */
+      return store.lastUnread([cmd.projectId, ...(cmd.membres ?? [])]) ?? { cardId: null };
     }
 
     case 'project.read': {
       const touchees = store.markProjectRead(cmd.projectId);
       for (const carte of touchees) bus.emit({ type: 'card.upsert', card: carte });
+      const systeme = store.markSystemeRead(cmd.projectId);
+      for (const agent of systeme.agents) bus.emit({ type: 'agent.upsert', agent });
+      for (const run of systeme.runs) bus.emit({ type: 'deploy.lu', run });
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       return { lues: touchees.length };
     }
@@ -1770,6 +1809,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * compris. La barre répond donc à la question, par le MÊME chemin que le
        * bouton de la bulle (`texteRepondALaQuestion`).
        */
+      /*
+       * DES ENCADRÉS DE COMPÉTENCE ENCORE OUVERTS : écrire autre chose les
+       * referme, et le cadrage qu'ils retenaient repart aussitôt — le message
+       * ne dort pas dans la file derrière une attente d'une demi-heure.
+       */
+      fermerLesPropositionsDeLAgent(cmd.agentId);
       const enAttente = questionEnAttenteDeLAgent(cmd.agentId);
       /*
        * ET MÊME UN TOUR DÉJÀ REFERMÉ : plus personne n'attend dans le registre,
@@ -2136,6 +2181,18 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       bus.emit({ type: 'attention', ...store.signalAttention() });
 
       /*
+       * UN ENCADRÉ DE COMPÉTENCE N'EST PAS UNE QUESTION DE L'AGENT : c'est le
+       * démon qui l'a posé. La décision s'écrit sur la carte, et la recherche
+       * de mémoire retenue ne repart qu'au DERNIER encadré tranché de la série.
+       * Tour déjà refermé : la décision reste écrite, sans relancer l'agent —
+       * c'est la carte qui fait foi au lancement.
+       */
+      if (question.competence) {
+        trancherLaCompetence({ agentId: message.agentId, questionId: cmd.questionId, reponse: cmd.answer });
+        return { ok: true };
+      }
+
+      /*
        * UNE QUESTION DE ROUTAGE NE SE REND PAS À CELUI QUI L'A POSÉE. Elle ne
        * vient pas d'un moteur en train de réfléchir : elle vient de l'assistant
        * vocal global, qui attend de savoir OÙ déposer une phrase dictée. La
@@ -2200,6 +2257,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * réponse qui ne viendra jamais : il repart, en sachant que rien n'a été
        * tranché — donc sans deviner à la place de l'utilisateur.
        */
+      if (question.competence) {
+        // Un encadré fermé sans réponse : la série avance comme sur un « Pas utile », sans peser sur la fiche.
+        trancherLaCompetence({ agentId: message.agentId, questionId: cmd.questionId });
+        return { ok: true };
+      }
       annulerLAttente(cmd.questionId);
       return { ok: true };
     }
@@ -2561,6 +2623,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'attachments.list': {
+      // Les images du coffre-fort ne se listent que par le coffre lui-même.
+      if (cmd.projectId === PROJET_DU_COFFRE) return { items: [] };
       const items = store.listAttachments(cmd.projectId);
       bus.emit({ type: 'attachments', projectId: cmd.projectId, items });
       return { items };
@@ -2940,25 +3004,35 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     /* -------- Coffre-fort des identifiants -------- */
 
     // Retirer une fiche l'ARCHIVE six mois : chaque réponse rend donc aussi les archives.
-    case 'coffre.lister':
-      return { acces: listerAcces(), archives: listerArchives() };
+    // …et les IMAGES des fiches (`pieces`), pour que l'écran affiche leurs vignettes.
+    case 'coffre.lister': {
+      const acces = listerAcces();
+      const archives = listerArchives();
+      return { acces, archives, pieces: imagesDesAcces([...acces, ...archives]) };
+    }
 
     case 'coffre.enregistrer': {
       const resultat = enregistrerAcces(cmd.acces);
       if (!resultat.ok) throw new Error(resultat.raison);
-      return { acces: resultat.acces, liste: listerAcces(), archives: listerArchives() };
+      const liste = listerAcces();
+      const archives = listerArchives();
+      return { acces: resultat.acces, liste, archives, pieces: imagesDesAcces([...liste, ...archives]) };
     }
 
     case 'coffre.supprimer': {
       const resultat = supprimerAcces(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'accès introuvable');
-      return { ok: true, liste: listerAcces(), archives: listerArchives() };
+      const liste = listerAcces();
+      const archives = listerArchives();
+      return { ok: true, liste, archives, pieces: imagesDesAcces([...liste, ...archives]) };
     }
 
     case 'coffre.restaurer': {
       const resultat = restaurerAcces(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'archive introuvable');
-      return { ok: true, liste: listerAcces(), archives: listerArchives() };
+      const liste = listerAcces();
+      const archives = listerArchives();
+      return { ok: true, liste, archives, pieces: imagesDesAcces([...liste, ...archives]) };
     }
 
     /* -------- Le juge rapide -------- */
@@ -3255,7 +3329,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // Le tour part sans retenir l'écran : la conversation se suit dans l'écran Marketing.
       return await lancerAgentMarketing({
         projectId: String(cmd.projectId ?? ''),
-        demande: cmd.geste === 'initialiser' || cmd.geste === 'reanalyser' ? demandeDuGeste(cmd.geste) : String(cmd.demande ?? ''),
+        demande:
+          cmd.geste === 'suite'
+            ? // Sans agent attitré, il n'y a encore rien à prolonger : on initialise.
+              lireEspaceMarketing(String(cmd.projectId ?? ''))?.agentId
+              ? demandeDeLaSuite(String(cmd.projectId))
+              : demandeDuGeste('initialiser')
+            : cmd.geste === 'initialiser' || cmd.geste === 'reanalyser'
+              ? demandeDuGeste(cmd.geste)
+              : String(cmd.demande ?? ''),
       });
 
     case 'marketing.configurer': {

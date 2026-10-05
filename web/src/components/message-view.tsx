@@ -60,6 +60,7 @@ import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
 import { BulleQuestion, PiecesJointes } from '@/components/bulle-question';
+import { EncadresDeCompetences } from '@/components/encadre-competence';
 import { SAISIE_EN_TEXTE } from '@/lib/saisie-de-question';
 import { Steps } from '@/components/steps';
 import { CapturesDuFlux } from '@/components/captures-du-flux';
@@ -335,6 +336,8 @@ export function MessageView({
      dans le bandeau fixe, au-dessus de la barre d'écriture. Le fil garde
      celles qui ont déjà été validées ou refusées. */
   const decidees = propositionsDuFil(message.proposals);
+  /* Les compétences proposées par le démon vivent dans leurs encadrés, pas dans le feuilletage des questions. */
+  const questionsDeLAgent = message.questions.filter((question) => !question.competence);
 
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
@@ -409,10 +412,15 @@ export function MessageView({
             une seule à l'écran, sa pagination en haut à droite, et le passage
             à la suivante dès qu'on a répondu. Une seule question s'affiche
             comme avant, sans cadre ajouté. */}
-        {message.questions.length ? (
+        {/* LES COMPÉTENCES PROPOSÉES PAR BELUGA BUILD ONT LEUR ENCADRÉ VIOLET,
+            un par compétence et tous visibles : ce ne sont pas des questions
+            de l'agent, elles ne se feuillettent donc pas avec elles. */}
+        <EncadresDeCompetences messageId={message.id} questions={message.questions} />
+
+        {questionsDeLAgent.length ? (
           <div className="mt-2">
             <CarouselQuestions
-              questions={message.questions}
+              questions={questionsDeLAgent}
               cle={(question) => question.id}
               repondue={(question) => !!question.answer || !!question.cancelled}
               rendu={(question) => (

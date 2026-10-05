@@ -15,7 +15,7 @@
  *   - la demande envoyée à l'agent (`demandeDeDepannage`).
  */
 
-import { BANDE_GARDE_UN_FINI_MS } from './en-route.js';
+import { agentSystemeNonLu } from './cartes-systeme.js';
 import { natureDePublication } from './mise-en-ligne.js';
 
 /** Ce que la règle lit d'une publication. */
@@ -38,6 +38,8 @@ export interface AgentPourLeDepannage {
   attendReponse?: boolean;
   endedAt?: number;
   startedAt?: number;
+  /** Quand il a été consulté pour la dernière fois (`Agent.luA`). */
+  luA?: number;
   depannagePublication?: { runId: string; cible: 'dev' | 'production' };
 }
 
@@ -100,15 +102,15 @@ export function depanneurVivant(agent: AgentPourLeDepannage | null | undefined):
 
 /**
  * LES VIGNETTES « DÉPANNAGE » DE « TABLEAUX DE BORD » : chaque agent de
- * dépannage vivant, et celui qui vient de finir depuis moins d'une minute
- * (même garde que la bande des agents sans carte), le plus récent d'abord.
+ * dépannage vivant, et celui qui a fini SANS AVOIR ÉTÉ LU (même règle que la
+ * bande des agents sans carte, `agentSystemeNonLu`), le plus récent d'abord.
  */
-export function depannagesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[], maintenant: number): T[] {
+export function depannagesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[], _maintenant?: number): T[] {
   return agents
     .filter((agent) => {
       if (!agent.depannagePublication) return false;
       if (depanneurVivant(agent)) return true;
-      return !!agent.endedAt && maintenant - agent.endedAt < BANDE_GARDE_UN_FINI_MS;
+      return agentSystemeNonLu(agent);
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
 }

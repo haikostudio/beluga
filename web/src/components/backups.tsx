@@ -49,6 +49,9 @@ import {
   siteVierge,
   DESCRIPTION_SITE_MAX,
   descriptionDuProjetSansFiche,
+  estUnRegroupement,
+  libelleDansUnMenu,
+  projetsEnArbre,
   raisonDemandeRefusee,
   recetteEffective,
   volumeDuPoint,
@@ -955,6 +958,29 @@ function AssistantDeSite({
   const [projet, setProjet] = React.useState('');
   const [enCours, setEnCours] = React.useState(false);
 
+  /*
+   * LES MEMBRES D'UN PROJET RÉUNI SE RANGENT SOUS LUI, ici aussi. Le serveur
+   * n'envoie pas le projet réuni — il n'a ni dossier ni fichier à sauvegarder
+   * (`projetsSansFiche`) : on le RAPPELLE donc en titre, non sélectionnable,
+   * devant ses membres, d'après les projets que l'application connaît.
+   */
+  const projetsDeLApp = useApp().projects;
+  const lignesDeProjets = React.useMemo(() => {
+    const connus = new Map(projetsDeLApp.map((p) => [p.id, p]));
+    const titres = new Set<string>();
+    const liste: { id: string; name: string; isSelf?: boolean; regroupement?: boolean; regroupementId?: string }[] = [];
+    for (const p of projets) {
+      const connu = connus.get(p.id);
+      const parent = connu?.regroupementId ? connus.get(connu.regroupementId) : undefined;
+      if (parent && estUnRegroupement(parent) && !parent.archived && !titres.has(parent.id)) {
+        titres.add(parent.id);
+        liste.push({ id: parent.id, name: parent.name, regroupement: true });
+      }
+      liste.push({ id: p.id, name: p.nom, isSelf: connu?.isSelf, regroupementId: connu?.regroupementId });
+    }
+    return projetsEnArbre(liste).map((ligne) => ({ ...ligne, titre: titres.has(ligne.projet.id) }));
+  }, [projets, projetsDeLApp]);
+
   // Le champ repart vierge à chaque ouverture : la demande précédente est partie
   // chez l'assistant, la relire ici ferait croire qu'elle attend encore.
   React.useEffect(() => {
@@ -1029,9 +1055,14 @@ function AssistantDeSite({
                 data-backups-projet
               >
                 <option value="">{t('Site extérieur')}</option>
-                {projets.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nom}
+                {lignesDeProjets.map((ligne) => (
+                  <option
+                    key={ligne.projet.id}
+                    value={ligne.projet.id}
+                    disabled={ligne.titre}
+                    data-membre-de={ligne.parentId}
+                  >
+                    {libelleDansUnMenu(ligne.projet.name, ligne)}
                   </option>
                 ))}
               </select>

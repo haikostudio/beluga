@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import {
+  additionnerLesRendus,
+  agentSystemeNonLu,
+  miseEnProductionNonLue,
+  misesEnProductionAAfficher,
+  renduLePlusRecent,
+  systemeNonLuParProjet,
+  type SystemeNonLu,
+} from '@beluga/shared';
+import {
   Agent,
   Attachment,
   Card,
@@ -2520,7 +2529,101 @@ export function signalAttention(
  * `shared`, donc testable seule — tranche.
  */
 export function projectsWithFinishedWork(): Record<string, number> {
-  return rendusParProjet(etatDesCartesRendues());
+  return additionnerLesRendus(rendusParProjet(etatDesCartesRendues()), systemeNonLuParProjet(systemeNonLu()));
+}
+
+/**
+ * LES CARTES SYSTÈME NON LUES (`shared/src/cartes-systeme.ts`) : les agents
+ * sans carte qui ont fini, et la dernière mise en production de chaque projet,
+ * tant que personne ne les a consultés. Elles comptent dans le chiffre bleu du
+ * projet au même titre qu'une carte. Les deux lectures passent par les
+ * colonnes calculées `fini_a` / `lu_a` / `cible` et leur index : ni le JSON
+ * d'une publication ni celui d'un agent lu n'est relu.
+ */
+export function systemeNonLu(projectIds?: readonly string[]): SystemeNonLu[] {
+  const entrees: SystemeNonLu[] = [];
+  const voulu = projectIds ? new Set(projectIds) : null;
+  for (const agent of agentsSystemeNonLus()) {
+    if (voulu && !voulu.has(agent.projectId)) continue;
+    entrees.push({ projectId: agent.projectId, genre: 'agent', id: agent.id, finiA: agent.endedAt ?? 0 });
+  }
+  for (const run of productionsAAfficher()) {
+    if (run.state === 'running' || (voulu && !voulu.has(run.projectId))) continue;
+    entrees.push({ projectId: run.projectId, genre: 'production', id: run.projectId, finiA: run.endedAt ?? 0 });
+  }
+  return entrees;
+}
+
+/** Les agents sans carte qui ont fini sans avoir été lus, d'un projet qui existe encore. */
+export function agentsSystemeNonLus(): Agent[] {
+  const rows = getDb()
+    .prepare(
+      /* L'index partiel est NOMMÉ : laissé à lui-même, le planificateur passe
+         par celui des cartes et relit le JSON de chaque agent sans carte
+         (mesuré : 1,9 ms contre 0,07 ms sur 700 agents). */
+      `SELECT a.data FROM agents a INDEXED BY idx_agents_sans_carte
+        WHERE a.card_id IS NULL AND a.fini_a > COALESCE(a.lu_a, 0)
+          AND EXISTS (SELECT 1 FROM projects p WHERE p.id = a.project_id)`,
+    )
+    .all() as { data: string }[];
+  return rows.map((r) => Agent.parse(JSON.parse(r.data))).filter(agentSystemeNonLu);
+}
+
+/**
+ * LES MISES EN PRODUCTION QUI ONT LEUR CARTE VIOLETTE, tous projets confondus :
+ * la dernière de chaque projet, si elle tourne ou si elle a fini sans avoir été
+ * lue. Une publication plus ancienne restée non lue ne revient jamais : la
+ * suivante l'a remplacée.
+ */
+export function productionsAAfficher(): DeployRun[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT d.data FROM deploys d
+        WHERE d.cible = 'production'
+          AND (d.state = 'running' OR COALESCE(d.ended_at, 0) > COALESCE(d.lu_a, 0))
+          AND NOT EXISTS (SELECT 1 FROM deploys n
+                           WHERE n.cible = 'production' AND n.project_id = d.project_id AND n.started_at > d.started_at)
+          AND EXISTS (SELECT 1 FROM projects p WHERE p.id = d.project_id)`,
+    )
+    .all() as { data: string }[];
+  return misesEnProductionAAfficher(rows.map((r) => DeployRun.parse(JSON.parse(r.data))));
+}
+
+/**
+ * « J'ai lu », pour un agent sans carte. Le repère s'écrit DANS la ligne, sans
+ * repasser par `saveAgent` : la lecture n'est pas une action de l'agent, sa
+ * date de dernière activité ne bouge pas. `null` quand il n'y avait rien à lire.
+ */
+export function markAgentRead(agentId: string, at = now()): Agent | null {
+  const agent = getAgent(agentId);
+  if (!agent || !agentSystemeNonLu(agent)) return null;
+  getDb().prepare(`UPDATE agents SET data = json_set(data, '$.luA', ?) WHERE id = ?`).run(at, agentId);
+  return getAgent(agentId);
+}
+
+/** « J'ai lu », pour une mise en production terminée. `null` quand il n'y avait rien à lire. */
+export function markDeployRead(runId: string, at = now()): DeployRun | null {
+  const run = getDeploy(runId);
+  if (!run || !miseEnProductionNonLue(run)) return null;
+  getDb().prepare(`UPDATE deploys SET data = json_set(data, '$.luA', ?) WHERE id = ?`).run(at, runId);
+  return getDeploy(runId);
+}
+
+/** « J'ai tout lu sur ce projet » touche AUSSI ses cartes Système. Rend ce qui a changé. */
+export function markSystemeRead(projectId: string, at = now()): { agents: Agent[]; runs: DeployRun[] } {
+  const agents: Agent[] = [];
+  const runs: DeployRun[] = [];
+  for (const agent of agentsSystemeNonLus()) {
+    if (agent.projectId !== projectId) continue;
+    const lu = markAgentRead(agent.id, at);
+    if (lu) agents.push(lu);
+  }
+  for (const run of productionsAAfficher()) {
+    if (run.projectId !== projectId) continue;
+    const lu = markDeployRead(run.id, at);
+    if (lu) runs.push(lu);
+  }
+  return { agents, runs };
 }
 
 /**
@@ -2537,6 +2640,18 @@ export function unreadCards(projectId: string): string[] {
 /** La carte non lue que le badge bleu du projet ouvre : la plus récemment rendue. */
 export function lastUnreadCard(projectIds: string[]): string | null {
   return carteNonLueLaPlusRecente(projectIds.flatMap((id) => etatDesCartesRendues(id)));
+}
+
+/**
+ * CE QUE LE BADGE BLEU OUVRE, carte Système comprise : le rendu le plus récent
+ * du projet (ou du groupe), qu'il vienne d'une carte, d'un agent sans carte ou
+ * d'une mise en production (`renduLePlusRecent`).
+ */
+export function lastUnread(projectIds: string[]): ReturnType<typeof renduLePlusRecent> {
+  const cartes = projectIds.flatMap((id) => etatDesCartesRendues(id));
+  const cardId = carteNonLueLaPlusRecente(cartes);
+  const carte = cardId ? { cardId, renduA: cartes.find((c) => c.cardId === cardId)?.renduA ?? 0 } : null;
+  return renduLePlusRecent(carte, systemeNonLu(projectIds));
 }
 
 /**
@@ -3043,6 +3158,15 @@ export function saveAttachment(attachment: Attachment): Attachment {
     .prepare('INSERT INTO attachments (id, project_id, sha, data, created_at) VALUES (?, ?, ?, ?, ?)')
     .run(attachment.id, attachment.projectId, attachment.sha, JSON.stringify(attachment), attachment.createdAt);
   return attachment;
+}
+
+/**
+ * RETIRE UNE PIÈCE JOINTE DU DÉPÔT (sa ligne seulement : le fichier est effacé
+ * par l'appelant, qui sait où il vit). Réservé à ce qui a un PROPRIÉTAIRE
+ * unique et vérifié — les images du coffre-fort (`server/src/coffre-fort.ts`).
+ */
+export function supprimerPieceJointe(id: string): boolean {
+  return getDb().prepare('DELETE FROM attachments WHERE id = ?').run(id).changes > 0;
 }
 
 /**

@@ -4,8 +4,7 @@ import { tailleLisible } from './fichiers-volumineux.js';
  * LE MÉNAGE DU DISQUE — les règles, sans disque ni base.
  *
  * Le serveur n'a que 150 Go, et rien ne se vidait jamais : 13 Go de fichiers
- * temporaires, 4 Go de caches de téléchargement, des restes de construction
- * `*.ancien` abandonnés par des publications, des emplacements de copies de
+ * temporaires, 4 Go de caches de téléchargement, des emplacements de copies de
  * cartes refermées. Tant que les projets vivaient sur le stockage distant, la
  * place locale n'inquiétait personne ; ils sont maintenant ICI, et ce qui
  * s'accumule doit repartir.
@@ -16,7 +15,7 @@ import { tailleLisible } from './fichiers-volumineux.js';
  *
  * DEUX PRINCIPES, et aucun troisième :
  *   1. On n'efface QUE ce qui se reconstruit tout seul (caches, temporaires,
- *      restes de construction). Jamais une donnée, jamais une sauvegarde.
+ *      emplacements refermés). Jamais une donnée, jamais une sauvegarde.
  *   2. Dans le doute, on garde. Une protection l'emporte toujours sur une
  *      cible, et un chemin non reconnu n'est pas une cible.
  */
@@ -90,8 +89,8 @@ export function assezVieux(derniereModification: number, maintenant: number, age
 
 /**
  * LES CIBLES, telles que mesurées sur la machine le 21.09.2026 : /tmp 13 Go,
- * ~/.cache 4 Go, ~/.npm 762 Mo, plus les restes de construction et les
- * emplacements de copies déjà refermées.
+ * ~/.cache 4 Go, ~/.npm 762 Mo, plus les emplacements de copies déjà
+ * refermées.
  *
  * `dossierDuDemon` est le dépôt du démon (ses données vivent dessous),
  * `dossierPersonnel` le compte qui fait tourner les agents.
@@ -118,14 +117,6 @@ export function ciblesDeMenage(dossierDuDemon: string, dossierPersonnel: string)
       genre: 'contenu',
       ageMinJours: 30,
       raison: 'tout y est reconstruit à la demande',
-    },
-    {
-      nom: 'restes de construction',
-      dossier: `${dossierDuDemon}/data/versions`,
-      genre: 'motif',
-      suffixes: ['.ancien', '.tmp'],
-      ageMinJours: 3,
-      raison: 'un dossier « .ancien » est la version d’avant, déjà remplacée',
     },
     {
       nom: 'emplacements de copies refermées',

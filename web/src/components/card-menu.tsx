@@ -30,6 +30,14 @@ import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { useApp } from '@/lib/use-app';
 import { destinationsDeCarte, verdictDeDepart } from '@/lib/deplacement-de-projet';
+import {
+  BrancheDeListe,
+  IconeDeProjet,
+  LISTE_DE_MENU,
+  RETRAIT_MEMBRE_DE_MENU,
+  largeurIconeDeProjet,
+} from '@/components/pastille-projet';
+import { cn } from '@/lib/utils';
 
 /**
  * Le menu des gestes rares d'une carte : rouvrir, archiver, supprimer, et le
@@ -230,16 +238,31 @@ export function MenuCarte({
                 <span className="flex-1">{t('Déplacer vers un autre projet')}</span>
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
-                {destinations.map(({ projet, groupe, verdict }) => (
+                {destinations.map(({ projet, groupe, verdict, parentId, premier, dernier }) => (
                   <DropdownMenuItem
                     key={projet.id}
                     data-projet-destination={projet.id}
+                    data-membre-de={parentId}
                     disabled={!verdict.possible}
                     title={verdict.possible ? undefined : verdict.raison}
                     onSelect={() => {
                       if (verdict.possible) void changerDeProjet(projet.id, projet.name);
                     }}
+                    /* Hauteur FIXE : la branche d'un membre se cale dessus. */
+                    className={cn('relative h-8 shrink-0', parentId && RETRAIT_MEMBRE_DE_MENU)}
                   >
+                    {parentId ? (
+                      <BrancheDeListe
+                        premier={premier}
+                        dernier={dernier}
+                        largeurParent={largeurIconeDeProjet(
+                          state.projects.find((p) => p.id === parentId),
+                          state.projects,
+                        )}
+                        geometrie={LISTE_DE_MENU}
+                      />
+                    ) : null}
+                    <IconeDeProjet projet={projet} projets={state.projects} fond="hsl(var(--surface))" />
                     <span className="flex-1 truncate">{projet.name}</span>
                     {groupe ? <span className="shrink-0 text-[11px] text-faint">{groupe.name}</span> : null}
                   </DropdownMenuItem>

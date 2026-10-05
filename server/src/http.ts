@@ -69,6 +69,8 @@ import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
 import { scriptDeSuivi } from '@beluga/shared';
+import { IMAGE_ACCES_OCTETS_MAX, PROJET_DU_COFFRE, imageDuCoffreAcceptee } from '@beluga/shared';
+import { proposerAuCadrage } from './proposition-competences.js';
 import { creationAllumeePourLAgent } from './mode-creation.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
 import { relayerCatalogueLlm, relayerDemandeLlm } from './relais-llm.js';
@@ -82,7 +84,7 @@ import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils, pontAAbouti } from './pont.js';
-import { attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
+import { agentEnAttente, attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
 import { fichierFavicon } from './favicon.js';
 import { log } from './logger.js';
@@ -917,6 +919,44 @@ export function createHttpServer(): http.Server {
            * liste et la réponse de l'utilisateur tombait dans la file, pour
            * n'être lue qu'une fois tout le travail fini.
            */
+          /*
+           * BELUGA PROPOSE LES COMPÉTENCES, PAS L'AGENT. La recherche de
+           * mémoire qu'un cadrage fait à chaque tour est le point d'arrêt :
+           * le démon y cherche les compétences qui parlent de la demande, pose
+           * un encadré violet par fiche (trois au plus), et RETIENT la réponse
+           * de la recherche jusqu'à ce que tous soient tranchés — même attente
+           * que `ask_user`. Rien à proposer, personne devant l'écran, recherche
+           * trop lente : l'appel répond tout de suite, comme avant.
+           */
+          if (
+            body.name === 'memoire' &&
+            body.args?.geste === 'chercher' &&
+            result.ok &&
+            agent.role === 'cadrage' &&
+            // Une question de l'agent attend déjà (appels lancés ensemble) : on n'empile pas une seconde attente.
+            !agentEnAttente(agentId)
+          ) {
+            const serie = await proposerAuCadrage({
+              agent: { id: agentId, role: agent.role, cardId: agent.cardId, projectId: agent.projectId },
+              tour: liveRun(agentId),
+              mots: [body.args?.demande, body.args?.contexte].filter((v) => typeof v === 'string').join('\n'),
+              texteMemoire: result.text,
+            }).catch((err) => {
+              log.warn('compétences à proposer : abandon', err);
+              return null;
+            });
+            if (serie) {
+              // L'attente AVANT les encadrés, comme pour une question : les écrans
+              // qui reçoivent le message doivent déjà voir l'agent arrêté.
+              poserLAttente(serie.serieId, agentId);
+              for (const question of serie.questions) attachToCurrentMessage(agentId, { question });
+              return json(res, 200, {
+                ok: true,
+                text: result.text,
+                attente: { questionId: serie.serieId, trancheMs: TRANCHE_ATTENTE_MS },
+              });
+            }
+          }
           if (result.question) {
             /* Deux appels simultanés passent tous deux le contrôle d'entrée : on
                tranche ici, au moment même de poser l'attente, sans rien d'asynchrone. */
@@ -1062,13 +1102,26 @@ export function createHttpServer(): http.Server {
       }
 
       if (route === '/api/upload' && req.method === 'POST') {
-        const projectId = url.searchParams.get('project') ?? '';
+        /*
+         * UNE IMAGE POUR LE COFFRE-FORT (`?coffre=1`). Une fiche partagée n'a
+         * pas de projet : ses images se rangent sous le projet RÉSERVÉ du
+         * coffre, à part de toute carte et de toute demande. Seul
+         * l'administrateur en dépose, et seulement des images.
+         */
+        const pourLeCoffre =
+          url.searchParams.get('coffre') === '1' || url.searchParams.get('project') === PROJET_DU_COFFRE;
+        if (pourLeCoffre && compte.role !== 'admin') return json(res, 403, { error: REFUS_HORS_PORTEE });
+        const projectId = pourLeCoffre ? PROJET_DU_COFFRE : (url.searchParams.get('project') ?? '');
         // Un client ne dépose que dans un projet de sa portée.
         if (compte.role === 'client' && !peutVoirProjet(compte, projectId)) {
           return json(res, 403, { error: REFUS_HORS_PORTEE });
         }
         const name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'fichier'));
         const mime = String(req.headers['content-type'] ?? 'application/octet-stream');
+        if (pourLeCoffre && !imageDuCoffreAcceptee(mime)) {
+          res.setHeader('connection', 'close');
+          return json(res, 415, { error: 'Le coffre-fort ne prend que des images.' });
+        }
         /*
          * AU FIL DE L'EAU, JUSQU'À 2 GO (`server/src/envoi-piece-jointe.ts`) :
          * le corps va droit dans un fichier provisoire du dossier d'écriture,
@@ -1087,6 +1140,10 @@ export function createHttpServer(): http.Server {
           return json(res, recu.statut, { error: recu.raison });
         }
         const sha = recu.sha;
+        if (pourLeCoffre && recu.taille > IMAGE_ACCES_OCTETS_MAX) {
+          fs.rmSync(recu.provisoire, { force: true });
+          return json(res, 413, { error: 'Cette image est trop lourde pour le coffre-fort.' });
+        }
 
         // Dédoublonnage : le même fichier envoyé dix fois n'apparaît qu'une fois.
         const existing = store.findAttachmentBySha(projectId, sha);
@@ -1095,8 +1152,9 @@ export function createHttpServer(): http.Server {
           return json(res, 200, { attachment: existing, deduplicated: true });
         }
 
-        const cardId = url.searchParams.get('card') ?? undefined;
-        const agentId = url.searchParams.get('agent') ?? undefined;
+        // Une image du coffre n'appartient ni à une carte ni à un agent.
+        const cardId = pourLeCoffre ? undefined : (url.searchParams.get('card') ?? undefined);
+        const agentId = pourLeCoffre ? undefined : (url.searchParams.get('agent') ?? undefined);
         // Deux images collées d'affilée arrivent presque toujours sous le même
         // nom générique (« image.png ») : sans repère distinct, leur tag dans
         // le texte devient ambigu dès qu'il y en a plus d'une.
@@ -1124,7 +1182,8 @@ export function createHttpServer(): http.Server {
         });
         fs.renameSync(recu.provisoire, path.join(dossier, nomSurDisque(attachment)));
         store.saveAttachment(attachment);
-        bus.emit({ type: 'attachments', projectId, items: store.listAttachments(projectId) });
+        // Les images du coffre ne sont diffusées à aucun écran de projet.
+        if (!pourLeCoffre) bus.emit({ type: 'attachments', projectId, items: store.listAttachments(projectId) });
         return json(res, 200, { attachment });
       }
 
@@ -1139,6 +1198,14 @@ export function createHttpServer(): http.Server {
          * pièce absente.
          */
         if (compte.role === 'client' && !pieceLisiblePar(compte, id)) {
+          return json(res, 403, { error: REFUS_HORS_PORTEE });
+        }
+        /*
+         * UNE IMAGE DU COFFRE-FORT NE SORT QUE POUR L'ADMINISTRATEUR, quoi que
+         * dise la règle ci-dessus : c'est une capture d'accès, un code QR, un
+         * document — jamais la pièce d'une demande.
+         */
+        if (attachment.projectId === PROJET_DU_COFFRE && compte.role !== 'admin') {
           return json(res, 403, { error: REFUS_HORS_PORTEE });
         }
         const file = cheminDePieceJointe(attachment);

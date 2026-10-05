@@ -168,6 +168,7 @@ interface LigneProjetMarketing {
   /** L'état à la lecture ; l'écran le suit ensuite en direct sur l'agent. */
   travaille: boolean;
   attendReponse: boolean;
+  brouillons: number;
   aValider: number;
   programmes: number;
   publies: number;
@@ -549,6 +550,7 @@ function TableauDeBordMarketing({
   const somme = (f: (p: LigneProjetMarketing) => number) => projets.reduce((s, p) => s + f(p), 0);
   const visitesParJour = jours.map((jour, i) => ({ jour, valeur: somme((p) => p.visites[i] ?? 0) }));
   const visites = somme((p) => p.visites.reduce((a, b) => a + b, 0));
+  const brouillons = somme((p) => p.brouillons);
   const aValider = somme((p) => p.aValider);
   const programmes = somme((p) => p.programmes);
   const publies = somme((p) => p.publies);
@@ -558,6 +560,7 @@ function TableauDeBordMarketing({
   const tuiles: { cle: string; libelle: string; valeur: string; detail?: string }[] = [
     { cle: 'projets', libelle: t('Projets suivis'), valeur: `${suivis}/${projets.length}`, detail: auTravail ? t('{n} au travail', { n: auTravail }) : undefined },
     { cle: 'visites', libelle: t('Visites, 4 semaines'), valeur: visites.toLocaleString(formatRegional()) },
+    { cle: 'brouillons', libelle: t('Brouillons'), valeur: brouillons.toLocaleString(formatRegional()) },
     { cle: 'a-valider', libelle: t('À valider'), valeur: aValider.toLocaleString(formatRegional()) },
     { cle: 'publies', libelle: t('Publiés'), valeur: publies.toLocaleString(formatRegional()) },
   ];
@@ -565,7 +568,7 @@ function TableauDeBordMarketing({
   return (
     <div className="flex min-w-0 flex-col gap-3 md:h-full md:min-h-[480px]" data-marketing-tableau-de-bord={tous.length}>
       <div className="flex min-w-0 shrink-0 flex-col gap-3" data-marketing-chiffres>
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
           {tuiles.map((x) => (
             <div key={x.cle} className="flex min-w-0 flex-col gap-0.5 rounded-md bg-bloc px-3 py-2" data-marketing-chiffre={x.cle}>
               <span className="truncate text-[12px] text-faint">{x.libelle}</span>
@@ -579,7 +582,7 @@ function TableauDeBordMarketing({
           <Repartition
             cle="etapes"
             titre={t('Contenus par étape')}
-            lignes={([[t('À valider'), aValider], [t('Programmés'), programmes], [t('Publiés'), publies]] as [string, number][]).filter(([, n]) => n > 0)}
+            lignes={([[t('Brouillons'), brouillons], [t('À valider'), aValider], [t('Programmés'), programmes], [t('Publiés'), publies]] as [string, number][]).filter(([, n]) => n > 0)}
           />
         </div>
       </div>
@@ -1376,7 +1379,10 @@ function EspaceDuProjet({
               onOuvrirCarte={onOuvrirCarte}
               onOuvrir={setContenuOuvert}
               aUnAgent={agent.etat !== 'initialiser'}
+              auTravail={agent.etat === 'travail' || agent.etat === 'question'}
+              suiteEnvoyee={agent.envoi}
               onAgent={ouvrirChat}
+              onSuite={() => void agent.lancer('suite')}
               onEcrire={() => setCreation(true)}
             />
           </TabsContent>
@@ -2064,7 +2070,10 @@ function OngletContenus({
   onOuvrirCarte,
   onOuvrir,
   aUnAgent,
+  auTravail,
+  suiteEnvoyee,
   onAgent,
+  onSuite,
   onEcrire,
 }: {
   contenus: ContenuMarketing[];
@@ -2072,7 +2081,12 @@ function OngletContenus({
   onOuvrirCarte?: (card: Card) => void;
   onOuvrir: (id: string) => void;
   aUnAgent: boolean;
+  /** L'agent tient un tour ou attend une réponse : le bouton « Générer la suite » est éteint. */
+  auTravail: boolean;
+  suiteEnvoyee: boolean;
   onAgent: () => void;
+  /** « Générer la suite » : l'agent attitré analyse l'existant, archive ses propositions périmées et produit la suite. */
+  onSuite: () => void;
   onEcrire: () => void;
 }) {
   const state = useApp();
@@ -2157,11 +2171,30 @@ function OngletContenus({
                 : t('L’agent rédige vos premiers contenus pendant son analyse : lancez-la depuis sa bulle en bas à droite.')
               : t('{n} contenus', { n: visibles.length })}
           </span>
+          <Button
+            size="sm"
+            variant="subtle"
+            className="shrink-0"
+            disabled={auTravail || suiteEnvoyee}
+            onClick={aUnAgent ? onSuite : onAgent}
+            title={
+              auTravail
+                ? t('L’agent est au travail')
+                : aUnAgent
+                  ? t('L’agent analyse ce qui existe, archive ses propositions périmées puis prépare la suite, selon votre rythme.')
+                  : t('Lancez d’abord l’analyse du projet : l’agent prépare ensuite la suite.')
+            }
+            data-marketing-generer-suite={auTravail || suiteEnvoyee ? 'travail' : aUnAgent ? 'pret' : 'initialiser'}
+          >
+            {auTravail || suiteEnvoyee ? <Loader2 className="h-3.5 w-3.5 animate-spin text-en-cours" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {auTravail || suiteEnvoyee ? t('L’agent est au travail') : t('Générer la suite')}
+          </Button>
           <PointInfo titre={t('Les contenus')}>
             <p>{t('Les posts, courriels et annonces du projet. L’agent les écrit en brouillon puis les dépose « À valider » ; vous les relisez, les programmez puis les marquez comme publiés.')}</p>
             <p>{t('Glissez un contenu d’une colonne à l’autre : seuls les sens qui ont du sens sont permis, et un contenu publié ne bouge plus. Déposé dans « Programmés », il vous demande la date, et l’heure si vous voulez.')}</p>
             <p>{t('« Programmé » est un repère pour le calendrier : rien n’est publié tout seul, c’est vous qui marquez un contenu comme publié.')}</p>
             <p>{t('La dernière colonne montre le travail de l’agent marketing : ses analyses et ses plans ne paraissent plus sur le tableau du projet.')}</p>
+            <p>{t('Dès que 10 contenus ou plus attendent votre relecture, l’agent cesse d’en produire tout seul. « Générer la suite » lui demande, quand vous le voulez, d’étudier ce qui existe, d’archiver ce qui est périmé et de préparer la suite à votre rythme. Chaque jour, il replace aussi les dates en retard.')}</p>
           </PointInfo>
         </div>
         <ZoneDefilement axe="horizontal" classeEnveloppe="min-h-0 flex-1" className="snap-x px-3">

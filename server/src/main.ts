@@ -56,7 +56,6 @@ import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
 import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
 import { demarrerMarketing } from './marketing.js';
-import { demarrerLeSuiviParDefaut } from './suivi-par-defaut.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
 import { rattraperLesAdressesDeControle } from './rattrapage-adresses.js';
 import { completerLesDemandesManquantes, relancerLesCadragesJamaisPartis } from './naissance-de-carte.js';
@@ -305,8 +304,6 @@ async function main(): Promise<void> {
    * plan de la semaine du dimanche soir (`server/src/marketing.ts`).
    */
   const marketingTimer = demarrerMarketing();
-  // Le suivi des visites posé par défaut : une minute après le démarrage, puis chaque jour.
-  const suiviParDefautTimer = demarrerLeSuiviParDefaut();
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   // Les backups des sites en production : leur propre heure, après celle de
@@ -451,7 +448,6 @@ async function main(): Promise<void> {
     suivreReprises();
     clearInterval(surveillanceTimer);
     clearInterval(marketingTimer);
-    if (suiviParDefautTimer) clearInterval(suiviParDefautTimer);
     void fermerNavigateur();
     clearInterval(backupTimer);
     clearInterval(digestTimer);

@@ -2,6 +2,8 @@ import * as React from 'react';
 import {
   candidatDepuisLaCarte,
   deplacementVersProjetPossible,
+  membresActifsDuRegroupement,
+  projetsEnArbre,
   type Card,
   type Project,
   type ProjectGroup,
@@ -23,6 +25,11 @@ export interface DestinationDeCarte {
   /** Le groupe de la colonne de gauche où ce projet est rangé, s'il en a un. */
   groupe?: ProjectGroup;
   verdict: VerdictDeplacementProjet;
+  /** Le projet réuni sous lequel cette destination est rangée, s'il y en a un. */
+  parentId?: string;
+  /** Premier, dernier membre affiché sous son projet réuni : de quoi dessiner la branche. */
+  premier: boolean;
+  dernier: boolean;
 }
 
 /** Un agent d'EXÉCUTION a-t-il déjà existé pour cette carte ? */
@@ -61,7 +68,9 @@ export function verdictVersProjet(
 /**
  * LES DESTINATIONS, RANGÉES COMME LA COLONNE DE GAUCHE : les projets hors
  * groupe et les groupes mêlés par rang, les membres d'un groupe à la suite du
- * leur. Le projet COURANT en fait partie — il s'affiche éteint, avec son motif,
+ * leur, et les membres actifs d'un PROJET RÉUNI juste sous lui — ils ne se
+ * rangent plus eux-mêmes (`projetsEnArbre` dit ensuite qui est sous qui). Le
+ * projet COURANT en fait partie — il s'affiche éteint, avec son motif,
  * plutôt que de disparaître : une liste dont un élément manque se lit moins
  * bien qu'une liste complète dont une ligne est grisée.
  */
@@ -92,29 +101,46 @@ export function destinationsDeCarte(
    */
   const espaceDev = actifs.find((projet) => projet.isSelf);
 
-  const entrees: { rang: number; projets: { projet: Project; groupe?: ProjectGroup }[] }[] = [];
-  for (const projet of actifs) {
-    if (projet.isSelf) continue;
+  /*
+   * LES MEMBRES D'UN PROJET RÉUNI LE SUIVENT, comme dans la colonne : ils sortent
+   * du rangement (leur propre rang et leur propre groupe ne comptent plus) et se
+   * posent sous lui, par rang. Un membre dont le projet réuni est mis de côté
+   * reste rangeable, en ligne ordinaire.
+   */
+  const reunis = new Set(actifs.filter((projet) => projet.regroupement).map((projet) => projet.id));
+  const rangeables = actifs.filter(
+    (projet) => !projet.isSelf && !(projet.regroupementId && reunis.has(projet.regroupementId)),
+  );
+  const avecMembres = (projet: Project): Project[] => [
+    projet,
+    ...(reunis.has(projet.id) ? membresActifsDuRegroupement(actifs, projet.id) : []),
+  ];
+
+  const groupeDe = new Map<string, ProjectGroup>();
+  const entrees: { rang: number; projets: Project[] }[] = [];
+  for (const projet of rangeables) {
     if (projet.groupId && groupes.some((groupe) => groupe.id === projet.groupId)) continue;
-    entrees.push({ rang: rang(projet.rank), projets: [{ projet }] });
+    entrees.push({ rang: rang(projet.rank), projets: avecMembres(projet) });
   }
   for (const groupe of groupes) {
-    const membres = actifs
-      .filter((projet) => !projet.isSelf && projet.groupId === groupe.id)
-      .sort((a, b) => rang(a.rank) - rang(b.rank))
-      .map((projet) => ({ projet, groupe }));
-    if (membres.length) entrees.push({ rang: rang(groupe.rank), projets: membres });
+    const membres = rangeables
+      .filter((projet) => projet.groupId === groupe.id)
+      .sort((a, b) => rang(a.rank) - rang(b.rank));
+    for (const projet of membres) groupeDe.set(projet.id, groupe);
+    if (membres.length) entrees.push({ rang: rang(groupe.rank), projets: membres.flatMap(avecMembres) });
   }
 
-  return [
-    ...(espaceDev ? [{ projet: espaceDev, groupe: undefined }] : []),
+  return projetsEnArbre([
+    ...(espaceDev ? [espaceDev] : []),
     ...entrees.sort((a, b) => a.rang - b.rang).flatMap((entree) => entree.projets),
-  ]
-    .map(({ projet, groupe }) => ({
-      projet,
-      groupe,
-      verdict: deplacementVersProjetPossible(candidat, projet),
-    }));
+  ]).map(({ projet, parentId, premier, dernier }) => ({
+    projet,
+    groupe: groupeDe.get(projet.id),
+    verdict: deplacementVersProjetPossible(candidat, projet),
+    parentId,
+    premier,
+    dernier,
+  }));
 }
 
 /* ------------------------------------------------------------------ *

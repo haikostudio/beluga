@@ -7,16 +7,15 @@
  * notification du moment : l'alerte passée, plus rien ne ramenait à la
  * publication en cours.
  *
- * Elle a désormais un CONDUCTEUR : un agent unique, créé au départ, auquel la
- * publication reste attachée (`DeployRun.agentId`), et dont la conversation
- * devient le fil officiel de cette mise en ligne. Tout ce que les étapes
- * racontent déjà s'y dépose au fil de l'eau, et la barre d'écriture permet de
- * lui parler — pendant, et après.
+ * Elle a eu un CONDUCTEUR : un agent unique auquel la publication reste
+ * attachée (`DeployRun.agentId`), dont la conversation était le fil officiel
+ * de cette mise en ligne. Depuis la refonte « moteur sans agent » (22/09/2026),
+ * une publication neuve n'en ouvre plus ; seules les ANCIENNES portent encore
+ * leur `agentId`, et leur volet continue de s'écrire à lui.
  *
  * Ce fichier tient les règles PURES de ce fil : les quatre temps du parcours,
- * les textes de la demande et de la compréhension, la phrase de chaque étape,
- * et les réponses toutes faites d'un échec. Ni base, ni disque, ni horloge
- * imposée.
+ * la consigne du conducteur, la phrase de chaque étape et les réponses toutes
+ * faites d'un échec. Ni base, ni disque, ni horloge imposée.
  *
  * TROIS PRINCIPES.
  *
@@ -30,9 +29,6 @@
  *     bouton met en ligne — la règle « aucun bouton ne permet de rejouer un
  *     historique » vaut aussi pour la barre d'écriture.
  */
-
-import type { CiblePublication } from './etapes-publication.js';
-const CARTES_NOMMEES_MAX = 12;
 
 /* ------------------------------------------------------------------ */
 /* Les quatre temps du parcours                                        */
@@ -49,14 +45,14 @@ const CARTES_NOMMEES_MAX = 12;
  */
 export type PointDuFilPublication = 'demande' | 'comprehension' | 'travail' | 'rapport';
 
-export const ORDRE_FLUX_PUBLICATION: readonly PointDuFilPublication[] = [
+const ORDRE_FLUX_PUBLICATION: readonly PointDuFilPublication[] = [
   'demande',
   'comprehension',
   'travail',
   'rapport',
 ] as const;
 
-export const LIBELLE_POINT_PUBLICATION: Record<PointDuFilPublication, string> = {
+const LIBELLE_POINT_PUBLICATION: Record<PointDuFilPublication, string> = {
   demande: 'Demande',
   comprehension: 'Compréhension',
   travail: 'Travail',
@@ -102,94 +98,6 @@ export function parcoursDeLaPublication(run?: {
     etat: etats[cle],
   }));
 }
-
-/* ------------------------------------------------------------------ */
-/* Ce qui a été demandé, et ce qui en a été compris                    */
-/* ------------------------------------------------------------------ */
-
-export interface DemandeDePublication {
-  /** L'étape : déploiement sur l'instance de dev, ou mise en production. */
-  cible: CiblePublication;
-  /** Le libellé de l'étape, tel que l'application le nomme partout. */
-  libelleEtape: string;
-  projet: string;
-  /** Les titres des cartes embarquées, dans l'ordre du lot. */
-  cartes: readonly string[];
-  /** L'adresse contrôlée à la fin, quand le projet en déclare une. */
-  url?: string;
-  /** Le dépôt visé, quand la publication ne porte que l'un d'eux. */
-  depot?: string;
-}
-
-/**
- * CE QUI PART EN LIGNE, EN TÊTE DU FIL.
- *
- * C'est la « demande » du parcours : elle n'a pas été tapée par l'utilisateur,
- * elle a été faite d'un clic — mais elle existe, et elle doit se lire avant le
- * détail. Le lot est NOMMÉ carte par carte tant qu'il tient, puis compté : un
- * lot de quarante branches ne doit pas noyer le fil.
- */
-export function texteDeLaDemande(demande: DemandeDePublication): string {
-  const lignes: string[] = [`**${demande.libelleEtape}** — projet « ${demande.projet} »`];
-  if (demande.depot) lignes.push(`Dépôt visé : \`${demande.depot}\` (lui seul).`);
-  if (demande.cartes.length) {
-    const nommees = demande.cartes.slice(0, CARTES_NOMMEES_MAX);
-    const reste = demande.cartes.length - nommees.length;
-    lignes.push('', `${demande.cartes.length} tâche${demande.cartes.length > 1 ? 's' : ''} embarquée${demande.cartes.length > 1 ? 's' : ''} :`);
-    for (const titre of nommees) lignes.push(`- ${titre}`);
-    if (reste > 0) lignes.push(`- … et ${reste} autre${reste > 1 ? 's' : ''}`);
-  } else {
-    lignes.push('', 'Aucune tâche embarquée : c’est une **version** qui part, pas un lot.');
-  }
-  if (demande.url) lignes.push('', `Adresse contrôlée à la fin : ${demande.url}`);
-  return lignes.join('\n');
-}
-
-export interface ComprehensionDePublication {
-  cible: CiblePublication;
-  /** Les étapes réellement prévues, dans l'ordre, sous leur nom lisible. */
-  etapes: readonly string[];
-  /** Comment la mise en ligne se fera, tel que le plan constaté le dit. */
-  moyen?: string;
-  /** La branche sur laquelle le lot est fusionné. */
-  branche?: string;
-}
-
-/**
- * CE QUE LE CONDUCTEUR A COMPRIS AVANT DE COMMENCER.
- *
- * Deuxième temps du parcours, et le seul qui manquait vraiment : le déroulé
- * disait ce qui se passait, jamais ce qui allait se passer. On annonce donc les
- * étapes prévues, la branche visée et le moyen de mise en ligne — puis on redit
- * la seule limite qui compte : rien ne repart d'ici.
- */
-export function texteDeLaComprehension(vue: ComprehensionDePublication): string {
-  const lignes: string[] = [];
-  lignes.push(
-    vue.cible === 'production'
-      ? 'Je mets la version déjà déployée **en production**, chez le client.'
-      : 'Je fusionne le lot, je l’enregistre, je l’envoie sur le dépôt, puis je rafraîchis **l’instance de dev** sur ce serveur.',
-  );
-  if (vue.branche) lignes.push('', `Branche visée : \`${vue.branche}\`.`);
-  if (vue.moyen) lignes.push('', vue.moyen);
-  if (vue.etapes.length) {
-    lignes.push('', 'Étapes prévues :');
-    vue.etapes.forEach((etape, i) => lignes.push(`${i + 1}. ${etape}`));
-  }
-  lignes.push('', MENTION_LECTURE_SEULE);
-  return lignes.join('\n');
-}
-
-/**
- * LA SEULE LIMITE DU FIL, DITE DANS LE FIL.
- *
- * Ouvrir un échange dans un écran qui commande une mise en ligne crée un risque
- * qu'il faut fermer explicitement : écrire à l'agent ne vaut jamais l'ordre de
- * publier. La phrase est ici, partagée par le serveur (qui l'emporte dans la
- * consigne du conducteur) et par le fil (qui l'affiche).
- */
-export const MENTION_LECTURE_SEULE =
-  'Vous pouvez m’écrire à tout moment : je réponds, j’explique, je rejoue une étape si vous me le demandez. Je ne relance jamais une mise en ligne de moi-même — seul le bouton publie.';
 
 /* ------------------------------------------------------------------ */
 /* Ce qu'on peut répondre                                             */

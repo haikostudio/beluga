@@ -113,11 +113,68 @@ export interface AccesCoffre {
    * = fiche active.
    */
   archiveLe?: number | null;
+  /**
+   * LES IMAGES DE LA FICHE (capture d'écran, code QR, document scanné) : des
+   * identifiants de pièces jointes, dans l'ordre où elles ont été posées. Elles
+   * suivent la fiche aux archives, en reviennent avec elle, et sont effacées
+   * avec elle. Absent = aucune image (fiche d'avant cette mécanique).
+   */
+  images?: string[];
 }
 
 export const NOM_ACCES_MAX = 80;
 export const NOTE_ACCES_MAX = 2000;
 export const VALEUR_CHAMP_MAX = 20000;
+/** Combien d'images une fiche peut porter. */
+export const IMAGES_ACCES_MAX = 12;
+/** Le poids d'UNE image du coffre : une capture ou un document scanné, pas une vidéo. */
+export const IMAGE_ACCES_OCTETS_MAX = 25 * 1024 * 1024;
+
+/**
+ * LE « PROJET » DES IMAGES DU COFFRE dans le dépôt des pièces jointes. Une
+ * fiche partagée n'appartient à aucun projet, et une image du coffre ne doit
+ * JAMAIS se confondre avec la pièce d'une carte ou d'une demande client : les
+ * fichiers sont dédoublonnés par empreinte À L'INTÉRIEUR d'un projet, donc ce
+ * rangement à part garantit qu'effacer une image du coffre n'efface rien
+ * d'autre — et qu'aucun écran de projet ne la liste.
+ */
+export const PROJET_DU_COFFRE = 'coffre-fort';
+
+/** Le coffre ne prend que des IMAGES : une capture, un code QR, un document scanné. */
+export function imageDuCoffreAcceptee(mime: string): boolean {
+  return /^image\/[a-z0-9.+-]+$/i.test((mime ?? '').split(';')[0]!.trim());
+}
+
+/**
+ * Les images telles qu'elles arrivent d'un enregistrement. `undefined` quand
+ * l'appelant n'en DIT RIEN (un agent qui corrige un champ) : la fiche garde
+ * alors celles qu'elle a. Un tableau, même vide, est une intention : il
+ * remplace la liste. Doublons retirés, liste bornée.
+ */
+export function jugerImages(brut: unknown): string[] | undefined {
+  if (!Array.isArray(brut)) return undefined;
+  const vues = new Set<string>();
+  for (const valeur of brut) {
+    if (typeof valeur !== 'string') continue;
+    const id = valeur.trim();
+    if (id) vues.add(id);
+  }
+  return [...vues].slice(0, IMAGES_ACCES_MAX);
+}
+
+/**
+ * CE QUE LA FICHE GARDE APRÈS UN ENREGISTREMENT : les images demandées, ou
+ * celles d'avant quand rien n'est demandé. `retirees` = celles que la fiche
+ * ne cite plus, à effacer si personne d'autre ne les cite.
+ */
+export function imagesApresEnregistrement(
+  avant: readonly string[],
+  demandees: readonly string[] | undefined,
+): { images: string[]; retirees: string[] } {
+  if (!demandees) return { images: [...avant], retirees: [] };
+  const gardees = new Set(demandees);
+  return { images: [...demandees], retirees: avant.filter((id) => !gardees.has(id)) };
+}
 
 /** Les champs connus d'un type, jamais un tableau vide. */
 export function champsDuType(type: TypeAcces): readonly ChampAcces[] {
@@ -125,7 +182,16 @@ export function champsDuType(type: TypeAcces): readonly ChampAcces[] {
 }
 
 export type JugementAcces =
-  | { ok: true; nom: string; type: TypeAcces; projectId: string | null; champs: Record<string, string>; note: string }
+  | {
+      ok: true;
+      nom: string;
+      type: TypeAcces;
+      projectId: string | null;
+      champs: Record<string, string>;
+      note: string;
+      /** Absent = l'appelant n'a rien dit des images : la fiche garde les siennes. */
+      images?: string[];
+    }
   | { ok: false; raison: string };
 
 /**
@@ -167,7 +233,11 @@ export function jugerAcces(brut: unknown): JugementAcces {
   const regroupement = regroupementDeSecrets(nom, champs, note);
   if (regroupement) return { ok: false, raison: regroupement };
 
-  return { ok: true, nom, type, projectId, champs, note };
+  // Les images ne passent JAMAIS par le garde-fou « une fiche par secret » :
+  // ce sont des identifiants de fichiers, pas un texte où compter des secrets.
+  const images = jugerImages(o.images);
+
+  return { ok: true, nom, type, projectId, champs, note, ...(images ? { images } : {}) };
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,13 +1,19 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import {
   AccesCoffre,
+  PROJET_DU_COFFRE,
   TypeAcces,
   archivePurgeable,
+  imagesApresEnregistrement,
   jugerAcces,
   trierAcces,
+  type Attachment,
 } from '@beluga/shared';
 import { getDb } from './db.js';
 import { log } from './logger.js';
+import { cheminDePieceJointe } from './pieces-jointes.js';
+import * as store from './store.js';
 
 /**
  * LE COFFRE-FORT — le rangement sur le disque.
@@ -28,6 +34,17 @@ interface LigneAcces {
   cree_le: number;
   modifie_le: number;
   archive_le?: number | null;
+  images?: string | null;
+}
+
+/** La liste d'images d'une ligne : un JSON abîmé vaut « aucune image ». */
+function imagesDeLaLigne(brut: string | null | undefined): string[] {
+  try {
+    const lu = JSON.parse(brut ?? '[]');
+    return Array.isArray(lu) ? lu.filter((v): v is string => typeof v === 'string' && v.length > 0) : [];
+  } catch {
+    return [];
+  }
 }
 
 function depuisLigne(ligne: LigneAcces): AccesCoffre {
@@ -49,6 +66,7 @@ function depuisLigne(ligne: LigneAcces): AccesCoffre {
     modifieLe: ligne.modifie_le,
     origine: 'coffre',
     archiveLe: ligne.archive_le ?? null,
+    images: imagesDeLaLigne(ligne.images),
   };
 }
 
@@ -97,13 +115,26 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
     if (!ligne) return { ok: false, raison: 'Accès introuvable.' };
     if (ligne.archive_le != null)
       return { ok: false, raison: 'Cet accès est archivé : restaurez-le avant de le corriger.' };
+    /*
+     * UNE CORRECTION QUI NE DIT RIEN DES IMAGES LES GARDE. L'outil des agents
+     * ne transporte pas d'images : sans cette règle, corriger un mot de passe
+     * depuis une tâche aurait vidé la fiche de ses captures.
+     */
+    const { images, retirees } = imagesApresEnregistrement(imagesDeLaLigne(ligne.images), juge.images);
+    const refus = imagesRefusees(images);
+    if (refus) return { ok: false, raison: refus };
+    const imagesEcrites = JSON.stringify(images);
     getDb()
       .prepare(
-        'UPDATE secrets SET nom = ?, type = ?, project_id = ?, champs = ?, note = ?, modifie_le = ? WHERE id = ?',
+        'UPDATE secrets SET nom = ?, type = ?, project_id = ?, champs = ?, note = ?, images = ?, modifie_le = ? WHERE id = ?',
       )
-      .run(juge.nom, juge.type, juge.projectId, champs, juge.note, maintenant, id);
-    return { ok: true, acces: depuisLigne({ ...ligne, nom: juge.nom, type: juge.type, project_id: juge.projectId, champs, note: juge.note, modifie_le: maintenant }) };
+      .run(juge.nom, juge.type, juge.projectId, champs, juge.note, imagesEcrites, maintenant, id);
+    effacerLesImagesOrphelines(retirees);
+    return { ok: true, acces: depuisLigne({ ...ligne, nom: juge.nom, type: juge.type, project_id: juge.projectId, champs, note: juge.note, images: imagesEcrites, modifie_le: maintenant }) };
   }
+
+  const refus = imagesRefusees(juge.images ?? []);
+  if (refus) return { ok: false, raison: refus };
 
   const neuf: LigneAcces = {
     id: crypto.randomUUID(),
@@ -114,14 +145,96 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
     note: juge.note,
     cree_le: maintenant,
     modifie_le: maintenant,
+    images: JSON.stringify(juge.images ?? []),
   };
   getDb()
     .prepare(
-      'INSERT INTO secrets (id, nom, type, project_id, champs, note, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO secrets (id, nom, type, project_id, champs, note, images, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(neuf.id, neuf.nom, neuf.type, neuf.project_id, neuf.champs, neuf.note, neuf.cree_le, neuf.modifie_le);
+    .run(neuf.id, neuf.nom, neuf.type, neuf.project_id, neuf.champs, neuf.note, neuf.images, neuf.cree_le, neuf.modifie_le);
   log.info(`coffre-fort : accès « ${neuf.nom} » enregistré`);
   return { ok: true, acces: depuisLigne(neuf) };
+}
+
+/* ------------------------------------------------------------------ */
+/* LES IMAGES D'UNE FICHE                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Une fiche ne cite que des images DÉPOSÉES POUR LE COFFRE. Un identifiant de
+ * pièce jointe se devine mal, mais s'il venait d'une carte ou d'une demande
+ * client, la purge de la fiche effacerait un fichier qui ne lui appartient
+ * pas. Rend la phrase de refus, ou rien.
+ */
+function imagesRefusees(ids: readonly string[]): string | undefined {
+  for (const id of ids) {
+    const piece = store.getAttachment(id);
+    if (!piece) return 'Une image de cette fiche est introuvable : retirez-la et joignez-la de nouveau.';
+    if (piece.projectId !== PROJET_DU_COFFRE) return 'Cette image n’a pas été déposée dans le coffre-fort.';
+  }
+  return undefined;
+}
+
+/**
+ * LES IMAGES DE QUELQUES FICHES, retrouvées par leur identifiant — avec le
+ * chemin du fichier, seule forme qu'un agent sache ouvrir. Une image disparue
+ * du disque est simplement absente : la fiche reste lisible sans elle.
+ */
+export function imagesDesAcces(acces: readonly AccesCoffre[]): (Attachment & { chemin: string })[] {
+  const vues = new Set<string>();
+  const pieces: (Attachment & { chemin: string })[] = [];
+  for (const fiche of acces) {
+    for (const id of fiche.images ?? []) {
+      if (vues.has(id)) continue;
+      vues.add(id);
+      const piece = store.getAttachment(id);
+      if (piece) pieces.push({ ...piece, chemin: cheminDePieceJointe(piece) });
+    }
+  }
+  return pieces;
+}
+
+/** Une AUTRE fiche du coffre (active ou archivée) cite-t-elle encore cette image ? */
+function imageEncoreCitee(imageId: string): boolean {
+  const lignes = getDb()
+    .prepare("SELECT images FROM secrets WHERE images LIKE '%' || ? || '%'")
+    .all(imageId) as { images: string | null }[];
+  if (lignes.some((l) => imagesDeLaLigne(l.images).includes(imageId))) return true;
+  // Une note peut citer la même pièce (collée depuis le coffre) : on ne lui retire rien.
+  try {
+    const notes = getDb()
+      .prepare("SELECT 1 FROM notes WHERE pieces_jointes LIKE '%' || ? || '%' OR description LIKE '%' || ? || '%' LIMIT 1")
+      .get(imageId, imageId);
+    if (notes) return true;
+  } catch {
+    /* une base sans notes n'a rien à protéger */
+  }
+  return false;
+}
+
+/**
+ * EFFACE LES IMAGES QUE PLUS AUCUNE FICHE NE CITE : la ligne de la pièce jointe
+ * et son fichier. Deux fiches peuvent porter la MÊME image (le dépôt dédoublonne
+ * par empreinte à l'intérieur du coffre) : tant que l'une la cite, elle reste.
+ * Une pièce qui n'appartient pas au coffre n'est jamais touchée. Rend le nombre
+ * de fichiers effacés.
+ */
+export function effacerLesImagesOrphelines(ids: readonly string[]): number {
+  let effacees = 0;
+  for (const id of new Set(ids)) {
+    try {
+      const piece = store.getAttachment(id);
+      if (!piece || piece.projectId !== PROJET_DU_COFFRE) continue;
+      if (imageEncoreCitee(id)) continue;
+      const chemin = cheminDePieceJointe(piece);
+      store.supprimerPieceJointe(id);
+      fs.rmSync(chemin, { force: true });
+      effacees += 1;
+    } catch (err) {
+      log.warn(`coffre-fort : image ${id} non effacée — ${(err as Error).message}`);
+    }
+  }
+  return effacees;
 }
 
 /**
@@ -172,8 +285,8 @@ export function restaurerAcces(id: string): { ok: boolean; raison?: string } {
 }
 
 /**
- * EFFACE POUR DE BON les fiches archivées depuis plus de six mois — et elles
- * seules : la règle (`archivePurgeable`) ne rend jamais vrai pour une fiche
+ * EFFACE POUR DE BON les fiches archivées depuis plus de six mois, AVEC LEURS
+ * IMAGES — et elles seules : la règle (`archivePurgeable`) ne rend jamais vrai pour une fiche
  * active. Chaque effacement laisse sa ligne au journal. Rend le nombre effacé.
  */
 export function purgerArchives(maintenant = Date.now()): number {
@@ -181,6 +294,9 @@ export function purgerArchives(maintenant = Date.now()): number {
   for (const acces of listerArchives()) {
     if (!archivePurgeable(acces, maintenant)) continue;
     getDb().prepare('DELETE FROM secrets WHERE id = ? AND archive_le IS NOT NULL').run(acces.id);
+    // La ligne d'abord, les images ensuite : c'est une fois la fiche partie
+    // qu'on sait si une AUTRE fiche cite encore la même image.
+    effacerLesImagesOrphelines(acces.images ?? []);
     log.info(
       `coffre-fort : archive « ${acces.nom} » (${acces.id}) effacée, retirée le ${new Date(acces.archiveLe ?? 0).toISOString()}`,
     );
@@ -189,11 +305,28 @@ export function purgerArchives(maintenant = Date.now()): number {
   return effacees;
 }
 
+/**
+ * LES IMAGES ENVOYÉES PUIS JAMAIS RATTACHÉES. Une image part au coffre dès
+ * qu'on la choisit, et n'est citée par sa fiche qu'à l'enregistrement : une
+ * fiche refermée sans enregistrer laisse donc un fichier sans propriétaire.
+ * Après un jour, plus personne ne viendra le réclamer.
+ */
+const DELAI_IMAGE_SANS_FICHE_MS = 24 * 3600_000;
+
+export function balayerLesImagesSansFiche(maintenant = Date.now()): number {
+  const anciennes = store
+    .listAttachments(PROJET_DU_COFFRE)
+    .filter((piece) => maintenant - piece.createdAt >= DELAI_IMAGE_SANS_FICHE_MS)
+    .map((piece) => piece.id);
+  return effacerLesImagesOrphelines(anciennes);
+}
+
 /** La purge des archives : cinq minutes après le démarrage, puis chaque jour. */
 export function planifierPurgeDesArchives(): NodeJS.Timeout[] {
   const passer = () => {
     try {
       purgerArchives();
+      balayerLesImagesSansFiche();
     } catch (err) {
       log.warn(`coffre-fort : purge des archives sautée — ${(err as Error).message}`);
     }

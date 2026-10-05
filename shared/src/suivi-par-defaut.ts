@@ -1,11 +1,11 @@
 /**
- * LE SUIVI DES VISITES POSÉ PAR DÉFAUT sur chaque site en production.
+ * LE SUIVI DES VISITES d'un site en production.
  *
- * Tout projet qui déclare l'adresse publique de sa production reçoit d'office
- * son espace de suivi (clé, origine autorisée) ; le démon relit alors la page
- * d'accueil servie et juge le code qu'elle porte. Un code absent, faux ou resté
- * sur l'ancien outil de statistiques fait naître UNE carte de correction dans le
- * projet — visible, à lancer par l'utilisateur, jamais une écriture en cachette.
+ * Tout projet qui déclare l'adresse publique de sa production reçoit son espace
+ * de suivi (clé, origine autorisée). La page d'accueil servie n'est relue que
+ * sur « Tester le suivi » (écran Statistiques), qui juge le code qu'elle porte ;
+ * une carte du suivi ne naît que sur « Installer le suivi » — jamais toute
+ * seule (05/10/2026).
  *
  * La règle vit ici, sans réseau ni base : elle se teste seule.
  */
@@ -67,7 +67,7 @@ export function etatSuiviApresDiagnostic<E extends 'absent' | 'pose' | 'verifie'
   return etat;
 }
 
-/** Un diagnostic qui demande une carte de correction. Un site injoignable se relira plus tard. */
+/** Un diagnostic qui demande une correction du site. Un site injoignable se relira plus tard. */
 export function diagnosticACorriger(d: DiagnosticSuivi | null | undefined): boolean {
   return d === 'absent' || d === 'mauvaise-cle' || d === 'ancien-outil';
 }
@@ -100,7 +100,7 @@ export function adresseDeProductionDuProjet(
   return candidates.map((a) => a?.trim() ?? '').find((a) => a.length > 0) || null;
 }
 
-/** Ce que la carte de correction demande de faire, selon ce que la page porte aujourd'hui. */
+/** Ce que la carte du suivi demande de faire, selon ce que la page porte aujourd'hui. */
 export function consigneDeCorrection(diagnostic: DiagnosticSuivi): string {
   const commun =
     'Garder Google Analytics (gtag) et tout autre outil déjà en place : on ajoute le suivi de Beluga, on ne retire que l’ancien outil de statistiques.';

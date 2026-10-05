@@ -1,15 +1,14 @@
 /**
- * LE SUIVI DES VISITES POSÉ PAR DÉFAUT (demande du 26/09/2026) : chaque projet
- * qui a une adresse de production connue reçoit d'office son espace de suivi,
- * cette adresse y est autorisée, et la page servie est relue. Un code absent,
- * faux, ou resté sur l'ancien outil de statistiques fait naître UNE carte de
- * correction dans « Planifié » du projet. Son cadrage part tout seul jusqu'à
- * la compréhension (une carte après l'autre) ; le travail ne part que sur le
- * clic de l'utilisateur, et rien n'est mis en production sans lui.
+ * LE SUIVI DES VISITES D'UN PROJET (demande du 26/09/2026, revue le
+ * 05/10/2026). Une adresse de production saisie prépare l'espace de suivi :
+ * l'origine y est autorisée, sans lire le site. La page n'est relue que sur
+ * « Tester le suivi » (écran Statistiques), qui écrit le diagnostic et RIEN
+ * d'autre. Une carte du suivi ne naît QUE sur demande : bouton « Installer le
+ * suivi » ou outil `poser_suivi` de l'atelier. Plus de tour quotidien, plus de
+ * carte de correction posée toute seule.
  *
  * Règles pures : `shared/src/suivi-par-defaut.ts`. Rejouable : un espace déjà
- * juste n'est pas réécrit, et tant que la carte posée existe, aucune autre ne
- * naît pour ce projet.
+ * juste n'est pas réécrit.
  */
 import {
   LIBELLE_DIAGNOSTIC_SUIVI,
@@ -29,14 +28,13 @@ import {
   type DiagnosticSuivi,
 } from '@beluga/shared';
 import { getDb } from './db.js';
-import { log } from './logger.js';
 import { adresseDeBeluga, assurerEspace, carteDuSuivi, carteDuSuiviEnTravail, ecrireConfiguration, lireEspace } from './marketing.js';
 
 export { carteDuSuivi };
 import * as store from './store.js';
 import { bus } from './bus.js';
 
-/** L'étiquette des cartes de correction : elles restent sur le tableau, contrairement à celles de l'atelier. */
+/** L'étiquette des cartes du suivi : elles restent sur le tableau, contrairement à celles de l'atelier. */
 export const LABEL_SUIVI_DES_VISITES = 'suivi-des-visites';
 
 const DELAI_LECTURE_MS = 8_000;
@@ -62,18 +60,6 @@ function sitesRattachesALaMain(projectId: string): string[] {
   return (
     getDb().prepare('SELECT url FROM sites_surveilles WHERE projet_rattache = ? AND projet_devine = 0 ORDER BY cree_le ASC').all(projectId) as { url: string }[]
   ).map((l) => l.url);
-}
-
-/** Une installation annoncée par un agent de projet couvre sept jours : le temps d'être mise en ligne. */
-export const DUREE_INSTALLATION_AGENT_MS = 7 * 86_400_000;
-
-export function installationParUnAgentEnCours(projectId: string, maintenant = Date.now()): boolean {
-  const l = getDb().prepare('SELECT installation_agent_le FROM marketing_espaces WHERE project_id = ?').get(projectId) as { installation_agent_le: number | null } | undefined;
-  return !!l?.installation_agent_le && maintenant - l.installation_agent_le < DUREE_INSTALLATION_AGENT_MS;
-}
-
-export function marquerInstallationParUnAgent(projectId: string, maintenant = Date.now()): void {
-  getDb().prepare('UPDATE marketing_espaces SET installation_agent_le = ? WHERE project_id = ?').run(maintenant, projectId);
 }
 
 export interface EtatDuSuivi {
@@ -127,12 +113,12 @@ function phraseDuBandeau(mode: 'anonyme' | 'visiteur'): string {
     : 'Le script est anonyme et sans cookie : aucun bandeau de consentement à ajouter pour lui.';
 }
 
-/** La description de la carte de correction : quoi retirer, quoi poser, quoi garder. */
+/** La description de la carte du suivi : quoi retirer, quoi poser, quoi garder. */
 function descriptionDeLaCarte(projectId: string, adresse: string, diagnostic: DiagnosticSuivi): string {
   const espace = lireEspace(projectId)!;
   const projet = store.getProject(projectId);
   return [
-    `Le site en production (${adresse}) doit être suivi par Beluga, par défaut. Constat à la dernière lecture de sa page d’accueil : ${LIBELLE_DIAGNOSTIC_SUIVI[diagnostic].toLowerCase()}.`,
+    `Le site en production (${adresse}) doit être suivi par Beluga. Constat à la dernière lecture de sa page d’accueil : ${LIBELLE_DIAGNOSTIC_SUIVI[diagnostic].toLowerCase()}.`,
     '',
     consigneDeCorrection(diagnostic),
     '',
@@ -147,20 +133,19 @@ function descriptionDeLaCarte(projectId: string, adresse: string, diagnostic: Di
 }
 
 /**
- * UNE CARTE DU SUIVI PAR PROJET, QUEL QUE SOIT CELUI QUI LA DEMANDE : le démon
- * (correction), le bouton « Installer le suivi » de Statistiques, ou l'agent de
- * l'atelier (`poser_suivi`). Tous partagent `carte_suivi_id` : tant que la carte
+ * UNE CARTE DU SUIVI PAR PROJET, QUEL QUE SOIT CELUI QUI LA DEMANDE : le bouton
+ * « Installer le suivi » de Statistiques ou l'agent de l'atelier (`poser_suivi`). Tous partagent `carte_suivi_id` : tant que la carte
  * existe, aucune autre ne naît et c'est elle qu'on rend. Naître ne marque RIEN
  * comme posé : seul le code lu sur le site le fait (`ecrireDiagnostic`), ou la
  * première visite reçue.
  */
 const CONSIGNE_DU_CADRAGE_AUTOMATIQUE =
-  'Cette carte est née toute seule. Même si le suivi semble déjà en place, rends ta compréhension (le constat y figure) : c’est l’utilisateur qui décide de la lancer ou de la ranger.';
+  'Le cadrage de cette carte part tout seul. Même si le suivi semble déjà en place, rends ta compréhension (le constat y figure) : c’est l’utilisateur qui décide de la lancer ou de la ranger.';
 
 async function naitreLaCarteDuSuivi(
   projectId: string,
   entree: { title: string; description: string; origineAgentId?: string },
-  premierTour: 'en-serie' | true,
+  premierTour: true,
   remplacer = false,
 ): Promise<{ card: Card; deja: boolean }> {
   const deja = remplacer ? null : carteDuSuivi(projectId);
@@ -189,28 +174,6 @@ async function naitreLaCarteDuSuivi(
   getDb().prepare('UPDATE marketing_espaces SET carte_suivi_id = ? WHERE project_id = ?').run(card.id, projectId);
   bus.emit({ type: 'marketing', projectId });
   return { card, deja: false };
-}
-
-/**
- * UNE CARTE DE CORRECTION, UNE SEULE. Tant que la carte déjà posée existe —
- * quelle que soit sa colonne —, aucune autre ne naît : la correction peut
- * attendre sa mise en production sans que le démon ne la redemande. Les
- * corrections partent en SÉRIE : une carte par projet ne lance jamais tous les
- * agents d'un coup.
- */
-async function poserLaCarteDeCorrection(projectId: string, adresse: string, diagnostic: DiagnosticSuivi): Promise<string | null> {
-  if (carteDuSuivi(projectId)) return null;
-  // Un agent du projet pose le code lui-même (outil « statistiques ») : pas de carte en doublon.
-  if (installationParUnAgentEnCours(projectId)) return null;
-  const { card } = await naitreLaCarteDuSuivi(
-    projectId,
-    {
-      title: diagnostic === 'ancien-outil' ? 'Remplacer l’ancien suivi des visites' : 'Poser le suivi des visites',
-      description: descriptionDeLaCarte(projectId, adresse, diagnostic),
-    },
-    'en-serie',
-  );
-  return card.id;
 }
 
 /**
@@ -251,51 +214,48 @@ export interface BilanDuSuivi {
   projectId: string;
   adresse: string;
   diagnostic: DiagnosticSuivi;
-  carteId: string | null;
 }
 
-/** Un seul projet : l'espace, la lecture de la page, la carte si besoin. */
-export async function assurerLeSuiviDuProjet(projectId: string, lecteur: typeof fetch = fetch, maintenant = Date.now()): Promise<BilanDuSuivi | null> {
+/** L'adresse de production d'un projet suivi ; `null` pour un regroupement ou un suivi coupé. */
+function adresseSuivieDuProjet(projectId: string): string | null {
   const projet = store.getProject(projectId);
   if (!projet || estUnRegroupement(projet)) return null;
-  // Un projet dont le suivi marketing est coupé ne reçoit plus de carte de correction.
   if (lireEspace(projectId)?.actif === false) return null;
-  const adresse = adresseDeProductionDuProjet(projet, lireEspace(projectId)?.configuration.adresse, sitesRattachesALaMain(projectId));
+  return adresseDeProductionDuProjet(projet, lireEspace(projectId)?.configuration.adresse, sitesRattachesALaMain(projectId));
+}
+
+/**
+ * UNE ADRESSE DE PRODUCTION SAISIE (réglages, ou agent de configuration) :
+ * l'espace est préparé et l'origine autorisée, sinon le script refuserait les
+ * visites. Le site n'est PAS lu et aucune carte ne naît.
+ */
+export function preparerLeSuiviDuProjet(projectId: string): boolean {
+  const adresse = adresseSuivieDuProjet(projectId);
+  if (!adresse || !assurerLEspaceDeSuivi(projectId, adresse)) return false;
+  bus.emit({ type: 'marketing', projectId });
+  return true;
+}
+
+/** Un seul projet, sur demande : l'espace, la lecture de la page, le diagnostic. Jamais de carte. */
+export async function relireLeSuiviDuProjet(projectId: string, lecteur: typeof fetch = fetch, maintenant = Date.now()): Promise<BilanDuSuivi | null> {
+  const adresse = adresseSuivieDuProjet(projectId);
   if (!adresse || !assurerLEspaceDeSuivi(projectId, adresse)) return null;
   const espace = lireEspace(projectId)!;
   const page = await lireLaPage(adresse, lecteur);
   const diagnostic: DiagnosticSuivi = page === null ? 'injoignable' : diagnostiquerSuivi(page, espace.cleSuivi, adresseDeBeluga());
   ecrireDiagnostic(projectId, diagnostic, maintenant);
-  const carteId = diagnosticACorriger(diagnostic) ? await poserLaCarteDeCorrection(projectId, adresse, diagnostic) : null;
   bus.emit({ type: 'marketing', projectId });
-  return { projectId, adresse, diagnostic, carteId };
-}
-
-/** Tous les projets vivants, l'un après l'autre : une panne sur l'un n'arrête pas les autres. */
-export async function assurerLeSuiviParDefaut(lecteur: typeof fetch = fetch): Promise<BilanDuSuivi[]> {
-  const bilans: BilanDuSuivi[] = [];
-  for (const projet of store.listProjects()) {
-    try {
-      const bilan = await assurerLeSuiviDuProjet(projet.id, lecteur);
-      if (bilan) bilans.push(bilan);
-    } catch (err) {
-      log.warn(`suivi par défaut : « ${projet.name} » non traité`, err);
-    }
-  }
-  const cartes = bilans.filter((b) => b.carteId).length;
-  if (bilans.length) log.info(`suivi par défaut : ${bilans.length} site(s) relu(s), ${cartes} carte(s) de correction posée(s)`);
-  return bilans;
+  return { projectId, adresse, diagnostic };
 }
 
 /**
  * « TESTER LE SUIVI » (écran Statistiques, demande du 28/09/2026) : relit la
- * page du site TOUT DE SUITE et rend ce qu'elle porte. Un projet passe par le
- * même chemin que le tour quotidien (carte de correction comprise) ; un site
- * autonome n'a que sa lecture — aucune carte ne peut naître sans projet.
+ * page du site TOUT DE SUITE et rend ce qu'elle porte. Le constat met l'état du
+ * suivi à jour ; il ne pose aucune carte (« Installer le suivi » le fait).
  */
 export async function testerLeSuivi(id: string, lecteur: typeof fetch = fetch, maintenant = Date.now()): Promise<{ diagnostic: DiagnosticSuivi; adresse: string }> {
   if (!estSiteAutonome(id)) {
-    const bilan = await assurerLeSuiviDuProjet(id, lecteur, maintenant);
+    const bilan = await relireLeSuiviDuProjet(id, lecteur, maintenant);
     if (!bilan) throw new Error('Adresse du site inconnue : déclarez-la dans les réglages du projet.');
     return { diagnostic: bilan.diagnostic, adresse: bilan.adresse };
   }
@@ -308,20 +268,4 @@ export async function testerLeSuivi(id: string, lecteur: typeof fetch = fetch, m
   ecrireDiagnostic(id, diagnostic, maintenant);
   bus.emit({ type: 'marketing', projectId: id });
   return { diagnostic, adresse };
-}
-
-const PERIODE_MS = 24 * 3_600_000;
-
-/**
- * AU DÉMARRAGE, UNE MINUTE APRÈS (le démarrage ne l'attend jamais), puis
- * chaque jour. `BELUGA_SUIVI_PAR_DEFAUT=0` coupe tout.
- */
-export function demarrerLeSuiviParDefaut(): NodeJS.Timeout | null {
-  if (process.env.BELUGA_SUIVI_PAR_DEFAUT === '0') return null;
-  const tour = () => void assurerLeSuiviParDefaut().catch((err) => log.warn('suivi par défaut : tour impossible', err));
-  const premier = setTimeout(tour, 60_000);
-  premier.unref?.();
-  const minuteur = setInterval(tour, PERIODE_MS);
-  minuteur.unref?.();
-  return minuteur;
 }

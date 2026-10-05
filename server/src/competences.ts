@@ -493,7 +493,12 @@ export function tousLesCompteurs(): Map<string, CompteursDeFiche> {
   return carte;
 }
 
-type ColonneDeCompteur = 'servie' | 'aidee' | 'inutile' | 'contredite';
+/*
+ * `proposee`, `acceptee`, `refusee` : les compétences que Beluga propose de
+ * lui-même au cadrage (`server/src/proposition-competences.ts`) — combien de
+ * fois l'encadré est paru, et ce que l'utilisateur en a fait.
+ */
+type ColonneDeCompteur = 'servie' | 'aidee' | 'inutile' | 'contredite' | 'proposee' | 'acceptee' | 'refusee';
 
 /** Ajoute UN au compteur nommé. Jamais d'exception : compter ne fait pas échouer un tour. */
 export function compter(nom: string, colonne: ColonneDeCompteur, combien = 1): void {

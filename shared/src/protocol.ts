@@ -394,6 +394,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** « Marquer comme non lu » : rallume la pastille d'un rendu déjà consulté. */
   z.object({ type: z.literal('card.unread'), cardId: z.string() }),
   /**
+   * « J'ai lu », pour une carte SYSTÈME (`shared/src/cartes-systeme.ts`) : un
+   * agent sans carte, ou une mise en production terminée. Éteint son point
+   * bleu, la retire de l'écran et du chiffre bleu de son projet.
+   */
+  z.object({ type: z.literal('agent.read'), agentId: z.string() }),
+  z.object({ type: z.literal('deploy.read'), runId: z.string() }),
+  /**
    * UNE CARTE DEMANDÉE PAR SON SEUL IDENTIFIANT. Un lien direct
    * (« #projet/<id>/tache/<id> ») peut viser une carte qui n'est pas dans
    * l'instantané du projet — jamais chargée, appartenant à un autre projet,
@@ -1019,12 +1026,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('statistiques.etudierSite'), id: z.string(), identifiant: z.string().optional(), motDePasse: z.string().optional() }),
   z.object({ type: z.literal('marketing.lister') }),
   z.object({ type: z.literal('marketing.espace'), projectId: z.string(), jours: z.number().optional() }),
-  /* « demande » : une phrase libre ; « geste » : le bouton unique de l'écran (initialiser, réanalyser). */
+  /* « demande » : une phrase libre ; « geste » : le bouton unique de l'écran (initialiser, réanalyser) ou « Générer la suite » (suite). */
   z.object({
     type: z.literal('marketing.assistant'),
     projectId: z.string(),
     demande: z.string().optional(),
-    geste: z.enum(['initialiser', 'reanalyser']).optional(),
+    geste: z.enum(['initialiser', 'reanalyser', 'suite']).optional(),
   }),
   z.object({ type: z.literal('marketing.configurer'), projectId: z.string(), configuration: z.record(z.any()) }),
   /* Couper (ou rendre) le suivi marketing d'un projet : il passe dans « Projets inactifs ». */
@@ -1413,6 +1420,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
     capacity: CapacityEtat,
     agents: z.array(Agent),
     /**
+     * LES MISES EN PRODUCTION QUI ONT LEUR CARTE VIOLETTE, tous projets
+     * confondus : celles qui tournent, et celles terminées que personne n'a
+     * lues. `deploy` (dans `project.etat`) ne dit que la dernière publication
+     * du projet OUVERT : sans cette liste, la carte manquerait sur « Tableaux
+     * de bord » après un rechargement.
+     */
+    productions: z.array(DeployRun).optional(),
+    /**
      * Le projet dont les cartes sont DÉJÀ en route, poussées juste derrière ce
      * message : le navigateur n'a alors pas à les redemander, ce qui épargne un
      * aller-retour complet avant que le tableau ne s'affiche. Absent, le
@@ -1540,6 +1555,14 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('carnet.lignes'), cardId: z.string(), lignes: z.array(LigneDuCarnet) }),
   z.object({ type: z.literal('queue.etat'), agentId: z.string(), queue: z.array(QueuedPrompt) }),
   z.object({ type: z.literal('deploy.upsert'), run: DeployRun }),
+  /**
+   * UNE PUBLICATION VIENT D'ÊTRE LUE (`deploy.read`). Ce n'est PAS un
+   * `deploy.upsert` : la publication lue peut être plus ancienne que la
+   * dernière du projet, et la rediffuser telle quelle la remettrait à la place
+   * du déploiement lancé depuis. L'écran retire sa carte violette, et ne met à
+   * jour la publication du tableau que si c'est bien la même.
+   */
+  z.object({ type: z.literal('deploy.lu'), run: DeployRun }),
   /**
    * LE DIALOGUE DE PROCÉDURE, diffusé à chaque changement : tour parti, question
    * posée, procédure écrite, tour tombé. C'est ce qui remplace la réponse d'une

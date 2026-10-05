@@ -38,6 +38,11 @@ import {
   raisonRapportRefuse,
   resumeDesResultats,
   sourceDeLaVisite,
+  contenusEnRetard,
+  estLHeureDeLaReorganisation,
+  jourLocalDe,
+  productionAutomatiqueSuspendue,
+  rythmeDeLUtilisateur,
   transitionPermise,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
@@ -939,7 +944,7 @@ export function vueDEnsemble(maintenant = Date.now()) {
         nom: p.name,
         nature: espace?.configuration.nature ?? null,
         etatSuivi: espace?.configuration.etatSuivi ?? 'absent',
-        /* Ce que la page en production porte, lu par le suivi par défaut
+        /* Ce que la page en production porte, lu par « Tester le suivi »
            (`suivi-par-defaut.ts`) ; `null` tant qu'aucune adresse n'est connue. */
         diagnosticSuivi: espace ? diagnosticDeLEspace(p.id) : null,
         /* La carte d'installation du suivi : posée, elle ne vaut pas code posé. */
@@ -951,7 +956,8 @@ export function vueDEnsemble(maintenant = Date.now()) {
         // L'état au moment de la lecture ; l'écran le suit ensuite en direct sur l'agent.
         travaille: !!agent && agentTientSonTour(agent),
         attendReponse: !!agent?.attendReponse,
-        aValider: (parEtape.a_valider ?? 0) + (parEtape.brouillon ?? 0),
+        brouillons: parEtape.brouillon ?? 0,
+        aValider: parEtape.a_valider ?? 0,
         programmes: (parEtape.pret ?? 0) + (parEtape.programme ?? 0),
         publies: parEtape.publie ?? 0,
         visites: jours.map((j) => parJour?.get(j) ?? 0),
@@ -1070,6 +1076,62 @@ export function espaceComplet(projectId: string, jours = 30) {
 /* Annonces des livraisons                                             */
 /* ------------------------------------------------------------------ */
 
+/** Les contenus d'un projet comptés par étape. */
+export function contenusDuProjetParEtape(projectId: string): Record<string, number> {
+  const lignes = getDb().prepare('SELECT etape, COUNT(*) AS n FROM marketing_contenus WHERE project_id = ? GROUP BY etape').all(projectId) as { etape: string; n: number }[];
+  return Object.fromEntries(lignes.map((l) => [l.etape, l.n]));
+}
+
+/** LA PRODUCTION AUTOMATIQUE EST SUSPENDUE : 10 contenus ou plus attendent (brouillons + à valider). */
+export function productionSuspendue(projectId: string): boolean {
+  return productionAutomatiqueSuspendue(contenusDuProjetParEtape(projectId));
+}
+
+/** Le rythme réel de l'utilisateur sur ce projet, en chiffres. */
+export function rythmeDuProjet(projectId: string, maintenant = Date.now()) {
+  return rythmeDeLUtilisateur(listerContenus(projectId), maintenant);
+}
+
+export interface NouveauteEnReserve {
+  ref: string;
+  titre: string;
+  explication: string;
+  poids: string;
+}
+
+const RESERVE_MAX = 20;
+const cleReserve = (projectId: string) => `marketing:nouveautes-en-reserve:${projectId}`;
+
+/** Les livraisons notées pendant que la production était suspendue : l'agent les relit avec « lire ». */
+export function nouveautesEnReserve(projectId: string): NouveauteEnReserve[] {
+  try {
+    const brut = JSON.parse(getMeta(cleReserve(projectId)) ?? '[]');
+    return Array.isArray(brut) ? (brut as NouveauteEnReserve[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function mettreEnReserve(projectId: string, n: NouveauteEnReserve): void {
+  const actuelles = nouveautesEnReserve(projectId);
+  if (actuelles.some((x) => x.ref === n.ref)) return;
+  setMeta(cleReserve(projectId), JSON.stringify([...actuelles, n].slice(-RESERVE_MAX)));
+}
+
+/** Une nouveauté annoncée (ou jugée inutile) sort de la réserve. */
+export function retirerDeLaReserve(projectId: string, ref: string): void {
+  const restantes = nouveautesEnReserve(projectId).filter((x) => x.ref !== ref);
+  setMeta(cleReserve(projectId), JSON.stringify(restantes));
+}
+
+/** Les projets qui ont des brouillons ou contenus « à valider » à replacer (jour prévu passé). */
+export function projetsAReorganiser(maintenant = Date.now()): string[] {
+  return listerEspaces()
+    .filter((e) => contenusEnRetard(listerContenus(e.projectId), maintenant).length > 0)
+    .map((e) => e.projectId);
+}
+
+
 /**
  * UNE LIVRAISON NOTÉE AU CHANGELOG PROPOSE SON ANNONCE, en brouillon, pour un
  * projet qui a un espace marketing. Jamais une panne pour la carte : tout
@@ -1082,6 +1144,11 @@ export function proposerAnnonceDeLivraison(entree: { projectId: string; titre?: 
     const projet = store.getProject(entree.projectId);
     const annonce = annonceDeLivraison({ ...entree, nomProjet: projet?.name ?? 'le projet' });
     if (!annonce) return;
+    // Trop de contenus attendent : pas de brouillon de plus, la nouveauté est gardée en réserve.
+    if (productionSuspendue(entree.projectId)) {
+      mettreEnReserve(entree.projectId, { ref: entree.ref, titre: entree.titre ?? '', explication: entree.explication ?? '', poids: entree.poids ?? '' });
+      return;
+    }
     creerContenu({
       projectId: entree.projectId,
       genre: 'annonce',
@@ -1108,10 +1175,12 @@ export function purgerEvenements(maintenant = Date.now()): number {
 }
 
 const CLE_PLAN_HEBDO = 'marketing:plan-hebdo-pour';
+const CLE_REORGANISATION = 'marketing:reorganisation-du-jour';
 
 /**
- * CHAQUE MINUTE : le rangement une fois par jour, et le dimanche soir le plan
- * de la semaine pour chaque projet actif qui a une fiche. `BELUGA_MARKETING_NUIT=0`
+ * CHAQUE MINUTE : le rangement une fois par jour, la réorganisation des dates
+ * une fois par jour (à partir de 6 h), et le dimanche soir le plan de la
+ * semaine pour chaque projet actif qui a une fiche. `BELUGA_MARKETING_NUIT=0`
  * coupe le plan (jamais le rangement).
  */
 export function demarrerMarketing(): NodeJS.Timeout {
@@ -1127,6 +1196,12 @@ export function demarrerMarketing(): NodeJS.Timeout {
         void import('./pays-des-visites.js').then(({ assurerLaBaseDesPays }) => assurerLaBaseDesPays(maintenant)).catch(() => undefined);
       }
       if (process.env.BELUGA_MARKETING_NUIT === '0') return;
+      if (estLHeureDeLaReorganisation(maintenant, getMeta(CLE_REORGANISATION))) {
+        setMeta(CLE_REORGANISATION, jourLocalDe(maintenant));
+        void import('./assistant-marketing.js')
+          .then(({ lancerLaReorganisationDuJour }) => lancerLaReorganisationDuJour(maintenant))
+          .catch((err) => log.warn('marketing : réorganisation du jour impossible', err));
+      }
       const dejaFait = getMeta(CLE_PLAN_HEBDO);
       if (!estLHeureDuPlanHebdo(maintenant, dejaFait)) return;
       const lundi = lundiDe(maintenant + 86_400_000);

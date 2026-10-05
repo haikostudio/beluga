@@ -62,6 +62,11 @@
        un état, pas une décision à prendre, et il doit se voir d'un coup d'œil
        comme n'étant PAS du travail ordinaire. */
     --publie: 268 85% 68%;
+    /* LE VIOLET DES COMPÉTENCES PROPOSÉES AU CADRAGE (encadré « Utiliser » du fil).
+       Volontairement plus ROSE que `--publie`, qui dit « publication en cours » :
+       deux violets, deux sens. `-fg` est le texte posé sur le bouton plein. */
+    --competence: 288 72% 68%;
+    --competence-fg: 288 45% 12%;
     /* LA CONVENTION D'AVANCEMENT, valable dans TOUTE l'application :
        ORANGE = un travail EN COURS, BLEU = un travail TERMINÉ.
        Deux jetons À PART, et non les états voisins qu'ils reprennent : la
@@ -175,6 +180,8 @@
     --info: 205 90% 38%;
     /* Sur fond clair, le violet doit rester lisible : on l'assombrit. */
     --publie: 268 70% 48%;
+    --competence: 288 70% 48%;
+    --competence-fg: 288 40% 98%;
     /* Même convention, assombrie pour rester lisible sur fond blanc. */
     --en-cours: 32 90% 36%;
     --termine: 205 90% 38%;
@@ -248,6 +255,8 @@
     --record-fg: 41 38% 97%;
     --info: 205 62% 37%;
     --publie: 272 44% 47%;
+    --competence: 288 44% 47%;
+    --competence-fg: 290 35% 97%;
     --en-cours: 28 78% 40%;
     --termine: 205 62% 37%;
     --serie-1: 264 45% 45%;
@@ -308,6 +317,8 @@
     --record-fg: 210 30% 98%;
     --info: 205 78% 64%;
     --publie: 265 74% 72%;
+    --competence: 288 72% 72%;
+    --competence-fg: 290 40% 11%;
     --en-cours: 36 85% 62%;
     --termine: 205 78% 64%;
     --serie-1: 260 75% 74%;
@@ -368,6 +379,8 @@
     --record-fg: 210 40% 98%;
     --info: 205 85% 38%;
     --publie: 262 55% 46%;
+    --competence: 288 55% 46%;
+    --competence-fg: 286 45% 99%;
     --en-cours: 30 85% 38%;
     --termine: 205 85% 38%;
     --serie-1: 263 65% 48%;
@@ -425,6 +438,8 @@
     --record-fg: 150 20% 96%;
     --info: 205 75% 60%;
     --publie: 265 65% 68%;
+    --competence: 288 65% 68%;
+    --competence-fg: 286 48% 13%;
     --en-cours: 36 80% 58%;
     --termine: 205 75% 60%;
     --serie-1: 261 70% 75%;
@@ -483,6 +498,8 @@
     --record-fg: 45 10% 99%;
     --info: 205 100% 28%;
     --publie: 268 85% 32%;
+    --competence: 288 72% 32%;
+    --competence-fg: 292 30% 98%;
     --en-cours: 28 100% 30%;
     --termine: 205 100% 28%;
     --serie-1: 265 90% 38%;
@@ -529,6 +546,8 @@
     --record-fg: 40 30% 98%;
     --info: 203 72% 64%;
     --publie: 270 62% 72%;
+    --competence: 288 62% 72%;
+    --competence-fg: 292 42% 10%;
     --en-cours: 34 88% 64%;
     --termine: 203 72% 64%;
     --serie-1: 259 60% 74%;
@@ -566,6 +585,8 @@
     --record-fg: 220 32% 99%;
     --info: 206 76% 36%;
     --publie: 266 53% 45%;
+    --competence: 288 53% 45%;
+    --competence-fg: 284 38% 97%;
     --en-cours: 31 82% 37%;
     --termine: 206 76% 36%;
     --serie-1: 258 55% 46%;
@@ -603,6 +624,8 @@
     --record-fg: 202 38% 99%;
     --info: 198 81% 66%;
     --publie: 260 67% 73%;
+    --competence: 288 67% 73%;
+    --competence-fg: 284 44% 12%;
     --en-cours: 32 84% 66%;
     --termine: 198 81% 66%;
     --serie-1: 257 80% 76%;
@@ -640,6 +663,8 @@
     --record-fg: 145 34% 99%;
     --info: 202 74% 35%;
     --publie: 264 51% 44%;
+    --competence: 288 51% 44%;
+    --competence-fg: 289 42% 99%;
     --en-cours: 29 84% 36%;
     --termine: 202 74% 35%;
     --serie-1: 266 50% 44%;
@@ -677,6 +702,8 @@
     --record-fg: 45 20% 99%;
     --info: 201 96% 69%;
     --publie: 271 80% 76%;
+    --competence: 288 72% 76%;
+    --competence-fg: 289 38% 14%;
     --en-cours: 30 100% 68%;
     --termine: 201 96% 69%;
     --serie-1: 263 100% 80%;

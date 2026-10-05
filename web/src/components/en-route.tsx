@@ -32,11 +32,13 @@ import { Bot, CheckCircle2, Layers, Microscope, Rocket, Square, UploadCloud, Way
 import {
   agentCompteCommeTravail,
   agentTientSonTour,
+  agentSystemeNonLu,
   agentsDeLaBande,
   colonneAffichee,
   depannagesDeLaBande,
+  etatDeLaVignetteDInitialisation,
+  misesEnProductionAAfficher,
   depanneurVivant,
-  etatDeLInitialisation,
   etapeDeLAgentDeConfiguration,
   procedureEnPlace,
   activiteDeLaMere,
@@ -69,6 +71,8 @@ import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { CardTile, avalerLeRelachement } from '@/components/board';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
+import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
+import { PointNonLu } from '@/components/point-non-lu';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { usePointerDrag } from '@/lib/dnd';
 import { GRILLE_EN_ROUTE, SilhouetteListeEnRoute } from '@/components/silhouettes';
@@ -179,6 +183,11 @@ export function EnRoute({
   /* LES DÉPANNAGES DE PUBLICATION (« Résoudre le problème ») : leur carte
      spéciale, en tête de la colonne « Actifs », tant que l'agent travaille. */
   const depannages = depannagesDeLaBande(Object.values(state.agents), Date.now());
+  /* LES MISES EN PRODUCTION, tout en haut : celle qui tourne dans chaque
+     projet en service, puis celle qui a fini sans avoir été lue. */
+  const productions = misesEnProductionAAfficher(
+    Object.values(state.productions).filter((run) => enService.has(run.projectId)),
+  );
 
   /* LE NOMBRE D'ENTRÉES DE CHAQUE COLONNE, en tête de la colonne : ce qui est
      reçu, plus ce qui reste à demander (les paquets de vingt) — une pile compte
@@ -257,6 +266,24 @@ export function EnRoute({
           ) : undefined
         }
       >
+        {productions.length ? (
+          <section className="mb-1" data-bande-productions>
+            <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Mises en production')}</h2>
+            <div className={GRILLE}>
+              {productions.map((run) => (
+                <VignetteMiseEnProduction
+                  key={run.id}
+                  run={run}
+                  projet={state.projects.find((p) => p.id === run.projectId)}
+                  onOpen={() => client.ouvrirMiseEnProduction(run.projectId)}
+                  avecProjet
+                  formatCarte
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         {depannages.length ? (
           <section className="mb-1" data-bande-depannages>
             <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Dépannages')}</h2>
@@ -280,7 +307,7 @@ export function EnRoute({
                    à part, la même qu'en tête de « En cours » du tableau. */
                 const projet = state.projects.find((p) => p.id === agent.projectId);
                 const etapeConfiguree = etapeDeLAgentDeConfiguration(projet, agent.id) ?? 'production';
-                const initialisation = etatDeLInitialisation(projet, agent, Date.now(), etapeConfiguree);
+                const initialisation = etatDeLaVignetteDInitialisation(projet, agent, Date.now(), etapeConfiguree);
                 return initialisation ? (
                   <VignetteInitialisationProduction
                     key={agent.id}
@@ -802,6 +829,21 @@ function descriptionDuRole(role: Agent['role']): string {
 }
 
 /**
+ * UNE CARTE SYSTÈME ATTEND D'ÊTRE LUE (05/10/2026) : un agent sans carte qui a
+ * fini garde sa carte, point bleu allumé (`agentSystemeNonLu`), jusqu'à ce
+ * qu'on l'ouvre — ouvrir, c'est lire — ou qu'on clique sur le point.
+ */
+function useLectureSysteme(agent: Agent, onOpen: () => void) {
+  const nonLu = agentSystemeNonLu(agent);
+  const lire = () => client.send({ type: 'agent.read', agentId: agent.id });
+  const ouvrir = () => {
+    if (nonLu) lire();
+    onOpen();
+  };
+  return { nonLu, lire, ouvrir };
+}
+
+/**
  * UN AGENT DE LA BANDE, AU FORMAT D'UNE CARTE DE LA LISTE : même hauteur fixe
  * (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`), même tête (projet · rôle à gauche, état à
  * droite), le titre puis une description (`descriptionDuRole`) dans le même
@@ -822,17 +864,19 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
   const Icone = agent.role === 'deploy' ? UploadCloud : agent.role === 'analysis' ? Microscope : Bot;
   const titreRef = React.useRef<HTMLHeadingElement>(null);
   const titreCoupe = useTexteCoupe([titreRef], [agent.title]);
+  const { nonLu, lire, ouvrir } = useLectureSysteme(agent, onOpen);
   return (
-    <div className={cn('flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-agent-en-route={agent.id}>
+    <div className={cn('relative flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-agent-en-route={agent.id}>
+      {nonLu ? <PointNonLu onLire={lire} data-systeme-non-lu={agent.id} /> : null}
       <div
         role="button"
         tabIndex={0}
         data-ouvrir-agent-en-route={agent.id}
-        onClick={onOpen}
+        onClick={ouvrir}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
           event.preventDefault();
-          onOpen();
+          ouvrir();
         }}
         className={cn(
           CLASSE_CADRE_SYSTEME,
@@ -903,7 +947,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
         </div>
         <PiedSysteme agent={agent} auTravail={auTravail} />
       </div>
-      {auTravail ? <BandeauTravail agent={agent} onClick={onOpen} data-barre-agent-en-route={agent.id} /> : null}
+      {auTravail ? <BandeauTravail agent={agent} onClick={ouvrir} data-barre-agent-en-route={agent.id} /> : null}
     </div>
   );
 }
@@ -924,17 +968,19 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
   const vivant = depanneurVivant(agent);
   const auTravail = agentTientSonTour(agent);
   const cible = agent.depannagePublication?.cible;
+  const { nonLu, lire, ouvrir } = useLectureSysteme(agent, onOpen);
   return (
-    <div className={cn('flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-depannage={agent.id}>
+    <div className={cn('relative flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-depannage={agent.id}>
+      {nonLu ? <PointNonLu onLire={lire} data-systeme-non-lu={agent.id} /> : null}
       <div
         role="button"
         tabIndex={0}
         data-ouvrir-depannage={agent.id}
-        onClick={onOpen}
+        onClick={ouvrir}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
           event.preventDefault();
-          onOpen();
+          ouvrir();
         }}
         className={cn(
           CLASSE_CADRE_SYSTEME,
@@ -971,7 +1017,7 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
         </div>
         <PiedSysteme agent={agent} auTravail={auTravail} />
       </div>
-      {auTravail ? <BandeauTravail agent={agent} onClick={onOpen} data-barre-depannage={agent.id} /> : null}
+      {auTravail ? <BandeauTravail agent={agent} onClick={ouvrir} data-barre-depannage={agent.id} /> : null}
     </div>
   );
 }

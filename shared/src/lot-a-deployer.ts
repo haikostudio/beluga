@@ -68,6 +68,8 @@ export interface EtatDuLot {
   autrePublication?: boolean;
   /** Les agents qui travaillent encore dans le dossier du projet. */
   agentsOccupes?: string[];
+  /** Les cartes dont le lancement se prépare encore (pas encore d'agent) : titres. */
+  lancementsEnPreparation?: string[];
   /** Une mise en production sans prompt réglé : la phrase du refus. */
   productionBloquee?: string;
   /** Le navigateur n'a plus de lien avec le serveur : rien ne partirait. */
@@ -112,6 +114,9 @@ export function raisonLotBloque(etat: EtatDuLot): string | null {
     return `${noms} ${verbe} encore dans le dossier : la mise en ligne partirait sur un dépôt en mouvement.`;
   }
 
+  const enPreparation = etat.lancementsEnPreparation ?? [];
+  if (enPreparation.length) return raisonLancementEnPreparation(enPreparation);
+
   if (etat.aPublier > 0) return null;
 
   // Une étape sans lot n'a rien à compter : elle pousse une VERSION, pas des
@@ -129,6 +134,21 @@ export function raisonLotBloque(etat: EtatDuLot): string | null {
 
   return `Rien à ${etat.verbe} : la colonne est vide et aucun travail n’attend sur la branche.`;
 }
+
+/**
+ * LA PHRASE DU REFUS quand une carte démarre : sa copie de travail s'ouvre
+ * encore, aucun agent n'existe, mais elle touche le même dépôt que la mise en
+ * ligne. Une seule phrase pour le démon (`startDeploy`) et pour l'écran.
+ */
+export function raisonLancementEnPreparation(titres: readonly string[]): string {
+  const noms = titres.map((titre) => `« ${titre} »`).join(', ');
+  const verbe = titres.length > 1 ? 'démarrent' : 'démarre';
+  return `${noms} ${verbe} : la mise en ligne attend que le lancement soit prêt, puis vous pourrez la relancer.`;
+}
+
+/** Pourquoi une carte attend : une mise en ligne du projet est en cours. */
+export const RAISON_LANCEMENT_PENDANT_UNE_PUBLICATION =
+  'Une mise en ligne est en cours : le lancement repart tout seul dès qu’elle est finie.';
 
 /** Ce que la règle des agents occupés lit d'un agent. */
 export interface AgentPourLeLot {

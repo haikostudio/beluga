@@ -1,8 +1,10 @@
 import * as React from 'react';
-import { Check, Copy, Eye, EyeOff, Key, Loader2, Archive, ArchiveRestore, Plus, Search, Trash2 } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, ImagePlus, Images, Key, Loader2, Archive, ArchiveRestore, Plus, Search, Trash2, X } from 'lucide-react';
 import {
   AccesCoffre,
+  Attachment,
   ChampAcces,
+  IMAGES_ACCES_MAX,
   LIBELLE_TYPE_ACCES,
   NOM_ACCES_MAX,
   TYPES_ACCES,
@@ -11,6 +13,8 @@ import {
   champsDuType,
   echeanceArchive,
   filtrerAcces,
+  libelleDansUnMenu,
+  projetsEnArbre,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -30,6 +34,8 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
+import { AttachmentPreview } from '@/components/attachment-preview';
+import { ImageDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { formatRegional, t } from '@/lib/langue';
@@ -54,8 +60,22 @@ import { useElementAdresse } from '@/lib/adresse-element';
  * fiche (six mois après son retrait) et le bouton qui la restaure ; on revient
  * aux accès actifs en le refermant, jamais en recliquant « Archives ».
  *
- * Les règles (types, champs, recherche, archives) vivent dans `shared/src/coffre-fort.ts`.
+ * UNE FICHE PORTE DES IMAGES (capture, code QR, document scanné) : elles se
+ * choisissent, se glissent ou se collent dans la fiche, s'affichent en
+ * vignettes sous ses champs et s'ouvrent en grand au clic. Elles partent au
+ * coffre par `/api/upload?coffre=1`, réservé à l'administrateur, et ne sont
+ * rattachées à la fiche qu'à l'ENREGISTREMENT.
+ *
+ * Les règles (types, champs, recherche, archives, images) vivent dans `shared/src/coffre-fort.ts`.
  */
+
+/** Ce que rend chaque commande du coffre : les fiches, et les images qu'elles citent. */
+interface ReponseDuCoffre {
+  acces?: AccesCoffre[];
+  liste?: AccesCoffre[];
+  archives?: AccesCoffre[];
+  pieces?: Attachment[];
+}
 
 /** La date d'effacement d'une archive, dans la langue en vigueur. */
 function dateEffacement(acces: AccesCoffre): string {
@@ -75,6 +95,7 @@ function ficheVierge(type: TypeAcces, projectId: string | null): AccesCoffre {
     creeLe: 0,
     modifieLe: 0,
     origine: 'coffre',
+    images: [],
   };
 }
 
@@ -106,6 +127,8 @@ export function CoffreFort({
      et l'écran annonçait « aucun accès enregistré » le temps d'une image. */
   const [chargement, setChargement] = React.useState(true);
   const [fiche, setFiche] = React.useState<AccesCoffre | null>(null);
+  /* Les images citées par les fiches, par identifiant : leurs vignettes. */
+  const [pieces, setPieces] = React.useState<Attachment[]>([]);
 
   const nomProjet = React.useCallback(
     (projectId: string | null) => state.projects.find((p) => p.id === projectId)?.name,
@@ -119,13 +142,14 @@ export function CoffreFort({
     let vivant = true;
     setChargement(true);
     client
-      .call<{ acces: AccesCoffre[]; archives?: AccesCoffre[] }>({
+      .call<ReponseDuCoffre>({
         type: 'coffre.lister',
       })
       .then((data) => {
         if (!vivant) return;
         setListe(data.acces ?? []);
         setArchives(data.archives ?? []);
+        setPieces(data.pieces ?? []);
       })
       .catch((err: any) => client.pushToast('error', err?.message ?? t('Coffre-fort illisible')))
       .finally(() => {
@@ -163,9 +187,10 @@ export function CoffreFort({
   });
 
   const visibles = filtrerAcces(liste, recherche, nomProjet);
-  const recevoir = (nouvelle: AccesCoffre[], nouvellesArchives?: AccesCoffre[]) => {
+  const recevoir = (nouvelle: AccesCoffre[], nouvellesArchives?: AccesCoffre[], nouvellesPieces?: Attachment[]) => {
     setListe(nouvelle);
     if (nouvellesArchives) setArchives(nouvellesArchives);
+    if (nouvellesPieces) setPieces(nouvellesPieces);
   };
 
   return (
@@ -256,7 +281,7 @@ export function CoffreFort({
       />
 
       {/* Le détail : empilé par-dessus la liste — ou par-dessus les archives. */}
-      <FicheAcces fiche={fiche} onClose={() => setFiche(null)} onListe={recevoir} />
+      <FicheAcces fiche={fiche} pieces={pieces} onClose={() => setFiche(null)} onListe={recevoir} />
     </>
   );
 }
@@ -346,6 +371,16 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
     >
       <span className="flex w-full min-w-0 items-center gap-1.5">
         <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{acces.nom}</span>
+        {acces.images?.length ? (
+          <span
+            className="flex shrink-0 items-center gap-0.5 text-[12px] tabular-nums text-faint"
+            title={t('Images jointes')}
+            data-coffre-nombre-images={acces.images.length}
+          >
+            <Images className="h-3 w-3" />
+            {acces.images.length}
+          </span>
+        ) : null}
         <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[acces.type])}</Badge>
       </span>
       <span className="flex w-full min-w-0 items-center gap-1.5 text-[12px] text-faint">
@@ -376,18 +411,22 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
  */
 function FicheAcces({
   fiche,
+  pieces,
   onClose,
   onListe,
 }: {
   fiche: AccesCoffre | null;
+  /** Les images déjà connues du coffre, pour les vignettes de la fiche ouverte. */
+  pieces: Attachment[];
   onClose: () => void;
-  onListe: (liste: AccesCoffre[], archives?: AccesCoffre[]) => void;
+  onListe: (liste: AccesCoffre[], archives?: AccesCoffre[], pieces?: Attachment[]) => void;
 }) {
   const state = useApp();
   const [nom, setNom] = React.useState('');
   const [projectId, setProjectId] = React.useState<string | null>(null);
   const [champs, setChamps] = React.useState<Record<string, string>>({});
   const [note, setNote] = React.useState('');
+  const [images, setImages] = React.useState<Attachment[]>([]);
   const [enCours, setEnCours] = React.useState(false);
   const [aSupprimer, setASupprimer] = React.useState(false);
 
@@ -399,6 +438,10 @@ function FicheAcces({
     setProjectId(fiche.projectId);
     setChamps({ ...fiche.champs });
     setNote(fiche.note);
+    // Une image dont le fichier a disparu n'a plus de vignette : elle sort de
+    // la liste, et l'enregistrement suivant ne la cite plus.
+    setImages((fiche.images ?? []).map((id) => pieces.find((p) => p.id === id)).filter((p): p is Attachment => !!p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fiche?.id, fiche?.type, fiche]);
 
   const type = fiche?.type ?? 'autre';
@@ -408,14 +451,11 @@ function FicheAcces({
     if (!fiche) return;
     setEnCours(true);
     try {
-      const data = await client.call<{
-        liste: AccesCoffre[];
-        archives?: AccesCoffre[];
-      }>({
+      const data = await client.call<ReponseDuCoffre>({
         type: 'coffre.enregistrer',
-        acces: { id: fiche.id, nom, type, projectId, champs, note },
+        acces: { id: fiche.id, nom, type, projectId, champs, note, images: images.map((image) => image.id) },
       });
-      onListe(data.liste ?? [], data.archives);
+      onListe(data.liste ?? [], data.archives, data.pieces);
       client.pushToast('success', t('Accès enregistré.'));
       onClose();
     } catch (err: any) {
@@ -428,14 +468,11 @@ function FicheAcces({
   const supprimer = async () => {
     if (!fiche) return;
     try {
-      const data = await client.call<{
-        liste: AccesCoffre[];
-        archives?: AccesCoffre[];
-      }>({
+      const data = await client.call<ReponseDuCoffre>({
         type: 'coffre.supprimer',
         id: fiche.id,
       });
-      onListe(data.liste ?? [], data.archives);
+      onListe(data.liste ?? [], data.archives, data.pieces);
       client.pushToast('success', t('Accès archivé.'));
       onClose();
     } catch (err: any) {
@@ -447,14 +484,11 @@ function FicheAcces({
     if (!fiche) return;
     setEnCours(true);
     try {
-      const data = await client.call<{
-        liste: AccesCoffre[];
-        archives?: AccesCoffre[];
-      }>({
+      const data = await client.call<ReponseDuCoffre>({
         type: 'coffre.restaurer',
         id: fiche.id,
       });
-      onListe(data.liste ?? [], data.archives);
+      onListe(data.liste ?? [], data.archives, data.pieces);
       client.pushToast('success', t('Accès restauré.'));
       onClose();
     } catch (err: any) {
@@ -475,7 +509,7 @@ function FicheAcces({
         </header>
 
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3" data-coffre-fiche>
             <Champ libelle={t('Nom')}>
               <Input
                 value={nom}
@@ -496,9 +530,10 @@ function FicheAcces({
                 className="h-8 w-full rounded-md border border-border bg-bg px-2 text-[13px] text-text disabled:opacity-60"
               >
                 <option value="">{t('Général')}</option>
-                {state.projects.map((projet) => (
-                  <option key={projet.id} value={projet.id}>
-                    {projet.name}
+                {/* Les membres d'un projet réuni se rangent sous lui, en retrait. */}
+                {projetsEnArbre(state.projects).map((ligne) => (
+                  <option key={ligne.projet.id} value={ligne.projet.id} data-membre-de={ligne.parentId}>
+                    {libelleDansUnMenu(ligne.projet.name, ligne)}
                   </option>
                 ))}
               </select>
@@ -523,6 +558,8 @@ function FicheAcces({
                 data-coffre-note
               />
             </Champ>
+
+            <ImagesDeLaFiche images={images} onChange={setImages} figee={archivee} />
 
             {archivee && fiche ? (
               <p className="text-[12px] leading-relaxed text-faint" data-coffre-archive-info>
@@ -574,6 +611,164 @@ function FicheAcces({
         onConfirm={supprimer}
       />
     </>
+  );
+}
+
+/** Envoie UNE image au coffre et rend la pièce déposée, ou rien en cas de refus. */
+async function envoyerImageAuCoffre(fichier: File): Promise<Attachment | null> {
+  if (!fichier.type.startsWith('image/')) {
+    client.pushToast('error', t('Le coffre-fort ne prend que des images.'));
+    return null;
+  }
+  try {
+    const reponse = await fetch('/api/upload?coffre=1', {
+      method: 'POST',
+      headers: {
+        'content-type': fichier.type,
+        'x-file-name': encodeURIComponent(fichier.name || 'image.png'),
+      },
+      body: fichier,
+    });
+    const data = await reponse.json().catch(() => ({}));
+    if (!reponse.ok) throw new Error(typeof data?.error === 'string' ? data.error : String(reponse.status));
+    return (data.attachment as Attachment) ?? null;
+  } catch (err: any) {
+    client.pushToast('error', /^\d+$/.test(err?.message ?? '') ? t('Envoi de l’image impossible') : (err?.message ?? t('Envoi de l’image impossible')));
+    return null;
+  }
+}
+
+/**
+ * LES IMAGES D'UNE FICHE : des vignettes sous les champs, qui s'ouvrent en
+ * grand, et trois façons d'en ajouter — choisir, glisser, coller. Une fiche
+ * archivée (`figee`) les montre sans permettre d'y toucher.
+ *
+ * Coller marche DANS TOUTE LA FICHE, pas seulement sur cette zone : une
+ * capture d'écran se colle d'instinct, sans viser. L'écoute est posée sur le
+ * document tant que la fiche est ouverte, et ne prend que les collages qui
+ * portent une image — un texte collé dans un champ suit son chemin.
+ */
+function ImagesDeLaFiche({
+  images,
+  onChange,
+  figee,
+}: {
+  images: Attachment[];
+  onChange: React.Dispatch<React.SetStateAction<Attachment[]>>;
+  figee: boolean;
+}) {
+  const champ = React.useRef<HTMLInputElement>(null);
+  const [envoi, setEnvoi] = React.useState(false);
+  const [survol, setSurvol] = React.useState(false);
+  const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const pleine = images.length >= IMAGES_ACCES_MAX;
+
+  const ajouter = React.useCallback(
+    async (fichiers: File[]) => {
+      const retenus = fichiers.filter((f) => f.type.startsWith('image/'));
+      if (!retenus.length) return;
+      setEnvoi(true);
+      try {
+        for (const fichier of retenus) {
+          const piece = await envoyerImageAuCoffre(fichier);
+          if (!piece) continue;
+          onChange((avant) =>
+            avant.some((image) => image.id === piece.id) || avant.length >= IMAGES_ACCES_MAX ? avant : [...avant, piece],
+          );
+        }
+      } finally {
+        setEnvoi(false);
+        if (champ.current) champ.current.value = '';
+      }
+    },
+    [onChange],
+  );
+
+  React.useEffect(() => {
+    if (figee) return;
+    const coller = (e: ClipboardEvent) => {
+      // Seulement quand la fiche est à l'écran : ce composant ne vit que là.
+      const fichiers = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'));
+      if (!fichiers.length) return;
+      e.preventDefault();
+      void ajouter(fichiers);
+    };
+    document.addEventListener('paste', coller);
+    return () => document.removeEventListener('paste', coller);
+  }, [ajouter, figee]);
+
+  if (figee && !images.length) return null;
+
+  return (
+    <div className="flex flex-col gap-1" data-coffre-images={images.length}>
+      <span className="text-[12px] font-medium text-muted">{t('Images')}</span>
+      <div
+        onDragOver={(e) => {
+          if (figee) return;
+          e.preventDefault();
+          setSurvol(true);
+        }}
+        onDragLeave={() => setSurvol(false)}
+        onDrop={(e) => {
+          if (figee) return;
+          e.preventDefault();
+          setSurvol(false);
+          void ajouter(Array.from(e.dataTransfer.files ?? []));
+        }}
+        className={cn(
+          'flex flex-wrap items-start gap-2 rounded-md bg-bloc p-2 transition-colors',
+          survol && 'bg-raised',
+        )}
+      >
+        {images.map((image) => (
+          <span key={image.id} className="relative block h-[72px] w-[72px] shrink-0" data-coffre-image={image.id}>
+            <button
+              type="button"
+              onClick={() => setApercu(image)}
+              className="relative block h-full w-full overflow-hidden rounded-md bg-raised"
+              aria-label={image.name}
+              title={image.name}
+            >
+              <ImageDePiece id={image.id} alt={image.name} className="h-full w-full object-cover" />
+            </button>
+            {figee ? null : (
+              <button
+                type="button"
+                onClick={() => onChange((avant) => avant.filter((autre) => autre.id !== image.id))}
+                className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-surface text-muted shadow-sm transition-colors hover:text-text"
+                aria-label="Retirer cette image"
+                title={t('Retirer cette image')}
+                data-coffre-image-retirer={image.id}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </span>
+        ))}
+        {figee || pleine ? null : (
+          <button
+            type="button"
+            onClick={() => champ.current?.click()}
+            disabled={envoi}
+            className="flex h-[72px] min-w-[72px] flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-faint/50 px-2 text-center text-[12px] leading-tight text-faint transition-colors hover:bg-raised hover:text-text disabled:opacity-60"
+            data-coffre-image-ajouter
+          >
+            {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+            {images.length ? t('Ajouter une image') : t('Choisir, glisser ou coller une image')}
+          </button>
+        )}
+      </div>
+      <input
+        ref={champ}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => void ajouter(Array.from(e.target.files ?? []))}
+        data-coffre-image-champ
+      />
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={images} onNaviguer={setApercu} />
+    </div>
   );
 }
 

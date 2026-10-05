@@ -193,6 +193,7 @@ import { repererLesCaptures } from './captures-auto.js';
 import { getInternalToken } from './auth.js';
 import { briefingSepare, competencesPertinentes } from './memory.js';
 import { garderLesPertinents, indiquerLaNatureDeLaDemande } from './jugement-rapide.js';
+import { briefingDesCompetencesValidees } from './proposition-competences.js';
 import { accueilDesConnaissances, compterUnites, oublierLesLectures, pistesDesConnaissances, pistesParLesMots, texteDesPistes } from './connaissances.js';
 import { allDone, mergeTodos } from './todos.js';
 import { callTool, cadrageAllowList, cadrageDenyList, toolsFor, writeMcpConfig } from './tools.js';
@@ -271,13 +272,12 @@ export interface LiveRun {
    */
   repriseDe?: string;
   /**
-   * CE TOUR INTERDIT `ask_user` : le cadrage de la nuit, que personne ne lit
-   * à 3 h (`tourDeCadrageSansQuestion`). Le garde-fou des suppositions ne le
+   * CE TOUR INTERDIT `ask_user` : le cadrage de la nuit, d'une carte posée
+   * sans témoin ou d'un site tombé, que personne ne lit sur le moment
+   * (`tourDeCadrageSansQuestion`). Le garde-fou des suppositions ne le
    * renvoie donc jamais à des questions qu'il n'a pas le droit de poser.
    */
   questionsInterdites?: boolean;
-  /** Le garde-fou des suppositions a déjà renvoyé ce tour aux questions : il ne le refait pas (`renvoiAuxQuestions`). */
-  renvoiAuxQuestionsFait?: boolean;
   startedAt: number;
   steps: Map<string, RunStep>;
   /**
@@ -1699,6 +1699,24 @@ async function preparerLeTour(
         content: socle,
       });
       memoryAndInstructionsCharacters += socle.length;
+    }
+    /*
+     * LES COMPÉTENCES VALIDÉES AU CADRAGE PARTENT EN ENTIER. Le socle n'annonce
+     * que des NOMS, et l'agent n'ouvrait presque jamais le mode d'emploi. Ce
+     * que l'utilisateur a validé d'un clic (« Utiliser ») arrive donc ici avec
+     * son texte complet — pour l'agent qui EXÉCUTE, jamais pour un cadrage.
+     */
+    if (card && agent.role === 'task') {
+      const validees = briefingDesCompetencesValidees(card);
+      if (validees) {
+        contextParts.push({
+          label: 'Compétences validées au cadrage',
+          kind: 'briefing',
+          origine: 'plateforme',
+          content: validees,
+        });
+        memoryAndInstructionsCharacters += validees.length;
+      }
     }
     /*
      * LA BASE DE CONNAISSANCES À CHAQUE COMPRÉHENSION. L'accueil part d'office :

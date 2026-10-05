@@ -1,11 +1,18 @@
 import * as React from 'react';
 import { Bot, Loader2, Search } from 'lucide-react';
-import { TITRE_CARTE_DE_CADRAGE, filtrerProjetsParNom, projetsParActivite, type Card } from '@beluga/shared';
+import { TITRE_CARTE_DE_CADRAGE, filtrerProjetsParNom, projetsEnArbre, projetsParActivite, type Card } from '@beluga/shared';
 import { Drawer, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
-import { PastilleProjet } from '@/components/pastille-projet';
+import {
+  BrancheDeListe,
+  IconeDeProjet,
+  LISTE_DE_TIROIR,
+  RETRAIT_MEMBRE_DE_TIROIR,
+  largeurIconeDeProjet,
+} from '@/components/pastille-projet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { cn } from '@/lib/utils';
 
 /**
  * FAIRE NAÎTRE UNE CARTE D'AGENT dans un projet, et l'ouvrir en tiroir : une
@@ -45,6 +52,11 @@ export async function creerCarteAgent(projectId: string, onCree: (cardId: string
  * nom (`filtrerProjetsParNom`), vidé à chaque ouverture. Il ne prend le focus
  * que sur grand écran : sur téléphone, le clavier cacherait la liste dès
  * l'ouverture. Entrée choisit le projet quand il n'en reste qu'un.
+ *
+ * L'ordre par activité est gardé, mais un PROJET RÉUNI et ses membres se
+ * tiennent ensemble (`projetsEnArbre`, posé APRÈS la recherche) : le bloc prend
+ * la place du plus récemment actif des siens, le projet réuni porte la pile des
+ * icônes de ses membres, et chaque membre est en retrait, relié par une branche.
  */
 export function TiroirNouvelAgent({
   open,
@@ -84,6 +96,7 @@ export function TiroirNouvelAgent({
 
   const liste = React.useMemo(() => projetsParActivite(projets, activite), [projets, activite]);
   const listeFiltree = React.useMemo(() => filtrerProjetsParNom(liste, filtre), [liste, filtre]);
+  const lignes = React.useMemo(() => projetsEnArbre(listeFiltree), [listeFiltree]);
 
   const choisir = async (projectId: string) => {
     if (enCours) return;
@@ -122,17 +135,28 @@ export function TiroirNouvelAgent({
       <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
         {listeFiltree.length ? (
           <ul data-tiroir-nouvel-agent className="flex flex-col gap-0.5">
-            {listeFiltree.map((projet) => (
-              <li key={projet.id}>
+            {lignes.map(({ projet, parentId, premier, dernier }) => (
+              <li key={projet.id} className="relative" data-membre-de={parentId}>
+                {parentId ? (
+                  <BrancheDeListe
+                    premier={premier}
+                    dernier={dernier}
+                    largeurParent={largeurIconeDeProjet(projets.find((p) => p.id === parentId), projets)}
+                    geometrie={LISTE_DE_TIROIR}
+                  />
+                ) : null}
                 <button
                   type="button"
                   data-projet-nouvel-agent={projet.id}
                   aria-busy={enCours === projet.id}
                   disabled={!!enCours}
                   onClick={() => void choisir(projet.id)}
-                  className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-text transition-colors hover:bg-raised disabled:cursor-not-allowed"
+                  className={cn(
+                    'flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-text transition-colors hover:bg-raised disabled:cursor-not-allowed',
+                    parentId && RETRAIT_MEMBRE_DE_TIROIR,
+                  )}
                 >
-                  <PastilleProjet project={projet} />
+                  <IconeDeProjet projet={projet} projets={projets} fond="hsl(var(--surface))" />
                   <span className="min-w-0 flex-1 truncate">{projet.name}</span>
                   {enCours === projet.id ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-faint" /> : null}
                 </button>

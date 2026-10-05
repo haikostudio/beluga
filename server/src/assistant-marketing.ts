@@ -16,9 +16,16 @@
  * fiche reçoit un tour court sur SA PROPRE carte, rangée ensuite directement
  * en archive (comme le rendez-vous de nuit, DEC-247) : l'agent lit tout avec
  * l'outil « marketing », il n'a pas besoin de la conversation de la semaine.
+ * SAUF si 10 contenus ou plus attendent déjà : produire encore n'aide pas.
+ *
+ * CHAQUE JOUR (`lancerLaReorganisationDuJour`), un tour du même genre replace
+ * les dates des brouillons en retard selon le rythme réel de l'utilisateur —
+ * seulement pour les projets qui ont quelque chose à replacer.
  */
 import {
   LABEL_MARKETING,
+  demandeDeReorganisation,
+  demandeDuGeste,
   demandeDuPlanHebdo,
   demandeMarketing,
   ficheRemplie,
@@ -26,12 +33,13 @@ import {
   reglagesDuNiveau,
   titreDeLAgentMarketing,
   estSiteAutonome,
+  jourLocalDe,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent, rangerCarteDAgent } from './carte-d-agent-demon.js';
-import { assurerEspace, listerEspaces, marquerAgentMarketing } from './marketing.js';
+import { assurerEspace, listerEspaces, marquerAgentMarketing, productionSuspendue, projetsAReorganiser, rythmeDuProjet } from './marketing.js';
 import { log } from './logger.js';
 
 export interface DepartMarketing {
@@ -112,6 +120,7 @@ export async function lancerLesPlansDeLaSemaine(lundi: string): Promise<number> 
   for (const espace of espaces) {
     const projet = store.getProject(espace.projectId);
     if (!projet || projet.archived) continue;
+    if (productionSuspendue(projet.id)) continue;
     const r = await reglages();
     const { card, agentId } = ouvrirCarteDAgent({
       projectId: projet.id,
@@ -132,4 +141,48 @@ export async function lancerLesPlansDeLaSemaine(lundi: string): Promise<number> 
   }
   if (lances) log.info(`marketing : plan de la semaine du ${lundi} préparé pour ${lances} projet(s)`);
   return lances;
+}
+
+/**
+ * LA RÉORGANISATION DU JOUR. Un projet après l'autre, et SEULEMENT ceux qui ont
+ * des brouillons ou des contenus « à valider » dont le jour prévu est passé :
+ * un tour d'agent coûte, il ne part pas pour rien.
+ */
+export async function lancerLaReorganisationDuJour(maintenant = Date.now()): Promise<number> {
+  const aReplacer = new Set(projetsAReorganiser(maintenant));
+  const aujourdhui = jourLocalDe(maintenant);
+  let lances = 0;
+  for (const espace of espacesDuPlanDeLaSemaine()) {
+    if (!aReplacer.has(espace.projectId)) continue;
+    const projet = store.getProject(espace.projectId);
+    if (!projet || projet.archived) continue;
+    const r = await reglages();
+    const { card, agentId } = ouvrirCarteDAgent({
+      projectId: projet.id,
+      titre: `Dates marketing réorganisées — ${projet.name}`.slice(0, 80),
+      description: `Chaque jour, l’agent marketing replace les contenus en retard selon votre rythme réel. Rien n’est programmé sans vous.`,
+      labels: [LABEL_MARKETING],
+      role: 'analysis',
+      run: { engine: 'claude', model: r.model, thinking: r.thinking as any },
+    });
+    try {
+      await sendPrompt(agentId, demandeDeReorganisation({ aujourdhui, rythme: rythmeDuProjet(projet.id, maintenant) }), {
+        template: 'none',
+        silent: true,
+        motif: 'configuration-marketing',
+      });
+      rangerCarteDAgent(card.id, agentId, 'archived', `Dates des contenus en retard replacées le ${aujourdhui}.`);
+      lances += 1;
+    } catch (err: any) {
+      log.warn(`marketing : réorganisation impossible pour « ${projet.name} »`, err);
+      direLaPanneSurLaCarte(card.id, agentId, err?.message ?? String(err));
+    }
+  }
+  if (lances) log.info(`marketing : dates réorganisées pour ${lances} projet(s)`);
+  return lances;
+}
+
+/** La phrase du geste « suite », avec le rythme réel du projet. */
+export function demandeDeLaSuite(projectId: string): string {
+  return demandeDuGeste('suite', rythmeDuProjet(projectId));
 }

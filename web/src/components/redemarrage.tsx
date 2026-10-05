@@ -8,6 +8,7 @@ import {
   raisonPublications,
 } from '@beluga/shared';
 import {
+  BulleInfo,
   Button,
   CLASSE_POINT_DE_BOUTON,
   Dialog,
@@ -36,7 +37,7 @@ import { cn } from '@/lib/utils';
  *    attend), y compris demandé mais retenu par une publication ou un travail
  *    en cours (il partira tout seul) ;
  *  - point gris : le serveur redémarre (l'entrée montre une roue qui tourne).
- * L'entrée dit son libellé et, en dessous, la raison.
+ * L'entrée dit son libellé ; la raison vit derrière un « i » à sa droite.
  *
  * LA FENÊTRE DE CONFIRMATION VIT HORS DU MENU (`dialogue`, rendu par le
  * bandeau à côté du menu) : posée dans le menu, elle se démonterait avec lui à
@@ -169,14 +170,24 @@ export function EntreeRedemarrage({ redemarrage }: { redemarrage: ReturnType<typ
       data-etat-redemarrage={etat}
       disabled={repart}
       onSelect={ouvrir}
-      className="items-start"
     >
-      {repart ? <Loader2 className="mt-0.5 h-3.5 w-3.5 animate-spin" /> : <Power className="mt-0.5 h-3.5 w-3.5" />}
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span>{libelle}</span>
-        {raison ? <span className="whitespace-normal text-[12px] leading-snug text-muted">{raison}</span> : null}
-      </span>
-      <span aria-hidden className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', COULEUR_DU_POINT[etat])} />
+      {repart ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
+      <span className="min-w-0 flex-1 whitespace-nowrap">{libelle}</span>
+      {raison ? (
+        // La raison vit derrière un « i » : en ligne, sa phrase décidait de la
+        // largeur du menu entier. Un appui sur le « i » (ou dans sa bulle, qui
+        // remonte par l'arbre React) ne doit PAS ouvrir la confirmation : on
+        // arrête clic, relâchement et touches avant qu'ils n'atteignent l'entrée.
+        <span
+          onClick={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          className="flex shrink-0"
+        >
+          <BulleInfo cote="end">{raison}</BulleInfo>
+        </span>
+      ) : null}
+      <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', COULEUR_DU_POINT[etat])} />
     </DropdownMenuItem>
   );
 }

@@ -341,11 +341,11 @@ export function enregistrerProcessus(
     },
   });
   bus.emit({ type: 'project.upsert', project: enregistre });
-  /* Une adresse publique écrite par l'agent ouvre son suivi, comme une saisie. */
+  /* Une adresse publique écrite par l'agent est autorisée au suivi, comme une saisie (sans lecture ni carte). */
   if (decision?.action === 'ecrire' && decision.champ === 'adresseProduction') {
     void import('./suivi-par-defaut.js')
-      .then(({ assurerLeSuiviDuProjet }) => assurerLeSuiviDuProjet(projectId))
-      .catch((err) => log.warn('suivi par défaut : relecture du projet impossible', err));
+      .then(({ preparerLeSuiviDuProjet }) => preparerLeSuiviDuProjet(projectId))
+      .catch((err) => log.warn('suivi des visites : préparation de l’espace impossible', err));
   }
   return true;
 }

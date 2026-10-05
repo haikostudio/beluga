@@ -573,7 +573,7 @@ const PASSAGES: Record<EtapeContenu, EtapeContenu[]> = {
   abandonne: ['brouillon'],
 };
 
-/** Ce que l'AGENT peut atteindre : jamais plus loin que « À valider ». */
+/** Ce que l'AGENT peut atteindre : jamais plus loin que « À valider » (et « Abandonné » pour archiver ses propositions). */
 const ETAPES_DE_L_AGENT: EtapeContenu[] = ['brouillon', 'a_valider'];
 
 /**
@@ -588,7 +588,8 @@ export function transitionPermise(entree: {
 }): string | null {
   const { de, vers, parQui } = entree;
   if (de === vers) return null;
-  if (parQui === 'agent' && !ETAPES_DE_L_AGENT.includes(vers)) {
+  // L'agent archive SES propositions encore en « Brouillon » ou « À valider » (vers « Abandonné »), jamais plus loin.
+  if (parQui === 'agent' && vers !== 'abandonne' && !ETAPES_DE_L_AGENT.includes(vers)) {
     return `L’agent ne dépose qu’en « Brouillon » ou « À valider » : « ${LIBELLE_ETAPE[vers]} » est un geste de l’utilisateur.`;
   }
   if (parQui === 'agent' && !ETAPES_DE_L_AGENT.includes(de)) {
@@ -1415,6 +1416,88 @@ export function estLHeureDuPlanHebdo(instant: number, dejaFaitPour: string | nul
 }
 
 /* ------------------------------------------------------------------ */
+/* Le plafond de ce qui attend, et le rythme de l'utilisateur          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * AU-DELÀ DE CE NOMBRE DE CONTENUS QUI ATTENDENT (brouillons + à valider),
+ * l'agent cesse de produire TOUT SEUL : annonces de livraison et plan du
+ * dimanche. Produire davantage n'aide personne tant que rien n'est relu. Le
+ * bouton « Générer la suite » reste, lui, un geste de l'utilisateur : il ne
+ * s'arrête jamais sur ce plafond.
+ */
+export const SEUIL_CONTENUS_EN_ATTENTE = 10;
+
+/** Combien de contenus attendent une relecture (les abandonnés ne comptent pas). */
+export function contenusEnAttente(parEtape: Readonly<Record<string, number>>): number {
+  return (parEtape.brouillon ?? 0) + (parEtape.a_valider ?? 0);
+}
+
+/** La production automatique est-elle suspendue ? Oui dès que 10 contenus ou plus attendent. */
+export function productionAutomatiqueSuspendue(parEtape: Readonly<Record<string, number>>): boolean {
+  return contenusEnAttente(parEtape) >= SEUIL_CONTENUS_EN_ATTENTE;
+}
+
+/** AAAA-MM-JJ d'un instant, en heure locale du serveur (comme `lundiDe`). */
+export function jourLocalDe(instant: number): string {
+  const d = new Date(instant);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+export type VitesseDeLUtilisateur = 'lent' | 'regulier' | 'rapide';
+
+export interface RythmeDeLUtilisateur {
+  /** Contenus que l'utilisateur a fait avancer (prêts, programmés, publiés) sur 7 puis 14 jours. */
+  avances7: number;
+  avances14: number;
+  /** Brouillons et « à valider » dont le jour prévu est passé : ce qui n'a pas été fait. */
+  enRetard: number;
+  enAttente: number;
+  vitesse: VitesseDeLUtilisateur;
+}
+
+/**
+ * LE RYTHME RÉEL DE L'UTILISATEUR, en chiffres rendus à l'agent. Un contenu
+ * « avancé » est un contenu que l'utilisateur a relu : il a quitté
+ * « Brouillon » et « À valider » (dernier mouvement dans la fenêtre).
+ * Lent : rien d'avancé en 14 jours alors que des contenus attendent, ou
+ * plus de retard que d'avancé ; rapide : au moins 3 avancés en 7 jours sans
+ * retard à rattraper.
+ */
+export function rythmeDeLUtilisateur(
+  contenus: readonly { etape: EtapeContenu; datePrevue?: string | null; majLe: number }[],
+  maintenant: number,
+): RythmeDeLUtilisateur {
+  const aujourdhui = jourLocalDe(maintenant);
+  const avances = contenus.filter((c) => c.etape === 'pret' || c.etape === 'programme' || c.etape === 'publie');
+  const avances7 = avances.filter((c) => maintenant - c.majLe <= 7 * 86_400_000).length;
+  const avances14 = avances.filter((c) => maintenant - c.majLe <= 14 * 86_400_000).length;
+  const enAttenteListe = contenus.filter((c) => c.etape === 'brouillon' || c.etape === 'a_valider');
+  const enRetard = enAttenteListe.filter((c) => !!c.datePrevue && c.datePrevue < aujourdhui).length;
+  const enAttente = enAttenteListe.length;
+  let vitesse: VitesseDeLUtilisateur = 'regulier';
+  if ((avances14 === 0 && enAttente > 0) || enRetard > avances14) vitesse = 'lent';
+  else if (avances7 >= 3 && enRetard === 0) vitesse = 'rapide';
+  return { avances7, avances14, enRetard, enAttente, vitesse };
+}
+
+/** Le rythme, en une ligne lisible par l'agent. */
+export function phraseDuRythme(r: RythmeDeLUtilisateur): string {
+  return `RYTHME DE L’UTILISATEUR : ${r.avances7} contenu(s) relu(s) ou programmé(s) en 7 jours, ${r.avances14} en 14 jours ; ${r.enAttente} en attente (brouillon ou à valider), dont ${r.enRetard} dont le jour prévu est passé. Vitesse : ${r.vitesse}.`;
+}
+
+/** Les contenus à replacer : brouillons et « à valider » dont le jour prévu est passé. */
+export function contenusEnRetard<C extends { etape: EtapeContenu; datePrevue?: string | null }>(contenus: readonly C[], maintenant: number): C[] {
+  const aujourdhui = jourLocalDe(maintenant);
+  return contenus.filter((c) => (c.etape === 'brouillon' || c.etape === 'a_valider') && !!c.datePrevue && c.datePrevue < aujourdhui);
+}
+
+/** Heure du tour quotidien de réorganisation : à partir de 6 h, une seule fois par jour local. */
+export function estLHeureDeLaReorganisation(instant: number, dejaFaitPour: string | null | undefined): boolean {
+  return new Date(instant).getHours() >= 6 && dejaFaitPour !== jourLocalDe(instant);
+}
+
+/* ------------------------------------------------------------------ */
 /* L'agent                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -1443,7 +1526,7 @@ TON OUTIL : « marketing ». Ses actions : « lire » (tout ce qui est enregistr
 
 5. LE PLAN D'ACTION. Pose un plan daté sur les quatre à six semaines qui viennent avec « action » (titre, detail : quoi faire et comment, en pas simples ; canal ; datePrevue AAAA-MM-JJ) : créer les comptes et fiches qui manquent, préparer une page, contacter des partenaires, lancer une publicité test, faire le point. Deux ou trois actions par semaine au plus. Il s'affiche dans le calendrier ; l'utilisateur coche ce qui est fait. « lire » d'abord : n'ajoute pas une action qui existe déjà, corrige-la (« id »).
 
-6. LES CONTENUS. « contenu » crée ou modifie un contenu : genre (post, courriel, page, annonce, argumentaire), canal (${CANAUX_CONTENU.join(', ')}), titre, texte, datePrevue (AAAA-MM-JJ) facultative, etape « brouillon » ou « a_valider ». Tu ne vas JAMAIS plus loin : valider, programmer et publier sont des gestes de l'utilisateur. Écris pour le réseau visé (longueur, ton), appuie-toi sur la fiche et sur ce qui a marché (« lire » donne les résultats par contenu). Pour tester deux versions d'un post, crée la version B avec « varianteDe ». L'utilisateur doit trouver de la MATIÈRE prête : à l'initialisation, rédige une première série (au moins un contenu par canal choisi qui se publie), datée sur les jours du plan, en « a_valider ». « lire » d'abord : ne double jamais un contenu qui existe.
+6. LES CONTENUS. « contenu » crée ou modifie un contenu : genre (post, courriel, page, annonce, argumentaire), canal (${CANAUX_CONTENU.join(', ')}), titre, texte, datePrevue (AAAA-MM-JJ) facultative, etape « brouillon » ou « a_valider ». Tu ne vas JAMAIS plus loin : valider, programmer et publier sont des gestes de l'utilisateur. Seule exception : tu peux ARCHIVER une de tes propositions périmée ou devenue inutile (encore en brouillon ou à valider) avec etape « abandonne » ; jamais un contenu prêt, programmé ou publié. Écris pour le réseau visé (longueur, ton), appuie-toi sur la fiche et sur ce qui a marché (« lire » donne les résultats par contenu). Pour tester deux versions d'un post, crée la version B avec « varianteDe ». L'utilisateur doit trouver de la MATIÈRE prête : à l'initialisation, rédige une première série (au moins un contenu par canal choisi qui se publie), datée sur les jours du plan, en « a_valider ». « lire » d'abord : ne double jamais un contenu qui existe.
 
 7. LE RAPPORT. À la fin de l'initialisation, d'une réanalyse, ou quand ce que tu sais du produit change, écris le rapport avec l'action « rapport » : un texte Markdown court et lisible par quelqu'un qui ne programme pas — ce qu'est le produit et pour qui, où il vit, comment on y paie, le positionnement retenu, les canaux choisis et pourquoi, le plan des semaines qui viennent, les contenus prêts à relire, l'état de la mesure, puis les trois prochaines choses à faire. Le rapport REMPLACE le précédent : écris-le entier. L'outil le refuse tant que la nature et l'hébergement ne sont pas enregistrés avec « configurer ».
 
@@ -1479,9 +1562,20 @@ export function raisonRapportRefuse(config: ConfigurationMarketing, rapport: unk
 }
 
 /** Les deux gestes du bouton unique de l'écran : la phrase part à l'agent attitré. */
-export type GesteAgentMarketing = 'initialiser' | 'reanalyser';
+export type GesteAgentMarketing = 'initialiser' | 'reanalyser' | 'suite';
 
-export function demandeDuGeste(geste: GesteAgentMarketing): string {
+export function demandeDuGeste(geste: GesteAgentMarketing, rythme?: RythmeDeLUtilisateur | null): string {
+  if (geste === 'suite') {
+    return [
+      'GÉNÈRE LA SUITE : l’utilisateur te demande de préparer la suite du travail. Annonce ta liste de tâches, puis :',
+      '1. « lire » d’abord : les contenus existants, le plan, les résultats, les nouveautés en réserve et le rythme de l’utilisateur.',
+      '2. ARCHIVE tes propositions périmées ou doublonnées encore en brouillon ou à valider (« contenu » avec « id » et etape « abandonne »). Jamais un contenu prêt, programmé ou publié.',
+      '3. Produis la suite, MESURÉE sur son rythme : 3 à 6 contenus au plus, moins s’il est lent, jamais un doublon de ce qui existe. Chaque nouveauté en réserve qui mérite une annonce devient un contenu avec « nouveaute » = sa référence.',
+      '4. Dates : replace aussi les brouillons existants en retard (« datePrevue ») — plus loin s’il est lent, plus près s’il avance vite.',
+      'Dépose en « a_valider » ou « brouillon », jamais plus loin. Personne ne te répond : n’appelle PAS « ask_user ». Réponse finale : quelques lignes — ce que tu as archivé, déposé, replacé.',
+      ...(rythme ? [phraseDuRythme(rythme)] : []),
+    ].join(' ');
+  }
   if (geste === 'reanalyser') {
     return [
       'RÉANALYSE COMPLÈTE : le projet a changé. Annonce ta liste de tâches (une par point étudié), puis refais les étapes 1 à 7 de ta consigne sur le dépôt ACTUEL.',
@@ -1561,6 +1655,18 @@ export function demandeDuPlanHebdo(entree: { lundi: string }): string {
     '« lire » d’abord : les livraisons récentes (annonces en brouillon), les résultats et ce qui a le mieux marché.',
     `Puis dépose 3 à 5 contenus pour la semaine, chacun avec sa « datePrevue » entre le ${entree.lundi} et le dimanche suivant, en étape « a_valider ». Ne programme rien : l’utilisateur valide lundi.`,
     'Réponse finale : une ligne par contenu déposé.',
+  ].join('\n');
+}
+
+/** La demande du tour quotidien : replacer les dates selon le rythme réel, sans rien produire de neuf. */
+export function demandeDeReorganisation(entree: { aujourdhui: string; rythme: RythmeDeLUtilisateur }): string {
+  return [
+    `RÉORGANISATION DU ${entree.aujourdhui}. Tour automatique quotidien : personne ne te répond, n'appelle PAS « ask_user ». Tu ne CRÉES aucun contenu ici.`,
+    phraseDuRythme(entree.rythme),
+    '« lire » d’abord. Replace les brouillons et contenus « à valider » dont le jour prévu est passé, avec « contenu » (« id » + « datePrevue » AAAA-MM-JJ) :',
+    'si l’utilisateur est LENT, reporte-les sur les jours et les semaines qui viennent, à raison de peu par jour ; s’il avance VITE, rapproche-les sur les jours à venir ;',
+    'répartis-les sans les empiler sur un même jour. Archive (etape « abandonne ») ceux de tes contenus devenus périmés. Ne touche jamais un contenu prêt, programmé ou publié.',
+    'Réponse finale : une ligne par contenu replacé ou archivé.',
   ].join('\n');
 }
 

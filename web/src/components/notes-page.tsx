@@ -37,6 +37,8 @@ import {
   echeanceDepassee,
   extraitDeNote,
   filtrerEtTrierNotes,
+  libelleDansUnMenu,
+  projetsEnArbre,
   type Attachment,
   type ImportanceNote,
   type Note,
@@ -282,9 +284,14 @@ export function NotesPage({
                 <DropdownMenuItem onSelect={() => setFiltreProjet(null)}>
                   {t('Tous les projets')}
                 </DropdownMenuItem>
-                {state.projects.map((projet) => (
-                  <DropdownMenuItem key={projet.id} onSelect={() => setFiltreProjet(projet.id)}>
-                    {projet.name}
+                {/* Les membres d'un projet réuni se rangent sous lui, en retrait. */}
+                {projetsEnArbre(state.projects).map((ligne) => (
+                  <DropdownMenuItem
+                    key={ligne.projet.id}
+                    data-membre-de={ligne.parentId}
+                    onSelect={() => setFiltreProjet(ligne.projet.id)}
+                  >
+                    {libelleDansUnMenu(ligne.projet.name, ligne)}
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -574,9 +581,9 @@ function FicheNote({
           onChange={(event) => setProjet(event.target.value)}
           className="h-7 rounded-md border border-border bg-surface px-2 text-[12.5px]"
         >
-          {state.projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
+          {projetsEnArbre(state.projects).map((ligne) => (
+            <option key={ligne.projet.id} value={ligne.projet.id} data-membre-de={ligne.parentId}>
+              {libelleDansUnMenu(ligne.projet.name, ligne)}
             </option>
           ))}
         </select>

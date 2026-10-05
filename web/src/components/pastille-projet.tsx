@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { Project } from '@beluga/shared';
+import { estUnRegroupement, membresActifsDuRegroupement, type Project } from '@beluga/shared';
 
 /**
  * L'icône de repos d'une ligne de projet : le favicon que le SERVEUR a su
@@ -102,6 +102,104 @@ export function PastillesEmpilees({
           <PastilleProjet project={membre} />
         </span>
       ))}
+    </span>
+  );
+}
+
+/**
+ * L'ICÔNE D'UNE LIGNE DE PROJET DANS UNE LISTE DE CHOIX : la pile des favicons
+ * de ses membres actifs pour un projet réuni, sinon sa pastille. `projets` est
+ * la liste entière de l'application — pas la liste affichée : une recherche qui
+ * écarte un membre ne retire pas son icône de la pile.
+ */
+export function IconeDeProjet({
+  projet,
+  projets,
+  fond,
+}: {
+  projet: Project;
+  projets: readonly Project[];
+  fond?: string;
+}) {
+  const membres = estUnRegroupement(projet) ? membresActifsDuRegroupement(projets, projet.id) : [];
+  return membres.length ? <PastillesEmpilees projects={membres} fond={fond} /> : <PastilleProjet project={projet} />;
+}
+
+/** La largeur, en px, de l'icône que `IconeDeProjet` pose pour ce projet. */
+export function largeurIconeDeProjet(projet: Project | undefined, projets: readonly Project[]): number {
+  return largeurPile(projet && estUnRegroupement(projet) ? membresActifsDuRegroupement(projets, projet.id).length : 1);
+}
+
+/**
+ * OÙ TOMBENT LES ICÔNES DANS UNE LISTE DE CHOIX, en px : la hauteur d'une ligne,
+ * l'écart entre deux lignes, le bord gauche de l'icône d'une ligne ordinaire et
+ * celui de l'icône d'un membre (son retrait). La branche se cale dessus.
+ */
+export interface GeometrieDeListe {
+  hauteur: number;
+  ecart: number;
+  icone: number;
+  iconeMembre: number;
+}
+
+/** Les deux tiroirs (« Dans quel projet ? », « Changer de projet ») : lignes `h-10 px-2`, `gap-0.5`. */
+export const LISTE_DE_TIROIR: GeometrieDeListe = { hauteur: 40, ecart: 2, icone: 8, iconeMembre: 28 };
+/** La classe du retrait d'un membre dans un tiroir : elle pose son icône à `iconeMembre`. */
+export const RETRAIT_MEMBRE_DE_TIROIR = 'pl-7';
+/** Le sous-menu « Déplacer vers un autre projet » : entrées `h-8 px-2`, collées. */
+export const LISTE_DE_MENU: GeometrieDeListe = { hauteur: 32, ecart: 0, icone: 8, iconeMembre: 28 };
+export const RETRAIT_MEMBRE_DE_MENU = 'pl-7';
+
+/**
+ * LA BRANCHE D'ARBORESCENCE D'UN MEMBRE DANS UNE LISTE DE CHOIX — le pendant,
+ * pour une liste à lignes fixes, de `BrancheMembre` (`sidebar.tsx`), dont la
+ * géométrie reste calée sur la colonne de gauche. Un trait vertical descend du
+ * milieu bas de l'icône du projet réuni, un trait horizontal s'arrête à 2 px de
+ * l'icône du membre ; chez le dernier, le vertical tourne en coude arrondi.
+ *
+ * À poser dans la ligne du membre, elle-même `relative`. Absolue et sans
+ * pointeur : elle ne change ni la hauteur de la ligne ni ce qu'on y clique.
+ */
+export function BrancheDeListe({
+  premier,
+  dernier,
+  largeurParent,
+  geometrie,
+}: {
+  premier: boolean;
+  dernier: boolean;
+  /** La largeur de l'icône du projet réuni (`largeurIconeDeProjet`) : elle déplace l'axe. */
+  largeurParent: number;
+  geometrie: GeometrieDeListe;
+}) {
+  const { hauteur, ecart, icone, iconeMembre } = geometrie;
+  const axe = icone + largeurParent / 2;
+  const milieu = hauteur / 2;
+  // Le premier remonte jusque sous l'icône du parent (1,5 px d'air) ; les
+  // suivants couvrent seulement l'écart qui les sépare de la ligne du dessus.
+  const haut = premier ? -(ecart + milieu - 7.5) + 1.5 : -ecart;
+  const largeur = iconeMembre - 2 - axe;
+  // Un trait qui porte une information suit `--faint`, atténué pour rester discret.
+  const trait = 'pointer-events-none absolute border-faint opacity-50';
+  return (
+    /* Elle-même hors du flux : posée dans une ligne en `flex`, elle ne doit ni
+       prendre de place ni ajouter l'écart d'un enfant de plus. */
+    <span
+      aria-hidden
+      data-branche-de-liste={dernier ? 'dernier' : 'milieu'}
+      className="pointer-events-none absolute inset-0"
+    >
+      {dernier ? (
+        <span
+          className={`${trait} rounded-bl-[5px] border-b border-l`}
+          style={{ left: axe, top: haut, height: milieu - haut, width: largeur }}
+        />
+      ) : (
+        <>
+          <span className={`${trait} bottom-0 border-l`} style={{ left: axe, top: haut }} />
+          <span className={`${trait} border-t`} style={{ left: axe, top: milieu - 1, width: largeur }} />
+        </>
+      )}
     </span>
   );
 }

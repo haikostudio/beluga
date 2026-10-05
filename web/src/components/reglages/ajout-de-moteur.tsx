@@ -248,8 +248,9 @@ function LigneMoteurAjoute({ fiche }: { fiche: FicheMoteur }) {
   return (
     <div className="rounded-md border border-border bg-bloc px-2 py-1.5" data-moteur-ajoute={id} data-statut={statut} data-compatibilite={compat.etat}>
       <div className="flex flex-wrap items-center gap-1.5">
-        <Cpu className="h-3 w-3 shrink-0 text-faint" />
-        <p className="min-w-0 flex-1 truncate text-[13.5px] text-text">{label}</p>
+        {/* Le logo de la marque quand on le connaît (Gemini), l'icône neutre sinon. */}
+        <IconeMoteur engine={id as EngineId} className="h-3.5 w-3.5" />
+        <p className="min-w-0 flex-1 truncate text-[13.5px] text-text" data-nom-compte={id}>{label}</p>
         {statut === 'actif' ? (
           <Badge tone="success">{t('actif')}</Badge>
         ) : rate ? (

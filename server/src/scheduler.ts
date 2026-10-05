@@ -27,6 +27,7 @@ import {
   planRenduDepuisLaRelance,
   comprehensionDepuisLaRelance,
   carteLibreDePartirSeule,
+  RAISON_LANCEMENT_PENDANT_UNE_PUBLICATION,
   estLaBrancheDeLaCarte,
   etatDuDepart,
   raisonDattente,
@@ -77,7 +78,7 @@ import {
   oublierLancementEnRoute,
 } from './lancements-en-route.js';
 import { passageDuDeploiementAutomatique } from './deploiement-automatique.js';
-import { balayerLesPublicationsSansPorteur } from './deploy.js';
+import { balayerLesPublicationsSansPorteur, publicationEnCours } from './deploy.js';
 import { lancerLaCarteMere } from './regroupements.js';
 import { appliquerRedemarrageEnAttente } from './demon.js';
 import { canStartAgent, etatCapacite } from './capacity.js';
@@ -274,6 +275,16 @@ export async function portesDures(card: Card): Promise<Gate> {
   // La machine pleine se vide d'elle-même dès qu'un tour finit : le lancement
   // demandé garde sa valeur, il sera rejoué.
   if (!capacity.ok) return { ok: false, reason: capacity.reason, reprisePossible: true };
+
+  /*
+   * UNE MISE EN LIGNE EN COURS RETIENT LE LANCEMENT. Publier fusionne le lot
+   * dans le dépôt : une carte qui y ouvrirait sa copie au même instant partirait
+   * d'un état à moitié fusionné. Le geste reste valable (`reprisePossible`) : la
+   * carte repart seule à la fin de la mise en ligne, réussie, tombée ou arrêtée.
+   */
+  if (publicationEnCours(card.projectId)) {
+    return { ok: false, reason: RAISON_LANCEMENT_PENDANT_UNE_PUBLICATION, reprisePossible: true };
+  }
 
   const project = store.getProject(card.projectId);
   if (project) {
@@ -762,7 +773,18 @@ export async function startCard(cardId: string): Promise<{ ok: boolean; error?: 
   if (lancementEnRoute(cardId)) return { ok: true };
   const decision = decisionOuverteSurLaCarte(cardId);
   if (decision) return { ok: false, error: `Lancement refusé : ${decision}` };
-  marquerLancementEnRoute(cardId);
+  /*
+   * UNE MISE EN LIGNE EN COURS : LA CARTE ATTEND, SANS BOUGER (comme faute de
+   * quota, DEC-039). Rien n'est écrit que sa raison d'attente et la marque de
+   * reprise : ni déplacement, ni copie de travail. Ce test et la pose de la
+   * marque ci-dessous se suivent sans attente : une mise en ligne ne peut pas
+   * partir entre les deux (`startDeploy` voit alors le lancement en route).
+   */
+  const carte = store.getCard(cardId);
+  if (carte && publicationEnCours(carte.projectId)) {
+    return refus(carte, RAISON_LANCEMENT_PENDANT_UNE_PUBLICATION, true);
+  }
+  marquerLancementEnRoute(cardId, carte?.projectId);
   try {
     return await lancerLaCarte(cardId);
   } finally {

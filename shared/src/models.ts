@@ -3,6 +3,7 @@ import { ColumnKey } from './columns.js';
 import { AgentContextUsage } from './contexte-agent.js';
 import { MetriquesSessionLlm } from './metriques-session.js';
 import { ReglageCreation, SuggestionCreation } from './mode-creation.js';
+import { CompetenceProposee } from './proposition-competence.js';
 import { aLaFormeDUnMoteur, type IdDeMoteur } from './registre-moteurs.js';
 
 /* ------------------------------------------------------------------ */
@@ -294,8 +295,8 @@ export const Project = z.object({
   miseEnProduction: ProcedureDeMiseEnProduction.default({}),
   /**
    * L'ADRESSE PUBLIQUE DE LA VERSION EN PRODUCTION (« https://formations.haiko.studio »),
-   * saisie dans la rubrique « Mise en production » des réglages. C'est elle qui
-   * ouvre d'office le suivi des visites du projet (`server/src/suivi-par-defaut.ts`) :
+   * saisie dans la rubrique « Mise en production » des réglages. C'est elle que
+   * l'espace de suivi des visites autorise (`server/src/suivi-par-defaut.ts`) :
    * jamais devinée, puisqu'une mauvaise adresse déclarerait un site étranger.
    */
   adresseProduction: z.string().optional(),
@@ -947,6 +948,13 @@ export const ParcoursDeCarte = z.object({
    * cette carte seulement (`surchargesAcceptees`).
    */
   creationSuggestions: z.array(SuggestionCreation).optional(),
+  /**
+   * LES COMPÉTENCES QUE BELUGA BUILD A PROPOSÉES AU CADRAGE, avec ce que
+   * l'utilisateur en a décidé (`shared/src/proposition-competence.ts`). Seules
+   * celles à l'état « utilisee » partent avec l'agent d'exécution — en entier.
+   * Une fiche déjà proposée ici n'est jamais reproposée sur cette carte.
+   */
+  competencesProposees: z.array(CompetenceProposee).optional(),
 });
 export type ParcoursDeCarte = z.infer<typeof ParcoursDeCarte>;
 
@@ -1377,6 +1385,14 @@ export const Agent = z.object({
   pid: z.number().optional(),
   startedAt: z.number().optional(),
   endedAt: z.number().optional(),
+  /**
+   * QUAND CET AGENT SANS CARTE A ÉTÉ CONSULTÉ POUR LA DERNIÈRE FOIS. Comparé à
+   * `endedAt`, il allume le point bleu de sa carte Système et la garde
+   * affichée tant qu'elle n'a pas été lue (`shared/src/cartes-systeme.ts`).
+   * OPTIONNEL : un agent porté par une carte n'en a pas — sa carte porte
+   * `lastReadAt`.
+   */
+  luA: z.number().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -1537,6 +1553,14 @@ export const AgentQuestion = z.object({
   answeredAt: z.number().optional(),
   /** Fermée sans réponse (bouton « Annuler ») : n'attend plus, ne relance pas l'agent. */
   cancelled: z.boolean().default(false),
+  /**
+   * CETTE QUESTION EST UNE COMPÉTENCE PROPOSÉE PAR BELUGA BUILD, pas une
+   * question de l'agent (`shared/src/proposition-competence.ts`). Elle
+   * s'affiche dans son propre encadré violet — un par compétence, tous
+   * visibles ensemble — et sa réponse (« Utiliser » / « Pas utile ») s'écrit
+   * aussi sur la carte.
+   */
+  competence: z.object({ nom: z.string(), titre: z.string() }).optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
 
@@ -2435,6 +2459,13 @@ export const DeployRun = z.object({
   queued: z.boolean().default(false),
   startedAt: z.number(),
   endedAt: z.number().optional(),
+  /**
+   * QUAND CETTE PUBLICATION A ÉTÉ CONSULTÉE POUR LA DERNIÈRE FOIS. Une mise en
+   * production terminée garde sa carte Système, point bleu allumé, tant que
+   * cet instant ne dépasse pas sa fin (`shared/src/cartes-systeme.ts`).
+   * OPTIONNEL, jamais `default` : toute publication déjà en base se relit.
+   */
+  luA: z.number().optional(),
 });
 export type DeployRun = z.infer<typeof DeployRun>;
 

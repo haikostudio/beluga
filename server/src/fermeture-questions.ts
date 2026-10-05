@@ -19,6 +19,7 @@
  */
 import { colonneFermeLesQuestions, texteQuestionFermeeAvecLaCarte } from '@beluga/shared';
 import { annulerLAttente } from './attente-question.js';
+import { trancherLaCompetence } from './proposition-competences.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -104,6 +105,8 @@ function fermerLesQuestionsDuFil(messages: ReturnType<typeof store.listMessages>
       // Le tour qui attendait cette réponse repart en sachant que la carte a été
       // rangée ; s'il n'existe plus, l'appel ne fait rien.
       annulerLAttente(question.id, texteQuestionFermeeAvecLaCarte());
+      // Un encadré de compétence fermé avec la carte : sa série ne retient plus personne.
+      if (question.competence) trancherLaCompetence({ agentId: message.agentId, questionId: question.id });
     }
   }
 

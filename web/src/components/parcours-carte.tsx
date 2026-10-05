@@ -62,6 +62,7 @@ import {
 } from '@beluga/shared';
 import { BulleInfo, Button, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
 import { CarouselQuestions } from '@/components/carousel-questions';
+import { EncadresDeCompetences } from '@/components/encadre-competence';
 import {
   ErreurDeTourCard,
   QuestionCard,
@@ -576,7 +577,7 @@ export function PanneauDeDecision({
   projectId?: string;
   questionEnTexte: boolean;
 }) {
-  const decisions = React.useMemo(
+  const toutesLesDecisions = React.useMemo(
     () =>
       decisionsDuParcours({
         messages,
@@ -588,6 +589,24 @@ export function PanneauDeDecision({
     [messages, carte.parcours, questionEnTexte, carte.column, carte.archivedAt],
   );
   const parId = React.useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
+  /*
+   * LES COMPÉTENCES PROPOSÉES PAR BELUGA BUILD NE SONT PAS DES QUESTIONS DE
+   * L'AGENT : elles sortent du panneau jaune et de son feuilletage, et prennent
+   * leurs encadrés violets, un par compétence, tous visibles ensemble
+   * (`EncadresDeCompetences`). Tant qu'un encadré d'une série attend, la série
+   * entière reste affichée — ceux déjà tranchés repliés sur leur décision. Et
+   * la série du DERNIER message reste lisible une fois toute tranchée : on voit
+   * ce qu'on vient de décider, jusqu'au prochain échange.
+   */
+  const estUneCompetence = (d: DecisionDuParcours) =>
+    d.sorte === 'question' && !!parId.get(d.messageId)?.questions.find((q) => q.id === d.questionId)?.competence;
+  const dernierMessage = messages[messages.length - 1];
+  const seriesDeCompetences = messages.filter(
+    (message) =>
+      message.questions.some((q) => q.competence && !q.answer && !q.cancelled) ||
+      (message.id === dernierMessage?.id && message.questions.some((q) => q.competence)),
+  );
+  const decisions = toutesLesDecisions.filter((d) => !estUneCompetence(d));
   const questions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');
   const autres = decisions.filter((d) => d.sorte !== 'question');
   const [replie, setReplie] = React.useState(false);
@@ -600,13 +619,35 @@ export function PanneauDeDecision({
   const lot = decisions.map((d) => (d.sorte === 'question' ? d.questionId : d.sorte === 'incident' ? 'incident' : d.messageId)).join('|');
   React.useEffect(() => setReplie(false), [lot]);
 
-  if (!decisions.length) return <BandeauPropositions messages={messages} />;
+  const competences = seriesDeCompetences.length ? (
+    <div className="shrink-0 px-3 pb-1 pt-2" data-panneau-competences={seriesDeCompetences.length}>
+      <ZoneDefilement
+        classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl bg-bloc-fil"
+        fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
+        className="px-2.5 pb-2.5"
+      >
+        {seriesDeCompetences.map((message) => (
+          <EncadresDeCompetences key={message.id} messageId={message.id} questions={message.questions} />
+        ))}
+      </ZoneDefilement>
+    </div>
+  ) : null;
+
+  if (!decisions.length) {
+    return (
+      <>
+        <BandeauPropositions messages={messages} />
+        {competences}
+      </>
+    );
+  }
 
   const intitule = titreDeLaDecision(decisions[0], parId);
 
   return (
     <>
       <BandeauPropositions messages={messages} />
+      {competences}
       <div className="shrink-0 px-3 pb-1 pt-2" data-panneau-decision={decisions.length}>
         <div
           className={cn(

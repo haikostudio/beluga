@@ -1,8 +1,14 @@
 import * as React from 'react';
 import { Check, Search, Waypoints } from 'lucide-react';
-import { filtrerProjetsParNom, membresActifsDuRegroupement, projetsDansLOrdreDeLaColonne } from '@beluga/shared';
+import { filtrerProjetsParNom, projetsDansLOrdreDeLaColonne, projetsEnArbre } from '@beluga/shared';
 import { Drawer, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
-import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
+import {
+  BrancheDeListe,
+  IconeDeProjet,
+  LISTE_DE_TIROIR,
+  RETRAIT_MEMBRE_DE_TIROIR,
+  largeurIconeDeProjet,
+} from '@/components/pastille-projet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
@@ -17,7 +23,10 @@ import { cn } from '@/lib/utils';
  * en tête, puis les projets de la colonne DANS SON ORDRE
  * (`projetsDansLOrdreDeLaColonne`), chacun avec son icône — sans les projets
  * mis de côté. Un champ de recherche FIXE, hors de la zone qui défile, filtre
- * par nom, sans accents ni majuscules (`filtrerProjetsParNom`).
+ * par nom, sans accents ni majuscules (`filtrerProjetsParNom`). Les membres d'un
+ * projet réuni, qui le suivent déjà, sont en retrait et reliés à lui par une
+ * branche (`projetsEnArbre`, posé APRÈS la recherche : un membre trouvé sans son
+ * projet réuni reste une ligne seule).
  *
  * Choisir fait EXACTEMENT le geste de la colonne de gauche : le projet devient
  * celui qu'on regarde (`client.setActiveProject`) et le centre revient au
@@ -59,6 +68,7 @@ export function TiroirProjets({
     [state.projects, state.groups],
   );
   const projets = React.useMemo(() => filtrerProjetsParNom(liste, filtre), [liste, filtre]);
+  const lignes = React.useMemo(() => projetsEnArbre(projets), [projets]);
   const libelleTableaux = t('Tableaux de bord');
   const tableauxVisibles = filtrerProjetsParNom([{ name: libelleTableaux }], filtre).length > 0;
 
@@ -120,24 +130,30 @@ export function TiroirProjets({
                   </button>
                 </li>
               ) : null}
-              {projets.map((projet) => {
+              {lignes.map(({ projet, parentId, premier, dernier }) => {
                 const ouvert = !surTableauxDeBord && projet.id === state.activeProjectId;
-                // Un projet réuni montre la pile des icônes de ses membres, comme la colonne.
-                const membres = projet.regroupement ? membresActifsDuRegroupement(state.projects, projet.id) : [];
                 return (
-                  <li key={projet.id}>
+                  <li key={projet.id} className="relative" data-membre-de={parentId}>
+                    {parentId ? (
+                      <BrancheDeListe
+                        premier={premier}
+                        dernier={dernier}
+                        largeurParent={largeurIconeDeProjet(
+                          state.projects.find((p) => p.id === parentId),
+                          state.projects,
+                        )}
+                        geometrie={LISTE_DE_TIROIR}
+                      />
+                    ) : null}
                     <button
                       type="button"
                       data-ligne-tiroir-projets={projet.id}
                       aria-current={ouvert ? 'true' : undefined}
                       onClick={() => choisir(projet.id)}
-                      className={cn(classeLigne, ouvert && 'bg-raised')}
+                      className={cn(classeLigne, ouvert && 'bg-raised', parentId && RETRAIT_MEMBRE_DE_TIROIR)}
                     >
-                      {membres.length ? (
-                        <PastillesEmpilees projects={membres} fond="hsl(var(--surface))" />
-                      ) : (
-                        <PastilleProjet project={projet} />
-                      )}
+                      {/* Un projet réuni montre la pile des icônes de ses membres, comme la colonne. */}
+                      <IconeDeProjet projet={projet} projets={state.projects} fond="hsl(var(--surface))" />
                       <span className="min-w-0 flex-1 truncate">{projet.name}</span>
                       {ouvert ? <Check className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
                     </button>

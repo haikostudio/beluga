@@ -66,9 +66,8 @@ import {
   gesteDuDepot,
   carteDoitSecouer,
   friseDeSuivi,
-  etatDeLInitialisation,
   agentDeConfiguration,
-  vignetteDInitialisationVisible,
+  etatDeLaVignetteDInitialisation,
   procedureEnPlace,
   estCarteMarketing,
   titreEnConstruction,
@@ -76,6 +75,8 @@ import {
   membresActifsDuRegroupement,
 } from '@beluga/shared';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
+import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
+import { PointNonLu } from '@/components/point-non-lu';
 import { RepereAttention } from '@/components/repere-attention';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { IconeMoteur } from '@/components/icone-moteur';
@@ -741,8 +742,10 @@ export function Board({
   const vignettesInitialisation = (['dev', 'production'] as const).flatMap((cible) => {
     const idConfiguration = agentDeConfiguration(projetOuvert, cible);
     const agentConfiguration = idConfiguration ? state.agents[idConfiguration] : undefined;
-    const etatInitialisation = etatDeLInitialisation(projetOuvert, agentConfiguration, Date.now(), cible);
-    return agentConfiguration && etatInitialisation && vignetteDInitialisationVisible(etatInitialisation)
+    /* L'état de la VIGNETTE, pas celui du bandeau : elle reste tant que le
+       travail rendu n'a pas été lu (`etatDeLaVignetteDInitialisation`). */
+    const etatInitialisation = etatDeLaVignetteDInitialisation(projetOuvert, agentConfiguration, Date.now(), cible);
+    return agentConfiguration && etatInitialisation
       ? [
           <VignetteInitialisationProduction
             key={cible}
@@ -755,7 +758,33 @@ export function Board({
         ]
       : [];
   });
-  const vignetteInitialisation = vignettesInitialisation.length ? <>{vignettesInitialisation}</> : null;
+  /* LES MISES EN PRODUCTION, en tête de « En cours » elles aussi : celle du
+     projet ouvert, ou une par projet membre sur le tableau d'un groupe — tant
+     qu'elle tourne, puis tant qu'elle n'a pas été lue. Sur le tableau d'un
+     groupe, le clic ouvre le tiroir du groupe sur CE projet (`productionDemandee`). */
+  const vignettesProduction = (membresDuGroupe.length ? membresDuGroupe : projetOuvert ? [projetOuvert] : []).flatMap(
+    (projet) => {
+      const run = state.productions[projet.id];
+      return run
+        ? [
+            <VignetteMiseEnProduction
+              key={`production-${projet.id}`}
+              run={run}
+              projet={projet}
+              avecProjet={membresDuGroupe.length > 0}
+              onOpen={() => client.demanderProduction({ projectId: projet.id, surPlace: membresDuGroupe.length > 0 })}
+            />,
+          ]
+        : [];
+    },
+  );
+  const vignetteInitialisation =
+    vignettesProduction.length || vignettesInitialisation.length ? (
+      <>
+        {vignettesProduction}
+        {vignettesInitialisation}
+      </>
+    ) : null;
 
   /*
    * Ce qu'un ONGLET du tableau (téléphone) a à signaler, colonne par colonne :
@@ -2328,29 +2357,14 @@ export function CardTile({
       ) : null}
 
       {/*
-       * LA PASTILLE « RENDU NON CONSULTÉ », posée sur le coin haut droit. Elle
-       * s'éteint en ouvrant la carte, ou d'un clic sur elle sans l'ouvrir. La
-       * zone de clic (24 px) dépasse le point, qui grossit nettement au
-       * survol : le clic tombe à coup sûr, au doigt comme à la souris. Elle
-       * est SŒUR de l'article : ni le clic ni l'appui n'ouvrent la carte ni
-       * ne lancent le glisser.
+       * LA PASTILLE « RENDU NON CONSULTÉ », posée sur le coin haut droit
+       * (`PointNonLu`, la même pièce que sur les cartes Système). Elle
+       * s'éteint en ouvrant la carte, ou d'un clic sur elle sans l'ouvrir.
+       * Elle est SŒUR de l'article : ni le clic ni l'appui n'ouvrent la carte
+       * ni ne lancent le glisser.
        */}
       {nonConsultee ? (
-        <Tooltip label={t('Rendu non consulté — cliquer pour le marquer comme consulté')}>
-          <button
-            type="button"
-            data-carte-non-lue={card.id}
-            aria-label="Rendu non consulte - cliquer pour le marquer comme consulte"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              client.send({ type: 'card.read', cardId: card.id });
-            }}
-            className="group absolute -right-3 -top-3 z-20 flex h-6 w-6 items-center justify-center rounded-full"
-          >
-            <span className="h-2.5 w-2.5 rounded-full bg-termine shadow-sm transition-transform duration-150 group-hover:scale-[1.8] group-focus-visible:scale-[1.8]" />
-          </button>
-        </Tooltip>
+        <PointNonLu onLire={() => client.send({ type: 'card.read', cardId: card.id })} data-carte-non-lue={card.id} />
       ) : null}
 
       {/* À la souris, le clic droit ouvre le même menu : c'est là qu'on le

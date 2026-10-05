@@ -10,6 +10,7 @@ import {
   ecartProduction,
   empreinteCourte,
   membrePret,
+  miseEnProductionNonLue,
   procedureEnPlace,
   productionEnRetard,
   raisonMembrePasPret,
@@ -30,6 +31,7 @@ import { useApp } from '@/lib/use-app';
 import { useSeconde } from '@/lib/horloge';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { lancerIntervalleVisible } from '@/lib/veille';
+import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -186,6 +188,26 @@ export function BandeauProductionGroupe({
     if (!ouvert) setDetail(null);
   }, [ouvert]);
 
+  /* LE SUIVI D'UN MEMBRE DEMANDÉ D'AILLEURS (`client.demanderProduction`) : la
+     carte violette de sa mise en production, en tête de « En cours », ouvre le
+     tiroir du groupe DIRECTEMENT sur ce projet. */
+  const productionDemandee = state.productionDemandee;
+  React.useEffect(() => {
+    if (!productionDemandee || !ids.split(',').includes(productionDemandee.projectId)) return;
+    setOuvert(true);
+    setDetail(productionDemandee.projectId);
+    client.demanderProduction(null);
+  }, [productionDemandee, ids]);
+
+  /* REGARDER LE SUIVI D'UN MEMBRE, C'EST LE LIRE : sa mise en production
+     terminée perd son point bleu, et sa carte violette s'efface. */
+  const aLire = detail && ouvert ? lignes.find((ligne) => ligne.membre.id === detail)?.run : undefined;
+  const aLireId = aLire && miseEnProductionNonLue(aLire) ? aLire.id : null;
+  React.useEffect(() => {
+    if (!aLireId) return;
+    return quandLEcranEstRegarde(() => client.send({ type: 'deploy.read', runId: aLireId }));
+  }, [aLireId]);
+
   /*
    * LE LANCEMENT — d'un membre ou de tous, par le MÊME chemin. Les demandes
    * partent ENSEMBLE et chacune rend son propre verdict (`allSettled`) : un
@@ -211,10 +233,12 @@ export function BandeauProductionGroupe({
   const boutonDuMembre = (ligne: (typeof lignes)[number], pied = false) => {
     const id = ligne.membre.id;
     const parti = envoi.has(id);
+    /* PLEINE LARGEUR, sur la carte du projet comme en pied de son détail
+       (05/10/2026) : le bouton occupe toute la largeur, sous le contenu. */
     return (
       <Button
         variant={pied ? 'default' : 'outline'}
-        size={pied ? 'pied' : 'sm'}
+        size="pied"
         className="shrink-0 gap-1.5"
         disabled={!ligne.pret || parti}
         title={ligne.raison ? t(ligne.raison) : undefined}
@@ -306,7 +330,9 @@ export function BandeauProductionGroupe({
                   data-membre-production={id}
                   data-etat-membre={ligne.enCours ? 'en-cours' : tombee ? ligne.suivi!.etat : ligne.pret ? 'pret' : 'eteint'}
                 >
-                  <div className="flex flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center">
+                  {/* LA CARTE D'UN PROJET : son état et, DANS LE COIN HAUT DROIT,
+                      ses réglages ; dessous, son bouton sur toute la largeur. */}
+                  <div className="flex items-start gap-1 px-2.5 pt-2">
                     <button
                       type="button"
                       onClick={() => setDetail(id)}
@@ -368,24 +394,22 @@ export function BandeauProductionGroupe({
                         ) : null}
                       </span>
                     </button>
-                    <div className="flex shrink-0 items-center gap-1">
-                      {boutonDuMembre(ligne)}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0 text-muted"
-                        onClick={() => {
-                          setOuvert(false);
-                          ouvrirRubriqueDeLEtape(id, 'production');
-                        }}
-                        aria-label="Réglages de la mise en production"
-                        title={t('Réglages de la mise en production')}
-                        data-reglages-membre-production={id}
-                      >
-                        <Settings2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="-mr-1 -mt-0.5 h-7 w-7 shrink-0 text-muted"
+                      onClick={() => {
+                        setOuvert(false);
+                        ouvrirRubriqueDeLEtape(id, 'production');
+                      }}
+                      aria-label="Réglages de la mise en production"
+                      title={t('Réglages de la mise en production')}
+                      data-reglages-membre-production={id}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
+                  <div className="px-2.5 pb-2 pt-2">{boutonDuMembre(ligne)}</div>
                   {/* UNE LIGNE ÉTEINTE DIT POURQUOI, en clair : l'infobulle d'un
                       bouton désactivé ne se lit pas au doigt. Le refus du
                       serveur, lui, s'écrit en couleur d'erreur. */}

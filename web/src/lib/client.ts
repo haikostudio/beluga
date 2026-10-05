@@ -16,6 +16,7 @@ import {
   DecisionAttendue,
   CiblePublication,
   DeployRun,
+  productionsApres,
   EngineInfo,
   EntreeJournal,
   fusionnerEntreeJournal,
@@ -214,7 +215,9 @@ export interface AppState {
    * cet agent, quand une décision l'y attend. Le bandeau l'efface une fois lue.
    */
   /** Le tiroir de mise en production demandé d'ailleurs : sur un onglet, avec ou sans fil empilé. */
-  productionDemandee: { projectId: string; agentId?: string; nonce: number } | null;
+  /* `surPlace` : la demande vise le tiroir du tableau DÉJÀ affiché (celui d'un
+     groupe, pour l'un de ses projets) — l'application ne change pas de projet. */
+  productionDemandee: { projectId: string; agentId?: string; surPlace?: boolean; nonce: number } | null;
   /**
    * LE VOLET DU DÉPLOIEMENT demandé d'ailleurs (vignette « Dépannage », menu
    * Agents, cloche) — le pendant de `productionDemandee`. Le bloc « À
@@ -349,6 +352,14 @@ export interface AppState {
   slash: Record<string, Record<string, CommandeSlash[]>>;
   deploys: Record<string, DeployRun>;
   /**
+   * LES MISES EN PRODUCTION QUI ONT LEUR CARTE VIOLETTE, par projet : celle qui
+   * tourne, ou la dernière terminée que personne n'a lue
+   * (`shared/src/cartes-systeme.ts`). `deploys` ne suffit pas : il ne garde que
+   * la DERNIÈRE publication, toutes étapes confondues, et seulement pour un
+   * projet déjà ouvert. Reçue entière à la connexion, tenue à jour ensuite.
+   */
+  productions: Record<string, DeployRun>;
+  /**
    * Les dialogues de PROCÉDURE en cours, par `projet:cible`. Ils viennent du
    * serveur, qui les diffuse à chaque changement : le tiroir n'attend donc plus
    * la réponse d'une requête retenue pendant tout le tour — il suit, et il se
@@ -424,6 +435,7 @@ const initialState: AppState = {
   memory: {},
   slash: {},
   deploys: {},
+  productions: {},
   procedures: {},
   activeProjectId: null,
   toasts: [],
@@ -710,7 +722,7 @@ class Client {
     }));
   }
 
-  demanderProduction(lieu: { projectId: string; agentId?: string } | null): void {
+  demanderProduction(lieu: { projectId: string; agentId?: string; surPlace?: boolean } | null): void {
     if (!lieu) {
       if (this.state.productionDemandee) this.set({ productionDemandee: null });
       return;
@@ -718,6 +730,15 @@ class Client {
     this.set((state) => ({
       productionDemandee: { ...lieu, nonce: (state.productionDemandee?.nonce ?? 0) + 1 },
     }));
+  }
+
+  /**
+   * LE SUIVI D'UNE MISE EN PRODUCTION, DEPUIS N'IMPORTE OÙ : le tableau du
+   * projet, puis le tiroir de son bandeau du bas. C'est le clic de sa carte
+   * violette (« Tableaux de bord », chiffre bleu du projet).
+   */
+  ouvrirMiseEnProduction(projectId: string): void {
+    this.demanderProduction({ projectId });
   }
 
   demanderTableau(projectId: string | null): void {
@@ -741,10 +762,21 @@ class Client {
     this.setActiveProject(projectId);
     let cardId: string | null = null;
     try {
-      const reponse = await this.call<{ cardId: string | null }>(
+      const reponse = await this.call<{ cardId?: string | null; agentId?: string; production?: string }>(
         { type: 'project.unreadCard', projectId, membres },
         15000,
       );
+      /* LE RENDU LE PLUS RÉCENT PEUT ÊTRE UNE CARTE SYSTÈME : un agent sans
+         carte ouvre sa conversation, une mise en production son suivi. */
+      if (reponse?.agentId) {
+        const agent = this.state.agents[reponse.agentId];
+        if (agent) this.openConversation({ projectId: agent.projectId, agentId: agent.id });
+        return null;
+      }
+      if (reponse?.production) {
+        this.ouvrirMiseEnProduction(reponse.production);
+        return null;
+      }
       cardId = reponse?.cardId ?? null;
     } catch {
       return null;
@@ -1215,6 +1247,7 @@ class Client {
           quotasRecus: this.state.quotasRecus || event.quotas.length > 0,
           capacity: event.capacity,
           agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
+          productions: Object.fromEntries((event.productions ?? []).map((run) => [run.projectId, run])),
           activeProjectId: choix.id,
         });
         // Le projet retenu à l'ouverture doit CHARGER ses cartes tout de suite :
@@ -1346,6 +1379,7 @@ class Client {
             [event.projectId]: event.totaux ?? premiereTranche(event.cards, Number.POSITIVE_INFINITY).totaux,
           },
           deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
+          productions: event.deploy ? productionsApres(state.productions, event.deploy) : state.productions,
           memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
           // Les cartes de ce projet sont là : le tableau peut cesser de montrer
           // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
@@ -1536,7 +1570,23 @@ class Client {
         break;
 
       case 'deploy.upsert':
-        this.set((state) => ({ deploys: { ...state.deploys, [event.run.projectId]: event.run } }));
+        this.set((state) => ({
+          deploys: { ...state.deploys, [event.run.projectId]: event.run },
+          productions: productionsApres(state.productions, event.run),
+        }));
+        break;
+
+      /* UNE PUBLICATION LUE : sa carte violette s'efface. Elle peut être plus
+         ancienne que la dernière du projet — elle ne remplace donc celle du
+         tableau que si c'est la même. */
+      case 'deploy.lu':
+        this.set((state) => ({
+          deploys:
+            state.deploys[event.run.projectId]?.id === event.run.id
+              ? { ...state.deploys, [event.run.projectId]: event.run }
+              : state.deploys,
+          productions: productionsApres(state.productions, event.run),
+        }));
         break;
 
       // Le dialogue d'une procédure a bougé : tour parti, question posée,

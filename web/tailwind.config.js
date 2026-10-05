@@ -26,6 +26,9 @@ export default {
         danger: 'hsl(var(--danger))',
         info: 'hsl(var(--info))',
         publie: 'hsl(var(--publie))',
+        // Le violet des compétences proposées au cadrage — distinct de `publie`.
+        competence: 'hsl(var(--competence))',
+        'competence-fg': 'hsl(var(--competence-fg))',
         record: 'hsl(var(--record))',
         'record-fg': 'hsl(var(--record-fg))',
         // La convention d'avancement : orange = en cours, bleu = terminé.

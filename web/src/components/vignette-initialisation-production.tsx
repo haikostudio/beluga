@@ -1,8 +1,10 @@
 import { UploadCloud } from 'lucide-react';
-import { agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project } from '@beluga/shared';
+import { agentSystemeNonLu, agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project } from '@beluga/shared';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';
+import { PointNonLu } from '@/components/point-non-lu';
 import { Dot } from '@/components/ui';
+import { client } from '@/lib/client';
 import { ouvrirAgentDeConfiguration } from '@/lib/ouvrir-config-projet';
 import { CLASSE_CADRE_SYSTEME, CLASSE_HAUTEUR_CARTE_EN_ROUTE, CLASSE_HAUTEUR_CORPS_EN_ROUTE } from '@/lib/gabarit-tableau';
 import { t } from '@/lib/langue';
@@ -15,7 +17,9 @@ import { cn, relativeTime } from '@/lib/utils';
  * PAS une carte, mais une vignette au style à part — bord et nuage BLEUS de la
  * mise en ligne, là où le dépannage est orange —, posée en tête de « En cours »
  * du tableau et parmi les agents sans carte des « Tableaux de bord », tant que
- * l'agent travaille ou attend une réponse (`vignetteDInitialisationVisible`).
+ * l'agent travaille ou attend une réponse — puis, une fois qu'il a fini, tant
+ * que son travail n'a pas été LU : elle garde alors le point bleu des cartes
+ * (`etatDeLaVignetteDInitialisation`, `PointNonLu`, 05/10/2026).
  * Elle ne compte ni dans le compteur de la colonne, ni dans son avancement.
  *
  * Le clic ouvre le TIROIR de l'agent (`ouvrirAgentDeConfiguration`), d'où
@@ -46,7 +50,13 @@ export function VignetteInitialisationProduction({
   formatCarte?: boolean;
 }) {
   const auTravail = agentTientSonTour(agent);
-  const ouvrir = () => ouvrirAgentDeConfiguration(agent.projectId, cible);
+  const nonLu = agentSystemeNonLu(agent);
+  const lire = () => client.send({ type: 'agent.read', agentId: agent.id });
+  /* Ouvrir, c'est lire : le tiroir de l'agent s'ouvre sur ce qu'il a rendu. */
+  const ouvrir = () => {
+    if (nonLu) lire();
+    ouvrirAgentDeConfiguration(agent.projectId, cible);
+  };
   const titreEtDescription = (
     <>
       <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
@@ -68,10 +78,11 @@ export function VignetteInitialisationProduction({
   );
   return (
     <div
-      className={cn('flex min-w-0 flex-col', formatCarte && CLASSE_HAUTEUR_CARTE_EN_ROUTE)}
+      className={cn('relative flex min-w-0 flex-col', formatCarte && CLASSE_HAUTEUR_CARTE_EN_ROUTE)}
       data-vignette-initialisation-production={agent.projectId}
       data-vignette-etape={cible}
     >
+      {nonLu ? <PointNonLu onLire={lire} data-systeme-non-lu={agent.id} /> : null}
       <div
         role="button"
         tabIndex={0}
@@ -104,7 +115,7 @@ export function VignetteInitialisationProduction({
             {etat === 'question' ? (
               <span className="text-warning">{t('attend votre réponse')}</span>
             ) : etat === 'fini' ? (
-              <span className="text-faint">{t('terminé')}</span>
+              <span className="text-faint">{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
             ) : (
               <>
                 <Dot tone="running" pulse />

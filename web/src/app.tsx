@@ -693,7 +693,9 @@ export function App() {
    */
   const productionDemandee = state.productionDemandee;
   React.useEffect(() => {
-    if (!productionDemandee) return;
+    /* Le tiroir du groupe affiché répond lui-même pour l'un de ses projets
+       (`surPlace`) : on ne quitte pas son tableau. */
+    if (!productionDemandee || productionDemandee.surPlace) return;
     setConfigProjetId(null);
     if (client.lireEtat().activeProjectId !== productionDemandee.projectId) {
       client.setActiveProject(productionDemandee.projectId);
