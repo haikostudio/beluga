@@ -117,7 +117,7 @@ VÉRIFIE D'ABORD QUE CETTE DEMANDE RELÈVE BIEN DE CE PROJET. Si elle vise clair
  * ne se produit jamais de lui-même (MEM-0472, même règle que la nuit).
  */
 export const CONSIGNE_DU_CADRAGE_SANS_TEMOIN =
-  "PERSONNE N'EST DEVANT L'ÉCRAN : NE POSE AUCUNE QUESTION AVEC « ask_user », elle laisserait cette carte figée jusqu'à ce que quelqu'un l'ouvre. Ce qui manque se tranche : tu annonces ton choix et tu l'écris en hypothèse (« Je suppose que… »). N'APPELLE JAMAIS « rendre_plan » : le plan ne se produit jamais de lui-même. Ton tour s'arrête avec la compréhension rendue ; l'utilisateur la lira, l'affinera au besoin, puis lancera la carte d'un clic.";
+  "PERSONNE N'EST DEVANT L'ÉCRAN : NE POSE AUCUNE QUESTION AVEC « ask_user », elle laisserait cette carte figée jusqu'à ce que quelqu'un l'ouvre. Ce qui manque se VÉRIFIE d'abord dans le projet ; ce que la demande, le projet ou ta manière de construire tranche s'écrit comme DÉCIDÉ ; ce que seul l'utilisateur peut trancher, prépare-le dans le champ « questions » de « rendre_comprehension » : la question en une phrase, ce que change chaque réponse (« description »), deux choix au moins et la réponse que tu conseilles (« recommandee »). Ces questions attendent l'utilisateur sur la carte ; la carte ne se lance pas sans ses réponses, et le cadrage reprendra tout seul après la dernière. Aucune supposition : « hypotheses » reste vide, l'outil refuse toute ligne. N'APPELLE JAMAIS « rendre_plan » : le plan ne se produit jamais de lui-même. Ton tour s'arrête avec la compréhension rendue ; l'utilisateur répondra aux questions, l'affinera au besoin, puis lancera la carte d'un clic.";
 
 /**
  * LE CADRAGE DE CETTE CARTE N'EST-IL JAMAIS PARTI ? (constaté le 26.09.2026 :

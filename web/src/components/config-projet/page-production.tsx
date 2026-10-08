@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { mentionBrancheParDefaut } from '@beluga/shared';
 import { InterrupteurMiseEnProduction } from '@/components/interrupteur-mise-en-production';
-import { BulleInfo, Input, Label } from '@/components/ui';
+import { FormulaireEnColonnes, Input, Label, LigneFormulaire } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { BoutonAgentDeConfiguration } from './agent-de-configuration';
 import { ProcessusEnPlace } from './processus-en-place';
@@ -49,31 +49,32 @@ export function RubriqueProduction({ ctx }: { ctx: ContexteConfig }) {
 
       {actif ? (
         <>
-          <ChoixDeBranche
-            repere="data-branche-production"
-            titre={t('Branche de la mise en production')}
-            cible="production"
-            valeur={ctx.brancheProduction}
-            onChange={ctx.setBrancheProduction}
-            branches={ctx.branches}
-            enCours={ctx.branchesEnCours}
-            raison={ctx.branchesRaison}
-            mention={mentionBrancheParDefaut('production', ctx.branches)}
-          />
-
-          <div data-adresse-production>
-            <div className="flex items-center gap-1">
-              <Label>{t('Adresse publique du site')}</Label>
-              <BulleInfo cote="start">{t('L’adresse où le public voit la version en production. Remplie, elle ouvre d’office le suivi anonyme des visites du site : Beluga autorise cette adresse et fait poser le bon code de suivi par une carte, que vous lancez. Laissée vide, aucun suivi n’est posé.')}</BulleInfo>
-            </div>
-            <Input
-              value={ctx.adresseProduction}
-              onChange={(event) => ctx.setAdresseProduction(event.target.value)}
-              className="mt-1"
-              data-champ-adresse-production
-              placeholder="https://mon-site.ch"
+          <FormulaireEnColonnes>
+            <ChoixDeBranche
+              repere="data-branche-production"
+              titre={t('Branche de la mise en production')}
+              cible="production"
+              valeur={ctx.brancheProduction}
+              onChange={ctx.setBrancheProduction}
+              branches={ctx.branches}
+              enCours={ctx.branchesEnCours}
+              raison={ctx.branchesRaison}
+              mention={mentionBrancheParDefaut('production', ctx.branches)}
             />
-          </div>
+
+            <LigneFormulaire
+              libelle={t('Adresse publique du site')}
+              aide={t('L’adresse où le public voit la version en production. Remplie, elle ouvre d’office le suivi anonyme des visites du site : Beluga autorise cette adresse et fait poser le bon code de suivi par une carte, que vous lancez. Laissée vide, aucun suivi n’est posé.')}
+              data-adresse-production
+            >
+              <Input
+                value={ctx.adresseProduction}
+                onChange={(event) => ctx.setAdresseProduction(event.target.value)}
+                data-champ-adresse-production
+                placeholder="https://mon-site.ch"
+              />
+            </LigneFormulaire>
+          </FormulaireEnColonnes>
 
           <ProcessusEnPlace projet={ctx.project} cible="production" branche={ctx.project.branchesDePublication?.production} />
         </>

@@ -3443,6 +3443,324 @@ export const MIGRATIONS: {
       ALTER TABLE competence_stats ADD COLUMN refusee INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    id: 106,
+    name: 'studio-visuels-videos',
+    /*
+     * LE STUDIO (`shared/src/studio.ts`, `server/src/studio.ts`).
+     *
+     *  - `studio_espaces` : un par projet — le kit de marque, les voix préférées,
+     *    et le réglage « la clé Gemini est facturée » (éteint par défaut) ;
+     *  - `studio_creations` : une création, ses formats, le contenu Marketing
+     *    d'où elle vient, sa version COURANTE, son agent attitré et la sélection
+     *    de l'écran (que l'agent lit avec chaque demande) ;
+     *  - `studio_versions` : TOUTES les compositions successives, jamais
+     *    effacées — `parent` dit d'où chacune vient, pour annuler et rétablir
+     *    sans perdre une branche ;
+     *  - `studio_medias` : la bibliothèque du projet — imports, voix d'essai et
+     *    finales, dessins gardés ; le fichier vit dans les PIÈCES JOINTES ;
+     *  - `studio_exports` : chaque fabrication, son état et sa progression ;
+     *  - `studio_depenses` : chaque devis, son clic (validée / refusée) et le
+     *    montant réellement débité.
+     *
+     * Le lien avec l'atelier Marketing passe par `contenu_marketing_id` : les
+     * exports prêts d'une création liée sont les médias de ce contenu.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS studio_espaces (
+        project_id TEXT PRIMARY KEY,
+        kit TEXT NOT NULL DEFAULT '{}',
+        voix_finale TEXT,
+        voix_essai TEXT,
+        gemini_facture INTEGER NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS studio_creations (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        titre TEXT NOT NULL,
+        formats TEXT NOT NULL DEFAULT '["9:16"]',
+        contenu_marketing_id TEXT,
+        etat TEXT NOT NULL DEFAULT 'brouillon',
+        version INTEGER NOT NULL DEFAULT 1,
+        agent_id TEXT,
+        card_id TEXT,
+        affiche_id TEXT,
+        selection TEXT,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_creations_projet ON studio_creations(project_id, maj_le);
+      CREATE INDEX IF NOT EXISTS idx_studio_creations_contenu ON studio_creations(contenu_marketing_id) WHERE contenu_marketing_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_studio_creations_agent ON studio_creations(agent_id) WHERE agent_id IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS studio_versions (
+        creation_id TEXT NOT NULL,
+        numero INTEGER NOT NULL,
+        parent INTEGER,
+        composition TEXT NOT NULL,
+        raison TEXT NOT NULL DEFAULT '',
+        auteur TEXT NOT NULL DEFAULT 'humain',
+        cree_le INTEGER NOT NULL,
+        PRIMARY KEY (creation_id, numero)
+      );
+      CREATE TABLE IF NOT EXISTS studio_medias (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        creation_id TEXT,
+        genre TEXT NOT NULL,
+        provenance TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        attachment_id TEXT,
+        mime TEXT,
+        duree REAL,
+        largeur INTEGER,
+        hauteur INTEGER,
+        dessin TEXT,
+        categorie TEXT,
+        usage TEXT,
+        licence TEXT,
+        cout REAL,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_medias_projet ON studio_medias(project_id, cree_le);
+      CREATE INDEX IF NOT EXISTS idx_studio_medias_creation ON studio_medias(creation_id) WHERE creation_id IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS studio_exports (
+        id TEXT PRIMARY KEY,
+        creation_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        format TEXT NOT NULL,
+        genre TEXT NOT NULL DEFAULT 'video',
+        etat TEXT NOT NULL,
+        progression REAL NOT NULL DEFAULT 0,
+        version INTEGER NOT NULL,
+        attachment_id TEXT,
+        affiche_id TEXT,
+        duree REAL,
+        erreur TEXT,
+        voix_en_essai INTEGER NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_exports_creation ON studio_exports(creation_id, cree_le);
+      CREATE TABLE IF NOT EXISTS studio_depenses (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        creation_id TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        modele TEXT NOT NULL,
+        plafond REAL,
+        raison TEXT NOT NULL,
+        etat TEXT NOT NULL,
+        montant_reel REAL,
+        details TEXT NOT NULL DEFAULT '{}',
+        erreur TEXT,
+        demandee_par TEXT NOT NULL DEFAULT 'humain',
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_depenses_creation ON studio_depenses(creation_id, cree_le);
+    `,
+  },
+  {
+    id: 107,
+    name: 'studio-modeles',
+    /*
+     * LES MODÈLES DU STUDIO (`server/src/studio-modeles.ts`) : une création
+     * VALIDÉE, figée et rangée par projet pour repartir d'elle. Une création n'a
+     * qu'un modèle (revalider le met à jour : index unique sur `creation_id`) ;
+     * un modèle copié d'un autre projet n'a pas de création, mais garde son
+     * `origine_id`. Ses médias sont des lignes de `studio_medias` du projet,
+     * marquées `categorie = 'modele:<id>'`, qui survivent à la création source.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS studio_modeles (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        creation_id TEXT,
+        origine_id TEXT,
+        titre TEXT NOT NULL,
+        formats TEXT NOT NULL DEFAULT '["9:16"]',
+        composition TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        affiche_id TEXT,
+        duree REAL NOT NULL DEFAULT 0,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_studio_modeles_projet ON studio_modeles(project_id, maj_le);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_modeles_creation ON studio_modeles(creation_id) WHERE creation_id IS NOT NULL;
+    `,
+  },
+  {
+    id: 108,
+    name: 'studio-reglages-d-export',
+    siTable: 'studio_exports',
+    /*
+     * LES RÉGLAGES D'UN EXPORT (`shared/src/studio-export.ts`) : qualité,
+     * définition, images par seconde, type de fichier, son, format de l'image —
+     * en JSON. Un export d'avant n'en a pas : il a été fabriqué avec les défauts.
+     */
+    sql: `
+      ALTER TABLE studio_exports ADD COLUMN reglages TEXT;
+    `,
+  },
+  {
+    id: 109,
+    name: 'surveillance-wordpress',
+    siTable: 'sites_surveilles',
+    /*
+     * LE CONTRÔLE WORDPRESS D'UNE SURVEILLANCE (`shared/src/surveillance-wordpress.ts`).
+     *
+     * `wordpress` : la configuration posée par l'agent (fiche SSH du coffre,
+     * dossier, outil, journaux, extensions attendues), en JSON, SANS secret.
+     * `wp_suivi` : la mémoire des passages — positions lues dans chaque journal,
+     * moyenne des avertissements, dernier inventaire, soucis en cours, erreur
+     * fatale en cours. Nulles sur les lignes d'avant : aucun contrôle WordPress.
+     *
+     * `constats_wordpress` : le suivi des 30 derniers jours, une ligne par
+     * apparition d'un souci. `courriel_le` est posé AVANT l'envoi du courriel
+     * immédiat, comme `alerte_courriel_le` : un envoi refusé ne se rejoue pas.
+     */
+    sql: `
+      ALTER TABLE sites_surveilles ADD COLUMN wordpress TEXT;
+      ALTER TABLE sites_surveilles ADD COLUMN wp_suivi TEXT;
+      CREATE TABLE IF NOT EXISTS constats_wordpress (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id TEXT NOT NULL,
+        cle TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        souci TEXT NOT NULL,
+        premiere_vue INTEGER NOT NULL,
+        derniere_vue INTEGER NOT NULL,
+        resolu_le INTEGER,
+        courriel_le INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_constats_wordpress_site ON constats_wordpress(site_id, resolu_le);
+    `,
+  },
+  {
+    id: 110,
+    name: 'fable-banni-vers-opus',
+    siTable: ['cards', 'agents', 'projects', 'meta'],
+    /*
+     * FABLE EST BANNI (`shared/src/modele-banni.ts`) : chaque RÉGLAGE qui le
+     * nomme encore passe à l'Opus courant — cartes (colonne `run_model` et,
+     * pour les anciennes lignes, `data.run.model`), conversations
+     * (`data.run.model`), défaut des projets, réglage de cadrage. Seuls les
+     * champs de MODÈLE sont touchés, jamais un texte : la voix « fable »
+     * d'OpenAI et les conversations qui citent le mot restent intactes.
+     * Exception voulue à DEC-213, décidée par l'utilisateur le 06/10/2026. Une
+     * version d'Opus retirée plus tard suit sa famille (`modeles-retires.ts`).
+     */
+    sql: `
+      UPDATE cards SET run_model = 'claude-opus-5-5' WHERE lower(run_model) LIKE '%fable%';
+      UPDATE cards SET data = json_set(data, '$.run.model', 'claude-opus-5-5')
+        WHERE json_valid(data) AND lower(json_extract(data, '$.run.model')) LIKE '%fable%';
+      UPDATE agents SET data = json_set(data, '$.run.model', 'claude-opus-5-5')
+        WHERE json_valid(data) AND lower(json_extract(data, '$.run.model')) LIKE '%fable%';
+      UPDATE projects SET data = json_set(data, '$.defaultModel', 'claude-opus-5-5')
+        WHERE json_valid(data) AND lower(json_extract(data, '$.defaultModel')) LIKE '%fable%';
+      UPDATE meta SET value = json_set(value, '$.cadrageModel', 'claude-opus-5-5')
+        WHERE key = 'settings' AND json_valid(value) AND lower(json_extract(value, '$.cadrageModel')) LIKE '%fable%';
+    `,
+  },  {
+    id: 111,
+    name: 'studio-bibliotheque-sources',
+    /*
+     * LA BIBLIOTHÈQUE DE STYLES DU STUDIO SORT DU DÉPÔT (`server/src/studio-styles.ts`,
+     * `shared/src/studio-sources.ts`). Le catalogue versionné
+     * (`outils/studio-styles/catalogue.json`) n'est plus que la GRAINE : il
+     * sème ces tables au premier usage, et ce qui arrive ensuite d'une source
+     * vit ici.
+     *
+     *  - `studio_sources_styles` : un site d'où viennent des styles, son état
+     *    (analyse → a_valider → recuperation → active ; erreur ; retiree), la
+     *    recette déclarative écrite par l'agent, le résumé de son analyse et le
+     *    suivi des passages de nuit ;
+     *  - `studio_styles` : un style, sa source, son id d'origine (unique par
+     *    source), ses textes français et ses catégories (JSON). `etat`
+     *    « a_rediger » : arrivé d'une source, pas encore montré — l'agent n'a
+     *    pas encore écrit son texte ni ses catégories. `nouveau_jusqua` porte la
+     *    marque « Nouveau » ;
+     *  - `studio_categories_ajoutees` : les rares catégories que l'agent a dû
+     *    ajouter à la liste fixe.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS studio_sources_styles (
+        id TEXT PRIMARY KEY,
+        adresse TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        licence TEXT,
+        etat TEXT NOT NULL DEFAULT 'analyse',
+        recette TEXT,
+        resume TEXT,
+        nb_trouves INTEGER,
+        derniere_analyse INTEGER,
+        dernier_passage INTEGER,
+        nb_nouveaux INTEGER NOT NULL DEFAULT 0,
+        erreur TEXT,
+        agent_id TEXT,
+        card_id TEXT,
+        project_id TEXT,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS studio_styles (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        id_origine TEXT NOT NULL,
+        etat TEXT NOT NULL DEFAULT 'visible',
+        rang INTEGER NOT NULL DEFAULT 0,
+        titre TEXT NOT NULL DEFAULT '',
+        phrase TEXT NOT NULL DEFAULT '',
+        mots_cles TEXT NOT NULL DEFAULT '[]',
+        genre TEXT NOT NULL DEFAULT 'motion',
+        categories TEXT NOT NULL DEFAULT '[]',
+        consigne TEXT NOT NULL DEFAULT '',
+        titre_origine TEXT,
+        categorie_origine TEXT,
+        auteur TEXT NOT NULL DEFAULT '',
+        auteur_url TEXT,
+        lien TEXT,
+        fiche TEXT,
+        affiche TEXT,
+        video TEXT,
+        anime TEXT,
+        ajoute_le INTEGER NOT NULL,
+        nouveau_jusqua INTEGER
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_styles_origine ON studio_styles(source_id, id_origine);
+      CREATE INDEX IF NOT EXISTS idx_studio_styles_etat ON studio_styles(etat, rang);
+      CREATE TABLE IF NOT EXISTS studio_categories_ajoutees (
+        id TEXT PRIMARY KEY,
+        libelle TEXT NOT NULL,
+        cree_le INTEGER NOT NULL
+      );
+    `,
+  },
+  {
+    id: 112,
+    name: 'studio-sources-annuaires-et-verification',
+    siTable: 'studio_sources_styles',
+    /*
+     * DEUX NOUVEAUTÉS DES SOURCES DE STYLES (`server/src/studio-sources.ts`) :
+     *  - `trouvee_dans` : l'annuaire (un sujet GitHub, une liste « awesome »)
+     *    où l'agent a trouvé cette source — il en propose au plus vingt ;
+     *  - `par_navigateur` : la source se lit par le VRAI navigateur où
+     *    l'utilisateur a passé la vérification anti-robot (`studio-navigateur.ts`),
+     *    le laissez-passer étant lié à ce navigateur ;
+     *  - `alerte_verification` : quand la cloche a été prévenue pour la dernière
+     *    fois qu'une vérification est à refaire (une alerte par nuit, pas plus).
+     * Les états `annuaire` et `verification` n'ont besoin d'aucune colonne :
+     * `etat` est un texte libre.
+     */
+    sql: `
+      ALTER TABLE studio_sources_styles ADD COLUMN trouvee_dans TEXT;
+      ALTER TABLE studio_sources_styles ADD COLUMN par_navigateur INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE studio_sources_styles ADD COLUMN alerte_verification INTEGER;
+    `,
+  },
 ];
 
 export function openDb(): DB {

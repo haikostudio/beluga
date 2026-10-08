@@ -84,7 +84,19 @@ export type MotifDAppel =
    * consigne dit tout : il lit le dépôt au besoin, mais l'index de la mémoire
    * et les fichiers d'instructions du développement ne lui servent à rien.
    */
-  | 'configuration-marketing';
+  | 'configuration-marketing'
+  /**
+   * L'AGENT D'UNE CRÉATION DU STUDIO (`server/src/assistant-studio.ts`) : il
+   * dessine en code avec son outil « studio ». Sa consigne dit tout ; il ne lit
+   * ni ne modifie le dépôt du projet.
+   */
+  | 'studio'
+  /**
+   * L'AGENT D'UNE SOURCE DE LA BIBLIOTHÈQUE DE STYLES (`server/src/studio-sources.ts`) :
+   * il lit UN site et écrit sa recette, ou rédige les textes des styles arrivés.
+   * Sa consigne dit tout ; il ne lit ni ne modifie le dépôt.
+   */
+  | 'bibliotheque-styles';
 
 /**
  * Les dépannages : une panne nommée, réparée sur place, rien d'autre.
@@ -126,7 +138,13 @@ export interface PartsDAccueil {
 export function niveauDAccueil(input: { role: AgentRole; motif?: MotifDAppel }): NiveauDAccueil {
   // Un assistant appelé sur une tâche NOMMÉE — configurer un site à sauvegarder
   // — n'ouvre pas le projet : sa consigne dit tout, quel que soit son rôle.
-  if (input.motif === 'configuration-backup' || input.motif === 'configuration-surveillance' || input.motif === 'configuration-marketing')
+  if (
+    input.motif === 'configuration-backup' ||
+    input.motif === 'configuration-surveillance' ||
+    input.motif === 'configuration-marketing' ||
+    input.motif === 'studio' ||
+    input.motif === 'bibliotheque-styles'
+  )
     return 'minimal';
   /*
    * L'AGENT QUI DISCUTE LA TÂCHE REÇOIT LA MÉMOIRE DU PROJET.

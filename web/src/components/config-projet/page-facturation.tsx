@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Loader2 } from 'lucide-react';
-import { Input, Label } from '@/components/ui';
+import { FormulaireEnColonnes, Input, LigneFormulaire, ListeDeroulante } from '@/components/ui';
 import { money } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { TeteDeRubrique, type ContexteConfig } from './communs';
@@ -35,70 +35,58 @@ export function RubriqueFacturation({ ctx }: { ctx: ContexteConfig }) {
           <Loader2 className="h-3 w-3 animate-spin" /> {t('Lecture des clients…')}
         </p>
       ) : ctx.facturationJoignable ? (
-        <>
-          <div>
-            <Label>{t('Client facturé')}</Label>
-            <select
-              value={ctx.clientId}
-              onChange={(event) => ctx.setClientId(event.target.value)}
-              className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-            >
-              <option value="">{t('Aucun client relié')}</option>
-              {ctx.clients.map((entree) => (
-                <option key={entree.id} value={entree.id}>
-                  {entree.name} {entree.companyName ? `— ${entree.companyName}` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <Label className="block">{t('Tarif horaire')}</Label>
-            <Input
-              value={ctx.rate}
-              onChange={(event) => ctx.setRate(event.target.value.replace(',', '.'))}
-              className="mt-1.5"
-              inputMode="decimal"
+        <FormulaireEnColonnes>
+          <LigneFormulaire libelle={t('Client facturé')}>
+            <ListeDeroulante
+              valeur={ctx.clientId}
+              titre={t('Client facturé')}
+              repere="client-facture"
+              onChoisir={ctx.setClientId}
+              options={[
+                { valeur: '', libelle: t('Aucun client relié') },
+                ...ctx.clients.map((entree) => ({ valeur: entree.id, libelle: entree.name, ...(entree.companyName ? { detail: entree.companyName } : {}) })),
+              ]}
             />
-            <p className="mt-1 text-[12.5px] text-faint">
-              {t('Trois heures de travail seraient facturées {v0}.', { v0: money((Number(ctx.rate) || 0) * 3) })}
-            </p>
-          </div>
+          </LigneFormulaire>
+
+          <LigneFormulaire
+            libelle={t('Tarif horaire')}
+            note={t('Trois heures de travail seraient facturées {v0}.', { v0: money((Number(ctx.rate) || 0) * 3) })}
+          >
+            <Input value={ctx.rate} onChange={(event) => ctx.setRate(event.target.value.replace(',', '.'))} inputMode="decimal" />
+          </LigneFormulaire>
 
           {ctx.clientId ? (
-            <div className="space-y-3">
-              <div>
-                <Label className="block">{t('Document par défaut')}</Label>
-                <select
-                  value={ctx.documentType}
-                  onChange={(event) => ctx.setDocumentType(event.target.value as 'offer' | 'invoice')}
-                  className="mt-1.5 h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-                >
-                  <option value="invoice">{t('Facture')}</option>
-                  <option value="offer">{t('Offre')}</option>
-                </select>
-              </div>
-              <div>
-                <Label className="block">{t('Lequel')}</Label>
-                <select
-                  value={ctx.documentId}
-                  onChange={(event) => ctx.setDocumentId(event.target.value)}
-                  className="mt-1.5 h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-                >
-                  <option value="">{t('Nouveau à chaque fois')}</option>
-                  {ctx.documents
-                    .filter((doc) => doc.type === ctx.documentType)
-                    .map((doc) => (
-                      <option key={doc.id} value={doc.id}>
-                        {doc.number ?? doc.id} — {doc.title ?? t('sans titre')}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
+            <>
+              <LigneFormulaire libelle={t('Document par défaut')}>
+                <ListeDeroulante
+                  valeur={ctx.documentType}
+                  titre={t('Document par défaut')}
+                  repere="type-document-defaut"
+                  onChoisir={(valeur) => ctx.setDocumentType(valeur as 'offer' | 'invoice')}
+                  options={[
+                    { valeur: 'invoice', libelle: t('Facture') },
+                    { valeur: 'offer', libelle: t('Offre') },
+                  ]}
+                />
+              </LigneFormulaire>
+              <LigneFormulaire libelle={t('Lequel')}>
+                <ListeDeroulante
+                  valeur={ctx.documentId}
+                  titre={t('Lequel')}
+                  repere="document-defaut"
+                  onChoisir={ctx.setDocumentId}
+                  options={[
+                    { valeur: '', libelle: t('Nouveau à chaque fois') },
+                    ...ctx.documents
+                      .filter((doc) => doc.type === ctx.documentType)
+                      .map((doc) => ({ valeur: doc.id, libelle: `${doc.number ?? doc.id} — ${doc.title ?? t('sans titre')}` })),
+                  ]}
+                />
+              </LigneFormulaire>
+            </>
           ) : null}
-
-        </>
+        </FormulaireEnColonnes>
       ) : (
         <p className="text-[13.5px] text-faint">
           {t('L\'outil de facturation n\'est pas joignable depuis ce serveur.')}

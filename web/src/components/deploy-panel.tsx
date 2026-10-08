@@ -23,7 +23,6 @@ import {
   PlanDeMiseEnLigne,
   TravailSansCarte,
   alerteTravailSansCarte,
-  miseEnProductionNonLue,
   depotsAPublierSeuls,
   depotsEntraines,
   type DepotsDeCarte,
@@ -82,7 +81,6 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { client } from '@/lib/client';
-import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
 import { useApp } from '@/lib/use-app';
 import { useMinute } from '@/lib/horloge';
 import { cn, duration, elapsed } from '@/lib/utils';
@@ -219,15 +217,6 @@ export function DeployPanel({
     setFilAgent(productionDemandee.agentId ?? null);
     client.demanderProduction(null);
   }, [productionDemandee, projectId]);
-  /* REGARDER LE TIROIR DE PRODUCTION, C'EST LIRE SA DERNIÈRE MISE EN
-     PRODUCTION : terminée, elle perd son point bleu et sa carte violette
-     s'efface (`shared/src/cartes-systeme.ts`). */
-  const productionALire = presentation === 'bandeau' && tiroirOuvert ? state.productions[projectId] : undefined;
-  const idProductionALire = productionALire && miseEnProductionNonLue(productionALire) ? productionALire.id : null;
-  React.useEffect(() => {
-    if (!idProductionALire) return;
-    return quandLEcranEstRegarde(() => client.send({ type: 'deploy.read', runId: idProductionALire }));
-  }, [idProductionALire]);
   const tiroirFilAgent = (
     <Drawer open={!!filAgent} onClose={() => setFilAgent(null)} empile>
       {filAgent ? (

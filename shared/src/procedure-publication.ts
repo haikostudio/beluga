@@ -15,7 +15,7 @@
  */
 
 import type { CiblePublication } from './etapes-publication.js';
-import { agentSystemeNonLu } from './cartes-systeme.js';
+import { agentSystemeTermine } from './cartes-systeme.js';
 import { BANDE_GARDE_UN_FINI_MS } from './en-route.js';
 import { agentTientSonTour } from './travail-en-cours.js';
 import {
@@ -118,8 +118,6 @@ export interface AgentPourLInitialisation {
   tourVivantDepuis?: number;
   attendReponse?: boolean;
   endedAt?: number;
-  /** Quand il a été consulté pour la dernière fois (`Agent.luA`). */
-  luA?: number;
 }
 
 export function etatDeLInitialisation(
@@ -144,9 +142,10 @@ export function vignetteDInitialisationVisible(etat: EtatDeLInitialisation | nul
 /**
  * L'ÉTAT DE LA VIGNETTE (la carte Système de l'agent de configuration), qui
  * n'est PAS celui du bandeau : le bandeau oublie « terminé » au bout d'une
- * minute (`etatDeLInitialisation`), la vignette, elle, RESTE tant que le
- * travail rendu n'a pas été lu (`agentSystemeNonLu`, 05/10/2026). `null` : pas
- * de vignette.
+ * minute (`etatDeLInitialisation`), la vignette, elle, dit « fini » pendant
+ * 24 heures (`agentSystemeTermine`, 06/10/2026) — dans « Terminés » des
+ * Tableaux de bord ; le tableau d'un projet ne la garde que tant qu'elle est
+ * active (`vignetteDInitialisationVisible`). `null` : pas de vignette.
  */
 export function etatDeLaVignetteDInitialisation(
   projet: ProjetAvecProcedures | undefined,
@@ -158,7 +157,7 @@ export function etatDeLaVignetteDInitialisation(
   if (!retenu || !agent || agent.id !== retenu) return null;
   const etat = etatDeLInitialisation(projet, agent, maintenant, cible);
   if (vignetteDInitialisationVisible(etat)) return etat;
-  return agentSystemeNonLu(agent) ? 'fini' : null;
+  return agentSystemeTermine(agent, maintenant) ? 'fini' : null;
 }
 
 /* ------------------------------------------------------------------ */

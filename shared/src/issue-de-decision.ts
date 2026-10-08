@@ -46,7 +46,13 @@ export type SourceDeDecision =
    * valider, lancer. Son bouton ne vit PAS dans une bulle du fil mais sur la
    * carte elle-même, collé au champ de saisie (`gesteDuParcours`).
    */
-  | 'geste-de-parcours';
+  | 'geste-de-parcours'
+  /**
+   * UNE QUESTION GARDÉE SUR LA CARTE par un cadrage sans témoin
+   * (`questions-de-carte.ts`). Elle se répond dans le panneau collé au champ
+   * de la carte, pas dans une bulle du fil : aucun message à nommer.
+   */
+  | 'question-de-carte';
 
 /**
  * Le geste rendu par chaque source. `false` — aucune aujourd'hui — voudrait
@@ -56,6 +62,7 @@ export type SourceDeDecision =
 export const GESTE_PAR_SOURCE: Record<SourceDeDecision, boolean> = {
   // Le bouton du parcours, sur la carte : toujours un geste, jamais un message.
   'geste-de-parcours': true,
+  'question-de-carte': true,
   'question-outil': true,
   'reprise-de-compte': true,
   'erreur-de-tour': true,
@@ -76,6 +83,7 @@ export const GESTE_PAR_SOURCE: Record<SourceDeDecision, boolean> = {
  */
 export const SOURCES_SANS_MESSAGE: ReadonlySet<SourceDeDecision> = new Set<SourceDeDecision>([
   'geste-de-parcours',
+  'question-de-carte',
 ]);
 
 /** Cette source laisse-t-elle l'utilisateur sans le moindre bouton ? */

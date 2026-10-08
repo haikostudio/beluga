@@ -23,12 +23,15 @@ import {
   MOT_CADRAGE,
   MOT_CONFIGURATION,
   Message,
+  type TodoItem,
   ancreDuPoint,
   attenteDeLaDemande,
   barreDeSuivi,
   colonneAffichee,
   agentCompteCommeTravail,
-  ETAPE_DE_SUIVI_DU_POINT,
+  etapeDeSuiviDuPoint,
+  estCarteDuRendezVousDeNuit,
+  propositionsDeLaNuit,
   etapesDuFluxSous,
   etatDuDeploiement,
   passageViseParLeSegment,
@@ -62,7 +65,6 @@ import {
   TEXTE_BARRE_EN_ATTENTE,
   modeleActuel,
   idDuMessageDeSynthese,
-  agentSystemeNonLu,
 } from '@beluga/shared';
 import { BulleInfo, Button, ConfirmDialog, DialogTitle, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { IndicateurActivite } from '@/components/indicateur-activite';
@@ -99,6 +101,7 @@ export function Chat({
   emplacementReglages,
   reponsesProposees,
   libelleDuChamp,
+  avancementDansLeFil,
 }: {
   agent: Agent | null;
   projectId: string;
@@ -131,6 +134,14 @@ export function Chat({
   reponsesProposees?: readonly string[];
   /** Le libellé du champ, quand la conversation n'est pas celle d'une carte. */
   libelleDuChamp?: string;
+  /**
+   * LA LISTE DE TÂCHES DANS LE FIL — exception décidée pour le STUDIO SEUL
+   * (DEC-058 garde le repère compact partout ailleurs). Fourni, il rend le bloc
+   * d'avancement posé au bout du fil, et le repère compact ne garde que le
+   * témoin de travail (et son bouton d'arrêt), sans la liste. Il reçoit aussi le
+   * dernier texte de l'agent : le Studio y lit les styles cités (« [style:<id>] »).
+   */
+  avancementDansLeFil?: (etat: { todos: TodoItem[]; busy: boolean; dernierTexte: string }) => React.ReactNode;
 }) {
   const state = useApp();
   /* L'état du lien : il éteint les gestes du parcours au lieu de les laisser
@@ -440,6 +451,21 @@ export function Chat({
     queue.length === 0 &&
     !carte?.parcours?.comprehension?.texte?.trim() &&
     !messages.some((message) => !cardId || message.id !== idDuMessageDeSynthese(cardId));
+  /* LA CARTE DU RENDEZ-VOUS DE NUIT se lit Demande, Examen, Propositions
+     (`avecLeParcoursDeLaNuit`). Ses propositions viennent du fil de son agent :
+     tant qu'il n'est pas arrivé, on ne dit pas « aucune ». Sa panne est la
+     raison écrite sur la carte, ramenée dans « Planifié ». */
+  const carteDeNuit = estCarteDuRendezVousDeNuit(carte);
+  const rendezVousDeNuit = React.useMemo(
+    () =>
+      carteDeNuit
+        ? {
+            propositions: chargement ? undefined : propositionsDeLaNuit(messages),
+            panne: carte?.column === 'planned' ? carte?.scheduling?.waitingReason : undefined,
+          }
+        : null,
+    [carteDeNuit, chargement, messages, carte?.column, carte?.scheduling?.waitingReason],
+  );
   const points = React.useMemo(
     () =>
       pointsDuParcours(
@@ -473,6 +499,7 @@ export function Chat({
           /* UNE CARTE MÈRE SE LIT SUR SES FILLES : « Travail » et « Rapport »
              disent où en est chaque projet touché (`avecLeSuiviDesFilles`). */
           suiviDesFilles: carte?.suiviDesFilles,
+          rendezVousDeNuit,
           /* CE QUE LA CARTE PORTE : une étape sans journal le montre, au lieu
              d'une coche sur du vide (`avecLeContenuDeLaCarte`). */
           descriptionDeLaCarte: carte?.description,
@@ -501,6 +528,7 @@ export function Chat({
       decisionsDeTour,
       carte?.sansModification,
       carte?.suiviDesFilles,
+      rendezVousDeNuit,
       canal.gele,
       cadrageEnAttente,
     ],
@@ -571,9 +599,9 @@ export function Chat({
           ? suivi.colonne === 'archived'
             ? 'archivee'
             : 'a_deployer'
-          : (ETAPE_DE_SUIVI_DU_POINT[etape] ?? 'demande'),
+          : (etapeDeSuiviDuPoint(etape, carteDeNuit) ?? 'demande'),
       ),
-    [suivi.colonne],
+    [suivi.colonne, carteDeNuit],
   );
   React.useEffect(() => {
     setOuverture(null);
@@ -679,21 +707,6 @@ export function Chat({
    * JUGEMENT PAR RENDU : revenir sur l'onglet après « Marquer comme non lu »
    * ne relit pas la carte.
    */
-  /*
-   * LA MÊME LECTURE POUR UN AGENT SANS CARTE (05/10/2026). Sa carte Système
-   * reste affichée, point bleu allumé, tant qu'il n'a pas été lu
-   * (`agentSystemeNonLu`) : avoir sa conversation sous les yeux quand il finit
-   * — le cas du chef, de l'assistant, d'un agent de configuration — vaut
-   * lecture, sinon le chiffre bleu du projet monterait à chaque tour. Même
-   * garde que pour une carte : l'écran doit être réellement regardé.
-   */
-  const agentSansCarteNonLu = !!agent && !cardId && agentSystemeNonLu(agent);
-  const idAgentALire = agentSansCarteNonLu && !busy ? agent!.id : null;
-  React.useEffect(() => {
-    if (!idAgentALire) return;
-    return quandLEcranEstRegarde(() => client.send({ type: 'agent.read', agentId: idAgentALire }));
-  }, [idAgentALire, agent?.endedAt]);
-
   const renduA = carte?.renduA;
   const renduNonConsulte = !!renduA && renduA > (carte?.lastReadAt ?? 0);
   const renduNonConsulteRef = React.useRef(renduNonConsulte);
@@ -922,7 +935,7 @@ export function Chat({
               ))}
             </div>
           ) : null}
-          <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} />
+          <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} sansListe={!!avancementDansLeFil} />
         </>
       }
       /* RIEN NE FIGE À L'ENVOI : le parcours s'ouvre au clic (`envoiLocal`). */
@@ -1159,6 +1172,13 @@ export function Chat({
               hint={motDeLaConversationVide.indice}
             />
           )}
+          {avancementDansLeFil
+            ? avancementDansLeFil({
+                todos: [...messages].reverse().find((message) => message.todos?.length)?.todos ?? [],
+                busy,
+                dernierTexte: [...messages].reverse().find((message) => message.role === 'assistant' && typeof message.content === 'string' && message.content.trim())?.content ?? '',
+              })
+            : null}
           <div ref={bottomRef} />
         </div>
       </ZoneDefilement>
@@ -1311,12 +1331,15 @@ function TravailEnCours({
   messages,
   busy,
   cardId,
+  sansListe,
 }: {
   agent: Agent | null;
   messages: Message[];
   busy: boolean;
   /** Depuis le tiroir d'une carte : l'arrêt ne vaut que pour SA tâche. */
   cardId?: string;
+  /** La liste vit DANS LE FIL (Studio) : le repère ne garde que le témoin de travail. */
+  sansListe?: boolean;
 }) {
   const state = useApp();
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
@@ -1344,7 +1367,7 @@ function TravailEnCours({
    * couvrent la moitié du composeur. Pendant son tour, le témoin reste : c'est
    * la liste REFERMÉE qu'on retire, pas le signe qu'il travaille.
    */
-  const todosDisponibles = !!todos?.length && agent?.role !== 'cadrage';
+  const todosDisponibles = !!todos?.length && agent?.role !== 'cadrage' && !sansListe;
 
   // Rien ne tourne et aucune liste à garder sous les yeux : le repère s'efface.
   if (!busy && !todosDisponibles) return null;
@@ -1370,7 +1393,7 @@ function TravailEnCours({
   const rangeLeTour =
     busy && agent?.tourVivantDepuis !== undefined && agent?.status !== 'running' && agent?.status !== 'starting';
   const quoi = !busy
-    ? resumeDesTaches(todos!)
+    ? resumeDesTaches(todos!, { examen: estCarteDuRendezVousDeNuit(cardId ? state.cards[cardId] : undefined) })
     : agent?.attendReponse
       ? TEXTE_BARRE_EN_ATTENTE
       : rangeLeTour

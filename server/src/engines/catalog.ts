@@ -5,6 +5,9 @@ import {
   familleDeModele,
   limiterAuxPlusRecents,
   ModelInfo,
+  modeleBanni,
+  remplacantDUnBanni,
+  sansModelesBannis,
   ThinkingOption,
   type FicheMoteur,
 } from '@beluga/shared';
@@ -227,8 +230,10 @@ async function claudeCatalogAvec(token: string): Promise<Catalogue> {
     models.sort(byRecency);
     // Le catalogue affiché garde la version la plus récente de CHAQUE famille :
     // un modèle ancien, plus cher et moins capable, ne doit plus se choisir par
-    // habitude — mais aucune famille ne disparaît du menu pour autant.
-    return { models: limiterAuxPlusRecents(models), live: true };
+    // habitude — mais aucune famille ne disparaît du menu pour autant. Sauf les
+    // familles BANNIES (Fable, `shared/src/modele-banni.ts`), retirées AVANT le
+    // tri par famille : sinon la plus récente d'entre elles resterait au menu.
+    return { models: limiterAuxPlusRecents(sansModelesBannis(models)), live: true };
   }
 }
 
@@ -383,7 +388,7 @@ export async function cursorCatalog(): Promise<Catalogue> {
         });
       });
       models.sort(byRecency);
-      return { models: limiterAuxPlusRecents(dedoublonnerModeles(models)), live: true };
+      return { models: limiterAuxPlusRecents(dedoublonnerModeles(sansModelesBannis(models))), live: true };
     } catch (err: any) {
       dernierEchec = err?.message ?? String(err);
     }
@@ -477,6 +482,9 @@ export function normaliseThinking(models: ModelInfo[], modelId: string | undefin
  * hasard sur le premier de la liste.
  */
 export function resolveModel(models: ModelInfo[], wanted: string | undefined): string | undefined {
+  // Un modèle BANNI (Fable) ne se résout jamais vers lui-même ni vers sa
+  // famille : il part à l'Opus le plus récent (exception voulue à DEC-213).
+  if (modeleBanni(wanted)) return remplacantDUnBanni(models);
   if (!models.length) return wanted;
   if (wanted && models.some((m) => m.id === wanted)) return wanted;
   if (!wanted) return models[0]?.id;
@@ -489,7 +497,7 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
   if (parente) return parente.id;
 
   const needle = wanted.toLowerCase();
-  const motCle = ['opus', 'sonnet', 'haiku', 'fable', 'codex', 'gpt'].find((f) => needle.includes(f));
+  const motCle = ['opus', 'sonnet', 'haiku', 'codex', 'gpt'].find((f) => needle.includes(f));
   if (motCle) {
     // Le plus récent de la famille : les identifiants récents trient en dernier.
     const candidats = models

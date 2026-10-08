@@ -4,6 +4,7 @@ import {
   CompteConnu,
   MotifDArretQuota,
   RepriseDeCompte,
+  chaineAuRetourDuQuota,
   choixPossible,
   compteDeRepriseAutomatique,
   RELEVES_EN_CHAINE_MAX,
@@ -36,8 +37,8 @@ import { log } from './logger.js';
  *
  * Ce fichier tient les trois gestes qui manquaient : POSER la décision « Avec
  * quel compte poursuivre ? », la TRANCHER au clic (en revérifiant le compte à
- * cet instant précis), et SIGNALER quand un compte se libère alors qu'aucun
- * n'était disponible. Les règles pures — reconnaître l'arrêt, classer les
+ * cet instant précis), et REPARTIR SEUL quand un compte se libère alors
+ * qu'aucun n'était disponible. Les règles pures — reconnaître l'arrêt, classer les
  * comptes, juger le clic — vivent dans `shared/src/reprise-compte.ts`.
  *
  * On ne choisit JAMAIS en silence et on ne recommence jamais le travail : c'est
@@ -348,21 +349,26 @@ export async function reprendreSurCompte(
 }
 
 /**
- * Après une limite, chercher une relève sur un relevé frais et repartir sans
- * clic. Faux signifie que le bloc de choix manuel doit rester ouvert.
+ * LE COMPTE QUI PREND LA RELÈVE, s'il y en a un — la règle des deux chemins
+ * (fin du tour tombé, retour du quota). Au retour du quota, une fenêtre NEUVE
+ * remet la chaîne à zéro (`chaineAuRetourDuQuota`) : le compte tombé redevient
+ * candidat, ce qui permet à une carte servie par UN SEUL compte de repartir.
  */
-export async function reprendreAutomatiquement(messageId: string): Promise<boolean> {
-  const message = store.getMessage(messageId);
-  const reprise = message?.repriseCompte;
-  if (!reprise || reprise.choisi || reprise.abandonnee) return false;
-
-  const quotas = await refreshQuotas(true).catch(() => null);
-  if (!quotas) return false;
-  bus.emit({ type: 'quotas', quotas });
-  const essayes = reprise.comptesEssayes?.length ? reprise.comptesEssayes : [reprise.compteEpuise];
-  const connus = comptesConnus();
-  let compte = compteDeRepriseAutomatique(reprise.engine, essayes, connus, reprise.relevesEnChaine ?? 0);
-  if (!compte && (reprise.relevesEnChaine ?? 0) >= RELEVES_EN_CHAINE_MAX) {
+function compteDeLaReleve(
+  reprise: RepriseDeCompte,
+  connus: CompteConnu[],
+  retourDuQuota: boolean,
+): { compte?: CompteConnu; chaine: ChaineDeReprise & { fenetreNeuve: boolean } } {
+  const chaine = retourDuQuota
+    ? chaineAuRetourDuQuota(reprise, Date.now())
+    : {
+        comptesEssayes: reprise.comptesEssayes?.length ? reprise.comptesEssayes : [reprise.compteEpuise],
+        relevesEnChaine: reprise.relevesEnChaine ?? 0,
+        fenetreNeuve: false,
+      };
+  const essayes = chaine.comptesEssayes;
+  let compte = compteDeRepriseAutomatique(reprise.engine, essayes, connus, chaine.relevesEnChaine);
+  if (!compte && chaine.relevesEnChaine >= RELEVES_EN_CHAINE_MAX) {
     /*
      * AU PLAFOND DE CHAÎNE, LA QUESTION NE SE POSE QUE S'IL N'Y A PLUS AUCUN
      * COMPTE LIBRE. Le plafond existe contre la boucle A → B → A ; or les
@@ -378,20 +384,78 @@ export async function reprendreAutomatiquement(messageId: string): Promise<boole
           `on repart dessus sans question`,
       );
       compte = libre;
-    } else {
-      log.warn(
-        `relève automatique arrêtée : ${reprise.relevesEnChaine} relèves se sont enchaînées sur ce travail ` +
-          `(comptes essayés : ${essayes.join(', ')}) — la main est rendue`,
-      );
     }
   }
-  if (!compte) return false;
+  return { compte, chaine };
+}
 
-  const resultat = await reprendreSurCompte(messageId, compte.id, { automatique: true });
-  if (!resultat.ok) {
-    log.warn(`relève automatique refusée pour le compte ${compte.label} : ${resultat.error}`);
+/**
+ * UNE SEULE RELÈVE À LA FOIS PAR TOUR TOMBÉ. La fin de tour et le retour du
+ * quota visent la même décision, et chaque relevé de quota en rediffuse un
+ * autre : sans ce verrou, deux tours pouvaient partir pour la même reprise.
+ */
+const relevesEnRoute = new Set<string>();
+
+export function releveEnRoute(messageId: string): boolean {
+  return relevesEnRoute.has(messageId);
+}
+
+/**
+ * Après une limite, chercher une relève et repartir sans clic. Faux signifie
+ * que le bloc de choix manuel doit rester ouvert.
+ *
+ * `retourDuQuota` : appelé par la surveillance des quotas, sur un relevé déjà
+ * frais (pas de second relevé de tous les comptes), avec la remise à zéro de
+ * la chaîne quand la fenêtre du compte tombé a tourné.
+ */
+export async function reprendreAutomatiquement(
+  messageId: string,
+  options: { retourDuQuota?: boolean } = {},
+): Promise<boolean> {
+  if (relevesEnRoute.has(messageId)) return false;
+  relevesEnRoute.add(messageId);
+  try {
+    const message = store.getMessage(messageId);
+    const reprise = message?.repriseCompte;
+    if (!message || !reprise || reprise.choisi || reprise.abandonnee || reprise.consommeeA) return false;
+
+    if (!options.retourDuQuota) {
+      const quotas = await refreshQuotas(true).catch(() => null);
+      if (!quotas) return false;
+      bus.emit({ type: 'quotas', quotas });
+    }
+    const { compte, chaine } = compteDeLaReleve(reprise, comptesConnus(), !!options.retourDuQuota);
+    if (!compte) {
+      if (chaine.relevesEnChaine >= RELEVES_EN_CHAINE_MAX) {
+        log.warn(
+          `relève automatique arrêtée : ${chaine.relevesEnChaine} relèves se sont enchaînées sur ce travail ` +
+            `(comptes essayés : ${chaine.comptesEssayes.join(', ')}) — la main est rendue`,
+        );
+      }
+      return false;
+    }
+
+    if (chaine.fenetreNeuve) {
+      /* La chaîne repart de zéro SUR LE MESSAGE : c'est lui que le tour suivant
+         relira s'il retombe (`derniereRepriseDeLAgent`). */
+      const frais = store.getMessage(messageId) ?? message;
+      store.saveMessage({
+        ...frais,
+        repriseCompte: { ...reprise, comptesEssayes: undefined, relevesEnChaine: undefined },
+      });
+      log.info(`retour du quota : la fenêtre du compte ${reprise.compteEpuiseLabel} a tourné, chaîne de relèves remise à zéro`);
+    }
+
+    const resultat = await reprendreSurCompte(messageId, compte.id, { automatique: true });
+    if (!resultat.ok) {
+      log.warn(`relève automatique refusée pour le compte ${compte.label} : ${resultat.error}`);
+    } else if (options.retourDuQuota) {
+      log.info(`retour du quota : le travail de l'agent ${message.agentId} repart sur ${compte.label}, sans clic`);
+    }
+    return resultat.ok;
+  } finally {
+    relevesEnRoute.delete(messageId);
   }
-  return resultat.ok;
 }
 
 /* ------------------------------------------------------------------ */
@@ -415,22 +479,53 @@ function oublierSignale(messageId: string): void {
 }
 
 /**
- * Un compte se libère alors qu'un travail attendait : on le DIT. C'est la
- * moitié de la promesse — le composant reste visible et s'actualise tout seul
- * avec les quotas ; encore faut-il savoir qu'il est redevenu utile.
+ * UN COMPTE SE LIBÈRE ALORS QU'UN TRAVAIL ATTENDAIT : LE TRAVAIL REPART.
+ *
+ * On se contentait de le DIRE (« Un compte est de nouveau libre ») : la carte
+ * restait en pause jusqu'au clic, même la nuit, même avec un seul compte dont
+ * la fenêtre venait de tourner. Désormais la relève part seule, par le même
+ * chemin que la fin de tour (`reprendreAutomatiquement`, même plafond de
+ * chaîne, même verrou). L'alerte ne sort plus que si rien n'a pu repartir
+ * alors qu'un choix À LA MAIN est possible (un autre moteur, par exemple).
+ *
+ * Jamais pour une carte sortie de « En cours » (arrêtée, suspendue, rangée),
+ * ni pour un agent déjà reparti (au travail, ou sa reprise déjà en file).
  */
-export function signalerRepriseRedevenuePossible(): void {
+export async function reprendreLesAttentesRedevenuesPossibles(): Promise<void> {
   const attentes = store.reprisesDeCompteEnAttente();
   if (!attentes.length) {
     signales.clear();
     return;
   }
-  const comptes = comptesConnus();
   const vivantes = new Set(attentes.map((a) => a.messageId));
   for (const marque of [...signales]) if (!vivantes.has(marque)) signales.delete(marque);
 
+  const { agentsActifs } = await import('./runtime.js');
+  const actifs = new Set(agentsActifs());
   for (const attente of attentes) {
-    const choix = comptesDeReprise(attente.engine, attente.compteEpuise, comptes);
+    if (releveEnRoute(attente.messageId) || actifs.has(attente.agentId)) continue;
+    if (store.listQueue(attente.agentId).some((d) => d.repriseDe === attente.messageId)) continue;
+    /* Seule une carte restée « En cours » repart : une carte arrêtée
+       (suspendue, rendue à « Planifié ») ou rangée attend un geste humain —
+       rien ne part au moteur avant son lancement. */
+    const carte = attente.cardId ? store.getCard(attente.cardId) : null;
+    if (attente.cardId && (!carte || carte.column !== 'running' || carte.scheduling?.suspendu)) continue;
+
+    const message = store.getMessage(attente.messageId);
+    const reprise = message?.repriseCompte;
+    if (!reprise) continue;
+    if (compteDeLaReleve(reprise, comptesConnus(), true).compte) {
+      const repartie = await reprendreAutomatiquement(attente.messageId, { retourDuQuota: true }).catch((err) => {
+        log.warn('relève au retour du quota impossible', err);
+        return false;
+      });
+      if (repartie) {
+        signales.delete(attente.messageId);
+        continue;
+      }
+    }
+
+    const choix = comptesDeReprise(attente.engine, attente.compteEpuise, comptesConnus());
     if (!choixPossible(choix)) {
       // Plus rien de libre : l'ardoise s'efface, la prochaine ouverture parlera.
       signales.delete(attente.messageId);
@@ -457,13 +552,19 @@ export function signalerRepriseRedevenuePossible(): void {
  * Branché sur la diffusion des quotas : toute lecture (échéance, bouton, boucle
  * de sécurité) passe par le même événement, donc un seul abonnement suffit.
  */
+let balayageEnCours = false;
+
 export function surveillerRepriseDeCompte(): () => void {
   return bus.subscribe((evenement) => {
     if (evenement.type !== 'quotas') return;
-    try {
-      signalerRepriseRedevenuePossible();
-    } catch (err) {
-      log.warn('surveillance des reprises de compte impossible', err);
-    }
+    /* Un passage à la fois : chaque relève relit un quota, qui rediffuse un
+       événement — on ne relance pas le tour du balayage sur lui-même. */
+    if (balayageEnCours) return;
+    balayageEnCours = true;
+    void reprendreLesAttentesRedevenuesPossibles()
+      .catch((err) => log.warn('surveillance des reprises de compte impossible', err))
+      .finally(() => {
+        balayageEnCours = false;
+      });
   });
 }

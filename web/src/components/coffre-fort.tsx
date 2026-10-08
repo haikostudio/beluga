@@ -32,6 +32,9 @@ import {
   Input,
   Textarea,
   ZoneDefilement,
+  ListeDeroulante,
+  FormulaireEnColonnes,
+  LigneFormulaire,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
 import { AttachmentPreview } from '@/components/attachment-preview';
@@ -509,7 +512,7 @@ function FicheAcces({
         </header>
 
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-          <div className="flex flex-col gap-3" data-coffre-fiche>
+          <FormulaireEnColonnes largeurLibelle="9rem" data-coffre-fiche>
             <Champ libelle={t('Nom')}>
               <Input
                 value={nom}
@@ -523,20 +526,22 @@ function FicheAcces({
             </Champ>
 
             <Champ libelle={t('Projet')}>
-              <select
-                value={projectId ?? ''}
-                onChange={(e) => setProjectId(e.target.value || null)}
+              <ListeDeroulante
+                valeur={projectId ?? ''}
+                titre={t('Projet')}
+                repere="coffre-projet"
                 data-coffre-projet
-                className="h-8 w-full rounded-md border border-border bg-bg px-2 text-[13px] text-text disabled:opacity-60"
-              >
-                <option value="">{t('Général')}</option>
-                {/* Les membres d'un projet réuni se rangent sous lui, en retrait. */}
-                {projetsEnArbre(state.projects).map((ligne) => (
-                  <option key={ligne.projet.id} value={ligne.projet.id} data-membre-de={ligne.parentId}>
-                    {libelleDansUnMenu(ligne.projet.name, ligne)}
-                  </option>
-                ))}
-              </select>
+                onChoisir={(valeur) => setProjectId(valeur || null)}
+                options={[
+                  { valeur: '', libelle: t('Général') },
+                  /* Les membres d'un projet réuni se rangent sous lui, en retrait. */
+                  ...projetsEnArbre(state.projects).map((ligne) => ({
+                    valeur: ligne.projet.id,
+                    libelle: libelleDansUnMenu(ligne.projet.name, ligne),
+                    attributs: { 'data-membre-de': ligne.parentId },
+                  })),
+                ]}
+              />
             </Champ>
 
             {champsDuType(type).map((champ) => (
@@ -568,8 +573,7 @@ function FicheAcces({
                 })}
               </p>
             ) : null}
-
-          </div>
+          </FormulaireEnColonnes>
         </ZoneDefilement>
 
         <DialogFooter className="justify-start px-3 pt-2">
@@ -773,13 +777,9 @@ function ImagesDeLaFiche({
 }
 
 /** Un libellé au-dessus de son champ, la même mise en page partout. */
+/** Une ligne de la fiche : son libellé dans la colonne de gauche, sa valeur à droite (`FormulaireEnColonnes`). */
 function Champ({ libelle, children }: { libelle: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[12px] font-medium text-muted">{libelle}</span>
-      {children}
-    </label>
-  );
+  return <LigneFormulaire libelle={libelle}>{children}</LigneFormulaire>;
 }
 
 /**

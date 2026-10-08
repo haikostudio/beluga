@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { TodoItem } from '@beluga/shared';
+import { modeleBanni, modelePermis, TodoItem } from '@beluga/shared';
+import { log } from '../logger.js';
 import {
   agentBride,
   dossierDesFilsClaude,
@@ -92,7 +93,13 @@ function effortFor(thinking?: string): string | null {
 export function buildClaudeArgs(options: EngineRunOptions): string[] {
   const args: string[] = ['-p', '--output-format', 'stream-json', '--verbose'];
 
-  if (options.model) args.push('--model', options.model);
+  // DERNIER VERROU : un modèle BANNI (Fable) ne part jamais, d'où qu'il vienne
+  // (vieux réglage, reprise, essai). L'alias « opus » du CLI vise l'Opus courant.
+  if (modeleBanni(options.model)) {
+    log.warn(`modèle banni « ${options.model} » remplacé par Opus au lancement`);
+  }
+  const modele = modelePermis(options.model);
+  if (modele) args.push('--model', modele);
   const effort = effortFor(options.thinking);
   if (effort) args.push('--effort', effort);
 

@@ -284,6 +284,13 @@ export interface AppState {
    */
   marketingVersions: Record<string, number>;
   /**
+   * LE STUDIO : un compteur par création (et « * » pour la liste) qui monte à
+   * chaque événement `studio` — l'écran ouvert se relit ; et la progression
+   * des exports en cours, qui voyage sans relecture.
+   */
+  studioVersions: Record<string, number>;
+  studioProgression: Record<string, { valeur: number; etape: string }>;
+  /**
    * LES DEUX COMPTEURS DE LA MESSAGERIE : le non-lu des clients (demandes jamais
    * ouvertes, commentaires, messages) et les demandes à traiter. Poussés à la
    * connexion puis après chaque geste qui les change.
@@ -415,6 +422,8 @@ const initialState: AppState = {
   surveillance: [],
   surveillanceRecue: false,
   marketingVersions: {},
+  studioVersions: {},
+  studioProgression: {},
   compteursMessagerie: { nonLu: 0, aTraiter: 0 },
   connexions: [],
   capacity: null,
@@ -473,6 +482,8 @@ class Client {
   private retry = 0;
   private reconnectTimer: number | null = null;
   private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
+  /** Les images du navigateur des sources : remises au seul volet ouvert, jamais rangées dans l'état général. */
+  private navigateurHandlers = new Set<(event: Extract<ServerEvent, { type: 'studio.navigateur' }>) => void>();
   /*
    * L'état du LIEN avec le serveur, tel que la règle `alerteServeurInjoignable`
    * le demande : depuis quand le canal est coupé, et combien de requêtes
@@ -677,6 +688,12 @@ class Client {
     return () => this.notifyHandlers.delete(handler);
   }
 
+  /** Le volet « Passer la vérification » écoute son navigateur : images et changements d'état. */
+  onNavigateur(handler: (event: Extract<ServerEvent, { type: 'studio.navigateur' }>) => void): () => void {
+    this.navigateurHandlers.add(handler);
+    return () => this.navigateurHandlers.delete(handler);
+  }
+
   /** Ouvrir une carte depuis n'importe où (une carte affichée dans le chat, par exemple). */
   onOpenCard(handler: (cardId: string) => void): () => void {
     this.openCardHandlers.add(handler);
@@ -762,21 +779,10 @@ class Client {
     this.setActiveProject(projectId);
     let cardId: string | null = null;
     try {
-      const reponse = await this.call<{ cardId?: string | null; agentId?: string; production?: string }>(
+      const reponse = await this.call<{ cardId?: string | null }>(
         { type: 'project.unreadCard', projectId, membres },
         15000,
       );
-      /* LE RENDU LE PLUS RÉCENT PEUT ÊTRE UNE CARTE SYSTÈME : un agent sans
-         carte ouvre sa conversation, une mise en production son suivi. */
-      if (reponse?.agentId) {
-        const agent = this.state.agents[reponse.agentId];
-        if (agent) this.openConversation({ projectId: agent.projectId, agentId: agent.id });
-        return null;
-      }
-      if (reponse?.production) {
-        this.ouvrirMiseEnProduction(reponse.production);
-        return null;
-      }
       cardId = reponse?.cardId ?? null;
     } catch {
       return null;
@@ -810,7 +816,14 @@ class Client {
     cardId?: string;
     agentId?: string;
     messageId?: string;
+    url?: string;
   }): void {
+    /* UNE ADRESSE DE L'APPLICATION (« #studio/verification:<source> ») : l'alerte mène droit au geste, sans carte. */
+    if (lieu.url?.startsWith('#')) {
+      window.history.pushState(null, '', lieu.url);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
     /*
      * LE PROJET SE RETROUVE, IL NE SE RÉCLAME PAS. Une annonce née hors carte
      * — la question d'un assistant, une carte proposée dans une conversation —
@@ -1379,7 +1392,7 @@ class Client {
             [event.projectId]: event.totaux ?? premiereTranche(event.cards, Number.POSITIVE_INFINITY).totaux,
           },
           deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
-          productions: event.deploy ? productionsApres(state.productions, event.deploy) : state.productions,
+          productions: event.deploy ? productionsApres(state.productions, event.deploy, Date.now()) : state.productions,
           memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
           // Les cartes de ce projet sont là : le tableau peut cesser de montrer
           // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
@@ -1572,20 +1585,7 @@ class Client {
       case 'deploy.upsert':
         this.set((state) => ({
           deploys: { ...state.deploys, [event.run.projectId]: event.run },
-          productions: productionsApres(state.productions, event.run),
-        }));
-        break;
-
-      /* UNE PUBLICATION LUE : sa carte violette s'efface. Elle peut être plus
-         ancienne que la dernière du projet — elle ne remplace donc celle du
-         tableau que si c'est la même. */
-      case 'deploy.lu':
-        this.set((state) => ({
-          deploys:
-            state.deploys[event.run.projectId]?.id === event.run.id
-              ? { ...state.deploys, [event.run.projectId]: event.run }
-              : state.deploys,
-          productions: productionsApres(state.productions, event.run),
+          productions: productionsApres(state.productions, event.run, Date.now()),
         }));
         break;
 
@@ -1603,6 +1603,27 @@ class Client {
       case 'surveillance':
         this.set({ surveillance: event.sites, surveillanceRecue: true });
         break;
+
+      case 'studio': {
+        if (event.progression) {
+          this.set({ studioProgression: { ...this.state.studioProgression, [event.progression.exportId]: { valeur: event.progression.valeur, etape: event.progression.etape } } });
+          break;
+        }
+        const v = this.state.studioVersions;
+        // La bibliothèque de styles a changé : seule la galerie se relit, aucune création.
+        if (event.creationId === 'bibliotheque') {
+          this.set({ studioVersions: { ...v, bibliotheque: (v.bibliotheque ?? 0) + 1 } });
+          break;
+        }
+        this.set({
+          studioVersions: {
+            ...v,
+            '*': (v['*'] ?? 0) + 1,
+            ...(event.creationId ? { [event.creationId]: (v[event.creationId] ?? 0) + 1 } : {}),
+          },
+        });
+        break;
+      }
 
       case 'marketing': {
         const versions = this.state.marketingVersions;
@@ -1690,6 +1711,10 @@ class Client {
         for (const handler of this.notifyHandlers) handler(event);
         break;
 
+      case 'studio.navigateur':
+        for (const handler of this.navigateurHandlers) handler(event);
+        break;
+
       default:
         break;
     }
@@ -1716,6 +1741,8 @@ class Client {
       projectId: event.projectId,
       cardId: event.cardId,
       agentId: event.agentId,
+      // Une adresse de l'application (« #studio/… ») : l'alerte mène au geste même sans carte (DEC-082).
+      ...(event.url?.startsWith('#') ? { url: event.url } : {}),
     };
     this.set((state) => {
       const annonces = ajouterAnnonce(state.annonces, annonce);

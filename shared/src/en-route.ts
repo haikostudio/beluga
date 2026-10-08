@@ -26,7 +26,7 @@
 
 import type { ColumnKey } from './columns.js';
 import { extraitDeNote } from './editeur-riche.js';
-import { agentSystemeNonLu } from './cartes-systeme.js';
+import { agentSystemeActif, agentSystemeTermine } from './cartes-systeme.js';
 import { agentTientSonTour } from './travail-en-cours.js';
 
 /** Les colonnes que la page montre : tout sauf « Archivé ». */
@@ -85,42 +85,48 @@ export interface AgentPourLaBande {
   startedAt?: number;
   tourVivantDepuis?: number;
   attendReponse?: boolean;
-  /** Quand il a été consulté pour la dernière fois (`Agent.luA`). */
-  luA?: number;
   depannagePublication?: unknown;
 }
 
 /**
  * Combien de temps le BANDEAU de mise en production garde la mention
  * « terminé » d'un agent de configuration (`etatDeLInitialisation`). Les cartes
- * Système, elles, ne se règlent plus sur ce délai : elles attendent d'être lues.
+ * Système, elles, ne se règlent pas sur ce délai : finies, elles passent
+ * 24 heures dans « Terminés » (`DUREE_SYSTEME_TERMINE_MS`).
  */
 export const BANDE_GARDE_UN_FINI_MS = 60_000;
 
 /**
- * LA BANDE DES AGENTS QU'AUCUNE CARTE NE PORTE : la mise en ligne, l'analyse
- * de nuit, le chef. C'est ce que montrait la pile flottante du pied de
- * colonne, qui a disparu : ce qui travaille, ou a fini SANS AVOIR ÉTÉ LU
- * (`agentSystemeNonLu` — l'analyse de nuit exceptée, qui finit sans que
- * personne l'attende). Une carte Système ne s'efface plus seule au bout d'une
- * minute : elle attend d'être ouverte, point bleu allumé (05/10/2026).
+ * LA BANDE DES AGENTS QU'AUCUNE CARTE NE PORTE, EN TÊTE D'« ACTIFS » : la mise
+ * en ligne, l'analyse de nuit, le chef — tant qu'ils travaillent ou attendent
+ * une réponse (`agentSystemeActif`). Finis, ils passent dans « Terminés »
+ * (`agentsTerminesDeLaBande`, 06/10/2026).
  *
  * UN AGENT POSÉ SUR UNE CARTE N'Y ENTRE JAMAIS, que sa carte soit affichée ou
  * non (demande de l'utilisateur, 24.09.2026) : comparer aux seules cartes de
  * l'onglet ouvert faisait paraître dans « Terminé » l'agent d'une carte qui
  * travaille dans « Actif ». Son travail se lit sur sa carte.
  */
-export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], _maintenant?: number): T[] {
+export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]): T[] {
   return agents
     .filter((agent) => {
       if (agent.cardId) return false;
       // Le dépannage d'une publication a SA vignette (`depannagesDeLaBande`).
       if (agent.depannagePublication) return false;
-      if (agent.status === 'running' || agent.status === 'starting') return true;
-      if (agent.tourVivantDepuis !== undefined) return true;
-      return agentSystemeNonLu(agent);
+      return agentSystemeActif(agent);
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+}
+
+/**
+ * LES AGENTS SANS CARTE FINIS DEPUIS MOINS DE 24 HEURES : leur carte Système
+ * dans « Terminés » (`agentSystemeTermine` — l'analyse de nuit exceptée), la
+ * plus récente fin d'abord.
+ */
+export function agentsTerminesDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], maintenant: number): T[] {
+  return agents
+    .filter((agent) => !agent.depannagePublication && agentSystemeTermine(agent, maintenant))
+    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 
 /** Ce que le compteur « en cours » lit d'un agent. */

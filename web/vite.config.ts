@@ -27,6 +27,9 @@ export default defineConfig({
       '/ws': { target: `ws://127.0.0.1:${demon}`, ws: true },
       '/api': `http://127.0.0.1:${demon}`,
       '/auth': `http://127.0.0.1:${demon}`,
+      // Le cadre d'aperçu du Studio lit GSAP, les polices et ses médias signés hors de `/api`.
+      '/studio/': `http://127.0.0.1:${demon}`,
+      '/studio-media/': `http://127.0.0.1:${demon}`,
     },
   },
 });

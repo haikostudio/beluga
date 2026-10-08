@@ -5,7 +5,8 @@ import {
   URL_OPENROUTER,
   URL_OPENROUTER_MODELES,
   cleGeminiDuCoffre,
-  cleOpenRouterDuCoffre,
+  NOM_FICHE_OPENROUTER_RELAIS,
+  cleOpenRouterDuRelais,
   fournisseurDuModele,
   modeleGeminiAuCatalogue,
 } from '@beluga/shared';
@@ -32,7 +33,7 @@ export type ReponseRelais =
   | { ok: false; statut: number; raison: string };
 
 function laCle(): string | undefined {
-  return cleOpenRouterDuCoffre(listerAcces());
+  return cleOpenRouterDuRelais(listerAcces());
 }
 
 function laCleGemini(): string | undefined {
@@ -43,7 +44,7 @@ const SANS_CLE: ReponseRelais = {
   ok: false,
   statut: 503,
   raison:
-    'Aucune clé OpenRouter dans le coffre-fort de Beluga Build : rangez-en une (type « clé d’API », service « OpenRouter »).',
+    `Aucune clé OpenRouter dans le coffre-fort de Beluga Build : la fiche « ${NOM_FICHE_OPENROUTER_RELAIS} » (type « clé d’API ») est introuvable ou sans clé.`,
 };
 
 const SANS_CLE_GEMINI: ReponseRelais = {

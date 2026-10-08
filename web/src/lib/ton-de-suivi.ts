@@ -1,4 +1,4 @@
-import { Archive, Hammer, Lightbulb, MessageSquare, Rocket, type LucideIcon } from 'lucide-react';
+import { Archive, Hammer, LayoutList, Lightbulb, MessageSquare, Rocket, ScanSearch, type LucideIcon } from 'lucide-react';
 import type { EtapeDeSuivi, TonDeSuivi } from '@beluga/shared';
 
 /**
@@ -22,6 +22,9 @@ export const ICONE_DE_L_ETAPE: Record<EtapeDeSuivi, LucideIcon> = {
   travail: Hammer,
   a_deployer: Rocket,
   archivee: Archive,
+  /* Les deux étapes propres à la carte du rendez-vous de nuit. */
+  examen: ScanSearch,
+  propositions: LayoutList,
 };
 
 /**

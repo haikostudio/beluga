@@ -1,3 +1,4 @@
+import { modeleBanni, remplacantDUnBanni } from './modele-banni.js';
 import { EngineInfo, ModelInfo, RunConfig } from './models.js';
 
 /**
@@ -104,6 +105,13 @@ export function modeleActuel(
   modelId: string | undefined,
 ): ModelInfo | undefined {
   const models = engine?.models ?? [];
+  // Un modèle BANNI (Fable) suit l'Opus le plus récent, jamais le défaut du
+  // moteur : exception voulue à DEC-213 (`modele-banni.ts`).
+  if (modeleBanni(modelId)) {
+    const remplacant = remplacantDUnBanni(models);
+    const opus = models.find((entry) => entry.id === remplacant);
+    if (opus) return opus;
+  }
   const exact = modelId ? models.find((entry) => entry.id === modelId) : undefined;
   if (exact) return exact;
   if (modelId) {

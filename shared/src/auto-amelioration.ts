@@ -68,6 +68,49 @@ export const LABEL_AUTO_AMELIORATION = 'auto amélioration';
  */
 export const LABEL_RENDEZ_VOUS_DE_NUIT = 'rendez-vous de nuit';
 
+/**
+ * CETTE CARTE EST-ELLE CELLE DU RENDEZ-VOUS DE NUIT ? Son étiquette est le seul
+ * marqueur (`rendezVousDAutoAmelioration`), posé dès l'ouverture : les 26
+ * nuits déjà en base le portent toutes. Les cartes PROPOSÉES par la nuit
+ * portent `LABEL_AUTO_AMELIORATION`, pas celle-ci : elles gardent leur
+ * parcours de tâche, compréhension comprise.
+ *
+ * Cette carte n'est pas une tâche : un examen qui ne fait que proposer. Son
+ * fil se lit donc en trois étapes à elle — Demande, Examen, Propositions —
+ * au lieu d'imiter une tâche (« Compréhension » sautée, « Travail fait »,
+ * « À déployer ») : `avecLeParcoursDeLaNuit`, `ETAPES_DE_SUIVI_DE_LA_NUIT`.
+ */
+export function estCarteDuRendezVousDeNuit(carte: { labels?: readonly string[] } | null | undefined): boolean {
+  return !!carte?.labels?.includes(LABEL_RENDEZ_VOUS_DE_NUIT);
+}
+
+/** Une carte née de la nuit, lue sur la proposition acceptée de l'agent. */
+export interface PropositionDeLaNuit {
+  /** La carte créée, quand la proposition en a une. */
+  cardId?: string;
+  /** Le titre de la proposition : celui de la carte réelle prime à l'écran. */
+  titre: string;
+}
+
+/**
+ * LES CARTES NÉES DE LA NUIT, dans l'ordre où l'agent les a proposées : les
+ * propositions ACCEPTÉES de ses messages (`messages.data.proposals`, où le
+ * démon a écrit le `cardId`). Rien à migrer : les nuits passées les portent
+ * déjà. Une proposition réunie ou refusée n'a créé aucune carte.
+ */
+export function propositionsDeLaNuit(
+  messages: readonly { proposals?: readonly { title: string; decision?: string; cardId?: string }[] }[],
+): PropositionDeLaNuit[] {
+  return messages.flatMap((message) =>
+    (message.proposals ?? [])
+      .filter((proposition) => proposition.decision === 'accepted')
+      .map((proposition) => ({
+        titre: proposition.title,
+        ...(proposition.cardId ? { cardId: proposition.cardId } : {}),
+      })),
+  );
+}
+
 /** Ce que la carte du rendez-vous dit d'elle-même. */
 export function descriptionDuRendezVous(nomDuProjet: string): string {
   return (
@@ -252,7 +295,8 @@ Ta réponse finale tient en quelques lignes : ce que tu as examiné, ce que tu a
  * DEUX DIFFÉRENCES AVEC UN CADRAGE ORDINAIRE : personne n'est devant l'écran à
  * 3 h du matin. Une question posée avec `ask_user` ARRÊTERAIT l'agent jusqu'à
  * la réponse — il tiendrait une place toute la nuit pour rien. La demande
- * interdit donc la question et impose de trancher en disant ses hypothèses ;
+ * interdit donc `ask_user` : l'agent vérifie, tranche, et PRÉPARE ses
+ * questions, gardées sur la carte jusqu'au réveil (`questions-de-carte.ts`) ;
  * et elle interdit tout aussi explicitement le plan, qui ne se produit JAMAIS
  * de lui-même, ni de jour ni de nuit. L'utilisateur affine au réveil, en
  * écrivant dans le fil, puis demande lui-même le plan s'il le souhaite.
@@ -280,7 +324,7 @@ DÉROULE TON PROCESSUS HABITUEL DE CADRAGE, sans en sauter un temps : la carte p
 
 N'APPELLE JAMAIS « rendre_plan » CETTE NUIT, même si tout te semble déjà clair : le plan ne se produit jamais de lui-même, ni de jour ni de nuit, ici pas plus qu'ailleurs — seul un geste explicite de l'utilisateur, au réveil, le déclenche. Ton tour s'arrête avec la compréhension rendue.
 
-NE POSE AUCUNE QUESTION AVEC « ask_user » : personne ne dort à côté de l'écran, et une question laisserait cette carte figée jusqu'au matin. Ce qui manque se tranche : tu annonces ton choix, tu dis « je suppose » là où tu supposes, et tu rends ce que tu as compris. L'utilisateur affinera au réveil en t'écrivant dans cette conversation, puis validera et lancera la tâche d'un seul geste — et c'est LUI qui allume l'interrupteur « Plan » s'il en veut un.
+NE POSE AUCUNE QUESTION AVEC « ask_user » : personne ne dort à côté de l'écran, et une question laisserait cette carte figée jusqu'au matin. Ce qui manque, tu le VÉRIFIES d'abord dans le projet ; ce que la demande, le projet ou ta manière de construire tranche s'écrit comme DÉCIDÉ ; et ce que seul l'utilisateur peut trancher, tu le PRÉPARES dans le champ « questions » de « rendre_comprehension » : la question en une phrase, ce que change chaque réponse (« description »), deux choix au moins et la réponse que tu conseilles (« recommandee »). Ces questions attendent l'utilisateur sur la carte ; la carte ne se lance pas sans ses réponses, et le cadrage reprendra tout seul après la dernière. Aucune supposition : « hypotheses » reste vide, l'outil refuse toute ligne. L'utilisateur répondra au réveil, ou t'écrira dans cette conversation, puis validera et lancera la tâche d'un seul geste — et c'est LUI qui allume l'interrupteur « Plan » s'il en veut un.
 
-VÉRIFIE CE QUE LA NUIT AFFIRME avant de le reprendre : l'agent de la nuit n'a pas discuté avec l'utilisateur, et ce qu'il croit inutilisé ou dupliqué reste à confirmer. Ce dont tu n'es pas sûr se dit comme une supposition, dans les hypothèses de ta compréhension.`;
+VÉRIFIE CE QUE LA NUIT AFFIRME avant de le reprendre : l'agent de la nuit n'a pas discuté avec l'utilisateur, et ce qu'il croit inutilisé ou dupliqué reste à confirmer — dans le projet, par toi-même. Ce que tu ne peux pas confirmer devient une question préparée, jamais une supposition.`;
 }

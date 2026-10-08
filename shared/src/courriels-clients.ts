@@ -27,7 +27,7 @@ import {
 } from './adresse-navigateur.js';
 import type { ActiviteDemande } from './espace-client.js';
 import {
-  bouton,
+  cadreBlanc,
   bullesDuBlocTexte,
   carteDeDemande,
   carteDeDiscussion,
@@ -38,6 +38,7 @@ import {
   enteteDeClient,
   lienDiscret,
   listeDePoints,
+  noteAIcone,
   paragraphe,
   titreDeSection,
   titreTexte,
@@ -414,10 +415,10 @@ export function courrielDIdentifiants(input: {
   const intro =
     'Votre espace client Haiko Studio est prêt. C’est votre coin à vous pour faire avancer vos projets avec nous, simplement.';
   const points = [
-    { emoji: '📌', texte: 'Suivre vos demandes, de la première idée à la mise en ligne' },
-    { emoji: '💬', texte: 'Échanger avec nous au même endroit, sans chercher le bon courriel' },
-    { emoji: '🔔', texte: 'Savoir tout de suite quand quelque chose avance' },
-  ];
+    { emoji: '📌', icone: 'dossier', teinte: 'gris', texte: 'Suivre vos demandes, de la première idée à la mise en ligne' },
+    { emoji: '💬', icone: 'bulle', teinte: 'gris', texte: 'Échanger avec nous au même endroit, sans chercher le bon courriel' },
+    { emoji: '🔔', icone: 'cloche', teinte: 'gris', texte: 'Savoir tout de suite quand quelque chose avance' },
+  ] as const;
   const rappel =
     'Ce mot de passe n’appartient qu’à vous : gardez-le précieusement et ne le partagez pas. Un oubli ? Écrivez-nous, on vous en redonne un en un clin d’œil.';
   const fin = `À très vite !\n${EQUIPE}`;
@@ -443,15 +444,21 @@ export function courrielDIdentifiants(input: {
   const html = documentDeCourriel({
     titre: 'Bienvenue',
     apercu: 'Votre espace client est prêt : voici vos identifiants.',
+    surtitre: 'Votre espace client',
+    illustration: 'identifiants',
+    lienEnTete: { libelle: 'Mon espace', lien },
     salutation,
     intro,
     corps:
       titreDeSection('Ce que vous pouvez y faire') +
-      listeDePoints(points) +
-      encadreDIdentifiants({ lien, identifiant: input.identifiant, motDePasse: input.motDePasse }) +
-      bouton('Me connecter à mon espace', lien) +
-      `<div style="height:12px;line-height:12px;font-size:0;">&nbsp;</div>` +
-      paragraphe(`🔒 ${rappel}`, true),
+      cadreBlanc(listeDePoints(points)) +
+      encadreDIdentifiants({
+        lien,
+        identifiant: input.identifiant,
+        motDePasse: input.motDePasse,
+        libelleBouton: 'Me connecter à mon espace',
+      }) +
+      noteAIcone('cadenas', 'gris', rappel),
     fin,
   });
   return { sujet: '🎉 Bienvenue dans votre espace client Haiko Studio', texte, html };
@@ -482,10 +489,11 @@ export function raccourcir(texte: string, max: number): string {
  * ce qui reste à lire, accordé. Une seule ligne, discrète — le gros du sens est
  * dans les bulles, pas dans cet en-tête. Le projet, lui, est posé par la carte.
  */
-function piedDeDemande(demande: DemandeAuCourriel): string {
+function piedDeDemande(demande: DemandeAuCourriel, avecEmojis = true): string {
   const bouts: string[] = [];
-  if (demande.livraisonAnnoncee) bouts.push(`📅 livraison annoncée le ${dateCourte(demande.livraisonAnnoncee)}`);
-  if (demande.nonLus) bouts.push(`💬 ${nombre(demande.nonLus, 'message non lu', 'messages non lus')}`);
+  const emoji = (e: string) => (avecEmojis ? `${e} ` : '');
+  if (demande.livraisonAnnoncee) bouts.push(`${emoji('📅')}livraison annoncée le ${dateCourte(demande.livraisonAnnoncee)}`);
+  if (demande.nonLus) bouts.push(`${emoji('💬')}${nombre(demande.nonLus, 'message non lu', 'messages non lus')}`);
   return bouts.join(' · ');
 }
 
@@ -578,7 +586,7 @@ export function courrielDuClient(
   const corps: string[] = [];
   if (point.discussion) {
     corps.push(
-      titreDeSection('💬 Votre discussion avec nous'),
+      titreDeSection('Votre discussion avec nous'),
       carteDeDiscussion({
         titre: 'Vos échanges avec Haiko Studio',
         cotePropre: 'client',
@@ -589,7 +597,7 @@ export function courrielDuClient(
     );
   }
   if (point.aLire.length) {
-    corps.push(titreDeSection(titreDesDemandes));
+    corps.push(titreDeSection(point.aLire.length > 1 ? 'Vos demandes' : 'Votre demande'));
     for (const demande of point.aLire) {
       corps.push(
         carteDeDemande(demande, {
@@ -597,7 +605,7 @@ export function courrielDuClient(
           bloc: bullesDeLaDemande(demande),
           lien: lienDeLaDemande(demande),
           libelleBouton: libelleChezLeClient(demande),
-          pied: piedDeDemande(demande),
+          pied: piedDeDemande(demande, false),
         }),
       );
     }
@@ -607,6 +615,9 @@ export function courrielDuClient(
   const html = documentDeCourriel({
     titre: 'Votre semaine',
     apercu: intro,
+    surtitre: 'Votre semaine',
+    illustration: 'client',
+    lienEnTete: { libelle: 'Mon espace', lien: lienDeLEspace() },
     salutation,
     intro,
     corps: corps.join(''),
@@ -678,7 +689,7 @@ export function courrielDeHaiko(
       lignes.push('💬 Discussion directe', ...bullesDuBlocTexte(bloc), `  → Répondre : ${lienDuFil(client.id)}`, '');
       corps.push(
         carteDeDiscussion({
-          titre: `💬 Discussion avec ${client.nom}`,
+          titre: `Discussion avec ${client.nom}`,
           cotePropre: 'admin',
           bloc,
           lien: lienDuFil(client.id),
@@ -694,7 +705,7 @@ export function courrielDeHaiko(
           cotePropre: 'admin',
           bloc: bullesDeLaDemande(demande),
           lien: lienDeLaDemande(client.id, demande),
-          pied: piedDeDemande(demande),
+          pied: piedDeDemande(demande, false),
         }),
       );
     }
@@ -708,6 +719,9 @@ export function courrielDeHaiko(
   const html = documentDeCourriel({
     titre: 'Point du jour',
     apercu: intro,
+    surtitre: 'Point du jour',
+    illustration: 'haiko',
+    lienEnTete: { libelle: 'Espace client', lien: lienDeLEspace() },
     salutation,
     intro,
     corps: corps.join(''),

@@ -40,6 +40,7 @@ import {
   PointDuParcours,
   type SuiviDUneFille,
   LIBELLES_DE_LA_FILLE,
+  estCarteDuRendezVousDeNuit,
   avancementDuLancement,
   blocDeFinAViser,
   decouperAvantLePlan,
@@ -500,7 +501,8 @@ export function FluxEnPoints({
               <PointDeQuestion key={element.cle} etape={element.etape} entree={element.entree} />
             ),
           )}
-          {deploiement && deploiement.etat !== 'aucun' && !carte.suiviDesFilles?.length ? (
+          {/* La carte de nuit n'a rien à déployer : elle s'arrête à ses propositions. */}
+          {deploiement && deploiement.etat !== 'aucun' && !carte.suiviDesFilles?.length && !estCarteDuRendezVousDeNuit(carte) ? (
             <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} />
           ) : null}
         </ol>
@@ -769,7 +771,7 @@ function PointDuFlux({
       >
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span className={cn('text-[14.5px] font-semibold', ton.titre)}>{t(LIBELLES_ETAPE[point.etape])}</span>
+            <span className={cn('text-[14.5px] font-semibold', ton.titre)}>{t(point.titre ?? LIBELLES_ETAPE[point.etape])}</span>
             {/* CE QUI N'EST PAS ENCORE ARRIVÉ LE DIT. Le gris et l'absence de
                 coche portaient seuls l'information : au lancement, « Travail »
                 et « Rapport » se lisaient comme des étapes déjà passées. */}
@@ -896,6 +898,9 @@ function PointDuFlux({
       {/* LES FILLES D'UNE CARTE MÈRE, HORS DU BOUTON : chaque ligne porte son
           propre lien, et un bouton ne se pose pas dans un bouton. */}
       {point.filles?.length ? <FillesDuPoint point={point} /> : null}
+
+      {/* LES CARTES NÉES DE LA NUIT, hors du bouton elles aussi. */}
+      {point.propositions?.length ? <PropositionsDuPoint point={point} /> : null}
 
       {/* LE BOUTON TECHNIQUE, EN HAUT À DROITE DE L'ÉTAPE. Il ne peut pas
           vivre DANS la ligne d'entête : celle-ci est déjà un bouton, et un
@@ -1041,6 +1046,50 @@ function FillesDuPoint({ point }: { point: PointDuParcours }) {
                 {texte}
               </p>
             ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * LES CARTES NÉES DE LA NUIT, sous le point « Propositions » de la carte du
+ * rendez-vous (`avecLeParcoursDeLaNuit`) : une ligne par carte, qui l'ouvre
+ * d'un clic. Le titre est celui de la carte réelle quand elle est connue (il a
+ * pu changer depuis la proposition), sinon celui de la proposition. Une carte
+ * absente de l'écran (rangée, déchargée, supprimée) s'ouvre quand même : le
+ * tiroir la réclame au serveur et DIT s'il n'y a plus rien (`CarteReclamee`).
+ * Seule une proposition sans carte n'a pas de lien.
+ */
+function PropositionsDuPoint({ point }: { point: PointDuParcours }) {
+  const cartes = useApp().cards;
+  return (
+    <ul className="mt-1.5 space-y-1 pr-6" data-point-propositions={point.propositions?.length ?? 0}>
+      {(point.propositions ?? []).map((proposition, index) => {
+        const carte = proposition.cardId ? cartes[proposition.cardId] : undefined;
+        const titre = carte?.title || proposition.titre;
+        const cardId = proposition.cardId;
+        return (
+          <li key={proposition.cardId ?? index} data-proposition-de-la-nuit={proposition.cardId ?? ''}>
+            {cardId ? (
+              <button
+                type="button"
+                data-ouvrir-proposition={cardId}
+                onClick={() => client.openCard(cardId)}
+                className="flex w-full items-center gap-2 rounded-lg bg-raised px-2.5 py-1.5 text-left text-[13.5px] leading-snug hover:bg-surface"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium text-text">{titre}</span>
+                <span className="inline-flex shrink-0 items-center gap-0.5 text-[12.5px] text-muted">
+                  {t('Ouvrir')}
+                  <ArrowUpRight className="h-3 w-3" aria-hidden />
+                </span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 rounded-lg bg-raised px-2.5 py-1.5 text-[13.5px] leading-snug">
+                <span className="min-w-0 flex-1 truncate text-muted">{titre}</span>
+              </div>
+            )}
           </li>
         );
       })}
@@ -1282,13 +1331,7 @@ function Moment({
       );
     case 'comprehension':
       return (
-        <MomentDeComprehension
-          entree={entree}
-          numero={moment.numero}
-          derniere={moment.derniere}
-          carte={carte}
-          onEcrireDansLeChamp={onEcrireDansLeChamp}
-        />
+        <MomentDeComprehension entree={entree} numero={moment.numero} derniere={moment.derniere} />
       );
     case 'plan-demande':
       return (
@@ -1334,32 +1377,27 @@ function MomentDeComprehension({
   entree,
   numero,
   derniere,
-  carte,
-  onEcrireDansLeChamp,
 }: {
   entree: EntreeJournal;
   numero: number;
   derniere: boolean;
-  carte?: Card;
-  onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   const [choisi, setChoisi] = React.useState<boolean | undefined>(undefined);
   const ouvert = choisi ?? derniere;
   const donnees = React.useMemo(() => {
-    const vide = { hypotheses: [] as string[], sujets: [] as string[], technique: null as PartieTechniqueLue | null };
+    /*
+     * PLUS AUCUNE SUPPOSITION À L'ÉCRAN (décision du 06/10/2026) : le bloc
+     * « Ce que l'agent suppose » et ses gestes « Valider » / « Corriger » ont
+     * disparu, même sur les compréhensions d'avant. Ce qu'un cadrage sans
+     * témoin ne peut trancher devient une QUESTION gardée sur la carte, posée
+     * au-dessus du champ (`QuestionsDeLaCarte`, `parcours-carte.tsx`).
+     */
+    const vide = { sujets: [] as string[], technique: null as PartieTechniqueLue | null };
     if (!entree.donnees) return vide;
     try {
-      const lu = JSON.parse(entree.donnees) as {
-        hypotheses?: unknown;
-        questionsOuvertes?: unknown;
-        sujets?: unknown;
-        partieTechnique?: unknown;
-      };
+      const lu = JSON.parse(entree.donnees) as { sujets?: unknown; partieTechnique?: unknown };
       const liste = (valeur: unknown) => (Array.isArray(valeur) ? valeur.map(String) : []);
-      /* Les cartes déjà écrites portent l'ancien champ « ce qui reste flou » :
-         on le relit sous la nouvelle rubrique plutôt que de le perdre. */
-      const hypotheses = liste(lu.hypotheses).length ? liste(lu.hypotheses) : liste(lu.questionsOuvertes);
-      return { hypotheses, sujets: liste(lu.sujets), technique: lirePartieTechnique(lu.partieTechnique) };
+      return { sujets: liste(lu.sujets), technique: lirePartieTechnique(lu.partieTechnique) };
     } catch {
       return vide;
     }
@@ -1456,7 +1494,7 @@ function MomentDeComprehension({
                         key={index}
                         intitule={point.intitule}
                         reference={point.reference}
-                        derniere={index === range.points.length - 1 && !donnees.hypotheses.length}
+                        derniere={index === range.points.length - 1}
                         volet={marque}
                         ouvert={volets.has(marque)}
                         onBasculer={() => basculerLeVolet(marque)}
@@ -1467,17 +1505,6 @@ function MomentDeComprehension({
                       </PointDeLaComprehension>
                     );
                   })}
-                  {/* CE QUE L'AGENT SUPPOSE RESTE HORS DES VOLETS : c'est ce qu'on
-                      vient vérifier avant de lancer, il ne se cache pas. */}
-                  {donnees.hypotheses.length ? (
-                    <PointDeLaComprehension intitule={t('Ce que l’agent suppose')} derniere attrs={{ 'data-hypotheses': '' }}>
-                      <ListeDesSuppositions
-                        hypotheses={donnees.hypotheses}
-                        carte={derniere ? carte : undefined}
-                        onEcrireDansLeChamp={onEcrireDansLeChamp}
-                      />
-                    </PointDeLaComprehension>
-                  ) : null}
                 </ol>
               </>
             ) : (
@@ -1488,17 +1515,6 @@ function MomentDeComprehension({
                  ici, tout se lit et se copie d'un trait. */
               <Markdown content={entree.resultat ?? ''} className="texte-du-fil [&_p]:mb-2.5" />
             )}
-            {!range.conforme && donnees.hypotheses.length ? (
-              <div data-hypotheses>
-                <p className="font-semibold">{t('Ce que l’agent suppose')}</p>
-                <ListeDesSuppositions
-                  className="mt-1"
-                  hypotheses={donnees.hypotheses}
-                  carte={derniere ? carte : undefined}
-                  onEcrireDansLeChamp={onEcrireDansLeChamp}
-                />
-              </div>
-            ) : null}
             {donnees.sujets.length ? (
               <p>{t('Sujets de mémoire ouverts : {v0}', { v0: donnees.sujets.join(', ') })}</p>
             ) : null}
@@ -1507,106 +1523,6 @@ function MomentDeComprehension({
         </Panneau>
       ) : null}
     </div>
-  );
-}
-
-/**
- * « CE QUE L'AGENT SUPPOSE », LIGNE PAR LIGNE, AVEC SES DEUX GESTES.
- *
- * « Valider » confirme la supposition sur la carte — aucun tour d'agent : le
- * cadrage suivant et l'agent d'exécution la reçoivent comme une décision de
- * l'utilisateur. « Corriger » CITE la supposition dans la barre d'écriture,
- * sans rien envoyer, comme « Refuser » sous un plan.
- *
- * Les gestes ne paraissent que sur la compréhension EN COURS de la carte
- * (`carte` absente sur une version ancienne) et pour une ligne qu'elle porte
- * encore. Le texte reste dans un `li`, jamais dans un `button`.
- */
-function ListeDesSuppositions({
-  hypotheses,
-  carte,
-  onEcrireDansLeChamp,
-  className,
-}: {
-  hypotheses: string[];
-  carte?: Card;
-  onEcrireDansLeChamp?: (texte: string) => void;
-  className?: string;
-}) {
-  const comprise = carte?.parcours?.comprehension;
-  const enCours = new Set(comprise?.hypotheses?.length ? comprise.hypotheses : (comprise?.questionsOuvertes ?? []));
-  const validees = new Set(comprise?.hypothesesValidees ?? []);
-  /* L'ÉTAT OPTIMISTE, et la ligne dont la requête est partie. */
-  const [optimiste, setOptimiste] = React.useState<Record<string, boolean>>({});
-  const [enVol, setEnVol] = React.useState<string | null>(null);
-  React.useEffect(() => setOptimiste({}), [comprise?.at, comprise?.hypothesesValidees?.join('\n')]);
-
-  const basculer = async (hypothese: string, validee: boolean) => {
-    if (!carte) return;
-    setOptimiste((avant) => ({ ...avant, [hypothese]: validee }));
-    setEnVol(hypothese);
-    try {
-      await client.call({ type: 'card.comprehension.supposition', cardId: carte.id, hypothese, validee });
-    } catch (err: any) {
-      setOptimiste((avant) => {
-        const apres = { ...avant };
-        delete apres[hypothese];
-        return apres;
-      });
-      client.afficherMessage('error', err?.message ?? t('La supposition n’a pas pu être validée.'));
-    } finally {
-      setEnVol(null);
-    }
-  };
-
-  return (
-    <ul className={cn('space-y-1.5', className)} data-suppositions>
-      {hypotheses.map((hypothese, index) => {
-        const gestes = !!carte && enCours.has(hypothese);
-        const validee = optimiste[hypothese] ?? validees.has(hypothese);
-        const partie = enVol === hypothese;
-        return (
-          <li key={index} className="flex items-start gap-2" data-supposition={validee ? 'validee' : 'ouverte'}>
-            {validee ? (
-              <Check className="mt-1 h-3.5 w-3.5 shrink-0 text-termine" aria-hidden />
-            ) : (
-              <span className="mt-[0.6em] h-1.5 w-1.5 shrink-0 rounded-full bg-faint" aria-hidden />
-            )}
-            <span className="min-w-0 flex-1">{hypothese}</span>
-            {gestes ? (
-              <span className="flex shrink-0 items-center gap-1">
-                <button
-                  type="button"
-                  data-valider-supposition
-                  aria-pressed={validee}
-                  disabled={partie}
-                  onClick={() => void basculer(hypothese, !validee)}
-                  title={validee ? t('Retirer la validation') : t('Valider cette supposition')}
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] transition-colors hover:bg-raised',
-                    validee ? 'text-termine' : 'text-faint hover:text-text',
-                  )}
-                >
-                  {partie ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                  {validee ? t('Validée') : t('Valider')}
-                </button>
-                {onEcrireDansLeChamp ? (
-                  <button
-                    type="button"
-                    data-corriger-supposition
-                    onClick={() => onEcrireDansLeChamp(t('À propos de « {v0} » : ', { v0: hypothese }))}
-                    title={t('Corriger cette supposition')}
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12.5px] text-faint transition-colors hover:bg-raised hover:text-text"
-                  >
-                    {t('Corriger')}
-                  </button>
-                ) : null}
-              </span>
-            ) : null}
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
@@ -2251,9 +2167,11 @@ function BlocsRacontes({
 /**
  * LES ACTIONS D'UN PASSAGE, UN CARTON CHACUNE, ET LE REPLI QUI LES TIENT.
  *
- * Au-delà du plafond rendu par la règle, seuls les premiers cartons se lisent
- * et un bouton propose « voir les N de plus ». Il déplie SUR PLACE — le
- * passage ne se referme pas — et se replie du même geste.
+ * Au-delà de ce que la règle montre d'office, ce sont les DERNIERS cartons qui
+ * se lisent : pendant qu'un agent travaille, on vient voir sa dernière action.
+ * Les plus anciens se replient AU-DESSUS, derrière « voir les N précédentes »,
+ * dont le compte grossit à chaque action qui arrive. Le bouton déplie SUR
+ * PLACE — le passage ne se referme pas — et se replie du même geste.
  */
 function RecitDuPassage({
   entrees,
@@ -2273,11 +2191,29 @@ function RecitDuPassage({
   const retrait = useRetraitDuTexte();
   const recit = React.useMemo(() => recitDuPoint(entrees), [entrees]);
   const caches = recit.blocs.length - recit.montresDOffice;
-  const montres = tout ? recit.blocs : recit.blocs.slice(0, recit.montresDOffice);
+  /* Les DERNIERS : `bloc.cle` reste la clé, donc un carton déplié ne se
+     referme pas quand la fenêtre glisse d'une action. */
+  const montres = tout || caches <= 0 ? recit.blocs : recit.blocs.slice(caches);
   if (!recit.blocs.length) return null;
 
   return (
     <>
+      {/* LE REPLI EST AU-DESSUS : il ne tient que les actions ANCIENNES, et la
+          dernière action reste toujours à l'écran, juste au-dessus du total. */}
+      {caches > 0 ? (
+        <li className={retrait}>
+          <button
+            type="button"
+            onClick={() => setTout((t) => !t)}
+            aria-expanded={tout}
+            data-blocs-repli={tout ? 'ouvert' : 'ferme'}
+            className="flex items-center gap-1 pb-2 text-[12.5px] text-faint transition-colors hover:text-muted"
+          >
+            <ChevronRight className={cn('h-3 w-3 transition-transform', tout && 'rotate-90')} aria-hidden />
+            {tout ? t('Replier') : t('voir les {v0} précédentes', { v0: caches })}
+          </button>
+        </li>
+      ) : null}
       {montres.map((bloc, rang) => {
         return (
           <SousPointDuFlux
@@ -2296,22 +2232,8 @@ function RecitDuPassage({
           </SousPointDuFlux>
         );
       })}
-      {caches > 0 ? (
-        <li className={retrait}>
-          <button
-            type="button"
-            onClick={() => setTout((t) => !t)}
-            aria-expanded={tout}
-            data-blocs-repli={tout ? 'ouvert' : 'ferme'}
-            className="flex items-center gap-1 pb-2 text-[12.5px] text-faint transition-colors hover:text-muted"
-          >
-            <ChevronRight className={cn('h-3 w-3 transition-transform', tout && 'rotate-90')} aria-hidden />
-            {tout ? t('Replier') : t('voir les {v0} de plus', { v0: caches })}
-          </button>
-        </li>
-      ) : null}
       {/* LE TEMPS TOTAL, RAPPELÉ SOUS LE DERNIER GESTE — et HORS du repli :
-          caché derrière « voir les N de plus », il n'aurait servi qu'à ceux qui
+          caché derrière un repli, il n'aurait servi qu'à ceux qui
           n'en avaient plus besoin. Il compte tous les gestes du passage, y
           compris ceux qui attendent derrière ce repli. */}
       {total && recit.dureeMs !== undefined ? (

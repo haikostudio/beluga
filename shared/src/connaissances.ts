@@ -698,7 +698,44 @@ function dateCourte(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-function ligneDeMeta(u: Unite): string {
+const JOUR_MS = 86_400_000;
+
+/**
+ * L'ÉCART D'UN JOUR À AUJOURD'HUI, CALCULÉ PAR LE DÉMON : « aujourd'hui »,
+ * « hier », « il y a N jours », « il y a N mois » ; rien pour une date future
+ * ou illisible. Un agent avait la date du jour ET la date d'une correction
+ * du matin sous les yeux, et a écrit « la semaine dernière » : on ne lui laisse
+ * plus le rapprochement à faire.
+ *
+ * Même fuseau que `dateCourte` et que le `jour` du changelog (UTC) : l'écart
+ * reste cohérent avec la date imprimée à côté. Ne s'écrit QUE dans ce qui part
+ * aux agents (accueil, outil « memoire ») — jamais dans un rendu enregistré
+ * (fichiers MEMORY, CHANGELOG.md), qui serait faux le lendemain.
+ */
+export function ecartRelatif(jourISO: string, maintenant: number): string {
+  const jour = Date.parse(`${jourISO.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(jour)) return '';
+  const aujourdhui = Date.parse(`${dateCourte(maintenant)}T00:00:00Z`);
+  const jours = Math.round((aujourdhui - jour) / JOUR_MS);
+  if (jours < 0) return '';
+  if (jours === 0) return "aujourd'hui";
+  if (jours === 1) return 'hier';
+  if (jours < 60) return `il y a ${jours} jours`;
+  return `il y a ${Math.floor(jours / 30)} mois`;
+}
+
+/** « 2026-10-06 (aujourd'hui) » quand `maintenant` est donné, la date seule sinon (rendus enregistrés). */
+export function jourAvecEcart(jourISO: string, maintenant?: number): string {
+  const ecart = maintenant == null ? '' : ecartRelatif(jourISO, maintenant);
+  return ecart ? `${jourISO} (${ecart})` : jourISO;
+}
+
+/** Ce qu'un rendu destiné à un AGENT ajoute : l'instant du tour, pour situer les dates. */
+export interface OptionsDeRenduPourAgent {
+  maintenant?: number;
+}
+
+function ligneDeMeta(u: Unite, maintenant?: number): string {
   const morceaux = [
     `\`${u.type}\``,
     `**${u.importance}**`,
@@ -706,15 +743,15 @@ function ligneDeMeta(u: Unite): string {
     `confiance ${String(u.confiance).replace('.', ',')}`,
     `source : ${u.source.genre}${u.source.ref ? ` ${u.source.ref}` : ''}`,
     u.sujets.length ? `sujets : ${u.sujets.join(', ')}` : '',
-    `v${u.version} · ${dateCourte(u.modifieLe)}`,
+    `v${u.version} · ${jourAvecEcart(dateCourte(u.modifieLe), maintenant)}`,
   ].filter(Boolean);
   return morceaux.join(' · ');
 }
 
 /** Une unité rendue en Markdown, au gabarit de son type. */
-export function rendreUnite(u: Unite, niveauTitre = 2): string {
+export function rendreUnite(u: Unite, niveauTitre = 2, options: OptionsDeRenduPourAgent = {}): string {
   const h = '#'.repeat(niveauTitre);
-  const lignes = [`${h} ${u.id} — ${u.titre}`, '', ligneDeMeta(u)];
+  const lignes = [`${h} ${u.id} — ${u.titre}`, '', ligneDeMeta(u, options.maintenant)];
   const relations = [
     u.supersedes ? `Remplace : ${u.supersedes}` : '',
     u.supersededBy ? `Remplacée par : ${u.supersededBy}` : '',
@@ -751,14 +788,14 @@ export function trierUnites<T extends Pick<Unite, 'importance' | 'id' | 'modifie
  * supposer » (toutes les unités qui le demandent, quel que soit leur type) et le
  * sommaire des unités P0 du projet.
  */
-export function rendreFicheNumerotee(r: RenduDeFiche, toutesLesUnites: readonly Unite[] = r.unites): string {
+export function rendreFicheNumerotee(r: RenduDeFiche, toutesLesUnites: readonly Unite[] = r.unites, options: OptionsDeRenduPourAgent = {}): string {
   const actives = trierUnites(r.unites.filter((u) => u.statut === 'active' && uniteDansLaFiche(r.fiche, u, r.competencesDe)));
   const numero = r.fiche.id.slice(0, 2);
   const derniere = actives.reduce((m, u) => Math.max(m, u.modifieLe), 0);
   const sortie = [
     `# ${numero} — ${r.fiche.titre} — ${r.nomDeLaPortee}`,
     '',
-    `_${actives.length} unité(s) active(s)${derniere ? ` · mise à jour le ${dateCourte(derniere)}` : ''} · rendu depuis la base de connaissances, ne pas modifier à la main._`,
+    `_${actives.length} unité(s) active(s)${derniere ? ` · mise à jour le ${jourAvecEcart(dateCourte(derniere), options.maintenant)}` : ''} · rendu depuis la base de connaissances, ne pas modifier à la main._`,
   ];
   const estTete = r.fiche.id === '00_project' || r.fiche.id === '00_principles';
   if (estTete) {
@@ -772,7 +809,7 @@ export function rendreFicheNumerotee(r: RenduDeFiche, toutesLesUnites: readonly 
     }
   }
   if (!actives.length) sortie.push('', NON_RENSEIGNE);
-  for (const u of actives) sortie.push('', rendreUnite(u));
+  for (const u of actives) sortie.push('', rendreUnite(u, 2, options));
   return `${sortie.join('\n')}\n`;
 }
 
@@ -1226,7 +1263,7 @@ export const RUBRIQUES_CHANGELOG: readonly { poids: PoidsChangelog; titre: strin
  * une ligne. Les références (branche, commits, cartes) restent en fin de ligne
  * pour les agents.
  */
-export function rendreChangelog(nomDuProjet: string, entrees: readonly EntreeDuChangelog[]): string {
+export function rendreChangelog(nomDuProjet: string, entrees: readonly EntreeDuChangelog[], options: OptionsDeRenduPourAgent = {}): string {
   const parJour = new Map<string, EntreeDuChangelog[]>();
   for (const e of [...entrees].sort((a, b) => b.jour.localeCompare(a.jour) || b.at - a.at)) {
     parJour.set(e.jour, [...(parJour.get(e.jour) ?? []), e]);
@@ -1234,7 +1271,7 @@ export function rendreChangelog(nomDuProjet: string, entrees: readonly EntreeDuC
   const sortie = [`# Changelog — ${nomDuProjet}`, '', `_${entrees.length} entrée(s), tirées de git, de l’historique et des cartes livrées. Rendu depuis la base : ne pas modifier à la main._`];
   for (const [jour, liste] of parJour) {
     const publications = [...new Set(liste.map((e) => e.publication).filter(Boolean))];
-    sortie.push('', `## ${jour}${publications.length ? ` — ${publications.join(', ')}` : ''}`);
+    sortie.push('', `## ${jourAvecEcart(jour, options.maintenant)}${publications.length ? ` — ${publications.join(', ')}` : ''}`);
     for (const rubrique of RUBRIQUES_CHANGELOG) {
       const dans = liste.filter((e) => poidsDeLEntree(e) === rubrique.poids);
       if (!dans.length) continue;
@@ -1344,8 +1381,11 @@ export function texteDAccueilConnaissances(options: {
   changelog: readonly EntreeDuChangelog[];
   totalUnites: number;
   plafond?: number;
+  /** L'instant du tour : chaque entrée du changelog porte son écart (« aujourd'hui », « hier »…). */
+  maintenant?: number;
 }): string {
   const plafond = options.plafond ?? ACCUEIL_CONNAISSANCES_MAX;
+  const maintenant = options.maintenant ?? Date.now();
   const entete = `BASE DE CONNAISSANCES — ${options.nomDuProjet} (${options.totalUnites} unité(s) actives, projet et global). Lue d'office à chaque compréhension : la tête du projet, ce qu'il ne faut jamais supposer, les unités P0 et P1, et le changelog récent. Le reste se demande avec l’outil « memoire » (« chercher », puis « lire » un identifiant ou une fiche numérotée).`;
   // Le compte suit le texte rendu à la lettre : « \n\n » entre les blocs, « \n » entre les lignes, et la place de la note finale réservée.
   const NOTE_HORS_PLAFOND = 90;
@@ -1375,7 +1415,7 @@ export function texteDAccueilConnaissances(options: {
     .map((e) => {
       const poids = poidsDeLEntree(e);
       const explication = poids === 'grande-nouveaute' && e.explication ? ` — ${e.explication.length > 200 ? `${e.explication.slice(0, 199).trim()}…` : e.explication}` : '';
-      return `- ${e.jour} · ${LIBELLE_POIDS[poids]} · ${titreDeLEntree(e)}${explication}`;
+      return `- ${jourAvecEcart(e.jour, maintenant)} · ${LIBELLE_POIDS[poids]} · ${titreDeLEntree(e)}${explication}`;
     });
   // Les deux blocs courts et bornés (tête, changelog) sont servis d'abord ; le reste du plafond se partage entre
   // les deux blocs potentiellement volumineux (jamais supposer, P0/P1), pour que chacun des quatre ait sa chance.

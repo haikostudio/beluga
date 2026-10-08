@@ -4,6 +4,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   colonneApresComprehensionDeRelance,
+  LABEL_BIBLIOTHEQUE,
+  jugerRecetteSource,
   AGENT_MOVABLE_COLUMNS,
   AgentQuestion,
   Attachment,
@@ -98,6 +100,7 @@ import {
   descriptionDepuisLePlanRendu,
   lireComprehensionRendue,
   renvoiAuxQuestions,
+  questionDepuisSupposition,
   FORME_DE_LA_COMPREHENSION,
   FORME_DES_RESUMES_DU_FIL,
   SIGNES_MINIMUM_EN_CLAIR,
@@ -152,7 +155,9 @@ import {
 import { execFileSync } from 'node:child_process';
 import { makeZip, safeJoin } from './files.js';
 import { enregistrerSite, essayerLaRecette, essayerLesAcces, lireSite } from './backups.js';
-import { enregistrerSurveillance, jouerRecette, lireSurveillance } from './surveillance.js';
+import { enregistrerSurveillance, jouerRecette, lireSurveillance, rattacherLeProjetDuSite } from './surveillance.js';
+import { projetDeLaPropositionDeLAgent, refusDeLaPropositionDeLAgent } from './proposition-de-site.js';
+import { estAgentAttitre } from './agent-attitre.js';
 import {
   adresseDeBeluga,
   assurerEspace,
@@ -175,7 +180,9 @@ import {
   resultatsDuProjet,
   rythmeDuProjet,
 } from './marketing.js';
+import { estAgentStudio, mediasDuContenuMarketing } from './studio.js';
 import {
+  DEFINITION_OUTIL_STUDIO,
   LABEL_MARKETING,
   jugerParcours,
   jugerReperes,
@@ -802,7 +809,41 @@ export const TOOL_DEFS: ToolDef[] = [
             },
           },
           description:
-            'TABLEAU VIDE dès que quelqu’un est devant l’écran : toute ligne y est REFUSÉE, même technique. Un point incertain se VÉRIFIE d’abord (projet, commande, documentation) ; ce que la demande ou le projet tranche s’écrit comme décidé dans « texte » ; le reste se POSE avec « ask_user » AVANT de rendre la compréhension. Des lignes ne s’écrivent ici que si ta demande t’interdit « ask_user » (personne devant l’écran) : une par supposition, avec sa nature.',
+            'TOUJOURS UN TABLEAU VIDE : plus aucune supposition ne s’écrit, même technique, même sans personne devant l’écran — toute ligne est REFUSÉE. Un point incertain se VÉRIFIE d’abord (projet, commande, documentation) ; ce que la demande ou le projet tranche s’écrit comme décidé dans « texte » ; le reste se POSE avec « ask_user » AVANT de rendre la compréhension, ou, si ta demande t’interdit « ask_user », se PRÉPARE dans « questions ».',
+        },
+        questions: {
+          type: 'array',
+          description:
+            'SEULEMENT SI TA DEMANDE T’INTERDIT « ask_user » (personne devant l’écran) : les questions que l’utilisateur trouvera sur la carte, une par point qu’il doit trancher et que tu ne peux ni vérifier ni décider. Elles lui sont posées une par une à l’ouverture, la carte ne se lance pas sans ses réponses, et le cadrage reprend tout seul après la dernière. Huit au plus. VIDE avec quelqu’un devant l’écran : refusé, pose alors avec « ask_user ».',
+          items: {
+            type: 'object',
+            required: ['question', 'recommandee'],
+            properties: {
+              question: { type: 'string', description: 'La question, en une phrase claire, en mots courants' },
+              description: {
+                type: 'string',
+                description: 'Ce qu’il faut savoir pour répondre : le constat, ce que change chaque réponse. Pour quelqu’un qui ne programme pas.',
+              },
+              kind: {
+                type: 'string',
+                enum: ['single', 'multiple', 'text'],
+                description: 'single = un seul choix (défaut), multiple = plusieurs, text = réponse libre',
+              },
+              options: {
+                type: 'array',
+                description: 'Les réponses proposées, deux au moins (pour single ou multiple)',
+                items: {
+                  type: 'object',
+                  required: ['label'],
+                  properties: { label: { type: 'string' }, description: { type: 'string' } },
+                },
+              },
+              recommandee: {
+                type: 'string',
+                description: 'La réponse que tu conseilles : le libellé exact d’une option, ou ta réponse conseillée pour une question libre',
+              },
+            },
+          },
         },
         sujets: {
           type: 'array',
@@ -1011,6 +1052,12 @@ export const TOOL_DEFS: ToolDef[] = [
             'Le nom EXACT du projet pour une fiche propre (plusieurs : séparés par des virgules) ; « tous » ou absent pour une ' +
             'fiche commune. Absent quand on COMPLÈTE : la portée de la fiche est gardée',
         },
+        etend: {
+          type: 'string',
+          description:
+            'Pour une fiche PROPRE : le nom de la fiche COMMUNE qu’elle précise — la commune est le modèle, servi en premier, ' +
+            'et cette fiche n’en garde que la nuance du projet. « aucune » retire le lien ; absent quand on complète : gardé',
+        },
         symptome: { type: 'string', description: 'Section « Symptôme »' },
         cause: { type: 'string', description: 'Section « Cause »' },
         procedure: { type: 'string', description: 'Section « Procédure », pas à pas' },
@@ -1141,6 +1188,8 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  // LE STUDIO : servi au seul agent attitré d'une création (`estAgentStudio`).
+  DEFINITION_OUTIL_STUDIO as ToolDef,
   {
     name: 'relancer_publication',
     description:
@@ -1246,22 +1295,104 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'bibliotheque_source_essai',
+    description:
+      "JOUE LA RECETTE D'UNE SOURCE DE LA BIBLIOTHÈQUE DE STYLES, SANS RIEN ENREGISTRER : lit la liste du site, la fiche des premiers exemples, et rend le nombre d'entrées et trois exemples (id, titre, auteur, début de la consigne, aperçus). Appelle-le jusqu'à ce que les exemples aient chacun une consigne et un aperçu, AVANT « bibliotheque_source_recette ».",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string', description: "L'identifiant de la source (donné dans ta demande)" },
+        recette: schemaDeRecetteDeSource(),
+      },
+      required: ['sourceId', 'recette'],
+    },
+  },
+  {
+    name: 'bibliotheque_source_recette',
+    description:
+      "ENREGISTRE LA RECETTE D'UNE SOURCE (rejouée ici pour de vrai, refusée si elle ne rend aucun exemple avec sa consigne) avec son nom, sa licence et le résumé de ton analyse : la source passe « à valider » et attend l'utilisateur. Si le site ne se lit pas, donne seulement « impossible » (la raison en une phrase).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sourceId: { type: 'string' },
+        nom: { type: 'string', description: 'Un nom court (« prompt-motion.com »)' },
+        licence: { type: 'string', description: 'Les conditions d’usage des consignes et des vidéos, en une phrase' },
+        resume: { type: 'string', description: 'Deux à quatre phrases en français pour l’utilisateur : contenu, nombre d’exemples, ce qui est gardé, conditions' },
+        recette: schemaDeRecetteDeSource(),
+        impossible: { type: 'string', description: 'À la place de la recette : pourquoi ce site ne peut pas être lu' },
+        annuaire: { type: 'string', description: 'À la place de la recette, pour un ANNUAIRE exploré : une phrase — combien de sources tu as proposées, pourquoi les autres liens ont été écartés' },
+      },
+      required: ['sourceId'],
+    },
+  },
+  {
+    name: 'bibliotheque_source_proposer',
+    description:
+      "PROPOSE UN SITE TROUVÉ DANS UN ANNUAIRE (sujet GitHub, liste « awesome ») comme NOUVELLE SOURCE « à valider » : sa recette est rejouée ici pour de vrai, refusée si elle ne rend aucun exemple avec sa consigne, et l'adresse est refusée si une source la suit déjà. Vingt propositions au plus par annuaire. Essaie d'abord la recette avec « bibliotheque_source_essai ».",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        depuis: { type: 'string', description: "L'identifiant de l'annuaire (la source que tu analyses)" },
+        adresse: { type: 'string', description: 'L’adresse du site proposé (https://…)' },
+        nom: { type: 'string', description: 'Un nom court (« prompt-motion.com »)' },
+        licence: { type: 'string', description: 'Les conditions d’usage des consignes et des vidéos, en une phrase' },
+        resume: { type: 'string', description: 'Deux à trois phrases en français pour l’utilisateur : contenu, nombre d’exemples, conditions' },
+        recette: schemaDeRecetteDeSource(),
+      },
+      required: ['depuis', 'adresse', 'recette'],
+    },
+  },
+  {
+    name: 'bibliotheque_styles_a_rediger',
+    description:
+      'Le LOT SUIVANT des styles arrivés d’une source et pas encore rédigés (id, titre et catégorie d’origine, auteur, début de la consigne), avec la liste des catégories.',
+    inputSchema: { type: 'object', properties: { sourceId: { type: 'string' } } },
+  },
+  {
+    name: 'bibliotheque_styles_ecrire',
+    description:
+      "ÉCRIT LES TEXTES FRANÇAIS ET LES CATÉGORIES d'un lot de styles : chacun paraît aussitôt dans la bibliothèque, marqué « Nouveau ». « categoriesNeuves » seulement quand AUCUNE catégorie de la liste ne convient (rare) ; « ecarter » pour un style inutilisable.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        styles: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              titre: { type: 'string', description: '60 signes au plus : la direction visuelle' },
+              phrase: { type: 'string', description: 'Une phrase de 200 signes au plus' },
+              motsCles: { type: 'array', items: { type: 'string' } },
+              genre: { type: 'string', enum: ['motion', 'explication'] },
+              categories: { type: 'array', items: { type: 'string' }, description: '1 à 4 identifiants de la liste' },
+            },
+            required: ['id', 'titre', 'phrase', 'categories'],
+          },
+        },
+        categoriesNeuves: { type: 'array', items: { type: 'object', properties: { libelle: { type: 'string' } } } },
+        ecarter: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+  {
     name: 'surveillance_essai',
     description:
-      "JOUE UNE RECETTE DE SURVEILLANCE POUR DE VRAI, SANS RIEN ENREGISTRER. Donne « url » et « recette » (ou l'« id » d'une surveillance existante pour rejouer la sienne). Rend debout ou tombé, la raison, le code, la durée et, pour un parcours, l'ÉTAPE qui casse. Appelle-le AVANT « surveillance_recette », jusqu'à ce que la recette passe.",
+      "JOUE UNE RECETTE DE SURVEILLANCE POUR DE VRAI, SANS RIEN ENREGISTRER. Donne « url » et « recette » (ou l'« id » d'une surveillance existante pour rejouer la sienne). Rend debout ou tombé, la raison, le code, la durée et, pour un parcours, l'ÉTAPE qui casse. Appelle-le AVANT « surveillance_recette », jusqu'à ce que la recette passe. Avec « wordpress », il essaie AUSSI le contrôle WordPress par SSH : il découvre ce que tu n'as pas donné (dossier, outil, journaux), relève les extensions et mesure les journaux.",
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: "L'identifiant d'une surveillance existante" },
         url: { type: 'string', description: 'La page appelée, ou la page de départ du parcours' },
         recette: schemaDeRecetteSurveillance(),
+        wordpress: schemaDuControleWordpress(),
       },
     },
   },
   {
     name: 'surveillance_recette',
     description:
-      "ENREGISTRE UNE SURVEILLANCE ET SA RECETTE DE CONTRÔLE. Sans « id », une surveillance naît ; avec l'« id » d'une existante, elle est modifiée et ce que tu ne redis pas est CONSERVÉ. L'outil REJOUE la recette et refuse celle qui tombe, en disant l'étape ; « forcer » seulement avec l'accord explicite de l'utilisateur. Aucun mot de passe dans la recette : « acces » référence une fiche du coffre-fort.",
+      "ENREGISTRE UNE SURVEILLANCE ET SA RECETTE DE CONTRÔLE. Sans « id », une surveillance naît ; avec l'« id » d'une existante, elle est modifiée et ce que tu ne redis pas est CONSERVÉ. L'outil REJOUE la recette et refuse celle qui tombe, en disant l'étape ; « forcer » seulement avec l'accord explicite de l'utilisateur. Aucun mot de passe dans la recette : « acces » référence une fiche du coffre-fort. Avec « wordpress », le contrôle WordPress est essayé puis posé (null le retire).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1270,7 +1401,13 @@ export const TOOL_DEFS: ToolDef[] = [
         nom: { type: 'string', description: 'Un nom court' },
         recette: schemaDeRecetteSurveillance(),
         periodeMinutes: { type: 'number', description: 'Tous les combien de minutes le contrôle passe (1 au plus souvent, 5 par défaut)' },
+        wordpress: schemaDuControleWordpress(),
         forcer: { type: 'boolean', description: "Enregistrer malgré un essai qui tombe — SEULEMENT si l'utilisateur l'a accepté" },
+        projet: {
+          type: 'string',
+          description:
+            "Avec « id » : RELIE le site au projet qui le sert (nom ou identifiant), choisi par l'utilisateur. Seul avec « id », il relie sans rejouer la recette. C'est dans ce projet que naissent les cartes du site.",
+        },
       },
     },
   },
@@ -1493,7 +1630,39 @@ function schemaDeRecetteSurveillance() {
   };
 }
 
+/** La forme du contrôle WordPress, commune aux deux outils (`shared/src/surveillance-wordpress.ts`). */
+function schemaDuControleWordpress() {
+  return {
+    type: ['object', 'null'],
+    description:
+      "Le contrôle WordPress (extensions, mises à jour, failles, journaux), par SSH, rejoué seul ensuite. Minimum : { acces: { id: <fiche SSH du coffre-fort> } } — le reste est découvert à l'essai. Champs : racine (dossier de WordPress, ex. « ~/sites/exemple.ch »), wpCli (ex. « wp » ou « /opt/php8.4/bin/wp-cli »), journaux (chemins relatifs au dossier ou en « ~/ »), extensionsAttendues (par défaut : les actives du moment). « null » dans surveillance_recette retire ce contrôle.",
+    properties: {
+      acces: { type: 'object', properties: { id: { type: 'string' } } },
+      racine: { type: 'string' },
+      wpCli: { type: 'string' },
+      journaux: { type: 'array', items: { type: 'string' } },
+      extensionsAttendues: { type: 'array', items: { type: 'string' } },
+    },
+  };
+}
+
 /** Un verdict de surveillance dit en clair, pour l'agent. */
+/** L'agent d'une source de la bibliothèque : un agent de volet dont la carte porte l'étiquette « bibliotheque ». */
+function estAgentBibliotheque(agentId: string): boolean {
+  const agent = store.getAgent(agentId);
+  if (!agent?.cardId || agent.role === 'cadrage' || (agent as { workdir?: string }).workdir) return false;
+  return !!store.getCard(agent.cardId)?.labels.includes(LABEL_BIBLIOTHEQUE);
+}
+
+/** La recette d'une source, décrite pour l'agent (le détail est dans sa demande). */
+function schemaDeRecetteDeSource() {
+  return {
+    type: 'object',
+    description:
+      'DÉCLARATIVE : { liste: { url, format: "json"|"html", chemin?, objets?, desechapper?, pages?: { gabarit, jusqua } }, champs: { id, titre?, auteur?, auteurUrl?, consigne?, lien?, affiche?, video?, anime?, categorie? } (chemins « a.b » ou gabarits « https://…/{slug} »), fiche?: { url, consigne?|lien?|auteur?|affiche?|video?: { apres?, debut, fin, prefixe?, texte? } }, garder?: { consigneMin?, champ?, valeurs? } }',
+  };
+}
+
 function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
   if (verdict.etat === 'ok') return `DEBOUT${verdict.code ? ` (code ${verdict.code})` : ''}, en ${verdict.dureeMs} ms.`;
   return [
@@ -1505,7 +1674,22 @@ function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
     .join('\n');
 }
 
-export const TASK_ONLY_TOOLS = new Set(['remember', 'relancer_publication', 'backup_recette', 'backup_essai', 'surveillance_essai', 'surveillance_recette', 'marketing', 'statistiques']);
+export const TASK_ONLY_TOOLS = new Set([
+  'remember',
+  'relancer_publication',
+  'backup_recette',
+  'backup_essai',
+  'surveillance_essai',
+  'surveillance_recette',
+  'marketing',
+  'statistiques',
+  'studio',
+  'bibliotheque_source_essai',
+  'bibliotheque_source_recette',
+  'bibliotheque_source_proposer',
+  'bibliotheque_styles_a_rediger',
+  'bibliotheque_styles_ecrire',
+]);
 
 /**
  * LES OUTILS D'UN SEUL GENRE D'AGENT : « marketing » n'est servi qu'à un agent
@@ -1514,6 +1698,9 @@ export const TASK_ONLY_TOOLS = new Set(['remember', 'relancer_publication', 'bac
  */
 export function outilServiA(nom: string, agentId: string): boolean {
   if (nom === 'marketing') return estAgentMarketing(agentId);
+  if (nom === 'studio') return estAgentStudio(agentId);
+  // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
+  if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
   return true;
 }
@@ -1689,6 +1876,12 @@ function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): 
  * humain. Présélection par les mots (`candidatsDeDoublon`), puis le juge local
  * compare les paires ; sans avis, rien n'est refusé.
  */
+/** Dit à l'agent dans quel projet naîtra la carte, quand ce n'est pas le sien. */
+function phraseDuProjetDAccueil(proposal: TaskProposal): string {
+  if (!proposal.projectId) return '';
+  return ` Elle naîtra dans le projet du site, « ${store.getProject(proposal.projectId)?.name ?? proposal.projectId} ».`;
+}
+
 async function refusDeDoublon(ctx: ToolContext, titre: string, description: string): Promise<string | undefined> {
   if (ctx.role !== 'analysis') return undefined;
   try {
@@ -1840,6 +2033,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const synthese = syntheseDeProposition(args);
       if ('refus' in synthese) return { ok: false, text: synthese.refus };
+      /*
+       * LA CARTE D'UN SITE NAÎT DANS LE PROJET DU SITE. L'agent d'un site
+       * surveillé vit chez Beluga Build, mais sa carte doit naître là où une
+       * branche du dépôt du site portera la modification ; un site relié à
+       * rien ne propose rien tant que l'utilisateur n'a pas dit lequel.
+       */
+      const accueil = projetDeLaPropositionDeLAgent(ctx.agentId, ctx.projectId);
+      const refusAccueil = refusDeLaPropositionDeLAgent(accueil);
+      if (refusAccueil) return { ok: false, text: refusAccueil };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
 
@@ -1864,6 +2066,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
+        ...(accueil.genre === 'site' && accueil.projectId !== ctx.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
       return {
@@ -1871,6 +2074,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
           `Elle n'entrera dans « Demande » qu'après la validation de l'utilisateur.` +
+          phraseDuProjetDAccueil(proposal) +
           resumeReglages(reglages) +
           resumeDepart(depart),
         proposal,
@@ -2057,6 +2261,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       // s'ouvre sur ce texte, quel que soit l'outil qui a proposé la carte.
       const synthese = syntheseDeProposition(args);
       if ('refus' in synthese) return { ok: false, text: synthese.refus };
+      /*
+       * LA CARTE D'UN SITE NAÎT DANS LE PROJET DU SITE. L'agent d'un site
+       * surveillé vit chez Beluga Build, mais sa carte doit naître là où une
+       * branche du dépôt du site portera la modification ; un site relié à
+       * rien ne propose rien tant que l'utilisateur n'a pas dit lequel.
+       */
+      const accueil = projetDeLaPropositionDeLAgent(ctx.agentId, ctx.projectId);
+      const refusAccueil = refusDeLaPropositionDeLAgent(accueil);
+      if (refusAccueil) return { ok: false, text: refusAccueil };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
 
@@ -2080,12 +2293,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
+        ...(accueil.genre === 'site' && accueil.projectId !== ctx.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
       return {
         ok: true,
         text:
           `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.` +
+          phraseDuProjetDAccueil(proposal) +
           resumeReglages(reglages) +
           resumeDepart(depart),
         proposal,
@@ -2525,26 +2740,37 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const lecture = lireComprehensionRendue(args, { questionsPosees });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
       /*
-       * QUELQU'UN EST DEVANT L'ÉCRAN : PLUS AUCUNE SUPPOSITION, MÊME TECHNIQUE.
+       * PLUS AUCUNE SUPPOSITION, NULLE PART, MÊME TECHNIQUE.
        * Toute ligne de « hypotheses » est refusée à chaque appel
-       * (`renvoiAuxQuestions`) : elle se vérifie, s'écrit comme décidée ou se
-       * pose. Jamais pour un cadrage à qui l'on interdit de demander, ni hors
-       * d'un tour vivant : il bouclerait — là, les suppositions subsistent.
+       * (`renvoiAuxQuestions`) : elle se vérifie, s'écrit comme décidée, ou se
+       * pose — avec `ask_user` devant un témoin, dans « questions » sans témoin
+       * (gardées sur la carte). HORS D'UN TOUR VIVANT, on ne sait pas qui
+       * regarde : rien n'est refusé (l'agent bouclerait), et chaque ligne est
+       * CONVERTIE en question gardée sur la carte — jamais enregistrée telle quelle.
        */
       const tourVivant = runtimeDuCadrage.liveRun(ctx.agentId);
-      const { suppositions, ...rendue } = lecture.valeur;
-      const renvoi = renvoiAuxQuestions({
-        suppositions,
-        questionsInterdites: !tourVivant || tourVivant.questionsInterdites,
-      });
-      if (renvoi) return { ok: false, text: renvoi };
+      const { suppositions, questions, ...rendue } = lecture.valeur;
+      if (tourVivant) {
+        const renvoi = renvoiAuxQuestions({ suppositions, questions, questionsInterdites: tourVivant.questionsInterdites });
+        if (renvoi) return { ok: false, text: renvoi };
+      }
+      const questionsEnAttente = [
+        ...questions,
+        ...suppositions.map((ligne, index) => questionDepuisSupposition(ligne.texte, questions.length + index)),
+      ];
       /* SUR UN PROJET RÉUNI, la compréhension DOIT dire quels projets elle
          touche : c'est ce qui décide des cartes posées au lancement. */
       const refusDesTouches = refusDesProjetsTouches(carte.projectId, rendue.projetsTouches);
       if (refusDesTouches) return { ok: false, text: refusDesTouches };
       const runtime = runtimeDuCadrage;
       const tourId = tourDuCadrage;
-      const comprehension = ComprehensionDeCarte.parse({ ...rendue, at: Date.now(), tourId });
+      const comprehension = ComprehensionDeCarte.parse({
+        ...rendue,
+        hypotheses: [],
+        ...(questionsEnAttente.length ? { questionsEnAttente } : {}),
+        at: Date.now(),
+        tourId,
+      });
       /* « La compréhension n'est pas venue » tombe avec la compréhension : son
          bouton, resté affiché, demandait un plan que personne n'avait voulu. */
       const incident = carte.parcours?.incident?.etape === 'comprehension' ? undefined : carte.parcours?.incident;
@@ -2571,7 +2797,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         resultat: comprehension.texte,
         reussie: true,
         donnees: {
-          hypotheses: comprehension.hypotheses,
+          ...(comprehension.questionsEnAttente?.length ? { questions: comprehension.questionsEnAttente.map((q) => q.question) } : {}),
           sujets: comprehension.sujets,
           /* LE SECOND REGISTRE VOYAGE AVEC SON JALON, comme les résumés : le
              volet « Détails techniques » de CE tour lit celui de CE tour. */
@@ -2583,8 +2809,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       });
       return {
         ok: true,
-        text: comprehension.hypotheses.length
-          ? `Compréhension enregistrée, avec ${comprehension.hypotheses.length} hypothèse(s) assumée(s). Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.`
+        text: comprehension.questionsEnAttente?.length
+          ? `Compréhension enregistrée, avec ${comprehension.questionsEnAttente.length} question(s) qui attendent l’utilisateur sur la carte. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.`
           : 'Compréhension enregistrée. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.',
       };
     }
@@ -2674,7 +2900,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           const confiance = confianceMesureeDeLaFiche(fiche);
           const anomalies = fiche.anomalies.length ? ` — à revoir : ${fiche.anomalies.join(' ; ')}` : '';
           const origine = fiche.bibliotheque ? `, bibliothèque ${fiche.bibliotheque} — mémoire seulement` : '';
-          const portee = fiche.projets.length ? `propre à ${fiche.projets.join(', ')}` : 'commune';
+          const portee = fiche.projets.length
+            ? `propre à ${fiche.projets.join(', ')}${fiche.etend ? `, nuance de ${fiche.etend}` : ''}`
+            : 'commune';
           return (
             `- ${fiche.nom} [${portee}, ${fiche.etat}, confiance ${confiance.toFixed(2)}, servie ${compteurs.servie}×${origine}] : ` +
             `${fiche.description}${anomalies}`
@@ -2757,6 +2985,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           themes: listeOuVide('themes'),
           symptomes: listeOuVide('symptomes'),
           projets,
+          // « aucune » est un lien RETIRÉ ; absent, celui de la fiche complétée est gardé (`ecrireLaFiche`).
+          etend: /^(aucune?|rien)$/i.test(texteOuVide('etend') ?? '') ? '' : texteOuVide('etend'),
           symptome: texteOuVide('symptome'),
           cause: texteOuVide('cause'),
           procedure: texteOuVide('procedure'),
@@ -2874,7 +3104,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           const cle = `changelog:${project.id}`;
           if (lus.has(cle)) return { ok: true, text: 'Le changelog du projet est déjà dans ton contexte : tu l’as lu plus tôt dans cette session.' };
           const entrees = entreesDuChangelog(project.id, 150);
-          const rendu = entrees.length ? rendreChangelog(project.name, entrees) : 'Le changelog de ce projet est encore vide.';
+          const rendu = entrees.length ? rendreChangelog(project.name, entrees, { maintenant: Date.now() }) : 'Le changelog de ce projet est encore vide.';
           noterEtDiffuserLaLecture(cle, ctx);
           consigner('changelog', rendu);
           return { ok: true, text: rendu };
@@ -2883,7 +3113,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         if (!fiche) return { ok: false, text: `Aucune fiche « ${nom} » ici. Fiches : ${disponibles}.` };
         const cle = `fiche:${portee}:${fiche.id}`;
         if (lus.has(cle)) return { ok: true, text: `La fiche ${fiche.id} est déjà dans ton contexte : tu l'as lue plus tôt dans cette session.` };
-        let rendu = markdownDeLaFiche(portee, fiche.id) ?? '';
+        let rendu = markdownDeLaFiche(portee, fiche.id, false, { maintenant: Date.now() }) ?? '';
         if (rendu.length > LECTURE_FICHE_MAX) {
           const unites = unitesDeLaFiche(portee, fiche);
           rendu = `# ${fiche.id} — ${fiche.titre} : ${unites.length} unité(s), trop long pour un seul bloc\n\n${unites.map((u) => ligneDUnite(u, 160)).join('\n')}\n\nLis une unité entière avec « lire » et son « id ».`;
@@ -3036,6 +3266,61 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'statistiques':
       return outilStatistiques(ctx, project, args);
 
+    case 'studio': {
+      if (!estAgentStudio(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio.' };
+      // Chargé à l'appel : le module tire le rendu et la voix, inutiles à tout autre outil.
+      const { outilStudio } = await import('./outil-studio.js');
+      return outilStudio(ctx, project, args);
+    }
+
+    /* LA BIBLIOTHÈQUE DE STYLES : l'agent d'une source (`server/src/studio-sources.ts`). */
+    case 'bibliotheque_source_essai':
+    case 'bibliotheque_source_recette': {
+      const sources = await import('./studio-sources.js');
+      const { lireSource } = await import('./studio-styles.js');
+      const sourceId = String(args.sourceId ?? '');
+      if (!lireSource(sourceId)) return { ok: false, text: `Aucune source « ${sourceId} ».` };
+      if (name === 'bibliotheque_source_recette' && typeof args.impossible === 'string' && args.impossible.trim()) {
+        sources.marquerAnalyseImpossible(sourceId, args.impossible.trim());
+        return { ok: true, text: 'Noté : la source passe « en erreur » avec ta raison, visible dans le volet « Sources ».' };
+      }
+      if (name === 'bibliotheque_source_recette' && typeof args.annuaire === 'string' && args.annuaire.trim()) {
+        sources.marquerAnnuaire(sourceId, args.annuaire.trim());
+        return { ok: true, text: 'Noté : la source est rangée comme annuaire ; les sites proposés attendent la validation de l’utilisateur dans le volet « Sources ».' };
+      }
+      const avis = jugerRecetteSource(args.recette);
+      if (!avis.ok) return { ok: false, text: `Recette refusée : ${avis.raison}. Corrige et rappelle l'outil.` };
+      if (name === 'bibliotheque_source_recette') {
+        const r = await sources.enregistrerRecette(sourceId, { nom: args.nom, licence: args.licence, resume: args.resume, recette: avis.valeur });
+        return { ok: r.ok, text: r.texte };
+      }
+      let lues = 0;
+      const lecture = await sources.lireLaSource(avis.valeur, { fichePour: () => lues++ < 5, maxFiches: 5 });
+      if (!lecture.ok) return { ok: true, text: `Essai (rien n'est enregistré) — ÉCHEC : ${lecture.raison}` };
+      return { ok: true, text: `Essai (rien n'est enregistré) — ${sources.phraseDeLEssai(lecture.lecture, Math.min(lues, 5))}` };
+    }
+
+    case 'bibliotheque_source_proposer': {
+      const sources = await import('./studio-sources.js');
+      const { lireSource } = await import('./studio-styles.js');
+      const depuis = String(args.depuis ?? '');
+      if (!lireSource(depuis)) return { ok: false, text: `Aucune source « ${depuis} ».` };
+      const avis = jugerRecetteSource(args.recette);
+      if (!avis.ok) return { ok: false, text: `Recette refusée : ${avis.raison}. Corrige et rappelle l'outil.` };
+      const r = await sources.proposerSourceDepuisAnnuaire(depuis, { adresse: args.adresse, nom: args.nom, licence: args.licence, resume: args.resume, recette: avis.valeur });
+      return { ok: r.ok, text: r.texte };
+    }
+
+    case 'bibliotheque_styles_a_rediger': {
+      const { lotARediger } = await import('./studio-sources.js');
+      return { ok: true, text: lotARediger(typeof args.sourceId === 'string' && args.sourceId ? args.sourceId : undefined) };
+    }
+
+    case 'bibliotheque_styles_ecrire': {
+      const { ecrireStylesRediges } = await import('./studio-sources.js');
+      return { ok: true, text: ecrireStylesRediges(args) };
+    }
+
     case 'surveillance_essai': {
       const existante = typeof args.id === 'string' && args.id.trim() ? lireSurveillance(args.id.trim()) : null;
       if (typeof args.id === 'string' && args.id.trim() && !existante)
@@ -3049,10 +3334,36 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         recette = avis.recette;
       }
       const verdict = await jouerRecette(adresse.url, recette);
-      return { ok: true, text: `Essai (rien n'est enregistré) — ${phraseDuVerdict(verdict)}` };
+      let wordpress = '';
+      if (args.wordpress) {
+        const { essayerWordpress } = await import('./surveillance-wordpress.js');
+        const essai = await essayerWordpress(adresse.url, args.wordpress);
+        wordpress = `\n\nCONTRÔLE WORDPRESS — ${essai.ok ? 'PASSE' : 'TOMBE'}\n${essai.texte}`;
+      }
+      return { ok: true, text: `Essai (rien n'est enregistré) — ${phraseDuVerdict(verdict)}${wordpress}` };
     }
 
     case 'surveillance_recette': {
+      /*
+       * RELIER LE SITE À SON PROJET, choisi par l'utilisateur : c'est là que
+       * naissent ensuite les cartes proposées par l'agent du site. Seul avec
+       * « id », le geste ne rejoue pas la recette.
+       */
+      let phraseProjet = '';
+      if (typeof args.projet === 'string' && args.projet.trim()) {
+        const cible = typeof args.id === 'string' && args.id.trim() ? lireSurveillance(args.id.trim()) : null;
+        if (!cible) return { ok: false, text: 'Pour relier un site à son projet, donne aussi l’« id » de sa surveillance.' };
+        const vise = trouverLeProjetVise(
+          store.listProjects(true).map((p) => ({ id: p.id, name: p.name, archive: p.archived })),
+          args.projet.trim(),
+        );
+        if (!vise.ok) return { ok: false, text: `${vise.raison} « project_manage » (lister) donne les projets.` };
+        rattacherLeProjetDuSite(cible.id, vise.projet.id);
+        phraseProjet = `« ${cible.nom} » est relié au projet « ${vise.projet.name} » : ses cartes y naîtront.`;
+        const autres = ['url', 'nom', 'recette', 'periodeMinutes', 'wordpress', 'forcer'].some((cle) => args[cle] !== undefined);
+        if (!autres) return { ok: true, text: phraseProjet };
+        phraseProjet = `\n${phraseProjet}`;
+      }
       /*
        * UNE RECETTE N'EST JUSTE QUE SI ELLE PASSE. Elle est rejouée ici pour de
        * vrai avant d'être gardée ; « forcer » est la porte de sortie d'un site
@@ -3079,16 +3390,43 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             's’il accepte qu’on l’enregistre quand même — dans ce cas seulement, rappelle « surveillance_recette » avec « forcer ».',
         };
       }
+      /*
+       * LE CONTRÔLE WORDPRESS SE POSE COMME LA RECETTE : essayé pour de vrai, et
+       * refusé s'il ne passe pas. L'essai rend la configuration complète et le
+       * suivi de départ (journaux lus à partir de leur fin actuelle).
+       */
+      let wordpress: { config: import('@beluga/shared').ConfigWordpress; suivi: string } | null | undefined;
+      let phraseWordpress = '';
+      if (args.wordpress === null) {
+        wordpress = null;
+        phraseWordpress = '\nContrôle WordPress retiré.';
+      } else if (args.wordpress !== undefined) {
+        const { essayerWordpress } = await import('./surveillance-wordpress.js');
+        const essai = await essayerWordpress(adresse.url, args.wordpress);
+        if (!essai.ok)
+          return {
+            ok: false,
+            text: `Surveillance NON enregistrée : le contrôle WordPress ne passe pas.\n${essai.texte}\nCorrige « wordpress » (racine, wpCli, journaux, ou la fiche SSH au coffre-fort) et rejoue « surveillance_essai ».`,
+          };
+        wordpress = { config: essai.config, suivi: JSON.stringify(essai.suivi) };
+        phraseWordpress = `\nContrôle WordPress posé (journaux toutes les 15 minutes, extensions chaque heure) :\n${essai.texte}`;
+      }
       const periodeMs = typeof args.periodeMinutes === 'number' ? args.periodeMinutes * 60_000 : undefined;
       const resultat = enregistrerSurveillance({
+        wordpress,
         id: existante?.id,
         url: adresse.url,
         nom: args.nom,
         recette,
         periodeMs,
-        agentId: ctx.agentId,
-        projectId: ctx.projectId,
-        cardId: ctx.cardId,
+        /* LE VOLET D'UNE SURVEILLANCE ROUVRE LA CONVERSATION RETENUE ICI : seul
+           un agent DE VOLET y entre. Un agent de tâche sur une carte de code
+           (HaikoNote, « Stopper les alertes mail répétées ») s'y inscrivait, et
+           le volet du site ouvrait ensuite cette carte livrée — donc une
+           nouvelle carte à chaque message. Il garde la conversation d'avant. */
+        ...(estAgentAttitre(ctx.agentId)
+          ? { agentId: ctx.agentId, projectId: ctx.projectId, cardId: ctx.cardId }
+          : {}),
       });
       if (!resultat.ok) return { ok: false, text: `Surveillance refusée : ${resultat.raison}` };
       const site = resultat.site;
@@ -3097,7 +3435,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         text:
           `${resultat.cree ? 'Surveillance créée' : 'Surveillance modifiée'} : « ${site.nom} » (identifiant ${site.id}), ` +
           `contrôlée ${phraseDePeriodeSurveillance(site.periodeMs ?? 0)}.\nRecette :\n${phraseDeRecetteSurveillance(recette)}\n` +
-          `Essai : ${phraseDuVerdict(verdict)}\nLes passages tournent désormais seuls.`,
+          `Essai : ${phraseDuVerdict(verdict)}${phraseWordpress}${phraseProjet}\nLes passages tournent désormais seuls.`,
       };
     }
 
@@ -3678,9 +4016,11 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
           `CONTENUS (${contenus.length}) :`,
           ...contenus.slice(0, 40).map((c) => {
             const l = parContenu.get(c.id);
+            // Les visuels exportés par le Studio pour ce contenu, en lecture seule.
+            const visuels = mediasDuContenuMarketing(c.id);
             return `- [${c.id}] ${c.etape} · ${c.genre} · ${c.canal}${c.datePrevue ? ` · ${c.datePrevue}` : ''} · « ${c.titre} »${c.varianteDe ? ` (version B de ${c.varianteDe})` : ''}${
               l ? ` — ${l.visites} clic(s), ${l.objectifs} objectif(s), ${l.ventes} vente(s), ${centimes(l.montantCentimes)}` : ''
-            }`;
+            }${visuels.length ? ` · visuel(s) du Studio : ${visuels.map((v) => `${v.genre} ${v.format}`).join(', ')}` : ''}`;
           }),
           contenus.length > 40 ? `(${contenus.length - 40} contenu(s) plus ancien(s) non listé(s))` : '',
           phraseDuRythme(rythmeDuProjet(project.id)),

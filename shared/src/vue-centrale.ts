@@ -27,6 +27,9 @@ export const VUES_CENTRALES = [
   /* L'atelier marketing : un espace de commercialisation par projet
      (`shared/src/marketing.ts`). */
   'marketing',
+  /* Le Studio : visuels et vidéos animées de chaque projet, modifiables pièce
+     par pièce (`shared/src/studio.ts`). */
+  'studio',
   /* Le service Statistiques : le suivi des visites de chaque projet mesuré
      et des sites autonomes (`shared/src/statistiques.ts`). */
   'statistiques',
@@ -51,7 +54,7 @@ export function vuePleine(vue: VueCentrale): boolean {
  *  - `nouvel-agent` : le seul bouton « Nouvel agent », sur les deux tableaux de
  *    bord généraux (« en-route », « tableau-de-bord ») et quand aucun projet
  *    n'est ouvert ;
- *  - `null` : AUCUNE barre sur les autres vues pleines (marketing, statistiques, coffre,
+ *  - `null` : AUCUNE barre sur les autres vues pleines (marketing, studio, statistiques, coffre,
  *    notes, mémoire, espace client, sauvegardes, surveillance) : Tableau et
  *    Fichiers n'y ont aucun sens, et l'écran reprend la place.
  */

@@ -46,6 +46,7 @@ import {
   transitionPermise,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
+import { mediasDuContenuMarketing } from './studio.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -1069,6 +1070,12 @@ export function espaceComplet(projectId: string, jours = 30) {
     /* Ce que porte la page servie, et la carte d'installation (onglet Statistiques). */
     diagnosticSuivi: espace ? diagnosticDeLEspace(projectId) : null,
     carteSuivi: espace ? carteDuSuivi(projectId) : null,
+    /* LES VISUELS DU STUDIO rattachés à chaque contenu : ses exports prêts, le plus récent d'abord. */
+    visuels: Object.fromEntries(
+      contenus
+        .map((c) => [c.id, mediasDuContenuMarketing(c.id).map((e) => ({ exportId: e.id, creationId: e.creationId, attachmentId: e.attachmentId, afficheId: e.afficheId, format: e.format, genre: e.genre, titre: e.titre }))] as const)
+        .filter(([, liste]) => liste.length),
+    ),
   };
 }
 

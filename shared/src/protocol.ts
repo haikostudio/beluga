@@ -14,6 +14,7 @@ import { ConnexionCompte } from './connexion-compte.js';
 import { FicheMoteurZ } from './moteurs-ajoutes.js';
 import { EntreeJournal } from './journal-carte.js';
 import { LigneDuCarnet } from './carnet-memoire.js';
+import { RUBRIQUES_DU_RESUME } from './resume.js';
 import {
   Agent,
   AccountQuota,
@@ -359,6 +360,17 @@ export const ClientCommand = z.discriminatedUnion('type', [
     hypothese: z.string(),
     validee: z.boolean(),
   }),
+  /**
+   * RÉPONDRE À UNE QUESTION GARDÉE SUR LA CARTE (`questionsEnAttente`). La
+   * réponse s'écrit sur la carte ; la DERNIÈRE relance le cadrage, qui réécrit
+   * la compréhension avec ces décisions.
+   */
+  z.object({
+    type: z.literal('card.comprehension.repondre'),
+    cardId: z.string(),
+    questionId: z.string(),
+    reponse: z.string(),
+  }),
   z.object({
     type: z.literal('card.comprehension.validate'),
     cardId: z.string(),
@@ -394,13 +406,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
   /** « Marquer comme non lu » : rallume la pastille d'un rendu déjà consulté. */
   z.object({ type: z.literal('card.unread'), cardId: z.string() }),
   /**
-   * « J'ai lu », pour une carte SYSTÈME (`shared/src/cartes-systeme.ts`) : un
-   * agent sans carte, ou une mise en production terminée. Éteint son point
-   * bleu, la retire de l'écran et du chiffre bleu de son projet.
-   */
-  z.object({ type: z.literal('agent.read'), agentId: z.string() }),
-  z.object({ type: z.literal('deploy.read'), runId: z.string() }),
-  /**
    * UNE CARTE DEMANDÉE PAR SON SEUL IDENTIFIANT. Un lien direct
    * (« #projet/<id>/tache/<id> ») peut viser une carte qui n'est pas dans
    * l'instantané du projet — jamais chargée, appartenant à un autre projet,
@@ -425,6 +430,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
     agentId: z.string(),
     text: z.string(),
     attachments: z.array(z.string()).optional(),
+    /* L'ACCORD de l'utilisateur, donné par le bouton « Ouvrir une nouvelle
+       carte » : sous une carte ordinaire déjà en ligne, le démon refuse le
+       message sans lui (`TEXTE_ACCORD_NOUVELLE_CARTE`). */
+    ouvrirNouvelleCarte: z.boolean().optional(),
     /* Ce que les bulles de question de cet agent tenaient déjà à l'envoi, par
        identifiant de question : si ce message répond à l'une d'elles, ses
        choix cochés partent avec lui (`reponseParLaBarre`). */
@@ -997,6 +1006,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('surveillance.rattacher'), id: z.string(), projectId: z.string().nullish() }),
   /**
+   * LE CONTRÔLE WORDPRESS D'UN SITE (`server/src/surveillance-wordpress.ts`) :
+   * ses soucis des 30 derniers jours, demandés à l'ouverture du tiroir ; et
+   * « accepter » l'état actuel des extensions — celles qui sont actives
+   * maintenant deviennent la liste attendue.
+   */
+  z.object({ type: z.literal('surveillance.wordpress'), id: z.string() }),
+  z.object({ type: z.literal('surveillance.wordpress.accepter'), id: z.string() }),
+  /**
    * L'ATELIER MARKETING (`shared/src/marketing.ts`, `server/src/marketing.ts`).
    * La liste des projets et leur avancement ; l'espace complet d'UN projet,
    * demandé à l'ouverture de son écran (un écran qu'on n'a pas ouvert ne se
@@ -1061,6 +1078,110 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('marketing.contenu.supprimer'), id: z.string() }),
   z.object({ type: z.literal('marketing.action.faite'), id: z.string(), fait: z.boolean() }),
   z.object({ type: z.literal('marketing.action.modifier'), projectId: z.string(), id: z.string(), datePrevue: z.string() }),
+  /**
+   * LE STUDIO (`shared/src/studio.ts`, `server/src/studio.ts`). La liste des
+   * créations ; une création ouverte (sa composition courante, son historique,
+   * sa bibliothèque, ses exports, ses dépenses — demandée à l'ouverture) ; une
+   * OPÉRATION de l'écran devient une version ; voix d'essai gratuite, devis et
+   * validation de la voix finale ; exports ; le clic sur une dépense ; parler à
+   * l'agent de la création. Chaque changement se rediffuse par l'événement `studio`.
+   */
+  z.object({ type: z.literal('studio.lister'), projectId: z.string().optional() }),
+  z.object({
+    type: z.literal('studio.espace.ecrire'),
+    projectId: z.string(),
+    kit: z.record(z.any()).optional(),
+    voixFinale: z.string().optional(),
+    voixEssai: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal('studio.creation.creer'),
+    projectId: z.string(),
+    titre: z.string().optional(),
+    formats: z.array(z.string()).optional(),
+    /* Un dessin gardé de la bibliothèque, posé comme premier segment. */
+    depuisMedia: z.string().optional(),
+    /* Un MODÈLE du projet : la nouvelle création part de sa composition entière. */
+    depuisModele: z.string().optional(),
+  }),
+  z.object({ type: z.literal('studio.creation.ouvrir'), id: z.string() }),
+  z.object({ type: z.literal('studio.creation.modifier'), id: z.string(), titre: z.string().optional(), formats: z.array(z.string()).optional() }),
+  z.object({ type: z.literal('studio.creation.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('studio.creation.dupliquer'), id: z.string() }),
+  /* LES MODÈLES : « Garder comme modèle » (le refaire met le modèle à jour), lister, retirer, copier vers un autre projet. */
+  z.object({ type: z.literal('studio.modele.valider'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.modele.lister'), projectId: z.string().optional() }),
+  z.object({ type: z.literal('studio.modele.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('studio.modele.copier'), id: z.string(), projectId: z.string() }),
+  z.object({ type: z.literal('studio.operation'), creationId: z.string(), operation: z.record(z.any()) }),
+  z.object({ type: z.literal('studio.annuler'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.retablir'), creationId: z.string() }),
+  z.object({ type: z.literal('studio.restaurer'), creationId: z.string(), numero: z.number() }),
+  z.object({ type: z.literal('studio.historique'), creationId: z.string() }),
+  /* Ce que l'écran a sélectionné : l'agent le lit avec chaque demande. */
+  z.object({
+    type: z.literal('studio.selection'),
+    creationId: z.string(),
+    segmentIds: z.array(z.string()),
+    elementId: z.string().optional(),
+    curseur: z.number(),
+    format: z.string().optional(),
+  }),
+  z.object({ type: z.literal('studio.media.importer'), projectId: z.string(), attachmentId: z.string(), creationId: z.string().optional(), licence: z.string().optional() }),
+  z.object({ type: z.literal('studio.media.modifier'), id: z.string(), nom: z.string().optional(), categorie: z.string().optional(), usage: z.string().optional(), licence: z.string().optional() }),
+  z.object({ type: z.literal('studio.media.supprimer'), id: z.string() }),
+  /* La bande d'images d'une vidéo (fenêtre d'édition d'un élément), extraite une fois puis gardée. */
+  z.object({ type: z.literal('studio.media.bande'), creationId: z.string(), mediaId: z.string() }),
+  /* LE CATALOGUE DE STYLES (collection libre de consignes de vidéos animées) : la galerie « Bibliothèque », en haut de l’aperçu. */
+  z.object({ type: z.literal('studio.styles.lister') }),
+  /* La fenêtre d'aperçu agrandi : le début de la consigne, les liens et le crédit, demandés à l'ouverture. */
+  z.object({ type: z.literal('studio.styles.lire'), id: z.string() }),
+  /* LES SOURCES DE LA BIBLIOTHÈQUE (`server/src/studio-sources.ts`) : le volet « Sources » du tiroir. */
+  z.object({ type: z.literal('studio.sources.lister') }),
+  z.object({ type: z.literal('studio.sources.ajouter'), adresse: z.string() }),
+  z.object({ type: z.literal('studio.sources.valider'), id: z.string() }),
+  z.object({ type: z.literal('studio.sources.analyser'), id: z.string() }),
+  z.object({ type: z.literal('studio.sources.controler'), id: z.string() }),
+  z.object({ type: z.literal('studio.sources.retirer'), id: z.string() }),
+  /* LE VOLET « PASSER LA VÉRIFICATION » (`server/src/studio-navigateur.ts`) : un vrai navigateur sur le serveur, son
+     image à l'écran, les gestes renvoyés ; « terminer » lit la source par lui. */
+  z.object({ type: z.literal('studio.navigateur.ouvrir'), sourceId: z.string() }),
+  z.object({
+    type: z.literal('studio.navigateur.geste'),
+    sourceId: z.string(),
+    geste: z.union([
+      z.object({ genre: z.literal('clic'), x: z.number(), y: z.number() }),
+      z.object({ genre: z.literal('molette'), x: z.number(), y: z.number(), dx: z.number(), dy: z.number() }),
+      z.object({ genre: z.literal('texte'), texte: z.string().max(500) }),
+      z.object({ genre: z.literal('touche'), cle: z.string().max(20) }),
+    ]),
+  }),
+  z.object({ type: z.literal('studio.navigateur.terminer'), sourceId: z.string() }),
+  z.object({ type: z.literal('studio.navigateur.fermer'), sourceId: z.string() }),
+  /* La voix d'essai, gratuite : un segment, ou toutes les voix qui n'en ont pas. */
+  z.object({ type: z.literal('studio.voix.essai'), creationId: z.string(), segmentId: z.string().optional() }),
+  /* Le PLAFOND de prix des voix finales, lu en direct AVANT le clic. `refaire` : la prise entière même si tout est déjà final. */
+  z.object({ type: z.literal('studio.voix.devis'), creationId: z.string(), segmentIds: z.array(z.string()).optional(), refaire: z.boolean().optional() }),
+  /* LE CLIC « Valider la voix » (ou « Refaire la voix », `refaire`) : autorise jusqu'au plafond affiché, et lance. */
+  z.object({ type: z.literal('studio.voix.valider'), creationId: z.string(), segmentIds: z.array(z.string()).optional(), plafond: z.number(), refaire: z.boolean().optional() }),
+  z.object({ type: z.literal('studio.voix.extraits') }),
+  z.object({
+    type: z.literal('studio.exporter'),
+    creationId: z.string(),
+    format: z.string(),
+    genre: z.enum(['video', 'image']).optional(),
+    /** L'instant pris pour une image : la tête de lecture. */
+    instant: z.number().nonnegative().optional(),
+    /** Qualité, définition, images par seconde, type, son, format d'image (`studio-export.ts`), lus avec tolérance. */
+    reglages: z.record(z.unknown()).optional(),
+  }),
+  z.object({ type: z.literal('studio.export.annuler'), id: z.string() }),
+  z.object({ type: z.literal('studio.depense.valider'), id: z.string() }),
+  z.object({ type: z.literal('studio.depense.refuser'), id: z.string() }),
+  z.object({ type: z.literal('studio.credit') }),
+  z.object({ type: z.literal('studio.assistant'), creationId: z.string(), demande: z.string() }),
+  /* « Créer le visuel » depuis un contenu de l'atelier Marketing. */
+  z.object({ type: z.literal('studio.depuisMarketing'), contenuId: z.string() }),
   /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
@@ -1144,8 +1265,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stats.usage'), projectId: z.string().optional() }),
   /** La part de quota (5 h et semaine) qu'une carte a consommée, pour son détail. */
   z.object({ type: z.literal('card.quota'), cardId: z.string() }),
-  /** Tout ce que montre la page « Tableau de bord » : conso par projet, par jour, par carte. */
-  z.object({ type: z.literal('stats.dashboard') }),
   /**
    * LA TÉLÉMÉTRIE DES TÂCHES : une mesure par tâche (jetons réels, sujets de
    * mémoire ouverts et leur temps, blocs demandés contre rendus, note de
@@ -1153,7 +1272,23 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * (`shared/src/telemetrie-tache.ts`). Demandée à part du tableau de bord :
    * c'est une autre fenêtre de temps, et elle n'a pas à ralentir le reste.
    */
-  z.object({ type: z.literal('stats.telemetrie'), jours: z.number().optional() }),
+  z.object({
+    type: z.literal('stats.telemetrie'),
+    jours: z.number().optional(),
+    /** Une période précise (page « Résumé ») ; sans elle, les `jours` derniers jours. */
+    debut: z.number().optional(),
+    fin: z.number().optional(),
+  }),
+  /**
+   * UNE RUBRIQUE DE LA PAGE « RÉSUMÉ » sur une période (`shared/src/resume.ts`,
+   * `server/src/resume.ts`) : demandée à l'ouverture de la rubrique seulement.
+   */
+  z.object({
+    type: z.literal('stats.resume'),
+    rubrique: z.enum(RUBRIQUES_DU_RESUME),
+    debut: z.number().optional(),
+    fin: z.number().optional(),
+  }),
   /**
    * LA DERNIÈRE ACTIVITÉ DE CHAQUE PROJET : la date de sa carte modifiée le
    * plus récemment, lue en base. Demandée par le volet « Nouvel agent » du
@@ -1556,14 +1691,6 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('queue.etat'), agentId: z.string(), queue: z.array(QueuedPrompt) }),
   z.object({ type: z.literal('deploy.upsert'), run: DeployRun }),
   /**
-   * UNE PUBLICATION VIENT D'ÊTRE LUE (`deploy.read`). Ce n'est PAS un
-   * `deploy.upsert` : la publication lue peut être plus ancienne que la
-   * dernière du projet, et la rediffuser telle quelle la remettrait à la place
-   * du déploiement lancé depuis. L'écran retire sa carte violette, et ne met à
-   * jour la publication du tableau que si c'est bien la même.
-   */
-  z.object({ type: z.literal('deploy.lu'), run: DeployRun }),
-  /**
    * LE DIALOGUE DE PROCÉDURE, diffusé à chaque changement : tour parti, question
    * posée, procédure écrite, tour tombé. C'est ce qui remplace la réponse d'une
    * requête retenue pendant tout le tour — l'écran suit en direct, se rattrape
@@ -1586,7 +1713,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
         nom: z.string(),
         etat: z.enum(['inconnu', 'ok', 'panne']),
         code: z.number().optional(),
-        raison: z.enum(['client', 'serveur', 'delai', 'injoignable', 'vide', 'contenu', 'parcours']).optional(),
+        raison: z.enum(['client', 'serveur', 'delai', 'injoignable', 'vide', 'contenu', 'parcours', 'journaux']).optional(),
         etapeEchouee: z.string().optional(),
         verifieLe: z.number(),
         depuis: z.number(),
@@ -1598,6 +1725,10 @@ export const ServerEvent = z.discriminatedUnion('type', [
         agentId: z.string().optional(),
         projectId: z.string().optional(),
         cardId: z.string().optional(),
+        // Le contrôle WordPress (`shared/src/surveillance-wordpress.ts`).
+        wordpress: z.any().optional(),
+        wpResume: z.any().optional(),
+        journauxEnErreur: z.any().optional(),
       }),
     ),
   }),
@@ -1606,6 +1737,30 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * d'autre ne voyage — le détail ne part qu'à qui l'a demandé.
    */
   z.object({ type: z.literal('marketing'), projectId: z.string() }),
+  /**
+   * LE STUDIO A CHANGÉ (une création, sa bibliothèque, un export) : l'écran
+   * ouvert se relit. Un export en cours porte sa progression, sans relecture.
+   */
+  z.object({
+    type: z.literal('studio'),
+    projectId: z.string(),
+    creationId: z.string().optional(),
+    progression: z.object({ exportId: z.string(), valeur: z.number(), etape: z.string() }).optional(),
+  }),
+  /**
+   * LE NAVIGATEUR DU VOLET « PASSER LA VÉRIFICATION » : une image de sa page (JPEG en base64, ses dimensions en
+   * pixels CSS), ou un changement d'état. Ne voyage que tant qu'un volet est ouvert.
+   */
+  z.object({
+    type: z.literal('studio.navigateur'),
+    sourceId: z.string(),
+    etat: z.enum(['ouvert', 'ferme', 'lecture', 'verifie', 'echec']).optional(),
+    texte: z.string().optional(),
+    image: z.string().optional(),
+    largeur: z.number().optional(),
+    hauteur: z.number().optional(),
+    adresse: z.string().optional(),
+  }),
   /**
    * Le catalogue des moteurs, rediffusé quand il a changé — après une
    * connexion de compte réussie, la liste des modèles doit redevenir complète
@@ -1651,6 +1806,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
     title: z.string(),
     body: z.string(),
     tag: z.string().optional(),
+    /** Une adresse de l'application (« #studio/verification:<source> ») où mène l'appui, quand l'alerte ne tient à aucune carte. */
+    url: z.string().optional(),
     /** Le genre d'événement : c'est lui qui choisit l'image de l'alerte. */
     motif: z.string().optional(),
     /**

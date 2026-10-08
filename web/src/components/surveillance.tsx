@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Activity, CheckCircle2, ExternalLink, Loader2, Plus, RefreshCw, Send, Sparkles, Trash2 } from 'lucide-react';
+import { Activity, Check, CheckCircle2, ChevronDown, ExternalLink, Loader2, Plus, RefreshCw, Send, Sparkles, Trash2 } from 'lucide-react';
 import {
   type Agent,
   type CaseDeFrise,
@@ -8,6 +8,13 @@ import {
   LIBELLE_RAISON,
   PERIODE_SURVEILLANCE_MS,
   type SiteSurveille,
+  type ConstatWordpress,
+  type DernierNettoyage,
+  JOURS_GARDES_JOURNAL,
+  type SouciWordpress,
+  aSurveiller,
+  alerteGraveWordpress,
+  estImportant,
   apaisement,
   disponibilite24h,
   frise24h,
@@ -26,11 +33,12 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { SilhouetteSurveillance } from '@/components/silhouettes';
+import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { formatRegional, t } from '@/lib/langue';
-import { cn } from '@/lib/utils';
+import { bytes, cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
 
 /**
@@ -234,6 +242,14 @@ function BadgeEtat({ site }: { site: SiteSurveille }) {
       </Badge>
     );
   }
+  // Debout, mais le contrôle WordPress a relevé un souci : jaune, jamais orange
+  // (l'orange dit « en cours ») ni rouge (réservé à la panne).
+  if (aSurveiller(site))
+    return (
+      <Badge tone="attention" data-surveillance-etat="attention">
+        {t('À surveiller')}
+      </Badge>
+    );
   if (site.etat === 'ok')
     return (
       <Badge tone="success" data-surveillance-etat="ok">
@@ -261,6 +277,7 @@ function LigneSite({
     <div
       data-surveillance-site={site.id}
       data-etat={site.etat}
+      data-attention={aSurveiller(site) ? '' : undefined}
       role="button"
       tabIndex={0}
       onClick={onOuvrir}
@@ -365,7 +382,16 @@ function TiroirSurveillance({
   );
 }
 
-/** L'en-tête du tiroir : ce qui est vérifié, les gestes, et la frise des 24 heures. */
+/**
+ * L'en-tête du tiroir : ce qui est vérifié, les gestes, et la frise des 24 heures.
+ *
+ * UNE PARTIE HAUTE PLAFONNÉE QUI DÉFILE. Sans plafond, un bloc WordPress chargé
+ * (cinq soucis, la frise, le détail d'une tranche) prenait toute la hauteur du
+ * tiroir et écrasait la conversation en dessous, hors d'atteinte. Elle tient
+ * donc sous la moitié de l'écran et défile d'un seul tenant ; les listes
+ * qu'elle contient s'affichent EN ENTIER (jamais deux zones qui défilent l'une
+ * dans l'autre).
+ */
 function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSupprimer: () => void }) {
   const [controles, setControles] = React.useState<ControleSurveillance[] | null>(null);
   const [verifEnCours, setVerifEnCours] = React.useState(false);
@@ -400,7 +426,12 @@ function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSuppri
   };
 
   return (
-    <div className="flex shrink-0 flex-col gap-2 px-3 pb-3">
+    <ZoneDefilement
+      hauteur={24}
+      classeEnveloppe="flex-none max-h-[48dvh]"
+      className="flex flex-col gap-2 px-3 pb-3"
+      data-surveillance-partie-haute=""
+    >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-faint">
         <span className="min-w-0 truncate">{site.url}</span>
         <span aria-hidden>·</span>
@@ -431,6 +462,8 @@ function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSuppri
       </div>
 
       <ProjetDuSite site={site} />
+
+      {site.wordpress ? <EtatWordpress key={site.id} site={site} /> : null}
 
       <div className="flex flex-col gap-1" data-surveillance-frise={controles ? controles.length : 'chargement'}>
         <div className="flex items-baseline gap-2 text-[12px]">
@@ -468,7 +501,287 @@ function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSuppri
         ) : null}
         {choisie ? <DetailDeCase tranche={choisie} /> : null}
       </div>
-    </div>
+    </ZoneDefilement>
+  );
+}
+
+/** Un souci du contrôle WordPress, dit en clair dans la langue de l'écran. */
+function phraseDeSouci(s: SouciWordpress): string {
+  const version = s.version ?? '';
+  switch (s.genre) {
+    case 'faille':
+      return s.versionCible
+        ? t('Faille connue : {sujet} {version} — corrigée en {cible}', { sujet: s.sujet, version, cible: s.versionCible })
+        : t('Faille connue : {sujet} {version} — aucun correctif, à désactiver', { sujet: s.sujet, version });
+    case 'desactivee':
+      return t('Extension désactivée : {sujet}', { sujet: s.sujet });
+    case 'disparue':
+      return t('Extension disparue : {sujet}', { sujet: s.sujet });
+    case 'pic':
+      return t('Pic d’avertissements dans les journaux : {n} (habituellement {habituel})', {
+        n: s.nombre ?? 0,
+        habituel: s.habituel ?? 0,
+      });
+    case 'fatale':
+      return t('Erreur grave dans les journaux');
+    case 'maj':
+      return t('Mise à jour disponible : {sujet} {version} → {cible}', { sujet: s.sujet, version, cible: s.versionCible ?? '?' });
+    case 'abandon':
+      return s.detail === 'fermee'
+        ? t('Extension retirée du catalogue WordPress : {sujet}', { sujet: s.sujet })
+        : t('Extension abandonnée (dernière mise à jour : {date}) : {sujet}', { sujet: s.sujet, date: s.date ?? '?' });
+    case 'acces':
+      return t('Contrôle WordPress impossible : accès au serveur refusé ou trop lent');
+  }
+}
+
+/**
+ * UN SOUCI EN DEUX ÉTAGES, pour sa rangée du bloc « État WordPress » : un TITRE
+ * qui dit ce qui est touché (le nom de l'extension, mis en avant), puis un
+ * DÉTAIL plus discret (versions, titre de la faille, chiffres). Le genre, lui,
+ * passe dans l'étiquette de gravité (`etiquetteDeSouci`) : le redire dans la
+ * phrase la rallongeait sans rien apprendre. `phraseDeSouci` garde la phrase
+ * d'un seul tenant pour le suivi des 30 jours.
+ */
+function titreEtDetailDeSouci(s: SouciWordpress): { titre: string; details: string[] } {
+  const version = s.version ?? '';
+  switch (s.genre) {
+    case 'faille':
+      return {
+        titre: s.sujet,
+        details: [
+          s.versionCible
+            ? t('{version} — corrigée en {cible}', { version, cible: s.versionCible })
+            : t('{version} — aucun correctif, à désactiver', { version }),
+          ...(s.detail ? [s.detail] : []),
+        ],
+      };
+    case 'desactivee':
+    case 'disparue':
+      return { titre: s.sujet, details: [] };
+    case 'pic':
+      return {
+        titre: t('Pic d’avertissements dans les journaux'),
+        details: [t('Avertissements : {n} (habituellement {habituel})', { n: s.nombre ?? 0, habituel: s.habituel ?? 0 })],
+      };
+    case 'fatale':
+      return { titre: t('Erreur grave dans les journaux'), details: s.detail ? [s.detail] : [] };
+    case 'maj':
+      return { titre: s.sujet, details: [t('{version} → {cible}', { version, cible: s.versionCible ?? '?' })] };
+    case 'abandon':
+      return {
+        titre: s.sujet,
+        details: [
+          s.detail === 'fermee'
+            ? t('Retirée du catalogue WordPress')
+            : t('Dernière mise à jour : {date}', { date: s.date ?? '?' }),
+        ],
+      };
+    case 'acces':
+      return { titre: t('Contrôle WordPress impossible'), details: [t('Accès au serveur refusé ou trop lent')] };
+  }
+}
+
+/**
+ * L'ÉTIQUETTE DE GRAVITÉ d'un souci : un mot court sur un fond teinté, avec la
+ * pastille de couleur que portait l'ancienne ligne. Rouge pour une erreur
+ * grave, jaune pour ce qui fait partir un courriel (`estImportant`), neutre pour
+ * le reste. Le mot reste dans la couleur du texte : un jaune écrit sur fond
+ * clair ne se lirait pas, la couleur vit dans la pastille et dans le fond.
+ */
+function etiquetteDeSouci(s: SouciWordpress): { libelle: string; gravite: 'grave' | 'importante' | 'simple' } {
+  const gravite = s.genre === 'fatale' ? 'grave' : estImportant(s) ? 'importante' : 'simple';
+  const libelle = {
+    faille: t('Faille'),
+    desactivee: t('Désactivée'),
+    disparue: t('Disparue'),
+    pic: t('Avertissements'),
+    fatale: t('Erreur grave'),
+    maj: t('Mise à jour'),
+    abandon: s.detail === 'fermee' ? t('Retirée') : t('Abandonnée'),
+    acces: t('Accès refusé'),
+  }[s.genre];
+  return { libelle, gravite };
+}
+
+/** Une date courte : le jour et l'heure. */
+function jourEtHeure(instant: number): string {
+  return new Date(instant).toLocaleString(formatRegional(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * L'ÉTAT WORDPRESS DU SITE — ce que le contrôle sans agent a relevé, dans un
+ * BLOC À DEUX ÉTAGES (`EnTeteDePanneau` + `Panneau`) qui se détache du tiroir
+ * par son fond. L'en-tête porte le titre, le nombre de soucis et l'heure du
+ * relevé ; le panneau, une RANGÉE par souci (un fond d'une marche au-dessus,
+ * `.panneau .panneau`), avec son étiquette de gravité, son titre, son détail et
+ * sa date ; puis un PIED plus discret : clé de failles manquante, allègement du
+ * journal, geste pour accepter les extensions, suivi des 30 derniers jours
+ * (chargé à l'ouverture du tiroir et relu à chaque passage).
+ *
+ * REPLIABLE PAR SON EN-TÊTE. À l'ouverture du tiroir (le composant est monté
+ * par site, `key={site.id}`), le bloc est OUVERT seulement s'il porte une
+ * faille ou une erreur grave (`alerteGraveWordpress`), REPLIÉ sinon. Le choix
+ * fait à la main tient jusqu'à la fermeture du tiroir : un nouveau relevé
+ * (`wpResume` rafraîchi) ne le rouvre ni ne le referme. Rien n'est gardé
+ * d'une ouverture à l'autre.
+ */
+function EtatWordpress({ site }: { site: SiteSurveille }) {
+  const resume = site.wpResume;
+  const [constats, setConstats] = React.useState<ConstatWordpress[] | null>(null);
+  const [acceptation, setAcceptation] = React.useState(false);
+  const [deplie, setDeplie] = React.useState(() => alerteGraveWordpress(resume?.soucis ?? []));
+
+  React.useEffect(() => {
+    let vivant = true;
+    client
+      .call<{ constats: ConstatWordpress[] }>({ type: 'surveillance.wordpress', id: site.id })
+      .then((r) => vivant && setConstats(r.constats))
+      .catch(() => vivant && setConstats([]));
+    return () => {
+      vivant = false;
+    };
+  }, [site.id, resume?.extensionsLe, resume?.journauxLe]);
+
+  const soucis = [...(resume?.soucis ?? [])].sort((a, b) => Number(estImportant(b)) - Number(estImportant(a)));
+  const resolus = (constats ?? []).filter((c) => c.resoluLe);
+  const aAccepter = soucis.some((s) => s.genre === 'desactivee' || s.genre === 'disparue');
+  const clefManquante = Boolean(resume && !resume.faillesActives);
+  const aUnPied = clefManquante || Boolean(resume?.dernierNettoyage) || aAccepter || resolus.length > 0;
+
+  const accepter = async () => {
+    setAcceptation(true);
+    try {
+      await client.call({ type: 'surveillance.wordpress.accepter', id: site.id });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('État non accepté'));
+    } finally {
+      setAcceptation(false);
+    }
+  };
+
+  return (
+    <section className="flex flex-col" data-surveillance-wordpress={soucis.length} data-surveillance-wordpress-ouvert={deplie ? 'oui' : 'non'}>
+      <EnTeteDePanneau className={cn('p-0 text-[12px]', !deplie && 'rounded-md')}>
+        <button
+          type="button"
+          aria-expanded={deplie}
+          onClick={() => setDeplie((d) => !d)}
+          className="flex min-h-9 w-full items-center gap-2 rounded-[inherit] px-3 py-1.5 text-left"
+          data-surveillance-wordpress-bascule=""
+        >
+          <ChevronDown aria-hidden className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', !deplie && '-rotate-90')} />
+          <span className="min-w-0 truncate">{t('État WordPress')}</span>
+          {soucis.length ? (
+            <span
+              className="shrink-0 rounded-full bg-text/10 px-1.5 py-px text-[11px] font-medium leading-tight tabular-nums text-text"
+              title={t('Soucis en cours : {n}', { n: soucis.length })}
+            >
+              {soucis.length}
+            </span>
+          ) : null}
+          <span className="ml-auto shrink-0 font-normal text-faint">
+            {resume?.extensionsLe
+              ? t('extensions vues à {heure}', { heure: quand(resume.extensionsLe) })
+              : t('premier relevé en attente')}
+          </span>
+        </button>
+      </EnTeteDePanneau>
+      {deplie ? (
+        <Panneau className="flex flex-col gap-2 text-[12px]">
+          {soucis.length ? (
+            <ul className="flex flex-col gap-1">
+              {soucis.map((s) => {
+                const { titre, details } = titreEtDetailDeSouci(s);
+                const { libelle, gravite } = etiquetteDeSouci(s);
+                return (
+                  <li
+                    key={s.cle}
+                    className="panneau flex items-start gap-2 rounded-md px-2 py-1.5"
+                    data-surveillance-souci={s.genre}
+                  >
+                    <span
+                      className={cn(
+                        'mt-px inline-flex w-[6.5rem] shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium leading-tight text-text',
+                        gravite === 'grave' ? 'bg-danger/20' : gravite === 'importante' ? 'bg-a-surveiller/20' : 'bg-text/10',
+                      )}
+                      data-gravite={gravite}
+                    >
+                      <span
+                        aria-hidden
+                        className={cn(
+                          'h-1.5 w-1.5 shrink-0 rounded-full',
+                          gravite === 'grave' ? 'bg-danger' : gravite === 'importante' ? 'bg-a-surveiller' : 'bg-faint',
+                        )}
+                      />
+                      <span className="min-w-0 truncate">{libelle}</span>
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="break-words font-medium text-text">{titre}</span>
+                      {details.map((d) => (
+                        <span key={d} className="break-words text-[11.5px] leading-snug text-faint">
+                          {d}
+                        </span>
+                      ))}
+                    </span>
+                    <span className="mt-px shrink-0 text-[11px] text-faint">{t('depuis {date}', { date: jourEtHeure(s.depuis) })}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-faint">{resume?.extensionsLe ? t('Rien à signaler.') : t('Le contrôle WordPress passera dans l’heure.')}</p>
+          )}
+          {aUnPied ? (
+            <div className="flex flex-col gap-1 pt-0.5">
+              {clefManquante ? (
+                <p className="text-faint" data-surveillance-failles-inactives>
+                  {t('Failles connues non cherchées : la clé Wordfence manque au coffre-fort.')}
+                </p>
+              ) : null}
+              {resume?.dernierNettoyage ? <LigneNettoyage nettoyage={resume.dernierNettoyage} /> : null}
+              {aAccepter ? (
+                <div>
+                  <Button variant="ghost" size="sm" disabled={acceptation} onClick={() => void accepter()} data-surveillance-accepter>
+                    {acceptation ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                    {t('Accepter les extensions actuelles')}
+                  </Button>
+                </div>
+              ) : null}
+              {resolus.length ? (
+                <details>
+                  <summary className="cursor-pointer text-faint">{t('Suivi des 30 derniers jours ({n} réglés)', { n: resolus.length })}</summary>
+                  <ul className="flex flex-col gap-0.5 pt-1 text-faint">
+                    {resolus.map((c) => (
+                      <li key={`${c.cle}-${c.premiereVue}`} className="flex gap-1.5">
+                        <span className="min-w-0 flex-1">{phraseDeSouci(c)}</span>
+                        <span className="shrink-0">{t('réglé le {date}', { date: jourEtHeure(c.resoluLe!) })}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+        </Panneau>
+      ) : null}
+    </section>
+  );
+}
+
+/** Le dernier allègement des journaux propres à WordPress : la date, et le poids avant/après. */
+function LigneNettoyage({ nettoyage }: { nettoyage: DernierNettoyage }) {
+  const avant = nettoyage.journaux.reduce((n, j) => n + j.avant, 0);
+  const apres = nettoyage.journaux.reduce((n, j) => n + j.apres, 0);
+  return (
+    <p className="text-[12px] text-faint" data-surveillance-nettoyage>
+      {t('Journal d’erreurs allégé le {date} : {avant} → {apres} ({jours} derniers jours gardés)', {
+        date: jourEtHeure(nettoyage.le),
+        avant: bytes(avant),
+        apres: apres ? bytes(apres) : t('{n} o', { n: 0 }),
+        jours: JOURS_GARDES_JOURNAL,
+      })}
+    </p>
   );
 }
 
@@ -553,8 +866,7 @@ function libelleDeCase(c: CaseDeFrise): string {
 /** Les passages d'une tranche, touchée ou cliquée : l'heure, le résultat, la raison. */
 function DetailDeCase({ tranche }: { tranche: CaseDeFrise }) {
   return (
-    // Une liste courte : pas de fondu, qui mangerait la moitié de sa hauteur.
-    <ZoneDefilement voile={false} classeEnveloppe="max-h-32">
+    // En entier : la partie haute du tiroir défile déjà.
     <ul className="flex flex-col gap-0.5 text-[12px]" data-surveillance-detail>
       {tranche.controles.length ? (
         tranche.controles.map((c) => (
@@ -570,7 +882,6 @@ function DetailDeCase({ tranche }: { tranche: CaseDeFrise }) {
         <li className="text-faint">{t('Aucun contrôle')}</li>
       )}
     </ul>
-    </ZoneDefilement>
   );
 }
 

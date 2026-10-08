@@ -33,6 +33,7 @@ import {
   prefixeDuType,
   rendreArchive,
   rendreUnite,
+  type OptionsDeRenduPourAgent,
   rendreChangelog,
   rendreFicheNumerotee,
   ressemblanceDeTextes,
@@ -677,6 +678,40 @@ async function procheDuMemeSujet(portee: string, sujet: string, p: { titre: stri
 }
 
 /**
+ * Ancien détail + les lignes de la règle déposée (son résumé compris) que la
+ * fiche ne porte ni dans son détail ni dans son résumé. Sans rien de neuf, le
+ * détail ancien revient tel quel : un rejeu ne change donc jamais la fiche.
+ */
+function detailCompleteParLaRegle(proche: Unite, regle: { resume: string; detail: string }): string {
+  // Dédoublonnage par PHRASE : le rangement pose le corps d'une règle sur une seule ligne.
+  const phrases = (ligne: string): string[] => ligne.split(/(?<=[.!?…])\s+/).filter((x) => titreNormalise(x));
+  const connues = new Set(`${proche.resume}\n${proche.detail}`.split('\n').flatMap(phrases).map(titreNormalise));
+  const neuves: string[] = [];
+  // Le résumé de nuit est le corps aplati, coupé à 599 signes + « … » : sa dernière phrase tronquée
+  // n'a pas de jumeau connu et se collerait AVANT la phrase entière du détail. Un résumé qui n'est
+  // que le début du détail n'apporte rien : on ne parcourt alors que le détail.
+  const aplati = regle.detail.replace(/\s+/g, ' ').trim();
+  const debutDuResume = regle.resume.replace(/\s+/g, ' ').trim().replace(/…$/, '').trim();
+  const resumeTronque = regle.resume.trim().endsWith('…') && debutDuResume.length > 0 && aplati.startsWith(debutDuResume);
+  for (const brute of (resumeTronque ? regle.detail : `${regle.resume}\n\n${regle.detail}`).split('\n')) {
+    if (!titreNormalise(brute)) {
+      if (neuves.length && neuves[neuves.length - 1] !== '') neuves.push('');
+      continue;
+    }
+    const gardees = phrases(brute).filter((x) => {
+      const cle = titreNormalise(x);
+      if (connues.has(cle)) return false;
+      connues.add(cle);
+      return true;
+    });
+    if (gardees.length) neuves.push(gardees.join(' '));
+  }
+  while (neuves.length && neuves[neuves.length - 1] === '') neuves.pop();
+  if (!neuves.length) return proche.detail;
+  return proche.detail ? `${proche.detail.trimEnd()}\n\n${neuves.join('\n')}` : neuves.join('\n');
+}
+
+/**
  * LA PORTE DU RANGEMENT DE NUIT — cherche une unité proche du MÊME SUJET,
  * toutes catégories confondues, avant de créer. Trouvée : elle se COMPLÈTE
  * (`mettreAJour`, via l'action « update » posée avec le type de la cible), sa
@@ -703,6 +738,13 @@ export async function proposerReglesDeNuit(
     titreNormalise(proche.resume) === titreNormalise(regle.resume) && (!regle.detail || titreNormalise(proche.detail) === titreNormalise(regle.detail));
   if (dejaLa) return { ok: true, geste: 'deja-la', unite: proche };
 
+  // COMPLÉTER, pas écraser : la fiche garde son titre, son résumé et son détail ;
+  // seules les lignes de la règle déposée qu'elle ne porte pas encore s'y ajoutent.
+  // Exception : la MÊME règle redéposée sous son propre titre est sa nouvelle version.
+  const memeRegle = titreNormalise(proche.titre) === titreNormalise(regle.titre);
+  const detail = memeRegle ? regle.detail : detailCompleteParLaRegle(proche, regle);
+  if (detail === proche.detail) return { ok: true, geste: 'deja-la', unite: proche };
+
   return proposerUnite(
     portee,
     {
@@ -710,9 +752,9 @@ export async function proposerReglesDeNuit(
       id: proche.id,
       type: proche.type,
       importance: 'P1',
-      titre: regle.titre,
-      resume: regle.resume,
-      detail: regle.detail,
+      titre: memeRegle ? regle.titre : proche.titre,
+      resume: memeRegle ? regle.resume : proche.resume,
+      detail,
       raisonnement: proche.raisonnement,
       sujets: [sujet],
       confiance: 0.9,
@@ -833,14 +875,14 @@ function renduDeLaFiche(portee: string, fiche: FicheNumerotee, unitesDeLaPorteeT
 }
 
 /** Une fiche numérotée d'une portée, en Markdown (ou son archive). */
-export function markdownDeLaFiche(portee: string, ficheId: string, archive = false): string | null {
+export function markdownDeLaFiche(portee: string, ficheId: string, archive = false, options: OptionsDeRenduPourAgent = {}): string | null {
   const fiche = fichesDeLaPortee(portee).find((f) => f.id === ficheId);
   if (!fiche) return null;
   const unites = unitesDeLaPortee(portee, 'toutes');
   const rendu = renduDeLaFiche(portee, fiche, unites);
   if (archive) return rendreArchive(rendu);
   const toutes = portee === PORTEE_GLOBALE ? unites : [...unites, ...unitesDeLaPortee(PORTEE_GLOBALE).filter((u) => u.jamaisSupposer)];
-  return rendreFicheNumerotee(rendu, toutes);
+  return rendreFicheNumerotee(rendu, toutes, options);
 }
 
 export function markdownDuChangelog(projectId: string): string {
@@ -1834,14 +1876,15 @@ export function rendreUnitesTrouvees(demande: string, trouvees: readonly UniteTr
   return `${trouvees.length} unité(s) pour « ${demande} » :\n${lignes.join('\n')}\n\nLis une unité entière avec « lire » et son « id ».`;
 }
 
-export function texteDUneUnite(u: Unite): string {
+/** Une unité lue par l'outil « memoire » : sa date porte son écart au jour du tour. */
+export function texteDUneUnite(u: Unite, maintenant = Date.now()): string {
   const versions = versionsDeLUnite(u.id).length;
   const notes = [
     `fiche ${ficheDeLUnite(u).id}${u.portee === PORTEE_GLOBALE ? ' (global)' : ''}`,
     versions ? `${versions} version(s) antérieure(s) gardée(s)` : '',
     u.statut === 'deprecated' ? `DÉPRÉCIÉE${u.supersededBy ? `, remplacée par ${u.supersededBy}` : ''} : ne t'y fie plus` : '',
   ].filter(Boolean);
-  return `${rendreUnite(u, 1)}\n\n_${notes.join(' · ')}_`;
+  return `${rendreUnite(u, 1, { maintenant })}\n\n_${notes.join(' · ')}_`;
 }
 
 export function texteDuResultat(r: ResultatDeProposition): string {

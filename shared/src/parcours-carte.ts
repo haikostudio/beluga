@@ -34,7 +34,8 @@
 
 import { BOUTON_LANCER_LA_TACHE, FORME_DE_LA_COMPREHENSION, RAISONS_DU_BOUTON_LANCER } from './cadrage.js';
 import { COLONNES_AVANT_LE_TRAVAIL, type ColumnKey } from './columns.js';
-import type { ParcoursDeCarte, PlanDeCarte } from './models.js';
+import type { ParcoursDeCarte, PlanDeCarte, QuestionEnAttenteDeCarte } from './models.js';
+import { QUESTIONS_DE_CARTE_MAX, RAISON_QUESTIONS_DE_CARTE, questionsSansReponse } from './questions-de-carte.js';
 import { BLOC_DES_DECISIONS, BLOC_DES_TACHES, BLOC_EN_CLAIR, PARTIES_DU_PLAN, SIGNES_MINIMUM_EN_CLAIR } from './plan-complet.js';
 import { carteRangee } from './question-en-texte.js';
 import { travailDeLaCarteDejaLance } from './plan-conversation.js';
@@ -489,6 +490,8 @@ export const RAISONS_DU_GESTE = {
   rienDit: RAISONS_DU_BOUTON_LANCER[1],
   planAttendu: RAISONS_DU_BOUTON_LANCER[2],
   questionOuverte: 'Répondez d’abord à la question de l’agent.',
+  /* Les questions gardées sur la carte par un cadrage sans témoin (`questions-de-carte.ts`). */
+  questionsDeCarte: RAISON_QUESTIONS_DE_CARTE,
   decisionOuverte: 'Une décision attend votre réponse : tranchez-la d’abord.',
   /*
    * LE PLAN ATTEND UNE DEMANDE DE TRAVAIL, PAS SEULEMENT UNE QUESTION.
@@ -671,6 +674,15 @@ function gesteCalcule(ctx: ContexteParcours): EtatDuGeste {
     if (ctx.tourEnCours) return avecVersion(eteint('valider-et-lancer', RAISONS_DU_GESTE.tourEnCours));
     if (decisions > 0) return avecVersion(eteint('valider-et-lancer', RAISONS_DU_GESTE.decisionOuverte));
     if (questions > 0) return avecVersion(eteint('valider-et-lancer', RAISONS_DU_GESTE.questionOuverte));
+    /*
+     * UNE QUESTION GARDÉE SUR LA CARTE ÉTEINT LE LANCEMENT, même sur une carte
+     * déjà validée : la réponse peut changer le travail (`questions-de-carte.ts`).
+     */
+    if (questionsSansReponse(ctx.parcours?.comprehension).length) {
+      return avecVersion(
+        eteint(comprehensionValideePourLaVersionCourante(ctx.parcours) ? 'lancer' : 'valider-et-lancer', RAISONS_DU_GESTE.questionsDeCarte),
+      );
+    }
     /*
      * LA DÉCISION EST DÉJÀ PRISE : le bouton ne la redemande pas. Une carte
      * validée mais pas encore partie (lancement refusé pour quota, départ
@@ -860,6 +872,12 @@ export interface ComprehensionRendue {
    * le texte (`hypotheses`), donc ni l'écran ni « Valider » ne changent.
    */
   suppositions: SuppositionRendue[];
+  /**
+   * LES QUESTIONS PRÉPARÉES PAR UN CADRAGE SANS TÉMOIN, gardées sur la carte
+   * (`questionsEnAttente`). Refusées quand quelqu'un est devant l'écran : il
+   * faut alors `ask_user` (`renvoiAuxQuestions`).
+   */
+  questions: QuestionEnAttenteDeCarte[];
   sujets: string[];
   /** Sur un projet réuni : les projets membres que la carte touche (noms ou identifiants). */
   projetsTouches?: string[];
@@ -939,6 +957,53 @@ function suppositionsDe(valeur: unknown): SuppositionRendue[] {
 }
 
 /**
+ * RELIT « questions » : les questions qu'un cadrage sans témoin laisse sur la
+ * carte. Chacune porte sa phrase, ses choix (deux au moins, sauf réponse
+ * libre) et la réponse que l'agent CONSEILLE — l'utilisateur la voit mise en
+ * avant. Un refus dit ce qui manque, question par question.
+ */
+function questionsPrepareesDe(valeur: unknown): LectureDOutil<QuestionEnAttenteDeCarte[]> {
+  if (!Array.isArray(valeur) || !valeur.length) return { ok: true, valeur: [] };
+  if (valeur.length > QUESTIONS_DE_CARTE_MAX) {
+    return {
+      ok: false,
+      raison: `${valeur.length} questions, pour ${QUESTIONS_DE_CARTE_MAX} au plus : garde celles qui changent vraiment le travail, tranche le reste toi-même, et rends la compréhension de nouveau. Rien n’a été enregistré.`,
+    };
+  }
+  const lues: QuestionEnAttenteDeCarte[] = [];
+  const manques: string[] = [];
+  valeur.forEach((brute, index) => {
+    const objet = (brute && typeof brute === 'object' ? brute : { question: brute }) as Record<string, unknown>;
+    const question = texteDe(objet.question);
+    const numero = `question ${index + 1}`;
+    if (!question) {
+      manques.push(`${numero} : la phrase « question » est vide`);
+      return;
+    }
+    const kind = objet.kind === 'multiple' || objet.kind === 'text' ? objet.kind : 'single';
+    const options = (Array.isArray(objet.options) ? objet.options : [])
+      .map((option): Record<string, unknown> => (option && typeof option === 'object' ? (option as Record<string, unknown>) : { label: option }))
+      .map((option, rang) => ({ id: `o${rang}`, label: texteDe(option.label), description: texteDe(option.description) || undefined }))
+      .filter((option) => option.label);
+    if (kind !== 'text' && options.length < 2) manques.push(`${numero} : deux choix au moins dans « options » (ou « kind » : « text »)`);
+    const recommandee = texteDe(objet.recommandee);
+    if (!recommandee) manques.push(`${numero} : la réponse que tu conseilles, dans « recommandee »`);
+    lues.push({
+      id: `q${index + 1}`,
+      question,
+      ...(texteDe(objet.description) ? { description: texteDe(objet.description) } : {}),
+      kind,
+      options: kind === 'text' ? [] : options,
+      ...(recommandee ? { recommandee } : {}),
+    });
+  });
+  if (manques.length) {
+    return { ok: false, raison: `Rien n’a été enregistré : ${manques.join(' ; ')}. Complète, puis rends la compréhension de nouveau.` };
+  }
+  return { ok: true, valeur: lues };
+}
+
+/**
  * LE PLAFOND DES HYPOTHÈSES — large, et DIT quand il est dépassé.
  *
  * L'outil coupait autrefois la liste à six lignes, sans rien dire : une
@@ -1005,6 +1070,8 @@ export function lireComprehensionRendue(
       };
     }
   }
+  const questions = questionsPrepareesDe(args?.questions);
+  if (!questions.ok) return { ok: false, raison: questions.raison };
   /*
    * LE SECOND REGISTRE EST EXIGÉ, ET SON FOND AVEC.
    *
@@ -1027,6 +1094,7 @@ export function lireComprehensionRendue(
       partieTechnique: partieTechnique.valeur,
       hypotheses,
       suppositions,
+      questions: questions.valeur,
       sujets: listeDe(args?.sujets).slice(0, 8),
       resumeDemande,
       resumeComprehension,
@@ -1047,10 +1115,10 @@ export const MARQUEUR_DU_CADRAGE_DE_NUIT = "CETTE DEMANDE VIENT DU RENDEZ-VOUS D
  * DEVANT L'ÉCRAN : la nuit (`auto-amelioration.ts`), la carte posée par un
  * agent ou une vérification (`CONSIGNE_DU_CADRAGE_SANS_TEMOIN`,
  * `naissance-de-carte.ts`) et l'enquête sur un site tombé
- * (`depannage-site.ts`). Le refus des suppositions n'étant pas borné, un
- * cadrage à qui l'on interdit de questionner DOIT être reconnu — sinon il ne
- * pourrait plus rendre de compréhension. Ce sont aussi les SEULS où une
- * supposition s'écrit encore.
+ * (`depannage-site.ts`). Un cadrage à qui l'on interdit de questionner DOIT
+ * être reconnu : c'est lui seul qui reçoit le champ « questions » (préparées
+ * et gardées sur la carte) au lieu de `ask_user` — sinon il ne pourrait plus
+ * rendre de compréhension.
  */
 export const MARQUEUR_DU_CADRAGE_SANS_QUESTION = 'NE POSE AUCUNE QUESTION AVEC « ask_user »';
 
@@ -1062,8 +1130,7 @@ export function tourDeCadrageSansQuestion(demande: string | undefined): boolean 
 const citer = (lignes: readonly SuppositionRendue[]): string => lignes.map((ligne) => `« ${ligne.texte} »`).join(' ; ');
 
 /**
- * LE GARDE-FOU DES SUPPOSITIONS : QUAND QUELQU'UN EST DEVANT L'ÉCRAN, PLUS
- * AUCUNE SUPPOSITION NE S'ÉCRIT — MÊME TECHNIQUE.
+ * LE GARDE-FOU DES SUPPOSITIONS : PLUS AUCUNE NE S'ÉCRIT, NULLE PART.
  *
  * Constat du 30/09/2026 (carte ProjetA « former ses agents ») : six questions
  * sur les trois premiers tours, puis plus aucune, et treize suppositions dont
@@ -1076,40 +1143,57 @@ const citer = (lignes: readonly SuppositionRendue[]): string => lignes.map((lign
  * la « technique » passait — une ou deux du premier coup, trois après un rappel.
  *
  * Constat du 05/10/2026 (carte Kipou « Fabrication Android prête pour la
- * production ») : la règle a fait ce qui était écrit — deux questions, un
- * rappel, puis UNE ligne technique affichée (« Je suppose que les clés de
- * Google Play et de Firebase peuvent être émises depuis un seul projet »).
- * C'était un FAIT à vérifier, pas un choix, et l'utilisateur l'a lu comme le
- * défaut de la veille. Sa décision : « tout devient une question, même
- * technique ». La nature ne lève donc plus rien quand la question est permise.
+ * production ») : UNE ligne technique affichée, qui était un FAIT à vérifier.
+ * Décision : « tout devient une question, même technique » — avec quelqu'un
+ * devant l'écran.
  *
- * TOUTE ligne est REFUSÉE, à chaque appel et sans borne, quelle que soit sa
- * nature. Le refus ne peut pas boucler : ses trois issues sont toutes à la main
- * de l'agent — VÉRIFIER lui-même, écrire comme DÉCIDÉ ce que la demande ou le
- * projet tranche (une question évidente ne se pose pas), ou POSER la question.
- * Un tableau vide passe toujours.
+ * Constat du 06/10/2026 (carte « Le rangement de nuit complète une règle
+ * proche au lieu de l'écraser ») : le cadrage de la NUIT, à qui l'on interdit
+ * `ask_user`, affichait encore « Ce que l'agent suppose ». Décision : plus
+ * aucune supposition nulle part ; un cadrage sans témoin PRÉPARE ses questions
+ * (champ « questions »), qui attendent sur la carte (`questions-de-carte.ts`).
  *
- * AUCUN REFUS quand le tour interdit la question (`tourDeCadrageSansQuestion`,
- * ou aucun tour vivant) — sinon aucune compréhension ne pourrait s'écrire. Là
- * seulement les suppositions subsistent, validées ou corrigées d'un clic.
+ * TOUTE ligne de « hypotheses » est donc REFUSÉE, à chaque appel et sans
+ * borne, avec ou sans témoin. Le refus ne peut pas boucler : ses trois issues
+ * sont toutes à la main de l'agent — VÉRIFIER lui-même, écrire comme DÉCIDÉ ce
+ * que la demande ou le projet tranche (une question évidente ne se pose pas),
+ * ou POSER la question : avec `ask_user` devant un témoin, dans « questions »
+ * sans témoin. Et « questions » est refusé devant un témoin : `ask_user` y
+ * obtient la réponse dans le tour.
+ *
+ * Hors d'un tour vivant (`questionsInterdites` indéterminé), l'appelant ne
+ * refuse rien : il convertit les lignes en questions (`questionDepuisSupposition`).
  *
  * Rend le texte du refus, ou `undefined` quand la compréhension passe.
  */
 export function renvoiAuxQuestions(etat: {
   suppositions: readonly SuppositionRendue[];
+  /** Les questions préparées dans « questions ». */
+  questions?: readonly unknown[];
   /** Ce tour interdit-il `ask_user` (personne devant l'écran) ? */
   questionsInterdites?: boolean;
 }): string | undefined {
-  if (etat.questionsInterdites || !etat.suppositions.length) return undefined;
+  const sansTemoin = !!etat.questionsInterdites;
+  if (!sansTemoin && etat.questions?.length) {
+    return (
+      'Rien n’a été enregistré : quelqu’un est devant l’écran, donc « questions » doit rester VIDE — ce champ ne sert qu’au cadrage fait sans personne. ' +
+      'Pose chacune de ces questions avec « ask_user », UNE à la fois — la suivante découle de la réponse —, en mots courants, avec la réponse que tu recommandes ; elle te revient dans ce tour. ' +
+      'Puis rends la compréhension de nouveau, « questions » et « hypotheses » vides.'
+    );
+  }
+  if (!etat.suppositions.length) return undefined;
   const nombre = etat.suppositions.length;
+  const poser = sansTemoin
+    ? '(3) sinon la PRÉPARER dans « questions » : la question en une phrase, « description » (ce que change chaque réponse, en mots courants pour quelqu’un qui ne programme pas), deux choix au moins dans « options », et la réponse que tu conseilles dans « recommandee ». Elle attendra l’utilisateur sur la carte, et la carte ne se lancera pas sans sa réponse. '
+    : '(3) sinon la POSER avec « ask_user », même si tu as déjà posé des questions dans ce tour : UNE question à la fois — la suivante découle de la réponse, sans question conditionnelle —, ' +
+      'en mots courants pour quelqu’un qui ne programme pas (ce que change chaque réponse), avec la réponse que tu recommandes ; elle te revient dans ce tour. ';
   return (
-    'Rien n’a été enregistré : quelqu’un est devant l’écran, donc « hypotheses » doit être un tableau VIDE — plus aucune supposition ne s’écrit, même technique. ' +
+    `Rien n’a été enregistré : « hypotheses » doit être un tableau VIDE — plus aucune supposition ne s’écrit, même technique${sansTemoin ? ', même sans personne devant l’écran' : ''}. ` +
     `${nombre === 1 ? 'Cette ligne reste à traiter' : `Ces ${nombre} lignes restent à traiter`} : ${citer(etat.suppositions)}. ` +
     'Pour chacune, trois issues, toutes à ta main : ' +
     '(1) la VÉRIFIER toi-même — lire le projet, lancer une commande, ouvrir la documentation —, puis l’écrire comme un fait établi dans « texte » ou dans « partieTechnique.faits » ; ' +
     '(2) si la demande ou le projet y répond déjà, si l’utilisateur t’a laissé choisir, ou si ce n’est que ta manière de construire, l’écrire comme DÉCIDÉE dans « texte » ou dans « partieTechnique.taches » — une question dont la réponse est évidente ne se pose pas ; ' +
-    '(3) sinon la POSER avec « ask_user », même si tu as déjà posé des questions dans ce tour : UNE question à la fois — la suivante découle de la réponse, sans question conditionnelle —, ' +
-    'en mots courants pour quelqu’un qui ne programme pas (ce que change chaque réponse), avec la réponse que tu recommandes ; elle te revient dans ce tour. ' +
+    poser +
     'Puis rends la compréhension de nouveau, « hypotheses » vide.'
   );
 }
@@ -1466,13 +1550,15 @@ export function carteLibreDePartirSeule(
       suspendu?: boolean;
       reprendreDesQuePossible?: boolean;
     } | null;
-    parcours?: Pick<ParcoursDeCarte, 'plans' | 'comprehensionValidee' | 'cadrageRouvertA'> | null;
+    parcours?: Pick<ParcoursDeCarte, 'plans' | 'comprehensionValidee' | 'cadrageRouvertA' | 'comprehension'> | null;
   },
   /** Le DERNIER agent de la carte est-il son agent de cadrage ? */
   aUnCadrage: boolean,
   maintenant: number = Date.now(),
 ): boolean {
   if (carte.scheduling?.suspendu) return false;
+  /* Une question gardée sur la carte attend sa réponse : aucun départ, même programmé (DEC-034). */
+  if (questionsSansReponse(carte.parcours?.comprehension).length) return false;
   if (!demarrageAutomatiqueAutorise(carte.scheduling ?? undefined, maintenant)) return false;
   /* Une carte RELANCÉE a déjà été lancée : ses essais ne valent pas un nouveau
      clic, elle attend le sien — ou l'heure dite qu'on lui a donnée depuis. */

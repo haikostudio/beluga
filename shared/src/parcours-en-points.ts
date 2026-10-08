@@ -23,8 +23,10 @@ import {
 import { EtapeDeLancement, libelleEtapeDeLancement } from './lancement-en-cours.js';
 import { natureDeLaMention, type NatureDeLaMention } from './suivi-colonne.js';
 import { decisionDePlanOuverte } from './plan-conversation.js';
+import type { PropositionDeLaNuit } from './auto-amelioration.js';
 import {
   ETAPES_DE_SUIVI,
+  ETAPES_DE_SUIVI_DE_LA_NUIT,
   etapeCouranteDeSuivi,
   etatDuDeploiement,
   type CarteDeSuivi,
@@ -248,6 +250,18 @@ export interface PointDuParcours {
    * de quoi ouvrir sa carte. Absent sur une carte ordinaire.
    */
   filles?: SuiviDUneFille[];
+  /**
+   * LE TITRE DU POINT, quand il n'est pas celui de son étape : la carte de
+   * nuit lit son « Travail » comme un « Examen » et son « Rapport » comme ses
+   * « Propositions » (`avecLeParcoursDeLaNuit`). Absent : `LIBELLES_ETAPE`.
+   */
+  titre?: string;
+  /**
+   * LES CARTES NÉES DE LA NUIT, sur le point « Propositions » de la carte du
+   * rendez-vous : une ligne par carte, qui l'ouvre d'un clic. Absent tant que
+   * le fil n'est pas arrivé — l'écran ne dit alors pas « aucune ».
+   */
+  propositions?: PropositionDeLaNuit[];
 }
 
 /**
@@ -771,6 +785,21 @@ export interface ContexteDesPoints {
    * ses filles, au lieu de se dire « sautée ».
    */
   suiviDesFilles?: readonly SuiviDUneFille[] | null;
+  /**
+   * LA CARTE DU RENDEZ-VOUS DE NUIT (`estCarteDuRendezVousDeNuit`), avec les
+   * cartes qu'elle a fait naître quand le fil est arrivé
+   * (`propositionsDeLaNuit`). Présent, le flux n'a plus que trois étapes :
+   * Demande, Examen, Propositions (`avecLeParcoursDeLaNuit`).
+   */
+  rendezVousDeNuit?: {
+    propositions?: readonly PropositionDeLaNuit[];
+    /**
+     * LA PANNE DU RENDEZ-VOUS, écrite par `direLaPanneSurLaCarte` dans la raison
+     * d'attente de la carte, qu'elle ramène dans « Planifié ». Elle se lit en
+     * clair sur le point « Examen ».
+     */
+    panne?: string;
+  } | null;
 }
 
 /**
@@ -1357,16 +1386,156 @@ export function pointsDuParcours(
     return { ...point, total, etat, phrase, erreurs };
   });
 
-  return avecLeSuiviDesFilles(
-    sansLePlanJamaisOuvert(
-      avecLaMentionDeLaCarte(
-        resumesDuFil(avecLeContenuDeLaCarte(uneSeuleEtapeEnCours(points), passages, ctx), ctx),
-        ctx.mentionDeLaCarte,
+  return avecLeParcoursDeLaNuit(
+    avecLeSuiviDesFilles(
+      sansLePlanJamaisOuvert(
+        avecLaMentionDeLaCarte(
+          resumesDuFil(avecLeContenuDeLaCarte(uneSeuleEtapeEnCours(points), passages, ctx), ctx),
+          ctx.mentionDeLaCarte,
+        ),
+        ctx,
       ),
-      ctx,
+      ctx.suiviDesFilles,
     ),
-    ctx.suiviDesFilles,
+    ctx,
   );
+}
+
+/** Les étapes du flux que garde la carte de nuit, et le titre qu'elle leur donne. */
+export const TITRES_DE_LA_NUIT: Partial<Record<EtapeDuParcours, string>> = {
+  demande: 'Demande',
+  travail: 'Examen',
+  rapport: 'Propositions',
+};
+
+/** Ce qui se lit sous chaque point de la carte de nuit, selon son état. */
+export const PHRASES_DE_LA_NUIT = {
+  examen: {
+    avenir: 'L’examen commencera cette nuit.',
+    encours: 'L’agent relit le projet et cherche ce qui peut être amélioré…',
+    fait: 'L’agent a relu le projet, sans rien modifier.',
+    question: 'L’agent a relu le projet, sans rien modifier.',
+    erreur: 'L’examen s’est arrêté sur une panne.',
+  } satisfies Record<EtatDuPoint, string>,
+  propositions: {
+    avenir: 'Les propositions viendront à la fin de l’examen.',
+    /* L'examen est tombé : rien n'a été proposé, et la phrase le dit. */
+    interrompu: 'Aucune proposition : l’examen n’a pas abouti.',
+    rendues: 'L’agent a rendu ses propositions.',
+    cartes: 'Les cartes nées de cet examen, à ouvrir d’un clic.',
+    aucune: 'Aucune proposition cette nuit.',
+  },
+} as const;
+
+/** Un point de la nuit que le journal n'a pas (encore) ouvert : vide, à venir. */
+function pointDeLaNuitVide(etape: EtapeDuParcours): PointDuParcours {
+  return {
+    etape,
+    ancre: ancreDuPoint(etape),
+    rang: 1,
+    total: 1,
+    etat: 'avenir',
+    phrase: '',
+    moments: [],
+    traces: [],
+    questions: [],
+    erreurs: [],
+    memoire: [],
+  };
+}
+
+/**
+ * LA CARTE DE NUIT RACONTE UN EXAMEN, PAS UNE TÂCHE.
+ *
+ * Elle prenait le parcours d'une tâche : « Configuration », « Compréhension »
+ * sautée (« Rien n'a été enregistré pour cette étape »), « Le travail est
+ * fait », « Le compte rendu est rendu » — puis « À déployer » et « Archivée »
+ * dans la barre, sur un tour qui n'avait rien à publier (capture du
+ * 07.10.2026). On se demandait où était passée la compréhension : il n'y en a
+ * jamais eu, par conception (DEC-247 range la carte en archive, chaque carte
+ * proposée reçoit SON cadrage).
+ *
+ * Elle se lit donc en trois points, sur les passages déjà calculés :
+ *  - « Demande » : ce que la nuit a demandé (la description de la carte) ;
+ *  - « Examen » (le passage « Travail ») : les lectures et les notes de
+ *    l'agent ; en cours tant que son tour vit, en erreur s'il est tombé — la
+ *    panne s'y dit alors en clair (la phrase de la carte vient s'y poser) ;
+ *  - « Propositions » (le passage « Rapport ») : son compte rendu, puis les
+ *    cartes nées de la nuit, chacune ouvrable (`propositions`) — ou « Aucune
+ *    proposition cette nuit. ».
+ * Tout le reste disparaît : configuration, compréhension, plan, préparation.
+ * Une carte qui n'est pas celle du rendez-vous est rendue telle quelle.
+ */
+function avecLeParcoursDeLaNuit(points: PointDuParcours[], ctx: ContexteDesPoints): PointDuParcours[] {
+  const nuit = ctx.rendezVousDeNuit;
+  if (!nuit) return points;
+  const gardes = points.filter((point) => point.etape in TITRES_DE_LA_NUIT);
+  for (const etape of ['demande', 'travail', 'rapport'] as const) {
+    if (!gardes.some((point) => point.etape === etape)) gardes.push(pointDeLaNuitVide(etape));
+  }
+  const rang = (etape: EtapeDuParcours) => ETAPES_DU_PARCOURS.indexOf(etape);
+  /* Le tri garde l'ordre du journal à l'intérieur d'une même étape. */
+  gardes.sort((a, b) => rang(a.etape) - rang(b.etape));
+
+  const rendu = (point: PointDuParcours) => point.moments.some((moment) => moment.sorte === 'rapport') || !!point.reponse;
+  const dernierRapport = gardes.filter((point) => point.etape === 'rapport').at(-1);
+  const propositionsRendues = !!dernierRapport && rendu(dernierRapport);
+  const mention = points.find((point) => point.mention)?.mention;
+
+  const panne = nuit.panne?.trim();
+  /* L'EXAMEN : en cours pendant le tour, en erreur s'il est tombé, fait dès
+     que l'agent a rendu — jamais « sauté » : c'est la seule étape qui travaille.
+     Une panne ramène la carte dans « Planifié » (`direLaPanneSurLaCarte`). */
+  const etatDeLExamen = (point: PointDuParcours): EtatDuPoint => {
+    if (point.rang !== point.total) return 'fait';
+    if (ctx.tourEnCours) return 'encours';
+    if (ctx.colonne === 'planned') {
+      return panne || point.erreurs.length || point.moments.length || point.traces.length ? 'erreur' : 'avenir';
+    }
+    if (propositionsRendues || ctx.colonne === 'archived') return 'fait';
+    return point.etat === 'erreur' ? 'erreur' : 'encours';
+  };
+  const examens = gardes.filter((point) => point.etape === 'travail');
+  const examenTombe = examens.at(-1) ? etatDeLExamen(examens.at(-1)!) === 'erreur' : false;
+
+  return gardes.map((point): PointDuParcours => {
+    const titre = TITRES_DE_LA_NUIT[point.etape];
+    const base = { ...point, titre, sautee: undefined, annonce: undefined, mention: undefined };
+    if (point.etape === 'demande') {
+      const etat: EtatDuPoint = point.moments.length || ctx.descriptionDeLaCarte?.trim() ? 'fait' : point.etat;
+      return { ...base, etat, phrase: point.phrase || PHRASES_DU_POINT.demande[etat] };
+    }
+    if (point.etape === 'travail') {
+      const etat = etatDeLExamen(point);
+      /* LA PANNE SE DIT SUR L'EXAMEN, où elle a eu lieu. */
+      const ici = etat === 'erreur' && point.rang === point.total ? mention : undefined;
+      const erreurs =
+        etat !== 'erreur'
+          ? []
+          : panne && !point.erreurs.some((erreur) => erreur.texte === panne)
+            ? [...point.erreurs, { cle: 'panne-de-la-nuit', texte: panne, at: point.at ?? ctx.creeeA ?? 0 }]
+            : point.erreurs;
+      return { ...base, etat, phrase: PHRASES_DE_LA_NUIT.examen[etat], erreurs, ...(ici ? { mention: ici } : {}) };
+    }
+    /* LES PROPOSITIONS. */
+    const dernier = point === dernierRapport;
+    const aRendu = rendu(point);
+    const propositions = dernier && nuit.propositions ? [...nuit.propositions] : undefined;
+    const etat: EtatDuPoint = aRendu || (!dernier && !ctx.tourEnCours) ? 'fait' : 'avenir';
+    const phrase =
+      etat === 'avenir'
+        ? examenTombe && !ctx.tourEnCours
+          ? PHRASES_DE_LA_NUIT.propositions.interrompu
+          : PHRASES_DE_LA_NUIT.propositions.avenir
+        : !propositions
+          ? PHRASES_DE_LA_NUIT.propositions.rendues
+          : propositions.length
+            ? PHRASES_DE_LA_NUIT.propositions.cartes
+            : PHRASES_DE_LA_NUIT.propositions.aucune;
+    /* La phrase de la carte (« Rendez-vous tenu : 2 proposition(s)… ») redit
+       la liste : elle se tait sous un rendez-vous tenu. */
+    return { ...base, etat, phrase, erreurs: [], ...(propositions ? { propositions } : {}) };
+  });
 }
 
 /**
@@ -1601,7 +1770,6 @@ function avecLeContenuDeLaCarte(
       if (texte) {
         const donnees = ecrite?.texte?.trim()
           ? JSON.stringify({
-              hypotheses: ecrite.hypotheses ?? [],
               sujets: ecrite.sujets ?? [],
               resumeDemande: ecrite.resumeDemande,
               resumeComprehension: ecrite.resumeComprehension,
@@ -1885,7 +2053,20 @@ export const ETAPE_DE_SUIVI_DU_POINT: Record<EtapeDuParcours, EtapeDeSuivi | nul
 
 /** Les étapes du flux rangées sous une étape de suivi, dans l'ordre du parcours. */
 export function etapesDuFluxSous(suivi: EtapeDeSuivi): EtapeDuParcours[] {
+  /* Les deux étapes propres à la nuit ne rangent chacune qu'un point du flux. */
+  if (suivi === 'examen') return ['travail'];
+  if (suivi === 'propositions') return ['rapport'];
   return ETAPES_DU_PARCOURS.filter((etape) => ETAPE_DE_SUIVI_DU_POINT[etape] === suivi);
+}
+
+/** Sous quelle étape de la barre se range un point : la nuit sépare l'examen de ses propositions. */
+export function etapeDeSuiviDuPoint(etape: EtapeDuParcours, rendezVousDeNuit = false): EtapeDeSuivi | null {
+  if (rendezVousDeNuit) {
+    if (etape === 'travail') return 'examen';
+    if (etape === 'rapport') return 'propositions';
+    return etape === 'demande' ? 'demande' : null;
+  }
+  return ETAPE_DE_SUIVI_DU_POINT[etape];
 }
 
 /** Un segment de la barre du tiroir. */
@@ -1918,6 +2099,10 @@ function etatDuGroupe(points: readonly PointDuParcours[], etapes: readonly Etape
  * pendant la publication, au rouge si elle est tombée.
  */
 export function barreDeSuivi(points: readonly PointDuParcours[], carte: CarteDeSuivi): SegmentDeSuivi[] {
+  /* LA NUIT : trois segments, lus chacun sur son point. */
+  if (carte.rendezVousDeNuit) {
+    return ETAPES_DE_SUIVI_DE_LA_NUIT.map((etape) => ({ etape, etat: etatDuGroupe(points, etapesDuFluxSous(etape)) }));
+  }
   const deploiement = etatDuDeploiement(carte);
   const range = deploiement === 'en_ligne' || deploiement === 'archivee';
   return ETAPES_DE_SUIVI.map((etape) => {

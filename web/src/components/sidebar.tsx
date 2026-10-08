@@ -20,6 +20,7 @@ import {
   LayoutDashboard,
   Loader2,
   Megaphone,
+  Clapperboard,
   Palette,
   Pencil,
   Plus,
@@ -80,6 +81,8 @@ import {
   TabsTrigger,
   Tooltip,
   ZoneDefilement,
+  FormulaireEnColonnes,
+  LigneFormulaire,
 } from '@/components/ui';
 import { PastilleProjet, PastillesEmpilees, largeurPile } from '@/components/pastille-projet';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
@@ -178,6 +181,7 @@ export function Sidebar({
       pastille: sitesEnPanne ? <PastillePanne nombre={sitesEnPanne} repere /> : null,
     },
     { cle: 'marketing', repere: 'marketing', Icone: Megaphone, libelle: t('Marketing') },
+    { cle: 'studio', repere: 'studio', Icone: Clapperboard, libelle: t('Studio') },
     { cle: 'notes', repere: 'notes', Icone: NotebookPen, libelle: t('Notes') },
   ];
   /** Le repère `data-ouvrir-<repere>` que visent les contrôles, posé tel quel sur la ligne. */
@@ -2736,74 +2740,49 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
           </TabsContent>
 
           <TabsContent value="new" className="mt-3 space-y-2.5">
-            <div>
-              <Label>{t('Nom du projet')}</Label>
-              <Input
-                value={newName}
-                onChange={(event) => setNewName(event.target.value)}
-                className="mt-1"
-                placeholder={t('Mon nouveau site')}
-                autoFocus
-              />
-            </div>
-            <div>
-              <Label>{t('Nom du dossier (facultatif)')}</Label>
-              <Input
-                value={newFolder}
-                onChange={(event) => setNewFolder(event.target.value)}
-                className="mt-1"
-                placeholder={t('déduit du nom')}
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-1">
-                <Label>{t('En une phrase, à quoi sert ce projet ? (facultatif)')}</Label>
-                <BulleInfo cote="start">{t('Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.')}</BulleInfo>
-              </div>
-              <Input
-                value={newResume}
-                onChange={(event) => setNewResume(event.target.value)}
-                className="mt-1"
-                placeholder={t('Le site vitrine de l\'atelier')}
-              />
-            </div>
-            {/* L'adresse publique : demandée ici, créée pendant le montage. */}
-            <div data-adresse-nouveau-projet>
-              <div className="flex items-center gap-1">
-                <Label>{t('Adresse publique du projet (facultatif)')}</Label>
-                <BulleInfo cote="start">
-                  {t('Le nom et le port sur lequel le projet écoutera. Beluga Build crée l\'adresse pendant le montage : c\'est elle qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.')}
-                </BulleInfo>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5">
-                <Input
-                  value={newSousDomaine}
-                  onChange={(event) => setNewSousDomaine(event.target.value)}
-                  placeholder="nom-du-site"
-                  className="flex-1"
-                  data-sous-domaine
-                />
-                <span className="shrink-0 text-[12.5px] text-faint">.{ZONE_PROJETS}</span>
-                <Input
-                  value={newPort}
-                  onChange={(event) => setNewPort(event.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="port"
-                  className="w-[74px]"
-                  data-port-projet
-                />
-              </div>
-            </div>
-            {/* Les deux descriptions de mise en ligne, juste après l'adresse :
-                c'est le moment où l'on pense à où le projet va vivre. */}
-            <div>
-              <Label>{t('Dépôt distant existant (facultatif)')}</Label>
-              <Input
-                value={newRemote}
-                onChange={(event) => setNewRemote(event.target.value)}
-                className="mt-1"
-                placeholder={t('laisser vide pour en créer un sur GitHub')}
-              />
-            </div>
+            <FormulaireEnColonnes largeurLibelle="10rem">
+              <LigneFormulaire libelle={t('Nom du projet')}>
+                <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={t('Mon nouveau site')} autoFocus />
+              </LigneFormulaire>
+              <LigneFormulaire libelle={t('Nom du dossier (facultatif)')}>
+                <Input value={newFolder} onChange={(event) => setNewFolder(event.target.value)} placeholder={t('déduit du nom')} />
+              </LigneFormulaire>
+              <LigneFormulaire
+                libelle={t('En une phrase, à quoi sert ce projet ? (facultatif)')}
+                aide={t('Cette phrase ouvre la documentation du projet et décrit le dépôt sur GitHub.')}
+              >
+                <Input value={newResume} onChange={(event) => setNewResume(event.target.value)} placeholder={t('Le site vitrine de l\'atelier')} />
+              </LigneFormulaire>
+              {/* L'adresse publique : demandée ici, créée pendant le montage. */}
+              <LigneFormulaire
+                libelle={t('Adresse publique du projet (facultatif)')}
+                aide={t('Le nom et le port sur lequel le projet écoutera. Beluga Build crée l\'adresse pendant le montage : c\'est elle qui sera contrôlée à la fin de chaque déploiement. Laissés vides, le projet est monté sans adresse.')}
+                data-adresse-nouveau-projet
+              >
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={newSousDomaine}
+                    onChange={(event) => setNewSousDomaine(event.target.value)}
+                    placeholder="nom-du-site"
+                    className="flex-1"
+                    data-sous-domaine
+                  />
+                  <span className="shrink-0 text-[12.5px] text-faint">.{ZONE_PROJETS}</span>
+                  <Input
+                    value={newPort}
+                    onChange={(event) => setNewPort(event.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="port"
+                    className="w-[74px]"
+                    data-port-projet
+                  />
+                </div>
+              </LigneFormulaire>
+              {/* Les deux descriptions de mise en ligne, juste après l'adresse :
+                  c'est le moment où l'on pense à où le projet va vivre. */}
+              <LigneFormulaire libelle={t('Dépôt distant existant (facultatif)')}>
+                <Input value={newRemote} onChange={(event) => setNewRemote(event.target.value)} placeholder={t('laisser vide pour en créer un sur GitHub')} />
+              </LigneFormulaire>
+            </FormulaireEnColonnes>
             <label className="flex items-center gap-2 text-[14px] text-muted">
               <Switch checked={withGit} onCheckedChange={setWithGit} />
               

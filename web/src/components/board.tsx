@@ -742,10 +742,11 @@ export function Board({
   const vignettesInitialisation = (['dev', 'production'] as const).flatMap((cible) => {
     const idConfiguration = agentDeConfiguration(projetOuvert, cible);
     const agentConfiguration = idConfiguration ? state.agents[idConfiguration] : undefined;
-    /* L'état de la VIGNETTE, pas celui du bandeau : elle reste tant que le
-       travail rendu n'a pas été lu (`etatDeLaVignetteDInitialisation`). */
+    /* Seulement tant qu'il est actif : fini, l'agent quitte le tableau, et sa
+       carte passe 24 heures dans « Terminés » des Tableaux de bord
+       (`etatDeLaVignetteDInitialisation`, 06/10/2026). */
     const etatInitialisation = etatDeLaVignetteDInitialisation(projetOuvert, agentConfiguration, Date.now(), cible);
-    return agentConfiguration && etatInitialisation
+    return agentConfiguration && etatInitialisation && etatInitialisation !== 'fini'
       ? [
           <VignetteInitialisationProduction
             key={cible}
@@ -760,12 +761,14 @@ export function Board({
   });
   /* LES MISES EN PRODUCTION, en tête de « En cours » elles aussi : celle du
      projet ouvert, ou une par projet membre sur le tableau d'un groupe — tant
-     qu'elle tourne, puis tant qu'elle n'a pas été lue. Sur le tableau d'un
-     groupe, le clic ouvre le tiroir du groupe sur CE projet (`productionDemandee`). */
+     qu'elle tourne. Finie, elle quitte le tableau (son résultat se lit dans
+     le bandeau du bas) et passe 24 heures dans « Terminés » des Tableaux de
+     bord. Sur le tableau d'un groupe, le clic ouvre le tiroir du groupe sur
+     CE projet (`productionDemandee`). */
   const vignettesProduction = (membresDuGroupe.length ? membresDuGroupe : projetOuvert ? [projetOuvert] : []).flatMap(
     (projet) => {
       const run = state.productions[projet.id];
-      return run
+      return run?.state === 'running'
         ? [
             <VignetteMiseEnProduction
               key={`production-${projet.id}`}

@@ -4,7 +4,7 @@ import {
   mentionEcartAuSchema,
   type ReglageApparence,
 } from '@beluga/shared';
-import { BulleInfo, Label } from '@/components/ui';
+import { BulleInfo, LigneFormulaire, ListeDeroulante } from '@/components/ui';
 import { t } from '@/lib/langue';
 
 /* ------------------------------------------------------------------ */
@@ -170,33 +170,30 @@ export function ChoixDeBranche({
   const proposees = valeur && !branches.includes(valeur) ? [valeur, ...branches] : branches;
   const ecart = mentionEcartAuSchema(cible, valeur);
   return (
-    <div {...{ [repere]: '' }}>
-      <Label>{titre}</Label>
-      <select
-        value={valeur}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={enCours}
-        className="mt-1 h-8 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-      >
-        <option value="">{enCours ? t('Lecture des branches du dépôt…') : t('Branche par défaut')}</option>
-        {proposees.map((branche) => (
-          <option key={branche} value={branche}>
-            {branche}
-          </option>
-        ))}
-      </select>
-      <p className="mt-1 text-[11.5px] leading-snug text-faint">
+    <LigneFormulaire libelle={titre} {...{ [repere]: '' }}>
+      <ListeDeroulante
+        valeur={valeur}
+        titre={titre}
+        repere={repere.replace(/^data-/, '')}
+        onChoisir={onChange}
+        desactivee={enCours}
+        options={[
+          { valeur: '', libelle: enCours ? t('Lecture des branches du dépôt…') : t('Branche par défaut') },
+          ...proposees.map((branche) => ({ valeur: branche, libelle: branche })),
+        ]}
+      />
+      <p className="text-[11.5px] leading-snug text-faint">
         {valeur ? t('Le lot sera fusionné, enregistré et poussé sur « {valeur} ».', { valeur }) : mention}
         {raison ? ` ${raison}` : ''}
       </p>
       {ecart ? (
         <p
           data-ecart-schema
-          className="mt-1 rounded-md border border-en-cours/40 bg-en-cours/10 px-2 py-1.5 text-[11.5px] leading-snug text-text"
+          className="rounded-md border border-en-cours/40 bg-en-cours/10 px-2 py-1.5 text-[11.5px] leading-snug text-text"
         >
           {ecart}
         </p>
       ) : null}
-    </div>
+    </LigneFormulaire>
   );
 }

@@ -260,6 +260,38 @@ export function compteDeRepriseAutomatique(
   );
 }
 
+/*
+ * LA CHAÎNE AU RETOUR DU QUOTA.
+ *
+ * Une reprise restée sans compte libre attendait un clic : rien ne la relançait
+ * quand le quota revenait, et avec un seul compte, le compte tombé restait
+ * exclu pour toujours (`comptesEssayes`). Une fois l'heure de remise à zéro
+ * passée, la fenêtre est NEUVE : ce n'est plus un rebond A → B → A, la chaîne
+ * repart de zéro et le compte tombé redevient candidat. Avant cette heure, rien
+ * ne change — la règle anti-boucle (`chaineDeReprise`, plafond de
+ * `RELEVES_EN_CHAINE_MAX`) garde toute sa force. Sans heure connue, l'échéance
+ * par défaut d'une limite (cinq heures) fait foi, comme `echeanceDeLaLimite`.
+ * La disponibilité, elle, se juge toujours sur le relevé et les limites
+ * connues : une fenêtre neuve ne rend pas disponible un compte encore refusé.
+ */
+export const FENETRE_SANS_ECHEANCE_MS = 5 * 60 * 60 * 1000;
+
+export function chaineAuRetourDuQuota(
+  reprise: Pick<RepriseDeCompte, 'compteEpuise' | 'comptesEssayes' | 'relevesEnChaine' | 'resetsAt' | 'at'>,
+  maintenant: number,
+): ChaineDeReprise & { fenetreNeuve: boolean } {
+  const echeance =
+    typeof reprise.resetsAt === 'number' && reprise.resetsAt > reprise.at
+      ? reprise.resetsAt
+      : reprise.at + FENETRE_SANS_ECHEANCE_MS;
+  if (maintenant >= echeance) return { comptesEssayes: [], relevesEnChaine: 0, fenetreNeuve: true };
+  return {
+    comptesEssayes: reprise.comptesEssayes?.length ? [...reprise.comptesEssayes] : [reprise.compteEpuise],
+    relevesEnChaine: reprise.relevesEnChaine ?? 0,
+    fenetreNeuve: false,
+  };
+}
+
 /** Un compte proposé dans le composant « Avec quel compte poursuivre ? ». */
 export interface ChoixDeCompte {
   id: string;

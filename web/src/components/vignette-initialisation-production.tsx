@@ -1,12 +1,10 @@
 import { UploadCloud } from 'lucide-react';
-import { agentSystemeNonLu, agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project } from '@beluga/shared';
+import { agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project } from '@beluga/shared';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';
-import { PointNonLu } from '@/components/point-non-lu';
 import { Dot } from '@/components/ui';
-import { client } from '@/lib/client';
 import { ouvrirAgentDeConfiguration } from '@/lib/ouvrir-config-projet';
-import { CLASSE_CADRE_SYSTEME, CLASSE_HAUTEUR_CARTE_EN_ROUTE, CLASSE_HAUTEUR_CORPS_EN_ROUTE } from '@/lib/gabarit-tableau';
+import { CLASSE_CADRE_SYSTEME } from '@/lib/gabarit-tableau';
 import { t } from '@/lib/langue';
 import { cn, relativeTime } from '@/lib/utils';
 
@@ -17,9 +15,9 @@ import { cn, relativeTime } from '@/lib/utils';
  * PAS une carte, mais une vignette au style à part — bord et nuage BLEUS de la
  * mise en ligne, là où le dépannage est orange —, posée en tête de « En cours »
  * du tableau et parmi les agents sans carte des « Tableaux de bord », tant que
- * l'agent travaille ou attend une réponse — puis, une fois qu'il a fini, tant
- * que son travail n'a pas été LU : elle garde alors le point bleu des cartes
- * (`etatDeLaVignetteDInitialisation`, `PointNonLu`, 05/10/2026).
+ * l'agent travaille ou attend une réponse. Une fois qu'il a fini, elle quitte
+ * le tableau et passe 24 heures dans « Terminés » des Tableaux de bord, sans
+ * point bleu ni aucun signal (`etatDeLaVignetteDInitialisation`, 06/10/2026).
  * Elle ne compte ni dans le compteur de la colonne, ni dans son avancement.
  *
  * Le clic ouvre le TIROIR de l'agent (`ouvrirAgentDeConfiguration`), d'où
@@ -46,17 +44,12 @@ export function VignetteInitialisationProduction({
   reconfiguration?: boolean;
   /** Le nom du projet en tête — utile hors du tableau d'un projet. */
   avecProjet?: boolean;
-  /** Sur « Tableaux de bord » : hauteur fixe, description et ancienneté, comme une carte. */
+  /** Sur « Tableaux de bord » : cadre de carte Système, description et ancienneté, hauteur au contenu. */
   formatCarte?: boolean;
 }) {
   const auTravail = agentTientSonTour(agent);
-  const nonLu = agentSystemeNonLu(agent);
-  const lire = () => client.send({ type: 'agent.read', agentId: agent.id });
-  /* Ouvrir, c'est lire : le tiroir de l'agent s'ouvre sur ce qu'il a rendu. */
-  const ouvrir = () => {
-    if (nonLu) lire();
-    ouvrirAgentDeConfiguration(agent.projectId, cible);
-  };
+  /* Le tiroir de l'agent s'ouvre sur ce qu'il a rendu. */
+  const ouvrir = () => ouvrirAgentDeConfiguration(agent.projectId, cible);
   const titreEtDescription = (
     <>
       <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
@@ -68,7 +61,7 @@ export function VignetteInitialisationProduction({
             : t('Initialisation de la mise en production')}
       </h3>
       {formatCarte ? (
-        <p data-description-carte className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted">
+        <p data-description-carte className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted">
           {cible === 'dev'
             ? t('Prépare comment le projet se déploie sur ce serveur.')
             : t('Prépare comment le projet se met en production.')}
@@ -78,11 +71,10 @@ export function VignetteInitialisationProduction({
   );
   return (
     <div
-      className={cn('relative flex min-w-0 flex-col', formatCarte && CLASSE_HAUTEUR_CARTE_EN_ROUTE)}
+      className="relative flex min-w-0 flex-col"
       data-vignette-initialisation-production={agent.projectId}
       data-vignette-etape={cible}
     >
-      {nonLu ? <PointNonLu onLire={lire} data-systeme-non-lu={agent.id} /> : null}
       <div
         role="button"
         tabIndex={0}
@@ -128,14 +120,14 @@ export function VignetteInitialisationProduction({
         </div>
         {formatCarte ? (
           <>
-            <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
+            <div className="min-w-0" data-corps-systeme>
               {titreEtDescription}
             </div>
             <div
               className={cn('mt-auto flex shrink-0 items-center text-[12px] text-faint', !auTravail && 'pb-1.5 pt-1')}
               data-anciennete-systeme={agent.projectId}
             >
-              <span className="shrink-0">{relativeTime(agent.updatedAt)}</span>
+              <span className="shrink-0">{relativeTime(auTravail ? agent.updatedAt : (agent.endedAt ?? agent.updatedAt))}</span>
             </div>
           </>
         ) : (

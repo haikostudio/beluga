@@ -50,6 +50,11 @@
     --success: 142 55% 55%;
     --warning: 38 90% 62%;
     --nouveau: 50 90% 60%;
+    /* UN SITE « À SURVEILLER » (contrôle WordPress) : debout, mais avec un souci
+       à regarder. Un JAUNE, jeton à part : l'orange dit « en cours » et ne peut
+       pas servir d'alerte, et le rouge reste à la panne. Même valeur de départ
+       que `--nouveau`, sans en emprunter le sens. */
+    --a-surveiller: 50 90% 60%;
     --danger: 0 75% 65%;
     /* Enregistrement en cours : un état, pas une décoration. */
     --record: 213 85% 52%;
@@ -174,6 +179,7 @@
     --success: 142 62% 28%;
     --warning: 32 90% 36%;
     --nouveau: 50 90% 40%;
+    --a-surveiller: 50 90% 40%;
     --danger: 0 72% 42%;
     --record: 213 85% 45%;
     --record-fg: 0 0% 100%;
@@ -250,6 +256,7 @@
     --success: 148 42% 30%;
     --warning: 30 78% 37%;
     --nouveau: 48 78% 38%;
+    --a-surveiller: 48 78% 38%;
     --danger: 6 62% 44%;
     --record: 212 66% 42%;
     --record-fg: 41 38% 97%;
@@ -312,6 +319,7 @@
     --success: 150 48% 58%;
     --warning: 36 85% 62%;
     --nouveau: 50 85% 60%;
+    --a-surveiller: 50 85% 60%;
     --danger: 2 68% 64%;
     --record: 212 78% 56%;
     --record-fg: 210 30% 98%;
@@ -374,6 +382,7 @@
     --success: 152 55% 28%;
     --warning: 30 85% 38%;
     --nouveau: 50 85% 40%;
+    --a-surveiller: 50 85% 40%;
     --danger: 355 70% 42%;
     --record: 213 85% 42%;
     --record-fg: 210 40% 98%;
@@ -433,6 +442,7 @@
     --success: 140 45% 55%;
     --warning: 36 80% 58%;
     --nouveau: 50 80% 56%;
+    --a-surveiller: 50 80% 56%;
     --danger: 5 65% 60%;
     --record: 210 75% 55%;
     --record-fg: 150 20% 96%;
@@ -493,6 +503,7 @@
     --success: 142 80% 22%;
     --warning: 28 100% 30%;
     --nouveau: 50 100% 32%;
+    --a-surveiller: 50 100% 32%;
     --danger: 0 90% 34%;
     --record: 213 95% 34%;
     --record-fg: 45 10% 99%;
@@ -541,6 +552,7 @@
     --success: 145 44% 57%;
     --warning: 34 88% 64%;
     --nouveau: 50 88% 62%;
+    --a-surveiller: 50 88% 62%;
     --danger: 6 66% 63%;
     --record: 210 72% 59%;
     --record-fg: 40 30% 98%;
@@ -580,6 +592,7 @@
     --success: 150 50% 29%;
     --warning: 31 82% 37%;
     --nouveau: 50 82% 38%;
+    --a-surveiller: 50 82% 38%;
     --danger: 358 66% 43%;
     --record: 214 78% 41%;
     --record-fg: 220 32% 99%;
@@ -619,6 +632,7 @@
     --success: 153 46% 59%;
     --warning: 32 84% 66%;
     --nouveau: 50 84% 64%;
+    --a-surveiller: 50 84% 64%;
     --danger: 354 67% 65%;
     --record: 206 82% 58%;
     --record-fg: 202 38% 99%;
@@ -658,6 +672,7 @@
     --success: 142 58% 27%;
     --warning: 29 84% 36%;
     --nouveau: 50 84% 38%;
+    --a-surveiller: 50 84% 38%;
     --danger: 4 68% 41%;
     --record: 208 76% 40%;
     --record-fg: 145 34% 99%;
@@ -697,6 +712,7 @@
     --success: 142 76% 64%;
     --warning: 30 100% 68%;
     --nouveau: 50 100% 66%;
+    --a-surveiller: 50 100% 66%;
     --danger: 0 86% 70%;
     --record: 212 92% 65%;
     --record-fg: 45 20% 99%;

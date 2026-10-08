@@ -97,13 +97,21 @@ export function messageDeLaCarteVaAuCadrage(carte: CarteRelancable): boolean {
 }
 
 /**
- * UN MESSAGE SUR UNE CARTE DÉJÀ EN LIGNE OUVRE UNE NOUVELLE CARTE. Une carte
- * rangée dans « Archivé » avec sa date de mise en ligne ne se modifie pas sur
- * place : le travail est publié, le réécrire après coup contournerait la revue
- * et la publication. Le message devient donc la demande d'une carte neuve, qui
- * suit tout le parcours (Demande, Compréhension, Travail). Une carte archivée
- * jamais publiée n'est pas concernée ; elle ne s'ouvre que sur geste humain.
+ * UN MESSAGE SUR UNE CARTE DÉJÀ EN LIGNE OUVRE UNE NOUVELLE CARTE — SUR ACCORD.
+ * Une carte rangée dans « Archivé » avec sa date de mise en ligne ne se modifie
+ * pas sur place : le travail est publié, le réécrire après coup contournerait
+ * la revue et la publication. Le message devient donc la demande d'une carte
+ * neuve, qui suit tout le parcours (Demande, Compréhension, Travail). Mais
+ * cette carte ne naît que d'un clic (MEM-0354) : le champ d'écriture garde le
+ * texte et demande « Ouvrir une nouvelle carte », et le démon refuse un envoi
+ * qui n'en porte pas l'accord (`TEXTE_ACCORD_NOUVELLE_CARTE`). Une carte
+ * archivée jamais publiée n'est pas concernée ; elle ne s'ouvre que sur geste
+ * humain. Un agent DE VOLET n'est jamais concerné non plus
+ * (`estAgentDeVolet`) : on lui écrit, il répond.
  */
+export const TEXTE_ACCORD_NOUVELLE_CARTE =
+  'Cette carte est déjà en ligne : votre message ouvrirait une nouvelle carte. Confirmez avec « Ouvrir une nouvelle carte ».';
+
 export function messageOuvreUneNouvelleCarte(carte: { column: ColumnKey | string; deployedAt?: number | null }): boolean {
   return carte.column === 'archived' && !!carte.deployedAt;
 }

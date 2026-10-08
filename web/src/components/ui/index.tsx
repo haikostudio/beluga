@@ -25,6 +25,7 @@ import {
 } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { useSurvol } from '@/lib/pointeur';
+import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 
 /**
@@ -237,6 +238,92 @@ export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLab
   return <label className={cn('text-[12.5px] font-medium text-muted', className)} {...props} />;
 }
 
+/* ------------------------ Formulaire en colonnes ------------------------ */
+
+/**
+ * UN FORMULAIRE EN DEUX COLONNES : les LIBELLÉS dans une colonne de largeur
+ * fixe, les VALEURS dans la colonne d'à côté, pleine largeur. Toutes les lignes
+ * partagent ces deux colonnes, donc libellés et valeurs s'alignent de haut en
+ * bas, avec les mêmes bords droits. Ce qui n'a pas de libellé (une note, un
+ * bouton, un encart) se pose DANS la colonne des valeurs, jamais à cheval.
+ * Sur téléphone, le libellé repasse au-dessus de sa valeur (`empile`).
+ */
+export function FormulaireEnColonnes({
+  children,
+  className,
+  largeurLibelle = '11rem',
+  empile = true,
+  ...attributs
+}: {
+  children: React.ReactNode;
+  className?: string;
+  /** La largeur de la colonne des libellés (CSS). */
+  largeurLibelle?: string;
+  /** Sur téléphone, un libellé au-dessus de sa valeur ; faux = deux colonnes partout. */
+  empile?: boolean;
+} & Record<`data-${string}`, string | number | boolean | undefined>) {
+  return (
+    <div
+      {...attributs}
+      data-formulaire-colonnes
+      className={cn(
+        'grid gap-x-3 gap-y-2',
+        empile ? 'grid-cols-1 sm:grid-cols-[var(--colonne-libelles)_minmax(0,1fr)]' : 'grid-cols-[var(--colonne-libelles)_minmax(0,1fr)]',
+        // Ce qui n'est pas une ligne (note, bouton, encart) va dans la colonne des valeurs ;
+        // un bloc marqué `data-pleine-largeur` (un historique, un tableau) prend les deux.
+        empile
+          ? 'sm:[&>:not([data-ligne-formulaire]):not([data-pleine-largeur])]:col-start-2'
+          : '[&>:not([data-ligne-formulaire]):not([data-pleine-largeur])]:col-start-2',
+        '[&>[data-pleine-largeur]]:col-span-full',
+        className,
+      )}
+      style={{ ['--colonne-libelles' as string]: largeurLibelle }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * UNE LIGNE D'UN `FormulaireEnColonnes` : son libellé (et son « i ») à gauche,
+ * sa valeur à droite, ses notes SOUS la valeur, dans la même colonne. Elle ne
+ * pose aucune boîte (`display: contents`) : ses deux cellules sont celles de la
+ * grille.
+ */
+export function LigneFormulaire({
+  libelle,
+  aide,
+  note,
+  children,
+  htmlFor,
+  className,
+  ...attributs
+}: {
+  libelle: React.ReactNode;
+  /** Une explication, rangée derrière un « i » à côté du libellé. */
+  aide?: React.ReactNode;
+  /** Une ligne grise sous la valeur, dans la colonne des valeurs. */
+  note?: React.ReactNode;
+  children: React.ReactNode;
+  htmlFor?: string;
+  className?: string;
+} & Record<`data-${string}`, string | number | boolean | undefined>) {
+  return (
+    <div className="contents" data-ligne-formulaire {...attributs}>
+      <div className="flex min-h-8 min-w-0 items-center gap-1 self-start">
+        <label htmlFor={htmlFor} className="min-w-0 text-[12.5px] font-medium leading-snug text-muted">
+          {libelle}
+        </label>
+        {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
+      </div>
+      <div className={cn('flex min-w-0 flex-col gap-1', className)}>
+        {children}
+        {note ? <p className="text-[12px] leading-snug text-faint">{note}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------------- Badge ------------------------------ */
 
 const badgeVariants = cva(
@@ -247,6 +334,7 @@ const badgeVariants = cva(
         neutral: 'border-border bg-raised text-muted',
         success: 'border-success/30 bg-success/10 text-success',
         warning: 'border-warning/30 bg-warning/10 text-warning',
+        attention: 'border-a-surveiller/40 bg-a-surveiller/10 text-a-surveiller',
         danger: 'border-danger/30 bg-danger/10 text-danger',
         strong: 'border-transparent bg-accent text-accent-fg',
       },
@@ -1058,7 +1146,10 @@ export function Drawer({
           data-ecran-plein
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
-          className={cn('flex h-full min-h-0 w-full flex-col pt-3', className)}
+          // AUCUN CONTOUR DE FOCUS SUR L'ÉCRAN ENTIER : la fenêtre reçoit le focus à
+          // l'ouverture, et le navigateur l'entourait d'un cadre bleu (capture #e021).
+          // Les boutons qu'elle contient gardent leur propre anneau.
+          className={cn('flex h-full min-h-0 w-full flex-col pt-3 outline-none', className)}
           style={{
             // La zone qui défile à l'intérieur prend le fond de la page, pas
             // celui d'un tiroir : l'écran plein n'est plus une feuille posée.
@@ -1082,7 +1173,7 @@ export function Drawer({
             // Sur téléphone il occupe toute la largeur ; sur grand écran il se
             // pose au centre, plafonné à 960 px : au-delà, les lignes de texte
             // deviennent trop longues pour être lues confortablement.
-            'fixed inset-x-0 z-50 mx-auto flex w-full flex-col overflow-hidden bg-surface',
+            'fixed inset-x-0 z-50 mx-auto flex w-full flex-col overflow-hidden bg-surface outline-none',
             CLASSE_LARGEUR_TIROIR,
             'rounded-t-xl sm:rounded-t-2xl',
             // Une feuille qui MONTE : le décalage de 6 px des fenêtres se
@@ -1268,7 +1359,29 @@ export function DialogDescription({
 
 /* ----------------------------- Infobulle -------------------------- */
 
-export const TooltipProvider = TooltipPrimitive.Provider;
+/**
+ * L'INFOBULLE DE L'APPLICATION — UN SEUL DESSIN, RAPIDE, EN FONDU.
+ *
+ * Elle s'ouvre en 120 ms (la bulle native des navigateurs attend près d'une
+ * seconde), entre et sort en fondu, et n'existe JAMAIS sans survol (doigt,
+ * stylet). Deux portes, un seul aspect (`CLASSES_INFOBULLE`) :
+ *  - `Tooltip`, pour un contenu riche posé sur un déclencheur ;
+ *  - `InfobullesDeLApplication`, montée une fois, qui reprend TOUS les
+ *    attributs `title` de l'application : un `title` écrit n'importe où devient
+ *    cette bulle, sans rien changer à l'écran qui le porte.
+ */
+export const DELAI_INFOBULLE_MS = 120;
+
+const CLASSES_INFOBULLE =
+  'pointer-events-none z-[100] max-w-[280px] select-none whitespace-pre-line rounded-md border border-border bg-raised px-2 py-1.5 text-[13px] leading-snug text-text shadow-xl';
+
+export function TooltipProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <TooltipPrimitive.Provider delayDuration={DELAI_INFOBULLE_MS} skipDelayDuration={400}>
+      {children}
+    </TooltipPrimitive.Provider>
+  );
+}
 
 export function Tooltip({ children, label }: { children: React.ReactNode; label: React.ReactNode }) {
   const survol = useSurvol();
@@ -1277,7 +1390,7 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
   // qu'il vise — un interrupteur, par exemple. On ne le pose donc pas du tout.
   if (!label || !survol) return <>{children}</>;
   return (
-    <TooltipPrimitive.Root delayDuration={280}>
+    <TooltipPrimitive.Root delayDuration={DELAI_INFOBULLE_MS}>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         {/* Sur téléphone, l'infobulle n'a AUCUN sens (rien ne survole) et la
@@ -1286,12 +1399,129 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
         <TooltipPrimitive.Content
           data-infobulle
           sideOffset={6}
-          className="z-50 hidden max-w-[280px] rounded-md border border-border bg-raised px-2 py-1.5 text-[13px] text-text shadow-xl animate-fade-in sm:block"
+          className={cn(
+            CLASSES_INFOBULLE,
+            'pointer-events-auto hidden sm:block',
+            'data-[state=delayed-open]:animate-fade-in data-[state=instant-open]:animate-fade-in data-[state=closed]:animate-fade-out',
+          )}
         >
           {label}
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
+  );
+}
+
+/**
+ * LA COUCHE DES INFOBULLES — chaque `title` de l'application, rendu par la bulle
+ * maison. À l'entrée de la souris sur un élément qui porte un `title`,
+ * l'attribut est mis de côté (`data-infobulle-titre`) : la bulle native, lente,
+ * ne paraît donc jamais ; il est rendu dès que la souris sort, appuie ou que la
+ * page défile. La bulle se pose au-dessus de l'élément (en dessous faute de
+ * place), centrée, tenue dans l'écran.
+ *
+ * Sous un navigateur PILOTÉ (contrôles automatiques : `navigator.webdriver`),
+ * l'attribut reste en place : la bulle native n'y est jamais dessinée, et les
+ * contrôles qui lisent `title` le lisent toujours.
+ */
+export function InfobullesDeLApplication() {
+  const survol = useSurvol();
+  const [bulle, setBulle] = React.useState<{ texte: string; rect: DOMRect; visible: boolean } | null>(null);
+  const boite = React.useRef<HTMLDivElement | null>(null);
+  const [place, setPlace] = React.useState<{ left: number; top: number } | null>(null);
+
+  React.useEffect(() => {
+    if (!survol) return;
+    const pilote = typeof navigator !== 'undefined' && navigator.webdriver === true;
+    let cible: HTMLElement | null = null;
+    let ouverture = 0;
+    let effacement = 0;
+    let derniereFermeture = 0;
+    const rendre = (el: HTMLElement | null) => {
+      if (!el) return;
+      const mis = el.getAttribute('data-infobulle-titre');
+      if (mis === null) return;
+      el.removeAttribute('data-infobulle-titre');
+      // React a pu reposer un nouveau `title` entre-temps : c'est lui qui gagne.
+      if (!el.hasAttribute('title')) el.setAttribute('title', mis);
+    };
+    const fermer = () => {
+      window.clearTimeout(ouverture);
+      if (!cible) return;
+      rendre(cible);
+      cible = null;
+      derniereFermeture = Date.now();
+      setBulle((b) => (b ? { ...b, visible: false } : b));
+      window.clearTimeout(effacement);
+      effacement = window.setTimeout(() => setBulle((b) => (b && !b.visible ? null : b)), 200);
+    };
+    const entrer = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse') return;
+      const el = (e.target as Element | null)?.closest?.('[title],[data-infobulle-titre]') as HTMLElement | null;
+      if (el === cible) return;
+      fermer();
+      if (!el) return;
+      const texte = (el.getAttribute('title') ?? el.getAttribute('data-infobulle-titre') ?? '').trim();
+      if (!texte) return;
+      cible = el;
+      if (!pilote && el.hasAttribute('title')) {
+        el.setAttribute('data-infobulle-titre', el.getAttribute('title')!);
+        el.removeAttribute('title');
+      }
+      // D'une bulle à la voisine, sans attendre : on lit une rangée d'icônes d'un geste.
+      const delai = Date.now() - derniereFermeture < 400 ? 0 : DELAI_INFOBULLE_MS;
+      ouverture = window.setTimeout(() => {
+        if (cible !== el || !el.isConnected) return;
+        window.clearTimeout(effacement);
+        setBulle({ texte, rect: el.getBoundingClientRect(), visible: true });
+      }, delai);
+    };
+    const sortir = (e: PointerEvent) => {
+      if (!cible) return;
+      const vers = e.relatedTarget as Node | null;
+      if (vers && cible.contains(vers)) return;
+      fermer();
+    };
+    document.addEventListener('pointerover', entrer, true);
+    document.addEventListener('pointerout', sortir, true);
+    document.addEventListener('pointerdown', fermer, true);
+    document.addEventListener('keydown', fermer, true);
+    window.addEventListener('scroll', fermer, true);
+    window.addEventListener('blur', fermer);
+    return () => {
+      fermer();
+      window.clearTimeout(effacement);
+      document.removeEventListener('pointerover', entrer, true);
+      document.removeEventListener('pointerout', sortir, true);
+      document.removeEventListener('pointerdown', fermer, true);
+      document.removeEventListener('keydown', fermer, true);
+      window.removeEventListener('scroll', fermer, true);
+      window.removeEventListener('blur', fermer);
+    };
+  }, [survol]);
+
+  /* La place : centrée au-dessus de l'élément, en dessous s'il touche le haut, toujours dans l'écran. */
+  React.useLayoutEffect(() => {
+    if (!bulle || !boite.current) return;
+    const { width, height } = boite.current.getBoundingClientRect();
+    const centre = bulle.rect.left + bulle.rect.width / 2;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, centre - width / 2));
+    const dessus = bulle.rect.top - height - 6;
+    setPlace({ left, top: dessus >= 8 ? dessus : bulle.rect.bottom + 6 });
+  }, [bulle?.texte, bulle?.rect]);
+
+  if (!bulle) return null;
+  return ReactDOM.createPortal(
+    <div
+      ref={boite}
+      role="tooltip"
+      data-infobulle
+      className={cn(CLASSES_INFOBULLE, 'fixed transition-opacity duration-150', bulle.visible && place ? 'animate-fade-in opacity-100' : 'opacity-0')}
+      style={{ left: place?.left ?? -9999, top: place?.top ?? -9999 }}
+    >
+      {bulle.texte}
+    </div>,
+    document.body,
   );
 }
 
@@ -2002,11 +2232,11 @@ export function Accordeon({
   );
 }
 
-/** Une option d'un sélecteur : ce qu'il montre, ce qu'il rend. */
+/** Une option d'une liste déroulante : ce qu'elle montre, ce qu'elle rend. */
 export interface OptionSelecteur {
   valeur: string;
   libelle: string;
-  /** Une ligne grise sous le libellé — un projet, un compte de non-lus. */
+  /** Une ligne grise sous le libellé — un projet, une description, un compte de non-lus. */
   detail?: string;
   /**
    * Ce qui se pose AU BOUT de la ligne, juste avant la coche du choix retenu :
@@ -2014,14 +2244,73 @@ export interface OptionSelecteur {
    * le libellé et le détail.
    */
   fin?: React.ReactNode;
+  /** Une icône devant le libellé (aussi montrée par le déclencheur quand l'option est retenue). */
+  icone?: React.ReactNode;
+  /** Le style du LIBELLÉ seul (une police montrée dans sa police), repris par le déclencheur quand l'option est retenue. */
+  style?: React.CSSProperties;
+  /**
+   * UN GESTE PROPRE À LA LIGNE, à droite : écouter une voix, prévisualiser. Il
+   * ne CHOISIT pas l'option et ne referme pas la liste.
+   */
+  action?: { libelle: string; icone: React.ReactNode; onClick: () => void; active?: boolean };
+  /** Montrée mais pas choisissable (un format déjà pris, une voix pas prête). */
+  desactivee?: boolean;
+  /** L'intertitre sous lequel l'option se range ; les options d'un groupe se suivent. */
+  groupe?: string;
+  /** Des marqueurs posés sur la ligne, pour les contrôles (`data-membre-de` d'un projet réuni…). */
+  attributs?: Record<`data-${string}`, string | undefined>;
 }
 
 /**
- * LE REMPLAÇANT D'UNE LISTE NATIVE. Le déclencheur montre la valeur retenue
- * SANS LA COUPER ; le tiroir liste les choix, avec un champ de recherche dès
- * qu'il y en a assez pour qu'on cherche.
+ * LE CLIC QUI FERME UNE LISTE NE LA ROUVRE PAS.
+ *
+ * Une liste ouverte se ferme au `pointerdown` extérieur (Radix). Le `click` du
+ * MÊME geste arrivait ensuite sur son déclencheur — ou sur le libellé du champ,
+ * un `<label>` qui renvoie le clic à son bouton — et la rouvrait aussitôt : il
+ * fallait cliquer plusieurs fois pour s'en débarrasser (Studio, 06.10.2026).
+ * Le geste qui ferme est donc marqué jusqu'à son `click`, et aucun `ouvrir`
+ * déclenché par un événement ne passe pendant ce temps.
  */
-export function SelecteurTiroir({
+let gesteDeFermeture = false;
+let numeroDuGeste = 0;
+function marquerGesteDeFermeture() {
+  const numero = ++numeroDuGeste;
+  const debut = performance.now();
+  gesteDeFermeture = true;
+  const finir = () => {
+    window.removeEventListener('click', lever, { capture: true });
+    window.removeEventListener('pointerdown', suivant, { capture: true });
+    if (numero === numeroDuGeste) gesteDeFermeture = false;
+  };
+  // Levée APRÈS le `click` : ses gestionnaires (bouton, libellé) le voient encore.
+  const lever = () => window.setTimeout(finir, 0);
+  /* UN NOUVEAU GESTE lève la marque de l'ancien : un geste dont le `click` ne
+     vient jamais (relâché ailleurs, avalé) bloquait sinon le clic suivant sur
+     le déclencheur pendant une seconde — la liste ne se rouvrait pas. */
+  const suivant = (e: PointerEvent) => {
+    if (e.timeStamp > debut) finir();
+  };
+  window.addEventListener('click', lever, { capture: true, once: true });
+  window.addEventListener('pointerdown', suivant, { capture: true });
+  // Un geste sans `click` (glisser, appui long) ne doit pas bloquer la suite.
+  window.setTimeout(finir, 1000);
+}
+
+/**
+ * LA LISTE DÉROULANTE DE L'APPLICATION — elle remplace TOUTE liste native
+ * (`<select>`) et l'ancien sélecteur en tiroir.
+ *
+ * Sur ORDINATEUR, elle s'ouvre ANCRÉE sous son déclencheur (panneau flottant,
+ * même largeur au moins) ; sur TÉLÉPHONE, elle monte du bas comme un tiroir —
+ * sous le pouce. Le corps est le même des deux côtés : recherche dès que les
+ * choix dépassent `seuilRecherche`, icône, description sur une seconde ligne,
+ * coche du choix retenu, geste propre à chaque ligne (▶ écouter), intertitres,
+ * et le CLAVIER (flèches, Début/Fin, Entrée, Échap ; la frappe va à la recherche).
+ *
+ * Une ligne d'option est un `div role="option"`, jamais un `button` : elle peut
+ * porter son propre bouton (le geste à droite) et un texte replié.
+ */
+export function ListeDeroulante({
   valeur,
   options,
   onChoisir,
@@ -2035,128 +2324,364 @@ export function SelecteurTiroir({
   empile,
   pied,
   actionTitre,
+  variante = 'champ',
+  desactivee,
+  marques = 'liste',
+  surOuverture,
+  ...attributs
 }: {
   valeur: string;
   options: OptionSelecteur[];
   onChoisir: (valeur: string) => void;
-  /** Le titre du tiroir de choix. */
+  /** Le titre de la liste (entête du tiroir sur téléphone, nom lu à voix haute). */
   titre: string;
   /** Ce qu'affiche le déclencheur quand rien n'est retenu. */
   placeholder?: string;
-  /** Le marqueur du déclencheur ; les options portent `data-selecteur-option`. */
-  repere: string;
+  /** Le marqueur du déclencheur, pour les contrôles ; les options portent leur valeur. */
+  repere?: string;
   icone?: React.ReactNode;
   /** Au-delà de ce nombre d'options, le champ de recherche paraît. */
   seuilRecherche?: number;
   className?: string;
-  /** Un déclencheur à soi ; sinon un bouton qui montre la valeur. */
-  declencheur?: (ouvrir: () => void, libelle: string) => React.ReactNode;
-  /** Ouvert par-dessus un tiroir déjà ouvert. */
+  /**
+   * Un déclencheur à soi ; sinon un bouton qui montre la valeur. `ouvrir`
+   * reçoit l'événement du clic : la liste s'ancre sur l'élément cliqué.
+   */
+  declencheur?: (ouvrir: (evenement?: { currentTarget?: EventTarget | null } | Element | null) => void, libelle: string) => React.ReactNode;
+  /** Ouverte par-dessus un tiroir déjà ouvert. */
   empile?: boolean;
-  /**
-   * UN PIED FIXE, HORS DU DÉFILEMENT : un geste qui vaut pour toute la liste —
-   * « Ajouter un client » — reste sous la main, même quand la liste est longue.
-   */
+  /** UN PIED FIXE, HORS DU DÉFILEMENT : un geste qui vaut pour toute la liste (« Ajouter un client »). */
   pied?: (fermer: () => void) => React.ReactNode;
-  /**
-   * UN GESTE À DROITE DU TITRE : la gestion associée à la liste — l'engrenage
-   * des « Accès clients » à côté de « Clients ». Il reçoit de quoi refermer le
-   * tiroir de choix, s'il le faut.
-   */
+  /** UN GESTE À DROITE DU TITRE : la gestion associée à la liste (l'engrenage des « Accès clients »). */
   actionTitre?: (fermer: () => void) => React.ReactNode;
-}) {
+  /** « champ » : un champ de formulaire pleine largeur ; « discret » : un bouton fantôme. */
+  variante?: 'champ' | 'discret';
+  desactivee?: boolean;
+  /**
+   * Les marqueurs posés pour les contrôles : « liste » (`data-liste-*`), ou
+   * « selecteur » (`data-selecteur-*`) pour les écrans qui passaient par
+   * l'ancien sélecteur en tiroir.
+   */
+  marques?: 'liste' | 'selecteur';
+  /** Appelé à chaque ouverture : ce que la liste montre se charge alors, pas avant (les polices à prévisualiser). */
+  surOuverture?: () => void;
+} & Record<`data-${string}`, string | number | boolean | undefined>) {
+  const telephone = useTelephone();
   const [ouvert, setOuvert] = React.useState(false);
   const [cherche, setCherche] = React.useState('');
+  const [actif, setActif] = React.useState(-1);
+  const [dansUneFenetre, setDansUneFenetre] = React.useState(false);
+  const ancre = React.useRef<HTMLElement | null>(null);
+  const bouton = React.useRef<HTMLButtonElement | null>(null);
+  const corpsListe = React.useRef<HTMLDivElement | null>(null);
   const retenue = options.find((o) => o.valeur === valeur);
   const libelle = retenue?.libelle ?? placeholder ?? '—';
-
-  React.useEffect(() => {
-    if (!ouvert) setCherche('');
-  }, [ouvert]);
+  const m = marques === 'selecteur';
+  const id = React.useId();
 
   const mot = cherche.trim().toLowerCase();
-  const vues = mot
-    ? options.filter((o) => `${o.libelle} ${o.detail ?? ''}`.toLowerCase().includes(mot))
-    : options;
+  const vues = mot ? options.filter((o) => `${o.libelle} ${o.detail ?? ''} ${o.groupe ?? ''}`.toLowerCase().includes(mot)) : options;
+  const avecRecherche = options.length > seuilRecherche;
+
+  React.useEffect(() => {
+    if (!ouvert) {
+      setCherche('');
+      return;
+    }
+    setActif(Math.max(0, options.findIndex((o) => o.valeur === valeur)));
+  }, [ouvert]);
+  React.useEffect(() => {
+    if (mot) setActif(vues.findIndex((o) => !o.desactivee));
+  }, [mot]);
+  React.useEffect(() => {
+    if (!ouvert || actif < 0) return;
+    corpsListe.current?.querySelector(`[data-index="${actif}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [actif, ouvert]);
+
+  const ouvrir = (evenement?: { currentTarget?: EventTarget | null } | Element | null) => {
+    if (desactivee) return;
+    // Le clic qui vient de FERMER une liste ne rouvre rien (§ `gesteDeFermeture`).
+    if (evenement && gesteDeFermeture) return;
+    const cible =
+      evenement instanceof Element
+        ? evenement
+        : evenement?.currentTarget instanceof Element
+          ? evenement.currentTarget
+          : document.activeElement;
+    ancre.current = cible instanceof HTMLElement && cible !== document.body ? cible : bouton.current;
+    setDansUneFenetre(!!ancre.current?.closest('[role="dialog"], [role="alertdialog"]'));
+    surOuverture?.();
+    setOuvert(true);
+  };
+  const fermer = () => setOuvert(false);
+  const choisir = (o: OptionSelecteur) => {
+    if (o.desactivee) return;
+    onChoisir(o.valeur);
+    setOuvert(false);
+  };
+
+  const deplacer = (sens: 1 | -1, depuis = actif) => {
+    if (!vues.length) return;
+    let i = depuis;
+    for (let n = 0; n < vues.length; n++) {
+      i = (i + sens + vues.length) % vues.length;
+      if (!vues[i]!.desactivee) break;
+    }
+    setActif(i);
+  };
+  const clavier = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      deplacer(1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      deplacer(-1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      deplacer(1, -1);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      deplacer(-1, vues.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const o = vues[actif];
+      if (o) choisir(o);
+    } else if (!avecRecherche && e.key.length === 1 && /\S/.test(e.key)) {
+      // Sans champ de recherche, une lettre saute à la première option qui commence par elle.
+      const lettre = e.key.toLowerCase();
+      const i = vues.findIndex((o, k) => k > actif && !o.desactivee && o.libelle.toLowerCase().startsWith(lettre));
+      const j = i >= 0 ? i : vues.findIndex((o) => !o.desactivee && o.libelle.toLowerCase().startsWith(lettre));
+      if (j >= 0) setActif(j);
+    }
+    // Rien ne remonte jusqu'aux raccourcis de l'écran (espace = lecture, Suppr…).
+    e.stopPropagation();
+  };
+
+  const lignes: React.ReactNode[] = [];
+  let groupe: string | undefined;
+  vues.forEach((option, index) => {
+    if (option.groupe && option.groupe !== groupe) {
+      lignes.push(
+        <div key={`g-${option.groupe}-${index}`} className="px-2 pb-0.5 pt-2 text-[11px] uppercase tracking-wide text-faint" role="presentation">
+          {option.groupe}
+        </div>,
+      );
+    }
+    groupe = option.groupe;
+    const choisie = option.valeur === valeur;
+    lignes.push(
+      <div
+        key={option.valeur}
+        id={`${id}-o${index}`}
+        role="option"
+        aria-selected={choisie}
+        aria-disabled={option.desactivee || undefined}
+        data-index={index}
+        onPointerMove={() => actif !== index && !option.desactivee && setActif(index)}
+        onClick={() => choisir(option)}
+        className={cn(
+          'flex min-w-0 cursor-pointer select-none items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors',
+          telephone ? 'py-2 text-[14px]' : 'py-1.5 text-[13px]',
+          option.desactivee ? 'cursor-default opacity-50' : index === actif ? 'bg-raised text-text' : choisie ? 'text-text' : 'text-muted',
+        )}
+        {...(m
+          ? { 'data-selecteur-option': option.valeur, 'data-selecteur-choisi': choisie ? '' : undefined }
+          : { 'data-liste-option': option.valeur, 'data-liste-choisie': choisie ? '' : undefined })}
+        {...option.attributs}
+      >
+        {option.icone ? <span className="flex shrink-0 items-center text-faint">{option.icone}</span> : null}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate" style={option.style}>
+            {option.libelle}
+          </span>
+          {option.detail ? <span className="block truncate text-[11.5px] text-faint">{option.detail}</span> : null}
+        </span>
+        {option.fin ? <span className="flex shrink-0 items-center gap-1">{option.fin}</span> : null}
+        {option.action ? (
+          <button
+            type="button"
+            aria-label={option.action.libelle}
+            title={option.action.libelle}
+            data-liste-action={option.valeur}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              option.action!.onClick();
+            }}
+            className={cn(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-bloc hover:text-text',
+              option.action.active ? 'text-accent' : 'text-faint',
+            )}
+          >
+            {option.action.icone}
+          </button>
+        ) : null}
+        <Check className={cn('h-3.5 w-3.5 shrink-0 text-accent', !choisie && 'invisible')} aria-hidden />
+      </div>,
+    );
+  });
+
+  const recherche = avecRecherche ? (
+    <div className={cn('shrink-0', telephone ? 'px-3 pb-2' : 'p-1 pb-1.5')}>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+        <Input
+          value={cherche}
+          onChange={(event) => setCherche(event.target.value)}
+          onKeyDown={clavier}
+          placeholder={t('Rechercher…')}
+          className="h-8 pl-7 text-[13px]"
+          aria-controls={`${id}-liste`}
+          aria-activedescendant={actif >= 0 ? `${id}-o${actif}` : undefined}
+          {...(m ? { 'data-selecteur-recherche': repere } : { 'data-liste-recherche': repere })}
+          autoFocus
+        />
+      </div>
+    </div>
+  ) : null;
+
+  const listbox = (
+    <div
+      ref={corpsListe}
+      id={`${id}-liste`}
+      role="listbox"
+      aria-label={titre}
+      tabIndex={avecRecherche ? -1 : 0}
+      onKeyDown={avecRecherche ? undefined : clavier}
+      aria-activedescendant={!avecRecherche && actif >= 0 ? `${id}-o${actif}` : undefined}
+      className="flex flex-col gap-0.5 outline-none"
+    >
+      {lignes}
+      {!vues.length ? <p className="px-2 py-6 text-center text-[13px] text-faint">{t('Rien ne correspond.')}</p> : null}
+    </div>
+  );
+
+  const marquesDeclencheur = m
+    ? { 'data-selecteur-tiroir': repere, 'data-selecteur-valeur': valeur }
+    : { 'data-liste-deroulante': repere ?? '', 'data-liste-valeur': valeur };
+
+  const declencheurParDefaut = (
+    <button
+      ref={bouton}
+      type="button"
+      disabled={desactivee}
+      onClick={ouvrir}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          ouvrir(e);
+        }
+      }}
+      aria-haspopup="listbox"
+      aria-expanded={ouvert}
+      aria-label={titre}
+      className={cn(
+        'flex min-w-0 items-center gap-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        variante === 'champ'
+          ? 'h-8 w-full rounded-md border border-border bg-controle px-2 text-[13px] text-text hover:border-faint'
+          : 'h-7 max-w-full rounded-md px-1.5 text-[13px] text-text hover:bg-raised',
+        ouvert && variante === 'champ' && 'border-accent',
+        className,
+      )}
+      {...marquesDeclencheur}
+      {...attributs}
+    >
+      {icone ?? retenue?.icone ? <span className="flex shrink-0 items-center text-faint">{icone ?? retenue?.icone}</span> : null}
+      {/* LE NOM S'AFFICHE EN ENTIER tant que la place le permet. */}
+      <span className={cn('min-w-0 flex-1 truncate', !retenue && 'text-faint')} style={retenue?.style}>
+        {libelle}
+      </span>
+      <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-180')} aria-hidden />
+    </button>
+  );
+
+  const leDeclencheur = declencheur ? declencheur(ouvrir, libelle) : declencheurParDefaut;
+
+  if (telephone) {
+    return (
+      <>
+        {leDeclencheur}
+        <Drawer open={ouvert} onClose={fermer} empile={empile} className="max-h-[80dvh]">
+          <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+            <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
+            {actionTitre ? actionTitre(fermer) : null}
+          </header>
+          {recherche}
+          <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 px-2 pb-3">
+            {listbox}
+          </ZoneDefilement>
+          {pied ? <div className="shrink-0 px-3 pb-3 pt-1">{pied(fermer)}</div> : null}
+        </Drawer>
+      </>
+    );
+  }
 
   return (
-    <>
-      {declencheur ? (
-        declencheur(() => setOuvert(true), libelle)
-      ) : (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setOuvert(true)}
-          className={cn('min-w-0 max-w-full gap-1.5 px-1.5 text-[13px] text-text', className)}
-          data-selecteur-tiroir={repere}
-          data-selecteur-valeur={valeur}
-          title={libelle}
+    /* OUVERTE DANS UNE FENÊTRE, LA LISTE EST MODALE. Une fenêtre (Dialog Radix,
+       tiroir) verrouille le défilement de tout ce qui n'est pas elle ; le
+       panneau de la liste, porté au bout de la page, en était exclu : la
+       molette ne le faisait plus défiler (liste des voix de « Mettre en
+       production », 07/10/2026). Modale, la liste pose SON verrou par-dessus
+       celui de la fenêtre — seul le dernier compte —, et le sien la laisse
+       défiler. Hors fenêtre, elle reste non modale : la page défile encore. */
+    <PopoverPrimitive.Root modal={dansUneFenetre} open={ouvert} onOpenChange={(o) => (o ? setOuvert(true) : fermer())}>
+      <PopoverPrimitive.Anchor virtualRef={{ current: { getBoundingClientRect: () => (ancre.current ?? bouton.current ?? document.body).getBoundingClientRect() } }} />
+      {leDeclencheur}
+      <PopoverPrimitive.Portal>
+        <PopoverPrimitive.Content
+          side="bottom"
+          align="start"
+          sideOffset={4}
+          collisionPadding={8}
+          aria-label={titre}
+          data-liste-panneau={repere ?? ''}
+          onOpenAutoFocus={(e) => {
+            // Le focus va à la recherche (autoFocus) ou à la liste, jamais au premier bouton d'action.
+            if (!avecRecherche) {
+              e.preventDefault();
+              corpsListe.current?.focus();
+            }
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            ancre.current?.focus?.();
+          }}
+          onPointerDownOutside={marquerGesteDeFermeture}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') e.stopPropagation();
+          }}
+          style={{ minWidth: Math.max(220, ancre.current?.getBoundingClientRect().width ?? 0) }}
+          className={cn(
+            'z-[80] flex max-h-[min(380px,var(--radix-popover-content-available-height))] max-w-[min(440px,calc(100vw-16px))] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
+            'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+          )}
         >
-          {icone ? <span className="shrink-0 text-faint">{icone}</span> : null}
-          {/* LE NOM S'AFFICHE EN ENTIER : c'est tout l'objet du remplacement. */}
-          <span className="min-w-0 flex-1 truncate text-left">{libelle}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 text-faint" aria-hidden />
-        </Button>
-      )}
-
-      <Drawer open={ouvert} onClose={() => setOuvert(false)} empile={empile} className="max-h-[80dvh]">
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
-          {actionTitre ? actionTitre(() => setOuvert(false)) : null}
-        </header>
-        {options.length > seuilRecherche ? (
-          <div className="shrink-0 px-3 pb-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-              <Input
-                value={cherche}
-                onChange={(event) => setCherche(event.target.value)}
-                placeholder={t('Rechercher…')}
-                className="h-8 pl-7 text-[13px]"
-                data-selecteur-recherche={repere}
-                autoFocus
-              />
-            </div>
-          </div>
-        ) : null}
-        <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 px-2 pb-3">
-          <div role="menu" aria-label={titre} className="flex flex-col gap-0.5">
-            {vues.map((option) => (
-              <button
-                key={option.valeur}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onChoisir(option.valeur);
-                  setOuvert(false);
-                }}
-                className={cn(
-                  'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-[14px] leading-5 transition-colors',
-                  option.valeur === valeur ? 'bg-raised text-text' : 'text-muted hover:bg-raised hover:text-text',
-                )}
-                data-selecteur-option={option.valeur}
-                data-selecteur-choisi={option.valeur === valeur ? '' : undefined}
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">{option.libelle}</span>
-                  {option.detail ? (
-                    <span className="block truncate text-[11.5px] text-faint">{option.detail}</span>
-                  ) : null}
-                </span>
-                {option.fin ? <span className="flex shrink-0 items-center gap-1">{option.fin}</span> : null}
-                {option.valeur === valeur ? <Check className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
-              </button>
-            ))}
-            {!vues.length ? (
-              <p className="px-2 py-6 text-center text-[13px] text-faint">{t('Rien ne correspond.')}</p>
-            ) : null}
-          </div>
-        </ZoneDefilement>
-        {pied ? <div className="shrink-0 px-3 pb-3 pt-1">{pied(() => setOuvert(false))}</div> : null}
-      </Drawer>
-    </>
+          {actionTitre ? (
+            <header className="flex shrink-0 items-center gap-2 px-2 pb-1 pt-0.5">
+              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-muted">{titre}</span>
+              {actionTitre(fermer)}
+            </header>
+          ) : null}
+          {recherche}
+          <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className="min-h-0 overscroll-contain">
+            {listbox}
+          </ZoneDefilement>
+          {pied ? <div className="shrink-0 px-1 pb-0.5 pt-1">{pied(fermer)}</div> : null}
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Portal>
+    </PopoverPrimitive.Root>
   );
+}
+
+/**
+ * L'ANCIEN SÉLECTEUR EN TIROIR, devenu une enveloppe de `ListeDeroulante`
+ * (variante discrète, marqueurs `data-selecteur-*` gardés pour les contrôles).
+ */
+export function SelecteurTiroir({
+  className,
+  ...props
+}: Omit<React.ComponentProps<typeof ListeDeroulante>, 'variante' | 'marques'> & { repere: string }) {
+  return <ListeDeroulante {...props} className={cn('min-w-0 max-w-full gap-1.5 px-1.5 text-[13px] text-text', className)} variante="discret" marques="selecteur" />;
 }
 
 /**

@@ -9,6 +9,10 @@
  * ménage à un agent d'ANALYSE qui n'écrit que par l'outil « competences » —
  * donc à travers le contrôle de qualité de la porte d'écriture.
  *
+ * Depuis le 2026-10-06, il relève AUSSI les éléments d'interface du même genre
+ * dans le code de plusieurs projets (`server/src/recurrences-du-code.ts`) : la
+ * nuit en tire la fiche COMMUNE qui manquait, et y relie les fiches propres.
+ *
  * Il remplace la capitalisation des tâches prouvées (DEC-104, remplacée le
  * 2026-10-02) et garde son créneau : vers 5 h, après le rendez-vous
  * d'amélioration de 3 h.
@@ -33,6 +37,7 @@ import { canStartAgent } from './capacity.js';
 import { lirePool } from './competences.js';
 import { getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
+import { releverLesRecurrencesDuCode } from './recurrences-du-code.js';
 import { createAgent, sendPrompt } from './runtime.js';
 import * as store from './store.js';
 
@@ -42,6 +47,15 @@ import * as store from './store.js';
  * écrit depuis le dernier passage de nuit, pas le pool depuis sa naissance.
  */
 const CLE_DERNIER_PASSAGE = 'capitalisation.dernier-passage';
+
+/**
+ * L'INVENTAIRE INITIAL DU CODE est fait une fois, puis seuls comptent les rôles
+ * dont un fichier a changé depuis le dernier passage. Sa clé est À PART : celle
+ * du passage existe déjà sur la machine, et le premier relevé du code doit
+ * pourtant voir tout l'existant (le sélecteur de période de HaikoNote n'a pas
+ * bougé depuis des semaines).
+ */
+const CLE_INVENTAIRE_DU_CODE = 'competences.inventaire-du-code';
 
 /** Un passage par jour, comme le rendez-vous d'amélioration. */
 export const PERIODE_MS = 24 * 60 * 60 * 1000;
@@ -173,35 +187,51 @@ export async function rendezVousDuMenage(force = false): Promise<BilanDuMenage> 
     if (!canStartAgent().ok) return { lance: false, raison: 'aucune place pour un agent' };
   }
 
-  const fiches = fichesMaison();
-  const touchees = fichesTouchees(dernier ?? maintenant - PERIODE_MS, fiches);
-  const aRevoir = fichesARevoir(maintenant, fiches);
-  // La date est posée AVANT le tour, et même quand il n'y a rien : sans cela, on
-  // relirait le pool toutes les dix minutes pour ne rien trouver, et un agent
-  // lent serait relancé.
-  setMeta(CLE_DERNIER_PASSAGE, String(maintenant));
-  if (!menageNecessaire({ touchees, aRevoir })) {
-    return { lance: false, raison: 'aucune fiche écrite ni contredite depuis le dernier passage : rien à ranger' };
-  }
-
-  const accueil = projetDAccueil(touchees);
-  if (!accueil) return { lance: false, raison: 'aucun projet ouvert pour accueillir l’agent' };
-
   enCours = true;
-  // Rôle « analysis » : il ne modifie aucun code. Sa seule sortie est l'outil
-  // d'écriture du pool, qui vaut pour TOUS les projets.
-  const agent = createAgent({ projectId: accueil.id, role: 'analysis', title: TITRE_MENAGE });
   try {
-    await sendPrompt(agent.id, consigneDuMenage({ touchees, aRevoir }), { template: 'none', silent: true });
-  } catch (err: any) {
-    log.error('ménage des compétences : le passage a échoué', err);
-    return { lance: true, raison: err?.message ?? 'raison inconnue', fiches: touchees.length + aRevoir.length };
+    const fiches = fichesMaison();
+    const depuis = dernier ?? maintenant - PERIODE_MS;
+    const touchees = fichesTouchees(depuis, fiches);
+    const aRevoir = fichesARevoir(maintenant, fiches);
+    const inventaire = !getMeta(CLE_INVENTAIRE_DU_CODE);
+    let recurrences: Awaited<ReturnType<typeof releverLesRecurrencesDuCode>> = [];
+    try {
+      recurrences = await releverLesRecurrencesDuCode(inventaire ? undefined : depuis);
+    } catch (err) {
+      log.warn(`ménage des compétences : relevé du code abandonné — ${(err as Error).message}`);
+    }
+    // La date est posée AVANT le tour, et même quand il n'y a rien : sans cela, on
+    // relirait le pool toutes les dix minutes pour ne rien trouver, et un agent
+    // lent serait relancé.
+    setMeta(CLE_DERNIER_PASSAGE, String(maintenant));
+    if (!menageNecessaire({ touchees, aRevoir, recurrences })) {
+      if (inventaire) setMeta(CLE_INVENTAIRE_DU_CODE, String(maintenant));
+      return { lance: false, raison: 'aucune fiche écrite ni contredite, aucune récurrence dans le code : rien à ranger' };
+    }
+
+    const accueil = projetDAccueil(touchees);
+    if (!accueil) return { lance: false, raison: 'aucun projet ouvert pour accueillir l’agent' };
+    if (inventaire) setMeta(CLE_INVENTAIRE_DU_CODE, String(maintenant));
+
+    const total = touchees.length + aRevoir.length + recurrences.length;
+    // Rôle « analysis » : il ne modifie aucun code. Sa seule sortie est l'outil
+    // d'écriture du pool, qui vaut pour TOUS les projets.
+    const agent = createAgent({ projectId: accueil.id, role: 'analysis', title: TITRE_MENAGE });
+    try {
+      await sendPrompt(agent.id, consigneDuMenage({ touchees, aRevoir, recurrences, inventaire }), { template: 'none', silent: true });
+    } catch (err: any) {
+      log.error('ménage des compétences : le passage a échoué', err);
+      return { lance: true, raison: err?.message ?? 'raison inconnue', fiches: total };
+    }
+
+    log.info(
+      `ménage des compétences : ${touchees.length} fiche(s) touchée(s), ${aRevoir.length} à revoir, ` +
+        `${recurrences.length} récurrence(s) dans le code${inventaire ? ' (inventaire initial)' : ''}`,
+    );
+    return { lance: true, fiches: total };
   } finally {
     enCours = false;
   }
-
-  log.info(`ménage des compétences : ${touchees.length} fiche(s) touchée(s), ${aRevoir.length} à revoir`);
-  return { lance: true, fiches: touchees.length + aRevoir.length };
 }
 
 /** La veille : elle regarde l'heure, et le rendez-vous fait le reste. */

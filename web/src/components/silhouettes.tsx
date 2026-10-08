@@ -697,6 +697,26 @@ export function SilhouetteMarketing({ lignes = 4 }: { lignes?: number }) {
 }
 
 /**
+ * LE STUDIO : une grille de vignettes — l'affiche de chaque création, son
+ * titre, ses formats —, en attendant `studio.lister` ou l'ouverture d'une création.
+ */
+export function SilhouetteStudio({ vignettes = 6 }: { vignettes?: number }) {
+  return (
+    <Bloc zone="studio" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+      {Array.from({ length: vignettes }, (_, index) => (
+        <div key={index} className="flex flex-col overflow-hidden rounded-md bg-bloc">
+          <Barre className="aspect-[4/5] w-full rounded-none" />
+          <div className="flex flex-col gap-1 px-2.5 py-2">
+            <Barre className={cn('h-3.5', LARGEURS[index % LARGEURS.length])} />
+            <Barre className="h-3 w-[60%]" />
+          </div>
+        </div>
+      ))}
+    </Bloc>
+  );
+}
+
+/**
  * LE SERVICE STATISTIQUES : la liste des sites mesurés — un nom, son adresse,
  * sa petite courbe de tendance —, en attendant `statistiques.lister`.
  */
@@ -907,5 +927,72 @@ export function SilhouetteFicheDemande({ commentaires = 3 }: { commentaires?: nu
         <Barre className="h-8 w-12 shrink-0 rounded-md" />
       </div>
     </Bloc>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Le Résumé : des tuiles, une courbe, un tableau                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UNE RUBRIQUE DU RÉSUMÉ EN ATTENTE : quatre tuiles, le cadre de la courbe,
+ * puis les lignes d'un tableau — le gabarit des vraies rubriques
+ * (`components/resume/commun.tsx`), sur leurs fonds `--surface`.
+ */
+export function SilhouetteRubrique() {
+  return (
+    <Bloc zone="resume" className="space-y-4">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((index) => (
+          <div key={index} className="rounded-lg bg-surface px-3 py-3">
+            <Barre className="h-3 w-24" />
+            <Barre className="mt-2 h-6 w-20" />
+            <Barre className="mt-1.5 h-3 w-28 max-w-full" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg bg-surface px-3 py-3">
+        <Barre className="h-3.5 w-40" />
+        <div className="mt-3 flex h-[120px] items-end gap-1">
+          {Array.from({ length: 30 }, (_, index) => (
+            <Barre key={index} className="min-w-0 flex-1 rounded-t" />
+          ))}
+        </div>
+      </div>
+      <div className="space-y-1 rounded-lg bg-surface px-3 py-3">
+        <Barre className="mb-2 h-3.5 w-48" />
+        {Array.from({ length: 6 }, (_, index) => (
+          <Barre key={index} className={cn('h-7 rounded-md', index % 2 ? 'w-full' : 'w-[98%]')} />
+        ))}
+      </div>
+    </Bloc>
+  );
+}
+
+/**
+ * LA PAGE « RÉSUMÉ » PENDANT LE TÉLÉCHARGEMENT DE SON MORCEAU : l'entête (titre
+ * à gauche, période à droite), la colonne des rubriques dès `md`, puis une
+ * rubrique en attente.
+ */
+export function SilhouetteResume() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-bg" data-silhouette="resume-page">
+      <div className="flex h-[45px] shrink-0 items-center gap-2 border-b border-border px-3">
+        <Barre className="h-4 w-20" />
+        <Barre className="ml-auto h-7 w-[220px] rounded-md" />
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <div className="hidden w-56 shrink-0 flex-col gap-1.5 px-2 py-3 md:flex">
+          {Array.from({ length: 11 }, (_, index) => (
+            <Barre key={index} className={cn('h-5', LARGEURS[index % LARGEURS.length])} />
+          ))}
+        </div>
+        <div className="min-w-0 flex-1 px-3 py-3">
+          <div className="mx-auto w-full max-w-[1100px]">
+            <SilhouetteRubrique />
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

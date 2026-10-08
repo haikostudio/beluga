@@ -15,6 +15,7 @@ import {
   colonneEnFinDeTour,
   COLONNES_AVANT_LE_TRAVAIL,
   COLONNES_DE_CLOTURE,
+  colonneDeFinDUnAgentAttitre,
   COLUMN_LABELS,
   dateDeMiseEnLignePerimee,
   decisionsParCarte,
@@ -35,6 +36,7 @@ import {
   type DecisionAttendue,
   type TraceDuTravail,
 } from '@beluga/shared';
+import { estAgentAttitre } from './agent-attitre.js';
 import { bus } from './bus.js';
 import { fermerLesQuestionsSiCarteRangee } from './fermeture-questions.js';
 import { lancementEnRoute } from './lancements-en-route.js';
@@ -155,6 +157,12 @@ export interface FinDeTour {
    * charge d'à côté qui doit retomber (`RAISON_MACHINE_SATUREE`).
    */
   machineSaturee?: boolean;
+  /**
+   * L'AGENT ATTITRÉ d'une création du Studio ou de l'atelier Marketing : sa
+   * carte clôturée va dans « Archivé », jamais dans le lot à publier
+   * (`colonneDeFinDUnAgentAttitre`).
+   */
+  attitre?: boolean;
 }
 
 /**
@@ -347,14 +355,16 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
         }
       : card.scheduling;
 
+  const rangement = fin.attitre ? colonneDeFinDUnAgentAttitre(cible) : cible;
   return {
     ...card,
-    ...(cible
+    ...(cible && rangement
       ? {
-          column: cible,
-          position: store.nextPosition(card.projectId, cible),
+          column: rangement,
+          position: store.nextPosition(card.projectId, rangement),
           ...(COLONNES_DE_CLOTURE.includes(cible) ? { doneAt: Date.now() } : {}),
-          deployedAt: dateDeMiseEnLignePerimee(card.column, cible) ? undefined : card.deployedAt,
+          // Rien de publié sur la carte d'un agent attitré : aucune date de mise en ligne ne s'y garde.
+          deployedAt: fin.attitre || dateDeMiseEnLignePerimee(card.column, rangement) ? undefined : card.deployedAt,
         }
       : {}),
     scheduling: planification,
@@ -452,14 +462,17 @@ export function rangerLesCartesOubliees(): void {
       Date.now(),
     );
     if (!issue.colonne) continue;
+    // La carte d'un agent attitré ne rejoint jamais le lot à publier (§ `FinDeTour.attitre`).
+    const attitre = estAgentAttitre(card.agentId);
+    const colonne = attitre ? (colonneDeFinDUnAgentAttitre(issue.colonne) ?? issue.colonne) : issue.colonne;
 
     const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
     const rangee = store.saveCard({
       ...card,
-      column: issue.colonne,
-      position: store.nextPosition(card.projectId, issue.colonne),
+      column: colonne,
+      position: store.nextPosition(card.projectId, colonne),
       ...(COLONNES_DE_CLOTURE.includes(issue.colonne) ? { doneAt: card.doneAt ?? Date.now() } : {}),
-      deployedAt: dateDeMiseEnLignePerimee(card.column, issue.colonne) ? undefined : card.deployedAt,
+      deployedAt: attitre || dateDeMiseEnLignePerimee(card.column, colonne) ? undefined : card.deployedAt,
       scheduling: {
         ...scheduling,
         // Une marque de vol trop vieille pour être crue (§ `issueDeCarteOubliee`)
@@ -474,7 +487,7 @@ export function rangerLesCartesOubliees(): void {
     });
     bus.emit({ type: 'card.upsert', card: rangee });
     log.info(
-      `carte « ${card.title} » oubliée en « ${COLUMN_LABELS[card.column]} », rangée dans « ${COLUMN_LABELS[issue.colonne]} »`,
+      `carte « ${card.title} » oubliée en « ${COLUMN_LABELS[card.column]} », rangée dans « ${COLUMN_LABELS[colonne]} »`,
     );
   }
 }

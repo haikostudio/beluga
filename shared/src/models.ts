@@ -790,6 +790,23 @@ export const PartieTechniqueDeComprehension = z.object({
 });
 export type PartieTechniqueDeComprehension = z.infer<typeof PartieTechniqueDeComprehension>;
 
+/**
+ * UNE QUESTION QU'UN CADRAGE SANS TÉMOIN LAISSE SUR LA CARTE — la forme de
+ * `ask_user`, plus la réponse que l'agent conseille, et la réponse donnée.
+ */
+export const QuestionEnAttenteDeCarte = z.object({
+  id: z.string(),
+  question: z.string(),
+  description: z.string().optional(),
+  kind: z.enum(['single', 'multiple', 'text']).default('single'),
+  options: z.array(z.object({ id: z.string(), label: z.string(), description: z.string().optional() })).default([]),
+  /** Le libellé de l'option que l'agent recommande, ou sa réponse conseillée en texte. */
+  recommandee: z.string().optional(),
+  reponse: z.string().optional(),
+  reponduA: z.number().optional(),
+});
+export type QuestionEnAttenteDeCarte = z.infer<typeof QuestionEnAttenteDeCarte>;
+
 export const ComprehensionDeCarte = z.object({
   texte: z.string(),
   /** Le second registre, replié à l'écran et servi à l'agent d'exécution. */
@@ -811,6 +828,16 @@ export const ComprehensionDeCarte = z.object({
    * ensuite repart d'une liste neuve. Absent sur les cartes d'avant.
    */
   hypothesesValidees: z.array(z.string()).optional(),
+  /**
+   * LES QUESTIONS PRÉPARÉES PAR UN CADRAGE SANS TÉMOIN (nuit, carte posée par
+   * un agent, site tombé), GARDÉES SUR LA CARTE. `ask_user` attend dans un
+   * registre en mémoire et plafonné (`attente-question.ts`) : il ne survit ni
+   * à une nuit ni à un redémarrage. Ces questions-ci attendent dans la carte
+   * elle-même ; l'écran les pose une par une, la carte ne se lance pas tant
+   * qu'une reste sans réponse (`questionsSansReponse`), et la dernière réponse
+   * relance le cadrage, qui réécrit la compréhension.
+   */
+  questionsEnAttente: z.array(QuestionEnAttenteDeCarte).optional(),
   /** Les sujets de mémoire ouverts pour comprendre. */
   sujets: z.array(z.string()).default([]),
   /**
@@ -1516,6 +1543,13 @@ export const TaskProposal = z.object({
   sourceProposalIds: z.array(z.string()).default([]),
   cardId: z.string().optional(),
   decidedAt: z.number().optional(),
+  /**
+   * LE PROJET OÙ NAÎTRA LA CARTE, quand ce n'est pas celui de la conversation :
+   * la proposition de l'agent d'un site surveillé naît dans le projet du site
+   * (`shared/src/projet-de-proposition-de-site.ts`). Absent : le projet de
+   * l'agent qui propose.
+   */
+  projectId: z.string().optional(),
   /**
    * LES NOTES DU JUGE RAPIDE : le gain attendu, l'ampleur du travail, et le rang
    * qui en découle. Elles ne servent qu'à ORDONNER — aucune proposition n'est

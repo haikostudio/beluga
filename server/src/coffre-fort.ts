@@ -245,8 +245,10 @@ export function effacerLesImagesOrphelines(ids: readonly string[]): number {
 function surveillancesQuiLisent(id: string): string[] {
   try {
     const lignes = getDb()
-      .prepare("SELECT url, recette FROM sites_surveilles WHERE recette LIKE '%' || ? || '%'")
-      .all(id) as { url: string; recette: string | null }[];
+      .prepare(
+        "SELECT url, recette FROM sites_surveilles WHERE recette LIKE '%' || ? || '%' OR wordpress LIKE '%' || ? || '%'",
+      )
+      .all(id, id) as { url: string; recette: string | null }[];
     return lignes.map((l) => l.url);
   } catch {
     return [];

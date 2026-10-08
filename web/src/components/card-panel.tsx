@@ -64,6 +64,7 @@ import {
   Textarea,
   Tooltip,
   ZoneDefilement,
+  ListeDeroulante,
 } from '@/components/ui';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
@@ -752,16 +753,19 @@ export function Champ({
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  /* EN DEUX COLONNES ALIGNÉES : le libellé dans une colonne de largeur fixe,
+     la valeur pleine largeur à côté — toutes les lignes d'un formulaire
+     partagent ces colonnes. Sur téléphone, le libellé repasse au-dessus. */
   return (
-    <div>
-      <div className="flex min-h-[20px] items-center justify-between gap-2">
+    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-x-3" data-champ>
+      <div className="flex min-h-[20px] items-center justify-between gap-2 sm:min-h-8 sm:self-start">
         <span className="flex min-w-0 items-center gap-1">
           <Label className="block">{label}</Label>
           {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
         </span>
         {action ?? null}
       </div>
-      <div className="mt-1.5">{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }
@@ -1076,14 +1080,17 @@ function BillingTab({ card, rate, project }: { card: Card; rate: number; project
       {available ? (
         <>
           <Champ label={t('Type de document')}>
-            <select
-              value={type}
-              onChange={(event) => setType(event.target.value as 'offer' | 'invoice')}
-              className="h-9 w-full rounded-md border border-border bg-raised px-2 text-[14.5px] text-text"
-            >
-              <option value="invoice">{t('Facture')}</option>
-              <option value="offer">{t('Offre')}</option>
-            </select>
+            <ListeDeroulante
+              valeur={type}
+              titre={t('Type de document')}
+              repere="type-document"
+              onChoisir={(valeur) => setType(valeur as 'offer' | 'invoice')}
+              className="h-9 text-[14.5px]"
+              options={[
+                { valeur: 'invoice', libelle: t('Facture') },
+                { valeur: 'offer', libelle: t('Offre') },
+              ]}
+            />
           </Champ>
 
           <Champ label={t('Document')}>

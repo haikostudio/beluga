@@ -15,7 +15,7 @@
  *   - la demande envoyée à l'agent (`demandeDeDepannage`).
  */
 
-import { agentSystemeNonLu } from './cartes-systeme.js';
+import { agentSystemeTermine } from './cartes-systeme.js';
 import { natureDePublication } from './mise-en-ligne.js';
 
 /** Ce que la règle lit d'une publication. */
@@ -38,8 +38,6 @@ export interface AgentPourLeDepannage {
   attendReponse?: boolean;
   endedAt?: number;
   startedAt?: number;
-  /** Quand il a été consulté pour la dernière fois (`Agent.luA`). */
-  luA?: number;
   depannagePublication?: { runId: string; cible: 'dev' | 'production' };
 }
 
@@ -101,18 +99,24 @@ export function depanneurVivant(agent: AgentPourLeDepannage | null | undefined):
 }
 
 /**
- * LES VIGNETTES « DÉPANNAGE » DE « TABLEAUX DE BORD » : chaque agent de
- * dépannage vivant, et celui qui a fini SANS AVOIR ÉTÉ LU (même règle que la
- * bande des agents sans carte, `agentSystemeNonLu`), le plus récent d'abord.
+ * LES VIGNETTES « DÉPANNAGE » D'« ACTIFS » : chaque agent de dépannage vivant
+ * (au travail ou arrêté sur sa question), le plus récent d'abord.
  */
-export function depannagesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[], _maintenant?: number): T[] {
+export function depannagesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[]): T[] {
   return agents
-    .filter((agent) => {
-      if (!agent.depannagePublication) return false;
-      if (depanneurVivant(agent)) return true;
-      return agentSystemeNonLu(agent);
-    })
+    .filter((agent) => !!agent.depannagePublication && depanneurVivant(agent))
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+}
+
+/**
+ * LES DÉPANNAGES FINIS DEPUIS MOINS DE 24 HEURES : leur vignette dans
+ * « Terminés » (même règle que les agents sans carte, `agentSystemeTermine`),
+ * la plus récente fin d'abord.
+ */
+export function depannagesTerminesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[], maintenant: number): T[] {
+  return agents
+    .filter((agent) => !!agent.depannagePublication && !depanneurVivant(agent) && agentSystemeTermine(agent, maintenant))
+    .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 
 /**

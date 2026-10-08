@@ -23,6 +23,7 @@
  * Aucune base, aucun disque, aucun moteur : les tests rejouent tout.
  */
 
+import { modeleBanni, sansModelesBannis } from './modele-banni.js';
 import type { MoteurCatalogue, ModeleCatalogue } from './reglages-proposition.js';
 
 /** Les trois paliers, du plus économe au plus ample. */
@@ -80,7 +81,7 @@ export const DEFINITIONS_NIVEAU: Record<NiveauAgent, DefinitionNiveau> = {
     quand:
       'un chantier : une règle du moteur à déplacer, une architecture à revoir, un défaut que personne ne sait expliquer, plusieurs parties du projet à tenir ensemble.',
     appetit: 'heavy',
-    familles: ['opus', 'fable', 'max'],
+    familles: ['opus', 'max'],
     reflexion: 'high',
   },
 };
@@ -107,7 +108,8 @@ export function niveauDemande(valeur: unknown): NiveauAgent | undefined {
 /** Le modèle le plus proche du palier, dans le catalogue RÉEL du moteur. */
 function modeleDuNiveau(moteur: MoteurCatalogue, niveau: NiveauAgent): ModeleCatalogue | undefined {
   const def = DEFINITIONS_NIVEAU[niveau];
-  const modeles = moteur.models;
+  // Un catalogue venu d'ailleurs (essai, cache) peut encore porter un banni.
+  const modeles = sansModelesBannis(moteur.models);
   if (!modeles.length) return undefined;
 
   // 1. L'appétit annoncé par le catalogue : le seul repère qui survit à un
@@ -180,7 +182,7 @@ export const NIVEAU_PLANCHER_AUTOMATIQUE: NiveauAgent = 'standard';
 /**
  * ...NI AU PALIER LE PLUS CHER. Symétrique du plancher : une carte posée sans
  * clic n'a personne pour remarquer qu'elle vient de partir sur le modèle le
- * plus coûteux du moteur (appétit « heavy » — opus, fable, max…). Avec trois
+ * plus coûteux du moteur (appétit « heavy » — opus, max…). Avec trois
  * paliers seulement, planchonner ET plafonner sur « standard » revient à fixer
  * les cartes automatiques sur l'appétit moyen, quel que soit le palier annoncé
  * par l'agent qui les a proposées.
@@ -211,15 +213,17 @@ export function modeleDuPalierLeger(moteur: MoteurCatalogue | undefined, modele:
 }
 
 /**
- * Le modèle est-il du palier le plus cher (appétit « heavy » : opus, fable,
- * max…) ? Même lecture que `modeleDuPalierLeger`, à l'autre bout de l'échelle —
- * c'est elle qui interdit au plafond automatique de laisser passer le modèle
- * le plus coûteux du moteur.
+ * Le modèle est-il du palier le plus cher (appétit « heavy » : opus, max…) ?
+ * Même lecture que `modeleDuPalierLeger`, à l'autre bout de l'échelle — c'est
+ * elle qui interdit au plafond automatique de laisser passer le modèle le plus
+ * coûteux du moteur. Un modèle BANNI (Fable, hors catalogue) reste reconnu
+ * comme lourd : il n'est plus une famille du palier, mais il coûte toujours.
  */
 export function modeleDuPalierLourd(moteur: MoteurCatalogue | undefined, modele: string | undefined): boolean {
   if (!modele) return false;
   const connu = moteur?.models.find((m) => m.id === modele);
   if (connu?.appetite) return connu.appetite === DEFINITIONS_NIVEAU.approfondi.appetit;
+  if (modeleBanni(modele)) return true;
   const nom = `${modele} ${connu?.label ?? ''}`.toLowerCase();
   return DEFINITIONS_NIVEAU.approfondi.familles.some((famille) => nom.includes(famille));
 }

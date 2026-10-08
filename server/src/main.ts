@@ -1,5 +1,6 @@
 import { arreterLaya } from './laya.js';
 import { veillerSurLaNuitDeLaya } from './laya-nuit.js';
+import { veillerSurLesSourcesDeStyles } from './studio-sources.js';
 import path from 'node:path';
 import { titreDuProcessus } from '@beluga/shared';
 import { CONFIG, ROOT, ensureDirs } from './config.js';
@@ -58,6 +59,7 @@ import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
 import { demarrerMarketing } from './marketing.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
 import { rattraperLesAdressesDeControle } from './rattrapage-adresses.js';
+import { convertirLesSuppositionsDesCartes } from './questions-de-carte.js';
 import { completerLesDemandesManquantes, relancerLesCadragesJamaisPartis } from './naissance-de-carte.js';
 
 /*
@@ -215,6 +217,19 @@ async function main(): Promise<void> {
   }, 10_000).unref?.();
 
   /*
+   * LES SUPPOSITIONS DES CARTES ENCORE EN CADRAGE DEVIENNENT DES QUESTIONS
+   * (`questions-de-carte.ts`) : sans agent ni quota, idempotent.
+   */
+  setTimeout(() => {
+    try {
+      const converties = convertirLesSuppositionsDesCartes();
+      if (converties) log.info(`suppositions converties en questions sur ${converties} carte(s)`);
+    } catch (err) {
+      log.warn('conversion des suppositions en questions incomplète', err);
+    }
+  }, 10_000).unref?.();
+
+  /*
    * LES ADRESSES DE CONTRÔLE DES PROJETS D'AVANT (`rattrapage-adresses.ts`) :
    * relevées le 30/09/2026, re-contrôlées puis écrites UNE fois, sans ouvrir
    * aucun suivi des visites. Même délai, sans être attendu.
@@ -304,6 +319,17 @@ async function main(): Promise<void> {
    * plan de la semaine du dimanche soir (`server/src/marketing.ts`).
    */
   const marketingTimer = demarrerMarketing();
+  /*
+   * LE STUDIO : un export resté « en cours » a été coupé par l'arrêt du démon.
+   * Il le DIT au démarrage, au lieu de rester affiché comme s'il tournait.
+   */
+  void import('./studio-rendu.js')
+    .then((m) => m.rattraperExportsCoupes())
+    .catch((err) => log.warn('studio : rattrapage des exports coupés impossible', err));
+  /* …et une fabrication de voix finales coupée de même ne reste pas affichée « en cours ». */
+  void import('./studio-generation.js')
+    .then((m) => m.rattraperVoixCoupees())
+    .catch((err) => log.warn('studio : rattrapage des voix coupées impossible', err));
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   // Les backups des sites en production : leur propre heure, après celle de
@@ -406,6 +432,8 @@ async function main(): Promise<void> {
   const arreterLeJuge = veillerSurLesCartes();
   /* L'entraînement de Laya, entre 3 h et 7 h (`server/src/laya-nuit.ts`). */
   const arreterLaNuitDeLaya = veillerSurLaNuitDeLaya();
+  /* Les sources de la bibliothèque de styles du Studio, une fois par nuit (`server/src/studio-sources.ts`). */
+  const arreterLesSourcesDeStyles = veillerSurLesSourcesDeStyles();
   /*
    * LES PROJETS RÉUNIS : les cartes mères suivent leurs filles, et les anciens
    * projets à dépôts annexes deviennent des regroupements, une fois
@@ -469,6 +497,7 @@ async function main(): Promise<void> {
     clearInterval(miseAJourMoteursTimer);
     arreterLeJuge();
     arreterLaNuitDeLaya();
+    arreterLesSourcesDeStyles();
     arreterLesMeres();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);

@@ -48,6 +48,22 @@ export function texteGeminiAvecDebit(texte: string, echelle: number): string {
 }
 
 /**
+ * L'ACCENT DE LA VOIX FINALE DU STUDIO : une balise entre crochets en tête
+ * d'appel. Gemini TTS la suit sans la PRONONCER (vérifié le 07/10/2026 : la
+ * transcription Whisper de la prise commence par le texte, pas par la balise) ;
+ * une consigne en toutes lettres, elle, serait lue. Les paramètres de langue
+ * d'OpenRouter (`language`, `language_code`) sont acceptés puis ignorés. La
+ * balise n'est qu'une ceinture : la vraie garde contre un accent qui change
+ * d'une phrase à l'autre, c'est la PRISE UNIQUE (un seul appel pour toute la
+ * vidéo, voir `produireVoixFinales`), car chaque appel tire son propre timbre.
+ */
+export const BALISE_ACCENT_FRANCE = '[French from France]';
+
+export function texteVoixFinaleStudio(texte: string): string {
+  return `${BALISE_ACCENT_FRANCE} ${texte}`;
+}
+
+/**
  * Le son rendu par Google, toujours en WAV. Il arrive soit déjà en WAV
  * (« audio/wav »), soit en PCM brut (« audio/L16;codec=pcm;rate=24000 ») : ce
  * dernier reçoit son entête WAV, mono 16 bits, à la fréquence annoncée.

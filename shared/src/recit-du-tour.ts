@@ -173,13 +173,16 @@ export interface RecitDEntree {
 }
 
 /**
- * LE RÉCIT D'UN PASSAGE : tous ses blocs, et combien s'en montrent d'office.
- * Le reste attend derrière un « voir les N de plus » — la règle ne cache rien,
- * elle dit seulement où couper.
+ * LE RÉCIT D'UN PASSAGE : tous ses blocs, et combien s'en montrent d'office —
+ * les derniers. Les plus anciens attendent derrière « voir les N précédentes »
+ * — la règle ne cache rien, elle dit seulement où couper.
  */
 export interface RecitDUnPassage {
   blocs: BlocRaconte[];
-  /** Combien de blocs l'écran affiche avant de proposer le repli. */
+  /**
+   * Combien de blocs l'écran affiche d'office : les DERNIERS du passage. Les
+   * plus anciens attendent au-dessus, derrière « voir les N précédentes ».
+   */
   montresDOffice: number;
   /** L'instant du PREMIER geste du passage, quand il en porte un. */
   debutAt?: number;
@@ -503,6 +506,15 @@ export function titreDeLaSorte(sorte: VueDEntree['sorte']): string {
  */
 export const PLAFOND_DE_BLOCS = 12;
 
+/**
+ * COMBIEN DE CARTONS SE MONTRENT D'OFFICE, ET LESQUELS : les QUINZE DERNIERS du
+ * passage. Pendant qu'un agent travaille, c'est sa dernière action qu'on vient
+ * lire ; seules les plus anciennes se replient, AU-DESSUS, derrière « voir les
+ * N précédentes ». Distinct de `PLAFOND_DE_BLOCS`, qui ne règle que le
+ * regroupement par genre : changer l'un ne doit pas toucher l'autre.
+ */
+export const CARTONS_MONTRES_D_OFFICE = 15;
+
 /** Le titre d'un bloc, selon ce qu'il réunit. */
 function titreDuBloc(genre: GenreDeBloc, variante: string | undefined, compte: number): PhraseDuRecit {
   if (genre === 'outil' && variante) {
@@ -570,14 +582,15 @@ function blocDeLAmas(amas: AmasDuRecit): BlocRaconte {
  * travail. Les entrées voisines de même genre se réunissent ensuite ; si le
  * passage dépasse malgré tout son plafond, on réunit une seconde fois — tout ce
  * qui partage un genre, dans l'ordre de sa première apparition. La règle dit
- * combien de blocs s'en montrent d'office ; le reste attend derrière un
- * « voir les N de plus ».
+ * combien de blocs s'en montrent d'office — les DERNIERS ; les plus anciens
+ * attendent derrière « voir les N précédentes ».
  */
 export function recitDuPoint(
   entrees: EntreeJournal[],
-  options?: { plafond?: number },
+  options?: { plafond?: number; montres?: number },
 ): RecitDUnPassage {
   const plafond = options?.plafond ?? PLAFOND_DE_BLOCS;
+  const montres = options?.montres ?? CARTONS_MONTRES_D_OFFICE;
   const amas: AmasDuRecit[] = [];
   for (const entree of entrees) {
     /* LE TAMIS PASSE AVANT TOUT REGROUPEMENT : une entrée de plomberie ne
@@ -633,8 +646,8 @@ export function recitDuPoint(
       /* Un amas ISOLÉ garde sa propre clé : il ne rejoint personne, même au
          second tour. UN AMAS QUI PORTE UNE PHRASE D'AGENT NON PLUS : la fusion
          par genre effacerait justement ce qui raconte le travail, et le fil
-         retomberait sur « 40 commandes lancées ». Ce qui dépasse le plafond
-         attend derrière « voir les N de plus », il ne se fond pas. */
+         retomberait sur « 40 commandes lancées ». Ce qui dépasse l'affichage
+         attend derrière « voir les N précédentes », il ne se fond pas. */
       const cle =
         bloc.isole || bloc.ditParLAgent
           ? `garde::${bloc.entrees[0]?.id ?? parCle.size}`
@@ -652,12 +665,12 @@ export function recitDuPoint(
   }
 
   /* LE TOTAL SE CALCULE SUR TOUTES LES ENTRÉES DE TRAVAIL, jamais sur les
-     blocs montrés : déplier « voir les N de plus » ne doit pas changer le
+     blocs montrés : déplier « voir les N précédentes » ne doit pas changer le
      temps total du passage. */
   const quand = enveloppeDesEntrees(amas.flatMap((a) => a.entrees));
   return {
     blocs,
-    montresDOffice: Math.min(plafond, blocs.length),
+    montresDOffice: Math.min(montres, blocs.length),
     ...(quand ? { debutAt: quand.debutAt } : {}),
     ...(quand?.dureeMs !== undefined ? { dureeMs: quand.dureeMs } : {}),
   };

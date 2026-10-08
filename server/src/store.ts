@@ -1,13 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import {
-  additionnerLesRendus,
-  agentSystemeNonLu,
-  miseEnProductionNonLue,
-  misesEnProductionAAfficher,
-  renduLePlusRecent,
-  systemeNonLuParProjet,
-  type SystemeNonLu,
-} from '@beluga/shared';
+import { DUREE_SYSTEME_TERMINE_MS, agentSystemeTermine, misesEnProductionAAfficher } from '@beluga/shared';
 import {
   Agent,
   Attachment,
@@ -55,6 +47,7 @@ import {
   JOURS_DE_TENDANCE,
   gesteDuParcours,
   gesteEnAttente,
+  questionsSansReponse,
   TEXTE_DU_GESTE_ATTENDU,
   type MessageDuParcours,
   type IssueDeTache,
@@ -2073,6 +2066,28 @@ function attentesDeGeste(dejaEnAttente: ReadonlySet<string>): DecisionAttendue[]
         repriseCompte: message.repriseCompte,
       }));
       const tourEnCours = agent.status === 'running' || agent.status === 'starting';
+      /*
+       * LES QUESTIONS GARDÉES SUR LA CARTE par un cadrage sans témoin
+       * (`questions-de-carte.ts`) : une QUESTION, qui allume le triangle de la
+       * carte et de son projet et la cloche, comme une question de l'agent —
+       * même si personne n'a encore ouvert la carte.
+       */
+      const enAttente = questionsSansReponse(carte.parcours?.comprehension);
+      if (enAttente.length) {
+        attentes.push({
+          projectId: carte.projectId,
+          agentId: agent.id,
+          cardId: carte.id,
+          genre: 'question',
+          reglee: false,
+          poseeA: carte.parcours?.comprehension?.at,
+          source: 'question-de-carte',
+          texte: enAttente[0].question,
+          projectName: enrichir.nomProjet(carte.projectId),
+          lieuTitre: enrichir.lieuTitre(carte.id, agent.id),
+        });
+        continue;
+      }
       const etat = gesteDuParcours({
         colonne: carte.column,
         roleAgent: agent.role,
@@ -2526,104 +2541,54 @@ export function signalAttention(
  *
  * La roue qui tourne dit déjà « un agent travaille » ; c'est l'état d'après qui
  * manquait. On rapproche chaque carte de son dernier agent, et la règle — dans
- * `shared`, donc testable seule — tranche.
+ * `shared`, donc testable seule — tranche. Les cartes SYSTÈME n'y comptent
+ * plus (06/10/2026) : finies, elles passent 24 heures dans « Terminés » sans
+ * aucun signal — ni chiffre bleu, ni cloche, ni icône de l'application.
  */
 export function projectsWithFinishedWork(): Record<string, number> {
-  return additionnerLesRendus(rendusParProjet(etatDesCartesRendues()), systemeNonLuParProjet(systemeNonLu()));
+  return rendusParProjet(etatDesCartesRendues());
 }
 
 /**
- * LES CARTES SYSTÈME NON LUES (`shared/src/cartes-systeme.ts`) : les agents
- * sans carte qui ont fini, et la dernière mise en production de chaque projet,
- * tant que personne ne les a consultés. Elles comptent dans le chiffre bleu du
- * projet au même titre qu'une carte. Les deux lectures passent par les
- * colonnes calculées `fini_a` / `lu_a` / `cible` et leur index : ni le JSON
- * d'une publication ni celui d'un agent lu n'est relu.
+ * LES AGENTS SANS CARTE FINIS DEPUIS MOINS DE 24 HEURES, d'un projet qui existe
+ * encore : leur carte violette dans « Terminés » des Tableaux de bord
+ * (`agentSystemeTermine`). Lu par la colonne calculée `fini_a` et son index.
  */
-export function systemeNonLu(projectIds?: readonly string[]): SystemeNonLu[] {
-  const entrees: SystemeNonLu[] = [];
-  const voulu = projectIds ? new Set(projectIds) : null;
-  for (const agent of agentsSystemeNonLus()) {
-    if (voulu && !voulu.has(agent.projectId)) continue;
-    entrees.push({ projectId: agent.projectId, genre: 'agent', id: agent.id, finiA: agent.endedAt ?? 0 });
-  }
-  for (const run of productionsAAfficher()) {
-    if (run.state === 'running' || (voulu && !voulu.has(run.projectId))) continue;
-    entrees.push({ projectId: run.projectId, genre: 'production', id: run.projectId, finiA: run.endedAt ?? 0 });
-  }
-  return entrees;
-}
-
-/** Les agents sans carte qui ont fini sans avoir été lus, d'un projet qui existe encore. */
-export function agentsSystemeNonLus(): Agent[] {
+export function agentsSystemeTermines(maintenant: number): Agent[] {
   const rows = getDb()
     .prepare(
       /* L'index partiel est NOMMÉ : laissé à lui-même, le planificateur passe
          par celui des cartes et relit le JSON de chaque agent sans carte
          (mesuré : 1,9 ms contre 0,07 ms sur 700 agents). */
       `SELECT a.data FROM agents a INDEXED BY idx_agents_sans_carte
-        WHERE a.card_id IS NULL AND a.fini_a > COALESCE(a.lu_a, 0)
+        WHERE a.card_id IS NULL AND a.fini_a > ?
           AND EXISTS (SELECT 1 FROM projects p WHERE p.id = a.project_id)`,
     )
-    .all() as { data: string }[];
-  return rows.map((r) => Agent.parse(JSON.parse(r.data))).filter(agentSystemeNonLu);
+    .all(maintenant - DUREE_SYSTEME_TERMINE_MS) as { data: string }[];
+  return rows.map((r) => Agent.parse(JSON.parse(r.data))).filter((agent) => agentSystemeTermine(agent, maintenant));
 }
 
 /**
  * LES MISES EN PRODUCTION QUI ONT LEUR CARTE VIOLETTE, tous projets confondus :
- * la dernière de chaque projet, si elle tourne ou si elle a fini sans avoir été
- * lue. Une publication plus ancienne restée non lue ne revient jamais : la
- * suivante l'a remplacée.
+ * la dernière de chaque projet, si elle tourne ou si elle a fini depuis moins
+ * de 24 heures. Une publication plus ancienne ne revient jamais : la suivante
+ * l'a remplacée.
  */
-export function productionsAAfficher(): DeployRun[] {
+export function productionsAAfficher(maintenant: number): DeployRun[] {
   const rows = getDb()
     .prepare(
       `SELECT d.data FROM deploys d
         WHERE d.cible = 'production'
-          AND (d.state = 'running' OR COALESCE(d.ended_at, 0) > COALESCE(d.lu_a, 0))
+          AND (d.state = 'running' OR COALESCE(d.ended_at, 0) > ?)
           AND NOT EXISTS (SELECT 1 FROM deploys n
                            WHERE n.cible = 'production' AND n.project_id = d.project_id AND n.started_at > d.started_at)
           AND EXISTS (SELECT 1 FROM projects p WHERE p.id = d.project_id)`,
     )
-    .all() as { data: string }[];
-  return misesEnProductionAAfficher(rows.map((r) => DeployRun.parse(JSON.parse(r.data))));
-}
-
-/**
- * « J'ai lu », pour un agent sans carte. Le repère s'écrit DANS la ligne, sans
- * repasser par `saveAgent` : la lecture n'est pas une action de l'agent, sa
- * date de dernière activité ne bouge pas. `null` quand il n'y avait rien à lire.
- */
-export function markAgentRead(agentId: string, at = now()): Agent | null {
-  const agent = getAgent(agentId);
-  if (!agent || !agentSystemeNonLu(agent)) return null;
-  getDb().prepare(`UPDATE agents SET data = json_set(data, '$.luA', ?) WHERE id = ?`).run(at, agentId);
-  return getAgent(agentId);
-}
-
-/** « J'ai lu », pour une mise en production terminée. `null` quand il n'y avait rien à lire. */
-export function markDeployRead(runId: string, at = now()): DeployRun | null {
-  const run = getDeploy(runId);
-  if (!run || !miseEnProductionNonLue(run)) return null;
-  getDb().prepare(`UPDATE deploys SET data = json_set(data, '$.luA', ?) WHERE id = ?`).run(at, runId);
-  return getDeploy(runId);
-}
-
-/** « J'ai tout lu sur ce projet » touche AUSSI ses cartes Système. Rend ce qui a changé. */
-export function markSystemeRead(projectId: string, at = now()): { agents: Agent[]; runs: DeployRun[] } {
-  const agents: Agent[] = [];
-  const runs: DeployRun[] = [];
-  for (const agent of agentsSystemeNonLus()) {
-    if (agent.projectId !== projectId) continue;
-    const lu = markAgentRead(agent.id, at);
-    if (lu) agents.push(lu);
-  }
-  for (const run of productionsAAfficher()) {
-    if (run.projectId !== projectId) continue;
-    const lu = markDeployRead(run.id, at);
-    if (lu) runs.push(lu);
-  }
-  return { agents, runs };
+    .all(maintenant - DUREE_SYSTEME_TERMINE_MS) as { data: string }[];
+  return misesEnProductionAAfficher(
+    rows.map((r) => DeployRun.parse(JSON.parse(r.data))),
+    maintenant,
+  );
 }
 
 /**
@@ -2637,21 +2602,12 @@ export function unreadCards(projectId: string): string[] {
     .map((entree) => entree.cardId);
 }
 
-/** La carte non lue que le badge bleu du projet ouvre : la plus récemment rendue. */
-export function lastUnreadCard(projectIds: string[]): string | null {
-  return carteNonLueLaPlusRecente(projectIds.flatMap((id) => etatDesCartesRendues(id)));
-}
-
 /**
- * CE QUE LE BADGE BLEU OUVRE, carte Système comprise : le rendu le plus récent
- * du projet (ou du groupe), qu'il vienne d'une carte, d'un agent sans carte ou
- * d'une mise en production (`renduLePlusRecent`).
+ * CE QUE LE BADGE BLEU OUVRE : la carte non lue la plus récemment rendue du
+ * projet (ou du groupe). Les cartes Système n'y comptent plus (06/10/2026).
  */
-export function lastUnread(projectIds: string[]): ReturnType<typeof renduLePlusRecent> {
-  const cartes = projectIds.flatMap((id) => etatDesCartesRendues(id));
-  const cardId = carteNonLueLaPlusRecente(cartes);
-  const carte = cardId ? { cardId, renduA: cartes.find((c) => c.cardId === cardId)?.renduA ?? 0 } : null;
-  return renduLePlusRecent(carte, systemeNonLu(projectIds));
+export function lastUnread(projectIds: string[]): string | null {
+  return carteNonLueLaPlusRecente(projectIds.flatMap((id) => etatDesCartesRendues(id)));
 }
 
 /**
@@ -3163,7 +3119,8 @@ export function saveAttachment(attachment: Attachment): Attachment {
 /**
  * RETIRE UNE PIÈCE JOINTE DU DÉPÔT (sa ligne seulement : le fichier est effacé
  * par l'appelant, qui sait où il vit). Réservé à ce qui a un PROPRIÉTAIRE
- * unique et vérifié — les images du coffre-fort (`server/src/coffre-fort.ts`).
+ * unique et vérifié — les images du coffre-fort (`server/src/coffre-fort.ts`),
+ * les sons et exports d'une création du studio (`server/src/studio.ts`).
  */
 export function supprimerPieceJointe(id: string): boolean {
   return getDb().prepare('DELETE FROM attachments WHERE id = ?').run(id).changes > 0;
@@ -3362,46 +3319,6 @@ export function usageByMonth(): { month: string; tokens: number; seconds: number
        FROM usage GROUP BY month ORDER BY month DESC LIMIT 12`,
     )
     .all() as any;
-}
-
-/**
- * La consommation JOUR PAR JOUR, tous moteurs confondus, pour la courbe du
- * tableau de bord. Un jour par ligne (heure locale du serveur), les plus
- * récents d'abord ; on rend au plus `days` jours. Le tri final revient à la
- * page, qui dessine du plus ancien au plus récent.
- */
-export function usageByDay(days = 30): { day: string; tokens: number; seconds: number; tasks: number }[] {
-  return getDb()
-    .prepare(
-      `SELECT strftime('%Y-%m-%d', created_at/1000, 'unixepoch', 'localtime') AS day,
-              SUM(tokens) AS tokens, SUM(seconds) AS seconds, COUNT(DISTINCT card_id) AS tasks
-       FROM usage GROUP BY day ORDER BY day DESC LIMIT ?`,
-    )
-    .all(Math.max(1, Math.round(days))) as any;
-}
-
-/**
- * L'HISTORIQUE DES TÂCHES EXÉCUTÉES : une ligne par TOUR réellement parti
- * (`recordUsage` écrit une ligne à la fin de chaque tour d'agent), la plus
- * récente d'abord. `inputTokens` / `outputTokens` sont le DÉTAIL réel du
- * tour tel que le moteur l'a rendu — jamais une estimation. Le titre de la
- * carte se raccroche côté appelant, comme pour les autres vues d'usage.
- */
-export function usageHistorique(limit = 30): {
-  cardId: string;
-  at: number;
-  inputTokens: number;
-  outputTokens: number;
-  tokens: number;
-}[] {
-  return getDb()
-    .prepare(
-      `SELECT card_id AS cardId, created_at AS at, input_tokens AS inputTokens,
-              output_tokens AS outputTokens, tokens
-       FROM usage WHERE card_id IS NOT NULL
-       ORDER BY created_at DESC, id DESC LIMIT ?`,
-    )
-    .all(Math.max(1, Math.round(limit))) as any;
 }
 
 /** Consommation mémoire moyenne mesurée d'un agent — sert au calcul des places libres (PLAN §27). */
@@ -3659,8 +3576,10 @@ export function recordTelemetrieTache(ligne: {
  * reprise reste une tâche qui a échoué en route, et l'afficher « terminée »
  * effacerait le fait le plus utile de la ligne.
  */
-export function telemetrieDesTaches(jours = JOURS_DE_TENDANCE): MesureDeTache[] {
-  const depuis = now() - Math.max(1, Math.round(jours)) * 24 * 60 * 60 * 1000;
+export function telemetrieDesTaches(jours = JOURS_DE_TENDANCE, bornes?: { debut: number; fin: number }): MesureDeTache[] {
+  /* Une période précise (page « Résumé ») l'emporte sur les « N derniers jours ». */
+  const depuis = bornes ? bornes.debut : now() - Math.max(1, Math.round(jours)) * 24 * 60 * 60 * 1000;
+  const jusqua = bornes ? bornes.fin : Number.MAX_SAFE_INTEGER;
   const lignes = getDb()
     .prepare(
       `SELECT card_id AS cardId, project_id AS projectId,
@@ -3671,16 +3590,16 @@ export function telemetrieDesTaches(jours = JOURS_DE_TENDANCE): MesureDeTache[] 
               SUM(memoire_signes_entiers) AS entiers, SUM(memoire_signes_servis) AS servis,
               MAX(created_at) AS at,
               MIN(CASE issue WHEN 'echec' THEN 0 WHEN 'interrompue' THEN 1 ELSE 2 END) AS rang
-       FROM telemetrie_tache WHERE created_at >= ?
+       FROM telemetrie_tache WHERE created_at >= ? AND created_at <= ?
        GROUP BY card_id ORDER BY at DESC`,
     )
-    .all(depuis) as any[];
+    .all(depuis, jusqua) as any[];
   const sujetsParCarte = getDb()
     .prepare(
       `SELECT card_id AS cardId, memoire_sujets AS sujets FROM telemetrie_tache
-       WHERE created_at >= ? ORDER BY created_at ASC`,
+       WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC`,
     )
-    .all(depuis) as { cardId: string; sujets: string | null }[];
+    .all(depuis, jusqua) as { cardId: string; sujets: string | null }[];
   const reunis = new Map<string, string[]>();
   for (const ligne of sujetsParCarte) {
     let liste: string[] = [];

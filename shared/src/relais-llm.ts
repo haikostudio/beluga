@@ -191,15 +191,24 @@ export function jugerDemandeLlm(brut: unknown): JugementDemandeLlm {
 }
 
 /**
- * La clé OpenRouter parmi les fiches du coffre. On cherche une fiche de type
- * « clé d'API » dont le service NOMME OpenRouter — le nom de la fiche est libre,
- * le champ « service » est ce qui fait foi ; à défaut, le nom de la fiche ou
- * son adresse suffisent, car une fiche mal remplie vaut mieux qu'un refus.
- * La plus RÉCEMMENT modifiée l'emporte : c'est ainsi qu'une clé remplacée prend
- * la place de l'ancienne sans qu'on ait à effacer quoi que ce soit.
+ * Le nom EXACT de la fiche du coffre qui porte la clé OpenRouter de l'espace
+ * « Haiko » (relais et génération du Studio). Fiche et constante se renomment
+ * ENSEMBLE : si elles divergent, le relais perd sa clé.
  */
-export function cleOpenRouterDuCoffre(acces: AccesCoffre[]): string | undefined {
-  return cleDuServiceDansLeCoffre(acces, SERVICE_OPENROUTER);
+export const NOM_FICHE_OPENROUTER_RELAIS = 'OpenRouter — Haiko — relais IA';
+
+/**
+ * La clé OpenRouter du relais : la fiche de type « clé d'API » dont le nom est
+ * exactement `NOM_FICHE_OPENROUTER_RELAIS`. AUCUN repli : une autre fiche
+ * OpenRouter, même plus récente, ne la supplante jamais (le 27/09/2026 une
+ * sous-clé plafonnée d'un autre projet avait pris sa place, 403 sur tout
+ * l'assistant). Fiche absente ou sans clé : rien.
+ */
+export function cleOpenRouterDuRelais(acces: AccesCoffre[]): string | undefined {
+  const fiche = acces.find(
+    (a) => a.type === 'cle-api' && a.nom === NOM_FICHE_OPENROUTER_RELAIS && typeof a.champs?.cle === 'string' && a.champs.cle.trim(),
+  );
+  return fiche?.champs.cle.trim();
 }
 
 /**

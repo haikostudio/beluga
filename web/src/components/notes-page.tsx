@@ -20,6 +20,7 @@ import {
   EmptyState,
   Input,
   ZoneDefilement,
+  ListeDeroulante,
 } from '@/components/ui';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { EditeurRiche } from '@/components/editeur-riche';
@@ -574,32 +575,28 @@ function FicheNote({
 
       {/* Les repères de la note : projet, importance, échéance. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 pb-2 text-[12.5px]">
-        <select
-          value={projet}
-          aria-label="Projet de la note"
+        <ListeDeroulante
+          valeur={projet}
+          titre={t('Projet de la note')}
+          repere="projet-note"
           data-projet-note
-          onChange={(event) => setProjet(event.target.value)}
-          className="h-7 rounded-md border border-border bg-surface px-2 text-[12.5px]"
-        >
-          {projetsEnArbre(state.projects).map((ligne) => (
-            <option key={ligne.projet.id} value={ligne.projet.id} data-membre-de={ligne.parentId}>
-              {libelleDansUnMenu(ligne.projet.name, ligne)}
-            </option>
-          ))}
-        </select>
-        <select
-          value={importance}
-          aria-label="Importance de la note"
+          onChoisir={setProjet}
+          className="h-7 w-auto max-w-[220px] text-[12.5px]"
+          options={projetsEnArbre(state.projects).map((ligne) => ({
+            valeur: ligne.projet.id,
+            libelle: libelleDansUnMenu(ligne.projet.name, ligne),
+            attributs: { 'data-membre-de': ligne.parentId },
+          }))}
+        />
+        <ListeDeroulante
+          valeur={importance}
+          titre={t('Importance de la note')}
+          repere="importance-note"
           data-importance-note
-          onChange={(event) => setImportance(event.target.value as ImportanceNote)}
-          className="h-7 rounded-md border border-border bg-surface px-2 text-[12.5px]"
-        >
-          {IMPORTANCES_NOTE.map((cle) => (
-            <option key={cle} value={cle}>
-              {t(LIBELLES_IMPORTANCE[cle])}
-            </option>
-          ))}
-        </select>
+          onChoisir={(valeur) => setImportance(valeur as ImportanceNote)}
+          className="h-7 w-auto text-[12.5px]"
+          options={IMPORTANCES_NOTE.map((cle) => ({ valeur: cle, libelle: t(LIBELLES_IMPORTANCE[cle]) }))}
+        />
         <input
           type="datetime-local"
           value={echeance}

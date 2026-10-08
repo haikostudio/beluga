@@ -34,7 +34,8 @@ export type EnvoiCourrielDeSite =
   | { envoye: true }
   | { envoye: false; raison: 'pas-de-cle' | 'site-introuvable' | 'refuse'; detail?: string };
 
-async function envoyer(sujet: string, texte: string, html: string): Promise<EnvoiCourrielDeSite> {
+/** L'envoi commun à tous les courriels de la surveillance, contrôle WordPress compris. */
+export async function envoyer(sujet: string, texte: string, html: string): Promise<EnvoiCourrielDeSite> {
   const cle = cleResend();
   if (!cle) {
     log.warn('surveillance : aucune clé Resend au coffre-fort, le courriel d’alerte ne part pas');

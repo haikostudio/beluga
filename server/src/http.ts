@@ -989,6 +989,10 @@ export function createHttpServer(): http.Server {
       // sans session : sinon l'installation sur téléphone échoue silencieusement.
       // Les images des notifications suivent la même règle : le navigateur va
       // les chercher pour afficher une alerte, parfois sans onglet ouvert.
+      // Les images des COURRIELS aussi (pictogrammes et logo de `/courriel/`) :
+      // c'est la messagerie du destinataire qui les télécharge, sans session.
+      // Faute de cette ligne, l'adresse rendait la page de l'application
+      // (200 en text/html) et chaque pictogramme s'affichait cassé.
       //
       // DEUX FICHES D'INSTALLATION, UNE PAR VISAGE. Sur l'adresse de l'espace
       // client, `/manifest.json` rend `manifest-client.json` — « Haiko Chat »,
@@ -997,13 +1001,63 @@ export function createHttpServer(): http.Server {
       // (par origine) n'ont rien à savoir.
       if (
         ['/manifest.json', '/sw.js', '/icon.svg', '/icon-192.png', '/icon-512.png'].includes(route) ||
-        /^\/notif\/[a-z-]+\.png$/.test(route)
+        /^\/notif\/[a-z-]+\.png$/.test(route) ||
+        /^\/courriel\/[a-z0-9-]+\.png$/.test(route)
       ) {
         const racine = webRoot();
         const fichier =
           route === '/manifest.json' && porteDeLHote(req.headers.host) === 'client' ? '/manifest-client.json' : route;
         const publicFile = path.join(racine, fichier.replace(/^\/+/, ''));
         if (publicFile.startsWith(racine) && serveStatic(res, publicFile)) return;
+      }
+
+      /*
+       * LE CADRE D'APERÇU DU STUDIO A UNE ORIGINE OPAQUE (`sandbox` sans
+       * `allow-same-origin`) : il n'envoie pas le témoin de session. Ses trois
+       * sortes de fichiers passent donc AVANT le mur :
+       *  - GSAP et les polices embarquées, publics par nature (bibliothèque et
+       *    polices libres), avec l'entête CORS que réclament les polices ;
+       *  - les médias, par une adresse SIGNÉE de courte durée, limitée à une
+       *    création et à un média de son projet (`mediaDeLAdresseSignee`).
+       */
+      if (route === '/studio/gsap.min.js' || /^\/studio\/polices\/[a-z0-9-]+\.woff2$/.test(route)) {
+        const { outilsDeRendu } = await import('./studio-rendu.js');
+        const outils = outilsDeRendu();
+        const fichier = route === '/studio/gsap.min.js' ? outils.gsap : path.join(outils.polices, path.basename(route));
+        if (!fichier || !fs.existsSync(fichier)) return json(res, 404, { error: 'fichier introuvable' });
+        res.writeHead(200, {
+          'content-type': route.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'font/woff2',
+          'cache-control': 'public, max-age=86400',
+          'access-control-allow-origin': '*',
+        });
+        return fs.createReadStream(fichier).pipe(res);
+      }
+      const studioMedia = /^\/studio-media\/([\w-]+)\/([\w-]+)$/.exec(route);
+      if (studioMedia) {
+        const { mediaDeLAdresseSignee, fichierDuMedia } = await import('./studio.js');
+        const media = mediaDeLAdresseSignee(studioMedia[1]!, studioMedia[2]!, Number(url.searchParams.get('e')), String(url.searchParams.get('s') ?? ''));
+        const fichier = media ? fichierDuMedia(media) : null;
+        if (!media || !fichier) return json(res, 404, { error: 'média introuvable' });
+        const taille = fs.statSync(fichier).size;
+        const entetes: http.OutgoingHttpHeaders = {
+          'content-type': media.mime ?? 'application/octet-stream',
+          'accept-ranges': 'bytes',
+          'cache-control': 'private, max-age=3600',
+          'x-content-type-options': 'nosniff',
+        };
+        const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
+        if (plage.genre === 'impossible') {
+          res.writeHead(416, { 'content-range': `bytes */${taille}` });
+          return res.end();
+        }
+        if (plage.genre === 'partiel') {
+          res.writeHead(206, { ...entetes, 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
+          if (req.method === 'HEAD') return res.end();
+          return pipeline(fs.createReadStream(fichier, { start: plage.debut, end: plage.fin }), res).catch(() => {});
+        }
+        res.writeHead(200, { ...entetes, 'content-length': taille });
+        if (req.method === 'HEAD') return res.end();
+        return pipeline(fs.createReadStream(fichier), res).catch(() => {});
       }
 
       /* ---------------- Mur d'accès ---------------- */
@@ -1248,6 +1302,45 @@ export function createHttpServer(): http.Server {
         res.writeHead(200, { ...entetes, 'content-length': taille });
         if (req.method === 'HEAD') return res.end();
         return pipeline(fs.createReadStream(file), res).catch(() => {});
+      }
+
+      /* L'extrait d'une voix finale du Studio : fabriqué une fois (quota gratuit), gardé, puis servi. */
+      if (route === '/api/studio/extrait') {
+        const { fichierDExtrait } = await import('./studio-generation.js');
+        const r = await fichierDExtrait(String(url.searchParams.get('voix') ?? ''));
+        if (!r.ok) return json(res, 503, { error: r.raison });
+        res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'private, max-age=86400' });
+        return fs.createReadStream(r.fichier).pipe(res);
+      }
+
+      /* LA VIGNETTE D'UN STYLE DU STUDIO (galerie « Styles ») : téléchargée une fois, gardée, servie d'ici. */
+      if (route === '/api/studio/style-vignette') {
+        const { vignetteDuStyle } = await import('./studio-styles.js');
+        const v = await vignetteDuStyle(String(url.searchParams.get('id') ?? ''), url.searchParams.get('anime') === '1');
+        const entetes = { 'content-type': v.type, 'cache-control': 'private, max-age=604800', 'x-content-type-options': 'nosniff' };
+        if (Buffer.isBuffer(v.corps)) {
+          res.writeHead(200, entetes);
+          return res.end(v.corps);
+        }
+        // Une vidéo se sert PAR PLAGES (206) : sans réponse aux requêtes Range, Safari ne la lit pas.
+        if (v.type.startsWith('video/')) {
+          const taille = fs.statSync(v.corps).size;
+          const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
+          if (plage.genre === 'impossible') {
+            res.writeHead(416, { 'content-range': `bytes */${taille}` });
+            return res.end();
+          }
+          if (plage.genre === 'partiel') {
+            res.writeHead(206, { ...entetes, 'accept-ranges': 'bytes', 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
+            if (req.method === 'HEAD') return res.end();
+            return pipeline(fs.createReadStream(v.corps, { start: plage.debut, end: plage.fin }), res).catch(() => {});
+          }
+          res.writeHead(200, { ...entetes, 'accept-ranges': 'bytes', 'content-length': taille });
+          if (req.method === 'HEAD') return res.end();
+          return pipeline(fs.createReadStream(v.corps), res).catch(() => {});
+        }
+        res.writeHead(200, entetes);
+        return fs.createReadStream(v.corps).pipe(res);
       }
 
       if (route === '/api/favicon') {

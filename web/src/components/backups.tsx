@@ -69,6 +69,9 @@ import {
   Switch,
   Textarea,
   ZoneDefilement,
+  ListeDeroulante,
+  FormulaireEnColonnes,
+  LigneFormulaire,
 } from '@/components/ui';
 import { SilhouetteBackups } from '@/components/silhouettes';
 import { Chat } from '@/components/chat';
@@ -1032,8 +1035,7 @@ function AssistantDeSite({
       </header>
 
       <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-        <div className="flex flex-col gap-3">
-
+        <FormulaireEnColonnes>
           <Champ libelle={t('Le site à sauvegarder')}>
             <Textarea
               value={description}
@@ -1048,30 +1050,27 @@ function AssistantDeSite({
 
           {projets.length ? (
             <Champ libelle={t('Un projet de ce serveur ?')}>
-              <select
-                value={projet}
-                onChange={(e) => setProjet(e.target.value)}
-                className={CLASSE_SELECT}
+              <ListeDeroulante
+                valeur={projet}
+                titre={t('Un projet de ce serveur ?')}
+                repere="backups-projet"
                 data-backups-projet
-              >
-                <option value="">{t('Site extérieur')}</option>
-                {lignesDeProjets.map((ligne) => (
-                  <option
-                    key={ligne.projet.id}
-                    value={ligne.projet.id}
-                    disabled={ligne.titre}
-                    data-membre-de={ligne.parentId}
-                  >
-                    {libelleDansUnMenu(ligne.projet.name, ligne)}
-                  </option>
-                ))}
-              </select>
+                onChoisir={setProjet}
+                options={[
+                  { valeur: '', libelle: t('Site extérieur') },
+                  ...lignesDeProjets.map((ligne) => ({
+                    valeur: ligne.projet.id,
+                    libelle: libelleDansUnMenu(ligne.projet.name, ligne),
+                    desactivee: !!ligne.titre,
+                    attributs: { 'data-membre-de': ligne.parentId },
+                  })),
+                ]}
+              />
             </Champ>
           ) : null}
 
           {refus ? <p className="text-[12px] text-warning">{t(refus)}</p> : null}
-
-        </div>
+        </FormulaireEnColonnes>
       </ZoneDefilement>
 
       <DialogFooter className="px-3 pt-2">
@@ -1188,20 +1187,15 @@ function TableauProjetsSansSauvegarde({
 /* La fiche d'un site                                                   */
 /* ------------------------------------------------------------------ */
 
+/** Une ligne de formulaire : libellé à gauche, valeur à droite (`FormulaireEnColonnes`). */
 function Champ({ libelle, aide, children }: { libelle: string; aide?: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex min-h-5 items-center gap-1">
-        <Label>{libelle}</Label>
-        {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
-      </div>
+    <LigneFormulaire libelle={libelle} aide={aide}>
       {children}
-    </div>
+    </LigneFormulaire>
   );
 }
 
-const CLASSE_SELECT =
-  'h-8 w-full rounded-md border border-border bg-bg px-2 text-[13px] text-text disabled:opacity-60';
 
 function FicheSite({
   fiche,
@@ -1281,7 +1275,7 @@ function FicheSite({
         </header>
 
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-          <div className="flex flex-col gap-3">
+          <FormulaireEnColonnes>
             <Champ libelle={t('Nom du site')}>
               <Input
                 value={site.nom}
@@ -1295,22 +1289,18 @@ function FicheSite({
             </Champ>
 
             <Champ libelle={t('Base de données')}>
-              <select
-                value={site.base.moteur}
-                onChange={(e) => majBase({ moteur: e.target.value as MoteurBase })}
-                className={CLASSE_SELECT}
+              <ListeDeroulante
+                valeur={site.base.moteur}
+                titre={t('Base de données')}
+                repere="backups-moteur"
                 data-backups-moteur
-              >
-                {MOTEURS_BASE.map((moteur) => (
-                  <option key={moteur} value={moteur}>
-                    {t(LIBELLE_MOTEUR_BASE[moteur])}
-                  </option>
-                ))}
-              </select>
+                onChoisir={(valeur) => majBase({ moteur: valeur as MoteurBase })}
+                options={MOTEURS_BASE.map((moteur) => ({ valeur: moteur, libelle: t(LIBELLE_MOTEUR_BASE[moteur]) }))}
+              />
             </Champ>
 
             {site.base.moteur !== 'aucune' ? (
-              <div className="flex flex-col gap-2 rounded-md border border-border/60 p-2.5">
+              <>
                 <Champ libelle={site.base.moteur === 'sqlite' ? t('Chemin du fichier') : t('Nom de la base')}>
                   <Input
                     value={site.base.nom}
@@ -1322,29 +1312,25 @@ function FicheSite({
                 </Champ>
                 {site.base.moteur !== 'sqlite' ? (
                   <>
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <Champ libelle={t('Machine')}>
-                          <Input
-                            value={site.base.hote}
-                            onChange={(e) => majBase({ hote: e.target.value })}
-                            placeholder="localhost"
-                            className="h-8 text-[13px]"
-                            autoComplete="off"
-                          />
-                        </Champ>
+                    <Champ libelle={t('Machine et port')}>
+                      <div className="flex gap-2">
+                        <Input
+                          value={site.base.hote}
+                          onChange={(e) => majBase({ hote: e.target.value })}
+                          placeholder="localhost"
+                          aria-label="Machine"
+                          className="h-8 min-w-0 flex-1 text-[13px]"
+                          autoComplete="off"
+                        />
+                        <Input
+                          value={site.base.port}
+                          onChange={(e) => majBase({ port: e.target.value })}
+                          aria-label="Port"
+                          className="h-8 w-20 text-[13px]"
+                          autoComplete="off"
+                        />
                       </div>
-                      <div className="w-20">
-                        <Champ libelle={t('Port')}>
-                          <Input
-                            value={site.base.port}
-                            onChange={(e) => majBase({ port: e.target.value })}
-                            className="h-8 text-[13px]"
-                            autoComplete="off"
-                          />
-                        </Champ>
-                      </div>
-                    </div>
+                    </Champ>
                     <Champ libelle={t('Utilisateur')}>
                       <Input
                         value={site.base.utilisateur}
@@ -1365,26 +1351,22 @@ function FicheSite({
                     </Champ>
                   </>
                 ) : null}
-              </div>
+              </>
             ) : null}
 
             <Champ libelle={t('Fichiers du site')}>
-              <select
-                value={site.fichiers.moyen}
-                onChange={(e) => majFichiers({ moyen: e.target.value as MoyenFichiers })}
-                className={CLASSE_SELECT}
+              <ListeDeroulante
+                valeur={site.fichiers.moyen}
+                titre={t('Fichiers du site')}
+                repere="backups-moyen"
                 data-backups-moyen
-              >
-                {MOYENS_FICHIERS.map((moyen) => (
-                  <option key={moyen} value={moyen}>
-                    {t(LIBELLE_MOYEN_FICHIERS[moyen])}
-                  </option>
-                ))}
-              </select>
+                onChoisir={(valeur) => majFichiers({ moyen: valeur as MoyenFichiers })}
+                options={MOYENS_FICHIERS.map((moyen) => ({ valeur: moyen, libelle: t(LIBELLE_MOYEN_FICHIERS[moyen]) }))}
+              />
             </Champ>
 
             {site.fichiers.moyen !== 'aucun' ? (
-              <div className="flex flex-col gap-2 rounded-md border border-border/60 p-2.5">
+              <>
                 <Champ libelle={t('Dossier à sauvegarder')}>
                   <Input
                     value={site.fichiers.chemin}
@@ -1397,29 +1379,25 @@ function FicheSite({
                 </Champ>
                 {distant ? (
                   <>
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <Champ libelle={t('Machine')}>
-                          <Input
-                            value={site.fichiers.hote}
-                            onChange={(e) => majFichiers({ hote: e.target.value })}
-                            className="h-8 text-[13px]"
-                            autoComplete="off"
-                            data-backups-fichiers-hote
-                          />
-                        </Champ>
+                    <Champ libelle={t('Machine et port')}>
+                      <div className="flex gap-2">
+                        <Input
+                          value={site.fichiers.hote}
+                          onChange={(e) => majFichiers({ hote: e.target.value })}
+                          aria-label="Machine"
+                          className="h-8 min-w-0 flex-1 text-[13px]"
+                          autoComplete="off"
+                          data-backups-fichiers-hote
+                        />
+                        <Input
+                          value={site.fichiers.port}
+                          onChange={(e) => majFichiers({ port: e.target.value })}
+                          aria-label="Port"
+                          className="h-8 w-20 text-[13px]"
+                          autoComplete="off"
+                        />
                       </div>
-                      <div className="w-20">
-                        <Champ libelle={t('Port')}>
-                          <Input
-                            value={site.fichiers.port}
-                            onChange={(e) => majFichiers({ port: e.target.value })}
-                            className="h-8 text-[13px]"
-                            autoComplete="off"
-                          />
-                        </Champ>
-                      </div>
-                    </div>
+                    </Champ>
                     <Champ libelle={t('Utilisateur')}>
                       <Input
                         value={site.fichiers.utilisateur}
@@ -1440,11 +1418,9 @@ function FicheSite({
                     </Champ>
                   </>
                 ) : null}
-              </div>
+              </>
             ) : null}
 
-            <div className="flex gap-2">
-              <div className="flex-1">
                 <Champ libelle={t('Fréquence (minutes)')} aide={t('15 = un quart d’heure, 60 = une heure, 1440 = une fois par jour.')}>
                   <Input
                     type="number"
@@ -1458,8 +1434,6 @@ function FicheSite({
                     data-backups-frequence
                   />
                 </Champ>
-              </div>
-              <div className="flex-1">
                 <Champ libelle={t('Rétention (jours)')}>
                   <Input
                     type="number"
@@ -1473,8 +1447,6 @@ function FicheSite({
                     data-backups-conservation
                   />
                 </Champ>
-              </div>
-            </div>
 
             <Champ libelle={t('Note')}>
               <Textarea
@@ -1493,12 +1465,16 @@ function FicheSite({
             ) : null}
 
 
-            {site.id ? <RecetteDuSite site={site} /> : null}
+            {site.id ? (
+              <div data-pleine-largeur>
+                <RecetteDuSite site={site} />
+              </div>
+            ) : null}
 
             {/* L'HISTORIQUE DE CE SITE : ce qui vivait dans un tiroir séparé
                 se lit maintenant ici, au clic sur le site lui-même. */}
             {site.id ? (
-              <div className="flex flex-col gap-1.5 border-t border-border/60 pt-3" data-backups-historique-site={site.id}>
+              <div className="flex flex-col gap-1.5 border-t border-border/60 pt-3" data-backups-historique-site={site.id} data-pleine-largeur>
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
                     <History className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -1527,7 +1503,7 @@ function FicheSite({
                 )}
               </div>
             ) : null}
-          </div>
+          </FormulaireEnColonnes>
         </ZoneDefilement>
 
         <DialogFooter className="justify-start px-3 pt-2">

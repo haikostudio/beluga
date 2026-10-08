@@ -128,6 +128,13 @@ export interface Competence {
    * Sinon elle n'est servie qu'à ces projets (`ficheServieAuProjet`).
    */
   projets: string[];
+  /**
+   * LA FICHE COMMUNE QUE CETTE FICHE PROPRE PRÉCISE (en-tête `etend`). Posé, la
+   * commune est le MODÈLE et cette fiche n'en est que la NUANCE pour son projet :
+   * elles se proposent et se servent ensemble, la commune d'abord
+   * (`fichesServiesAvecLeursNuances`). Absent : la fiche se suffit à elle-même.
+   */
+  etend?: string;
   /** D'où elle vient, et ce qui l'a renforcée. */
   provenance: ProvenanceDeFiche;
   /**
@@ -190,6 +197,64 @@ export function ficheCommune(fiche: Pick<Competence, 'projets'>): boolean {
   return !fiche.projets.length;
 }
 
+/*
+ * LA COMMUNE EST LE MODÈLE, LA FICHE PROPRE N'EN EST QUE LA NUANCE. Décision de
+ * l'utilisateur (2026-10-06) : une compétence reste propre à son projet par
+ * défaut ; quand le même élément revient dans plusieurs projets, une fiche
+ * COMMUNE le décrit, et sert à tout projet qui n'a rien. Quand un projet a AUSSI
+ * sa fiche sur le sujet, elle ÉTEND la commune (en-tête `etend`) : la commune
+ * part en premier, entière, et la fiche du projet ne dit que ce qui lui est
+ * propre. Sans ce lien, HaikoBill a reçu sa propre fiche — qui prescrivait
+ * « deux champs date » — à la place du sélecteur de période des autres projets.
+ */
+
+/**
+ * LA COMMUNE QU'UNE FICHE PROPRE ÉTEND, si elle est dans le pool, en service et
+ * réellement commune. Un lien vers une fiche absente, archivée ou propre ne lie
+ * rien : la fiche se sert alors seule, comme avant.
+ */
+export function communeEtendue<T extends Pick<Competence, 'nom' | 'projets' | 'etat' | 'etend'>>(
+  fiche: Pick<Competence, 'projets' | 'etend'>,
+  pool: readonly T[],
+): T | undefined {
+  const cible = fiche.etend?.trim();
+  if (!cible || ficheCommune(fiche)) return undefined;
+  return pool.find((autre) => autre.nom === cible && ficheCommune(autre) && ficheEnService(autre.etat));
+}
+
+/** Les fiches PROPRES à ce projet qui précisent cette commune — sa nuance ici. */
+export function nuancesDeLaCommune<T extends Pick<Competence, 'nom' | 'projets' | 'etat' | 'etend'>>(
+  commune: Pick<Competence, 'nom' | 'projets'>,
+  pool: readonly T[],
+  nomDuProjet?: string,
+): T[] {
+  if (!ficheCommune(commune) || !nomDuProjet?.trim()) return [];
+  return pool.filter(
+    (fiche) =>
+      !ficheCommune(fiche) &&
+      fiche.etend?.trim() === commune.nom &&
+      ficheEnService(fiche.etat) &&
+      ficheServieAuProjet(fiche, nomDuProjet),
+  );
+}
+
+/**
+ * CE QU'UN PROJET REÇOIT, SUJET PAR SUJET : une fiche PRINCIPALE et, quand elle
+ * est commune, les nuances que ce projet y ajoute. Une fiche propre liée à une
+ * commune servie n'apparaît JAMAIS seule — elle suit sa commune ; une fiche
+ * propre sans commune reste principale ; une commune sans nuance sert seule.
+ * L'ordre du pool est gardé.
+ */
+export function fichesServiesAvecLeursNuances<T extends Pick<Competence, 'nom' | 'projets' | 'etat' | 'etend'>>(
+  pool: readonly T[],
+  nomDuProjet?: string,
+): { principale: T; nuances: T[] }[] {
+  const servies = pool.filter((fiche) => ficheEnService(fiche.etat) && ficheServieAuProjet(fiche, nomDuProjet));
+  return servies
+    .filter((fiche) => !communeEtendue(fiche, servies))
+    .map((principale) => ({ principale, nuances: nuancesDeLaCommune(principale, servies, nomDuProjet) }));
+}
+
 /** Pourquoi une entrée du dossier n'a PAS été retenue comme compétence. */
 export type CauseDeRefus =
   | 'pas-un-dossier'
@@ -238,6 +303,8 @@ export interface EnTeteDeCompetence {
   themes?: string;
   symptomes?: string;
   projets?: string;
+  /** La fiche commune que cette fiche propre précise (`Competence.etend`). */
+  etend?: string;
   /** Provenance, à plat : `provenance-projet`, `provenance-carte`… */
   provenance?: Record<string, string>;
   /** Toutes les clés lues, pour ne rien perdre à la réécriture. */
@@ -311,6 +378,7 @@ export function enTeteDeCompetence(texte: string): EnTeteDeCompetence {
     else if (cle === 'themes' || cle === 'thèmes') entete.themes = valeur;
     else if (cle === 'symptomes' || cle === 'symptômes') entete.symptomes = valeur;
     else if (cle === 'projets') entete.projets = valeur;
+    else if (cle === 'etend' || cle === 'étend') entete.etend = valeur;
     else if (cle.startsWith('provenance-')) {
       entete.provenance = { ...(entete.provenance ?? {}), [cle.slice('provenance-'.length)]: valeur };
     }
@@ -542,10 +610,24 @@ export function classerCompetences(
   return { retenues, ecartees: liste.filter((fiche) => !retenues.includes(fiche)) };
 }
 
-/** Le sommaire par thème d'une liste de fiches — une ligne par thème. */
-function lignesParTheme(liste: Competence[]): string {
-  return grouperParTheme(liste)
-    .map((groupe) => `- ${groupe.theme} (${groupe.fiches.length}) : ${groupe.fiches.map((f) => f.nom).join(', ')}`)
+/**
+ * Le sommaire par thème d'une liste de fiches — une ligne par thème. Une NUANCE
+ * (fiche propre qui étend une commune de la liste `servies`) ne s'y nomme jamais
+ * seule : elle cède sa place à sa commune, qui s'écrit « commune (+ nuance x) ».
+ */
+function lignesParTheme(liste: Competence[], servies: readonly Competence[] = liste): string {
+  const vue: Competence[] = [];
+  for (const fiche of liste) {
+    const principale = communeEtendue(fiche, servies) ?? fiche;
+    if (!vue.includes(principale)) vue.push(principale);
+  }
+  // `servies` est déjà la part du projet : les nuances d'une commune sont celles qui l'étendent.
+  const nommer = (fiche: Competence) => {
+    const nuances = servies.filter((autre) => communeEtendue(autre, servies) === fiche).map((autre) => autre.nom);
+    return nuances.length ? `${fiche.nom} (+ nuance ${nuances.join(', ')})` : fiche.nom;
+  };
+  return grouperParTheme(vue)
+    .map((groupe) => `- ${groupe.theme} (${groupe.fiches.length}) : ${groupe.fiches.map(nommer).join(', ')}`)
     .join('\n');
 }
 
@@ -602,6 +684,12 @@ export function texteDesCompetences(
     `et suis-le : il dit quelle commande lancer et avec quels identifiants. Ne réponds jamais que tu ne sais pas faire ` +
     `ce qu'une compétence sait faire — et si tu ne fais pas le travail toi-même, nomme-la dans la carte que tu proposes.`;
 
+  // Dite seulement quand une commune porte une nuance : sinon elle ne coûterait que des signes.
+  const consigneNuance = servies.some((fiche) => communeEtendue(fiche, servies))
+    ? `\nUne compétence notée « (+ nuance …) » est COMMUNE : c'est le modèle. Ouvre-la d'abord, puis sa nuance propre ` +
+      `à ton projet, qui la précise sans la remplacer.`
+    : '';
+
   /*
    * LE POOL EST SERVI AU POIDS DE LA DEMANDE, COMME LES RÈGLES.
    *
@@ -614,7 +702,7 @@ export function texteDesCompetences(
    */
   const entier =
     `COMPÉTENCES PARTAGÉES (${servies.length}) — des modes d'emploi déjà écrits, ${portee}, ` +
-    `rangés par thème :\n${lignesParTheme(servies)}\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}`;
+    `rangés par thème :\n${lignesParTheme(servies)}\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}${consigneNuance}`;
 
   if (travail.trim() && servies.length >= COMPETENCES_MINIMUM_POUR_FILTRER) {
     const { retenues, ecartees } = pertinentes
@@ -627,7 +715,7 @@ export function texteDesCompetences(
     if (pertinentes && !retenues.length && ecartees.length) {
       const aucune =
         `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, ${portee}. ` +
-        `Aucune ne touche le travail de ta carte ; le sommaire les donne toutes si le travail change.\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}`;
+        `Aucune ne touche le travail de ta carte ; le sommaire les donne toutes si le travail change.\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}${consigneNuance}`;
       if (aucune.length < entier.length) return aucune;
     }
     if (retenues.length && ecartees.length) {
@@ -638,7 +726,7 @@ export function texteDesCompetences(
         } pas listée${ecartees.length > 1 ? 's' : ''} ici — le sommaire les donne toutes.)`;
       const trie =
         `COMPÉTENCES PARTAGÉES (${servies.length} en tout) — des modes d'emploi déjà écrits, ${portee}. ` +
-        `Celles qui touchent le travail de ta carte :\n${lignesParTheme(retenues)}\n${reste}\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}`;
+        `Celles qui touchent le travail de ta carte :\n${lignesParTheme(retenues, servies)}\n${reste}\n${entree}${ligneBibliotheques}${lignePropres}\n${consigne}${consigneNuance}`;
       /*
        * UN TRI QUI COÛTE PLUS CHER QUE CE QU'IL CACHE N'EST PAS UN TRI. La
        * phrase qui COMPTE les fiches écartées pèse elle aussi ; sur un pool de

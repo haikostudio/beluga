@@ -7,6 +7,8 @@ import {
   CONSIGNE_CADRAGE,
   analyseDeCadrageFaite,
   suppositionsValidees,
+  lignesDesReponses,
+  questionsSansReponse,
   tourDeCadrageSansQuestion,
   Ampleur,
   CONSIGNE_CREATION_PROJET,
@@ -95,7 +97,11 @@ import {
   CONSIGNE_ASSISTANT_BACKUP,
   CONSIGNE_ASSISTANT_SURVEILLANCE,
   CONSIGNE_AGENT_MARKETING,
+  CONSIGNE_AGENT_STUDIO,
+  CONSIGNE_AGENT_BIBLIOTHEQUE,
+  LABEL_BIBLIOTHEQUE,
   CONSIGNE_DE_VULGARISATION,
+  CONSIGNE_DES_DATES,
   CONSIGNE_ASSISTANT_GLOBAL,
   DISALLOWED_NATIVE_ASSISTANT,
   RAPPEL_DE_VULGARISATION,
@@ -176,6 +182,7 @@ import {
   messageOuvreUneNouvelleCarte,
   migrationDeReglage,
   TEXTE_CARTE_EN_PUBLICATION,
+  TEXTE_ACCORD_NOUVELLE_CARTE,
 } from '@beluga/shared';
 import type { DecisionDArret } from '@beluga/shared';
 import { cheminDePieceJointe, dossiersDeDonneesOuverts } from './pieces-jointes.js';
@@ -188,6 +195,8 @@ import { adapterFor, cachedEngines, contextWindowFor, EngineAdapter, EngineEvent
 import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { estAgentMarketing } from './marketing.js';
+import { estAgentStudio } from './studio.js';
+import { estAgentAttitre } from './agent-attitre.js';
 import { AjoutJournal, ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
 import { repererLesCaptures } from './captures-auto.js';
 import { getInternalToken } from './auth.js';
@@ -1036,7 +1045,7 @@ export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'a
    * place, c'est l'étape courante du PARCOURS (`etapeCourante`), lue dans le
    * flux de la carte — pas la carte elle-même.
    */
-  const cible = colonneAuDemarrage(carte.column, agent.role, demandeur);
+  const cible = colonneAuDemarrage(carte.column, agent.role, demandeur, estAgentAttitre(agent.id));
   /*
    * LA MARQUE DE VOL, posée AVANT tout le reste et même quand il n'y a aucune
    * colonne à changer : c'est elle qui, après un arrêt du serveur, distingue une
@@ -1237,8 +1246,12 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * phrase tapée plus tard dans l'écran Marketing n'a pas de motif, et la
    * consigne système ne change pas dans une même session (`server/src/marketing.ts`).
    */
-  const agentMarketing = estAgentMarketing(agentId);
-  if (!options.motif && agentMarketing) options = { ...options, motif: 'configuration-marketing' };
+  if (!options.motif && estAgentMarketing(agentId)) options = { ...options, motif: 'configuration-marketing' };
+  // De même pour l'agent d'une création du Studio : sa consigne et son outil le suivent.
+  if (!options.motif && estAgentStudio(agentId)) options = { ...options, motif: 'studio' };
+  // Et pour l'agent d'une source de la bibliothèque de styles (`server/src/studio-sources.ts`).
+  if (!options.motif && !agent.workdir && agent.role !== 'cadrage' && agent.cardId && store.getCard(agent.cardId)?.labels.includes(LABEL_BIBLIOTHEQUE))
+    options = { ...options, motif: 'bibliotheque-styles' };
 
   /*
    * NI PENDANT SA PUBLICATION. Le même verrou que la commande du client
@@ -1256,21 +1269,21 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
   }
 
   /*
-   * UNE CARTE DÉJÀ DÉPLOYÉE NE SE MODIFIE PAS SUR PLACE. Un message humain
-   * tapé dans une conversation archivée relancerait le même agent, sur la
-   * même branche déjà mise en ligne — donc un travail réécrit après coup, sans
-   * passer par la revue ni par une nouvelle mise en ligne. Le message ouvre
-   * donc une NOUVELLE carte (`ouvrirUneNouvelleCarteDepuis`), qui suit tout le
-   * parcours ; l'ancienne reste intacte. L'ancien refus n'existe plus.
-   * Le verrou de publication, plus haut, passe AVANT : aucune carte n'est créée
-   * pendant une mise en ligne.
+   * UNE CARTE DÉJÀ DÉPLOYÉE NE SE MODIFIE PAS SUR PLACE. Un message tapé dans
+   * une conversation archivée relancerait le même agent, sur la même branche
+   * déjà mise en ligne — donc un travail réécrit après coup, sans passer par la
+   * revue ni par une nouvelle mise en ligne. Le seul chemin vers une NOUVELLE
+   * carte est le clic d'accord du champ d'écriture (`agent.prompt` avec
+   * `ouvrirNouvelleCarte`) : ICI, aucune carte ne se crée en douce (MEM-0354).
+   * Le message est refusé et la raison se dit.
+   * Un agent DE VOLET (Studio, Marketing, surveillance, sauvegardes) ne livre
+   * aucun code : sa carte rangée avec un lot publié ne le rend pas muet.
    */
   if (!options.silent && agent.cardId) {
     const carte = store.getCard(agent.cardId);
-    // L'agent marketing ne livre aucun code : sa carte rangée avec un lot publié ne le rend pas muet.
-    if (carte && messageOuvreUneNouvelleCarte(carte) && !agentMarketing) {
-      const { ouvrirUneNouvelleCarteDepuis } = await import('./cadrage.js');
-      await ouvrirUneNouvelleCarteDepuis(agentId, text, options.attachments ?? []);
+    if (carte && messageOuvreUneNouvelleCarte(carte) && !estAgentAttitre(agentId)) {
+      log.warn(`agent ${agentId} : message refusé sous la carte déjà en ligne « ${carte.title} » — aucune carte créée sans accord`);
+      bus.toast('warning', TEXTE_ACCORD_NOUVELLE_CARTE);
       return;
     }
   }
@@ -1915,7 +1928,15 @@ async function preparerLeTour(
         (validees.size
           ? `\n\nDÉCISIONS DE L'UTILISATEUR — suppositions qu'il a VALIDÉES d'un clic sur la carte : intègre-les au texte comme décidées, et ne les remets plus en hypothèse :\n${[...validees].map((ligne) => `- ${ligne}`).join('\n')}`
           : '') +
-        (restantes.length ? `\n\nHypothèses de cette compréhension :\n${restantes.map((ligne) => `- ${ligne}`).join('\n')}` : '');
+        (restantes.length ? `\n\nHypothèses de cette compréhension :\n${restantes.map((ligne) => `- ${ligne}`).join('\n')}` : '') +
+        /* LES QUESTIONS GARDÉES SUR LA CARTE (`questions-de-carte.ts`) : les
+           réponses sont des décisions, les autres attendent encore. */
+        (lignesDesReponses(precedente).length
+          ? `\n\nDÉCISIONS DE L'UTILISATEUR — ses réponses aux questions laissées sur la carte :\n${lignesDesReponses(precedente).join('\n')}`
+          : '') +
+        (questionsSansReponse(precedente).length
+          ? `\n\nQUESTIONS LAISSÉES SUR LA CARTE, ENCORE SANS RÉPONSE (une compréhension rendue maintenant les remplace : si l'utilisateur est là, pose avec « ask_user » celles qui comptent encore) :\n${questionsSansReponse(precedente).map((q) => `- ${q.question}`).join('\n')}`
+          : '');
       contextParts.push({
         label: 'Dernière compréhension rendue',
         kind: 'card',
@@ -2563,7 +2584,7 @@ async function startTurn(
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId && agent.workdir ? 'task' : agent.role;
   const systemPrompt = assistantGlobal
-    ? `${consigneDeLangue(langueDesAgents())}\n${CONSIGNE_DE_VULGARISATION}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`
+    ? `${consigneDeLangue(langueDesAgents())}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`
     : rolePrompt(
     roleMoteur,
     project.isSelf,
@@ -3155,6 +3176,14 @@ async function startTurn(
           promptDuTour: prompt,
           travailCommence: runState.text.trim().length > 0 || etapesDuMoteurAvant.length > 0,
           filNeuf: !filDuNouvelEssai,
+          /* Le fil meurt sous un tour écrit pour un fil VIVANT : son prompt ne
+             porte aucun rappel de la conversation. On le lui rend, borné au
+             dernier « Repartir de zéro » (MEM-0387). Un tour déjà parti sur un
+             fil neuf l'a reçu dans son prompt. */
+          rappelDuFil:
+            !filDuNouvelEssai && !nouvelleSession
+              ? resumePourAgent(agentBefore, 'fil-neuf', contexteUtilisateur?.messageId)
+              : null,
         }),
         filDuNouvelEssai,
       );
@@ -3455,6 +3484,9 @@ async function startTurn(
      */
     const annoncee = echeanceAnnonceeParLeMoteur(`${sawError ?? result.error ?? ''}\n${runState.text ?? ''}`, Date.now());
     noterLimiteConnue({ compte: account.id, motif: reprise.motif, resetsAt: annoncee ?? reprise.resetsAt });
+    /* La reprise retient la même heure : c'est elle qui dit, au retour du
+       quota, que la fenêtre a tourné (`chaineAuRetourDuQuota`). */
+    if (annoncee) reprise.resetsAt = annoncee;
   }
 
   /*
@@ -4099,7 +4131,16 @@ async function startTurn(
    * laissé ouvert empêcherait la carte de repartir. Un refus (travail non
    * enregistré, conflit) est DIT dans le journal, jamais tu.
    */
-  if (agent.role === 'task' && agent.cardId && dossier !== project.path) {
+  /*
+   * …SAUF QUAND LE TOUR S'ARRÊTE SUR LA LIMITE D'UN COMPTE. Le travail n'est
+   * pas fini, il attend sa reprise : la copie reste ouverte pour elle. Fermée,
+   * la relève (16 s plus tard) devait la recréer, et c'est cette recréation qui
+   * a fait tomber la reprise de la refonte HaikoBill le 06.10.2026 ; un site
+   * d'essai qui pointait dessus se retrouvait aussi sans ses fichiers. La
+   * fermeture a lieu à la vraie fin — rapport, arrêt, abandon de la reprise
+   * (le ménage des dossiers la range alors, `menageDesDossiersDeCarte`).
+   */
+  if (agent.role === 'task' && agent.cardId && dossier !== project.path && !reprise) {
     const carte = store.getCard(agent.cardId);
     if (carte) {
       try {
@@ -4154,6 +4195,8 @@ async function startTurn(
         ...carteApresFinDeTour(card, {
           agentId: agent.id,
           role: agent.role,
+          // Studio, Marketing : la carte va dans « Archivé », jamais dans le lot à publier.
+          attitre: estAgentAttitre(agent.id),
           reussi: !failed,
           trace,
           moteurMuet,
@@ -5488,7 +5531,17 @@ export function veilleDesToursBloques(maintenant = Date.now()): number {
 function direLeBlocage(agentId: string, raison: string): void {
   try {
     const dernier = [...store.listMessages(agentId, 1)].pop();
-    if (dernier?.role === 'assistant' && (dernier.error || dernier.content.trim())) return;
+    /*
+     * UNE RELÈVE DE COMPTE MORTE AVANT LE MOTEUR N'A ÉCRIT AUCUN MESSAGE : sa
+     * demande est silencieuse, et le dernier du fil reste la bulle du tour
+     * tombé sur la limite — qui a bien du texte (« You've hit your session
+     * limit… »). Ce texte faisait croire que tout était déjà dit : la relève
+     * du 06.10.2026 est morte sans un mot ni un bouton, et la carte a dormi
+     * jusqu'au matin. Une reprise choisie mais jamais consommée, c'est
+     * justement ce tour-ci qui n'a pas démarré.
+     */
+    const releveMorte = !!dernier?.repriseCompte?.choisi && !dernier.repriseCompte.consommeeA;
+    if (dernier?.role === 'assistant' && (dernier.error || dernier.content.trim()) && !releveMorte) return;
     /*
      * LA DEMANDE PERDUE, quand il y en a une : le dernier message du fil est
      * celui de l'utilisateur, écrit à l'entrée de la préparation et resté sans
@@ -5712,6 +5765,8 @@ function corpsDeConsigne(
   if (motif === 'configuration-backup') return CONSIGNE_ASSISTANT_BACKUP;
   if (motif === 'configuration-surveillance') return CONSIGNE_ASSISTANT_SURVEILLANCE;
   if (motif === 'configuration-marketing') return CONSIGNE_AGENT_MARKETING;
+  if (motif === 'studio') return CONSIGNE_AGENT_STUDIO;
+  if (motif === 'bibliotheque-styles') return CONSIGNE_AGENT_BIBLIOTHEQUE;
   if (motif === 'depannage-manuel') return CONSIGNE_DEPANNAGE_MANUEL;
   if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
 
@@ -5788,7 +5843,7 @@ export function rolePrompt(
   motif?: MotifDAppel,
   langue: LangueId = LANGUE_DORIGINE,
 ): string {
-  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n\n${corpsDeConsigne(role, isSelf, engine, niveau, motif)}`;
+  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${corpsDeConsigne(role, isSelf, engine, niveau, motif)}`;
 }
 
 

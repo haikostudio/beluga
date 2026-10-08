@@ -68,6 +68,12 @@ export interface QuestionAAfficher {
   kind?: 'single' | 'multiple' | 'text';
   /** L'écriture libre est-elle ouverte à côté des choix ? */
   allowFreeText?: boolean;
+  /**
+   * LA RÉPONSE QUE L'AGENT CONSEILLE (questions gardées sur la carte) : le
+   * libellé d'une option, marquée « Conseillé », ou une réponse libre, lue
+   * sous la question.
+   */
+  recommandee?: string;
 }
 
 /**
@@ -316,6 +322,13 @@ export function BulleQuestion({
         </p>
       ) : null}
 
+      {/* 1 ter. LA RÉPONSE CONSEILLÉE QUI N'EST PAS UN CHOIX DE LA LISTE. */}
+      {question.recommandee && !question.options.some((option) => option.label === question.recommandee) ? (
+        <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted" data-reponse-conseillee>
+          {t('Réponse conseillée : {v0}', { v0: question.recommandee })}
+        </p>
+      ) : null}
+
       {/* 2. LES RÉPONSES POSSIBLES, DANS LEUR PROPRE ZONE ET ANNONCÉES.
           Les pastilles suivaient la question sans rien qui les sépare : on ne
           savait pas si l'on regardait la fin de la phrase ou le début des
@@ -360,7 +373,17 @@ export function BulleQuestion({
                   {actif ? <Check className="h-3 w-3 text-success" /> : <Circle className="h-3 w-3 text-faint" />}
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-[14px] leading-snug">{option.label}</span>
+                  <span className="block text-[14px] leading-snug">
+                    {option.label}
+                    {question.recommandee && option.label === question.recommandee ? (
+                      <span
+                        className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-[11.5px] font-medium text-accent"
+                        data-option-conseillee
+                      >
+                        {t('Conseillé')}
+                      </span>
+                    ) : null}
+                  </span>
                   {option.description ? (
                     <span className="block text-[12.5px] text-faint">{option.description}</span>
                   ) : null}

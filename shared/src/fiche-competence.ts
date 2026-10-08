@@ -39,6 +39,8 @@ export interface RedactionDeFiche {
   themes?: string[];
   symptomes?: string[];
   projets?: string[];
+  /** La commune que cette fiche propre précise (`Competence.etend`) ; vide : aucune. */
+  etend?: string;
   etat?: EtatDeFiche;
   provenance?: ProvenanceDeFiche;
   /** Les six sections, dans l'ordre de `SECTIONS_DE_FICHE`. */
@@ -92,6 +94,7 @@ export function texteDeLaFiche(redaction: RedactionDeFiche): string {
     ['themes', ligneDeListe(redaction.themes)],
     ['symptomes', ligneDeListe(redaction.symptomes)],
     ['projets', ligneDeListe(redaction.projets)],
+    ['etend', redaction.etend?.trim() || undefined],
     ['provenance-projet', provenance.projet],
     ['provenance-carte', provenance.carte],
     ['provenance-titre', provenance.titre],

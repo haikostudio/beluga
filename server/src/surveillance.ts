@@ -25,6 +25,11 @@ import {
   decisionDeCourrielDePanne,
   doitApaiserParCourriel,
   type GenreDeCourriel,
+  type ConfigWordpress,
+  aSurveiller,
+  configWordpressDeLigne,
+  resumeDuSuivi,
+  suiviDeLigne,
 } from '@beluga/shared';
 import { getDb } from './db.js';
 import { bus } from './bus.js';
@@ -81,6 +86,8 @@ interface LigneSite {
   incident_lance_le: number | null;
   alerte_courriel_le: number | null;
   alerte_courriel_depuis: number | null;
+  wordpress: string | null;
+  wp_suivi: string | null;
 }
 
 function depuisLigne(ligne: LigneSite): SiteSurveille {
@@ -110,6 +117,19 @@ function depuisLigne(ligne: LigneSite): SiteSurveille {
     incidentLanceLe: ligne.incident_lance_le ?? undefined,
     alerteCourrielLe: ligne.alerte_courriel_le ?? undefined,
     alerteCourrielDepuis: ligne.alerte_courriel_depuis ?? undefined,
+    ...champsWordpress(ligne),
+  };
+}
+
+/** Le contrôle WordPress d'une ligne : sa configuration, le résumé de son suivi, l'erreur fatale en cours. */
+function champsWordpress(ligne: LigneSite): Pick<SiteSurveille, 'wordpress' | 'wpResume' | 'journauxEnErreur'> {
+  const wordpress = configWordpressDeLigne(ligne.wordpress);
+  if (!wordpress) return {};
+  const suivi = suiviDeLigne(ligne.wp_suivi);
+  return {
+    wordpress,
+    wpResume: resumeDuSuivi(suivi),
+    ...(suivi.journauxEnErreur ? { journauxEnErreur: suivi.journauxEnErreur } : {}),
   };
 }
 
@@ -120,8 +140,12 @@ export function listerSites(): SiteSurveille[] {
     .all() as LigneSite[];
   const sites = lignes.map(depuisLigne);
   // Ce qui ne va pas se lit en premier : c'est la seule raison d'ouvrir cette
-  // fenêtre quand la pastille est allumée.
-  return [...sites.filter((s) => s.etat === 'panne'), ...sites.filter((s) => s.etat !== 'panne')];
+  // fenêtre quand la pastille est allumée. Puis ce qui est « à surveiller ».
+  return [
+    ...sites.filter((s) => s.etat === 'panne'),
+    ...sites.filter((s) => aSurveiller(s)),
+    ...sites.filter((s) => s.etat !== 'panne' && !aSurveiller(s)),
+  ];
 }
 
 export function lireSurveillance(id: string): SiteSurveille | null {
@@ -130,7 +154,7 @@ export function lireSurveillance(id: string): SiteSurveille | null {
 }
 
 /** Prévenir les onglets ouverts : la pastille et la liste suivent sans recharger. */
-function diffuser(): void {
+export function diffuser(): void {
   bus.emit({ type: 'surveillance', sites: listerSites() });
 }
 
@@ -165,6 +189,12 @@ export function enregistrerSurveillance(
     agentId?: string;
     projectId?: string;
     cardId?: string;
+    /**
+     * Le contrôle WordPress : une configuration le pose (avec son suivi de
+     * départ, positions des journaux comprises), `null` le retire, absent le
+     * laisse tel quel.
+     */
+    wordpress?: { config: ConfigWordpress; suivi: string } | null;
   },
   maintenant = Date.now(),
 ): EnregistrementSurveillance {
@@ -205,6 +235,30 @@ export function enregistrerSurveillance(
     ).run(id, juge.url, juge.nom, maintenant, maintenant, JSON.stringify(recette), periodeMs, entree.agentId ?? null, entree.projectId ?? null, entree.cardId ?? null);
     log.info(`surveillance : « ${juge.nom} » ajoutée (${juge.url})`);
   }
+  if (entree.wordpress !== undefined) {
+    /*
+     * UNE CONFIGURATION REPOSÉE GARDE SES SOUCIS EN COURS et l'habitude du site :
+     * sans cela, chaque souci déjà suivi se rouvrirait en double — et ferait
+     * repartir son courriel. Seules les positions des journaux repartent du neuf.
+     */
+    let suivi = entree.wordpress?.suivi ?? null;
+    if (suivi && ancienne) {
+      const avant = getDb().prepare('SELECT wp_suivi FROM sites_surveilles WHERE id = ?').get(id) as { wp_suivi: string | null } | undefined;
+      if (avant?.wp_suivi) {
+        const ancien = suiviDeLigne(avant.wp_suivi);
+        const neuf = suiviDeLigne(suivi);
+        suivi = JSON.stringify({ ...neuf, soucis: ancien.soucis, moyenne: ancien.moyenne, inventaire: ancien.inventaire ?? neuf.inventaire });
+      }
+    }
+    db.prepare('UPDATE sites_surveilles SET wordpress = ?, wp_suivi = ? WHERE id = ?').run(
+      entree.wordpress ? JSON.stringify(entree.wordpress.config) : null,
+      suivi,
+      id,
+    );
+    // Un contrôle retiré emporte son suivi : plus rien ne le tiendrait à jour.
+    if (!entree.wordpress) db.prepare('DELETE FROM constats_wordpress WHERE site_id = ?').run(id);
+    log.info(`surveillance : contrôle WordPress ${entree.wordpress ? 'posé' : 'retiré'} sur « ${juge.nom} »`);
+  }
   diffuser();
   // Ajouter ou modifier puis attendre le passage suivant serait une fenêtre qui ne dit rien.
   void verifierSites([id]);
@@ -217,6 +271,26 @@ export function marquerAssistantSurveillance(id: string, depart: { agentId: stri
     .prepare('UPDATE sites_surveilles SET agent_id = ?, project_id = ?, card_id = ? WHERE id = ?')
     .run(depart.agentId, depart.projectId, depart.cardId, id);
   diffuser();
+}
+
+/**
+ * LE VOLET D'UN SITE NE ROUVRE QU'UN AGENT DE VOLET. Avant que l'outil ne le
+ * réserve (`surveillance_recette`), un agent de tâche sur une carte de code
+ * pouvait s'inscrire comme conversation du site — HaikoNote et HaikoBill
+ * ouvraient ainsi la carte livrée « Stopper les alertes mail répétées », donc
+ * une nouvelle carte à chaque message. Rattrapage idempotent au démarrage :
+ * ces liens-là sont défaits, et le volet propose d'écrire à un agent neuf. Le
+ * fil de la carte de code reste intact sur le tableau.
+ */
+export function delierLesConversationsHorsVolet(estAgentDeVolet: (agentId: string) => boolean): number {
+  let delies = 0;
+  for (const site of listerSites()) {
+    if (!site.agentId || estAgentDeVolet(site.agentId)) continue;
+    getDb().prepare('UPDATE sites_surveilles SET agent_id = NULL, card_id = NULL WHERE id = ?').run(site.id);
+    delies += 1;
+  }
+  if (delies) diffuser();
+  return delies;
 }
 
 /* ------------------------------------------------------------------ */
@@ -306,6 +380,7 @@ export function supprimerSite(id: string): { ok: boolean; raison?: string } {
   const res = db.prepare('DELETE FROM sites_surveilles WHERE id = ?').run(id);
   if (!res.changes) return { ok: false, raison: 'Adresse introuvable.' };
   db.prepare('DELETE FROM controles_surveillance WHERE site_id = ?').run(id);
+  db.prepare('DELETE FROM constats_wordpress WHERE site_id = ?').run(id);
   diffuser();
   return { ok: true };
 }
@@ -336,6 +411,16 @@ export function listerControles(siteId: string, maintenant = Date.now()): Contro
     etape: l.etape ?? undefined,
     detail: l.detail ?? undefined,
   }));
+}
+
+/**
+ * LES PASSAGES DE LA PAGE SEULE. Les lectures de journaux écrivent aussi leurs
+ * erreurs fatales dans l'historique (la frise les montre) ; elles tiennent leur
+ * propre compte d'échecs d'affilée et ne doivent ni allonger ni couper celui de
+ * la page.
+ */
+export function controlesDeLaPage(controles: readonly ControleSurveillance[]): ControleSurveillance[] {
+  return controles.filter((c) => c.raison !== 'journaux');
 }
 
 /** Efface ce qui dépasse 24 heures : la base ne grossit pas avec le temps. */
@@ -576,16 +661,28 @@ export async function verifierSites(ids?: string[], maintenant = Date.now()): Pr
         // Relu : la surveillance a pu être supprimée pendant un long parcours.
         const actuelle = lireSurveillance(site.id);
         if (!actuelle) return;
-        const change = bascule(actuelle.etat, verdict.etat);
+        /*
+         * UNE ERREUR FATALE EN COURS DANS LES JOURNAUX GARDE LE SITE EN PANNE,
+         * même quand sa page répond : sans cela, chaque passage de la page le
+         * remettrait « en ligne » entre deux lectures des journaux. La ligne
+         * d'historique, elle, garde ce que la PAGE a dit : le compte des échecs
+         * d'affilée (enquête, courriel) reste celui de la page, et les journaux
+         * tiennent le leur (`server/src/surveillance-wordpress.ts`).
+         */
+        const effectif: VerdictSite & { dureeMs: number } =
+          verdict.etat === 'ok' && actuelle.journauxEnErreur
+            ? { ...verdict, etat: 'panne', raison: 'journaux', detail: actuelle.journauxEnErreur.detail }
+            : verdict;
+        const change = bascule(actuelle.etat, effectif.etat);
         const depuis = change ? instant : actuelle.depuis || instant;
-        const dernierePanne = verdict.etat === 'panne' ? instant : actuelle.dernierePanne;
+        const dernierePanne = effectif.etat === 'panne' ? instant : actuelle.dernierePanne;
         db.prepare(
           'UPDATE sites_surveilles SET etat = ?, code = ?, raison = ?, etape_echouee = ?, duree_ms = ?, verifie_le = ?, depuis = ?, derniere_panne = ? WHERE id = ?',
         ).run(
-          verdict.etat,
-          verdict.code ?? null,
-          verdict.raison ?? null,
-          verdict.etat === 'panne' ? (verdict.etape ?? null) : null,
+          effectif.etat,
+          effectif.code ?? null,
+          effectif.raison ?? null,
+          effectif.etat === 'panne' ? (effectif.etape ?? null) : null,
           verdict.dureeMs,
           instant,
           depuis,
@@ -606,10 +703,10 @@ export async function verifierSites(ids?: string[], maintenant = Date.now()): Pr
         );
         const apres: SiteSurveille = {
           ...actuelle,
-          etat: verdict.etat,
-          code: verdict.code,
-          raison: verdict.raison,
-          etapeEchouee: verdict.etat === 'panne' ? verdict.etape : undefined,
+          etat: effectif.etat,
+          code: effectif.code,
+          raison: effectif.raison,
+          etapeEchouee: effectif.etat === 'panne' ? effectif.etape : undefined,
           verifieLe: instant,
           depuis,
           dernierePanne,
@@ -623,6 +720,9 @@ export async function verifierSites(ids?: string[], maintenant = Date.now()): Pr
          * une autre — l'écart minimal de six heures restant tenu par
          * `incident_lance_le`, qu'on ne touche pas ici.
          */
+        // La page répond mais les journaux tiennent la panne : c'est à leur
+        // passage, pas à celui-ci, de la refermer ou de la faire compter.
+        if (verdict.etat === 'ok' && effectif.etat === 'panne') return;
         if (verdict.etat === 'ok') {
           if (actuelle.incidentCardId) refermerIncidentDuSite(site.id);
           /*
@@ -637,7 +737,7 @@ export async function verifierSites(ids?: string[], maintenant = Date.now()): Pr
           }
           return;
         }
-        const echecs = echecsDeSuiteDuSite(listerControles(site.id, instant));
+        const echecs = echecsDeSuiteDuSite(controlesDeLaPage(listerControles(site.id, instant)));
         if (echecs >= ECHECS_AVANT_DEPANNAGE) aDepanner.push(site.id);
         const courriel = decisionDeCourrielDePanne(actuelle, echecs, instant);
         if (courriel.ecrire) aEcrire.push({ siteId: site.id, echecs, genre: courriel.genre });
@@ -733,6 +833,14 @@ const BATTEMENT_MS = 60_000;
 export function demarrerSurveillance(): NodeJS.Timeout {
   const tour = () => {
     verifierSites().catch((err) => log.warn('surveillance : tournée impossible', err));
+    /*
+     * LE CONTRÔLE WORDPRESS, au même battement et à SES rythmes (journaux au
+     * quart d'heure, extensions à l'heure). Chargé à la demande : un démon sans
+     * site WordPress n'a aucune raison de tirer ce module.
+     */
+    void import('./surveillance-wordpress.js')
+      .then(({ tourneeWordpress }) => tourneeWordpress())
+      .catch((err) => log.warn('surveillance : tournée WordPress impossible', err));
   };
   /*
    * LES SITES DÉJÀ SURVEILLÉS REÇOIVENT LEUR PROJET, UNE FOIS. Sans ce
@@ -746,6 +854,12 @@ export function demarrerSurveillance(): NodeJS.Timeout {
         if (rattaches) log.info(`surveillance : ${rattaches} site(s) rattaché(s) à leur projet d’après leur adresse`);
       })
       .catch((err) => log.warn('surveillance : rattachement des projets impossible', err));
+    void import('./agent-attitre.js')
+      .then(({ estAgentAttitre }) => {
+        const delies = delierLesConversationsHorsVolet(estAgentAttitre);
+        if (delies) log.info(`surveillance : ${delies} site(s) détaché(s) d’une conversation qui n’était pas celle de leur volet`);
+      })
+      .catch((err) => log.warn('surveillance : vérification des conversations des volets impossible', err));
   }, 15_000).unref?.();
   setTimeout(tour, 20_000).unref?.();
   const minuteur = setInterval(tour, BATTEMENT_MS);

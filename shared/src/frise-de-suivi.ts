@@ -22,7 +22,17 @@
  */
 
 export const ETAPES_DE_SUIVI = ['demande', 'comprehension', 'travail', 'a_deployer', 'archivee'] as const;
-export type EtapeDeSuivi = (typeof ETAPES_DE_SUIVI)[number];
+
+/**
+ * LA CARTE DU RENDEZ-VOUS DE NUIT A SES TROIS ÉTAPES À ELLE. Elle n'est pas
+ * une tâche : rien à comprendre avant de dépenser, rien à déployer. Elle se
+ * lisait pourtant sur les cinq ronds d'une tâche — « Compréhension » sautée,
+ * puis « À déployer » et « Archivée » cochés sur un travail que personne
+ * n'avait à publier. Elle se lit désormais Demande, Examen, Propositions
+ * (`estCarteDuRendezVousDeNuit`, `avecLeParcoursDeLaNuit`).
+ */
+export const ETAPES_DE_SUIVI_DE_LA_NUIT = ['demande', 'examen', 'propositions'] as const;
+export type EtapeDeSuivi = (typeof ETAPES_DE_SUIVI)[number] | (typeof ETAPES_DE_SUIVI_DE_LA_NUIT)[number];
 
 /** Le nom affiché au survol de chaque rond (traduit comme le reste). */
 export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
@@ -31,7 +41,19 @@ export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
   travail: 'Travail',
   a_deployer: 'À déployer',
   archivee: 'Archivée',
+  examen: 'Examen',
+  propositions: 'Propositions',
 };
+
+/** Les ronds de CETTE carte : ceux d'une tâche, ou les trois de la nuit. */
+export function etapesDeSuivi(carte: Pick<CarteDeSuivi, 'rendezVousDeNuit'>): readonly EtapeDeSuivi[] {
+  return carte.rendezVousDeNuit ? ETAPES_DE_SUIVI_DE_LA_NUIT : ETAPES_DE_SUIVI;
+}
+
+/** L'étape d'ARRIVÉE, finie pour de bon : rien ne s'y attend plus. */
+function etapeDArrivee(etape: EtapeDeSuivi): boolean {
+  return etape === 'archivee' || etape === 'propositions';
+}
 
 /** L'état d'un rond : passé, celui où se trouve la carte, ou à venir. */
 export type EtatEtapeDeSuivi = 'fait' | 'courant' | 'avenir';
@@ -60,6 +82,8 @@ export interface CarteDeSuivi {
   enPublication?: boolean;
   /** « À déployer », et la dernière publication de son projet est tombée. */
   publicationEchouee?: boolean;
+  /** La carte du rendez-vous de nuit (`estCarteDuRendezVousDeNuit`) : trois ronds à elle. */
+  rendezVousDeNuit?: boolean;
 }
 
 /**
@@ -95,6 +119,13 @@ export interface FriseDeSuivi {
 
 /** L'étape où se trouve la carte. */
 export function etapeCouranteDeSuivi(carte: CarteDeSuivi): EtapeDeSuivi {
+  /* LA NUIT : l'examen tant que son agent tourne ou qu'il est tombé (la panne
+     ramène la carte dans « Planifié », `direLaPanneSurLaCarte`) ; les
+     propositions une fois la carte rangée. */
+  if (carte.rendezVousDeNuit) {
+    if (carte.agentActif) return 'examen';
+    return carte.colonne === 'archived' ? 'propositions' : 'examen';
+  }
   if (carte.colonne === 'archived') return 'archivee';
   if (carte.colonne === 'to_deploy') return 'a_deployer';
   if (carte.colonne === 'running') return 'travail';
@@ -107,15 +138,16 @@ export function etapeCouranteDeSuivi(carte: CarteDeSuivi): EtapeDeSuivi {
 /** La frise complète d'une carte : l'état de chaque rond et l'allure de la courante. */
 export function friseDeSuivi(carte: CarteDeSuivi): FriseDeSuivi {
   const courante = etapeCouranteDeSuivi(carte);
-  const rang = ETAPES_DE_SUIVI.indexOf(courante);
-  const etapes = ETAPES_DE_SUIVI.map((etape, i) => ({
+  const suite = etapesDeSuivi(carte);
+  const rang = suite.indexOf(courante);
+  const etapes = suite.map((etape, i) => ({
     etape,
     etat: (i < rang ? 'fait' : i === rang ? 'courant' : 'avenir') as EtatEtapeDeSuivi,
   }));
   // Une carte archivée est arrivée : rien n'y attend, rien n'y travaille.
   const deploiement = etatDuDeploiement(carte);
   const allure: AllureEtapeDeSuivi =
-    courante === 'archivee'
+    etapeDArrivee(courante)
       ? 'repos'
       : carte.decisionEnAttente
         ? 'attend'
@@ -147,7 +179,7 @@ export function tonDeLEtapeDeSuivi(frise: FriseDeSuivi, etape: EtapeDeSuivi): To
   const etat = frise.etapes.find((e) => e.etape === etape)?.etat ?? 'avenir';
   if (etat === 'fait') return 'valide';
   if (etat === 'avenir') return 'avenir';
-  if (frise.courante === 'archivee') return 'valide';
+  if (etapeDArrivee(frise.courante)) return 'valide';
   if (frise.allure === 'travaille') return 'travail';
   if (frise.allure === 'attend') return 'a_voir';
   if (frise.allure === 'erreur') return 'erreur';
@@ -173,6 +205,6 @@ export function tonDuSegmentDeSuivi(
     case 'avenir':
       return 'avenir';
     default:
-      return segment.etape === courante && courante !== 'archivee' ? 'fini' : 'valide';
+      return segment.etape === courante && !etapeDArrivee(courante) ? 'fini' : 'valide';
   }
 }

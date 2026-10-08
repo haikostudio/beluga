@@ -110,6 +110,7 @@ import { fusionnerVersLaProduction } from './fusion-vers-production.js';
 import { garderLEnvoi } from './garde-contenu.js';
 import { portServi, serviceDuProjet } from './services-du-projet.js';
 import { depannerSeulApresLaChute } from './depannage-publication.js';
+import { estAgentAttitre } from './agent-attitre.js';
 
 export { portServi, serviceDuProjet };
 
@@ -203,6 +204,11 @@ export function deployableCards(projectId: string, source: ColumnKey = 'to_deplo
     .listCardsInColumn(projectId, source)
     .filter((card) => !card.excludedFromDeploy)
     .filter((card) => !card.deployedAt)
+    /* LA CARTE D'UN AGENT DE VOLET NE LIVRE AUCUN CODE : elle ne rejoint
+       jamais le lot, donc ne reçoit jamais de date de mise en ligne — c'est
+       cette date qui faisait passer le volet Surveillance d'InVia pour une
+       carte « déjà en ligne » et ouvrait une carte à sa place. */
+    .filter((card) => !estAgentAttitre(card.agentId))
     .sort((a, b) => a.createdAt - b.createdAt);
   if (!selectedCardIds) return cards;
   const retenues = new Set(selectedCardIds);

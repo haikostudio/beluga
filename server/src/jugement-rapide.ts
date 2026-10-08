@@ -607,11 +607,6 @@ export async function garderLesPertinents<T>(
   return elements.filter((e) => lire.intouchable?.(e) || gardees.has(lire.cle(e)));
 }
 
-/** Noter après coup ce qui a été décidé d'un verdict — pour relire les traces. */
-export function suiteDuJugement(usage: UsageDuJuge, suite: string): void {
-  noterLaSuite(usage, suite);
-}
-
 /* ------------------------------------------------------------------ */
 /* CE QUE L'ÉCRAN DES RÉGLAGES LIT                                     */
 /* ------------------------------------------------------------------ */

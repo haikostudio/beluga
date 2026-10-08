@@ -10,7 +10,6 @@ import {
   ecartProduction,
   empreinteCourte,
   membrePret,
-  miseEnProductionNonLue,
   procedureEnPlace,
   productionEnRetard,
   raisonMembrePasPret,
@@ -31,7 +30,6 @@ import { useApp } from '@/lib/use-app';
 import { useSeconde } from '@/lib/horloge';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { lancerIntervalleVisible } from '@/lib/veille';
-import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -198,15 +196,6 @@ export function BandeauProductionGroupe({
     setDetail(productionDemandee.projectId);
     client.demanderProduction(null);
   }, [productionDemandee, ids]);
-
-  /* REGARDER LE SUIVI D'UN MEMBRE, C'EST LE LIRE : sa mise en production
-     terminée perd son point bleu, et sa carte violette s'efface. */
-  const aLire = detail && ouvert ? lignes.find((ligne) => ligne.membre.id === detail)?.run : undefined;
-  const aLireId = aLire && miseEnProductionNonLue(aLire) ? aLire.id : null;
-  React.useEffect(() => {
-    if (!aLireId) return;
-    return quandLEcranEstRegarde(() => client.send({ type: 'deploy.read', runId: aLireId }));
-  }, [aLireId]);
 
   /*
    * LE LANCEMENT — d'un membre ou de tous, par le MÊME chemin. Les demandes

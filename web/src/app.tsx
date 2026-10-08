@@ -11,9 +11,11 @@ import {
   SilhouetteBackups,
   SilhouetteSurveillance,
   SilhouetteMarketing,
+  SilhouetteStudio,
   SilhouetteStatistiques,
   SilhouetteTableau,
   SilhouetteEnRoute,
+  SilhouetteResume,
 } from '@/components/silhouettes';
 import { Toasts } from '@/components/toasts';
 import { PanneauALaDemande, prechargerAuRepos } from '@/lib/panneau-a-la-demande';
@@ -61,6 +63,7 @@ import {
   type DemandeDeConfig,
 } from '@/lib/ouvrir-config-projet';
 import { t, useLangueAppliquee } from '@/lib/langue';
+import { EVENEMENT_OUVRIR_COFFRE } from '@/lib/ouvrir-coffre';
 import { VisionneuseDeLien } from '@/components/visionneuse-de-lien';
 
 /*
@@ -81,6 +84,7 @@ const chargerEspaceHaiko = () => import('@/espace/espace-haiko');
 const chargerBackups = () => import('@/components/backups');
 const chargerSurveillance = () => import('@/components/surveillance');
 const chargerMarketing = () => import('@/components/marketing');
+const chargerStudio = () => import('@/components/studio/studio');
 const chargerStatistiques = () => import('@/components/statistiques');
 /*
  * LA PAGE « EN ROUTE » : ouverte par le bouton des agents, et montrée quand
@@ -125,6 +129,7 @@ const Surveillance = React.lazy(() =>
   chargerSurveillance().then((m) => ({ default: m.Surveillance })),
 );
 const Marketing = React.lazy(() => chargerMarketing().then((m) => ({ default: m.Marketing })));
+const Studio = React.lazy(() => chargerStudio().then((m) => ({ default: m.Studio })));
 const Statistiques = React.lazy(() => chargerStatistiques().then((m) => ({ default: m.Statistiques })));
 const EnRoute = React.lazy(() => chargerEnRoute().then((m) => ({ default: m.EnRoute })));
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
@@ -601,6 +606,19 @@ export function App() {
   // ne rajoute rien à l'historique (replaceState, juste pour rafraîchir le
   // slug) ; un écran différent y pousse une entrée, pour que Précédent revienne.
   const titreCarteOuverte = openCardId ? state.cards[openCardId]?.title ?? null : null;
+
+  /*
+   * LE STUDIO N'OUVRE AUCUN VOLET DE CARTE TOUT SEUL. La carte retenue pour le
+   * projet (reprise ci-dessus), celle d'une adresse restaurée ou celle restée
+   * ouverte avant d'entrer se posaient en tiroir PAR-DESSUS le Studio : on
+   * revenait à l'atelier et un volet d'agent l'avait recouvert. Au Studio, le
+   * tiroir n'est donc jamais AFFICHÉ — mais `openCardId` reste tel quel : le
+   * souvenir du tableau n'est pas effacé, et la carte se retrouve au retour.
+   * Un geste explicite (clic sur une carte, cloche, alerte) passe par
+   * `client.onOpenCard` / `ouvrirAgent`, qui ramènent en vue « projet » : il
+   * ouvre la carte comme avant.
+   */
+  const carteAffichee = vueCentrale === 'studio' ? null : openCardId;
   const premiereEcriture = React.useRef(true);
   React.useEffect(() => {
     if (!adresseLue.current) return;
@@ -879,6 +897,12 @@ export function App() {
     [setMobileView],
   );
   const ouvrirTableauDeBord = () => ouvrirVue('tableau-de-bord');
+  /* LE STUDIO MÈNE AU COFFRE-FORT quand la clé OpenRouter de la voix finale y manque. */
+  React.useEffect(() => {
+    const versLeCoffre = () => ouvrirVue('coffre');
+    window.addEventListener(EVENEMENT_OUVRIR_COFFRE, versLeCoffre);
+    return () => window.removeEventListener(EVENEMENT_OUVRIR_COFFRE, versLeCoffre);
+  }, [ouvrirVue]);
 
   /*
    * UNE CARTE OUVERTE DEPUIS LA PAGE « EN ROUTE » : le même tiroir que le
@@ -1085,6 +1109,18 @@ export function App() {
                   />
                 </PanneauALaDemande>
               </Filet>
+            ) : vueCentrale === 'studio' ? (
+              <Filet zone="Studio">
+                <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteStudio /></AttenteEcran>}>
+                  <Studio
+                    open
+                    enPage
+                    onClose={() => ouvrirVue('projet')}
+                    vise={elementVise.studio ?? null}
+                    onVise={(creationId) => setElementVise((v) => ({ ...v, studio: creationId }))}
+                  />
+                </PanneauALaDemande>
+              </Filet>
             ) : vueCentrale === 'statistiques' ? (
               <Filet zone="Statistiques">
                 <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteStatistiques /></AttenteEcran>}>
@@ -1102,7 +1138,7 @@ export function App() {
               pageEnRoute
             ) : dashboardOpen ? (
               <Filet zone="Résumé">
-                <PanneauALaDemande monte>
+                <PanneauALaDemande monte attente={<SilhouetteResume />}>
                   <Dashboard />
                 </PanneauALaDemande>
               </Filet>
@@ -1339,9 +1375,9 @@ export function App() {
         <Filet zone="Carte" onReprendre={() => setOpenCardId(null)}>
           {/* Fermé, le tiroir d'une carte ne rendait déjà rien : on ne monte
               donc rien, et son morceau n'est même pas demandé. */}
-          <PanneauALaDemande monte={!!openCardId}>
+          <PanneauALaDemande monte={!!carteAffichee}>
             <CardPanel
-              cardId={openCardId}
+              cardId={carteAffichee}
               onClose={() => setOpenCardId(null)}
               onglet={ongletCarte}
               onOnglet={setOngletCarte}

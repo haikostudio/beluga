@@ -21,6 +21,7 @@ import {
   CONSIGNE_COMPREHENSION_REDEMANDEE,
   numeroDuProchainPlan,
   noteDeQualite,
+  bornesDeLaPeriode,
   tendancesParJour,
   resumeDeTendance,
   JOURS_DE_TENDANCE,
@@ -46,6 +47,7 @@ import {
   carteEnCadrage,
   messageDeLaCarteVaAuCadrage,
   messageOuvreUneNouvelleCarte,
+  TEXTE_ACCORD_NOUVELLE_CARTE,
   gesteDuDepot,
   etapeDeLaColonne,
   etatVisuelCarte,
@@ -83,8 +85,10 @@ import {
 } from '@beluga/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
+import { resumeDeRubrique, titresDesCartes } from './resume.js';
 import { bus } from './bus.js';
 import { deplacerLaCarteVersProjet } from './deplacement-vers-projet.js';
+import { projetDAccueilDeLaProposition } from './proposition-de-site.js';
 import { ajouterAuJournal, journalDeLaCarte, phaseDeLaCarte } from './journal-carte.js';
 import { copiesMortesDuProjet, nettoyerLesCopies } from './dossier-de-carte.js';
 import { CONFIG } from './config.js';
@@ -190,6 +194,7 @@ import { reconcilierLaCarte } from './rattrapage-ecartee.js';
 import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 
 import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
+import { repondreALaQuestionDeLaCarte } from './questions-de-carte.js';
 import { annulerLAttente, questionEnAttenteDeLAgent, repondreALAttente } from './attente-question.js';
 import { fermerLesPropositionsDeLAgent, trancherLaCompetence } from './proposition-competences.js';
 import { archiveCard } from './archive.js';
@@ -223,9 +228,9 @@ import {
   supprimerContenu as supprimerContenuMarketing,
   vueDEnsemble as vueDEnsembleMarketing,
   joursDeTendance as joursDeTendanceMarketing,
-  estAgentMarketing,
   lireEspace as lireEspaceMarketing,
 } from './marketing.js';
+import { estAgentAttitre } from './agent-attitre.js';
 import { depannerLaPublication } from './depannage-publication.js';
 import {
   enregistrerSite,
@@ -467,12 +472,12 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       capacity: etatCapacite(),
       // Les agents au travail et ceux qui viennent de finir, tous projets
       // confondus ; ceux du projet ouvert arrivent avec ses cartes, juste après.
-      // …PLUS les agents sans carte qui ont fini sans avoir été lus, quel que
-      // soit leur âge : leur carte violette les attend sur « Tableaux de bord ».
-      agents: avecLesAgentsNonLus(
+      // …PLUS les agents sans carte finis depuis moins de 24 heures : leur
+      // carte violette les attend dans « Terminés » des Tableaux de bord.
+      agents: avecLesAgentsSystemeTermines(
         agentsDuPremierEnvoi(store.agentsActifsOuRecents(Date.now() - FRAICHEUR_AGENT_MS), null, Date.now()),
       ),
-      productions: store.productionsAAfficher(),
+      productions: store.productionsAAfficher(Date.now()),
       openedProjectId: projetOuvert ?? undefined,
     });
 
@@ -566,10 +571,10 @@ function envoyerConversation(agentId: string, tout = false): void {
  * Marquer une carte comme lue, et rediffuser le compte des pastilles. Deux
  * chemins y mènent : ouvrir sa conversation, ou le dire explicitement.
  */
-/** Le premier envoi, complété des agents sans carte restés non lus (sans doublon). */
-function avecLesAgentsNonLus(agents: Agent[]): Agent[] {
+/** Le premier envoi, complété des agents sans carte finis depuis moins de 24 heures (sans doublon). */
+function avecLesAgentsSystemeTermines(agents: Agent[]): Agent[] {
   const connus = new Set(agents.map((agent) => agent.id));
-  return [...agents, ...store.agentsSystemeNonLus().filter((agent) => !connus.has(agent.id))];
+  return [...agents, ...store.agentsSystemeTermines(Date.now()).filter((agent) => !connus.has(agent.id))];
 }
 
 function marquerLue(cardId: string): void {
@@ -1394,6 +1399,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { card: ecrite };
     }
 
+    /*
+     * RÉPONDRE À UNE QUESTION GARDÉE SUR LA CARTE (`questionsEnAttente`) : la
+     * réponse s'écrit sur la carte, et la dernière relance le cadrage.
+     */
+    case 'card.comprehension.repondre': {
+      const card = await repondreALaQuestionDeLaCarte(cmd.cardId, cmd.questionId, cmd.reponse);
+      return { card };
+    }
+
     case 'card.comprehension.validate': {
       const result = validerLaComprehension(cmd.cardId, cmd.niveau);
       if (!result.ok) throw new Error(result.error ?? 'validation de la compréhension impossible');
@@ -1630,25 +1644,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: marquerNonLue(cmd.cardId) };
     }
 
-    /* « J'ai lu », pour une carte SYSTÈME : un agent sans carte, ou une mise
-       en production terminée. Sa carte violette s'efface et le chiffre bleu
-       de son projet redescend, sur tous les écrans. */
-    case 'agent.read': {
-      const agent = store.markAgentRead(cmd.agentId);
-      if (!agent) return { ok: false };
-      bus.emit({ type: 'agent.upsert', agent });
-      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
-      return { ok: true };
-    }
-
-    case 'deploy.read': {
-      const run = store.markDeployRead(cmd.runId);
-      if (!run) return { ok: false };
-      bus.emit({ type: 'deploy.lu', run });
-      bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
-      return { ok: true };
-    }
-
     /*
      * UNE CARTE RÉCLAMÉE PAR SON LIEN DIRECT. Le tiroir n'a que l'identifiant
      * de l'adresse : il demande ici la carte elle-même, hors de tout
@@ -1682,18 +1677,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * qui dit laquelle ouvrir, avec la même règle que le compteur.
      */
     case 'project.unreadCard': {
-      /* Le rendu le plus récent, carte Système comprise : `cardId`, ou
-         `agentId` (un agent sans carte), ou `production` (le projet dont la
-         mise en production attend d'être lue). */
-      return store.lastUnread([cmd.projectId, ...(cmd.membres ?? [])]) ?? { cardId: null };
+      return { cardId: store.lastUnread([cmd.projectId, ...(cmd.membres ?? [])]) };
     }
 
     case 'project.read': {
       const touchees = store.markProjectRead(cmd.projectId);
       for (const carte of touchees) bus.emit({ type: 'card.upsert', card: carte });
-      const systeme = store.markSystemeRead(cmd.projectId);
-      for (const agent of systeme.agents) bus.emit({ type: 'agent.upsert', agent });
-      for (const run of systeme.runs) bus.emit({ type: 'deploy.lu', run });
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
       return { lues: touchees.length };
     }
@@ -1775,17 +1764,31 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        */
       const carteDuFil = agent.cardId ? store.getCard(agent.cardId) : null;
       /*
-       * UN MESSAGE SOUS UNE CARTE DÉJÀ EN LIGNE OUVRE UNE NOUVELLE CARTE : le
-       * verrou de publication, plus haut, est déjà passé. L'identifiant de la
-       * carte neuve revient au client, qui l'ouvre. L'ancienne carte n'est ni
-       * touchée ni marquée « action » : elle reste où elle est.
+       * UN MESSAGE SOUS UNE CARTE DÉJÀ EN LIGNE N'OUVRE UNE NOUVELLE CARTE QUE
+       * SUR ACCORD (MEM-0354 : aucune carte ne naît sans un clic). Le champ
+       * d'écriture garde le texte et demande « Ouvrir une nouvelle carte » ;
+       * seul ce clic envoie `ouvrirNouvelleCarte`. Sans lui, le message est
+       * refusé AVANT d'être écrit : rien ne se crée en douce. Le verrou de
+       * publication, plus haut, est déjà passé. L'identifiant de la carte neuve
+       * revient au client, qui l'ouvre. L'ancienne carte n'est ni touchée ni
+       * marquée « action » : elle reste où elle est.
        */
-      if (carteDuFil && messageOuvreUneNouvelleCarte(carteDuFil) && !estAgentMarketing(agent.id)) {
+      /*
+       * JAMAIS POUR UN AGENT DE VOLET (Studio, Marketing, surveillance,
+       * sauvegardes) : sa carte n'a rien de publié, et son chat agit toujours
+       * sur SON écran — ni nouvelle carte, ni cadrage rouvert
+       * (`agent-attitre.ts`). Le message lui part ; si son fil moteur ne se
+       * reprend plus, le tour repart sur un fil neuf avec le rappel des
+       * derniers échanges (`filARappeler`, motif « fil-neuf »).
+       */
+      const attitre = estAgentAttitre(agent.id);
+      if (carteDuFil && messageOuvreUneNouvelleCarte(carteDuFil) && !attitre) {
+        if (!cmd.ouvrirNouvelleCarte) throw new Error(TEXTE_ACCORD_NOUVELLE_CARTE);
         const nouvelle = await ouvrirUneNouvelleCarteDepuis(agent.id, cmd.text, cmd.attachments ?? []);
         if (!nouvelle) throw new Error('la nouvelle carte n\'a pas pu être créée');
         return { ok: true, nouvelleCarteId: nouvelle.id };
       }
-      if (carteDuFil && messageDeLaCarteVaAuCadrage(carteDuFil)) {
+      if (carteDuFil && messageDeLaCarteVaAuCadrage(carteDuFil) && !attitre) {
         const cadrage = await rouvrirLeCadrage(carteDuFil.id);
         if (!cadrage) throw new Error('le cadrage de cette carte ne peut pas être rouvert');
         if (cadrage.id !== agent.id) {
@@ -2388,7 +2391,14 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (cmd.accept) {
         // Les images jointes au message d'origine suivent la carte : elles ne
         // s'éditent pas à la validation, on les reprend telles quelles.
-        const card = createCard(agent.projectId, {
+        /*
+         * LA CARTE D'UN SITE NAÎT DANS LE PROJET DU SITE, jamais chez Beluga
+         * Build où vit la conversation de son agent : c'est là que sa branche
+         * et son cadrage s'ouvriront. Le projet noté sur la proposition fait
+         * foi ; une proposition affichée avant cette règle le recalcule.
+         */
+        const projectId = projetDAccueilDeLaProposition(proposal, agent);
+        const card = createCard(projectId, {
           ...retenu,
           origin: 'agent',
           attachments: proposal.attachments,
@@ -3408,6 +3418,57 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true };
     }
 
+    /* -------- Studio : visuels et vidéos animées (`server/src/studio-commandes.ts`) -------- */
+
+    case 'studio.lister':
+    case 'studio.espace.ecrire':
+    case 'studio.creation.creer':
+    case 'studio.creation.ouvrir':
+    case 'studio.creation.modifier':
+    case 'studio.creation.supprimer':
+    case 'studio.creation.dupliquer':
+    case 'studio.modele.valider':
+    case 'studio.modele.lister':
+    case 'studio.modele.supprimer':
+    case 'studio.modele.copier':
+    case 'studio.operation':
+    case 'studio.annuler':
+    case 'studio.retablir':
+    case 'studio.restaurer':
+    case 'studio.historique':
+    case 'studio.selection':
+    case 'studio.media.importer':
+    case 'studio.media.modifier':
+    case 'studio.media.supprimer':
+    case 'studio.media.bande':
+    case 'studio.styles.lister':
+    case 'studio.styles.lire':
+    case 'studio.sources.lister':
+    case 'studio.sources.ajouter':
+    case 'studio.sources.valider':
+    case 'studio.sources.analyser':
+    case 'studio.sources.controler':
+    case 'studio.sources.retirer':
+    case 'studio.navigateur.ouvrir':
+    case 'studio.navigateur.geste':
+    case 'studio.navigateur.terminer':
+    case 'studio.navigateur.fermer':
+    case 'studio.voix.essai':
+    case 'studio.voix.devis':
+    case 'studio.voix.valider':
+    case 'studio.voix.extraits':
+    case 'studio.exporter':
+    case 'studio.export.annuler':
+    case 'studio.depense.valider':
+    case 'studio.depense.refuser':
+    case 'studio.credit':
+    case 'studio.assistant':
+    case 'studio.depuisMarketing':
+    {
+      const { traiterCommandeStudio } = await import('./studio-commandes.js');
+      return await traiterCommandeStudio(cmd);
+    }
+
     /* -------- Surveillance des sites -------- */
 
     case 'surveillance.lister':
@@ -3429,7 +3490,27 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // Sans identifiant, on relance TOUT : c'est le bouton « Vérifier
       // maintenant » de la fenêtre, qui ne doit pas attendre l'heure suivante.
       const sites = await verifierSites(cmd.id ? [cmd.id] : listerSites().map((site) => site.id));
+      // Le contrôle WordPress du site suit en fond : il passe par SSH et prend
+      // quelques secondes, l'écran se met à jour à sa diffusion.
+      if (cmd.id && lireSurveillance(cmd.id)?.wordpress)
+        void import('./surveillance-wordpress.js').then(({ tourneeWordpress }) => tourneeWordpress(Date.now(), [cmd.id!]));
       return { sites: sites.length ? sites : listerSites() };
+    }
+
+    case 'surveillance.wordpress': {
+      const id = String(cmd.id ?? '');
+      if (!lireSurveillance(id)) throw new Error('surveillance introuvable');
+      const { listerConstats } = await import('./surveillance-wordpress.js');
+      return { constats: listerConstats(id) };
+    }
+
+    case 'surveillance.wordpress.accepter': {
+      const id = String(cmd.id ?? '');
+      if (!lireSurveillance(id)) throw new Error('surveillance introuvable');
+      const { accepterLesExtensionsActuelles } = await import('./surveillance-wordpress.js');
+      const resultat = accepterLesExtensionsActuelles(id);
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'état non accepté');
+      return { sites: listerSites() };
     }
 
     case 'surveillance.historique': {
@@ -3589,43 +3670,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'card.quota':
       return store.usageQuotaByCard(cmd.cardId);
 
-    case 'stats.dashboard': {
-      // Le titre et le projet d'une carte vivent dans son JSON, pas dans la
-      // table `usage` : on raccroche la conso par carte aux cartes de tous les
-      // projets (archivés compris — une conso passée garde son nom).
-      const cartes = new Map<string, { title: string; projectName?: string }>();
-      for (const project of store.listProjects(true)) {
-        for (const card of store.listCards(project.id)) {
-          cartes.set(card.id, { title: card.title, projectName: project.name });
-        }
-      }
-      /*
-       * L'HISTORIQUE DES TÂCHES EXÉCUTÉES, la plus récente d'abord : une ligne
-       * par tour réellement parti, avec ses jetons d'entrée et de sortie RÉELS
-       * (`store.usageHistorique`, colonnes `input_tokens` / `output_tokens` —
-       * jamais une estimation). Le titre et le projet se raccrochent à la même
-       * carte `cartes` que ci-dessus ; une carte retirée garde sa ligne.
-       */
-      const historique = store.usageHistorique(30).map((ligne) => {
-        const carte = cartes.get(ligne.cardId);
-        return {
-          cardId: ligne.cardId,
-          title: carte?.title ?? 'Carte retirée',
-          projectName: carte?.projectName,
-          at: ligne.at,
-          inputTokens: ligne.inputTokens,
-          outputTokens: ligne.outputTokens,
-          tokens: ligne.tokens,
-        };
-      });
-
-      return {
-        byProject: store.usageByProject(),
-        byDay: store.usageByDay(30),
-        historique,
-      };
-    }
-
     /*
      * LA TÉLÉMÉTRIE DES TÂCHES. Le serveur ne fait que RACCROCHER les mesures
      * déjà écrites (`telemetrie_tache`) au titre et au projet de leur carte ;
@@ -3640,14 +3684,13 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'stats.telemetrie': {
-      const jours = Math.max(1, Math.min(90, Math.round(cmd.jours ?? JOURS_DE_TENDANCE)));
-      const titres = new Map<string, { titre: string; projet?: string }>();
-      for (const project of store.listProjects(true)) {
-        for (const card of store.listCards(project.id)) {
-          titres.set(card.id, { titre: card.title, projet: project.name });
-        }
-      }
-      const mesures = store.telemetrieDesTaches(jours).map((mesure) => ({
+      /* Une période précise (page « Résumé ») ou les `jours` derniers jours. */
+      const periode =
+        cmd.debut !== undefined || cmd.fin !== undefined ? bornesDeLaPeriode(cmd.debut, cmd.fin, Date.now()) : null;
+      const jours = periode ? periode.jours : Math.max(1, Math.min(90, Math.round(cmd.jours ?? JOURS_DE_TENDANCE)));
+      /* Les titres d'une seule requête, plus un tour de `listCards` par projet. */
+      const titres = titresDesCartes();
+      const mesures = store.telemetrieDesTaches(jours, periode ?? undefined).map((mesure) => ({
         ...mesure,
         titre: titres.get(mesure.cardId)?.titre,
         projet: titres.get(mesure.cardId)?.projet,
@@ -3655,12 +3698,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return {
         jours,
         taches: mesures.map((mesure) => ({ ...mesure, qualite: noteDeQualite(mesure) })),
-        tendances: tendancesParJour(mesures, Date.now(), jours),
+        tendances: tendancesParJour(mesures, periode ? periode.fin : Date.now(), jours),
         resume: resumeDeTendance(mesures),
         /* Les deux références de la note, pour que l'écran puisse dire d'où elle sort. */
         references: { jetons: JETONS_DE_REFERENCE, secondes: SECONDES_DE_REFERENCE },
       };
     }
+
+    case 'stats.resume':
+      return resumeDeRubrique(cmd.rubrique, { debut: cmd.debut, fin: cmd.fin });
 
     case 'memory.get': {
       const project = store.getProject(cmd.projectId);

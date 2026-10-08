@@ -42,6 +42,9 @@ import {
   decisionDeBoucle,
   contexteDeDepart,
   suppositionsValidees,
+  questionsSansReponse,
+  RAISON_QUESTIONS_DE_CARTE,
+  lignesDesReponses,
   titreDepuisLaDiscussion,
   planCourant,
   titreEncoreVide,
@@ -703,6 +706,8 @@ export function validerLaComprehension(
   if (!carteEnCadrage(card)) {
     return { ok: false, error: 'seule une carte encore en cadrage valide sa compréhension.' };
   }
+  /* Une question gardée sur la carte attend : la réponse peut changer ce qu'on validerait. */
+  if (questionsSansReponse(comprise).length) return { ok: false, error: RAISON_QUESTIONS_DE_CARTE };
   if (card.parcours?.comprehensionValidee?.comprehensionAt === comprise.at) return { ok: true, card };
   const scheduling = card.scheduling ?? { asap: false, attempts: 0, restarts: 0 };
   /*
@@ -745,13 +750,22 @@ export function decisionOuverteSurLaCarte(cardId: string): string | null {
    * (constaté par `scripts/verif-cycle-de-vie-carte.mjs`).
    */
   /*
+   * LES QUESTIONS GARDÉES SUR LA CARTE (`questions-de-carte.ts`) : aucun chemin
+   * de lancement ne passe tant qu'une reste sans réponse — bouton, glisser,
+   * départ programmé, ordonnanceur.
+   */
+  const carte = store.getCard(cardId);
+  if (carte && COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && questionsSansReponse(carte.parcours?.comprehension).length) {
+    return RAISON_QUESTIONS_DE_CARTE.replace(/^R/, 'r');
+  }
+  /*
    * UNE CARTE SUSPENDUE À LA MAIN N'A PLUS RIEN À TRANCHER : l'arrêt était le
    * geste, et la relance au clic est justement ce que la suspension attend.
    * Le tour coupé par cet arrêt ne pose plus de décision (`erreurDeTourAPoser`,
    * critère `arretDemande`) ; celles posées avant cette règle ne doivent pas
    * non plus retenir la carte.
    */
-  if (store.getCard(cardId)?.scheduling?.suspendu) return null;
+  if (carte?.scheduling?.suspendu) return null;
   const surLeDernierTour = (agentId: string, messageId: string): boolean => {
     const reponses = store.listMessages(agentId).filter((m) => m.role === 'assistant');
     return reponses.length > 0 && reponses[reponses.length - 1].id === messageId;
@@ -1067,6 +1081,7 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
           ? {
               hypotheses: card.parcours.comprehension.hypotheses ?? [],
               validees: suppositionsValidees(card.parcours.comprehension),
+              reponses: lignesDesReponses(card.parcours.comprehension),
             }
           : undefined,
       )
@@ -1664,10 +1679,18 @@ export async function tick(): Promise<void> {
  */
 async function menageDesDossiersDeCarte(): Promise<void> {
   const occupants = occupantsDesDossiers();
+  /* Une carte en PAUSE DE QUOTA garde sa copie : sa reprise repartira dedans
+     (fin de tour, `runtime.ts`). Abandonnée, elle n'est plus en attente et
+     se range au prochain ménage. */
+  const enPause = store
+    .reprisesDeCompteEnAttente()
+    .map((attente) => (attente.cardId ? { cardId: attente.cardId, dossier: store.getAgent(attente.agentId)?.workdir } : null))
+    .filter((pause): pause is { cardId: string; dossier: string } => !!pause?.dossier);
   // Les copies ANNEXES des cartes au travail sont occupées elles aussi.
   const occupes = [
     ...occupants.map((o) => o.dossier),
-    ...copiesAnnexesOccupees(occupants.map((o) => o.cardId)),
+    ...enPause.map((p) => p.dossier),
+    ...copiesAnnexesOccupees([...occupants.map((o) => o.cardId), ...enPause.map((p) => p.cardId)]),
   ];
   for (const project of store.listProjects()) {
     // Le principal, puis chaque dépôt annexe : leurs copies se rangent pareil.

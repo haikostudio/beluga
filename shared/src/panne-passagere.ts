@@ -379,6 +379,13 @@ export interface RepriseApresPanne {
   travailCommence: boolean;
   /** Le fil du moteur repart-il à neuf (session oubliée) ? Il ne sait alors plus rien. */
   filNeuf: boolean;
+  /**
+   * LE RAPPEL DES DERNIERS ÉCHANGES de la conversation (résumé « fil-neuf »),
+   * quand le fil repart à neuf alors que le prompt du tour avait été écrit pour
+   * un fil VIVANT — il ne portait donc aucun rappel. Sans lui, un agent de
+   * volet dont la session a expiré répondait sans savoir de quoi on parlait.
+   */
+  rappelDuFil?: string | null;
 }
 
 /**
@@ -396,7 +403,7 @@ export interface RepriseApresPanne {
  * fait ne se refait pas, mais ce qui est demandé ne se devine plus.
  */
 export function demandeDeRepriseApresPanne(reprise: RepriseApresPanne): string {
-  const { motif, essai, promptDuTour, travailCommence, filNeuf } = reprise;
+  const { motif, essai, promptDuTour, travailCommence, filNeuf, rappelDuFil } = reprise;
   const entete =
     `REPRISE APRÈS UNE PANNE DU MOTEUR (essai ${essai}/${ESSAIS_MAX}). Ton tour précédent a été coupé net : ` +
     `${causeEnClair(motif)}. La panne vient du fournisseur, pas de ton travail : rien de ce que tu as fait n'est perdu.`;
@@ -411,8 +418,9 @@ export function demandeDeRepriseApresPanne(reprise: RepriseApresPanne): string {
       : "TU ES TOMBÉ AVANT D'AVOIR TRAITÉ LA DEMANDE : il n'y a donc rien à reprendre, tout est à faire. " +
         'Traite-la depuis le début.';
 
+  const rappel = filNeuf && rappelDuFil?.trim() ? `${rappelDuFil.trim()}\n\n` : '';
   return (
-    `${entete}\n\n${consigne}\n\n` +
+    `${entete}\n\n${consigne}\n\n${rappel}` +
     'LA DEMANDE DE CE TOUR EST CELLE RECOPIÉE CI-DESSOUS, ET AUCUNE AUTRE. Ne reprends jamais une demande PLUS ' +
     "ANCIENNE de la conversation, même si c'est la dernière dont tu te souviennes : elle a déjà eu sa réponse.\n\n" +
     `${SEPARATEUR_DEMANDE}\n${promptDuTour}`

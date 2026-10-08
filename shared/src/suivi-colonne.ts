@@ -196,9 +196,17 @@ export function colonneAuDemarrage(
   colonne: ColumnKey,
   role: AgentRole,
   demandeur: Demandeur = 'automatique',
+  /** L'agent attitré d'une création du Studio ou de l'atelier Marketing. */
+  attitre = false,
 ): ColumnKey | null {
   if (!ROLES_QUI_DEPLACENT.includes(role)) return null;
   if (colonne === 'running') return null;
+  /*
+   * L'AGENT ATTITRÉ REPREND SA CARTE RANGÉE À CHAQUE MESSAGE. Sa carte n'a rien
+   * de publié à protéger (`colonneDeFinDUnAgentAttitre`) : écrire dans le chat
+   * du Studio la remet au travail, même depuis « Archivé ».
+   */
+  if (attitre && demandeur === 'humain' && COLONNES_HORS_REPRISE.includes(colonne)) return 'running';
   /*
    * RELANCER LA DISCUSSION D'UNE CARTE, C'EST LA REMETTRE AU TRAVAIL.
    *
@@ -458,6 +466,25 @@ export function natureDeLaMention(raison?: string | null): NatureDeLaMention {
  * colonne LIT donc cette constante, il ne la réécrit pas.
  */
 export const COLONNE_DE_FIN_DE_TOUR: ColumnKey = 'to_deploy';
+
+/**
+ * LA CARTE D'UN AGENT ATTITRÉ NE PASSE JAMAIS PAR « À DÉPLOYER ».
+ *
+ * L'agent d'une création du Studio ou de l'atelier Marketing ne livre aucun
+ * code : sa carte n'a ni branche ni copie de travail. Rangée en
+ * « À déployer » comme une tâche ordinaire, elle partait dans le lot de la
+ * publication suivante, en ressortait archivée AVEC une date de mise en ligne
+ * — et le message suivant écrit dans le chat du Studio ouvrait alors une
+ * NOUVELLE carte sur le tableau (capture #c201, 06.10.2026). Son tour fini, elle
+ * va donc directement dans « Archivé », sans date de mise en ligne, comme les
+ * cartes de l'atelier Marketing (`rangerCarteDAgent`).
+ */
+export const COLONNE_DE_FIN_D_UN_AGENT_ATTITRE: ColumnKey = 'archived';
+
+/** Où retombe la carte d'un agent attitré quand la règle commune la clôt. */
+export function colonneDeFinDUnAgentAttitre(cible: ColumnKey | null): ColumnKey | null {
+  return cible && COLONNES_DE_CLOTURE.includes(cible) ? COLONNE_DE_FIN_D_UN_AGENT_ATTITRE : cible;
+}
 
 export function colonneEnFinDeTour(colonne: ColumnKey, reussi: boolean, role: AgentRole): ColumnKey | null {
   if (!reussi) return null;

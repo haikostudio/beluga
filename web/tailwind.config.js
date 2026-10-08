@@ -23,6 +23,9 @@ export default {
         // l'orange d'avertissement (`warning`) et de l'orange d'avancement
         // (`en-cours`), pour ne pas emprunter leur sens.
         nouveau: 'hsl(var(--nouveau))',
+        // Un site « à surveiller » (contrôle WordPress) : le jaune d'un souci à
+        // regarder, ni l'orange du travail en cours ni le rouge de la panne.
+        'a-surveiller': 'hsl(var(--a-surveiller))',
         danger: 'hsl(var(--danger))',
         info: 'hsl(var(--info))',
         publie: 'hsl(var(--publie))',

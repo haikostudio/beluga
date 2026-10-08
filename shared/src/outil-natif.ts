@@ -34,8 +34,3 @@ export const PLOMBERIE_SERVEURS = [
 export function outilDUnServeurBranche(nom: string): boolean {
   return nom.startsWith('mcp__') || PLOMBERIE_SERVEURS.includes(nom);
 }
-
-/** Les seuls outils que le contrôle de complétude a le droit de juger. */
-export function outilsNatifsDuMoteur(outils: string[]): string[] {
-  return outils.filter((nom) => !outilDUnServeurBranche(nom));
-}

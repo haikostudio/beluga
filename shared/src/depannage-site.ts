@@ -259,11 +259,11 @@ export function demandeDePanne(entree: {
   }
   lignes.push(
     'CE QUE TU FAIS MAINTENANT',
-    '1. ENQUÊTE POUR DE VRAI. Rappelle le site toi-même, lis les journaux du service et du reverse-proxy, regarde ce qui a été mis en ligne juste avant la chute, cherche la dernière cause plausible. Ce que tu n’as pas vu se dit comme une hypothèse, en toutes lettres.',
+    '1. ENQUÊTE POUR DE VRAI. Rappelle le site toi-même, lis les journaux du service et du reverse-proxy, regarde ce qui a été mis en ligne juste avant la chute, cherche la dernière cause plausible. Ce que tu n’as pas vu se dit comme non vérifié, en toutes lettres, dans le texte de ta compréhension.',
     '2. RENDS CE QUE TU AS COMPRIS avec « rendre_comprehension » : la panne constatée, sa cause probable, et ce qui reste incertain.',
     '3. LE PLAN DE CORRECTION TE SERA DEMANDÉ JUSTE APRÈS, dans un second tour : garde ton enquête pour l’écrire. Le plan attend ensuite la validation de l’utilisateur — tu ne corriges rien, tu n’enregistres rien et tu ne mets rien en ligne.',
     '',
-    'NE POSE AUCUNE QUESTION AVEC « ask_user » : un site tombe sans prévenir, et personne n’est devant l’écran. Ce qui manque se tranche, et tu annonces ton choix en disant « je suppose » là où tu supposes.',
+    'NE POSE AUCUNE QUESTION AVEC « ask_user » : un site tombe sans prévenir, et personne n’est devant l’écran. Ce qui manque se VÉRIFIE ou se tranche comme DÉCIDÉ ; ce que seul l’utilisateur peut trancher se PRÉPARE dans le champ « questions » de « rendre_comprehension » (la question, ce que change chaque réponse, deux choix au moins, la réponse conseillée dans « recommandee ») : elles l’attendent sur la carte. Aucune supposition : « hypotheses » reste vide.',
     '',
     'NE TOUCHE À AUCUN FICHIER pendant ce tour : ton travail est de comprendre puis de proposer. La correction, si elle est validée, sera lancée comme n’importe quelle autre tâche.',
   );

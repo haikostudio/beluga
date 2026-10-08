@@ -50,6 +50,8 @@ export interface AnnonceRecue {
   projectId?: string;
   cardId?: string;
   agentId?: string;
+  /** Une adresse de l'application (« #studio/… ») où mène l'appui, quand l'alerte ne tient à aucune carte. */
+  url?: string;
 }
 
 /** Une ligne de la liste, quelle que soit sa provenance. */
@@ -70,7 +72,7 @@ export interface LigneNotification {
   /** Encore à régler : une demande ouverte, ou une annonce jamais lue. */
   nonLue: boolean;
   /** Où emmener au clic. Vide : la ligne n'est pas cliquable. */
-  lieu: { projectId?: string; cardId?: string; agentId?: string; messageId?: string };
+  lieu: { projectId?: string; cardId?: string; agentId?: string; messageId?: string; url?: string };
   /** La demande d'origine, quand c'en est une : l'affichage y reprend son détail. */
   demande?: DecisionAttendue;
 }
@@ -286,7 +288,7 @@ export function journalDesNotifications(
       texte: annonce.corps,
       a: annonce.a,
       nonLue: !annonce.lue,
-      lieu: { projectId: annonce.projectId, cardId: annonce.cardId, agentId: annonce.agentId },
+      lieu: { projectId: annonce.projectId, cardId: annonce.cardId, agentId: annonce.agentId, ...(annonce.url ? { url: annonce.url } : {}) },
     }));
 
   return [...lignesDemandes, ...lignesAnnonces];

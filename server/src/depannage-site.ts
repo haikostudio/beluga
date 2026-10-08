@@ -40,6 +40,7 @@ import { jugerLUrgenceEnFond } from './juge-des-cartes.js';
 import { ouvrirLeCadrage } from './cadrage.js';
 import { sendPrompt } from './runtime.js';
 import {
+  controlesDeLaPage,
   ecrireProjetDevine,
   lireSurveillance,
   listerControles,
@@ -172,12 +173,21 @@ export interface DepannageLance {
  * ouvre une enquête et un plan à lire, jamais une dépense d'exécution — c'est
  * l'utilisateur qui valide et lance, d'un clic, au réveil.
  */
-export async function ouvrirLeDepannage(siteId: string, maintenant = Date.now()): Promise<DepannageLance | null> {
+export async function ouvrirLeDepannage(
+  siteId: string,
+  maintenant = Date.now(),
+  /**
+   * Le compte d'échecs d'affilée quand il ne se lit PAS dans l'historique de la
+   * page : les lectures de journaux tiennent le leur
+   * (`server/src/surveillance-wordpress.ts`).
+   */
+  echecsImposes?: number,
+): Promise<DepannageLance | null> {
   const site = lireSurveillance(siteId);
   if (!site) return null;
 
   const controles = listerControles(site.id, maintenant);
-  const echecs = echecsDeSuiteDuSite(controles);
+  const echecs = echecsImposes ?? echecsDeSuiteDuSite(controlesDeLaPage(controles));
   const decision = decisionDeDepannage(site, echecs, maintenant);
   if (!decision.depanner) {
     if (decision.raison !== 'pas-assez-d-echecs')

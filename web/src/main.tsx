@@ -22,6 +22,9 @@ const Racine = React.lazy(() =>
     : import('./app').then((m) => ({ default: m.App })),
 );
 
+/* La couche des infobulles vient avec la boîte à outils de l'interface, que les deux visages chargent de toute façon. */
+const Infobulles = React.lazy(() => import('./components/ui').then((m) => ({ default: m.InfobullesDeLApplication })));
+
 /*
  * AVANT tout le reste : une erreur survenue pendant le premier affichage doit
  * elle aussi remonter. Sur un téléphone, c'est la seule trace qu'on aura.
@@ -34,6 +37,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <Filet onReprendre={() => location.reload()}>
       <React.Suspense fallback={null}>
         <Racine />
+        {/* Chaque `title` des DEUX visages devient l'infobulle maison : rapide, en fondu. */}
+        <Infobulles />
       </React.Suspense>
     </Filet>
   </React.StrictMode>,

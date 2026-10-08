@@ -145,6 +145,43 @@ export function retenirLesPropositions<T extends CandidateDeProposition>(
     .slice(0, place);
 }
 
+/**
+ * UN SEUL ENCADRÉ PAR SUJET. Une fiche propre qui ÉTEND une commune (en-tête
+ * `etend`) n'est jamais proposée seule quand sa commune est dans la foule : elle
+ * se fond dans la commune, qui prend la MEILLEURE proximité et le meilleur rang
+ * des deux, et note la nuance. Valider la commune emporte alors sa nuance au
+ * lancement (`briefingDesCompetencesValidees`). Une commune absente de la foule
+ * laisse la fiche propre seule, comme avant. À appeler AVANT
+ * `retenirLesPropositions`, pour que la saillance compare des sujets, pas des
+ * fiches.
+ */
+export function rattacherLesNuances<T extends CandidateDeProposition>(
+  candidates: readonly T[],
+  communeDe: (nom: string) => string | undefined,
+): (T & { nuances: string[] })[] {
+  const parNom = new Map<string, T & { nuances: string[] }>();
+  for (const c of candidates) parNom.set(c.nom, { ...c, nuances: [] });
+  for (const c of candidates) {
+    const commune = communeDe(c.nom);
+    const cible = commune && commune !== c.nom ? parNom.get(commune) : undefined;
+    if (!cible) continue;
+    parNom.set(commune!, {
+      ...cible,
+      proximite: Math.max(cible.proximite, c.proximite),
+      rang: Math.min(cible.rang, c.rang),
+      nuances: [...cible.nuances, c.nom],
+    });
+    parNom.delete(c.nom);
+  }
+  return [...parNom.values()];
+}
+
+/** La phrase de l'encadré d'une commune qui porte la nuance du projet. */
+export function correspondanceAvecNuance(correspondance: string, projet: string, nuances: readonly string[]): string {
+  if (!nuances.length) return correspondance;
+  return `${correspondance} — Le modèle commun, avec la nuance propre à « ${projet} » (${nuances.join(', ')}).`;
+}
+
 /** La question qui porte un encadré : deux choix, aucun texte libre. */
 export function questionDeCompetence(
   id: string,
@@ -180,15 +217,6 @@ export function etatApresReponse(reponse: string | undefined): Exclude<EtatDePro
 /** Les compétences VALIDÉES d'une carte, dans l'ordre où elles ont été proposées. */
 export function competencesValidees(proposees: readonly CompetenceProposee[] | undefined): CompetenceProposee[] {
   return (proposees ?? []).filter((p) => p.etat === 'utilisee');
-}
-
-/** Reste-t-il un encadré sans réponse dans cette série ? */
-export function encadresEncoreOuverts(
-  proposees: readonly Pick<CompetenceProposee, 'questionId' | 'etat'>[] | undefined,
-  questionIds: readonly string[],
-): string[] {
-  const ouvertes = new Set((proposees ?? []).filter((p) => p.etat === 'proposee').map((p) => p.questionId));
-  return questionIds.filter((id) => ouvertes.has(id));
 }
 
 /**
@@ -236,21 +264,39 @@ export const SIGNES_PAR_COMPETENCE_VALIDEE_MAX = 14_000;
  * noms du socle — l'agent n'a plus à deviner laquelle ouvrir.
  */
 export function texteDesCompetencesValidees(
-  fiches: readonly { nom: string; chemin: string; texte: string }[],
+  fiches: readonly {
+    nom: string;
+    chemin: string;
+    texte: string;
+    /** Les fiches PROPRES au projet qui précisent cette commune : servies juste après elle. */
+    nuances?: readonly { nom: string; chemin: string; texte: string }[];
+  }[],
+  projet?: string,
 ): string {
   if (!fiches.length) return '';
+  const borner = (texte: string) => {
+    const propre = texte.trim();
+    return propre.length > SIGNES_PAR_COMPETENCE_VALIDEE_MAX
+      ? `${propre.slice(0, SIGNES_PAR_COMPETENCE_VALIDEE_MAX).trimEnd()}\n\n(…la suite est dans le fichier ci-dessus.)`
+      : propre;
+  };
   const blocs = fiches.map((fiche) => {
-    const texte = fiche.texte.trim();
-    const coupe = texte.length > SIGNES_PAR_COMPETENCE_VALIDEE_MAX;
-    return [
-      `### ${fiche.nom}`,
-      `Fichier : ${fiche.chemin}`,
-      '',
-      coupe ? `${texte.slice(0, SIGNES_PAR_COMPETENCE_VALIDEE_MAX).trimEnd()}\n\n(…la suite est dans le fichier ci-dessus.)` : texte,
-    ].join('\n');
+    const nuances = (fiche.nuances ?? []).map((nuance) =>
+      [
+        `#### Nuance propre à ${projet?.trim() ? `« ${projet.trim()} »` : 'ce projet'} — ${nuance.nom}`,
+        `Fichier : ${nuance.chemin}`,
+        '',
+        borner(nuance.texte),
+      ].join('\n'),
+    );
+    return [`### ${fiche.nom}`, `Fichier : ${fiche.chemin}`, '', borner(fiche.texte), ...nuances.map((n) => `\n${n}`)].join('\n');
   });
+  const avecNuance = fiches.some((fiche) => fiche.nuances?.length);
   return [
-    `COMPÉTENCES VALIDÉES PAR L'UTILISATEUR AU CADRAGE (${fiches.length}) — il a cliqué « Utiliser » sur chacune. Leur mode d'emploi est ci-dessous EN ENTIER : SUIS-LE pour cette tâche, sans le rouvrir ni reposer la question. Leurs fichiers de détail (annexes, scripts) vivent dans le même dossier que le fichier indiqué. En fin de tâche, dis avec l'outil « competences », action « retour », si chacune t'a réellement servi.`,
+    `COMPÉTENCES VALIDÉES PAR L'UTILISATEUR AU CADRAGE (${fiches.length}) — il a cliqué « Utiliser » sur chacune. Leur mode d'emploi est ci-dessous EN ENTIER : SUIS-LE pour cette tâche, sans le rouvrir ni reposer la question. Leurs fichiers de détail (annexes, scripts) vivent dans le même dossier que le fichier indiqué. En fin de tâche, dis avec l'outil « competences », action « retour », si chacune t'a réellement servi.` +
+      (avecNuance
+        ? ` Une compétence suivie d'une « Nuance propre » est COMMUNE à plusieurs projets : elle est le MODÈLE, et la nuance ne fait que la préciser pour ce projet (noms, données, stockage) — elle ne la remplace pas.`
+        : ''),
     '',
     blocs.join('\n\n---\n\n'),
   ].join('\n');

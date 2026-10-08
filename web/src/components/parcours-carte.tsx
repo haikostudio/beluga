@@ -59,10 +59,13 @@ import {
   modeleActuel,
   procedureEnPlace,
   raisonDeployerDepuisLaCarte,
+  prochaineQuestionDeCarte,
+  COLONNES_AVANT_LE_TRAVAIL,
 } from '@beluga/shared';
 import { BulleInfo, Button, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
 import { CarouselQuestions } from '@/components/carousel-questions';
 import { EncadresDeCompetences } from '@/components/encadre-competence';
+import { BulleQuestion } from '@/components/bulle-question';
 import {
   ErreurDeTourCard,
   QuestionCard,
@@ -633,10 +636,13 @@ export function PanneauDeDecision({
     </div>
   ) : null;
 
+  const questionsDeLaCarte = <QuestionsDeLaCarte carte={carte} projectId={projectId} />;
+
   if (!decisions.length) {
     return (
       <>
         <BandeauPropositions messages={messages} />
+        {questionsDeLaCarte}
         {competences}
       </>
     );
@@ -647,6 +653,7 @@ export function PanneauDeDecision({
   return (
     <>
       <BandeauPropositions messages={messages} />
+      {questionsDeLaCarte}
       {competences}
       <div className="shrink-0 px-3 pb-1 pt-2" data-panneau-decision={decisions.length}>
         <div
@@ -733,6 +740,62 @@ export function PanneauDeDecision({
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * LES QUESTIONS QU'UN CADRAGE SANS TÉMOIN A LAISSÉES SUR LA CARTE (la nuit,
+ * une carte posée par un agent, un site tombé) — à la place des anciennes
+ * suppositions. UNE à la fois (DEC-286) : la première sans réponse, avec la
+ * réponse que l'agent conseille ; la suivante paraît dès que celle-ci est
+ * tranchée. Après la dernière, le cadrage reprend tout seul et réécrit la
+ * compréhension. Le lancement reste éteint, et dit pourquoi, tant qu'une
+ * question attend (`RAISON_QUESTIONS_DE_CARTE`).
+ */
+function QuestionsDeLaCarte({ carte, projectId }: { carte: Card; projectId?: string }) {
+  const comprise = carte.parcours?.comprehension;
+  const toutes = comprise?.questionsEnAttente ?? [];
+  const question = prochaineQuestionDeCarte(comprise);
+  if (!question || !COLONNES_AVANT_LE_TRAVAIL.includes(carte.column)) return null;
+  const rang = toutes.findIndex((q) => q.id === question.id) + 1;
+  return (
+    <div className="shrink-0 px-3 pb-1 pt-2" data-questions-de-carte={toutes.length} data-question-de-carte-rang={rang}>
+      <ZoneDefilement
+        classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl border border-warning/50 bg-bloc-fil"
+        fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
+        className="px-2.5 pb-2.5"
+      >
+        <p className="flex items-center gap-2 px-0.5 py-2 text-[13.5px] font-medium text-text">
+          <MessageSquare className="h-4 w-4 shrink-0 text-warning" aria-hidden />
+          {toutes.length > 1
+            ? t('L’agent a préparé {v0} questions pour vous · {v1} sur {v0}', { v0: toutes.length, v1: rang })
+            : t('L’agent a préparé une question pour vous')}
+        </p>
+        <BulleQuestion
+          /* La clé change avec la question : la bulle repart vide pour la suivante. */
+          key={question.id}
+          question={{
+            question: question.question,
+            description: question.description,
+            options: question.options,
+            kind: question.kind,
+            allowFreeText: true,
+            recommandee: question.recommandee,
+          }}
+          projectId={projectId}
+          variante="contraste"
+          repere={{ 'data-question-agent': question.id, 'data-question-de-carte': '' }}
+          onRepondre={async (reponse) => {
+            try {
+              await client.call({ type: 'card.comprehension.repondre', cardId: carte.id, questionId: question.id, reponse });
+            } catch (err: any) {
+              client.pushToast('error', err?.message ?? t('réponse impossible'));
+              throw err;
+            }
+          }}
+        />
+      </ZoneDefilement>
+    </div>
   );
 }
 

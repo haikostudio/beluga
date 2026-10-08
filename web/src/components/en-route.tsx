@@ -32,10 +32,14 @@ import { Bot, CheckCircle2, Layers, Microscope, Rocket, Square, UploadCloud, Way
 import {
   agentCompteCommeTravail,
   agentTientSonTour,
-  agentSystemeNonLu,
   agentsDeLaBande,
+  agentsTerminesDeLaBande,
+  entrelacerParDate,
+  type SystemeTermine,
+  type DeployRun,
   colonneAffichee,
   depannagesDeLaBande,
+  depannagesTerminesDeLaBande,
   etatDeLaVignetteDInitialisation,
   misesEnProductionAAfficher,
   depanneurVivant,
@@ -72,19 +76,22 @@ import { CardTile, avalerLeRelachement } from '@/components/board';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
 import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
-import { PointNonLu } from '@/components/point-non-lu';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { usePointerDrag } from '@/lib/dnd';
 import { GRILLE_EN_ROUTE, SilhouetteListeEnRoute } from '@/components/silhouettes';
 import {
   CLASSE_CADRE_SYSTEME,
-  CLASSE_HAUTEUR_CARTE_EN_ROUTE,
-  CLASSE_HAUTEUR_CORPS_EN_ROUTE,
   CLASSES_LISTE_COLONNE_EN_ROUTE,
   CLASSES_TETE_COLONNE_EN_ROUTE,
   classesColonneEnRoute,
   classesRailEnRoute,
 } from '@/lib/gabarit-tableau';
+
+/** Une carte Système de « Terminés » : une mise en production, un dépannage ou un agent sans carte. */
+type ElementSysteme =
+  | { genre: 'production'; run: DeployRun }
+  | { genre: 'depannage'; agent: Agent }
+  | { genre: 'agent'; agent: Agent };
 
 /** La liste des cartes : la même que celle de sa silhouette. */
 const GRILLE = GRILLE_EN_ROUTE;
@@ -109,8 +116,10 @@ export function EnRoute({
   onOpenAgent: (agentId: string) => void;
 }) {
   const state = useApp();
-  // L'heure « rendue il y a… » se refait à chaque minute, pour toute la page.
-  useMinute();
+  // L'heure « rendue il y a… » se refait à chaque minute, pour toute la page —
+  // et une carte Système finie depuis 24 heures quitte « Terminés » sans
+  // rechargement (`DUREE_SYSTEME_TERMINE_MS`).
+  const maintenant = useMinute();
   const telephone = useTelephone();
   /*
    * LE MENU D'UNE CARTE, COMME AU TABLEAU : clic droit à la souris, appui long
@@ -179,19 +188,87 @@ export function EnRoute({
     return index;
   }, [state.agents]);
 
-  const bande = agentsDeLaBande(Object.values(state.agents), Date.now());
+  /* LES CARTES SYSTÈME (cadre violet) : au travail ou en attente d'une
+     réponse, en tête d'« Actifs » ; finies depuis moins de 24 heures, dans
+     « Terminés », rangées par date de fin parmi les cartes (06/10/2026). */
+  const agents = Object.values(state.agents);
+  const bande = agentsDeLaBande(agents);
   /* LES DÉPANNAGES DE PUBLICATION (« Résoudre le problème ») : leur carte
      spéciale, en tête de la colonne « Actifs », tant que l'agent travaille. */
-  const depannages = depannagesDeLaBande(Object.values(state.agents), Date.now());
+  const depannages = depannagesDeLaBande(agents);
   /* LES MISES EN PRODUCTION, tout en haut : celle qui tourne dans chaque
-     projet en service, puis celle qui a fini sans avoir été lue. */
-  const productions = misesEnProductionAAfficher(
+     projet en service. */
+  const productionsAffichees = misesEnProductionAAfficher(
     Object.values(state.productions).filter((run) => enService.has(run.projectId)),
+    maintenant,
+  );
+  const productions = productionsAffichees.filter((run) => run.state === 'running');
+  const systemeTermine: SystemeTermine<ElementSysteme>[] = [
+    ...productionsAffichees
+      .filter((run) => run.state !== 'running')
+      .map((run) => ({ finiA: run.endedAt ?? run.startedAt, element: { genre: 'production' as const, run } })),
+    ...depannagesTerminesDeLaBande(agents, maintenant)
+      .filter((agent) => enService.has(agent.projectId))
+      .map((agent) => ({ finiA: agent.endedAt ?? 0, element: { genre: 'depannage' as const, agent } })),
+    ...agentsTerminesDeLaBande(agents, maintenant)
+      .filter((agent) => enService.has(agent.projectId))
+      .map((agent) => ({ finiA: agent.endedAt ?? 0, element: { genre: 'agent' as const, agent } })),
+  ];
+
+  /* La vignette d'un agent sans carte : celle de l'agent de configuration
+     garde sa forme à part, la même qu'en tête de « En cours » du tableau. */
+  const vignetteAgent = (agent: Agent) => {
+    const projet = state.projects.find((p) => p.id === agent.projectId);
+    const etapeConfiguree = etapeDeLAgentDeConfiguration(projet, agent.id) ?? 'production';
+    const initialisation = etatDeLaVignetteDInitialisation(projet, agent, maintenant, etapeConfiguree);
+    return initialisation ? (
+      <VignetteInitialisationProduction
+        key={agent.id}
+        agent={agent}
+        etat={initialisation}
+        projet={projet}
+        cible={etapeConfiguree}
+        reconfiguration={procedureEnPlace(projet, 'production')}
+        avecProjet
+        formatCarte
+      />
+    ) : (
+      <VignetteAgent key={agent.id} agent={agent} onOpen={() => ouvrirAgent(agent)} />
+    );
+  };
+  const vignetteProduction = (run: DeployRun) => (
+    <VignetteMiseEnProduction
+      key={run.id}
+      run={run}
+      projet={state.projects.find((p) => p.id === run.projectId)}
+      onOpen={() => client.ouvrirMiseEnProduction(run.projectId)}
+      avecProjet
+      formatCarte
+    />
+  );
+  const vignetteSysteme = (element: ElementSysteme) =>
+    element.genre === 'production' ? (
+      vignetteProduction(element.run)
+    ) : element.genre === 'depannage' ? (
+      <VignetteDepannage key={element.agent.id} agent={element.agent} onOpen={() => onOpenAgent(element.agent.id)} />
+    ) : (
+      vignetteAgent(element.agent)
+    );
+
+  /* « TERMINÉS » : les piles et les cartes Système finies, par date de fin.
+     Une carte Système plus ancienne que la dernière pile chargée (les paquets
+     de vingt) se pose à la fin : elle reste visible sans attendre la suite. */
+  const terminesEntrelaces = entrelacerParDate(
+    cartesTerminees,
+    (pile) => Math.max(0, ...pile.cartes.map((c) => c.deployedAt ?? 0)),
+    systemeTermine,
   );
 
   /* LE NOMBRE D'ENTRÉES DE CHAQUE COLONNE, en tête de la colonne : ce qui est
      reçu, plus ce qui reste à demander (les paquets de vingt) — une pile compte
-     pour une. Rien tant que la liste n'est pas chargée : pas de « 0 » trompeur. */
+     pour une. Rien tant que la liste n'est pas chargée : pas de « 0 » trompeur.
+     Les cartes Système n'y comptent pas, dans aucune des deux colonnes : ce ne
+     sont pas des cartes, et elles s'en vont seules au bout de 24 heures. */
   const nombreActif = state.enRoute?.charge ? cartesActives.length + state.enRoute.restant : undefined;
   const nombreTermine = state.enRouteTermine?.charge
     ? cartesTerminees.length + state.enRouteTermine.restant
@@ -270,16 +347,7 @@ export function EnRoute({
           <section className="mb-1" data-bande-productions>
             <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Mises en production')}</h2>
             <div className={GRILLE}>
-              {productions.map((run) => (
-                <VignetteMiseEnProduction
-                  key={run.id}
-                  run={run}
-                  projet={state.projects.find((p) => p.id === run.projectId)}
-                  onOpen={() => client.ouvrirMiseEnProduction(run.projectId)}
-                  avecProjet
-                  formatCarte
-                />
-              ))}
+              {productions.map(vignetteProduction)}
             </div>
           </section>
         ) : null}
@@ -302,27 +370,7 @@ export function EnRoute({
           <section className="mb-1" data-bande-agents>
             <h2 className="text-[12px] uppercase tracking-wide text-faint">{t('Agents sans carte')}</h2>
             <div className={GRILLE}>
-              {bande.map((agent) => {
-                /* L'agent de configuration de la production garde sa vignette
-                   à part, la même qu'en tête de « En cours » du tableau. */
-                const projet = state.projects.find((p) => p.id === agent.projectId);
-                const etapeConfiguree = etapeDeLAgentDeConfiguration(projet, agent.id) ?? 'production';
-                const initialisation = etatDeLaVignetteDInitialisation(projet, agent, Date.now(), etapeConfiguree);
-                return initialisation ? (
-                  <VignetteInitialisationProduction
-                    key={agent.id}
-                    agent={agent}
-                    etat={initialisation}
-                    projet={projet}
-                    cible={etapeConfiguree}
-                    reconfiguration={procedureEnPlace(projet, 'production')}
-                    avecProjet
-                    formatCarte
-                  />
-                ) : (
-                  <VignetteAgent key={agent.id} agent={agent} onOpen={() => ouvrirAgent(agent)} />
-                );
-              })}
+              {bande.map(vignetteAgent)}
             </div>
           </section>
         ) : null}
@@ -385,7 +433,7 @@ export function EnRoute({
             title={t('La liste n’a pas pu être chargée')}
             hint={termines.erreur}
           />
-        ) : !cartesTerminees.length ? (
+        ) : !terminesEntrelaces.length ? (
           <EmptyState
             icon={<CheckCircle2 className="h-5 w-5" />}
             title={t('Rien en ligne pour l’instant')}
@@ -393,25 +441,29 @@ export function EnRoute({
           />
         ) : (
           <div className={GRILLE} data-liste-terminee>
-            {cartesTerminees.map((pile) => (
-              <PileDeCartes
-                key={pile.cle}
-                pile={pile}
-                menu={gesteDuMenu}
-                rendre={(card) => (
-                  <CarteTerminee
-                    key={card.id}
-                    card={card}
-                    // La mère n'a pas de date de mise en ligne (DEC-258) : la
-                    // sienne est celle de sa dernière fille publiée.
-                    enLigneDepuis={card.deployedAt ?? Math.max(0, ...pile.cartes.map((c) => c.deployedAt ?? 0))}
-                    demande={termines.demandes[card.id]}
-                    onOpen={() => onOpenCard(card)}
-                    menu={gesteDuMenu(card)}
-                  />
-                )}
-              />
-            ))}
+            {terminesEntrelaces.map((entree) =>
+              entree.genre === 'systeme' ? (
+                vignetteSysteme(entree.element)
+              ) : (
+                <PileDeCartes
+                  key={entree.entree.cle}
+                  pile={entree.entree}
+                  menu={gesteDuMenu}
+                  rendre={(card) => (
+                    <CarteTerminee
+                      key={card.id}
+                      card={card}
+                      // La mère n'a pas de date de mise en ligne (DEC-258) : la
+                      // sienne est celle de sa dernière fille publiée.
+                      enLigneDepuis={card.deployedAt ?? Math.max(0, ...entree.entree.cartes.map((c) => c.deployedAt ?? 0))}
+                      demande={termines.demandes[card.id]}
+                      onOpen={() => onOpenCard(card)}
+                      menu={gesteDuMenu(card)}
+                    />
+                  )}
+                />
+              ),
+            )}
           </div>
         )}
         {suite('termine')}
@@ -807,7 +859,8 @@ function PiedSysteme({ agent, auTravail }: { agent: Agent; auTravail: boolean })
       className={cn('mt-auto flex shrink-0 items-center text-[12px] text-faint', !auTravail && 'pb-1.5 pt-1')}
       data-anciennete-systeme={agent.id}
     >
-      <span className="shrink-0">{relativeTime(agent.updatedAt)}</span>
+      {/* Finie, l'ancienneté part de la FIN : c'est elle qui range la carte dans « Terminés ». */}
+      <span className="shrink-0">{relativeTime(auTravail ? agent.updatedAt : (agent.endedAt ?? agent.updatedAt))}</span>
     </div>
   );
 }
@@ -829,28 +882,15 @@ function descriptionDuRole(role: Agent['role']): string {
 }
 
 /**
- * UNE CARTE SYSTÈME ATTEND D'ÊTRE LUE (05/10/2026) : un agent sans carte qui a
- * fini garde sa carte, point bleu allumé (`agentSystemeNonLu`), jusqu'à ce
- * qu'on l'ouvre — ouvrir, c'est lire — ou qu'on clique sur le point.
- */
-function useLectureSysteme(agent: Agent, onOpen: () => void) {
-  const nonLu = agentSystemeNonLu(agent);
-  const lire = () => client.send({ type: 'agent.read', agentId: agent.id });
-  const ouvrir = () => {
-    if (nonLu) lire();
-    onOpen();
-  };
-  return { nonLu, lire, ouvrir };
-}
-
-/**
- * UN AGENT DE LA BANDE, AU FORMAT D'UNE CARTE DE LA LISTE : même hauteur fixe
- * (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`), même tête (projet · rôle à gauche, état à
- * droite), le titre puis une description (`descriptionDuRole`) dans le même
- * corps de 72 px, l'ancienneté en pied, et la barre de travail dessous tant
- * qu'il travaille (`BandeauTravail`, la même que sous une carte). Cadre VIOLET
- * (`--publie`) : c'est ce qui distingue d'un coup d'œil une carte Système. Pas
- * de frise d'étapes : sa place reste vide.
+ * UN AGENT DE LA BANDE, EN CARTE SYSTÈME COMPACTE (06/10/2026) : la même tête
+ * qu'une carte de la liste (projet · rôle à gauche, état à droite), le titre
+ * sur deux lignes au plus, une ligne de description (`descriptionDuRole`),
+ * l'ancienneté en pied, et la barre de travail dessous tant qu'il travaille
+ * (`BandeauTravail`, la même que sous une carte). Sa HAUTEUR SUIT SON CONTENU —
+ * à peu près la moitié d'une carte : pas de frise d'étapes, donc rien à
+ * aligner sur la hauteur fixe des cartes. Cadre VIOLET (`--publie`) : c'est ce
+ * qui distingue d'un coup d'œil une carte Système. Pas de point bleu : finie,
+ * elle passe 24 heures dans « Terminés » sans aucun signal.
  *
  * L'ouverture est portée par le CADRE (`data-ouvrir-agent-en-route`), pas par
  * un `button` : le titre revient à la ligne (`line-clamp-2`), et un texte
@@ -864,10 +904,9 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
   const Icone = agent.role === 'deploy' ? UploadCloud : agent.role === 'analysis' ? Microscope : Bot;
   const titreRef = React.useRef<HTMLHeadingElement>(null);
   const titreCoupe = useTexteCoupe([titreRef], [agent.title]);
-  const { nonLu, lire, ouvrir } = useLectureSysteme(agent, onOpen);
+  const ouvrir = onOpen;
   return (
-    <div className={cn('relative flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-agent-en-route={agent.id}>
-      {nonLu ? <PointNonLu onLire={lire} data-systeme-non-lu={agent.id} /> : null}
+    <div className="relative flex min-w-0 flex-col" data-vignette-agent-en-route={agent.id}>
       <div
         role="button"
         tabIndex={0}
@@ -892,8 +931,14 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1" data-tete-droite>
-            <span className="flex items-center gap-1" data-temoin-en-route={auTravail ? 'travail' : 'repos'}>
-              {agent.status === 'starting' ? (
+            <span
+              className="flex items-center gap-1"
+              data-temoin-en-route={agent.attendReponse ? 'question' : auTravail ? 'travail' : 'repos'}
+            >
+              {/* Arrêté sur sa question, il reste dans « Actifs » : il le dit. */}
+              {agent.attendReponse && !auTravail ? (
+                <span className="text-warning">{t('attend votre réponse')}</span>
+              ) : agent.status === 'starting' ? (
                 <>
                   <Dot tone="running" pulse />
                   <span className="text-faint">{t('démarre…')}</span>
@@ -928,7 +973,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
             ) : null}
           </div>
         </div>
-        <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
+        <div className="min-w-0" data-corps-systeme>
           <div className="flex items-start gap-1.5">
             <h3 ref={titreRef} className="line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text">
               <Icone
@@ -941,7 +986,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
             </h3>
             {titreCoupe ? <BulleTexteCoupe>{agent.title}</BulleTexteCoupe> : null}
           </div>
-          <p data-description-carte className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted">
+          <p data-description-carte className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted">
             {descriptionDuRole(agent.role)}
           </p>
         </div>
@@ -960,7 +1005,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
  * au travail, attend votre réponse, ou terminé. Le clic rouvre sa conversation,
  * d'où qu'on vienne. Même règle que `VignetteAgent` : l'ouverture est portée
  * par le cadre, jamais par un `button` qui contiendrait un texte replié. Même
- * hauteur fixe qu'une carte de la liste.
+ * format compact, hauteur au contenu ; finie, elle passe dans « Terminés ».
  */
 function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
   const state = useApp();
@@ -968,10 +1013,9 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
   const vivant = depanneurVivant(agent);
   const auTravail = agentTientSonTour(agent);
   const cible = agent.depannagePublication?.cible;
-  const { nonLu, lire, ouvrir } = useLectureSysteme(agent, onOpen);
+  const ouvrir = onOpen;
   return (
-    <div className={cn('relative flex min-w-0 flex-col', CLASSE_HAUTEUR_CARTE_EN_ROUTE)} data-vignette-depannage={agent.id}>
-      {nonLu ? <PointNonLu onLire={lire} data-systeme-non-lu={agent.id} /> : null}
+    <div className="relative flex min-w-0 flex-col" data-vignette-depannage={agent.id}>
       <div
         role="button"
         tabIndex={0}
@@ -1006,12 +1050,12 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
             )}
           </span>
         </div>
-        <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>
+        <div className="min-w-0" data-corps-systeme>
           <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
             <Wrench className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-warning" />
             {cible === 'production' ? t('Dépannage de la mise en production') : t('Dépannage du déploiement')}
           </h3>
-          <p data-description-carte className="mt-1 line-clamp-2 break-words text-[12.5px] leading-snug text-muted">
+          <p data-description-carte className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted">
             {t('Répare, puis relance l’étape tombée.')}
           </p>
         </div>

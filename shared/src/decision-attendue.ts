@@ -183,7 +183,9 @@ export function decisionOrpheline(
  * partir de la carte ou de l'agent (`allerVersDecision`, côté client) ; c'est
  * un détail de routage, pas une raison d'éteindre le clic.
  */
-export function lieuAtteignable(lieu: LieuDecision | { projectId?: string; cardId?: string; agentId?: string }): boolean {
+export function lieuAtteignable(lieu: LieuDecision | { projectId?: string; cardId?: string; agentId?: string; url?: string }): boolean {
+  // Une adresse de l'application (« #studio/verification:<source> ») mène aussi quelque part : l'alerte sans carte reste cliquable.
+  if ('url' in lieu && typeof lieu.url === 'string' && lieu.url.startsWith('#')) return true;
   return Boolean(lieu.cardId?.trim() || lieu.agentId?.trim() || lieu.projectId?.trim());
 }
 

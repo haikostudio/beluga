@@ -22,8 +22,27 @@
  * `server/src/surveillance.ts` compte, note la date AVANT l'envoi et déclenche.
  */
 
+import { construireFragment } from './adresse-navigateur.js';
+import { ADRESSE_ADMINISTRATION } from './courriels-clients.js';
+import {
+  blocAIcone,
+  champ,
+  courrielEnBlocs,
+  echapper,
+  lienEnClair,
+  listeNumerotee,
+  rangeeDeBoutons,
+  texteAvecCodes,
+  texteEnHtml,
+} from './gabarit-courriel.js';
 import type { ControleSurveillance, SiteSurveille } from './surveillance.js';
-import { LIBELLE_RAISON, phraseDePeriode, bornerPeriode, phraseDeRecetteSurveillance } from './surveillance.js';
+import {
+  LIBELLE_RAISON,
+  bornerPeriode,
+  etapesDeRecetteSurveillance,
+  phraseDePeriode,
+  phraseDeRecetteSurveillance,
+} from './surveillance.js';
 
 /** Combien de contrôles ratés d'affilée avant d'écrire. Le seuil du dépannage. */
 export const ECHECS_AVANT_COURRIEL = 3;
@@ -120,16 +139,30 @@ export interface CourrielDeSite {
   html: string;
 }
 
-const echapper = (v: string) =>
-  v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/**
+ * LA FICHE DU SITE DANS BELUGA, ouverte directement : l'adresse décrite par
+ * `adresse-navigateur.ts`, jamais un chemin recopié à la main.
+ */
+export function lienDeLaSurveillance(siteId: string): string {
+  return `${ADRESSE_ADMINISTRATION}/#${construireFragment({ vue: 'surveillance', siteId })}`;
+}
 
-/** Le même texte en HTML : des paragraphes, rien de plus — c'est un constat, pas une plaquette. */
-function enHtml(lignes: readonly string[]): string {
-  const corps = lignes
-    .filter((ligne) => ligne.trim())
-    .map((ligne) => `<p style="margin:0 0 10px">${echapper(ligne)}</p>`)
-    .join('\n');
-  return `<div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#111">\n${corps}\n</div>`;
+/** Les boutons de fin d'un courriel de surveillance : la fiche dans Beluga, puis le service lui-même. */
+export function boutonsDeSurveillance(site: { id?: string; url: string }): string {
+  return rangeeDeBoutons([
+    ...(site.id ? [{ libelle: 'Voir dans Beluga', lien: lienDeLaSurveillance(site.id) }] : []),
+    { libelle: 'Ouvrir le service', lien: site.url },
+  ]);
+}
+
+/** Le bloc « Adresse du service », commun aux courriels de la surveillance. */
+export function blocDAdresse(url: string): string {
+  return blocAIcone({ icone: 'lien', teinte: 'gris', titre: 'Adresse du service', contenu: lienEnClair(url) });
+}
+
+/** La ligne du pied : qui surveille quoi. */
+export function piedDeSurveillance(nom: string): string {
+  return `Surveillance automatisée de ${nom}, par Beluga Build`;
 }
 
 /**
@@ -168,12 +201,61 @@ export function courrielDePanneDuSite(entree: {
     `Contrôlé ${phraseDePeriode(bornerPeriode(site.periodeMs))}. Dernier contrôle à ${heure(site.verifieLe)}.`,
     `Prochain courriel dans ${phraseDeDuree(RAPPEL_COURRIEL_MS)} au plus tôt, et un mot dès que tout est revenu.`,
   ];
-  return { sujet, texte: lignes.join('\n'), html: enHtml(lignes) };
+  const duree = phraseDeDuree(maintenant - depuis);
+  const verdict = blocAIcone({
+    icone: 'alerte',
+    teinte: 'rouge',
+    titre: 'Ce qui cloche',
+    contenu: texteAvecCodes(ligneDeVerdict(site)),
+  });
+  const html = courrielEnBlocs({
+    titre: 'Surveillance',
+    apercu: lignes[0],
+    bandeau: {
+      teinte: 'rouge',
+      surtitre: 'Incident en cours',
+      date: heure(maintenant),
+      titre: genre === 'rappel' ? `${site.nom} est toujours en panne` : `${site.nom} ne répond plus`,
+      texteHtml:
+        genre === 'rappel'
+          ? `En panne depuis <strong>${echapper(duree)}</strong> — début à ${echapper(heure(depuis))}.`
+          : `<strong>${entree.echecsDeSuite} contrôles</strong> ratés d’affilée. La panne a commencé à ${echapper(heure(depuis))}.`,
+      pastille: { libelle: `Incident en cours · ${duree}`, teinte: 'rouge' },
+      illustration: genre === 'rappel' ? 'rappel' : 'panne',
+    },
+    ...(site.id ? { lienEnTete: { libelle: 'Voir dans Beluga', lien: lienDeLaSurveillance(site.id) } } : {}),
+    blocs: [
+      blocDAdresse(site.url),
+      detail
+        ? verdict + blocAIcone({ icone: 'document', teinte: 'gris', titre: 'Détail du dernier contrôle', contenu: texteAvecCodes(detail) })
+        : verdict,
+      blocAIcone({
+        icone: 'liste',
+        teinte: 'gris',
+        titre: 'Ce qui est vérifié',
+        contenu: listeNumerotee(etapesDeRecetteSurveillance(site.recette ?? { type: 'appel' })),
+      }),
+      ...(explication
+        ? [blocAIcone({ icone: 'diagnostic', teinte: 'ambre', titre: 'Diagnostic probable', contenu: texteAvecCodes(explication) })]
+        : []),
+      blocAIcone({
+        icone: 'horloge',
+        teinte: 'gris',
+        titre: 'Suivi et prochaines étapes',
+        contenu:
+          champ('Rythme', echapper(`Contrôlé ${phraseDePeriode(bornerPeriode(site.periodeMs))}. Dernier contrôle à ${heure(site.verifieLe)}.`)) +
+          champ('Prochain courriel', echapper(`Dans ${phraseDeDuree(RAPPEL_COURRIEL_MS)} au plus tôt, et un mot dès que tout est revenu.`)) +
+          boutonsDeSurveillance(site),
+      }),
+    ],
+    pied: piedDeSurveillance(site.nom),
+  });
+  return { sujet, texte: lignes.join('\n'), html };
 }
 
 /** LE MOT DE FIN. Court : la panne est finie, voilà combien de temps elle a duré. */
 export function courrielDeRetourDuSite(entree: {
-  site: Pick<SiteSurveille, 'nom' | 'url'>;
+  site: Pick<SiteSurveille, 'nom' | 'url'> & { id?: string };
   /** Le début de la panne annoncée par courriel. */
   panneDepuis?: number;
   maintenant?: number;
@@ -188,5 +270,29 @@ export function courrielDeRetourDuSite(entree: {
     `Adresse : ${entree.site.url}`,
     `Rétabli à ${heure(maintenant)}.`,
   ];
-  return { sujet: `${entree.site.nom} répond de nouveau`, texte: lignes.join('\n'), html: enHtml(lignes) };
+  const html = courrielEnBlocs({
+    titre: 'Surveillance',
+    apercu: lignes[0],
+    bandeau: {
+      teinte: 'vert',
+      surtitre: 'Service rétabli',
+      date: heure(maintenant),
+      titre: `${entree.site.nom} répond de nouveau`,
+      ...(duree ? { texteHtml: `La panne a duré <strong>${echapper(duree)}</strong>.` } : {}),
+      pastille: { libelle: 'Rétabli', teinte: 'vert' },
+      illustration: 'retour',
+    },
+    ...(entree.site.id ? { lienEnTete: { libelle: 'Voir dans Beluga', lien: lienDeLaSurveillance(entree.site.id) } } : {}),
+    blocs: [
+      blocDAdresse(entree.site.url),
+      blocAIcone({
+        icone: 'coche',
+        teinte: 'vert',
+        titre: 'Retour à la normale',
+        contenu: texteEnHtml(`Rétabli à ${heure(maintenant)}.`) + boutonsDeSurveillance(entree.site),
+      }),
+    ],
+    pied: piedDeSurveillance(entree.site.nom),
+  });
+  return { sujet: `${entree.site.nom} répond de nouveau`, texte: lignes.join('\n'), html };
 }

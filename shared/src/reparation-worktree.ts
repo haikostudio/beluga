@@ -160,6 +160,33 @@ export function reconnaitrePanneDeDossier(message: string): PanneDeDossier | nul
  */
 export const REPARATIONS_MAX = 3;
 
+/*
+ * LES CROCHETS DU PROJET NE S'INVITENT PAS À L'OUVERTURE D'UNE COPIE.
+ *
+ * `git worktree add` exécute le `post-checkout` du dépôt. Celui de HaikoBill
+ * (husky : copie de `.env.example`, puis `pnpm install` faute de
+ * `node_modules`) sortait en code 1 : git rendait « husky - post-checkout
+ * script failed (code 1) » APRÈS avoir posé la copie, et le démon concluait
+ * à un échec. Constaté sept fois au premier lancement d'une carte HaikoBill
+ * depuis le 29.09.2026 (le second essai trouvait le dossier déjà posé), et le
+ * 06.10.2026 sur une relève de compte, qui n'a pas de second essai : la carte
+ * est restée immobile toute la nuit. Les dépendances d'une copie viennent
+ * déjà du dossier principal (`relierLesLourds`) : le crochet n'apporte rien.
+ */
+
+/** Les options git qui coupent TOUS les crochets d'une commande (husky compris). */
+export const GIT_SANS_CROCHETS = ['-c', 'core.hooksPath=/dev/null'] as const;
+
+/**
+ * Le message de git dit-il qu'un CROCHET a échoué, et seulement lui ? Dans ce
+ * cas la copie est posée : il reste à vérifier qu'elle est sur la bonne branche.
+ */
+export function crochetDeCheckoutTombe(message: string): boolean {
+  return /post-checkout(?: script| hook)? (?:failed|exited)|hook ['"]?post-checkout['"]? (?:failed|exited)/i.test(
+    sansBruitDeProgression(message ?? ''),
+  );
+}
+
 /**
  * Les chemins d'objets git cités dans un message d'erreur. Un objet VIDE se
  * répare en l'effaçant puis en le redemandant au dépôt distant ; encore

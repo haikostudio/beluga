@@ -39,7 +39,9 @@ import {
   PanneDeDossier,
   PREFIXE_BRANCHE_ARCHIVEE,
   REPARATIONS_MAX,
+  GIT_SANS_CROCHETS,
   brancheReglee,
+  crochetDeCheckoutTombe,
   cheminNettoyable,
   copiesMortes,
   decisionDArchivage,
@@ -353,12 +355,20 @@ async function ouvrirVraiment(
   /* `--quiet` coupe le ruban « Updating files:  27% » à la source : il n'apporte
      rien dans un journal et il noyait la vraie phrase de git quand ça tombait.
      Les erreurs, elles, restent écrites. */
+  /* Sans les crochets du projet (`GIT_SANS_CROCHETS`) : un `post-checkout` qui
+     tombe faisait passer une copie bien posée pour un échec. */
   const argsDuTour = () =>
     etat.neuve
-      ? ['worktree', 'add', '--quiet', '-b', branche, dossier, etat.depuis]
-      : ['worktree', 'add', '--quiet', dossier, branche];
+      ? [...GIT_SANS_CROCHETS, 'worktree', 'add', '--quiet', '-b', branche, dossier, etat.depuis]
+      : [...GIT_SANS_CROCHETS, 'worktree', 'add', '--quiet', dossier, branche];
 
   let ajout = await git(racine, argsDuTour(), DELAI_OUVERTURE_DE_COPIE_MS);
+  /* Filet : un crochet qui passerait quand même (configuration système) ne
+     compte pas — la copie est là, sur sa branche. */
+  if (!ajout.ok && crochetDeCheckoutTombe(ajout.out) && (await brancheCourante(dossier)) === branche) {
+    log.warn(`dossier de carte (${dossier}) : le crochet post-checkout du projet a échoué, copie gardée`);
+    ajout = { ok: true, out: ajout.out };
+  }
 
   /*
    * L'OUVERTURE SE RÉPARE ELLE-MÊME AVANT D'ABANDONNER. La carte s'arrêtait

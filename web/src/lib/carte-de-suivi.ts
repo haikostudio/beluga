@@ -1,4 +1,4 @@
-import { carteEnPublication, type Card, type CarteDeSuivi, type DeployRun } from '@beluga/shared';
+import { carteEnPublication, estCarteDuRendezVousDeNuit, type Card, type CarteDeSuivi, type DeployRun } from '@beluga/shared';
 
 /**
  * CE QUE LA FRISE ET LA BARRE D'ÉTAPES LISENT D'UNE CARTE, écrit une seule fois
@@ -31,5 +31,7 @@ export function carteDeSuivi(
     deployeeA: card.deployedAt,
     enPublication: carteEnPublication(run, card.id),
     publicationEchouee: run?.state === 'failed' && run.cardIds.includes(card.id),
+    /* LA CARTE DE NUIT a ses trois ronds à elle : Demande, Examen, Propositions. */
+    rendezVousDeNuit: estCarteDuRendezVousDeNuit(card) || undefined,
   };
 }

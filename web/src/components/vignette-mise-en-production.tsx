@@ -1,19 +1,16 @@
 import { Rocket } from 'lucide-react';
 import {
   descriptionDeLEtape,
-  miseEnProductionNonLue,
   suiviDeLaPublication,
   type DeployRun,
   type Project,
 } from '@beluga/shared';
 import { BarreProgression } from '@/components/barre-progression';
 import { PastilleProjet } from '@/components/pastille-projet';
-import { PointNonLu } from '@/components/point-non-lu';
 import { Dot } from '@/components/ui';
-import { client } from '@/lib/client';
-import { CLASSE_CADRE_SYSTEME, CLASSE_HAUTEUR_CARTE_EN_ROUTE, CLASSE_HAUTEUR_CORPS_EN_ROUTE } from '@/lib/gabarit-tableau';
+import { CLASSE_CADRE_SYSTEME } from '@/lib/gabarit-tableau';
 import { t } from '@/lib/langue';
-import { cn, relativeTime } from '@/lib/utils';
+import { relativeTime } from '@/lib/utils';
 
 /**
  * LA CARTE SYSTÈME D'UNE MISE EN PRODUCTION (05/10/2026).
@@ -23,15 +20,16 @@ import { cn, relativeTime } from '@/lib/utils';
  * mise en production pose désormais sa carte à cadre VIOLET en tête de « En
  * cours » du tableau (une par projet du groupe sur le tableau d'un groupe) et
  * en tête de « Actifs » des « Tableaux de bord ». Elle dit le projet, l'étape
- * et l'avancement, puis RESTE une fois terminée — réussie, tombée ou arrêtée —,
- * point bleu allumé, jusqu'à ce qu'on l'ouvre ou qu'on clique sur le point
- * (`miseEnProductionAffichee`, `shared/src/cartes-systeme.ts`).
+ * et l'avancement. Une fois terminée — réussie, tombée ou arrêtée —, elle
+ * quitte « En cours » du tableau et passe 24 heures dans « Terminés » des
+ * Tableaux de bord, sans point bleu ni aucun signal (`miseEnProductionAffichee`,
+ * `shared/src/cartes-systeme.ts`, 06/10/2026). Sa hauteur suit son contenu.
  *
  * Ce n'est PAS une carte : elle ne compte ni dans le compteur de sa colonne ni
  * dans son avancement. Un déploiement sur ce serveur n'en a pas — il a déjà sa
  * barre en tête de « À déployer ». L'ouverture est portée par le CADRE, jamais
  * par un `button` qui contiendrait un texte replié ; elle mène au suivi du
- * bandeau du bas (`onOpen`), et vaut lecture.
+ * bandeau du bas (`onOpen`).
  */
 export function VignetteMiseEnProduction({
   run,
@@ -46,18 +44,13 @@ export function VignetteMiseEnProduction({
   onOpen: () => void;
   /** Le nom du projet en tête — utile hors du tableau d'un projet. */
   avecProjet?: boolean;
-  /** Sur « Tableaux de bord » : hauteur fixe, description et ancienneté, comme une carte. */
+  /** Sur « Tableaux de bord » : cadre de carte Système et ancienneté en pied, hauteur au contenu. */
   formatCarte?: boolean;
 }) {
   const suivi = suiviDeLaPublication(run);
   const enCours = suivi.etat === 'en-cours';
   const tombee = suivi.etat === 'en-echec';
-  const nonLue = miseEnProductionNonLue(run);
-  const lire = () => client.send({ type: 'deploy.read', runId: run.id });
-  const ouvrir = () => {
-    if (nonLue) lire();
-    onOpen();
-  };
+  const ouvrir = onOpen;
   const etape = suivi.etape ? t(descriptionDeLEtape(suivi.etape, 'production').libelle) : null;
   const titre = enCours
     ? t('Mise en production en cours')
@@ -81,7 +74,7 @@ export function VignetteMiseEnProduction({
       </h3>
       <p
         data-description-carte
-        className={cn('mt-1 break-words text-[12.5px] leading-snug text-muted', formatCarte ? 'line-clamp-2' : 'line-clamp-1')}
+        className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted"
       >
         {description}
       </p>
@@ -89,11 +82,10 @@ export function VignetteMiseEnProduction({
   );
   return (
     <div
-      className={cn('relative flex min-w-0 flex-col', formatCarte && CLASSE_HAUTEUR_CARTE_EN_ROUTE)}
+      className="relative flex min-w-0 flex-col"
       data-vignette-mise-en-production={run.projectId}
       data-etat-vignette-production={suivi.etat}
     >
-      {nonLue ? <PointNonLu onLire={lire} data-systeme-non-lu={run.id} /> : null}
       <div
         role="button"
         tabIndex={0}
@@ -138,7 +130,7 @@ export function VignetteMiseEnProduction({
         </div>
         {formatCarte ? (
           <>
-            <div className={cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE)}>{titreEtDescription}</div>
+            <div className="min-w-0" data-corps-systeme>{titreEtDescription}</div>
             <div className="mt-auto flex shrink-0 items-center pb-1.5 pt-1 text-[12px] text-faint" data-anciennete-systeme={run.projectId}>
               <span className="shrink-0">{relativeTime(run.endedAt ?? run.startedAt)}</span>
             </div>

@@ -187,6 +187,7 @@ export function lirePool(dossier = dossierDesCompetences()): PoolLu {
       themes: listeDEnTete(entete.themes),
       symptomes: listeDEnTete(entete.symptomes),
       projets: listeDEnTete(entete.projets),
+      etend: entete.etend?.trim() || undefined,
       provenance,
       annexes: annexesDeLaFiche(chemin),
       anomalies: anomaliesDeLaFiche(texte),
@@ -579,12 +580,15 @@ export function ecrireLaFiche(
    * portée DONNÉE (même vide) est, elle, une décision et s'applique.
    */
   let projets = redaction.projets;
+  // Le lien vers la commune suit la même règle : absent, il est gardé ; vide, il est retiré.
+  let etend = redaction.etend;
   if (existe) {
     try {
       const entete = enTeteDeCompetence(fs.readFileSync(fichier, 'utf8'));
       const ancienne = provenanceDepuisEnTete(entete);
       provenance = options.carte ? provenanceRenforcee(ancienne, options.carte) : ancienne;
       if (projets === undefined) projets = listeDEnTete(entete.projets);
+      if (etend === undefined) etend = entete.etend;
     } catch {
       /* fiche illisible : on repart de la provenance donnée */
     }
@@ -592,7 +596,22 @@ export function ecrireLaFiche(
     provenance = { ...provenance, creeeLe: Date.now() };
   }
 
-  const texte = texteDeLaFiche({ ...redaction, nom, provenance, projets });
+  /*
+   * UNE NUANCE ÉTEND UNE COMMUNE QUI EXISTE. Une fiche commune n'étend rien (elle
+   * EST le modèle), et un lien vers une fiche absente ou propre ne lierait rien
+   * au service : refusés, avec leur raison.
+   */
+  if (etend?.trim()) {
+    if (!projets?.length) {
+      return { ok: false, raisons: ['une fiche commune n’étend rien : seule une fiche PROPRE à un projet précise une commune (« etend »)'] };
+    }
+    const cible = lirePool(racine).fiches.find((fiche) => fiche.nom === etend!.trim());
+    if (!cible || !ficheCommune(cible)) {
+      return { ok: false, raisons: [`« etend » doit nommer une fiche COMMUNE du pool : « ${etend.trim()} » ${cible ? 'est propre à un projet' : 'n’existe pas'}`] };
+    }
+  }
+
+  const texte = texteDeLaFiche({ ...redaction, nom, provenance, projets, etend });
   const jugement = jugerLaFiche(texte);
   if (!jugement.ok) return { ok: false, raisons: jugement.raisons };
 

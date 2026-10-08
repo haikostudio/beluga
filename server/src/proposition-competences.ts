@@ -3,12 +3,16 @@ import {
   GENRE_SOURCE_COMPETENCE,
   PORTEE_DES_COMPETENCES,
   PORTEE_GLOBALE,
+  communeEtendue,
   competencesValidees,
+  correspondanceAvecNuance,
   correspondanceDeLaCompetence,
   etatApresReponse,
   ficheServieAuProjet,
+  nuancesDeLaCommune,
   nomDeCompetenceDeLUnite,
   questionDeCompetence,
+  rattacherLesNuances,
   retenirLesPropositions,
   texteDIssueDesPropositions,
   texteDesCompetencesValidees,
@@ -118,7 +122,13 @@ export async function competencesAProposer(
     vues.add(fiche.nom);
     candidates.push({ nom: fiche.nom, proximite, rang: rangs.get(fiche.nom) ?? Number.POSITIVE_INFINITY, fiche });
   }
-  const saillantes = retenirLesPropositions(candidates, dejaProposees);
+  /* UN SUJET, UN ENCADRÉ : la nuance propre se fond dans sa commune (`rattacherLesNuances`). */
+  const servies = [...fiches.values()];
+  const sujets = rattacherLesNuances(candidates, (nom) => {
+    const fiche = fiches.get(nom);
+    return fiche ? communeEtendue(fiche, servies)?.nom : undefined;
+  });
+  const saillantes = retenirLesPropositions(sujets, dejaProposees);
   if (!saillantes.length) return [];
   // Le juge local, quand son usage est allumé, écarte encore le franchement hors sujet ; sans avis, tout passe.
   const jugees = await garderLesPertinents(
@@ -130,7 +140,7 @@ export async function competencesAProposer(
   return jugees.map((c) => ({
     nom: c.nom,
     titre: titreLisibleDeCompetence(c.nom),
-    correspondance: correspondanceDeLaCompetence(c.fiche.description),
+    correspondance: correspondanceAvecNuance(correspondanceDeLaCompetence(c.fiche.description), projet.name, c.nuances),
     chemin: c.fiche.fichier,
     score: c.proximite,
   }));
@@ -346,22 +356,51 @@ export function fermerLesPropositionsDeLAgent(agentId: string): number {
  * depuis (archivée, renommée) est simplement absente. Chaque fiche remise est
  * comptée comme SERVIE — c'est bien ici qu'elle arrive sous les yeux de l'agent.
  */
-export function briefingDesCompetencesValidees(card: Pick<Card, 'parcours'> | null | undefined): string {
+export function briefingDesCompetencesValidees(
+  card: (Pick<Card, 'parcours'> & { projectId?: string }) | null | undefined,
+): string {
   const validees = competencesValidees(card?.parcours?.competencesProposees);
   if (!validees.length) return '';
-  const pool = new Map(listerCompetences().map((fiche) => [fiche.nom, fiche]));
-  const fiches: { nom: string; chemin: string; texte: string }[] = [];
-  for (const validee of validees) {
-    const fiche = pool.get(validee.nom);
-    if (!fiche) continue;
+  const pool = listerCompetences();
+  const parNom = new Map(pool.map((fiche) => [fiche.nom, fiche]));
+  const projet = card?.projectId ? store.getProject(card.projectId)?.name : undefined;
+  const lire = (fiche: Competence) => {
     try {
-      fiches.push({ nom: fiche.nom, chemin: fiche.fichier, texte: fs.readFileSync(fiche.fichier, 'utf8') });
+      const texte = fs.readFileSync(fiche.fichier, 'utf8');
       compter(fiche.nom, 'servie');
+      return { nom: fiche.nom, chemin: fiche.fichier, texte };
     } catch (err) {
       log.warn(`compétence validée « ${fiche.nom} » illisible au lancement : ${(err as Error).message}`);
+      return undefined;
     }
+  };
+  /*
+   * LA COMMUNE D'ABORD, ENTIÈRE, PUIS LA NUANCE DU PROJET. Une commune validée
+   * emporte les fiches propres au projet qui l'étendent ; une fiche propre
+   * validée seule (proposée avant que sa commune existe) fait venir sa commune
+   * devant elle. Aucune fiche n'est servie deux fois.
+   */
+  const deja = new Set<string>();
+  const fiches: { nom: string; chemin: string; texte: string; nuances: { nom: string; chemin: string; texte: string }[] }[] = [];
+  for (const validee of validees) {
+    const fiche = parNom.get(validee.nom);
+    if (!fiche || deja.has(fiche.nom)) continue;
+    const principale = communeEtendue(fiche, pool) ?? fiche;
+    if (deja.has(principale.nom)) continue;
+    const nuances = principale === fiche ? nuancesDeLaCommune(principale, pool, projet) : [fiche];
+    const lue = lire(principale);
+    deja.add(principale.nom);
+    if (!lue) continue;
+    const nuancesLues = nuances
+      .filter((nuance) => !deja.has(nuance.nom))
+      .map((nuance) => {
+        deja.add(nuance.nom);
+        return lire(nuance);
+      })
+      .filter((n): n is NonNullable<typeof n> => !!n);
+    fiches.push({ ...lue, nuances: nuancesLues });
   }
-  return texteDesCompetencesValidees(fiches);
+  return texteDesCompetencesValidees(fiches, projet);
 }
 
 /** Pour les tests : repartir d'un registre vide. */

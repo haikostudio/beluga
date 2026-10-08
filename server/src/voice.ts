@@ -27,7 +27,24 @@ const execFileAsync = promisify(execFile);
 
 const VENV = path.join(CONFIG.dataDir, 'venv');
 const PYTHON = path.join(VENV, 'bin', 'python');
-const PIPER = path.join(VENV, 'bin', 'piper');
+/*
+ * PIPER SE LANCE PAR SON MODULE (`python -m piper`), JAMAIS PAR LE LANCEUR
+ * `venv/bin/piper` : l'entête de ce lanceur porte le chemin ABSOLU de l'interpréteur
+ * au moment de l'installation (`#!/root/haikodev/…`), et il cesse de démarrer dès
+ * que le dossier du projet change de nom (« cannot execute: required file not
+ * found », MEM-4331). Le module, lui, suit l'interpréteur qu'on lui donne.
+ */
+const PIPER_MODULE = path.join(VENV, 'lib');
+
+/** Piper est-il réellement posé ? L'interpréteur ET le paquet `piper` dans son environnement. */
+function piperInstalle(): boolean {
+  if (!fs.existsSync(PYTHON)) return false;
+  try {
+    return fs.readdirSync(PIPER_MODULE).some((version) => fs.existsSync(path.join(PIPER_MODULE, version, 'site-packages', 'piper')));
+  } catch {
+    return false;
+  }
+}
 const VOICES = path.join(CONFIG.dataDir, 'models', 'piper');
 const DEFAULT_VOICE = 'fr_FR-siwis-medium';
 const PIPER_VOICE = path.join(VOICES, `${DEFAULT_VOICE}.onnx`);
@@ -171,7 +188,7 @@ export interface VoixResolue {
 }
 
 /** Le fichier de modèle d'une voix, et la personne à demander dedans. */
-function resoudre(id: string): VoixResolue | null {
+export function resoudre(id: string): VoixResolue | null {
   if (id.startsWith(PREFIXE_VOIX_GEMINI)) {
     const voix = voixGeminiDeLId(id);
     if (!voix || !cleGemini()) return null;
@@ -291,7 +308,7 @@ export function voiceAvailable(): { transcribe: boolean; speak: boolean } {
   return {
     transcribe: fs.existsSync(PYTHON) && fs.existsSync(TRANSCRIBE_SCRIPT),
     // Un seul des moteurs suffit à faire parler le serveur.
-    speak: (fs.existsSync(PIPER) || kokoroInstalle() || Boolean(cleGemini())) && listVoices().length > 0,
+    speak: (piperInstalle() || kokoroInstalle() || Boolean(cleGemini())) && listVoices().length > 0,
   };
 }
 
@@ -550,8 +567,10 @@ function lancerLaSynthese(
           ],
         ]
       : [
-          PIPER,
+          PYTHON,
           [
+            '-m',
+            'piper',
             '--model',
             retenue.modele,
             ...(retenue.personne === undefined ? [] : ['--speaker', String(retenue.personne)]),

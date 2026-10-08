@@ -24,6 +24,8 @@
  * (`web/src/components/surveillance.tsx`) les affiche.
  */
 
+import type { ConfigWordpress, ResumeWordpress } from './surveillance-wordpress.js';
+
 /** Le rythme d'une surveillance qui n'en dit pas : cinq minutes. */
 export const PERIODE_SURVEILLANCE_MS = 5 * 60_000;
 /** Le plancher : un parcours complet toutes les secondes ferait tomber la machine, pas le site. */
@@ -64,7 +66,7 @@ export const APAISEMENT_MS = 6 * 3_600_000;
 export type EtatSite = 'inconnu' | 'ok' | 'panne';
 
 /** Ce qui a cassé. Un seul motif à la fois : le premier constaté. */
-export type RaisonPanne = 'client' | 'serveur' | 'delai' | 'injoignable' | 'vide' | 'contenu' | 'parcours';
+export type RaisonPanne = 'client' | 'serveur' | 'delai' | 'injoignable' | 'vide' | 'contenu' | 'parcours' | 'journaux';
 
 /**
  * Le libellé français de chaque raison — l'interface le traduit, exactement
@@ -78,6 +80,8 @@ export const LIBELLE_RAISON: Readonly<Record<RaisonPanne, string>> = {
   vide: 'Page vide',
   contenu: 'Contenu attendu absent',
   parcours: 'Parcours interrompu',
+  // Le contrôle WordPress a lu une erreur fatale (`shared/src/surveillance-wordpress.ts`).
+  journaux: 'Erreur grave dans les journaux',
 };
 
 /* ------------------------------------------------------------------ */
@@ -243,6 +247,17 @@ export function phraseDeRecetteSurveillance(recette: RecetteSurveillance): strin
   return recette.etapes.map(libelleEtape).join('\n');
 }
 
+/**
+ * La même recette en ÉTAPES, sans leur numéro : le courriel les numérote
+ * lui-même, une pastille par étape.
+ */
+export function etapesDeRecetteSurveillance(recette: RecetteSurveillance): string[] {
+  const majuscule = (t: string) => t.charAt(0).toLocaleUpperCase('fr') + t.slice(1);
+  if (recette.type === 'appel')
+    return ['Appel de la page', ...(recette.motAttendu ? [`Le texte « ${recette.motAttendu} » doit y figurer`] : [])];
+  return recette.etapes.map((etape, rang) => majuscule(libelleEtape(etape, rang).replace(/^\d+\.\s*/, '')));
+}
+
 /** Le rythme dit en clair. */
 export function phraseDePeriode(ms: number): string {
   const minutes = Math.round(ms / 60_000);
@@ -311,6 +326,15 @@ export interface SiteSurveille {
    */
   alerteCourrielLe?: number;
   alerteCourrielDepuis?: number;
+  /**
+   * LE CONTRÔLE WORDPRESS (`shared/src/surveillance-wordpress.ts`) : sa
+   * configuration (aucun secret), le résumé de son dernier passage, et l'erreur
+   * fatale en cours quand les journaux en ont montré une. Tant qu'elle dure, le
+   * site reste en panne « journaux » même si sa page répond.
+   */
+  wordpress?: ConfigWordpress;
+  wpResume?: ResumeWordpress;
+  journauxEnErreur?: { depuis: number; detail?: string };
 }
 
 /** Un passage, tel qu'il reste 24 heures dans l'historique. */
@@ -540,12 +564,13 @@ export function titreDeLAssistantSurveillance(nom: string | null, demande: strin
 
 /**
  * LA CONSIGNE DE L'AGENT DE SURVEILLANCE. Elle remplace la méthode générale :
- * cet agent ne lit pas le projet, ne propose pas de carte, n'écrit aucun code.
+ * cet agent ne lit pas le projet, n'écrit aucun code, et ne propose une carte —
+ * née dans le projet du site — que pour une correction demandée.
  * Il comprend ce qu'il faut surveiller, range les accès, essaie, enregistre.
  */
 export const CONSIGNE_ASSISTANT_SURVEILLANCE = `Tu travailles dans Beluga Build. Réponds très court.
 
-TU ES L'AGENT DE SURVEILLANCE. Ton travail : écrire la RECETTE DE CONTRÔLE d'un site — ce qu'il faut vérifier pour dire qu'il est debout — et son rythme. La recette est ensuite rejouée SEULE, à chaque passage, sans toi. Tu ne modifies aucun fichier, tu ne crées aucune carte, tu ne publies rien.
+TU ES L'AGENT DE SURVEILLANCE. Ton travail : écrire la RECETTE DE CONTRÔLE d'un site — ce qu'il faut vérifier pour dire qu'il est debout — et son rythme. La recette est ensuite rejouée SEULE, à chaque passage, sans toi. Tu ne modifies aucun fichier, tu ne publies rien, et tu ne proposes une carte que si l'utilisateur veut une correction sur le site.
 
 DEUX RECETTES :
 - « appel » : la page est appelée ; elle tombe si elle ne répond pas, renvoie une erreur ou est vide. « motAttendu » (facultatif) : un texte qui doit y figurer.
@@ -560,7 +585,11 @@ TU NE DEVINES JAMAIS. Ce qui te manque (l'adresse, l'accès, ce qu'il faut véri
 
 TU ESSAIES AVANT D'ENREGISTRER. « surveillance_essai » joue ta recette POUR DE VRAI et dit l'étape qui casse. Corrige jusqu'à ce qu'elle passe. Un site protégé par double authentification ou par un captcha ne se surveille pas par parcours : dis-le, et propose un simple appel.
 
+SITE WORDPRESS : CONTRÔLE DE SON ÉTAT INTERNE. Sur un site WordPress, propose AUSSI le contrôle WordPress (extensions, mises à jour, failles connues, journaux d'erreurs), qui tourne ensuite seul sans toi. Il passe par l'accès SSH du site : trouve la fiche SSH au coffre-fort (« lister »), puis appelle « surveillance_essai » avec « wordpress »: { "acces": { "id": "<fiche SSH>" } } — l'essai DÉCOUVRE seul le dossier de WordPress, son outil en ligne de commande et les journaux, et te dit ce qu'il a trouvé ; corrige-les dans « wordpress » (racine, wpCli, journaux) s'il s'est trompé. Enregistre ensuite avec « surveillance_recette » et le même « wordpress » : les extensions actives du moment deviennent la liste attendue. Sans accès SSH, ce contrôle est impossible : dis-le, et garde la surveillance simple.
+
 TU N'ENREGISTRES QU'UNE FOIS, À LA FIN, avec « surveillance_recette » : l'outil rejoue la recette et refuse celle qui tombe ; n'insiste avec « forcer » que si l'utilisateur te l'a explicitement accordé. Pour MODIFIER une surveillance existante, redonne son « id » : ce que tu ne redis pas est conservé.
+
+UNE CARTE DU SITE NAÎT DANS LE PROJET DU SITE, jamais chez Beluga Build. Si l'utilisateur veut une correction (extensions, journaux, code), propose la carte avec « board_create_card » : elle naîtra dans le projet relié au site. Un site relié à AUCUN projet ne propose rien : demande d'abord à l'utilisateur avec « ask_user » quel projet le sert (« project_manage », « lister », donne les projets), relie-le avec « surveillance_recette » { id, projet }, puis propose.
 
 TA RÉPONSE FINALE tient en deux ou trois lignes : ce qui est vérifié, le rythme, ce que l'essai a donné. Aucun titre, aucun tableau, aucun bloc json.
 
@@ -589,6 +618,7 @@ export function demandeDeSurveillance(entree: { demande: string; site?: SiteSurv
       phraseDeRecetteSurveillance(recette),
       `- recette brute : ${JSON.stringify(recette)}`,
       `- état : ${site.etat}${site.raison ? ` (${LIBELLE_RAISON[site.raison]}${site.etapeEchouee ? `, étape « ${site.etapeEchouee} »` : ''})` : ''}`,
+      `- contrôle WordPress : ${site.wordpress ? JSON.stringify(site.wordpress) : 'aucun'}`,
       '',
       'DÉROULÉ : rejoue la recette actuelle avec « surveillance_essai » et son « id » pour voir où elle en est, fais le changement demandé (au coffre-fort pour un accès, dans la recette pour le reste), essaie, puis réenregistre avec « surveillance_recette » et CET identifiant.',
     );
@@ -598,7 +628,7 @@ export function demandeDeSurveillance(entree: { demande: string; site?: SiteSurv
       '',
       `« ${demande} »`,
       '',
-      'CE QUE « surveillance_recette » ATTEND : url (la page à appeler ou le départ du parcours), nom (court), recette ({ type: "appel", motAttendu? } ou { type: "parcours", etapes: [...] }), periodeMinutes (5 par défaut, 1 au plus souvent), et une explication d’une phrase dans la recette.',
+      'CE QUE « surveillance_recette » ATTEND : url (la page à appeler ou le départ du parcours), nom (court), recette ({ type: "appel", motAttendu? } ou { type: "parcours", etapes: [...] }), periodeMinutes (5 par défaut, 1 au plus souvent), une explication d’une phrase dans la recette, et — pour un site WordPress dont on a l’accès SSH — « wordpress ».',
       '',
       'DÉROULÉ : liste le coffre-fort, demande ce qui manque (une question à la fois), range les accès nouveaux au coffre, essaie avec « surveillance_essai » jusqu’à ce que la recette passe, puis enregistre avec « surveillance_recette ».',
     );

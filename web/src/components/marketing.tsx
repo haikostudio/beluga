@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  Clapperboard,
   Copy,
   FileText,
   Filter,
@@ -205,6 +206,33 @@ interface EspaceComplet {
   diagnosticSuivi?: DiagnosticSuivi | null;
   /** LA carte d'installation du suivi, si elle existe : posée, elle ne vaut pas code posé. */
   carteSuivi?: Card | null;
+  /** Les visuels exportés par le Studio, rattachés à chaque contenu (le plus récent d'abord). */
+  visuels?: Record<string, VisuelDuContenu[]>;
+}
+
+interface VisuelDuContenu {
+  exportId: string;
+  creationId: string;
+  attachmentId?: string;
+  afficheId?: string;
+  format: string;
+  genre: 'video' | 'image';
+  titre: string;
+}
+
+/**
+ * « CRÉER LE VISUEL » : le Studio s'ouvre sur LA création de ce contenu — créée
+ * au premier clic (texte du contenu posé, format déduit du canal), rouverte
+ * ensuite. L'adresse change comme un Précédent/Suivant : l'écran la suit.
+ */
+async function creerLeVisuel(contenuId: string): Promise<void> {
+  try {
+    const r = await client.call<{ creation: { id: string } }>({ type: 'studio.depuisMarketing', contenuId });
+    window.history.pushState(null, '', `#studio/${encodeURIComponent(r.creation.id)}`);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  } catch (err: any) {
+    client.pushToast('error', err?.message ?? t('Le studio n’a pas pu s’ouvrir'));
+  }
 }
 
 function libelleNature(cle: string): string {
@@ -1415,7 +1443,7 @@ function EspaceDuProjet({
       )}
 
       {donnees ? <ChatFlottantMarketing donnees={donnees} projectId={projectId} suivi={agent} chat={chat} onChat={setChatBrut} /> : null}
-      <TiroirContenu contenu={contenu} adresseLiens={donnees?.adresseLiens ?? ''} onClose={() => setContenuOuvert(null)} />
+      <TiroirContenu contenu={contenu} adresseLiens={donnees?.adresseLiens ?? ''} visuels={contenu ? donnees?.visuels?.[contenu.id] ?? [] : []} onClose={() => setContenuOuvert(null)} />
       <TiroirNouveauContenu ouvert={creation} projectId={projectId} onClose={() => setCreation(false)} />
     </>
   );
@@ -3160,7 +3188,17 @@ function gestes(): { vers: EtapeContenu; libelle: string; depuis: EtapeContenu[]
  * autres pas sont en dessous, discrets ; copier et supprimer sont des icônes
  * nommées de l'entête.
  */
-function TiroirContenu({ contenu, adresseLiens, onClose }: { contenu: ContenuMarketing | null; adresseLiens: string; onClose: () => void }) {
+function TiroirContenu({
+  contenu,
+  adresseLiens,
+  visuels = [],
+  onClose,
+}: {
+  contenu: ContenuMarketing | null;
+  adresseLiens: string;
+  visuels?: VisuelDuContenu[];
+  onClose: () => void;
+}) {
   const [titre, setTitre] = React.useState('');
   const [texte, setTexte] = React.useState('');
   const [date, setDate] = React.useState('');
@@ -3221,6 +3259,13 @@ function TiroirContenu({ contenu, adresseLiens, onClose }: { contenu: ContenuMar
           <Badge tone={toneEtape(contenu.etape)}>{t(LIBELLE_ETAPE[contenu.etape])}</Badge>
           <ActionsEntete
             actions={[
+              {
+                cle: 'visuel',
+                libelle: visuels.length ? t('Ouvrir le visuel') : t('Créer le visuel'),
+                icone: <Clapperboard className="h-3.5 w-3.5" />,
+                onClick: () => void creerLeVisuel(contenu.id),
+                repere: 'data-marketing-creer-visuel',
+              },
               { cle: 'texte', libelle: t('Copier le texte'), icone: <Copy className="h-3.5 w-3.5" />, onClick: () => void copier(texte, t('Texte')), repere: 'data-marketing-copier-texte' },
               ...(lien
                 ? [{ cle: 'lien', libelle: t('Copier le lien de suivi'), icone: <Link2 className="h-3.5 w-3.5" />, onClick: () => void copier(lien, t('Lien de suivi')), repere: 'data-marketing-copier-lien' }]
@@ -3284,6 +3329,31 @@ function TiroirContenu({ contenu, adresseLiens, onClose }: { contenu: ContenuMar
                 <Input type="time" value={heure} disabled={publie} onChange={(e) => setHeure(e.target.value)} className="w-full min-w-0 appearance-none text-[13px]" data-marketing-tiroir-heure />
               </label>
             </div>
+            {visuels.length ? (
+              <div className="flex flex-col gap-1.5" data-marketing-visuels={visuels.length}>
+                <span className="text-[12px] text-muted">{t('Visuel du Studio')}</span>
+                <div className="flex flex-wrap gap-2">
+                  {visuels.slice(0, 4).map((v) =>
+                    v.afficheId || (v.genre === 'image' && v.attachmentId) ? (
+                      <button
+                        key={v.exportId}
+                        type="button"
+                        onClick={() => void creerLeVisuel(contenu.id)}
+                        className="block overflow-hidden rounded-md bg-raised"
+                        title={`${v.titre} · ${v.format}`}
+                      >
+                        <img src={`/api/attachment?id=${encodeURIComponent(v.afficheId ?? v.attachmentId!)}`} alt="" className="h-24 w-auto object-cover" loading="lazy" />
+                      </button>
+                    ) : null,
+                  )}
+                </div>
+              </div>
+            ) : (
+              <Button size="sm" variant="outline" className="self-start" onClick={() => void creerLeVisuel(contenu.id)}>
+                <Clapperboard className="h-3.5 w-3.5" />
+                {t('Créer le visuel')}
+              </Button>
+            )}
             {secondaires.length ? (
               <div className="flex flex-wrap items-center gap-1" data-marketing-gestes>
                 {secondaires.map((g) => boutonGeste(g, false))}

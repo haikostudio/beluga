@@ -48,6 +48,7 @@ import {
   TEXTE_BARRE_EN_ATTENTE,
   carteEnPublication,
   messageOuvreUneNouvelleCarte,
+  estAgentDeVolet,
   reponseParLaBarre,
   tailleLisible,
 } from '@beluga/shared';
@@ -327,10 +328,22 @@ export function Composer({
     agent.role !== 'deploy' &&
     carteEnPublication(state.deploys[agent.projectId], agent.cardId ?? cardId);
   /* UNE CARTE DÉJÀ EN LIGNE NE SE MODIFIE PAS SUR PLACE : un message qu'on y
-     écrit ouvre une NOUVELLE carte (`messageOuvreUneNouvelleCarte`). Le champ
-     le dit, et l'envoi n'affiche pas d'écho « Demande envoyée » ici. */
+     écrit ouvre une NOUVELLE carte (`messageOuvreUneNouvelleCarte`) — mais
+     seulement sur ACCORD : l'envoi garde le texte et demande « Ouvrir une
+     nouvelle carte » (`accordNouvelleCarte`). Le champ le dit, et l'envoi
+     n'affiche pas d'écho « Demande envoyée » ici. JAMAIS dans le volet d'un
+     agent de volet (Studio, Marketing, surveillance, sauvegardes) : on lui
+     écrit, il répond (`estAgentDeVolet`). */
   const carteDuChamp = state.cards[agent?.cardId ?? cardId ?? ''];
-  const ouvreUneNouvelleCarte = !!agent && agent.role !== 'deploy' && !!carteDuChamp && messageOuvreUneNouvelleCarte(carteDuChamp);
+  const ouvreUneNouvelleCarte =
+    !!agent &&
+    agent.role !== 'deploy' &&
+    !!carteDuChamp &&
+    messageOuvreUneNouvelleCarte(carteDuChamp) &&
+    !estAgentDeVolet(agent, carteDuChamp);
+  /** L'utilisateur a tenté d'envoyer sous une carte en ligne : on attend son accord. */
+  const [accordNouvelleCarte, setAccordNouvelleCarte] = React.useState(false);
+  React.useEffect(() => setAccordNouvelleCarte(false), [agent?.id, ouvreUneNouvelleCarte]);
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
   const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
@@ -1113,7 +1126,7 @@ export function Composer({
     setEdition(null);
   };
 
-  const submit = async (asProposal = false) => {
+  const submit = async (asProposal = false, accord = false) => {
     // En cours de modification, le bouton d'envoi enregistre la modification.
     if (edition) {
       terminerEdition(true);
@@ -1137,6 +1150,13 @@ export function Composer({
       client.pushToast('warning', t('Publication en cours — vous pourrez écrire ici dès la fin de la mise en ligne.'));
       return;
     }
+    /* AUCUNE CARTE SANS CLIC (MEM-0354) : sous une carte déjà en ligne, l'envoi
+       ne part pas, le texte reste dans le champ, et la barre demande l'accord. */
+    if (ouvreUneNouvelleCarte && !asProposal && !accord) {
+      if (text.trim()) setAccordNouvelleCarte(true);
+      return;
+    }
+    setAccordNouvelleCarte(false);
 
     /*
      * L'ESPACE INSÉCABLE DES TAGS NE SORT PAS DU CHAMP DE SAISIE. Il n'est là
@@ -1204,6 +1224,7 @@ export function Composer({
           : body,
         attachments: [...new Set([...jointesEnvoyees.map((a) => a.id), ...(enTexte?.images ?? [])])],
         ...(Object.keys(parQuestion).length ? { saisiesDeQuestion: parQuestion } : {}),
+        ...(ouvreUneNouvelleCarte && accord ? { ouvrirNouvelleCarte: true } : {}),
       });
       if (reponse?.nouvelleCarteId) {
         client.pushToast('success', t('Nouvelle carte créée : votre demande y suit son parcours.'));
@@ -1398,6 +1419,23 @@ export function Composer({
           largeur : impossible à manquer, et jamais emporté par le fil qui
           défile au-dessus. */}
       {boutonPrincipal ? <div className="mb-2">{boutonPrincipal}</div> : null}
+
+      {/* L'ACCORD AVANT UNE NOUVELLE CARTE : le message attend dans le champ. */}
+      {accordNouvelleCarte && ouvreUneNouvelleCarte ? (
+        <div data-accord-nouvelle-carte className="mb-1.5 rounded-lg bg-raised px-3 py-2 text-[13px]">
+          <p className="text-muted">
+            {t('Cette carte est déjà en ligne : votre message ouvrira une nouvelle carte, qui suivra tout le parcours.')}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button variant="default" size="sm" onClick={() => submit(false, true)}>
+              {t('Ouvrir une nouvelle carte')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setAccordNouvelleCarte(false)}>
+              {t('Annuler')}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {/* La file d'attente s'empile juste au-dessus de la barre d'écriture */}
       {queue.length ? (
@@ -1788,7 +1826,7 @@ export function Composer({
               : enPublication
                 ? t('Publication en cours — vous pourrez écrire ici dès la fin de la mise en ligne.')
               : ouvreUneNouvelleCarte
-                ? t('Cette carte est en ligne — votre message ouvrira une nouvelle carte…')
+                ? t('Cette carte est en ligne — un message vous proposera d’ouvrir une nouvelle carte…')
               : /*
                  * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS « EN TRAIN DE
                  * TRAVAILLER » : son appel d'outil attend la réponse, et il ne

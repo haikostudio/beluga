@@ -160,9 +160,13 @@ export function CorpsListeTaches({
  * tâches faites, et ce que le tour a laissé en plan — mais servi désormais au
  * repère compact posé au-dessus de la barre d'écriture.
  */
-export function resumeDesTaches(todos: readonly TodoItem[]): string {
+export function resumeDesTaches(todos: readonly TodoItem[], options: { examen?: boolean } = {}): string {
   const faites = todos.filter((t) => t.state === 'done').length;
   const nonFaites = mentionTachesNonFaites(todos);
-  const compte = t('Liste des tâches — {faites}/{v0} faite{v1}', { faites, v0: todos.length, v1: faites > 1 ? 's' : '' });
+  /* LA CARTE DE NUIT N'A PAS DE TÂCHES À FAIRE : sa liste est celle des points
+     que l'agent a examinés. « 3/3 faites » se lisait comme trois choses à faire. */
+  const compte = options.examen
+    ? t('Points examinés — {faites}/{v0}', { faites, v0: todos.length })
+    : t('Liste des tâches — {faites}/{v0} faite{v1}', { faites, v0: todos.length, v1: faites > 1 ? 's' : '' });
   return nonFaites ? `${compte} · ${nonFaites}` : compte;
 }

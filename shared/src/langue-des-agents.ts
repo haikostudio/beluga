@@ -85,6 +85,19 @@ export const CONSIGNE_DE_VULGARISATION =
   "Exemple : « le relevé des quotas de pickAccount est plafonné à 20 s » devient « le lancement d'une carte n'attend plus des minutes quand un compte ne répond pas ». " +
   "Le détail technique ne se perd pas : il va où les AGENTS le lisent — code, commentaires, messages d'enregistrement, mémoire, changelog, règles, notes techniques du plan.";
 
+/**
+ * SITUER UN ÉVÉNEMENT PASSÉ, C'EST COMPARER DEUX DATES. Un agent a écrit « la
+ * correction de la semaine dernière » pour une correction du matin, alors que
+ * la date du jour et celle de la correction étaient toutes deux dans son
+ * contexte. Le démon écrit l'écart à côté des dates qu'il sert (accueil,
+ * outil « memoire ») ; cette règle couvre le reste (git, fichiers, messages).
+ *
+ * STATIQUE, aucune date dedans : elle part dans la consigne système, préfixe du
+ * cache, qui ne change pas d'un tour à l'autre.
+ */
+export const CONSIGNE_DES_DATES =
+  "DATES : un événement passé ne se situe JAMAIS dans le temps (« hier », « la semaine dernière », « récemment ») sans avoir comparé sa date à la date du jour ; dans le doute, dis « la correction précédente ».";
+
 /** Le même engagement en une ligne, pour le rappel des tours suivants. */
 export const RAPPEL_DE_VULGARISATION =
   "PARLE SIMPLEMENT À L'UTILISATEUR : il ne programme pas ; explique ce que chaque chose fait et à quoi elle sert, sans nom de fichier, de fonction ni de technologie non expliqué, d'adulte à adulte ; réponds bref, sans redire sa demande.";
