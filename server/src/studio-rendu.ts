@@ -282,6 +282,7 @@ export function lancerExport(
   genre: 'video' | 'image',
   instant?: number,
   reglagesDemandes?: unknown,
+  lot?: string,
 ): Resultat<{ export: ExportStudio }> {
   const creation = lireCreation(creationId);
   const composition = compositionCourante(creationId);
@@ -289,7 +290,7 @@ export function lancerExport(
   if (!outilsDeRendu().hyperframes) return { ok: false, raison: 'le moteur de rendu (HyperFrames) n’est pas installé sur ce serveur' };
   // Des réglages impossibles (4K en Portrait, son d'un GIF…) sont corrigés ici, jamais passés au moteur.
   const reglages = lireReglagesExport(reglagesDemandes, format);
-  const e = creerExport({ creation, format, genre, voixEnEssai: voixPasFinales(composition).length, reglages });
+  const e = creerExport({ creation, format, genre, voixEnEssai: voixPasFinales(composition).length, reglages, ...(lot ? { lot } : {}) });
   const arret = new AbortController();
   arrets.set(e.id, arret);
   void dansLaFileLourde(() => fabriquer(e.id, creation, composition, format, genre, arret.signal, instant, reglages))

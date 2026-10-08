@@ -7,6 +7,8 @@ import {
   competencesValidees,
   correspondanceAvecNuance,
   correspondanceDeLaCompetence,
+  REPONSE_PAS_UTILE,
+  REPONSE_UTILISER,
   etatApresReponse,
   ficheServieAuProjet,
   nuancesDeLaCommune,
@@ -22,7 +24,6 @@ import {
   type Competence,
   type CompetenceProposee,
 } from '@beluga/shared';
-import { attenteOuverte, rendreLAttente } from './attente-question.js';
 import { bus } from './bus.js';
 import { compter, listerCompetences } from './competences.js';
 import { chercherUnitesMelees, proximitesParLeSens, unitesDeLaSource } from './connaissances.js';
@@ -31,35 +32,22 @@ import { log } from './logger.js';
 import * as store from './store.js';
 
 /**
- * LES COMPÉTENCES PROPOSÉES PAR BELUGA AU CADRAGE — le va-et-vient.
+ * LES COMPÉTENCES PROPOSÉES PAR BELUGA AU CADRAGE — retenues d'office.
  *
  * Les règles (plafonds, tri, textes) vivent dans
- * `shared/src/proposition-competence.ts`. Ici : chercher, poser la série
- * d'encadrés, retenir la réponse de l'outil jusqu'à la dernière décision, et
- * écrire chaque décision sur la carte.
+ * `shared/src/proposition-competence.ts`. Ici : chercher, écrire les fiches
+ * trouvées sur la carte DÉJÀ À L'ÉTAT « utilisee », et laisser l'utilisateur en
+ * écarter une d'une croix tant que la carte n'est pas lancée.
  *
- * LE POINT D'ARRÊT EST LE GESTE « memoire chercher » DU CADRAGE, que le démon
- * impose déjà à chaque tour (verrou d'analyse) : c'est le seul endroit par où
- * tout cadrage passe, sans rien demander à l'agent. Sa réponse est RETENUE par
- * le registre des attentes (`server/src/attente-question.ts`) — le moteur reste
- * arrêté sur son appel, exactement comme sur un `ask_user`.
+ * LE POINT D'ENTRÉE EST LE GESTE « memoire chercher » DU CADRAGE, que le démon
+ * impose déjà à chaque tour (verrou d'analyse). Sa réponse n'est PLUS retenue
+ * (décision de l'utilisateur, 08.10.2026) : elle part aussitôt, avec la liste
+ * des compétences retenues, et le cadrage continue sans attendre un clic.
  */
 
 /** La recherche et le juge ne font jamais attendre un cadrage plus que cela : sans résultat, rien n'est proposé. */
 const DELAI_DE_RECHERCHE_MS = 12_000;
 
-interface Serie {
-  /** L'identifiant sous lequel l'attente est posée — celui que le pont d'outils sonde. */
-  id: string;
-  agentId: string;
-  cardId: string;
-  questionIds: string[];
-  /** Ce que la recherche de mémoire avait trouvé : rendu à l'agent avec les décisions. */
-  texteMemoire: string;
-}
-
-/** Les séries d'encadrés qui retiennent un tour, par identifiant d'attente. */
-const series = new Map<string, Serie>();
 /** Le dernier tour (message) où l'on a cherché pour cette carte : UNE recherche de compétences par tour. */
 const dernierTourCherche = new Map<string, string>();
 /** Les cartes dont la recherche est en vol : deux appels simultanés n'en posent pas deux séries. */
@@ -180,22 +168,21 @@ function ecrireSurLaCarte(cardId: string, modifier: (avant: CompetenceProposee[]
   return ecrite;
 }
 
-export interface SerieAPoser {
-  /** L'identifiant d'attente à poser et à rendre au pont d'outils. */
-  serieId: string;
-  /** Les questions à attacher au message du tour, une par compétence. */
+export interface PropositionsRetenues {
+  /** Les lignes à attacher au message du tour, une par compétence — nées répondues « Utiliser ». */
   questions: AgentQuestion[];
+  /** Le résultat de mémoire, suivi des compétences retenues : rendu tel quel à l'agent. */
+  texte: string;
 }
 
 /**
  * LE CADRAGE VIENT DE CHERCHER DANS LA MÉMOIRE : Beluga a-t-il des compétences
- * à proposer ? Rend la série à poser, ou `null` quand il n'y a rien à faire —
- * pas un cadrage, personne devant l'écran (`questionsInterdites`), déjà cherché
- * dans ce tour, une série encore ouverte, rien de pertinent, plafond atteint.
- *
- * La carte est écrite ICI (les propositions à l'état « proposee ») ; l'appelant
- * pose l'attente PUIS attache les questions, dans cet ordre
- * (`server/src/http.ts`).
+ * à proposer ? Les fiches trouvées s'écrivent sur la carte à l'état
+ * « utilisee » et partiront avec l'agent d'exécution, sauf si l'utilisateur les
+ * écarte avant le lancement (`ecarterLaCompetence`). Rend `null` quand il n'y a
+ * rien à faire — pas un cadrage, personne devant l'écran
+ * (`questionsInterdites`), déjà cherché dans ce tour, rien de pertinent,
+ * plafond atteint.
  */
 export async function proposerAuCadrage(entree: {
   agent: { id: string; role: string; cardId?: string; projectId: string };
@@ -206,19 +193,13 @@ export async function proposerAuCadrage(entree: {
   texteMemoire: string;
   /** La recherche à employer — celle du démon par défaut ; les tests en donnent une à eux. */
   chercher?: typeof chercherSansBloquer;
-}): Promise<SerieAPoser | null> {
+}): Promise<PropositionsRetenues | null> {
   const { agent, tour } = entree;
   if (agent.role !== 'cadrage' || !agent.cardId) return null;
-  // Sans tour vivant ou sans personne devant l'écran (nuit, analyse) : aucun encadré.
+  // Sans tour vivant ou sans personne devant l'écran (nuit, analyse) : rien n'est retenu à sa place.
   if (!tour?.messageId || tour.questionsInterdites) return null;
   const cardId = agent.cardId;
   if (enVol.has(cardId) || dernierTourCherche.get(cardId) === tour.messageId) return null;
-  // Une série dont plus personne n'attend la réponse (tour refermé) ne retient rien.
-  for (const serie of [...series.values()]) {
-    if (serie.agentId !== agent.id) continue;
-    if (attenteOuverte(serie.id)) return null;
-    series.delete(serie.id);
-  }
 
   const card = store.getCard(cardId);
   const projet = store.getProject(agent.projectId);
@@ -241,7 +222,10 @@ export async function proposerAuCadrage(entree: {
   if (!trouvees.length) return null;
 
   const maintenant = Date.now();
-  const questions = trouvees.map((trouvee) => questionDeCompetence(store.newId(), trouvee) as AgentQuestion);
+  const questions = trouvees.map(
+    (trouvee) =>
+      ({ ...questionDeCompetence(store.newId(), trouvee), answer: REPONSE_UTILISER, answeredAt: maintenant }) as AgentQuestion,
+  );
   ecrireSurLaCarte(cardId, (avant) => [
     ...avant,
     ...trouvees.map((trouvee, rang) => ({
@@ -250,51 +234,69 @@ export async function proposerAuCadrage(entree: {
       correspondance: trouvee.correspondance,
       questionId: questions[rang]!.id,
       agentId: agent.id,
-      etat: 'proposee' as const,
+      etat: 'utilisee' as const,
       proposeeLe: maintenant,
+      trancheeLe: maintenant,
     })),
   ]);
   for (const trouvee of trouvees) compter(trouvee.nom, 'proposee');
-
-  const serie: Serie = {
-    id: `competences-${store.newId()}`,
-    agentId: agent.id,
-    cardId,
-    questionIds: questions.map((q) => q.id),
-    texteMemoire: entree.texteMemoire,
+  log.info(`compétences retenues au cadrage de la carte ${cardId} : ${trouvees.map((t) => t.nom).join(', ')}`);
+  return {
+    questions,
+    texte: texteDIssueDesPropositions(
+      entree.texteMemoire,
+      trouvees.map((t) => ({ nom: t.nom, etat: 'utilisee' as const, chemin: t.chemin })),
+    ),
   };
-  series.set(serie.id, serie);
-  log.info(`compétences proposées au cadrage de la carte ${cardId} : ${trouvees.map((t) => t.nom).join(', ')}`);
-  return { serieId: serie.id, questions };
 }
 
-/** Le chemin du mode d'emploi d'une fiche, si elle est encore dans le pool. */
-function cheminDeLaFiche(nom: string): string | undefined {
-  return listerCompetences().find((fiche) => fiche.nom === nom)?.fichier;
-}
-
-/** Rend à l'agent le résultat retenu, avec ce qui a été décidé. La série est close. */
-function rendreLaSerie(serie: Serie, interrompue = false): void {
-  series.delete(serie.id);
-  const proposees = store.getCard(serie.cardId)?.parcours?.competencesProposees ?? [];
-  const tranchees = serie.questionIds
-    .map((id) => proposees.find((p) => p.questionId === id))
-    .filter((p): p is CompetenceProposee => !!p)
-    .map((p) => ({ nom: p.nom, etat: p.etat, chemin: p.etat === 'utilisee' ? cheminDeLaFiche(p.nom) : undefined }));
-  rendreLAttente(serie.id, texteDIssueDesPropositions(serie.texteMemoire, tranchees, { interrompue }));
+/** La carte a-t-elle déjà quitté le cadrage ? Une compétence ne s'y écarte plus. */
+function carteLancee(card: Card): boolean {
+  return card.column !== 'planned' || store.agentsDeLaCarte(card.id).some((a) => a.role === 'task');
 }
 
 /**
- * L'UTILISATEUR A TRANCHÉ UN ENCADRÉ (ou l'a fermé : `reponse` absente).
- * La décision s'écrit sur la carte, le compteur de la fiche suit, et si c'était
- * le DERNIER encadré ouvert de sa série, la réponse retenue part à l'agent.
- *
- * Sans série (tour déjà refermé, serveur redémarré), la décision s'écrit quand
- * même : c'est la carte qui fait foi au lancement, pas le tour de cadrage.
+ * LA CROIX D'UNE COMPÉTENCE RETENUE : elle passe à « ecartee » et ne partira pas
+ * avec l'agent d'exécution. Refusé une fois la carte lancée — l'agent a déjà
+ * reçu son mode d'emploi, le retirer de l'écran ferait mentir la carte.
+ */
+export function ecarterLaCompetence(entree: { messageId: string; questionId: string }): { already?: true; ok?: true } {
+  const message = store.getMessage(entree.messageId);
+  if (!message) throw new Error('message introuvable');
+  const question = message.questions.find((q) => q.id === entree.questionId);
+  if (!question?.competence) throw new Error('compétence introuvable');
+  const cardId = store.getAgent(message.agentId)?.cardId;
+  const card = cardId ? store.getCard(cardId) : null;
+  if (!card) throw new Error('carte introuvable');
+  if (carteLancee(card)) throw new Error('la carte est lancée : ses compétences ne changent plus');
+  if (question.answer === REPONSE_PAS_UTILE) return { already: true };
+
+  let touchee: CompetenceProposee | undefined;
+  ecrireSurLaCarte(card.id, (avant) =>
+    avant.map((p) => {
+      if (p.questionId !== entree.questionId || p.etat === 'ecartee') return p;
+      touchee = { ...p, etat: 'ecartee', trancheeLe: Date.now() };
+      return touchee;
+    }),
+  );
+  const frais = store.saveMessage({
+    ...message,
+    questions: message.questions.map((q) =>
+      q.id === entree.questionId ? { ...q, answer: REPONSE_PAS_UTILE, cancelled: false, answeredAt: Date.now() } : q,
+    ),
+  });
+  bus.emit({ type: 'message.upsert', message: frais });
+  if (touchee) compter(touchee.nom, 'refusee');
+  return { ok: true };
+}
+
+/**
+ * UN ANCIEN ENCADRÉ RESTÉ OUVERT (posé avant la retenue d'office) EST TRANCHÉ
+ * OU FERMÉ. La décision s'écrit sur la carte — c'est elle qui fait foi au
+ * lancement. Plus aucune attente n'est retenue, il n'y a rien à rendre.
  */
 export function trancherLaCompetence(entree: { agentId: string; questionId: string; reponse?: string }): boolean {
-  const serie = [...series.values()].find((s) => s.questionIds.includes(entree.questionId));
-  const cardId = serie?.cardId ?? store.getAgent(entree.agentId)?.cardId;
+  const cardId = store.getAgent(entree.agentId)?.cardId;
   if (!cardId) return false;
   const etat = etatApresReponse(entree.reponse);
   let touchee: CompetenceProposee | undefined;
@@ -306,48 +308,21 @@ export function trancherLaCompetence(entree: { agentId: string; questionId: stri
     }),
   );
   // Un encadré FERMÉ sans réponse n'est pas un refus de la fiche : il ne pèse pas sur son compteur.
-  if (touchee && entree.reponse !== undefined) compter(touchee.nom, etat === 'utilisee' ? 'acceptee' : 'refusee');
-  if (!serie) return !!touchee;
-  const proposees = store.getCard(cardId)?.parcours?.competencesProposees ?? [];
-  const resteOuvert = serie.questionIds.some((id) => proposees.find((p) => p.questionId === id)?.etat === 'proposee');
-  if (!resteOuvert) rendreLaSerie(serie);
-  return true;
+  if (touchee && entree.reponse !== undefined && etat === 'ecartee') compter(touchee.nom, 'refusee');
+  return !!touchee;
 }
 
 /**
- * L'UTILISATEUR ÉCRIT AUTRE CHOSE PENDANT QUE DES ENCADRÉS ATTENDENT. Son
- * message ne doit pas dormir dans la file derrière un cadrage arrêté une
- * demi-heure : les encadrés restés ouverts se ferment (sans compter comme un
- * refus), et l'agent repart avec ce qui a été tranché. Rend le nombre fermé.
+ * LE MODE D'EMPLOI D'UNE COMPÉTENCE, pour la fenêtre ouverte d'un clic sur son
+ * nom. Le nom est cherché DANS LE POOL : jamais un chemin reçu de l'écran.
  */
-export function fermerLesPropositionsDeLAgent(agentId: string): number {
-  let fermees = 0;
-  for (const serie of [...series.values()]) {
-    if (serie.agentId !== agentId) continue;
-    const maintenant = Date.now();
-    const ouvertes = new Set<string>();
-    ecrireSurLaCarte(serie.cardId, (avant) =>
-      avant.map((p) => {
-        if (!serie.questionIds.includes(p.questionId) || p.etat !== 'proposee') return p;
-        ouvertes.add(p.questionId);
-        return { ...p, etat: 'ecartee' as const, trancheeLe: maintenant };
-      }),
-    );
-    for (const message of store.listMessages(agentId)) {
-      if (!message.questions.some((q) => ouvertes.has(q.id) && !q.answer && !q.cancelled)) continue;
-      const frais = store.saveMessage({
-        ...message,
-        questions: message.questions.map((q) =>
-          ouvertes.has(q.id) && !q.answer && !q.cancelled ? { ...q, cancelled: true, answeredAt: maintenant } : q,
-        ),
-      });
-      bus.emit({ type: 'message.upsert', message: frais });
-    }
-    fermees += ouvertes.size;
-    rendreLaSerie(serie, true);
-  }
-  if (fermees) bus.emit({ type: 'attention', ...store.signalAttention() });
-  return fermees;
+export function lireLaCompetence(nom: string): { nom: string; titre: string; description: string; corps: string } {
+  const fiche = listerCompetences().find((f) => f.nom === nom);
+  if (!fiche) throw new Error('compétence introuvable');
+  const texte = fs.readFileSync(fiche.fichier, 'utf8');
+  // Le corps sans son frontmatter : la description est rendue à part.
+  const corps = texte.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+  return { nom: fiche.nom, titre: titreLisibleDeCompetence(fiche.nom), description: fiche.description, corps };
 }
 
 /**
@@ -405,7 +380,6 @@ export function briefingDesCompetencesValidees(
 
 /** Pour les tests : repartir d'un registre vide. */
 export function oublierToutesLesSeries(): void {
-  series.clear();
   dernierTourCherche.clear();
   enVol.clear();
 }

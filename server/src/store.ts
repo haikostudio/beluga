@@ -60,7 +60,6 @@ import {
   type PremierMessageDeCarte,
   COLONNES_EN_ROUTE,
   type CurseurEnRoute,
-  type CurseurDeployees,
   type OngletEnRoute,
   pilesEnRoute,
   type TotauxParColonne,
@@ -706,36 +705,39 @@ export function trancheDeCartes(
 }
 
 /**
- * LA PAGE « EN ROUTE » (`shared/src/en-route.ts`) : les cartes de tous les
- * projets EN SERVICE (un projet mis de côté n'y paraît pas) qui sont en
- * « Demande », « Travail » ou « À déployer », dans l'ordre de `comparerDerniereAction`
+ * LA PAGE « EN ROUTE » (`shared/src/en-route.ts`) : une de ses trois colonnes
+ * (`OngletEnRoute` : « Actifs », « Terminer », « Archiver »), avec les cartes de
+ * tous les projets EN SERVICE (un projet mis de côté n'y paraît pas), dans l'ordre de `comparerDerniereAction`
  * — la même clé écrite en SQL : la DERNIÈRE ACTION (`updated_at`) d'abord. Par
  * paquet, sous la clé de la dernière FAMILLE reçue : une carte qui change de
  * place entre deux demandes ne décale rien. `restant` compte les familles qui
  * restent SOUS le dernier paquet.
  *
  * Une demande commune (mère + filles) y est UNE entrée (`pilesEnRoute`) : ses
- * filles déjà en ligne et sa mère rangée viennent avec elle tant qu'une de ses
- * cartes est encore en route.
+ * filles déjà en ligne et sa mère rangée viennent avec elle dans la colonne
+ * que la famille entière réclame (`placeDeLaFamille`).
  */
 export function cartesEnRoute(
   apres: CurseurEnRoute | undefined,
   limite: number = CARTES_EN_ROUTE_PAR_PAQUET,
+  onglet: OngletEnRoute = 'actif',
 ): { cards: Card[]; restant: number; curseur?: CurseurEnRoute } {
-  return famillesParDerniereAction('actif', apres, limite);
+  return famillesParDerniereAction(onglet, apres, limite);
 }
 
 /**
- * LE PAQUET COMMUN AUX DEUX COLONNES, PAR FAMILLE (`pilesEnRoute`, la même
- * règle écrite en SQL).
+ * LE PAQUET COMMUN AUX TROIS COLONNES, PAR FAMILLE (`pilesEnRoute` et
+ * `placeDeLaFamille`, la même règle écrite en SQL).
  *
- *   1. `cand` : les familles qui ont une carte candidate — en route pour
- *      « Actifs », en ligne pour « Terminés » (index `idx_cards_derniere_action`) ;
+ *   1. `cand` : les familles qui ont une carte candidate — Demande ou Travail
+ *      pour « Actifs », À déployer pour « Terminer », Archivé (en ligne ou
+ *      non) pour « Archiver » (index `idx_cards_derniere_action`, qui
+ *      commence par la colonne) ;
  *   2. `membres` : toutes les cartes de ces familles, la mère par sa clé, les
  *      filles par `carte_mere_id` (index `idx_cards_carte_mere`) ;
  *   3. `familles` : la clé de tri (dernière action de la plus récente carte
- *      affichée) et le nombre de cartes encore en route — une famille qui en a
- *      une est « Actifs », jamais « Terminés ».
+ *      affichée) et, par colonne, le nombre de cartes — la famille va dans la
+ *      plus à gauche que ses cartes réclament.
  *
  * Le curseur `{updatedAt, id}` est celui d'une famille (`curseurApresPile`) ;
  * pour une carte seule, c'est exactement la clé de la carte. Chaque famille
@@ -751,7 +753,9 @@ function famillesParDerniereAction(
   const candidate =
     onglet === 'actif'
       ? `c.column_key IN (SELECT value FROM json_each(@enRoute))`
-      : `c.column_key = 'archived' AND c.deployed_at > 0`;
+      : onglet === 'terminer'
+        ? `c.column_key = 'to_deploy'`
+        : `c.column_key = 'archived'`;
   const avec = `
     WITH cand AS (
       SELECT DISTINCT COALESCE(c.carte_mere_id, c.id) AS fam
@@ -767,17 +771,25 @@ function famillesParDerniereAction(
     ),
     visibles AS (
       SELECT x.*, (x.column_key IN (SELECT value FROM json_each(@enRoute))) AS en_route,
-             (x.column_key = 'archived' AND x.deployed_at > 0) AS en_ligne
+             (x.column_key = 'to_deploy') AS a_terminer,
+             (x.column_key = 'archived') AS archivee
         FROM membres x JOIN projects p ON p.id = x.project_id
        WHERE p.archived = 0
     ),
     familles AS (
       SELECT fam,
-             MAX(CASE WHEN en_route OR en_ligne OR id = fam THEN updated_at END) AS u,
-             SUM(en_route) AS en_route
+             MAX(CASE WHEN en_route OR a_terminer OR archivee OR id = fam THEN updated_at END) AS u,
+             SUM(en_route) AS en_route,
+             SUM(a_terminer) AS a_terminer
         FROM visibles GROUP BY fam
     )`;
-  const garde = onglet === 'actif' ? 'en_route > 0' : 'en_route = 0';
+  // `placeDeLaFamille` : la colonne la plus à gauche que la famille réclame.
+  const garde =
+    onglet === 'actif'
+      ? 'en_route > 0'
+      : onglet === 'terminer'
+        ? 'en_route = 0 AND a_terminer > 0'
+        : 'en_route = 0 AND a_terminer = 0';
   const sous = `(u < @u OR (u = @u AND fam < @id))`;
   const args = (k?: CurseurEnRoute) => ({ enRoute, ...(k ? { u: k.updatedAt, id: k.id } : {}) });
   const db = getDb();
@@ -820,23 +832,6 @@ function famillesParDerniereAction(
       .get(args(curseur)) as { n: number }
   ).n;
   return { cards, restant, curseur };
-}
-
-/**
- * L'ONGLET « TERMINÉ » DE LA PAGE « EN ROUTE » (`estDeployee`) : les cartes de
- * tous les projets en service rangées en « Archivé » AVEC une date de mise en
- * ligne — une archivée sans date est abandonnée, elle n'y paraît pas. La
- * dernière action d'abord (`comparerDerniereAction`, la même clé que « Actif »),
- * par paquet sous le curseur de la dernière famille reçue. La liste vient
- * d'ici et non du magasin du tableau : les cartes d'un projet déchargé y sont
- * aussi. Une demande commune n'y entre qu'une fois TOUTES ses cartes sorties
- * de la route, avec sa mère (rangée sans date de mise en ligne).
- */
-export function cartesDeployees(
-  apres: CurseurDeployees | undefined,
-  limite: number = CARTES_EN_ROUTE_PAR_PAQUET,
-): { cards: Card[]; restant: number; curseur?: CurseurEnRoute } {
-  return famillesParDerniereAction('termine', apres, limite);
 }
 
 /**
@@ -2542,7 +2537,7 @@ export function signalAttention(
  * La roue qui tourne dit déjà « un agent travaille » ; c'est l'état d'après qui
  * manquait. On rapproche chaque carte de son dernier agent, et la règle — dans
  * `shared`, donc testable seule — tranche. Les cartes SYSTÈME n'y comptent
- * plus (06/10/2026) : finies, elles passent 24 heures dans « Terminés » sans
+ * plus (06/10/2026) : finies, elles passent 24 heures dans « Archiver » sans
  * aucun signal — ni chiffre bleu, ni cloche, ni icône de l'application.
  */
 export function projectsWithFinishedWork(): Record<string, number> {
@@ -2551,7 +2546,7 @@ export function projectsWithFinishedWork(): Record<string, number> {
 
 /**
  * LES AGENTS SANS CARTE FINIS DEPUIS MOINS DE 24 HEURES, d'un projet qui existe
- * encore : leur carte violette dans « Terminés » des Tableaux de bord
+ * encore : leur carte violette dans « Archiver » des Tableaux de bord
  * (`agentSystemeTermine`). Lu par la colonne calculée `fini_a` et son index.
  */
 export function agentsSystemeTermines(maintenant: number): Agent[] {

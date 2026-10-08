@@ -37,7 +37,7 @@
  * comparer des pixels.
  */
 import * as React from 'react';
-import { Download, Expand, ImageDown, Maximize2, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
+import { Download, Expand, ImageDown, Loader2, Maximize2, Pause, Play, RotateCcw, Volume2, VolumeX } from 'lucide-react';
 import {
   BUDGET_DE_RECHERCHE_MS,
   HAUTEUR_SONDE,
@@ -51,6 +51,7 @@ import { Dialog, DialogContentLibre, DialogHeader, DialogTitle } from '@/compone
 import { adresseDePiece } from '@/components/pastille-de-fichier';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useTelechargement } from '@/lib/telechargement';
 
 /** Les vitesses proposées, dans l'ordre où le bouton les fait tourner. */
 const VITESSES = [1, 1.25, 1.5, 2, 0.5] as const;
@@ -483,16 +484,7 @@ export function LecteurVideo({
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </button>
-            <a
-              href={adresseDePiece(id, true)}
-              download={nom}
-              className="rounded p-1 hover:bg-sur-etat/20"
-              aria-label="Telecharger"
-              title={t('Télécharger')}
-              data-video-telecharger={id}
-            >
-              <Download className="h-3.5 w-3.5" />
-            </a>
+            <TelechargerLaVideo id={id} nom={nom} />
           </div>
         </div>
       </div>
@@ -513,6 +505,32 @@ export function LecteurVideo({
         </Dialog>
       ) : null}
     </>
+  );
+}
+
+/**
+ * LE BOUTON « TÉLÉCHARGER » DU LECTEUR. Un lien `download` ne menait nulle part
+ * sur téléphone (application installée) : le geste commun reçoit la vidéo puis
+ * la remet à la feuille de partage (`useTelechargement`). Pendant la réception
+ * il montre le pourcentage ; si le système réclame un nouveau toucher, il le dit.
+ */
+function TelechargerLaVideo({ id, nom }: { id: string; nom: string }) {
+  const fichiers = React.useMemo(() => [{ adresse: adresseDePiece(id, true), nom }], [id, nom]);
+  const { etat, pourcent, lancer } = useTelechargement(fichiers);
+  return (
+    <button
+      type="button"
+      onClick={lancer}
+      disabled={etat === 'reception'}
+      className={cn('flex items-center gap-1 rounded p-1 hover:bg-sur-etat/20', etat === 'pret' && 'bg-sur-etat/25')}
+      aria-label="Telecharger"
+      title={etat === 'pret' ? t('Le fichier est prêt : touchez pour l’enregistrer') : t('Télécharger')}
+      data-video-telecharger={id}
+      data-etat={etat}
+    >
+      {etat === 'reception' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+      {etat === 'reception' ? <span className="text-[11px] tabular-nums">{pourcent} %</span> : etat === 'pret' ? <span className="text-[11px]">{t('Enregistrer')}</span> : null}
+    </button>
   );
 }
 

@@ -26,6 +26,7 @@ import {
   tousLesSegments,
   validerComposition,
   POLICES_STUDIO,
+  exportFini,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
@@ -143,6 +144,7 @@ interface LigneCreation {
   card_id: string | null;
   affiche_id: string | null;
   selection: string | null;
+  run_agent?: string | null;
   cree_le: number;
   maj_le: number;
 }
@@ -160,6 +162,7 @@ function depuisLigneCreation(l: LigneCreation): Creation {
     ...(l.agent_id ? { agentId: l.agent_id } : {}),
     ...(l.card_id ? { cardId: l.card_id } : {}),
     ...(l.affiche_id ? { afficheId: l.affiche_id } : {}),
+    ...(l.run_agent ? { runAgent: json<NonNullable<Creation['runAgent']>>(l.run_agent, { engine: 'claude' }) } : {}),
     creeLe: l.cree_le,
     majLe: l.maj_le,
   };
@@ -221,6 +224,19 @@ export function modifierCreation(id: string, recu: { titre?: unknown; formats?: 
   const formats = Array.isArray(recu.formats) ? (recu.formats.filter(estFormatStudio) as FormatStudio[]) : creation.formats;
   if (!formats.length) return { ok: false, raison: 'il faut au moins un format' };
   getDb().prepare('UPDATE studio_creations SET titre = ?, formats = ?, maj_le = ? WHERE id = ?').run(titre, JSON.stringify([...new Set(formats)]), Date.now(), id);
+  diffuserStudio(creation.projectId, id);
+  return { ok: true, creation: lireCreation(id)! };
+}
+
+/**
+ * LE RÉGLAGE DE L'AGENT CHOISI AVANT SA PREMIÈRE DEMANDE. `null` l'efface (le
+ * démarrage reprend alors le réglage par défaut).
+ */
+export function reglerAgentDeLaCreation(id: string, run: Creation['runAgent'] | null): Resultat<{ creation: Creation }> {
+  const creation = lireCreation(id);
+  if (!creation) return { ok: false, raison: 'création introuvable' };
+  if (run && !run.engine) return { ok: false, raison: 'moteur manquant' };
+  getDb().prepare('UPDATE studio_creations SET run_agent = ? WHERE id = ?').run(run ? JSON.stringify(run) : null, id);
   diffuserStudio(creation.projectId, id);
   return { ok: true, creation: lireCreation(id)! };
 }
@@ -598,10 +614,13 @@ export function supprimerMedia(id: string): Resultat<{}> {
 function retirerPieceJointe(attachmentId: string): void {
   const piece = store.getAttachment(attachmentId);
   if (!piece) return;
-  // Une pièce encore citée par un autre média ou un export reste en place.
+  // Une pièce encore citée par un autre média ou un export reste en place — comme l'affiche qu'une création
+  // ou un modèle montre encore en vignette (elle vient d'un export, et lui survit).
   const encore =
     getDb().prepare('SELECT 1 FROM studio_medias WHERE attachment_id = ? LIMIT 1').get(attachmentId) ||
-    getDb().prepare('SELECT 1 FROM studio_exports WHERE attachment_id = ? OR affiche_id = ? LIMIT 1').get(attachmentId, attachmentId);
+    getDb().prepare('SELECT 1 FROM studio_exports WHERE attachment_id = ? OR affiche_id = ? LIMIT 1').get(attachmentId, attachmentId) ||
+    getDb().prepare('SELECT 1 FROM studio_creations WHERE affiche_id = ? LIMIT 1').get(attachmentId) ||
+    getDb().prepare('SELECT 1 FROM studio_modeles WHERE affiche_id = ? LIMIT 1').get(attachmentId);
   if (encore) return;
   try {
     fs.rmSync(cheminDePieceJointe(piece), { force: true });
@@ -631,6 +650,7 @@ interface LigneExport {
   erreur: string | null;
   voix_en_essai: number;
   reglages?: string | null;
+  lot?: string | null;
   cree_le: number;
   maj_le: number;
 }
@@ -660,6 +680,7 @@ function depuisLigneExport(l: LigneExport): ExportStudio {
     ...(l.erreur ? { erreur: l.erreur } : {}),
     voixEnEssai: l.voix_en_essai,
     ...(lireReglagesEnregistres(l) ? { reglages: lireReglagesEnregistres(l) } : {}),
+    ...(l.lot ? { lot: l.lot } : {}),
     creeLe: l.cree_le,
     majLe: l.maj_le,
   };
@@ -678,12 +699,12 @@ export function exportsEnAttente(): ExportStudio[] {
   return (getDb().prepare("SELECT * FROM studio_exports WHERE etat IN ('en-file', 'en-cours') ORDER BY cree_le ASC").all() as LigneExport[]).map(depuisLigneExport);
 }
 
-export function creerExport(e: { creation: Creation; format: FormatStudio; genre: 'video' | 'image'; voixEnEssai: number; reglages?: ReglagesExport }): ExportStudio {
+export function creerExport(e: { creation: Creation; format: FormatStudio; genre: 'video' | 'image'; voixEnEssai: number; reglages?: ReglagesExport; lot?: string }): ExportStudio {
   const id = nouvelId('exp');
   const maintenant = Date.now();
   getDb()
     .prepare(
-      'INSERT INTO studio_exports (id, creation_id, project_id, format, genre, etat, progression, version, voix_en_essai, reglages, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)',
+      'INSERT INTO studio_exports (id, creation_id, project_id, format, genre, etat, progression, version, voix_en_essai, reglages, lot, cree_le, maj_le) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)',
     )
     .run(
       id,
@@ -695,6 +716,7 @@ export function creerExport(e: { creation: Creation; format: FormatStudio; genre
       e.creation.version,
       e.voixEnEssai,
       e.reglages ? JSON.stringify(e.reglages) : null,
+      e.lot ?? null,
       maintenant,
       maintenant,
     );
@@ -725,6 +747,36 @@ export function majExport(id: string, champs: Partial<Pick<ExportStudio, 'etat' 
   }
   diffuserStudio(e.projectId, e.creationId);
   return lireExport(id);
+}
+
+/**
+ * « VIDER LES ANCIENS EXPORTS » : retire les exports FINIS d'une création — leur
+ * ligne ET leurs fichiers (la vidéo ou l'image, et son affiche) — sauf ceux
+ * nommés dans `garder` (le lot que l'écran montre). JAMAIS un export en file ou
+ * en cours : sa fabrication écrirait dans une ligne disparue. L'affiche qu'une
+ * création ou un modèle montre encore reste sur le disque (`retirerPieceJointe`).
+ * Geste humain seulement : les fichiers retirés ne se retrouvent pas.
+ */
+export function viderLesExports(creationId: string, garder: string[] = []): Resultat<{ retires: number }> {
+  const c = lireCreation(creationId);
+  if (!c) return { ok: false, raison: 'création introuvable' };
+  const aGarder = new Set(garder);
+  // Sans le plafond de `listerExports` : « vider » retire tout ce qui est fini, pas les cent derniers.
+  const aRetirer = (getDb().prepare('SELECT * FROM studio_exports WHERE creation_id = ?').all(creationId) as LigneExport[])
+    .map(depuisLigneExport)
+    .filter((e) => exportFini(e) && !aGarder.has(e.id));
+  if (!aRetirer.length) return { ok: true, retires: 0 };
+  const retirer = getDb().prepare("DELETE FROM studio_exports WHERE id = ? AND etat NOT IN ('en-file', 'en-cours')");
+  enTransaction(() => {
+    for (const e of aRetirer) retirer.run(e.id);
+  });
+  for (const e of aRetirer) {
+    if (e.attachmentId) retirerPieceJointe(e.attachmentId);
+    if (e.afficheId) retirerPieceJointe(e.afficheId);
+  }
+  diffuserStudio(c.projectId, creationId);
+  log.info(`studio : ${aRetirer.length} ancien(s) export(s) de « ${c.titre} » retiré(s)`);
+  return { ok: true, retires: aRetirer.length };
 }
 
 /** Les médias exportés d'un contenu Marketing : les exports prêts des créations qui en viennent. */

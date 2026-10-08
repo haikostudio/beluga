@@ -84,6 +84,8 @@ import { FormeDOnde, useOnde } from './onde';
 const HAUTEUR_PISTE = 44;
 const HAUTEUR_REGLE = 24;
 const PAS = 0.1;
+/** Tête fixe (téléphone) : la place du trait de lecture, en pixels après la colonne des noms de pistes. Sa poignée ronde (12 px) y tient entière. */
+const RETRAIT_TETE_FIXE = 14;
 
 /** Ce que le « + » d'une rangée peut poser. */
 export type QuoiAjouter = 'dessin' | 'texte' | 'media-visuel' | 'voix' | 'son' | 'sous-titres';
@@ -242,9 +244,11 @@ export function LigneDeTemps({
   /** Le genre du dernier appui sur le vide d'une rangée : au doigt, le « + » s'ouvre au toucher, pas au début d'un glisser. */
   const typeAppui = React.useRef('');
 
-  /* LA TÊTE FIXE (téléphone) : la ligne a une demi-largeur de vide de chaque côté, et le centre de la vue est l'instant lu. */
+  /* LA TÊTE FIXE (téléphone) : le trait de lecture ne bouge pas, c'est la ligne qui défile dessous. Il se tient JUSTE
+     APRÈS LES NOMS DE PISTES (`RETRAIT_TETE_FIXE`), plus au centre : centré, il laissait une demi-largeur d'écran vide
+     à gauche du début de la vidéo. La ligne ne garde donc que ce petit retrait avant l'instant zéro. */
   const teteFixe = telephone;
-  const demi = teteFixe ? Math.round(vue.largeur / 2) : 0;
+  const retrait = teteFixe ? RETRAIT_TETE_FIXE : 0;
   /** Le dernier défilement fait AU DOIGT : tant qu'il est frais, c'est lui qui mène, pas le temps. */
   const doigt = React.useRef(0);
   /** Le dernier défilement posé par l'écran lui-même (la lecture qui avance) : son événement n'est pas un geste. */
@@ -303,12 +307,12 @@ export function LigneDeTemps({
     if (Math.abs(el.scrollLeft - voulu) < 1) return;
     pose.current = voulu;
     el.scrollLeft = voulu;
-  }, [teteFixe, temps, zoom, demi]);
+  }, [teteFixe, temps, zoom, retrait]);
 
   // SANS FIN : le contenu, le marqueur, et un écran de plus que ce qu'on regarde.
   const secondesVues = vue.largeur / zoom;
-  /** Le bord gauche regardé, compté depuis le début de la ligne (le vide de la tête fixe retiré). */
-  const gaucheVue = Math.max(0, vue.gauche - demi);
+  /** Le bord gauche regardé, compté depuis le début de la ligne (le retrait de la tête fixe retiré). */
+  const gaucheVue = Math.max(0, vue.gauche - retrait);
   const etendue = Math.max(contenu + 4, voulue + 4, (gaucheVue + vue.largeur) / zoom + secondesVues, 12);
   const largeur = etendue * zoom;
 
@@ -533,10 +537,10 @@ export function LigneDeTemps({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="relative min-w-0 flex-1" data-studio-tete-fixe={teteFixe ? 'oui' : undefined}>
+        <div className="relative min-w-0 flex-1" data-studio-tete-fixe={teteFixe ? 'oui' : undefined} data-studio-retrait-tete={teteFixe ? retrait : undefined}>
         <ZoneDefilement ref={defil} axe="horizontal" classeEnveloppe="min-w-0 w-full" fond="hsl(var(--surface))">
-          <div style={{ width: largeur + 2 * demi }}>
-          <div ref={zone} className="relative select-none" style={{ width: largeur, marginLeft: demi }}>
+          <div style={{ width: largeur + retrait }}>
+          <div ref={zone} className="relative select-none" style={{ width: largeur, marginLeft: retrait }}>
             {/* LA RÈGLE : un appui y pose la tête de lecture, un glisser la promène (au téléphone : un appui y amène la ligne). */}
             <div
               className="relative cursor-pointer"
@@ -748,7 +752,7 @@ export function LigneDeTemps({
           </div>
         </ZoneDefilement>
         {teteFixe ? (
-          <div className="pointer-events-none absolute bottom-0 left-1/2 top-0 z-30 w-0.5 -translate-x-1/2 bg-danger" data-studio-curseur aria-hidden>
+          <div className="pointer-events-none absolute bottom-0 top-0 z-30 w-0.5 -translate-x-1/2 bg-danger" style={{ left: retrait }} data-studio-curseur aria-hidden>
             <span className="absolute -left-[5px] top-0 h-3 w-3 rounded-b-full bg-danger" />
           </div>
         ) : null}

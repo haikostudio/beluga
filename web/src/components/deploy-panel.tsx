@@ -49,6 +49,7 @@ import {
   titreDeLaPublication,
 } from '@beluga/shared';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
+import { CopieDeTest } from '@/components/copie-de-test';
 import { ExplicationDeConfiguration, TiroirProcedureProduction } from '@/components/tiroir-procedure-production';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { BarreProgression } from '@/components/barre-progression';
@@ -879,7 +880,13 @@ export function DeployPanel({
             />
           ) : null
         }
-        corps={<ExplicationDeConfiguration processus={projet?.miseEnProduction?.processus} />}
+        corps={
+          <>
+            <ExplicationDeConfiguration processus={projet?.miseEnProduction?.processus} />
+            {/* La copie de test séparée du vrai site : ce qui attend, et le rafraîchissement. */}
+            <CopieDeTest projectId={projectId} />
+          </>
+        }
         pied={
           <>
             {/* L'ÉTAT DE LA VERSION EN PRODUCTION, UNE LIGNE FIXE AU-DESSUS DU

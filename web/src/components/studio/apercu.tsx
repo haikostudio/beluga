@@ -87,7 +87,7 @@ export interface BoiteDuCadre {
 export type NaturePiece = 'texte' | 'image' | 'svg' | 'groupe' | 'forme';
 
 export interface StylesDeLaPiece {
-  /** Telles que le navigateur les donne (`rgb(…)`) : `enHexa` les ramène au sélecteur de couleur. */
+  /** Telles que le navigateur les donne (`rgb(…)`, `rgba(…)`) : `enCouleur` les ramène au sélecteur, transparence comprise. */
   couleur?: string;
   fond?: string;
   remplissage?: string;
@@ -99,7 +99,41 @@ export interface StylesDeLaPiece {
   alignement?: string;
   contour?: string;
   epaisseurContour?: number;
+  /** `outline-style` (ou `border-style`) calculé. */
+  contourStyle?: string;
   arrondi?: number;
+  /** Les quatre coins : haut gauche, haut droit, bas droit, bas gauche. */
+  arrondiCoins?: number[];
+  /** `background-image` calculé (un dégradé posé par le dessin), `null` sans. */
+  fondImage?: string | null;
+  /** `align-content` calculé. */
+  alignementVertical?: string;
+  /** `font-family` calculé (« 'Inter', sans-serif »). */
+  police?: string;
+  graisse?: number;
+  /** En multiple de la taille des lettres ; `null` : interligne normal. */
+  interligne?: number | null;
+  espacementLettres?: number;
+  italique?: boolean;
+  /** `text-decoration-line` et `text-transform` calculés. */
+  decoration?: string;
+  casse?: string;
+  /** Haut, droite, bas, gauche. */
+  marges?: number[];
+  margesExterieures?: number[];
+  /** `box-shadow` et `text-shadow` calculés, tels quels (`null` sans). */
+  ombres?: string | null;
+  ombresTexte?: string | null;
+  /** `filter` et `backdrop-filter` calculés (`null` sans). */
+  filtre?: string | null;
+  flouArrierePlan?: string | null;
+  fusion?: string;
+  opacite?: number;
+  rogner?: boolean;
+  /** `object-fit` calculé. */
+  cadrage?: string;
+  /** L'adresse de l'image montrée. */
+  source?: string | null;
 }
 
 /** `text-align` → l'alignement de la retouche. */
@@ -110,14 +144,37 @@ export function alignementDe(css: string | undefined): NonNullable<Retouche['ali
   return 'gauche';
 }
 
-/** « rgb(12, 34, 56) » → « #0c2238 » ; une couleur transparente ou illisible rend `null`. */
-export function enHexa(couleur: string | undefined | null): string | null {
+/**
+ * UNE COULEUR CSS LUE : `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` ou `transparent` → sa teinte (`#rrggbb`)
+ * et son opacité (0 à 1). Illisible : `null`. La transparence n'est plus perdue (« rgba(15,39,64,.72) » garde 72 %).
+ */
+export function lireCouleur(couleur: string | undefined | null): { hexa: string; alpha: number } | null {
   if (!couleur) return null;
-  if (/^#[0-9a-f]{6}$/i.test(couleur)) return couleur.toLowerCase();
-  const m = couleur.match(/^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i);
+  const c = couleur.trim().toLowerCase();
+  if (c === 'transparent') return { hexa: '#000000', alpha: 0 };
+  const court = c.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])([0-9a-f])?$/);
+  if (court) return { hexa: `#${court[1]}${court[1]}${court[2]}${court[2]}${court[3]}${court[3]}`, alpha: court[4] ? parseInt(court[4] + court[4], 16) / 255 : 1 };
+  const long = c.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/);
+  if (long) return { hexa: `#${long[1]}`, alpha: long[2] ? parseInt(long[2], 16) / 255 : 1 };
+  const m = c.match(/^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)$/);
   if (!m) return null;
-  if (m[4] !== undefined && parseFloat(m[4]) === 0) return null;
-  return `#${[m[1], m[2], m[3]].map((v) => Math.max(0, Math.min(255, Math.round(Number(v)))).toString(16).padStart(2, '0')).join('')}`;
+  const alpha = m[4] === undefined ? 1 : m[5] ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+  return {
+    hexa: `#${[m[1], m[2], m[3]].map((v) => Math.max(0, Math.min(255, Math.round(Number(v)))).toString(16).padStart(2, '0')).join('')}`,
+    alpha: Math.max(0, Math.min(1, alpha)),
+  };
+}
+
+/** Une teinte et son opacité → la valeur gardée : `#rrggbb` opaque, `#rrggbbaa` sinon. */
+export function ecrireCouleur(hexa: string, alpha: number): string {
+  const a = Math.max(0, Math.min(1, alpha));
+  return a >= 0.999 ? hexa : `${hexa}${Math.round(a * 255).toString(16).padStart(2, '0')}`;
+}
+
+/** Une couleur calculée par la page → la valeur que l'inspecteur montre, transparence comprise ; illisible : `null`. */
+export function enCouleur(couleur: string | undefined | null): string | null {
+  const c = lireCouleur(couleur);
+  return c ? ecrireCouleur(c.hexa, c.alpha) : null;
 }
 
 /** Ce que le cadre (et le cadre de sélection) disent à l'éditeur. `effacer` : « Remettre comme à l'origine ». */
@@ -531,7 +588,7 @@ export const Apercu = React.forwardRef<
 
   return (
     <div ref={boite} className={className ?? 'flex h-full w-full items-center justify-center'} data-studio-apercu>
-      <div ref={scene} className="relative rounded-md shadow-lg" style={{ width: W, height: H }}>
+      <div ref={scene} className="relative rounded-md shadow-lg" style={{ width: W, height: H }} data-studio-image>
         <div className="absolute inset-0 overflow-hidden rounded-md">
           <iframe
             ref={cadre}

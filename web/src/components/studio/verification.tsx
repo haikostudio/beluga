@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { ArrowDown, ArrowUp, CornerDownLeft, Delete, ShieldCheck } from 'lucide-react';
-import { Button, DialogTitle, Drawer, Input, ZoneDefilement } from '@/components/ui';
+import { ArrowDown, ArrowUp, CornerDownLeft, Delete } from 'lucide-react';
+import { Button, DialogFooter, Drawer, Input, ZoneDefilement } from '@/components/ui';
+import { EnteteDeFenetre } from './champs';
 import { client } from '@/lib/client';
 import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
@@ -87,9 +88,8 @@ export function VoletVerification({ sourceId, nom, onClose }: { sourceId: string
 
   return (
     <Drawer open onClose={onClose} empile plein={telephone}>
-      <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
-        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <DialogTitle className="min-w-0 flex-1 truncate">{nom ? t('Passer la vérification — {nom}', { nom }) : t('Passer la vérification')}</DialogTitle>
+      <header className="shrink-0 px-3 pb-2">
+        <EnteteDeFenetre titre={nom ? t('Passer la vérification — {nom}', { nom }) : t('Passer la vérification')} onRetour={onClose} />
       </header>
       <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-4">
         <div className="flex flex-col gap-2" data-studio-verification={sourceId} data-etat={etat}>
@@ -166,16 +166,13 @@ export function VoletVerification({ sourceId, nom, onClose }: { sourceId: string
               {message.texte}
             </p>
           ) : null}
-          <div className="flex items-center justify-end gap-1.5">
-            <Button size="sm" variant="ghost" onClick={onClose}>
-              {t('Fermer')}
-            </Button>
-            <Button size="sm" onClick={terminer} disabled={etat !== 'ouvert' || termine} data-studio-verification-terminer>
-              {termine && !message ? t('Lecture…') : t('C’est fait')}
-            </Button>
-          </div>
         </div>
       </ZoneDefilement>
+      <DialogFooter pleineLargeur>
+        <Button size="lg" onClick={terminer} disabled={etat !== 'ouvert' || termine} data-studio-verification-terminer>
+          {termine && !message ? t('Lecture…') : t('C’est fait')}
+        </Button>
+      </DialogFooter>
     </Drawer>
   );
 }

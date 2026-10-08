@@ -919,11 +919,27 @@ export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLD
  * reste AU-DESSUS de la barre d'accueil du téléphone (zone sûre du bas). Dans
  * un tiroir, il se pose après la `ZoneDefilement` du corps, jamais dedans.
  */
-export function DialogFooter({ className, style, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function DialogFooter({
+  className,
+  style,
+  pleineLargeur,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  /**
+   * LE PIED D'UN PARCOURS : ses boutons s'empilent et prennent TOUTE la largeur,
+   * le principal en premier — plus rien d'aligné à droite. Le retour, lui, vit
+   * en haut à gauche de la fenêtre (Studio : mise en production, nouvelle création).
+   */
+  pleineLargeur?: boolean;
+}) {
   return (
     <div
-      data-fenetre-pied
-      className={cn('flex shrink-0 flex-wrap items-center justify-end gap-1.5 gap-y-2 bg-surface px-4 pt-3', className)}
+      data-fenetre-pied={pleineLargeur ? 'pleine-largeur' : ''}
+      className={cn(
+        'flex shrink-0 bg-surface px-4 pt-3',
+        pleineLargeur ? 'flex-col items-stretch gap-2 [&>*]:w-full' : 'flex-wrap items-center justify-end gap-1.5 gap-y-2',
+        className,
+      )}
       style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))', ...style }}
       {...props}
     />
@@ -2374,6 +2390,7 @@ export function ListeDeroulante({
   const ancre = React.useRef<HTMLElement | null>(null);
   const bouton = React.useRef<HTMLButtonElement | null>(null);
   const corpsListe = React.useRef<HTMLDivElement | null>(null);
+  const panneau = React.useRef<HTMLDivElement | null>(null);
   const retenue = options.find((o) => o.valeur === valeur);
   const libelle = retenue?.libelle ?? placeholder ?? '—';
   const m = marques === 'selecteur';
@@ -2390,6 +2407,19 @@ export function ListeDeroulante({
     }
     setActif(Math.max(0, options.findIndex((o) => o.valeur === valeur)));
   }, [ouvert]);
+  /* MODALE DANS UNE FENÊTRE, la liste ne se fermait pas à un appui sur la fenêtre elle-même (le libellé de son
+     champ, un autre champ) : Radix n'y voyait pas un appui « dehors ». Elle se ferme donc ici, au même titre. */
+  React.useEffect(() => {
+    if (!ouvert || !dansUneFenetre) return;
+    const appui = (e: PointerEvent) => {
+      const cible = e.target as Node | null;
+      if (!cible || panneau.current?.contains(cible)) return;
+      marquerGesteDeFermeture();
+      setOuvert(false);
+    };
+    window.addEventListener('pointerdown', appui, { capture: true });
+    return () => window.removeEventListener('pointerdown', appui, { capture: true });
+  }, [ouvert, dansUneFenetre]);
   React.useEffect(() => {
     if (mot) setActif(vues.findIndex((o) => !o.desactivee));
   }, [mot]);
@@ -2629,6 +2659,7 @@ export function ListeDeroulante({
       {leDeclencheur}
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content
+          ref={panneau}
           side="bottom"
           align="start"
           sideOffset={4}

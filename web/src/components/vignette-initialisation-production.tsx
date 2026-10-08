@@ -16,7 +16,7 @@ import { cn, relativeTime } from '@/lib/utils';
  * mise en ligne, là où le dépannage est orange —, posée en tête de « En cours »
  * du tableau et parmi les agents sans carte des « Tableaux de bord », tant que
  * l'agent travaille ou attend une réponse. Une fois qu'il a fini, elle quitte
- * le tableau et passe 24 heures dans « Terminés » des Tableaux de bord, sans
+ * le tableau et passe 24 heures dans « Archiver » des Tableaux de bord, sans
  * point bleu ni aucun signal (`etatDeLaVignetteDInitialisation`, 06/10/2026).
  * Elle ne compte ni dans le compteur de la colonne, ni dans son avancement.
  *

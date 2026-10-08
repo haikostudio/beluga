@@ -8,7 +8,7 @@
  * AU TRAVAIL, PUIS 24 HEURES DANS « TERMINÉS » (décision de l'utilisateur du
  * 06/10/2026, qui remplace la lecture du 05/10). Au travail — ou arrêtée sur
  * sa question —, elle est dans « Actifs ». Finie (réussie, tombée ou
- * arrêtée), elle passe dans « Terminés » des Tableaux de bord pendant
+ * arrêtée), elle passe dans « Archiver » des Tableaux de bord pendant
  * `DUREE_SYSTEME_TERMINE_MS`, puis disparaît. Plus de point bleu, et elle ne
  * compte plus nulle part : ni chiffre bleu du projet, ni cloche, ni icône de
  * l'application. Les repères de lecture `luA` (migration 103) ne sont plus lus.
@@ -17,7 +17,7 @@
  * paramètre, elles se testent seules.
  */
 
-/** Combien de temps une carte Système finie reste dans « Terminés ». */
+/** Combien de temps une carte Système finie reste dans « Archiver ». */
 export const DUREE_SYSTEME_TERMINE_MS = 24 * 60 * 60 * 1000;
 
 /** Fini depuis moins de `DUREE_SYSTEME_TERMINE_MS` (une fin dans le futur, horloges décalées, compte aussi). */
@@ -48,7 +48,7 @@ export function agentSystemeActif(agent: AgentSysteme): boolean {
 
 /**
  * UN AGENT SANS CARTE A-T-IL FINI DEPUIS MOINS DE 24 HEURES ? Sa carte va dans
- * « Terminés ».
+ * « Archiver ».
  *
  * Jamais un agent posé sur une carte (sa carte porte sa propre pastille), ni
  * un agent encore actif (`agentSystemeActif`), ni l'analyse de nuit : elle
@@ -128,7 +128,7 @@ export function productionsApres<T extends PublicationSysteme>(
   return suite;
 }
 
-/** Une carte Système posée dans « Terminés », avec l'instant qui la range. */
+/** Une carte Système posée dans « Archiver », avec l'instant qui la range. */
 export interface SystemeTermine<T> {
   finiA: number;
   element: T;

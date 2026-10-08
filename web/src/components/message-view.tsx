@@ -415,7 +415,7 @@ export function MessageView({
         {/* LES COMPÉTENCES PROPOSÉES PAR BELUGA BUILD ONT LEUR ENCADRÉ VIOLET,
             un par compétence et tous visibles : ce ne sont pas des questions
             de l'agent, elles ne se feuillettent donc pas avec elles. */}
-        <EncadresDeCompetences messageId={message.id} questions={message.questions} />
+        <EncadresDeCompetences messageId={message.id} agentId={message.agentId} questions={message.questions} />
 
         {questionsDeLAgent.length ? (
           <div className="mt-2">

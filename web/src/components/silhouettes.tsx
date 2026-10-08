@@ -143,7 +143,7 @@ function SilhouetteCarte({ variante }: { variante: number }) {
 /**
  * LA LISTE D'UNE COLONNE DE LA PAGE « EN ROUTE », partagée avec sa silhouette :
  * rien ne saute à l'arrivée. Une liste, tous projets mélangés, dans chacune des
- * deux colonnes (« Actifs », « Terminés »). Le `pt-3` laisse la place à la
+ * trois colonnes (« Actifs », « Terminer », « Archiver »). Le `pt-3` laisse la place à la
  * pastille bleue « rendu non consulté », qui déborde de 12 px au-dessus du coin
  * haut droit de la carte : sans lui, la zone qui défile la coupait sur la
  * première carte de la liste.
@@ -193,7 +193,7 @@ export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
 /**
  * LA PAGE ENTIÈRE EN ATTENTE, posée ICI, dans le premier morceau, et non dans
  * celui de la page : elle tient la place pendant que la page elle-même se
- * télécharge. Le MÊME rail et les MÊMES deux colonnes que la vraie page
+ * télécharge. Le MÊME rail et les MÊMES trois colonnes que la vraie page
  * (`lib/gabarit-tableau.ts`), leurs vrais titres à leur vraie place.
  */
 export function SilhouetteEnRoute() {
@@ -201,7 +201,7 @@ export function SilhouetteEnRoute() {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-silhouette-page-en-route>
       <div className={cn(classesRailEnRoute(telephone), 'min-h-0 flex-1 overflow-hidden')}>
-        {([t('Actifs'), t('Terminés')] as const).map((titre, rang) => (
+        {([t('Actifs'), t('Terminer'), t('Archiver')] as const).map((titre, rang) => (
           <div key={titre} className={classesColonneEnRoute(telephone)}>
             <div className={CLASSES_TETE_COLONNE_EN_ROUTE}>
               <h2 className="text-[13px] font-medium uppercase tracking-wide text-faint">{titre}</h2>

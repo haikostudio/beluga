@@ -101,6 +101,43 @@ export interface ConfigWordpress {
   journaux: string[];
   /** Les extensions actives à la mise en place : une qui se désactive ou disparaît est un souci. */
   extensionsAttendues: string[];
+  /**
+   * LA COPIE DE TEST du site, sur ce serveur : c'est là que les agents
+   * corrigent, le site surveillé restant en lecture seule hors mise en
+   * production (`garde-production.ts`, MEM-4501). Facultative.
+   */
+  copieDeTest?: CopieDeTest;
+}
+
+/** Où se trouve la copie de test d'un site, sur ce serveur. */
+export interface CopieDeTest {
+  /** Le dossier de WordPress de la copie (« /var/www/invia »). */
+  racine: string;
+  /** L'outil en ligne de commande de WordPress sur ce serveur (« wp »). */
+  wpCli: string;
+  /** L'adresse de la copie (« https://invia.haikostudio.cloud »). */
+  url?: string;
+}
+
+/** La copie de test lue dans une configuration : abîmée, elle n'existe pas. */
+export function jugerCopieDeTest(brut: unknown): CopieDeTest | undefined {
+  if (!brut || typeof brut !== 'object') return undefined;
+  const c = brut as Record<string, unknown>;
+  const racine = String(c.racine ?? '').trim().replace(/\/+$/, '');
+  const wpCli = String(c.wpCli ?? '').trim() || 'wp';
+  if (!cheminSur(racine) || !cheminSur(wpCli)) return undefined;
+  const url = String(c.url ?? '').trim();
+  return { racine, wpCli, ...(/^https?:\/\/[^\s]+$/.test(url) ? { url } : {}) };
+}
+
+/** La phrase qui dit où corriger à la place du vrai site. */
+export function phraseDeLaCopieDeTest(copie: Partial<CopieDeTest> | undefined, projet?: string): string {
+  const registre = `puis ajoute une entrée au registre « production/a-rejouer/ » du dépôt${projet ? ` ${projet}` : ' du projet'} (la commande exacte à rejouer en ligne) : c'est ce registre que la mise en production rejoue.`;
+  const reperes = [
+    copie?.racine ? `dossier ${copie.racine}, « ${copie.wpCli || 'wp'} --path=${copie.racine} … »` : '',
+    copie?.url ?? '',
+  ].filter(Boolean);
+  return `Fais le changement sur la COPIE DE TEST${reperes.length ? ` (${reperes.join(', ')})` : ' du projet'}, ${registre}`;
 }
 
 /** Un chemin dit sans guillemet ni caractère de commande : il entre tel quel dans un script. */
@@ -147,7 +184,11 @@ export function jugerConfigWordpress(brut: unknown): JugementConfigWordpress {
   if (attendues.length > EXTENSIONS_ATTENDUES_MAX)
     return { ok: false, raison: `pas plus de ${EXTENSIONS_ATTENDUES_MAX} extensions attendues` };
   for (const slug of attendues) if (!SLUG.test(slug)) return { ok: false, raison: `extension illisible : « ${slug} »` };
-  return { ok: true, config: { acces: { id }, racine, wpCli, journaux: [...new Set(journaux)], extensionsAttendues: attendues } };
+  const copieDeTest = jugerCopieDeTest(c.copieDeTest);
+  return {
+    ok: true,
+    config: { acces: { id }, racine, wpCli, journaux: [...new Set(journaux)], extensionsAttendues: attendues, ...(copieDeTest ? { copieDeTest } : {}) },
+  };
 }
 
 /** La configuration lue en base : abîmée, elle n'existe pas — la surveillance de base continue. */

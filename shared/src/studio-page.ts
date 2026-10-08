@@ -130,10 +130,119 @@ export function retouchesDuFormat(segment: Segment, format: FormatStudio, format
   return sortie;
 }
 
-const ALIGNEMENTS_CSS: Record<string, string> = { gauche: 'left', centre: 'center', droite: 'right', justifie: 'justify' };
+/**
+ * LES DÉCLARATIONS D'UNE RETOUCHE — UNE SEULE ÉCRITURE POUR L'APERÇU ET L'EXPORT.
+ * L'export les pose dans une règle (`regleDeRetouche`) ; le moteur de l'aperçu
+ * reçoit le TEXTE de cette même fonction (`MOTEUR_APERCU_STUDIO`) et les pose en
+ * ligne pendant un réglage (`peindre`). Elle doit donc rester AUTONOME : aucune
+ * variable du dehors, aucune syntaxe qu'un outil de construction réécrirait par
+ * un assistant (pas d'étalement d'objet), rien que du JavaScript de base.
+ * `geometrie` faux : sans la place ni le cadre (le geste en cours les pose lui-même).
+ * Rend des triplets [propriété, valeur, importante].
+ */
+export function declarationsDeRetouche(r: Retouche, geometrie: boolean): [string, string, boolean][] {
+  var d: [string, string, boolean][] = [];
+  var n = function (x: number) {
+    return String(Math.round(x * 1000) / 1000);
+  };
+  var px = function (q: number[]) {
+    return q.map(function (x) {
+      return n(x) + 'px';
+    }).join(' ');
+  };
+  var oui = function (p: string, v: string) {
+    d.push([p, v, true]);
+  };
+  if (geometrie) {
+    if (r.x || r.y) oui('translate', n(r.x || 0) + 'px ' + n(r.y || 0) + 'px');
+    if (r.rotation) oui('rotate', n(r.rotation) + 'deg');
+    if (r.echelle !== undefined && r.echelle !== 1) oui('scale', n(r.echelle));
+  }
+  /* L'OPACITÉ ET LE FLOU passent par `filter`, SANS !important : ils se composent avec un fondu animé par le dessin
+     au lieu de l'écraser (une opacité animée multiplie celle-ci). */
+  var filtres: string[] = [];
+  if (r.opacite !== undefined && r.opacite < 1) filtres.push('opacity(' + n(r.opacite) + ')');
+  if (r.flou) filtres.push('blur(' + n(r.flou) + 'px)');
+  if (filtres.length) d.push(['filter', filtres.join(' '), false]);
+  if (r.couleur) {
+    oui('color', r.couleur);
+    oui('fill', r.couleur);
+  }
+  if (r.fond) oui('background-color', r.fond);
+  if (r.degrade && r.degrade.arrets && r.degrade.arrets.length > 1) {
+    var arrets = r.degrade.arrets
+      .map(function (a) {
+        return a.couleur + ' ' + n(a.position) + '%';
+      })
+      .join(', ');
+    oui('background-image', r.degrade.genre === 'radial' ? 'radial-gradient(circle, ' + arrets + ')' : 'linear-gradient(' + n(r.degrade.angle) + 'deg, ' + arrets + ')');
+  }
+  /* LE CADRE D'UN TEXTE : sa largeur (et sa hauteur) changent, la police reste la même et le
+     texte se réenroule dedans. Les plafonds posés par le dessin (`max-width`) ne le brident plus. */
+  if (geometrie && r.largeur) {
+    oui('width', n(r.largeur) + 'px');
+    oui('max-width', 'none');
+    oui('box-sizing', 'border-box');
+  }
+  if (geometrie && r.hauteur) {
+    oui('height', n(r.hauteur) + 'px');
+    oui('max-height', 'none');
+  }
+  // UNE IMAGE DONT LE CADRE CHANGE s'y RECADRE (elle remplit le cadre), elle ne se déforme jamais ; « Tout montrer » la contient. Sans effet hors image.
+  if (r.cadrage) oui('object-fit', r.cadrage === 'contenir' ? 'contain' : 'cover');
+  else if (geometrie && (r.largeur || r.hauteur)) oui('object-fit', 'cover');
+  var aligner: Record<string, string> = { gauche: 'left', centre: 'center', droite: 'right', justifie: 'justify' };
+  if (r.alignement && aligner[r.alignement]) oui('text-align', aligner[r.alignement]!);
+  var vertical: Record<string, string> = { haut: 'start', milieu: 'center', bas: 'end' };
+  if (r.alignementVertical && vertical[r.alignementVertical]) oui('align-content', vertical[r.alignementVertical]!);
+  /* LE CONTOUR est un trait INTÉRIEUR par défaut (outline ramené dedans) : il ne change ni la taille ni la place de la
+     pièce, suit son arrondi, et vaut aussi sur une image. À cheval ou dehors sur demande. */
+  if (r.epaisseurContour !== undefined || r.contour) {
+    var ep = r.epaisseurContour || 0;
+    var trait: Record<string, string> = { plein: 'solid', tirets: 'dashed', pointilles: 'dotted' };
+    oui('outline', ep > 0 ? n(ep) + 'px ' + (trait[r.contourStyle || 'plein'] || 'solid') + ' ' + (r.contour || 'currentColor') : 'none');
+    oui('outline-offset', n(r.contourPosition === 'exterieur' ? 0 : r.contourPosition === 'centre' ? -ep / 2 : -ep) + 'px');
+  }
+  if (r.arrondiCoins) oui('border-radius', px(r.arrondiCoins));
+  else if (r.arrondi !== undefined) oui('border-radius', n(r.arrondi) + 'px');
+  if (r.taillePolice) oui('font-size', n(r.taillePolice) + 'px');
+  if (r.police) oui('font-family', "'" + r.police.replace(/[^\w -]/g, '') + "', sans-serif");
+  if (r.graisse) oui('font-weight', n(r.graisse));
+  if (r.interligne) oui('line-height', n(r.interligne));
+  if (r.espacementLettres !== undefined) oui('letter-spacing', n(r.espacementLettres) + 'px');
+  if (r.italique !== undefined) oui('font-style', r.italique ? 'italic' : 'normal');
+  if (r.decoration) oui('text-decoration-line', r.decoration === 'souligne' ? 'underline' : r.decoration === 'barre' ? 'line-through' : 'none');
+  if (r.casse) oui('text-transform', r.casse === 'majuscules' ? 'uppercase' : r.casse === 'minuscules' ? 'lowercase' : r.casse === 'capitales' ? 'capitalize' : 'none');
+  if (r.marges) oui('padding', px(r.marges));
+  if (r.margesExterieures) oui('margin', px(r.margesExterieures));
+  if (r.ombres) {
+    var boites: string[] = [];
+    var lettres: string[] = [];
+    r.ombres.forEach(function (o) {
+      if (o.genre === 'texte') lettres.push(n(o.x) + 'px ' + n(o.y) + 'px ' + n(o.flou) + 'px ' + o.couleur);
+      else boites.push((o.genre === 'interieure' ? 'inset ' : '') + n(o.x) + 'px ' + n(o.y) + 'px ' + n(o.flou) + 'px ' + n(o.etalement) + 'px ' + o.couleur);
+    });
+    oui('box-shadow', boites.length ? boites.join(', ') : 'none');
+    oui('text-shadow', lettres.length ? lettres.join(', ') : 'none');
+  }
+  if (r.flouArrierePlan !== undefined) {
+    oui('backdrop-filter', r.flouArrierePlan > 0 ? 'blur(' + n(r.flouArrierePlan) + 'px)' : 'none');
+    oui('-webkit-backdrop-filter', r.flouArrierePlan > 0 ? 'blur(' + n(r.flouArrierePlan) + 'px)' : 'none');
+  }
+  if (r.fusion) oui('mix-blend-mode', r.fusion);
+  if (r.rogner !== undefined) oui('overflow', r.rogner ? 'hidden' : 'visible');
+  /* Les retours à la ligne écrits à la main se voient, à l'aperçu comme à l'export : la page les isole entre deux
+     espaces (une phrase découpée mot par mot en fait une coupure), que `pre-line` avale autour du retour. */
+  if (typeof r.texte === 'string' && r.texte.indexOf('\n') >= 0) oui('white-space', 'pre-line');
+  // UN CALQUE MASQUÉ garde sa place (les voisins ne bougent pas) mais ne se voit plus, ni dans l'aperçu ni dans l'export.
+  if (r.masquee) {
+    oui('visibility', 'hidden');
+    oui('opacity', '0');
+  }
+  return d;
+}
 
 function regleDeRetouche(portee: string, elementId: string, r: Retouche): string {
-  const decl: string[] = [];
   /* LA RETOUCHE SE COMPOSE AVEC LE MOUVEMENT, ELLE NE S'Y ADDITIONNE PAS DEUX FOIS.
      Quand GSAP lit une pièce pour la première fois, il ABSORBE les propriétés
      `translate`, `rotate` et `scale` qu'il trouve dans sa propre `transform`
@@ -142,31 +251,7 @@ function regleDeRetouche(portee: string, elementId: string, r: Retouche): string
      construite (`#root.studio-retouches`, posé par `CHRONOLOGIE` APRÈS avoir
      fait lire chaque pièce à GSAP) ; `!important` les garde devant un `none`
      posé en ligne par la suite. */
-  if (r.x || r.y) decl.push(`translate:${chiffre(r.x ?? 0)}px ${chiffre(r.y ?? 0)}px !important`);
-  if (r.rotation) decl.push(`rotate:${chiffre(r.rotation)}deg !important`);
-  if (r.echelle !== undefined && r.echelle !== 1) decl.push(`scale:${chiffre(r.echelle)} !important`);
-  if (r.opacite !== undefined && r.opacite < 1) decl.push(`filter:opacity(${chiffre(r.opacite)})`);
-  if (r.couleur) decl.push(`color:${r.couleur} !important`, `fill:${r.couleur} !important`);
-  if (r.fond) decl.push(`background-color:${r.fond} !important`);
-  /* LE CADRE D'UN TEXTE : sa largeur (et sa hauteur) changent, la police reste la même et le
-     texte se réenroule dedans. Les plafonds posés par le dessin (`max-width`) ne le brident plus. */
-  if (r.largeur) decl.push(`width:${chiffre(r.largeur)}px !important`, 'max-width:none !important', 'box-sizing:border-box !important');
-  if (r.hauteur) decl.push(`height:${chiffre(r.hauteur)}px !important`, 'max-height:none !important');
-  // UNE IMAGE DONT LE CADRE CHANGE s'y RECADRE (elle remplit le cadre), elle ne se déforme jamais. Sans effet hors image.
-  if (r.largeur || r.hauteur) decl.push('object-fit:cover !important');
-  if (r.alignement && ALIGNEMENTS_CSS[r.alignement]) decl.push(`text-align:${ALIGNEMENTS_CSS[r.alignement]} !important`);
-  /* LE CONTOUR est un trait INTÉRIEUR (outline ramené dedans) : il ne change ni la taille ni la place de la
-     pièce, suit son arrondi, et vaut aussi sur une image. Mêmes déclarations dans le moteur d'aperçu (`peindre`). */
-  if (r.epaisseurContour !== undefined || r.contour) {
-    const ep = r.epaisseurContour ?? 0;
-    decl.push(ep > 0 ? `outline:${chiffre(ep)}px solid ${r.contour ?? 'currentColor'} !important` : 'outline:none !important', `outline-offset:${chiffre(-ep)}px !important`);
-  }
-  if (r.arrondi !== undefined) decl.push(`border-radius:${chiffre(r.arrondi)}px !important`);
-  if (r.taillePolice) decl.push(`font-size:${chiffre(r.taillePolice)}px !important`);
-  // Les retours à la ligne écrits à la main se voient, à l'aperçu comme à l'export.
-  if (typeof r.texte === 'string' && r.texte.includes('\n')) decl.push('white-space:pre-wrap !important');
-  // UN CALQUE MASQUÉ garde sa place (les voisins ne bougent pas) mais ne se voit plus, ni dans l'aperçu ni dans l'export.
-  if (r.masquee) decl.push('visibility:hidden !important', 'opacity:0 !important');
+  const decl = declarationsDeRetouche(r, true).map(([p, v, importante]) => `${p}:${v}${importante ? ' !important' : ''}`);
   if (!decl.length) return '';
   const cible = `[data-studio-id="${elementId}"]`;
   // Actives seulement une fois la chronologie construite (classe posée par `CHRONOLOGIE`).
@@ -214,6 +299,8 @@ export interface DonneesDeLaPage {
     parametres?: { id: string; type: string; valeur: unknown; unite?: string }[];
     /** Les textes retouchés à la main, posés avant la chronologie. */
     textes?: Record<string, string>;
+    /** Les images remplacées à la main (« Source » de l'inspecteur) : pièce → adresse du fichier. */
+    sources?: Record<string, string>;
     /** Sous-titres : groupes et mots. */
     groupes?: { debut: number; fin: number; mots: { debut: number; fin: number }[] }[];
     accent?: string;
@@ -272,6 +359,8 @@ export function traduireEnPage(composition: Composition, options: OptionsDeTradu
       }
       const textes: Record<string, string> = {};
       for (const [elementId, r] of Object.entries(retouches)) if (typeof r.texte === 'string') textes[elementId] = r.texte;
+      const sources: Record<string, string> = {};
+      for (const [elementId, r] of Object.entries(retouches)) if (r.source && options.medias[r.source]) sources[elementId] = options.medias[r.source]!.url;
       const commun = {
         id: segment.id,
         genre: segment.genre,
@@ -280,6 +369,7 @@ export function traduireEnPage(composition: Composition, options: OptionsDeTradu
         entree: segment.entree ?? 'aucune',
         sortie: segment.sortie ?? 'aucune',
         ...(Object.keys(textes).length ? { textes } : {}),
+        ...(Object.keys(sources).length ? { sources } : {}),
       };
 
       switch (segment.genre) {
@@ -459,6 +549,19 @@ var RECETTES={
  'flou':[{filter:'blur(24px)',opacity:0},{filter:'blur(0px)',opacity:1}]
 };
 function copie(o){var r={};for(var k in o)r[k]=o[k];return r;}
+/* UN TEXTE DE PARAMÈTRE AVEC DES RETOURS À LA LIGNE. Le retour est isolé entre deux espaces : une scène qui découpe
+   sa phrase mot par mot (\`split(' ')\`) en fait un « mot » à part, que \`coupures\` change ensuite en vraie coupure
+   de ligne ; un texte laissé entier le montre par \`white-space:pre-line\` (qui avale les espaces autour du retour). */
+function ecrire(n,v){if(v.indexOf('\\n')<0){n.textContent=v;return;}n.textContent=v.split('\\n').join(' \\n ');n.style.whiteSpace='pre-line';}
+/* APRÈS LE CODE DE LA SCÈNE : un mot qui n'est qu'un retour à la ligne devient une coupure, en ligne comme dans une
+   rangée flexible. Il reste à sa place (son animation éventuelle ne vise plus rien de visible). */
+function coupures(seg){
+ q(seg,'*').forEach(function(n){
+  if(n.children.length||!n.parentNode||n.parentNode.childNodes.length<2)return;var c=n.textContent||'';
+  if(c.indexOf('\\n')<0||c.trim())return;
+  n.textContent='';['display:block','width:100%','height:0','flex-basis:100%','margin:0','padding:0'].forEach(function(x){var k=x.split(':');n.style.setProperty(k[0],k[1],'important');});
+ });
+}
 /* LE PLAN DES CALQUES : les pièces sœurs sont réordonnées (stable) avant que GSAP ne les lise.
    L'ordre du document est l'ordre de peinture, en HTML comme en SVG. Un parent qui mêle du texte
    à ses pièces n'est pas touché : on ne casse pas une phrase. */
@@ -477,12 +580,14 @@ D.segments.forEach(function(s){
  if(!el)return;
  try{
   (s.parametres||[]).forEach(function(p){
-   q(el,'[data-param="'+p.id+'"]').forEach(function(n){if(p.type!=='media')n.textContent=String(p.valeur);});
+   q(el,'[data-param="'+p.id+'"]').forEach(function(n){if(p.type!=='media')ecrire(n,String(p.valeur));});
    q(el,'[data-param-show="'+p.id+'"]').forEach(function(n){n.style.display=p.valeur?'':'none';});
    q(el,'[data-param-src="'+p.id+'"]').forEach(function(n){var u=D.medias[String(p.valeur)];if(u)n.setAttribute(n.tagName.toLowerCase()==='image'?'href':'src',u);});
   });
   var textes=s.textes||{};
-  Object.keys(textes).forEach(function(id){q(el,'[data-studio-id="'+id+'"]').forEach(function(n){n.textContent=textes[id];});});
+  Object.keys(textes).forEach(function(id){q(el,'[data-studio-id="'+id+'"]').forEach(function(n){ecrire(n,textes[id]);});});
+  var sources=s.sources||{};
+  Object.keys(sources).forEach(function(id){q(el,'[data-studio-id="'+id+'"]').forEach(function(n){if(n.tagName.toLowerCase()==='image')n.setAttribute('href',sources[id]);else if(/^img$/i.test(n.tagName)){n.removeAttribute('srcset');n.setAttribute('src',sources[id]);}});});
  }catch(e){erreur(s.id+' : '+e.message);}
  var dans=RECETTES[s.entree], hors=RECETTES[s.sortie];
  if(dans&&s.duree>T){var a=copie(dans[1]);a.duration=T;a.ease='power3.out';tl.fromTo(el,copie(dans[0]),a,s.debut);}
@@ -492,6 +597,7 @@ D.segments.forEach(function(s){
   var local=gsap.timeline();
   try{window.__studioAnim[s.id](local,el,p,{largeur:D.largeur,hauteur:D.hauteur,duree:s.duree,q:function(sel){return q(el,sel);}});tl.add(local,s.debut);}
   catch(e){erreur(s.id+' : '+e.message);}
+  coupures(el);
  }else if(s.genre==='dessin'&&document.querySelector('script[data-anim="'+s.id+'"]')){erreur(s.id+' : animation illisible');}
  if(s.genre==='sous-titres'){
   q(el,'.studio-st-groupe').forEach(function(g,k){
@@ -691,7 +797,9 @@ function texte(n){return feuille(n)||texteCompose(n);}
 /* CE QU'EST LA PIÈCE, pour que l'inspecteur ne propose que ses vrais réglages : un texte, une image, une forme SVG, un groupe de pièces, une forme. */
 function nature(n){if(texte(n))return 'texte';if(/^(img|image|video)$/i.test(n.tagName))return 'image';if(n.querySelector('[data-studio-id]'))return 'groupe';if(n.namespaceURI==='http://www.w3.org/2000/svg')return 'svg';return 'forme';}
 /* SES STYLES CALCULÉS, lus à l'instant de la tête (après GSAP et les retouches) : l'inspecteur part de la vraie couleur, pas d'un blanc par défaut. */
-function styles(n){try{var c=getComputedStyle(n),b=n.getBoundingClientRect();return {couleur:c.color,fond:c.backgroundColor,remplissage:c.fill,taillePolice:parseFloat(c.fontSize)||0,largeur:n.offsetWidth||Math.round(b.width)||0,hauteur:n.offsetHeight||Math.round(b.height)||0,alignement:c.textAlign,contour:c.outlineStyle!=='none'&&parseFloat(c.outlineWidth)?c.outlineColor:c.borderTopColor,epaisseurContour:c.outlineStyle!=='none'&&parseFloat(c.outlineWidth)?parseFloat(c.outlineWidth):(c.borderTopStyle!=='none'?parseFloat(c.borderTopWidth)||0:0),arrondi:parseFloat(c.borderTopLeftRadius)||0};}catch(e){return null;}}
+function quatre(c,p,s){return [c[p+'Top'+s],c[p+'Right'+s],c[p+'Bottom'+s],c[p+'Left'+s]].map(function(v){return parseFloat(v)||0;});}
+function coins(c){return [c.borderTopLeftRadius,c.borderTopRightRadius,c.borderBottomRightRadius,c.borderBottomLeftRadius].map(function(v){return parseFloat(v)||0;});}
+function styles(n){try{var c=getComputedStyle(n),b=n.getBoundingClientRect(),fs=parseFloat(c.fontSize)||0,trait=c.outlineStyle!=='none'&&parseFloat(c.outlineWidth);return {couleur:c.color,fond:c.backgroundColor,fondImage:c.backgroundImage!=='none'?c.backgroundImage:null,remplissage:c.fill,taillePolice:fs,largeur:n.offsetWidth||Math.round(b.width)||0,hauteur:n.offsetHeight||Math.round(b.height)||0,alignement:c.textAlign,alignementVertical:c.alignContent,contour:trait?c.outlineColor:c.borderTopColor,epaisseurContour:trait?parseFloat(c.outlineWidth):(c.borderTopStyle!=='none'?parseFloat(c.borderTopWidth)||0:0),contourStyle:trait?c.outlineStyle:c.borderTopStyle,arrondi:parseFloat(c.borderTopLeftRadius)||0,arrondiCoins:coins(c),police:c.fontFamily,graisse:parseFloat(c.fontWeight)||400,interligne:c.lineHeight==='normal'||!fs?null:Math.round(parseFloat(c.lineHeight)/fs*100)/100,espacementLettres:parseFloat(c.letterSpacing)||0,italique:c.fontStyle==='italic'||c.fontStyle==='oblique',decoration:c.textDecorationLine,casse:c.textTransform,marges:quatre(c,'padding',''),margesExterieures:quatre(c,'margin',''),ombres:c.boxShadow!=='none'?c.boxShadow:null,ombresTexte:c.textShadow!=='none'?c.textShadow:null,filtre:c.filter!=='none'?c.filter:null,flouArrierePlan:c.backdropFilter&&c.backdropFilter!=='none'?c.backdropFilter:null,fusion:c.mixBlendMode,opacite:parseFloat(c.opacity),rogner:c.overflow==='hidden'||c.overflow==='clip',cadrage:c.objectFit,source:n.currentSrc||n.getAttribute('src')||n.getAttribute('href')||null};}catch(e){return null;}}
 function placer(){
  var m={type:'boite',segmentId:null};
  if(choix&&choix.el.isConnected&&choix.seg.style.visibility!=='hidden'){
@@ -748,21 +856,18 @@ document.addEventListener('pointermove',function(e){
 function finir(){var fin=geste&&(geste.fin||geste.brut);if(fin&&choix){dire({type:'retouche',segmentId:choix.segId,elementId:choix.elId,retouche:fin});memoriser(fin);}geste=null;}
 function memoriser(fin){var r=(D.retouches[choix.segId]=D.retouches[choix.segId]||{});var a=r[choix.elId]=r[choix.elId]||{};for(var k in fin)a[k]=fin[k];}
 document.addEventListener('pointerup',finir);document.addEventListener('pointercancel',finir);
-/* UNE COULEUR, UN ALIGNEMENT, UN CONTOUR RÉGLÉS DANS L'INSPECTEUR : vus PENDANT le choix, avant que la retouche
-   parte. Les MÊMES déclarations que \`regleDeRetouche\` (l'export) : ce que l'aperçu montre est ce qui sera rendu. */
-var ALIGNER={gauche:'left',centre:'center',droite:'right',justifie:'justify'};
-function peindre(el,r){var st=el.style;
- if(r.couleur){st.setProperty('color',r.couleur,'important');st.setProperty('fill',r.couleur,'important');}
- if(r.fond)st.setProperty('background-color',r.fond,'important');
- if(r.alignement&&ALIGNER[r.alignement])st.setProperty('text-align',ALIGNER[r.alignement],'important');
- if(typeof r.epaisseurContour==='number'||r.contour){var ep=typeof r.epaisseurContour==='number'?r.epaisseurContour:(parseFloat(getComputedStyle(el).outlineWidth)||0);
-  st.setProperty('outline',ep>0?ep+'px solid '+(r.contour||getComputedStyle(el).outlineColor):'none','important');st.setProperty('outline-offset',(-ep)+'px','important');}
- if(typeof r.arrondi==='number')st.setProperty('border-radius',r.arrondi+'px','important');
+/* UN RÉGLAGE DE L'INSPECTEUR (couleur, contour, ombre, typographie…) : vu PENDANT le choix, avant que la retouche
+   parte. Les déclarations viennent de LA MÊME FONCTION que l'export (\`declarationsDeRetouche\`, recopiée ici telle
+   quelle) : ce que l'aperçu montre est ce qui sera rendu. Le réglage reçu se pose PAR-DESSUS la retouche déjà gardée
+   de la pièce (une opacité réglée ne fait pas tomber un flou déjà posé : les deux vivent dans \`filter\`). */
+var declarer=(${declarationsDeRetouche.toString()});
+function peindre(c,r){var garde=(D.retouches[c.segId]||{})[c.elId]||{},tout={},k;for(k in garde)tout[k]=garde[k];for(k in r)tout[k]=r[k];
+ declarer(tout,false).forEach(function(x){c.el.style.setProperty(x[0],x[1],x[2]?'important':'');});
 }
 /* UN GESTE TIRÉ PAR LA PAGE PARENTE (coin, bord, rotation) : posé comme le déplacement, en !important, puis le cadre se replace. */
 function enDirect(r,cible){
  if(cible){peindre(cible,r);placer();return;}
- if(!choix||!choix.elId)return;peindre(choix.el,r);if(r.echelle!==undefined)choix.el.style.setProperty('scale',String(r.echelle),'important');
+ if(!choix||!choix.elId)return;peindre(choix,r);if(r.echelle!==undefined)choix.el.style.setProperty('scale',String(r.echelle),'important');
  /* LE CADRE tiré par un coin ou un bord : sa taille change, sa police jamais ; une image s'y RECADRE (cover), sans se déformer. */
  if(typeof r.largeur==='number'){choix.el.style.setProperty('width',r.largeur+'px','important');choix.el.style.setProperty('max-width','none','important');choix.el.style.setProperty('box-sizing','border-box','important');choix.el.style.setProperty('object-fit','cover','important');}
  if(typeof r.hauteur==='number'){choix.el.style.setProperty('height',r.hauteur+'px','important');choix.el.style.setProperty('max-height','none','important');choix.el.style.setProperty('object-fit','cover','important');}if(r.rotation!==undefined)choix.el.style.setProperty('rotate',r.rotation+'deg','important');
@@ -775,7 +880,8 @@ function editer(n,s){
  var avant=n.textContent,blanc=n.style.whiteSpace;n.contentEditable='true';n.style.whiteSpace='pre-wrap';n.focus();
  var r=document.createRange();r.selectNodeContents(n);var sel=getSelection();sel.removeAllRanges();sel.addRange(r);
  function sortir(){n.removeEventListener('blur',sortir);n.removeEventListener('keydown',touche);n.contentEditable='false';n.style.whiteSpace=blanc;
-  var texte=(n.textContent||'').replace(/\\n+$/,'');if(texte!==n.textContent)n.textContent=texte;
+  /* Les espaces que la page pose autour d'un retour (\`ecrire\`) ne s'accumulent pas d'une écriture à l'autre. */
+  var texte=(n.textContent||'').replace(/ *\\n */g,'\\n').replace(/\\n+$/,'');avant=avant.replace(/ *\\n */g,'\\n');if(texte!==n.textContent)n.textContent=texte;
   if(texte!==avant)dire({type:'texte',segmentId:s.getAttribute('data-seg'),elementId:n.getAttribute('data-studio-id'),texte:texte});}
  function aLaLigne(){var sl=getSelection();if(!sl||!sl.rangeCount)return;var rg=sl.getRangeAt(0);rg.deleteContents();var tn=document.createTextNode('\\n');rg.insertNode(tn);
   /* Un retour en toute fin ne se voit qu'avec un second « \\n » derrière lui (retiré à la sortie). */
@@ -806,7 +912,7 @@ document.addEventListener('keydown',function(e){var f=FLECHES[e.key];if(!f||!cho
 window.__studioApresRecalage=function(){tl.totalTime(t,false);visibilite();derniereBoite='';placer();};
 window.addEventListener('message',function(e){
  if(e.source!==parent)return;var m=e.data||{};
- if(m.type==='retouche-en-direct'&&m.retouche){var vise=m.segmentId?trouver(m.segmentId,m.elementId||null):null;if(m.segmentId&&!vise)return;enDirect(m.retouche,vise?vise.el:null);}
+ if(m.type==='retouche-en-direct'&&m.retouche){var vise=m.segmentId?trouver(m.segmentId,m.elementId||null):null;if(m.segmentId&&!vise)return;enDirect(m.retouche,vise);}
  /* UN PARAMÈTRE DE DESSIN réglé dans l'inspecteur (couleur…) : sa variable \`--p-<id>\` change tout de suite sur la scène. */
  else if(m.type==='variable-en-direct'&&m.segmentId&&/^[a-zA-Z][\\w-]{0,63}$/.test(m.nom||'')){var sc=document.getElementById('seg-'+m.segmentId);if(sc){sc.style.setProperty('--p-'+m.nom,String(m.valeur).replace(/[;{}<>"]/g,''));placer();}}
  else if(m.type==='editer-texte'&&choix&&choix.elId)editer(choix.el,choix.seg);

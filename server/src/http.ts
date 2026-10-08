@@ -84,7 +84,7 @@ import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { publicKey, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils, pontAAbouti } from './pont.js';
-import { agentEnAttente, attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
+import { attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
 import { fichierFavicon } from './favicon.js';
 import { log } from './logger.js';
@@ -921,22 +921,14 @@ export function createHttpServer(): http.Server {
            */
           /*
            * BELUGA PROPOSE LES COMPÉTENCES, PAS L'AGENT. La recherche de
-           * mémoire qu'un cadrage fait à chaque tour est le point d'arrêt :
-           * le démon y cherche les compétences qui parlent de la demande, pose
-           * un encadré violet par fiche (trois au plus), et RETIENT la réponse
-           * de la recherche jusqu'à ce que tous soient tranchés — même attente
-           * que `ask_user`. Rien à proposer, personne devant l'écran, recherche
-           * trop lente : l'appel répond tout de suite, comme avant.
+           * mémoire qu'un cadrage fait à chaque tour est le point d'entrée : le
+           * démon y cherche les compétences qui parlent de la demande, les
+           * RETIENT d'office sur la carte (trois au plus), pose une ligne
+           * violette par fiche, et rend la recherche AUSSITÔT avec la liste —
+           * plus aucune attente : une croix les écarte avant le lancement.
            */
-          if (
-            body.name === 'memoire' &&
-            body.args?.geste === 'chercher' &&
-            result.ok &&
-            agent.role === 'cadrage' &&
-            // Une question de l'agent attend déjà (appels lancés ensemble) : on n'empile pas une seconde attente.
-            !agentEnAttente(agentId)
-          ) {
-            const serie = await proposerAuCadrage({
+          if (body.name === 'memoire' && body.args?.geste === 'chercher' && result.ok && agent.role === 'cadrage') {
+            const retenues = await proposerAuCadrage({
               agent: { id: agentId, role: agent.role, cardId: agent.cardId, projectId: agent.projectId },
               tour: liveRun(agentId),
               mots: [body.args?.demande, body.args?.contexte].filter((v) => typeof v === 'string').join('\n'),
@@ -945,16 +937,9 @@ export function createHttpServer(): http.Server {
               log.warn('compétences à proposer : abandon', err);
               return null;
             });
-            if (serie) {
-              // L'attente AVANT les encadrés, comme pour une question : les écrans
-              // qui reçoivent le message doivent déjà voir l'agent arrêté.
-              poserLAttente(serie.serieId, agentId);
-              for (const question of serie.questions) attachToCurrentMessage(agentId, { question });
-              return json(res, 200, {
-                ok: true,
-                text: result.text,
-                attente: { questionId: serie.serieId, trancheMs: TRANCHE_ATTENTE_MS },
-              });
+            if (retenues) {
+              for (const question of retenues.questions) attachToCurrentMessage(agentId, { question });
+              return json(res, 200, { ok: true, text: retenues.texte });
             }
           }
           if (result.question) {
@@ -1311,6 +1296,30 @@ export function createHttpServer(): http.Server {
         if (!r.ok) return json(res, 503, { error: r.raison });
         res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'private, max-age=86400' });
         return fs.createReadStream(r.fichier).pipe(res);
+      }
+
+      /*
+       * « TOUT TÉLÉCHARGER » : les fichiers PRÊTS de plusieurs exports d'une même création, en UNE archive.
+       * Écrite en flux et SANS compression (une vidéo ne se compresse pas, et le serveur est petit) : rien
+       * ne tient en mémoire. Un export pas prêt, ou d'une autre création, refuse toute l'archive.
+       */
+      if (route === '/api/studio/exports-groupes') {
+        const { archiveDesExports } = await import('./studio-archive.js');
+        const r = archiveDesExports((url.searchParams.get('ids') ?? '').split(',').filter(Boolean));
+        if (!r.ok) return json(res, r.statut, { error: r.raison });
+        const entetes: http.OutgoingHttpHeaders = {
+          'content-type': 'application/zip',
+          'cache-control': 'private, no-store',
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
+        };
+        // Sans compression, le poids final est connu d'avance : le navigateur montre un vrai pourcentage.
+        const poids = await r.poids;
+        res.writeHead(200, poids > 0 ? { ...entetes, 'content-length': poids } : entetes);
+        if (req.method === 'HEAD') {
+          r.flux.destroy();
+          return res.end();
+        }
+        return pipeline(r.flux, res).catch(() => {});
       }
 
       /* LA VIGNETTE D'UN STYLE DU STUDIO (galerie « Styles ») : téléchargée une fois, gardée, servie d'ici. */

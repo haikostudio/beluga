@@ -62,10 +62,8 @@ import {
   projetsADecharger,
   repartirLaFamille,
   curseurApres,
-  curseurApresDeployee,
   CARTES_EN_ROUTE_PAR_PAQUET,
   type CurseurEnRoute,
-  type CurseurDeployees,
   type OngletEnRoute,
   DELAI_CONVERSATION_MS,
   suiteDuChargementRate,
@@ -76,6 +74,7 @@ import {
   type FicheMoteur,
   separerLesSuivis,
   reglagesSansRecul,
+  numerosApresReprise,
 } from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
@@ -135,6 +134,13 @@ export interface EtatEnRoute {
   erreur?: string;
 }
 
+/** La réserve de chaque colonne de la page « En route » dans l'état de l'application. */
+export const CLE_ETAT_EN_ROUTE = {
+  actif: 'enRoute',
+  terminer: 'enRouteTerminer',
+  archive: 'enRouteArchive',
+} as const satisfies Record<OngletEnRoute, string>;
+
 export interface AppState {
   connected: boolean;
   connecting: boolean;
@@ -180,12 +186,13 @@ export interface AppState {
    */
   enRoute: EtatEnRoute | null;
   /**
-   * L'ONGLET « TERMINÉ » DE LA MÊME PAGE (`estDeployee`) : ce qui est déjà en
-   * ligne, tenu à jour par les mêmes événements. Sa propre réserve, parce que
-   * ses paquets suivent une autre clé (la date de mise en ligne). `null` tant
-   * que l'onglet n'a jamais été ouvert.
+   * LES DEUX AUTRES COLONNES DE LA MÊME PAGE, chacune sa réserve, ses paquets
+   * et son curseur, tenues à jour par les mêmes événements : « Terminer » (À
+   * déployer, `estATerminer`) et « Archiver » (tout Archivé, `estArchivee`).
+   * `null` tant que la page n'a jamais été ouverte. `enRoute` est « Actifs ».
    */
-  enRouteTermine: EtatEnRoute | null;
+  enRouteTerminer: EtatEnRoute | null;
+  enRouteArchive: EtatEnRoute | null;
   version: string;
   settings: Settings | null;
   prefs: Record<string, unknown>;
@@ -400,7 +407,8 @@ const initialState: AppState = {
   cartesChargees: {},
   cartesTotaux: {},
   enRoute: null,
-  enRouteTermine: null,
+  enRouteTerminer: null,
+  enRouteArchive: null,
   version: '',
   settings: null,
   prefs: {},
@@ -507,6 +515,8 @@ class Client {
    */
   private dernierEvenementA: number | null = null;
   private resynchronise = false;
+  /** Un premier état complet est déjà arrivé : le prochain `ready` est une RECONNEXION. */
+  private dejaSynchronise = false;
   /** Le minuteur qui relit l'état du canal : « muet » dépend du temps qui passe. */
   private veilleDuCanal: number | null = null;
   /**
@@ -1262,7 +1272,16 @@ class Client {
           agents: Object.fromEntries(event.agents.map((agent) => [agent.id, agent])),
           productions: Object.fromEntries((event.productions ?? []).map((run) => [run.projectId, run])),
           activeProjectId: choix.id,
+          /*
+           * LE STUDIO ET LE MARKETING SE RELISENT APRÈS UNE COUPURE. Leurs écrans ne se rechargent que sur un
+           * signal « ça a changé » (`studio`, `marketing`), et un signal émis pendant la coupure est perdu : un
+           * agent qui finissait une vidéo laissait l'écran sur l'ancienne version (création cre3de7e25f64,
+           * 08/10/2026). Chaque numéro avance donc d'un cran ; la création ouverte lit en plus `reprise`, car
+           * elle n'a pas de numéro tant qu'aucun signal ne l'a nommée. Jamais à la toute première connexion.
+           */
+          ...(this.dejaSynchronise ? numerosApresReprise(this.state.studioVersions, this.state.marketingVersions, event.projects.map((p) => p.id)) : {}),
         });
+        this.dejaSynchronise = true;
         // Le projet retenu à l'ouverture doit CHARGER ses cartes tout de suite :
         // sans cette demande, le tableau reste vide tant qu'on n'a pas cliqué
         // dans la colonne de gauche — invisible sur téléphone, où elle est repliée.
@@ -1461,7 +1480,8 @@ class Client {
               ? state.cartesTotaux
               : this.totauxApresCarte(state, event.projectId, disparue?.column, undefined),
             enRoute: this.enRouteSansCarte(state.enRoute, event.id),
-            enRouteTermine: this.enRouteSansCarte(state.enRouteTermine, event.id),
+            enRouteTerminer: this.enRouteSansCarte(state.enRouteTerminer, event.id),
+            enRouteArchive: this.enRouteSansCarte(state.enRouteArchive, event.id),
           };
         });
         break;
@@ -2201,33 +2221,31 @@ class Client {
 
   /* ---------------- La page « En route » ---------------- */
 
-  /** La clé de la dernière carte reçue du démon, par onglet : la suite se demande sous elle. */
-  private curseurEnRoute: CurseurEnRoute | undefined;
-  private curseurDeployees: CurseurDeployees | undefined;
-  private enRouteEnVol: Record<OngletEnRoute, boolean> = { actif: false, termine: false };
+  /** La clé de la dernière famille reçue du démon, par colonne : la suite se demande sous elle. */
+  private curseursEnRoute: Partial<Record<OngletEnRoute, CurseurEnRoute>> = {};
+  private enRouteEnVol: Record<OngletEnRoute, boolean> = { actif: false, terminer: false, archive: false };
 
   /**
-   * LE PREMIER PAQUET D'UN ONGLET DE LA PAGE, redemandé à chaque ouverture :
+   * LE PREMIER PAQUET D'UNE COLONNE DE LA PAGE, redemandé à chaque ouverture :
    * ce qu'on avait gardé reste affiché pendant ce temps, sans silhouette ni saut.
    */
   async chargerEnRoute(onglet: OngletEnRoute = 'actif'): Promise<void> {
-    if (onglet === 'termine') this.curseurDeployees = undefined;
-    else this.curseurEnRoute = undefined;
+    delete this.curseursEnRoute[onglet];
     await this.demanderEnRoute(onglet, true);
   }
 
-  /** Le paquet suivant de l'onglet, sous la dernière carte reçue. Rien quand tout est là. */
+  /** Le paquet suivant de la colonne, sous la dernière famille reçue. Rien quand tout est là. */
   async chargerLaSuiteEnRoute(onglet: OngletEnRoute = 'actif'): Promise<void> {
-    const etat = onglet === 'termine' ? this.state.enRouteTermine : this.state.enRoute;
-    if (!etat?.restant) return;
+    if (!this.state[CLE_ETAT_EN_ROUTE[onglet]]?.restant) return;
     await this.demanderEnRoute(onglet, false);
   }
 
   private async demanderEnRoute(onglet: OngletEnRoute, depuisLeDebut: boolean): Promise<void> {
     if (this.enRouteEnVol[onglet]) return;
     this.enRouteEnVol[onglet] = true;
-    const cle = onglet === 'termine' ? 'enRouteTermine' : 'enRoute';
+    const cle = CLE_ETAT_EN_ROUTE[onglet];
     try {
+      const curseur = this.curseursEnRoute[onglet];
       const reponse = await this.call<{
         cards: Card[];
         agents: Agent[];
@@ -2235,26 +2253,18 @@ class Client {
         demandes?: Record<string, string>;
         /** La clé de la dernière FAMILLE envoyée (un démon d'avant les piles n'en rend pas). */
         curseur?: CurseurEnRoute;
-      }>(
-        onglet === 'termine'
-          ? {
-              type: 'cards.deployees',
-              ...(this.curseurDeployees ? { apres: this.curseurDeployees } : {}),
-              limit: CARTES_EN_ROUTE_PAR_PAQUET,
-            }
-          : {
-              type: 'cards.enRoute',
-              ...(this.curseurEnRoute ? { apres: this.curseurEnRoute } : {}),
-              limit: CARTES_EN_ROUTE_PAR_PAQUET,
-            },
-      );
+      }>({
+        type: 'cards.enRoute',
+        onglet,
+        ...(curseur ? { apres: curseur } : {}),
+        limit: CARTES_EN_ROUTE_PAR_PAQUET,
+      });
       const derniere = reponse.cards[reponse.cards.length - 1];
-      if (derniere && onglet === 'termine') this.curseurDeployees = reponse.curseur ?? curseurApresDeployee(derniere);
-      else if (derniere) this.curseurEnRoute = reponse.curseur ?? curseurApres(derniere);
+      if (derniere) this.curseursEnRoute[onglet] = reponse.curseur ?? curseurApres(derniere);
       this.set((state) => ({
         [cle]: {
           cartes: {
-            // Au premier paquet, ce qui n'est plus dans l'onglet part : la page
+            // Au premier paquet, ce qui n'est plus dans la colonne part : la page
             // repart de ce que le démon compte vraiment.
             ...(depuisLeDebut ? {} : (state[cle]?.cartes ?? {})),
             ...Object.fromEntries(reponse.cards.map((card) => [card.id, card])),
@@ -2281,25 +2291,31 @@ class Client {
   }
 
   /**
-   * UNE CARTE A BOUGÉ : la page la prend si elle est en route (une demande
-   * neuve, une carte revenue d'« Archivé »), la passe dans « Terminé » une fois
-   * en ligne, la lâche sinon. Une carte d'une demande commune emporte TOUTE sa
-   * famille connue (`repartirLaFamille`) : une fille publiée ne quitte
-   * « Actif » qu'avec ses sœurs, jamais seule. Le tri se refait à l'affichage
+   * UNE CARTE A BOUGÉ : la page la range dans sa colonne — « Actifs » en
+   * Demande ou Travail, « Terminer » une fois rendue (À déployer), « Archiver »
+   * une fois rangée. Une carte d'une demande commune emporte TOUTE sa famille
+   * connue (`repartirLaFamille`) : une fille publiée ne quitte « Actifs »
+   * qu'avec ses sœurs, jamais seule. Le tri se refait à l'affichage
    * (`pilesEnRoute`) : une carte qui bouge (dernière action) remonte seule.
    */
   private pageApresCarte(
     state: AppState,
     card: Card,
-  ): Pick<AppState, 'enRoute' | 'enRouteTermine'> {
-    const { actif, termine } = repartirLaFamille(
-      state.enRoute?.cartes ?? null,
-      state.enRouteTermine?.cartes ?? null,
+  ): Pick<AppState, 'enRoute' | 'enRouteTerminer' | 'enRouteArchive'> {
+    const reserves = repartirLaFamille(
+      {
+        actif: state.enRoute?.cartes ?? null,
+        terminer: state.enRouteTerminer?.cartes ?? null,
+        archive: state.enRouteArchive?.cartes ?? null,
+      },
       card,
     );
+    const suite = (etat: EtatEnRoute | null, cartes: Record<string, Card> | null) =>
+      etat && cartes ? { ...etat, cartes } : etat;
     return {
-      enRoute: state.enRoute && actif ? { ...state.enRoute, cartes: actif } : state.enRoute,
-      enRouteTermine: state.enRouteTermine && termine ? { ...state.enRouteTermine, cartes: termine } : state.enRouteTermine,
+      enRoute: suite(state.enRoute, reserves.actif),
+      enRouteTerminer: suite(state.enRouteTerminer, reserves.terminer),
+      enRouteArchive: suite(state.enRouteArchive, reserves.archive),
     };
   }
 

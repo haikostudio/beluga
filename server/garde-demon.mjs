@@ -4,8 +4,9 @@
  *
  * Le moteur lui passe la commande sur l'entrée standard avant de la lancer. Si
  * elle peut couper le démon Beluga Build — un `pkill` au motif trop large, un
- * `kill -9` sur son numéro, un `systemctl restart beluga` —, le garde la
- * REFUSE et dit quoi viser à la place. Tout le reste passe sans un mot.
+ * `kill -9` sur son numéro, un `systemctl restart beluga` —, ou si elle ÉCRIT
+ * sur un vrai site hors mise en production, le garde la REFUSE et dit quoi
+ * faire à la place. Tout le reste passe sans un mot.
  *
  * Règle de prudence : au moindre doute (règle illisible, entrée inattendue), on
  * LAISSE PASSER. Un garde qui se trompe en bloquant arrêterait tout le travail
@@ -50,10 +51,23 @@ async function main() {
     pidDuDemon: Number.isInteger(pid) && pid > 0 ? pid : undefined,
     racineDuDemon: process.env.BELUGA_DEMON_RACINE || undefined,
   });
-  if (!verdict?.refusee) return;
+  if (verdict?.refusee) {
+    // Code 2 : le moteur n'exécute pas la commande et rend ce texte à l'agent.
+    process.stderr.write(regle.refusDuGarde(verdict) + '\n');
+    process.exit(2);
+  }
 
-  // Code 2 : le moteur n'exécute pas la commande et rend ce texte à l'agent.
-  process.stderr.write(regle.refusDuGarde(verdict) + '\n');
+  /*
+   * LES VRAIS SITES SONT EN LECTURE SEULE (`shared/src/garde-production.ts`) :
+   * la liste voyage dans l'environnement de l'agent, posée par le démon pour
+   * tout rôle sauf celui de la mise en production.
+   */
+  if (typeof regle.commandeEcritEnProduction !== 'function') return;
+  const productions = regle.productionsDepuisLEnvironnement(process.env[regle.VARIABLE_DES_PRODUCTIONS]);
+  if (!productions.length) return;
+  const enProduction = regle.commandeEcritEnProduction(commande, productions);
+  if (!enProduction?.refusee) return;
+  process.stderr.write(regle.refusDuGardeDeProduction(enProduction) + '\n');
   process.exit(2);
 }
 

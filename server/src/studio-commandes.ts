@@ -28,10 +28,12 @@ import {
   lireCreation,
   lireMedia,
   listerCreations,
+  viderLesExports,
   listerDepenses,
   listerExports,
   listerMedias,
   modifierCreation,
+  reglerAgentDeLaCreation,
   modifierMedia,
   restaurer,
   retablir,
@@ -156,6 +158,10 @@ export async function traiterCommandeStudio(cmd: any): Promise<unknown> {
 
     case 'studio.creation.modifier':
       return { creation: ou(modifierCreation(String(cmd.id ?? ''), cmd)).creation };
+
+    /* Le moteur de l'agent choisi AVANT sa première demande (`null` l'efface). */
+    case 'studio.creation.agent':
+      return { creation: ou(reglerAgentDeLaCreation(String(cmd.id ?? ''), cmd.run ?? null)).creation };
 
     case 'studio.creation.supprimer':
       ou(supprimerCreation(String(cmd.id ?? '')));
@@ -299,6 +305,7 @@ export async function traiterCommandeStudio(cmd: any): Promise<unknown> {
             cmd.genre === 'image' ? 'image' : 'video',
             typeof cmd.instant === 'number' && Number.isFinite(cmd.instant) ? cmd.instant : undefined,
             cmd.reglages,
+            typeof cmd.lot === 'string' && cmd.lot ? cmd.lot : undefined,
           ),
         ).export,
       };
@@ -307,6 +314,9 @@ export async function traiterCommandeStudio(cmd: any): Promise<unknown> {
     case 'studio.export.annuler':
       ou(annulerExport(String(cmd.id ?? '')));
       return { ok: true };
+
+    case 'studio.exports.vider':
+      return { retires: ou(viderLesExports(String(cmd.creationId ?? ''), Array.isArray(cmd.garder) ? cmd.garder.map(String) : [])).retires };
 
     case 'studio.depense.valider': {
       const r = ou(deciderDepense(String(cmd.id ?? ''), 'validee'));

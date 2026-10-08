@@ -400,7 +400,11 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
     const depart = enService.findIndex((q) => q.engine === activeEngine && q.active);
     return depart >= 0 ? depart : Math.max(0, enService.findIndex((q) => q.engine === activeEngine));
   });
-  const defile = enService.length > 1;
+  /* Le défilement se tient tant que la souris est sur le bouton : l'infobulle
+     nomme le compte affiché, elle ne doit pas parler d'un autre dix secondes
+     plus tard. */
+  const [survole, setSurvole] = React.useState(false);
+  const defile = enService.length > 1 && !survole;
   React.useEffect(() => {
     if (!defile) return;
     return lancerIntervalleVisible(() => setRang((valeur) => valeur + 1), DUREE_PAR_COMPTE_MS);
@@ -421,22 +425,32 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
+        {/* LE LOGO DU MOTEUR REMPLACE LE NOM DU COMPTE : le bouton tient en une
+            icône et deux ronds. Le NOM se lit au survol, dans la bulle maison
+            que la couche des infobulles tire de `title` — deux comptes Claude
+            ont le même logo, et seul le nom les distingue. Pas de `Tooltip`
+            Radix ici : imbriqué dans le déclencheur du menu, il se disputait
+            le même bouton. */}
         <button
           className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
-          title={t('Quotas des moteurs')}
+          title={current?.label ?? t('Quotas des moteurs')}
+          aria-label={current?.label ? `${t('Quotas des moteurs')} · ${current.label}` : t('Quotas des moteurs')}
+          onMouseEnter={() => setSurvole(true)}
+          onMouseLeave={() => setSurvole(false)}
           data-essai="badge-quota"
           data-compte={current?.id}
           data-session={Math.round(session)}
           data-semaine={Math.round(semaine)}
         >
+          {current ? (
+            <span key={current.id} data-logo-badge={current.engine} className="flex shrink-0 animate-fade-in [animation-duration:500ms]">
+              <IconeMoteur engine={current.engine} className="h-3.5 w-3.5 shrink-0" />
+            </span>
+          ) : null}
           {/* Une part Cursor illisible laisse sa piste vide : jamais un 0 % inventé. */}
           <span className="flex shrink-0 items-center gap-1">
             <RondQuota pct={session} vide={videGauche} chiffre={chiffreGauche} />
             <RondQuota pct={semaine} vide={videDroite} chiffre={chiffreDroite} />
-          </span>
-          {/* Largeur FIXE : les noms défilent sans faire bouger la barre du haut. */}
-          <span key={current?.id} className="hidden w-[86px] animate-fade-in truncate [animation-duration:500ms] sm:inline">
-            {current?.label ?? 'quotas'}
           </span>
           <ChevronDown className="h-2.5 w-2.5 shrink-0" />
         </button>

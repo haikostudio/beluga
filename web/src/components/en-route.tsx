@@ -9,13 +9,15 @@
  * travail), ce qui travaille sans carte — mise en ligne, analyse, chef — dans
  * la bande en tête, avec son bouton d'arrêt.
  *
- * DEUX COLONNES CÔTE À CÔTE, comme au tableau (demande du 25.09.2026, qui
- * remplace les deux onglets) : « Actifs » (Demande, Travail, À déployer) et
- * « Terminés » (ce qui est déjà en ligne, avec son badge) — c'est là qu'on voit
- * ce que le déploiement automatique a publié. Chaque colonne (`OngletEnRoute`
- * reste la clé de sa liste) a sa réserve, ses paquets de vingt, son titre et
- * son nombre, et défile seule. Sur téléphone, chacune tient l'écran et l'on
- * passe de l'une à l'autre en faisant glisser la page de côté.
+ * TROIS COLONNES CÔTE À CÔTE, comme au tableau (demande du 08/10/2026, qui
+ * remplace « Actifs » / « Archiver ») : « Actifs » (Demande, Travail),
+ * « Terminer » (À déployer : le travail rendu qui attend sa publication) et
+ * « Archiver » (tout Archivé : le badge « en ligne » pour ce qui est publié —
+ * c'est là qu'on voit ce que le déploiement automatique a publié —, le badge
+ * « archivée » pour ce qui a été rangé à la main). Chaque colonne
+ * (`OngletEnRoute` est la clé de sa liste) a sa réserve, ses paquets de vingt,
+ * son titre et son nombre, et défile seule. Sur téléphone, chacune tient
+ * l'écran et l'on passe de l'une à l'autre en faisant glisser la page de côté.
  *
  * Un morceau à part, chargé au premier affichage (DEC-050) : un écran qu'on
  * n'a pas ouvert ne se télécharge pas.
@@ -28,7 +30,7 @@
  * silhouette (`lib/gabarit-tableau.ts`).
  */
 import * as React from 'react';
-import { Bot, CheckCircle2, Layers, Microscope, Rocket, Square, UploadCloud, Waypoints, Wrench } from 'lucide-react';
+import { Archive, Bot, CheckCircle2, Layers, Microscope, Rocket, Square, UploadCloud, Waypoints, Wrench } from 'lucide-react';
 import {
   agentCompteCommeTravail,
   agentTientSonTour,
@@ -48,7 +50,7 @@ import {
   activiteDeLaMere,
   etapeCouranteDeSuivi,
   LIBELLE_ETAPE_DE_SUIVI,
-  estDeployee,
+  estRangee,
   estEnRoute,
   nombreEnCoursEnRoute,
   pilesEnRoute,
@@ -63,7 +65,7 @@ import {
   estUnRegroupement,
   membresActifsDuRegroupement,
 } from '@beluga/shared';
-import { client } from '@/lib/client';
+import { CLE_ETAT_EN_ROUTE, client } from '@/lib/client';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { useApp } from '@/lib/use-app';
 import { useMinute } from '@/lib/horloge';
@@ -87,7 +89,7 @@ import {
   classesRailEnRoute,
 } from '@/lib/gabarit-tableau';
 
-/** Une carte Système de « Terminés » : une mise en production, un dépannage ou un agent sans carte. */
+/** Une carte Système d'« Archiver » : une mise en production, un dépannage ou un agent sans carte. */
 type ElementSysteme =
   | { genre: 'production'; run: DeployRun }
   | { genre: 'depannage'; agent: Agent }
@@ -117,7 +119,7 @@ export function EnRoute({
 }) {
   const state = useApp();
   // L'heure « rendue il y a… » se refait à chaque minute, pour toute la page —
-  // et une carte Système finie depuis 24 heures quitte « Terminés » sans
+  // et une carte Système finie depuis 24 heures quitte « Archiver » sans
   // rechargement (`DUREE_SYSTEME_TERMINE_MS`).
   const maintenant = useMinute();
   const telephone = useTelephone();
@@ -146,7 +148,7 @@ export function EnRoute({
       if (event.pointerType !== 'mouse') appuyer(event, { id: card.id, kind: 'card', label: card.title });
     },
   });
-  // Les deux listes se demandent à l'ouverture de la page : ce qu'on avait
+  // Les trois listes se demandent à l'ouverture de la page : ce qu'on avait
   // gardé reste affiché pendant ce temps. Chaque colonne a son curseur.
   React.useEffect(() => {
     for (const onglet of ONGLETS_EN_ROUTE) void client.chargerEnRoute(onglet);
@@ -169,13 +171,21 @@ export function EnRoute({
       ),
     [state.enRoute?.cartes, enService],
   );
-  const cartesTerminees = React.useMemo(
+  const cartesATerminer = React.useMemo(
     () =>
       pilesEnRoute(
-        Object.values(state.enRouteTermine?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
-        'termine',
+        Object.values(state.enRouteTerminer?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
+        'terminer',
       ),
-    [state.enRouteTermine?.cartes, enService],
+    [state.enRouteTerminer?.cartes, enService],
+  );
+  const cartesArchivees = React.useMemo(
+    () =>
+      pilesEnRoute(
+        Object.values(state.enRouteArchive?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
+        'archive',
+      ),
+    [state.enRouteArchive?.cartes, enService],
   );
 
   /* Les agents qui tiennent leur tour, rangés par carte — une seule fois par
@@ -190,7 +200,7 @@ export function EnRoute({
 
   /* LES CARTES SYSTÈME (cadre violet) : au travail ou en attente d'une
      réponse, en tête d'« Actifs » ; finies depuis moins de 24 heures, dans
-     « Terminés », rangées par date de fin parmi les cartes (06/10/2026). */
+     « Archiver », rangées par date de fin parmi les cartes (06/10/2026). */
   const agents = Object.values(state.agents);
   const bande = agentsDeLaBande(agents);
   /* LES DÉPANNAGES DE PUBLICATION (« Résoudre le problème ») : leur carte
@@ -255,44 +265,52 @@ export function EnRoute({
       vignetteAgent(element.agent)
     );
 
-  /* « TERMINÉS » : les piles et les cartes Système finies, par date de fin.
-     Une carte Système plus ancienne que la dernière pile chargée (les paquets
-     de vingt) se pose à la fin : elle reste visible sans attendre la suite. */
-  const terminesEntrelaces = entrelacerParDate(
-    cartesTerminees,
-    (pile) => Math.max(0, ...pile.cartes.map((c) => c.deployedAt ?? 0)),
+  /* « ARCHIVER » : les piles et les cartes Système finies, par date de fin
+     (la mise en ligne, ou à défaut la dernière action d'une carte rangée à la
+     main). Une carte Système plus ancienne que la dernière pile chargée (les
+     paquets de vingt) se pose à la fin : elle reste visible sans attendre la
+     suite. */
+  const archivesEntrelacees = entrelacerParDate(
+    cartesArchivees,
+    (pile) => Math.max(0, ...pile.cartes.map((c) => c.deployedAt ?? 0)) || pile.updatedAt,
     systemeTermine,
   );
 
   /* LE NOMBRE D'ENTRÉES DE CHAQUE COLONNE, en tête de la colonne : ce qui est
      reçu, plus ce qui reste à demander (les paquets de vingt) — une pile compte
      pour une. Rien tant que la liste n'est pas chargée : pas de « 0 » trompeur.
-     Les cartes Système n'y comptent pas, dans aucune des deux colonnes : ce ne
+     Les cartes Système n'y comptent pas, dans aucune des colonnes : ce ne
      sont pas des cartes, et elles s'en vont seules au bout de 24 heures. */
   const nombreActif = state.enRoute?.charge ? cartesActives.length + state.enRoute.restant : undefined;
-  const nombreTermine = state.enRouteTermine?.charge
-    ? cartesTerminees.length + state.enRouteTermine.restant
+  const nombreATerminer = state.enRouteTerminer?.charge
+    ? cartesATerminer.length + state.enRouteTerminer.restant
+    : undefined;
+  const nombreArchive = state.enRouteArchive?.charge
+    ? cartesArchivees.length + state.enRouteArchive.restant
     : undefined;
 
   /* LES CARTES AU TRAVAIL parmi les actives — le « 3 » de « 3/19 ». Même
      prédicat que le témoin orange des cartes, compté sur les agents : une carte
      au travail pas encore chargée compte aussi. Une carte qu'on sait hors de la
-     colonne (déjà en ligne, rangée) est écartée ; le total borne le reste. */
+     colonne (rendue, rangée) est écartée ; le total borne le reste. */
   const nombreEnCours = React.useMemo(() => {
     if (nombreActif === undefined) return undefined;
     const horsDeLaListe = (cardId: string) => {
       if (state.enRoute?.cartes[cardId]) return false;
-      if (state.enRouteTermine?.cartes[cardId]) return true;
+      if (state.enRouteTerminer?.cartes[cardId] || state.enRouteArchive?.cartes[cardId]) return true;
       const connue = state.cards[cardId];
       // Une carte de l'agent marketing ne se montre que dans l'outil Marketing.
       return !!connue && (!estEnRoute(connue) || estCarteMarketing(connue));
     };
     return Math.min(nombreActif, nombreEnCoursEnRoute(Object.values(state.agents), enService, horsDeLaListe));
-  }, [nombreActif, state.agents, enService, state.enRoute, state.enRouteTermine, state.cards]);
+  }, [nombreActif, state.agents, enService, state.enRoute, state.enRouteTerminer, state.enRouteArchive, state.cards]);
 
   const ouvrirAgent = (agent: Agent) => {
     const carte = agent.cardId
-      ? (state.enRoute?.cartes[agent.cardId] ?? state.enRouteTermine?.cartes[agent.cardId] ?? state.cards[agent.cardId])
+      ? (state.enRoute?.cartes[agent.cardId] ??
+        state.enRouteTerminer?.cartes[agent.cardId] ??
+        state.enRouteArchive?.cartes[agent.cardId] ??
+        state.cards[agent.cardId])
       : undefined;
     if (carte) onOpenCard(carte);
     else onOpenAgent(agent.id);
@@ -300,7 +318,7 @@ export function EnRoute({
 
   /* Ce qui suit les cartes d'une colonne : le paquet suivant, sur demande. */
   const suite = (onglet: OngletEnRoute) => {
-    const etat = onglet === 'termine' ? state.enRouteTermine : state.enRoute;
+    const etat = state[CLE_ETAT_EN_ROUTE[onglet]];
     return etat?.charge && etat.restant > 0 ? (
       <div className="mt-4 flex justify-center">
         <Button
@@ -316,10 +334,34 @@ export function EnRoute({
   };
 
   const actifs = state.enRoute;
-  const termines = state.enRouteTermine;
+  const aTerminer = state.enRouteTerminer;
+  const archives = state.enRouteArchive;
 
-  /* LE RAIL DES DEUX COLONNES. Sur téléphone il défile de côté (aimanté,
-     colonne par colonne) ; sur ordinateur les deux colonnes se partagent la
+  /* Une carte d'une pile encore en cours : une fille déjà rangée garde son
+     badge (« en ligne » ou « archivée ») ; la mère, rangée sans date (DEC-258),
+     montre l'avancement de sa demande comme les autres. */
+  const carteDePile = (card: Card, demandes: Record<string, string>) =>
+    estRangee(card) && !card.cartesFilles?.length ? (
+      <CarteArchivee
+        key={card.id}
+        card={card}
+        demande={demandes[card.id]}
+        onOpen={() => onOpenCard(card)}
+        menu={gesteDuMenu(card)}
+      />
+    ) : (
+      <CarteEnRoute
+        key={card.id}
+        card={card}
+        agent={travailParCarte.get(card.id)}
+        demande={demandes[card.id]}
+        onOpen={() => onOpenCard(card)}
+        menu={gesteDuMenu(card)}
+      />
+    );
+
+  /* LE RAIL DES TROIS COLONNES. Sur téléphone il défile de côté (aimanté,
+     colonne par colonne) ; sur ordinateur les trois colonnes se partagent la
      largeur et le rail ne bouge pas. */
   const colonnes = (
     <>
@@ -396,27 +438,7 @@ export function EnRoute({
                 key={pile.cle}
                 pile={pile}
                 menu={gesteDuMenu}
-                rendre={(card) =>
-                  // Dans une pile encore active, une fille déjà en ligne garde son badge.
-                  estDeployee(card) ? (
-                    <CarteTerminee
-                      key={card.id}
-                      card={card}
-                      demande={actifs.demandes[card.id]}
-                      onOpen={() => onOpenCard(card)}
-                      menu={gesteDuMenu(card)}
-                    />
-                  ) : (
-                    <CarteEnRoute
-                      key={card.id}
-                      card={card}
-                      agent={travailParCarte.get(card.id)}
-                      demande={actifs.demandes[card.id]}
-                      onOpen={() => onOpenCard(card)}
-                      menu={gesteDuMenu(card)}
-                    />
-                  )
-                }
+                rendre={(card) => carteDePile(card, actifs.demandes)}
               />
             ))}
           </div>
@@ -424,24 +446,55 @@ export function EnRoute({
         {suite('actif')}
       </ColonneEnRoute>
 
-      <ColonneEnRoute onglet="termine" titre={t('Terminés')} telephone={telephone} compte={nombreTermine}>
-        {!termines?.charge ? (
+      <ColonneEnRoute onglet="terminer" titre={t('Terminer')} telephone={telephone} compte={nombreATerminer}>
+        {!aTerminer?.charge ? (
           <SilhouetteListeEnRoute nombre={4} />
-        ) : termines.erreur && !cartesTerminees.length ? (
+        ) : aTerminer.erreur && !cartesATerminer.length ? (
           <EmptyState
             icon={<Waypoints className="h-5 w-5" />}
             title={t('La liste n’a pas pu être chargée')}
-            hint={termines.erreur}
+            hint={aTerminer.erreur}
           />
-        ) : !terminesEntrelaces.length ? (
+        ) : !cartesATerminer.length ? (
           <EmptyState
-            icon={<CheckCircle2 className="h-5 w-5" />}
-            title={t('Rien en ligne pour l’instant')}
-            hint={t('Les cartes mises en ligne s’afficheront ici, la dernière en haut.')}
+            icon={<UploadCloud className="h-5 w-5" />}
+            title={t('Rien à publier')}
+            hint={t('Le travail rendu, en attente de publication, s’affichera ici.')}
           />
         ) : (
+          <div className={GRILLE} data-liste-a-terminer>
+            {cartesATerminer.map((pile) => (
+              <PileDeCartes
+                key={pile.cle}
+                pile={pile}
+                menu={gesteDuMenu}
+                rendre={(card) => carteDePile(card, aTerminer.demandes)}
+              />
+            ))}
+          </div>
+        )}
+        {suite('terminer')}
+      </ColonneEnRoute>
+
+      <ColonneEnRoute onglet="archive" titre={t('Archiver')} telephone={telephone} compte={nombreArchive}>
+        {!archives?.charge ? (
+          <SilhouetteListeEnRoute nombre={4} />
+        ) : archives.erreur && !cartesArchivees.length ? (
+          <EmptyState
+            icon={<Waypoints className="h-5 w-5" />}
+            title={t('La liste n’a pas pu être chargée')}
+            hint={archives.erreur}
+          />
+        ) : !archivesEntrelacees.length ? (
+          <EmptyState
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            title={t('Rien d’archivé pour l’instant')}
+            hint={t('Les cartes archivées, mises en ligne ou non, s’afficheront ici, la dernière en haut.')}
+          />
+        ) : (
+          // `data-liste-terminee` : le nom que les contrôles lisent depuis « Archiver ».
           <div className={GRILLE} data-liste-terminee>
-            {terminesEntrelaces.map((entree) =>
+            {archivesEntrelacees.map((entree) =>
               entree.genre === 'systeme' ? (
                 vignetteSysteme(entree.element)
               ) : (
@@ -450,13 +503,13 @@ export function EnRoute({
                   pile={entree.entree}
                   menu={gesteDuMenu}
                   rendre={(card) => (
-                    <CarteTerminee
+                    <CarteArchivee
                       key={card.id}
                       card={card}
                       // La mère n'a pas de date de mise en ligne (DEC-258) : la
                       // sienne est celle de sa dernière fille publiée.
                       enLigneDepuis={card.deployedAt ?? Math.max(0, ...entree.entree.cartes.map((c) => c.deployedAt ?? 0))}
-                      demande={termines.demandes[card.id]}
+                      demande={archives.demandes[card.id]}
                       onOpen={() => onOpenCard(card)}
                       menu={gesteDuMenu(card)}
                     />
@@ -466,7 +519,7 @@ export function EnRoute({
             )}
           </div>
         )}
-        {suite('termine')}
+        {suite('archive')}
       </ColonneEnRoute>
     </>
   );
@@ -522,7 +575,7 @@ function ColonneEnRoute({
       <ZoneDefilement
         classeEnveloppe="min-h-0 flex-1"
         className={CLASSES_LISTE_COLONNE_EN_ROUTE}
-        data-fil={onglet === 'termine' ? 'en-route-termine' : 'en-route'}
+        data-fil={onglet === 'actif' ? 'en-route' : `en-route-${onglet}`}
       >
         {children}
       </ZoneDefilement>
@@ -531,11 +584,13 @@ function ColonneEnRoute({
 }
 
 /**
- * UNE CARTE DE LA COLONNE « TERMINÉS » : la carte du tableau, à sa hauteur fixe,
- * son PROJET en haut à gauche et le badge « en ligne » dans le coin haut droit
- * — la date et l'heure exactes de la mise en ligne s'y lisent au survol.
+ * UNE CARTE RANGÉE (« Archiver », ou une fille rangée dans une pile encore en
+ * cours) : la carte du tableau, à sa hauteur fixe, son PROJET en haut à gauche
+ * et, dans le coin haut droit, le badge « en ligne » — la date et l'heure
+ * exactes de la mise en ligne s'y lisent au survol — ou, sans mise en ligne
+ * (archivée à la main, abandonnée), le badge « archivée ».
  */
-function CarteTerminee({
+function CarteArchivee({
   card,
   enLigneDepuis = card.deployedAt,
   demande,
@@ -552,7 +607,7 @@ function CarteTerminee({
   const state = useApp();
   const projet = state.projects.find((p) => p.id === card.projectId);
   return (
-    <div className="flex min-w-0 flex-col" data-carte-terminee={card.id} data-deployee-a={enLigneDepuis}>
+    <div className="flex min-w-0 flex-col" data-carte-terminee={card.id} data-deployee-a={enLigneDepuis || undefined}>
       <CardTile
         card={card}
         onOpen={onOpen}
@@ -560,14 +615,20 @@ function CarteTerminee({
         enRoute={{
           demande,
           gauche: <NomDuProjet projet={projet} />,
-          droite: (
-            <Tooltip label={t('En ligne depuis le {v0}', { v0: dateHeure(enLigneDepuis ?? 0) })}>
+          droite: enLigneDepuis ? (
+            <Tooltip label={t('En ligne depuis le {v0}', { v0: dateHeure(enLigneDepuis) })}>
               <span data-date-mise-en-ligne={enLigneDepuis}>
                 <Badge tone="success">
                   <Rocket className="h-2.5 w-2.5" /> {t('en ligne')}
                 </Badge>
               </span>
             </Tooltip>
+          ) : (
+            <span data-carte-archivee-sans-mise-en-ligne>
+              <Badge tone="neutral">
+                <Archive className="h-2.5 w-2.5" /> {t('archivée')}
+              </Badge>
+            </span>
           ),
         }}
       />
@@ -859,7 +920,7 @@ function PiedSysteme({ agent, auTravail }: { agent: Agent; auTravail: boolean })
       className={cn('mt-auto flex shrink-0 items-center text-[12px] text-faint', !auTravail && 'pb-1.5 pt-1')}
       data-anciennete-systeme={agent.id}
     >
-      {/* Finie, l'ancienneté part de la FIN : c'est elle qui range la carte dans « Terminés ». */}
+      {/* Finie, l'ancienneté part de la FIN : c'est elle qui range la carte dans « Archiver ». */}
       <span className="shrink-0">{relativeTime(auTravail ? agent.updatedAt : (agent.endedAt ?? agent.updatedAt))}</span>
     </div>
   );
@@ -890,7 +951,7 @@ function descriptionDuRole(role: Agent['role']): string {
  * à peu près la moitié d'une carte : pas de frise d'étapes, donc rien à
  * aligner sur la hauteur fixe des cartes. Cadre VIOLET (`--publie`) : c'est ce
  * qui distingue d'un coup d'œil une carte Système. Pas de point bleu : finie,
- * elle passe 24 heures dans « Terminés » sans aucun signal.
+ * elle passe 24 heures dans « Archiver » sans aucun signal.
  *
  * L'ouverture est portée par le CADRE (`data-ouvrir-agent-en-route`), pas par
  * un `button` : le titre revient à la ligne (`line-clamp-2`), et un texte
@@ -1005,7 +1066,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
  * au travail, attend votre réponse, ou terminé. Le clic rouvre sa conversation,
  * d'où qu'on vienne. Même règle que `VignetteAgent` : l'ouverture est portée
  * par le cadre, jamais par un `button` qui contiendrait un texte replié. Même
- * format compact, hauteur au contenu ; finie, elle passe dans « Terminés ».
+ * format compact, hauteur au contenu ; finie, elle passe dans « Archiver ».
  */
 function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void }) {
   const state = useApp();

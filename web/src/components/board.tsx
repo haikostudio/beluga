@@ -743,7 +743,7 @@ export function Board({
     const idConfiguration = agentDeConfiguration(projetOuvert, cible);
     const agentConfiguration = idConfiguration ? state.agents[idConfiguration] : undefined;
     /* Seulement tant qu'il est actif : fini, l'agent quitte le tableau, et sa
-       carte passe 24 heures dans « Terminés » des Tableaux de bord
+       carte passe 24 heures dans « Archiver » des Tableaux de bord
        (`etatDeLaVignetteDInitialisation`, 06/10/2026). */
     const etatInitialisation = etatDeLaVignetteDInitialisation(projetOuvert, agentConfiguration, Date.now(), cible);
     return agentConfiguration && etatInitialisation && etatInitialisation !== 'fini'
@@ -762,7 +762,7 @@ export function Board({
   /* LES MISES EN PRODUCTION, en tête de « En cours » elles aussi : celle du
      projet ouvert, ou une par projet membre sur le tableau d'un groupe — tant
      qu'elle tourne. Finie, elle quitte le tableau (son résultat se lit dans
-     le bandeau du bas) et passe 24 heures dans « Terminés » des Tableaux de
+     le bandeau du bas) et passe 24 heures dans « Archiver » des Tableaux de
      bord. Sur le tableau d'un groupe, le clic ouvre le tiroir du groupe sur
      CE projet (`productionDemandee`). */
   const vignettesProduction = (membresDuGroupe.length ? membresDuGroupe : projetOuvert ? [projetOuvert] : []).flatMap(

@@ -9,8 +9,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   EllipsisVertical,
+  FolderOpen,
+  Paperclip,
   Palette,
-  PanelRight,
   Square,
   TerminalSquare,
   Volume2,
@@ -28,6 +29,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -64,8 +66,7 @@ export function QuotaBar({
   onOpenSettings,
   onOpenProjects,
   onOpenDashboard,
-  rightOpen,
-  onToggleRight,
+  onOuvrirFichiers,
   titreDeVue,
   onOuvrirVue,
 }: {
@@ -79,10 +80,8 @@ export function QuotaBar({
    * gauche y mène déjà : l'entrée n'y est pas doublée.
    */
   onOpenDashboard?: () => void;
-  /** Sur grand écran : le volet des fichiers est-il déplié ? */
-  rightOpen?: boolean;
-  /** Sur grand écran : plie ou déplie le volet des fichiers. */
-  onToggleRight?: () => void;
+  /** Ouvre le tiroir des fichiers ou celui des pièces jointes du projet ouvert. */
+  onOuvrirFichiers?: (vue: 'fichiers' | 'pieces') => void;
   /**
    * Le titre d'une page qui n'appartient à aucun projet (« Tableaux de bord ») :
    * il prend la place du nom du projet ouvert, qui n'y dirait rien.
@@ -376,7 +375,7 @@ export function QuotaBar({
       <QuotaBadge activeEngine={activeEngine} />
 
       {/* LA BASCULE LIGNES / COLONNES a quitté le bandeau : elle vit dans le
-          menu des trois points, entre « Écouter le point » et « Thème ». */}
+          groupe « Affichage » du menu des trois points, avant « Thème ». */}
 
       {/* LA CLOCHE DES NOTIFICATIONS : toujours là, qu'il y ait quelque chose
           ou non. Elle ouvre un TIROIR qui réunit ce qui attend une décision —
@@ -390,27 +389,15 @@ export function QuotaBar({
           dans les réglages ; un compteur de plus dans la barre du haut ne
           servait à personne. */}
 
-      {/* Plier ou déplier le volet des fichiers. Il vit DANS la barre, à sa
-          place : posé en flottant par-dessus, il recouvrait les trois points et
-          le menu devenait inatteignable sur ordinateur. */}
-      {onToggleRight ? (
-        <Tooltip label={rightOpen ? t('Replier le volet des fichiers') : t('Ouvrir le volet des fichiers')}>
-          <Button
-            variant="outline"
-            size="icon"
-            className="hidden lg:flex"
-            aria-label={rightOpen ? 'Replier le volet des fichiers' : 'Ouvrir le volet des fichiers'}
-            onClick={onToggleRight}
-          >
-            <PanelRight className={cn('h-3.5 w-3.5', rightOpen && 'text-text')} />
-          </Button>
-        </Tooltip>
-      ) : null}
+      {/* LE VOLET DES FICHIERS N'A PLUS DE BOUTON DANS LE BANDEAU : « Fichiers »
+          et « Pièces jointes » sont deux entrées du menu des trois points, qui
+          ouvrent chacune un tiroir. */}
 
       {/* LE TERMINAL DU SERVEUR VIT DANS LE MENU DES TROIS POINTS. Il occupait
           un bouton à lui dans le bandeau ; sur téléphone, cette rangée serre déjà
           le nom du projet et les pastilles, et un clic gagné ne valait pas la
-          place perdue. Son entrée se trouve plus bas, avant le choix du thème. */}
+          place perdue. Son entrée se trouve dans le groupe « Serveur et agents »
+          du menu. */}
 
       {/* L'ASSISTANT, SUR TÉLÉPHONE : un bouton juste avant les trois points
           remplace le robot flottant ; le chat s'ouvre juste en dessous. Sur
@@ -430,18 +417,41 @@ export function QuotaBar({
             <PointRedemarrage etat={redemarrage.etat} />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        {/* LE MENU EST RANGÉ EN QUATRE GROUPES, chacun sous un petit titre :
+            « Projet » (ce qu'on consulte du projet ouvert), « Affichage »
+            (comment l'écran se présente), « Serveur et agents » (ce qui agit
+            sur la machine, les arrêts en rouge en dernier), puis « Réglages »
+            seul tout en bas. Plus aucun séparateur n'isole une entrée unique.
+            Les sélecteurs `data-*` des contrôles ont suivi leur entrée. */}
+        <DropdownMenuContent align="end" className="min-w-[230px]">
+          <DropdownMenuLabel data-menu-groupe="projet">{t('Projet')}</DropdownMenuLabel>
           {/* Sur téléphone, le module de voix a pris la colonne centrale du menu
               du bas : le tableau de bord se rejoint donc ICI. Sur grand écran,
               la colonne de gauche y mène déjà, on ne double pas l'entrée. */}
           {telephone && onOpenDashboard ? (
+            <DropdownMenuItem onSelect={onOpenDashboard}>
+              <BarChart3 className="h-3.5 w-3.5" />
+              {t('Résumé')}
+            </DropdownMenuItem>
+          ) : null}
+          {onOuvrirFichiers ? (
             <>
-              <DropdownMenuItem onSelect={onOpenDashboard}>
-                <BarChart3 className="h-3.5 w-3.5" />
-                
-{t('Résumé')}
-</DropdownMenuItem>
-              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-menu-fichiers
+                disabled={!state.activeProjectId}
+                onSelect={() => onOuvrirFichiers('fichiers')}
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                {t('Fichiers')}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                data-menu-pieces
+                disabled={!state.activeProjectId}
+                onSelect={() => onOuvrirFichiers('pieces')}
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+                {t('Pièces jointes')}
+              </DropdownMenuItem>
             </>
           ) : null}
           <DropdownMenuItem
@@ -449,52 +459,26 @@ export function QuotaBar({
             onSelect={() => setMemoireOuverte(true)}
           >
             <BookOpen className="h-3.5 w-3.5" />
-            
-{t('Mémoire du projet')}
-</DropdownMenuItem>
-          {duProjet.length ? (
-            <DropdownMenuItem className="text-danger" onSelect={() => setArretGroupe(true)}>
-              <Square className="h-3.5 w-3.5 fill-current" />
-              
-{t('Arrêter les agents du projet (')}{duProjet.length})
-            </DropdownMenuItem>
-          ) : null}
-          {enCours.length ? (
-            <DropdownMenuItem className="text-danger" onSelect={() => setArretTous(true)}>
-              <Square className="h-3.5 w-3.5 fill-current" />
-              
-{t('Arrêter tous les agents (')}{enCours.length})
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuSeparator />
-          {/* L'ACCÈS AU TERMINAL DU SERVEUR. `data-terminal-bouton` reste le
-              sélecteur des contrôles : il a suivi le geste, pas la barre. */}
-          <DropdownMenuItem data-terminal-bouton onSelect={() => setTerminalOuvert(true)}>
-            <TerminalSquare className="h-3.5 w-3.5" />
-            {t('Terminal du serveur')}
+            {t('Mémoire du projet')}
           </DropdownMenuItem>
-          <EntreeRedemarrage redemarrage={redemarrage} />
-          <DropdownMenuSeparator />
           <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
             <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
-            
-{t('Écouter le point')}
-</DropdownMenuItem>
+            {t('Écouter le point')}
+          </DropdownMenuItem>
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel data-menu-groupe="affichage">{t('Affichage')}</DropdownMenuLabel>
           {/* LIGNES OU COLONNES. Le libellé et l'icône disent la disposition
               vers laquelle le clic MÈNE ; le choix est retenu sur l'appareil,
               jamais en base. `data-bascule-disposition` reste le sélecteur des
               contrôles : il a suivi le geste, pas le bandeau. */}
-          <DropdownMenuSeparator />
           <DropdownMenuItem data-bascule-disposition={disposition} onSelect={basculerDisposition}>
             {disposition === 'lignes' ? <Columns3 className="h-3.5 w-3.5" /> : <Rows3 className="h-3.5 w-3.5" />}
             {disposition === 'lignes' ? t('Afficher le tableau en colonnes') : t('Afficher le tableau en lignes')}
           </DropdownMenuItem>
-          {/* Le bouton « Muet » a quitté ce menu : il vit désormais dans le
-              panneau du module de voix, à côté de la voix qu'il commande. */}
           {/* Le menu rapide reprend les deux axes du réglage général : suivre le
               système, puis clair/sombre, puis l'ambiance. Le projet ouvert peut
               toujours recouvrir ce réglage ; l'onglet Apparence le dit. */}
-          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger data-theme-menu>
               <Palette className="h-3.5 w-3.5" />
@@ -567,12 +551,36 @@ export function QuotaBar({
               ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel data-menu-groupe="serveur">{t('Serveur et agents')}</DropdownMenuLabel>
+          {/* L'ACCÈS AU TERMINAL DU SERVEUR. `data-terminal-bouton` reste le
+              sélecteur des contrôles : il a suivi le geste, pas la barre. */}
+          <DropdownMenuItem data-terminal-bouton onSelect={() => setTerminalOuvert(true)}>
+            <TerminalSquare className="h-3.5 w-3.5" />
+            {t('Terminal du serveur')}
+          </DropdownMenuItem>
+          <EntreeRedemarrage redemarrage={redemarrage} />
+          {/* Les arrêts, en rouge, ferment le groupe : un geste qui coupe du
+              travail ne se pose jamais au milieu des entrées anodines. */}
+          {duProjet.length ? (
+            <DropdownMenuItem className="text-danger" onSelect={() => setArretGroupe(true)}>
+              <Square className="h-3.5 w-3.5 fill-current" />
+              {t('Arrêter les agents du projet (')}{duProjet.length})
+            </DropdownMenuItem>
+          ) : null}
+          {enCours.length ? (
+            <DropdownMenuItem className="text-danger" onSelect={() => setArretTous(true)}>
+              <Square className="h-3.5 w-3.5 fill-current" />
+              {t('Arrêter tous les agents (')}{enCours.length})
+            </DropdownMenuItem>
+          ) : null}
+
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={onOpenSettings} data-reglages-menu>
             <Settings2 className="h-3.5 w-3.5" />
-            
-{t('Réglages')}
-</DropdownMenuItem>
+            {t('Réglages')}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       {redemarrage.dialogue}

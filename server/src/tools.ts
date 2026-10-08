@@ -156,7 +156,7 @@ import { execFileSync } from 'node:child_process';
 import { makeZip, safeJoin } from './files.js';
 import { enregistrerSite, essayerLaRecette, essayerLesAcces, lireSite } from './backups.js';
 import { enregistrerSurveillance, jouerRecette, lireSurveillance, rattacherLeProjetDuSite } from './surveillance.js';
-import { projetDeLaPropositionDeLAgent, refusDeLaPropositionDeLAgent } from './proposition-de-site.js';
+import { accueilDeLaProposition } from './proposition-de-site.js';
 import { estAgentAttitre } from './agent-attitre.js';
 import {
   adresseDeBeluga,
@@ -534,6 +534,11 @@ export const TOOL_DEFS: ToolDef[] = [
         labels: { type: 'array', items: { type: 'string' } },
         depart: { type: 'string', description: CHAMP_DEPART },
         analysis: CHAMP_ANALYSE,
+        projet: {
+          type: 'string',
+          description:
+            "RÉSERVÉ au projet de l'application Beluga : le projet (nom ou identifiant) où proposer la carte, quand le travail touche un AUTRE projet — une carte par projet concerné. Refusé partout ailleurs : sans ce champ, la carte naît dans ton projet.",
+        },
       },
     },
   },
@@ -1877,9 +1882,10 @@ function resumeReglages(reglages: { run?: RunConfig; avertissement?: string }): 
  * compare les paires ; sans avis, rien n'est refusé.
  */
 /** Dit à l'agent dans quel projet naîtra la carte, quand ce n'est pas le sien. */
-function phraseDuProjetDAccueil(proposal: TaskProposal): string {
+function phraseDuProjetDAccueil(proposal: TaskProposal, duSite: boolean): string {
   if (!proposal.projectId) return '';
-  return ` Elle naîtra dans le projet du site, « ${store.getProject(proposal.projectId)?.name ?? proposal.projectId} ».`;
+  const nom = store.getProject(proposal.projectId)?.name ?? proposal.projectId;
+  return duSite ? ` Elle naîtra dans le projet du site, « ${nom} ».` : ` Elle naîtra dans le projet « ${nom} ».`;
 }
 
 async function refusDeDoublon(ctx: ToolContext, titre: string, description: string): Promise<string | undefined> {
@@ -2039,9 +2045,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * branche du dépôt du site portera la modification ; un site relié à
        * rien ne propose rien tant que l'utilisateur n'a pas dit lequel.
        */
-      const accueil = projetDeLaPropositionDeLAgent(ctx.agentId, ctx.projectId);
-      const refusAccueil = refusDeLaPropositionDeLAgent(accueil);
-      if (refusAccueil) return { ok: false, text: refusAccueil };
+      const accueil = accueilDeLaProposition(ctx, args.projet);
+      if ('refus' in accueil) return { ok: false, text: accueil.refus };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
 
@@ -2066,7 +2071,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
-        ...(accueil.genre === 'site' && accueil.projectId !== ctx.projectId ? { projectId: accueil.projectId } : {}),
+        ...(accueil.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
       return {
@@ -2074,7 +2079,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         text:
           `Carte « ${proposal.title} » proposée dans la conversation. ` +
           `Elle n'entrera dans « Demande » qu'après la validation de l'utilisateur.` +
-          phraseDuProjetDAccueil(proposal) +
+          phraseDuProjetDAccueil(proposal, accueil.accueil.genre === 'site') +
           resumeReglages(reglages) +
           resumeDepart(depart),
         proposal,
@@ -2267,9 +2272,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * branche du dépôt du site portera la modification ; un site relié à
        * rien ne propose rien tant que l'utilisateur n'a pas dit lequel.
        */
-      const accueil = projetDeLaPropositionDeLAgent(ctx.agentId, ctx.projectId);
-      const refusAccueil = refusDeLaPropositionDeLAgent(accueil);
-      if (refusAccueil) return { ok: false, text: refusAccueil };
+      const accueil = accueilDeLaProposition(ctx, args.projet);
+      if ('refus' in accueil) return { ok: false, text: accueil.refus };
       const doublon = await refusDeDoublon(ctx, String(args.title), texte.description);
       if (doublon) return { ok: false, text: doublon };
 
@@ -2293,14 +2297,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         ...depart,
         ...(reglages.run ? { run: reglages.run } : {}),
         ...(reglages.avertissement ? { avertissement: reglages.avertissement } : {}),
-        ...(accueil.genre === 'site' && accueil.projectId !== ctx.projectId ? { projectId: accueil.projectId } : {}),
+        ...(accueil.projectId ? { projectId: accueil.projectId } : {}),
         decision: 'pending',
       };
       return {
         ok: true,
         text:
           `Proposition affichée à l'utilisateur : « ${proposal.title} ». Rien n'est créé tant qu'il n'a pas validé.` +
-          phraseDuProjetDAccueil(proposal) +
+          phraseDuProjetDAccueil(proposal, accueil.accueil.genre === 'site') +
           resumeReglages(reglages) +
           resumeDepart(depart),
         proposal,

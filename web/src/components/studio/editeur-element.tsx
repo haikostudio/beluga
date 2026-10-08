@@ -13,12 +13,13 @@ import {
   trouverSegment,
   vitesseDe,
 } from '@beluga/shared';
-import { BulleInfo, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
 import { usePointerDrag } from '@/lib/dnd';
 import { useTelephone } from '@/lib/telephone';
 import { client } from '@/lib/client';
 import { formatRegional, t } from '@/lib/langue';
 import { Apercu, ApercuEnDirect, type ApercuDirect, type BoiteDuCadre, type MessageDuCadre, type PoigneeApercu } from './apercu';
+import { EnteteDeFenetre } from './champs';
 import { Calques, Inspecteur } from './inspecteur';
 import { libelleDuGenre } from './libelles';
 import { FormeDOnde, useOnde } from './onde';
@@ -38,6 +39,14 @@ import type { DonneesCreation } from './types';
  * (comme dans l'éditeur principal), et ses RÉGLAGES la colonne de DROITE :
  * l'inspecteur lui-même, dont les couleurs se voient dans l'aperçu agrandi
  * pendant le choix. Chaque geste est une opération, donc une version, annulable.
+ *
+ * LA FENÊTRE A LA HAUTEUR DE L'ÉLÉMENT EN GRAND (aperçu et sa tête de lecture,
+ * ou bande du temps) : c'est la colonne du centre qui la donne. Les colonnes
+ * de côté ne comptent pas dans cette hauteur (contenu posé en absolu) et
+ * DÉFILENT chacune à l'intérieur — la fenêtre, elle, ne défile jamais.
+ *
+ * UN APPUI HORS DE L'IMAGE (autour d'elle, sous la tête de lecture, le vide de
+ * la fenêtre) LÂCHE LA PIÈCE : l'inspecteur revient aux réglages de la scène.
  *
  * Sur téléphone : un tiroir plein, l'élément au-dessus de ses réglages (les
  * calques restent dans l'inspecteur).
@@ -110,19 +119,47 @@ export function EditeurElement({
   );
   // LES CALQUES À GAUCHE (ordinateur, dessin) : la droite ne garde que les réglages.
   const calquesAGauche = !telephone && s.genre === 'dessin' && piecesDuDessin(s.gabarit.html).length > 0;
+  /* LÂCHER LA PIÈCE : un appui dans la fenêtre, mais ni sur l'image, ni dans les réglages, ni sur un contrôle.
+     L'appui DANS l'image passe par le cadre d'aperçu (message « selection »). Un menu déroulant rendu en
+     portail remonte ici par l'arbre React sans être dans la fenêtre : il est écarté par `contains`. */
+  const lacherLaPiece = (e: React.PointerEvent<HTMLElement>) => {
+    if (!elementId || estSonore(s) || e.button !== 0) return;
+    const cible = e.target as Element | null;
+    if (!cible || !e.currentTarget.contains(cible)) return;
+    if (cible.closest('[data-studio-image], [data-studio-editeur-reglages], [data-studio-calque], [data-studio-editeur-tete], button, input, textarea, select, a, label, [role="slider"], [role="listbox"], [role="option"], [data-liste-panneau]')) return;
+    onChoisirPiece(null);
+  };
+  /* LES COLONNES DE CÔTÉ sur ordinateur : leur contenu est posé en absolu, la hauteur vient du centre. */
+  const colonneDeCote = (contenu: React.ReactNode, fond: 'bloc' | 'surface', repere: Record<string, string>) =>
+    telephone ? (
+      <div className="flex min-w-0 flex-col gap-2" {...repere}>
+        {contenu}
+      </div>
+    ) : (
+      <div className="relative min-h-0 min-w-0" {...repere}>
+        <div className={cn('absolute inset-0 flex flex-col overflow-hidden rounded-md', fond === 'bloc' ? 'bg-bloc' : 'bg-surface')}>
+          <ZoneDefilement fond={`hsl(var(--${fond}))`} className="flex flex-col gap-2">
+            {contenu}
+          </ZoneDefilement>
+        </div>
+      </div>
+    );
   const corps = (
     <div
-      className={cn('grid gap-3', calquesAGauche ? 'sm:grid-cols-[220px_minmax(0,1fr)_340px]' : 'sm:grid-cols-[minmax(0,1fr)_340px]')}
+      className={cn('grid gap-3', calquesAGauche ? 'sm:grid-cols-[220px_minmax(0,1fr)_340px]' : 'sm:grid-cols-[minmax(0,1fr)_340px]', !telephone && 'min-h-[min(420px,70dvh)]')}
+      onPointerDown={telephone ? lacherLaPiece : undefined}
       data-studio-editeur-element={s.id}
       data-genre={s.genre}
     >
-      {calquesAGauche && s.genre === 'dessin' ? (
-        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-md bg-bloc sm:max-h-[calc(52vh+48px)]" data-studio-editeur-calques>
-          <ZoneDefilement fond="hsl(var(--bloc))" className="pb-2">
-            <Calques segment={s} elementId={elementId} format={format} formatDeBase={composition.format} onOperation={operer} onChoisirPiece={onChoisirPiece} />
-          </ZoneDefilement>
-        </div>
-      ) : null}
+      {calquesAGauche && s.genre === 'dessin'
+        ? colonneDeCote(
+            <div className="rounded-md bg-bloc pb-2">
+              <Calques segment={s} elementId={elementId} format={format} formatDeBase={composition.format} onOperation={operer} onChoisirPiece={onChoisirPiece} />
+            </div>,
+            'bloc',
+            { 'data-studio-editeur-calques': '' },
+          )
+        : null}
       <div className="flex min-w-0 flex-col gap-2">
         {estSonore(s) ? (
           <EditeurSonore donnees={donnees} segment={s} temps={temps} onOperation={operer} onAller={onAller} />
@@ -143,7 +180,7 @@ export function EditeurElement({
           />
         )}
       </div>
-      <div className="flex min-w-0 flex-col gap-2" data-studio-editeur-reglages>
+      {colonneDeCote(
         <Inspecteur
           composition={composition}
           segmentId={s.id}
@@ -157,8 +194,10 @@ export function EditeurElement({
           onChoisirPiece={onChoisirPiece}
           calquesAilleurs={calquesAGauche}
           piece={boite}
-        />
-      </div>
+        />,
+        'surface',
+        { 'data-studio-editeur-reglages': '' },
+      )}
     </div>
   );
   const contenu = <ApercuEnDirect.Provider value={direct}>{corps}</ApercuEnDirect.Provider>;
@@ -166,13 +205,8 @@ export function EditeurElement({
   if (telephone) {
     return (
       <Drawer open onClose={onClose} empile plein>
-        <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
-          <DialogTitle className="min-w-0 truncate">{titre}</DialogTitle>
-          {aide}
-          <span className="min-w-0 flex-1" aria-hidden />
-          <Button size="icon" variant="ghost" aria-label="Fermer l’éditeur" title={t('Fermer')} onClick={onClose}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
+        <header className="shrink-0 px-3 pb-2">
+          <EnteteDeFenetre titre={titre} onRetour={onClose} droite={aide} />
         </header>
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-4">
           {contenu}
@@ -183,13 +217,20 @@ export function EditeurElement({
   return (
     <Dialog open onOpenChange={(ouvert) => !ouvert && onClose()}>
       {/* Le focus reste où il était : posé d'office dans l'aperçu (un cadre isolé), il y garderait Échap pour lui. */}
-      <DialogContent className={cn('sm:max-h-[92dvh]', calquesAGauche ? 'sm:w-[min(1280px,100%)]' : 'sm:w-[min(1040px,100%)]')} aria-describedby={undefined} onOpenAutoFocus={(e) => e.preventDefault()} data-studio-fenetre-edition>
+      {/* Sans défilement imposé : chaque colonne de côté défile seule, l'élément en grand reste en place. */}
+      <DialogContentLibre
+        className={cn('sm:max-h-[92dvh]', calquesAGauche ? 'sm:w-[min(1280px,100%)]' : 'sm:w-[min(1040px,100%)]')}
+        aria-describedby={undefined}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onPointerDown={lacherLaPiece}
+        data-studio-fenetre-edition
+      >
         <DialogHeader className="flex items-center gap-1">
           <DialogTitle>{titre}</DialogTitle>
           {aide}
         </DialogHeader>
-        {contenu}
-      </DialogContent>
+        <div className="min-h-0 px-4 pb-4">{contenu}</div>
+      </DialogContentLibre>
     </Dialog>
   );
 }
@@ -234,13 +275,14 @@ function EditeurVisuel({
   const [lecture, setLecture] = React.useState(false);
   const elementRef = React.useRef(elementId);
   elementRef.current = elementId;
-  // Une pièce choisie dans les CALQUES de la fenêtre : l'aperçu agrandi la choisit aussi.
+  // Une pièce choisie dans les CALQUES de la fenêtre : l'aperçu agrandi la choisit aussi. Aucune pièce : aucun cadre
+  // (pas même autour de la scène entière) — l'inspecteur montre alors la scène.
   React.useEffect(() => {
-    apercu.current?.selectionner(segment.id, elementId);
+    apercu.current?.selectionner(elementId ? segment.id : null, elementId);
   }, [segment.id, elementId]);
 
   const surMessage = (m: MessageDuCadre) => {
-    if (m.type === 'pret') apercu.current?.selectionner(segment.id, elementRef.current);
+    if (m.type === 'pret') apercu.current?.selectionner(elementRef.current ? segment.id : null, elementRef.current);
     else if (m.type === 'temps' && typeof m.t === 'number') {
       if (m.t >= fin) {
         apercu.current?.pause();

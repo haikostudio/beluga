@@ -251,8 +251,9 @@ function FenetreStyle({
             </details>
           ) : null}
         </div>
-        <DialogFooter>
+        <DialogFooter pleineLargeur>
           <Button
+            size="lg"
             onClick={() => {
               onAppliquer(style);
               onFermer();

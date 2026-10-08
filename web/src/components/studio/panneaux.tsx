@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BadgeCheck, Clapperboard, Copy, Download, FileAudio, Film, Image as IconeImage, KeyRound, Loader2, Pause, PenTool, Play, Plus, Trash2, Upload, X } from 'lucide-react';
+import { BadgeCheck, ChevronRight, Clapperboard, Copy, Download, FileAudio, Film, Image as IconeImage, KeyRound, Loader2, Pause, PenTool, Play, Plus, Trash2, Upload, X } from 'lucide-react';
 import {
   type ExportStudio,
   type FormatStudio,
@@ -10,7 +10,14 @@ import {
   type SegmentVoix,
   type ReglagesExport,
   CLES_FORMATS_STUDIO,
+  FORMATS_STUDIO,
   REGLAGES_EXPORT_PAR_DEFAUT,
+  exportFini,
+  extensionDExport,
+  nomDExport,
+  nomsSansDoublon,
+  partagerLesExports,
+  slugTitre,
   fichierAvecQualite,
   fichierAvecSon,
   resumeReglagesExport,
@@ -25,7 +32,7 @@ import {
   voixFinaleDuProjet,
 } from '@beluga/shared';
 import { BarreProgression } from '@/components/barre-progression';
-import { BulleInfo, Button, ListeDeroulante, Switch } from '@/components/ui';
+import { BulleInfo, Button, ConfirmDialog, ListeDeroulante, Switch } from '@/components/ui';
 import { formatRegional } from '@/lib/langue';
 import { LecteurVideo } from '@/components/lecteur-video';
 import { client } from '@/lib/client';
@@ -33,6 +40,7 @@ import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 import { usePref } from '@/lib/prefs';
+import { type FichierATelecharger, useTelechargement } from '@/lib/telechargement';
 import { ouvrirLeCoffre } from '@/lib/ouvrir-coffre';
 import { ChampChoix, ChampCouleur, ChampPolice, ChampTexte, Ligne, Section } from './champs';
 import { descriptionDeVoix, libelleDepense, libelleEtatVoix, libelleFormat } from './libelles';
@@ -259,31 +267,30 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
           );
         })}
         {voix.some((v) => v.etat === 'aucune' || !v.mediaId) ? (
-          <Button size="sm" variant="outline" onClick={() => onVoixEssai()} data-studio-voix-essai-toutes>
+          <Button size="sm" variant="outline" className="w-full" onClick={() => onVoixEssai()} data-studio-voix-essai-toutes>
             {t('Fabriquer les voix d’essai (gratuit)')}
           </Button>
         ) : null}
       </Section>
 
       <Section
+        liste
         titre={t('Voix finale')}
         action={<BulleInfo cote="end">{t('Écoutez les voix et choisissez celle du projet : toutes les phrases seront dites par elle. Elle remplace la voix d’essai au moment où vous la validez. Elle est payée par le crédit OpenRouter de Beluga Build, quel que soit le projet.')}</BulleInfo>}
       >
-        <Ligne libelle={t('Voix du projet')}>
-          <ChampChoix
-            titre={t('Voix finale du projet')}
-            valeur={voixDuProjet}
-            data-studio-voix-projet
-            options={donnees.voixFinales.map((v) => ({
-              valeur: v.id,
-              libelle: v.label,
-              detail: descriptionDeVoix(v),
-              groupe: v.genre === 'femme' ? t('Voix de femme') : t('Voix d’homme'),
-              action: actionDEcoute(v.id, ecoute),
-            }))}
-            onValider={(v) => client.call({ type: 'studio.espace.ecrire', projectId: donnees.creation.projectId, voixFinale: v })}
-          />
-        </Ligne>
+        <ChampChoix
+          titre={t('Voix finale du projet')}
+          valeur={voixDuProjet}
+          data-studio-voix-projet
+          options={donnees.voixFinales.map((v) => ({
+            valeur: v.id,
+            libelle: v.label,
+            detail: descriptionDeVoix(v),
+            groupe: v.genre === 'femme' ? t('Voix de femme') : t('Voix d’homme'),
+            action: actionDEcoute(v.id, ecoute),
+          }))}
+          onValider={(v) => client.call({ type: 'studio.espace.ecrire', projectId: donnees.creation.projectId, voixFinale: v })}
+        />
         <div className="mt-1 flex flex-col gap-1.5">
           {raisonDevis ? <p className="text-[12px] text-danger">{raisonDevis}</p> : null}
           {refaire && !enCours ? <p className="text-[12px] text-termine">{t('Toutes les voix sont en voix finale.')}</p> : null}
@@ -305,9 +312,8 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
             </div>
           ) : null}
           <Button
-            size="sm"
             variant="default"
-            className="relative h-auto min-h-8 overflow-hidden whitespace-normal py-1.5"
+            className="relative h-auto min-h-9 w-full overflow-hidden whitespace-normal py-1.5"
             disabled={!devis || !devis.cle || enCours}
             onClick={() => client.call({ type: 'studio.voix.valider', creationId: donnees.creation.id, plafond: devis?.plafond ?? 0, ...(refaire ? { refaire: true } : {}) })}
             data-studio-valider-voix
@@ -362,28 +368,76 @@ function etatDeLExport(e: ExportStudio): string {
   }
 }
 
-export function PanneauExports({ donnees, format, onFormat, temps }: { donnees: DonneesCreation; format: FormatStudio; onFormat: (f: FormatStudio) => void; temps: number }) {
-  const state = useApp();
+/** Le titre d'un export : « Vertical · Vidéo · v140 · 1080p · 30 i/s · MP4 · standard ». */
+function titreDeLExport(e: ExportStudio): string {
+  return `${libelleFormat(e.format)} · ${e.genre === 'video' ? t('Vidéo') : t('Image')} · v${e.version}${e.reglages ? ` · ${resumeReglagesExport(e.genre, e.reglages, t)}` : ''}`;
+}
+
+/** L'adresse et le nom sous lesquels un export prêt s'enregistre. */
+function fichierDeLExport(titre: string, e: ExportStudio): FichierATelecharger | null {
+  if (e.etat !== 'pret' || !e.attachmentId) return null;
+  return {
+    adresse: `/api/attachment?id=${encodeURIComponent(e.attachmentId)}&download=1`,
+    nom: nomDExport(titre, e.format, e.version, e.genre, e.reglages ? extensionDExport(e.genre, e.reglages) : undefined),
+  };
+}
+
+/**
+ * ÉTAPE 2 — LES FORMATS ET LES RÉGLAGES DE L'EXPORT. Les formats se COCHENT :
+ * un clic sur « Exporter » (le pied de la fenêtre) lance une vidéo par format
+ * coché, toutes du même LOT. Les réglages (type de fichier, qualité, définition,
+ * images par seconde, son) valent pour tout le lot ; ce qu'un format ne peut pas
+ * faire (la 4K en Portrait) est corrigé par le serveur pour ce format seul.
+ */
+export function EtapeFormats({
+  donnees,
+  choisis,
+  onChoisis,
+  temps,
+  onImage,
+}: {
+  donnees: DonneesCreation;
+  /** Les formats cochés : un export par format. */
+  choisis: FormatStudio[];
+  onChoisis: (formats: FormatStudio[]) => void;
+  temps: number;
+  /** « Exporter une image » : l'image de la tête de lecture, dans chaque format coché. */
+  onImage: () => void;
+}) {
   const formats = donnees.creation.formats;
-  /* LES DERNIERS RÉGLAGES SONT RETENUS (préférence en base, suivie d'un appareil à l'autre) ; lus avec tolérance pour ce format. */
+  /* LES DERNIERS RÉGLAGES SONT RETENUS (préférence en base, suivie d'un appareil à l'autre) ; lus avec tolérance. */
   const [retenus, retenir] = usePref<Partial<ReglagesExport>>('studio.export.reglages', REGLAGES_EXPORT_PAR_DEFAUT);
-  const reglages = lireReglagesExport(retenus, format);
+  /* La 4K reste proposée tant qu'un format coché la permet ; le format Portrait, lui, sortira en Full HD. */
+  const avec4K = choisis.find(quatreKPossible);
+  const reglages = lireReglagesExport(retenus, avec4K ?? choisis[0] ?? formats[0] ?? '9:16');
   const regler = (champ: Partial<ReglagesExport>) => retenir({ ...reglages, ...champ });
-  const exporter = (genre: 'video' | 'image') =>
-    client.call({ type: 'studio.exporter', creationId: donnees.creation.id, format, genre, reglages: { ...reglages }, ...(genre === 'image' ? { instant: temps } : {}) });
-  const ajouterFormat = (f: FormatStudio) => client.call({ type: 'studio.creation.modifier', id: donnees.creation.id, formats: [...formats, f] });
-  const sans4K = !quatreKPossible(format);
+  const ajouterFormat = (f: FormatStudio) =>
+    client.call({ type: 'studio.creation.modifier', id: donnees.creation.id, formats: [...formats, f] }).then(() => onChoisis([...choisis, f]));
+  const sans4K = !avec4K;
+  const portraitSans4K = reglages.definition === '4k' && choisis.some((f) => !quatreKPossible(f));
   return (
     <div className="flex flex-col gap-2" data-studio-panneau="exports">
-      <Section titre={t('Exporter')}>
-        <Ligne libelle={t('Format')}>
-          <ChampChoix titre={t('Format')} valeur={format} options={formats.map((f) => ({ valeur: f, libelle: `${libelleFormat(f)} (${f})` }))} onValider={(v) => onFormat(v as FormatStudio)} />
-        </Ligne>
+      <Section liste titre={t('Formats à exporter')} data-studio-formats-export={choisis.join(',')}>
+        {formats.map((f) => (
+          <label key={f} className="flex min-h-9 cursor-pointer items-center gap-2.5 text-[13px]" data-studio-format-export={f}>
+            <input
+              type="checkbox"
+              checked={choisis.includes(f)}
+              onChange={(e) => onChoisis(e.target.checked ? formats.filter((x) => x === f || choisis.includes(x)) : choisis.filter((x) => x !== f))}
+              className="h-4 w-4 shrink-0 accent-[hsl(var(--accent))]"
+            />
+            <span className="min-w-0 flex-1">{libelleFormat(f)}</span>
+            <span className="shrink-0 tabular-nums text-faint">
+              {f} · {FORMATS_STUDIO[f].largeur}×{FORMATS_STUDIO[f].hauteur}
+            </span>
+          </label>
+        ))}
+        {!choisis.length ? <p className="text-[12px] text-warning">{t('Cochez au moins un format.')}</p> : null}
         {CLES_FORMATS_STUDIO.some((f) => !formats.includes(f)) ? (
           <div className="flex flex-wrap items-center gap-1 text-[12px] text-muted">
             {t('Décliner aussi en :')}
             {CLES_FORMATS_STUDIO.filter((f) => !formats.includes(f)).map((f) => (
-              <Button key={f} size="sm" variant="ghost" onClick={() => ajouterFormat(f)}>
+              <Button key={f} size="sm" variant="ghost" onClick={() => void ajouterFormat(f)}>
                 <Plus className="h-3 w-3" />
                 {libelleFormat(f)}
               </Button>
@@ -468,12 +522,7 @@ export function PanneauExports({ donnees, format, onFormat, temps }: { donnees: 
               : t('Un MOV garde sa qualité maximale fixe, qui préserve la transparence.')}
           </p>
         ) : null}
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          <Button size="sm" variant="default" disabled={!donnees.rendu.pret} onClick={() => exporter('video')} data-studio-exporter="video">
-            <Film className="h-3.5 w-3.5" />
-            {t('Exporter la vidéo')}
-          </Button>
-        </div>
+        {portraitSans4K ? <p className="text-[12px] text-faint">{t('Le format Portrait sortira en Full HD : le moteur de rendu n’a pas de 4K pour lui.')}</p> : null}
         <p className="text-[11.5px] text-faint">
           {reglages.definition === '4k' || reglages.ips === 60
             ? t('En 4K ou à 60 images par seconde, la fabrication prend nettement plus de temps, une à la fois sur le serveur.')
@@ -494,60 +543,155 @@ export function PanneauExports({ donnees, format, onFormat, temps }: { donnees: 
             data-studio-export-image={reglages.image}
           />
         </Ligne>
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          <Button size="sm" variant="outline" disabled={!donnees.rendu.pret} onClick={() => exporter('image')} data-studio-exporter="image">
-            <IconeImage className="h-3.5 w-3.5" />
-            {t('Exporter une image')}
-          </Button>
-        </div>
+        <Button size="sm" variant="outline" className="w-full" disabled={!donnees.rendu.pret || !choisis.length} onClick={onImage} data-studio-exporter="image">
+          <IconeImage className="h-3.5 w-3.5" />
+          {t('Exporter une image')}
+        </Button>
         <p className="text-[11.5px] text-faint">{t('L’image est prise à l’endroit de la tête de lecture ({t} s).', { t: (Math.round(temps * 10) / 10).toLocaleString(formatRegional()) })}</p>
       </Section>
-      {donnees.exports.map((e) => {
-        const p = state.studioProgression[e.id];
-        return (
-          <Section
-            liste
-            key={e.id}
-            titre={`${libelleFormat(e.format)} · ${e.genre === 'video' ? t('Vidéo') : t('Image')} · v${e.version}${e.reglages ? ` · ${resumeReglagesExport(e.genre, e.reglages, t)}` : ''}`}
-            action={
-              e.etat === 'en-file' || e.etat === 'en-cours' ? (
-                <Button size="icon" variant="ghost" aria-label="Annuler l’export" title={t('Annuler l’export')} onClick={() => client.call({ type: 'studio.export.annuler', id: e.id })}>
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              ) : e.attachmentId ? (
-                <a
-                  href={`/api/attachment?id=${encodeURIComponent(e.attachmentId)}&download=1`}
-                  aria-label="Télécharger"
-                  title={t('Télécharger')}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-text"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </a>
-              ) : null
-            }
-          >
-            <div data-studio-export={e.id} data-etat={e.etat} className="flex flex-col gap-1.5">
-              <p className={cn('text-[12px]', e.etat === 'echoue' ? 'text-danger' : e.etat === 'pret' ? 'text-termine' : 'text-en-cours')}>
-                {etatDeLExport(e)}
-                {e.etat === 'en-cours' && p ? ` — ${Math.round(p.valeur * 100)} % · ${p.etape}` : ''}
-                {e.erreur ? ` — ${e.erreur}` : ''}
-                {e.voixEnEssai && e.etat === 'pret' ? ` · ${t('{n} voix d’essai', { n: e.voixEnEssai })}` : ''}
-              </p>
-              {e.etat === 'en-cours' ? (
-                <div className="h-1 overflow-hidden rounded-full bg-raised">
-                  <div className="h-full bg-en-cours transition-all" style={{ width: `${Math.round((p?.valeur ?? 0.03) * 100)}%` }} />
-                </div>
-              ) : null}
-              {e.etat === 'pret' && e.attachmentId && e.genre === 'video' && e.reglages?.fichier !== 'gif' ? <LecteurVideo id={e.attachmentId} nom={`${donnees.creation.titre} ${e.format}`} /> : null}
-              {e.etat === 'pret' && e.attachmentId && (e.genre === 'image' || e.reglages?.fichier === 'gif') ? (
-                <img src={`/api/attachment?id=${encodeURIComponent(e.attachmentId)}`} alt="" className="max-h-64 self-start rounded-md" />
-              ) : null}
-            </div>
-          </Section>
-        );
-      })}
     </div>
   );
+}
+
+/** Le bouton « Télécharger » d'UN export prêt : sur téléphone, il reçoit le fichier puis ouvre la feuille de partage. */
+function TelechargerLExport({ fichier, repere }: { fichier: FichierATelecharger; repere: string }) {
+  const fichiers = React.useMemo(() => [fichier], [fichier.adresse, fichier.nom]);
+  const { etat, pourcent, lancer } = useTelechargement(fichiers);
+  return (
+    <Button
+      size={etat === 'repos' ? 'icon' : 'sm'}
+      variant={etat === 'pret' ? 'default' : 'ghost'}
+      aria-label="Télécharger"
+      title={etat === 'pret' ? t('Le fichier est prêt : touchez pour l’enregistrer') : t('Télécharger')}
+      disabled={etat === 'reception'}
+      onClick={lancer}
+      data-studio-telecharger={repere}
+      data-etat={etat}
+    >
+      {etat === 'reception' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+      {etat === 'reception' ? <span className="tabular-nums">{pourcent} %</span> : etat === 'pret' ? t('Enregistrer') : null}
+    </Button>
+  );
+}
+
+/** L'action d'une ligne d'export : annuler tant qu'il se fabrique, télécharger quand il est prêt. */
+function ActionDeLExport({ titre, e }: { titre: string; e: ExportStudio }) {
+  if (e.etat === 'en-file' || e.etat === 'en-cours') {
+    return (
+      <Button size="icon" variant="ghost" aria-label="Annuler l’export" title={t('Annuler l’export')} onClick={() => client.call({ type: 'studio.export.annuler', id: e.id })}>
+        <X className="h-3.5 w-3.5" />
+      </Button>
+    );
+  }
+  const fichier = fichierDeLExport(titre, e);
+  return fichier ? <TelechargerLExport fichier={fichier} repere={e.id} /> : null;
+}
+
+/** L'état d'un export, en une ligne (et sa barre tant qu'il se fabrique). */
+function EtatDeLExport({ e }: { e: ExportStudio }) {
+  const p = useApp().studioProgression[e.id];
+  return (
+    <>
+      <p className={cn('text-[12px]', e.etat === 'echoue' ? 'text-danger' : e.etat === 'pret' ? 'text-termine' : e.etat === 'annule' ? 'text-faint' : 'text-en-cours')}>
+        {etatDeLExport(e)}
+        {e.etat === 'en-cours' && p ? ` — ${Math.round(p.valeur * 100)} % · ${p.etape}` : ''}
+        {e.erreur ? ` — ${e.erreur}` : ''}
+        {e.voixEnEssai && e.etat === 'pret' ? ` · ${t('{n} voix d’essai', { n: e.voixEnEssai })}` : ''}
+      </p>
+      {e.etat === 'en-cours' ? (
+        <div className="h-1 overflow-hidden rounded-full bg-raised">
+          <div className="h-full bg-en-cours transition-all" style={{ width: `${Math.round((p?.valeur ?? 0.03) * 100)}%` }} />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * ÉTAPE 3 — LES FICHIERS À TÉLÉCHARGER. On n'y voit que le LOT du dernier clic
+ * « Exporter » (`partagerLesExports`) : chaque fichier avec son état, sa barre,
+ * son lecteur et son téléchargement. Tout ce qui précède est rangé, replié, sous
+ * « Anciens exports », où un bouton les retire pour de bon (lignes et fichiers,
+ * jamais un export encore en fabrication) après confirmation.
+ */
+export function EtapeFichiers({ donnees }: { donnees: DonneesCreation }) {
+  const titre = donnees.creation.titre;
+  const { courants, anciens } = partagerLesExports(donnees.exports);
+  const [anciensOuverts, setAnciensOuverts] = React.useState(false);
+  const [aConfirmer, setAConfirmer] = React.useState(false);
+  const aVider = anciens.filter(exportFini).length;
+  return (
+    <div className="flex flex-col gap-2" data-studio-panneau="fichiers">
+      {!courants.length ? <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun fichier pour l’instant : revenez à l’étape précédente pour exporter.')}</p> : null}
+      {courants.map((e) => (
+        <Section liste key={e.id} titre={titreDeLExport(e)} action={<ActionDeLExport titre={titre} e={e} />}>
+          <div data-studio-export={e.id} data-etat={e.etat} data-studio-lot={e.lot ?? ''} className="flex flex-col gap-1.5">
+            <EtatDeLExport e={e} />
+            {e.etat === 'pret' && e.attachmentId && e.genre === 'video' && e.reglages?.fichier !== 'gif' ? <LecteurVideo id={e.attachmentId} nom={fichierDeLExport(titre, e)?.nom ?? `${titre} ${e.format}`} /> : null}
+            {e.etat === 'pret' && e.attachmentId && (e.genre === 'image' || e.reglages?.fichier === 'gif') ? (
+              <img src={`/api/attachment?id=${encodeURIComponent(e.attachmentId)}`} alt="" className="max-h-64 self-start rounded-md" />
+            ) : null}
+          </div>
+        </Section>
+      ))}
+      {anciens.length ? (
+        <section className="flex flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-studio-anciens-exports={anciens.length} data-ouvert={anciensOuverts ? 'oui' : 'non'}>
+          <button
+            type="button"
+            onClick={() => setAnciensOuverts((o) => !o)}
+            aria-expanded={anciensOuverts}
+            className="flex min-h-7 items-center gap-1.5 text-left"
+            data-studio-anciens-bascule
+          >
+            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', anciensOuverts && 'rotate-90')} aria-hidden />
+            <h3 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">{t('Anciens exports')}</h3>
+            <span className="shrink-0 text-[12px] tabular-nums text-faint">{anciens.length}</span>
+          </button>
+          {anciensOuverts ? (
+            <>
+              {anciens.map((e) => (
+                <div key={e.id} className="flex items-center gap-2" data-studio-export={e.id} data-etat={e.etat} data-studio-ancien>
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[12.5px] text-muted" title={titreDeLExport(e)}>
+                      {titreDeLExport(e)}
+                    </span>
+                    <EtatDeLExport e={e} />
+                  </div>
+                  <ActionDeLExport titre={titre} e={e} />
+                </div>
+              ))}
+              <Button size="sm" variant="outline" className="mt-1 w-full text-danger" disabled={!aVider} onClick={() => setAConfirmer(true)} data-studio-vider-exports>
+                <Trash2 className="h-3.5 w-3.5" />
+                {t('Vider les anciens exports')}
+              </Button>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+      <ConfirmDialog
+        open={aConfirmer}
+        danger
+        title={t('Vider les anciens exports ?')}
+        description={t('{n} ancien(s) fichier(s) seront supprimés du serveur pour de bon. Les fichiers du dernier export, affichés au-dessus, sont gardés.', { n: aVider })}
+        confirmLabel={t('Vider')}
+        onClose={() => setAConfirmer(false)}
+        onConfirm={() =>
+          client
+            .call<{ retires: number }>({ type: 'studio.exports.vider', creationId: donnees.creation.id, garder: courants.map((e) => e.id) })
+            .then((r) => client.pushToast('success', t('{n} ancien(s) export(s) supprimé(s).', { n: r.retires })))
+            .catch((err: any) => client.pushToast('error', err?.message ?? t('Suppression impossible')))
+        }
+      />
+    </div>
+  );
+}
+
+/** Les fichiers prêts d'un lot, et l'archive qui les réunit (« Tout télécharger »). */
+export function fichiersDuLot(titre: string, exports: ExportStudio[]): { fichiers: FichierATelecharger[]; archive?: FichierATelecharger } {
+  const prets = exports.filter((e) => e.etat === 'pret' && e.attachmentId);
+  const fichiers = nomsSansDoublon(prets.map((e) => fichierDeLExport(titre, e)!.nom)).map((nom, i) => ({ adresse: fichierDeLExport(titre, prets[i]!)!.adresse, nom }));
+  if (fichiers.length < 2) return { fichiers };
+  return { fichiers, archive: { adresse: `/api/studio/exports-groupes?ids=${prets.map((e) => encodeURIComponent(e.id)).join(',')}`, nom: `${slugTitre(titre) || 'exports'}-exports.zip` } };
 }
 
 /* ------------------------------------------------------------------ */

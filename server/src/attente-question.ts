@@ -143,22 +143,6 @@ export function repondreALAttente(questionId: string, reponse: string, jointes: 
   return poserLIssue(questionId, { etat: 'repondu', text: texteDeReponseALaQuestion(reponse, fichiers) });
 }
 
-/**
- * RENDRE UN TEXTE DÉJÀ PRÊT à l'appel qui attend — pour une attente qui n'est
- * pas une question de l'agent : la série d'encadrés de compétence posée par le
- * démon (`server/src/proposition-competences.ts`), dont le texte rendu est le
- * résultat de mémoire retenu, suivi des décisions de l'utilisateur.
- */
-export function rendreLAttente(questionId: string, texte: string): boolean {
-  return poserLIssue(questionId, { etat: 'repondu', text: texte });
-}
-
-/** Un appel attend-il encore sous cet identifiant ? */
-export function attenteOuverte(questionId: string): boolean {
-  const attente = attentes.get(questionId);
-  return !!attente && !attente.issue;
-}
-
 /** La question a été retirée sans réponse. Un texte personnalisé peut être fourni. */
 export function annulerLAttente(questionId: string, texte?: string): boolean {
   return poserLIssue(questionId, { etat: 'annulee', text: texte ?? texteDAnnulation() });

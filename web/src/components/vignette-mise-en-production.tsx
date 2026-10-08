@@ -21,7 +21,7 @@ import { relativeTime } from '@/lib/utils';
  * cours » du tableau (une par projet du groupe sur le tableau d'un groupe) et
  * en tête de « Actifs » des « Tableaux de bord ». Elle dit le projet, l'étape
  * et l'avancement. Une fois terminée — réussie, tombée ou arrêtée —, elle
- * quitte « En cours » du tableau et passe 24 heures dans « Terminés » des
+ * quitte « En cours » du tableau et passe 24 heures dans « Archiver » des
  * Tableaux de bord, sans point bleu ni aucun signal (`miseEnProductionAffichee`,
  * `shared/src/cartes-systeme.ts`, 06/10/2026). Sa hauteur suit son contenu.
  *

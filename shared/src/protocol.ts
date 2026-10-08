@@ -167,8 +167,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   /**
    * LA PAGE « EN ROUTE » (`shared/src/en-route.ts`) : les cartes de TOUS les
-   * projets en service qui sont en « Demande », « Travail » ou « À déployer »,
-   * la dernière action d'abord, par paquet. `apres` est la clé de la dernière
+   * projets en service d'une de ses trois colonnes (`onglet`), la dernière
+   * action d'abord, par paquet. `apres` est la clé de la dernière
    * carte reçue (`curseurApres`) : absent, c'est le premier paquet. Réponse
    * directe : les cartes, les agents qui les portent, et combien il en reste
    * sous la dernière envoyée.
@@ -177,11 +177,15 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('cards.enRoute'),
     apres: z.object({ updatedAt: z.number(), id: z.string() }).optional(),
     limit: z.number().int().positive().max(200).optional(),
+    /**
+     * La colonne demandée (`OngletEnRoute`) : « Actifs » (défaut), « Terminer »
+     * (À déployer) ou « Archiver » (tout Archivé, en ligne ou non).
+     */
+    onglet: z.enum(['actif', 'terminer', 'archive']).optional(),
   }),
   /**
-   * L'ONGLET « TERMINÉ » DE LA PAGE « EN ROUTE » (`estDeployee`) : les cartes
-   * archivées ET mises en ligne de tous les projets en service, la dernière
-   * action d'abord, par paquet sous `apres` (`curseurApresDeployee`).
+   * L'ANCIENNE COLONNE « TERMINÉS », gardée pour un écran resté ouvert sur la
+   * version d'avant : le démon y répond par « Archiver » (`onglet: 'archive'`).
    */
   z.object({
     type: z.literal('cards.deployees'),
@@ -475,6 +479,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
     /** Les images jointes à la réponse : l'agent les reçoit comme celles du fil. */
     attachments: z.array(z.string()).default([]),
   }),
+  /** Écarter une compétence retenue d'office au cadrage — refusé une fois la carte lancée. */
+  z.object({ type: z.literal('competence.ecarter'), messageId: z.string(), questionId: z.string() }),
+  /** Le mode d'emploi d'une compétence du pool, par son nom. */
+  z.object({ type: z.literal('competence.lire'), nom: z.string() }),
   /**
    * Fermer une question posée par l'agent SANS y répondre : elle cesse
    * d'attendre, mais l'agent n'est pas relancé.
@@ -627,6 +635,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
     projectId: z.string(),
     source: ColumnKey.optional(),
   }),
+  /**
+   * LA COPIE DE TEST du projet (`shared/src/copie-de-test.ts`) : ce qui attend
+   * sa mise en production, et le bouton qui recopie le vrai site vers la copie.
+   */
+  z.object({ type: z.literal('copieDeTest.etat'), projectId: z.string() }),
+  z.object({ type: z.literal('copieDeTest.rafraichir'), projectId: z.string() }),
   /**
    * Ce qui coincerait avec CETTE sélection de tâches : une carte retenue qui
    * touche les mêmes fichiers qu'une carte laissée de côté. Interrogé par
@@ -1106,6 +1120,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('studio.creation.ouvrir'), id: z.string() }),
   z.object({ type: z.literal('studio.creation.modifier'), id: z.string(), titre: z.string().optional(), formats: z.array(z.string()).optional() }),
+  /** Le réglage de l'agent d'une création, choisi avant sa première demande (`null` l'efface). */
+  z.object({
+    type: z.literal('studio.creation.agent'),
+    id: z.string(),
+    run: z.object({ engine: z.string(), model: z.string().optional(), thinking: z.string().optional(), account: z.string().optional() }).nullable(),
+  }),
   z.object({ type: z.literal('studio.creation.supprimer'), id: z.string() }),
   z.object({ type: z.literal('studio.creation.dupliquer'), id: z.string() }),
   /* LES MODÈLES : « Garder comme modèle » (le refaire met le modèle à jour), lister, retirer, copier vers un autre projet. */
@@ -1174,8 +1194,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
     instant: z.number().nonnegative().optional(),
     /** Qualité, définition, images par seconde, type, son, format d'image (`studio-export.ts`), lus avec tolérance. */
     reglages: z.record(z.unknown()).optional(),
+    /** Le lot du clic « Exporter » : le même pour chaque format coché (`partagerLesExports`). */
+    lot: z.string().max(64).optional(),
   }),
   z.object({ type: z.literal('studio.export.annuler'), id: z.string() }),
+  /* « Vider les anciens exports » : retire les exports FINIS de la création (lignes et fichiers), sauf ceux à garder. */
+  z.object({ type: z.literal('studio.exports.vider'), creationId: z.string(), garder: z.array(z.string()).max(200).optional() }),
   z.object({ type: z.literal('studio.depense.valider'), id: z.string() }),
   z.object({ type: z.literal('studio.depense.refuser'), id: z.string() }),
   z.object({ type: z.literal('studio.credit') }),

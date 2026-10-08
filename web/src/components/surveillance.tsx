@@ -351,67 +351,138 @@ function TiroirSurveillance({
 
   const ouvert = cible !== null && ('nouvelle' in cible || site !== null);
 
-  return (
-    <Drawer open={ouvert} onClose={onClose} empile className="h-[92dvh]">
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+  const historique = useHistoriqueDuSite(site);
+  const { choisie, setChoisie } = historique;
+  // Le volet refermé oublie la case choisie : il se rouvre sur sa tête, sans détail.
+  React.useEffect(() => {
+    if (!ouvert) setChoisie(null);
+  }, [ouvert]);
+  /** Ce qui défile sous la tête : le détail de la case choisie, puis WordPress. */
+  const defileRef = React.useRef<HTMLDivElement>(null);
+
+  // UNE CASE TOUCHÉE : son détail paraît en tête de la partie qui défile, et
+  // cette partie remonte pour qu'on le voie.
+  React.useEffect(() => {
+    if (!choisie) return;
+    const zone = zoneQuiDefile(defileRef.current);
+    if (zone) zone.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [choisie?.debut]);
+
+  /*
+   * LA TÊTE NE BOUGE PAS. Le titre et son état, l'adresse, les gestes, le projet
+   * du site, puis la frise des 24 heures restent fixes en haut du volet. Tout
+   * le reste — le détail d'une case, l'état WordPress, puis la conversation —
+   * défile d'un seul tenant entre cette tête et la barre d'écriture.
+   */
+  const teteFixe = (
+    <div className={cn('flex shrink-0 flex-col', site && 'border-b border-faint/30')} data-surveillance-tete-fixe="">
+      <header className="flex items-center gap-2 px-3 pb-2">
         {site ? <Activity className="h-3.5 w-3.5 shrink-0 text-accent" /> : <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />}
         <DialogTitle className="min-w-0 flex-1 truncate">{site ? site.nom : t('Nouvelle surveillance')}</DialogTitle>
         {site ? <BadgeEtat site={site} /> : null}
       </header>
+      {site ? (
+        <div className="flex flex-col gap-2 px-3 pb-3" data-surveillance-infos="">
+          <EnTeteDuSite site={site} onSupprimer={() => onSupprimer(site)} />
+          <FriseDuSite historique={historique} />
+        </div>
+      ) : null}
+    </div>
+  );
+  const aDefiler = Boolean(site && (choisie || site.wordpress));
+  const defile = site ? (
+    <div ref={defileRef} className={cn('flex flex-col gap-2', aDefiler && 'px-3 pt-3')} data-surveillance-defilement-tete="">
+      {choisie ? <DetailDeCase tranche={choisie} /> : null}
+      {site.wordpress ? <EtatWordpress key={site.id} site={site} /> : null}
+    </div>
+  ) : null;
+
+  return (
+    <Drawer open={ouvert} onClose={onClose} empile className="h-[92dvh]">
       <div className="flex min-h-0 flex-1 flex-col" data-surveillance-tiroir={site?.id ?? 'nouvelle'}>
-        {site ? <EtatEtHistorique site={site} onSupprimer={() => onSupprimer(site)} /> : null}
+        {teteFixe}
         {agent && projectId ? (
-          <div className="flex min-h-0 flex-1 flex-col border-t border-border" data-surveillance-conversation={agent.id}>
-            <Chat agent={agent} projectId={projectId} />
-          </div>
-        ) : agentId ? (
-          <div className="flex flex-1 items-center justify-center text-faint">
-            <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="flex min-h-0 flex-1 flex-col" data-surveillance-conversation={agent.id}>
+            <Chat agent={agent} projectId={projectId} enTeteDuFil={aDefiler ? defile : undefined} />
           </div>
         ) : (
-          <DemandeALAgent
-            site={site}
-            onLance={(d) => {
-              client.setActiveProject(d.projectId);
-              setDepart(d);
-            }}
-          />
+          <>
+            <ZoneDefilement className="flex flex-col">
+              {defile}
+              {agentId ? (
+                <div className="flex flex-1 items-center justify-center py-6 text-faint">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                </div>
+              ) : null}
+            </ZoneDefilement>
+            {agentId ? null : (
+              <DemandeALAgent
+                site={site}
+                onLance={(d) => {
+                  client.setActiveProject(d.projectId);
+                  setDepart(d);
+                }}
+              />
+            )}
+          </>
         )}
       </div>
     </Drawer>
   );
 }
 
+/** Le premier ancêtre qui défile vraiment (la zone du fil, ou celle du volet sans agent). */
+function zoneQuiDefile(el: HTMLElement | null): HTMLElement | null {
+  for (let n = el?.parentElement ?? null; n; n = n.parentElement) {
+    const o = getComputedStyle(n).overflowY;
+    if (o === 'auto' || o === 'scroll') return n;
+  }
+  return null;
+}
+
+type HistoriqueDuSite = {
+  controles: ControleSurveillance[] | null;
+  choisie: CaseDeFrise | null;
+  setChoisie: React.Dispatch<React.SetStateAction<CaseDeFrise | null>>;
+};
+
 /**
- * L'en-tête du tiroir : ce qui est vérifié, les gestes, et la frise des 24 heures.
- *
- * UNE PARTIE HAUTE PLAFONNÉE QUI DÉFILE. Sans plafond, un bloc WordPress chargé
- * (cinq soucis, la frise, le détail d'une tranche) prenait toute la hauteur du
- * tiroir et écrasait la conversation en dessous, hors d'atteinte. Elle tient
- * donc sous la moitié de l'écran et défile d'un seul tenant ; les listes
- * qu'elle contient s'affichent EN ENTIER (jamais deux zones qui défilent l'une
- * dans l'autre).
+ * L'HISTORIQUE DES 24 HEURES, lu UNE fois pour la frise (fixe) et le détail
+ * d'une case (qui défile) : les deux parties du volet partagent cet état.
  */
-function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSupprimer: () => void }) {
+function useHistoriqueDuSite(site: SiteSurveille | null): HistoriqueDuSite {
   const [controles, setControles] = React.useState<ControleSurveillance[] | null>(null);
-  const [verifEnCours, setVerifEnCours] = React.useState(false);
   const [choisie, setChoisie] = React.useState<CaseDeFrise | null>(null);
+  const id = site?.id;
+
+  React.useEffect(() => setChoisie(null), [id]);
 
   // L'historique se charge à l'ouverture, et se relit après chaque passage.
   React.useEffect(() => {
+    if (!id) {
+      setControles(null);
+      return;
+    }
     let vivant = true;
     client
-      .call<{ controles: ControleSurveillance[] }>({ type: 'surveillance.historique', id: site.id })
+      .call<{ controles: ControleSurveillance[] }>({ type: 'surveillance.historique', id })
       .then((r) => vivant && setControles(r.controles))
       .catch(() => vivant && setControles([]));
     return () => {
       vivant = false;
     };
-  }, [site.id, site.verifieLe]);
+  }, [id, site?.verifieLe]);
 
-  const maintenant = Date.now();
-  const cases = controles ? frise24h(controles, maintenant) : [];
-  const dispo = controles ? disponibilite24h(controles, maintenant) : null;
+  return { controles, choisie, setChoisie };
+}
+
+/**
+ * CE QUI EST VÉRIFIÉ ET LES GESTES, fixes en haut du volet : adresse, rythme,
+ * recette, étape en échec, « Vérifier maintenant » (toute la largeur), la
+ * corbeille seule tout à droite, puis le projet du site.
+ */
+function EnTeteDuSite({ site, onSupprimer }: { site: SiteSurveille; onSupprimer: () => void }) {
+  const [verifEnCours, setVerifEnCours] = React.useState(false);
   const recette = site.recette;
 
   const verifier = async () => {
@@ -426,12 +497,7 @@ function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSuppri
   };
 
   return (
-    <ZoneDefilement
-      hauteur={24}
-      classeEnveloppe="flex-none max-h-[48dvh]"
-      className="flex flex-col gap-2 px-3 pb-3"
-      data-surveillance-partie-haute=""
-    >
+    <>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-faint">
         <span className="min-w-0 truncate">{site.url}</span>
         <span aria-hidden>·</span>
@@ -450,58 +516,64 @@ function EtatEtHistorique({ site, onSupprimer }: { site: SiteSurveille; onSuppri
           {t('Étape en échec : {etape}', { etape: site.etapeEchouee })}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button variant="subtle" size="sm" disabled={verifEnCours} onClick={() => void verifier()} data-surveillance-verifier-site>
+      <div className="flex items-center gap-1.5" data-surveillance-gestes="">
+        <Button variant="subtle" size="sm" className="min-w-0 flex-1" disabled={verifEnCours} onClick={() => void verifier()} data-surveillance-verifier-site>
           {verifEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           {t('Vérifier maintenant')}
         </Button>
-        <Button variant="ghost" size="sm" onClick={onSupprimer} data-surveillance-retirer-site>
-          <Trash2 className="h-3 w-3" />
-          {t('Retirer')}
+        <Button variant="ghost" size="icon" className="shrink-0" title={t('Retirer')} aria-label="Retirer" onClick={onSupprimer} data-surveillance-retirer-site>
+          <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </div>
 
       <ProjetDuSite site={site} />
+    </>
+  );
+}
 
-      {site.wordpress ? <EtatWordpress key={site.id} site={site} /> : null}
+/** LA FRISE DES 24 HEURES et la disponibilité, fixes sous les gestes. */
+function FriseDuSite({ historique }: { historique: HistoriqueDuSite }) {
+  const { controles, choisie, setChoisie } = historique;
+  const maintenant = Date.now();
+  const cases = controles ? frise24h(controles, maintenant) : [];
+  const dispo = controles ? disponibilite24h(controles, maintenant) : null;
 
-      <div className="flex flex-col gap-1" data-surveillance-frise={controles ? controles.length : 'chargement'}>
-        <div className="flex items-baseline gap-2 text-[12px]">
-          <span className="min-w-0 flex-1 text-text">{t('Contrôles des dernières 24 heures')}</span>
-          {dispo !== null ? (
-            <span className="text-faint" data-surveillance-disponibilite>
-              {t('Disponibilité : {pourcentage}', { pourcentage: `${Math.round(dispo * 1000) / 10} %` })}
-            </span>
-          ) : null}
-        </div>
-        {controles === null ? (
-          <div className="h-6 animate-pulse rounded-sm bg-faint/15" />
-        ) : (
-          <div className="flex h-6 items-stretch gap-px" role="list">
-            {cases.map((c) => (
-              <Tooltip key={c.debut} label={libelleDeCase(c)}>
-                <button
-                  type="button"
-                  role="listitem"
-                  aria-label={libelleDeCase(c)}
-                  data-surveillance-case={c.etat}
-                  onClick={() => setChoisie((actuelle) => (actuelle?.debut === c.debut ? null : c))}
-                  className={cn(
-                    'min-w-0 flex-1 rounded-[2px]',
-                    c.etat === 'ok' ? 'bg-success' : c.etat === 'panne' ? 'bg-danger' : 'bg-faint/20',
-                    choisie?.debut === c.debut && 'ring-1 ring-faint',
-                  )}
-                />
-              </Tooltip>
-            ))}
-          </div>
-        )}
-        {controles && !controles.length ? (
-          <p className="text-[12px] text-faint">{t('Aucun contrôle sur les dernières 24 heures.')}</p>
+  return (
+    <div className="flex flex-col gap-1" data-surveillance-frise={controles ? controles.length : 'chargement'}>
+      <div className="flex items-baseline gap-2 text-[12px]">
+        <span className="min-w-0 flex-1 text-text">{t('Contrôles des dernières 24 heures')}</span>
+        {dispo !== null ? (
+          <span className="text-faint" data-surveillance-disponibilite>
+            {t('Disponibilité : {pourcentage}', { pourcentage: `${Math.round(dispo * 1000) / 10} %` })}
+          </span>
         ) : null}
-        {choisie ? <DetailDeCase tranche={choisie} /> : null}
       </div>
-    </ZoneDefilement>
+      {controles === null ? (
+        <div className="h-6 animate-pulse rounded-sm bg-faint/15" />
+      ) : (
+        <div className="flex h-6 items-stretch gap-px" role="list">
+          {cases.map((c) => (
+            <Tooltip key={c.debut} label={libelleDeCase(c)}>
+              <button
+                type="button"
+                role="listitem"
+                aria-label={libelleDeCase(c)}
+                data-surveillance-case={c.etat}
+                onClick={() => setChoisie((actuelle) => (actuelle?.debut === c.debut ? null : c))}
+                className={cn(
+                  'min-w-0 flex-1 rounded-[2px]',
+                  c.etat === 'ok' ? 'bg-success' : c.etat === 'panne' ? 'bg-danger' : 'bg-faint/20',
+                  choisie?.debut === c.debut && 'ring-1 ring-faint',
+                )}
+              />
+            </Tooltip>
+          ))}
+        </div>
+      )}
+      {controles && !controles.length ? (
+        <p className="text-[12px] text-faint">{t('Aucun contrôle sur les dernières 24 heures.')}</p>
+      ) : null}
+    </div>
   );
 }
 

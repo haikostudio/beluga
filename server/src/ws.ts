@@ -196,7 +196,7 @@ import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
 import { repondreALaQuestionDeLaCarte } from './questions-de-carte.js';
 import { annulerLAttente, questionEnAttenteDeLAgent, repondreALAttente } from './attente-question.js';
-import { fermerLesPropositionsDeLAgent, trancherLaCompetence } from './proposition-competences.js';
+import { ecarterLaCompetence, lireLaCompetence, trancherLaCompetence } from './proposition-competences.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
@@ -473,7 +473,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       // Les agents au travail et ceux qui viennent de finir, tous projets
       // confondus ; ceux du projet ouvert arrivent avec ses cartes, juste après.
       // …PLUS les agents sans carte finis depuis moins de 24 heures : leur
-      // carte violette les attend dans « Terminés » des Tableaux de bord.
+      // carte violette les attend dans « Archiver » des Tableaux de bord.
       agents: avecLesAgentsSystemeTermines(
         agentsDuPremierEnvoi(store.agentsActifsOuRecents(Date.now() - FRAICHEUR_AGENT_MS), null, Date.now()),
       ),
@@ -985,7 +985,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * le début de la demande de chaque carte (`demandes`, par identifiant).
      */
     case 'cards.enRoute': {
-      const { cards, restant, curseur } = store.cartesEnRoute(cmd.apres, cmd.limit);
+      const { cards, restant, curseur } = store.cartesEnRoute(cmd.apres, cmd.limit, cmd.onglet);
       return {
         cards,
         agents: store.agentsDesCartes(cards).map(agentPourLEcran),
@@ -996,9 +996,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       };
     }
 
-    /* L'onglet « Terminé » de la même page : ce qui est déjà en ligne. */
+    /* L'ancienne colonne « Terminés » d'un écran d'avant : « Archiver ». */
     case 'cards.deployees': {
-      const { cards, restant, curseur } = store.cartesDeployees(cmd.apres, cmd.limit);
+      const { cards, restant, curseur } = store.cartesEnRoute(cmd.apres, cmd.limit, 'archive');
       return {
         cards,
         agents: store.agentsDesCartes(cards).map(agentPourLEcran),
@@ -1812,12 +1812,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * compris. La barre répond donc à la question, par le MÊME chemin que le
        * bouton de la bulle (`texteRepondALaQuestion`).
        */
-      /*
-       * DES ENCADRÉS DE COMPÉTENCE ENCORE OUVERTS : écrire autre chose les
-       * referme, et le cadrage qu'ils retenaient repart aussitôt — le message
-       * ne dort pas dans la file derrière une attente d'une demi-heure.
-       */
-      fermerLesPropositionsDeLAgent(cmd.agentId);
       const enAttente = questionEnAttenteDeLAgent(cmd.agentId);
       /*
        * ET MÊME UN TOUR DÉJÀ REFERMÉ : plus personne n'attend dans le registre,
@@ -2184,11 +2178,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       bus.emit({ type: 'attention', ...store.signalAttention() });
 
       /*
-       * UN ENCADRÉ DE COMPÉTENCE N'EST PAS UNE QUESTION DE L'AGENT : c'est le
-       * démon qui l'a posé. La décision s'écrit sur la carte, et la recherche
-       * de mémoire retenue ne repart qu'au DERNIER encadré tranché de la série.
-       * Tour déjà refermé : la décision reste écrite, sans relancer l'agent —
-       * c'est la carte qui fait foi au lancement.
+       * UN ANCIEN ENCADRÉ DE COMPÉTENCE (d'avant la retenue d'office) N'EST
+       * PAS UNE QUESTION DE L'AGENT : la décision s'écrit sur la carte, sans
+       * relancer personne — c'est la carte qui fait foi au lancement.
        */
       if (question.competence) {
         trancherLaCompetence({ agentId: message.agentId, questionId: cmd.questionId, reponse: cmd.answer });
@@ -2236,6 +2228,17 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     /*
+     * LA CROIX D'UNE COMPÉTENCE RETENUE AU CADRAGE : elle ne partira pas avec
+     * l'agent d'exécution. Refusée côté démon une fois la carte lancée.
+     */
+    case 'competence.ecarter':
+      return ecarterLaCompetence({ messageId: String(cmd.messageId ?? ''), questionId: String(cmd.questionId ?? '') });
+
+    /* Le mode d'emploi d'une compétence, par son NOM dans le pool — jamais un chemin. */
+    case 'competence.lire':
+      return lireLaCompetence(String(cmd.nom ?? ''));
+
+    /*
      * ANNULER UNE QUESTION SANS Y RÉPONDRE. Utile quand elle a été posée par
      * erreur (dictée vocale déclenchée par mégarde) : elle cesse simplement
      * d'attendre, sans relancer l'agent — à la différence de « question.answer ».
@@ -2261,7 +2264,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * tranché — donc sans deviner à la place de l'utilisateur.
        */
       if (question.competence) {
-        // Un encadré fermé sans réponse : la série avance comme sur un « Pas utile », sans peser sur la fiche.
+        // Un ancien encadré fermé sans réponse : écarté sur la carte, sans peser sur la fiche.
         trancherLaCompetence({ agentId: message.agentId, questionId: cmd.questionId });
         return { ok: true };
       }
@@ -3425,6 +3428,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'studio.creation.creer':
     case 'studio.creation.ouvrir':
     case 'studio.creation.modifier':
+    case 'studio.creation.agent':
     case 'studio.creation.supprimer':
     case 'studio.creation.dupliquer':
     case 'studio.modele.valider':
@@ -3459,6 +3463,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'studio.voix.extraits':
     case 'studio.exporter':
     case 'studio.export.annuler':
+    case 'studio.exports.vider':
     case 'studio.depense.valider':
     case 'studio.depense.refuser':
     case 'studio.credit':
@@ -3502,6 +3507,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (!lireSurveillance(id)) throw new Error('surveillance introuvable');
       const { listerConstats } = await import('./surveillance-wordpress.js');
       return { constats: listerConstats(id) };
+    }
+
+    case 'copieDeTest.etat': {
+      const { etatDeLaCopieDeTest } = await import('./copie-de-test.js');
+      return etatDeLaCopieDeTest(cmd.projectId);
+    }
+
+    case 'copieDeTest.rafraichir': {
+      const { rafraichirLaCopieDeTest } = await import('./copie-de-test.js');
+      return rafraichirLaCopieDeTest(cmd.projectId);
     }
 
     case 'surveillance.wordpress.accepter': {

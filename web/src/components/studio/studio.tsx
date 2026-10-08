@@ -32,6 +32,7 @@ import {
 import {
   Button,
   ConfirmDialog,
+  DialogFooter,
   DialogTitle,
   Drawer,
   FormulaireEnColonnes,
@@ -42,6 +43,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { Chat } from '@/components/chat';
+import { RunSelectors, resoudreRun, type RunChoix } from '@/components/run-selectors';
 import { SilhouetteConversation, SilhouetteStudio } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -53,8 +55,9 @@ import { AvancementDeCreation } from './avancement';
 import { EditeurElement } from './editeur-element';
 import { PanneauSources, PanneauStyles, StylesCites, demandeDAppliquer, type StyleDeLaGalerie } from './styles';
 import { LigneDeTemps, type QuoiAjouter } from './ligne-de-temps';
-import { Calques, Inspecteur } from './inspecteur';
+import { Calques, Inspecteur, ReglagesDeComposition } from './inspecteur';
 import { DepensesEnAttente, PanneauBibliotheque, choisirEtImporter } from './panneaux';
+import { EnteteDeFenetre } from './champs';
 import { BoutonMiseEnProduction, FenetreMiseEnProduction } from './production';
 import { libelleFormat } from './libelles';
 import { VoletVerification } from './verification';
@@ -243,9 +246,8 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
   };
   return (
     <Drawer open onClose={onClose} empile>
-      <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
-        <Clapperboard className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Nouvelle création')}</DialogTitle>
+      <header className="shrink-0 px-3 pb-2">
+        <EnteteDeFenetre titre={t('Nouvelle création')} onRetour={onClose} />
       </header>
       <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-3">
         <div className="text-[13.5px]" data-studio-formulaire>
@@ -296,14 +298,11 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
           </FormulaireEnColonnes>
         </div>
       </ZoneDefilement>
-      <div className="flex shrink-0 justify-end gap-2 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-2">
-        <Button variant="ghost" onClick={onClose}>
-          {t('Annuler')}
-        </Button>
-        <Button variant="default" disabled={!projet || (!modele && !formats.length)} onClick={creer} data-studio-creer>
+      <DialogFooter pleineLargeur>
+        <Button variant="default" size="lg" disabled={!projet || (!modele && !formats.length)} onClick={creer} data-studio-creer>
           {t('Créer')}
         </Button>
-      </div>
+      </DialogFooter>
     </Drawer>
   );
 }
@@ -320,11 +319,14 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
  * en production ».
  */
 type Panneau = 'reglages' | 'agent' | 'bibliotheque';
+/** Le volet de droite (ordinateur) : la conversation, ou « Style » ouvert par son bouton d'entête. */
+type VoletDeDroite = Exclude<Panneau, 'reglages'>;
 
 function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRetour: () => void; onOuvrir: (id: string) => void }) {
   const state = useApp();
   const telephone = useTelephone();
-  const version = state.studioVersions[creationId] ?? 0;
+  // `reprise` avance après une coupure : la création ouverte se relit même si aucun signal ne l'a nommée.
+  const version = (state.studioVersions[creationId] ?? 0) + (state.studioVersions.reprise ?? 0);
   const [donnees, setDonnees] = React.useState<DonneesCreation | null>(null);
   const [temps, setTemps] = React.useState(0);
   const [lecture, setLecture] = React.useState(false);
@@ -332,7 +334,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
   const [selection, setSelection] = React.useState<string[]>([]);
   const [element, setElement] = React.useState<string | null>(null);
   const [format, setFormat] = React.useState<FormatStudio | null>(null);
-  const [panneau, setPanneau] = React.useState<Panneau>('agent');
+  const [panneau, setPanneau] = React.useState<VoletDeDroite>('agent');
   const [tiroir, setTiroir] = React.useState<Panneau | null>(null);
   /** LA GALERIE DE STYLES, dans son tiroir posé par-dessus l'application. */
   const [galerie, setGalerie] = React.useState(false);
@@ -431,7 +433,6 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         setElement(m.elementId ?? null);
         /* Sur téléphone, la pièce touchée garde l'écran : sa barre de boutons est posée sur l'image
            (« Ouvrir l'éditeur » mène à ses réglages) — plus de tiroir qui la recouvre d'office. */
-        if (m.segmentId && !telephone) setPanneau('reglages');
       } else if (m.type === 'retouche' && m.segmentId && m.elementId && m.retouche) {
         void operer({ op: 'retouche', segmentId: m.segmentId, elementId: m.elementId, retouche: m.retouche, format: formatAffiche }).catch(() => undefined);
       } else if (m.type === 'effacer' && m.segmentId && m.elementId) {
@@ -453,7 +454,6 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
     }
     setSelection((s) => (ajouter ? (s.includes(segmentId) ? s.filter((x) => x !== segmentId) : [...s, segmentId]) : [segmentId]));
     apercu.current?.selectionner(segmentId, null);
-    setPanneau((p) => (p === 'agent' ? p : 'reglages'));
   }, []);
 
   /**
@@ -576,9 +576,13 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
     ) : p === 'agent' ? (
       <PanneauAgent donnees={donnees} onAppliquerStyle={appliquerStyle} />
     ) : (
-      <PanneauBibliotheque donnees={donnees} temps={temps} onOperation={operer} onOuvrir={onOuvrir} />
+      <div className="flex flex-col gap-2">
+        <ReglagesDeComposition composition={composition} onOperation={operer} />
+        <PanneauBibliotheque donnees={donnees} temps={temps} onOperation={operer} onOuvrir={onOuvrir} />
+      </div>
     );
 
+  /** LES ONGLETS DU TÉLÉPHONE, sous le pouce (l'ordinateur n'en a plus : son volet est la conversation). */
   const onglets: { cle: Panneau; libelle: string; Icone: typeof Bot }[] = [
     { cle: 'agent', libelle: t('Agent'), Icone: Bot },
     { cle: 'reglages', libelle: t('Réglages'), Icone: SlidersHorizontal },
@@ -659,7 +663,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
           <Button
             size="sm"
             variant={panneau === 'bibliotheque' ? 'subtle' : 'ghost'}
-            onClick={() => setPanneau((p) => (p === 'bibliotheque' ? 'reglages' : 'bibliotheque'))}
+            onClick={() => setPanneau((p) => (p === 'bibliotheque' ? 'agent' : 'bibliotheque'))}
             aria-pressed={panneau === 'bibliotheque'}
             title={t('Style : kit de marque, médias et modèles du projet')}
             data-studio-onglet="bibliotheque"
@@ -673,7 +677,10 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
 
       <DepensesEnAttente donnees={donnees} />
 
-      <div className={cn('flex min-h-0 flex-1', telephone ? 'flex-col' : 'flex-row gap-2 px-3')}>
+      {/* AU TÉLÉPHONE, CETTE RANGÉE GARDE SA HAUTEUR (celle de l'aperçu) : en `flex-1`, elle partageait la place à parts
+          égales avec la ligne de temps, se retrouvait plus basse que l'aperçu qu'elle contient, et la ligne de temps
+          (durée, règle des secondes) remontait SUR le bas de l'image. La ligne de temps prend ce qui reste. */}
+      <div className={cn('flex min-h-0', telephone ? 'shrink-0 flex-col' : 'flex-1 flex-row gap-2 px-3')} data-studio-rangee-apercu>
         {/* LES CALQUES (ordinateur) : leur colonne à gauche de l'aperçu, la droite reste aux réglages. */}
         {!telephone ? (
           <aside className="flex w-[240px] shrink-0 flex-col overflow-hidden rounded-md bg-bloc xl:w-[260px]" data-studio-colonne-calques>
@@ -756,15 +763,10 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         {/* LE VOLET DE CÔTÉ (ordinateur) */}
         {!telephone ? (
           <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-md bg-bloc xl:w-[400px]" data-studio-volet>
-            <nav className="flex shrink-0 items-center gap-0.5 p-1">
-              {/* « Style » a son bouton dans l'entête : le volet n'a plus que l'agent et les réglages pour onglets. */}
-              {onglets.filter((o) => o.cle !== 'bibliotheque').map((o) => (
-                <Button key={o.cle} size="sm" variant={panneau === o.cle ? 'subtle' : 'ghost'} onClick={() => setPanneau(o.cle)} data-studio-onglet={o.cle} aria-pressed={panneau === o.cle} title={o.libelle}>
-                  <o.Icone className="h-3.5 w-3.5" />
-                  {panneau === o.cle ? o.libelle : null}
-                </Button>
-              ))}
-            </nav>
+            {/* LE VOLET NE PORTE PLUS D'ONGLETS : la conversation avec l'agent, et le
+                volet « Style » quand son bouton d'entête est allumé (un second clic
+                ramène à la conversation). Les réglages d'un élément vivent dans sa
+                fenêtre d'édition (double-clic, « Ouvrir l'éditeur »). */}
             {panneau === 'agent' ? (
               <div className="flex min-h-0 flex-1 flex-col">{contenuDuPanneau('agent')}</div>
             ) : (
@@ -777,7 +779,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       </div>
 
       {/* LA LIGNE DE TEMPS */}
-      <div className={cn('flex min-h-0 shrink-0 flex-col pt-2', telephone ? 'flex-1' : 'max-h-[34vh]')}>
+      <div className={cn('flex min-h-0 flex-col pt-2', telephone ? 'flex-1' : 'max-h-[34vh] shrink-0')} data-studio-rangee-ligne-de-temps>
         <ZoneDefilement fond="hsl(var(--surface))" className="px-1 pb-2">
           <LigneDeTemps
             composition={composition}
@@ -806,8 +808,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       ) : null}
       {telephone && tiroir ? (
         <Drawer open onClose={() => setTiroir(null)} empile plein>
-          <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
-            <DialogTitle className="min-w-0 flex-1 truncate">{onglets.find((o) => o.cle === tiroir)?.libelle}</DialogTitle>
+          <header className="shrink-0 px-3 pb-2">
+            <EnteteDeFenetre titre={onglets.find((o) => o.cle === tiroir)?.libelle ?? ''} onRetour={() => setTiroir(null)} />
           </header>
           {tiroir === 'agent' ? (
             <div className="flex min-h-0 flex-1 flex-col">{contenuDuPanneau('agent')}</div>
@@ -822,14 +824,21 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       {/* LA BIBLIOTHÈQUE DE STYLES : un tiroir posé par-dessus l'application, jamais un volet de côté. */}
       {galerie ? (
         <Drawer open onClose={() => setGalerie(false)} empile>
-          <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
-            <Library className="h-3.5 w-3.5 shrink-0 text-accent" />
-            <DialogTitle className="min-w-0 flex-1 truncate">{vueSources ? t('Sources de la bibliothèque') : t('Bibliothèque')}</DialogTitle>
-            {/* LES SOURCES, en haut à droite : d'où viennent les styles, et en ajouter une. */}
-            <Button size="sm" variant={vueSources ? 'subtle' : 'ghost'} aria-pressed={vueSources} onClick={() => setVueSources((v) => !v)} data-studio-bibliotheque-sources>
-              {vueSources ? <ArrowLeft className="h-3.5 w-3.5" /> : <Globe className="h-3.5 w-3.5" />}
-              {vueSources ? t('Styles') : t('Sources')}
-            </Button>
+          {/* RETOUR À GAUCHE, TITRE AU CENTRE : depuis les sources, la flèche ramène aux styles ; depuis les styles, elle referme.
+              Les sources s'ouvrent par leur bouton, en haut à droite. */}
+          <header className="shrink-0 px-3 pb-2">
+            <EnteteDeFenetre
+              titre={vueSources ? t('Sources de la bibliothèque') : t('Bibliothèque')}
+              onRetour={vueSources ? () => setVueSources(false) : () => setGalerie(false)}
+              repereRetour={vueSources ? 'data-studio-bibliotheque-sources' : 'data-studio-retour'}
+              droite={
+                vueSources ? null : (
+                  <Button size="icon" variant="ghost" aria-label="Sources" title={t('Sources : d’où viennent les styles')} onClick={() => setVueSources(true)} data-studio-bibliotheque-sources>
+                    <Globe className="h-3.5 w-3.5" />
+                  </Button>
+                )
+              }
+            />
           </header>
           <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-4">
             <div data-studio-tiroir-bibliotheque>{vueSources ? <PanneauSources /> : <PanneauStyles onAppliquer={appliquerStyle} />}</div>
@@ -837,7 +846,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         </Drawer>
       ) : null}
       {production ? (
-        <FenetreMiseEnProduction donnees={donnees} format={formatAffiche} onFormat={setFormat} temps={temps} onVoixEssai={voixEssai} onClose={() => setProduction(false)} />
+        <FenetreMiseEnProduction donnees={donnees} format={formatAffiche} temps={temps} onVoixEssai={voixEssai} onClose={() => setProduction(false)} />
       ) : null}
       {editeur ? (
         <EditeurElement
@@ -905,9 +914,14 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
     if (agentId && !agent) void client.chargerAgent(agentId);
   }, [agentId, !!agent]);
 
+  /* LE BOUTON DE CONFIGURATION, EN TÊTE DE LA CONVERSATION : présent dès
+     l'accueil (avant la première demande), puis tout au long du fil. */
+  const configuration = <ConfigurationDeLAgent donnees={donnees} agent={agent} />;
+
   if (agent) {
     return (
       <div className="flex min-h-0 flex-1 flex-col" data-studio-agent="conversation">
+        {configuration}
         <Chat
           agent={agent}
           projectId={donnees.creation.projectId}
@@ -925,8 +939,11 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
   }
   if (agentId) {
     return (
-      <div className="px-3" data-studio-agent="chargement">
-        <SilhouetteConversation bulles={3} />
+      <div className="flex min-h-0 flex-1 flex-col" data-studio-agent="chargement">
+        {configuration}
+        <div className="px-3">
+          <SilhouetteConversation bulles={3} />
+        </div>
       </div>
     );
   }
@@ -937,7 +954,9 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
     setDemande('');
   };
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 p-3" data-studio-agent="accueil">
+    <div className="flex min-h-0 flex-1 flex-col" data-studio-agent="accueil">
+      {configuration}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
       <p className="text-[13.5px] leading-relaxed text-text">
         {t('L’agent du studio dessine vos visuels en code, pièce par pièce : vous gardez la main sur chaque texte, couleur et position. Il prépare aussi les voix d’essai et les sous-titres.')}
       </p>
@@ -960,6 +979,83 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
         <Send className="h-3.5 w-3.5" />
         {t('Confier à l’agent')}
       </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * LA CONFIGURATION DE L'AGENT DE LA CRÉATION — moteur, modèle, réflexion,
+ * compte, comme pour une carte, mais MODIFIABLE À TOUT MOMENT (décision de
+ * l'utilisateur, 08.10.2026) : le nouveau réglage vaut à la demande suivante,
+ * et l'agent repart d'un fil neuf avec le résumé de la conversation (nouvelle
+ * clé de session, `cleDeSession` / `filARappeler`).
+ *
+ * - Agent né : `agent.config` (le démon tranche la cascade et écrit aussi la
+ *   carte de l'agent, sans toucher aux défauts du projet).
+ * - Avant la première demande : le choix vit sur la création
+ *   (`studio.creation.agent`) et sert au démarrage (`lancerAgentStudio`).
+ */
+function ConfigurationDeLAgent({ donnees, agent }: { donnees: DonneesCreation; agent: Agent | null }) {
+  const state = useApp();
+  const [ouvert, setOuvert] = React.useState(false);
+  const choisi = agent?.run ?? donnees.creation.runAgent;
+  const choix = (choisi ?? { engine: 'claude' }) as RunChoix;
+  const retenu = resoudreRun(state.engines, choix);
+  // Avant tout choix, le démarrage prend le modèle le plus capable de Claude : on ne prétend pas en nommer un.
+  const resume = [retenu.engine?.label ?? choix.engine, choisi?.model ? (retenu.model?.label ?? choisi.model) : t('Automatique')].filter(Boolean).join(' · ');
+
+  const choisir = async (patch: RunChoix) => {
+    try {
+      if (agent) {
+        const run: RunChoix = patch.engine ? { engine: patch.engine } : { model: patch.model, thinking: patch.thinking, account: patch.account };
+        await client.call({ type: 'agent.config', agentId: agent.id, run });
+        return;
+      }
+      const souhait: RunChoix = patch.engine ? { engine: patch.engine } : { ...choix, ...patch };
+      const r = resoudreRun(state.engines, souhait);
+      if (!r.engine) return;
+      await client.call({
+        type: 'studio.creation.agent',
+        id: donnees.creation.id,
+        run: {
+          engine: r.engine.id,
+          ...(r.model ? { model: r.model.id } : {}),
+          ...(r.thinking ? { thinking: r.thinking.id } : {}),
+          ...(souhait.account && !patch.engine ? { account: souhait.account } : {}),
+        },
+      });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('réglage impossible'));
+    }
+  };
+
+  return (
+    <div className="flex shrink-0 items-center gap-1.5 px-3 pb-1 pt-1.5" data-studio-config-agent={agent ? 'agent' : 'creation'}>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted" data-studio-config-resume={resume}>
+        {resume}
+      </span>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="shrink-0"
+        title={t('Configuration de l’agent')}
+        aria-label="Configuration de l’agent"
+        aria-pressed={ouvert}
+        onClick={() => setOuvert(true)}
+        data-studio-config-agent-bouton
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+      </Button>
+      <RunSelectors
+        engines={state.engines}
+        choix={choix}
+        onSelect={(patch) => void choisir(patch)}
+        comptes={state.quotas}
+        masquerDeclencheur
+        ouvertControle={ouvert}
+        onOuvertControleChange={setOuvert}
+      />
     </div>
   );
 }

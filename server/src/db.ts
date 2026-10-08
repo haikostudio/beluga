@@ -2936,7 +2936,7 @@ export const MIGRATIONS: {
     /*
      * LES CARTES D'UNE DEMANDE COMMUNE S'EMPILENT sur la page « Tableaux de
      * bord » (`famillesParDerniereAction`) : la mère et ses filles forment UNE
-     * entrée, rangée dans « Actifs » ou « Terminés » selon l'état de TOUTE la
+     * entrée, rangée dans « Actifs », « Terminer » ou « Archiver » selon l'état de TOUTE la
      * famille. Le lien fille → mère sort du JSON en vraie colonne indexée
      * (« les champs d'une carte sont de vraies colonnes ») : sans elle, chaque
      * paquet relirait le JSON des milliers de cartes archivées.
@@ -3759,6 +3759,34 @@ export const MIGRATIONS: {
       ALTER TABLE studio_sources_styles ADD COLUMN trouvee_dans TEXT;
       ALTER TABLE studio_sources_styles ADD COLUMN par_navigateur INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE studio_sources_styles ADD COLUMN alerte_verification INTEGER;
+    `,
+  },
+  {
+    id: 113,
+    name: 'studio-reglage-de-l-agent',
+    siTable: 'studio_creations',
+    /*
+     * LE MOTEUR DE L'AGENT DU STUDIO SE CHOISIT AVANT SA PREMIÈRE DEMANDE
+     * (bouton de configuration en tête de la conversation). Tant que l'agent
+     * n'existe pas, le choix vit sur la création, en JSON
+     * ({ engine, model, thinking, account }) ; `lancerAgentStudio` le lit au
+     * démarrage. Ensuite l'agent porte son propre réglage.
+     */
+    sql: `
+      ALTER TABLE studio_creations ADD COLUMN run_agent TEXT;
+    `,
+  },
+  {
+    id: 114,
+    name: 'studio-lot-d-export',
+    siTable: 'studio_exports',
+    /*
+     * LE LOT D'UN EXPORT : un clic sur « Exporter » lance une vidéo par format
+     * coché, toutes marquées du même `lot`. L'écran des fichiers ne montre que le
+     * lot le plus récent (`partagerLesExports`) ; nul sur un export lancé seul.
+     */
+    sql: `
+      ALTER TABLE studio_exports ADD COLUMN lot TEXT;
     `,
   },
 ];

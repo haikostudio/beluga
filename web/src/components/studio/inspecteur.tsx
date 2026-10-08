@@ -1,16 +1,49 @@
 import * as React from 'react';
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ChevronDown, ChevronUp, Copy, Eraser, Eye, EyeOff, Layers, Magnet, Scissors, Trash2 } from 'lucide-react';
+import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Eraser,
+  Eye,
+  EyeOff,
+  Italic,
+  Layers,
+  Magnet,
+  Plus,
+  RotateCw,
+  Scan,
+  Scissors,
+  Strikethrough,
+  Trash2,
+  Underline,
+  X,
+} from 'lucide-react';
 import {
   type Composition,
   type FormatStudio,
   type MediaStudio,
   type OperationStudio,
   type AncrePiece,
+  type AlignementVertical,
+  type CasseTexte,
+  type Degrade,
+  type ModeFusion,
+  type OmbrePiece,
   type Retouche,
   type Segment,
   type SegmentDessin,
   dureeDeLaComposition,
+  MODES_FUSION,
+  OMBRES_MAX,
   piecesDuDessin,
+  POLICES_STUDIO,
   RECETTES_ANIMATION,
   retouchesDuFormat,
   trouverSegment,
@@ -18,8 +51,8 @@ import {
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { formatRegional, t } from '@/lib/langue';
-import { BlocRepliable, ChampBascule, ChampChoix, ChampCouleur, ChampCurseur, ChampNombre, ChampPolice, ChampTexte, Ligne, Section } from './champs';
-import { ApercuEnDirect, type BoiteDuCadre, type NaturePiece, alignementDe, enHexa } from './apercu';
+import { Accordeons, ChampBascule, ChampBoutons, ChampChoix, ChampCouleur, ChampCurseur, ChampNombre, ChampPolice, ChampQuatre, ChampTexte, Ligne, Section } from './champs';
+import { ApercuEnDirect, type BoiteDuCadre, type NaturePiece, alignementDe, enCouleur, lireCouleur } from './apercu';
 import { libelleDuGenre, libelleEtatVoix, libelleRecette } from './libelles';
 import { actionDEcoute, useEcouteDesVoix } from './panneaux';
 import { iconeDeRecette } from './ligne-de-temps';
@@ -27,13 +60,21 @@ import { iconeDeRecette } from './ligne-de-temps';
 /**
  * L'INSPECTEUR : ce qui se règle sur ce qu'on a cliqué.
  *
- * UNE PIÈCE CHOISIE (dans l'aperçu ou les calques) passe EN TÊTE, avec ses
- * seuls vrais réglages : un texte a son texte (s'il n'est pas découpé en mots
- * animés), sa taille de lettres, sa couleur et son alignement ; toute pièce a
- * son cadre (largeur, hauteur). Viennent ensuite SES COULEURS — fond (ou
- * remplissage d'un SVG), contour, arrondi — puis toute la scène, DÉPLIÉE (nom,
- * temps, entrée, sortie, couleurs et autres paramètres du dessin). Chaque
- * valeur part de ce que la page affiche (styles calculés envoyés par
+ * LA PIÈCE OU LA SCÈNE, JAMAIS LES DEUX. Une pièce d'un DESSIN choisie (dans
+ * l'aperçu ou les calques) : l'inspecteur ne montre QUE ses réglages, rangés
+ * comme dans Figma et propres à ce qu'elle est (`RetouchesDeLaPiece`) — un
+ * texte a son contenu sur plusieurs lignes et sa typographie, une image sa
+ * source et son cadrage, toute pièce sa disposition, son calque, son
+ * remplissage, son contour, ses marges, ses effets et les paramètres que
+ * l'agent a posés sur elle. Rien de choisi : la SCÈNE (nom, temps, entrée,
+ * sortie, puis les réglages de son genre — pour un dessin, les paramètres qui
+ * ne visent aucune pièce). Hors dessin, le segment EST la pièce : sa place
+ * s'ajoute à ses réglages.
+ *
+ * CHAQUE BLOC EST UN ACCORDÉON (`Accordeons`) : tous ouverts au départ, chacun
+ * se replie sans toucher aux autres, et son état est gardé sur l'appareil.
+ *
+ * Chaque valeur part de ce que la page affiche (styles calculés envoyés par
  * l'aperçu), jamais d'un blanc par défaut ; une couleur se voit dans l'aperçu
  * PENDANT le choix (`ApercuEnDirect`). Une retouche est une donnée posée à côté
  * du dessin : elle survit à un redessin.
@@ -72,21 +113,7 @@ export function Inspecteur({
   if (!trouve) {
     return (
       <div className="flex flex-col gap-2" data-studio-inspecteur="composition">
-        <Section titre={t('Composition')}>
-          <Ligne libelle={t('Fond')}>
-            <ChampCouleur valeur={composition.fond} onValider={(v) => onOperation({ op: 'composition', fond: v })} />
-          </Ligne>
-          <Ligne libelle={t('Durée voulue')}>
-            <ChampNombre
-              valeur={composition.dureeVoulue ?? dureeDeLaComposition(composition)}
-              unite="s"
-              min={0.5}
-              onValider={(v) => onOperation({ op: 'composition', dureeVoulue: v })}
-              data-studio-duree-voulue
-            />
-          </Ligne>
-          <p className="text-[12px] text-faint">{t('Le marqueur bleu de la ligne de temps : la vidéo s’arrête là, à l’aperçu comme à l’export.')}</p>
-        </Section>
+        <ReglagesDeComposition composition={composition} onOperation={onOperation} />
         <p className="px-1 text-[12.5px] text-faint">{t('Choisissez un segment dans la ligne de temps, ou une pièce dans l’aperçu, pour la régler.')}</p>
       </div>
     );
@@ -98,16 +125,23 @@ export function Inspecteur({
 
   // La boîte de l'aperçu ne compte que si elle parle de LA pièce réglée ici.
   const boite = piece && piece.segmentId === s.id && (piece.elementId ?? null) === elementId ? piece : null;
-  const pieceDuDessin = s.genre === 'dessin' && elementId ? piecesDuDessin(s.gabarit.html).find((p) => p.id === elementId) : undefined;
-  const parametresDeLaPiece = pieceDuDessin?.parametres ?? [];
+  const piecesDeLaScene = s.genre === 'dessin' ? piecesDuDessin(s.gabarit.html) : [];
+  const parametresDeLaPiece = piecesDeLaScene.find((p) => p.id === elementId)?.parametres ?? [];
+  // Un paramètre TEXTE posé sur la pièce est son contenu : il se règle dans le bloc « Texte » (sur plusieurs lignes).
+  const estTexte = (id: string) => s.genre === 'dessin' && s.parametres.some((p) => p.id === id && p.type === 'texte');
+  const parametresTexteDeLaPiece = boite?.nature === 'texte' ? parametresDeLaPiece.filter(estTexte) : [];
+  const autresParametresDeLaPiece = parametresDeLaPiece.filter((id) => !parametresTexteDeLaPiece.includes(id));
+  // Les paramètres posés sur une pièce vivent avec elle : la scène ne garde que les autres.
+  const parametresDesPieces = piecesDeLaScene.flatMap((p) => p.parametres ?? []);
   const pieceVisee = !!elementId && s.genre !== 'audio' && s.genre !== 'voix';
-  // Un DESSIN dont une pièce est choisie : la scène entière se replie sous elle.
-  const sceneRepliee = pieceVisee && s.genre === 'dessin';
+  // Une pièce d'un DESSIN choisie : elle seule, la scène disparaît.
+  const pieceSeule = pieceVisee && s.genre === 'dessin';
 
   const scene = (
     <>
       <Section
         titre={`${libelleDuGenre(s.genre)}${s.nom ? ` — ${s.nom}` : ''}`}
+        cle="segment"
         data-studio-section-scene=""
         action={
           <span className="flex items-center">
@@ -161,41 +195,45 @@ export function Inspecteur({
           </>
         ) : null}
       </Section>
-      <ReglagesDuGenre segment={s} medias={medias} voixEssai={voixEssai} prop={prop} onOperation={onOperation} onVoixEssai={onVoixEssai} exclure={sceneRepliee ? parametresDeLaPiece : []} />
+      <ReglagesDuGenre segment={s} medias={medias} voixEssai={voixEssai} prop={prop} onOperation={onOperation} onVoixEssai={onVoixEssai} exclure={parametresDesPieces} />
     </>
   );
 
   return (
-    <div className="flex flex-col gap-2" data-studio-inspecteur={s.genre}>
-      {pieceVisee ? (
-        <RetouchesDeLaPiece
-          segment={s}
-          elementId={elementId!}
-          format={format}
-          formatDeBase={composition.format}
-          onOperation={onOperation}
-          boite={boite}
-          // Le texte, la couleur et le cadre d'un texte, d'une forme ou d'un SVG ne se règlent que dans un dessin : ailleurs, le segment les porte déjà.
-          reglagesDuContenu={s.genre === 'dessin'}
-          parametres={
-            s.genre === 'dessin' && parametresDeLaPiece.length ? (
-              <ParametresDuDessin segment={s} medias={medias} onOperation={onOperation} ids={parametresDeLaPiece} />
-            ) : null
-          }
-        />
-      ) : null}
-
+    <div className="flex flex-col gap-2" data-studio-inspecteur={s.genre} data-studio-vue={pieceSeule ? 'piece' : 'scene'}>
+      {/* Sur téléphone, les calques restent ici, AU-DESSUS des accordéons : c'est d'eux qu'on choisit la pièce. */}
       {s.genre === 'dessin' && !calquesAilleurs ? (
         <Calques segment={s} elementId={elementId} format={format} formatDeBase={composition.format} onOperation={onOperation} onChoisirPiece={onChoisirPiece} />
       ) : null}
 
-      {sceneRepliee ? (
-        <BlocRepliable key={s.id} titre={t('Toute la scène « {nom} »', { nom: s.nom || libelleDuGenre(s.genre) })} ouvertParDefaut data-studio-scene="">
-          {scene}
-        </BlocRepliable>
-      ) : (
-        scene
-      )}
+      {/* Chaque bloc s'ouvre et se ferme seul, et garde son état d'une pièce à l'autre (`Accordeons`). La clé remonte
+          les champs quand la pièce change : une saisie en cours ne passe pas d'une pièce à l'autre. */}
+      <Accordeons key={`${s.id}:${pieceVisee ? elementId : ''}`}>
+        {pieceVisee ? (
+          <RetouchesDeLaPiece
+            segment={s}
+            elementId={elementId!}
+            format={format}
+            formatDeBase={composition.format}
+            medias={medias}
+            onOperation={onOperation}
+            boite={boite}
+            // Le texte, les couleurs, la typographie et les effets ne se règlent que dans un dessin : ailleurs, le segment les porte déjà.
+            reglagesDuContenu={s.genre === 'dessin'}
+            parametresTexte={
+              s.genre === 'dessin' && parametresTexteDeLaPiece.length ? (
+                <ParametresDuDessin segment={s} medias={medias} onOperation={onOperation} ids={parametresTexteDeLaPiece} />
+              ) : null
+            }
+            parametres={
+              s.genre === 'dessin' && autresParametresDeLaPiece.length ? (
+                <ParametresDuDessin segment={s} medias={medias} onOperation={onOperation} ids={autresParametresDeLaPiece} />
+              ) : null
+            }
+          />
+        ) : null}
+        {pieceSeule ? null : scene}
+      </Accordeons>
     </div>
   );
 }
@@ -226,7 +264,7 @@ function ParametresDuDessin({
           return (
             <Ligne key={p.id} libelle={p.libelle}>
               {p.type === 'couleur' ? (
-                <ChampCouleur valeur={String(v)} onValider={poser} onApercu={direct ? (c) => direct({ segmentId: s.id, variable: p.id, valeur: c }) : undefined} data-studio-parametre={p.id} />
+                <ChampCouleur transparence valeur={String(v)} onValider={poser} onApercu={direct ? (c) => direct({ segmentId: s.id, variable: p.id, valeur: c }) : undefined} data-studio-parametre={p.id} />
               ) : p.type === 'nombre' ? (
                 p.min !== undefined && p.max !== undefined ? (
                   <ChampCurseur valeur={Number(v)} min={p.min} max={p.max} pas={p.pas ?? 1} onValider={poser} />
@@ -240,7 +278,8 @@ function ParametresDuDessin({
               ) : p.type === 'media' ? (
                 <ChampChoix titre={p.libelle} valeur={String(v)} options={[{ valeur: '', libelle: t('Aucun') }, ...choixMedias]} onValider={poser} />
               ) : (
-                <ChampTexte valeur={String(v)} onValider={poser} data-studio-parametre={p.id} />
+                // UN TEXTE DE PARAMÈTRE VA À LA LIGNE : Entrée y écrit un vrai retour, rendu à l'aperçu comme à l'export.
+                <ChampTexte long valeur={String(v)} onValider={poser} data-studio-parametre={p.id} />
               )}
             </Ligne>
           );
@@ -264,7 +303,7 @@ function ReglagesDuGenre({
   prop: (v: Record<string, unknown>) => unknown;
   onOperation: (op: OperationStudio) => unknown;
   onVoixEssai: (segmentId: string) => Promise<unknown>;
-  /** Les paramètres déjà montrés avec la pièce choisie. */
+  /** Les paramètres d'un dessin posés sur une pièce : ils se règlent avec elle, pas avec la scène. */
   exclure?: string[];
 }) {
   const ecoute = useEcouteDesVoix();
@@ -275,14 +314,14 @@ function ReglagesDuGenre({
       const restants = s.parametres.filter((p) => !exclure.includes(p.id));
       if (!restants.length) return null;
       return (
-        <Section titre={exclure.length ? t('Autres réglages de la scène') : t('Réglages du dessin')}>
+        <Section titre={t('Réglages du dessin')} cle="genre">
           <ParametresDuDessin segment={s} medias={medias} onOperation={onOperation} exclure={exclure} />
         </Section>
       );
     }
     case 'texte':
       return (
-        <Section titre={t('Texte')}>
+        <Section titre={t('Texte')} cle="genre">
           <Ligne libelle={t('Texte')}>
             <ChampTexte long valeur={s.texte} onValider={(v) => prop({ texte: v })} />
           </Ligne>
@@ -309,7 +348,7 @@ function ReglagesDuGenre({
     case 'image':
     case 'video':
       return (
-        <Section titre={s.genre === 'image' ? t('Image') : t('Vidéo')}>
+        <Section titre={s.genre === 'image' ? t('Image') : t('Vidéo')} cle="genre">
           <Ligne libelle={t('Fichier')}>
             <ChampChoix titre={t('Fichier')} valeur={s.mediaId} options={choixMedias(s.genre)} onValider={(v) => onOperation({ op: 'remplacer-media', segmentId: s.id, mediaId: v })} />
           </Ligne>
@@ -347,7 +386,7 @@ function ReglagesDuGenre({
     case 'audio': {
       const m = medias.find((x) => x.id === s.mediaId);
       return (
-        <Section titre={t('Son')}>
+        <Section titre={t('Son')} cle="genre">
           <Ligne libelle={t('Fichier')}>
             <ChampChoix titre={t('Fichier')} valeur={s.mediaId} options={choixMedias('audio')} onValider={(v) => onOperation({ op: 'remplacer-media', segmentId: s.id, mediaId: v })} />
           </Ligne>
@@ -374,7 +413,7 @@ function ReglagesDuGenre({
     }
     case 'voix':
       return (
-        <Section titre={t('Voix')} action={<span className="text-[12px] text-muted" data-studio-etat-voix={s.etat}>{libelleEtatVoix(s.etat)}</span>}>
+        <Section titre={t('Voix')} cle="genre" action={<span className="text-[12px] text-muted" data-studio-etat-voix={s.etat}>{libelleEtatVoix(s.etat)}</span>}>
           <Ligne libelle={t('Texte dit')}>
             <ChampTexte long valeur={s.texte} onValider={(v) => prop({ texte: v })} data-studio-texte-voix />
           </Ligne>
@@ -416,7 +455,7 @@ function ReglagesDuGenre({
       );
     case 'sous-titres':
       return (
-        <Section titre={t('Sous-titres')}>
+        <Section titre={t('Sous-titres')} cle="genre">
           <Ligne libelle={t('Suivent les voix')}>
             <ChampBascule valeur={s.auto} onValider={(v) => prop({ auto: v })} />
           </Ligne>
@@ -501,93 +540,178 @@ function libelleDeNature(n: NaturePiece | undefined): string {
   }
 }
 
+/** Les graisses d'une police, nommées comme dans Figma. */
+function libellesGraisse(): Record<string, string> {
+  return {
+    '100': t('Fine'),
+    '200': t('Extra-légère'),
+    '300': t('Légère'),
+    '400': t('Normale'),
+    '500': t('Moyenne'),
+    '600': t('Demi-grasse'),
+    '700': t('Grasse'),
+    '800': t('Extra-grasse'),
+    '900': t('Noire'),
+  };
+}
+
+/** La police embarquée qu'une `font-family` calculée nomme en premier (« 'Inter', sans-serif » → « Inter »), sinon vide. */
+function policeDe(famille: string | undefined): string {
+  const premiere = (famille ?? '').split(',')[0]?.trim().replace(/^['"]|['"]$/g, '') ?? '';
+  return POLICES_STUDIO.some((p) => p.famille === premiere) ? premiere : '';
+}
+
+/** Quatre valeurs lues dans la page, sinon une seule répétée. */
+function quatre(lues: number[] | undefined, repli = 0): [number, number, number, number] {
+  return lues && lues.length === 4 ? (lues.map((v) => Math.round(v)) as [number, number, number, number]) : [repli, repli, repli, repli];
+}
+
+/** Une ombre neuve : celle des lettres pour un texte sans fond, portée sinon. */
+function ombreNeuve(nature: NaturePiece | undefined, fond: string | null): OmbrePiece {
+  const fondVisible = !!fond && (lireCouleur(fond)?.alpha ?? 0) > 0;
+  return { genre: nature === 'texte' && !fondVisible ? 'texte' : 'portee', x: 0, y: 4, flou: 12, etalement: 0, couleur: '#00000040' };
+}
+
+/**
+ * LES RÉGLAGES D'UNE PIÈCE, RANGÉS COMME DANS FIGMA, et seulement ceux qui ont un
+ * sens pour ce qu'elle est (`boite.nature`, dite par la page) : Disposition
+ * (position, taille, rotation, arrondi), Texte (contenu sur plusieurs lignes,
+ * typographie, alignements), Image (source, cadrage), Calque (opacité, fusion,
+ * rognage), Remplissage (uni ou dégradé, transparence comprise), Contour, Marges,
+ * Effets (ombres, flous) et les réglages que l'agent a posés sur elle. Chaque
+ * valeur montrée est la VRAIE (styles calculés par la page), chaque réglage part
+ * en UNE retouche — une version, une annulation —, et une couleur se voit dans
+ * l'aperçu pendant son choix.
+ */
 function RetouchesDeLaPiece({
   segment,
   elementId,
   format,
   formatDeBase,
+  medias,
   onOperation,
   boite,
   reglagesDuContenu,
+  parametresTexte,
   parametres,
 }: {
   segment: Segment;
   elementId: string;
   format: FormatStudio;
   formatDeBase: FormatStudio;
+  medias: MediaStudio[];
   onOperation: (op: OperationStudio) => unknown;
   /** Ce que l'aperçu dit de la pièce : sa nature et ses styles réels (absent : pas encore reçu). */
   boite: BoiteDuCadre | null;
-  /** Texte, couleur et cadre : seulement pour une pièce de dessin. */
+  /** Texte, couleurs, typographie et effets : seulement pour une pièce de dessin. */
   reglagesDuContenu: boolean;
-  /** Les paramètres de l'agent posés sur cette pièce. */
+  /** Les paramètres TEXTE de l'agent posés sur cette pièce : son contenu se règle par eux. */
+  parametresTexte: React.ReactNode;
+  /** Ses autres paramètres (couleurs, nombres, médias…). */
   parametres: React.ReactNode;
 }) {
   const r: Retouche = retouchesDuFormat(segment, format, formatDeBase)[elementId] ?? {};
-  const poser = (retouche: Retouche) => onOperation({ op: 'retouche', segmentId: segment.id, elementId, retouche, format });
+  const poser = (retouche: Partial<Record<keyof Retouche, unknown>>) => onOperation({ op: 'retouche', segmentId: segment.id, elementId, retouche: retouche as Retouche, format });
   const direct = React.useContext(ApercuEnDirect);
-  /** Montrer une couleur dans l'aperçu PENDANT le choix ; elle ne part qu'une fois choisie. */
-  const montrer = (retouche: Retouche) => direct?.({ segmentId: segment.id, elementId, retouche });
+  /** Montrer un réglage dans l'aperçu PENDANT le choix ; il ne part qu'une fois choisi. */
+  const montrer = direct ? (retouche: Retouche) => direct({ segmentId: segment.id, elementId, retouche }) : undefined;
   const nature = boite?.nature;
   const st = boite?.styles ?? null;
   const contenu = reglagesDuContenu ? nature : undefined;
   const epaisseur = r.epaisseurContour ?? Math.round(st?.epaisseurContour ?? 0);
+  const couleurContour = r.contour ?? enCouleur(st?.contour) ?? '#000000';
+  const arrondiCoins = r.arrondiCoins ?? (r.arrondi !== undefined ? undefined : st?.arrondiCoins && new Set(st.arrondiCoins).size > 1 ? quatre(st.arrondiCoins) : undefined);
+  const [coinsSepares, setCoinsSepares] = React.useState(!!arrondiCoins);
+  const fond = r.fond ?? enCouleur(st?.fond) ?? '#ffffff00';
+  const ombres = r.ombres ?? [];
+  const graisses = libellesGraisse();
+  const graisse = String(r.graisse ?? Math.round((st?.graisse ?? 400) / 100) * 100);
+  const policeLue = r.police ?? policeDe(st?.police);
+  const opacite = Math.round((r.opacite ?? 1) * 100);
+  const poserOmbres = (liste: OmbrePiece[]) => poser({ ombres: liste });
+  const imagesDuProjet = medias.filter((m) => m.genre === 'image').map((m) => ({ valeur: m.id, libelle: m.nom }));
+
   return (
     <>
+      {/* DISPOSITION : la place et la taille en paires de cases, comme dans Figma. Plus de curseurs ni d'échelle :
+          on agrandit en changeant la largeur et la hauteur (un texte se réenroule, ses lettres ne grossissent pas). */}
       <Section
         titre={t('{nature} « {nom} »', { nature: libelleDeNature(nature), nom: elementId })}
+        cle="piece"
         data-studio-piece={elementId}
         data-studio-nature={nature ?? ''}
         action={
-          <Button size="icon" variant="ghost" aria-label="Effacer la retouche" title={t('Remettre comme à l’origine')} onClick={() => onOperation({ op: 'effacer-retouche', segmentId: segment.id, elementId, format })}>
-            <Eraser className="h-3.5 w-3.5" />
-          </Button>
+          <span className="flex items-center">
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={r.masquee ? 'Afficher la pièce' : 'Masquer la pièce'}
+              title={r.masquee ? t('Afficher la pièce') : t('Masquer la pièce')}
+              aria-pressed={!!r.masquee}
+              onClick={() => poser({ masquee: !r.masquee })}
+              data-studio-retouche="visible"
+            >
+              {r.masquee ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </Button>
+            <Button size="icon" variant="ghost" aria-label="Effacer la retouche" title={t('Remettre comme à l’origine')} onClick={() => onOperation({ op: 'effacer-retouche', segmentId: segment.id, elementId, format })}>
+              <Eraser className="h-3.5 w-3.5" />
+            </Button>
+          </span>
         }
       >
         {format !== formatDeBase ? <p className="text-[12px] text-faint">{t('Ces retouches ne valent que pour ce format.')}</p> : null}
-        <Ligne libelle={t('Visible')}>
-          <ChampBascule valeur={!r.masquee} onValider={(v) => poser({ masquee: !v })} />
+        {/* UNE POSITION TAPÉE est un placement libre, au pixel : l'axe touché quitte son repère. */}
+        <Ligne libelle={t('Position')} className="gap-1">
+          <ChampNombre valeur={r.x ?? 0} pas={1} prefixe="X" aria-label="Décalage horizontal" title={t('Décalage horizontal, en pixels')} onValider={(v) => poser({ x: v, ancre: sansAxe(r.ancre, 'h') })} data-studio-retouche="x" />
+          <ChampNombre valeur={r.y ?? 0} pas={1} prefixe="Y" aria-label="Décalage vertical" title={t('Décalage vertical, en pixels')} onValider={(v) => poser({ y: v, ancre: sansAxe(r.ancre, 'v') })} data-studio-retouche="y" />
         </Ligne>
-
-        {contenu === 'texte' ? (
-          <>
-            {/* UNE PHRASE DÉCOUPÉE EN MOTS ANIMÉS ne se réécrit pas ici : l'écriture remplacerait ses mots par un seul texte. */}
-            {boite?.ecrivable ? (
-              <Ligne libelle={t('Texte')}>
-                {/* Entrée va à la ligne : le retour est gardé tel quel, à l'aperçu comme à l'export. */}
-                <ChampTexte long valeur={r.texte ?? boite?.contenu ?? ''} onValider={(v) => poser({ texte: v })} data-studio-retouche="texte" />
-              </Ligne>
-            ) : null}
-            <Ligne libelle={t('Taille du texte')}>
-              <ChampNombre valeur={r.taillePolice ?? Math.round(st?.taillePolice ?? 0)} pas={1} min={4} unite="px" onValider={(v) => poser({ taillePolice: v })} data-studio-retouche="taillePolice" />
-            </Ligne>
-            <Ligne libelle={t('Couleur du texte')}>
-              <ChampCouleur
-                valeur={r.couleur ?? enHexa(st?.couleur) ?? ''}
-                onValider={(v) => poser({ couleur: v })}
-                onApercu={direct ? (v) => montrer({ couleur: v }) : undefined}
-                data-studio-retouche="couleur"
-              />
-            </Ligne>
-            <Ligne libelle={t('Alignement')}>
-              <ChampAlignement valeur={r.alignement ?? alignementDe(st?.alignement)} onValider={(v) => poser({ alignement: v })} />
-            </Ligne>
-          </>
-        ) : null}
-
         {nature ? (
-          <>
-            <Ligne libelle={t('Largeur du cadre')}>
-              <ChampNombre valeur={r.largeur ?? Math.round(st?.largeur ?? 0)} pas={1} min={4} unite="px" onValider={(v) => poser({ largeur: v })} data-studio-retouche="largeur" />
-            </Ligne>
-            <Ligne libelle={t('Hauteur du cadre')}>
-              <ChampNombre valeur={r.hauteur ?? Math.round(st?.hauteur ?? 0)} pas={1} min={4} unite="px" onValider={(v) => poser({ hauteur: v })} data-studio-retouche="hauteur" />
-            </Ligne>
-          </>
+          <Ligne libelle={t('Taille')} className="gap-1">
+            <ChampNombre valeur={r.largeur ?? Math.round(st?.largeur ?? 0)} pas={1} min={4} prefixe="L" aria-label="Largeur du cadre" title={t('Largeur du cadre, en pixels')} onValider={(v) => poser({ largeur: v })} data-studio-retouche="largeur" />
+            <ChampNombre valeur={r.hauteur ?? Math.round(st?.hauteur ?? 0)} pas={1} min={4} prefixe="H" aria-label="Hauteur du cadre" title={t('Hauteur du cadre, en pixels')} onValider={(v) => poser({ hauteur: v })} data-studio-retouche="hauteur" />
+          </Ligne>
         ) : null}
-
-        {parametres}
-
+        <Ligne libelle={t('Rotation')}>
+          <ChampNombre valeur={r.rotation ?? 0} pas={1} unite="°" prefixe={<RotateCw className="h-3 w-3" />} onValider={(v) => poser({ rotation: v })} data-studio-retouche="rotation" />
+        </Ligne>
+        {/* UNE ÉCHELLE DÉJÀ POSÉE (un coin tiré sur une forme, ou une retouche d'avant) reste lisible et s'efface d'un clic. */}
+        {r.echelle !== undefined && r.echelle !== 1 ? (
+          <Ligne libelle={t('Échelle')}>
+            <span className="min-w-0 flex-1 text-[12.5px] tabular-nums text-muted" data-studio-retouche="echelle">
+              {Math.round(r.echelle * 100)} %
+            </span>
+            <Button size="icon" variant="ghost" aria-label="Retirer l’échelle" title={t('Retirer l’échelle')} onClick={() => poser({ echelle: null })}>
+              <Eraser className="h-3.5 w-3.5" />
+            </Button>
+          </Ligne>
+        ) : null}
+        {contenu ? (
+          <Ligne libelle={t('Arrondi')} className="gap-1">
+            {coinsSepares ? (
+              <ChampQuatre
+                valeurs={arrondiCoins ?? quatre(undefined, Math.round(r.arrondi ?? st?.arrondi ?? 0))}
+                lettres={['↖', '↗', '↘', '↙']}
+                libelles={[t('Coin haut gauche'), t('Coin haut droit'), t('Coin bas droit'), t('Coin bas gauche')]}
+                min={0}
+                onValider={(q) => poser({ arrondiCoins: q, arrondi: null })}
+                data-studio-retouche="arrondiCoins"
+              />
+            ) : (
+              <ChampNombre valeur={r.arrondi ?? Math.round(st?.arrondi ?? 0)} pas={1} min={0} unite="px" onValider={(v) => poser({ arrondi: v, arrondiCoins: null })} data-studio-retouche="arrondi" />
+            )}
+            <Button
+              size="icon"
+              variant={coinsSepares ? 'subtle' : 'ghost'}
+              aria-pressed={coinsSepares}
+              aria-label="Coins séparés"
+              title={t('Un arrondi par coin')}
+              onClick={() => setCoinsSepares((x) => !x)}
+              data-studio-coins-separes=""
+            >
+              <Scan className="h-3.5 w-3.5" />
+            </Button>
+          </Ligne>
+        ) : null}
         {r.ancre ? (
           <Ligne libelle={t('Collée à')}>
             <span className="flex min-w-0 items-center gap-1 text-[12.5px]" data-studio-ancre={`${r.ancre.h ?? ''}|${r.ancre.v ?? ''}`}>
@@ -596,95 +720,425 @@ function RetouchesDeLaPiece({
             </span>
           </Ligne>
         ) : null}
-        {/* UNE POSITION TAPÉE est un placement libre, au pixel : l'axe touché quitte son repère. */}
-        <Ligne libelle={t('Décalage gauche')}>
-          <ChampNombre valeur={r.x ?? 0} pas={1} unite="px" onValider={(v) => poser({ x: v, ancre: sansAxe(r.ancre, 'h') })} data-studio-retouche="x" />
-        </Ligne>
-        <Ligne libelle={t('Décalage haut')}>
-          <ChampNombre valeur={r.y ?? 0} pas={1} unite="px" onValider={(v) => poser({ y: v, ancre: sansAxe(r.ancre, 'v') })} data-studio-retouche="y" />
-        </Ligne>
-        <Ligne libelle={t('Échelle')}>
-          <ChampCurseur valeur={r.echelle ?? 1} min={0.1} max={4} pas={0.05} onValider={(v) => poser({ echelle: v })} />
-        </Ligne>
-        <Ligne libelle={t('Rotation')}>
-          <ChampCurseur valeur={r.rotation ?? 0} min={-180} max={180} pas={1} onValider={(v) => poser({ rotation: v })} />
-        </Ligne>
-        <Ligne libelle={t('Opacité')}>
-          <ChampCurseur valeur={r.opacite ?? 1} min={0} max={1} pas={0.05} onValider={(v) => poser({ opacite: v })} />
-        </Ligne>
       </Section>
 
-      {/* SES COULEURS : fond (ou remplissage d'un SVG), contour et arrondi — sur toute pièce d'un dessin, logo et groupe compris. */}
-      {contenu ? (
-        <Section titre={t('Couleurs de la pièce')} data-studio-couleurs-piece={elementId}>
-          {contenu === 'svg' ? (
-            <Ligne libelle={t('Remplissage')}>
-              <ChampCouleur
-                valeur={r.couleur ?? enHexa(st?.remplissage) ?? enHexa(st?.couleur) ?? ''}
-                onValider={(v) => poser({ couleur: v })}
-                onApercu={direct ? (v) => montrer({ couleur: v }) : undefined}
-                data-studio-retouche="couleur"
-              />
-            </Ligne>
+      {/* LE TEXTE : son contenu sur plusieurs lignes (Entrée va à la ligne, y compris pour une phrase animée mot par mot),
+          puis sa typographie et ses alignements. */}
+      {contenu === 'texte' ? (
+        <Section titre={t('Texte')} cle="texte" data-studio-bloc-texte={elementId}>
+          {parametresTexte ? (
+            parametresTexte
           ) : (
-            <Ligne libelle={t('Couleur de fond')}>
-              <ChampCouleur
-                valeur={r.fond ?? enHexa(st?.fond) ?? ''}
-                onValider={(v) => poser({ fond: v })}
-                onApercu={direct ? (v) => montrer({ fond: v }) : undefined}
-                data-studio-retouche="fond"
-              />
+            <Ligne libelle={t('Contenu')}>
+              {/* Entrée va à la ligne : le retour est gardé tel quel, à l'aperçu comme à l'export. */}
+              <ChampTexte long valeur={r.texte ?? (boite?.contenu ?? '').replace(/ *\n */g, '\n')} onValider={(v) => poser({ texte: v })} data-studio-retouche="texte" />
             </Ligne>
           )}
-          <Ligne libelle={t('Contour')}>
+          <Ligne libelle={t('Police')}>
+            <ChampPolice titre={t('Police')} valeur={policeLue} premiere={t('Celle du dessin')} onValider={(v) => poser({ police: v || null })} />
+          </Ligne>
+          <Ligne libelle={t('Graisse')}>
+            <ChampChoix titre={t('Graisse')} valeur={graisse} options={Object.entries(graisses).map(([valeur, libelle]) => ({ valeur, libelle: `${libelle} · ${valeur}` }))} onValider={(v) => poser({ graisse: Number(v) })} data-studio-retouche="graisse" />
+          </Ligne>
+          <Ligne libelle={t('Taille')}>
+            <ChampNombre valeur={r.taillePolice ?? Math.round(st?.taillePolice ?? 0)} pas={1} min={4} unite="px" onValider={(v) => poser({ taillePolice: v })} data-studio-retouche="taillePolice" />
+          </Ligne>
+          <Ligne libelle={t('Interligne')} className="gap-1">
+            <ChampNombre valeur={r.interligne ?? st?.interligne ?? 1.2} pas={0.05} min={0.5} max={5} unite="×" aria-label="Interligne" title={t('Hauteur des lignes, en multiple de la taille des lettres')} onValider={(v) => poser({ interligne: v })} data-studio-retouche="interligne" />
+            <ChampNombre valeur={r.espacementLettres ?? Math.round((st?.espacementLettres ?? 0) * 10) / 10} pas={0.5} unite="px" prefixe="↔" aria-label="Espacement des lettres" title={t('Espacement des lettres')} onValider={(v) => poser({ espacementLettres: v })} data-studio-retouche="espacementLettres" />
+          </Ligne>
+          <Ligne libelle={t('Style')} className="gap-0.5">
+            <BoutonBascule
+              actif={r.italique ?? !!st?.italique}
+              libelle={t('Italique')}
+              Icone={Italic}
+              onBasculer={(v) => poser({ italique: v })}
+              data-studio-retouche="italique"
+            />
+            <BoutonBascule
+              actif={(r.decoration ?? (st?.decoration?.includes('underline') ? 'souligne' : '')) === 'souligne'}
+              libelle={t('Souligné')}
+              Icone={Underline}
+              onBasculer={(v) => poser({ decoration: v ? 'souligne' : 'aucune' })}
+              data-studio-retouche="souligne"
+            />
+            <BoutonBascule
+              actif={(r.decoration ?? (st?.decoration?.includes('line-through') ? 'barre' : '')) === 'barre'}
+              libelle={t('Barré')}
+              Icone={Strikethrough}
+              onBasculer={(v) => poser({ decoration: v ? 'barre' : 'aucune' })}
+              data-studio-retouche="barre"
+            />
+            <span className="ml-1 min-w-0 flex-1">
+              <ChampChoix
+                titre={t('Casse')}
+                valeur={r.casse ?? casseDe(st?.casse)}
+                options={[
+                  { valeur: 'aucune', libelle: t('Telle quelle') },
+                  { valeur: 'majuscules', libelle: t('MAJUSCULES') },
+                  { valeur: 'minuscules', libelle: t('minuscules') },
+                  { valeur: 'capitales', libelle: t('Initiales En Capitale') },
+                ]}
+                onValider={(v) => poser({ casse: v })}
+                data-studio-retouche="casse"
+              />
+            </span>
+          </Ligne>
+          <Ligne libelle={t('Alignement')} className="gap-1">
+            <ChampBoutons
+              valeur={r.alignement ?? alignementDe(st?.alignement)}
+              options={[
+                { valeur: 'gauche', libelle: t('Aligner à gauche'), Icone: AlignLeft },
+                { valeur: 'centre', libelle: t('Centrer'), Icone: AlignCenter },
+                { valeur: 'droite', libelle: t('Aligner à droite'), Icone: AlignRight },
+                { valeur: 'justifie', libelle: t('Justifier'), Icone: AlignJustify },
+              ]}
+              onValider={(v) => poser({ alignement: v })}
+              repere="studio-alignement"
+              data-studio-retouche="alignement"
+            />
+            <span className="h-5 w-px shrink-0 bg-faint/30" aria-hidden />
+            <ChampBoutons
+              valeur={r.alignementVertical ?? verticalDe(st?.alignementVertical)}
+              options={[
+                { valeur: 'haut', libelle: t('En haut du cadre'), Icone: AlignVerticalJustifyStart },
+                { valeur: 'milieu', libelle: t('Au milieu du cadre'), Icone: AlignVerticalJustifyCenter },
+                { valeur: 'bas', libelle: t('En bas du cadre'), Icone: AlignVerticalJustifyEnd },
+              ]}
+              onValider={(v) => poser({ alignementVertical: v })}
+              repere="studio-alignement-vertical"
+              data-studio-retouche="alignementVertical"
+            />
+          </Ligne>
+          <Ligne libelle={t('Couleur')}>
+            <ChampCouleur transparence valeur={r.couleur ?? enCouleur(st?.couleur) ?? ''} onValider={(v) => poser({ couleur: v })} onApercu={montrer ? (v) => montrer({ couleur: v }) : undefined} data-studio-retouche="couleur" />
+          </Ligne>
+        </Section>
+      ) : null}
+
+      {/* UNE IMAGE : le média du projet qu'elle montre, et comment elle tient dans son cadre. */}
+      {contenu === 'image' ? (
+        <Section titre={t('Image')} cle="image" data-studio-bloc-image={elementId}>
+          <Ligne libelle={t('Source')}>
+            <ChampChoix titre={t('Source')} valeur={r.source ?? ''} options={[{ valeur: '', libelle: t('Celle du dessin') }, ...imagesDuProjet]} onValider={(v) => poser({ source: v || null })} data-studio-retouche="source" />
+          </Ligne>
+          <Ligne libelle={t('Cadrage')}>
+            <ChampChoix
+              titre={t('Cadrage')}
+              valeur={r.cadrage ?? (st?.cadrage === 'contain' ? 'contenir' : 'couvrir')}
+              options={[
+                { valeur: 'couvrir', libelle: t('Remplir le cadre') },
+                { valeur: 'contenir', libelle: t('Tout montrer') },
+              ]}
+              onValider={(v) => poser({ cadrage: v })}
+              data-studio-retouche="cadrage"
+            />
+          </Ligne>
+        </Section>
+      ) : null}
+
+      {/* LE CALQUE : son opacité, sa fusion avec ce qu'il y a dessous, et ce qui dépasse de son cadre. */}
+      <Section titre={t('Calque')} cle="calque">
+        <Ligne libelle={t('Opacité')}>
+          <ChampNombre valeur={opacite} pas={1} min={0} max={100} unite="%" onValider={(v) => poser({ opacite: v / 100 })} data-studio-retouche="opacite" />
+        </Ligne>
+        {contenu ? (
+          <>
+            <Ligne libelle={t('Fusion')}>
+              <ChampChoix titre={t('Mode de fusion')} valeur={r.fusion ?? (MODES_FUSION as readonly string[]).find((m) => m === st?.fusion) ?? 'normal'} options={MODES_FUSION.map((m) => ({ valeur: m, libelle: libelleFusion(m) }))} onValider={(v) => poser({ fusion: v })} data-studio-retouche="fusion" />
+            </Ligne>
+            <Ligne libelle={t('Rogner le contenu')}>
+              <ChampBascule valeur={r.rogner ?? !!st?.rogner} onValider={(v) => poser({ rogner: v })} />
+            </Ligne>
+          </>
+        ) : null}
+      </Section>
+
+      {/* LE REMPLISSAGE : couleur unie (transparence comprise, « aucune » possible) ou dégradé ; une forme SVG se remplit de sa couleur. */}
+      {contenu ? (
+        <Section titre={t('Remplissage')} cle="remplissage" data-studio-couleurs-piece={elementId}>
+          {contenu === 'svg' ? (
+            <Ligne libelle={t('Couleur')}>
+              <ChampCouleur transparence valeur={r.couleur ?? enCouleur(st?.remplissage) ?? enCouleur(st?.couleur) ?? ''} onValider={(v) => poser({ couleur: v })} onApercu={montrer ? (v) => montrer({ couleur: v }) : undefined} data-studio-retouche="couleur" />
+            </Ligne>
+          ) : (
+            <>
+              <Ligne libelle={t('Couleur de fond')}>
+                <ChampCouleur transparence valeur={fond} onValider={(v) => poser({ fond: v })} onApercu={montrer ? (v) => montrer({ fond: v }) : undefined} data-studio-retouche="fond" />
+              </Ligne>
+              <Ligne libelle={t('Dégradé')}>
+                <ChampBascule
+                  valeur={!!r.degrade}
+                  onValider={(v) =>
+                    poser({
+                      degrade: v
+                        ? { genre: 'lineaire', angle: 180, arrets: [{ couleur: lireCouleur(fond)?.alpha ? fond : '#ffffff', position: 0 }, { couleur: '#000000', position: 100 }] }
+                        : null,
+                    })
+                  }
+                />
+              </Ligne>
+              {r.degrade ? <ReglagesDuDegrade degrade={r.degrade} onValider={(d) => poser({ degrade: d })} onApercu={montrer ? (d) => montrer({ degrade: d }) : undefined} /> : null}
+              {!r.degrade && st?.fondImage ? <p className="text-[12px] text-faint">{t('Le dessin pose déjà un dégradé : en régler un le remplace.')}</p> : null}
+            </>
+          )}
+        </Section>
+      ) : null}
+
+      {/* LE CONTOUR : sa couleur, son épaisseur, où passe le trait (dedans, la pièce ne grossit pas) et son style. */}
+      {contenu ? (
+        <Section titre={t('Contour')} cle="contour">
+          <Ligne libelle={t('Couleur')}>
             <ChampCouleur
-              valeur={r.contour ?? enHexa(st?.contour) ?? '#000000'}
+              transparence
+              valeur={couleurContour}
               onValider={(v) => poser({ contour: v, epaisseurContour: epaisseur || 4 })}
-              onApercu={direct ? (v) => montrer({ contour: v, epaisseurContour: epaisseur || 4 }) : undefined}
+              onApercu={montrer ? (v) => montrer({ contour: v, epaisseurContour: epaisseur || 4 }) : undefined}
               data-studio-retouche="contour"
             />
           </Ligne>
-          <Ligne libelle={t('Épaisseur du contour')}>
-            <ChampNombre valeur={epaisseur} pas={1} min={0} unite="px" onValider={(v) => poser({ epaisseurContour: v, contour: r.contour ?? enHexa(st?.contour) ?? '#000000' })} data-studio-retouche="epaisseurContour" />
+          <Ligne libelle={t('Épaisseur')}>
+            <ChampNombre valeur={epaisseur} pas={1} min={0} unite="px" onValider={(v) => poser({ epaisseurContour: v, contour: couleurContour })} data-studio-retouche="epaisseurContour" />
           </Ligne>
-          <Ligne libelle={t('Arrondi')}>
-            <ChampNombre valeur={r.arrondi ?? Math.round(st?.arrondi ?? 0)} pas={1} min={0} unite="px" onValider={(v) => poser({ arrondi: v })} data-studio-retouche="arrondi" />
+          <Ligne libelle={t('Position')}>
+            <ChampChoix
+              titre={t('Position du contour')}
+              valeur={r.contourPosition ?? 'interieur'}
+              options={[
+                { valeur: 'interieur', libelle: t('Intérieur') },
+                { valeur: 'centre', libelle: t('Centré') },
+                { valeur: 'exterieur', libelle: t('Extérieur') },
+              ]}
+              onValider={(v) => poser({ contourPosition: v, epaisseurContour: epaisseur || 4, contour: couleurContour })}
+              data-studio-retouche="contourPosition"
+            />
           </Ligne>
+          <Ligne libelle={t('Style')}>
+            <ChampChoix
+              titre={t('Style du contour')}
+              valeur={r.contourStyle ?? (st?.contourStyle === 'dashed' ? 'tirets' : st?.contourStyle === 'dotted' ? 'pointilles' : 'plein')}
+              options={[
+                { valeur: 'plein', libelle: t('Plein') },
+                { valeur: 'tirets', libelle: t('Tirets') },
+                { valeur: 'pointilles', libelle: t('Pointillés') },
+              ]}
+              onValider={(v) => poser({ contourStyle: v, epaisseurContour: epaisseur || 4, contour: couleurContour })}
+              data-studio-retouche="contourStyle"
+            />
+          </Ligne>
+        </Section>
+      ) : null}
+
+      {/* LES MARGES : l'espace entre le cadre et son contenu (intérieures), et autour du cadre (extérieures). */}
+      {contenu && contenu !== 'svg' ? (
+        <Section titre={t('Marges')} cle="marges">
+          <Ligne libelle={t('Intérieures')}>
+            <ChampQuatre valeurs={r.marges ?? quatre(st?.marges)} lettres={['H', 'D', 'B', 'G']} libelles={[t('Marge du haut'), t('Marge de droite'), t('Marge du bas'), t('Marge de gauche')]} min={0} onValider={(q) => poser({ marges: q })} data-studio-retouche="marges" />
+          </Ligne>
+          <Ligne libelle={t('Extérieures')}>
+            <ChampQuatre valeurs={r.margesExterieures ?? quatre(st?.margesExterieures)} lettres={['H', 'D', 'B', 'G']} libelles={[t('Marge du haut'), t('Marge de droite'), t('Marge du bas'), t('Marge de gauche')]} onValider={(q) => poser({ margesExterieures: q })} data-studio-retouche="margesExterieures" />
+          </Ligne>
+        </Section>
+      ) : null}
+
+      {/* LES EFFETS : autant d'ombres qu'on veut (portées, intérieures, ou celles des lettres), le flou de la pièce
+          et celui de ce qu'il y a derrière elle. */}
+      {contenu ? (
+        <Section
+          titre={t('Effets')}
+          cle="effets"
+          action={
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label="Ajouter une ombre"
+              title={t('Ajouter une ombre')}
+              disabled={ombres.length >= OMBRES_MAX}
+              onClick={() => poserOmbres([...ombres, ombreNeuve(nature, fond)])}
+              data-studio-ombre-ajouter=""
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
+          }
+        >
+          {!r.ombres && (st?.ombres || st?.ombresTexte) ? <p className="text-[12px] text-faint">{t('Le dessin pose déjà une ombre : en ajouter une la remplace.')}</p> : null}
+          {ombres.map((o, i) => (
+            <ReglagesDOmbre
+              key={i}
+              rang={i}
+              ombre={o}
+              texte={nature === 'texte'}
+              onValider={(suivante) => poserOmbres(ombres.map((x, k) => (k === i ? suivante : x)))}
+              onApercu={montrer ? (suivante) => montrer({ ombres: ombres.map((x, k) => (k === i ? suivante : x)) }) : undefined}
+              onRetirer={() => poserOmbres(ombres.filter((_, k) => k !== i))}
+            />
+          ))}
+          <Ligne libelle={t('Flou')}>
+            <ChampNombre valeur={r.flou ?? 0} pas={1} min={0} unite="px" onValider={(v) => poser({ flou: v || null })} data-studio-retouche="flou" />
+          </Ligne>
+          <Ligne libelle={t('Flou derrière')}>
+            <ChampNombre valeur={r.flouArrierePlan ?? 0} pas={1} min={0} unite="px" title={t('Floute ce qu’il y a derrière la pièce (verre dépoli) : à poser sur une pièce dont le fond est transparent.')} onValider={(v) => poser({ flouArrierePlan: v || null })} data-studio-retouche="flouArrierePlan" />
+          </Ligne>
+        </Section>
+      ) : null}
+
+      {parametres ? (
+        <Section titre={t('Réglages de l’agent')} cle="parametres-piece">
+          {parametres}
         </Section>
       ) : null}
     </>
   );
 }
 
-/** LES QUATRE ALIGNEMENTS d'un texte dans son cadre. */
-function ChampAlignement({ valeur, onValider }: { valeur: NonNullable<Retouche['alignement']>; onValider: (v: NonNullable<Retouche['alignement']>) => void }) {
-  const choix = [
-    { cle: 'gauche', libelle: t('Aligner à gauche'), Icone: AlignLeft },
-    { cle: 'centre', libelle: t('Centrer'), Icone: AlignCenter },
-    { cle: 'droite', libelle: t('Aligner à droite'), Icone: AlignRight },
-    { cle: 'justifie', libelle: t('Justifier'), Icone: AlignJustify },
-  ] as const;
+/** Un bouton qui s'enfonce (italique, souligné, barré). */
+function BoutonBascule({
+  actif,
+  libelle,
+  Icone,
+  onBasculer,
+  ...reste
+}: {
+  actif: boolean;
+  libelle: string;
+  Icone: React.ComponentType<{ className?: string }>;
+  onBasculer: (v: boolean) => void;
+} & Record<`data-${string}`, string | undefined>) {
   return (
-    <span className="flex items-center gap-0.5" data-studio-retouche="alignement" data-valeur={valeur}>
-      {choix.map((c) => (
-        <Button
-          key={c.cle}
-          size="icon"
-          variant={valeur === c.cle ? 'subtle' : 'ghost'}
-          aria-pressed={valeur === c.cle}
-          aria-label={c.libelle}
-          title={c.libelle}
-          onClick={(e) => {
-            e.preventDefault();
-            onValider(c.cle);
-          }}
-          data-studio-alignement={c.cle}
-        >
-          <c.Icone className="h-3.5 w-3.5" />
-        </Button>
-      ))}
-    </span>
+    <button
+      type="button"
+      aria-pressed={actif}
+      aria-label={libelle}
+      title={libelle}
+      onClick={(e) => {
+        e.preventDefault();
+        onBasculer(!actif);
+      }}
+      className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-raised/60 hover:text-text', actif && 'bg-accent/15 text-text')}
+      {...reste}
+    >
+      <Icone className="h-3.5 w-3.5" />
+    </button>
   );
+}
+
+/** UNE OMBRE : son genre, son décalage, son flou, son étalement et sa couleur (transparence comprise). */
+function ReglagesDOmbre({
+  rang,
+  ombre,
+  texte,
+  onValider,
+  onApercu,
+  onRetirer,
+}: {
+  rang: number;
+  ombre: OmbrePiece;
+  texte: boolean;
+  onValider: (o: OmbrePiece) => void;
+  onApercu?: (o: OmbrePiece) => void;
+  onRetirer: () => void;
+}) {
+  const genres = [
+    { valeur: 'portee', libelle: t('Ombre portée') },
+    { valeur: 'interieure', libelle: t('Ombre intérieure') },
+    ...(texte || ombre.genre === 'texte' ? [{ valeur: 'texte', libelle: t('Ombre des lettres') }] : []),
+  ];
+  return (
+    <>
+      <Ligne libelle={t('Ombre {n}', { n: rang + 1 })} className="gap-1">
+        <span className="min-w-0 flex-1" data-studio-ombre={rang}>
+          <ChampChoix titre={t('Genre d’ombre')} valeur={ombre.genre} options={genres} onValider={(v) => onValider({ ...ombre, genre: v as OmbrePiece['genre'] })} />
+        </span>
+        <Button size="icon" variant="ghost" aria-label="Retirer l’ombre" title={t('Retirer l’ombre')} onClick={onRetirer} data-studio-ombre-retirer={rang}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </Ligne>
+      <ChampQuatre
+        valeurs={[ombre.x, ombre.y, ombre.flou, ombre.etalement]}
+        lettres={['X', 'Y', '◌', '±']}
+        libelles={[t('Décalage horizontal'), t('Décalage vertical'), t('Flou'), t('Étalement')]}
+        onValider={([x, y, flou, etalement]) => onValider({ ...ombre, x, y, flou: Math.max(0, flou), etalement })}
+        data-studio-ombre-valeurs={String(rang)}
+      />
+      <ChampCouleur transparence valeur={ombre.couleur} onValider={(couleur) => onValider({ ...ombre, couleur })} onApercu={onApercu ? (couleur) => onApercu({ ...ombre, couleur }) : undefined} data-studio-ombre-couleur={rang} />
+    </>
+  );
+}
+
+/** UN DÉGRADÉ : linéaire (avec son angle) ou radial, et ses deux couleurs d'extrémité. */
+function ReglagesDuDegrade({ degrade, onValider, onApercu }: { degrade: Degrade; onValider: (d: Degrade) => void; onApercu?: (d: Degrade) => void }) {
+  const couleur = (i: number) => degrade.arrets[i === 0 ? 0 : degrade.arrets.length - 1]!;
+  const avec = (i: number, c: string): Degrade => ({
+    ...degrade,
+    arrets: degrade.arrets.map((a, k) => (k === (i === 0 ? 0 : degrade.arrets.length - 1) ? { ...a, couleur: c } : a)),
+  });
+  return (
+    <>
+      <Ligne libelle={t('Genre')} className="gap-1">
+        <span className="min-w-0 flex-1">
+          <ChampChoix
+            titre={t('Genre de dégradé')}
+            valeur={degrade.genre}
+            options={[
+              { valeur: 'lineaire', libelle: t('Linéaire') },
+              { valeur: 'radial', libelle: t('Radial') },
+            ]}
+            onValider={(v) => onValider({ ...degrade, genre: v === 'radial' ? 'radial' : 'lineaire' })}
+            data-studio-degrade-genre=""
+          />
+        </span>
+        {degrade.genre === 'lineaire' ? (
+          <span className="w-[4.5rem] shrink-0">
+            <ChampNombre valeur={degrade.angle} pas={15} unite="°" aria-label="Angle du dégradé" title={t('Angle du dégradé')} onValider={(angle) => onValider({ ...degrade, angle })} data-studio-degrade-angle="" />
+          </span>
+        ) : null}
+      </Ligne>
+      <Ligne libelle={t('Départ')}>
+        <ChampCouleur transparence valeur={couleur(0).couleur} onValider={(c) => onValider(avec(0, c))} onApercu={onApercu ? (c) => onApercu(avec(0, c)) : undefined} data-studio-degrade-couleur="0" />
+      </Ligne>
+      <Ligne libelle={t('Arrivée')}>
+        <ChampCouleur transparence valeur={couleur(1).couleur} onValider={(c) => onValider(avec(1, c))} onApercu={onApercu ? (c) => onApercu(avec(1, c)) : undefined} data-studio-degrade-couleur="1" />
+      </Ligne>
+    </>
+  );
+}
+
+/** `align-content` calculé → l'alignement vertical de la retouche. */
+function verticalDe(css: string | undefined): AlignementVertical {
+  if (css === 'center') return 'milieu';
+  if (css === 'end' || css === 'flex-end') return 'bas';
+  return 'haut';
+}
+
+/** `text-transform` calculé → la casse de la retouche. */
+function casseDe(css: string | undefined): CasseTexte {
+  if (css === 'uppercase') return 'majuscules';
+  if (css === 'lowercase') return 'minuscules';
+  if (css === 'capitalize') return 'capitales';
+  return 'aucune';
+}
+
+/** Les modes de fusion, nommés comme dans Figma. */
+function libelleFusion(m: ModeFusion): string {
+  const noms: Record<ModeFusion, string> = {
+    normal: t('Normal'),
+    multiply: t('Produit'),
+    darken: t('Obscurcir'),
+    'color-burn': t('Densité couleur +'),
+    screen: t('Superposition claire'),
+    lighten: t('Éclaircir'),
+    'color-dodge': t('Densité couleur −'),
+    overlay: t('Incrustation'),
+    'soft-light': t('Lumière tamisée'),
+    'hard-light': t('Lumière crue'),
+    difference: t('Différence'),
+    exclusion: t('Exclusion'),
+    hue: t('Teinte'),
+    saturation: t('Saturation'),
+    color: t('Couleur'),
+    luminosity: t('Luminosité'),
+  };
+  return noms[m];
 }
 
 /**
@@ -852,4 +1306,35 @@ function nomDeLAncre(a: AncrePiece): string {
     : v === 'b' ? t('bord du bas')
     : t('centre (vertical)');
   return marge ? t('{repere}, marge de sécurité', { repere: nom }) : nom;
+}
+
+/**
+ * LES RÉGLAGES DE LA CRÉATION ENTIÈRE — fond et durée voulue. Ils vivaient dans
+ * le volet « Réglages » sans sélection ; le volet de droite ne portant plus que
+ * la conversation, ils se tiennent aussi en tête du volet « Style ».
+ */
+export function ReglagesDeComposition({
+  composition,
+  onOperation,
+}: {
+  composition: Composition;
+  onOperation: (op: OperationStudio) => unknown;
+}) {
+  return (
+    <Section titre={t('Composition')}>
+      <Ligne libelle={t('Fond')}>
+        <ChampCouleur valeur={composition.fond} onValider={(v) => onOperation({ op: 'composition', fond: v })} />
+      </Ligne>
+      <Ligne libelle={t('Durée voulue')}>
+        <ChampNombre
+          valeur={composition.dureeVoulue ?? dureeDeLaComposition(composition)}
+          unite="s"
+          min={0.5}
+          onValider={(v) => onOperation({ op: 'composition', dureeVoulue: v })}
+          data-studio-duree-voulue
+        />
+      </Ligne>
+      <p className="text-[12px] text-faint">{t('Le marqueur bleu de la ligne de temps : la vidéo s’arrête là, à l’aperçu comme à l’export.')}</p>
+    </Section>
+  );
 }

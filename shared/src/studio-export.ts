@@ -21,7 +21,7 @@
  * une valeur inconnue retombe sur son défaut, une combinaison impossible est
  * corrigée — jamais un rendu lancé sur des arguments que le moteur refuserait.
  */
-import type { FormatStudio } from './studio.js';
+import type { ExportStudio, FormatStudio } from './studio.js';
 
 export const QUALITES_EXPORT = ['brouillon', 'standard', 'haute', 'maximale'] as const;
 export type QualiteExport = (typeof QUALITES_EXPORT)[number];
@@ -137,4 +137,43 @@ export function resumeReglagesExport(
   if (fichierAvecQualite(reglages.fichier)) morceaux.push(qualites[reglages.qualite]);
   if (reglages.sansSon && fichierAvecSon(reglages.fichier)) morceaux.push(t('sans son'));
   return morceaux.join(' · ');
+}
+
+/**
+ * LE LOT COURANT ET LES ANCIENS EXPORTS. Un clic sur « Exporter » lance un LOT :
+ * une vidéo par format coché, toutes marquées du même `lot`. L'écran des
+ * fichiers ne montre que le lot le plus récent ; tout ce qui le précède est
+ * « ancien » (replié, et vidé par un bouton). Un export sans lot (lancé par
+ * l'agent, ou refait seul après la voix finale) forme un lot à lui seul.
+ * `exports` arrive du plus récent au plus ancien, comme `listerExports`.
+ */
+export function partagerLesExports<E extends Pick<ExportStudio, 'id' | 'lot' | 'creeLe'>>(exports: E[]): { courants: E[]; anciens: E[] } {
+  const tries = [...exports].sort((a, b) => b.creeLe - a.creeLe);
+  const dernier = tries[0];
+  if (!dernier) return { courants: [], anciens: [] };
+  const cle = dernier.lot ?? dernier.id;
+  // Le lot se lit DANS L'ORDRE OÙ IL A ÉTÉ LANCÉ (celui des formats cochés) ; les anciens, du plus récent au plus ancien.
+  const courants = tries.filter((e) => (e.lot ?? e.id) === cle).reverse();
+  return { courants, anciens: tries.filter((e) => (e.lot ?? e.id) !== cle) };
+}
+
+/** Un export est-il fini (prêt, échoué ou annulé) ? Seul un export fini peut être retiré. */
+export function exportFini(e: Pick<ExportStudio, 'etat'>): boolean {
+  return e.etat !== 'en-file' && e.etat !== 'en-cours';
+}
+
+/**
+ * DES NOMS DE FICHIERS SANS DOUBLON, pour une archive : deux exports du même
+ * format et de la même version portent le même nom — le second reçoit « -2 »
+ * avant son extension, le troisième « -3 ».
+ */
+export function nomsSansDoublon(noms: string[]): string[] {
+  const vus = new Map<string, number>();
+  return noms.map((nom) => {
+    const n = (vus.get(nom.toLowerCase()) ?? 0) + 1;
+    vus.set(nom.toLowerCase(), n);
+    if (n === 1) return nom;
+    const point = nom.lastIndexOf('.');
+    return point > 0 ? `${nom.slice(0, point)}-${n}${nom.slice(point)}` : `${nom}-${n}`;
+  });
 }

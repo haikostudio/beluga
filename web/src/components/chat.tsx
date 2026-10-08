@@ -102,6 +102,7 @@ export function Chat({
   reponsesProposees,
   libelleDuChamp,
   avancementDansLeFil,
+  enTeteDuFil,
 }: {
   agent: Agent | null;
   projectId: string;
@@ -142,6 +143,14 @@ export function Chat({
    * dernier texte de l'agent : le Studio y lit les styles cités (« [style:<id>] »).
    */
   avancementDansLeFil?: (etat: { todos: TodoItem[]; busy: boolean; dernierTexte: string }) => React.ReactNode;
+  /**
+   * UN EN-TÊTE QUI DÉFILE AVEC LE FIL (conversation sans carte seulement). Le
+   * volet d'un site surveillé y pose son état — adresse, WordPress, frise — :
+   * tout le volet défile alors d'un seul tenant, et seule la barre d'écriture
+   * reste fixe. Fourni, le fil s'ouvre EN HAUT (sur cet état) au lieu du
+   * dernier message, et redescend dès qu'on y envoie un message.
+   */
+  enTeteDuFil?: React.ReactNode;
 }) {
   const state = useApp();
   /* L'état du lien : il éteint les gestes du parcours au lieu de les laisser
@@ -730,6 +739,7 @@ export function Chat({
   const nombreVu = React.useRef(0);
   /** Tant qu'on n'est pas remonté à la main, le fil suit ce qui s'écrit. */
   const suit = React.useRef(true);
+  const avecEnTete = Boolean(enTeteDuFil) && !(carte && cardId);
 
   React.useEffect(() => {
     const fil = filRef.current;
@@ -746,8 +756,14 @@ export function Chat({
     // Ouverture d'une conversation : on se pose tout en bas, sans animation.
     if (ouvertePour.current !== cle && messages.length) {
       ouvertePour.current = cle;
-      suit.current = true;
       nombreVu.current = messages.length;
+      // Sous un en-tête qui défile, on s'ouvre sur lui : c'est ce que le volet montre d'abord.
+      if (avecEnTete) {
+        suit.current = false;
+        if (filRef.current) filRef.current.scrollTop = 0;
+        return;
+      }
+      suit.current = true;
       bottomRef.current?.scrollIntoView({ block: 'end' });
       return;
     }
@@ -756,6 +772,8 @@ export function Chat({
     // morceau courait derrière le texte et finissait par décrocher du bas.
     const nouveauMessage = messages.length !== nombreVu.current;
     nombreVu.current = messages.length;
+    // Ouvert sur l'en-tête, le fil redescend dès qu'on y écrit soi-même.
+    if (avecEnTete && nouveauMessage && messages[messages.length - 1]?.role === 'user') suit.current = true;
     if (suit.current) bottomRef.current?.scrollIntoView({ behavior: nouveauMessage ? 'smooth' : 'instant', block: 'end' });
   }, [cardId, agent?.id, messages.length, messages[messages.length - 1]?.content]);
 
@@ -1115,8 +1133,9 @@ export function Chat({
         onScroll={(event) => {
           if (event.currentTarget.scrollLeft !== 0) event.currentTarget.scrollLeft = 0;
         }}
-        className="flex flex-col px-3 py-3"
+        className={cn('flex flex-col', enTeteDuFil ? 'pb-3' : 'px-3 py-3')}
       >
+        {enTeteDuFil ? <div className="shrink-0">{enTeteDuFil}</div> : null}
         {/*
          * Un échange court — une phrase de l'agent et sa carte proposée — ne
          * remplit pas la hauteur du fil, et le contenu resterait collé EN HAUT
@@ -1137,7 +1156,12 @@ export function Chat({
         <div
           className={cn(
             'shrink-0 space-y-4',
-            messages.length && 'flex min-h-full flex-col justify-end',
+            /* Sous un en-tête, le bloc prend la place QUI RESTE (et la dépasse
+               en défilant) : « min-h-full » repousserait l'en-tête hors de vue
+               même pour un échange court. */
+            enTeteDuFil
+              ? cn('grow px-3 pt-3', messages.length && 'flex flex-col justify-end')
+              : messages.length && 'flex min-h-full flex-col justify-end',
           )}
         >
           {messages.length ? (

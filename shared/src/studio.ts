@@ -86,6 +86,42 @@ export const DUREE_VOULUE_PAR_DEFAUT = 15;
 
 export const ALIGNEMENTS_TEXTE = ['gauche', 'centre', 'droite', 'justifie'] as const;
 export type AlignementTexte = (typeof ALIGNEMENTS_TEXTE)[number];
+export const ALIGNEMENTS_VERTICAUX = ['haut', 'milieu', 'bas'] as const;
+export type AlignementVertical = (typeof ALIGNEMENTS_VERTICAUX)[number];
+export const DECORATIONS_TEXTE = ['aucune', 'souligne', 'barre'] as const;
+export type DecorationTexte = (typeof DECORATIONS_TEXTE)[number];
+export const CASSES_TEXTE = ['aucune', 'majuscules', 'minuscules', 'capitales'] as const;
+export type CasseTexte = (typeof CASSES_TEXTE)[number];
+export const POSITIONS_CONTOUR = ['interieur', 'centre', 'exterieur'] as const;
+export type PositionContour = (typeof POSITIONS_CONTOUR)[number];
+export const STYLES_CONTOUR = ['plein', 'tirets', 'pointilles'] as const;
+export type StyleContour = (typeof STYLES_CONTOUR)[number];
+export const CADRAGES_IMAGE = ['couvrir', 'contenir'] as const;
+export type CadrageImage = (typeof CADRAGES_IMAGE)[number];
+/** Les modes de fusion (`mix-blend-mode`), dans l'ordre de Figma. */
+export const MODES_FUSION = ['normal', 'multiply', 'darken', 'color-burn', 'screen', 'lighten', 'color-dodge', 'overlay', 'soft-light', 'hard-light', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'] as const;
+export type ModeFusion = (typeof MODES_FUSION)[number];
+export const GENRES_OMBRE = ['portee', 'interieure', 'texte'] as const;
+export type GenreOmbre = (typeof GENRES_OMBRE)[number];
+/** Quatre valeurs en pixels, dans l'ordre CSS : haut, droite, bas, gauche (ou les coins dans le sens des aiguilles d'une montre). */
+export type Quatre = [number, number, number, number];
+/** Une ombre : portée (sous la pièce), intérieure (dans la pièce) ou celle des lettres d'un texte. */
+export interface OmbrePiece {
+  genre: GenreOmbre;
+  x: number;
+  y: number;
+  flou: number;
+  /** L'étalement (sans effet sur l'ombre des lettres). */
+  etalement: number;
+  couleur: string;
+}
+/** Un dégradé : linéaire (angle en degrés) ou radial, et ses arrêts (position en %). */
+export interface Degrade {
+  genre: 'lineaire' | 'radial';
+  angle: number;
+  arrets: { couleur: string; position: number }[];
+}
+export const OMBRES_MAX = 8;
 
 /** Une retouche à la main d'UN élément (`data-studio-id`) d'un segment. */
 export interface Retouche {
@@ -118,6 +154,41 @@ export interface Retouche {
   epaisseurContour?: number;
   /** L'arrondi des coins, en pixels de la composition. */
   arrondi?: number;
+  /** L'arrondi COIN PAR COIN (haut gauche, haut droit, bas droit, bas gauche) : il l'emporte sur `arrondi`. */
+  arrondiCoins?: Quatre;
+  /** Où passe le trait du contour : dedans (défaut, la pièce ne grossit pas), à cheval, ou dehors. */
+  contourPosition?: PositionContour;
+  contourStyle?: StyleContour;
+  /** Un DÉGRADÉ en remplissage (posé par-dessus la couleur de fond) ; sans effet sur une forme SVG. */
+  degrade?: Degrade;
+  /** LA TYPOGRAPHIE d'un texte : une police embarquée (`POLICES_STUDIO`), sa graisse, son rythme. */
+  police?: string;
+  /** 100 à 900. */
+  graisse?: number;
+  /** En multiple de la taille des lettres (1,2 = 120 %). */
+  interligne?: number;
+  /** En pixels de la composition, négatif pour resserrer. */
+  espacementLettres?: number;
+  italique?: boolean;
+  decoration?: DecorationTexte;
+  casse?: CasseTexte;
+  /** Où tiennent les lignes dans la HAUTEUR du cadre. */
+  alignementVertical?: AlignementVertical;
+  /** Les MARGES (haut, droite, bas, gauche) : intérieures (`padding`) et extérieures (`margin`). */
+  marges?: Quatre;
+  margesExterieures?: Quatre;
+  /** Les OMBRES, de la première (au-dessus) à la dernière : portée, intérieure, ou ombre des lettres. */
+  ombres?: OmbrePiece[];
+  /** Le FLOU de la pièce elle-même, et celui de ce qu'il y a derrière elle (verre dépoli), en pixels. */
+  flou?: number;
+  flouArrierePlan?: number;
+  /** Le MODE DE FUSION de la pièce avec ce qu'il y a dessous. */
+  fusion?: ModeFusion;
+  /** Rogner ce qui dépasse du cadre (vrai), ou le laisser déborder (faux) ; absent : comme le dessin. */
+  rogner?: boolean;
+  /** UNE IMAGE : comment elle tient dans son cadre, et le média du projet qu'elle montre à la place du sien. */
+  cadrage?: CadrageImage;
+  source?: string;
   /** Pièce cachée (panneau « Calques ») : absente de l'aperçu ET de l'export. */
   masquee?: boolean;
   /**
@@ -407,6 +478,12 @@ export interface Creation {
   cardId?: string;
   /** La miniature (dernière affiche exportée). */
   afficheId?: string;
+  /**
+   * LE RÉGLAGE CHOISI POUR L'AGENT AVANT SA PREMIÈRE DEMANDE (bouton de
+   * configuration en tête de la conversation) : il sert à son démarrage. Une
+   * fois l'agent né, c'est son propre réglage qui fait foi (`agent.config`).
+   */
+  runAgent?: { engine: string; model?: string; thinking?: string; account?: string };
   creeLe: number;
   majLe: number;
 }
@@ -502,6 +579,8 @@ export interface ExportStudio {
   voixEnEssai: number;
   /** Les réglages avec lesquels il a été fabriqué (`studio-export.ts`) ; absent sur un export d'avant. */
   reglages?: ReglagesExport;
+  /** Le lot du clic « Exporter » (une vidéo par format coché) ; absent sur un export lancé seul. */
+  lot?: string;
   creeLe: number;
   majLe: number;
 }
@@ -536,14 +615,42 @@ function texte(valeur: unknown, max = 5000): string {
   return typeof valeur === 'string' ? valeur.slice(0, max) : '';
 }
 
+/** Quatre nombres bornés (marges, coins) ; `null` ou une forme illisible : rien. */
+function lireQuatre(brut: unknown, min: number, max: number): Quatre | null {
+  if (!Array.isArray(brut) || brut.length !== 4) return null;
+  return brut.map((v) => arrondi(nombre(v, 0, min, max))) as Quatre;
+}
+
+function lireOmbre(o: any): OmbrePiece | null {
+  if (!o || typeof o !== 'object') return null;
+  return {
+    genre: GENRES_OMBRE.includes(o.genre) ? o.genre : 'portee',
+    x: arrondi(nombre(o.x, 0, -2000, 2000)),
+    y: arrondi(nombre(o.y, 4, -2000, 2000)),
+    flou: arrondi(nombre(o.flou, 8, 0, 1000)),
+    etalement: arrondi(nombre(o.etalement, 0, -1000, 1000)),
+    couleur: couleurValide(o.couleur, '#00000040'),
+  };
+}
+
+function lireDegrade(d: any): Degrade | null {
+  if (!d || typeof d !== 'object' || !Array.isArray(d.arrets)) return null;
+  const arrets = d.arrets
+    .slice(0, 8)
+    .filter((a: any) => a && typeof a === 'object')
+    .map((a: any) => ({ couleur: couleurValide(a.couleur, '#000000'), position: arrondi(nombre(a.position, 0, 0, 100)) }));
+  if (arrets.length < 2) return null;
+  return { genre: d.genre === 'radial' ? 'radial' : 'lineaire', angle: arrondi(nombre(d.angle, 180, -360, 360)), arrets };
+}
+
 function lireRetouche(r: any): Retouche | null {
   if (!r || typeof r !== 'object') return null;
   const sortie: Retouche = {};
-  if (r.x !== undefined) sortie.x = arrondi(nombre(r.x, 0, -5000, 5000));
-  if (r.y !== undefined) sortie.y = arrondi(nombre(r.y, 0, -5000, 5000));
-  if (r.echelle !== undefined) sortie.echelle = arrondi(nombre(r.echelle, 1, 0.05, 20));
-  if (r.rotation !== undefined) sortie.rotation = arrondi(nombre(r.rotation, 0, -3600, 3600));
-  if (r.opacite !== undefined) sortie.opacite = arrondi(nombre(r.opacite, 1, 0, 1));
+  if (r.x !== undefined && r.x !== null) sortie.x = arrondi(nombre(r.x, 0, -5000, 5000));
+  if (r.y !== undefined && r.y !== null) sortie.y = arrondi(nombre(r.y, 0, -5000, 5000));
+  if (r.echelle !== undefined && r.echelle !== null) sortie.echelle = arrondi(nombre(r.echelle, 1, 0.05, 20));
+  if (r.rotation !== undefined && r.rotation !== null) sortie.rotation = arrondi(nombre(r.rotation, 0, -3600, 3600));
+  if (r.opacite !== undefined && r.opacite !== null) sortie.opacite = arrondi(nombre(r.opacite, 1, 0, 1));
   if (typeof r.texte === 'string') sortie.texte = r.texte.slice(0, 2000);
   if (r.couleur !== undefined && r.couleur !== null) sortie.couleur = couleurValide(r.couleur);
   if (r.fond !== undefined && r.fond !== null) sortie.fond = couleurValide(r.fond);
@@ -555,6 +662,35 @@ function lireRetouche(r: any): Retouche | null {
   if (r.contour !== undefined && r.contour !== null) sortie.contour = couleurValide(r.contour, '#000000');
   if (r.epaisseurContour !== undefined && r.epaisseurContour !== null) sortie.epaisseurContour = arrondi(nombre(r.epaisseurContour, 0, 0, 200));
   if (r.arrondi !== undefined && r.arrondi !== null) sortie.arrondi = arrondi(nombre(r.arrondi, 0, 0, 5000));
+  const coins = lireQuatre(r.arrondiCoins, 0, 5000);
+  if (coins) sortie.arrondiCoins = coins;
+  if (POSITIONS_CONTOUR.includes(r.contourPosition)) sortie.contourPosition = r.contourPosition;
+  if (STYLES_CONTOUR.includes(r.contourStyle)) sortie.contourStyle = r.contourStyle;
+  const degrade = lireDegrade(r.degrade);
+  if (degrade) sortie.degrade = degrade;
+  if (typeof r.police === 'string' && /^[A-Za-z][\w -]{0,59}$/.test(r.police.trim())) sortie.police = r.police.trim();
+  if (r.graisse !== undefined && r.graisse !== null) sortie.graisse = Math.round(nombre(r.graisse, 400, 100, 900) / 100) * 100;
+  if (r.interligne !== undefined && r.interligne !== null) sortie.interligne = arrondi(nombre(r.interligne, 1.2, 0.5, 5));
+  if (r.espacementLettres !== undefined && r.espacementLettres !== null) sortie.espacementLettres = arrondi(nombre(r.espacementLettres, 0, -100, 500));
+  if (typeof r.italique === 'boolean') sortie.italique = r.italique;
+  if (DECORATIONS_TEXTE.includes(r.decoration)) sortie.decoration = r.decoration;
+  if (CASSES_TEXTE.includes(r.casse)) sortie.casse = r.casse;
+  if (ALIGNEMENTS_VERTICAUX.includes(r.alignementVertical)) sortie.alignementVertical = r.alignementVertical;
+  const marges = lireQuatre(r.marges, 0, 5000);
+  if (marges) sortie.marges = marges;
+  const exterieures = lireQuatre(r.margesExterieures, -5000, 5000);
+  if (exterieures) sortie.margesExterieures = exterieures;
+  if (Array.isArray(r.ombres)) {
+    const ombres = r.ombres.slice(0, OMBRES_MAX).map(lireOmbre).filter((o: OmbrePiece | null): o is OmbrePiece => !!o);
+    // Une liste VIDE est un choix (aucune ombre, même si le dessin en pose une) : elle est gardée.
+    sortie.ombres = ombres;
+  }
+  if (r.flou !== undefined && r.flou !== null) sortie.flou = arrondi(nombre(r.flou, 0, 0, 500));
+  if (r.flouArrierePlan !== undefined && r.flouArrierePlan !== null) sortie.flouArrierePlan = arrondi(nombre(r.flouArrierePlan, 0, 0, 500));
+  if (MODES_FUSION.includes(r.fusion)) sortie.fusion = r.fusion;
+  if (typeof r.rogner === 'boolean') sortie.rogner = r.rogner;
+  if (CADRAGES_IMAGE.includes(r.cadrage)) sortie.cadrage = r.cadrage;
+  if (idValide(r.source)) sortie.source = r.source;
   if (r.masquee === true) sortie.masquee = true;
   if (r.plan !== undefined && r.plan !== null) {
     const plan = Math.round(nombre(r.plan, 0, -50, 50));
@@ -848,6 +984,8 @@ export function mediasDeLaComposition(c: Composition): string[] {
       for (const m of `${s.gabarit.html} ${s.gabarit.css}`.matchAll(/studio-media:([a-zA-Z][\w-]{0,63})/g)) ids.add(m[1]!);
       for (const p of s.parametres) if (p.type === 'media' && typeof s.valeurs[p.id] === 'string' && s.valeurs[p.id]) ids.add(String(s.valeurs[p.id]));
     }
+    // L'image d'une pièce remplacée à la main (« Source » de l'inspecteur), dans tous les formats.
+    for (const table of retouchesDeTousLesFormats(s)) for (const r of Object.values(table)) if (r.source) ids.add(r.source);
   }
   return [...ids];
 }
@@ -871,8 +1009,20 @@ export function remplacerMediasDansComposition(c: Composition, table: Record<str
         if (p.type === 'media' && typeof p.defaut === 'string' && p.defaut) p.defaut = nouveau(p.defaut);
       }
     }
+    for (const table of retouchesDeTousLesFormats(s)) for (const r of Object.values(table)) if (r.source) r.source = nouveau(r.source);
   }
   return copie;
+}
+
+/** Les tables de retouches d'un segment : celle du format de base, puis celle de chaque autre format. */
+function retouchesDeTousLesFormats(s: Segment): Record<string, Retouche>[] {
+  const tables: Record<string, Retouche>[] = [];
+  if (s.retouches) tables.push(s.retouches);
+  for (const f of CLES_FORMATS_STUDIO) {
+    const t = s.surcharges?.[f]?.retouches;
+    if (t) tables.push(t);
+  }
+  return tables;
 }
 
 export function tousLesSegments(c: Composition): Segment[] {

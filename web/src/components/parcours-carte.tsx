@@ -593,13 +593,13 @@ export function PanneauDeDecision({
   );
   const parId = React.useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   /*
-   * LES COMPÉTENCES PROPOSÉES PAR BELUGA BUILD NE SONT PAS DES QUESTIONS DE
+   * LES COMPÉTENCES RETENUES PAR BELUGA BUILD NE SONT PAS DES QUESTIONS DE
    * L'AGENT : elles sortent du panneau jaune et de son feuilletage, et prennent
-   * leurs encadrés violets, un par compétence, tous visibles ensemble
-   * (`EncadresDeCompetences`). Tant qu'un encadré d'une série attend, la série
-   * entière reste affichée — ceux déjà tranchés repliés sur leur décision. Et
-   * la série du DERNIER message reste lisible une fois toute tranchée : on voit
-   * ce qu'on vient de décider, jusqu'au prochain échange.
+   * leurs lignes violettes, une par compétence, toutes visibles ensemble
+   * (`EncadresDeCompetences`). Elles naissent retenues ; TANT QUE LA CARTE EST
+   * EN CADRAGE, toutes restent affichées, pour qu'une croix puisse en écarter
+   * une jusqu'au lancement. Ensuite, seule la série du DERNIER message reste
+   * lisible (et un ancien encadré resté ouvert, jusqu'à sa réponse).
    */
   const estUneCompetence = (d: DecisionDuParcours) =>
     d.sorte === 'question' && !!parId.get(d.messageId)?.questions.find((q) => q.id === d.questionId)?.competence;
@@ -607,7 +607,7 @@ export function PanneauDeDecision({
   const seriesDeCompetences = messages.filter(
     (message) =>
       message.questions.some((q) => q.competence && !q.answer && !q.cancelled) ||
-      (message.id === dernierMessage?.id && message.questions.some((q) => q.competence)),
+      ((carte.column === 'planned' || message.id === dernierMessage?.id) && message.questions.some((q) => q.competence)),
   );
   const decisions = toutesLesDecisions.filter((d) => !estUneCompetence(d));
   const questions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');
@@ -630,7 +630,7 @@ export function PanneauDeDecision({
         className="px-2.5 pb-2.5"
       >
         {seriesDeCompetences.map((message) => (
-          <EncadresDeCompetences key={message.id} messageId={message.id} questions={message.questions} />
+          <EncadresDeCompetences key={message.id} messageId={message.id} agentId={message.agentId} questions={message.questions} />
         ))}
       </ZoneDefilement>
     </div>

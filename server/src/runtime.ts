@@ -10,6 +10,8 @@ import {
   lignesDesReponses,
   questionsSansReponse,
   tourDeCadrageSansQuestion,
+  VARIABLE_DES_PRODUCTIONS,
+  consigneDeProduction,
   Ampleur,
   CONSIGNE_CREATION_PROJET,
   CONSIGNE_CARTE_COURTE,
@@ -96,6 +98,7 @@ import {
   type MotifDAppel,
   CONSIGNE_ASSISTANT_BACKUP,
   CONSIGNE_ASSISTANT_SURVEILLANCE,
+  consigneDePerimetre,
   CONSIGNE_AGENT_MARKETING,
   CONSIGNE_AGENT_STUDIO,
   CONSIGNE_AGENT_BIBLIOTHEQUE,
@@ -196,6 +199,8 @@ import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { estAgentMarketing } from './marketing.js';
 import { estAgentStudio } from './studio.js';
+import { listerSites } from './surveillance.js';
+import { productionsPourLAgent, productionsProtegees } from './productions-protegees.js';
 import { estAgentAttitre } from './agent-attitre.js';
 import { AjoutJournal, ajouterAuJournal, phaseDeLaCarte } from './journal-carte.js';
 import { repererLesCaptures } from './captures-auto.js';
@@ -1247,6 +1252,14 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * consigne système ne change pas dans une même session (`server/src/marketing.ts`).
    */
   if (!options.motif && estAgentMarketing(agentId)) options = { ...options, motif: 'configuration-marketing' };
+  /*
+   * ET L'AGENT D'UN SITE SURVEILLÉ GARDE LA SIENNE : une phrase tapée plus tard
+   * dans le volet du site n'a pas de motif, et l'agent recevait alors la
+   * consigne de tâche du projet de l'application — celui qui voit TOUS les
+   * projets —, sans son périmètre limité à son site.
+   */
+  if (!options.motif && listerSites().some((site) => site.agentId === agentId))
+    options = { ...options, motif: 'configuration-surveillance' };
   // De même pour l'agent d'une création du Studio : sa consigne et son outil le suivent.
   if (!options.motif && estAgentStudio(agentId)) options = { ...options, motif: 'studio' };
   // Et pour l'agent d'une source de la bibliothèque de styles (`server/src/studio-sources.ts`).
@@ -2583,7 +2596,7 @@ async function startTurn(
    * copie de travail.
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId && agent.workdir ? 'task' : agent.role;
-  const systemPrompt = assistantGlobal
+  let systemPrompt = assistantGlobal
     ? `${consigneDeLangue(langueDesAgents())}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`
     : rolePrompt(
     roleMoteur,
@@ -2593,6 +2606,17 @@ async function startTurn(
     motif,
     langueDesAgents(),
   );
+  /*
+   * UN PROJET RELIÉ À UN VRAI SITE emporte la consigne de lecture seule, pour
+   * tous les moteurs : sous Codex et Cursor, aucun crochet ne refuse la commande.
+   */
+  const productionsDansLEnvironnement = (role: string): Record<string, string> => {
+    const productions = productionsPourLAgent(role);
+    return productions ? { [VARIABLE_DES_PRODUCTIONS]: productions } : {};
+  };
+  const consigneDuSite =
+    agent.role === 'deploy' ? '' : consigneDeProduction(productionsProtegees().filter((p) => p.projet === project.id));
+  if (consigneDuSite) systemPrompt = `${systemPrompt}\n\n${consigneDuSite}`;
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -2609,6 +2633,12 @@ async function startTurn(
      */
     BELUGA_DEMON_PID: String(process.pid),
     BELUGA_DEMON_RACINE: CONFIG.selfPath,
+    /*
+     * LES VRAIS SITES, EN LECTURE SEULE (MEM-4501) : le même garde refuse toute
+     * commande qui y écrirait (`shared/src/garde-production.ts`). L'agent de la
+     * mise en production (rôle « deploy ») n'en reçoit aucune.
+     */
+    ...productionsDansLEnvironnement(agent.role),
     /*
      * UN OUTIL A LE DROIT D'ATTENDRE UNE PERSONNE. Une question posée par
      * `ask_user` arrête le moteur jusqu'à la réponse : sans ce délai, Claude
@@ -5786,7 +5816,11 @@ function corpsDeConsigne(
     /* Vaut pour TOUS les rôles : celui qui monte le projet comme celui qui
        propose la carte qui le montera. Un projet monté sans adresse est un
        projet dont chaque déploiement finira sans rien à contrôler. */
-    `${CONSIGNE_CREATION_PROJET}`;
+    `${CONSIGNE_CREATION_PROJET}\n\n` +
+    /* LE PÉRIMÈTRE suit le projet : celui de l'application voit tout mais
+       propose une carte par projet, tout autre projet reste chez lui. Tranché
+       sur `isSelf`, jamais sur un nom (`shared/src/perimetre-des-agents.ts`). */
+    consigneDePerimetre(isSelf);
 
   /*
    * L'AGENT DE CADRAGE reçoit une consigne COURTE, la sienne, et rien du
@@ -5796,6 +5830,8 @@ function corpsDeConsigne(
    */
   if (role === 'cadrage') {
     return `${CONSIGNE_CADRAGE}
+
+${consigneDePerimetre(isSelf)}
 
 UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : une question écrite à la fin de ta réponse ne réveille personne. Ce qui peut être tranché se tranche : tu annonces ton choix en une ligne et tu continues.
 

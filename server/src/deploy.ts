@@ -1266,6 +1266,9 @@ export async function startDeploy(
     try {
       if (etape.cible === 'production') {
         current = await mettreEnProduction(current, project, controleur.signal);
+        /* La surveillance du site suit ce qui vient d'arriver EN LIGNE, et
+           seulement maintenant (MEM-4501) : jamais une phrase de carte. */
+        void alignerLaSurveillanceApresProduction(project.id);
       } else {
         const issue = await deployer(current, project, cards, ecartees, controleur.signal);
         current = issue.run;
@@ -1824,6 +1827,30 @@ async function mettreEnProduction(depart: DeployRun, project: Project, signal: A
   current = setStep(current, 'publish', 'done', joue.join('\n\n'));
   current = setStep(current, 'restart', 'skipped', 'Le processus du projet porte lui-même ses redémarrages.');
   return current;
+}
+
+/**
+ * APRÈS UNE MISE EN PRODUCTION RÉUSSIE, la surveillance WordPress des sites
+ * reliés au projet relit l'état réel du site et en fait l'état attendu
+ * (`accepterLesExtensionsActuelles`) : une extension désactivée par le registre
+ * cesse d'être un souci. Un échec ici ne touche jamais la publication, il se dit
+ * dans le journal.
+ */
+async function alignerLaSurveillanceApresProduction(projectId: string): Promise<void> {
+  try {
+    const { listerSites } = await import('./surveillance.js');
+    const { tourneeWordpress, accepterLesExtensionsActuelles } = await import('./surveillance-wordpress.js');
+    const sites = listerSites().filter((s) => s.projetRattache === projectId && s.wordpress);
+    if (!sites.length) return;
+    await tourneeWordpress(Date.now(), sites.map((s) => s.id));
+    for (const site of sites) {
+      const issue = accepterLesExtensionsActuelles(site.id);
+      if (issue.ok) log.info(`surveillance « ${site.nom} » alignée sur le site après la mise en production`);
+      else log.warn(`surveillance « ${site.nom} » non alignée après la mise en production : ${issue.raison}`);
+    }
+  } catch (err) {
+    log.warn(`alignement de la surveillance après la mise en production impossible : ${raisonDe(err)}`);
+  }
 }
 
 /* ------------------------------------------------------------------ */

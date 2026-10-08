@@ -20,6 +20,7 @@ import {
 import { Toasts } from '@/components/toasts';
 import { PanneauALaDemande, prechargerAuRepos } from '@/lib/panneau-a-la-demande';
 import { useResizable, ResizeHandle } from '@/components/resizer';
+import type { VueFichiers } from '@/components/right-panel';
 import { abonnerAuxNotifications } from '@/lib/abonnement-push';
 import { client } from '@/lib/client';
 import { lancerIntervalleVisible } from '@/lib/veille';
@@ -116,7 +117,7 @@ const chargerAssistantMoteurs = () => import('@/components/assistant-moteurs');
  */
 const chargerConversation = () => import('@/components/right-panel');
 
-const RightPanel = React.lazy(() => chargerConversation().then((m) => ({ default: m.RightPanel })));
+const TiroirFichiers = React.lazy(() => chargerConversation().then((m) => ({ default: m.TiroirFichiers })));
 
 const Dashboard = React.lazy(() => chargerTableauDeBord().then((m) => ({ default: m.Dashboard })));
 const NotesPage = React.lazy(() => chargerPageNotes().then((m) => ({ default: m.NotesPage })));
@@ -157,19 +158,13 @@ function AttenteEcran({ children }: { children: React.ReactNode }) {
   return <div className="min-h-0 flex-1 overflow-hidden px-4 pt-6">{children}</div>;
 }
 
-/** Les destinations de la barre du bas, sur téléphone. */
-const ONGLETS_MOBILES = ['board', 'chat'] as const;
+/**
+ * Les destinations de la barre du bas, sur téléphone. « Fichiers » n'en est
+ * plus une : il ouvre le même tiroir que le menu des trois points. Un ancien
+ * choix « chat » retenu en base retombe donc sur le tableau.
+ */
+const ONGLETS_MOBILES = ['board'] as const;
 type OngletMobile = (typeof ONGLETS_MOBILES)[number];
-
-/** Où l'on retient le choix « ouvert / replié » du volet de droite. */
-const CLE_VOLET_DROIT = 'beluga.volet-droit.ouvert';
-
-/** Le volet de droite commence replié, sauf choix contraire déjà retenu. */
-function choixInitialVoletDroit(): boolean {
-  if (typeof window === 'undefined') return false;
-  const retenu = window.localStorage.getItem(CLE_VOLET_DROIT);
-  return retenu === '1';
-}
 
 
 /** La clé du serveur arrive en base64 « url » : le navigateur la veut en octets. */
@@ -269,18 +264,10 @@ export function App() {
      Fichiers) ou sur les tableaux de bord (« Nouvel agent ») : aucune sur les
      autres vues pleines — marketing, coffre, notes… (`menuBasTelephone`). */
   const menuBas = menuBasTelephone(vueCentrale, !!state.activeProjectId);
-  const [rightOpen, setRightOpenEtRetenir] = React.useState(choixInitialVoletDroit);
-  const setRightOpen = React.useCallback((valeur: boolean | ((precedent: boolean) => boolean)) => {
-    setRightOpenEtRetenir((precedent) => {
-      const suivant = typeof valeur === 'function' ? valeur(precedent) : valeur;
-      try {
-        window.localStorage.setItem(CLE_VOLET_DROIT, suivant ? '1' : '0');
-      } catch {
-        /* navigation privée : le choix vaut pour la session, c'est tout. */
-      }
-      return suivant;
-    });
-  }, []);
+  /* LES FICHIERS ET LES PIÈCES JOINTES S'OUVRENT EN TIROIR, depuis le menu
+     des trois points ou le bouton « Fichiers » du bas du téléphone. L'ancien
+     volet de droite, son bouton et sa largeur retenue ont disparu. */
+  const [tiroirFichiers, setTiroirFichiers] = React.useState<VueFichiers | null>(null);
   /*
    * L'onglet du bas est retenu en base : on rouvre l'application là où on
    * l'avait laissée, et le même onglet suit d'un appareil à l'autre. Un onglet
@@ -292,9 +279,8 @@ export function App() {
   const [projetsOuverts, setProjetsOuverts] = React.useState(false);
   const [dropTarget, setDropTarget] = React.useState(false);
 
-  // Largeurs des deux panneaux, retenues d'une session à l'autre.
+  // Largeur de la colonne de gauche, retenue d'une session à l'autre.
   const gauche = useResizable('sidebar', { initial: 196, min: 150, max: 420 });
-  const droite = useResizable('panel', { initial: 360, min: 280, max: 720 });
 
   React.useEffect(() => {
     client.connect();
@@ -964,7 +950,7 @@ export function App() {
             event.preventDefault();
             setDropTarget(false);
             // Sans conversation ouverte, le dépôt est refusé avec un message clair.
-            if (!openCardId && !rightOpen) {
+            if (!openCardId) {
               client.pushToast('warning', t('Ouvrez d\'abord une conversation pour y déposer un fichier.'));
             } else {
               client.pushToast('info', t('Déposez le fichier directement dans la barre d\'écriture de la conversation.'));
@@ -976,8 +962,7 @@ export function App() {
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenProjects={() => setProjetsOuverts(true)}
           onOpenDashboard={ouvrirTableauDeBord}
-          rightOpen={rightOpen}
-          onToggleRight={() => setRightOpen((value) => !value)}
+          onOuvrirFichiers={setTiroirFichiers}
           titreDeVue={vueCentrale === 'en-route' ? t('Tableaux de bord') : undefined}
           onOuvrirVue={ouvrirVue}
         />
@@ -1177,7 +1162,7 @@ export function App() {
             {/* « NOUVEL AGENT » SUR ORDINATEUR AUSSI, HORS DE TOUT PROJET : le même
                 geste que la barre du bas du téléphone (`data-menu-bas`, masquée
                 dès `sm:`), posé en bouton flottant au centre bas de CETTE zone
-                — ni sur la colonne de gauche, ni sur le volet de droite. Une
+                — ni sur la colonne de gauche, ni ailleurs. Une
                 bande de hauteur nulle au pied de `<main>` lui sert d'ancre : il
                 flotte au-dessus du contenu sans rien pousser ni toucher aux
                 autres écrans. Les deux écrans concernés gardent un blanc en
@@ -1197,46 +1182,6 @@ export function App() {
             ) : null}
           </main>
 
-          {activeProject && rightOpen && !vuePleine(vueCentrale) ? (
-            <>
-              <ResizeHandle
-                className="hidden lg:block"
-                onPointerDown={(event) => droite.start(event, 'right')}
-                onDoubleClick={droite.reset}
-              />
-              {/* `data-zone="droite"` : repère pour l'étagement des fonds du
-                  thème sombre (`styles.css`) — inerte dans les six autres
-                  thèmes. */}
-              <aside
-                data-zone="droite"
-                className="hidden shrink-0 border-l border-border lg:flex lg:flex-col"
-                style={{ width: `${droite.width}px` }}
-              >
-                <Filet zone="Chef d'orchestre">
-                  <PanneauALaDemande monte>
-                    <RightPanel projectId={activeProject.id} />
-                  </PanneauALaDemande>
-                </Filet>
-              </aside>
-            </>
-          ) : null}
-
-          {/* Sur téléphone, l'écran Fichiers prend toute la place — et il prend
-              alors le fond de la ZONE DU MILIEU, pas celui du volet de droite.
-              L'étagement des douze palettes fait de « droite » la teinte la
-              plus CLAIRE : juste, quand ce volet est une bande à côté du
-              tableau ; faux quand il occupe l'écran entier, où il tranchait
-              alors avec tout le reste de l'application. Le menu du bas suit le
-              même repère (voir `data-zone` sur `nav`, plus bas). */}
-          {activeProject && mobileView === 'chat' ? (
-            <aside data-zone="centre" className="flex min-w-0 flex-1 flex-col sm:hidden">
-              <Filet zone="Chef d'orchestre">
-                <PanneauALaDemande monte>
-                  <RightPanel projectId={activeProject.id} />
-                </PanneauALaDemande>
-              </Filet>
-            </aside>
-          ) : null}
         </div>
 
         {/* La liste des projets, en panneau qui glisse depuis la gauche : un
@@ -1342,21 +1287,26 @@ export function App() {
             <Button
               variant="ghost"
               size="sm"
-              aria-current={mobileView === 'chat' && !vuePleine(vueCentrale) ? 'page' : undefined}
-              className={cn(
-                'h-9 w-full justify-center gap-1 rounded-xl px-1 text-xs',
-                mobileView === 'chat' && !vuePleine(vueCentrale) && 'bg-actif text-actif-fg hover:bg-actif hover:text-actif-fg',
-              )}
-              onClick={() => {
-                setVueCentrale('projet');
-                setMobileView('chat');
-              }}
+              data-bouton-fichiers-bas
+              className="h-9 w-full justify-center gap-1 rounded-xl px-1 text-xs"
+              disabled={!state.activeProjectId}
+              onClick={() => setTiroirFichiers('fichiers')}
             >
               <MessageSquare className="h-3.5 w-3.5 shrink-0" />  {t('Fichiers')}
             </Button>
           </div>
           )}
         </nav>
+        ) : null}
+        {/* Le tiroir des fichiers ne se télécharge qu'au premier clic. */}
+        {state.activeProjectId ? (
+          <PanneauALaDemande monte={tiroirFichiers !== null}>
+            <TiroirFichiers
+              projectId={state.activeProjectId}
+              vue={tiroirFichiers}
+              onClose={() => setTiroirFichiers(null)}
+            />
+          </PanneauALaDemande>
         ) : null}
         {tiroirNouvelAgent ? (
           <TiroirNouvelAgent

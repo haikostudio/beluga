@@ -110,7 +110,7 @@ export function depannagesDeLaBande<T extends AgentPourLeDepannage>(agents: read
 
 /**
  * LES DÉPANNAGES FINIS DEPUIS MOINS DE 24 HEURES : leur vignette dans
- * « Terminés » (même règle que les agents sans carte, `agentSystemeTermine`),
+ * « Archiver » (même règle que les agents sans carte, `agentSystemeTermine`),
  * la plus récente fin d'abord.
  */
 export function depannagesTerminesDeLaBande<T extends AgentPourLeDepannage>(agents: readonly T[], maintenant: number): T[] {

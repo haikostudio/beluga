@@ -220,9 +220,9 @@ export function competencesValidees(proposees: readonly CompetenceProposee[] | u
 }
 
 /**
- * CE QUE LA RECHERCHE REND À L'AGENT DE CADRAGE, une fois les encadrés
- * tranchés : le résultat de mémoire qu'il attendait, puis ce que l'utilisateur
- * a décidé des compétences. L'agent n'a plus à poser la question lui-même — il
+ * CE QUE LA RECHERCHE REND À L'AGENT DE CADRAGE : le résultat de mémoire qu'il
+ * attendait, puis les compétences retenues d'office (et, pour un ancien
+ * encadré, ce que l'utilisateur en a décidé). L'agent n'a plus à poser la question lui-même — il
  * RECOPIE les compétences validées dans le détail technique de sa
  * compréhension, et laisse tomber les autres.
  */
@@ -234,7 +234,11 @@ export function texteDIssueDesPropositions(
   const validees = tranchees.filter((t) => t.etat === 'utilisee');
   const ecartees = tranchees.filter((t) => t.etat === 'ecartee');
   const sansReponse = tranchees.filter((t) => t.etat === 'proposee');
-  const lignes: string[] = [texteMemoire.trim(), '', 'COMPÉTENCES PROPOSÉES PAR BELUGA BUILD À L’UTILISATEUR (il vient de trancher, ne lui repose pas la question) :'];
+  const lignes: string[] = [
+    texteMemoire.trim(),
+    '',
+    'COMPÉTENCES RETENUES PAR BELUGA BUILD POUR CETTE DEMANDE (retenues d’office ; l’utilisateur peut en écarter une d’une croix avant le lancement — ne lui repose pas la question) :',
+  ];
   if (validees.length) {
     lignes.push('VALIDÉES — elles partiront EN ENTIER avec l’agent d’exécution ; cite-les par leur nom dans « partieTechnique.faits », et ouvre leur mode d’emploi si ton cadrage en dépend :');
     for (const v of validees) lignes.push(`- ${v.nom}${v.chemin ? ` — ${v.chemin}` : ''}`);

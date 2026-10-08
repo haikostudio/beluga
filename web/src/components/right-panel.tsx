@@ -5,6 +5,7 @@ import {
   File as FileIcon,
   FileText,
   Folder,
+  FolderOpen,
   Image as ImageIcon,
   Paperclip,
   Search,
@@ -18,12 +19,9 @@ import {
   DialogContentLibre,
   DialogHeader,
   DialogTitle,
+  Drawer,
   EmptyState,
   Input,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   Tooltip,
   ZoneDefilement,
 } from '@/components/ui';
@@ -35,28 +33,42 @@ import { bytes, cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { lancerIntervalleVisible } from '@/lib/veille';
 
-export function RightPanel({ projectId }: { projectId: string }) {
+/** Ce que montre le tiroir : l'arborescence du projet, ou ses pièces jointes. */
+export type VueFichiers = 'fichiers' | 'pieces';
+
+/**
+ * LES FICHIERS ET LES PIÈCES JOINTES S'OUVRENT EN TIROIR, depuis le menu des
+ * trois points (et, sur téléphone, depuis le bouton « Fichiers » du menu du
+ * bas). L'ancien volet de droite et ses deux onglets ont disparu : c'est
+ * l'entrée choisie qui dit quelle liste montrer, il n'y a donc plus d'onglet à
+ * basculer dans le tiroir lui-même.
+ */
+export function TiroirFichiers({
+  projectId,
+  vue,
+  onClose,
+}: {
+  projectId: string;
+  vue: VueFichiers | null;
+  onClose: () => void;
+}) {
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <Tabs defaultValue="files" className="flex min-h-0 flex-1 flex-col">
-        <div className="px-2 py-1.5">
-          <TabsList className="w-full">
-            <TabsTrigger value="files" className="flex-1">
-              {t('Fichiers')}</TabsTrigger>
-            <TabsTrigger value="attachments" className="flex-1">
-              {t('Pièces jointes')}</TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="files" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
-          <FilesTab projectId={projectId} />
-        </TabsContent>
-
-        <TabsContent value="attachments" className="flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden">
-          <AttachmentsTab projectId={projectId} />
-        </TabsContent>
-      </Tabs>
-    </div>
+    <Drawer open={vue !== null} onClose={onClose} hauteurFixe>
+      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
+        {vue === 'pieces' ? (
+          <Paperclip className="h-3.5 w-3.5 shrink-0 text-accent" />
+        ) : (
+          <FolderOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
+        )}
+        <DialogTitle className="min-w-0 flex-1 truncate">
+          {vue === 'pieces' ? t('Pièces jointes') : t('Fichiers')}
+        </DialogTitle>
+      </header>
+      <div data-tiroir-fichiers={vue ?? undefined} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {vue === 'pieces' ? <AttachmentsTab projectId={projectId} /> : null}
+        {vue === 'fichiers' ? <FilesTab projectId={projectId} /> : null}
+      </div>
+    </Drawer>
   );
 }
 

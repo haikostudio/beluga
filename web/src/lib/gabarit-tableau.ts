@@ -105,8 +105,8 @@ export const classesBande = (enColonnes: boolean): string =>
 export const CLASSES_PIED_RANGEE = 'mt-auto flex shrink-0 items-center gap-2 px-2 pb-3 pt-1.5';
 
 /*
- * « TABLEAUX DE BORD » : DEUX COLONNES, « ACTIFS » ET « TERMINÉS », côte à côte
- * comme celles du tableau. Sur ordinateur elles se partagent la largeur ; sur
+ * « TABLEAUX DE BORD » : TROIS COLONNES, « ACTIFS », « TERMINER » ET « ARCHIVER »,
+ * côte à côte comme celles du tableau. Sur ordinateur elles se partagent la largeur ; sur
  * téléphone chacune tient l'écran et le rail défile de côté, colonne par
  * colonne (aimantation au bord gauche), comme le tableau en colonnes. Chaque
  * colonne défile seule à la verticale. La page et sa silhouette lisent ces
