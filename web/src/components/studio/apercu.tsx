@@ -12,6 +12,7 @@ import {
   type FormatStudio,
   type KitDeMarque,
   type MediaPourLaPage,
+  type NaturePiece,
   type Retouche,
   FORMATS_STUDIO,
   MARGE_SECURITE_STUDIO,
@@ -84,13 +85,17 @@ export interface BoiteDuCadre {
   styles?: StylesDeLaPiece | null;
 }
 
-export type NaturePiece = 'texte' | 'image' | 'svg' | 'groupe' | 'forme';
+/** Ce qu'est la pièce : la table vit dans `shared` (`studio-reglages.ts`), avec les blocs qu'elle offre. */
+export type { NaturePiece };
 
 export interface StylesDeLaPiece {
   /** Telles que le navigateur les donne (`rgb(…)`, `rgba(…)`) : `enCouleur` les ramène au sélecteur, transparence comprise. */
   couleur?: string;
   fond?: string;
   remplissage?: string;
+  /** Le trait des formes dessinées (une icône SVG au trait) : sa couleur et son épaisseur, `null` sans tracé. */
+  trait?: string | null;
+  epaisseurTrait?: number | null;
   /** En pixels de la composition. */
   taillePolice?: number;
   largeur?: number;
@@ -375,12 +380,15 @@ export const Apercu = React.forwardRef<
         return;
       }
       if (d.type === 'boite') {
-        const b: BoiteDuCadre | null =
-          d.segmentId && typeof d.x === 'number'
-            ? { segmentId: d.segmentId, elementId: d.elementId ?? null, x: d.x, y: d.y, l: d.l, h: d.h, texte: d.texte === true, ecrivable: d.ecrivable === true, image: d.image ?? null, parametre: d.parametre ?? null, nature: d.nature, contenu: d.contenu ?? null, styles: d.styles ?? null }
-            : null;
+        /* LA DESCRIPTION de la pièce (nature, styles, texte) arrive même quand elle est cachée à cet instant (tête de
+           lecture hors de son segment) : l'inspecteur la garde. Le CADRE et ses poignées ne se dessinent qu'avec ses
+           coordonnées, c'est-à-dire quand elle se voit. */
+        const description: BoiteDuCadre | null = d.segmentId
+          ? { segmentId: d.segmentId, elementId: d.elementId ?? null, texte: d.texte === true, ecrivable: d.ecrivable === true, image: d.image ?? null, parametre: d.parametre ?? null, nature: d.nature, contenu: d.contenu ?? null, styles: d.styles ?? null }
+          : null;
+        const b: BoiteDuCadre | null = description && typeof d.x === 'number' ? { ...description, x: d.x, y: d.y, l: d.l, h: d.h } : null;
         setChoisie(b);
-        surBoite.current?.(b);
+        surBoite.current?.(b ?? description);
         return;
       }
       surMessage.current(d);
@@ -590,10 +598,15 @@ export const Apercu = React.forwardRef<
     <div ref={boite} className={className ?? 'flex h-full w-full items-center justify-center'} data-studio-apercu>
       <div ref={scene} className="relative rounded-md shadow-lg" style={{ width: W, height: H }} data-studio-image>
         <div className="absolute inset-0 overflow-hidden rounded-md">
+          {/* `allow="autoplay"` : LE CLIC SUR « LIRE » A LIEU DANS LA PAGE, PAS DANS LE CADRE. Isolé (origine opaque), le
+              cadre est un étranger pour Chrome : sans cette délégation, seul un geste reçu PAR LUI l'autorisait à
+              sonner, et chaque `play()` de la voix tombait en `NotAllowedError` — l'image défilait, sans un son, tant
+              qu'on n'avait pas cliqué dans l'aperçu. Délégué, il sonne dès que la page a reçu un geste. */}
           <iframe
             ref={cadre}
             title={t('Aperçu')}
             sandbox="allow-scripts"
+            allow="autoplay"
             srcDoc={page}
             data-studio-cadre
             className="absolute left-0 top-0 origin-top-left border-0"
@@ -744,7 +757,7 @@ function Reperes({ aimant, echelle, largeur, hauteur }: { aimant: Aimant; echell
   const my = Math.round(hauteur * MARGE_SECURITE_STUDIO) * echelle;
   const vx = aimant.reperes.find((r) => r.axe === 'x');
   const vy = aimant.reperes.find((r) => r.axe === 'y');
-  const trait = 'absolute bg-[#ff3fa4] shadow-[0_0_0_0.5px_rgba(255,255,255,0.8)]';
+  const trait = 'absolute bg-danger shadow-[0_0_0_0.5px_rgba(255,255,255,0.8)]';
   return (
     <div className="pointer-events-none absolute inset-0 z-10" data-studio-reperes={`${aimant.ancre.h ?? ''}|${aimant.ancre.v ?? ''}`}>
       <div className="absolute border border-dashed border-white/45" style={{ left: mx, top: my, width: W - 2 * mx, height: H - 2 * my }} />
@@ -754,7 +767,7 @@ function Reperes({ aimant, echelle, largeur, hauteur }: { aimant: Aimant; echell
       {vy ? <div className={`${trait} left-0 h-px w-full`} style={{ top: Math.min(H - 1, vy.position * echelle) }} data-studio-repere-y={vy.position} /> : null}
       {vx && vy ? (
         <span
-          className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#ff3fa4]"
+          className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-danger"
           style={{ left: Math.min(W - 1, vx.position * echelle), top: Math.min(H - 1, vy.position * echelle) }}
         />
       ) : null}

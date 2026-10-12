@@ -1,13 +1,10 @@
 import * as React from 'react';
 import {
   AlertCircle,
-  ArrowUp,
   Calendar,
   Check,
   ChevronDown,
-  ChevronRight,
   Clock,
-  FileText,
   ListChecks,
   Loader2,
   MessageSquare,
@@ -61,11 +58,11 @@ import {
   raisonDeployerDepuisLaCarte,
   prochaineQuestionDeCarte,
   COLONNES_AVANT_LE_TRAVAIL,
+  estVoletDuCahier,
 } from '@beluga/shared';
 import { BulleInfo, Button, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
 import { CarouselQuestions } from '@/components/carousel-questions';
-import { EncadresDeCompetences } from '@/components/encadre-competence';
-import { BulleQuestion } from '@/components/bulle-question';
+import { BulleQuestion, cleDeBrouillonDeReponse } from '@/components/bulle-question';
 import {
   ErreurDeTourCard,
   QuestionCard,
@@ -76,9 +73,9 @@ import { PlanRapport } from '@/components/plan-rapport';
 import { BandeauPropositions } from '@/components/propositions';
 import { useArretAgent } from '@/components/arret-agent';
 import { BoutonEtapeSuivante, useAvancerEtapes } from '@/components/etape-suivante';
+import { BandeauCahierDesCharges } from '@/components/cahier-des-charges';
 import { client } from '@/lib/client';
 import { EVENEMENT_OUVRIR_DECISIONS, ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
-import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
 import { cn, dateHeure } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -119,17 +116,13 @@ export function BlocDuPlan({
   plans,
   version,
   agentId,
-  cardId,
   planValide,
   etatCarte,
-  ancre,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   carte,
   passage,
   passages,
-  nu = false,
 }: {
   /**
    * LE PASSAGE « PLAN » QUI PORTE CE BLOC, et le flux entier : « en cours
@@ -143,19 +136,11 @@ export function BlocDuPlan({
   version?: number;
   /** L'agent qui a écrit le plan (celui du point). */
   agentId?: string;
-  /**
-   * LA CARTE QUI PORTE LE PLAN : « Valider » est un changement d'état de la
-   * carte (`card.plan.validate`), plus un message envoyé à l'agent.
-   */
-  cardId?: string;
   /** La validation déjà écrite sur la carte, avec sa version. */
   planValide?: { version: number; at: number } | null;
   /** La carte, pour savoir si son travail a déjà été lancé : un plan DÉJÀ
    *  EXÉCUTÉ ne porte plus de décision (`decisionDePlanOuverte`). */
   etatCarte?: EtatDeCartePourLePlan;
-  /** L'ancre du point qui porte ce plan : la cible du retour collant. */
-  ancre?: string;
-  pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
   /**
@@ -165,8 +150,6 @@ export function BlocDuPlan({
    * lancer » collé au champ d'écriture. Absente hors du flux d'une carte.
    */
   carte?: Card;
-  /** POSÉ DANS LE POINT « PLAN » DU FLUX : sans marge propre, le point la donne. */
-  nu?: boolean;
 }) {
   const courant = planCourant(plans);
   /*
@@ -185,71 +168,17 @@ export function BlocDuPlan({
     passages,
     planDemande: !!carte?.parcours?.planDemandeA,
   });
-  /*
-   * UN PLAN NAÎT REPLIÉ, la version courante comprise. Ouvert d'office, il
-   * prenait la moitié de l'écran à chaque itération et poussait le reste du
-   * fil hors de vue. La DÉCISION, elle, ne dépend plus de ce repli : elle a
-   * quitté ce bandeau pour la rangée collée au champ de saisie
-   * (`BarreDAction`), toujours visible, où qu'on en soit dans le flux.
-   */
-  const [replie, setReplie] = React.useState(true);
-  /*
-   * SOUS 639 PX, LE DÉPLIANT DEVIENT UN VOLET. Un plan de plusieurs écrans posé
-   * dans le fil d'un téléphone s'y lisait en colonne écrasée, et la décision se
-   * prenait à l'autre bout de l'écran. La ligne du plan devient donc une
-   * ENTRÉE : elle ouvre un volet plein écran qui porte le plan entier et ses
-   * trois décisions en pied. Le volet part FERMÉ et ne s'ouvre que sur le clic
-   * — aucun événement d'agent ne le fait paraître.
-   */
-  const telephone = useTelephone();
-  const [voletOuvert, setVoletOuvert] = React.useState(false);
-  /* UNE FENÊTRE QU'ON ÉLARGIT REFERME LE VOLET : le plan reprend sa place dans
-     le fil, et rien ne reste posé par-dessus un écran qui n'en a plus besoin. */
-  React.useEffect(() => {
-    if (!telephone) setVoletOuvert(false);
-  }, [telephone]);
-  const cadre = React.useRef<HTMLDivElement>(null);
-  const [deborde, setDeborde] = React.useState(false);
-
-  /*
-   * LE RETOUR COLLANT NE PARAÎT QUE S'IL SERT : un plan qui tient dans la
-   * hauteur visible n'a personne à ramener nulle part. On compare la hauteur
-   * du cadre à celle de la zone qui défile, à l'ouverture et à chaque
-   * changement de taille de la fenêtre.
-   *
-   * DANS LE VOLET, IL N'A PLUS DE SENS : le plan y défile seul, il n'y a aucun
-   * point à regagner. On ne mesure donc rien sur téléphone.
-   */
-  React.useEffect(() => {
-    if (replie || telephone) {
-      setDeborde(false);
-      return;
-    }
-    const mesurer = () => {
-      const bloc = cadre.current;
-      if (!bloc) return;
-      const zone = bloc.closest<HTMLElement>('[data-fil]');
-      const hauteurVisible = zone?.clientHeight ?? window.innerHeight;
-      setDeborde(bloc.getBoundingClientRect().height > hauteurVisible * 0.9);
-    };
-    const image = requestAnimationFrame(mesurer);
-    window.addEventListener('resize', mesurer);
-    return () => {
-      cancelAnimationFrame(image);
-      window.removeEventListener('resize', mesurer);
-    };
-  }, [replie, telephone, plans.length]);
 
   if (!courant) return null;
   const vue = plans.find((plan) => plan.numero === version) ?? courant;
   const estCourant = vue.numero === courant.numero;
+  /* LA VERSION AFFICHÉE EST-ELLE VALIDÉE ? Écrit sur la carte, jamais deviné. */
+  const valide = planValide?.version === vue.numero;
   /*
    * ET LA DÉCISION DEMANDE UNE CHOSE DE PLUS : que le travail n'ait pas déjà
    * été lancé. Le bandeau gardait « Valider » au-dessus d'un travail rendu, et
    * un clic aurait relancé la carte entière.
    */
-  /* LA VERSION AFFICHÉE EST-ELLE VALIDÉE ? Écrit sur la carte, jamais deviné. */
-  const valide = planValide?.version === vue.numero;
   const decision = decisionDePlanOuverte({
     estCourant,
     ...(etatCarte ?? {}),
@@ -262,169 +191,54 @@ export function BlocDuPlan({
   const suivante = estCourant ? undefined : plans.find((plan) => plan.numero === vue.numero + 1);
   const diff = suivante ? differencesDeTexte(vue.texte, suivante.texte) : null;
 
-  /* LE RETOUR VISE L'ENTÊTE DU POINT PORTEUR, comme la barre d'étapes. */
-  const revenirAuPoint = () => {
-    const cible = ancre
-      ? document.querySelector<HTMLElement>(`[data-point-ancre="${ancre}"]`)
-      : cadre.current?.closest<HTMLElement>('[data-point-ancre]');
-    cible?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   /*
-   * LE CORPS DU PLAN EST ÉCRIT UNE SEULE FOIS, POUR SES DEUX ENVELOPPES : le
-   * dépliant du fil sur grand écran, le VOLET plein écran sur téléphone. Le
-   * recopier aurait laissé l'un des deux dériver — c'est exactement ce qui
-   * était arrivé au pied du plan, dessiné deux fois.
+   * UN PLAN SE LIT COMME UNE RÉPONSE (demande du 12/10/2026) : du texte, sur le
+   * fond de la page, sous la compréhension — plus un bloc gris replié, plus de
+   * bandeau, plus de volet plein écran sur téléphone. L'enveloppe (largeur d'un
+   * message, alignement) est posée par `MomentDePlan`, dans le flux. Tout reste
+   * à l'écran : une version précédente se lit en entier, comme un message.
+   *
+   * La DÉCISION, elle, se prend UNE SEULE FOIS, sous le champ d'écriture
+   * (`BarreDAction`) : ce bloc ne porte aucun bouton.
    */
-  const corps = (
-    <>
-    <CorpsDuPlan
-      texte={vue.texte}
-      estCourant={estCourant}
-      diff={diff}
-      pickedEvolutions={pickedEvolutions}
-      onToggleEvolution={onToggleEvolution}
-      onToggleAll={onToggleAll}
-    />
-    </>
-  );
-
-  /* CE QUE DIT LE PIED DU VOLET : il ne DÉCIDE plus rien. Le plan n'est plus
-     une étape validable — il accompagne la compréhension du même tour —, et la
-     décision se prend une seule fois, sous le champ d'écriture. Le pied dit
-     donc seulement où en est ce plan, et où se trouve le geste. */
-  const piedDuVolet =
-    decision && carte ? (
-      <p data-volet-plan-sans-decision="ailleurs" className="text-[12.5px] text-muted">
-        {t('Fermez ce volet : la validation se prend sous le champ d’écriture.')}
-      </p>
-    ) : enEcriture && estCourant && !valide && !dejaLance ? (
-      <p data-volet-plan-sans-decision className="flex items-center gap-1.5 text-[12.5px] text-muted">
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-        {t('Plan en cours d’écriture : la décision s’ouvrira à la fin du tour.')}
-      </p>
-    ) : tourEnCours && estCourant && !valide && !dejaLance ? (
-      /* UN AUTRE TOUR TRAVAILLE (compréhension, réponse) : le plan est prêt,
-         mais on ne décide pas pendant que l'agent travaille — sans loader. */
-      <p data-volet-plan-sans-decision="tour" className="text-[12.5px] text-muted">
-        {t('L’agent travaille encore : la décision s’ouvrira à la fin du tour.')}
-      </p>
-    ) : dejaLance && estCourant ? (
-      <p data-volet-plan-sans-decision className="text-[12.5px] text-muted">
-        {t('Le travail a déjà été lancé à partir de ce plan.')}
-      </p>
-    ) : null;
-
   return (
-    <div
-      data-bloc-du-plan={vue.numero}
-      /* SUR TÉLÉPHONE, LE PLAN N'A PLUS D'ÉTAT « DÉPLIÉ » DANS LE FIL : sa
-         ligne est une ENTRÉE, et son contenu vit dans le volet. */
-      data-bloc-du-plan-repli={telephone ? 'volet' : replie ? 'replie' : 'ouvert'}
-      {...(telephone ? { 'data-plan-volet': voletOuvert ? 'ouvert' : 'ferme' } : {})}
-      className={nu ? undefined : 'px-4 pb-3'}
-    >
-      <div
-        ref={cadre}
-        className={cn('rounded-lg border-2 bg-fond-plan px-3 py-3', estCourant ? 'border-border' : 'border-border/60')}
-      >
-        {/* LE BANDEAU NE PORTE PLUS AUCUNE DÉCISION : le titre, le numéro de
-            version et le repli, rien d'autre. « Valider » et « Refuser »
-            vivaient ici, à hauteur d'un plan encore en train de s'écrire ; ils
-            sont descendus dans la rangée au-dessus du champ de saisie, où ils
-            n'apparaissent qu'une fois le tour refermé. */}
-        <div
-          data-entete-plan
-          className={cn('flex flex-wrap items-center gap-2', replie || telephone ? undefined : 'mb-2')}
-        >
-          <button
-            type="button"
-            data-bloc-du-plan-bascule={vue.numero}
-            {...(telephone
-              ? { 'aria-haspopup': 'dialog', 'aria-expanded': voletOuvert, 'data-plan-ouvrir-volet': vue.numero }
-              : { 'aria-expanded': !replie })}
-            onClick={() => (telephone ? setVoletOuvert(true) : setReplie((r) => !r))}
-            className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-hidden text-left text-[12px] font-medium uppercase tracking-wide text-muted transition-colors hover:text-text"
-          >
-            <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !replie && !telephone && 'rotate-90')} />
-            <FileText className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">{estCourant ? t('Plan proposé') : t('Version précédente')}</span>
-            <span className="shrink-0 whitespace-nowrap normal-case tracking-normal text-faint">
-              {t('· version {numero}', { numero: vue.numero })}
-            </span>
-          </button>
-          {/* QUAND CETTE VERSION A ÉTÉ RENDUE, à droite de l'entête. Un plan
-              qui a été refait trois fois se lit sans deviner lequel est le
-              dernier : chaque version dit son heure. */}
-          <span
-            data-plan-rendu-le={vue.numero}
-            className="shrink-0 whitespace-nowrap text-[12px] normal-case tracking-normal text-faint"
-          >
-            {dateHeure(vue.at)}
-          </span>
-        </div>
+    <div data-bloc-du-plan={vue.numero} data-bloc-du-plan-repli="ouvert" data-plan-en-texte-detache className="scroll-mt-12">
+      {/* L'AGENT ÉCRIT ENCORE : le texte du plan se lit déjà — c'est voulu —
+          mais rien ne se décide dessus. On le DIT, sinon l'absence de bouton
+          se cherche. */}
+      {estCourant && !valide && !dejaLance && enEcriture ? (
+        <p data-plan-en-ecriture className="mb-2 flex items-center gap-1.5 text-[12.5px] text-muted">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+          {t('Plan en cours d’écriture : la décision s’ouvrira à la fin du tour.')}
+        </p>
+      ) : null}
 
-        {/* L'AGENT ÉCRIT ENCORE : le texte du plan se lit déjà — c'est voulu —
-            mais rien ne se décide dessus. On le DIT, sinon l'absence de bouton
-            se cherche. */}
-        {estCourant && !valide && !dejaLance && enEcriture ? (
-          <p data-plan-en-ecriture className="mb-2 flex items-center gap-1.5 text-[12.5px] text-muted">
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-            {t('Plan en cours d’écriture : la décision s’ouvrira à la fin du tour.')}
-          </p>
-        ) : null}
-
-        {/* LE TRAVAIL EST DÉJÀ PARTI DE CE PLAN : plus rien à décider, et on le
-            DIT — un bouton retiré sans un mot se cherche. */}
-        {estCourant && !decision && dejaLance ? (
-          <p data-plan-deja-lance className="mb-2 text-[12.5px] text-muted">
-            {t('Le travail a déjà été lancé à partir de ce plan.')}
-          </p>
-        ) : null}
-
-        {/* LE CORPS RESTE MONTÉ, MÊME REPLIÉ : les idées cochées dans
-            « Améliorations apportées » survivent au repli. Sur téléphone il
-            n'est pas ici du tout : il est dans le volet. */}
-        {telephone ? null : (
-          <div hidden={replie} data-bloc-du-plan-corps>
-            {/* LE RETOUR AU POINT, COLLÉ EN HAUT DU PLAN OUVERT. Il emprunte le
-                fond du plan pour que le texte ne défile pas derrière lui. */}
-            {deborde ? (
-              <div className="sticky top-0 z-10 -mx-3 mb-2 flex items-center justify-between gap-2 bg-fond-plan px-3 py-1.5">
-                <span className="truncate text-[12px] uppercase tracking-wide text-faint">
-                  {t('· version {numero}', { numero: vue.numero })}
-                </span>
-                <button
-                  type="button"
-                  data-retour-au-point
-                  onClick={revenirAuPoint}
-                  className="flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px] text-muted transition-colors hover:bg-raised hover:text-text"
-                >
-                  <ArrowUp className="h-3 w-3" />
-                  {t('Revenir au début du point')}
-                </button>
-              </div>
-            ) : null}
-
-            {corps}
-          </div>
-        )}
+      {/* LE CORPS RESTE MONTÉ : les idées cochées dans « Améliorations
+          apportées » survivent à tout rendu du plan. */}
+      <div data-bloc-du-plan-corps>
+        <CorpsDuPlan
+          texte={vue.texte}
+          estCourant={estCourant}
+          diff={diff}
+          onToggleEvolution={onToggleEvolution}
+          onToggleAll={onToggleAll}
+        />
       </div>
 
-      {/* SUR TÉLÉPHONE, LE PLAN SE LIT DANS UN VOLET PLEIN ÉCRAN, décisions en
-          pied fixe. Il n'est monté que sur téléphone : sur grand écran, rien de
-          tout cela n'existe dans la page. */}
-      {telephone ? (
-        <VoletDuPlan
-          ouvert={voletOuvert}
-          onFermer={() => setVoletOuvert(false)}
-          titre={estCourant ? t('Plan proposé') : t('Version précédente')}
-          numero={vue.numero}
-          pied={piedDuVolet}
-        >
-          {corps}
-        </VoletDuPlan>
+      {/* LE TRAVAIL EST DÉJÀ PARTI DE CE PLAN : plus rien à décider, et on le
+          DIT — un bouton retiré sans un mot se cherche. */}
+      {estCourant && !decision && dejaLance ? (
+        <p data-plan-deja-lance className="mt-2 text-[12.5px] text-muted">
+          {t('Le travail a déjà été lancé à partir de ce plan.')}
+        </p>
       ) : null}
+
+      {/* QUAND CETTE VERSION A ÉTÉ RENDUE, sous le texte, comme l'heure d'un
+          message : un plan refait trois fois se lit sans deviner lequel est le
+          dernier. */}
+      <span data-plan-rendu-le={vue.numero} className="mt-1 block pl-1 text-[12px] text-faint">
+        {t('Plan · version {numero}', { numero: vue.numero })} · {dateHeure(vue.at)}
+      </span>
     </div>
   );
 }
@@ -440,7 +254,6 @@ function CorpsDuPlan({
   texte,
   estCourant,
   diff,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
 }: {
@@ -448,7 +261,6 @@ function CorpsDuPlan({
   estCourant: boolean;
   /** Les différences vers la version suivante, quand ce n'est pas la dernière. */
   diff: ReturnType<typeof differencesDeTexte> | null;
-  pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
 }) {
@@ -457,17 +269,14 @@ function CorpsDuPlan({
       <PlanRapport
         contenu={texte}
         courant={estCourant}
-        pickedEvolutions={pickedEvolutions}
         onToggleEvolution={estCourant ? onToggleEvolution : undefined}
         onToggleAll={estCourant ? onToggleAll : undefined}
       />
 
       {diff ? (
-        <div className="mt-3 border-t border-border pt-3" data-diff-du-plan>
-          <p className="mb-1.5 text-[12px] font-medium uppercase tracking-wide text-muted">
-            {t('Différences avec la version suivante')}
-          </p>
-          <div className="space-y-0.5 rounded-md bg-raised px-2.5 py-2 font-mono text-[12px] leading-relaxed">
+        <div className="mt-4" data-diff-du-plan>
+          <p className="mb-1 text-[12.5px] text-faint">{t('Différences avec la version suivante')}</p>
+          <div className="space-y-0.5 font-mono text-[12px] leading-relaxed">
             {diff.map((ligne, index) => (
               <div
                 key={index}
@@ -487,72 +296,6 @@ function CorpsDuPlan({
       ) : null}
 
     </>
-  );
-}
-
-/**
- * LE PLAN EN VOLET, SOUS 639 PX.
- *
- * Dans le fil d'un téléphone, un plan de plusieurs écrans se lisait en colonne
- * écrasée : on descendait longtemps dans le flux, et la décision se prenait à
- * l'autre bout de l'écran, sans plus rien voir de ce qu'on venait de lire. La
- * ligne du plan devient donc une ENTRÉE, et le plan s'ouvre dans un volet plein
- * écran : le texte entier défile au milieu, les trois décisions restent COLLÉES
- * en pied, toujours visibles.
- *
- * Le volet ne s'ouvre que sur le clic : aucun événement d'agent ne le fait
- * paraître par-dessus ce qu'on est en train de lire.
- */
-function VoletDuPlan({
-  ouvert,
-  onFermer,
-  titre,
-  numero,
-  pied,
-  children,
-}: {
-  ouvert: boolean;
-  onFermer: () => void;
-  titre: string;
-  numero: number;
-  /** Le pied FIXE : les trois décisions, ou la phrase qui dit pourquoi il n'y en a pas. */
-  pied?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <Drawer open={ouvert} onClose={onFermer} plein>
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2" data-volet-plan-entete>
-        <FileText className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-        <DialogTitle className="min-w-0 flex-1 truncate text-[13.5px]">
-          {titre}
-          <span className="ml-1.5 font-normal text-faint">{t('· version {numero}', { numero })}</span>
-        </DialogTitle>
-        <button
-          type="button"
-          data-volet-plan-fermer
-          aria-label="Fermer"
-          onClick={onFermer}
-          className="shrink-0 rounded-md px-2 py-1 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-
-      {/* LE PLAN DÉFILE SEUL, ENTRE L'ENTÊTE ET LE PIED : c'est la seule zone
-          du volet qui bouge (`ZoneDefilement`, règle de l'interface). */}
-      <ZoneDefilement className="px-3 pb-3" data-volet-plan-corps>
-        {children}
-      </ZoneDefilement>
-
-      {/* LE PIED EST FIXE : on décide sans remonter, où qu'on en soit dans la
-          lecture. Il emprunte le fond du tiroir, sinon le texte défilerait en
-          transparence derrière les boutons. */}
-      {pied ? (
-        <div data-volet-plan-pied className="shrink-0 border-t border-border bg-surface px-3 pb-2 pt-2.5">
-          {pied}
-        </div>
-      ) : null}
-    </Drawer>
   );
 }
 
@@ -594,21 +337,12 @@ export function PanneauDeDecision({
   const parId = React.useMemo(() => new Map(messages.map((message) => [message.id, message])), [messages]);
   /*
    * LES COMPÉTENCES RETENUES PAR BELUGA BUILD NE SONT PAS DES QUESTIONS DE
-   * L'AGENT : elles sortent du panneau jaune et de son feuilletage, et prennent
-   * leurs lignes violettes, une par compétence, toutes visibles ensemble
-   * (`EncadresDeCompetences`). Elles naissent retenues ; TANT QUE LA CARTE EST
-   * EN CADRAGE, toutes restent affichées, pour qu'une croix puisse en écarter
-   * une jusqu'au lancement. Ensuite, seule la série du DERNIER message reste
-   * lisible (et un ancien encadré resté ouvert, jusqu'à sa réponse).
+   * L'AGENT : elles sortent du panneau des décisions. Elles n'ont plus de
+   * panneau à elles : chacune est une ligne du flux de réflexion, dans le
+   * passage où l'agent l'a récupérée (`CompetenceDuFlux`).
    */
   const estUneCompetence = (d: DecisionDuParcours) =>
     d.sorte === 'question' && !!parId.get(d.messageId)?.questions.find((q) => q.id === d.questionId)?.competence;
-  const dernierMessage = messages[messages.length - 1];
-  const seriesDeCompetences = messages.filter(
-    (message) =>
-      message.questions.some((q) => q.competence && !q.answer && !q.cancelled) ||
-      ((carte.column === 'planned' || message.id === dernierMessage?.id) && message.questions.some((q) => q.competence)),
-  );
   const decisions = toutesLesDecisions.filter((d) => !estUneCompetence(d));
   const questions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');
   const autres = decisions.filter((d) => d.sorte !== 'question');
@@ -622,20 +356,6 @@ export function PanneauDeDecision({
   const lot = decisions.map((d) => (d.sorte === 'question' ? d.questionId : d.sorte === 'incident' ? 'incident' : d.messageId)).join('|');
   React.useEffect(() => setReplie(false), [lot]);
 
-  const competences = seriesDeCompetences.length ? (
-    <div className="shrink-0 px-3 pb-1 pt-2" data-panneau-competences={seriesDeCompetences.length}>
-      <ZoneDefilement
-        classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl bg-bloc-fil"
-        fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
-        className="px-2.5 pb-2.5"
-      >
-        {seriesDeCompetences.map((message) => (
-          <EncadresDeCompetences key={message.id} messageId={message.id} agentId={message.agentId} questions={message.questions} />
-        ))}
-      </ZoneDefilement>
-    </div>
-  ) : null;
-
   const questionsDeLaCarte = <QuestionsDeLaCarte carte={carte} projectId={projectId} />;
 
   if (!decisions.length) {
@@ -643,7 +363,6 @@ export function PanneauDeDecision({
       <>
         <BandeauPropositions messages={messages} />
         {questionsDeLaCarte}
-        {competences}
       </>
     );
   }
@@ -654,12 +373,11 @@ export function PanneauDeDecision({
     <>
       <BandeauPropositions messages={messages} />
       {questionsDeLaCarte}
-      {competences}
       <div className="shrink-0 px-3 pb-1 pt-2" data-panneau-decision={decisions.length}>
         <div
           className={cn(
-            'overflow-hidden rounded-xl border bg-bloc-fil',
-            decisions.some((d) => d.sorte === 'erreur' || d.sorte === 'incident') ? 'border-danger/50' : 'border-warning/50',
+            'overflow-hidden rounded-2xl border bg-bloc-fil',
+            decisions.some((d) => d.sorte === 'erreur' || d.sorte === 'incident') ? 'border-danger/40' : 'border-transparent',
           )}
           data-panneau-etat={replie ? 'replie' : 'deploye'}
         >
@@ -761,7 +479,7 @@ function QuestionsDeLaCarte({ carte, projectId }: { carte: Card; projectId?: str
   return (
     <div className="shrink-0 px-3 pb-1 pt-2" data-questions-de-carte={toutes.length} data-question-de-carte-rang={rang}>
       <ZoneDefilement
-        classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl border border-warning/50 bg-bloc-fil"
+        classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl border border-transparent bg-bloc-fil"
         fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
         className="px-2.5 pb-2.5"
       >
@@ -785,6 +503,7 @@ function QuestionsDeLaCarte({ carte, projectId }: { carte: Card; projectId?: str
           projectId={projectId}
           variante="contraste"
           repere={{ 'data-question-agent': question.id, 'data-question-de-carte': '' }}
+          cleDeBrouillon={cleDeBrouillonDeReponse.carte(carte.id, question.id)}
           onRepondre={async (reponse) => {
             try {
               await client.call({ type: 'card.comprehension.repondre', cardId: carte.id, questionId: question.id, reponse });
@@ -939,7 +658,7 @@ function BoutonDeGeste({
       <BoutonPrincipal raison={!geste.possible ? geste.raison : undefined}>
         <Button
           type="button"
-          variant={arretRouge || !principal ? 'outline' : 'default'}
+          variant={arretRouge ? 'arret' : principal ? 'default' : 'outline'}
           data-geste-principal={geste.geste}
           aria-disabled={!geste.possible}
           /* Éteint parce qu'une décision attend : le clic MÈNE à cette décision. */
@@ -949,13 +668,15 @@ function BoutonDeGeste({
             CLASSES_BOUTON_DU_FIL,
             colle && 'rounded-r-none',
             vientDeSallumer && 'animate-appel',
+            /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Arrêter » est
+               un aplat rouge à écriture blanche (variante `arret`). */
             geste.possible
               ? arretRouge
-                ? 'border-danger/50 bg-raised text-danger hover:bg-danger/10'
+                ? null
                 : principal
                   ? 'bg-accent text-accent-fg hover:opacity-90'
-                  : 'border-border bg-raised text-text hover:bg-accent/10'
-              : 'cursor-not-allowed border-transparent bg-raised text-faint hover:bg-raised hover:text-faint',
+                  : 'bg-raised text-text hover:bg-border'
+              : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
           )}
         >
           <Icone className="h-3.5 w-3.5" />
@@ -992,7 +713,25 @@ function BoutonDeGeste({
  *
  * Elle ne s'efface que si les deux familles sont vides.
  */
-export function BarreDAction({
+export function BarreDAction(props: {
+  carte: Card;
+  agent: Agent | null;
+  /** Un ou deux gestes, dans l'ordre (`gestesDuParcours`). */
+  gestes: EtatDuGeste[];
+}) {
+  /* LE CAHIER DES CHARGES D'UN NOUVEAU PROJET n'a aucun geste de chapitre :
+     ni « Valider et lancer », ni arrêt — son bandeau (avancement, lecture,
+     pause) les remplace. Son volet ne pose d'ailleurs pas de barre
+     d'écriture (`estVoletDuCahier`, `chat.tsx`). */
+  if (!estVoletDuCahier(props.carte)) return <GestesDuChapitre {...props} />;
+  return (
+    <div data-barre-cahier>
+      <BandeauCahierDesCharges carte={props.carte} />
+    </div>
+  );
+}
+
+function GestesDuChapitre({
   carte,
   agent,
   gestes,
@@ -1124,7 +863,7 @@ export function BarreDAction({
           <ListChecks className="h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0 truncate">{t('Actions de la tâche')}</span>
         </Button>
-        <Drawer open={tiroirFin} onClose={() => setTiroirFin(false)} empile>
+        <Drawer adresse="fin-de-tache" open={tiroirFin} onClose={() => setTiroirFin(false)} empile>
           <div className="flex flex-col gap-3 px-4 pb-5" data-tiroir-fin-de-tache={carte.id}>
             <DialogTitle>{t('Actions de la tâche')}</DialogTitle>
             <p className="text-[13px] leading-snug text-muted">
@@ -1279,8 +1018,8 @@ function BoutonDeployerLeLot({ carte }: { carte: Card }) {
         className={cn(
           CLASSES_BOUTON_DU_FIL,
           raison
-            ? 'cursor-not-allowed border-transparent bg-raised text-faint hover:bg-raised hover:text-faint'
-            : 'border-border bg-raised text-text hover:bg-accent/10',
+            ? 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint'
+            : 'bg-raised text-text hover:bg-border',
         )}
       >
         <Rocket className="h-3.5 w-3.5 shrink-0" />
@@ -1298,8 +1037,8 @@ function BoutonDeployerLeLot({ carte }: { carte: Card }) {
  * sort plus du bouton ni de l'écran.
  */
 export const CLASSES_BOUTON_DU_FIL =
-  /* Une hauteur FIXE, bordure comprise : un bouton plein et un bouton à bordure
-     gardaient 2 px d'écart avec une hauteur « au contenu ». */
+  /* Une hauteur FIXE : tous les boutons du fil sont pleins, sans trait, et
+     gardent la même hauteur quel que soit leur contenu. */
   'h-9 w-full min-w-0 justify-center gap-2 rounded-lg px-3 py-0 text-[13px] font-medium';
 
 /* ------------------------------------------------------------------ */
@@ -1402,10 +1141,12 @@ export function SousBoutonProgrammation({
           aria-label="Programmer le lancement"
           onClick={() => (possible ? setOuvert(true) : undefined)}
           className={cn(
-            'flex shrink-0 items-center justify-center gap-1.5 rounded-lg rounded-l-none border-l px-2.5 py-2 text-[13px] font-medium transition-opacity',
+            /* Les deux moitiés du bouton scindé se séparent d'un JOUR d'un
+               pixel (`ml-px`), plus d'un filet. */
+            'ml-px flex shrink-0 items-center justify-center gap-1.5 rounded-lg rounded-l-none px-2.5 py-2 text-[13px] font-medium transition-opacity',
             possible
-              ? 'border-accent-fg/25 bg-accent text-accent-fg hover:opacity-90'
-              : 'cursor-not-allowed border-transparent bg-raised text-faint',
+              ? 'bg-accent text-accent-fg hover:opacity-90'
+              : 'cursor-not-allowed bg-raised text-faint',
           )}
         >
           <Clock className="h-3.5 w-3.5" />
@@ -1481,7 +1222,7 @@ function TiroirDeProgrammation({ carte, open, onClose }: { carte: Card; open: bo
   };
 
   return (
-    <Drawer open={open} onClose={onClose} empile className="max-h-[80dvh]">
+    <Drawer adresse="programmation" open={open} onClose={onClose} empile className="max-h-[80dvh]">
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <DialogTitle className="min-w-0 flex-1 truncate">{t('Programmer le lancement')}</DialogTitle>
       </header>

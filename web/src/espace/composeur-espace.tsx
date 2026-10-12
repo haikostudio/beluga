@@ -144,7 +144,7 @@ export function ComposeurEspace({
             {pieces.map((piece) => (
               <span
                 key={piece.id}
-                className="inline-flex h-7 max-w-[200px] items-center gap-1.5 rounded-md border border-faint/60 bg-surface px-1.5 text-[12.5px] text-muted"
+                className="inline-flex h-7 max-w-[200px] items-center gap-1.5 rounded-md bg-raised px-1.5 text-[12.5px] text-muted"
               >
                 <IconeDeGenre genre={genreDuFichier(piece.mime)} className="h-3.5 w-3.5 shrink-0" />
                 <span className="min-w-0 truncate">{piece.name}</span>

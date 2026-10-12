@@ -147,7 +147,7 @@ function FenetreContexte({
 
   return (
     <Dialog open={ouvert} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent data-fenetre-contexte>
+      <DialogContent adresse="contexte" data-fenetre-contexte>
         <DialogHeader>
           <div className="flex items-center gap-1">
             <DialogTitle>{t('Contexte du modèle')}</DialogTitle>

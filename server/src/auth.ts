@@ -11,7 +11,7 @@ import {
   secretDuCompte,
 } from './comptes.js';
 import { getDb, getMeta, setMeta } from './db.js';
-import { PATHS, CONFIG } from './config.js';
+import { PATHS, CONFIG, PREMIER_DEMARRAGE_REEL } from './config.js';
 import { log } from './logger.js';
 
 /**
@@ -52,15 +52,26 @@ function makePassword(): string {
 }
 
 /**
- * Crée le PREMIER ADMINISTRATEUR au premier démarrage et rend ses identifiants
- * UNE seule fois. Sur une base qui vient de l'ancien mur à compte unique, la
+ * Crée le PREMIER ADMINISTRATEUR sans écran, et rend ses identifiants UNE
+ * seule fois. Sur une base qui vient de l'ancien mur à compte unique, la
  * migration 51 a déjà reporté ce compte : il n'y a alors rien à créer.
+ *
+ * SUR UNE VRAIE INSTALLATION NEUVE, CE CHEMIN NE S'OUVRE QUE SUR DEMANDE
+ * (`BELUGA_USER` / `BELUGA_PASSWORD` donnés par l'environnement) : sans eux, le
+ * propriétaire crée son compte lui-même dans le navigateur, derrière le code
+ * d'installation (`server/src/installation.ts`). Un compte tiré au hasard et
+ * écrit une fois dans un journal, personne ne le retrouvait.
+ *
+ * Un serveur d'ESSAI garde l'ancien départ : les contrôles montent leur démon
+ * sur une base vierge et comptent y trouver un administrateur.
  */
 export function ensureCredentials(): Credentials | null {
   if (nombreDAdministrateurs() > 0) return null;
+  const demande = Boolean(process.env.BELUGA_USER || process.env.BELUGA_PASSWORD);
+  if (PREMIER_DEMARRAGE_REEL && !demande) return null;
   const username = process.env.BELUGA_USER || makeUsername();
   const password = process.env.BELUGA_PASSWORD || makePassword();
-  creerCompte({ identifiant: username, role: 'admin', nomAffiche: 'Haiko', motDePasse: password }, []);
+  creerCompte({ identifiant: username, role: 'admin', nomAffiche: 'Administrateur', motDePasse: password }, []);
   log.info(`compte d'accès créé : ${username}`);
   return { username, password };
 }

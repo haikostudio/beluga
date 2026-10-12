@@ -19,7 +19,17 @@
  *     interrupteurs (`jugement-rapide.ts`) : la preuve chiffrée décide.
  */
 
-/** La fenêtre de la nuit, en heures locales du serveur : [début, fin). */
+import { dateLocale, decalageFuseau, heureLocale } from './fuseau.js';
+
+/**
+ * La fenêtre de la nuit, à l'heure de ZURICH (`fuseau.ts`) : [début, fin).
+ *
+ * Elle se lisait à l'heure de la machine. Or le serveur tourne en UTC : « 3 h –
+ * 7 h » tombait de 5 h à 9 h à Zurich, et l'entraînement — qui s'arrête dix
+ * minutes avant l'examen — a tourné jusqu'à 8 h 10 le 12/10/2026, à 240 % de
+ * processeur sur quatre cœurs, pendant que l'on travaillait. C'est la cause
+ * relevée des coupures « le serveur ne répond pas » de ce matin-là.
+ */
 export const FENETRE_DE_NUIT = { debut: 3, fin: 7 } as const;
 
 /**
@@ -28,25 +38,32 @@ export const FENETRE_DE_NUIT = { debut: 3, fin: 7 } as const;
  */
 export const MARGE_EXAMEN_MIN = 50;
 
-/** Dans la fenêtre de nuit ? */
+/** Dans la fenêtre de nuit (heure de Zurich) ? */
 export function dansLaFenetreDeNuit(date: Date): boolean {
-  const h = date.getHours();
+  const h = heureLocale(date.getTime());
   return h >= FENETRE_DE_NUIT.debut && h < FENETRE_DE_NUIT.fin;
 }
 
 /** L'instant (ms) où l'entraînement doit rendre la main, pour une nuit commencée à `date`. */
 export function finDeLEntrainement(date: Date): number {
-  const fin = new Date(date);
-  fin.setHours(FENETRE_DE_NUIT.fin, 0, 0, 0);
-  if (fin.getTime() <= date.getTime() - 12 * 3600_000) fin.setDate(fin.getDate() + 1);
-  return fin.getTime() - MARGE_EXAMEN_MIN * 60_000;
+  const at = date.getTime();
+  const local = dateLocale(at);
+  // « 7 h » du jour local, écrit en chiffres : les lectures UTC de `dateLocale` rendent l'heure de Zurich.
+  let finEnChiffres = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), FENETRE_DE_NUIT.fin);
+  // Passé 19 h, c'est la nuit suivante qui compte.
+  if (finEnChiffres - decalageFuseau(at) <= at - 12 * 3600_000) finEnChiffres += 24 * 3600_000;
+  // Les chiffres redeviennent un instant : deux passes, pour tomber juste un jour de changement d'heure.
+  const approche = finEnChiffres - decalageFuseau(at);
+  const fin = finEnChiffres - decalageFuseau(approche);
+  return fin - MARGE_EXAMEN_MIN * 60_000;
 }
 
-/** La date de la nuit (AAAA-MM-JJ), pour ne lancer qu'une nuit par nuit. */
+/** La date de la nuit (AAAA-MM-JJ, heure de Zurich), pour ne lancer qu'une nuit par nuit. */
 export function jourDeLaNuit(date: Date): string {
-  const a = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const j = String(date.getDate()).padStart(2, '0');
+  const local = dateLocale(date.getTime());
+  const a = local.getUTCFullYear();
+  const m = String(local.getUTCMonth() + 1).padStart(2, '0');
+  const j = String(local.getUTCDate()).padStart(2, '0');
   return `${a}-${m}-${j}`;
 }
 

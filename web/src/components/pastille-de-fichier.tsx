@@ -21,7 +21,7 @@
  * la pastille : un contrôle navigateur les lit sans rien savoir du rendu.
  */
 import * as React from 'react';
-import { Download, File as FileIcon, Film, ImageIcon } from 'lucide-react';
+import { Download, Eye, File as FileIcon, Film, ImageIcon } from 'lucide-react';
 import { genreDuFichier, type GenrePiece } from '@beluga/shared';
 import { bytes, cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -156,6 +156,7 @@ export function VignetteDImage({
   onApercu,
   compact,
   grande,
+  vue,
   className,
 }: {
   id: string;
@@ -166,6 +167,8 @@ export function VignetteDImage({
   compact?: boolean;
   /** La vignette large de la discussion client (h-24 w-32), au lieu du carré. */
   grande?: boolean;
+  /** Cette image a déjà été ouverte en grand par ce compte : un œil se pose dans le coin. Absent, rien. */
+  vue?: boolean;
   className?: string;
 }) {
   const libelle = nom?.trim() || t('Fichier joint');
@@ -174,14 +177,21 @@ export function VignetteDImage({
       <button
         type="button"
         onClick={onApercu}
-        title={libelle}
+        title={vue ? `${libelle} · ${t('Déjà vue')}` : libelle}
         data-apercu-image={id}
         className={cn(
-          'relative block overflow-hidden rounded-lg border border-border bg-surface transition-colors hover:border-faint',
+          'relative block overflow-hidden rounded-lg bg-raised transition-opacity hover:opacity-85',
           grande ? 'h-24 w-32' : compact ? 'h-12 w-12' : 'h-20 w-20',
         )}
       >
         <ImageDePiece id={id} alt={libelle} className="h-full w-full object-cover" />
+        {/* L'ŒIL « DÉJÀ VUE » : dans le coin haut, à l'opposé du téléchargement.
+            Sur son propre fond de thème, il ne capte pas le clic. */}
+        {vue ? (
+          <span className="pointer-events-none absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-sm bg-surface/85 text-muted">
+            <Eye className="h-3 w-3" aria-hidden data-capture-vue />
+          </span>
+        ) : null}
       </button>
       {/* LE TÉLÉCHARGEMENT D'UNE IMAGE TIENT EN UN CLIC, LUI AUSSI. Le bouton
           reste discret — il ne se remplit qu'au survol — mais il existe toujours

@@ -204,7 +204,7 @@ export function EditeurElement({
 
   if (telephone) {
     return (
-      <Drawer open onClose={onClose} empile plein>
+      <Drawer adresse="editeur-studio" open onClose={onClose} empile plein>
         <header className="shrink-0 px-3 pb-2">
           <EnteteDeFenetre titre={titre} onRetour={onClose} droite={aide} />
         </header>
@@ -219,15 +219,20 @@ export function EditeurElement({
       {/* Le focus reste où il était : posé d'office dans l'aperçu (un cadre isolé), il y garderait Échap pour lui. */}
       {/* Sans défilement imposé : chaque colonne de côté défile seule, l'élément en grand reste en place. */}
       <DialogContentLibre
+        adresse="editeur-studio"
+        /* LA FEUILLE GARDE SA HAUTEUR : posée en bas comme tout volet, elle suivait
+           son contenu et se tassait au choix d'une pièce — son bord haut
+           descendait sous le pointeur, et le double-clic suivant tombait sur le
+           voile, qui refermait la fenêtre. */
+        hauteurFixe
         className={cn('sm:max-h-[92dvh]', calquesAGauche ? 'sm:w-[min(1280px,100%)]' : 'sm:w-[min(1040px,100%)]')}
         aria-describedby={undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         onPointerDown={lacherLaPiece}
         data-studio-fenetre-edition
       >
-        <DialogHeader className="flex items-center gap-1">
+        <DialogHeader droite={aide}>
           <DialogTitle>{titre}</DialogTitle>
-          {aide}
         </DialogHeader>
         <div className="min-h-0 px-4 pb-4">{contenu}</div>
       </DialogContentLibre>
@@ -285,12 +290,19 @@ function EditeurVisuel({
     if (m.type === 'pret') apercu.current?.selectionner(elementRef.current ? segment.id : null, elementRef.current);
     else if (m.type === 'temps' && typeof m.t === 'number') {
       if (m.t >= fin) {
+        /* LA LECTURE ATTEINT LA FIN DU SEGMENT : l'aperçu y est RAMENÉ, pas seulement l'écran. Resté juste après la fin,
+           il montrait déjà la scène suivante et cachait la pièce choisie — le volet perdait alors ses réglages. */
         apercu.current?.pause();
+        apercu.current?.aller(borne(m.t));
         setLecture(false);
         setLocal(borne(m.t));
       } else setLocal(m.t);
-    } else if (m.type === 'fin') setLecture(false);
-    else if (m.type === 'selection') onChoisirPiece(m.segmentId === segment.id ? (m.elementId ?? null) : null);
+    } else if (m.type === 'fin') {
+      // La fin de la vidéo entière tombe souvent sur celle du segment : même retour dans le segment.
+      setLecture(false);
+      apercu.current?.aller(borne(fin));
+      setLocal(borne(fin));
+    } else if (m.type === 'selection') onChoisirPiece(m.segmentId === segment.id ? (m.elementId ?? null) : null);
     else if (m.type === 'retouche' || m.type === 'texte' || m.type === 'effacer') onMessageApercu(m);
   };
   const images = donnees.medias.filter((m) => m.genre === 'image').map((m) => ({ valeur: m.id, libelle: m.nom }));
@@ -739,7 +751,7 @@ function EditeurSonore({
               )}
             </div>
             {/* LE SON DE LA VIDÉO, sous ses images, à la même échelle. */}
-            <div className="absolute inset-x-0 bottom-0 border-t border-faint/30" style={{ top: HAUTEUR_IMAGES }} data-studio-onde-video>
+            <div className="absolute inset-x-0 bottom-0" style={{ top: HAUTEUR_IMAGES }} data-studio-onde-video>
               {ondeDessin('pointer-events-none absolute inset-0 h-full w-full text-info')}
             </div>
           </>

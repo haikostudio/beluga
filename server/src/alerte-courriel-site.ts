@@ -1,11 +1,11 @@
 import {
-  ADRESSE_DE_HAIKO,
+  adresseDuRecapitulatif,
   courrielDePanneDuSite,
   courrielDeRetourDuSite,
   type GenreDeCourriel,
   type SiteSurveille,
 } from '@beluga/shared';
-import { cleResend, envoyerParResend } from './courriels-clients.js';
+import { envoiPossible, envoyerUnCourriel, raisonDeLExtinction } from './envoi-des-courriels.js';
 import { log } from './logger.js';
 import { listerControles, lireSurveillance, marquerAlerteCourrielDuSite } from './surveillance.js';
 
@@ -15,40 +15,41 @@ import { listerControles, lireSurveillance, marquerAlerteCourrielDuSite } from '
  * Les règles (le seuil de trois échecs, un seul courriel par panne, le rappel
  * de six heures, le mot de retour) sont PURES et vivent dans
  * `shared/src/alerte-courriel-site.ts` ; `server/src/surveillance.ts` les joue
- * et appelle ce module. Ici : la clé Resend lue au coffre-fort, le destinataire,
- * et la trace d'un refus.
+ * et appelle ce module. Ici : le destinataire, l'envoi par la porte commune
+ * (`envoi-des-courriels.ts`, qui retient la façon d'envoyer réglée dans
+ * l'installation), et la trace d'un refus.
  *
  * TROIS PRINCIPES.
  *
- *  1. **AUCUN ENVOI NE PEUT FAIRE TOMBER UNE TOURNÉE.** Un refus de Resend, une
- *     clé absente : c'est un avertissement dans le journal, jamais une
- *     exception qui remonte.
+ *  1. **AUCUN ENVOI NE PEUT FAIRE TOMBER UNE TOURNÉE.** Un refus du service
+ *     d'envoi, un envoi éteint faute de réglage : c'est un avertissement dans
+ *     le journal, jamais une exception qui remonte.
  *  2. **LA DATE EST POSÉE AVANT L'ENVOI**, comme `incident_lance_le` : un envoi
  *     refusé ne se rejoue pas au contrôle suivant, et le rappel ne boucle pas.
- *  3. **LE DESTINATAIRE EST CELUI DU POINT QUOTIDIEN** (`ADRESSE_DE_HAIKO`) :
+ *  3. **LE DESTINATAIRE EST CELUI DU POINT QUOTIDIEN** (`adresseDuRecapitulatif`) :
  *     pas d'adresse écrite en dur ici, pas un second réglage à tenir à jour.
  */
 
 /** Ce que fait un envoi, pour le journal et les essais. */
 export type EnvoiCourrielDeSite =
   | { envoye: true }
-  | { envoye: false; raison: 'pas-de-cle' | 'site-introuvable' | 'refuse'; detail?: string };
+  | { envoye: false; raison: 'envoi-eteint' | 'site-introuvable' | 'refuse'; detail?: string };
 
 /** L'envoi commun à tous les courriels de la surveillance, contrôle WordPress compris. */
 export async function envoyer(sujet: string, texte: string, html: string): Promise<EnvoiCourrielDeSite> {
-  const cle = cleResend();
-  if (!cle) {
-    log.warn('surveillance : aucune clé Resend au coffre-fort, le courriel d’alerte ne part pas');
-    return { envoye: false, raison: 'pas-de-cle' };
+  const destinataire = adresseDuRecapitulatif();
+  if (!destinataire || !envoiPossible()) {
+    if (destinataire) log.warn(`surveillance : le courriel d’alerte ne part pas — ${raisonDeLExtinction()}`);
+    return { envoye: false, raison: 'envoi-eteint' };
   }
-  const echec = await envoyerParResend(cle, ADRESSE_DE_HAIKO, sujet, texte, html);
+  const echec = await envoyerUnCourriel(destinataire, sujet, texte, html);
   if (echec) {
     /*
      * UN REFUS SE VOIT, ET NE REMET RIEN À ZÉRO. La date d'envoi reste posée :
      * mieux vaut un courriel perdu qu'un rappel toutes les cinq minutes — et le
      * journal garde la raison.
      */
-    log.warn(`surveillance : courriel d’alerte refusé par Resend — ${echec}`);
+    log.warn(`surveillance : courriel d’alerte refusé — ${echec}`);
     return { envoye: false, raison: 'refuse', detail: echec };
   }
   return { envoye: true };
@@ -79,7 +80,7 @@ export async function envoyerCourrielDePanneDuSite(entree: {
   marquerAlerteCourrielDuSite(site.id, site.depuis || site.dernierePanne || maintenant, maintenant);
   const resultat = await envoyer(sujet, texte, html);
   if (resultat.envoye)
-    log.info(`surveillance : ${entree.genre === 'rappel' ? 'rappel' : 'alerte'} par courriel — ${site.nom} → ${ADRESSE_DE_HAIKO}`);
+    log.info(`surveillance : ${entree.genre === 'rappel' ? 'rappel' : 'alerte'} par courriel — ${site.nom} → ${adresseDuRecapitulatif()}`);
   return resultat;
 }
 

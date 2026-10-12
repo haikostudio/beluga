@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { minusculesSansAccents } from './mots.js';
 
 /**
  * LES NOTES — un pense-bête qui n'est plus une carte du tableau.
@@ -125,14 +126,6 @@ export const LIBELLES_TRI: Record<TriNote, string> = {
 /** Le tri par défaut : ce qu'on vient d'écrire est ce qu'on relit. */
 export const TRI_PAR_DEFAUT: TriNote = 'recentes';
 
-/** Sans accents et en minuscules : « Échéance » se trouve en tapant « echeance ». */
-function aplatir(texte: string): string {
-  return texte
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase();
-}
-
 /**
  * LA RECHERCHE REGARDE TROIS CHOSES : le titre, la description et le NOM DU
  * PROJET. Ce dernier n'est pas dans la note — l'appelant le fournit —, mais
@@ -142,9 +135,9 @@ function aplatir(texte: string): string {
  * taper deux mots doit resserrer la liste, jamais l'élargir.
  */
 export function noteCorrespond(note: Note, demande: string, nomDuProjet = ''): boolean {
-  const mots = aplatir(demande).split(/\s+/).filter(Boolean);
+  const mots = minusculesSansAccents(demande).split(/\s+/).filter(Boolean);
   if (!mots.length) return true;
-  const foin = aplatir(`${note.titre} ${note.description} ${nomDuProjet}`);
+  const foin = minusculesSansAccents(`${note.titre} ${note.description} ${nomDuProjet}`);
   return mots.every((mot) => foin.includes(mot));
 }
 

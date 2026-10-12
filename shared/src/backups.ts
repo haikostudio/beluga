@@ -19,6 +19,7 @@
  */
 
 import type { InventaireDArchive, RecetteDeBackup } from './backups-recette.js';
+import { slugEntier } from './slugs.js';
 
 /* ------------------------------------------------------------------ */
 /* Ce qu'un site porte                                                  */
@@ -469,13 +470,7 @@ export function phraseDeStatut(point: PointDeSauvegarde): string {
  * mélangent jamais.
  */
 export function dossierDeSite(site: SiteASauvegarder): string {
-  const propre = (site.nom || 'site')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
+  const propre = slugEntier(site.nom || 'site').slice(0, 40);
   return `${propre || 'site'}-${site.id.slice(0, 8)}`;
 }
 

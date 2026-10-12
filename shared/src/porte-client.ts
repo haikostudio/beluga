@@ -1,19 +1,21 @@
+import { hoteEspaceClient } from './installation.js';
+
 /**
  * DEUX VISAGES, UN SEUL DÉMON : C'EST L'ADRESSE DEMANDÉE QUI DÉCIDE.
  *
- * L'espace client est servi sur `my.haikostudio.cloud`, l'application
- * d'administration sur son adresse habituelle. Les deux sortent du MÊME
- * serveur : rien n'est construit ni déployé deux fois, c'est l'entête `Host` de
- * la requête qui dit quelle porte afficher.
+ * L'espace client est servi sur une adresse à lui (« my.<domaine> », réglée
+ * dans l'identité de l'installation), l'application d'administration sur son
+ * adresse habituelle. Les deux sortent du MÊME serveur : rien n'est construit
+ * ni déployé deux fois, c'est l'entête `Host` de la requête qui dit quelle
+ * porte afficher.
+ *
+ * UNE INSTALLATION SANS ADRESSE CLIENTE SERT SES CLIENTS SUR L'ADRESSE
+ * COMMUNE : la porte suit alors le RÔLE du compte entré (`porteDuCompte`), et
+ * personne n'est renvoyé vers une adresse qui n'existe pas.
  *
  * Ce fichier ne fait que LIRE cette entête. Il ne touche ni au réseau, ni au
- * DNS, ni au reverse-proxy : la création du sous-domaine reste l'affaire de
- * `server/src/dns.ts`, dans l'ordre qu'il impose (nom, puis proxy, puis
- * certificat).
+ * DNS, ni au reverse-proxy.
  */
-
-/** L'adresse de l'espace client. */
-export const HOTE_ESPACE_CLIENT = 'my.haikostudio.cloud';
 
 /**
  * Le port sur lequel le démon écoute déjà : le sous-domaine vise le même.
@@ -26,7 +28,7 @@ export type PorteServie = 'client' | 'admin';
 
 /**
  * Retire le port et la casse d'un entête `Host`. Un `Host` peut arriver sous
- * la forme « my.haikostudio.cloud:443 », ou entre crochets en IPv6.
+ * la forme « my.exemple.com:443 », ou entre crochets en IPv6.
  */
 export function hoteNormalise(host: string | undefined | null): string {
   const brut = (host ?? '').trim().toLowerCase();
@@ -41,10 +43,10 @@ export function hoteNormalise(host: string | undefined | null): string {
  * puisse l'atteindre sans DNS. Tout le reste est l'application d'administration :
  * un doute se tranche du côté qui ne montre RIEN de plus.
  */
-export function porteDeLHote(host: string | undefined | null, hoteClient = HOTE_ESPACE_CLIENT): PorteServie {
+export function porteDeLHote(host: string | undefined | null, hoteClient = hoteEspaceClient()): PorteServie {
   const hote = hoteNormalise(host);
   if (!hote) return 'admin';
-  if (hote === hoteClient) return 'client';
+  if (hoteClient && hote === hoteClient) return 'client';
   // « my.localhost », « my.127.0.0.1.nip.io »… : le préfixe suffit en local.
   if (hote === 'my.localhost' || hote.startsWith('my.')) return 'client';
   return 'admin';
@@ -59,11 +61,25 @@ export function porteDeLHote(host: string | undefined | null, hoteClient = HOTE_
 export function redirectionDeLaPorte(
   porte: PorteServie,
   role: 'admin' | 'client' | null,
-  hoteClient = HOTE_ESPACE_CLIENT,
+  hoteClient = hoteEspaceClient(),
 ): string | null {
   if (!role) return null;
-  if (porte === 'admin' && role === 'client') return `https://${hoteClient}/`;
+  // Sans adresse cliente réglée, il n'y a nulle part où renvoyer : le client
+  // est servi ici même, par la porte de son rôle (`porteDuCompte`).
+  if (porte === 'admin' && role === 'client' && hoteClient) return `https://${hoteClient}/`;
   // Un administrateur EST chez lui partout : il ouvre l'espace client depuis sa
   // colonne de gauche, et le voir sur l'adresse cliente ne gêne personne.
   return null;
 }
+
+/**
+ * LA PORTE RÉELLEMENT MONTÉE POUR CE COMPTE. L'adresse cliente sert toujours
+ * l'espace client ; ailleurs, un compte CLIENT reçoit quand même son espace —
+ * c'est ce qui fait marcher une installation qui n'a qu'une seule adresse.
+ */
+export function porteDuCompte(porte: PorteServie, role: 'admin' | 'client' | null): PorteServie {
+  return porte === 'client' || role === 'client' ? 'client' : 'admin';
+}
+
+/** Le repère que le démon pose dans la page pour dire à l'interface quelle porte monter. */
+export const REPERE_DE_PORTE = 'beluga-porte';

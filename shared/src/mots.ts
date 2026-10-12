@@ -42,6 +42,15 @@ export function motsDuTexte(texte: string): string[] {
 }
 
 /**
+ * Minuscules et sans accent, RIEN d'autre : ni trim, ni ponctuation touchée.
+ * Douze copies privées de cette recette dormaient dans autant de fichiers ;
+ * celles qui coupent les bords gardent leur `.trim()` à l'appel.
+ */
+export function minusculesSansAccents(texte: string): string {
+  return texte.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+/**
  * Minuscules, sans accent, ponctuation effacée : sept copies privées de cette
  * même recette dormaient dans autant de fichiers avant de rejoindre ici.
  * Ni `/`, `.`, `_`, `-` (gardés par `normaliserPourRecherche`) ni la

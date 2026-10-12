@@ -10,6 +10,8 @@ import {
   RAISON_SANS_REPONSE,
   TYPE_JOINTES_COLLABLES,
   ajouterJointesCollees,
+  aliasDuTag,
+  aliasNonResolus,
   ancreDuTexte,
   accrocheAuMot,
   emballerJointes,
@@ -36,6 +38,9 @@ import {
   insereAncre,
   jointesApresFrappe,
   jointesDesTags,
+  jointesDuMessage,
+  nomsDesTags,
+  tagsRedesignes,
   masquesDuTexte,
   nomDuTag,
   retireAncre,
@@ -51,6 +56,8 @@ import {
   estAgentDeVolet,
   reponseParLaBarre,
   tailleLisible,
+  DELAI_AVANT_MESSAGE_DU_CANAL,
+  EDITION_EN_FILE_RAFRAICHIE_MS,
 } from '@beluga/shared';
 import { saisiesDeLAgent } from '@/lib/saisie-de-question';
 import { useArretAgent } from '@/components/arret-agent';
@@ -65,9 +72,10 @@ import { nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
 import { estTelephone } from '@/lib/telephone';
 import { readPref, usePref, writePref } from '@/lib/prefs';
-import { EnvoiAnnule, envoyerFichier } from '@/lib/envoi-fichier';
+import { EnvoiAnnule, EnvoiInterrompu, attendreLeLien, envoyerFichier } from '@/lib/envoi-fichier';
 import { client } from '@/lib/client';
 import { useApp, useCanal } from '@/lib/use-app';
+import type { TexteDuChamp } from '@/lib/texte-du-champ';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -76,8 +84,12 @@ export interface ComposerProps {
   engines: EngineInfo[];
   queue: QueuedPrompt[];
   busy: boolean;
-  /** Vider les cases cochées des suggestions, une fois le message parti. */
-  onClearPicked: () => void;
+  /**
+   * LE TEXTE DU CHAMP, DÉPOSÉ POUR CE QUI L'ENTOURE (`web/src/lib/texte-du-champ.ts`) :
+   * les idées à cocher d'un compte rendu y lisent leur case. Rien d'autre que
+   * ces lignes ne s'y abonne — la frappe ne redessine pas le fil.
+   */
+  champ?: TexteDuChamp;
   /**
    * UN TEXTE DÉPOSÉ DEPUIS LE FIL, jamais envoyé : le refus d'un plan et ses
    * suggestions d'optimisation (`shared/src/suggestions-de-plan.ts`). Il
@@ -149,6 +161,8 @@ export interface ComposerProps {
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
 /** Au doigt, chaque lettre est visée dans un carré plus large qu'à la souris. */
 const MARGE_DOIGT = 24;
+/** Copie locale d'un brouillon, gardée jusqu'à l'accusé du serveur. */
+const PREFIXE_COPIE_BROUILLON = 'beluga.brouillon.';
 
 /**
  * L'ALLURE COMMUNE DES INTERRUPTEURS DE LA BARRE (« Plan », « Création ») :
@@ -189,8 +203,9 @@ function BoutonInterrupteur({
         'relative shrink-0 touch-manipulation gap-1 px-1.5 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[""]',
         // Le survol GARDE la couleur de l'état : le `hover:text-text` du bouton
         // fantôme le blanchissait, et au doigt le survol reste collé après le
-        // toucher — « Création » allumée paraissait blanche, pas bleue.
-        actif ? 'text-termine hover:text-termine' : 'text-faint hover:text-muted',
+        // toucher — « Création » allumée paraissait blanche. Allumé, il est
+        // VIOLET (demande du 12/10/2026) : l'élément choisi, `aria-pressed`.
+        actif ? 'text-teinte hover:text-teinte' : 'text-faint hover:text-muted',
         enVol && 'cursor-wait disabled:opacity-70',
       )}
       onClick={onClick}
@@ -297,12 +312,29 @@ function InterrupteurDeCreation({ cardId, agent }: { cardId?: string; agent?: Ag
   );
 }
 
+/**
+ * UN MESSAGE EN ATTENTE OUVERT DANS LE CHAMP, et ce qui est mis de côté le
+ * temps de le modifier. Il garde SES pièces jointes à lui : le brouillon mis de
+ * côté a les siennes, et les deux ne se mélangent jamais.
+ */
+interface EditionDeMessage {
+  id: string;
+  /** Ce qui était en train d'être écrit : il revient à la fin, validée ou annulée. */
+  texteMisDeCote: string;
+  /** Les pièces du message, telles que le champ les montre et les retouche. */
+  jointes: Attachment[];
+  /** Celles qu'il portait à l'ouverture : ce que le serveur lui garde quand il ne dit rien de plus. */
+  dOrigine: string[];
+  /** Celles que la page ne sait pas encore nommer : elles restent au message, quoi qu'il arrive ici. */
+  inconnues: string[];
+}
+
 export function Composer({
   agent,
   engines,
   queue,
   busy,
-  onClearPicked,
+  champ,
   aEcrire,
   projectId,
   onProposeTask,
@@ -320,6 +352,24 @@ export function Composer({
   /* L'état du lien, lu à UN seul endroit (`useCanal`) : ce qui éteint le bouton
      d'envoi est exactement ce qui refuse l'envoi, sans seconde déduction. */
   const canal = useCanal();
+  const lienGeleRef = React.useRef(canal.gele);
+  lienGeleRef.current = canal.gele;
+  /* LE CHAMP SE VERROUILLE QUAND LA COUPURE S'INSTALLE (le même délai que le
+     message du lien), pas à la première seconde : une reconnexion invisible ne
+     doit pas avaler une frappe. Le texte, lui, est protégé dès la première
+     seconde (`brouillonNonConfirme`) et repart seul au retour du lien. */
+  const [coupureInstallee, setCoupureInstallee] = React.useState(false);
+  React.useEffect(() => {
+    if (!canal.gele) {
+      setCoupureInstallee(false);
+      return;
+    }
+    const minuterie = window.setTimeout(() => setCoupureInstallee(true), DELAI_AVANT_MESSAGE_DU_CANAL);
+    return () => window.clearTimeout(minuterie);
+  }, [canal.gele]);
+  const ecritureGelee = canal.gele && coupureInstallee;
+  const ecritureGeleeRef = React.useRef(ecritureGelee);
+  ecritureGeleeRef.current = ecritureGelee;
   /* UNE CARTE EN COURS DE PUBLICATION NE REÇOIT PLUS DE MESSAGE : le serveur
      le refuse (`shared/src/verrou-publication.ts`), et le champ le dit avant
      même qu'on écrive. Le fil du conducteur de publication reste ouvert. */
@@ -346,8 +396,27 @@ export function Composer({
   React.useEffect(() => setAccordNouvelleCarte(false), [agent?.id, ouvreUneNouvelleCarte]);
   const [text, setText] = React.useState('');
   /** Message en attente en cours de modification, et le texte mis de côté. */
-  const [edition, setEdition] = React.useState<{ id: string; texteMisDeCote: string } | null>(null);
-  const [attachments, setAttachments] = React.useState<Attachment[]>([]);
+  const [edition, setEdition] = React.useState<EditionDeMessage | null>(null);
+  const editionCourante = React.useRef(edition);
+  editionCourante.current = edition;
+  /*
+   * DEUX LISTES DE PIÈCES, UNE SEULE À L'ÉCRAN. Le champ ne tenait qu'une liste,
+   * celle du brouillon : ouvrir un message en attente y écrivait SON texte sous
+   * les pièces d'un AUTRE — ses propres images n'étaient plus que des pastilles
+   * sans vignette, la croix d'une vignette retirait une pièce du brouillon mis
+   * de côté, et une image ajoutée partait dans ce brouillon au lieu du message.
+   * Le temps d'une modification, le champ montre et retouche donc les pièces
+   * DU MESSAGE (`edition.jointes`) ; celles du brouillon ne bougent pas, et
+   * reviennent avec lui.
+   */
+  const [jointesDuBrouillon, setJointesDuBrouillon] = React.useState<Attachment[]>([]);
+  const attachments = edition ? edition.jointes : jointesDuBrouillon;
+  /** Retoucher la liste que le champ MONTRE : celle du message modifié, sinon celle du brouillon. */
+  const setAttachments = React.useCallback((maj: React.SetStateAction<Attachment[]>) => {
+    const suite = (liste: Attachment[]) => (typeof maj === 'function' ? maj(liste) : maj);
+    if (editionCourante.current) setEdition((courante) => (courante ? { ...courante, jointes: suite(courante.jointes) } : courante));
+    else setJointesDuBrouillon(suite);
+  }, []);
   /*
    * CE QUE LE CHAMP AFFICHE : le même texte, tags MASQUÉS (`tagsMasques`,
    * shared/src/ancres.ts). L'enrobage « [fichier: » et « ] » y est remplacé,
@@ -871,6 +940,14 @@ export function Composer({
    * quand il redevient vide parce qu'un AUTRE écran vient d'envoyer.
    */
   const dernierBrouillonDistant = React.useRef<string>('');
+  /**
+   * LE TEXTE ÉCRIT ICI ET PAS ENCORE CONFIRMÉ PAR LE SERVEUR. Tant qu'il existe,
+   * un brouillon venu du serveur ne le remplace JAMAIS : au retour du lien, le
+   * serveur renvoie son ANCIEN brouillon (la coupure a empêché le nouveau
+   * d'arriver), et le champ — qui ne reflétait plus que le texte posé en local —
+   * se vidait ou reculait. Le texte reste, et repart seul au retour du lien.
+   */
+  const brouillonNonConfirme = React.useRef<{ key: string; value: string } | null>(null);
 
   React.useEffect(() => {
     // Agent absent l'espace d'un instant : on ne touche surtout à rien.
@@ -882,7 +959,22 @@ export function Composer({
       premierPassage.current = true;
       dernierBrouillonDistant.current = draft;
       dejaEnvoye.current = null;
-      setText(draft);
+      // Le message qu'on modifiait appartenait à la conversation d'avant : son
+      // brouillon mis de côté y est resté intact, rien n'en est écrit ici.
+      setEdition(null);
+      /* LA COPIE LOCALE SE RETIRE À L'ACCUSÉ DU SERVEUR : si elle existe encore,
+         c'est un texte que le serveur n'a jamais reçu, donc plus récent que son
+         brouillon. Elle passe devant ; la sauvegarde ci-dessous la renvoie. */
+      let copie = '';
+      try {
+        copie = window.localStorage.getItem(PREFIXE_COPIE_BROUILLON + cleBrouillon) ?? '';
+      } catch {
+        /* pas de copie locale */
+      }
+      setText(copie || draft);
+      // Dit tout de suite à ce qui entoure le champ : si ce brouillon est mot
+      // pour mot le texte déjà en place, aucun nouveau rendu ne le redirait.
+      champ?.ecrire(copie || draft);
       return;
     }
 
@@ -896,10 +988,70 @@ export function Composer({
     // envoi fait ailleurs (le brouillon redevient vide) vide bien SON champ.
     setText((current) => {
       if (current !== brouillonPrecedent || current === draft) return current;
+      // Un texte pas encore confirmé ne cède devant aucun brouillon du serveur.
+      if (brouillonNonConfirme.current) return current;
       retenirLaSelection();
       return draft;
     });
   }, [agentId, draft]);
+
+  /**
+   * L'ENVOI DU BROUILLON EST CONFIRMÉ, JAMAIS PRÉSUMÉ. Le serveur accuse
+   * réception (`client.call`), l'envoi est retenté deux fois, et un échec
+   * définitif se dit à l'écran — le texte reste dans le champ et dans la copie
+   * locale. Le même envoi part à la fermeture du volet et au démontage, sans
+   * attendre la temporisation de 600 ms.
+   */
+  const brouillonEnAttente = React.useRef<{ key: string; value: string } | null>(null);
+  const envoyerLeBrouillon = React.useCallback(async () => {
+    const attente = brouillonEnAttente.current;
+    if (!attente) return;
+    brouillonEnAttente.current = null;
+    brouillonNonConfirme.current = attente;
+    client.setPrefLocally(attente.key, attente.value);
+    for (let essai = 0; essai < 3; essai += 1) {
+      try {
+        await client.call({ type: 'prefs.set', key: attente.key, value: attente.value });
+        if (brouillonNonConfirme.current === attente) brouillonNonConfirme.current = null;
+        try {
+          if (window.localStorage.getItem(PREFIXE_COPIE_BROUILLON + attente.key) === attente.value) {
+            window.localStorage.removeItem(PREFIXE_COPIE_BROUILLON + attente.key);
+          }
+        } catch {
+          /* rien à nettoyer */
+        }
+        return;
+      } catch {
+        await new Promise((r) => window.setTimeout(r, 800 * (essai + 1)));
+        // Un texte plus récent est parti (ou le message est envoyé) : ne jamais
+        // rejouer celui-ci par-dessus.
+        if (brouillonNonConfirme.current !== attente) return;
+      }
+    }
+    // Le lien est coupé : le message de coupure le dit déjà, et le texte repart
+    // seul à son retour (effet ci-dessous). Une vraie panne de sauvegarde se dit.
+    if (!lienGeleRef.current) {
+      client.pushToast('error', t("Le brouillon n'a pas pu être sauvegardé. Votre texte reste dans le champ."));
+    }
+  }, []);
+  /* AU RETOUR DU LIEN, CE QUI N'A PAS PU PARTIR PART TOUT SEUL. */
+  React.useEffect(() => {
+    if (canal.gele) return;
+    const reste = brouillonNonConfirme.current;
+    if (!reste || brouillonEnAttente.current) return;
+    brouillonEnAttente.current = reste;
+    void envoyerLeBrouillon();
+  }, [canal.gele, envoyerLeBrouillon]);
+  React.useEffect(() => {
+    const vider = () => void envoyerLeBrouillon();
+    window.addEventListener('beluga:vider-brouillon', vider);
+    window.addEventListener('pagehide', vider);
+    return () => {
+      window.removeEventListener('beluga:vider-brouillon', vider);
+      window.removeEventListener('pagehide', vider);
+      void envoyerLeBrouillon();
+    };
+  }, [envoyerLeBrouillon]);
 
   React.useEffect(() => {
     if (!agentId || chargePour.current !== agentId) return;
@@ -915,6 +1067,24 @@ export function Composer({
     // référence : c'est un texte neuf.
     if (text) dejaEnvoye.current = null;
     /*
+     * UN TEXTE SEULEMENT LU NE SE RÉÉCRIT PAS — la même règle que pour les
+     * pièces jointes, plus bas. Le drapeau `premierPassage` est consommé au
+     * montage, avant que le brouillon chargé n'entre dans l'état : ouvrir une
+     * conversation renvoyait donc son brouillon au serveur 600 ms plus tard,
+     * tel que lu, et un écran à la copie périmée pouvait reposer un texte déjà
+     * parti. Le serveur a déjà ce texte : rien ne part, et rien d'ancien ne
+     * reste à vider plus tard (au démontage, à la fermeture de la page).
+     */
+    if (text === dernierBrouillonDistant.current) {
+      brouillonEnAttente.current = null;
+      try {
+        window.localStorage.removeItem(PREFIXE_COPIE_BROUILLON + cleBrouillon);
+      } catch {
+        /* rien à nettoyer */
+      }
+      return;
+    }
+    /*
      * LA FRAPPE NE TRAVERSE PLUS LE MAGASIN GÉNÉRAL À CHAQUE TOUCHE.
      *
      * `setPrefLocally` écrit dans l'état PARTAGÉ de l'application : chaque
@@ -926,12 +1096,30 @@ export function Composer({
      * Le brouillon reste retenu — c'est la même temporisation de 600 ms qui
      * pose la copie locale ET l'envoi au serveur, une fois la frappe reposée.
      */
-    const timer = window.setTimeout(() => {
-      client.setPrefLocally(cleBrouillon, text);
-      client.send({ type: 'prefs.set', key: cleBrouillon, value: text });
-    }, 600);
+    brouillonEnAttente.current = { key: cleBrouillon, value: text };
+    // Copie locale immédiate : elle ne s'efface qu'à l'accusé du serveur.
+    try {
+      window.localStorage.setItem(PREFIXE_COPIE_BROUILLON + cleBrouillon, text);
+    } catch {
+      /* stockage plein ou refusé : le serveur reste la référence */
+    }
+    const timer = window.setTimeout(() => void envoyerLeBrouillon(), 600);
     return () => window.clearTimeout(timer);
   }, [text, agentId, cleBrouillon]);
+
+  /*
+   * CE QUE LE CHAMP CONTIENT SE LIT AUSSI AUTOUR DE LUI : les idées à cocher
+   * d'un compte rendu y trouvent leur case (`champ`). Le texte y est déposé
+   * AVANT la peinture, pour que la case bascule dans la même image que la
+   * ligne écrite ou effacée. Tant que le brouillon de CETTE conversation n'est
+   * pas chargé, rien n'est déposé : le texte en place est encore celui d'avant.
+   */
+  React.useLayoutEffect(() => {
+    if (!champ || !agentId || chargePour.current !== agentId) return;
+    champ.ecrire(text);
+  }, [champ, text, agentId]);
+  // Le champ disparaît, ou passe à une autre conversation : plus rien n'y est écrit.
+  React.useEffect(() => () => champ?.ecrire(''), [champ, agentId]);
 
   /*
    * LES FICHIERS JOINTS SUIVENT LA MÊME CONVERSATION QUE LE BROUILLON, PAS
@@ -964,22 +1152,29 @@ export function Composer({
       jointesChargeesPour.current = agentId;
       dernieresJointesDistantes.current = jointesEnregistrees;
       jointesIgnorerProchaineSauvegarde.current = true;
-      setAttachments(jointesEnregistrees);
+      setJointesDuBrouillon(jointesEnregistrees);
       return;
     }
 
     if (memeJointes(jointesEnregistrees, dernieresJointesDistantes.current)) return;
     const jointesPrecedentes = dernieresJointesDistantes.current;
     dernieresJointesDistantes.current = jointesEnregistrees;
-    jointesIgnorerProchaineSauvegarde.current = true;
-    setAttachments((current) => {
+    setJointesDuBrouillon((current) => {
+      /* Le champ a divergé (une pièce ajoutée ici n'est pas encore partie) : on
+         garde la sienne, ET sa sauvegarde n'est pas sautée — sinon la pièce
+         ajoutée ici n'atteignait jamais le serveur, ni l'autre appareil. */
       if (!memeJointes(current, jointesPrecedentes)) return current;
-      // L'étiquette d'un tag dépend des pièces connues : le champ peut être réécrit.
-      retenirLaSelection();
+      // Seule une liste réellement reprise d'ailleurs n'est pas renvoyée au serveur.
+      jointesIgnorerProchaineSauvegarde.current = !memeJointes(current, jointesEnregistrees);
+      // L'étiquette d'un tag dépend des pièces connues : le champ peut être réécrit
+      // — sauf pendant une modification, où il montre les pièces du message.
+      if (!editionCourante.current) retenirLaSelection();
       return jointesEnregistrees;
     });
   }, [agentId, jointesEnregistrees]);
 
+  /* Seules les pièces DU BROUILLON sont retenues : celles d'un message en
+     attente qu'on modifie vivent dans la file, et n'y entrent jamais. */
   React.useEffect(() => {
     if (!agentId || jointesChargeesPour.current !== agentId) return;
     // Le premier passage est l'affichage des pièces déjà retenues, pas un ajout.
@@ -987,9 +1182,22 @@ export function Composer({
       jointesIgnorerProchaineSauvegarde.current = false;
       return;
     }
-    const timer = window.setTimeout(() => setJointesEnregistrees(attachments), 600);
+    /*
+     * UNE LISTE SEULEMENT LUE NE SE RÉÉCRIT PAS. Le drapeau ci-dessus est
+     * consommé dès le montage, AVANT que la liste reprise du serveur n'arrive
+     * dans l'état : ouvrir une conversation réécrivait donc son brouillon
+     * 600 ms plus tard, tel que lu. Sans effet quand rien n'a bougé — mais un
+     * écran qui se réveille avec une vieille copie des réglages (un second
+     * onglet, le téléphone) reposait ainsi des pièces DÉJÀ PARTIES avec un
+     * message envoyé d'ailleurs, et tous les écrans les reprenaient : on les
+     * voyait « toujours là » au-dessus du champ, et elles repartaient avec le
+     * message suivant. Seule une liste que CE champ a changée (ajout, retrait,
+     * ordre) part donc au serveur.
+     */
+    if (memeJointes(jointesDuBrouillon, dernieresJointesDistantes.current)) return;
+    const timer = window.setTimeout(() => setJointesEnregistrees(jointesDuBrouillon), 600);
     return () => window.clearTimeout(timer);
-  }, [attachments, agentId]);
+  }, [jointesDuBrouillon, agentId]);
 
   React.useEffect(() => {
     const node = textareaRef.current;
@@ -1056,6 +1264,9 @@ export function Composer({
    * texte : à l'endroit du curseur s'il y en avait un, à la fin sinon.
    */
   const upload = async (files: FileList | File[], aLaFin = false) => {
+    // Pendant une coupure le champ est verrouillé, fichiers compris : un dépôt ou
+    // un collage n'enverrait rien de sûr, et le message de coupure le dit déjà.
+    if (ecritureGeleeRef.current) return;
     if (aLaFin) curseur.current = null;
     const cleAgent = agentId ?? 'aucun';
     const url = `/api/upload?project=${encodeURIComponent(projectId)}${agent ? `&agent=${agent.id}` : ''}${
@@ -1065,12 +1276,31 @@ export function Composer({
     await Promise.all(
       Array.from(files).map(async (file) => {
         const cle = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        const envoi = envoyerFichier(url, file, (part, octets) =>
-          majEnvoi(cleAgent, cle, { part, octets }),
-        );
-        ajouterEnvoi(cleAgent, { cle, nom: file.name, taille: file.size, part: 0, octets: 0, annuler: envoi.annuler });
+        let envoi = envoyerFichier(url, file, (part, octets) => majEnvoi(cleAgent, cle, { part, octets }));
+        ajouterEnvoi(cleAgent, {
+          cle,
+          nom: file.name,
+          taille: file.size,
+          part: 0,
+          octets: 0,
+          // La croix vise l'essai EN COURS, pas le premier.
+          annuler: () => envoi.annuler(),
+        });
         try {
-          const jointe = await envoi.promesse;
+          /* UN ENVOI COUPÉ, OU RESTÉ SANS RÉPONSE, REPREND AU RETOUR DU LIEN
+             (jusqu'à trois essais). Un fichier ne reste plus bloqué sur
+             « Enregistrement… » parce que le serveur s'est figé un instant. */
+          let jointe: Attachment | undefined;
+          for (let essai = 0; !jointe; essai += 1) {
+            try {
+              jointe = await envoi.promesse;
+            } catch (err) {
+              if (!(err instanceof EnvoiInterrompu) || essai >= 2) throw err;
+              await attendreLeLien(() => lienGeleRef.current);
+              majEnvoi(cleAgent, cle, { part: 0, octets: 0 });
+              envoi = envoyerFichier(url, file, (part, octets) => majEnvoi(cleAgent, cle, { part, octets }));
+            }
+          }
           /*
            * LA PIÈCE REJOINT LA CONVERSATION D'OÙ ELLE EST PARTIE. Si l'écran
            * a changé de conversation entre-temps, elle s'ajoute au brouillon
@@ -1103,35 +1333,174 @@ export function Composer({
     );
   };
 
-  /*
-   * Modifier un message en attente : il s'ouvre ICI, dans la barre d'écriture.
-   * Ce qui était déjà écrit est mis de côté et revient intact une fois la
-   * modification envoyée (ou annulée) — on ne perd jamais un début de phrase.
+  /**
+   * LES TAGS COLLÉS QUE LA PAGE NE CONNAÎT PAS RAMÈNENT LEUR FICHIER.
+   *
+   * La liste chargée dans la page ne porte que les pièces du projet affiché :
+   * un texte copié dans une carte d'un AUTRE projet gardait ses tags, sans un
+   * seul fichier au-dessus du champ. Les alias restés sans pièce sont demandés
+   * au serveur, qui les rattache à ce projet (recopiés s'ils vivent ailleurs) ;
+   * un tag dont la pièce a changé d'alias en chemin est réécrit pour la viser.
+   * Rend `true` si au moins une pièce a été retrouvée. Un alias inconnu
+   * (fichier retiré) ou un canal coupé laisse le texte tel quel, sans bruit.
    */
+  const rattacherLesTagsColles = async (texteColle: string, dejaResolues: Attachment[]): Promise<boolean> => {
+    if (!projectId) return false;
+    const alias = aliasNonResolus(texteColle, dejaResolues);
+    if (!alias.length) return false;
+    const agentVise = agentId;
+    let pieces: Array<{ alias: string; attachment: Attachment }> = [];
+    try {
+      ({ pieces } = await client.call<{ pieces: Array<{ alias: string; attachment: Attachment }> }>({
+        type: 'attachments.rattacher',
+        projectId,
+        agentId: agent?.id,
+        cardId: agent?.cardId,
+        alias,
+      }));
+    } catch {
+      return false;
+    }
+    if (!pieces.length) return false;
+    // L'écran a changé de conversation entre-temps : le texte collé n'y est plus.
+    if (agentIdCourant.current !== agentVise) return true;
+    const parAlias = new Map(pieces.map((piece) => [piece.alias, piece.attachment]));
+    const remplacements = new Map<string, string>();
+    for (const nom of nomsDesTags(texteColle)) {
+      const ancien = aliasDuTag(nom);
+      const piece = ancien ? parAlias.get(ancien) : undefined;
+      if (piece && designationDePiece(piece) !== nom) remplacements.set(nom, designationDePiece(piece));
+    }
+    if (remplacements.size) setText((avant) => tagsRedesignes(avant, remplacements));
+    setAttachments((current) => ajouterJointesCollees(current, pieces.map((piece) => piece.attachment)));
+    return true;
+  };
+
+  /*
+   * Modifier un message en attente : il s'ouvre ICI, dans la barre d'écriture,
+   * AVEC SES PIÈCES JOINTES — vignettes au-dessus du champ, pastilles dans le
+   * texte, comme un brouillon ordinaire. Ce qui était déjà écrit (le texte ET
+   * ses pièces) est mis de côté et revient intact une fois la modification
+   * enregistrée ou annulée : on ne perd jamais un début de phrase.
+   */
+  const piecesDuProjet = state.attachments[projectId];
   const ouvrirEnEdition = (item: QueuedPrompt) => {
-    setEdition((courante) => ({ id: item.id, texteMisDeCote: courante?.texteMisDeCote ?? text }));
+    const connues = jointesDuMessage(item.attachments, piecesDuProjet ?? []);
+    setEdition((courante) => ({
+      id: item.id,
+      texteMisDeCote: courante?.texteMisDeCote ?? text,
+      jointes: connues,
+      dOrigine: item.attachments,
+      inconnues: item.attachments.filter((id) => !connues.some((piece) => piece.id === id)),
+    }));
     setText(item.text);
+    // Le curseur retenu visait l'ancien texte : un fichier joint tout de suite irait à la fin.
+    curseur.current = null;
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
-  const terminerEdition = (envoyer: boolean) => {
-    if (!edition) return;
+  /*
+   * UNE DEMANDE QU'ON MODIFIE NE PART PAS (demande du 12/10/2026). Tant qu'elle
+   * est ouverte ici, le serveur la retient en tête de file (et les suivantes
+   * derrière elle) ; le repère se redit toutes les deux minutes, et se lève dès
+   * que la modification se referme — enregistrée, annulée, ou la conversation
+   * quittée —, ce qui relance la file.
+   */
+  const idEnEdition = edition?.id;
+  React.useEffect(() => {
+    if (!idEnEdition) return;
+    const signaler = (actif: boolean) => client.call({ type: 'queue.edition', id: idEnEdition, actif }).catch(() => undefined);
+    void signaler(true);
+    const rafraichir = window.setInterval(() => void signaler(true), EDITION_EN_FILE_RAFRAICHIE_MS);
+    return () => {
+      window.clearInterval(rafraichir);
+      void signaler(false);
+    };
+  }, [idEnEdition]);
+
+  /*
+   * UNE PIÈCE QUE LA PAGE NE SAVAIT PAS NOMMER (liste du projet pas encore
+   * arrivée) reste au message quoi qu'il arrive, et prend sa vignette dès que
+   * la liste est là. On la demande ; le magasin la diffuse.
+   */
+  React.useEffect(() => {
+    if (!edition?.inconnues.length) return;
+    if (!piecesDuProjet) {
+      if (projectId) client.send({ type: 'attachments.list', projectId });
+      return;
+    }
+    const retrouvees = jointesDuMessage(edition.inconnues, piecesDuProjet);
+    if (!retrouvees.length) return;
+    setEdition((courante) => {
+      if (!courante || courante.id !== edition.id) return courante;
+      // L'étiquette d'un tag dépend des pièces connues : le champ est réécrit,
+      // et le curseur de qui tapait déjà ne doit pas filer à la fin.
+      retenirLaSelection();
+      return {
+        ...courante,
+        jointes: [...courante.jointes, ...retrouvees.filter((piece) => !courante.jointes.some((a) => a.id === piece.id))],
+        inconnues: courante.inconnues.filter((id) => !retrouvees.some((piece) => piece.id === id)),
+      };
+    });
+  }, [edition?.id, edition?.inconnues.length, piecesDuProjet, projectId]);
+
+  /**
+   * LA MODIFICATION N'EST ENREGISTRÉE QUE QUAND LE SERVEUR LE DIT. Elle partait
+   * sans attendre de réponse, et le champ reprenait le brouillon aussitôt : un
+   * canal coupé, ou un message parti chez l'agent entre-temps, effaçait la
+   * modification sans un mot. Le champ la garde désormais jusqu'à l'accusé.
+   *
+   * LE MESSAGE EMPORTE SES PIÈCES TELLES QU'ON LES VOIT : celle dont la pastille
+   * a été retirée n'y est plus, celle jointe pendant la modification y entre.
+   * Les pièces encore inconnues de la page repartent telles quelles. Le serveur
+   * répond par la liste qu'il a RÉELLEMENT gardée ; un serveur d'avant cette
+   * règle ne touche pas aux pièces et ne répond rien — le message garde alors
+   * celles d'origine, et une pièce jointe ici revient au brouillon au lieu de
+   * disparaître. Rend vrai quand la modification est refermée.
+   */
+  const validationEnVol = React.useRef(false);
+  const terminerEdition = async (envoyer: boolean): Promise<boolean> => {
+    if (!edition) return true;
     if (envoyer && text.trim()) {
-      void client.geste(
-        { type: 'queue.update', id: edition.id, text: tagsEnEspacesOrdinaires(text.trim()) },
+      if (validationEnVol.current) return false;
+      validationEnVol.current = true;
+      const voulues = [...new Set([...edition.jointes.map((piece) => piece.id), ...edition.inconnues])];
+      const rendu = await client.geste<{ ok?: boolean; attachments?: string[] }>(
+        { type: 'queue.update', id: edition.id, text: tagsEnEspacesOrdinaires(text.trim()), attachments: voulues },
         t('Modifier'),
       );
+      validationEnVol.current = false;
+      // Pas d'accusé : `geste` l'a déjà dit, et la modification reste dans le champ.
+      if (!rendu) return false;
+      if (rendu.ok === false) {
+        client.pushToast('warning', t('Ce message est déjà parti : la modification n’a pas pu s’appliquer.'));
+        return false;
+      }
+      const gardees = rendu.attachments ?? edition.dOrigine;
+      const nonPrises = edition.jointes.filter((piece) => !gardees.includes(piece.id));
+      if (nonPrises.length) {
+        setJointesDuBrouillon((liste) => [...liste, ...nonPrises.filter((piece) => !liste.some((a) => a.id === piece.id))]);
+      }
+      if (gardees.length !== voulues.length || voulues.some((id) => !gardees.includes(id))) {
+        client.pushToast(
+          'warning',
+          t('Message modifié, mais pas ses fichiers : un fichier retiré part encore avec lui, un fichier ajouté reste joint à ce que vous écrivez.'),
+        );
+      }
     }
+    // Une autre modification a pu s'ouvrir entre-temps : on ne referme que celle-ci.
+    if (editionCourante.current?.id !== edition.id) return true;
     setText(edition.texteMisDeCote);
     setEdition(null);
+    curseur.current = null;
+    return true;
   };
 
   const submit = async (asProposal = false, accord = false) => {
-    // En cours de modification, le bouton d'envoi enregistre la modification.
-    if (edition) {
-      terminerEdition(true);
-      return;
-    }
+    /* En cours de modification, le bouton d'envoi enregistre la modification.
+       `ok` dit l'issue au bouton : une modification restée dans le champ n'y
+       pose pas de coche. */
+    if (edition) return { ok: await terminerEdition(true) };
 
     /*
      * CANAL COUPÉ : ON N'ENVOIE PAS, ET SURTOUT ON NE VIDE PAS LE CHAMP.
@@ -1179,6 +1548,14 @@ export function Composer({
     const oublierBrouillon = () => {
       dejaEnvoye.current = text;
       dernierBrouillonDistant.current = '';
+      // Ce qui attendait d'être confirmé est parti avec le message : rien à rejouer.
+      brouillonNonConfirme.current = null;
+      brouillonEnAttente.current = null;
+      try {
+        window.localStorage.removeItem(PREFIXE_COPIE_BROUILLON + cleBrouillon);
+      } catch {
+        /* rien à nettoyer */
+      }
       client.setPrefLocally(cleBrouillon, '');
       client.send({ type: 'prefs.set', key: cleBrouillon, value: '' });
     };
@@ -1187,21 +1564,19 @@ export function Composer({
       onProposeTask(body);
       oublierBrouillon();
       setText('');
-      onClearPicked();
       return;
     }
 
     // Gardées pour un éventuel échec : l'envoi les vide tout de suite, mais
     // elles ne doivent pas se perdre pour autant.
-    const jointesEnvoyees = attachments;
+    const jointesEnvoyees = jointesDuBrouillon;
 
     /* L'ÉCRAN BASCULE ICI, AVANT LA REQUÊTE : le parcours s'ouvre au clic,
        avec la bulle de la demande, sans attendre l'écho du serveur. */
     if (!ouvreUneNouvelleCarte) onEnvoiCommence?.(body);
     oublierBrouillon();
     setText('');
-    onClearPicked();
-    setAttachments([]);
+    setJointesDuBrouillon([]);
     dernieresJointesDistantes.current = [];
     jointesIgnorerProchaineSauvegarde.current = true;
     setJointesEnregistrees([]);
@@ -1255,7 +1630,7 @@ export function Composer({
       dejaEnvoye.current = null;
       setText(body);
       if (jointesEnvoyees.length) {
-        setAttachments(jointesEnvoyees);
+        setJointesDuBrouillon(jointesEnvoyees);
         dernieresJointesDistantes.current = jointesEnvoyees;
         jointesIgnorerProchaineSauvegarde.current = true;
         setJointesEnregistrees(jointesEnvoyees);
@@ -1385,8 +1760,8 @@ export function Composer({
       data-contexte-agent
       data-agent-contexte={agent?.id}
       className={cn(
-        'px-2.5 pt-2 bg-gradient-to-b',
-        fondNoir ? 'from-bg to-bg/0' : 'from-surface to-surface/0',
+        'px-4 pt-2',
+        fondNoir ? 'bg-bg' : 'bg-surface',
       )}
       /*
        * Le creux du téléphone (barre de gestes) n'est réservé QUE si la barre
@@ -1457,6 +1832,14 @@ export function Composer({
         </div>
       ) : null}
 
+      {/* LA COUPURE SE DIT AU CHAMP LUI-MÊME : verrouillé, il explique pourquoi,
+          et rassure — rien de ce qui est écrit ou joint n'est perdu. */}
+      {ecritureGelee ? (
+        <p data-ecriture-gelee className="mb-1.5 px-1 text-[12.5px] text-muted">
+          {t('Écriture suspendue : le serveur ne répond pas. Votre texte et vos fichiers sont conservés, le champ se rouvre dès le retour du lien.')}
+        </p>
+      ) : null}
+
       {/* LES ENVOIS EN COURS : une ligne par fichier, sa vraie progression, sa croix. */}
       {envois.length ? (
         <div className="mb-1.5 space-y-1" data-envois-en-cours>
@@ -1472,12 +1855,43 @@ export function Composer({
           champ de saisie, où elle se lit, se copie et se complète comme le
           reste du message. */}
 
+      {/* LE BANDEAU DE MODIFICATION VIENT AVANT LES PIÈCES : ce qui le suit — les
+          fichiers, puis le champ — est le message en attente qu'on modifie, pas
+          le brouillon. Celui-ci (texte et pièces) est mis de côté et revient à
+          la fin, enregistrée ou annulée. */}
+      {edition ? (
+        <div
+          data-modification-en-attente={edition.id}
+          className="mb-1.5 flex items-center gap-2 rounded-md border border-transparent bg-surface px-2.5 py-1.5"
+        >
+          <Pencil className="h-3 w-3 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
+            {t('Modification d\'un message en attente {v0}', {
+              v0: edition.texteMisDeCote || jointesDuBrouillon.length ? ' — ce que vous écriviez revient juste après' : '',
+            })}
+          </span>
+          <button
+            type="button"
+            onClick={() => void terminerEdition(false)}
+            className="shrink-0 text-[12.5px] text-faint hover:text-text"
+          >
+            {t('Annuler')}
+          </button>
+        </div>
+      ) : null}
+
       {/* Les fichiers joints en attente : chacun est une ÉTIQUETTE qu'on peut
           glisser pour changer l'ordre d'envoi, avec sa croix à droite pour le
           retirer (lui ET son ancre du texte). Un clic sur le nom ouvre
-          l'aperçu en grand. */}
+          l'aperçu en grand. Pendant une modification, ce sont les pièces du
+          message modifié (`attachments` suit ce que le champ montre). */}
       {attachments.length ? (
-        <div className="mb-1.5" data-pieces-jointes={attachments.length} data-pieces-ouvertes={piecesOuvertes_ ? '' : undefined}>
+        <div
+          className="mb-1.5"
+          data-pieces-jointes={attachments.length}
+          data-pieces-de={edition ? 'message-en-attente' : 'brouillon'}
+          data-pieces-ouvertes={piecesOuvertes_ ? '' : undefined}
+        >
           {/* L'ACCORDÉON DES PIÈCES JOINTES. Six captures déposées occupaient
               trois rangées d'étiquettes au-dessus du champ : sur un téléphone,
               la moitié de l'écran, et la conversation disparaissait. Le
@@ -1533,7 +1947,7 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => setApercu(file)}
-                  className="h-5 w-5 shrink-0 overflow-hidden rounded border border-border"
+                  className="h-5 w-5 shrink-0 overflow-hidden rounded bg-raised"
                 >
                   <img
                     src={`/api/attachment?id=${file.id}`}
@@ -1575,7 +1989,7 @@ export function Composer({
         </div>
       ) : null}
 
-      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={attachments.filter((p) => p.mime.startsWith('image/'))} />
 
       {recorder.recording ? (
         <RecordingBar
@@ -1588,20 +2002,6 @@ export function Composer({
 
       {recorder.error ? (
         <RecorderErrorBar message={recorder.error} onRetry={recorder.retry} onDiscard={recorder.discardError} />
-      ) : null}
-
-      {edition ? (
-        <div className="mb-1.5 flex items-center gap-2 rounded-md border border-accent/50 bg-surface px-2.5 py-1.5">
-          <Pencil className="h-3 w-3 shrink-0 text-accent" />
-          <span className="min-w-0 flex-1 truncate text-[13px] text-muted">
-            {t('Modification d\'un message en attente {v0}', { v0: edition.texteMisDeCote ? ' — ce que vous écriviez revient juste après' : '' })}</span>
-          <button
-            type="button"
-            onClick={() => terminerEdition(false)}
-            className="shrink-0 text-[12.5px] text-faint hover:text-text"
-          >
-            {t('Annuler')}</button>
-        </div>
       ) : null}
 
       {/* La commande reconnue en tête du message, dite avant l'envoi. Elle ne
@@ -1637,7 +2037,10 @@ export function Composer({
       )}
 
       <div className={cn('flex items-end gap-1.5', recorder.recording && 'hidden')}>
-        <div className="relative min-w-0 flex-1 rounded-lg border border-border bg-raised">
+        {/* LE CHAMP D'ÉCRITURE : une boîte aux coins très doux, sur un fond gris
+            pâle, comme dans ChatGPT — le texte en haut, ses boutons sur la
+            rangée du bas, l'envoi en rond plein tout à droite. */}
+        <div className="relative min-w-0 flex-1 rounded-[24px] bg-raised" data-champ-d-ecriture>
         {/* LE CALQUE NE COUVRE QUE LA PART VISIBLE DU CHAMP, ET SA DÉCOUPE NE
             BOUGE PAS. Deux blocs, et non un seul : une FENÊTRE posée exactement
             sur le champ, qui coupe ce qui dépasse, et DEDANS le texte, qui seul
@@ -1672,7 +2075,7 @@ export function Composer({
           ? createPortal(
               <>
                 <div
-                  className="pointer-events-none fixed z-[80] inline-flex max-w-[220px] items-center gap-1 rounded border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[13px] text-accent shadow-md"
+                  className="pointer-events-none fixed z-[80] inline-flex max-w-[220px] items-center gap-1 rounded border border-transparent bg-accent/15 px-1.5 py-0.5 text-[13px] text-accent shadow-md"
                   style={{
                     left: drapeauGlisse.x,
                     top: drapeauGlisse.y,
@@ -1790,15 +2193,24 @@ export function Composer({
               // qui feraient doublon sous un nouvel identifiant.
               if (jointesParTag.length) {
                 setAttachments((current) => ajouterJointesCollees(current, jointesParTag));
+                void rattacherLesTagsColles(texteColle, jointesParTag);
                 return;
               }
-              // Les fichiers, eux, ne visent aucun endroit précis : à la fin.
-              void upload(files, true);
+              /* Des tags que la page ne connaît pas (autre projet) : leurs
+                 fichiers d'origine passent avant les images du presse-papiers,
+                 qui ne sont téléversées que si aucun n'est retrouvé. */
+              void rattacherLesTagsColles(texteColle, []).then((retrouves) => {
+                // Les fichiers, eux, ne visent aucun endroit précis : à la fin.
+                if (!retrouves) void upload(files, true);
+              });
               return;
             }
 
             const emballees = relireJointes(event.clipboardData.getData(TYPE_JOINTES_COLLABLES));
             const jointes = emballees.length ? emballees : jointesParTag;
+            /* Ce que la liste du projet n'a pas retrouvé se demande au serveur,
+               une fois le texte collé (ici ou par le collage du navigateur). */
+            void rattacherLesTagsColles(texteDuPressePapiers, jointes);
             if (!jointes.length) return;
 
             /* Un tag [fichier: …] copié, ou un message historique copié avec
@@ -1819,7 +2231,11 @@ export function Composer({
             setAttachments((current) => ajouterJointesCollees(current, jointes));
           }}
           disabled={enPublication && !edition}
-          data-ecriture-bloquee={enPublication && !edition ? 'publication' : undefined}
+          /* PENDANT UNE COUPURE LE CHAMP SE VERROUILLE, sans rien effacer : en
+             lecture seule (et non désactivé), le texte, la sélection et le
+             curseur restent, et il se rouvre seul au retour du lien. */
+          readOnly={ecritureGelee}
+          data-ecriture-bloquee={enPublication && !edition ? 'publication' : ecritureGelee ? 'lien' : undefined}
           placeholder={
             edition
               ? t('Modifiez le message en attente…')
@@ -1870,13 +2286,14 @@ export function Composer({
             lui, et la NOTE DE COMPRÉHENSION en tête du groupe, tout à gauche.
             Les réglages (moteur, modèle, réflexion, compte, plan) se
             choisissent en haut, dans la configuration de l'agent — plus ici. */}
-        <div className="relative z-30 flex min-w-0 items-center gap-0.5 px-1.5 pb-1.5 sm:gap-1">
+        <div className="relative z-30 flex min-w-0 items-center gap-0.5 px-2 pb-2 sm:gap-1">
           <Tooltip label={t('Joindre un fichier')}>
             <Button
               variant="ghost"
               size="icon"
               data-composer-joindre
               className="shrink-0"
+              disabled={ecritureGelee}
               onClick={() => fileRef.current?.click()}
             >
               {envois.length ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
@@ -1913,10 +2330,10 @@ export function Composer({
             {boutons.arret ? (
               <Tooltip label={t('Arrêter l\'agent')}>
                 <Button
-                  variant="ghost"
+                  variant="arret"
                   size="icon"
                   aria-label="Arrêter l'agent"
-                  className="shrink-0 border border-border text-muted hover:border-danger hover:text-danger"
+                  className="shrink-0"
                   onClick={arret.demander}
                 >
                   <Square className="h-3 w-3 fill-current" />
@@ -1924,14 +2341,14 @@ export function Composer({
               </Tooltip>
             ) : null}
 
-            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent} />
+            <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent || ecritureGelee} />
 
             {boutons.envoi ? (
               <Button
                 variant="default"
                 size="icon"
                 data-composer-envoi
-                className="shrink-0"
+                className="h-8 w-8 shrink-0 rounded-full"
                 title={
                   /* Le bouton éteint DIT pourquoi : un envoi refusé sans un mot
                      se lit comme une panne de l'application. */

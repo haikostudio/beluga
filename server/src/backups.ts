@@ -398,13 +398,21 @@ export function backupsEnCours(): string[] {
 }
 
 /**
- * LE DOSSIER DE TRAVAIL, SUR LE DISQUE LOCAL. Les étapes y posent leur part
- * avant la mise en archive : écrire des milliers de petits fichiers sur le
- * disque de stockage (monté par le réseau) puis les y relire pour les zipper
- * ferait deux allers-retours pour rien. Seule l'archive voyage.
+ * LE DOSSIER DE TRAVAIL VIT SUR LE DISQUE DE STOCKAGE, JAMAIS SUR CELUI DU
+ * SERVEUR (décision de l'utilisateur, 12/10/2026). Il était posé sous
+ * `data/backups-travail`, pour éviter les allers-retours réseau : un site lourd
+ * (ProjetE, ~8 Go par prise) y étalait alors ses parts PUIS son archive sur
+ * le disque système, qui fait 150 Go et porte la base et tous les projets. Les
+ * parts, l'archive en cours et les archives d'essai se posent donc dans
+ * `<dossier des backups>/.travail` ; seul le repli sans dossier réglé reste
+ * local, faute d'autre disque.
  */
+export function racineDeTravail(): string {
+  return path.join(dossierDeStockage(), '.travail');
+}
+
 function dossierDeTravail(nom: string): string {
-  return path.join(CONFIG.dataDir, 'backups-travail', `${nom}-${crypto.randomUUID().slice(0, 8)}`);
+  return path.join(racineDeTravail(), `${nom}-${crypto.randomUUID().slice(0, 8)}`);
 }
 
 /**
@@ -541,8 +549,7 @@ export async function rejouerLaRecette(
  */
 export async function essayerLaRecette(site: SiteASauvegarder, recette: RecetteDeBackup): Promise<IssueDeRecette> {
   const archive = path.join(
-    CONFIG.dataDir,
-    'backups-travail',
+    racineDeTravail(),
     'essais',
     nomDArchive(`${dossierDeSite({ ...site, id: site.id || 'essai' })}-${horodatageDePoint(Date.now())}`),
   );

@@ -39,35 +39,36 @@ function nomAffiche(cle: CleDeSection, nom: string): string {
 
 export interface RapportEnFluxProps {
   contenu: string;
-  pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
   /** Le texte arrive encore : on ne range rien tant qu'il bouge. */
   streaming?: boolean;
   /**
-   * L'ENTÊTE SE CALE AU BORD GAUCHE, sans le retrait qui l'aligne sur le texte
-   * des points. Posé UNIQUEMENT par le fil d'une carte, qui décale déjà tout
-   * son contenu : le chat ne le pose pas et garde son alignement.
+   * LA LISTE SE POSE DANS LA CARTE OUVERTE D'UN PASSAGE, ALIGNÉE À GAUCHE
+   * (demande du 12/10/2026). Le rond de chaque section tombe sur l'axe des
+   * points de la carte et son texte juste après (24 px), sur le bord du titre
+   * « Compte rendu » : plus de second retrait de 12 px, ni de décalage de
+   * l'entête. Posé UNIQUEMENT par le fil d'une carte ; le chat ne le pose pas
+   * et garde son alignement.
    */
-  enteteSansRetrait?: boolean;
+  dansLaCarte?: boolean;
 }
 
 export function RapportEnFlux({
   contenu,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   streaming,
-  enteteSansRetrait,
+  dansLaCarte,
 }: RapportEnFluxProps) {
   const range = React.useMemo(() => rangerLeRapport(contenu), [contenu]);
 
   if (streaming || !range.conforme) {
     return (
       <Markdown
-        className="texte-du-fil"
+        /* Dans la carte, le texte brut se cale lui aussi sur le bord du titre. */
+        className={cn('texte-du-fil', dansLaCarte && 'pl-6')}
         content={contenu}
-        pickedEvolutions={pickedEvolutions}
         onToggleEvolution={onToggleEvolution}
         onToggleAll={onToggleAll}
         streaming={streaming}
@@ -79,15 +80,19 @@ export function RapportEnFlux({
     <div data-rapport-flux className="texte-du-fil min-w-0">
       {/* LA LIGNE D'EN-TÊTE RESTE EN TÊTE : modèle, niveau, temps estimé. Elle
           n'appartient à aucune section, elle les annonce toutes. */}
-      {/* Dans le chat, elle se cale sur le TEXTE des points, jamais sur leurs
-          ronds. Dans le fil d'une carte, le fil pose déjà son décalage : le
-          retrait tombe (`enteteSansRetrait`) et l'entête suit le bord gauche. */}
+      {/* Dans le chat, elle se cale sur le TEXTE des points (36 px), jamais sur
+          leurs ronds. Dans la carte d'un passage (`dansLaCarte`), le texte des
+          points est à 24 px, sur le bord du titre : l'entête s'y cale aussi, et
+          le trait de la carte la traverse jusqu'au premier rond. */}
       {range.entete ? (
         <div
           data-entete-rapport
-          data-entete-retrait={enteteSansRetrait ? 'non' : 'oui'}
-          className={cn('mb-3 text-muted', !enteteSansRetrait && 'pl-9')}
+          data-entete-retrait={dansLaCarte ? 'non' : 'oui'}
+          className={cn('relative mb-3 text-muted', dansLaCarte ? 'pl-6' : 'pl-9')}
         >
+          {dansLaCarte ? (
+            <span className="absolute -bottom-3 left-[11.5px] top-0 w-px bg-faint/40" aria-hidden data-trait-entete-rapport />
+          ) : null}
           <Markdown content={range.entete} />
         </div>
       ) : null}
@@ -98,7 +103,7 @@ export function RapportEnFlux({
             key={section.cle}
             section={section}
             derniere={index === range.sections.length - 1}
-            pickedEvolutions={pickedEvolutions}
+            dansLaCarte={dansLaCarte}
             onToggleEvolution={onToggleEvolution}
             onToggleAll={onToggleAll}
           />
@@ -116,13 +121,13 @@ export function RapportEnFlux({
 function SectionDuFlux({
   section,
   derniere,
-  pickedEvolutions,
+  dansLaCarte,
   onToggleEvolution,
   onToggleAll,
 }: {
   section: SectionRangee;
   derniere: boolean;
-  pickedEvolutions?: string[];
+  dansLaCarte?: boolean;
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
 }) {
@@ -132,7 +137,7 @@ function SectionDuFlux({
      titre au-dessus (`listesCliquables`, `web/src/lib/markdown.tsx`). */
   const cliquable = section.cle === 'evolutions';
   return (
-    <li data-section-rapport={section.cle} className="flex gap-3">
+    <li data-section-rapport={section.cle} className={cn('flex', !dansLaCarte && 'gap-3')}>
       <div className="flex w-6 shrink-0 flex-col items-center">
         <span className="flex h-6 w-6 items-center justify-center" data-rond-section>
           <PointDuFil />
@@ -145,7 +150,6 @@ function SectionDuFlux({
           <div data-corps-section={section.cle} className="mt-1">
             <Markdown
               content={section.corps}
-              pickedEvolutions={pickedEvolutions}
               onToggleEvolution={cliquable ? onToggleEvolution : undefined}
               onToggleAll={cliquable ? onToggleAll : undefined}
               listesCliquables={cliquable}

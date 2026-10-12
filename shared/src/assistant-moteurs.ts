@@ -31,7 +31,7 @@ export interface MoteurDeLAssistant {
   comptesEnLigne: number;
   /** Ce qu'il reste à faire, en une phrase. */
   libelle: string;
-  /** La commande à coller dans un terminal du serveur pour installer l'outil. */
+  /** La commande de l'éditeur : lancée par le démon, montrée seulement en repli après un échec. */
   commandeDInstallation: string;
   /**
    * Ce moteur se connecte-t-il par une PAGE (Claude, Codex) ou par une CLÉ
@@ -51,10 +51,10 @@ export const MOTEURS_DE_L_ASSISTANT: readonly { id: EngineId; label: string }[] 
 }));
 
 /**
- * Les commandes d'installation, telles que chaque éditeur les publie. Elles
- * s'exécutent dans un terminal du serveur, jamais depuis l'application : le
- * démon n'a pas les droits d'installer un outil pour l'utilisateur, et un
- * installateur lancé en aveugle poserait l'outil dans le mauvais compte.
+ * Les commandes d'installation, telles que chaque éditeur les publie. C'est le
+ * DÉMON qui les lance, sur demande de l'écran et sous son propre compte
+ * (`server/src/installation-travaux.ts`) : l'outil atterrit donc là où il le
+ * cherchera. L'écran ne les montre qu'en repli, après un échec.
  */
 export const COMMANDES_D_INSTALLATION = Object.fromEntries(
   MOTEURS.map((m) => [m.id, m.commandeDInstallation]),

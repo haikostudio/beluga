@@ -1,3 +1,4 @@
+import { slugEntier } from './slugs.js';
 /**
  * UNE CARTE LANCÉE = UNE BRANCHE, DANS UN DOSSIER QU'ELLE NE PARTAGE PAS.
  *
@@ -66,13 +67,7 @@ export type EtatDuDossier = 'depot' | 'sans-depot' | 'injoignable';
  * titre exploitable, on garde au moins le numéro — jamais de branche anonyme.
  */
 export function nomDeBranche(titre: string, cardId: string): string {
-  const slug = (titre ?? '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 40);
+  const slug = slugEntier(titre ?? '').slice(0, 40);
   return `tache/${slug || 'sans-titre'}-${cardId.slice(0, 6)}`;
 }
 

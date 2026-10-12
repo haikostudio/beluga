@@ -1,7 +1,8 @@
 /**
- * LE BURGER DE L'ESPACE ET SON TIROIR.
+ * LE BURGER DE L'ESPACE ET SON MENU.
  *
- * L'entête ne garde que le nom et ce burger : tout le reste vit dans ce tiroir.
+ * L'entête ne garde que le nom et ce burger : tout le reste vit dans son menu —
+ * un petit menu ancré sous le bouton (`MenuActions`), jamais une page.
  * Les deux écrans du projet — ses BACKUPS et son espace « ACCÈS » —, le PROFIL
  * et la DÉCONNEXION pour la porte client et — vu comme Haiko seulement — les
  * COMPTES DU CLIENT, pour ouvrir, borner, suspendre ou retirer un accès sans
@@ -23,6 +24,7 @@
  * ligne. Le serveur, lui, refuse de toute façon toute commande `comptes.*` à un
  * client.
  */
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import { HardDriveDownload, KeyRound, LogOut, Menu, UserRound, UsersRound, X } from 'lucide-react';
 import { ActionTiroir, Button, DialogTitle, Drawer, GroupeTiroir, MenuActions, ZoneDefilement } from '@/components/ui';
@@ -34,7 +36,15 @@ export function MenuEspace({
   onProfil,
   onDeconnexion,
   comptesDuClient,
+  enPoints = false,
 }: {
+  /**
+   * DANS L'APPLICATION, CE MENU EST UN MENU D'OPTIONS COMME LES AUTRES : trois
+   * points verticaux. Le burger y doublait celui de la colonne des projets, à
+   * l'autre bout de la même barre. La porte des clients, qui n'a pas d'autre
+   * burger, garde le sien.
+   */
+  enPoints?: boolean;
   /** Les archives du projet, à télécharger. */
   onBackups?: () => void;
   /** L'espace « Accès » du projet, verrouillé par une prise de responsabilité. */
@@ -47,9 +57,10 @@ export function MenuEspace({
   comptesDuClient?: React.ReactNode;
 }) {
   const [comptesOuverts, setComptesOuverts] = React.useState(false);
+  useTiroirAdresse('comptes-espace', comptesOuverts, setComptesOuverts);
   return (
     <>
-      <MenuActions titre={t('Menu')} repere="espace-menu" icone={<Menu className="h-4 w-4" />}>
+      <MenuActions titre={t('Menu')} repere="espace-menu" icone={enPoints ? undefined : <Menu className="h-4 w-4" />}>
         {(fermer) => (
           <>
             <GroupeTiroir titre={t('Ouvrir')}>

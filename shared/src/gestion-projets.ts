@@ -18,13 +18,16 @@
  *  1. UN PROJET NE SE SUPPRIME PAS — il est MIS DE CÔTÉ. C'est la règle du
  *     moteur (`project.archive`) : ses cartes et ses conversations restent.
  *  2. UN PROJET NE SE MONTE PAS SANS SON ADRESSE — le sous-domaine et le port
- *     se demandent AVANT le premier dossier (`CONSIGNE_CREATION_PROJET`). Sans
+ *     se demandent AVANT le premier dossier (`consigneCreationProjet`). Sans
  *     eux, la création est refusée, à moins que l'utilisateur ait dit ne pas en
  *     vouloir : cela se déclare alors en toutes lettres.
  *  3. UN GROUPE NE SE SUPPRIME PAS PAR UN AGENT — le retirer déplace tous ses
  *     projets d'un coup dans la colonne de gauche : ce geste-là reste à
  *     l'utilisateur.
  */
+
+import { caseCahierCocheeParDefaut } from './cahier-des-charges.js';
+import { minusculesSansAccents } from './mots.js';
 
 /* ------------------------------------------------------------------ */
 /* La palette des groupes                                              */
@@ -63,11 +66,7 @@ const COULEURS_NOMMEES: Record<string, string> = {
 
 /** Sans accent et en minuscules : « Émeraude » et « emeraude » sont la même teinte. */
 function sansAccent(texte: string): string {
-  return texte
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+  return minusculesSansAccents(texte).trim();
 }
 
 /** Ce que rend l'examen d'une demande : un geste recevable, ou une raison dite. */
@@ -171,6 +170,8 @@ export type DemandeProjet =
       /** L'utilisateur a dit ne pas vouloir d'adresse : le montage continue sans. */
       sansAdresse: boolean;
       github: boolean;
+      /** « Démarrer par un cahier des charges » — vrai par défaut, comme la case d'un projet vide. */
+      cahierDesCharges: boolean;
     }
   | { geste: 'renommer'; cible: string; nom: string }
   | { geste: 'deplacer'; cible: string; groupe?: string; horsGroupe: boolean; position?: number }
@@ -264,6 +265,8 @@ export function lireGesteProjet(args: Record<string, unknown>): Recevable<Demand
         port,
         sansAdresse,
         github: args.github === undefined ? true : vrai(args.github),
+        cahierDesCharges:
+          args.cahierDesCharges === undefined ? caseCahierCocheeParDefaut('vide') : vrai(args.cahierDesCharges),
       },
     };
   }

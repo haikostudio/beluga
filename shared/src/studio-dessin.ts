@@ -14,6 +14,8 @@
  * phrase qui dit quoi corriger.
  */
 
+import { echapperHtml } from './demande-copiable.js';
+
 /** Les balises permises, en minuscules (le SVG compris). */
 const BALISES_HTML = new Set([
   'div', 'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'b', 'i', 'u', 's', 'small', 'sup', 'sub', 'br', 'hr',
@@ -130,9 +132,7 @@ function decoderEntites(v: string): string {
     .replace(/&amp;/g, '&');
 }
 
-function echapperAttribut(v: string): string {
-  return v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+const echapperAttribut = echapperHtml;
 
 /** Toutes les adresses `url(...)` d'un morceau de CSS. */
 function adressesCss(css: string): string[] {

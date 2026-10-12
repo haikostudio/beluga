@@ -83,7 +83,7 @@ function TiroirAjouterUnLLM({ onClose, onAutre }: { onClose: () => void; onAutre
   const nomDuMoteur = (engine: EngineId) => descriptionMoteur(engine)?.label ?? engine;
 
   return (
-    <Drawer open onClose={onClose} plein={estTelephone()}>
+    <Drawer adresse="ajout-de-moteur" open onClose={onClose} plein={estTelephone()}>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-ajouter-un-llm>
         <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
           <Cpu className="h-3.5 w-3.5 shrink-0 text-muted" />
@@ -365,7 +365,7 @@ function TiroirAjoutDeMoteur({ onClose, onRetour }: { onClose: () => void; onRet
   const attente = agentId ? decisionsQuiAlertent(state.decisions).filter((d) => d.agentId === agentId).length : 0;
 
   return (
-    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe>
+    <Drawer adresse="connexion-moteur" open onClose={onClose} plein={estTelephone()} hauteurFixe>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-ajout-de-moteur={agentId ?? ''}>
         <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
           <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted" onClick={onRetour} aria-label="Retour" title={t('Retour à la liste')} data-retour-liste-llm>

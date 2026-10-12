@@ -2,20 +2,19 @@ import * as React from 'react';
 import { Check, CircleDot, Loader2, X } from 'lucide-react';
 import { TodoItem, mentionTachesNonFaites } from '@beluga/shared';
 import { ZoneDefilement } from '@/components/ui';
-import { estTelephone } from '@/lib/telephone';
 import { cn, duration } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /** Où l'on retient le choix « replié / déplié » d'une personne. */
-const CLE_VOLET = 'beluga.volet-taches.ouvert';
+const CLE_VOLET = 'beluga.volet-taches.deplie';
 
-/** Le téléphone commence replié, l'ordinateur déplié — sauf choix contraire. */
+/**
+ * REPLIÉE D'OFFICE, PARTOUT — sauf choix contraire. La liste est un détail du
+ * travail : une ligne dit où en est l'agent, et l'on déplie pour en lire plus.
+ */
 function choixInitial(): boolean {
-  if (typeof window === 'undefined') return true;
-  const retenu = window.localStorage.getItem(CLE_VOLET);
-  if (retenu === '1') return true;
-  if (retenu === '0') return false;
-  return !estTelephone();
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(CLE_VOLET) === '1';
 }
 
 /**
@@ -81,15 +80,19 @@ export function CorpsListeTaches({
                 d'une croix quand le tour s'est fini sans elle. La case de
                 l'étape EN COURS respire (`animate-pulse-soft`) tant que le
                 tour tourne vraiment (`streaming`) — même couleur orange
-                qu'avant, juste vivante plutôt que figée. */}
+                qu'avant, juste vivante plutôt que figée.
+                LA CASE VIDE se dessine en `--muted`, d'un trait franc, comme
+                celle des « évolutions possibles » : en `--border`, tout près
+                du fond, on ne la voyait ni en clair ni en sombre. */}
             <span
+              data-case-de-tache={todo.state}
               className={cn(
                 'mt-[2px] flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-[4px] border',
                 todo.state === 'done'
                   ? 'border-termine bg-termine/15'
                   : todo.state === 'running'
                     ? cn('border-en-cours', streaming && 'animate-pulse-soft')
-                    : 'border-border',
+                    : 'border-[1.5px] border-muted',
               )}
             >
               {todo.state === 'done' ? (

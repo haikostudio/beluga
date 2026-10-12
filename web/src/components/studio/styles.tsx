@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { ExternalLink, Plus, Search, ShieldCheck, Sparkles } from 'lucide-react';
-import { peutPasserLaVerification, styleDansLesCategories, type CategorieDeStyle, type EtatSourceDeStyles } from '@beluga/shared';
+import { minusculesSansAccents, peutPasserLaVerification, styleDansLesCategories, type CategorieDeStyle, type EtatSourceDeStyles } from '@beluga/shared';
 import { BulleInfo, Button, Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, Input } from '@/components/ui';
 import { client } from '@/lib/client';
 import { formatRegional, t } from '@/lib/langue';
@@ -26,8 +26,9 @@ import { VoletVerification } from './verification';
  *  - Le catalogue se relit quand la bibliothèque change (une source validée,
  *    des nouveautés de la nuit) : l'évènement « studio / bibliotheque ».
  *
- * « Appliquer » envoie la demande à l'agent de la création, avec l'identifiant
- * du style ; l'agent cite aussi des styles dans ses pistes de mise en scène
+ * « Appliquer » ÉCRIT la demande dans le champ de l'agent de la création (avec
+ * l'identifiant du style), sans l'envoyer : l'utilisateur la complète puis
+ * l'envoie lui-même ; l'agent cite aussi des styles dans ses pistes de mise en scène
  * (« [style:<id>] »), montrés en vignettes au bout de sa conversation.
  */
 
@@ -84,7 +85,7 @@ export function useBibliotheque(): Bibliotheque | null {
 
 const vignette = (id: string, anime: boolean) => `/api/studio/style-vignette?id=${encodeURIComponent(id)}${anime ? '&anime=1' : ''}`;
 
-/** La demande envoyée à l'agent : l'identifiant entre crochets, qu'il lit avec son action « styles ». */
+/** La demande écrite dans le champ de l'agent : l'identifiant entre crochets, qu'il lit avec son action « styles ». */
 export function demandeDAppliquer(style: Pick<StyleDeLaGalerie, 'id' | 'titre'>): string {
   return `Applique le style [style:${style.id}] « ${style.titre} » à cette création.`;
 }
@@ -206,9 +207,9 @@ function FenetreStyle({
   const lienDOrigine = detail?.lien ?? detail?.fiche;
   return (
     <Dialog open onOpenChange={(o) => !o && onFermer()}>
-      <DialogContent className="sm:w-[min(880px,100%)]" data-studio-fenetre-style={style.id}>
+      <DialogContent adresse="style-bibliotheque" className="sm:w-[min(880px,100%)]" data-studio-fenetre-style={style.id}>
         <DialogHeader>
-          <DialogTitle className="pr-6">{style.titre}</DialogTitle>
+          <DialogTitle>{style.titre}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3 pb-1">
           <div className="relative aspect-video w-full overflow-hidden rounded-md bg-black" data-studio-fenetre-apercu>
@@ -268,12 +269,6 @@ function FenetreStyle({
   );
 }
 
-const normaliser = (texte: string) =>
-  texte
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
-
 const GRILLE = 'grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5';
 
 export function PanneauStyles({ onAppliquer }: { onAppliquer: (s: StyleDeLaGalerie) => void }) {
@@ -288,11 +283,11 @@ export function PanneauStyles({ onAppliquer }: { onAppliquer: (s: StyleDeLaGaler
     [biblio, styles],
   );
   const visibles = React.useMemo(() => {
-    const mots = normaliser(cherche).split(/\s+/).filter(Boolean);
+    const mots = minusculesSansAccents(cherche).split(/\s+/).filter(Boolean);
     const libelles = new Map((biblio?.categories ?? []).map((c) => [c.id, c.libelle]));
     return (styles ?? []).filter((s) => {
       if (!styleDansLesCategories(s.categories, choisies)) return false;
-      const texte = normaliser(`${s.titre} ${s.phrase} ${s.motsCles.join(' ')} ${s.categories.map((c) => t(libelles.get(c) ?? c)).join(' ')}`);
+      const texte = minusculesSansAccents(`${s.titre} ${s.phrase} ${s.motsCles.join(' ')} ${s.categories.map((c) => t(libelles.get(c) ?? c)).join(' ')}`);
       return mots.every((m) => texte.includes(m));
     });
   }, [styles, biblio, choisies, cherche]);
@@ -302,7 +297,7 @@ export function PanneauStyles({ onAppliquer }: { onAppliquer: (s: StyleDeLaGaler
       <div className="flex items-center gap-1">
         {/* À quoi sert la galerie, et d'où viennent les styles : derrière la pastille « i » (MEM-3449). */}
         <BulleInfo cote="start">
-          {t('Des directions de mise en scène éprouvées. « Appliquer » demande à l’agent d’adapter la création à ce style.')}{' '}
+          {t('Des directions de mise en scène éprouvées. « Appliquer » écrit la demande dans le champ de l’agent : vous pouvez la compléter avant de l’envoyer.')}{' '}
           {t('Les styles viennent des sources de la bibliothèque : chaque vidéo et chaque consigne restent à leur auteur.')}
         </BulleInfo>
         <span className="relative flex flex-1">

@@ -59,7 +59,8 @@ import type {
   MessageAuCourriel,
 } from './courriels-clients.js';
 import { dateAmicale, estUnPredicat, nombre } from './phrases-courriel.js';
-import { HOTE_ESPACE_CLIENT } from './porte-client.js';
+import { adresseDesImagesDeCourriel, identiteDInstallation, nomDeLEntreprise } from './installation.js';
+import { echapperHtml } from './demande-copiable.js';
 
 /* ------------------------------------------------------------------ */
 /* Les repères visuels, figés                                           */
@@ -86,7 +87,7 @@ export const COULEURS = {
   marque: '#09090b',
   texteMarque: '#ffffff',
   pastilleMarque: '#f59e0b',
-  /** Le violet de la marque (violet-500 du site haiko.studio). */
+  /** Le violet de la marque (violet-500 de la charte). */
   violetMarque: '#7e00fd',
   /** La bulle de l'AUTRE, à gauche : blanche, posée sur l'encadré gris. */
   bulleAutre: '#ffffff',
@@ -151,25 +152,39 @@ export const PICTOGRAMMES = [
 ] as const;
 export type Pictogramme = (typeof PICTOGRAMMES)[number];
 
-/** D'où les pictogrammes sont servis : l'adresse publique de l'espace client. */
-export const ADRESSE_DES_PICTOGRAMMES = `https://${HOTE_ESPACE_CLIENT}/courriel`;
-
+/**
+ * D'où les pictogrammes sont servis : l'adresse publique de l'installation
+ * (`adresseDesImagesDeCourriel`), lue À CHAQUE courriel — elle se règle après
+ * l'installation, une constante figée au chargement serait fausse.
+ */
 export function adresseDuPictogramme(nom: Pictogramme, teinte: Teinte): string {
-  return `${ADRESSE_DES_PICTOGRAMMES}/${nom}-${teinte}.png`;
+  return `${adresseDesImagesDeCourriel()}/${nom}-${teinte}.png`;
 }
 
 /**
- * LE LOGO HAIKO, en image : BLANC sur un fond foncé, VIOLET sur un fond clair
- * (décision du 2026-10-07). Fichiers à 240 × 87 px, affichés à la moitié pour
- * rester nets sur écran dense ; tirés de `scripts/systeme/maintenance/logo-haiko.png`.
- * L'`alt` stylé prend sa place quand la messagerie bloque les images.
+ * LE LOGO DE L'ENTREPRISE, en image : BLANC sur un fond foncé, VIOLET sur un
+ * fond clair (décision du 2026-10-07). Deux fichiers à 240 × 87 px, affichés à
+ * la moitié pour rester nets sur écran dense, servis depuis `/courriel/` sous
+ * le préfixe réglé (`logoDesCourriels` de l'installation). L'`alt` stylé prend
+ * sa place quand la messagerie bloque les images.
+ *
+ * SANS LOGO RÉGLÉ, LE NOM S'ÉCRIT EN TOUTES LETTRES : une installation neuve
+ * n'affiche jamais le logo de quelqu'un d'autre.
  */
 export function logoHaiko(fond: 'fonce' | 'clair', largeur = 96): string {
   const hauteur = Math.round((largeur * 87) / 240);
-  const fichier = fond === 'fonce' ? 'logo-haiko-blanc.png' : 'logo-haiko-violet.png';
   const couleur = fond === 'fonce' ? COULEURS.texteMarque : COULEURS.violetMarque;
+  const prefixe = identiteDInstallation().logoDesCourriels;
+  const base = adresseDesImagesDeCourriel();
+  if (!prefixe || !base) {
+    return (
+      `<span style="display:block;font-family:${POLICE};font-size:15px;font-weight:700;` +
+      `line-height:${hauteur}px;color:${couleur};white-space:nowrap;">${echapperHtml(nomDeLEntreprise())}</span>`
+    );
+  }
+  const fichier = fond === 'fonce' ? `${prefixe}-blanc.png` : `${prefixe}-violet.png`;
   return (
-    `<img src="${ADRESSE_DES_PICTOGRAMMES}/${fichier}" width="${largeur}" height="${hauteur}" alt="Haiko Studio" ` +
+    `<img src="${base}/${fichier}" width="${largeur}" height="${hauteur}" alt="${echapperHtml(nomDeLEntreprise())}" ` +
     `style="display:block;border:0;outline:none;width:${largeur}px;height:${hauteur}px;` +
     `font-family:${POLICE};font-size:15px;font-weight:700;line-height:${hauteur}px;color:${couleur};">`
   );
@@ -210,7 +225,7 @@ export const VERSION_ILLUSTRATIONS = 2;
 export function illustration(nom: Illustration, cote = 150, fluide = false): string {
   const taille = fluide ? `width:100%;max-width:${cote}px;height:auto;` : `width:${cote}px;height:${cote}px;`;
   return (
-    `<img data-illustration="${nom}" src="${ADRESSE_DES_PICTOGRAMMES}/illustration-${nom}.png?v=${VERSION_ILLUSTRATIONS}" width="${cote}" height="${cote}" alt="" ` +
+    `<img data-illustration="${nom}" src="${adresseDesImagesDeCourriel()}/illustration-${nom}.png?v=${VERSION_ILLUSTRATIONS}" width="${cote}" height="${cote}" alt="" ` +
     `style="display:block;border:0;outline:none;${taille}">`
   );
 }
@@ -228,13 +243,7 @@ const TABLE = 'role="presentation" cellpadding="0" cellspacing="0" border="0"';
 /* ------------------------------------------------------------------ */
 
 /** Un texte posé dans du HTML ne doit jamais pouvoir en devenir. */
-export function echapper(texte: string): string {
-  return texte
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+export const echapper = echapperHtml;
 
 /** Un texte de message : échappé, puis ses retours à la ligne rendus visibles. */
 export function texteEnHtml(texte: string): string {
@@ -633,7 +642,7 @@ export function lienEnClair(lien: string): string {
 /**
  * CE QU'UN COURRIEL N'A PAS LE DROIT D'EMBARQUER. Rend la liste de ce qui
  * dépasse — vide quand tout va bien. Une image n'est tolérée que si elle est
- * un pictogramme de `ADRESSE_DES_PICTOGRAMMES`, à taille fixe et avec son
+ * un pictogramme de `adresseDesImagesDeCourriel()`, à taille fixe et avec son
  * `alt` ; aucune autre source, aucune feuille de style, aucune police, aucun
  * `flex` ni `grid`, aucune `media query`. Lu par les tests et par
  * `scripts/apercu-courriels.mjs`.
@@ -641,7 +650,7 @@ export function lienEnClair(lien: string): string {
 export function ressourcesInterditesDuCourriel(html: string): string[] {
   const trouves: string[] = [];
   const images = html.match(/<img\b[^>]*>/gi) ?? [];
-  const prefixe = `src="${ADRESSE_DES_PICTOGRAMMES}/`;
+  const prefixe = `src="${adresseDesImagesDeCourriel()}/`;
   if (images.some((img) => !img.includes(prefixe) || !/\bwidth="\d+"/.test(img) || !/\bheight="\d+"/.test(img) || !/\balt="/.test(img)))
     trouves.push('une image qui n’est pas un pictogramme');
   const sansPictogrammes = html.replace(/<img\b[^>]*>/gi, '');
@@ -762,7 +771,7 @@ const PART_ILLUSTRATION = 30;
  * 2026-10-07, captures Gmail iOS). Elle se pose dans un tableau `align="right"`
  * — l'habillage d'image qu'Outlook comprend aussi, pas un `float` CSS — et le
  * surtitre comme le grand titre coulent À SA GAUCHE puis dessous, si bien
- * qu'un mot long (« compta.haikostudio.cloud ») passe à la ligne entier au lieu
+ * qu'un mot long (« compta.exemple.com ») passe à la ligne entier au lieu
  * d'être haché dans une colonne étroite. Sa largeur est une PART de la
  * carte (`PART_ILLUSTRATION`) bornée à `COLONNE_ILLUSTRATION` : 150 px en grand
  * écran, ~80 px sur un téléphone de 340 px. Outlook, qui ignore `max-width`,
@@ -804,7 +813,7 @@ function bandeauDEtat(b: BandeauDEtat): string {
           : '') +
         '</div>'
       : '';
-  // Une adresse (« compta.haikostudio.cloud ») plus large qu'un téléphone se
+  // Une adresse (« compta.exemple.com ») plus large qu'un téléphone se
   // coupe après un point plutôt qu'au milieu d'un mot.
   const titre =
     `<div style="font-family:${POLICE};font-size:28px;font-weight:800;color:${COULEURS.texte};line-height:1.18;letter-spacing:-0.3px;word-break:break-word;overflow-wrap:anywhere;">` +

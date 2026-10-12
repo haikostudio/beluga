@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { Check, Search, Waypoints } from 'lucide-react';
 import { filtrerProjetsParNom, projetsDansLOrdreDeLaColonne, projetsEnArbre } from '@beluga/shared';
-import { Drawer, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
+import { Dialog, DialogContentLibre, DialogHeader, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
 import {
   BrancheDeListe,
   IconeDeProjet,
@@ -9,6 +9,7 @@ import {
   RETRAIT_MEMBRE_DE_TIROIR,
   largeurIconeDeProjet,
 } from '@/components/pastille-projet';
+import { IndicateursDeProjet } from '@/components/indicateurs-de-projet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
@@ -86,12 +87,15 @@ export function TiroirProjets({
     'flex h-10 w-full items-center gap-2.5 rounded-lg px-2 text-left text-[13px] text-text transition-colors hover:bg-raised';
 
   return (
-    <Drawer open={open} onClose={onClose}>
+    /* UNE FENÊTRE DE RECHERCHE, au milieu de l'écran : on y passe deux secondes,
+       ce n'est pas une page. */
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContentLibre className="h-[min(560px,80dvh)] sm:w-[min(520px,100%)]">
       <div data-tiroir-projets className="flex min-h-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Changer de projet')}</DialogTitle>
-        </header>
-        <div className="relative mx-3 mb-2 shrink-0">
+        <DialogHeader>
+          <DialogTitle className="min-w-0 truncate">{t('Changer de projet')}</DialogTitle>
+        </DialogHeader>
+        <div className="relative mx-4 mb-2 shrink-0">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
           <Input
             ref={champRef}
@@ -112,7 +116,7 @@ export function TiroirProjets({
         </div>
         {/* Une hauteur plancher : la feuille ne rétrécit pas d'un bond à chaque
             lettre tapée dans la recherche. */}
-        <ZoneDefilement fond="hsl(var(--surface))" className="min-h-[min(50dvh,360px)] px-2 pb-3">
+        <ZoneDefilement className="min-h-0 px-2 pb-3">
           {tableauxVisibles || projets.length ? (
             <ul className="flex flex-col gap-0.5">
               {tableauxVisibles ? (
@@ -122,11 +126,11 @@ export function TiroirProjets({
                     data-ligne-tiroir-projets="en-route"
                     aria-current={surTableauxDeBord ? 'true' : undefined}
                     onClick={ouvrirLesTableaux}
-                    className={cn(classeLigne, surTableauxDeBord && 'bg-raised')}
+                    className={cn(classeLigne, surTableauxDeBord && 'bg-raised text-teinte')}
                   >
                     <Waypoints className="h-[15px] w-[15px] shrink-0 text-muted" />
                     <span className="min-w-0 flex-1 truncate">{libelleTableaux}</span>
-                    {surTableauxDeBord ? <Check className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
+                    {surTableauxDeBord ? <Check className="h-3.5 w-3.5 shrink-0 text-teinte" /> : null}
                   </button>
                 </li>
               ) : null}
@@ -150,12 +154,13 @@ export function TiroirProjets({
                       data-ligne-tiroir-projets={projet.id}
                       aria-current={ouvert ? 'true' : undefined}
                       onClick={() => choisir(projet.id)}
-                      className={cn(classeLigne, ouvert && 'bg-raised', parentId && RETRAIT_MEMBRE_DE_TIROIR)}
+                      className={cn(classeLigne, ouvert && 'bg-raised text-teinte', parentId && RETRAIT_MEMBRE_DE_TIROIR)}
                     >
                       {/* Un projet réuni montre la pile des icônes de ses membres, comme la colonne. */}
                       <IconeDeProjet projet={projet} projets={state.projects} fond="hsl(var(--surface))" />
                       <span className="min-w-0 flex-1 truncate">{projet.name}</span>
-                      {ouvert ? <Check className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
+                      <IndicateursDeProjet projectId={projet.id} />
+                      {ouvert ? <Check className="h-3.5 w-3.5 shrink-0 text-teinte" /> : null}
                     </button>
                   </li>
                 );
@@ -168,6 +173,7 @@ export function TiroirProjets({
           )}
         </ZoneDefilement>
       </div>
-    </Drawer>
+      </DialogContentLibre>
+    </Dialog>
   );
 }

@@ -26,6 +26,7 @@ import {
   issueDeFinDeTour,
   issueDuPontMort,
   metriquesSessionLlmIndisponibles,
+  rangementApresDeplacement,
   retenueApresPontEpuise,
   traceAcquise,
   tourDeLaCarte,
@@ -60,11 +61,15 @@ import * as store from './store.js';
  *    ne partait nulle part — le bogue du « Tout déployer » muet. Une carte qui
  *    QUITTE « À déployer », elle, garde sa date : c'est la trace de sa mise en
  *    ligne.
+ *  - `rangeeTableauDeBordAt` : l'archivage À LA MAIN (`rangeeA`) range la
+ *    carte tout de suite dans « Archiver » sur la page « Tableaux de bord » ;
+ *    l'archivage automatique la laisse dans « Terminer », et sortir d'« Archivé »
+ *    efface le rangement (`rangementApresDeplacement`).
  *
  * Cette fonction n'émet rien et ne refuse rien : elle écrit. L'appelant
  * diffuse la carte et dit ce qu'il a à dire.
  */
-export function rangerLaCarte(card: Card, target: ColumnKey, position?: number): Card {
+export function rangerLaCarte(card: Card, target: ColumnKey, position?: number, rangeeA?: number): Card {
   /*
    * UNE CARTE QUI QUITTE LE TRAVAIL FERME SES QUESTIONS. Archivée, poussée dans
    * « À déployer » ou passée « En production », elle n'a plus rien à faire
@@ -80,6 +85,9 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number):
     position: position ?? store.nextPosition(card.projectId, target),
     doneAt: COLONNES_DE_CLOTURE.includes(target) ? Date.now() : card.doneAt,
     deployedAt: dateDeMiseEnLignePerimee(card.column, target) ? undefined : card.deployedAt,
+    // Le rangement de la page « Tableaux de bord » suit la colonne : posé par
+    // l'archivage à la main (`rangeeA`), retiré à la sortie d'« Archivé ».
+    rangeeTableauDeBordAt: rangementApresDeplacement(card, target, rangeeA),
     // Toute carte qui entre dans le lot porte une photographie explicite. Une
     // carte ancienne sans relevé ne reçoit jamais quatre faux zéros.
     llmSessionMetrics:
@@ -512,10 +520,19 @@ export function rangerLesCartesOubliees(): void {
  * aussi au démarrage du démon, juste après la reprise des tours coupés en vol.
  */
 export function refermerLesEtapesSansTour(): void {
-  const agents = store.listAgents();
+  /* LE PLUS SOUVENT, AUCUNE CARTE N'A DE DEMANDE DE PLAN OUVERTE : rien à lire.
+     Et quand il y en a, seuls les agents de CES cartes comptent — la passe
+     relisait toute la table des agents toutes les quinze secondes (mesuré le
+     12/10/2026 : l'une des causes des gels de 1,5 s du démon). */
+  const cartes = store.cartesAvecDemandeDePlan();
+  if (!cartes.length) return;
+  const agents = store.agentsDesCartesEnCours(
+    cartes.map((carte) => carte.id),
+    [],
+  );
   const decisions = store.decisionsEnAttente();
   const parCarte = decisionsParCarte(decisions);
-  for (const card of store.cartesAvecDemandeDePlan()) {
+  for (const card of cartes) {
     const abandonnee = etapeDeCarteAbandonnee(
       {
         planDemandeA: card.parcours?.planDemandeA,

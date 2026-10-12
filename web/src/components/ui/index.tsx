@@ -9,7 +9,7 @@ import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { Check, ChevronDown, ChevronRight, EllipsisVertical, Info, Loader2, Search, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, EllipsisVertical, Info, Loader2, Search, X } from 'lucide-react';
 import {
   DUREE_REUSSITE_MS,
   EVENEMENT_ATTENTE_LONGUE,
@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { useSurvol } from '@/lib/pointeur';
 import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 
 /**
  * Le socle visuel, posé AVANT les écrans (PLAN §17, §30). Les composants sont
@@ -35,8 +36,19 @@ import { t } from '@/lib/langue';
 
 /* ----------------------------- Bouton ----------------------------- */
 
+/**
+ * LES BOUTONS QUI CRÉENT (« Nouvel agent », « Nouvelle tâche ») : un aplat
+ * d'ENCRE — noir avec une écriture blanche en clair, le gris soutenu des aplats
+ * en sombre, jamais le blanc de l'accent —, pour qu'ils se distinguent d'un
+ * coup d'œil des lignes grises qui les entourent (demande du 12/10/2026,
+ * « noir avec écriture blanche, bien contrastés »). Aucune bordure : le fond
+ * dessine le bouton. Posée telle quelle sur une LIGNE de colonne (qui n'est pas
+ * un `Button`), ou par la variante `creation`.
+ */
+export const CLASSE_BOUTON_DE_CREATION = 'bg-encre text-encre-fg hover:opacity-90';
+
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:pointer-events-none disabled:opacity-40 select-none',
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:pointer-events-none disabled:opacity-40 select-none',
   {
     variants: {
       variant: {
@@ -44,16 +56,27 @@ const buttonVariants = cva(
         // `bg-controle` vaut la TRANSPARENCE dans les deux thèmes d'origine — ce
         // bouton ne bouge donc pas d'un pixel — et un voile translucide dans les
         // thèmes plats, où la bordure ne dessine plus rien (styles.css).
-        outline: 'border border-border bg-controle hover:bg-raised text-text',
+        outline: 'border border-transparent bg-controle hover:bg-border text-text',
         ghost: 'hover:bg-raised text-muted hover:text-text',
         subtle: 'bg-raised text-text hover:bg-border',
         danger: 'bg-danger text-sur-etat hover:opacity-90',
         success: 'bg-success text-sur-etat hover:opacity-90',
+        /*
+         * LE GESTE QUI ARRÊTE (un agent, une publication, une écoute) : un
+         * aplat ROUGE en permanence, écriture BLANCHE (demande du 12/10/2026 :
+         * « rouge avec écriture blanche, pas noir »). Le rouge est le jeton
+         * `--danger`, le blanc est franc dans les deux thèmes — `sur-etat`
+         * deviendrait foncé en sombre. Aucun trait : un bouton ne porte jamais
+         * de bordure, c'est son fond qui le dessine.
+         */
+        arret: 'bg-danger text-white hover:opacity-90',
+        /* Le geste qui CRÉE : le même aplat d'encre que `CLASSE_BOUTON_DE_CREATION`. */
+        creation: CLASSE_BOUTON_DE_CREATION,
       },
       size: {
-        sm: 'h-7 px-2.5 text-[13.5px]',
-        md: 'h-8 px-3 text-[14.5px]',
-        lg: 'h-9 px-4 text-[14.5px]',
+        sm: 'h-8 px-3 text-[13.5px]',
+        md: 'h-9 px-3.5 text-[14.5px]',
+        lg: 'h-10 px-4 text-[14.5px]',
         icon: 'h-7 w-7',
         'icon-sm': 'h-6 w-6',
         /*
@@ -211,7 +234,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
     <input
       ref={ref}
       className={cn(
-        'h-9 w-full rounded-md border border-border bg-raised px-3 text-[14.5px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint disabled:opacity-50',
+        'h-10 w-full rounded-lg border border-transparent bg-raised px-3.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
         className,
       )}
       {...props}
@@ -225,7 +248,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
     <textarea
       ref={ref}
       className={cn(
-        'w-full resize-none rounded-md border border-border bg-raised px-3 py-2.5 text-[14.5px] text-text placeholder:text-faint focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
+        'w-full resize-none rounded-lg border border-transparent bg-raised px-3.5 py-2.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none',
         className,
       )}
       {...props}
@@ -241,54 +264,35 @@ export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLab
 /* ------------------------ Formulaire en colonnes ------------------------ */
 
 /**
- * UN FORMULAIRE EN DEUX COLONNES : les LIBELLÉS dans une colonne de largeur
- * fixe, les VALEURS dans la colonne d'à côté, pleine largeur. Toutes les lignes
- * partagent ces deux colonnes, donc libellés et valeurs s'alignent de haut en
- * bas, avec les mêmes bords droits. Ce qui n'a pas de libellé (une note, un
- * bouton, un encart) se pose DANS la colonne des valeurs, jamais à cheval.
- * Sur téléphone, le libellé repasse au-dessus de sa valeur (`empile`).
+ * UN FORMULAIRE : chaque LIBELLÉ AU-DESSUS DE SON CHAMP, partout et à toutes
+ * les largeurs (demande du 09/10/2026 : « les labels au-dessus des champs et
+ * non pas à gauche, dans l'ensemble de l'application »). L'ancienne grille à
+ * deux colonnes (libellés à gauche, valeurs à droite) a disparu : elle
+ * coupait les libellés longs sur trois lignes et volait la moitié de la
+ * largeur aux champs.
+ *
+ * Le nom est resté pour ne pas renommer trente écrans : c'est une colonne de
+ * lignes, chacune « libellé, champ, note ». Ce qui n'a pas de libellé (une
+ * note, un bouton, un encart) se pose simplement à sa place dans la colonne.
  */
 export function FormulaireEnColonnes({
   children,
   className,
-  largeurLibelle = '11rem',
-  empile = true,
   ...attributs
 }: {
   children: React.ReactNode;
   className?: string;
-  /** La largeur de la colonne des libellés (CSS). */
-  largeurLibelle?: string;
-  /** Sur téléphone, un libellé au-dessus de sa valeur ; faux = deux colonnes partout. */
-  empile?: boolean;
 } & Record<`data-${string}`, string | number | boolean | undefined>) {
   return (
-    <div
-      {...attributs}
-      data-formulaire-colonnes
-      className={cn(
-        'grid gap-x-3 gap-y-2',
-        empile ? 'grid-cols-1 sm:grid-cols-[var(--colonne-libelles)_minmax(0,1fr)]' : 'grid-cols-[var(--colonne-libelles)_minmax(0,1fr)]',
-        // Ce qui n'est pas une ligne (note, bouton, encart) va dans la colonne des valeurs ;
-        // un bloc marqué `data-pleine-largeur` (un historique, un tableau) prend les deux.
-        empile
-          ? 'sm:[&>:not([data-ligne-formulaire]):not([data-pleine-largeur])]:col-start-2'
-          : '[&>:not([data-ligne-formulaire]):not([data-pleine-largeur])]:col-start-2',
-        '[&>[data-pleine-largeur]]:col-span-full',
-        className,
-      )}
-      style={{ ['--colonne-libelles' as string]: largeurLibelle }}
-    >
+    <div {...attributs} data-formulaire-colonnes className={cn('flex flex-col gap-3', className)}>
       {children}
     </div>
   );
 }
 
 /**
- * UNE LIGNE D'UN `FormulaireEnColonnes` : son libellé (et son « i ») à gauche,
- * sa valeur à droite, ses notes SOUS la valeur, dans la même colonne. Elle ne
- * pose aucune boîte (`display: contents`) : ses deux cellules sont celles de la
- * grille.
+ * UNE LIGNE DE FORMULAIRE : son libellé (et son « i ») AU-DESSUS, puis sa
+ * valeur, puis ses notes. Le libellé est un vrai `label` relié au champ.
  */
 export function LigneFormulaire({
   libelle,
@@ -302,21 +306,21 @@ export function LigneFormulaire({
   libelle: React.ReactNode;
   /** Une explication, rangée derrière un « i » à côté du libellé. */
   aide?: React.ReactNode;
-  /** Une ligne grise sous la valeur, dans la colonne des valeurs. */
+  /** Une ligne grise sous la valeur. */
   note?: React.ReactNode;
   children: React.ReactNode;
   htmlFor?: string;
   className?: string;
 } & Record<`data-${string}`, string | number | boolean | undefined>) {
   return (
-    <div className="contents" data-ligne-formulaire {...attributs}>
-      <div className="flex min-h-8 min-w-0 items-center gap-1 self-start">
+    <div className="flex min-w-0 flex-col gap-1" data-ligne-formulaire {...attributs}>
+      <div className="flex min-w-0 items-center gap-1" data-libelle-formulaire>
         <label htmlFor={htmlFor} className="min-w-0 text-[12.5px] font-medium leading-snug text-muted">
           {libelle}
         </label>
         {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
       </div>
-      <div className={cn('flex min-w-0 flex-col gap-1', className)}>
+      <div className={cn('flex min-w-0 flex-col gap-1', className)} data-valeur-formulaire>
         {children}
         {note ? <p className="text-[12px] leading-snug text-faint">{note}</p> : null}
       </div>
@@ -327,16 +331,19 @@ export function LigneFormulaire({
 /* ----------------------------- Badge ------------------------------ */
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[12px] font-medium leading-none',
+  /* AUCUN CADRE : une étiquette se lit par son fond et la force de son texte. */
+  'inline-flex items-center gap-1 rounded-md border border-transparent px-1.5 py-0.5 text-[12px] font-medium leading-none',
   {
     variants: {
       tone: {
-        neutral: 'border-border bg-raised text-muted',
-        success: 'border-success/30 bg-success/10 text-success',
-        warning: 'border-warning/30 bg-warning/10 text-warning',
-        attention: 'border-a-surveiller/40 bg-a-surveiller/10 text-a-surveiller',
-        danger: 'border-danger/30 bg-danger/10 text-danger',
-        strong: 'border-transparent bg-accent text-accent-fg',
+        neutral: 'bg-raised text-muted',
+        success: 'bg-raised text-muted',
+        warning: 'bg-raised text-text',
+        attention: 'bg-raised text-text',
+        /* Le service d'où vient une carte. */
+        service: 'bg-raised text-text',
+        danger: 'bg-danger/10 text-danger',
+        strong: 'bg-accent text-accent-fg',
       },
     },
     defaultVariants: { tone: 'neutral' },
@@ -403,8 +410,8 @@ export const Pastille = React.forwardRef<
         'inline-flex h-4 min-w-4 shrink-0 items-center justify-center gap-0.5 rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums',
         teintee
           ? ton === 'lire'
-            ? 'border border-info/30 bg-info/10 text-info'
-            : 'border border-warning/30 bg-warning/10 text-warning'
+            ? 'border border-transparent bg-info/10 text-info'
+            : 'border border-transparent bg-warning/10 text-warning'
           : ton === 'lire'
             ? 'bg-info text-sur-etat'
             : 'bg-warning text-sur-etat',
@@ -431,8 +438,13 @@ export const Tabs = TabsPrimitive.Root;
  * hauteur de cette rangée, sinon les colonnes sautent à l'arrivée des cartes.
  * Elle emprunte donc ces classes-ci au lieu de les recopier : la hauteur suit
  * le composant partagé toute seule.
+ *
+ * LA RANGÉE A UN FOND QUI SE VOIT (demande du 11/10/2026 : « un arrière-plan à
+ * cette barre, pour qu'on la distingue bien »). `--raised` se confondait avec
+ * le fond de la page ; `--ligne-active` est le gris le plus marqué des deux
+ * palettes, et l'onglet ouvert s'y détache en clair comme en sombre.
  */
-export const CLASSES_LISTE_ONGLETS = 'h-8 items-center gap-0.5 rounded-md bg-surface p-0.5';
+export const CLASSES_LISTE_ONGLETS = 'h-8 items-center gap-0.5 rounded-lg bg-ligne-active p-0.5';
 
 export const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
@@ -471,7 +483,7 @@ export const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      'inline-flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded px-2.5 text-[13.5px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-raised data-[state=active]:text-text',
+      'inline-flex h-7 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[13.5px] font-medium text-muted transition-colors hover:text-text data-[state=active]:bg-bg data-[state=active]:text-teinte data-[state=active]:shadow-sm dark:data-[state=active]:bg-faint/30',
       className,
     )}
     {...props}
@@ -524,13 +536,6 @@ const FONDU_SORTIE = 'opacity 420ms ease-in';
  * défilement dessinée). Sans l'un ni l'autre, l'axe horizontal ne paie ni
  * l'observateur de taille ni un rendu à chaque défilement, comme avant.
  */
-/**
- * LA LARGEUR D'UN TIROIR (`Drawer`) : pleine largeur sur téléphone, plafonnée
- * à 960 px sur grand écran. La page « En route » pose sa colonne à la même
- * largeur — une seule valeur pour les deux.
- */
-export const CLASSE_LARGEUR_TIROIR = 'max-w-[960px]';
-
 export const ZoneDefilement = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & {
@@ -559,6 +564,13 @@ export const ZoneDefilement = React.forwardRef<
      * `barre={false}` rend la barre du navigateur (amincie dans styles.css).
      */
     barre?: boolean;
+    /**
+     * LE VOILE DE DÉBUT TOUJOURS ALLUMÉ, éteint d'office. Il sépare alors la
+     * zone de ce qui la précède (un entête fixe) même au repos, sans attendre
+     * le moindre défilement. Celui qui l'allume pose un padding haut au moins
+     * égal à `hauteur`, sinon la première ligne est floue au repos.
+     */
+    voileDebutToujours?: boolean;
   }
 >(function ZoneDefilement(
   {
@@ -575,6 +587,7 @@ export const ZoneDefilement = React.forwardRef<
     axe = 'vertical',
     voile: voileDemande,
     barre = true,
+    voileDebutToujours = false,
     className,
     onScroll,
     children,
@@ -826,7 +839,7 @@ export const ZoneDefilement = React.forwardRef<
         classeEnveloppe,
       )}
     >
-      {voile('debut', debut)}
+      {voile('debut', debut || voileDebutToujours)}
       <div
         ref={(noeud) => {
           interne.current = noeud;
@@ -896,6 +909,80 @@ export const ZoneDefilement = React.forwardRef<
   );
 });
 
+/* ------------------------ L'en-tête d'une page -------------------- */
+
+/**
+ * OÙ UNE PAGE POSE SES GESTES : l'endroit de SA barre d'en-tête, à droite du
+ * fil d'Ariane (`GestesDePage`, `entete-de-zone.tsx`). L'application fournit
+ * celui de sa barre ; une page ouverte par-dessus fournit le sien.
+ */
+export const CibleDesGestesDePage = React.createContext<HTMLElement | null>(null);
+
+/**
+ * OÙ UNE PAGE POSE SON GESTE PRINCIPAL SUR TÉLÉPHONE : la bande du bas de
+ * l'écran, sur toute la largeur (`GestePrincipal`, `entete-de-zone.tsx`).
+ * L'application la fournit sur un service ; `cible` reste `null` le temps que
+ * la bande soit montée. Sans fournisseur — une page ouverte par-dessus, une
+ * fenêtre — il n'y a PAS de bande : le geste reste dans la barre d'en-tête.
+ */
+export const CibleDuBasDePage = React.createContext<{ cible: HTMLElement | null } | null>(null);
+
+/**
+ * OÙ UNE PAGE ÉCRIT SON TITRE : le dernier cran du fil d'Ariane de sa barre
+ * d'en-tête. Le PREMIER `DialogTitle` de la page y monte ; les suivants restent
+ * où ils sont écrits. Une FENÊTRE ouverte depuis la page remet cet emplacement
+ * à zéro : son titre est le sien, au milieu de son propre en-tête.
+ */
+export interface EmplacementDuTitre {
+  cible: HTMLElement;
+  occupe: React.MutableRefObject<symbol | null>;
+}
+export const EmplacementDuTitreDePage = React.createContext<EmplacementDuTitre | null>(null);
+
+/**
+ * L'EN-TÊTE PAR DÉFAUT D'UNE PAGE, fourni par l'application : la barre au fil
+ * d'Ariane (`EnteteDePage`). Sans lui — l'espace des clients, qui n'a pas de
+ * fil — la page garde la simple barre « Retour ».
+ */
+export interface ProprietesDEnteteDePage {
+  fermer: () => void;
+  onCibleDuTitre: (element: HTMLElement | null) => void;
+  onCibleDesGestes: (element: HTMLElement | null) => void;
+}
+export const EnteteDePageParDefaut = React.createContext<React.ComponentType<ProprietesDEnteteDePage> | null>(null);
+
+/**
+ * LA MOLETTE FAIT DÉFILER LA PAGE MÊME HORS DE SA COLONNE CENTRALE. Le contenu
+ * d'une page est centré dans une colonne étroite, et c'est une zone DANS cette
+ * colonne qui défile : le curseur posé dans les marges ne faisait rien bouger
+ * (« je suis obligé d'aller sur la colonne centrale pour scroller »). Quand
+ * rien, sous le curseur, ne sait défiler, le geste est rendu à la plus grande
+ * zone qui défile de la page.
+ */
+export function defilerDepuisLesMarges(event: React.WheelEvent<HTMLElement>) {
+  if (event.ctrlKey || Math.abs(event.deltaY) < Math.abs(event.deltaX)) return;
+  const racine = event.currentTarget;
+  const saitDefiler = (element: HTMLElement) => {
+    if (element.scrollHeight <= element.clientHeight + 1) return false;
+    const mode = getComputedStyle(element).overflowY;
+    return mode === 'auto' || mode === 'scroll';
+  };
+  for (let element = event.target as HTMLElement | null; element && element !== racine; element = element.parentElement) {
+    if (saitDefiler(element)) return;
+  }
+  let choisie: HTMLElement | null = null;
+  let aire = 0;
+  for (const element of racine.querySelectorAll<HTMLElement>('*')) {
+    if (element.clientHeight < 120 || !saitDefiler(element)) continue;
+    const boite = element.getBoundingClientRect();
+    if (boite.width * boite.height > aire) {
+      aire = boite.width * boite.height;
+      choisie = element;
+    }
+  }
+  choisie?.scrollBy({ top: event.deltaY });
+}
+
 /* ----------------------------- Dialogue --------------------------- */
 
 /**
@@ -910,8 +997,77 @@ export const ZoneDefilement = React.forwardRef<
  * reste dans la zone qui défile. Une fenêtre qui n'en pose aucun garde son
  * ancien rendu, et une fenêtre sans boutons n'a pas de pied vide.
  */
-export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div data-fenetre-entete className={cn('shrink-0 px-4 pb-2 pr-10 pt-4', className)} {...props} />;
+/**
+ * L'EN-TÊTE D'UNE FENÊTRE, LE MÊME PARTOUT (demande du 11/10/2026 : « une
+ * en-tête avec le titre au milieu, les éventuels boutons à gauche et à
+ * droite ») : UNE rangée — les boutons de gauche (`gauche` : un retour), le
+ * TITRE AU MILIEU, les boutons de droite (`droite`) puis la croix. Les deux
+ * côtés ont la même largeur : le titre est centré sur la fenêtre, pas sur la
+ * place qui reste. Un titre long passe à la ligne, ou se tronque si l'appelant
+ * le demande (`truncate`) — il ne pousse jamais la croix.
+ *
+ * Ce qui accompagne le titre sans être un bouton passe SOUS la rangée : une
+ * `DialogDescription` y descend d'elle-même, le reste (des onglets) par `sous`.
+ *
+ * LA CROIX reste posée par la fenêtre (`DialogContent`), en absolu : la rangée
+ * lui réserve sa place à droite et se cale sur sa hauteur (`pt-3` + 32 px :
+ * même milieu que la croix, à 28 px du haut). `sansCroix` rend cette place à
+ * une fenêtre qui pose la sienne ; `libre` laisse l'appelant dessiner sa
+ * rangée (le Studio, `EnteteDeFenetre`, qui suit déjà ce dessin).
+ */
+export function DialogHeader({
+  className,
+  children,
+  gauche,
+  droite,
+  sous,
+  libre,
+  sansCroix,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  /** Les boutons de gauche : un retour. */
+  gauche?: React.ReactNode;
+  /** Les boutons de droite, posés juste avant la croix. */
+  droite?: React.ReactNode;
+  /** Ce qui accompagne le titre, sous la rangée : des onglets. */
+  sous?: React.ReactNode;
+  libre?: boolean;
+  sansCroix?: boolean;
+}) {
+  if (libre) {
+    return (
+      <div data-fenetre-entete className={cn('shrink-0 px-5 pb-2 pr-12 pt-5', className)} {...props}>
+        {children}
+      </div>
+    );
+  }
+  const titre: React.ReactNode[] = [];
+  const dessous: React.ReactNode[] = [];
+  React.Children.toArray(children).forEach((enfant) => {
+    if (React.isValidElement(enfant) && enfant.type === DialogDescription) dessous.push(enfant);
+    else titre.push(enfant);
+  });
+  return (
+    <div data-fenetre-entete className={cn('shrink-0 px-3.5 pb-2 pt-3', className)} {...props}>
+      <div
+        data-fenetre-rangee
+        className="grid grid-cols-[minmax(max-content,1fr)_minmax(0,auto)_minmax(max-content,1fr)] items-start gap-2"
+      >
+        <div data-fenetre-gauche className="flex h-8 min-w-0 items-center justify-start gap-1">
+          {gauche}
+        </div>
+        <div data-fenetre-titre className="flex min-h-8 min-w-0 items-center justify-center gap-1 text-center">
+          {titre}
+        </div>
+        <div data-fenetre-droite className={cn('flex h-8 min-w-0 items-center justify-end gap-1', !sansCroix && 'pr-8')}>
+          {droite}
+        </div>
+      </div>
+      {/* Aligné sur le corps de la fenêtre (`px-5`) : le texte se lit d'un seul bord. */}
+      {dessous.length ? <div className="px-1.5">{dessous}</div> : null}
+      {sous}
+    </div>
+  );
 }
 
 /**
@@ -936,7 +1092,7 @@ export function DialogFooter({
     <div
       data-fenetre-pied={pleineLargeur ? 'pleine-largeur' : ''}
       className={cn(
-        'flex shrink-0 bg-surface px-4 pt-3',
+        'flex shrink-0 bg-bg px-5 pt-3',
         pleineLargeur ? 'flex-col items-stretch gap-2 [&>*]:w-full' : 'flex-wrap items-center justify-end gap-1.5 gap-y-2',
         className,
       )}
@@ -973,55 +1129,146 @@ function repartirEmplacements(children: React.ReactNode) {
 
 export const Dialog = DialogPrimitive.Root;
 
-export function DialogContent({
+/**
+ * UNE FENÊTRE EST UNE FENÊTRE, CENTRÉE — plus jamais un volet (demande du
+ * 11/10/2026, qui défait celle du 09/10 : « je ne veux plus de volets »).
+ * `DialogContent` pose une fenêtre au milieu de l'écran, sur un voile léger,
+ * avec ses trois parties : entête fixe, corps seul à défiler, pied d'action
+ * fixe. Sur téléphone elle s'ancre en bas, faute de place. C'est la forme des
+ * questions, des confirmations, des formulaires courts — et des RÉGLAGES, qui
+ * y posent leurs deux volets (la liste à gauche, la rubrique à droite).
+ *
+ * Ce qui demande de la PLACE et du temps (une carte, un fil, un plan, une
+ * fiche) n'est pas une fenêtre : c'est une PAGE (`Drawer`).
+ *
+ * `adresse` : le nom de la fenêtre dans l'adresse du navigateur (voir `Drawer`).
+ * `centre`, `plein`, `hauteurFixe` et `empile` sont gardés pour les appelants,
+ * sans effet : toute fenêtre est désormais centrée.
+ */
+type ProprietesDeFenetre = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+  centre?: boolean;
+  adresse?: string;
+  plein?: boolean;
+  hauteurFixe?: boolean;
+  empile?: boolean;
+};
+
+function FenetreCentree({
   className,
   children,
+  onInteractOutside,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
-  const { entete, pied, corps } = repartirEmplacements(children);
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       {/*
        * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
        * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
        * l'animation d'ouverture écrase le décalage le temps qu'elle dure, et la
        * fenêtre partait alors se coller au bord droit de l'écran.
-       *
-       * L'enveloppe s'arrête AU-DESSUS DU CLAVIER du téléphone (`--clavier`,
-       * mesuré par l'application) : le pied d'action reste touchable.
        */}
       <div
-        className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-3"
+        className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4"
         style={{ paddingBottom: 'var(--clavier, 0px)' }}
       >
         <DialogPrimitive.Content
+          data-fenetre-centree
           className={cn(
-            'pointer-events-auto relative flex max-h-[85dvh] w-full min-h-0 flex-col overflow-hidden border-t border-border bg-surface shadow-2xl',
-            'rounded-t-xl data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
-            'sm:w-[min(560px,100%)] sm:rounded-lg sm:border sm:data-[state=open]:animate-slide-up sm:data-[state=closed]:animate-slide-down',
+            /* `overflow-clip`, PAS `overflow-hidden` : une fenêtre ne défile
+               jamais, même par programme. La zone de prise du pouce d'une zone
+               qui défile dépasse de 3 px du bord ; « hidden » la cachait mais
+               laissait la fenêtre défilable, et un `scrollIntoView` (un clic
+               de contrôle pendant l'ouverture) décalait tout son contenu de
+               3 px — titre décentré, flèche de retour au bord. */
+            'pointer-events-auto relative flex max-h-[88dvh] w-full min-h-0 flex-col overflow-clip bg-bg shadow-2xl outline-none',
+            'rounded-t-2xl data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+            'sm:w-[min(560px,100%)] sm:rounded-2xl sm:border sm:border-border sm:data-[state=open]:animate-slide-up sm:data-[state=closed]:animate-slide-down',
             className,
           )}
+          style={{
+            /* Une fenêtre est blanche comme la page : ce qui, dedans, se réglait
+               sur le fond d'un tiroir se règle sur elle. */
+            ['--surface' as string]: 'var(--bg)',
+            ['--fond-zone-defilement' as string]: 'hsl(var(--bg))',
+          }}
           {...props}
+          /* UN APPUI DANS UNE PAGE OUVERTE PAR-DESSUS N'EST PAS UN APPUI
+             « DEHORS ». La page empilée (`empile`) n'est pas modale : la
+             fenêtre restait donc la couche qui juge les appuis extérieurs, et
+             le premier clic dans la page de l'agent de configuration refermait
+             la fenêtre « Configuration du projet » restée dessous. */
+          onInteractOutside={(event) => {
+            onInteractOutside?.(event);
+            if ((event.target as Element | null)?.closest?.('[data-tiroir-empile="oui"]')) event.preventDefault();
+          }}
         >
-          {entete}
-          {/* Le contenu d'une fenêtre déborde souvent : il s'efface au bord
-              plutôt que de se couper net sous l'entête ou le pied. */}
-          <ZoneDefilement
-            fond="hsl(var(--surface))"
-            data-fenetre-corps
-            className={cn('px-4', entete.length ? 'pt-1' : 'pt-4', pied.length ? 'pb-3' : null)}
-            style={pied.length ? undefined : { paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}
-          >
-            {corps}
-          </ZoneDefilement>
-          {pied}
-          <DialogPrimitive.Close className="absolute right-3 top-3 z-10 rounded p-1 text-faint hover:bg-raised hover:text-text">
-            <X className="h-3.5 w-3.5" />
-          </DialogPrimitive.Close>
+          {/* Une fenêtre ouverte depuis une page a SON titre et SES boutons :
+              ils ne montent pas dans la barre de la page d'où elle vient. */}
+          <EmplacementDuTitreDePage.Provider value={null}>
+            <CibleDesGestesDePage.Provider value={null}>
+              <CibleDuBasDePage.Provider value={null}>{children}</CibleDuBasDePage.Provider>
+            </CibleDesGestesDePage.Provider>
+          </EmplacementDuTitreDePage.Provider>
         </DialogPrimitive.Content>
       </div>
     </DialogPrimitive.Portal>
+  );
+}
+
+/**
+ * L'ADRESSE D'UNE FENÊTRE. Ce petit composant est posé DANS le contenu Radix,
+ * qui n'est monté que fenêtre ouverte : il pose le nom dans la pile à
+ * l'ouverture, l'en retire à la fermeture, et Précédent referme la fenêtre par
+ * sa croix. (Posé dans `DialogContent` lui-même, toujours rendu par son parent,
+ * il inscrivait les fenêtres FERMÉES dans l'adresse.)
+ */
+function AdresseDeFenetre({ adresse, fermer }: { adresse: string; fermer: () => void }) {
+  useTiroirAdresse(adresse, true, (ouvert) => {
+    if (!ouvert) fermer();
+  });
+  return null;
+}
+
+export function DialogContent({
+  className,
+  children,
+  centre,
+  adresse,
+  plein,
+  hauteurFixe,
+  empile,
+  ...props
+}: ProprietesDeFenetre) {
+  void centre;
+  void plein;
+  void hauteurFixe;
+  void empile;
+  const { entete, pied, corps } = repartirEmplacements(children);
+  const croix = React.useRef<HTMLButtonElement>(null);
+  return (
+    <FenetreCentree className={className} {...props}>
+      {adresse ? <AdresseDeFenetre adresse={adresse} fermer={() => croix.current?.click()} /> : null}
+      {entete}
+      {/* Le contenu d'une fenêtre déborde souvent : il s'efface au bord
+          plutôt que de se couper net sous l'entête ou le pied. */}
+      <ZoneDefilement
+        fond="hsl(var(--bg))"
+        data-fenetre-corps
+        className={cn('px-5', entete.length ? 'pt-1' : 'pt-5', pied.length ? 'pb-4' : null)}
+        style={pied.length ? undefined : { paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+      >
+        {corps}
+      </ZoneDefilement>
+      {pied}
+      <DialogPrimitive.Close
+        ref={croix}
+        aria-label="Fermer"
+        className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text"
+      >
+        <X className="h-4 w-4" />
+      </DialogPrimitive.Close>
+    </FenetreCentree>
   );
 }
 
@@ -1037,38 +1284,265 @@ export function DialogContent({
 export function DialogContentLibre({
   className,
   children,
+  centre,
+  adresse,
+  plein,
+  hauteurFixe,
+  empile,
   ...props
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
+}: ProprietesDeFenetre) {
+  void centre;
+  void plein;
+  void hauteurFixe;
+  void empile;
+  const croix = React.useRef<HTMLButtonElement>(null);
+  return (
+    <FenetreCentree className={className} {...props}>
+      {adresse ? <AdresseDeFenetre adresse={adresse} fermer={() => croix.current?.click()} /> : null}
+      {children}
+      <DialogPrimitive.Close
+        ref={croix}
+        aria-label="Fermer"
+        className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text"
+      >
+        <X className="h-4 w-4" />
+      </DialogPrimitive.Close>
+    </FenetreCentree>
+  );
+}
+
+/**
+ * LA FENÊTRE DE LA VISIONNEUSE D'IMAGES : CENTRÉE, ET TOUJOURS DE LA MÊME
+ * HAUTEUR. Ni volet qui monte du bas (l'aperçu y restait « coincé en bas »), ni
+ * `FenetreCentree` (collée en bas sur téléphone, hauteur qui suit l'image) :
+ * sur téléphone elle prend l'écran entier, zones sûres comprises ; sur
+ * ordinateur une grande fenêtre de hauteur FIXE — une image haute et une image
+ * large ouvrent exactement la même fenêtre. Le contenu reçoit une colonne : à
+ * lui de poser son entête (avec `DialogClose`) et sa scène.
+ */
+export function FenetreDeVisionneuse({
+  className,
+  children,
+  adresse,
+  style,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { adresse?: string }) {
+  const croix = React.useRef<HTMLButtonElement>(null);
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
-      <div
-        className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-3"
-        style={{ paddingBottom: 'var(--clavier, 0px)' }}
-      >
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/80 backdrop-blur-[3px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center sm:p-4">
         <DialogPrimitive.Content
+          data-fenetre-visionneuse
           className={cn(
-            'pointer-events-auto relative flex max-h-[85dvh] w-full min-h-0 flex-col overflow-hidden border-t border-border bg-surface shadow-2xl',
-            'rounded-t-xl data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
-            'sm:w-[min(560px,100%)] sm:rounded-lg sm:border sm:data-[state=open]:animate-slide-up sm:data-[state=closed]:animate-slide-down',
+            'pointer-events-auto relative flex w-full min-h-0 flex-col overflow-hidden bg-surface shadow-2xl outline-none',
+            'h-[var(--hauteur-app,100dvh)] sm:h-[min(88dvh,940px)] sm:w-[min(1200px,100%)] sm:rounded-xl',
+            'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
             className,
           )}
+          style={{
+            paddingTop: 'var(--zone-sure-haut, 0px)',
+            paddingBottom: 'var(--zone-sure-bas, 0px)',
+            ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
+            ...style,
+          }}
           {...props}
         >
-          {children}
-          <DialogPrimitive.Close className="absolute right-3 top-3 z-10 rounded p-1 text-faint hover:bg-raised hover:text-text">
-            <X className="h-3.5 w-3.5" />
-          </DialogPrimitive.Close>
+          {adresse ? <AdresseDeFenetre adresse={adresse} fermer={() => croix.current?.click()} /> : null}
+          <EmplacementDuTitreDePage.Provider value={null}>
+            <CibleDesGestesDePage.Provider value={null}>
+              <CibleDuBasDePage.Provider value={null}>{children}</CibleDuBasDePage.Provider>
+            </CibleDesGestesDePage.Provider>
+          </EmplacementDuTitreDePage.Provider>
+          <DialogPrimitive.Close ref={croix} className="hidden" aria-hidden tabIndex={-1} />
         </DialogPrimitive.Content>
       </div>
     </DialogPrimitive.Portal>
   );
 }
 
+export const DialogClose = DialogPrimitive.Close;
+
 /**
- * Le tiroir : il monte depuis le bas et occupe presque tout l'écran. On y
- * travaille, contrairement à une fenêtre qui interrompt.
+ * UNE PAGE DE LA ZONE PRINCIPALE — ce qu'était le « tiroir ».
+ *
+ * PLUS RIEN NE MONTE DU BAS PAR-DESSUS L'ÉCRAN (demande du 11/10/2026 : « je ne
+ * veux plus de volets, je veux que les choses s'ouvrent dans des pages à
+ * droite, comme dans Claude Code ou ChatGPT Desktop »). Tout ce qui passait par
+ * `Drawer` s'ouvre désormais en PAGE : elle occupe la zone principale, à droite
+ * de la colonne des projets (tout l'écran sur téléphone), sans voile ni feuille
+ * ni poignée à tirer. Une barre d'en-tête la coiffe — la flèche de retour, puis
+ * ce que la page a à dire — et son contenu se centre dans une colonne lisible.
+ *
+ * LA COLONNE RESTE VIVANTE. La page n'est pas une fenêtre modale : on peut
+ * toujours cliquer un projet ou un service dans la colonne, ce qui referme la
+ * page et y mène. Un clic ailleurs (un message passager, l'assistant) ne la
+ * referme pas.
+ *
+ * `--zone-principale-gauche` est posée par l'application (`app.tsx`) : le bord
+ * gauche de la zone principale, mesuré. Sans elle — l'espace des clients, qui
+ * n'a pas de colonne — la page prend toute la largeur.
+ *
+ * Le nom `FeuilleDeTiroir` et le composant `Drawer` sont GARDÉS : une
+ * soixantaine d'écrans les appellent, aucun n'a eu à changer.
  */
+/**
+ * LA LARGEUR DE TOUT CE QUI N'EST PAS UN TABLEAU DE CARTES — une seule, pour
+ * une page de service, un formulaire, une fiche (demande du 11/10/2026 : « que
+ * tous les formulaires et tous les contenus en dehors des kanbans soient de la
+ * même largeur »). Une fiche ouverte depuis une liste a exactement la largeur
+ * de cette liste. Seuls les espaces de travail (tableaux, conversation d'une
+ * carte, atelier du Studio, terminal) demandent autre chose par leur classe.
+ */
+export const CLASSE_LARGEUR_DE_CONTENU = 'max-w-[820px]';
+/** Les marges d'une page autour de son contenu : avec elles, 756 px de lecture. */
+export const CLASSE_MARGES_DE_PAGE = 'px-4 sm:px-8';
+export const CLASSE_LARGEUR_PAGE = CLASSE_LARGEUR_DE_CONTENU;
+
+/* Une hauteur demandée pour l'ancienne feuille (`max-h-[80dvh]`, `h-[92dvh]`)
+   n'a plus de sens sur une page, qui prend toujours la hauteur de la zone. */
+function sansHauteurDeFeuille(classe?: string): string | undefined {
+  if (!classe) return classe;
+  return classe
+    .split(/\s+/)
+    .filter((mot) => !/^(max-h-|min-h-\[|h-\[|h-full|h-screen)/.test(mot))
+    .join(' ');
+}
+
+function FeuilleDeTiroir({
+  onClose,
+  open = true,
+  plein,
+  hauteurFixe,
+  empile,
+  enFenetre,
+  entete,
+  className,
+  children,
+  onInteractOutside,
+  ...props
+}: Omit<React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>, 'children'> & {
+  onClose?: () => void;
+  open?: boolean;
+  plein?: boolean;
+  hauteurFixe?: boolean;
+  empile?: boolean;
+  enFenetre?: boolean;
+  /** L'en-tête propre à la page ; sans lui, la barre « Retour » ordinaire. */
+  entete?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  void open;
+  void hauteurFixe;
+  void enFenetre;
+  /* L'EN-TÊTE PAR DÉFAUT EST LA BARRE AU FIL D'ARIANE de l'application : la
+     page lui prête deux emplacements — son titre, ses gestes — et les offre à
+     son contenu. Une page qui apporte son propre en-tête (la conversation d'une
+     carte) garde tout chez elle. */
+  const Entete = React.useContext(EnteteDePageParDefaut);
+  const [cibleDuTitre, setCibleDuTitre] = React.useState<HTMLElement | null>(null);
+  const [cibleDesGestes, setCibleDesGestes] = React.useState<HTMLElement | null>(null);
+  const titreOccupe = React.useRef<symbol | null>(null);
+  const emplacementDuTitre = React.useMemo(
+    () => (cibleDuTitre ? { cible: cibleDuTitre, occupe: titreOccupe } : null),
+    [cibleDuTitre],
+  );
+  const filDAriane = entete === undefined && !!Entete;
+  return (
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Content
+        {...props}
+        data-tiroir={plein ? 'plein' : 'normal'}
+        data-tiroir-empile={empile ? 'oui' : undefined}
+        data-page-de-zone
+        onWheel={defilerDepuisLesMarges}
+        /* UNE PAGE N'EST PAS UNE FENÊTRE : à l'ouverture, le focus ne saute pas
+           sur le premier bouton de sa barre, qui s'entourait d'un anneau sans
+           qu'on l'ait touché. Il se pose sur la page elle-même. */
+        tabIndex={-1}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true });
+        }}
+        /* SEULE LA COLONNE REFERME LA PAGE EN CLIQUANT DEHORS : elle mène
+           ailleurs, la page n'a plus lieu d'être. Tout autre clic extérieur
+           (message passager, assistant, module de voix) la laisse ouverte —
+           et, dans la colonne, le bouton qui la replie ou la déplie : il ne
+           mène nulle part, il change seulement la place qu'elle prend. */
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          const cible = event.target as Element | null;
+          /* …et, dans la colonne, le MENU DE LA PAGE ELLE-MÊME (les options
+             d'une tâche, `data-colonne-de-page`) : y choisir une ligne change
+             ce que la page montre, il ne la quitte pas. */
+          if (
+            !cible?.closest?.('[data-colonne-projets]') ||
+            cible.closest('[data-replier-colonne]') ||
+            cible.closest('[data-colonne-de-page]')
+          )
+            event.preventDefault();
+        }}
+        className={cn(
+          'fixed bottom-0 right-0 top-0 flex flex-col overflow-hidden bg-bg outline-none',
+          /* UNE PAGE OUVERTE PAR-DESSUS (`empile`) PASSE DEVANT LA FENÊTRE QUI
+             L'A OUVERTE. Les fenêtres sont en `z-50` : en `z-40`, la page de
+             l'agent de configuration s'ouvrait SOUS la fenêtre « Configuration
+             du projet », et rien ne s'y cliquait. À rang égal, c'est la
+             dernière ouverte qui est devant — la page, puis les menus et les
+             fenêtres qu'elle ouvre à son tour. */
+          empile ? 'z-50' : 'z-40',
+          'left-0 sm:left-[var(--zone-principale-gauche,0px)]',
+          'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+        )}
+        style={{
+          /* La page s'arrête sous la barre d'état et au-dessus de la barre
+             d'accueil du téléphone, et laisse sa place au clavier. */
+          paddingTop: 'var(--zone-sure-haut, 0px)',
+          paddingBottom: 'calc(var(--zone-sure-bas, 0px) + var(--clavier, 0px))',
+          /* LA MARGE DU HAUT EST DÉJÀ COMPTÉE ICI : la barre d'en-tête de la
+             page (`EnteteDeZone`) ne la recompte pas. Comptée deux fois, elle
+             laissait une bande vide de la hauteur de l'heure sur téléphone. */
+          ['--zone-sure-entete' as string]: '0px',
+          /* Une page EST le fond de page : tout ce qui, dedans, se réglait sur
+             le fond d'un tiroir (`--surface`) se règle sur lui. */
+          ['--surface' as string]: 'var(--bg)',
+          ['--fond-zone-defilement' as string]: 'hsl(var(--bg))',
+        }}
+      >
+        {entete ?? (Entete ? (
+          <Entete fermer={() => onClose?.()} onCibleDuTitre={setCibleDuTitre} onCibleDesGestes={setCibleDesGestes} />
+        ) : (
+          <div data-entete-de-page className="flex h-14 shrink-0 items-center gap-1.5 px-4 max-sm:h-12 max-sm:px-2">
+            <DialogPrimitive.Close
+              aria-label="Fermer"
+              data-poignee-tiroir
+              data-retour-de-page
+              className="flex h-8 items-center gap-1.5 rounded-md pl-1.5 pr-2.5 text-[14px] text-muted transition-colors hover:bg-raised hover:text-text"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {t('Retour')}
+            </DialogPrimitive.Close>
+          </div>
+        ))}
+        <EmplacementDuTitreDePage.Provider value={filDAriane ? emplacementDuTitre : null}>
+          <CibleDesGestesDePage.Provider value={filDAriane ? cibleDesGestes : null}>
+            {/* Une page ouverte par-dessus recouvre le bas de l'écran : son
+                geste principal reste dans SA barre d'en-tête. */}
+            <CibleDuBasDePage.Provider value={null}>
+              <div
+                data-corps-de-page
+                className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col sm:px-5', CLASSE_LARGEUR_PAGE, sansHauteurDeFeuille(className))}
+              >
+                {children}
+              </div>
+            </CibleDuBasDePage.Provider>
+          </CibleDesGestesDePage.Provider>
+        </EmplacementDuTitreDePage.Provider>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  );
+}
+
 export function Drawer({
   open,
   onClose,
@@ -1078,11 +1552,17 @@ export function Drawer({
   enPage,
   plein,
   hauteurFixe,
+  adresse,
+  onOuvrir,
+  pret,
+  entete,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  /** L'en-tête propre à la page (fil d'Ariane, gestes) ; sans lui, la barre « Retour ». */
+  entete?: React.ReactNode;
   /**
    * LA FEUILLE PREND TOUTE LA HAUTEUR : le tiroir d'une carte sur téléphone,
    * où chaque pixel rendu au flux compte. Ailleurs, la feuille garde sa marge
@@ -1112,48 +1592,23 @@ export function Drawer({
    * `DialogTitle` des trois écrans restent valides et lus à voix haute.
    */
   enPage?: boolean;
-}) {
-  /*
-   * Le tiroir se referme en le tirant vers le bas, comme une vraie feuille :
-   * on suit le doigt, et on ne referme que si le geste est franc.
+  /**
+   * LE NOM DU VOLET DANS L'ADRESSE DU NAVIGATEUR (« pieces-jointes ») : un mot
+   * court, unique dans l'application. Ouvert, il s'écrit après l'écran
+   * (« #projet/<id>/volet/pieces-jointes ») ; Précédent le referme. Sans
+   * `onOuvrir`, un lien collé ne le rouvre pas (volet qui dépend d'un choix
+   * fait à l'écran) — mais l'adresse change quand même à l'ouverture.
    */
-  const [decalage, setDecalage] = React.useState(0);
-  const depart = React.useRef<number | null>(null);
-
-  React.useEffect(() => {
-    if (open) setDecalage(0);
-  }, [open]);
-
-  const poignee = {
-    onPointerDown: (event: React.PointerEvent) => {
-      depart.current = event.clientY;
-      // Un pointeur qui n'existe pas — un événement fabriqué par un contrôle —
-      // fait lever cette capture : le geste ne doit pas mourir pour autant.
-      try {
-        (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-      } catch {
-        /* rien à capturer : les écouteurs suffisent */
-      }
-    },
-    onPointerMove: (event: React.PointerEvent) => {
-      if (depart.current === null) return;
-      setDecalage(Math.max(0, event.clientY - depart.current));
-    },
-    onPointerUp: () => {
-      if (depart.current === null) return;
-      depart.current = null;
-      /*
-       * `onClose()` NE PEUT PAS VIVRE DANS LA FONCTION DE MISE À JOUR. React la
-       * joue pendant le RENDU, et changer l'état d'un composant PARENT à ce
-       * moment-là est une faute qu'il signale en console (« Cannot update a
-       * component while rendering a different component »). On lit donc le
-       * déplacement tel quel, on remet la feuille à zéro, puis on referme.
-       */
-      const tire = decalage;
-      setDecalage(0);
-      if (tire > 110) onClose();
-    },
-  };
+  adresse?: string;
+  /** Rouvrir le volet quand l'adresse le désigne (lien collé, Suivant). */
+  onOuvrir?: () => void;
+  /** Les données du volet sont arrivées : avant, un lien collé n'ouvre rien. */
+  pret?: boolean;
+}) {
+  /* Le volet suit l'adresse du navigateur dès qu'il porte un nom. */
+  useTiroirAdresse(enPage ? null : adresse, open, (ouvert) => (ouvert ? onOuvrir?.() : onClose()), {
+    pret: pret ?? true,
+  });
 
   if (enPage) {
     return (
@@ -1162,10 +1617,23 @@ export function Drawer({
           data-ecran-plein
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
+          // UNE PAGE N'EST PAS UNE FENÊTRE : à l'ouverture, le focus ne saute pas
+          // sur son premier bouton, qui s'entourait d'un anneau sans qu'on l'ait
+          // touché.
+          onOpenAutoFocus={(event) => event.preventDefault()}
           // AUCUN CONTOUR DE FOCUS SUR L'ÉCRAN ENTIER : la fenêtre reçoit le focus à
           // l'ouverture, et le navigateur l'entourait d'un cadre bleu (capture #e021).
           // Les boutons qu'elle contient gardent leur propre anneau.
-          className={cn('flex h-full min-h-0 w-full flex-col pt-3 outline-none', className)}
+          //
+          // UNE COLONNE ÉTROITE, CENTRÉE DANS LA ZONE, AVEC DE L'AIR AU-DESSUS :
+          // la page ne colle plus aux bords. Un écran qui porte un tableau ou un
+          // atelier demande plus large par sa propre classe (`max-w-…`).
+          className={cn(
+            'mx-auto flex h-full min-h-0 w-full flex-col pt-2 outline-none sm:pt-8',
+            CLASSE_LARGEUR_DE_CONTENU,
+            CLASSE_MARGES_DE_PAGE,
+            className,
+          )}
           style={{
             // La zone qui défile à l'intérieur prend le fond de la page, pas
             // celui d'un tiroir : l'écran plein n'est plus une feuille posée.
@@ -1179,92 +1647,20 @@ export function Drawer({
   }
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
-        <DialogPrimitive.Content
-          data-tiroir={plein ? 'plein' : 'normal'}
-          data-tiroir-empile={empile ? 'oui' : undefined}
-          className={cn(
-            // Sur téléphone il occupe toute la largeur ; sur grand écran il se
-            // pose au centre, plafonné à 960 px : au-delà, les lignes de texte
-            // deviennent trop longues pour être lues confortablement.
-            'fixed inset-x-0 z-50 mx-auto flex w-full flex-col overflow-hidden bg-surface outline-none',
-            CLASSE_LARGEUR_TIROIR,
-            'rounded-t-xl sm:rounded-t-2xl',
-            // Une feuille qui MONTE : le décalage de 6 px des fenêtres se
-            // voyait à peine sur un panneau de cette taille.
-            'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
-            // AUCUN LISERÉ. Le trait clair du bord haut se lisait comme une
-            // bordure blanche posée par erreur ; la feuille se détache par son
-            // fond (`bg-surface`, plus clair que la page), son voile et son
-            // ombre. Le tiroir empilé garde une ombre plus marquée.
-            empile
-              ? 'shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]'
-              : 'shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.55)]',
-            className,
-          )}
-          style={{
-            // La hauteur suit le contenu — plafonnée pour ne pas dépasser l'écran —
-            // SAUF quand le tiroir demande une hauteur fixe (`hauteurFixe`) : un
-            // tiroir qui s'ouvre sur une silhouette puis se remplit ne doit pas
-            // grandir d'un bond sous les yeux. Les autres gardent leur hauteur à
-            // la demande, pour ne pas être vides en bas quand le contenu est court.
-            bottom: 'var(--clavier, 0px)',
-            /*
-             * LE TIROIR S'ARRÊTE SOUS LA BARRE D'ÉTAT, JAMAIS DESSOUS. En mode
-             * plein il montait à 10 px du bord haut — une marge FIXE, qui
-             * ignorait la zone sûre : sur un iPhone, l'entête du tiroir passait
-             * sous l'heure et la batterie. Le plafond suit maintenant la zone
-             * sûre du haut, et garde les 10 px là où il n'y en a pas
-             * (ordinateur, Android sans encoche) : rien ne bouge d'un pixel où
-             * rien ne débordait.
-             */
-            maxHeight: plein
-              ? 'calc(100dvh - max(10px, var(--zone-sure-haut, 0px)) - var(--clavier, 0px))'
-              : 'calc(92dvh - var(--clavier, 0px))',
-            /*
-             * EN MODE PLEIN, C'EST UNE HAUTEUR, PAS UN PLAFOND. Le plafond
-             * seul laissait la feuille suivre son contenu : une fiche courte
-             * s'arrêtait au milieu de l'écran, et la bande morte du haut
-             * revenait. On demande donc la hauteur ENTIÈRE — le corps prend le
-             * reste en `flex-1`, et la fiche touche vraiment le bord haut.
-             *
-             * MÊME RAISON POUR `hauteurFixe`, sur ordinateur : la feuille vaut
-             * son plafond, exactement, avant comme après l'arrivée du contenu.
-             */
-            height: plein
-              ? 'calc(100dvh - max(10px, var(--zone-sure-haut, 0px)) - var(--clavier, 0px))'
-              : hauteurFixe
-                ? 'calc(92dvh - var(--clavier, 0px))'
-                : undefined,
-            /* Le CONTENU s'arrête au-dessus de la barre d'accueil ; le fond du
-               tiroir, lui, va jusqu'au bord — sinon une bande vide apparaîtrait. */
-            paddingBottom: 'var(--zone-sure-bas, 0px)',
-            transform: decalage ? `translateY(${decalage}px)` : undefined,
-            transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
-            // Le fond du tiroir est gris cendré (bg-surface) : toute zone qui
-            // défile à l'intérieur, sans couleur de fondu imposée, doit le
-            // savoir pour ne pas garder un fondu noir.
-            ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
-          }}
-        >
-          {/* La poignée : on la tire vers le bas pour refermer. Plus d'air AU-DESSUS
-              qu'en dessous : collée au bord, elle se perdait sur téléphone. */}
-          <div
-            {...poignee}
-            onPointerCancel={poignee.onPointerUp}
-            data-poignee-tiroir
-            className={cn(
-              'flex shrink-0 cursor-grab touch-none justify-center active:cursor-grabbing',
-              plein ? 'pb-2 pt-3.5' : 'pb-3 pt-5',
-            )}
-          >
-            <DialogPrimitive.Close className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text" />
-          </div>
-          {children}
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
+    /* `modal={false}` : la page ne fige pas le reste de l'écran — la colonne des
+       projets reste cliquable (voir `FeuilleDeTiroir`). */
+    <DialogPrimitive.Root open={open} modal={false} onOpenChange={(next) => !next && onClose()}>
+      <FeuilleDeTiroir
+        open={open}
+        onClose={onClose}
+        plein={plein}
+        hauteurFixe={hauteurFixe}
+        empile={empile}
+        entete={entete}
+        className={className}
+      >
+        {children}
+      </FeuilleDeTiroir>
     </DialogPrimitive.Root>
   );
 }
@@ -1363,8 +1759,58 @@ export function SidePanel({
 }
 
 export function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
+  /* DANS UNE PAGE, LE TITRE EST LE DERNIER CRAN DU FIL D'ARIANE : le premier
+     titre écrit monte dans la barre d'en-tête de la page, au lieu de refaire un
+     en-tête sous elle. Il reste le titre lu à voix haute de la page. */
+  const emplacement = React.useContext(EmplacementDuTitreDePage);
+  const jeton = React.useRef(Symbol('titre'));
+  const [enTete, setEnTete] = React.useState(false);
+  React.useLayoutEffect(() => {
+    if (!emplacement) {
+      setEnTete(false);
+      return;
+    }
+    if (emplacement.occupe.current && emplacement.occupe.current !== jeton.current) return;
+    emplacement.occupe.current = jeton.current;
+    setEnTete(true);
+    const mien = jeton.current;
+    return () => {
+      if (emplacement.occupe.current === mien) emplacement.occupe.current = null;
+    };
+  }, [emplacement]);
+  if (emplacement && enTete) {
+    return ReactDOM.createPortal(
+      <DialogPrimitive.Title className="min-w-0 truncate text-[14.5px] font-medium text-text" data-titre-de-page {...props} />,
+      emplacement.cible,
+    );
+  }
   return <DialogPrimitive.Title className={cn('text-[15.5px] font-semibold text-text', className)} {...props} />;
 }
+
+/**
+ * LE TITRE D'UNE PAGE DE SERVICE : grand, seul sur sa ligne, en tête de la
+ * colonne centrée. Il reste le titre lu à voix haute de la page (`Dialog`).
+ *
+ * SUR TÉLÉPHONE, LE NOM DE LA PAGE NE S'ÉCRIT QU'UNE FOIS, dans la barre
+ * d'en-tête (demande du 11/10/2026 : « éviter les doubles header avec le titre
+ * à double ») : ce titre-ci ne se dessine plus (`CLASSE_TITRE_SEUL_EN_BARRE`),
+ * il reste seulement lu à voix haute.
+ */
+export const CLASSE_TITRE_SEUL_EN_BARRE = 'max-sm:sr-only';
+export function TitreDePage({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      data-titre-de-page
+      className={cn('shrink-0 pb-5 text-[26px] font-semibold leading-tight tracking-tight text-text sm:pb-6', className, CLASSE_TITRE_SEUL_EN_BARRE)}
+      {...props}
+    />
+  );
+}
+
+/** UNE LISTE REGROUPÉE : un seul fond doux, sans trait, qui porte toutes ses lignes. */
+export const CLASSE_GROUPE_DE_LIGNES = 'flex flex-col gap-0.5 rounded-2xl bg-surface p-1.5';
+/** Une ligne d'une liste regroupée : son fond ne paraît qu'au survol. */
+export const CLASSE_LIGNE_DE_GROUPE = 'rounded-xl px-3.5 py-3 text-left transition-colors hover:bg-raised';
 
 export function DialogDescription({
   className,
@@ -1661,47 +2107,73 @@ function VoileMenu({ panneau }: { panneau: React.RefObject<HTMLDivElement | null
   );
 }
 
+/**
+ * LA POIGNÉE D'UN PANNEAU QUI MONTE DU BAS (menu, liste déroulante sur
+ * téléphone) : on le referme en la tirant vers le bas. Le geste part de la
+ * poignée seule, sinon il empêcherait le contenu de défiler. Rend les
+ * écouteurs à étaler sur la poignée et le style à poser sur le panneau.
+ */
+function usePoigneeDuBas(fermer: () => void) {
+  const [decalage, setDecalage] = React.useState(0);
+  const depart = React.useRef<number | null>(null);
+  const relacher = () => {
+    if (depart.current === null) return;
+    depart.current = null;
+    setDecalage((valeur) => {
+      if (valeur > 110) fermer();
+      return 0;
+    });
+  };
+  return {
+    poignee: {
+      onPointerDown: (event: React.PointerEvent) => {
+        depart.current = event.clientY;
+        // Un pointeur qui n'existe pas — un événement fabriqué par un contrôle —
+        // fait lever cette capture : le geste ne doit pas mourir pour autant.
+        try {
+          (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+        } catch {
+          /* rien à capturer : les écouteurs suffisent */
+        }
+      },
+      onPointerMove: (event: React.PointerEvent) => {
+        if (depart.current === null) return;
+        setDecalage(Math.max(0, event.clientY - depart.current));
+      },
+      onPointerUp: relacher,
+      onPointerCancel: relacher,
+    },
+    style: {
+      transform: decalage ? `translateY(${decalage}px)` : undefined,
+      transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+    } as React.CSSProperties,
+  };
+}
+
+/**
+ * UN PANNEAU POSÉ EN BAS DE L'ÉCRAN DU TÉLÉPHONE PREND TOUTE LA LARGEUR, quoi
+ * que demande son appelant (demande du 11/10/2026 : « ces drawer qui ne sont pas
+ * en pleine largeur »). Sous 640 px l'enveloppe est déjà épinglée d'un bord à
+ * l'autre (`styles.css`) ; c'est le CONTENU qu'un `max-w-…` d'appelant bridait
+ * — le menu de la Mémoire s'arrêtait à 320 px. Cette classe se pose APRÈS
+ * `className`, et ses « ! » la rendent impossible à plafonner.
+ */
+export const CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR = 'max-sm:!w-full max-sm:!max-w-none';
+
 export function DropdownMenuContent({
   className,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
   /*
    * Sur téléphone le menu est un TIROIR, donc il se referme comme les autres :
-   * en tirant la poignée vers le bas. Le geste part de la poignée seule, sinon
-   * il empêcherait le contenu de défiler. Le menu n'expose pas son « fermer » :
-   * on passe par la touche d'échappement, que la bibliothèque écoute déjà.
+   * en tirant la poignée vers le bas (`usePoigneeDuBas`). Le menu n'expose pas
+   * son « fermer » : on passe par la touche d'échappement, que la bibliothèque
+   * écoute déjà.
    */
-  const [decalage, setDecalage] = React.useState(0);
-  const depart = React.useRef<number | null>(null);
   const panneau = React.useRef<HTMLDivElement | null>(null);
-
-  const fermer = () =>
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-
-  const poignee = {
-    onPointerDown: (event: React.PointerEvent) => {
-      depart.current = event.clientY;
-      // Un pointeur qui n'existe pas — un événement fabriqué par un contrôle —
-      // fait lever cette capture : le geste ne doit pas mourir pour autant.
-      try {
-        (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
-      } catch {
-        /* rien à capturer : les écouteurs suffisent */
-      }
-    },
-    onPointerMove: (event: React.PointerEvent) => {
-      if (depart.current === null) return;
-      setDecalage(Math.max(0, event.clientY - depart.current));
-    },
-    onPointerUp: () => {
-      if (depart.current === null) return;
-      depart.current = null;
-      setDecalage((valeur) => {
-        if (valeur > 110) fermer();
-        return 0;
-      });
-    },
-  };
+  const { poignee, style: styleDeLaPoignee } = usePoigneeDuBas(() =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+  );
 
   return (
     <DropdownPrimitive.Portal>
@@ -1712,7 +2184,7 @@ export function DropdownMenuContent({
         ref={panneau}
         sideOffset={4}
         className={cn(
-          'z-50 flex min-w-[170px] flex-col overflow-hidden border border-border bg-surface p-1 shadow-xl',
+          'z-50 flex min-w-[190px] flex-col overflow-hidden border border-border bg-bg p-1.5 shadow-xl',
           'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
           // La hauteur réelle de l'écran, mesurée en direct : dvh seul laisse
           // une bande vide quand l'application est installée sur le téléphone.
@@ -1721,13 +2193,11 @@ export function DropdownMenuContent({
           'max-sm:z-[60] max-sm:w-full max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-t-xl',
           'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
           'max-sm:data-[state=open]:animate-slide-sheet max-sm:data-[state=closed]:animate-slide-sheet-out',
-          'sm:rounded-md',
+          'sm:rounded-xl',
           className,
+          CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR,
         )}
-        style={{
-          transform: decalage ? `translateY(${decalage}px)` : undefined,
-          transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
-        }}
+        style={styleDeLaPoignee}
         {...props}
       >
         {/* Le voile part dans la page, pas ici : la bibliothèque n'accepte
@@ -1735,7 +2205,6 @@ export function DropdownMenuContent({
         <VoileMenu panneau={panneau} />
         <div
           {...poignee}
-          onPointerCancel={poignee.onPointerUp}
           className="mb-1.5 flex shrink-0 cursor-grab touch-none justify-center py-1.5 active:cursor-grabbing sm:hidden"
         >
           <span className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text" />
@@ -1757,7 +2226,7 @@ export function DropdownMenuItem({
   return (
     <DropdownPrimitive.Item
       className={cn(
-        'flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1.5 text-[14px] text-muted outline-none data-[highlighted]:bg-raised data-[highlighted]:text-text',
+        'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[highlighted]:bg-raised',
         className,
       )}
       {...props}
@@ -1801,25 +2270,38 @@ export function DropdownMenuSubTrigger({
 
 export function DropdownMenuSubContent({
   className,
+  children,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.SubContent>) {
   return (
     <DropdownPrimitive.Portal>
-      {/* Le panneau du sous-menu reste un panneau FLOTTANT, sur téléphone comme
-          sur grand écran : le tiroir du bas, lui, appartient au menu de premier
-          niveau. Il passe donc au-dessus de ce tiroir (z-index plus haut) et la
-          bibliothèque le replace toute seule s'il sortait de l'écran. */}
+      {/* Sur grand écran, le sous-menu FLOTTE à côté de son entrée, et la
+          bibliothèque le replace s'il sortait de l'écran. Sur téléphone, tout
+          panneau flottant se pose au bas de l'écran (`styles.css`) : il passe
+          donc AU-DESSUS du panneau du menu (z-index plus haut) et en prend la
+          tenue — coins du haut arrondis, creux du bas réservé.
+          UNE LISTE LONGUE (les modèles d'un moteur, les étiquettes d'un
+          projet) NE SORT PAS DE L'ÉCRAN : la hauteur est bornée à la place
+          libre, et la liste défile chez elle. */}
       <DropdownPrimitive.SubContent
         sideOffset={2}
         alignOffset={-4}
+        collisionPadding={8}
         className={cn(
           'z-50 flex min-w-[170px] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
+          'max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))]',
           'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
-          'max-sm:z-[70]',
+          'max-sm:z-[70] max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.7)] max-sm:rounded-b-none max-sm:rounded-t-xl',
+          'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
           className,
+          CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR,
         )}
         {...props}
-      />
+      >
+        <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className="overscroll-contain">
+          {children}
+        </ZoneDefilement>
+      </DropdownPrimitive.SubContent>
     </DropdownPrimitive.Portal>
   );
 }
@@ -1855,7 +2337,10 @@ export function Switch({
       aria-busy={attente || undefined}
       disabled={disabled || attente}
       className={cn(
-        'peer relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-border transition-colors data-[state=checked]:bg-accent data-[state=unchecked]:bg-raised',
+        /* AUCUN TRAIT : c'est le fond qui dit l'état. Éteint, un gris franc
+           (`--faint` voilé) — en `--raised`, tout près du fond, on ne voyait
+           plus l'interrupteur, en clair comme en sombre. */
+        'peer relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors data-[state=checked]:bg-accent data-[state=unchecked]:bg-faint/40',
         // L'interrupteur ne fait que 18 px de haut : au doigt, la moitié des
         // appuis tombe à côté. Un calque invisible de 36 × 32 px, centré
         // dessus, agrandit la CIBLE sans rien changer à l'aspect ni à la place
@@ -1945,12 +2430,23 @@ export function Dot({ tone, pulse }: { tone: 'idle' | 'running' | 'done' | 'fail
   return <span className={cn('inline-block h-1.5 w-1.5 shrink-0 rounded-full', color, pulse && 'animate-pulse-soft')} />;
 }
 
-export function EmptyState({ icon, title, hint }: { icon?: React.ReactNode; title: string; hint?: string }) {
+export function EmptyState({
+  icon,
+  title,
+  hint,
+  action,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  hint?: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
       {icon ? <div className="text-faint">{icon}</div> : null}
       <p className="text-[14.5px] font-medium text-muted">{title}</p>
       {hint ? <p className="max-w-[260px] text-[13.5px] text-faint">{hint}</p> : null}
+      {action ? <div className="mt-1">{action}</div> : null}
     </div>
   );
 }
@@ -1987,7 +2483,7 @@ export function PromptDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:w-[min(420px,100%)]">
+      <DialogContent adresse="confirmation" className="sm:w-[min(420px,100%)]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
@@ -2044,7 +2540,7 @@ export function ConfirmDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:w-[min(440px,100%)]">
+      <DialogContent adresse="saisie" className="sm:w-[min(440px,100%)]">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -2077,8 +2573,9 @@ export function ConfirmDialog({
  *  - `SelecteurTiroir` : le remplaçant d'une liste native. Il montre la valeur
  *    courante et ouvre le TIROIR de l'application (`Drawer`, celui des réglages
  *    de l'agent) avec un champ de recherche et une coche sur la valeur retenue ;
- *  - `MenuActions` : le bouton « … » qui range les gestes rares dans ce même
- *    tiroir, avec un repère chiffré quand quelque chose est actif.
+ *  - `MenuActions` : le bouton « … » qui range les gestes rares dans un petit
+ *    menu ancré sous lui (jamais une page), avec un repère chiffré quand
+ *    quelque chose est actif.
  *
  * Aucune ne connaît l'écran qui l'emploie : elles ne parlent qu'en jetons de
  * thème et passent leurs textes par `t()`.
@@ -2317,17 +2814,26 @@ function marquerGesteDeFermeture() {
  * (`<select>`) et l'ancien sélecteur en tiroir.
  *
  * Sur ORDINATEUR, elle s'ouvre ANCRÉE sous son déclencheur (panneau flottant,
- * même largeur au moins) ; sur TÉLÉPHONE, elle monte du bas comme un tiroir —
- * sous le pouce. Le corps est le même des deux côtés : recherche dès que les
+ * même largeur au moins) ; sur TÉLÉPHONE, elle monte du bas — sous le pouce —
+ * dans le MÊME panneau qu'un menu (`DropdownMenuContent`) : voile, poignée à
+ * tirer, hauteur bornée. UNE LISTE DE CHOIX N'EST JAMAIS UNE PAGE (demande du
+ * 11/10/2026, « la liste de clients doit être un dropdown ») : elle passait
+ * par `Drawer`, devenu une page entière avec la refonte, et choisir un client
+ * quittait l'écran. Le corps est le même des deux côtés : recherche dès que les
  * choix dépassent `seuilRecherche`, icône, description sur une seconde ligne,
  * coche du choix retenu, geste propre à chaque ligne (▶ écouter), intertitres,
  * et le CLAVIER (flèches, Début/Fin, Entrée, Échap ; la frappe va à la recherche).
  *
  * Une ligne d'option est un `div role="option"`, jamais un `button` : elle peut
  * porter son propre bouton (le geste à droite) et un texte replié.
+ *
+ * CHOIX MULTIPLE : avec `valeurs`, chaque ligne porte une case, `onChoisir`
+ * reçoit l'option BASCULÉE et la liste RESTE OUVERTE pour la coche suivante
+ * (les projets d'un accès client). `valeur` est alors ignorée.
  */
 export function ListeDeroulante({
   valeur,
+  valeurs,
   options,
   onChoisir,
   titre,
@@ -2347,6 +2853,8 @@ export function ListeDeroulante({
   ...attributs
 }: {
   valeur: string;
+  /** Le mode MULTIPLE : les valeurs cochées ; `onChoisir` bascule une option sans refermer. */
+  valeurs?: string[];
   options: OptionSelecteur[];
   onChoisir: (valeur: string) => void;
   /** Le titre de la liste (entête du tiroir sur téléphone, nom lu à voix haute). */
@@ -2391,8 +2899,12 @@ export function ListeDeroulante({
   const bouton = React.useRef<HTMLButtonElement | null>(null);
   const corpsListe = React.useRef<HTMLDivElement | null>(null);
   const panneau = React.useRef<HTMLDivElement | null>(null);
-  const retenue = options.find((o) => o.valeur === valeur);
-  const libelle = retenue?.libelle ?? placeholder ?? '—';
+  const multiple = !!valeurs;
+  const estChoisie = (v: string) => (valeurs ? valeurs.includes(v) : v === valeur);
+  const retenue = multiple ? undefined : options.find((o) => o.valeur === valeur);
+  const cochees = multiple ? options.filter((o) => valeurs!.includes(o.valeur)) : [];
+  const libelle = multiple ? (cochees.length ? cochees.map((o) => o.libelle).join(', ') : placeholder ?? '—') : retenue?.libelle ?? placeholder ?? '—';
+  const rienDeRetenu = multiple ? !cochees.length : !retenue;
   const m = marques === 'selecteur';
   const id = React.useId();
 
@@ -2405,10 +2917,13 @@ export function ListeDeroulante({
       setCherche('');
       return;
     }
-    setActif(Math.max(0, options.findIndex((o) => o.valeur === valeur)));
+    setActif(Math.max(0, options.findIndex((o) => estChoisie(o.valeur))));
   }, [ouvert]);
   /* MODALE DANS UNE FENÊTRE, la liste ne se fermait pas à un appui sur la fenêtre elle-même (le libellé de son
      champ, un autre champ) : Radix n'y voyait pas un appui « dehors ». Elle se ferme donc ici, au même titre. */
+  /* `panneau` DOIT ÊTRE POSÉ SUR LE PANNEAU AFFICHÉ, téléphone compris : sans lui, cet écouteur prend CHAQUE appui
+     pour un appui dehors — la liste se refermait à la première coche d'un choix multiple, ou dès qu'on touchait
+     sa recherche. */
   React.useEffect(() => {
     if (!ouvert || !dansUneFenetre) return;
     const appui = (e: PointerEvent) => {
@@ -2420,6 +2935,13 @@ export function ListeDeroulante({
     window.addEventListener('pointerdown', appui, { capture: true });
     return () => window.removeEventListener('pointerdown', appui, { capture: true });
   }, [ouvert, dansUneFenetre]);
+  /* SUR TÉLÉPHONE, « PRÉCÉDENT » REFERME LA LISTE au lieu de quitter l'écran :
+     ouverte, elle s'écrit dans l'adresse comme un volet. */
+  useTiroirAdresse(telephone ? 'choix' : null, ouvert, (encore) => {
+    if (!encore) setOuvert(false);
+  });
+  const { poignee, style: styleDeLaPoignee } = usePoigneeDuBas(() => setOuvert(false));
+  void empile;
   React.useEffect(() => {
     if (mot) setActif(vues.findIndex((o) => !o.desactivee));
   }, [mot]);
@@ -2447,7 +2969,7 @@ export function ListeDeroulante({
   const choisir = (o: OptionSelecteur) => {
     if (o.desactivee) return;
     onChoisir(o.valeur);
-    setOuvert(false);
+    if (!multiple) setOuvert(false);
   };
 
   const deplacer = (sens: 1 | -1, depuis = actif) => {
@@ -2498,7 +3020,7 @@ export function ListeDeroulante({
       );
     }
     groupe = option.groupe;
-    const choisie = option.valeur === valeur;
+    const choisie = estChoisie(option.valeur);
     lignes.push(
       <div
         key={option.valeur}
@@ -2512,7 +3034,12 @@ export function ListeDeroulante({
         className={cn(
           'flex min-w-0 cursor-pointer select-none items-center gap-2 rounded-md px-2 text-left leading-5 transition-colors',
           telephone ? 'py-2 text-[14px]' : 'py-1.5 text-[13px]',
-          option.desactivee ? 'cursor-default opacity-50' : index === actif ? 'bg-raised text-text' : choisie ? 'text-text' : 'text-muted',
+          /* L'OPTION RETENUE S'ÉCRIT EN VIOLET (`--teinte`), survolée ou non :
+             la coche seule, au bout de la ligne, ne suffisait pas à la
+             distinguer des autres. */
+          option.desactivee
+            ? 'cursor-default opacity-50'
+            : cn(index === actif && 'bg-raised', choisie ? 'text-teinte' : index === actif ? 'text-text' : 'text-muted'),
         )}
         {...(m
           ? { 'data-selecteur-option': option.valeur, 'data-selecteur-choisi': choisie ? '' : undefined }
@@ -2546,7 +3073,19 @@ export function ListeDeroulante({
             {option.action.icone}
           </button>
         ) : null}
-        <Check className={cn('h-3.5 w-3.5 shrink-0 text-accent', !choisie && 'invisible')} aria-hidden />
+        {multiple ? (
+          <span
+            aria-hidden
+            className={cn(
+              'flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors',
+              choisie ? 'border-accent bg-accent text-accent-fg' : 'border-faint',
+            )}
+          >
+            {choisie ? <Check className="h-3 w-3" /> : null}
+          </span>
+        ) : (
+          <Check className={cn('h-3.5 w-3.5 shrink-0 text-teinte', !choisie && 'invisible')} aria-hidden />
+        )}
       </div>,
     );
   });
@@ -2564,7 +3103,9 @@ export function ListeDeroulante({
           aria-controls={`${id}-liste`}
           aria-activedescendant={actif >= 0 ? `${id}-o${actif}` : undefined}
           {...(m ? { 'data-selecteur-recherche': repere } : { 'data-liste-recherche': repere })}
-          autoFocus
+          // Sur téléphone, le clavier ne monte que si l'on touche la recherche :
+          // ouvert d'office, il mangerait la moitié du panneau.
+          autoFocus={!telephone}
         />
       </div>
     </div>
@@ -2576,6 +3117,7 @@ export function ListeDeroulante({
       id={`${id}-liste`}
       role="listbox"
       aria-label={titre}
+      aria-multiselectable={multiple || undefined}
       tabIndex={avecRecherche ? -1 : 0}
       onKeyDown={avecRecherche ? undefined : clavier}
       aria-activedescendant={!avecRecherche && actif >= 0 ? `${id}-o${actif}` : undefined}
@@ -2588,7 +3130,7 @@ export function ListeDeroulante({
 
   const marquesDeclencheur = m
     ? { 'data-selecteur-tiroir': repere, 'data-selecteur-valeur': valeur }
-    : { 'data-liste-deroulante': repere ?? '', 'data-liste-valeur': valeur };
+    : { 'data-liste-deroulante': repere ?? '', 'data-liste-valeur': multiple ? valeurs!.join(',') : valeur };
 
   const declencheurParDefaut = (
     <button
@@ -2608,9 +3150,11 @@ export function ListeDeroulante({
       className={cn(
         'flex min-w-0 items-center gap-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
         variante === 'champ'
-          ? 'h-8 w-full rounded-md border border-border bg-controle px-2 text-[13px] text-text hover:border-faint'
+          ? /* La tenue d'un champ de saisie (`Input`) : un fond, aucun trait au
+               repos ; ouverte, le même filet discret qu'un champ qui a le focus. */
+            'h-8 w-full rounded-md border border-transparent bg-raised px-2 text-[13px] text-text hover:bg-border'
           : 'h-7 max-w-full rounded-md px-1.5 text-[13px] text-text hover:bg-raised',
-        ouvert && variante === 'champ' && 'border-accent',
+        ouvert && variante === 'champ' && 'border-faint/60',
         className,
       )}
       {...marquesDeclencheur}
@@ -2618,7 +3162,7 @@ export function ListeDeroulante({
     >
       {icone ?? retenue?.icone ? <span className="flex shrink-0 items-center text-faint">{icone ?? retenue?.icone}</span> : null}
       {/* LE NOM S'AFFICHE EN ENTIER tant que la place le permet. */}
-      <span className={cn('min-w-0 flex-1 truncate', !retenue && 'text-faint')} style={retenue?.style}>
+      <span className={cn('min-w-0 flex-1 truncate', rienDeRetenu && 'text-faint')} style={retenue?.style}>
         {libelle}
       </span>
       <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-180')} aria-hidden />
@@ -2626,25 +3170,6 @@ export function ListeDeroulante({
   );
 
   const leDeclencheur = declencheur ? declencheur(ouvrir, libelle) : declencheurParDefaut;
-
-  if (telephone) {
-    return (
-      <>
-        {leDeclencheur}
-        <Drawer open={ouvert} onClose={fermer} empile={empile} className="max-h-[80dvh]">
-          <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-            <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
-            {actionTitre ? actionTitre(fermer) : null}
-          </header>
-          {recherche}
-          <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 px-2 pb-3">
-            {listbox}
-          </ZoneDefilement>
-          {pied ? <div className="shrink-0 px-3 pb-3 pt-1">{pied(fermer)}</div> : null}
-        </Drawer>
-      </>
-    );
-  }
 
   return (
     /* OUVERTE DANS UNE FENÊTRE, LA LISTE EST MODALE. Une fenêtre (Dialog Radix,
@@ -2668,7 +3193,7 @@ export function ListeDeroulante({
           data-liste-panneau={repere ?? ''}
           onOpenAutoFocus={(e) => {
             // Le focus va à la recherche (autoFocus) ou à la liste, jamais au premier bouton d'action.
-            if (!avecRecherche) {
+            if (!avecRecherche || telephone) {
               e.preventDefault();
               corpsListe.current?.focus();
             }
@@ -2681,23 +3206,45 @@ export function ListeDeroulante({
           onKeyDown={(e) => {
             if (e.key === 'Escape') e.stopPropagation();
           }}
-          style={{ minWidth: Math.max(220, ancre.current?.getBoundingClientRect().width ?? 0) }}
+          style={{ minWidth: Math.max(220, ancre.current?.getBoundingClientRect().width ?? 0), ...styleDeLaPoignee }}
           className={cn(
             'z-[80] flex max-h-[min(380px,var(--radix-popover-content-available-height))] max-w-[min(440px,calc(100vw-16px))] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
             'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
+            /* SUR TÉLÉPHONE : le panneau du bas, sur toute la largeur (son
+               enveloppe y est épinglée par `styles.css`), comme un menu. */
+            'max-sm:w-full max-sm:max-w-none max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.8)] max-sm:rounded-none max-sm:rounded-t-xl',
+            'max-sm:border-x-0 max-sm:border-b-0 max-sm:p-2 max-sm:pb-[calc(10px+env(safe-area-inset-bottom))]',
+            'max-sm:data-[state=open]:animate-slide-sheet max-sm:data-[state=closed]:animate-slide-sheet-out',
           )}
         >
-          {actionTitre ? (
+          {telephone ? (
+            <>
+              <VoileMenu panneau={panneau} />
+              <div
+                {...poignee}
+                data-liste-poignee
+                className="mb-1 flex shrink-0 cursor-grab touch-none justify-center py-1.5 active:cursor-grabbing"
+              >
+                <span className="h-1 w-10 rounded-full bg-muted" />
+              </div>
+            </>
+          ) : null}
+          {actionTitre || telephone ? (
             <header className="flex shrink-0 items-center gap-2 px-2 pb-1 pt-0.5">
-              <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-muted">{titre}</span>
-              {actionTitre(fermer)}
+              <span
+                className={cn('min-w-0 flex-1 truncate font-medium', telephone ? 'text-[14.5px] text-text' : 'text-[12px] text-muted')}
+                data-liste-titre
+              >
+                {titre}
+              </span>
+              {actionTitre ? actionTitre(fermer) : null}
             </header>
           ) : null}
           {recherche}
           <ZoneDefilement fond="hsl(var(--surface))" hauteur={24} className="min-h-0 overscroll-contain">
             {listbox}
           </ZoneDefilement>
-          {pied ? <div className="shrink-0 px-1 pb-0.5 pt-1">{pied(fermer)}</div> : null}
+          {pied ? <div className="shrink-0 px-1 pb-0.5 pt-1 max-sm:pt-2.5">{pied(fermer)}</div> : null}
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -2716,14 +3263,56 @@ export function SelecteurTiroir({
 }
 
 /**
- * LE BOUTON « ⋮ » ET SON TIROIR D'ACTIONS. Il porte un repère chiffré quand
+ * UN MENU S'OUVRE AU CLIC, PAS À L'APPUI.
+ *
+ * La bibliothèque ouvre un menu dès l'APPUI sur son bouton. Sur un petit bouton
+ * cela ne se voit pas ; sur un déclencheur large posé dans une zone qui défile
+ * (le bloc des réglages d'une carte, une ligne de configuration), poser le
+ * doigt pour faire défiler ouvrait le menu. On retient donc l'appui et on ouvre
+ * au clic : un défilement n'est pas un clic, et un contrôle qui clique sans
+ * pointeur ouvre le menu comme une main. Le clavier, lui, garde les gestes de
+ * la bibliothèque (Entrée, Espace, flèche bas).
+ *
+ * À étaler sur `DropdownMenuTrigger` d'un menu dont l'ouverture est TENUE par
+ * celui qui l'écrit (`open` / `onOpenChange`).
+ */
+export function ouvertureAuClic(ouvrir: () => void) {
+  return {
+    onPointerDown: (event: React.PointerEvent) => event.preventDefault(),
+    onClick: ouvrir,
+  };
+}
+
+/**
+ * RENDRE LA MAIN À L'ENTRÉE QUI A DÉPLIÉ UN SOUS-MENU, juste avant de le
+ * replier sur un choix. Le menu, lui, reste ouvert : sans ce geste le focus
+ * tomberait sur la page avec le sous-menu, et le clavier perdrait le menu. Le
+ * sous-menu nomme son entrée (`aria-labelledby`) : c'est par là qu'on la
+ * retrouve, depuis n'importe quel élément posé dedans.
+ */
+export function rendreLeFocusALEntreeDuSousMenu(dansLeSousMenu: Element | null) {
+  const entree = dansLeSousMenu?.closest('[role="menu"]')?.getAttribute('aria-labelledby');
+  if (entree) document.getElementById(entree)?.focus({ preventScroll: true });
+}
+
+/**
+ * LE BOUTON « ⋮ » ET SON MENU D'ACTIONS. Il porte un repère chiffré quand
  * quelque chose d'invisible est actif — un filtre, par exemple : on ne cherche
  * plus pourquoi une liste semble vide.
  *
+ * UN BOUTON D'OPTIONS OUVRE UN PETIT MENU SOUS LUI, JAMAIS UNE PAGE (demande du
+ * 11/10/2026). Le menu s'ancre au bouton (il devient de lui-même un panneau du
+ * bas sur téléphone, `DropdownMenuContent`), sa hauteur est bornée à l'écran et
+ * son contenu défile chez lui.
+ *
  * LES TROIS POINTS SONT VERTICAUX, ici comme partout ailleurs dans Beluga : un
- * menu d'actions se reconnaît au même dessin sur tous les écrans. Un tiroir qui
+ * menu d'actions se reconnaît au même dessin sur tous les écrans. Un menu qui
  * n'est PAS un menu d'actions — un filtre, un tri — passe son propre `icone` :
  * c'est la seule raison d'en changer.
+ *
+ * LE MENU NE SE REFERME PAS TOUT SEUL SUR UNE ACTION : c'est l'appelant qui le
+ * décide (`fermer`, reçu par `children`). Une bascule de filtre le laisse
+ * ouvert, « Archiver » le referme.
  */
 export function MenuActions({
   titre,
@@ -2743,35 +3332,72 @@ export function MenuActions({
   /**
    * CE QUI RÉCLAME UNE RÉPONSE. La pastille commune, en ORANGE (ton
    * « répondre »), en haut à droite : elle ne se confond pas avec le compte des
-   * réglages actifs, et ne se cache jamais dans le tiroir.
+   * réglages actifs, et ne se cache jamais dans le menu.
    */
   alerte?: number;
   /** L'icône du bouton — les trois points verticaux à défaut. */
   icone?: React.ReactNode;
-  /** Le contenu du tiroir : des `ActionTiroir`, des blocs, ce qu'on veut. */
+  /** Le contenu du menu : des `ActionTiroir`, des blocs, ce qu'on veut. */
   children: React.ReactNode | ((fermer: () => void) => React.ReactNode);
   className?: string;
+  /** Sans effet depuis que c'est un menu : il s'ancre à son bouton, il ne s'empile sur rien. */
   empile?: boolean;
   taille?: ButtonProps['size'];
 }) {
+  void empile;
   const [ouvert, setOuvert] = React.useState(false);
   const fermer = React.useCallback(() => setOuvert(false), []);
+
+  /*
+   * LE CLAVIER ATTEINT AUSSI CE QUI N'EST PAS UNE ENTRÉE. Un menu retient la
+   * touche de tabulation et ne fait circuler les flèches qu'entre ses entrées :
+   * le bloc « Historique » de la fiche d'une demande, qui se déplie DANS le
+   * menu, restait hors d'atteinte. La tabulation passe donc d'un bouton au
+   * suivant, entrées comprises, et les flèches sortent d'un bouton qui n'est
+   * pas une entrée.
+   */
+  const clavier = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const menu = event.currentTarget;
+    const cible = event.target as HTMLElement;
+    // Une touche frappée dans un sous-menu remonte jusqu'ici : elle n'est pas la nôtre.
+    if (cible.closest('[data-radix-menu-content]') !== menu) return;
+    const horsEntree = cible !== menu && !cible.matches('[role^="menuitem"]');
+    const pas =
+      event.key === 'Tab'
+        ? event.shiftKey
+          ? -1
+          : 1
+        : horsEntree && event.key === 'ArrowDown'
+          ? 1
+          : horsEntree && event.key === 'ArrowUp'
+            ? -1
+            : 0;
+    if (!pas) return;
+    const boutons = [...menu.querySelectorAll<HTMLElement>('button:not([disabled]), [role^="menuitem"]:not([data-disabled])')];
+    if (!boutons.length) return;
+    event.preventDefault();
+    const ici = boutons.indexOf(cible);
+    const suivant = ici < 0 ? (pas > 0 ? 0 : boutons.length - 1) : (ici + pas + boutons.length) % boutons.length;
+    boutons[suivant]?.focus();
+  };
+
   return (
-    <>
+    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
       <span className="relative inline-flex shrink-0">
-        <Button
-          variant="ghost"
-          size={taille}
-          onClick={() => setOuvert(true)}
-          title={titre}
-          aria-label={titre}
-          className={className}
-          data-menu-actions={repere}
-          data-actifs={actifs || undefined}
-          data-alerte={alerte || undefined}
-        >
-          {icone ?? <EllipsisVertical className="h-4 w-4" />}
-        </Button>
+        <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
+          <Button
+            variant="ghost"
+            size={taille}
+            title={titre}
+            aria-label={titre}
+            className={className}
+            data-menu-actions={repere}
+            data-actifs={actifs || undefined}
+            data-alerte={alerte || undefined}
+          >
+            {icone ?? <EllipsisVertical className="h-4 w-4" />}
+          </Button>
+        </DropdownMenuTrigger>
         <Pastille nombre={alerte ?? 0} ton="repondre" position="coin" data-alerte-repere={alerte} />
 
         {actifs ? (
@@ -2783,21 +3409,27 @@ export function MenuActions({
           </span>
         ) : null}
       </span>
-      <Drawer open={ouvert} onClose={fermer} empile={empile} className="max-h-[80dvh]">
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
-        </header>
-        <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 px-2 pb-3">
-          <div className="flex flex-col gap-1">
-            {typeof children === 'function' ? children(fermer) : children}
-          </div>
-        </ZoneDefilement>
-      </Drawer>
-    </>
+      <DropdownMenuContent
+        align="end"
+        collisionPadding={8}
+        onKeyDown={clavier}
+        data-menu-actions-contenu={repere}
+        /* Borné à la place réellement libre sous (ou sur) le bouton : un bloc
+           qui se déplie dedans fait défiler le menu, il ne le sort pas de
+           l'écran. Sur téléphone, le panneau du bas garde son propre plafond. */
+        className="min-w-[220px] sm:max-h-[min(560px,var(--radix-dropdown-menu-content-available-height))] sm:max-w-[min(340px,calc(100vw-16px))]"
+      >
+        <div className="flex flex-col gap-0.5">{typeof children === 'function' ? children(fermer) : children}</div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-/** Une ligne d'action dans un `MenuActions` — icône, libellé, état à droite. */
+/**
+ * Une entrée d'un `MenuActions` — icône, libellé, état à droite. Elle ne vit
+ * QUE dans un menu (`MenuActions`, `SousMenuTiroir`) : c'est une entrée de
+ * menu, que le clavier parcourt aux flèches.
+ */
 export function ActionTiroir({
   icone,
   children,
@@ -2806,6 +3438,7 @@ export function ActionTiroir({
   valeur,
   ton,
   className,
+  disabled,
   ...props
 }: {
   icone?: React.ReactNode;
@@ -2818,31 +3451,89 @@ export function ActionTiroir({
   ton?: 'danger';
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'children'>) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-[14px] transition-colors',
-        actif ? 'bg-raised text-text' : 'text-muted hover:bg-raised hover:text-text',
-        ton === 'danger' && 'text-danger hover:text-danger',
-        className,
-      )}
-      data-action-active={actif ? '' : undefined}
-      {...props}
+    <DropdownPrimitive.Item
+      asChild
+      disabled={disabled}
+      /* Le menu ne se referme pas de lui-même : l'appelant le décide (`fermer`). */
+      onSelect={(event) => event.preventDefault()}
     >
-      {icone ? <span className="shrink-0 text-faint">{icone}</span> : null}
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-      {valeur ? <span className="shrink-0 text-[12px] text-faint">{valeur}</span> : null}
-      {actif && !valeur ? <Check className="h-3.5 w-3.5 shrink-0 text-accent" /> : null}
-    </button>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={cn(
+          'flex min-w-0 cursor-pointer select-none items-center gap-2 rounded-md px-2 py-2 text-left text-[14px] outline-none transition-colors',
+          /* Le choix RETENU s'écrit en violet, sur son fond : aucun trait. */
+          actif
+            ? 'bg-raised text-teinte'
+            : 'text-muted hover:bg-raised hover:text-text data-[highlighted]:bg-raised data-[highlighted]:text-text',
+          ton === 'danger' && 'text-danger hover:text-danger data-[highlighted]:text-danger',
+          'disabled:cursor-not-allowed disabled:opacity-50',
+          className,
+        )}
+        data-action-active={actif ? '' : undefined}
+        /* Une entrée qui porte un état le dit à une machine ; sans état, elle
+           garde le rôle d'entrée que le menu lui donne. */
+        {...(actif === undefined ? {} : { role: 'menuitemcheckbox', 'aria-checked': actif })}
+        {...props}
+      >
+        {icone ? <span className="shrink-0 text-faint">{icone}</span> : null}
+        <span className="min-w-0 flex-1 truncate">{children}</span>
+        {valeur ? <span className="shrink-0 text-[12px] text-faint">{valeur}</span> : null}
+        {actif && !valeur ? <Check className="h-3.5 w-3.5 shrink-0 text-teinte" /> : null}
+      </button>
+    </DropdownPrimitive.Item>
   );
 }
 
-/** Un intertitre dans un tiroir d'actions : « Filtrer », « Trier », « Ouvrir ». */
+/**
+ * UNE ENTRÉE QUI DÉPLIE SA LISTE DE CHOIX EN SOUS-MENU — le filtre
+ * « Étiquette » d'une colonne. Elle montre ce qu'elle vaut à droite, comme une
+ * `ActionTiroir`, et pose ses choix (des `ActionTiroir`) dans un sous-menu
+ * borné qui défile. `children` reçoit `replier` : un choix replie le sous-menu
+ * et laisse le menu ouvert, avec sa valeur à jour.
+ */
+export function SousMenuTiroir({
+  icone,
+  titre,
+  valeur,
+  children,
+  ...props
+}: {
+  icone?: React.ReactNode;
+  titre: string;
+  valeur?: string;
+  children: React.ReactNode | ((replier: () => void) => React.ReactNode);
+} & Record<`data-${string}`, string | number | boolean | undefined>) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const liste = React.useRef<HTMLDivElement | null>(null);
+  const replier = () => {
+    rendreLeFocusALEntreeDuSousMenu(liste.current);
+    setOuvert(false);
+  };
+  return (
+    <DropdownMenuSub open={ouvert} onOpenChange={setOuvert}>
+      <DropdownMenuSubTrigger className="min-w-0 rounded-md py-2" {...props}>
+        {icone ? <span className="shrink-0 text-faint">{icone}</span> : null}
+        <span className="min-w-0 flex-1 truncate">{titre}</span>
+        {valeur ? <span className="max-w-[55%] shrink-0 truncate text-[12px] text-faint">{valeur}</span> : null}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <div ref={liste} className="flex flex-col gap-0.5">
+          {typeof children === 'function' ? children(replier) : children}
+        </div>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
+/** Un intertitre dans un menu d'actions : « Filtrer », « Trier », « Ouvrir ». */
 export function GroupeTiroir({ titre, children }: { titre: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5" data-groupe-tiroir={titre}>
-      <span className="px-2 pt-2 text-[11px] uppercase tracking-wide text-faint">{titre}</span>
+    <div role="group" aria-label={titre} className="flex flex-col gap-0.5" data-groupe-tiroir={titre}>
+      <span aria-hidden className="px-2 pt-2 text-[11px] uppercase tracking-wide text-faint">
+        {titre}
+      </span>
       {children}
     </div>
   );

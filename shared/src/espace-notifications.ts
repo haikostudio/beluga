@@ -25,6 +25,7 @@
 import { z } from 'zod';
 import { FRAGMENT_DE_DISCUSSION, construireFragmentDeDemande } from './adresse-navigateur.js';
 import type { ColumnKey } from './columns.js';
+import { nomCourtDeLInstallation } from './installation.js';
 import { colonneClose, type ColonneDemande } from './espace-client.js';
 
 /* ------------------------------------------------------------------ */
@@ -358,7 +359,7 @@ export function clocheDuClientVueParHaiko(entrees: EntreesDeLaClocheDuClient): {
       cible: 'demande',
       motif: etape.etape === 'en-ligne' ? 'espace-en-ligne' : 'espace-avancement',
       evenement: etape.etape as EtapeCarteLiee,
-      auteur: 'Haiko',
+      auteur: nomCourtDeLInstallation(),
       demandeTitre: etape.titre,
       detail: etape.etape,
       fois: 1,

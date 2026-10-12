@@ -3,20 +3,15 @@ import {
   AlertCircle,
   BatteryLow,
   Check,
-  ChevronRight,
   Circle,
   Copy,
   CornerDownRight,
   Download,
   FileText,
   GitMerge,
-  History,
-  LayoutGrid,
   Loader2,
-  Paperclip,
   Play,
   RotateCcw,
-  Route,
   Square,
   Volume2,
   X,
@@ -59,13 +54,14 @@ import { Markdown } from '@/lib/markdown';
 import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
-import { BulleQuestion, PiecesJointes } from '@/components/bulle-question';
+import { BulleQuestion, PiecesJointes, cleDeBrouillonDeReponse } from '@/components/bulle-question';
 import { EncadresDeCompetences } from '@/components/encadre-competence';
 import { SAISIE_EN_TEXTE } from '@/lib/saisie-de-question';
 import { Steps } from '@/components/steps';
 import { CapturesDuFlux } from '@/components/captures-du-flux';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
+import { LienPromptEnvoye } from '@/components/prompt-envoye-complet';
 import { RunChoix, RunSelectors, nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { pieceEmbarquee } from '@/lib/copie-riche';
@@ -203,7 +199,6 @@ export function MessageView({
   message,
   allMessages,
   projectId,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   onEcrireDansLeChamp,
@@ -216,7 +211,6 @@ export function MessageView({
   allMessages: Message[];
   /** Pour déplier la mémoire du projet sous l'étape de lecture. */
   projectId?: string;
-  pickedEvolutions: string[];
   onToggleEvolution: (text: string) => void;
   onToggleAll: (items: string[]) => void;
   /** L'agent est-il encore au travail sur CE message ? Une étape « en cours »
@@ -258,7 +252,7 @@ export function MessageView({
   if (isUser && estLeMessageDeSynthese(message.id)) {
     return (
       <div className="w-[min(92%,860px)] min-w-0 max-w-full">
-        <div className="rounded-lg border border-faint bg-raised px-3 py-2">
+        <div className="rounded-lg border border-transparent bg-raised px-3 py-2">
           <div className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
             <FileText className="h-3.5 w-3.5" />
             <span>{t(TITRE_SYNTHESE)}</span>
@@ -286,7 +280,7 @@ export function MessageView({
       <>
         <div className="flex justify-end">
           <div className="w-[min(78%,520px)] min-w-0 max-w-full">
-            <div className="overflow-hidden rounded-lg rounded-br-sm border border-border bg-raised px-3 py-2">
+            <div className="overflow-hidden rounded-lg rounded-br-sm bg-raised px-3 py-2">
               {/*
                * Une adresse ou un chemin sans espace ne doit JAMAIS élargir la
                * bulle : elle pousserait la conversation vers la droite, et la
@@ -312,6 +306,9 @@ export function MessageView({
             />
           </div>
         </div>
+        {/* LE TEXTE ENTIER du prompt ne dépend pas du fil des recherches :
+            sur une carte celui-ci est masqué, le lien reste. */}
+        {message.sentContext ? <LienPromptEnvoye contexte={message.sentContext} /> : null}
         {message.sentContext && !filAgentMasque ? (
           <BullesDuPromptEnvoye contexte={message.sentContext} demandeDejaAffichee />
         ) : null}
@@ -345,6 +342,7 @@ export function MessageView({
       {/* UN TOUR LANCÉ PAR UN BOUTON N'A PAS DE BULLE DE DEMANDE : son contexte
           est porté par cette réponse. Son fil de recherche se pose donc ici,
           au-dessus de la réponse et du déroulé. */}
+      {message.sentContext ? <LienPromptEnvoye contexte={message.sentContext} /> : null}
       {message.sentContext && !filAgentMasque ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
       <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
         <Steps steps={etapes} streaming={message.streaming} projectId={projectId} agentAuTravail={agentAuTravail} />
@@ -358,7 +356,6 @@ export function MessageView({
             <PlanRapport
               contenu={contenuSansStructure}
               courant
-              pickedEvolutions={pickedEvolutions}
               onToggleEvolution={onToggleEvolution}
               onToggleAll={onToggleAll}
               streaming={message.streaming}
@@ -370,7 +367,6 @@ export function MessageView({
                ordinaire (`RapportEnFlux`). */
             <RapportEnFlux
               contenu={contenuSansStructure}
-              pickedEvolutions={pickedEvolutions}
               onToggleEvolution={onToggleEvolution}
               onToggleAll={onToggleAll}
               streaming={message.streaming}
@@ -737,6 +733,7 @@ export function QuestionCard({
       /* UNE QUESTION À CHOIX PUR N'EST PAS RÉPONDUE PAR LA BARRE : ce qu'on y
          écrit reste une demande de plus, et le choix coché reste dans la bulle. */
       cleDeSaisie={question.allowFreeText ? question.id : undefined}
+      cleDeBrouillon={cleDeBrouillonDeReponse.outil(question.id)}
       onRepondre={async (reponse, attachments) => {
         try {
           await client.call({
@@ -821,6 +818,7 @@ export function QuestionEnTexteCard({
         /* Voir `QuestionCard` : le panneau de décision porte déjà son cadre. */
         variante={sansEntete ? 'contraste' : 'attention'}
         cleDeSaisie={`${SAISIE_EN_TEXTE}${messageId}`}
+        cleDeBrouillon={cleDeBrouillonDeReponse.texte(messageId)}
         entete={
           sansEntete ? undefined : (
             <p className="flex items-start gap-1.5 text-[14.5px] leading-relaxed text-text">
@@ -972,7 +970,7 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
 
   return (
     <div
-      className="mt-2 rounded-md border border-warning/40 bg-warning/5 px-2.5 py-2"
+      className="mt-2 rounded-md border border-transparent bg-warning/5 px-2.5 py-2"
       data-reprise-compte="attente"
     >
       <p className="flex items-start gap-1.5 text-[14.5px] font-medium leading-relaxed text-text">
@@ -1014,7 +1012,7 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
                 disabled={busy}
                 data-compte-reprise={compte.id}
                 onClick={() => void reprendre(compte.id)}
-                className="flex w-full items-center gap-2 rounded-md border border-border bg-transparent px-2 py-1.5 text-left text-muted transition-colors hover:bg-raised disabled:opacity-60"
+                className="flex w-full items-center gap-2 rounded-lg border border-transparent bg-surface px-2 py-1.5 text-left text-muted transition-colors hover:bg-raised disabled:opacity-60"
               >
                 {busy ? (
                   <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
@@ -1079,7 +1077,7 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
        */}
       <div className="mt-2 flex justify-end">
         <Button
-          variant={possible ? 'ghost' : 'outline'}
+          variant={possible ? 'ghost' : 'arret'}
           size="sm"
           disabled={busy}
           title={t('Fermer sans reprendre le travail')}
@@ -1088,7 +1086,7 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
           className={cn(
             possible
               ? 'text-faint hover:text-danger'
-              : 'w-full justify-center border-danger/40 text-danger hover:bg-danger/10 hover:text-danger',
+              : 'w-full justify-center',
           )}
         >
           <X className="h-3 w-3" />
@@ -1251,7 +1249,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
           event.preventDefault();
           if (proposal.cardId) client.openCard(proposal.cardId);
         }}
-        className="w-full cursor-pointer rounded-md border border-success/40 bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised"
+        className="w-full cursor-pointer rounded-md border border-transparent bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised"
       >
         <div className="mb-1.5 flex items-center gap-1.5 text-[12.5px] text-success">
           <Check className="h-3 w-3" />
@@ -1280,7 +1278,7 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
 
   if (proposal.decision === 'merged') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-accent/30 bg-surface/60 px-3 py-2 text-[14.5px] text-muted">
+      <div className="flex items-center gap-2 rounded-md border border-transparent bg-surface/60 px-3 py-2 text-[14.5px] text-muted">
         <GitMerge className="h-3 w-3 shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate">{proposal.title}</span>
         <span className="text-[12.5px]">{t('réunie dans une autre proposition')}</span>

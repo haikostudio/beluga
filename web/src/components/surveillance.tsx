@@ -1,5 +1,6 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { Activity, Check, CheckCircle2, ChevronDown, ExternalLink, Loader2, Plus, RefreshCw, Send, Sparkles, Trash2 } from 'lucide-react';
+import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Eye, Loader2, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
 import {
   type Agent,
   type CaseDeFrise,
@@ -26,6 +27,9 @@ import {
   Button,
   ConfirmDialog,
   DialogTitle,
+  TitreDePage,
+  CLASSE_GROUPE_DE_LIGNES,
+  CLASSE_LIGNE_DE_GROUPE,
   Drawer,
   SelecteurTiroir,
   Textarea,
@@ -33,6 +37,9 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { SilhouetteSurveillance } from '@/components/silhouettes';
+import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
+import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
@@ -90,6 +97,11 @@ export function Surveillance({
   const [aSupprimer, setASupprimer] = React.useState<SiteSurveille | null>(null);
   /** Le tiroir ouvert : une surveillance, ou « nouvelle ». */
   const [tiroir, setTiroir] = React.useState<{ siteId: string } | { nouvelle: true } | null>(null);
+  useTiroirAdresse(
+    'nouveau-site-surveillance',
+    tiroir !== null && 'nouvelle' in tiroir,
+    (ouvert) => setTiroir((avant) => (ouvert ? { nouvelle: true } : avant && 'nouvelle' in avant ? null : avant)),
+  );
 
   // La liste vit dans le magasin, mais le serveur ne la rediffuse qu'aux
   // changements : à l'ouverture, on la redemande une fois.
@@ -120,6 +132,14 @@ export function Surveillance({
 
   const enPanne = sites.filter((site) => site.etat === 'panne');
   const apaise = apaisement(sites, Date.now());
+  /* LA COLONNE DE GAUCHE EST CELLE DE LA SURVEILLANCE (demande du 12/10/2026) :
+     le geste qui crée, détaché, le classement par état et « Vérifier
+     maintenant ». Sur téléphone, ces gestes restent dans la page. */
+  const dansLaColonne = useColonneDeService();
+  const [etatRetenu, setEtatRetenu] = React.useState<'tous' | 'panne' | 'a-surveiller'>('tous');
+  const aSurveillerListe = sites.filter((site) => site.etat !== 'panne' && aSurveiller(site));
+  const sitesAffiches =
+    etatRetenu === 'panne' ? enPanne : etatRetenu === 'a-surveiller' ? aSurveillerListe : sites;
 
   const verifier = async () => {
     setVerifEnCours(true);
@@ -144,30 +164,83 @@ export function Surveillance({
   return (
     <>
       <Drawer open={open} onClose={onClose} enPage={enPage}>
-        <header className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2">
-          <Activity className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Surveillance')}</DialogTitle>
-          <Button
-            variant="subtle"
-            size="sm"
-            data-surveillance-verifier
-            disabled={verifEnCours || !sites.length}
-            onClick={() => void verifier()}
-          >
-            {verifEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            {t('Vérifier maintenant')}
-          </Button>
-          <Button variant="subtle" size="sm" data-surveillance-nouvelle onClick={() => setTiroir({ nouvelle: true })}>
-            <Plus className="h-3 w-3" />
-            {t('Nouvelle surveillance')}
-          </Button>
-        </header>
+        <TitreDePage>{t('Surveillance')}</TitreDePage>
+        {dansLaColonne ? null : (
+          <>
+          {/* SUR TÉLÉPHONE : « Vérifier maintenant » est une ligne du menu à trois
+              points (qui tourne pendant la vérification), « Nouvelle
+              surveillance » le bouton du bas de l'écran. */}
+          <OptionsDePage enCours={verifEnCours}>
+            <OptionDePage
+              data-surveillance-verifier
+              disabled={verifEnCours || !sites.length}
+              onClick={() => void verifier()}
+              icone={verifEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            >
+              {t('Vérifier maintenant')}
+            </OptionDePage>
+          </OptionsDePage>
+          <GestePrincipal>
+            <BoutonPrincipal data-surveillance-nouvelle onClick={() => setTiroir({ nouvelle: true })}>
+              <Plus className="h-3 w-3" />
+              {t('Nouvelle surveillance')}
+            </BoutonPrincipal>
+          </GestePrincipal>
+          </>
+        )}
+        <ColonneDeService>
+          <nav aria-label="Rubriques de la surveillance" data-colonne-surveillance className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+            <GesteDeCreationDeColonne
+              libelle={t('Nouvelle surveillance')}
+              aria-label="Nouvelle surveillance"
+              data-surveillance-nouvelle
+              onClick={() => setTiroir({ nouvelle: true })}
+            />
+            <RubriqueDeColonne
+              icone={<Activity />}
+              libelle={t('Toutes les surveillances')}
+              compte={sites.length}
+              actif={etatRetenu === 'tous'}
+              onClick={() => setEtatRetenu('tous')}
+              data-surveillance-rubrique="tous"
+            />
+            {enPanne.length || etatRetenu === 'panne' ? (
+              <RubriqueDeColonne
+                icone={<AlertTriangle />}
+                libelle={t('En panne')}
+                compte={enPanne.length}
+                actif={etatRetenu === 'panne'}
+                onClick={() => setEtatRetenu('panne')}
+                data-surveillance-rubrique="panne"
+              />
+            ) : null}
+            {aSurveillerListe.length || etatRetenu === 'a-surveiller' ? (
+              <RubriqueDeColonne
+                icone={<Eye />}
+                libelle={t('À surveiller')}
+                compte={aSurveillerListe.length}
+                actif={etatRetenu === 'a-surveiller'}
+                onClick={() => setEtatRetenu('a-surveiller')}
+                data-surveillance-rubrique="a-surveiller"
+              />
+            ) : null}
+            <p className={CLASSE_SECTION_DE_SERVICE}>{t('Actions')}</p>
+            <RubriqueDeColonne
+              icone={<RefreshCw />}
+              libelle={t('Vérifier maintenant')}
+              enCours={verifEnCours}
+              disabled={verifEnCours || !sites.length}
+              onClick={() => void verifier()}
+              data-surveillance-verifier
+            />
+          </nav>
+        </ColonneDeService>
 
         {/* Le bandeau : ce qui est tombé, ou l'apaisement. Jamais les deux. */}
         {enPanne.length ? (
           <div
             data-surveillance-bandeau="panne"
-            className="mx-3 mb-2 shrink-0 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-2 text-[12.5px] text-danger"
+            className="mb-4 shrink-0 rounded-xl bg-danger/10 px-4 py-3 text-[14px] text-danger"
           >
             {enPanne.length > 1
               ? t('{n} sites ne répondent plus.', { n: enPanne.length })
@@ -176,14 +249,14 @@ export function Surveillance({
         ) : apaise ? (
           <div
             data-surveillance-bandeau="apaise"
-            className="mx-3 mb-2 flex shrink-0 items-center gap-1.5 rounded-md border border-success/30 bg-success/10 px-2.5 py-2 text-[12.5px] text-success"
+            className="mb-4 flex shrink-0 items-center gap-2 px-1 text-[14px] text-muted"
           >
             <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
             {t('Tout est revenu en ligne.')}
           </div>
         ) : null}
 
-        <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
+        <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
           {!state.surveillanceRecue ? (
             /* RIEN N'EST ENCORE ARRIVÉ : la liste est vide parce qu'on ne la
                connaît pas, pas parce qu'aucune adresse n'est surveillée. */
@@ -192,9 +265,11 @@ export function Surveillance({
             <p className="px-1 py-3 text-[12.5px] text-faint">
               {t('Aucune surveillance pour l’instant. Créez-en une avec l’agent.')}
             </p>
+          ) : !sitesAffiches.length ? (
+            <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucune surveillance dans cette rubrique.')}</p>
           ) : (
-            <div className="flex flex-col gap-1">
-              {sites.map((site) => (
+            <div className={CLASSE_GROUPE_DE_LIGNES}>
+              {sitesAffiches.map((site) => (
                 <LigneSite
                   key={site.id}
                   site={site}
@@ -287,11 +362,11 @@ function LigneSite({
           onOuvrir();
         }
       }}
-      className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-border bg-bloc px-2.5 py-2 text-left hover:bg-surface"
+      className={cn('flex w-full cursor-pointer items-center gap-2', CLASSE_LIGNE_DE_GROUPE)}
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{site.nom}</span>
+          <span className="min-w-0 flex-1 truncate text-[14.5px] text-text">{site.nom}</span>
           <BadgeEtat site={site} />
         </span>
         <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-faint">
@@ -376,14 +451,14 @@ function TiroirSurveillance({
    */
   const teteFixe = (
     <div className={cn('flex shrink-0 flex-col', site && 'border-b border-faint/30')} data-surveillance-tete-fixe="">
-      <header className="flex items-center gap-2 px-3 pb-2">
-        {site ? <Activity className="h-3.5 w-3.5 shrink-0 text-accent" /> : <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />}
-        <DialogTitle className="min-w-0 flex-1 truncate">{site ? site.nom : t('Nouvelle surveillance')}</DialogTitle>
-        {site ? <BadgeEtat site={site} /> : null}
-      </header>
+      {/* LE NOM DU SITE EST LE DERNIER CRAN DU FIL D'ARIANE — « Services ›
+          Surveillance › InVia » : il monte dans la barre d'en-tête de la page,
+          et son état comme ses gestes s'y posent à droite (`EnTeteDuSite`).
+          Plus de second en-tête sous la barre. */}
+      <DialogTitle className="min-w-0 truncate px-3 pb-2">{site ? site.nom : t('Nouvelle surveillance')}</DialogTitle>
       {site ? (
         <div className="flex flex-col gap-2 px-3 pb-3" data-surveillance-infos="">
-          <EnTeteDuSite site={site} onSupprimer={() => onSupprimer(site)} />
+          <EnTeteDuSite site={site} etat={<BadgeEtat site={site} />} onSupprimer={() => onSupprimer(site)} />
           <FriseDuSite historique={historique} />
         </div>
       ) : null}
@@ -481,7 +556,7 @@ function useHistoriqueDuSite(site: SiteSurveille | null): HistoriqueDuSite {
  * recette, étape en échec, « Vérifier maintenant » (toute la largeur), la
  * corbeille seule tout à droite, puis le projet du site.
  */
-function EnTeteDuSite({ site, onSupprimer }: { site: SiteSurveille; onSupprimer: () => void }) {
+function EnTeteDuSite({ site, etat, onSupprimer }: { site: SiteSurveille; etat?: React.ReactNode; onSupprimer: () => void }) {
   const [verifEnCours, setVerifEnCours] = React.useState(false);
   const recette = site.recette;
 
@@ -516,15 +591,24 @@ function EnTeteDuSite({ site, onSupprimer }: { site: SiteSurveille; onSupprimer:
           {t('Étape en échec : {etape}', { etape: site.etapeEchouee })}
         </p>
       ) : null}
-      <div className="flex items-center gap-1.5" data-surveillance-gestes="">
-        <Button variant="subtle" size="sm" className="min-w-0 flex-1" disabled={verifEnCours} onClick={() => void verifier()} data-surveillance-verifier-site>
-          {verifEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+      {/* L'ÉTAT ET LES GESTES DU SITE, en haut à droite de la barre d'en-tête.
+          Sur téléphone, l'état y reste et les deux gestes sont les lignes du
+          menu à trois points — plus de rangée en tête de la fiche. */}
+      {etat ? <GestesDePage className="pb-0">{etat}</GestesDePage> : null}
+      <OptionsDePage enCours={verifEnCours}>
+        <OptionDePage
+          className="min-w-0"
+          disabled={verifEnCours}
+          onClick={() => void verifier()}
+          data-surveillance-verifier-site
+          icone={verifEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        >
           {t('Vérifier maintenant')}
-        </Button>
-        <Button variant="ghost" size="icon" className="shrink-0" title={t('Retirer')} aria-label="Retirer" onClick={onSupprimer} data-surveillance-retirer-site>
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+        </OptionDePage>
+        <OptionDePage compact icone={<Trash2 className="h-3.5 w-3.5" />} title={t('Retirer')} aria-label="Retirer" onClick={onSupprimer} data-surveillance-retirer-site>
+          {t('Retirer')}
+        </OptionDePage>
+      </OptionsDePage>
 
       <ProjetDuSite site={site} />
     </>

@@ -59,8 +59,21 @@ export function MenuCarte({
   onOpenChange,
   apresSuppression,
   agentActif,
+  enTete,
+  sansNonLu = false,
+  declencheur,
 }: {
   card: Card;
+  /**
+   * « MARQUER COMME NON LU » EST DÉJÀ DANS LA COLONNE DE GAUCHE (la page d'une
+   * tâche, sur ordinateur) : le menu ne garde alors que les déplacements et la
+   * suppression.
+   */
+  sansNonLu?: boolean;
+  /** Des entrées posées EN TÊTE du menu (les onglets de la page d'une carte). */
+  enTete?: React.ReactNode;
+  /** Le bouton qui ouvre le menu, quand ce n'est pas celui d'origine. */
+  declencheur?: React.ReactElement;
   /** « bouton » : les trois points se voient. « invisible » : ouverture au geste. */
   ancrage?: 'bouton' | 'invisible';
   open?: boolean;
@@ -169,7 +182,9 @@ export function MenuCarte({
     <>
       <DropdownMenu open={open} onOpenChange={changerOuverture}>
         <DropdownMenuTrigger asChild>
-          {ancrage === 'bouton' ? (
+          {declencheur ? (
+            declencheur
+          ) : ancrage === 'bouton' ? (
             <Button size="sm" variant="ghost" className="-mr-1 shrink-0 px-2" aria-label="Autres actions">
               <EllipsisVertical className="h-4 w-4" />
             </Button>
@@ -195,6 +210,7 @@ export function MenuCarte({
             if (boutonDroit || Date.now() - ouvertA.current < 600) event.preventDefault();
           }}
         >
+          {enTete}
           {avance.possible ? (
             <DropdownMenuItem
               data-menu-etape-suivante=""
@@ -215,7 +231,7 @@ export function MenuCarte({
             </DropdownMenuItem>
           ) : null}
 
-          {nonLuPossible ? (
+          {nonLuPossible && !sansNonLu ? (
             <DropdownMenuItem
               data-menu-non-lu={card.id}
               onSelect={() => client.send({ type: 'card.unread', cardId: card.id })}

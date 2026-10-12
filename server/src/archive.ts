@@ -88,6 +88,26 @@ export async function archiveCard(cardId: string): Promise<{ ok: boolean; error?
 }
 
 /**
+ * RATTRAPAGE DES CARTES EN LIGNE RESTÉES DANS « À DÉPLOYER ». Les tableaux de
+ * projet archivent une carte à sa mise en ligne (`deploy.ts`) ; une règle
+ * retirée l'a empêché pendant quelques heures et ces cartes y sont restées.
+ * Repris au démarrage, par le chemin normal (`archiveCard` : branche refermée,
+ * date d'archivage) ; la livraison déjà notée ne se double pas
+ * (`appendHistory` déduplique). Idempotent : une fois rangées, plus rien ne
+ * correspond. Une carte dont l'agent parle encore attend le prochain passage.
+ */
+export async function archiverLesCartesEnLigneRestees(): Promise<number> {
+  let rangees = 0;
+  for (const id of store.idsDesCartesEnLigneRestees()) {
+    const bilan = await archiveCard(id);
+    if (bilan.ok) rangees += 1;
+    else log.warn(`carte en ligne restée en « À déployer » (${id}) : ${bilan.error ?? 'raison inconnue'}`);
+  }
+  if (rangees) log.info(`${rangees} carte(s) déjà en ligne rangée(s) dans « Archivé »`);
+  return rangees;
+}
+
+/**
  * ÉCRIRE LA LIVRAISON DÈS QU'ELLE EST RÉELLE. La publication l'appelle avant
  * la vitrine liée, puis l'archivage la rappelle après avoir rangé la carte.
  * `appendHistory` déduplique la ligne exacte : le journal est donc disponible

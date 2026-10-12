@@ -99,6 +99,22 @@ export const BLOC_DES_TACHES: PartieDePlan = {
  * plan enregistré avant lui reste conforme. Ses intitulés sont précis exprès :
  * une tâche en gras nommée « Décisions de design » ne doit pas l'ouvrir.
  */
+/**
+ * LE BLOC « CAHIER DES CHARGES » — posé après l'ouverture « En clair », avant
+ * la liste des tâches (demande du 12/10/2026 : « le mode plan doit fonctionner
+ * comme l'édition d'un cahier des charges »). Il dit, rubrique par rubrique,
+ * ce qui est attendu : contexte et objectifs, pour qui, périmètre, fonctions,
+ * règles, critères de réussite. Comme les tâches, ce n'est PAS une des quatre
+ * parties : un plan rendu avant lui reste conforme.
+ */
+export const BLOC_DU_CAHIER: PartieDePlan = {
+  nom: 'Cahier des charges',
+  intitules: ['cahier des charges'],
+};
+
+/** Le nombre minimal de rubriques d'un cahier des charges rendu avec le plan. */
+export const RUBRIQUES_MINIMUM_DU_CAHIER = 4;
+
 export const BLOC_DES_DECISIONS: PartieDePlan = {
   nom: 'Décisions des itérations',
   intitules: ['decisions des iterations', 'decisions des versions', 'decisions prises au fil des iterations'],

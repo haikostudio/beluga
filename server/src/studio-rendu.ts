@@ -17,6 +17,7 @@ import {
   extensionDExport,
   facteurDeDureeDeRendu,
   fichierAvecSon,
+  exportEnDouble,
   lireReglagesExport,
   mediasDeLaComposition,
   nomDExport,
@@ -28,6 +29,7 @@ import { CONFIG } from './config.js';
 import { lancerCommandeBornee } from './commande-bornee.js';
 import { dansLaFileLourde } from './studio-file.js';
 import { joindreUnFichier } from './joindre-fichier.js';
+import { validerCreationEnModele } from './studio-modeles.js';
 import {
   assurerEspaceStudio,
   compositionCourante,
@@ -272,9 +274,28 @@ export async function lireFichierVideo(fichier: string): Promise<{ duree: number
 }
 
 /**
+ * LE MODÈLE SUIT L'EXPORT VIDÉO : lancer l'export d'une vidéo la garde comme modèle du projet (le MÊME modèle mis
+ * à jour à chaque fois, `validerCreationEnModele` est idempotent par création). L'export d'une image n'y touche
+ * pas. Rien ici ne fait échouer l'export : une création vide ou une erreur se note, c'est tout.
+ */
+export function garderLeModeleAvecLExport(creationId: string, genre: 'video' | 'image'): boolean {
+  if (genre !== 'video') return false;
+  try {
+    const r = validerCreationEnModele(creationId);
+    if (!r.ok) log.warn('studio : modèle non enregistré avec l’export', r.raison);
+    return r.ok;
+  } catch (err) {
+    log.warn('studio : modèle non enregistré avec l’export', err);
+    return false;
+  }
+}
+
+/**
  * LANCER UN EXPORT. Rend la main aussitôt : la fabrication attend son tour
  * dans la file lourde. Les voix encore en essai ne l'empêchent pas — l'écran
- * l'a dit avant le clic, et l'export garde ce nombre.
+ * l'a dit avant le clic, et l'export garde ce nombre. Une vidéo lancée devient
+ * le modèle du projet (`garderLeModeleAvecLExport`), quel que soit l'appelant
+ * (écran, agent, voix finale posée).
  */
 export function lancerExport(
   creationId: string,
@@ -290,7 +311,12 @@ export function lancerExport(
   if (!outilsDeRendu().hyperframes) return { ok: false, raison: 'le moteur de rendu (HyperFrames) n’est pas installé sur ce serveur' };
   // Des réglages impossibles (4K en Portrait, son d'un GIF…) sont corrigés ici, jamais passés au moteur.
   const reglages = lireReglagesExport(reglagesDemandes, format);
+  // LA MÊME VIDÉO DÉJÀ EN FILE OU EN COURS n'est jamais remise derrière elle (un second clic sur « Exporter » le faisait).
+  if (exportEnDouble(listerExports(creationId), { genre, format, version: creation.version, reglages })) {
+    return { ok: false, raison: 'cette vidéo est déjà en file ou en cours d’export : suivez-la dans « Fichiers à télécharger », ou annulez-la avant d’en relancer une' };
+  }
   const e = creerExport({ creation, format, genre, voixEnEssai: voixPasFinales(composition).length, reglages, ...(lot ? { lot } : {}) });
+  garderLeModeleAvecLExport(creationId, genre);
   const arret = new AbortController();
   arrets.set(e.id, arret);
   void dansLaFileLourde(() => fabriquer(e.id, creation, composition, format, genre, arret.signal, instant, reglages))

@@ -6,12 +6,20 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  Eye,
   Image as ImageIcon,
   Paperclip,
   Search,
   X,
 } from 'lucide-react';
-import { Attachment, FileNode, etiquetteDePiece } from '@beluga/shared';
+import {
+  Attachment,
+  FileNode,
+  capturesDuFlux,
+  capturesPasEncoreVues,
+  clesAMarquerVues,
+  etiquetteDePiece,
+} from '@beluga/shared';
 import {
   Badge,
   Button,
@@ -26,8 +34,10 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { CommandesDesVues, RienDeNouveau } from '@/components/commandes-des-vues';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
 import { client } from '@/lib/client';
+import { useImagesVues } from '@/lib/use-images-vues';
 import { useApp } from '@/lib/use-app';
 import { bytes, cn, relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -234,20 +244,26 @@ function FilePreview({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContentLibre className="sm:w-[min(860px,100%)]">
-        <DialogHeader className="flex items-center gap-2 pb-3">
-          <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{preview.path}</DialogTitle>
-          {/* La bascule n'apparaît que pour un Markdown : ailleurs, elle ne
-              changerait rien. */}
-          {data.kind === 'text' && markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
-          {/* Le fichier se récupère tel quel, sans passer par une archive. */}
-          <Tooltip label={t('Télécharger')}>
-            <Button variant="ghost" size="icon-sm" asChild>
-              <a href={href} download data-enregistrer-direct>
-                <Download className="h-3 w-3" />
-              </a>
-            </Button>
-          </Tooltip>
+      <DialogContentLibre adresse="apercu-fichier" className="sm:w-[min(860px,100%)]">
+        <DialogHeader
+          className="pb-3"
+          droite={
+            <>
+              {/* La bascule n'apparaît que pour un Markdown : ailleurs, elle ne
+                  changerait rien. */}
+              {data.kind === 'text' && markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
+              {/* Le fichier se récupère tel quel, sans passer par une archive. */}
+              <Tooltip label={t('Télécharger')}>
+                <Button variant="ghost" size="icon-sm" asChild>
+                  <a href={href} download data-enregistrer-direct>
+                    <Download className="h-3 w-3" />
+                  </a>
+                </Button>
+              </Tooltip>
+            </>
+          }
+        >
+          <DialogTitle className="min-w-0 truncate text-[14.5px]">{preview.path}</DialogTitle>
         </DialogHeader>
         <ZoneDefilement
           fond="hsl(var(--raised))"
@@ -285,10 +301,45 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
   const state = useApp();
   const items = state.attachments[projectId] ?? [];
   const [zoom, setZoom] = React.useState<Attachment | null>(null);
+  const [filtre, setFiltre] = React.useState(false);
 
   React.useEffect(() => {
     client.send({ type: 'attachments.list', projectId });
   }, [projectId]);
+
+  /*
+   * L'ŒIL « DÉJÀ VUE » — le même qu'en pied de flux (`useImagesVues`). Chaque
+   * image du projet porte son œil une fois ouverte en grand ; mais le filtre
+   * et le bouton « tout marquer comme vu » ne comptent QUE les images de
+   * l'agent (`deLAgent`) : ce que l'utilisateur a lui-même déposé n'est pas à
+   * « voir ». L'ouverture, ou le feuilletage, marque comme dans la bande.
+   */
+  const images = React.useMemo(() => items.filter((p) => p.mime.startsWith('image/')), [items]);
+  const captures = React.useMemo(() => capturesDuFlux([], images), [images]);
+  const captureDe = React.useMemo(
+    () => new Map(captures.flatMap((c) => (c.genre === 'jointe' ? [[c.id, c] as const] : []))),
+    [captures],
+  );
+  const vues = useImagesVues(captures);
+  const deLAgent = React.useMemo(() => {
+    const idsDeLAgent = new Set(images.filter((p) => p.deLAgent).map((p) => p.id));
+    return captures.filter((c) => c.genre === 'jointe' && idsDeLAgent.has(c.id));
+  }, [captures, images]);
+  const nonVues = React.useMemo(() => capturesPasEncoreVues(deLAgent, vues.vues), [deLAgent, vues.vues]);
+  const ouvrir = React.useCallback(
+    (piece: Attachment) => {
+      vues.ouvrirEnMarquant(captureDe.get(piece.id));
+      setZoom(piece);
+    },
+    [vues.ouvrirEnMarquant, captureDe],
+  );
+  const pieceDejaVue = React.useCallback(
+    (piece: Attachment) => {
+      const c = captureDe.get(piece.id);
+      return c ? vues.dejaVueAvantOuverture(c) : false;
+    },
+    [captureDe, vues.dejaVueAvantOuverture],
+  );
 
   if (!items.length) {
     return (
@@ -300,14 +351,42 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
     );
   }
 
+  // Le filtre ne laisse que les images de l'agent pas encore ouvertes.
+  const idsNonVues = new Set(nonVues.map((c) => (c.genre === 'jointe' ? c.id : '')));
+  const affichees = filtre ? items.filter((p) => idsNonVues.has(p.id)) : items;
+
   return (
     <ZoneDefilement classeEnveloppe="h-full" className="p-2">
+      {/* Les commandes de l'œil ne servent qu'à partir de deux images de l'agent. */}
+      {deLAgent.length > 1 ? (
+        <div className="mb-1.5 flex items-center" data-commandes-pieces>
+          <CommandesDesVues
+            nonVues={nonVues.length}
+            filtre={filtre}
+            onFiltre={setFiltre}
+            onToutMarquer={() => vues.marquer(clesAMarquerVues(deLAgent, vues.vues))}
+          />
+        </div>
+      ) : null}
+      {filtre && !affichees.length ? <RienDeNouveau className="px-1 py-2" /> : null}
       <div className="grid grid-cols-2 gap-1.5">
-        {items.map((item) => {
+        {affichees.map((item) => {
           const isImage = item.mime.startsWith('image/');
+          const capture = captureDe.get(item.id);
+          const vue = !!capture && vues.dejaVue(capture);
           return (
             <div key={item.id} className="overflow-hidden rounded-md border border-border bg-surface">
-              <button onClick={() => setZoom(item)} className="block w-full">
+              <button
+                onClick={() => ouvrir(item)}
+                title={vue ? t('Déjà vue') : undefined}
+                data-piece-ouvrir={item.id}
+                className="relative block w-full"
+              >
+                {vue ? (
+                  <span className="pointer-events-none absolute left-1 top-1 grid h-4 w-4 place-items-center rounded-sm bg-surface/85 text-muted">
+                    <Eye className="h-3 w-3" aria-hidden data-capture-vue />
+                  </span>
+                ) : null}
                 {isImage ? (
                   <img
                     src={`/api/attachment?id=${item.id}`}
@@ -341,7 +420,15 @@ function AttachmentsTab({ projectId }: { projectId: string }) {
         })}
       </div>
 
-      <AttachmentPreview item={zoom} onClose={() => setZoom(null)} />
+      {/* La galerie garde TOUTES les images, filtre allumé ou non : l'image ouverte devient vue
+          et quitte la liste filtrée, sans disparaître de la visionneuse. */}
+      <AttachmentPreview
+        item={zoom}
+        onClose={() => setZoom(null)}
+        galerie={images}
+        onNaviguer={ouvrir}
+        dejaVue={pieceDejaVue}
+      />
     </ZoneDefilement>
   );
 }

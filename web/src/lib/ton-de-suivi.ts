@@ -1,4 +1,4 @@
-import { Archive, Hammer, LayoutList, Lightbulb, MessageSquare, Rocket, ScanSearch, type LucideIcon } from 'lucide-react';
+import { Archive, CircleCheck, ClipboardList, FolderPlus, Hammer, LayoutList, Lightbulb, MessageSquare, Rocket, ScanSearch, type LucideIcon } from 'lucide-react';
 import type { EtapeDeSuivi, TonDeSuivi } from '@beluga/shared';
 
 /**
@@ -9,9 +9,7 @@ import type { EtapeDeSuivi, TonDeSuivi } from '@beluga/shared';
  * compris ce qui est validé (plus de vert : retour au bleu « terminé »).
  *
  * Chaque étape se dessine par SON ICÔNE (`ICONE_DE_L_ETAPE`), teintée par
- * `ICONE_DU_TON` ; le trait entre deux étapes est un DÉGRADÉ de la couleur de
- * gauche vers celle de droite (`DEGRADE_DEPUIS_TON` → `DEGRADE_VERS_TON`).
- * Les classes sont écrites en toutes lettres : Tailwind ne voit pas une
+ * `ICONE_DU_TON`. Les classes sont écrites en toutes lettres : Tailwind ne voit pas une
  * classe calculée.
  */
 
@@ -25,6 +23,10 @@ export const ICONE_DE_L_ETAPE: Record<EtapeDeSuivi, LucideIcon> = {
   /* Les deux étapes propres à la carte du rendez-vous de nuit. */
   examen: ScanSearch,
   propositions: LayoutList,
+  /* Les trois étapes propres à la carte du cahier des charges. */
+  creation: FolderPlus,
+  cahier: ClipboardList,
+  termine: CircleCheck,
 };
 
 /**
@@ -43,40 +45,3 @@ export const ICONE_DU_TON: Record<TonDeSuivi, string> = {
   avenir: 'text-faint/60',
 };
 
-/** Le départ du dégradé d'un trait (couleur de l'étape de GAUCHE). Un trait qui porte une information : `--faint`, jamais `--border`. */
-export const DEGRADE_DEPUIS_TON: Record<TonDeSuivi, string> = {
-  valide: 'from-termine/70',
-  fini: 'from-termine/70',
-  a_voir: 'from-termine/70',
-  travail: 'from-travail/70',
-  erreur: 'from-danger/70',
-  neutre: 'from-faint/35',
-  avenir: 'from-faint/35',
-};
-
-/** L'arrivée du dégradé d'un trait (couleur de l'étape de DROITE). */
-export const DEGRADE_VERS_TON: Record<TonDeSuivi, string> = {
-  valide: 'to-termine/70',
-  fini: 'to-termine/70',
-  a_voir: 'to-termine/70',
-  travail: 'to-travail/70',
-  erreur: 'to-danger/70',
-  neutre: 'to-faint/35',
-  avenir: 'to-faint/35',
-};
-
-/** Le trait entre deux étapes : un dégradé de `gauche` vers `droite`, sans le mouvement. */
-export function degradeDuTrait(gauche: TonDeSuivi, droite: TonDeSuivi): string {
-  return `bg-gradient-to-r ${DEGRADE_DEPUIS_TON[gauche]} ${DEGRADE_VERS_TON[droite]}`;
-}
-
-/** Le halo autour de l'étape mise en avant. */
-export const ANNEAU_DU_TON: Record<TonDeSuivi, string> = {
-  valide: 'ring-termine/25',
-  fini: 'ring-termine/25',
-  a_voir: 'ring-termine/25',
-  travail: 'ring-travail/25',
-  erreur: 'ring-danger/25',
-  neutre: 'ring-faint/25',
-  avenir: 'ring-faint/25',
-};

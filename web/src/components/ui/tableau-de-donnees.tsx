@@ -265,7 +265,7 @@ export function TableauDeDonnees<L>({
                     aria-pressed={taille === n}
                     className={cn(
                       'h-5 rounded-[4px] px-1.5 font-mono text-[11px] tabular-nums transition-colors',
-                      taille === n ? 'bg-raised text-text shadow-sm' : 'text-muted hover:text-text',
+                      taille === n ? 'bg-raised text-teinte shadow-sm' : 'text-muted hover:text-text',
                     )}
                     data-taille-page={n}
                   >

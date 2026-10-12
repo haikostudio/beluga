@@ -25,6 +25,8 @@
  */
 
 import type { SiteASauvegarder } from './backups.js';
+import { minusculesSansAccents } from './mots.js';
+import { slugEntier } from './slugs.js';
 
 /* ------------------------------------------------------------------ */
 /* Ce qu'une recette porte                                              */
@@ -115,11 +117,7 @@ export function jugerRecette(recette: RecetteDeBackup | null | undefined): { ok:
 /** Un genre d'étape, même écrit « database », « uploads » ou « dépôt ». */
 export function genreDemande(valeur: unknown): GenreDEtape | undefined {
   if (typeof valeur !== 'string') return undefined;
-  const mot = valeur
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+  const mot = minusculesSansAccents(valeur.trim());
   if (!mot) return undefined;
   if (GENRES_D_ETAPE.includes(mot as GenreDEtape)) return mot as GenreDEtape;
   if (/(base|donnee|database|db|sql|dump)/.test(mot)) return 'base';
@@ -130,14 +128,7 @@ export function genreDemande(valeur: unknown): GenreDEtape | undefined {
 
 /** Un identifiant de dossier tiré d'un libellé : « Base PocketBase » → « base-pocketbase ». */
 export function idDEtape(texte: string): string {
-  return (texte || 'etape')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-    .replace(/-+$/g, '') || 'etape';
+  return slugEntier(texte || 'etape').slice(0, 40).replace(/-+$/g, '') || 'etape';
 }
 
 /**

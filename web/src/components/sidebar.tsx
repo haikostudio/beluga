@@ -1,30 +1,21 @@
 import * as React from 'react';
 import {
-  Activity,
-  Archive,
-  BarChart3,
+  ArrowLeft,
   ArchiveRestore,
   Check,
-  ChevronUp,
   ChevronRight,
-  CircleDollarSign,
   Folder,
   FolderPlus,
   Github,
   GripVertical,
-  HardDriveDownload,
-  Key,
-  Library,
-  UsersRound,
-  NotebookPen,
-  LayoutDashboard,
+  PanelLeft,
+  Settings,
+  SquarePen,
+  EllipsisVertical,
   Loader2,
-  Megaphone,
-  Clapperboard,
   Palette,
   Pencil,
   Plus,
-  Route,
   FileCheck2,
   Search,
   Settings2,
@@ -40,10 +31,12 @@ import {
   ProjectGroup,
   type AvancementColonne,
   type SignalProjet,
-  ZONE_PROJETS,
+  zoneDesProjets,
   type DepotDuCompte,
   filtrerDepots,
   lireLienGithub,
+  caseCahierCocheeParDefaut,
+  activiteDeProjet,
   agentTientSonTour,
   avancementDeLaColonne,
   doitSecouerLigne,
@@ -62,6 +55,8 @@ import { libelleAttention, RepereAttention } from '@/components/repere-attention
 import {
   BulleInfo,
   Button,
+  CLASSE_BOUTON_DE_CREATION,
+  CLASSE_POINT_DE_BOUTON,
   ConfirmDialog,
   Dialog,
   DialogContent,
@@ -84,18 +79,23 @@ import {
   FormulaireEnColonnes,
   LigneFormulaire,
 } from '@/components/ui';
-import { PastilleProjet, PastillesEmpilees, largeurPile } from '@/components/pastille-projet';
+import { CLASSE_TRAIT_DE_BRANCHE, PastilleProjet, PastillesEmpilees, largeurPile } from '@/components/pastille-projet';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
 import { SilhouetteProjets } from '@/components/silhouettes';
+import { QuotaBadge } from '@/components/quota-badge';
+import { CLE_COLONNE_REDUITE, useEtatDeLiaison, useMoteurActif } from '@/components/quota-bar';
+import { PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
 import { client } from '@/lib/client';
 import { usePointerDrag } from '@/lib/dnd';
 import { usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
+import { ClocheNotifications } from '@/components/notifications';
 import { useApp } from '@/lib/use-app';
 import { useGlissementDeCarte } from '@/lib/deplacement-de-projet';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 
 /** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
 type Entry =
@@ -115,9 +115,45 @@ export function Sidebar({
   onChoose,
   vue,
   onOuvrirVue,
+  onChercher,
+  onOpenSettings,
+  onNouvelAgent,
+  service,
+  onCorpsDeService,
+  onCorpsDePage,
 }: {
   onOpenAgent: (agentId: string) => void;
   width?: number;
+  /**
+   * LA COLONNE SUIT LE LIEU OÙ L'ON EST (demande du 11/10/2026) : dans un
+   * service qui a son menu, dans un PROJET (ses options) ou dans une TÂCHE (les
+   * siennes), ce menu remplace la liste des projets (`ColonneDeService`). La
+   * tête porte alors le nom du lieu et une flèche qui remonte d'un cran, et le
+   * corps n'est plus qu'un emplacement où le lieu écrit.
+   *  - `plan: 'page'` : c'est une page ouverte par-dessus la zone (une tâche)
+   *    qui tient la colonne ; le menu du lieu d'en dessous reste monté, caché.
+   *  - `bande` : colonne réduite, le menu garde ses icônes au lieu de
+   *    disparaître (les options du projet et de la tâche).
+   *  - `point` : ce qui réclame l'attention AILLEURS — la liste des projets
+   *    n'étant plus sous les yeux, la flèche de retour le signale.
+   */
+  service?: {
+    titre: string;
+    onRetour: () => void;
+    plan?: 'service' | 'page';
+    bande?: boolean;
+    point?: { classe: string; texte: string } | null;
+  } | null;
+  /** L'emplacement où le service pose son menu, remis à l'application. */
+  onCorpsDeService?: (element: HTMLElement | null) => void;
+  /** L'emplacement où la page ouverte par-dessus (une tâche) pose le sien. */
+  onCorpsDePage?: (element: HTMLElement | null) => void;
+  /** Ouvre la recherche de projet (le tiroir « Changer de projet »). */
+  onChercher?: () => void;
+  /** Ouvre les réglages : LE bouton du pied de colonne. */
+  onOpenSettings?: () => void;
+  /** Lance un nouvel agent (choix du projet), première ligne de la colonne. */
+  onNouvelAgent?: () => void;
   /** Prévenu dès qu'un projet est choisi : le panneau latéral se referme. */
   onChoose?: () => void;
   /**
@@ -138,102 +174,22 @@ export function Sidebar({
   const [outilsVisibles, setOutilsVisibles] = React.useState(false);
   const outilsCaches = telephone && !outilsVisibles;
   const [adding, setAdding] = React.useState(false);
+  /* « Projets du serveur » a son adresse ; la colonne posée à gauche la tient
+     (un lien collé la rouvre). Celle du panneau du téléphone n'est montée qu'à
+     l'ouverture : c'est le volet lui-même qui écrit son nom. */
+  useTiroirAdresse(onChoose ? null : 'projets-du-serveur', adding, setAdding);
+  /* L'assistant de premier démarrage fait ouvrir CETTE fenêtre d'ajout plutôt
+     que d'en écrire une seconde (`assistant-demarrage.tsx`). Seule la colonne
+     posée à gauche écoute : celle du téléphone n'est pas toujours montée, et
+     deux à l'écoute ouvriraient deux fenêtres. */
+  React.useEffect(() => {
+    if (onChoose) return;
+    const ouvrir = () => setAdding(true);
+    window.addEventListener('beluga:ajouter-projet', ouvrir);
+    return () => window.removeEventListener('beluga:ajouter-projet', ouvrir);
+  }, [onChoose]);
   const [showArchived, setShowArchived] = React.useState(false);
   const [archived, setArchived] = React.useState<Project[]>([]);
-  // Le chiffre de la pastille vient du MAGASIN : il est juste avant même qu'on
-  // ouvre la fenêtre, et il suit chaque tournée du serveur.
-  const sitesEnPanne = compterEnPanne(state.surveillance);
-
-  /*
-   * LES DESTINATIONS, UNE SEULE DÉFINITION : la liste dépliée et le bouton
-   * compact la lisent tous les deux. Le repère `data-ouvrir-*` de chaque ligne
-   * est celui que visent les contrôles — il ne change pas.
-   */
-  const destinations: {
-    cle: Exclude<VueCentrale, 'projet'>;
-    repere: string;
-    Icone: typeof Key;
-    libelle: string;
-    pastille?: React.ReactNode;
-  }[] = [
-    { cle: 'tableau-de-bord', repere: 'tableau-de-bord', Icone: LayoutDashboard, libelle: t('Résumé') },
-    /* Le service Statistiques (27/09/2026) : le suivi des visites de chaque projet et des sites autonomes. */
-    { cle: 'statistiques', repere: 'statistiques', Icone: BarChart3, libelle: t('Statistiques') },
-    { cle: 'coffre', repere: 'coffre', Icone: Key, libelle: t('Coffre-fort') },
-    { cle: 'memoire', repere: 'memoire', Icone: Library, libelle: t('Mémoire') },
-    {
-      cle: 'espace-client',
-      repere: 'espace-client',
-      Icone: UsersRound,
-      libelle: t('Messagerie'),
-      // DEUX COMPTEURS SÉPARÉS, chacun son icône : ce qui n'est pas lu, et ce
-      // qui reste à traiter. À zéro, le compteur disparaît.
-      pastille: <PastillesMessagerie compteurs={state.compteursMessagerie} colleADroite />,
-    },
-    { cle: 'backups', repere: 'backups', Icone: HardDriveDownload, libelle: t('Backup') },
-    {
-      cle: 'surveillance',
-      repere: 'surveillance',
-      Icone: Activity,
-      libelle: t('Surveillance'),
-      // Le seul endroit où une panne se voit sans rien ouvrir ; elle s'éteint
-      // d'elle-même dès que tout est revenu (`shared/src/surveillance.ts`).
-      pastille: sitesEnPanne ? <PastillePanne nombre={sitesEnPanne} repere /> : null,
-    },
-    { cle: 'marketing', repere: 'marketing', Icone: Megaphone, libelle: t('Marketing') },
-    { cle: 'studio', repere: 'studio', Icone: Clapperboard, libelle: t('Studio') },
-    { cle: 'notes', repere: 'notes', Icone: NotebookPen, libelle: t('Notes') },
-  ];
-  /** Le repère `data-ouvrir-<repere>` que visent les contrôles, posé tel quel sur la ligne. */
-  const repereDOuverture = (repere: string) => ({ [['data-ouvrir', repere].join('-')]: true });
-  const destinationOuverte = destinations.find((destination) => destination.cle === vue);
-  const IconeVue = destinationOuverte?.Icone ?? Route;
-
-  /*
-   * UN SEUL MÉCANISME D'OUVERTURE pour la souris, le doigt et le clavier. La
-   * fermeture au départ de la souris attend un peu : le temps de franchir
-   * l'écart entre le bouton et le panneau sans le refermer.
-   */
-  const [navigationOuverte, setNavigationOuverte] = React.useState(false);
-  const navigationRef = React.useRef<HTMLDivElement | null>(null);
-  const panneauNavigationRef = React.useRef<HTMLDivElement | null>(null);
-  const minuterieNavigation = React.useRef<number | undefined>(undefined);
-  const dernierPointeur = React.useRef('');
-  const idPanneauNavigation = React.useId();
-  const ouvrirNavigation = () => {
-    window.clearTimeout(minuterieNavigation.current);
-    setNavigationOuverte(true);
-  };
-  const fermerNavigation = () => {
-    window.clearTimeout(minuterieNavigation.current);
-    setNavigationOuverte(false);
-  };
-  const fermerNavigationBientot = () => {
-    window.clearTimeout(minuterieNavigation.current);
-    minuterieNavigation.current = window.setTimeout(() => setNavigationOuverte(false), 150);
-  };
-  const focaliserDestination = (rang: number) =>
-    (panneauNavigationRef.current?.querySelectorAll<HTMLElement>('[data-destination]')[rang])?.focus();
-
-  React.useEffect(() => () => window.clearTimeout(minuterieNavigation.current), []);
-  React.useEffect(() => {
-    if (!navigationOuverte) return;
-    const touche = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      fermerNavigation();
-      navigationRef.current?.querySelector<HTMLElement>('[data-navigation-compacte]')?.focus();
-    };
-    const appuiDehors = (event: PointerEvent) => {
-      if (!navigationRef.current?.contains(event.target as Node)) fermerNavigation();
-    };
-    document.addEventListener('keydown', touche);
-    document.addEventListener('pointerdown', appuiDehors);
-    return () => {
-      document.removeEventListener('keydown', touche);
-      document.removeEventListener('pointerdown', appuiDehors);
-    };
-  }, [navigationOuverte]);
-
   // Ce qui est replié est enregistré côté serveur, comme le reste.
   const [collapsed, setCollapsed] = usePref<string[]>('sidebar.collapsed', []);
   /* LES PROJETS RÉUNIS DÉPLIÉS — repliés par défaut : un clic sur leur nom ou
@@ -244,7 +200,7 @@ export function Sidebar({
    * LA COLONNE ENTIÈRE SE RÉDUIT À UNE BANDE D'ICÔNES.
    *
    * `sidebar.collapsed` ne replie que des GROUPES ; c'est un second réglage,
-   * `sidebar.reduite`, qui replie la COLONNE. Il vit en base comme le reste :
+   * `colonne.reduite`, qui replie la COLONNE. Il vit en base comme le reste :
    * le choix survit au rechargement et suit l'appareil.
    *
    * RÉDUITE, LA COLONNE NE MONTRE QUE DES ICÔNES ALIGNÉES ; au survol de la
@@ -256,9 +212,10 @@ export function Sidebar({
    * SUR TÉLÉPHONE, RIEN DE TOUT CELA : il n'y a pas de survol, et la colonne
    * vit déjà dans un panneau qui s'ouvre au toucher. Le réglage y est ignoré.
    */
-  const [reduite, setReduite] = usePref<boolean>('sidebar.reduite', false);
+  const [reduite, setReduite] = usePref<boolean>(CLE_COLONNE_REDUITE, false);
   const [survolee, setSurvolee] = React.useState(false);
   const minuterieSurvol = React.useRef<number | undefined>(undefined);
+  const refColonne = React.useRef<HTMLElement>(null);
   const reduitEffectif = reduite && !telephone;
   /** La bande seule : réduite, et le curseur n'est pas dessus. */
   const bandeSeule = reduitEffectif && !survolee;
@@ -266,9 +223,28 @@ export function Sidebar({
     window.clearTimeout(minuterieSurvol.current);
     setSurvolee(true);
   };
+  /*
+   * UN MENU OUVERT DEPUIS LA COLONNE LA RETIENT. Les services, les quotas, le
+   * « … » d'un projet s'ouvrent dans un calque posé HORS de la colonne : aller
+   * vers eux, c'est la quitter. Elle se refermait donc sous le menu, démontait
+   * son bouton, et le menu disparaissait avant le clic (« le bouton des
+   * services ferme la colonne et je n'y ai pas accès »). Tant qu'un de ses
+   * boutons tient un menu ouvert (`aria-haspopup` + `aria-expanded`, posés par
+   * Radix), la fermeture attend ; le menu refermé, elle a lieu — sauf si le
+   * curseur est revenu sur la colonne.
+   */
   const fermerAuSurvolBientot = () => {
     window.clearTimeout(minuterieSurvol.current);
-    minuterieSurvol.current = window.setTimeout(() => setSurvolee(false), 150);
+    const tenter = () => {
+      const colonne = refColonne.current;
+      if (colonne?.querySelector('[aria-haspopup][aria-expanded="true"]')) {
+        minuterieSurvol.current = window.setTimeout(tenter, 150);
+        return;
+      }
+      if (colonne?.matches(':hover')) return;
+      setSurvolee(false);
+    };
+    minuterieSurvol.current = window.setTimeout(tenter, 150);
   };
   React.useEffect(() => () => window.clearTimeout(minuterieSurvol.current), []);
   // Repliée à la main : le panneau ne doit pas rester ouvert sous le curseur.
@@ -283,7 +259,7 @@ export function Sidebar({
    * point d'état — qu'il porte maintenant dans son coin. Un seul bouton dans
    * l'application, pas deux : celui-ci a été RETIRÉ, il n'a pas été copié.
    *
-   * Le réglage, lui, reste lu ici (`sidebar.reduite`) : les deux composants
+   * Le réglage, lui, reste lu ici (`colonne.reduite`) : les deux composants
    * passent par le magasin des préférences et ne peuvent pas diverger.
    */
   const [creatingGroup, setCreatingGroup] = React.useState(false);
@@ -532,8 +508,12 @@ export function Sidebar({
   const toggle = (id: string) =>
     setCollapsed(collapsed.includes(id) ? collapsed.filter((g) => g !== id) : [...collapsed, id]);
 
-  const runningOf = (projectId: string) =>
-    Object.values(state.agents).filter((a) => a.projectId === projectId && agentTientSonTour(a)).length;
+  /* LE COMPTE ET L'ICÔNE D'UN PROJET viennent d'une règle partagée
+     (`activiteDeProjet`) : les listes déroulantes de projets les montrent aussi
+     (`IndicateursDeProjet`) et ne peuvent donc pas dire autre chose que la colonne. */
+  const activiteOf = (projectId: string) =>
+    activiteDeProjet(projectId, Object.values(state.agents), state.decisions);
+  const runningOf = (projectId: string) => activiteOf(projectId).enCours;
 
   /*
    * Le même pourcentage que celui affiché en tête de la colonne « En cours » du
@@ -560,8 +540,7 @@ export function Sidebar({
    * (`nature-attention.ts`) choisit UNE icône pour le lot, et c'est la même
    * table que lisent la carte du tableau et la cloche.
    */
-  const iconeAttenteOf = (projectId: string): IconeDAttention | null =>
-    iconeDuLot(state.decisions.filter((d) => d.projectId === projectId && !d.reglee));
+  const iconeAttenteOf = (projectId: string): IconeDAttention | null => activiteOf(projectId).attente;
 
   React.useEffect(() => {
     entriesRef.current = entries;
@@ -641,14 +620,10 @@ export function Sidebar({
         {ouvert ? (
           <div
             className={cn(
-              bandeSeule ? 'px-0' : 'pr-0.5',
-              /* LE RETRAIT DES MEMBRES suit la poignée du projet réuni, qui
-                 décale sa pile d'icônes : cachée au repos là où l'on survole
-                 (24 px), visible sur téléphone (36 px), absente quand les
-                 outils sont cachés (20 px). Ainsi l'axe des branches, calé sur
-                 le milieu de la pile, tombe toujours au même endroit par
-                 rapport aux membres (`BrancheMembre`). */
-              !bandeSeule && (outilsCaches ? 'pl-5' : 'pl-9 survol:pl-6'),
+              /* LE RETRAIT DES MEMBRES est constant (`RETRAIT_DES_MEMBRES`) : la
+                 poignée de rangement a quitté la gauche de la ligne, plus rien
+                 ne décale la pile d'icônes du projet réuni. */
+              bandeSeule ? 'px-0' : 'pl-4',
             )}
             data-membres-regroupement={project.id}
           >
@@ -685,6 +660,10 @@ export function Sidebar({
     );
   };
 
+  const liaison = useEtatDeLiaison();
+  const redemarrage = useRedemarrage();
+  const moteurActif = useMoteurActif();
+
   const rowProps = (id: string, kind: 'project' | 'group') => ({
     'data-drag-id': id,
     'data-drag-kind': kind,
@@ -702,15 +681,26 @@ export function Sidebar({
     },
   });
 
+  /** La classe d'une LIGNE de la colonne : du texte, une icône, un fond gris au survol — rien d'autre. */
+  const classeLigne = (active: boolean) =>
+    cn(
+      'group/l flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] text-text transition-colors',
+      bandeSeule ? 'justify-center px-0' : 'px-2.5',
+      /* La ligne OUVERTE s'écrit en violet : c'est elle qu'on cherche des yeux. */
+      active ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
+    );
+  /** La page des tableaux de bord est à l'écran (vue `en-route`, ou aucun projet ouvert). */
+  const surTableauxDeBord = vue === 'en-route' || (vue === 'projet' && !state.activeProjectId);
+  /** L'intitulé d'une section (« Services », « Projets ») : petit, gris, repliable. */
+  const classeSection = 'flex h-8 w-full items-center gap-1 rounded-lg px-2.5 text-left text-[12.5px] text-faint transition-colors hover:text-muted';
+
   return (
     <aside
+      ref={refColonne}
       // Sur téléphone la liste occupe tout l'écran ; la largeur réglée à la
-      // main ne vaut qu'à partir des écrans larges. Le trait de droite sépare
-      // la liste du tableau : sur téléphone il n'y a rien à séparer, la liste
-      // vit dans un panneau qui a déjà son propre bord — un second trait à
-      // l'intérieur se lit comme une fausse limite.
-      // `data-zone="gauche"` : repère pour l'étagement des fonds du thème
-      // sombre (`styles.css`) — inerte dans les six autres thèmes.
+      // main ne vaut qu'à partir des écrans larges. AUCUN TRAIT ne sépare la
+      // colonne de la zone principale : c'est son fond, un gris très pâle, qui
+      // la distingue (`data-zone="gauche"`, `styles.css`).
       data-zone="gauche"
       data-colonne-projets={reduitEffectif ? (survolee ? 'survolee' : 'reduite') : 'depliee'}
       /*
@@ -719,11 +709,11 @@ export function Sidebar({
        * zone de droite occupe, et elle ne bouge pas quand le panneau s'ouvre.
        */
       className={cn(
-        'relative flex w-full shrink-0 flex-col bg-bg sm:border-r sm:border-border',
+        'relative flex w-full shrink-0 flex-col',
         reduitEffectif ? 'sm:w-[var(--largeur-bande)]' : 'sm:w-[var(--largeur-projets)]',
       )}
       style={{
-        ['--largeur-projets' as any]: `${width ?? 196}px`,
+        ['--largeur-projets' as any]: `${width ?? 264}px`,
         ['--largeur-bande' as any]: `${LARGEUR_BANDE}px`,
       }}
       onPointerEnter={(event) => {
@@ -738,9 +728,9 @@ export function Sidebar({
     >
       {/*
        * LE PANNEAU, POSÉ PAR-DESSUS LE CONTENU QUAND LA COLONNE EST RÉDUITE.
-       * Il reprend le repère de zone pour garder le fond de la colonne dans
-       * les douze palettes — un panneau transparent laisserait lire le tableau
-       * au travers. Déplié, il n'est qu'une colonne ordinaire.
+       * Il reprend le repère de zone pour garder le fond de la colonne — un
+       * panneau transparent laisserait lire la page au travers. Déplié, il
+       * n'est qu'une colonne ordinaire.
        */}
       <div
         data-zone="gauche"
@@ -749,535 +739,536 @@ export function Sidebar({
           'flex min-h-0 flex-1 flex-col',
           reduitEffectif &&
             (survolee
-              ? 'absolute inset-y-0 left-0 z-50 w-[var(--largeur-projets)] border-r border-border shadow-2xl'
+              ? 'absolute inset-y-0 left-0 z-50 w-[var(--largeur-projets)] shadow-2xl'
               : 'w-[var(--largeur-bande)]'),
         )}
       >
-      {/*
-       * LE MENU RÉTRÉCI GARDE LA STRUCTURE DU MENU LARGE.
-       *
-       * Il remplaçait tout par une pile d'icônes de services, et les PROJETS
-       * disparaissaient — soit exactement ce qu'on vient chercher dans cette
-       * colonne. Désormais rien ne change d'organisation : « Tableaux de
-       * bord » en tête, puis les groupes, puis la totalité des projets, et au
-       * pied le bouton de navigation au-dessus de « Redémarrer », dans le
-       * même ordre. Seule la LARGEUR change, et chaque ligne se réduit
-       * à son icône, son nom vivant dans une bulle au survol.
-       *
-       * Les services restent cachés derrière le bouton de navigation, comme en
-       * large : c'est en allant sur son icône qu'on ouvre leur menu, avec les
-       * alertes qu'il porte.
-       */}
-      <>
-      {/* LE BOUTON « TABLEAUX DE BORD » (la vue `en-route`), en tête de
-          colonne et au-dessus des projets : il ouvre la page de tout ce qui
-          est entre la demande et le déploiement, tous projets confondus — celle que le centre montre
-          aussi quand aucun projet n'est ouvert. Il remplace la pile flottante
-          des agents qui vivait au pied de la colonne. */}
-      <BoutonEnRoute
-        bande={bandeSeule}
-        actif={vue === 'en-route' || (vue === 'projet' && !state.activeProjectId)}
-        onOuvrir={() => {
-          onOuvrirVue('en-route');
-          onChoose?.();
-        }}
-      />
-
-      {/* LA LIGNE DE TITRE DES PROJETS. Rétrécie, elle se réduit à un simple
-          trait : « PROJETS » et les deux gestes d'ajout n'y tiendraient pas, et
-          le dépliage au survol les rend dans l'instant. Le bouton de repli,
-          lui, a quitté cette ligne pour la barre du haut. */}
-      {bandeSeule ? (
-        // `h-10` FIXE, à la même hauteur que la version dépliée : un simple
-        // trait au lieu du titre et de ses deux boutons ne doit pas raccourcir
-        // la ligne, sous peine de décaler tout ce qui suit à l'ouverture.
-        <div className="flex h-10 items-center justify-center" data-titre-projets="bande">
-          <span className="h-px w-6 bg-faint/30" aria-hidden />
-        </div>
-      ) : (
-      <div className="flex items-center gap-1 px-2 py-2" data-titre-projets="deplie">
-        <span className="text-[12px] uppercase tracking-wide text-faint">{t('Projets')}</span>
-        {telephone ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={cn('ml-auto', outilsVisibles && 'bg-raised text-text')}
-            aria-pressed={outilsVisibles}
-            aria-label={outilsVisibles ? t('Cacher les poignées et réglages') : t('Afficher les poignées et réglages')}
-            title={outilsVisibles ? t('Cacher les poignées et réglages') : t('Afficher les poignées et réglages')}
-            data-outils-projets={outilsVisibles ? 'visibles' : 'caches'}
-            onClick={() => setOutilsVisibles((v) => !v)}
-          >
-            <Settings2 className="h-3 w-3" />
-          </Button>
-        ) : null}
-        <Tooltip label={t('Nouveau groupe')}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className={cn(!telephone && 'ml-auto')}
-            onClick={() => setCreatingGroup(true)}
-          >
-            <FolderPlus className="h-3 w-3" />
-          </Button>
-        </Tooltip>
-        <Tooltip label={t('Ajouter ou créer un projet')}>
-          <Button variant="ghost" size="icon-sm" data-ouvrir-projets onClick={() => setAdding(true)}>
-            <Plus className="h-3 w-3" />
-          </Button>
-        </Tooltip>
-      </div>
-      )}
-
-      <ZoneDefilement className={cn('touch-pan-y pb-2', bandeSeule ? 'px-1' : 'px-1.5')} data-drop-root>
-        {/* EN TÊTE de la liste, et ancré là : Beluga, l'espace où l'application
-            elle-même est développée. Il occupe la première place des projets
-            sans en être un — pas de poignée, pas de rang, aucune prise pour la
-            souris — mais il garde tous ses repères, sinon on cesserait de voir
-            ce qui s'y passe. */}
-        {espaceDev && !groupeLocalId ? (
-          <LigneEspaceDev
-            project={espaceDev}
-            active={espaceDev.id === state.activeProjectId && vue === 'projet'}
-            running={runningOf(espaceDev.id)}
-            publie={publieOf(espaceDev.id)}
-            attention={state.attention[espaceDev.id]}
-            rendus={state.rendus[espaceDev.id]}
-            icone={iconeAttenteOf(espaceDev.id)}
-            avancement={avancementOf(espaceDev.id)}
-            cibleDeCarte={cibleDeCarteDe(espaceDev.id)}
-            onSettings={() => ouvrirConfigProjet(espaceDev.id)}
-            bande={bandeSeule}
-            outilsCaches={outilsCaches}
-            onChoose={onChoose}
-            onQuitterTableauDeBord={() => onOuvrirVue('projet')}
-          />
-        ) : null}
-
-        {entries.map((entry) => {
-          if (entry.kind === 'project') {
-            return rendreLigne(entry.project, {
-              style: glisse(decales.racine.has(entry.id)),
-              marqueur: marqueurDe(entry.id),
-            });
-          }
-
-          // Le groupe « Local » porte l'espace de développement en tête : il
-          // compte parmi ses membres pour le nombre, les signaux et le repli.
-          const local = entry.id === groupeLocalId && espaceDev ? espaceDev : null;
-          const membresVus = local ? [local, ...entry.members] : entry.members;
-          // Replié, un groupe cacherait ce que ses projets attendent ET ce
-          // qu'ils ont rendu : les deux signaux remontent jusqu'à son en-tête.
-          const signal = signalDuGroupe(
-            membresVus.map((p) => p.id),
-            state.attention,
-            state.rendus,
-          );
-          const replie = collapsed.includes(entry.id);
-          return (
-            <div
-              key={entry.id}
-              data-drop-group={entry.id}
-              style={glisse(decales.racine.has(entry.id))}
-              className={cn(
-                // Coins nets, sans « rounded-md » : la ligne colorée du groupe
-                // (posée juste en dessous) est une droite verticale.
-                'relative mb-0.5 border transition-[transform,background-color,border-color] duration-150 motion-reduce:transition-none',
-                // Survoler le corps du groupe l'éclaire en entier : on comprend
-                // que le projet va s'y ranger.
-                target?.kind === 'group' && target.id === entry.id && target.position === 'inside'
-                  ? 'border-muted bg-surface'
-                  : 'border-transparent',
-              )}
-            >
-              {/* La ligne colorée du groupe. Posée en absolu à « left: -7px »
-                  (les 6 px du retrait « px-1.5 » de la liste, plus le trait de
-                  1 px du groupe), elle vient toucher le bord gauche sans laisser
-                  d'espace, et sans déplacer la boîte du groupe (qui garde sa
-                  géométrie pour le glisser-déposer) ni le texte des projets. */}
-              {entry.group.color ? (
-                <span
-                  aria-hidden
-                  className="pointer-events-none absolute -left-[7px] inset-y-0 w-[3px]"
-                  style={{ backgroundColor: entry.group.color }}
-                />
-              ) : null}
-              <Trait ou={marqueurDe(entry.id)} />
-              <EnteteGroupe
-                rowProps={rowProps(entry.id, 'group')}
-                dimmed={dragging?.id === entry.id}
-                signal={signal}
-                regarde={membresVus.some((p) => p.id === state.activeProjectId)}
-                bande={bandeSeule}
-                titre={entry.group.name}
-              >
-                <span
-                  {...poigneeProps(entry.id, 'group', entry.group.name)}
-                  title={t('Glisser pour ranger')}
-                  className={cn(
-                    '-m-1 shrink-0 touch-none overflow-hidden p-1',
-                    'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
-                    outilsCaches && 'hidden',
-                    // Même règle que la poignée de projet : cachée et sans place au
-                    // repos sur pointeur qui survole, révélée au survol de l'en-tête.
-                    'survol:m-0 survol:max-w-0 survol:p-0',
-                    'group-hover/g:survol:-m-1 group-hover/g:survol:max-w-5 group-hover/g:survol:p-1',
-                  )}
-                >
-                  <GripVertical className="h-3 w-3 shrink-0 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover/g:opacity-100 active:cursor-grabbing" />
-                </span>
-                {/* Le point de couleur du groupe, posé À GAUCHE du nom (juste
-                    avant le libellé). Il ne se voit qu'au survol de la carte :
-                    au repos il se replie à largeur nulle (même mécanique que la
-                    poignée de glisser juste avant), et le nom reprend sa place
-                    normale. Un sélecteur ouvre un menu : il ne peut pas vivre
-                    DANS le bouton du nom (un bouton n'en contient pas un autre),
-                    donc il se place juste avant. */}
-                <span
-                  className={cn(
-                    '-m-1 shrink-0 touch-none overflow-hidden p-1',
-                    'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
-                    outilsCaches && 'hidden',
-                    'survol:m-0 survol:max-w-0 survol:p-0',
-                    'group-hover/g:survol:-m-1 group-hover/g:survol:max-w-5 group-hover/g:survol:p-1',
-                  )}
-                >
-                  <ColorPicker
-                    value={entry.group.color}
-                    onPick={(couleur) => client.call({ type: 'group.update', id: entry.id, color: couleur })}
-                  />
-                </span>
-                <button
-                  onClick={() => toggle(entry.id)}
-                  className="flex min-w-0 flex-1 items-center gap-1 text-left text-[12.5px] font-medium uppercase tracking-wide text-text hover:text-text"
-                >
-                  <span className="min-w-0 truncate">{entry.group.name}</span>
-                  <span className="shrink-0 text-faint">{membresVus.length}</span>
-                </button>
-                {/* Replié, le groupe porte la SOMME des cartes non consultées de
-                    ses projets ; un clic les marque consultées. */}
-                {replie && (signal.rendus ?? 0) > 0 ? (
-                  <Tooltip label={libelleNonConsultees(signal.rendus ?? 0, true)}>
-                    <button
-                      type="button"
-                      data-groupe-non-consultees={signal.rendus}
-                      aria-label={libelleNonConsultees(signal.rendus ?? 0, true)}
-                      onPointerDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        membresVus
-                          .filter((p) => state.rendus[p.id])
-                          .forEach((p) => client.call({ type: 'project.read', projectId: p.id }));
-                      }}
-                      className="flex h-3 min-w-3 shrink-0 items-center justify-center rounded-full bg-termine px-[3px] text-[8px] font-semibold leading-none tabular-nums text-termine-fg"
-                    >
-                      {texteDuCompteur(signal.rendus ?? 0)}
-                    </button>
-                  </Tooltip>
-                ) : null}
-                {/* Replié, un membre qui publie ne se voit plus : le repère jaune
-                    remonte jusqu'à l'en-tête du groupe. Déplié, chaque ligne
-                    porte le sien. */}
-                {replie && membresVus.some((p) => publieOf(p.id)) ? (
-                  <RepereePublication publie />
-                ) : null}
-                {replie ? (
-                  <RepereLigne
-                    signal={{ attention: signal.attention }}
-                    /* Replié, le groupe porte la nature de ce que ses membres
-                       attendent : un seul repère, jamais deux côte à côte. */
-                    icone={iconeDuLot(
-                      state.decisions.filter(
-                        (d) => !d.reglee && membresVus.some((p) => p.id === d.projectId),
-                      ),
-                    )}
-                    /* Replié, le groupe emmène à la décision du premier de ses
-                       projets qui en attend une. */
-                    onDecision={() => {
-                      const projet = membresVus.find((p) => state.attention[p.id]);
-                      if (projet) allerALaDecision(projet.id, onChoose);
-                    }}
-                  />
-                ) : null}
-                <button
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => setRenaming(entry.group)}
-                  data-outil-groupe="renommer"
-                  className={cn(
-                    'shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover/g:opacity-100',
-                    outilsCaches && 'hidden',
-                  )}
-                  title={t('Renommer le groupe')}
-                >
-                  <Pencil className="h-2.5 w-2.5" />
-                </button>
-                <button
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => setDeleting(entry.group)}
-                  data-outil-groupe="supprimer"
-                  className={cn(
-                    'shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-danger group-hover/g:opacity-100',
-                    // Le groupe « Local » abrite Beluga : il ne se supprime pas.
-                    (outilsCaches || local) && 'hidden',
-                  )}
-                  title={t('Supprimer le groupe')}
-                >
-                  <X className="h-2.5 w-2.5" />
-                </button>
-                {/* La flèche de dépliage/repliage, à DROITE de la carte — après
-                    la croix de suppression, jamais devant le nom. */}
-                <button
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={() => toggle(entry.id)}
-                  className="shrink-0 text-faint hover:text-text"
-                  title={replie ? t('Déplier le groupe') : t('Replier le groupe')}
-                >
-                  <ChevronRight
-                    className={cn('h-2.5 w-2.5 transition-transform', !replie && 'rotate-90')}
-                  />
-                </button>
-              </EnteteGroupe>
-
-              {!replie ? (
-                <div className={bandeSeule ? 'px-0' : 'pl-3 pr-0.5'}>
-                  {/* FIXÉ EN TÊTE du groupe « Local » : aucune prise pour la
-                      souris, les projets glissés ici se rangent sous lui. */}
-                  {local ? (
-                    <LigneEspaceDev
-                      project={local}
-                      active={local.id === state.activeProjectId && vue === 'projet'}
-                      running={runningOf(local.id)}
-                      publie={publieOf(local.id)}
-                      attention={state.attention[local.id]}
-                      rendus={state.rendus[local.id]}
-                      icone={iconeAttenteOf(local.id)}
-                      avancement={avancementOf(local.id)}
-                      cibleDeCarte={cibleDeCarteDe(local.id)}
-                      onSettings={() => ouvrirConfigProjet(local.id)}
-                      bande={bandeSeule}
-                      outilsCaches={outilsCaches}
-                      onChoose={onChoose}
-                      onQuitterTableauDeBord={() => onOuvrirVue('projet')}
-                    />
-                  ) : null}
-                  {entry.members.length || local ? (
-                    entry.members.map((project) =>
-                      rendreLigne(project, {
-                        style: glisse(decales.membres.has(project.id)),
-                        marqueur: marqueurDe(project.id),
-                        groupColor: entry.group.color,
-                        emboite: true,
-                      }),
-                    )
-                  ) : (
-                    // Une seule ligne, jamais coupée ; INVISIBLE en colonne
-                    // réduite (elle y débordait mot par mot) mais gardant sa
-                    // hauteur, pour que les lignes suivantes ne sautent pas
-                    // d'un mode à l'autre (MEM-2899).
-                    <p
-                      data-groupe-vide={entry.id}
-                      aria-hidden={bandeSeule || undefined}
-                      className={cn('truncate px-2 pb-1.5 text-[12px] text-faint', bandeSeule && 'invisible')}
-                    >
-                      {t('Glissez un projet ici.')}
-                    </p>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-
-        {/* TANT QUE LE PREMIER ÉTAT DU SERVEUR N'EST PAS ARRIVÉ, la liste est
-            vide sans qu'aucun projet ne manque : on montre des SILHOUETTES de
-            lignes de projet. « Aucun projet inscrit » ne s'écrit qu'une fois la
-            liste réellement reçue — sinon la phrase ment pendant tout le
-            chargement. */}
-        {!state.pret ? <SilhouetteProjets /> : null}
-        {state.pret && !entries.length ? (
-          <p className="px-2 py-3 text-[13px] text-faint">{t('Aucun projet inscrit.')}</p>
-        ) : null}
-
-        {/* CACHÉ TANT QUE LA COLONNE RESTE RÉDUITE : en pilule d'icônes, ce
-            bouton texte repliait sur plusieurs lignes et dépareillait toute
-            la colonne. `bandeSeule` couvre aussi bien le mode ouvert au clic
-            (fixe) que le survol qui déplie temporairement — il réapparaît
-            donc dans les deux cas dès que le menu s'ouvre. Si la liste était
-            dépliée au moment où le menu se referme, elle se referme avec lui
-            (l'état `showArchived` reste vrai en mémoire mais ne s'affiche
-            plus, rien de plus à faire). */}
-        {!bandeSeule ? (
-          <>
-            <button
-              onClick={() => setShowArchived((value) => !value)}
-              className="mt-2 flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-[12.5px] text-faint hover:text-muted"
-            >
-              <Archive className="h-2.5 w-2.5" />
-
-{t('Mis de côté')}
-<ChevronRight className={cn('ml-auto h-2.5 w-2.5 transition-transform', showArchived && 'rotate-90')} />
-            </button>
-
-            {showArchived ? (
-              archived.length ? (
-                archived.map((project) => (
-                  <div
-                    key={project.id}
-                    className="group mb-0.5 flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13.5px] text-faint hover:bg-surface"
-                  >
-                    <Folder className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                    <button
-                      onClick={() => client.call({ type: 'project.archive', id: project.id, archived: false })}
-                      className="shrink-0 opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
-                      title={t('Remettre en service')}
-                    >
-                      <ArchiveRestore className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <p className="px-2 pb-2 text-[12.5px] text-faint">{t('Aucun projet mis de côté.')}</p>
-              )
-            ) : null}
-          </>
-        ) : null}
-      </ZoneDefilement>
-
-      {/* LES DESTINATIONS, REPLIÉES DERRIÈRE UN BOUTON, AU PIED DE LA COLONNE,
-          juste au-dessus de « Redémarrer ». Sur ordinateur, ce seul bouton dit
-          la vue ouverte et garde les pastilles à surveiller ; la liste s'ouvre
-          VERS LE HAUT, en surimpression par-dessus les projets, sans les
-          pousser. Sur téléphone, le MÊME bouton et le MÊME panneau : le survol
-          n'existe pas, le toucher ouvre ou referme, et choisir une destination
-          referme aussi le volet (`onChoose`). Lignes plus hautes au doigt
-          (`h-9`). Chaque ligne garde son `data-ouvrir-*`. */}
-      <div
-        ref={navigationRef}
-        className="relative border-t border-border px-1.5 pb-1.5 pt-1.5"
-        onPointerEnter={(event) => {
-          if (event.pointerType === 'mouse') ouvrirNavigation();
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType === 'mouse') fermerNavigationBientot();
-        }}
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          data-navigation-compacte={navigationOuverte ? 'ouverte' : 'fermee'}
-          aria-haspopup="true"
-          aria-expanded={navigationOuverte}
-          aria-controls={idPanneauNavigation}
-          title={bandeSeule ? (destinationOuverte ? destinationOuverte.libelle : t('Navigation')) : undefined}
-          className={cn(
-            'flex h-9 w-full gap-2 sm:h-7',
-            // Rétréci, le bouton se centre sur son icône ; ses alertes le
-            // suivent, réduites à un point posé dans son coin — une alerte ne
-            // se cache JAMAIS derrière le repli.
-            bandeSeule ? 'relative justify-center px-0' : 'justify-start',
-            navigationOuverte && 'bg-raised text-text',
-          )}
-          onPointerDown={(event) => {
-            dernierPointeur.current = event.pointerType;
-          }}
-          onClick={() => {
-            // La souris a déjà ouvert au survol : un clic ne la referme pas.
-            // Le doigt et le clavier, eux, ouvrent ou ferment.
-            if (dernierPointeur.current === 'mouse') ouvrirNavigation();
-            else if (navigationOuverte) fermerNavigation();
-            else ouvrirNavigation();
-            dernierPointeur.current = '';
-          }}
-          onKeyDown={(event) => {
-            // Le panneau s'ouvre au-dessus : la flèche haut y entre par sa
-            // dernière ligne, la flèche bas par la première.
-            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              event.preventDefault();
-              ouvrirNavigation();
-              const derniere = event.key === 'ArrowUp' ? destinations.length - 1 : 0;
-              requestAnimationFrame(() => focaliserDestination(derniere));
-            }
-          }}
+        {/*
+         * LA TÊTE : le nom de l'application, puis deux gestes — chercher un
+         * projet, replier la colonne. Rien d'autre. Rétrécie, la colonne n'en
+         * garde que le bouton qui la déplie.
+         */}
+        <div
+          className={cn('flex h-14 shrink-0 items-center gap-1', bandeSeule ? 'justify-center px-0' : 'pl-4 pr-2.5')}
+          data-titre-projets={bandeSeule ? 'bande' : 'deplie'}
         >
-          <IconeVue className="h-3.5 w-3.5 shrink-0" />
           {bandeSeule ? (
-            /* LE NOM S'EFFACE, PAS L'ALERTE. Un point suffit à dire qu'il y a
-               quelque chose derrière l'icône ; le compte se lit en dépliant. */
-            <>
-              <span className="sr-only" data-navigation-libelle>
-                {destinationOuverte ? destinationOuverte.libelle : t('Navigation')}
-              </span>
-              {state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter + sitesEnPanne ? (
-                <span
-                  className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning"
-                  data-alerte-navigation
-                  aria-hidden
-                />
-              ) : null}
-            </>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted"
+              aria-label="Déplier le menu"
+              title={t('Déplier le menu')}
+              data-deplier-colonne
+              data-replier-colonne="reduite"
+              onClick={() => setReduite(false)}
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
           ) : (
             <>
-              <span className="min-w-0 flex-1 truncate text-left" data-navigation-libelle>
-                {destinationOuverte ? destinationOuverte.libelle : t('Navigation')}
-              </span>
-              <PastillesMessagerie compteurs={state.compteursMessagerie} />
-              {sitesEnPanne ? <PastillePanne nombre={sitesEnPanne} /> : null}
-              <ChevronUp
-                className={cn('h-3 w-3 shrink-0 text-faint transition-transform', navigationOuverte && 'rotate-180')}
-              />
+              {service ? (
+                /* UN SERVICE A PRIS LA COLONNE : son nom, et la flèche qui
+                   remonte d'un cran puis rend la liste des projets. */
+                <>
+                  <Tooltip label={service.point ? `${t('Retour')} · ${service.point.texte}` : t('Retour')}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="relative -ml-2 h-8 w-8 shrink-0 text-muted"
+                      aria-label="Retour"
+                      data-retour-de-colonne
+                      onClick={service.onRetour}
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      {service.point ? (
+                        <span data-point-etat className={cn(CLASSE_POINT_DE_BOUTON, service.point.classe)} />
+                      ) : null}
+                    </Button>
+                  </Tooltip>
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-text" data-titre-de-colonne>
+                    {service.titre}
+                  </span>
+                </>
+              ) : (
+                <span className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-tight text-text" data-nom-application>
+                  Beluga
+                </span>
+              )}
+              {/* LES SERVICES N'ONT PLUS LEUR BOUTON ICI : il ouvre le fil
+                  d'Ariane, tout à gauche de la barre d'en-tête (`app.tsx`). */}
+              {telephone ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn('h-8 w-8 text-muted', outilsVisibles && 'bg-raised text-text')}
+                  aria-pressed={outilsVisibles}
+                  aria-label={outilsVisibles ? 'Cacher les poignées et réglages' : 'Afficher les poignées et réglages'}
+                  title={outilsVisibles ? t('Cacher les poignées et réglages') : t('Afficher les poignées et réglages')}
+                  data-outils-projets={outilsVisibles ? 'visibles' : 'caches'}
+                  onClick={() => setOutilsVisibles((v) => !v)}
+                >
+                  <Settings2 className="h-4 w-4" />
+                </Button>
+              ) : null}
+              {onChercher && !service ? (
+                <Tooltip label={t('Chercher un projet')}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted"
+                    aria-label="Chercher un projet"
+                    data-chercher-projet
+                    onClick={onChercher}
+                  >
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </Tooltip>
+              ) : null}
+              {telephone ? null : reduitEffectif ? (
+                /* LA COLONNE N'EST QUE SURVOLÉE : ce bouton la ROUVRE pour de
+                   bon. Il redemandait de la réduire — elle l'était déjà —, et
+                   celui qui la déplie n'existait que dans la bande, que le
+                   curseur ne peut pas atteindre sans ouvrir ce panneau : « le
+                   bouton ne marche que dans un sens ». */
+                <Tooltip label={t('Déplier le menu')}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted"
+                    aria-label="Déplier le menu"
+                    data-deplier-colonne
+                    data-replier-colonne="survolee"
+                    onClick={() => setReduite(false)}
+                  >
+                    <PanelLeft className="h-4 w-4" />
+                  </Button>
+                </Tooltip>
+              ) : (
+                <Tooltip label={t('Replier le menu')}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted"
+                    aria-label="Replier le menu"
+                    data-replier-colonne="depliee"
+                    onClick={() => setReduite(true)}
+                  >
+                    <PanelLeft className="h-4 w-4" />
+                  </Button>
+                </Tooltip>
+              )}
             </>
           )}
-        </Button>
+        </div>
 
-        <div
-          id={idPanneauNavigation}
-          ref={panneauNavigationRef}
-          data-navigation-panneau={navigationOuverte ? 'ouvert' : 'ferme'}
-          className={cn(
-            'absolute inset-x-1.5 bottom-full z-40 mb-1 flex flex-col gap-1 rounded-md border border-border bg-surface p-1 shadow-xl',
-            navigationOuverte ? 'animate-fade-in' : 'hidden',
-          )}
-          onKeyDown={(event) => {
-            if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-            event.preventDefault();
-            const lignes = [...(panneauNavigationRef.current?.querySelectorAll('[data-destination]') ?? [])];
-            const rang = lignes.indexOf(document.activeElement as Element);
-            const pas = event.key === 'ArrowDown' ? 1 : -1;
-            focaliserDestination((rang + pas + lignes.length) % lignes.length);
-          }}
+        {/* LE MENU DU SERVICE OUVERT, à la place des projets. L'emplacement
+            reste monté quand la colonne est réduite : le menu garde son état,
+            et reparaît au survol. */}
+        {service ? (
+          <div
+            ref={onCorpsDeService}
+            data-colonne-de-service
+            data-bande={bandeSeule ? '' : undefined}
+            className={cn(
+              'group/colonne flex min-h-0 flex-1 flex-col',
+              bandeSeule ? 'px-1.5' : 'px-2',
+              bandeSeule && !service.bande && 'invisible',
+              service.plan === 'page' && 'hidden',
+            )}
+          />
+        ) : null}
+        {/* LE MENU DE LA PAGE OUVERTE PAR-DESSUS (les options d'une tâche) :
+            il prend la colonne tant qu'elle est ouverte. Celui du lieu d'en
+            dessous reste monté, caché, et reparaît tel quel au retour. */}
+        {service?.plan === 'page' ? (
+          <div
+            ref={onCorpsDePage}
+            data-colonne-de-service
+            data-colonne-de-page
+            data-bande={bandeSeule ? '' : undefined}
+            className={cn('group/colonne flex min-h-0 flex-1 flex-col', bandeSeule ? 'px-1.5' : 'px-2')}
+          />
+        ) : null}
+        <ZoneDefilement
+          hauteur={16}
+          classeEnveloppe={service ? 'hidden' : undefined}
+          className={cn('touch-pan-y pb-4', bandeSeule ? 'px-1.5' : 'px-2')}
+          data-drop-root
         >
-          {destinations.map(({ cle, repere, Icone, libelle, pastille }) => (
-            <Button
-              key={cle}
-              variant="ghost"
-              size="sm"
-              data-destination={cle}
-              {...repereDOuverture(repere)}
-              className={cn('h-9 w-full justify-start gap-2 sm:h-7', vue === cle && 'bg-raised text-text')}
+          {/* ------------------------------------------------------------------
+              LE GESTE DE TÊTE : lancer un nouvel agent, en NOIR avec une
+              écriture blanche (`CLASSE_BOUTON_DE_CREATION`), pour qu'il se
+              distingue des lignes grises du dessous. La page « Tableaux de
+              bord » n'a plus de ligne ici sur ordinateur (demande du
+              12/10/2026) : on y va par le premier cran du fil d'Ariane, le
+              menu du titre ou la grille des services. Le téléphone n'a plus
+              non plus de ligne ici (demande du 12/10/2026, soir).
+              ------------------------------------------------------------------ */}
+          {onNouvelAgent ? (
+            <button
+              type="button"
+              data-ligne-nouvel-agent
+              title={bandeSeule ? t('Nouvel agent') : undefined}
               onClick={() => {
-                fermerNavigation();
-                onOuvrirVue(cle);
+                onNouvelAgent();
                 onChoose?.();
               }}
+              className={cn(
+                'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg text-left text-[14px] font-medium transition-opacity',
+                bandeSeule ? 'justify-center px-0' : 'px-2.5',
+                CLASSE_BOUTON_DE_CREATION,
+              )}
             >
-              <Icone className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate text-left">{libelle}</span>
-              {pastille}
-            </Button>
-          ))}
-        </div>
-      </div>
+              <SquarePen className="h-4 w-4 shrink-0" />
+              <span className={cn('min-w-0 flex-1 truncate', bandeSeule && 'sr-only')}>{t('Nouvel agent')}</span>
+            </button>
+          ) : null}
 
-      {/* LE REDÉMARRAGE DU SERVEUR a quitté le pied de cette colonne : il vit
-          dans le menu des trois points du bandeau, son état en point sur le
-          bouton du menu (`redemarrage.tsx`). */}
-      </>
+          {/* ------------------------------------------------------------------
+              LES PROJETS. L'intitulé, ses deux gestes d'ajout au survol, puis
+              la liste, rangée en DOSSIERS repliables (les groupes). TOUS les
+              projets y figurent : le filtre « Tout, Actifs, En attente,
+              Terminés » a été retiré (demande du 11/10/2026).
+              ------------------------------------------------------------------ */}
+          {bandeSeule ? (
+            <div className="my-2 flex justify-center" aria-hidden>
+              <span className="h-px w-5 bg-border" />
+            </div>
+          ) : (
+            <>
+              <div className="group/section mt-5 flex h-8 items-center gap-0.5 pl-2.5 pr-1">
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-faint">{t('Projets')}</span>
+                <Tooltip label={t('Nouveau groupe')}>
+                  <button
+                    type="button"
+                    aria-label="Nouveau groupe"
+                    data-nouveau-groupe
+                    onClick={() => setCreatingGroup(true)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint opacity-100 transition-opacity hover:bg-raised hover:text-text survol:opacity-0 group-hover/section:survol:opacity-100"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5" />
+                  </button>
+                </Tooltip>
+                <Tooltip label={t('Ajouter ou créer un projet')}>
+                  <button
+                    type="button"
+                    aria-label="Ajouter ou créer un projet"
+                    data-ouvrir-projets
+                    onClick={() => setAdding(true)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-colors hover:bg-raised hover:text-text"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </Tooltip>
+              </div>
+
+            </>
+          )}
+
+          {/* TANT QUE LE PREMIER ÉTAT DU SERVEUR N'EST PAS ARRIVÉ, on montre des
+              SILHOUETTES de lignes de projet. Aucune phrase de liste vide ne
+              s'écrit avant. */}
+          {!state.pret && !state.copieLocale ? (
+            <SilhouetteProjets />
+          ) : (
+            <>
+              {/* EN TÊTE de la liste, et ancré là : l'espace où l'application
+                  elle-même est développée, quand le groupe « Local » manque
+                  (démon plus ancien). Pas de poignée, pas de rang. */}
+              {espaceDev && !groupeLocalId ? (
+                <LigneEspaceDev
+                  project={espaceDev}
+                  active={espaceDev.id === state.activeProjectId && vue === 'projet'}
+                  running={runningOf(espaceDev.id)}
+                  publie={publieOf(espaceDev.id)}
+                  attention={state.attention[espaceDev.id]}
+                  rendus={state.rendus[espaceDev.id]}
+                  icone={iconeAttenteOf(espaceDev.id)}
+                  avancement={avancementOf(espaceDev.id)}
+                  cibleDeCarte={cibleDeCarteDe(espaceDev.id)}
+                  onSettings={() => ouvrirConfigProjet(espaceDev.id)}
+                  bande={bandeSeule}
+                  outilsCaches={outilsCaches}
+                  onChoose={onChoose}
+                  onQuitterTableauDeBord={() => onOuvrirVue('projet')}
+                />
+              ) : null}
+
+              {entries.map((entry) => {
+                if (entry.kind === 'project') {
+                  return rendreLigne(entry.project, {
+                    style: glisse(decales.racine.has(entry.id)),
+                    marqueur: marqueurDe(entry.id),
+                  });
+                }
+
+                // Le groupe « Local » porte l'espace de développement en tête : il
+                // compte parmi ses membres pour les signaux et le repli.
+                const localDuGroupe = entry.id === groupeLocalId && espaceDev ? espaceDev : null;
+                const local = localDuGroupe;
+                const membres = entry.members;
+                const membresVus = local ? [local, ...membres] : membres;
+                // Replié, un dossier cacherait ce que ses projets attendent ET ce
+                // qu'ils ont rendu : les deux signaux remontent jusqu'à son en-tête.
+                const signal = signalDuGroupe(
+                  membresVus.map((p) => p.id),
+                  state.attention,
+                  state.rendus,
+                );
+                const replie = collapsed.includes(entry.id);
+                const outilDeGroupe = cn(
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-raised hover:text-text survol:opacity-0 group-hover/g:survol:opacity-100',
+                  outilsCaches && 'hidden',
+                );
+                return (
+                  <div
+                    key={entry.id}
+                    data-drop-group={entry.id}
+                    data-groupe-projets={entry.id}
+                    style={glisse(decales.racine.has(entry.id))}
+                    className={cn(
+                      'relative rounded-lg transition-[transform,background-color] duration-150 motion-reduce:transition-none',
+                      // Survoler le corps du dossier l'éclaire en entier : on comprend
+                      // que le projet va s'y ranger.
+                      target?.kind === 'group' && target.id === entry.id && target.position === 'inside' && 'bg-raised',
+                    )}
+                  >
+                    <Trait ou={marqueurDe(entry.id)} />
+                    <EnteteGroupe
+                      rowProps={rowProps(entry.id, 'group')}
+                      dimmed={dragging?.id === entry.id}
+                      signal={signal}
+                      regarde={membresVus.some((p) => p.id === state.activeProjectId)}
+                      bande={bandeSeule}
+                      titre={entry.group.name}
+                    >
+                      {/* LE DOSSIER : sa flèche, son nom. Un clic le replie. */}
+                      <button
+                        onClick={() => toggle(entry.id)}
+                        aria-expanded={!replie}
+                        title={replie ? t('Déplier le groupe') : t('Replier le groupe')}
+                        className="flex min-w-0 flex-1 items-center gap-2.5 text-left text-[14px] text-text"
+                      >
+                        <ChevronRight
+                          className={cn('h-4 w-4 shrink-0 text-faint transition-transform', !replie && 'rotate-90')}
+                        />
+                        <span className="min-w-0 truncate">{entry.group.name}</span>
+                      </button>
+                      {/* Replié, le dossier porte ce que ses projets ont rendu sans
+                          être lus ; un clic les marque consultés. */}
+                      {replie && (signal.rendus ?? 0) > 0 ? (
+                        <Tooltip label={libelleNonConsultees(signal.rendus ?? 0, true)}>
+                          <button
+                            type="button"
+                            data-groupe-non-consultees={signal.rendus}
+                            aria-label={libelleNonConsultees(signal.rendus ?? 0, true)}
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              membresVus
+                                .filter((p) => state.rendus[p.id])
+                                .forEach((p) => client.call({ type: 'project.read', projectId: p.id }));
+                            }}
+                            className="h-2 w-2 shrink-0 rounded-full bg-faint"
+                          />
+                        </Tooltip>
+                      ) : null}
+                      {/* Replié, un membre qui publie ne se voit plus : le repère
+                          remonte jusqu'à l'en-tête du dossier. */}
+                      {replie && membresVus.some((p) => publieOf(p.id)) ? <RepereePublication publie /> : null}
+                      {replie ? (
+                        <RepereLigne
+                          signal={{ attention: signal.attention }}
+                          /* Replié, le dossier porte la nature de ce que ses membres
+                             attendent : un seul repère, jamais deux côte à côte. */
+                          icone={iconeDuLot(
+                            state.decisions.filter((d) => !d.reglee && membresVus.some((p) => p.id === d.projectId)),
+                          )}
+                          /* Replié, le dossier emmène à la décision du premier de ses
+                             projets qui en attend une. */
+                          onDecision={() => {
+                            const projet = membresVus.find((p) => state.attention[p.id]);
+                            if (projet) allerALaDecision(projet.id, onChoose);
+                          }}
+                        />
+                      ) : null}
+                      {/* LES OUTILS DU DOSSIER, au survol seulement : le ranger
+                          (poignée), le renommer, le supprimer. */}
+                      <span
+                        {...poigneeProps(entry.id, 'group', entry.group.name)}
+                        title={t('Glisser pour ranger')}
+                        className={cn(outilDeGroupe, 'cursor-grab touch-none active:cursor-grabbing')}
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </span>
+                      <button
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => setRenaming(entry.group)}
+                        data-outil-groupe="renommer"
+                        className={outilDeGroupe}
+                        title={t('Renommer le groupe')}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => setDeleting(entry.group)}
+                        data-outil-groupe="supprimer"
+                        className={cn(
+                          outilDeGroupe,
+                          'hover:text-danger',
+                          // Le groupe « Local » abrite Beluga : il ne se supprime pas.
+                          localDuGroupe && 'hidden',
+                        )}
+                        title={t('Supprimer le groupe')}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </EnteteGroupe>
+
+                    {!replie ? (
+                      <div className={bandeSeule ? undefined : 'pl-3'}>
+                        {/* FIXÉ EN TÊTE du groupe « Local » : aucune prise pour la
+                            souris, les projets glissés ici se rangent sous lui. */}
+                        {local ? (
+                          <LigneEspaceDev
+                            project={local}
+                            active={local.id === state.activeProjectId && vue === 'projet'}
+                            running={runningOf(local.id)}
+                            publie={publieOf(local.id)}
+                            attention={state.attention[local.id]}
+                            rendus={state.rendus[local.id]}
+                            icone={iconeAttenteOf(local.id)}
+                            avancement={avancementOf(local.id)}
+                            cibleDeCarte={cibleDeCarteDe(local.id)}
+                            onSettings={() => ouvrirConfigProjet(local.id)}
+                            bande={bandeSeule}
+                            outilsCaches={outilsCaches}
+                            onChoose={onChoose}
+                            onQuitterTableauDeBord={() => onOuvrirVue('projet')}
+                          />
+                        ) : null}
+                        {membresVus.length ? (
+                          membres.map((project) =>
+                            rendreLigne(project, {
+                              style: glisse(decales.membres.has(project.id)),
+                              marqueur: marqueurDe(project.id),
+                              groupColor: entry.group.color,
+                              emboite: true,
+                            }),
+                          )
+                        ) : (
+                          // Une seule ligne, jamais coupée ; INVISIBLE en colonne
+                          // réduite (elle y débordait mot par mot) mais gardant sa
+                          // hauteur, pour que les lignes suivantes ne sautent pas
+                          // d'un mode à l'autre (MEM-2899).
+                          <p
+                            data-groupe-vide={entry.id}
+                            aria-hidden={bandeSeule || undefined}
+                            className={cn('truncate px-2.5 py-2 text-[13px] text-faint', bandeSeule && 'invisible')}
+                          >
+                            {t('Glissez un projet ici.')}
+                          </p>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+
+              {/* « Aucun projet inscrit » ne s'écrit que si la colonne n'en a
+                  vraiment aucun. */}
+              {bandeSeule ? null : !entries.length && !espaceDev ? (
+                <p className="px-2.5 py-2 text-[13px] text-faint">{t('Aucun projet inscrit.')}</p>
+              ) : null}
+            </>
+          )}
+
+          {/* « MIS DE CÔTÉ » : un dernier dossier, replié, tout en bas de la
+              liste. Caché tant que la colonne reste réduite. */}
+          {!bandeSeule ? (
+            <>
+              <button onClick={() => setShowArchived((value) => !value)} className={cn(classeSection, 'mt-3')}>
+                <span className="min-w-0 truncate">{t('Mis de côté')}</span>
+                <ChevronRight className={cn('h-3 w-3 shrink-0 transition-transform', showArchived && 'rotate-90')} />
+              </button>
+
+              {showArchived ? (
+                archived.length ? (
+                  archived.map((project) => (
+                    <div
+                      key={project.id}
+                      className="group flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[14px] text-faint hover:bg-raised"
+                    >
+                      <Folder className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                      <button
+                        onClick={() => client.call({ type: 'project.archive', id: project.id, archived: false })}
+                        className="shrink-0 opacity-0 transition-opacity hover:text-text group-hover:opacity-100"
+                        title={t('Remettre en service')}
+                      >
+                        <ArchiveRestore className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="px-2.5 py-2 text-[13px] text-faint">{t('Aucun projet mis de côté.')}</p>
+                )
+              ) : null}
+            </>
+          ) : null}
+        </ZoneDefilement>
+
+        {/* LE PIED : l'état du moteur à gauche — « LLM en ligne », le compte en
+            service, et les quotas au clic — et UN bouton à droite, les
+            réglages. Rien d'autre. */}
+        <div
+          data-pied-colonne
+          className={cn('flex shrink-0 gap-1', bandeSeule ? 'flex-col items-center px-0 pb-3 pt-2' : 'items-center px-2 pb-2.5 pt-1.5')}
+        >
+          {/* LE POINT DU MOTEUR NE DIT QUE LA LIAISON : plein quand elle tient,
+              battant quand elle est rompue. */}
+          <QuotaBadge
+            activeEngine={moteurActif}
+            variante={bandeSeule ? 'bande' : 'pied'}
+            liaison={{ ...liaison, classe: liaison.enLigne ? 'bg-success' : 'animate-pulse-soft bg-text' }}
+          />
+          {/* LA CLOCHE DES NOTIFICATIONS, à côté des réglages (demande du
+              12/10/2026) : sur ordinateur seulement — sur téléphone, elle
+              reste en haut à droite de l'écran (`app.tsx`). */}
+          {!telephone ? <ClocheNotifications className="h-9 w-9 shrink-0" /> : null}
+          {onOpenSettings ? (
+            <Tooltip label={t('Réglages')}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-9 w-9 shrink-0 text-muted"
+                aria-label="Réglages"
+                data-reglages-menu
+                onClick={() => {
+                  onOpenSettings();
+                  onChoose?.();
+                }}
+              >
+                <Settings className="h-4 w-4" />
+                {/* UN REDÉMARRAGE ATTEND : le point le dit ici, sur le bouton
+                    qui mène à son geste (réglages, « Serveur et agents »). */}
+                <PointRedemarrage etat={redemarrage.etat} />
+              </Button>
+            </Tooltip>
+          ) : null}
+        </div>
       </div>
 
       {/* LES FENÊTRES RESTENT MONTÉES DANS LES DEUX ÉTATS : replier la colonne
           pendant qu'une d'elles est ouverte ne doit pas la faire disparaître. */}
-      <ProjectsDialog open={adding} onClose={() => setAdding(false)} />
+      <ProjectsDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onOuvrirVue={onOuvrirVue}
+        adresse={onChoose ? 'projets-du-serveur' : undefined}
+      />
       <PromptDialog
         open={creatingGroup}
         title={t('Nouveau groupe')}
@@ -1308,57 +1299,6 @@ export function Sidebar({
         onClose={() => setDeleting(null)}
       />
     </aside>
-  );
-}
-
-/**
- * LE BOUTON « TABLEAUX DE BORD » de la colonne de gauche (vue `en-route`). Il dit combien d'agents
- * travaillent, tous projets confondus — le compte que portait la pile
- * flottante —, et s'allume quand la page est à l'écran. Rétrécie, la colonne
- * n'en garde que l'icône, et son compte en point orange.
- */
-function BoutonEnRoute({ bande, actif, onOuvrir }: { bande: boolean; actif: boolean; onOuvrir: () => void }) {
-  const state = useApp();
-  const auTravail = Object.values(state.agents).filter(agentTientSonTour).length;
-  const libelle = t('Tableaux de bord');
-  const detail = auTravail ? t('{n} agent(s) au travail', { n: auTravail }) : t('Aucun agent au travail');
-  return (
-    <div className="px-1.5 pt-2">
-      <Button
-        variant="ghost"
-        size="sm"
-        data-ouvrir-en-route
-        data-actif={actif || undefined}
-        aria-current={actif ? 'page' : undefined}
-        title={bande ? `${libelle} — ${detail}` : detail}
-        className={cn(
-          'flex h-9 w-full gap-2 sm:h-7',
-          bande ? 'relative justify-center px-0' : 'justify-start',
-          actif && 'bg-raised text-text',
-        )}
-        onClick={onOuvrir}
-      >
-        <Waypoints className={cn('h-3.5 w-3.5 shrink-0', auTravail ? 'text-en-cours' : undefined)} />
-        {bande ? (
-          <>
-            <span className="sr-only">{libelle}</span>
-            {auTravail ? (
-              <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-en-cours" aria-hidden />
-            ) : null}
-          </>
-        ) : (
-          <>
-            <span className="min-w-0 flex-1 truncate text-left">{libelle}</span>
-            {auTravail ? (
-              <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-en-cours" data-compte-agents>
-                {auTravail}
-                <Dot tone="running" pulse />
-              </span>
-            ) : null}
-          </>
-        )}
-      </Button>
-    </div>
   );
 }
 
@@ -1412,7 +1352,7 @@ function ColorPicker({ value, onPick }: { value?: string; onPick: (color: string
             onPick('');
             setOpen(false);
           }}
-          className="mt-2 w-full rounded border border-border px-2 py-1 text-[12px] text-muted hover:bg-raised hover:text-text"
+          className="mt-2 w-full rounded bg-raised px-2 py-1 text-[12px] text-muted transition-colors hover:bg-border hover:text-text"
         >
           {t('Aucune couleur')}</button>
       </DropdownMenuContent>
@@ -1505,8 +1445,8 @@ function EnteteGroupe({
         // était plus basse que son propre bouton de nom en mode ouvert (une
         // lettre tient dans moins de hauteur qu'un libellé) — chaque groupe
         // décalait d'autant tout ce qui suivait entre les deux modes.
-        'group/g flex min-h-9 items-center gap-1 rounded-md py-1.5',
-        bande ? 'justify-center px-0' : 'px-1.5',
+        'group/g flex h-9 items-center gap-0.5 rounded-lg transition-colors hover:bg-raised',
+        bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
       )}
@@ -1856,24 +1796,15 @@ function RepereDemiRond({
   bande?: boolean;
   outilsCaches?: boolean;
 }) {
+  /* PLUS DE BARRE NI DE DEMI-ROND : la ligne ouverte se dit par son fond gris,
+     comme dans ChatGPT. Le repère reste dans le document, invisible, pour les
+     contrôles qui s'en servent pour trouver la ligne ouverte. */
+  void couleur;
+  void emboite;
+  void bande;
+  void outilsCaches;
   if (!active) return null;
-  return (
-    <span
-      aria-hidden
-      data-repere-demi-rond
-      className={cn(
-        'pointer-events-none absolute top-1/2 h-3 w-1.5 -translate-y-1/2 rounded-r-full bg-text',
-        emboite === 'reuni' && !bande
-          ? outilsCaches
-            ? '-left-[27px]'
-            : '-left-[43px] survol:-left-[31px]'
-          : emboite
-            ? '-left-[19px]'
-            : '-left-[7px]',
-      )}
-      style={couleur ? { backgroundColor: couleur } : undefined}
-    />
-  );
+  return <span aria-hidden data-repere-demi-rond className="hidden" />;
 }
 
 /**
@@ -1890,26 +1821,32 @@ function RepereDemiRond({
  * Absolue, sans pointeur ni hauteur : la ligne garde sa hauteur fixe.
  */
 function BrancheMembre({ premier, dernier, largeurPile }: { premier: boolean; dernier: boolean; largeurPile: number }) {
-  const axe = largeurPile / 2 - 13;
-  const haut = premier ? -10 : 0;
-  // Un trait qui porte une information suit `--faint`, atténué pour rester discret.
-  const trait = 'pointer-events-none absolute border-faint opacity-50';
+  /* L'axe vertical tombe sous le MILIEU de la pile d'icônes du projet réuni
+     (elle commence à 10 px : `px-2.5`), vu depuis l'enveloppe des membres,
+     décalée de `RETRAIT_DES_MEMBRES`. Le trait horizontal s'arrête 2 px avant
+     l'icône du membre (elle aussi à 10 px), au milieu de sa ligne de 36 px. */
+  const axe = 10 + largeurPile / 2 - RETRAIT_DES_MEMBRES;
+  const haut = premier ? -9 : 0;
+  const trait = CLASSE_TRAIT_DE_BRANCHE;
   return (
     <span aria-hidden data-branche-membre={dernier ? 'dernier' : 'milieu'}>
       {dernier ? (
         <span
           className={cn(trait, 'rounded-bl-[5px] border-b border-l')}
-          style={{ left: axe, top: haut, height: 17 - haut, width: 5 - axe }}
+          style={{ left: axe, top: haut, height: 18 - haut, width: 8 - axe }}
         />
       ) : (
         <>
           <span className={cn(trait, 'bottom-0 border-l')} style={{ left: axe, top: haut }} />
-          <span className={cn(trait, 'border-t')} style={{ left: axe, top: 16, width: 5 - axe }} />
+          <span className={cn(trait, 'border-t')} style={{ left: axe, top: 17, width: 8 - axe }} />
         </>
       )}
     </span>
   );
 }
+
+/** Le retrait, en pixels, des membres d'un projet réuni sous sa ligne (`pl-4`). */
+const RETRAIT_DES_MEMBRES = 16;
 
 function Trait({ ou }: { ou?: 'before' | 'after' }) {
   if (!ou) return null;
@@ -1980,6 +1917,7 @@ function LigneEspaceDev({
   onQuitterTableauDeBord?: () => void;
 }) {
   const secoue = useSecousse({ attention, rendus }, active);
+  void avancement;
   const ouvrir = (event: React.MouseEvent) => {
     if (rendus && clicSurLeBadgeRendu(event)) void client.ouvrirCarteNonLue(project.id);
     else client.setActiveProject(project.id);
@@ -1987,119 +1925,88 @@ function LigneEspaceDev({
     onChoose?.();
   };
   return (
-    <div className="mb-0.5">
-      <div
-        data-espace-dev={project.id}
-        // IMMUABLE AU RANGEMENT, MAIS PAS INERTE. La ligne ne se glisse pas et
-        // n'entre dans aucun groupe (`data-espace-dev-verrouille`, aucun
-        // `data-drag-id`) — en revanche elle REÇOIT une carte comme toute autre
-        // ligne de projet : c'est ce que dit `data-projet-cible`, lu par
-        // `resolve` dans `board.tsx` pendant un glissement de carte.
-        data-espace-dev-verrouille="oui"
-        data-projet-cible={project.id}
-        data-projet-survole={cibleDeCarte ?? undefined}
-        draggable={false}
-        data-espace-dev-attention={attention || undefined}
-        data-espace-dev-rendus={rendus || undefined}
-        className={cn(
-          'group relative flex w-full items-center gap-2 rounded-md border border-transparent py-1.5 text-[13.5px]',
-          bande ? 'justify-center px-0' : 'px-2',
-          'transition-[background-color,color] duration-150 motion-reduce:transition-none',
-          // La ligne reste NUE : ni cadre ni fond coloré. L'état (travail en
-          // cours, publication, décision attendue, plan) ne vit plus que sur
-          // l'icône (`RepereRobot`) et le repère de droite (`RepereLigne`).
-          active ? 'bg-ligne-active text-text' : 'text-muted hover:bg-surface hover:text-text',
-          secoue && 'animate-secousse',
-          /* Le MÊME éclairage qu'une ligne de projet pendant le geste : un trait
-             porteur d'information suit `--faint`, jamais `--border`. */
-          cibleDeCarte === 'acceptee' && 'border-faint bg-surface',
-          cibleDeCarte === 'refusee' && 'opacity-50',
-        )}
+    <div
+      data-espace-dev={project.id}
+      data-actif={active || undefined}
+      // IMMUABLE AU RANGEMENT, MAIS PAS INERTE. La ligne ne se glisse pas et
+      // n'entre dans aucun groupe (`data-espace-dev-verrouille`, aucun
+      // `data-drag-id`) — en revanche elle REÇOIT une carte comme toute autre
+      // ligne de projet : c'est ce que dit `data-projet-cible`, lu par
+      // `resolve` dans `board.tsx` pendant un glissement de carte.
+      data-espace-dev-verrouille="oui"
+      data-projet-cible={project.id}
+      data-projet-survole={cibleDeCarte ?? undefined}
+      draggable={false}
+      data-espace-dev-attention={attention || undefined}
+      data-espace-dev-rendus={rendus || undefined}
+      className={cn(
+        CLASSE_LIGNE_DE_PROJET,
+        bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
+        active ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
+        secoue && 'animate-secousse',
+        cibleDeCarte === 'acceptee' && 'bg-raised ring-1 ring-inset ring-faint',
+        cibleDeCarte === 'refusee' && 'opacity-50',
+      )}
+    >
+      <RepereDemiRond active={active} />
+      <button
+        data-ouvrir-espace-dev
+        onClick={ouvrir}
+        title={t('{v0} — l’espace où l’application elle-même est développée', { v0: project.name })}
+        className={cn('flex h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
       >
-        {/* Même repère que sur une ligne de projet : « Développement » en est un
-            comme les autres, l'unique différence est de vivre hors de la liste. */}
-        <RepereDemiRond active={active} />
-        <button
-          data-ouvrir-espace-dev
-          onClick={ouvrir}
-          title={t('{v0} — l’espace où l’application elle-même est développée', { v0: project.name })}
-          // `h-5` FIXE : sans elle, le nom passé en `sr-only` en mode réduit
-          // s'effondre à 1 px, la ligne perd les 5 px que son texte lui
-          // donnait en mode ouvert, et TOUTES les lignes qui suivent se
-          // décalent d'autant — le pointeur ne reste plus sur le bon bouton.
-          className={cn('flex h-5 min-w-0 items-center gap-2 text-left', bande ? 'justify-center' : 'flex-1')}
-        >
-          {/* LE FAVICON RESTE TOUJOURS LÀ, comme l'icône d'une ligne de projet.
-              Le repère d'état (travail en cours, publication, question, plan,
-              rapport non consulté) prenait sa PLACE, si bien que le logo de
-              Beluga disparaissait dès qu'un agent y travaillait : il se pose
-              désormais EN INCRUSTATION sur son coin (`RepereRobot mini`), et
-              la ligne garde la même largeur en colonne rétrécie. */}
-          <span className="relative inline-flex shrink-0 items-center">
-            <img
-              src="/icon.svg"
-              alt=""
-              aria-hidden
-              data-espace-dev-favicon
-              className="h-3.5 w-3.5 shrink-0 rounded-[3px]"
-            />
-            {running || publie || icone || rendus ? (
-              <RepereRobot running={running} publie={publie} icone={icone} rendus={rendus} mini />
-            ) : null}
-          </span>
-          {/* SON VRAI NOM, celui de la base — « Beluga » — comme toute autre
-              ligne de projet : il se renomme donc dans les réglages, et aucun
-              libellé n'est figé dans le code. */}
-          <span className={cn('min-w-0 flex-1 truncate', bande && 'sr-only')}>{project.name}</span>
-        </button>
-        {/* Hors du bouton : le repère de décision porte son propre geste, et un
-            bouton n'en contient pas un autre. Le travail rendu ne s'y affiche
-            plus — il vit désormais à gauche, dans `RepereRobot`. Une décision
-            qui attend prime toujours sur le pourcentage, qui vit à la même
-            place (`RepereAvancementProjet`). */}
-        {bande ? (
-          repereVisible({ attention }) ? (
-            <span
-              className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning"
-              data-alerte-projet={project.id}
-              aria-hidden
-            />
-          ) : null
-        ) : repereVisible({ attention }) ? (
-          <RepereLigne
-            signal={{ attention }}
-            icone={icone}
-            onDecision={() => {
-              onQuitterTableauDeBord?.();
-              allerALaDecision(project.id, onChoose);
-            }}
-            className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
+        {/* L'ICÔNE DE L'APPLICATION RESTE TOUJOURS LÀ. L'état (un agent
+            travaille, une publication part, une réponse attend) se pose EN
+            INCRUSTATION sur son coin (`RepereRobot mini`). */}
+        <span className="relative inline-flex shrink-0 items-center">
+          <img src="/icon.svg" alt="" aria-hidden data-espace-dev-favicon className="h-[15px] w-[15px] shrink-0 rounded-[3px]" />
+          {running || publie || icone || rendus ? (
+            <RepereRobot running={running} publie={publie} icone={icone} rendus={rendus} mini />
+          ) : null}
+        </span>
+        <span className={cn('min-w-0 flex-1 truncate', bande && 'sr-only')}>{project.name}</span>
+      </button>
+      {/* Hors du bouton : le repère de décision porte son propre geste, et un
+          bouton n'en contient pas un autre. */}
+      {bande ? (
+        repereVisible({ attention }) ? (
+          <span
+            className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-text"
+            data-alerte-projet={project.id}
+            aria-hidden
           />
-        ) : (
-          <RepereAvancementProjet
-            avancement={avancement ?? null}
-            // Collé au bord droit, à la place de l'icône réglages (encore
-            // invisible) : contrairement au triangle ci-dessus, ce décalage ne
-            // se retire JAMAIS au survol — seule l'opacité cède la place à
-            // l'icône quand elle apparaît.
-            className="survol:translate-x-4 transition-opacity duration-150 motion-reduce:transition-none group-hover:survol:opacity-0"
-          />
-        )}
-        <button
-          onClick={onSettings}
-          data-reglages-projet={project.id}
-          className={cn(
-            'shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100',
-            (outilsCaches || bande) && 'hidden',
-          )}
-          title={t('Réglages de l’espace de développement')}
-        >
-          <Settings2 className="h-3 w-3" />
-        </button>
-      </div>
+        ) : null
+      ) : repereVisible({ attention }) ? (
+        <RepereLigne
+          signal={{ attention }}
+          icone={icone}
+          onDecision={() => {
+            onQuitterTableauDeBord?.();
+            allerALaDecision(project.id, onChoose);
+          }}
+        />
+      ) : null}
+      <button
+        onClick={onSettings}
+        data-reglages-projet={project.id}
+        className={cn(CLASSE_OUTIL_DE_LIGNE, (outilsCaches || bande) && 'hidden')}
+        title={t('Réglages de l’espace de développement')}
+      >
+        <EllipsisVertical className="h-4 w-4" />
+      </button>
     </div>
   );
 }
+
+/**
+ * LA TENUE D'UNE LIGNE DE PROJET : une icône, un nom, 36 px de haut, un fond
+ * gris au survol et sur la ligne ouverte. Aucun cadre, aucun compteur. Les
+ * outils (réglages, poignée) ne paraissent qu'au survol, à droite.
+ */
+const CLASSE_LIGNE_DE_PROJET =
+  'group relative flex h-9 w-full items-center gap-0.5 rounded-lg text-[14px] text-text transition-[transform,background-color] duration-150 motion-reduce:transition-none';
+const CLASSE_OUTIL_DE_LIGNE =
+  'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-border hover:text-text survol:opacity-0 group-hover:survol:opacity-100';
 
 function ProjectRow({
   project,
@@ -2178,12 +2085,17 @@ function ProjectRow({
   // Le projet qu'on regarde déjà ne bouge pas : le signal sert à ce qu'on ne
   // voit pas.
   const secoue = useSecousse({ attention, rendus }, active);
+  void avancement;
+  void groupColor;
+  void emboite;
   return (
     <div
       {...rowProps}
       style={style}
       data-projet-attention={attention || undefined}
       data-projet-rendus={rendus || undefined}
+      /* La ligne du projet OUVERT : son nom s'écrit en violet (`text-teinte`). */
+      data-actif={active || undefined}
       /* LA LIGNE EST UNE DESTINATION POUR UNE CARTE TIRÉE DU TABLEAU. Le repère
          est posé en permanence : il n'est lu que pendant un glissement de carte
          (`resolve`, `board.tsx`), et le rangement des projets entre eux, lui,
@@ -2191,48 +2103,19 @@ function ProjectRow({
       data-projet-cible={project.id}
       data-projet-survole={cibleDeCarte ?? undefined}
       className={cn(
-        'group relative mb-0.5 flex w-full items-center gap-1 rounded-md border border-transparent py-1.5 text-[13.5px]',
-        bande ? 'justify-center px-0' : 'px-1.5',
-        // Le décalage suit la même durée que les autres transitions ; le réglage
-        // « réduire les animations » du système le rend immédiat.
-        'transition-[transform,background-color,color] duration-150 motion-reduce:transition-none',
-        // La ligne reste NUE : ni cadre ni fond coloré. L'état (travail en
-        // cours, publication, décision attendue, plan) ne vit plus que sur
-        // l'icône (`RepereRobot`) et le repère de droite (`RepereLigne`).
-        active ? 'bg-ligne-active text-text' : 'text-text hover:bg-surface',
+        CLASSE_LIGNE_DE_PROJET,
+        bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
+        // La ligne reste NUE : ni cadre ni couleur. L'état ne vit que sur
+        // l'icône (`RepereRobot`) et sur le repère de droite (`RepereLigne`).
+        active ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
-        /* Un trait porteur d'information suit `--faint`, jamais `--border` :
-           c'est le contrat des thèmes plats. */
-        cibleDeCarte === 'acceptee' && 'border-faint bg-surface',
+        cibleDeCarte === 'acceptee' && 'bg-raised ring-1 ring-inset ring-faint',
         cibleDeCarte === 'refusee' && 'opacity-50',
       )}
     >
       <Trait ou={marqueur} />
-      <RepereDemiRond
-        active={active}
-        couleur={groupColor}
-        emboite={emboite}
-        bande={bande}
-        outilsCaches={outilsCaches}
-      />
-      <span
-        {...poigneeProps}
-        title={t('Glisser pour ranger')}
-        className={cn(
-          '-m-1 shrink-0 touch-none overflow-hidden p-1',
-          'transition-[max-width,padding,margin] duration-150 motion-reduce:transition-none',
-          // Là où le pointeur survole : au repos, aucune place ni visibilité ; au
-          // survol de la ligne, la poignée reprend sa place et le dossier se
-          // décale. Sur téléphone (pas de survol), elle reste comme avant.
-          'survol:m-0 survol:max-w-0 survol:p-0',
-          'group-hover:survol:-m-1 group-hover:survol:max-w-5 group-hover:survol:p-1',
-          (outilsCaches || bande || sansPoignee) && 'hidden',
-        )}
-        data-poignee-projet={project.id}
-      >
-        <GripVertical className="h-3 w-3 cursor-grab text-faint opacity-40 transition-opacity survol:opacity-0 group-hover:opacity-100 active:cursor-grabbing" />
-      </span>
+      <RepereDemiRond active={active} />
       <button
         onClick={(event) => {
           if (rendus && clicSurLeBadgeRendu(event)) {
@@ -2245,19 +2128,13 @@ function ProjectRow({
           onChoose?.();
         }}
         title={bande ? project.name : undefined}
-        // `h-5` FIXE, comme sur la ligne « Espace de développement » : sans
-        // elle, le nom passé en `sr-only` en mode réduit s'effondre à 1 px et
-        // décale toutes les lignes qui suivent d'autant en mode ouvert.
-        className={cn('flex h-5 min-w-0 items-center gap-1.5 text-left', bande ? 'justify-center' : 'flex-1')}
+        className={cn('flex h-9 min-w-0 items-center gap-2.5 text-left', bande ? 'justify-center' : 'flex-1')}
       >
-        {/* Le favicon du site du projet (ou ses initiales, à défaut d'adresse)
-            reste TOUJOURS en premier, tout à gauche, à sa taille et sa place
-            fixes. L'icône d'état (`RepereRobot` : publication, attente,
-            travail réel ou rapport non consulté) ne s'ajoute plus à côté de
-            lui — ce qui élargissait le bouton en colonne réduite — mais se
-            pose EN INCRUSTATION sur son coin haut droit. */}
+        {/* L'icône du projet (ou ses initiales) reste TOUJOURS en premier, à sa
+            taille et sa place fixes : c'est la seule couleur de la ligne.
+            L'état se pose EN INCRUSTATION sur son coin haut droit. */}
         <span className="relative inline-flex shrink-0 items-center">
-          {/* Un projet réuni montre la pile des favicons de ses membres. */}
+          {/* Un projet réuni montre la pile des icônes de ses membres. */}
           {sousGroupe?.membres.length ? (
             <PastillesEmpilees projects={sousGroupe.membres} />
           ) : (
@@ -2270,77 +2147,55 @@ function ProjectRow({
         {/* LE NOM RESTE LISIBLE AUX OUTILS D'ASSISTANCE même rétréci : il passe
             en `sr-only`, il ne disparaît pas du document. */}
         <span className={cn('min-w-0 flex-1 truncate', bande && 'sr-only')}>{project.name}</span>
-        {sousGroupe && !bande ? <span className="shrink-0 text-[12px] text-faint">{sousGroupe.nombre}</span> : null}
-        {!bande && project.billing?.clientId ? (
-          <Tooltip label={t('Facturé à {v0} · {v1} CHF/h', { v0: project.billing.clientName ?? 'un client', v1: project.billing.hourlyRate })}>
-            {/* À la suite du nom (le nom prend toute la place, ce repère est
-                poussé à droite). Caché au repos sur pointeur qui survole, révélé
-                au survol de la ligne — comme la poignée. Sur téléphone (pas de
-                survol) il reste discrètement visible. */}
-            <CircleDollarSign className="ml-auto h-2.5 w-2.5 shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 group-hover:opacity-100" />
-          </Tooltip>
-        ) : null}
       </button>
       {/* Le repère de décision vit HORS du bouton du nom : il porte son propre
-          geste, et un bouton n'en contient pas un autre. Le travail rendu ne
-          s'y affiche plus — il vit désormais à gauche, dans `RepereRobot`. Sa
-          place, libre le reste du temps, sert au pourcentage d'avancement
-          (`RepereAvancementProjet`) — jamais les deux à la fois. */}
+          geste, et un bouton n'en contient pas un autre. */}
       {bande ? (
-        /* UNE ALERTE NE SE CACHE JAMAIS DERRIÈRE LE REPLI : le triangle ne
-           tiendrait pas dans la bande, un point le remplace, à la même place
-           que sur le bouton de navigation. */
+        /* UNE ALERTE NE SE CACHE JAMAIS DERRIÈRE LE REPLI : un point la dit. */
         repereVisible({ attention }) ? (
           <span
-            className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warning"
+            className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-text"
             data-alerte-projet={project.id}
             aria-hidden
           />
         ) : null
       ) : repereVisible({ attention }) ? (
-        <RepereLigne
-          icone={icone}
-          signal={{ attention }}
-          onDecision={() => allerALaDecision(project.id, onChoose)}
-          // Au repos (pointeur qui survole), le repère est poussé à droite, à la
-          // place de l'icône réglages encore invisible ; au survol de la ligne, il
-          // glisse vers la gauche pour lui dégager la place, tout en douceur. Sur
-          // téléphone (pas de survol) il ne bouge pas.
-          className="transition-transform duration-150 motion-reduce:transition-none survol:translate-x-4 group-hover:survol:translate-x-0"
-        />
-      ) : (
-        <RepereAvancementProjet
-          avancement={avancement ?? null}
-          // Collé au bord droit, à la place de l'icône réglages (encore
-          // invisible) : contrairement au triangle ci-dessus, ce décalage ne
-          // se retire JAMAIS au survol — seule l'opacité cède la place à
-          // l'icône quand elle apparaît.
-          className="survol:translate-x-4 transition-opacity duration-150 motion-reduce:transition-none group-hover:survol:opacity-0"
-        />
-      )}
+        <RepereLigne icone={icone} signal={{ attention }} onDecision={() => allerALaDecision(project.id, onChoose)} />
+      ) : null}
+      {/* LES OUTILS DE LA LIGNE, au survol seulement : la poignée qui la range,
+          puis les réglages du projet. */}
+      <span
+        {...poigneeProps}
+        title={t('Glisser pour ranger')}
+        className={cn(
+          CLASSE_OUTIL_DE_LIGNE,
+          'cursor-grab touch-none active:cursor-grabbing',
+          (outilsCaches || bande || sansPoignee) && 'hidden',
+        )}
+        data-poignee-projet={project.id}
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </span>
       <button
         onPointerDown={(event) => event.stopPropagation()}
         onClick={onSettings}
         data-reglages-projet={project.id}
-        className={cn(
-          'shrink-0 text-faint opacity-40 transition-opacity survol:opacity-0 hover:text-text group-hover:opacity-100',
-          (outilsCaches || bande) && 'hidden',
-        )}
+        className={cn(CLASSE_OUTIL_DE_LIGNE, (outilsCaches || bande) && 'hidden')}
         title={t('Réglages du projet')}
       >
-        <Settings2 className="h-3 w-3" />
+        <EllipsisVertical className="h-4 w-4" />
       </button>
-      {/* La flèche du sous-groupe, à DROITE, comme celle d'un groupe. */}
+      {/* La flèche du sous-groupe, à DROITE, comme celle d'un dossier. */}
       {sousGroupe && !bande ? (
         <button
           type="button"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={() => sousGroupe.basculer()}
           data-deplier-regroupement={project.id}
-          className="shrink-0 text-faint hover:text-text"
+          className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-faint hover:text-text"
           title={sousGroupe.ouvert ? t('Replier les projets réunis') : t('Déplier les projets réunis')}
         >
-          <ChevronRight className={cn('h-2.5 w-2.5 transition-transform', sousGroupe.ouvert && 'rotate-90')} />
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', sousGroupe.ouvert && 'rotate-90')} />
         </button>
       ) : null}
     </div>
@@ -2388,7 +2243,40 @@ function DerouleDesEtapes({ etapes }: { etapes: Etape[] }) {
   );
 }
 
-function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ProjectsDialog({
+  open,
+  onClose,
+  onOuvrirVue,
+  adresse,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onOuvrirVue: (vue: VueCentrale) => void;
+  /** Le nom du volet dans l'adresse, quand la colonne ne le tient pas elle-même. */
+  adresse?: string;
+}) {
+  /*
+   * UNE FOIS LE PROJET MONTÉ, ON ENTRE DEDANS : il devient le projet regardé,
+   * le centre revient à son tableau, et sa carte « Cahier des charges » s'ouvre
+   * quand on l'a demandée. Si la réponse n'a pas pu emporter l'identifiant de
+   * la carte (pose plus lente que prévu), on ouvre celle qui arrive.
+   */
+  const entrerDansLeProjet = (projectId: string, cahierCardId: string | undefined, cahierDemande: boolean) => {
+    client.setActiveProject(projectId);
+    onOuvrirVue('projet');
+    if (cahierCardId) {
+      client.openCard(cahierCardId);
+      return;
+    }
+    if (!cahierDemande) return;
+    const fin = Date.now() + 20_000;
+    const guetter = () => {
+      const carte = Object.values(client.lireEtat().cards).find((c) => c.projectId === projectId && c.cahierDesCharges);
+      if (carte) client.openCard(carte.id);
+      else if (Date.now() < fin) window.setTimeout(guetter, 500);
+    };
+    guetter();
+  };
   const [found, setFound] = React.useState<Found[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [filter, setFilter] = React.useState('');
@@ -2415,6 +2303,11 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
   const [newResume, setNewResume] = React.useState('');
   const [withGit, setWithGit] = React.useState(true);
   const [withGithub, setWithGithub] = React.useState(true);
+  /* « Démarrer par un cahier des charges » : cochée d'office pour un projet
+     VIDE, décochée pour un dépôt importé, qui contient souvent déjà une
+     application (`caseCahierCocheeParDefaut`). */
+  const [withCahier, setWithCahier] = React.useState(caseCahierCocheeParDefaut('vide'));
+  const [ghCahier, setGhCahier] = React.useState(caseCahierCocheeParDefaut('github'));
   /* L'adresse publique se demande ICI, au montage : un projet monté sans elle
      est un projet dont le déploiement n'a rien à contrôler à la fin. */
   const [newSousDomaine, setNewSousDomaine] = React.useState('');
@@ -2444,9 +2337,10 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
         name: entry.name,
         path: entry.path,
       });
-      client.setActiveProject(data.project.id);
       setFound((current) => current.filter((f) => f.path !== entry.path));
       client.pushToast('success', t('« {v0} » ajouté', { v0: entry.name }));
+      onClose();
+      entrerDansLeProjet(data.project.id, undefined, false);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'inscription impossible');
     } finally {
@@ -2459,7 +2353,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
     setBusy('new');
     setEtapes(null);
     try {
-      const data = await client.call<{ project: { id: string }; etapes?: Etape[] }>(
+      const data = await client.call<{ project: { id: string }; etapes?: Etape[]; cahierCardId?: string }>(
         {
           type: 'project.new',
           name: newName.trim(),
@@ -2470,12 +2364,12 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
           github: withGithub,
           sousDomaine: newSousDomaine.trim() || undefined,
           port: newPort ? Number(newPort) : undefined,
+          cahierDesCharges: withCahier,
         },
         /* La création de l'adresse attend que le nom soit visible sur Internet :
            le montage peut donc durer plus longtemps qu'avant. */
         300000,
       );
-      client.setActiveProject(data.project.id);
       setEtapes(data.etapes ?? []);
       setNewName('');
       setNewFolder('');
@@ -2484,8 +2378,13 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       setNewSousDomaine('');
       setNewPort('');
       /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
-         endroit où l'on peut lire laquelle et pourquoi. */
-      if ((data.etapes ?? []).every((etape) => etape.fait)) onClose();
+         endroit où l'on peut lire laquelle et pourquoi. Sinon elle se referme
+         et l'on arrive dans le projet, sur sa carte du cahier. */
+      const toutFait = (data.etapes ?? []).every((etape) => etape.fait);
+      if (toutFait) {
+        onClose();
+        entrerDansLeProjet(data.project.id, data.cahierCardId, withCahier);
+      } else client.setActiveProject(data.project.id);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('création impossible'));
     } finally {
@@ -2523,18 +2422,18 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
     setBusy(cle);
     setEtapesGithub(null);
     try {
-      const data = await client.call<{ project: { id: string }; etapes?: Etape[] }>(
+      const data = await client.call<{ project: { id: string }; etapes?: Etape[]; cahierCardId?: string }>(
         {
           type: 'project.fromGithub',
           lien: lu.depot.slug,
           sousDomaine: ghSousDomaine.trim() || undefined,
           port: ghPort ? Number(ghPort) : undefined,
+          cahierDesCharges: ghCahier,
         },
         /* Récupérer un dépôt puis créer son adresse peut durer : on laisse le
            temps du clone, sinon un gros dépôt passerait pour une panne. */
         600000,
       );
-      client.setActiveProject(data.project.id);
       setEtapesGithub(data.etapes ?? []);
       setLienGithub('');
       setGhSousDomaine('');
@@ -2542,7 +2441,10 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
       setDepots((current) => current.filter((depot) => depot.slug !== lu.depot!.slug));
       /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
          endroit où l'on peut lire laquelle et pourquoi. */
-      if ((data.etapes ?? []).every((etape) => etape.fait)) onClose();
+      if ((data.etapes ?? []).every((etape) => etape.fait)) {
+        onClose();
+        entrerDansLeProjet(data.project.id, data.cahierCardId, ghCahier);
+      } else client.setActiveProject(data.project.id);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? 'ajout impossible');
     } finally {
@@ -2555,17 +2457,24 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
   return (
     <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
-      <DialogContent className="sm:w-[min(600px,100%)]">
-        <DialogHeader>
+      {/* LES TROIS CHOIX, FIXÉS SOUS LE TITRE : le composant d'onglets de
+          l'application, en pleine largeur et en trois parts égales ; seul le
+          contenu dessous défile. La racine des onglets enveloppe le volet pour
+          que la liste (dans l'entête) et les contenus (dans le corps) partagent
+          le même choix (le volet part en portail, le contexte le suit). */}
+      <Tabs value={onglet} onValueChange={setOnglet}>
+        <DialogContent className="sm:w-[min(640px,100%)]" adresse={adresse} data-projets-du-serveur>
+        <DialogHeader
+          sous={
+            <TabsList className="mt-2 w-full" data-onglets-projets-du-serveur>
+              <TabsTrigger value="existing" className="flex-1">{t('Déjà sur le serveur')}</TabsTrigger>
+              <TabsTrigger value="github" className="flex-1">{t('Depuis GitHub')}</TabsTrigger>
+              <TabsTrigger value="new" className="flex-1">{t('Nouveau projet')}</TabsTrigger>
+            </TabsList>
+          }
+        >
           <DialogTitle>{t('Projets du serveur')}</DialogTitle>
         </DialogHeader>
-
-        <Tabs value={onglet} onValueChange={setOnglet} className="mt-1">
-          <TabsList>
-            <TabsTrigger value="existing">{t('Déjà sur le serveur')}</TabsTrigger>
-            <TabsTrigger value="github">{t('Depuis GitHub')}</TabsTrigger>
-            <TabsTrigger value="new">{t('Nouveau projet')}</TabsTrigger>
-          </TabsList>
 
           <TabsContent value="existing" className="mt-3">
             <div className="relative">
@@ -2636,7 +2545,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                   className="flex-1"
                   data-sous-domaine-github
                 />
-                <span className="shrink-0 text-[12.5px] text-faint">.{ZONE_PROJETS}</span>
+                <span className="shrink-0 text-[12.5px] text-faint" data-zone-des-projets>.{zoneDesProjets() || t('domaine à régler')}</span>
                 <Input
                   value={ghPort}
                   onChange={(event) => setGhPort(event.target.value.replace(/[^0-9]/g, ''))}
@@ -2736,11 +2645,16 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               </div>
             </div>
 
+            <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="github">
+              <Switch checked={ghCahier} onCheckedChange={setGhCahier} />
+              <span>{t('Démarrer par un cahier des charges')}</span>
+            </label>
+
             {etapesGithub ? <DerouleDesEtapes etapes={etapesGithub} /> : null}
           </TabsContent>
 
           <TabsContent value="new" className="mt-3 space-y-2.5">
-            <FormulaireEnColonnes largeurLibelle="10rem">
+            <FormulaireEnColonnes>
               <LigneFormulaire libelle={t('Nom du projet')}>
                 <Input value={newName} onChange={(event) => setNewName(event.target.value)} placeholder={t('Mon nouveau site')} autoFocus />
               </LigneFormulaire>
@@ -2767,7 +2681,7 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
                     className="flex-1"
                     data-sous-domaine
                   />
-                  <span className="shrink-0 text-[12.5px] text-faint">.{ZONE_PROJETS}</span>
+                  <span className="shrink-0 text-[12.5px] text-faint" data-zone-des-projets>.{zoneDesProjets() || t('domaine à régler')}</span>
                   <Input
                     value={newPort}
                     onChange={(event) => setNewPort(event.target.value.replace(/[^0-9]/g, ''))}
@@ -2797,6 +2711,13 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
               
 {t('Créer aussi le dépôt privé sur GitHub')}
 </label>
+            <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="vide">
+              <Switch checked={withCahier} onCheckedChange={setWithCahier} />
+              <span>{t('Démarrer par un cahier des charges')}</span>
+              <BulleInfo cote="start">
+                {t('Une carte « Cahier des charges » apparaît dans le projet : son agent vous pose les questions une à une, rédige le cahier des charges sous vos yeux, puis le plan de construction. On peut le mettre en pause et le reprendre plus tard.')}
+              </BulleInfo>
+            </label>
 
             <div className="flex items-center gap-1.5">
               <Button variant="default" size="sm" disabled={!newName.trim() || busy === 'new'} onClick={createNew}>
@@ -2810,9 +2731,8 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
 
             {etapes ? <DerouleDesEtapes etapes={etapes} /> : null}
           </TabsContent>
-        </Tabs>
-
-      </DialogContent>
+        </DialogContent>
+      </Tabs>
     </Dialog>
   );
 }
@@ -2823,14 +2743,3 @@ function ProjectsDialog({ open, onClose }: { open: boolean; onClose: () => void 
  * Seule la ligne « Surveillance » porte le repère `data-surveillance-pastille` ;
  * le bouton compact la redit sans le doubler.
  */
-function PastillePanne({ nombre, repere }: { nombre: number; repere?: boolean }) {
-  return (
-    <span
-      data-surveillance-pastille={repere ? nombre : undefined}
-      data-surveillance-pastille-compacte={repere ? undefined : nombre}
-      className="ml-auto inline-flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded-lg border border-danger/30 bg-danger/10 px-1 text-[10.5px] font-semibold leading-none text-danger"
-    >
-      {nombre}
-    </span>
-  );
-}

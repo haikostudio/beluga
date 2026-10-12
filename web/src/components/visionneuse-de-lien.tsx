@@ -155,30 +155,34 @@ export function VisionneuseDeLien() {
 
   return (
     <Dialog open onOpenChange={(open) => !open && setLien(null)}>
-      <DialogContentLibre className="sm:w-[min(900px,100%)]" data-visionneuse-de-lien={fichier ? affichage : 'attente'}>
-        <DialogHeader className="flex items-center gap-2 pb-3">
-          <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">
+      <DialogContentLibre centre className="sm:w-[min(900px,100%)]" data-visionneuse-de-lien={fichier ? affichage : 'attente'}>
+        <DialogHeader
+          className="pb-3"
+          droite={
+            fichier?.contenu ? (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={enCours}
+                data-visionneuse-enregistrer
+                onClick={async () => {
+                  setEnCours(true);
+                  try {
+                    if (!(await enregistrer(fichier))) setEchec(true);
+                  } finally {
+                    setEnCours(false);
+                  }
+                }}
+              >
+                {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+                {t('Enregistrer')}
+              </Button>
+            ) : null
+          }
+        >
+          <DialogTitle className="min-w-0 truncate text-[14.5px]">
             {fichier?.nom ?? lien.nom ?? t('Lecture…')}
           </DialogTitle>
-          {fichier?.contenu ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={enCours}
-              data-visionneuse-enregistrer
-              onClick={async () => {
-                setEnCours(true);
-                try {
-                  if (!(await enregistrer(fichier))) setEchec(true);
-                } finally {
-                  setEnCours(false);
-                }
-              }}
-            >
-              {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-              {t('Enregistrer')}
-            </Button>
-          ) : null}
         </DialogHeader>
         <ZoneDefilement
           fond="hsl(var(--raised))"

@@ -494,9 +494,9 @@ export function LecteurVideo({
           d'accord. Le plein écran s'y prend d'un second bouton. */}
       {agrandie ? (
         <Dialog open onOpenChange={(ouvert) => !ouvert && setAgrandie(false)}>
-          <DialogContentLibre className="sm:w-[80vw] sm:max-w-none" data-video-fenetre={id}>
-            <DialogHeader className="flex items-center gap-2 pb-2">
-              <DialogTitle className="min-w-0 flex-1 truncate text-[14.5px]">{nom}</DialogTitle>
+          <DialogContentLibre centre className="sm:w-[80vw] sm:max-w-none" data-video-fenetre={id}>
+            <DialogHeader>
+              <DialogTitle className="min-w-0 truncate text-[14.5px]">{nom}</DialogTitle>
             </DialogHeader>
             <div className="px-4 pb-4">
               <LecteurVideo id={id} nom={nom} sansAgrandir demarrer apercu={apercu} className="mx-auto max-w-none" />

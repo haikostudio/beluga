@@ -3,10 +3,10 @@
  *
  * Il n'y a plus de panneau maison ancré au bord droit sur ordinateur et de
  * feuille montante sur téléphone : deux comportements à tenir à jour pour un
- * seul écran. La fiche emploie le `Drawer` de la maison — celui des réglages de
- * l'agent, du coffre-fort, du parcours d'une carte — et se comporte donc
- * EXACTEMENT pareil partout : elle monte du bas, se referme en tirant sa
- * poignée, en touchant le voile ou par la touche d'échappement.
+ * seul écran. La fiche emploie le `Drawer` de la maison — celui du coffre-fort
+ * ou du parcours d'une carte — et se comporte donc EXACTEMENT pareil partout :
+ * une page de la zone principale, qu'on quitte par la flèche de retour de sa
+ * barre d'en-tête ou par la touche d'échappement.
  *
  * L'EN-TÊTE PORTE LE TITRE, LA DESCRIPTION, PUIS « AUTEUR · DATE », sur le même
  * bord gauche. La description y est REPLIABLE : elle se replie quand on avance
@@ -26,8 +26,12 @@
  * compteur ne faisaient qu'annoncer ce qui était déjà sous les yeux.
  *
  * LES PIÈCES JOINTES NE SONT PAS DANS LE CORPS. Elles vivent derrière un
- * bouton de l'ENTÊTE, qui porte leur compte et ouvre un tiroir EMPILÉ. Elles
- * poussaient la discussion vers le bas pour être consultées une fois sur dix.
+ * bouton de la BARRE D'EN-TÊTE (`GestesDePage`), à côté du « ⋮ » : il porte
+ * leur compte et ouvre leur page par-dessus la fiche. Elles poussaient la
+ * discussion vers le bas pour être consultées une fois sur dix.
+ *
+ * AUCUNE CROIX : la fiche est une page, on en sort par la flèche de retour de
+ * la barre ou par le fil d'Ariane.
  *
  * LES OPTIONS SONT FIXÉES AU-DESSUS DU CHAMP DE MESSAGE, EN ACCORDÉON.
  * Importance, dates et étiquettes se touchent une fois par demande, mais on
@@ -39,7 +43,7 @@
  *
  * IL NE RESTE DONC AU MENU « ⋮ » QUE LES GESTES RARES : ranger, ouvrir la carte
  * Beluga — et l'HISTORIQUE, en dernier et replié, qu'on ne consulte qu'en cas
- * de doute. Une demande change de colonne en la glissant, nulle part ailleurs.
+ * de doute. C'est un petit menu ancré sous son bouton, jamais une page. Une demande change de colonne en la glissant, nulle part ailleurs.
  */
 import * as React from 'react';
 import {
@@ -53,7 +57,6 @@ import {
   SlidersHorizontal,
   Square,
   Trash2,
-  X,
 } from 'lucide-react';
 import {
   ActionTiroir,
@@ -63,8 +66,10 @@ import {
   Drawer,
   GroupeTiroir,
   MenuActions,
+  Pastille,
   ZoneDefilement,
 } from '@/components/ui';
+import { GestesDePage } from '@/components/entete-de-zone';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import {
@@ -427,50 +432,29 @@ export function TiroirDemande({
         data-tiroir-demande={demandeId}
         data-fiche-chargee={demande ? '' : undefined}
       >
-        {/* L'ENTÊTE : le titre, la description, qui l'a déposée, et le « … ». */}
-        <header
-          className="flex shrink-0 flex-wrap items-start gap-x-1.5 px-3 pb-2"
-          data-entete-fiche
-          data-entete-fiche-replie={replie ? '' : undefined}
-        >
-          <div className="min-w-0 flex-1">
-            {/*
-             * LE TITRE SE LIT, ET S'ÉDITE À SA PLACE D'UN TOUCHER. C'était un
-             * champ de saisie toujours ouvert : on regardait un formulaire au
-             * lieu de lire une fiche, et un clic distrait renommait la demande.
-             */}
-            {demande ? (
-              <>
-                <TexteEditable
-                  valeur={demande.titre}
-                  onValider={(titre) => {
-                    setDemande({ ...demande, titre });
-                    void enregistrer({ titre });
-                  }}
-                  editable={peutToutEcrire}
-                  classeTexte="text-[15.5px] font-semibold leading-snug text-text"
-                  repere="titre"
-                  libelle={t('Modifier le titre')}
-                />
-                {/* Le titre lu à voix haute, puisque le texte visible n'est plus un titre. */}
-                <DialogTitle className="sr-only">{demande.titre}</DialogTitle>
-              </>
-            ) : (
-              <DialogTitle className="truncate">{t('Demande')}</DialogTitle>
-            )}
-          </div>
-
-          {/*
-           * LES PIÈCES JOINTES QUITTENT LE CORPS DE LA FICHE. Elles n'y
-           * poussaient la discussion vers le bas que pour être consultées une
-           * fois sur dix. Un bouton dans l'entête, à côté du « ⋮ » et de la
-           * croix, portant son compteur ; au clic, un `Drawer` EMPILÉ par-dessus
-           * la fiche — le composant sait déjà se poser sur un tiroir ouvert, il
-           * n'y a aucune mécanique neuve. Refermer rend la fiche telle quelle.
-           */}
-          {demande ? (
+        {/*
+         * LES GESTES DE LA FICHE MONTENT À DROITE DE LA BARRE D'EN-TÊTE
+         * (`GestesDePage`) : les pièces jointes, puis le « ⋮ ». Sur téléphone
+         * et dans le portail client — qui n'a pas de fil d'Ariane — ils se
+         * posent en une rangée en tête de la page. Plus de croix : on sort par
+         * la flèche de retour de la barre, ou par le fil d'Ariane.
+         *
+         * LES PIÈCES JOINTES NE SONT PAS DANS LE CORPS. Elles n'y poussaient la
+         * discussion vers le bas que pour être consultées une fois sur dix : un
+         * bouton, qui porte leur compte (la pastille commune), ouvre leur page.
+         *
+         * LA RANGÉE GARDE SA HAUTEUR PENDANT LE CHARGEMENT : posée en tête de
+         * page (téléphone, portail client), elle ferait sinon descendre le
+         * titre d'un cran à l'arrivée de la fiche.
+         */}
+        {!demande ? (
+          <GestesDePage className="gap-1 px-3 pb-1">
+            <span aria-hidden className="h-7 w-0" />
+          </GestesDePage>
+        ) : (
+          <GestesDePage className="gap-1 px-3 pb-1">
             <Button
-              size="icon-sm"
+              size="icon"
               variant="ghost"
               onClick={() => setPiecesOuvertes(true)}
               title={t('Pièces jointes')}
@@ -479,16 +463,10 @@ export function TiroirDemande({
               data-ouvrir-pieces={pieces.length}
             >
               <Paperclip className="h-4 w-4" />
-              {pieces.length ? (
-                <span className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-accent px-1 text-[9px] font-medium leading-[14px] text-accent-fg">
-                  {pieces.length}
-                </span>
-              ) : null}
+              <Pastille nombre={pieces.length} ton="lire" position="coin" data-compte-pieces={pieces.length} />
             </Button>
-          ) : null}
 
-          {demande ? (
-            <MenuActions titre={t('Actions')} repere="fiche" empile>
+            <MenuActions titre={t('Actions')} repere="fiche" taille="icon">
               {(fermer) => (
                 <>
                   {/*
@@ -530,35 +508,70 @@ export function TiroirDemande({
                   {/*
                    * L'HISTORIQUE EN DERNIER, ET REPLIÉ. On ne le consulte qu'en
                    * cas de doute : déplié en permanence, il repoussait « Ranger »
-                   * hors de l'écran. Sa ligne de titre porte son nombre de
-                   * lignes, ce qui suffit à savoir s'il vaut la peine d'être
-                   * ouvert.
+                   * hors du menu. Sa ligne de titre porte son nombre de lignes,
+                   * ce qui suffit à savoir s'il vaut la peine d'être ouvert. Ce
+                   * n'est PAS une entrée de menu : il se déplie sur place, dans
+                   * le menu, sous une hauteur bornée qui défile chez elle.
                    */}
                   <BlocRepliable
                     titre={t('Historique')}
                     repere="historique"
                     defautOuvert={false}
                     compte={activite.length}
-                    className="px-3"
+                    className="px-2"
                   >
-                    <div data-historique={activite.length}>
-                      <ul className="flex flex-col gap-1.5 pl-1" data-historique-liste>
-                        {activite.map((ligne) => (
-                          <LigneDActivite key={ligne.id} activite={ligne} />
-                        ))}
-                        {!activite.length ? (
-                          <li className="py-1 text-[12px] text-faint">{t('Rien ici pour le moment.')}</li>
-                        ) : null}
-                      </ul>
-                    </div>
+                    <ZoneDefilement fond="hsl(var(--bg))" hauteur={24} className="max-h-[40dvh]">
+                      <div data-historique={activite.length}>
+                        <ul className="flex flex-col gap-1.5 pl-1" data-historique-liste>
+                          {activite.map((ligne) => (
+                            <LigneDActivite key={ligne.id} activite={ligne} />
+                          ))}
+                          {!activite.length ? (
+                            <li className="py-1 text-[12px] text-faint">{t('Rien ici pour le moment.')}</li>
+                          ) : null}
+                        </ul>
+                      </div>
+                    </ZoneDefilement>
                   </BlocRepliable>
                 </>
               )}
             </MenuActions>
-          ) : null}
-          <Button size="icon-sm" variant="ghost" onClick={onFermer} title={t('Fermer')} data-fermer-tiroir>
-            <X className="h-4 w-4" />
-          </Button>
+          </GestesDePage>
+        )}
+
+        {/* L'ENTÊTE : le titre, la description, puis qui l'a déposée. */}
+        <header
+          className="flex shrink-0 flex-wrap items-start gap-x-1.5 px-3 pb-2"
+          data-entete-fiche
+          data-entete-fiche-replie={replie ? '' : undefined}
+        >
+          <div className="min-w-0 flex-1">
+            {/*
+             * LE TITRE SE LIT, ET S'ÉDITE À SA PLACE D'UN TOUCHER. C'était un
+             * champ de saisie toujours ouvert : on regardait un formulaire au
+             * lieu de lire une fiche, et un clic distrait renommait la demande.
+             */}
+            {demande ? (
+              <>
+                <TexteEditable
+                  valeur={demande.titre}
+                  onValider={(titre) => {
+                    setDemande({ ...demande, titre });
+                    void enregistrer({ titre });
+                  }}
+                  editable={peutToutEcrire}
+                  classeTexte="text-[15.5px] font-semibold leading-snug text-text"
+                  repere="titre"
+                  libelle={t('Modifier le titre')}
+                />
+                {/* Le titre lu à voix haute, puisque le texte visible n'est plus un titre. */}
+                <DialogTitle className="sr-only">{demande.titre}</DialogTitle>
+              </>
+            ) : (
+              <DialogTitle className="truncate">{t('Demande')}</DialogTitle>
+            )}
+          </div>
+
           {/*
            * LA DESCRIPTION ET « AUTEUR · DATE » PRENNENT TOUTE LA LARGEUR. Rangées
            * dans la colonne du titre, elles s'arrêtaient au pied des boutons de
@@ -858,26 +871,17 @@ export function TiroirDemande({
         onFermer={() => setVisionneuse(null)}
       />
 
-      {/* LE TIROIR DES PIÈCES JOINTES, posé PAR-DESSUS la fiche. */}
-      <Drawer
+      {/* LA PAGE DES PIÈCES JOINTES, ouverte PAR-DESSUS la fiche. */}
+      <Drawer adresse="pieces-demande"
         open={piecesOuvertes}
         onClose={() => setPiecesOuvertes(false)}
         empile
         className="max-h-[80dvh]"
       >
         <div className="flex min-h-0 flex-1 flex-col" data-tiroir-pieces={pieces.length}>
-          <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
-            <DialogTitle className="min-w-0 flex-1 truncate">{t('Pièces jointes')}</DialogTitle>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => setPiecesOuvertes(false)}
-              title={t('Fermer')}
-              data-fermer-pieces
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </header>
+          {/* Le titre monte dans la barre d'en-tête de la page, qui porte déjà
+              la flèche de retour : plus de croix ici. */}
+          <DialogTitle className="min-w-0 shrink-0 truncate px-3 pb-2">{t('Pièces jointes')}</DialogTitle>
           <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 flex-1 px-3 pb-3">
             <Galerie pieces={pieces} sansTitre />
           </ZoneDefilement>

@@ -29,6 +29,12 @@ export interface FichierATelecharger {
   adresse: string;
   /** Le nom sous lequel il s'enregistre. */
   nom: string;
+  /**
+   * UN FICHIER À PRÉPARER D'ABORD (l'archive de la visionneuse) : rend sa
+   * vraie adresse, juste avant de la suivre. `adresse` n'est alors qu'une clé.
+   * Un refus du serveur lève une erreur, dite en clair à l'écran.
+   */
+  preparer?: (signal: AbortSignal) => Promise<string>;
 }
 
 export type EtatDeTelechargement = 'repos' | 'reception' | 'pret';
@@ -53,9 +59,19 @@ function cliquerUnLien(adresse: string, nom: string): void {
   ancre.remove();
 }
 
+/** L'adresse à suivre : la sienne, ou celle que sa préparation rend. */
+function adresseDe(fichier: FichierATelecharger, signal: AbortSignal): Promise<string> {
+  return fichier.preparer ? fichier.preparer(signal) : Promise.resolve(fichier.adresse);
+}
+
+/** Un téléchargement qui échoue le DIT, avec la raison du serveur. */
+function signalerLEchec(souci: unknown): void {
+  client.pushToast('error', t('Téléchargement impossible : {raison}', { raison: String((souci as Error)?.message ?? souci) }));
+}
+
 /** Reçoit un fichier en entier, en disant où il en est (0 à 1). */
 async function recevoir(fichier: FichierATelecharger, avancer: (part: number) => void, signal: AbortSignal): Promise<File> {
-  const reponse = await fetch(fichier.adresse, { credentials: 'same-origin', signal });
+  const reponse = await fetch(await adresseDe(fichier, signal), { credentials: 'same-origin', signal });
   if (!reponse.ok) throw new Error(((await reponse.json().catch(() => ({}))) as { error?: string }).error ?? String(reponse.status));
   const mime = (reponse.headers.get('content-type') ?? '').split(';')[0]!.trim();
   const total = Number(reponse.headers.get('content-length') ?? 0);
@@ -149,8 +165,28 @@ export function useTelechargement(
       return;
     }
     if (!feuilleDePartage()) {
-      if (aPrendre.length > 1 && enUn) cliquerUnLien(enUn.adresse, enUn.nom);
-      else aPrendre.forEach((f, i) => window.setTimeout(() => cliquerUnLien(f.adresse, f.nom), i * 400));
+      const aSuivre = aPrendre.length > 1 && enUn ? [enUn] : aPrendre;
+      const suivre = (adresses: string[]) => adresses.forEach((a, i) => window.setTimeout(() => cliquerUnLien(a, aSuivre[i]!.nom), i * 400));
+      if (!aSuivre.some((f) => f.preparer)) return suivre(aSuivre.map((f) => f.adresse));
+      /* À PRÉPARER : le bouton tourne dès le clic, puis le navigateur suit l'adresse rendue — ou l'écran dit le refus. */
+      const controle = new AbortController();
+      abandon.current = controle;
+      setPourcent(0);
+      setEtat('reception');
+      void (async () => {
+        try {
+          const adresses: string[] = [];
+          for (const f of aSuivre) adresses.push(await adresseDe(f, controle.signal));
+          if (!controle.signal.aborted) suivre(adresses);
+        } catch (souci) {
+          if (!controle.signal.aborted) signalerLEchec(souci);
+        } finally {
+          if (abandon.current === controle) {
+            abandon.current = null;
+            setEtat('repos');
+          }
+        }
+      })();
       return;
     }
     const controle = new AbortController();
@@ -179,7 +215,7 @@ export function useTelechargement(
         setEtat('repos');
       } catch (souci) {
         if (controle.signal.aborted) return;
-        client.pushToast('error', t('Téléchargement impossible : {raison}', { raison: String((souci as Error)?.message ?? souci) }));
+        signalerLEchec(souci);
         setEtat('repos');
       } finally {
         if (abandon.current === controle) abandon.current = null;

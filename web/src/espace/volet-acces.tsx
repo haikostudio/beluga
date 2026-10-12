@@ -22,6 +22,7 @@ import {
   MENTIONS_ACCES_OUVERT,
   TEXTE_ACCES_MAX,
   TEXTE_DE_RESPONSABILITE,
+  nomCourtDeLInstallation,
   type EntreeJournalAcces,
   type EtatDeLAcces,
 } from '@beluga/shared';
@@ -105,7 +106,7 @@ export function VoletAcces({
       data-volet-acces
       data-acces-etat={vue ? (ouvert ? 'ouvert' : 'verrouille') : undefined}
     >
-      <div className="flex items-center gap-2 border-b border-faint/40 px-3 py-2">
+      <div className="flex items-center gap-2 px-3 py-2">
         <KeyRound className="h-3.5 w-3.5 shrink-0 text-faint" />
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{t('Accès')}</span>
         {vue ? (
@@ -146,7 +147,7 @@ export function VoletAcces({
                 <ul className="flex list-disc flex-col gap-1 pl-4 text-[13px] leading-snug text-text">
                   {MENTIONS_ACCES_OUVERT.map((mention) => (
                     <li key={mention} data-mention-acces>
-                      {t(mention)}
+                      {t(mention, { nom: nomCourtDeLInstallation() })}
                     </li>
                   ))}
                 </ul>
@@ -161,11 +162,11 @@ export function VoletAcces({
             {!haiko && !ouvert ? (
               /* L'ÉCRAN VERROUILLÉ : le texte, la case, le bouton. */
               <div className="flex flex-col gap-2.5" data-acces-verrouille>
-                <p className="text-[13px] leading-relaxed text-text">{t(TEXTE_DE_RESPONSABILITE)}</p>
+                <p className="text-[13px] leading-relaxed text-text">{t(TEXTE_DE_RESPONSABILITE, { nom: nomCourtDeLInstallation() })}</p>
                 <p className="text-[12px] font-medium uppercase tracking-wide text-faint">{t('Une fois l’accès ouvert')}</p>
                 <ul className="flex list-disc flex-col gap-1 pl-4 text-[13px] leading-snug text-muted">
                   {MENTIONS_ACCES_OUVERT.map((mention) => (
-                    <li key={mention}>{t(mention)}</li>
+                    <li key={mention}>{t(mention, { nom: nomCourtDeLInstallation() })}</li>
                   ))}
                 </ul>
                 <label className="flex cursor-pointer items-start gap-2 rounded-md bg-raised px-2.5 py-2 text-[13px] text-text">
@@ -207,7 +208,7 @@ export function VoletAcces({
                 </pre>
               ) : (
                 <p className="text-[13px] text-muted" data-acces-contenu-vide>
-                  {t('Haiko n’a encore rien inscrit dans cet espace.')}
+                  {t('{nom} n’a encore rien inscrit dans cet espace.', { nom: nomCourtDeLInstallation() })}
                 </p>
               )
             ) : null}

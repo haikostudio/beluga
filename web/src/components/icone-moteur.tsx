@@ -175,5 +175,8 @@ function LogoNeutre({ className }: { className?: string }) {
  */
 export function IconeMoteur({ engine, className }: { engine: EngineId; className?: string }) {
   const Logo = PAR_MOTEUR[engine] ?? LogoNeutre;
-  return <Logo className={cn('h-3 w-3 shrink-0', className)} />;
+  /* LE LOGO D'UN MOTEUR SE LIT EN NOIR ET BLANC, comme le reste de l'interface :
+     seules les icônes des PROJETS gardent leur couleur. `grayscale` ôte la
+     teinte du dessin sans le redessiner ; sa forme suffit à le reconnaître. */
+  return <Logo className={cn('h-3 w-3 shrink-0 grayscale', className)} />;
 }

@@ -6,7 +6,6 @@ import {
   ChevronUp,
   CircleDot,
   Cpu,
-  ChevronRight,
   Lock,
   MessageSquare,
   RotateCcw,
@@ -27,6 +26,9 @@ import {
   ancreDuPoint,
   attenteDeLaDemande,
   barreDeSuivi,
+  barreDuCahier,
+  estVoletDuCahier,
+  etapeCouranteDuCahier,
   colonneAffichee,
   agentCompteCommeTravail,
   etapeDeSuiviDuPoint,
@@ -66,14 +68,27 @@ import {
   modeleActuel,
   idDuMessageDeSynthese,
 } from '@beluga/shared';
-import { BulleInfo, Button, ConfirmDialog, DialogTitle, Drawer, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
+import {
+  BulleInfo,
+  Button,
+  ConfirmDialog,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  EmptyState,
+  Tooltip,
+  ZoneDefilement,
+  ouvertureAuClic,
+} from '@/components/ui';
 import { IndicateurActivite } from '@/components/indicateur-activite';
-import { RunSelectors, resoudreRun, type RunChoix } from '@/components/run-selectors';
+import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
+import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { BarreDEtapes } from '@/components/barre-etapes';
+import { BandeauCahierDesCharges } from '@/components/cahier-des-charges';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
@@ -83,6 +98,7 @@ import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
 import { useApp, useCanal } from '@/lib/use-app';
+import { ContexteTexteDuChamp, creerTexteDuChamp, ligneDansLeTexte } from '@/lib/texte-du-champ';
 import { cn, jourDuMessage } from '@/lib/utils';
 import { useMinute } from '@/lib/horloge';
 import { t, formatRegional } from '@/lib/langue';
@@ -103,6 +119,7 @@ export function Chat({
   libelleDuChamp,
   avancementDansLeFil,
   enTeteDuFil,
+  depot,
 }: {
   agent: Agent | null;
   projectId: string;
@@ -151,12 +168,17 @@ export function Chat({
    * dernier message, et redescend dès qu'on y envoie un message.
    */
   enTeteDuFil?: React.ReactNode;
+  /** Un texte à écrire dans le champ de saisie, sans l'envoyer (chaque `nonce` neuf est un nouveau dépôt). */
+  depot?: { texte: string; nonce: number } | null;
 }) {
   const state = useApp();
   /* L'état du lien : il éteint les gestes du parcours au lieu de les laisser
      décider sur ce qui était vrai avant la coupure. */
   const canal = useCanal();
-  const [picked, setPicked] = React.useState<string[]>([]);
+  /* LE TEXTE DU CHAMP D'ÉCRITURE DE CETTE CONVERSATION, tenu hors de l'état du
+     fil : la barre d'écriture l'y dépose à chaque frappe, et les idées à
+     cocher d'un compte rendu y lisent leur case (`web/src/lib/texte-du-champ.ts`). */
+  const [champ] = React.useState(creerTexteDuChamp);
   const bottomRef = React.useRef<HTMLDivElement>(null);
 
   /*
@@ -171,6 +193,12 @@ export function Chat({
     (texte: string) => setAEcrire((avant) => ({ texte, nonce: (avant?.nonce ?? 0) + 1 })),
     [],
   );
+
+  /* UN TEXTE DÉPOSÉ PAR L'ÉCRAN QUI PORTE CETTE CONVERSATION (le Studio : « Appliquer » un style) : même chemin que
+     le refus d'un plan — il s'ajoute au champ, sans rien envoyer. */
+  React.useEffect(() => {
+    if (depot) ecrireDansLeChamp(depot.texte);
+  }, [depot]);
 
   const conversation = cardId ? state.cardMessages[cardId] : undefined;
   const messages = cardId
@@ -246,10 +274,30 @@ export function Chat({
   const carte = cardId ? state.cards[cardId] : undefined;
   const reglagesCarte = useReglagesCarte(carte);
   /*
-   * LE TIROIR DE CONFIGURATION A UN SEUL ÉTAT D'OUVERTURE, tenu ici : le bloc
-   * du point « Configuration » et l'icône de l'entête ouvrent LE MÊME tiroir.
-   * L'icône ne paraît que lorsque le bloc n'est plus à l'écran — défilé hors
-   * de vue, ou point replié.
+   * LES IMAGES DE L'AGENT, tenues ICI et plus dans le flux : ce que ses étapes
+   * ont regardé (`RunStep.capture`) et les pièces image de SES messages — jamais
+   * celles de l'utilisateur (`capturesDuFlux`). La bande qui les montre est
+   * collée au-dessus de la barre d'écriture, hors de la zone qui défile ; le
+   * flux ouvre ses vignettes dans la même galerie (`OuvrirUneCapture`). Sans
+   * carte, les listes sont vides et rien ne se demande.
+   */
+  const messagesDeLaCarte = conversation?.messages;
+  const { etapesDesCaptures, idsDesPieces } = React.useMemo(() => {
+    const deLAgent = (messagesDeLaCarte ?? []).filter((m) => m.role === 'assistant');
+    return {
+      etapesDesCaptures: deLAgent.flatMap((m) => m.steps.filter((step) => step.capture)),
+      idsDesPieces: [...new Set(deLAgent.flatMap((m) => m.attachments))],
+    };
+  }, [messagesDeLaCarte]);
+  const galerieDesCaptures = useGalerieDesCaptures(etapesDesCaptures, idsDesPieces, projectId);
+  /*
+   * LA CONFIGURATION S'OUVRE EN MENU, SOUS LE BOUTON QU'ON A CLIQUÉ : le bloc
+   * du point « Configuration » a le sien, l'icône de l'entête aussi — deux
+   * boutons, un même contenu (`MenuDesReglagesDeLaCarte`). L'icône ne paraît
+   * que lorsque le bloc n'est plus à l'écran — défilé hors de vue, ou point
+   * replié. Son ouverture est tenue ICI : tant que son menu est ouvert, l'icône
+   * reste, même si le fil ramène le bloc à l'écran — un menu ne perd pas son
+   * bouton en cours de route.
    */
   const [reglagesOuverts, setReglagesOuverts] = React.useState(false);
   const [blocReglages, setBlocReglages] = React.useState<HTMLElement | null>(null);
@@ -589,7 +637,16 @@ export function Chat({
         : { colonne: 'planned' },
     [carte, busy, state.deploys, agent],
   );
-  const segments = React.useMemo(() => barreDeSuivi(points, suivi), [points, suivi]);
+  /* LE VOLET DU CAHIER DES CHARGES a ses trois étapes à lui (`barreDuCahier`),
+     et ni barre d'écriture ni bouton de lancement : on y répond dans le
+     panneau de décision (`estVoletDuCahier`). */
+  const voletDuCahier = estVoletDuCahier(carte);
+  const cahier = carte?.cahierDesCharges;
+  const segments = React.useMemo(
+    () => (cahier ? barreDuCahier(cahier) : barreDeSuivi(points, suivi)),
+    [cahier, points, suivi],
+  );
+  const etapeCourante = cahier ? etapeCouranteDuCahier(cahier) : segmentActifDeSuivi(suivi);
   const deploiement = React.useMemo(
     () => ({ etat: etatDuDeploiement(suivi), deployeeA: suivi.deployeeA }),
     [suivi],
@@ -652,7 +709,10 @@ export function Chat({
    * pas encore, et son premier écran doit quand même être sa configuration.
    */
   const configurationOuverte =
-    !chargement && !envoiLocal && messages.length === 0 && reglagesCarte.vu?.modifiable === true;
+    !chargement && !envoiLocal && messages.length === 0 && reglagesCarte.vu?.modifiable === true &&
+    /* Le cahier des charges démarre SEUL à sa naissance : rien à configurer,
+       son volet montre d'emblée ses étapes et son bandeau. */
+    !estVoletDuCahier(carte);
   /*
    * LA TIMELINE DE CADRAGE N'A PLUS D'ÉCRAN. Elle dessinait les six étapes du
    * cadrage par-dessus le fil des messages d'une carte — et ce fil n'existe
@@ -739,17 +799,67 @@ export function Chat({
   const nombreVu = React.useRef(0);
   /** Tant qu'on n'est pas remonté à la main, le fil suit ce qui s'écrit. */
   const suit = React.useRef(true);
+  /** Jusqu'à quand un message neuf glisse vers le bas : on ne coupe pas son élan. */
+  const glisseJusqua = React.useRef(0);
   const avecEnTete = Boolean(enTeteDuFil) && !(carte && cardId);
 
+  /**
+   * Jusqu'à quand un défilement du fil est le NÔTRE (glissé d'un message neuf,
+   * recollage au bas) : ses événements « scroll » ne disent rien de l'intention
+   * du lecteur et ne doivent ni couper ni rallumer le suivi.
+   */
+  const defilementDeNousJusqua = React.useRef(0);
+  const marquerNotreDefilement = (ms: number) => {
+    defilementDeNousJusqua.current = Date.now() + ms;
+  };
+
+  /*
+   * LE LECTEUR QUI REMONTE COUPE LE SUIVI AU GESTE, pas au constat. Le seuil
+   * « en bas » est serré (24 px) : une petite remontée, au doigt, à la molette
+   * ou au clavier, suffit à dire « je lis plus haut ». Le suivi ne reprend que
+   * lorsqu'on est revenu réellement en bas.
+   */
   React.useEffect(() => {
     const fil = filRef.current;
     if (!fil) return;
+    const EN_BAS_PX = 24;
     const noter = () => {
-      suit.current = fil.scrollHeight - fil.scrollTop - fil.clientHeight < 120;
+      if (Date.now() < defilementDeNousJusqua.current) return;
+      suit.current = fil.scrollHeight - fil.scrollTop - fil.clientHeight <= EN_BAS_PX;
+    };
+    const remonte = () => {
+      suit.current = false;
+      defilementDeNousJusqua.current = 0;
+    };
+    let toucheY = 0;
+    const toucheDebut = (e: TouchEvent) => {
+      toucheY = e.touches[0]?.clientY ?? 0;
+    };
+    const toucheBouge = (e: TouchEvent) => {
+      const y = e.touches[0]?.clientY ?? toucheY;
+      // Le doigt descend : le contenu remonte, on relit plus haut.
+      if (y - toucheY > 2) remonte();
+      toucheY = y;
+    };
+    const molette = (e: WheelEvent) => {
+      if (e.deltaY < 0) remonte();
+    };
+    const touche = (e: KeyboardEvent) => {
+      if (e.key === 'PageUp' || e.key === 'ArrowUp' || e.key === 'Home') remonte();
     };
     fil.addEventListener('scroll', noter, { passive: true });
-    return () => fil.removeEventListener('scroll', noter);
-  }, []);
+    fil.addEventListener('wheel', molette, { passive: true });
+    fil.addEventListener('touchstart', toucheDebut, { passive: true });
+    fil.addEventListener('touchmove', toucheBouge, { passive: true });
+    fil.addEventListener('keydown', touche);
+    return () => {
+      fil.removeEventListener('scroll', noter);
+      fil.removeEventListener('wheel', molette);
+      fil.removeEventListener('touchstart', toucheDebut);
+      fil.removeEventListener('touchmove', toucheBouge);
+      fil.removeEventListener('keydown', touche);
+    };
+  }, [cardId, agent?.id, configurationOuverte, carte && cardId ? 'parcours' : 'fil']);
 
   React.useEffect(() => {
     const cle = cardId ?? agent?.id;
@@ -764,6 +874,7 @@ export function Chat({
         return;
       }
       suit.current = true;
+      marquerNotreDefilement(150);
       bottomRef.current?.scrollIntoView({ block: 'end' });
       return;
     }
@@ -774,8 +885,78 @@ export function Chat({
     nombreVu.current = messages.length;
     // Ouvert sur l'en-tête, le fil redescend dès qu'on y écrit soi-même.
     if (avecEnTete && nouveauMessage && messages[messages.length - 1]?.role === 'user') suit.current = true;
-    if (suit.current) bottomRef.current?.scrollIntoView({ behavior: nouveauMessage ? 'smooth' : 'instant', block: 'end' });
+    if (suit.current) {
+      if (nouveauMessage) glisseJusqua.current = Date.now() + 450;
+      marquerNotreDefilement(nouveauMessage ? 600 : 150);
+      bottomRef.current?.scrollIntoView({ behavior: nouveauMessage ? 'smooth' : 'instant', block: 'end' });
+    }
   }, [cardId, agent?.id, messages.length, messages[messages.length - 1]?.content]);
+
+  /*
+   * EN BAS, ON RESTE EN BAS — QUOI QU'IL S'AJOUTE (demande du 11/10/2026).
+   *
+   * Le suivi ci-dessus ne se rejouait que pour un message : nombre et texte du
+   * dernier. Or le fil bouge pour bien d'autres raisons, qui ne passent par
+   * aucun des deux — la liste de tâches qui s'allonge, un bloc du parcours qui
+   * se déplie, une image qui arrive, le journal qui se charge ; et, SOUS lui,
+   * le champ d'écriture qui grandit, ses pièces jointes, le bandeau d'activité,
+   * le panneau de décision ou le clavier du téléphone, qui lui prennent de la
+   * hauteur. Dans les deux cas le bas du fil passait sous le pli sans qu'aucun
+   * défilement n'ait eu lieu : on se croyait en bas, on n'y était plus, et les
+   * vignettes du dernier message devenaient hors d'atteinte.
+   *
+   * On surveille donc la TAILLE du fil et celle de son contenu : tant que le
+   * lecteur n'est pas remonté (`suit`), chaque changement recolle le fil à son
+   * bas, d'un coup et sans glissé — un glissé relancé à chaque pixel courrait
+   * derrière le texte. Remonté lire, il ne bouge pas : `suit` est faux, et rien
+   * ne le tire.
+   */
+  React.useEffect(() => {
+    const fil = filRef.current;
+    if (!fil || typeof ResizeObserver === 'undefined') return;
+    let image = 0;
+    let minuteur = 0;
+    const recoller = () => {
+      if (!suit.current) return;
+      /* Un message neuf est en train de glisser : on le laisse arriver, puis on
+         vérifie qu'il est bien posé. */
+      const elan = glisseJusqua.current - Date.now();
+      if (elan > 0) {
+        window.clearTimeout(minuteur);
+        minuteur = window.setTimeout(recoller, elan + 30);
+        return;
+      }
+      if (image) return;
+      image = window.requestAnimationFrame(() => {
+        image = 0;
+        if (suit.current && fil.scrollHeight - fil.scrollTop - fil.clientHeight > 1) {
+          marquerNotreDefilement(150);
+          fil.scrollTop = fil.scrollHeight;
+        }
+      });
+    };
+    const tailles = new ResizeObserver(recoller);
+    const surveiller = () => {
+      tailles.disconnect();
+      tailles.observe(fil);
+      for (const enfant of Array.from(fil.children)) tailles.observe(enfant);
+    };
+    surveiller();
+    /* Un bloc ajouté ou retiré du fil : on reprend la liste de ses enfants. */
+    const enfants = new MutationObserver(() => {
+      surveiller();
+      recoller();
+    });
+    enfants.observe(fil, { childList: true });
+    return () => {
+      tailles.disconnect();
+      enfants.disconnect();
+      window.cancelAnimationFrame(image);
+      window.clearTimeout(minuteur);
+    };
+    /* Le fil change d'élément quand la carte passe de sa configuration à son
+       parcours : l'effet se repose alors sur le nouveau. */
+  }, [cardId, agent?.id, configurationOuverte, carte && cardId ? 'parcours' : 'fil']);
 
   /*
    * ALLER JUSQU'À LA QUESTION, PAS SEULEMENT JUSQU'AU FIL.
@@ -832,11 +1013,13 @@ export function Chat({
         {cardId && message.agentId !== messages[index - 1]?.agentId ? (
           <SeparateurAgent titre={titreDeBloc(state.agents[message.agentId]?.role)} />
         ) : null}
+        {/* Les idées à cocher d'un compte rendu lisent leur case dans le champ
+            d'écriture de CETTE conversation (`ContexteTexteDuChamp`). */}
+        <ContexteTexteDuChamp.Provider value={champ}>
         <MessageView
           message={message}
           allMessages={messages}
           projectId={projectId}
-          pickedEvolutions={picked}
           onToggleEvolution={toggleEvolution}
           onToggleAll={toggleAll}
           onEcrireDansLeChamp={ecrireDansLeChamp}
@@ -855,6 +1038,7 @@ export function Chat({
              recopiaient la conversation de cadrage. */
           filAgentMasque={filDesRecherchesMasque}
         />
+        </ContexteTexteDuChamp.Provider>
       </div>
     );
   };
@@ -865,28 +1049,29 @@ export function Chat({
    * on pouvait la retirer, jamais la compléter ni la copier. Elle est donc
    * déposée dans le champ de saisie lui-même, sur sa propre ligne — et un
    * second clic reprend cette ligne, à condition que personne ne l'ait
-   * retouchée (`texteApresRetrait`). La liste `picked` ne sert plus qu'aux
-   * cases à cocher du rapport : rien ne part avec le message par ce
-   * chemin-là.
+   * retouchée (`texteApresRetrait`).
+   *
+   * LE CLIC BASCULE D'APRÈS LE CHAMP, PAS D'APRÈS UN SOUVENIR. Une liste des
+   * idées « retenues » était tenue ici, à côté du champ : effacer la ligne à
+   * la main ne la vidait pas, et le clic suivant tentait de retirer une ligne
+   * qui n'y était plus. La question se pose désormais au texte du champ
+   * lui-même (`champ`), celui que lisent aussi les cases à cocher.
    */
   const deposerDansLeChamp = (texte: string, retirer: boolean) =>
     setAEcrire((avant) => ({ texte, retirer, nonce: (avant?.nonce ?? 0) + 1 }));
 
   const toggleEvolution = (text: string) => {
-    const deja = picked.includes(text);
     /* UNE IDÉE RETENUE S'ÉCRIT EN LIGNE DE LISTE, avec son tiret : c'est ce
        qui la distingue de la phrase en cours d'écriture, et c'est la forme
        qu'attend l'agent qui la lira (`ligneDeSuggestion`). */
-    deposerDansLeChamp(ligneDeSuggestion(text), deja);
-    setPicked((current) => (deja ? current.filter((item) => item !== text) : [...current, text]));
+    const ligne = ligneDeSuggestion(text);
+    deposerDansLeChamp(ligne, ligneDansLeTexte(champ.lire(), ligne));
   };
 
   const toggleAll = (items: string[]) => {
-    const toutesCochees = items.every((item) => picked.includes(item));
+    const lignes = items.map(ligneDeSuggestion).filter(Boolean);
+    const toutesCochees = lignes.length > 0 && lignes.every((ligne) => ligneDansLeTexte(champ.lire(), ligne));
     deposerDansLeChamp(lignesDeSuggestions(items), toutesCochees);
-    setPicked((current) =>
-      toutesCochees ? current.filter((item) => !items.includes(item)) : [...new Set([...current, ...items])],
-    );
   };
 
   /*
@@ -919,7 +1104,7 @@ export function Chat({
       engines={state.engines}
       queue={queue}
       busy={busy}
-      onClearPicked={() => setPicked([])}
+      champ={champ}
       aEcrire={aEcrire}
       projectId={projectId}
       onProposeTask={onProposeTask}
@@ -977,10 +1162,10 @@ export function Chat({
    * 1. AVANT LA PREMIÈRE DEMANDE — la carte de configuration, pleine largeur et
    *    MODIFIABLE. C'est le seul geste attendu d'une tâche neuve : avec quoi
    *    va-t-elle tourner ? Rien de tout cela ne coûte un jeton.
-   * 2. DÈS QUE LE PROMPT EST PARTI — cette carte se REPLIE en une ligne, EN
-   *    LECTURE SEULE (`ReglagesAgent` n'a aucun geste d'écriture : ni menu, ni
-   *    sélecteur, seulement un tiroir qui montre), et le PARCOURS prend toute la
-   *    place sous elle.
+   * 2. DÈS QUE LE PROMPT EST PARTI — cette carte se REPLIE en un bloc
+   *    (`ReglagesAgent`) qui ouvre un petit MENU sous lui : modifiable jusqu'à
+   *    la validation de la compréhension, en LECTURE SEULE ensuite. Le PARCOURS
+   *    prend toute la place sous elle.
    *
    * La barre d'écriture, elle, ne bouge jamais : c'est par elle que part la
    * demande, que se répond une question et que se lance la tâche.
@@ -992,21 +1177,35 @@ export function Chat({
 
         {/* LE RACCOURCI VERS LA CONFIGURATION, dans l'entête de la carte, à
             gauche des trois points : il ne paraît que quand le bloc du point
-            « Configuration » a quitté l'écran, et ouvre LE MÊME tiroir. */}
-        {emplacementReglages && !configurationOuverte && reglagesCarte.vu && !blocReglagesVisible
+            « Configuration » a quitté l'écran, et ouvre LE MÊME menu, sous
+            lui. Son nom se lit par `title` : une infobulle posée autour du
+            bouton d'un menu lui disputerait le bouton. */}
+        {emplacementReglages &&
+        !configurationOuverte &&
+        reglagesCarte.vu &&
+        reglagesCarte.libelles &&
+        (!blocReglagesVisible || reglagesOuverts)
           ? createPortal(
-              <Tooltip label={t('Configuration de l’agent')}>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0 px-2"
-                  aria-label="Configuration de l’agent"
-                  data-raccourci-reglages={reglagesCarte.vu.modifiable ? 'modifiable' : 'lecture'}
-                  onClick={() => setReglagesOuverts(true)}
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                </Button>
-              </Tooltip>,
+              <MenuDesReglagesDeLaCarte
+                card={carte}
+                vu={reglagesCarte.vu}
+                libelles={reglagesCarte.libelles}
+                cote="end"
+                ouvert={reglagesOuverts}
+                onOuvert={setReglagesOuverts}
+                declencheur={
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0 px-2"
+                    title={t('Configuration de l’agent')}
+                    aria-label="Configuration de l’agent"
+                    data-raccourci-reglages={reglagesCarte.vu.modifiable ? 'modifiable' : 'lecture'}
+                  >
+                    <SlidersHorizontal className="h-4 w-4" />
+                  </Button>
+                }
+              />,
               emplacementReglages,
             )
           : null}
@@ -1026,19 +1225,23 @@ export function Chat({
             <div className="shrink-0 space-y-1.5 px-4 pt-1.5">
               {emplacementBarre?.current
                 ? createPortal(
-                    <BarreDEtapes segments={segments} active={etapeVisible ?? segmentActifDeSuivi(suivi)} courante={segmentActifDeSuivi(suivi)} onAller={allerAuPoint} />,
+                    <BarreDEtapes segments={segments} active={voletDuCahier ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={voletDuCahier ? () => {} : allerAuPoint} />,
                     emplacementBarre.current,
                   )
-                : <BarreDEtapes segments={segments} active={etapeVisible ?? segmentActifDeSuivi(suivi)} courante={segmentActifDeSuivi(suivi)} onAller={allerAuPoint} />}
+                : <BarreDEtapes segments={segments} active={voletDuCahier ? etapeCourante : (etapeVisible ?? etapeCourante)} courante={etapeCourante} onAller={voletDuCahier ? () => {} : allerAuPoint} />}
             </div>
 
             {/* LE FLUX EN CINQ POINTS, dans la zone qui défile : chaque point
                 replie ses traces, sa mémoire et ses boutons secondaires ; le
                 plan est un point du flux (`FluxEnPoints`). */}
             <ZoneDefilement ref={filRef} data-fil="parcours" className="flex flex-col">
+              {/* Les idées à cocher du compte rendu lisent leur case dans le
+                  champ d'écriture de CETTE carte (`ContexteTexteDuChamp`). */}
+              <ContexteTexteDuChamp.Provider value={champ}>
               <FluxEnPoints
                 carte={carte}
                 projectId={projectId}
+                galerieDesCaptures={galerieDesCaptures}
                 /* LE POINT « CONFIGURATION » PORTE LES RÉGLAGES DE L'AGENT :
                    moteur, modèle, réflexion, compte. Ils restent le point
                    d'accès aux réglages du moteur, dans le flux plutôt qu'en
@@ -1049,8 +1252,6 @@ export function Chat({
                       card={carte}
                       vu={reglagesCarte.vu}
                       libelles={reglagesCarte.libelles}
-                      ouvert={reglagesOuverts}
-                      onOuvert={setReglagesOuverts}
                       ancre={setBlocReglages}
                     />
                   ) : null
@@ -1072,13 +1273,24 @@ export function Chat({
                 /* L'étape franchie donne sa largeur à la barre du point
                    « Préparation », comme sur la carte en colonne. */
                 lancement={etapeDePreparation ?? undefined}
-                pickedEvolutions={picked}
                 onToggleEvolution={toggleEvolution}
                 onToggleAll={toggleAll}
                 onEcrireDansLeChamp={ecrireDansLeChamp}
               />
+              </ContexteTexteDuChamp.Provider>
               <div ref={bottomRef} />
             </ZoneDefilement>
+
+            {/* CE QUE L'AGENT A VU, COLLÉ EN BAS : la bande ne défile pas avec
+                le flux, elle reste au-dessus du panneau de décision et de la
+                barre d'écriture, et se replie sur sa ligne de titre par son
+                chevron (`BandeDesCaptures`). Rien tant que l'agent n'a pas
+                produit d'image. */}
+            {projectId && galerieDesCaptures.captures.length ? (
+              <div className="shrink-0 px-4 pb-1.5 pt-1" data-captures-de-la-carte={galerieDesCaptures.captures.length}>
+                <BandeDesCaptures galerie={galerieDesCaptures} className="" />
+              </div>
+            ) : null}
           </>
         )}
 
@@ -1092,7 +1304,17 @@ export function Chat({
           questionEnTexte={!!questionEnTexte}
         />
 
-        {barreDEcriture}
+        {voletDuCahier ? (
+          <div
+            className="shrink-0 px-2.5 pt-2"
+            style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+            data-volet-cahier={carte.id}
+          >
+            <BandeauCahierDesCharges carte={carte} />
+          </div>
+        ) : (
+          barreDEcriture
+        )}
       </div>
     );
   }
@@ -1258,7 +1480,7 @@ function BarreNouveauDepart({
         <button
           type="button"
           onClick={() => onTout(!tout)}
-          className="pointer-events-auto flex min-w-0 items-center gap-1 rounded border border-border bg-bg/85 px-1.5 py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
+          className="pointer-events-auto flex min-w-0 items-center gap-1 rounded bg-raised/90 px-1.5 py-0.5 text-[12.5px] text-faint backdrop-blur transition-colors hover:text-text"
         >
           <ChevronUp className={cn('h-3 w-3 shrink-0 transition-transform', tout && 'rotate-180')} />
           <span className="truncate">{tout ? t('Replier les échanges précédents') : libellePrecedents(precedents)}</span>
@@ -1274,8 +1496,8 @@ function BarreNouveauDepart({
           aria-disabled={!verdict.ok}
           onClick={() => verdict.ok && setAConfirmer(true)}
           className={cn(
-            'pointer-events-auto ml-auto flex shrink-0 items-center gap-1 rounded border border-border bg-bg/85 px-1.5 py-0.5 text-[12.5px] text-muted backdrop-blur transition-colors',
-            verdict.ok ? 'hover:border-text hover:bg-raised hover:text-text' : 'cursor-not-allowed opacity-40',
+            'pointer-events-auto ml-auto flex shrink-0 items-center gap-1 rounded bg-raised/90 px-1.5 py-0.5 text-[12.5px] text-muted backdrop-blur transition-colors',
+            verdict.ok ? 'hover:bg-border hover:text-text' : 'cursor-not-allowed opacity-40',
           )}
         >
           <RotateCcw className="h-3 w-3" />
@@ -1465,28 +1687,29 @@ function TravailEnCours({
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
-        'relative z-0 -mb-2 flex shrink-0 flex-col rounded-t-lg',
-        // bg-bloc-etapes plutôt qu'un dégradé vers surface/0 : ce composeur vit
-        // tantôt sur un fond bg-bg (hors carte), tantôt sur un fond bg-surface
-        // (tiroir d'une carte), et un dégradé qui finit transparent se
-        // confondait avec l'un comme avec l'autre. Un jeton DÉDIÉ, SOLIDE du
-        // haut jusqu'en bas (entête et liste dépliée comprises), qui
-        // contraste avec les deux fonds dans les douze palettes.
-        'border border-b-0 border-border bg-bloc-etapes',
-        'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
+        // IL PASSE VRAIMENT SOUS LE CHAMP : 24 px de recouvrement, le rayon du
+        // champ (`rounded-[24px]`). À 8 px, son bord bas s'arrêtait dans la
+        // courbe et ses deux coins dépassaient autour des arrondis ; ici il
+        // descend jusqu'aux flancs droits du champ, qui le recouvre.
+        'relative z-0 -mb-6 flex shrink-0 flex-col rounded-t-[20px]',
+        // UN GRIS UN PEU PLUS CLAIR QUE LE CHAMP (`--decroche`), SOLIDE du
+        // haut jusqu'en bas (entête et liste dépliée comprises) : il se pose
+        // entre le fond de la page et celui du champ. C'est son TEXTE qui le
+        // distingue — en violet, la seule couleur de l'interface (un fond
+        // jaune pastel a été essayé le 11/10/2026, puis refusé).
+        'bg-decroche',
       )}
     >
       <div
         className={cn(
           'flex items-center gap-2 px-3 pt-1.5',
-          // pb-4 (16px) compense le recouvrement de -mb-2 (8px) posé sur le
+          // pb-8 (32px) compense le recouvrement de -mb-6 (24px) posé sur le
           // conteneur : il reste 8px d'air visible sous le texte avant que la
           // zone de saisie ne le recouvre, proche des 6px du pt-1.5 au-dessus
-          // (pb-5 en laissait 12, visiblement plus que le haut ; pb-3 n'en
-          // laissait que 4, collé au bord) — cette marge ne vaut que pour la
-          // DERNIÈRE ligne visible : une fois la liste dépliée sous elle,
-          // c'est elle qui la porte à la place.
-          todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-4',
+          // — cette marge ne vaut que pour la DERNIÈRE ligne visible : une
+          // fois la liste dépliée sous elle, c'est elle qui la porte à la
+          // place.
+          todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-8',
         )}
       >
         {/* « CETTE CARTE TRAVAILLE » : le même point que les entêtes de
@@ -1502,7 +1725,7 @@ function TravailEnCours({
             onClick={basculerListe}
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
           >
-            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} />
+            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
             {listeOuverte ? (
               <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
             ) : (
@@ -1510,12 +1733,12 @@ function TravailEnCours({
             )}
           </button>
         ) : (
-          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} />
+          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
         )}
       </div>
 
       {todosDisponibles && listeOuverte ? (
-        <div className="pb-4">
+        <div className="pb-8">
           <CorpsListeTaches todos={todos} streaming={busy} maintenant={Date.now()} />
         </div>
       ) : null}
@@ -1596,42 +1819,189 @@ function useReglagesCarte(card: Card | undefined) {
   return { vu, libelles };
 }
 
+/** Ce que le bloc et son menu annoncent : les réglages qui SERVIRONT, ou ceux qui ONT SERVI. */
+function titreDesReglages(vu: ReglagesCarte): string {
+  /*
+   * LE MÊME BLOC DIT DEUX CHOSES DIFFÉRENTES selon le moment, et il ne doit
+   * jamais mentir : tant que rien n'a tourné, ce sont les réglages QUI
+   * SERVIRONT ; une fois le travail parti, ceux QUI ONT SERVI.
+   */
+  return !vu.modifiable && vu.source === 'reel' ? t('Réglages qui ont servi') : t('Configuration de l’agent');
+}
+
 /**
- * AVEC QUOI CETTE CARTE TOURNE — LA CONFIGURATION, RÉDUITE ET EN LECTURE
- * SEULE. Elle prend la place de la carte de configuration DÈS QUE LA PREMIÈRE
- * DEMANDE EST PARTIE : l'agent d'une tâche ne se rechoisit plus en cours de
- * route, sinon le parcours affiché sous elle mentirait sur ce qui a servi.
+ * AVEC QUOI CETTE CARTE TOURNE — LA CONFIGURATION, RÉDUITE À UN BLOC. Elle
+ * prend la place de la carte de configuration DÈS QUE LA PREMIÈRE DEMANDE EST
+ * PARTIE.
  *
- * ELLE N'A AUCUN GESTE D'ÉCRITURE : ni menu, ni sélecteur, seulement un
- * tiroir qui MONTRE. C'est par là que la lecture seule est garantie — pas par
- * un champ désactivé qu'on pourrait rouvrir.
+ * LE BLOC OUVRE UN PETIT MENU SOUS LUI, JAMAIS UNE PAGE
+ * (`MenuDesReglagesDeLaCarte`). Tant que la compréhension n'est pas validée, ce
+ * menu ÉCRIT : une entrée par réglage, qui déplie sa liste. Ensuite il ne fait
+ * plus que MONTRER — l'agent d'une tâche ne se rechoisit plus en cours de
+ * route, sinon le parcours affiché sous lui mentirait sur ce qui a servi. La
+ * lecture seule est garantie par l'absence de toute entrée, pas par un champ
+ * désactivé qu'on pourrait rouvrir.
  *
- * Quatre étiquettes courtes sur UNE ligne qui se replie : moteur, modèle,
- * réflexion, compte — c'est ce qui permet de comprendre après coup pourquoi
- * une carte s'est bien ou mal passée.
+ * Quatre lignes courtes : moteur, modèle, réflexion, compte — c'est ce qui
+ * permet de comprendre après coup pourquoi une carte s'est bien ou mal passée.
  */
 function ReglagesAgent({
   card,
   vu,
   libelles,
-  ouvert,
-  onOuvert,
   ancre,
 }: {
   card: Card;
   vu: ReglagesCarte;
   libelles: { moteur: string; modele: string; reflexion: string };
-  /** L'ouverture du tiroir, partagée avec l'icône de l'entête (`Chat`). */
-  ouvert: boolean;
-  onOuvert: (ouvert: boolean) => void;
   /** Le bloc lui-même, suivi pour savoir s'il est encore à l'écran. */
   ancre?: (noeud: HTMLElement | null) => void;
 }) {
+  /* Le cadenas dit toujours POURQUOI — et ne paraît que quand c'est figé. */
+  const raison = vu.raison ? t(vu.raison) : '';
+
+  return (
+    <MenuDesReglagesDeLaCarte
+      card={card}
+      vu={vu}
+      libelles={libelles}
+      declencheur={
+        /* Réduit à un résumé. Sous le titre, UNE LIGNE PAR RÉGLAGE : le libellé
+           à gauche, la valeur à droite, qui revient à la ligne au lieu d'être
+           coupée (les valeurs bout à bout, séparées par « · », se lisaient mal
+           sur téléphone). Sans compte imposé, la ligne dit « Automatique »,
+           jamais un tiret. Aucun `line-clamp` ici : un texte replié ne se pose
+           jamais dans un `button`. */
+        <button
+          type="button"
+          ref={ancre}
+          data-reglages-figes={vu.modifiable ? undefined : ''}
+          data-reglages-agent={vu.modifiable ? 'modifiable' : 'fige'}
+          className="flex w-full flex-col gap-0.5 rounded-md bg-raised px-2.5 py-2 text-left transition-colors hover:bg-border"
+        >
+          <span className="flex w-full min-w-0 items-center gap-1.5 text-[11px] uppercase tracking-wide text-faint">
+            <Cpu className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">{titreDesReglages(vu)}</span>
+            {vu.modifiable ? null : (
+              <span className="flex shrink-0" title={raison}>
+                <Lock className="h-2.5 w-2.5" aria-hidden />
+              </span>
+            )}
+            <ChevronDown className="h-3 w-3 shrink-0" />
+          </span>
+          <span className="mt-0.5 flex w-full min-w-0 flex-col gap-0.5" data-reglages-valeurs>
+            {[
+              [t('Moteur'), libelles.moteur],
+              [t('Modèle'), libelles.modele],
+              [t('Réflexion'), libelles.reflexion],
+              [t('Compte'), vu.compte ?? t('Automatique')],
+            ].map(([nom, valeur]) => (
+              <span key={nom} data-reglage-ligne={nom} className="flex w-full min-w-0 items-baseline justify-between gap-3">
+                <span className="shrink-0 text-[12.5px] text-faint">{nom}</span>
+                <span className="min-w-0 break-words text-right text-[12.5px] font-medium text-text">{valeur}</span>
+              </span>
+            ))}
+          </span>
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * LE MENU DE LA CONFIGURATION D'UNE CARTE, ANCRÉ AU BOUTON QU'ON LUI CONFIE.
+ *
+ * Deux boutons l'ouvrent — le bloc du fil (`ReglagesAgent`) et l'icône de
+ * l'entête, quand ce bloc a quitté l'écran : chacun a SON menu, posé sous lui,
+ * et tous deux montrent le même contenu.
+ *
+ *  - MODIFIABLE (`data-tiroir-reglages="modifiable"`) : les entrées des
+ *    réglages de l'agent, qui déplient chacune leur liste en sous-menu et
+ *    écrivent sur la carte.
+ *  - FIGÉ (`data-tiroir-reglages="lecture"`) : le cadenas et sa raison, puis
+ *    des lignes qui se lisent — aucune entrée, rien à cliquer.
+ */
+function MenuDesReglagesDeLaCarte({
+  card,
+  vu,
+  libelles,
+  declencheur,
+  cote = 'start',
+  ouvert: ouvertImpose,
+  onOuvert,
+}: {
+  card: Card;
+  vu: ReglagesCarte;
+  libelles: { moteur: string; modele: string; reflexion: string };
+  /** Le bouton qui ouvre le menu, et sous lequel il se pose. */
+  declencheur: React.ReactElement;
+  /** Le bord du bouton sur lequel le menu s'aligne. */
+  cote?: 'start' | 'end';
+  /** L'ouverture, quand celui qui appelle a besoin de la connaître (l'icône de l'entête). */
+  ouvert?: boolean;
+  onOuvert?: (ouvert: boolean) => void;
+}) {
   const state = useApp();
+  const [ouvertIci, setOuvertIci] = React.useState(false);
+  const ouvert = ouvertImpose ?? ouvertIci;
+  const setOuvert = onOuvert ?? setOuvertIci;
+  const titre = titreDesReglages(vu);
+
+  return (
+    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
+      <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
+        {declencheur}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align={cote}
+        collisionPadding={8}
+        className="min-w-[250px] sm:max-h-[min(480px,var(--radix-dropdown-menu-content-available-height))] sm:max-w-[min(340px,calc(100vw-16px))]"
+      >
+        {vu.modifiable ? (
+          <div className="flex flex-col gap-0.5" data-tiroir-reglages="modifiable">
+            <div className="flex items-center gap-1.5 px-2 py-1">
+              <span className="min-w-0 flex-1 truncate text-[12px] uppercase tracking-wide text-faint">{titre}</span>
+              <BulleInfo>{t('Modifiable jusqu’à la validation de la compréhension : le réglage choisi à ce moment servira au travail.')}</BulleInfo>
+            </div>
+            <EntreesDeReglages
+              engines={state.engines}
+              choix={card.run}
+              onSelect={choixDeLaCarte(card, state.engines)}
+              comptes={state.quotas}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-0.5" data-tiroir-reglages="lecture">
+            <div className="flex items-center gap-1.5 px-2 py-1">
+              <span className="min-w-0 flex-1 truncate text-[12px] uppercase tracking-wide text-faint">{titre}</span>
+              <Lock className="h-3 w-3 shrink-0 text-faint" aria-hidden />
+            </div>
+            <ReglagesLusDeLaCarte card={card} vu={vu} libelles={libelles} />
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * LES RÉGLAGES FIGÉS D'UNE CARTE, EN LECTURE : la raison du cadenas, une ligne
+ * par réglage, puis ce que la carte a consommé. Rendu DANS le menu : il ne
+ * demande donc sa part de quota qu'à l'ouverture.
+ */
+function ReglagesLusDeLaCarte({
+  card,
+  vu,
+  libelles,
+}: {
+  card: Card;
+  vu: ReglagesCarte;
+  libelles: { moteur: string; modele: string; reflexion: string };
+}) {
   /*
    * La part de quota réellement consommée par cette carte, somme de ses lignes
    * de consommation. Elle vit dans la table `usage`, pas sur la carte : on la
-   * demande au serveur dès que la configuration est figée. Une carte sans
+   * demande au serveur quand la configuration figée s'ouvre. Une carte sans
    * relevé rend deux zéros — on n'affiche alors rien, pas un zéro trompeur.
    */
   const [quota, setQuota] = React.useState<{ quota5h: number; quotaSemaine: number } | null>(null);
@@ -1649,122 +2019,29 @@ function ReglagesAgent({
     };
   }, [card.id]);
   const quotaVu = quota && (quota.quota5h > 0 || quota.quotaSemaine > 0) ? quota : null;
-  const setOuvert = onOuvert;
-  /* Tant que le plan n'est pas validé, le tiroir ÉCRIT : une ligne par réglage
-     ouvre directement sa liste, comme la carte de configuration. */
-  const [ouvrirSur, setOuvrirSur] = React.useState<'moteur' | 'modele' | 'reflexion' | 'compte' | undefined>(undefined);
-  const choisir = choixDeLaCarte(card, state.engines);
-  const moteurChoisi = resoudreRun(state.engines, card.run).engine;
-  const comptes = (state.quotas ?? []).filter((c) => c.engine === moteurChoisi?.id && !c.disabled);
-  const compteChoisi = card.run?.account ? comptes.find((c) => c.id === card.run?.account) : undefined;
-
-  /*
-   * LE MÊME BLOC DIT DEUX CHOSES DIFFÉRENTES selon le moment, et il ne doit
-   * jamais mentir : tant que rien n'a tourné, ce sont les réglages QUI
-   * SERVIRONT ; une fois le travail parti, ceux QUI ONT SERVI.
-   */
-  const titre = vu.modifiable
-    ? t('Configuration de l’agent')
-    : vu.source === 'reel'
-      ? t('Réglages qui ont servi')
-      : t('Configuration de l’agent');
-  /* Le cadenas dit toujours POURQUOI — et ne paraît que quand c'est figé. */
   const raison = vu.raison ? t(vu.raison) : '';
 
   return (
-    <>
-      {/* Réduit à un résumé : le détail (Moteur / Modèle / Niveau / Compte /
-          Quotas, chacun avec son libellé au-dessus) ne s'affiche qu'au clic,
-          dans un tiroir en colonne verticale — la grille se cassait sur
-          téléphone. Sous le titre, UNE LIGNE PAR RÉGLAGE : le libellé à
-          gauche, la valeur à droite, qui revient à la ligne au lieu d'être
-          coupée (les valeurs bout à bout, séparées par « · », se lisaient mal
-          sur téléphone). Sans compte imposé, la ligne dit « Automatique »,
-          jamais un tiret. Aucun `line-clamp` ici : un texte replié ne se pose
-          jamais dans un `button`. */}
-      <button
-        type="button"
-        ref={ancre}
-        onClick={() => setOuvert(true)}
-        data-reglages-figes={vu.modifiable ? undefined : ''}
-        data-reglages-agent={vu.modifiable ? 'modifiable' : 'fige'}
-        className="flex w-full flex-col gap-0.5 rounded-md border border-border bg-raised px-2.5 py-2 text-left transition-colors hover:bg-hover"
-      >
-        <span className="flex w-full min-w-0 items-center gap-1.5 text-[11px] uppercase tracking-wide text-faint">
-          <Cpu className="h-3 w-3 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">{titre}</span>
-          {vu.modifiable ? null : <Lock className="h-2.5 w-2.5 shrink-0" title={raison} />}
-          <ChevronRight className="h-3 w-3 shrink-0" />
-        </span>
-        <span className="mt-0.5 flex w-full min-w-0 flex-col gap-0.5" data-reglages-valeurs>
-          {[
-            [t('Moteur'), libelles.moteur],
-            [t('Modèle'), libelles.modele],
-            [t('Réflexion'), libelles.reflexion],
-            [t('Compte'), vu.compte ?? t('Automatique')],
-          ].map(([nom, valeur]) => (
-            <span key={nom} data-reglage-ligne={nom} className="flex w-full min-w-0 items-baseline justify-between gap-3">
-              <span className="shrink-0 text-[12.5px] text-faint">{nom}</span>
-              <span className="min-w-0 break-words text-right text-[12.5px] font-medium text-text">{valeur}</span>
-            </span>
-          ))}
-        </span>
-      </button>
+    <div className="flex flex-col pb-1">
+      {raison ? (
+        <p className="px-2 pb-1.5 text-[12px] leading-snug text-faint" data-raison-reglages-figes>
+          {raison}
+        </p>
+      ) : null}
+      <LigneLue nom={t('Moteur')} valeur={libelles.moteur} />
+      <LigneLue nom={t('Modèle')} valeur={libelles.modele} />
+      <LigneLue nom={t('Réflexion')} valeur={libelles.reflexion} />
+      <LigneLue nom={t('Compte')} valeur={vu.compte ?? '—'} />
 
-      <Drawer open={ouvert} onClose={() => setOuvert(false)}>
-        <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
-          <Cpu className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
-          {vu.modifiable ? (
-            <BulleInfo>{t('Modifiable jusqu’à la validation de la compréhension : le réglage choisi à ce moment servira au travail.')}</BulleInfo>
-          ) : (
-            <Lock className="h-3 w-3 shrink-0 text-faint" title={raison} />
-          )}
-        </header>
-
-        {vu.modifiable ? (
-          <ZoneDefilement className="flex flex-col gap-1 px-3 pb-4" data-tiroir-reglages="modifiable">
-            <LigneDeConfiguration nom={t('Moteur')} valeur={libelles.moteur} onClick={() => setOuvrirSur('moteur')} />
-            <LigneDeConfiguration nom={t('Modèle')} valeur={libelles.modele} onClick={() => setOuvrirSur('modele')} />
-            <LigneDeConfiguration nom={t('Réflexion')} valeur={libelles.reflexion} onClick={() => setOuvrirSur('reflexion')} />
-            {comptes.length > 1 ? (
-              <LigneDeConfiguration
-                nom={t('Compte')}
-                valeur={compteChoisi?.label ?? t('Automatique')}
-                onClick={() => setOuvrirSur('compte')}
-              />
-            ) : null}
-            <RunSelectors
-              engines={state.engines}
-              choix={card.run}
-              onSelect={choisir}
-              pleineLargeur
-              comptes={state.quotas}
-              masquerDeclencheur
-              ouvertControle={ouvrirSur !== undefined}
-              onOuvertControleChange={(o) => setOuvrirSur(o ? (ouvrirSur ?? 'moteur') : undefined)}
-              ouvrirSur={ouvrirSur}
-            />
-          </ZoneDefilement>
-        ) : (
-        <ZoneDefilement className="flex flex-col gap-3 px-3 pb-4" data-tiroir-reglages="lecture">
-          <EtiquetteColonne nom={t('Moteur')} valeur={libelles.moteur} />
-          <EtiquetteColonne nom={t('Modèle')} valeur={libelles.modele} />
-          <EtiquetteColonne nom={t('Réflexion')} valeur={libelles.reflexion} />
-          <EtiquetteColonne nom={t('Compte')} valeur={vu.compte ?? '—'} />
-
-          {/* La part de quota dépensée par cette carte. Rien quand aucun
-              relevé n'existe : un zéro ferait croire à une mesure. */}
-          {quotaVu ? (
-            <>
-              <EtiquetteColonne nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
-              <EtiquetteColonne nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
-            </>
-          ) : null}
-        </ZoneDefilement>
-        )}
-      </Drawer>
-    </>
+      {/* La part de quota dépensée par cette carte. Rien quand aucun
+          relevé n'existe : un zéro ferait croire à une mesure. */}
+      {quotaVu ? (
+        <>
+          <LigneLue nom={t('Quota 5 h consommé')} valeur={partQuota(quotaVu.quota5h)} />
+          <LigneLue nom={t('Quota semaine consommé')} valeur={partQuota(quotaVu.quotaSemaine)} />
+        </>
+      ) : null}
+    </div>
   );
 }
 
@@ -1778,10 +2055,11 @@ function ReglagesAgent({
  * ne coûte pas un jeton.
  *
  * Elle porte les valeurs EN CLAIR, une ligne par réglage, et chaque ligne
- * ouvre DIRECTEMENT la liste de ce réglage (`ouvrirSur`) — jamais un aperçu
- * qu'il faudrait re-cliquer. Le choix écrit sur la CARTE, qui est ce que le
- * lancement lira, exactement comme la bulle compacte qui prendra sa place dès
- * le premier message (`BulleReglagesAModifier`, juste en dessous).
+ * ouvre DIRECTEMENT la liste de ce réglage, en menu ancré SOUS ELLE
+ * (`RunSelectors ouvrirSur`) — jamais une page, jamais un aperçu qu'il faudrait
+ * re-cliquer. Le choix écrit sur la CARTE, qui est ce que le lancement lira,
+ * exactement comme le bloc compact qui prendra sa place dès le premier message
+ * (`ReglagesAgent`, juste au-dessus).
  */
 function CarteDeConfiguration({
   card,
@@ -1791,11 +2069,6 @@ function CarteDeConfiguration({
   libelles: { moteur: string; modele: string; reflexion: string };
 }) {
   const state = useApp();
-  const [ouvrirSur, setOuvrirSur] = React.useState<
-    'moteur' | 'modele' | 'reflexion' | 'compte' | undefined
-  >(undefined);
-  const ouvert = ouvrirSur !== undefined;
-
   const choisir = choixDeLaCarte(card, state.engines);
 
   /* La ligne « Compte » ne paraît que si plusieurs comptes du moteur retenu
@@ -1803,6 +2076,19 @@ function CarteDeConfiguration({
   const moteurChoisi = resoudreRun(state.engines, card.run).engine;
   const comptes = (state.quotas ?? []).filter((c) => c.engine === moteurChoisi?.id && !c.disabled);
   const compte = card.run?.account ? comptes.find((c) => c.id === card.run?.account) : undefined;
+
+  /* Chaque ligne est le bouton de SON menu : le même composant que partout
+     ailleurs, ouvert droit sur la liste du réglage nommé. */
+  const ligne = (reglage: ReglageDeRun, nom: string, valeur: string) => (
+    <RunSelectors
+      engines={state.engines}
+      choix={card.run}
+      onSelect={choisir}
+      comptes={state.quotas}
+      ouvrirSur={reglage}
+      declencheur={<LigneDeConfiguration nom={nom} valeur={valeur} />}
+    />
+  );
 
   return (
     <div data-carte-configuration className="rounded-lg border border-border bg-raised px-3 py-3">
@@ -1813,65 +2099,44 @@ function CarteDeConfiguration({
       <p className="flex items-center gap-1 mt-1 text-[14.5px] font-medium leading-relaxed text-text">{t(MOT_CONFIGURATION.titre)}<BulleInfo cote="start">{t(MOT_CONFIGURATION.indice)}</BulleInfo></p>
 
       <div className="mt-2.5 flex flex-col gap-1">
-        <LigneDeConfiguration nom={t('Moteur')} valeur={libelles.moteur} onClick={() => setOuvrirSur('moteur')} />
-        <LigneDeConfiguration nom={t('Modèle')} valeur={libelles.modele} onClick={() => setOuvrirSur('modele')} />
-        <LigneDeConfiguration
-          nom={t('Réflexion')}
-          valeur={libelles.reflexion}
-          onClick={() => setOuvrirSur('reflexion')}
-        />
-        {comptes.length > 1 ? (
-          <LigneDeConfiguration
-            nom={t('Compte')}
-            valeur={compte?.label ?? t('Automatique')}
-            onClick={() => setOuvrirSur('compte')}
-          />
-        ) : null}
+        {ligne('moteur', t('Moteur'), libelles.moteur)}
+        {ligne('modele', t('Modèle'), libelles.modele)}
+        {ligne('reflexion', t('Réflexion'), libelles.reflexion)}
+        {comptes.length > 1 ? ligne('compte', t('Compte'), compte?.label ?? t('Automatique')) : null}
       </div>
-
-      {/* Les listes elles-mêmes : le même composant que partout ailleurs, sans
-          son bouton d'entrée — ce sont les lignes ci-dessus qui l'ouvrent. */}
-      <RunSelectors
-        engines={state.engines}
-        choix={card.run}
-        onSelect={choisir}
-        pleineLargeur
-        comptes={state.quotas}
-        masquerDeclencheur
-        ouvertControle={ouvert}
-        onOuvertControleChange={(o) => setOuvrirSur(o ? (ouvrirSur ?? 'moteur') : undefined)}
-        ouvrirSur={ouvrirSur}
-      />
     </div>
   );
 }
 
-/** Une ligne de la carte de configuration : le nom, la valeur, une flèche. */
-export function LigneDeConfiguration({
-  nom,
-  valeur,
-  onClick,
-}: {
-  nom: string;
-  valeur: string;
-  /** L'état du mode plan, lu tel quel par les scripts de vérification. */
-  onClick: () => void;
-}) {
+/**
+ * Une ligne de la carte de configuration : le nom, la valeur, un chevron. C'est
+ * un vrai `button`, qui transmet sa référence et ses propriétés : il sert de
+ * BOUTON au menu de son réglage (`RunSelectors declencheur`), qui s'ancre sous
+ * lui.
+ */
+export const LigneDeConfiguration = React.forwardRef<
+  HTMLButtonElement,
+  { nom: string; valeur: string } & React.ButtonHTMLAttributes<HTMLButtonElement>
+>(function LigneDeConfiguration({ nom, valeur, className, ...props }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
-      onClick={onClick}
       data-ligne-configuration={nom}
-      className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-left transition-colors hover:border-accent/50"
+      className={cn(
+        'flex w-full items-center gap-2 rounded-md bg-surface px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
+        className,
+      )}
+      {...props}
     >
       <span className="shrink-0 text-[12.5px] text-faint">{nom}</span>
       <span data-valeur={valeur} className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">
         {valeur}
       </span>
-      <ChevronRight className="h-3 w-3 shrink-0 text-faint" />
+      <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
     </button>
   );
-}
+});
 
 /**
  * ÉCRIRE LE RÉGLAGE SUR LA CARTE — un seul geste, partagé par la carte de
@@ -1924,13 +2189,13 @@ function Etiquette({ nom, valeur }: { nom: string; valeur: string }) {
   );
 }
 
-/** Une étiquette en colonne : le libellé au-dessus, la valeur en dessous —
- * le détail du tiroir « Réglages qui ont servi », une ligne par réglage. */
-function EtiquetteColonne({ nom, valeur }: { nom: string; valeur: string }) {
+/** Une ligne LUE du menu des réglages figés : le nom à gauche, la valeur à
+ * droite, qui revient à la ligne au lieu d'être coupée. Rien à cliquer. */
+function LigneLue({ nom, valeur }: { nom: string; valeur: string }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[12.5px] uppercase tracking-wide text-faint">{nom}</span>
-      <span className="text-[14.5px] font-medium text-text">{valeur}</span>
+    <div className="flex min-w-0 items-baseline justify-between gap-3 px-2 py-1.5" data-reglage-lu={nom}>
+      <span className="shrink-0 text-[12.5px] text-faint">{nom}</span>
+      <span className="min-w-0 break-words text-right text-[13.5px] font-medium text-text">{valeur}</span>
     </div>
   );
 }

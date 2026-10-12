@@ -27,6 +27,7 @@
 
 import type { ColumnKey } from './columns.js';
 import type { Agent, Card, DepotAnnexe, Project, SuiviDUneFille } from './models.js';
+import { minusculesSansAccents } from './mots.js';
 
 /** Le sous-dossier des données où vit le dossier de rangement de chaque regroupement. */
 export const DOSSIER_DES_REGROUPEMENTS = 'regroupements';
@@ -109,12 +110,7 @@ export function refusDeRegroupement(
 /* Les projets touchés par une carte mère                              */
 /* ------------------------------------------------------------------ */
 
-const normal = (texte: string) =>
-  texte
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+const normal = (texte: string) => minusculesSansAccents(texte).trim();
 
 /**
  * LES PROJETS QU'UNE CARTE MÈRE TOUCHE, retrouvés parmi les membres.

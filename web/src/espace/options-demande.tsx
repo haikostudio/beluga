@@ -192,7 +192,7 @@ export function OptionsDemande({
           {valeurs.etiquettes.map((etiquette) => (
             <span
               key={etiquette}
-              className="inline-flex items-center gap-1 rounded-lg border border-faint/60 px-2 py-0.5 text-[11px] text-muted"
+              className="inline-flex items-center gap-1 rounded-lg bg-raised px-2 py-0.5 text-[11px] text-muted"
               data-etiquette={etiquette}
             >
               {etiquette}

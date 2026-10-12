@@ -1,3 +1,4 @@
+import { slugEntier } from './slugs.js';
 /**
  * Le travail de code fait SANS carte.
  *
@@ -182,14 +183,7 @@ export function titreHorsTache(commits: CommitObserve[]): string {
  * l'empreinte courte — deux travaux au même titre ne se marchent pas dessus.
  */
 export function nomBrancheHorsTache(commits: CommitObserve[]): string {
-  const base = (commits[0]?.titre ?? 'travail')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-    .replace(/-+$/g, '');
+  const base = slugEntier(commits[0]?.titre ?? 'travail').slice(0, 40).replace(/-+$/g, '');
   const empreinte = (commits[commits.length - 1]?.sha ?? '').slice(0, 7) || 'sans-sha';
   return `hors-tache/${base || 'travail'}-${empreinte}`;
 }

@@ -73,12 +73,35 @@ import {
   poserLesMoteursAjoutes,
   type FicheMoteur,
   separerLesSuivis,
+  fusionnerLesReglages,
+  CLE_DU_DERNIER_ETAT,
+  POIDS_MAX_DU_DERNIER_ETAT,
+  composerLeDernierEtat,
+  lireLeDernierEtat,
+  canalAAbandonner,
+  DELAI_PING_SANS_REPONSE,
+  DELAI_OUVERTURE_DU_CANAL,
+  DELAI_SONDE_DE_RESEAU,
+  delaiRestantAvantAbandonDeLOuverture,
+  sondeAuRetourNecessaire,
   reglagesSansRecul,
   numerosApresReprise,
+  bilanDeLot,
+  definirIdentiteDInstallation,
 } from '@beluga/shared';
+import {
+  clesADemander,
+  envoiConfirme,
+  noterAEnvoyer,
+  oublierLaDemande,
+  redemanderLesVues,
+  retenirLesVues,
+  tranchesAEnvoyer,
+} from '@/lib/captures-vues';
+import { installationEnDirect } from '@/lib/travail-installation';
 import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
-import { estEnVeille, surLaVeille } from '@/lib/veille';
+import { estEnVeille, pageCachee, surLaVeille, surLaVisibilite } from '@/lib/veille';
 
 /**
  * DEUX PILES SONT-ELLES LA MÊME ? Le message persistant est recalculé toutes
@@ -160,6 +183,12 @@ export interface AppState {
    * montre des SILHOUETTES de contenu, jamais « Aucun projet inscrit ».
    */
   pret: boolean;
+  /**
+   * L'écran est dessiné d'après la COPIE du dernier état vu (`dernier-etat-local.ts`),
+   * pas d'après le serveur : on regarde, on n'agit pas — les gestes restent gelés
+   * jusqu'au vrai premier état.
+   */
+  copieLocale: boolean;
   /**
    * Les projets dont les cartes sont réellement arrivées (`project.etat`).
    * Un tableau qui n'est pas encore dans cette liste attend ses cartes : il
@@ -404,6 +433,7 @@ const initialState: AppState = {
   connecting: true,
   canal: 'reconnexion',
   pret: false,
+  copieLocale: false,
   cartesChargees: {},
   cartesTotaux: {},
   enRoute: null,
@@ -483,6 +513,10 @@ function relireAnnoncesRangees(): AnnonceRecue[] {
 
 type Listener = () => void;
 
+/** Le participe passé que la règle pure `bilanDeLot` accorde (« 3 cartes archivées ») : un mot de la règle, pas un texte d'écran. */
+const CLE_PARTICIPE_ARCHIVAGE = 'archivée';
+const CLE_PARTICIPE_RESSORTIE = 'ressortie';
+
 class Client {
   private socket: WebSocket | null = null;
   private listeners = new Set<Listener>();
@@ -517,6 +551,10 @@ class Client {
   private resynchronise = false;
   /** Un premier état complet est déjà arrivé : le prochain `ready` est une RECONNEXION. */
   private dejaSynchronise = false;
+  /** Le chargement de la page : le message de coupure ne paraît pas pendant la toute première connexion. */
+  private demarreA = Date.now();
+  private copieLocaleLue = false;
+  private minuterieDeLaCopie: number | null = null;
   /** Le minuteur qui relit l'état du canal : « muet » dépend du temps qui passe. */
   private veilleDuCanal: number | null = null;
   /**
@@ -1025,8 +1063,75 @@ class Client {
     this.connect();
   }
 
+  /**
+   * REDESSINE L'ÉCRAN D'APRÈS LE DERNIER ÉTAT VU, une seule fois, avant la
+   * toute première connexion (`shared/src/dernier-etat-local.ts`). Rien n'est
+   * posé qui rendrait un geste possible : le lien est dit en reconnexion
+   * (`connected` faux), donc tous les gestes restent gelés jusqu'au vrai `ready`.
+   */
+  private appliquerLaCopieLocale(): void {
+    if (this.copieLocaleLue) return;
+    this.copieLocaleLue = true;
+    if (this.state.pret) return;
+    let brut: string | null = null;
+    try {
+      brut = localStorage.getItem(CLE_DU_DERNIER_ETAT);
+    } catch {
+      /* stockage refusé : pas de copie, l'attente habituelle */
+    }
+    const copie = lireLeDernierEtat(brut, PROTOCOL_VERSION, Date.now());
+    if (!copie) return;
+    const projet = copie.activeProjectId;
+    const cartes = copie.cards as Card[];
+    this.set({
+      projects: copie.projects as Project[],
+      groups: copie.groups as ProjectGroup[],
+      activeProjectId: projet,
+      cards: Object.fromEntries(cartes.map((carte) => [carte.id, carte])),
+      cartesTotaux: projet ? { [projet]: copie.totaux as TotauxParColonne } : {},
+      cartesChargees: projet ? { [projet]: true } : {},
+      copieLocale: true,
+    });
+  }
+
+  /**
+   * GARDE LA COPIE À JOUR, sans jamais gêner : une seule écriture par rafale
+   * (1,5 s après le dernier état reçu), jamais avant que le vrai premier état
+   * soit là, jamais au-delà du poids permis.
+   */
+  private programmerLaCopieLocale(): void {
+    if (this.minuterieDeLaCopie != null) window.clearTimeout(this.minuterieDeLaCopie);
+    this.minuterieDeLaCopie = window.setTimeout(() => {
+      this.minuterieDeLaCopie = null;
+      const etat = this.state;
+      if (!etat.pret) return;
+      const copie = composerLeDernierEtat({
+        protocole: PROTOCOL_VERSION,
+        maintenant: Date.now(),
+        projects: etat.projects,
+        groups: etat.groups,
+        activeProjectId: etat.activeProjectId,
+        cards: etat.cards,
+        totaux: etat.cartesTotaux as Record<string, Record<string, number>>,
+      });
+      if (!copie) return;
+      try {
+        const texte = JSON.stringify(copie);
+        if (texte.length > POIDS_MAX_DU_DERNIER_ETAT) {
+          localStorage.removeItem(CLE_DU_DERNIER_ETAT);
+          return;
+        }
+        localStorage.setItem(CLE_DU_DERNIER_ETAT, texte);
+      } catch {
+        /* stockage plein ou refusé : la copie est un confort, jamais une obligation */
+      }
+    }, 1500);
+  }
+
   connect(): void {
+    this.appliquerLaCopieLocale();
     this.brancherLaVeille();
+    this.brancherLeReseau();
     // En veille, rien ne rouvre le canal : c'est le retour à l'écran qui le fait.
     if (estEnVeille()) return;
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
@@ -1038,6 +1143,24 @@ class Client {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${location.host}/ws`);
     this.socket = socket;
+    /*
+     * UNE OUVERTURE A UN PLAFOND (demande du 12/10/2026 : « la synchronisation
+     * se fait extrêmement difficilement sur mobile »). Sans lui, un réseau qui
+     * laisse partir la demande mais ne rend rien laissait le socket « en
+     * ouverture » tant que le navigateur n'avait pas renoncé — plus d'une
+     * minute sur un téléphone qui change de réseau — et `connect()` ne
+     * rouvrait rien entre-temps. Passé `DELAI_OUVERTURE_DU_CANAL`, on
+     * l'abandonne : le repli ordinaire refait une tentative neuve.
+     */
+    const ouvertDepuis = Date.now();
+    const surveillerLOuverture = (attente: number) =>
+      window.setTimeout(() => {
+        if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+        const reste = delaiRestantAvantAbandonDeLOuverture(ouvertDepuis, Date.now());
+        if (reste > 0) surveillerLOuverture(reste);
+        else this.abandonnerLeCanal(socket);
+      }, attente);
+    surveillerLOuverture(DELAI_OUVERTURE_DU_CANAL);
 
     socket.onopen = () => {
       this.retry = 0;
@@ -1055,6 +1178,7 @@ class Client {
       this.rafraichirLeCanal();
       this.send({ type: 'hello', protocol: 1 });
       this.lancerLeBattement(socket);
+      this.reclamerLesReponsesPerdues();
     };
 
     socket.onclose = () => this.apresFermetureDuCanal();
@@ -1104,6 +1228,26 @@ class Client {
       /* déjà fermé : rien à faire */
     }
     if (!dejaFerme && this.socket === socket) this.apresFermetureDuCanal();
+  }
+
+  /**
+   * LES RÉPONSES ATTENDUES PENDANT LA COUPURE SONT REDEMANDÉES. Une commande
+   * longue (créer un projet) peut finir pendant que le canal se renouvelle :
+   * sa réponse partait sur l'ancien canal et se perdait, et le bouton tournait
+   * dans le vide. Le serveur la garde désormais (`acks.reclamer`,
+   * `shared/src/accuses-orphelins.ts`) : on la réclame dès le canal rouvert,
+   * et elle se rend comme si elle venait d'arriver.
+   */
+  private reclamerLesReponsesPerdues(): void {
+    const ids = [...this.pending.keys()].slice(-200);
+    if (!ids.length) return;
+    this.call<{ accuses?: ServerEvent[] }>({ type: 'acks.reclamer', ids }, 15000)
+      .then((reponse) => {
+        for (const accuse of reponse?.accuses ?? []) this.handle(accuse);
+      })
+      .catch(() => {
+        /* le canal est retombé : la prochaine ouverture redemandera */
+      });
   }
 
   private apresFermetureDuCanal(): void {
@@ -1158,7 +1302,13 @@ class Client {
        d'état, c'est ne jamais l'afficher quand la coupure s'installe sans
        rien d'autre. */
     if (etat === 'en-ligne') this.gesteRefuseA = null;
-    const dire = messageDuCanal(etat, depuis, Date.now(), this.gesteRefuseA != null);
+    let dire = messageDuCanal(etat, depuis, Date.now(), this.gesteRefuseA != null);
+    /* LA TOUTE PREMIÈRE CONNEXION D'UNE PAGE N'EST PAS UNE PANNE : l'écran déjà
+       dessiné d'après la copie ne doit pas annoncer « le serveur ne répond pas »
+       pendant les secondes que prend l'ouverture. Passé ce délai, il le dit. */
+    if (dire && this.state.copieLocale && !this.dejaSynchronise && this.gesteRefuseA == null && Date.now() - this.demarreA < 5000) {
+      dire = null;
+    }
     this.posterLeMessagePersistant(
       CLE_MESSAGE_DU_CANAL,
       dire
@@ -1189,25 +1339,110 @@ class Client {
     if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.retry = 0;
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      // Canal « ouvert » mais muet : le refermer nous-mêmes est le seul moyen
-      // de repartir sur un socket vivant (§ le canal zombie, plus haut).
-      this.abandonnerLeCanal(this.socket);
-      return;
+    const socket = this.socket;
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      // Canal « ouvert » mais muet, ou ouverture qui traîne : le refermer
+      // nous-mêmes est le seul moyen de repartir sur un socket vivant (§ le
+      // canal zombie, plus haut). On rouvre tout de suite, sans attendre le
+      // repli — c'est le geste de quelqu'un qui voit que le réseau est revenu.
+      this.abandonnerLeCanal(socket);
+      if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
     this.connect();
   }
 
+  /*
+   * LE RÉSEAU DU TÉLÉPHONE CHANGE, L'ÉCRAN LE SAIT (demande du 12/10/2026).
+   * « online » (le réseau revient) et le changement de connexion (Wi-Fi vers
+   * 4G, quand le navigateur le dit) étaient ignorés : l'écran attendait son
+   * propre battement, 40 à 80 secondes parfois. Un canal absent ou en
+   * ouverture repart tout de suite ; un canal « ouvert » est mis à l'épreuve
+   * (`sonderLeCanal`) — sa route a pu changer sous lui. En veille, rien ne se
+   * rouvre : le retour à l'écran le fait.
+   */
+  private reseauBranche = false;
+
+  private brancherLeReseau(): void {
+    if (this.reseauBranche || typeof window === 'undefined') return;
+    this.reseauBranche = true;
+    let dernierSignalA = 0;
+    const reseauChange = () => {
+      if (estEnVeille()) return;
+      /* Un réseau instable émet plusieurs signaux à la suite : un seul geste
+         par seconde et demie, pour ne pas faire redemander l'état en rafale
+         à un démon déjà à la peine. */
+      const maintenant = Date.now();
+      if (maintenant - dernierSignalA < 1_500) return;
+      dernierSignalA = maintenant;
+      const socket = this.socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        this.reconnecterMaintenant();
+        return;
+      }
+      this.sonderLeCanal(socket);
+    };
+    window.addEventListener('online', reseauChange);
+    (navigator as unknown as { connection?: EventTarget }).connection?.addEventListener?.('change', reseauChange);
+    /* Retour à l'écran SANS être passé par la veille (page cachée moins de
+       quelques secondes) : un canal resté muet est mis à l'épreuve. */
+    surLaVisibilite(() => {
+      if (pageCachee() || estEnVeille()) return;
+      const socket = this.socket;
+      if (socket && socket.readyState === WebSocket.OPEN && sondeAuRetourNecessaire(this.dernierEvenementA, Date.now())) {
+        this.sonderLeCanal(socket);
+      }
+    });
+  }
+
+  /** Une seule épreuve à la fois : un ping court, et le canal est refait s'il ne répond pas. */
+  private sondeEnCours = false;
+
+  private sonderLeCanal(socket: WebSocket): void {
+    if (this.sondeEnCours) return;
+    this.sondeEnCours = true;
+    const envoyeA = Date.now();
+    this.call({ type: 'ping' }, DELAI_SONDE_DE_RESEAU).then(
+      () => {
+        this.sondeEnCours = false;
+      },
+      () => {
+        this.sondeEnCours = false;
+        if (this.socket !== socket) return;
+        /* UNE TRAME REÇUE DEPUIS L'ÉPREUVE VAUT PREUVE DE VIE : le serveur est
+           seulement lent, comme au battement. */
+        if ((this.dernierEvenementA ?? 0) > envoyeA) return;
+        this.reconnecterMaintenant();
+      },
+    );
+  }
+
   private lancerLeBattement(socket: WebSocket): void {
+    let manques = 0;
     this.battement = window.setInterval(() => {
       if (this.socket !== socket || socket.readyState !== WebSocket.OPEN) return;
-      this.call({ type: 'ping' }, 8000).catch(() => {
-        // Pas de réponse en 8 s sur un canal qui se dit pourtant ouvert : un
-        // canal zombie. Le fermer nous-mêmes déclenche `onclose`, donc la
-        // reconnexion déjà prévue — sans ce geste, plus aucun événement
-        // (dont la fin d'un tour) n'atteindra jamais ce client.
-        if (this.socket === socket) this.abandonnerLeCanal(socket);
-      });
+      const envoyeA = Date.now();
+      this.call({ type: 'ping' }, DELAI_PING_SANS_REPONSE).then(
+        () => {
+          manques = 0;
+        },
+        () => {
+          if (this.socket !== socket) return;
+          /* UNE TRAME REÇUE DEPUIS LE BATTEMENT VAUT PREUVE DE VIE : le serveur
+             est seulement lent (il se fige par moments), pas parti. */
+          if ((this.dernierEvenementA ?? 0) > envoyeA) {
+            manques = 0;
+            return;
+          }
+          manques += 1;
+          // Un canal vraiment zombie — ouvert en apparence, plus rien n'arrive —
+          // se referme nous-mêmes : sans ce geste, plus aucun événement (dont la
+          // fin d'un tour) n'atteindrait jamais ce client. Mais pas au premier
+          // silence : se reconnecter redemande tout au serveur déjà à la peine.
+          const silence = Date.now() - (this.dernierEvenementA ?? envoyeA);
+          if (canalAAbandonner({ battementsManques: manques, silence })) this.abandonnerLeCanal(socket);
+        },
+      );
     }, 20000);
   }
 
@@ -1249,15 +1484,24 @@ class Client {
          * ce qu'on affiche date d'avant la coupure.
          */
         this.resynchronise = true;
+        // Les images ouvertes ailleurs pendant la coupure : les bandes à l'écran
+        // redemandent leur état, et ce qui n'avait pas pu partir repart.
+        redemanderLesVues();
+        this.envoyerLesVuesEnAttente();
+        // Une colonne de « En route » restée sur son échec (demandée pendant la
+        // coupure) se redemande d'elle-même : on ne rouvre pas la page pour ça.
+        this.rechargerLesColonnesEnEchec();
         const prefs = event.prefs ?? {};
         // On rouvre sur le dernier projet consulté, retenu en base. S'il a été
         // archivé ou supprimé, on retombe sans bruit sur le premier de la liste.
         const choix = choisirProjetAOuvrir(event.projects, prefs[CLE_PROJET_ACTIF], this.state.activeProjectId);
         // Les moteurs ajoutés entrent au registre AVANT le premier affichage.
         poserLesMoteursAjoutes(event.moteursAjoutes ?? []);
+        if (event.settings?.installation) definirIdentiteDInstallation(event.settings.installation);
         this.set({
           moteursAjoutes: event.moteursAjoutes ?? [],
           pret: true,
+          copieLocale: false,
           version: event.version,
           settings: event.settings,
           prefs,
@@ -1282,6 +1526,7 @@ class Client {
           ...(this.dejaSynchronise ? numerosApresReprise(this.state.studioVersions, this.state.marketingVersions, event.projects.map((p) => p.id)) : {}),
         });
         this.dejaSynchronise = true;
+        this.programmerLaCopieLocale();
         // Le projet retenu à l'ouverture doit CHARGER ses cartes tout de suite :
         // sans cette demande, le tableau reste vide tant qu'on n'a pas cliqué
         // dans la colonne de gauche — invisible sur téléphone, où elle est repliée.
@@ -1417,6 +1662,7 @@ class Client {
           // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
           cartesChargees: { ...state.cartesChargees, [event.projectId]: true },
         }));
+        this.programmerLaCopieLocale();
         break;
 
       case 'card.upsert':
@@ -1689,21 +1935,46 @@ class Client {
         break;
 
       case 'settings':
+        // L'identité de l'installation se lit en mémoire dans les règles
+        // partagées : un réglage enregistré vaut tout de suite à l'écran.
+        if (event.settings?.installation) definirIdentiteDInstallation(event.settings.installation);
         this.set({ settings: event.settings });
         break;
 
+      // Un travail d'installation lancé depuis l'écran, et les nouveautés du
+      // dépôt public : rangés à part (`lib/travail-installation.ts`), pour que
+      // la sortie d'un installateur ne réveille pas le tableau à chaque ligne.
+      case 'installation.travail':
+        installationEnDirect.recevoirLEtat(event.travail);
+        break;
+
+      case 'installation.sortie':
+        installationEnDirect.recevoirLaSortie(event.genre, event.donnees);
+        break;
+
+      case 'installation.nouveautes':
+        installationEnDirect.recevoirLesNouveautes(event.etat);
+        break;
+
       case 'prefs':
-        // Un réglage envoyé d'ici et pas encore confirmé ne recule pas.
-        this.set({
+        // Un réglage envoyé d'ici et pas encore confirmé ne recule pas. Un événement
+        // `partiel` ne porte que les clés qui changent : il se fusionne dans le bloc
+        // connu (le bloc entier ne part qu'à la connexion).
+        this.set((state) => ({
           prefs: reglagesSansRecul(
-            event.prefs,
+            event.partiel ? fusionnerLesReglages(state.prefs, event.prefs) : event.prefs,
             Array.from(this.reglagesEnVol, ([cle, enVol]) => [cle, enVol.valeur] as const),
           ),
-        });
+        }));
         break;
 
       case 'attachments':
         this.set((state) => ({ attachments: { ...state.attachments, [event.projectId]: event.items } }));
+        break;
+
+      case 'captures.vues':
+        // Un autre appareil de ce compte vient d'ouvrir ces images en grand.
+        retenirLesVues(event.cles);
         break;
 
       case 'files':
@@ -1952,6 +2223,62 @@ class Client {
       return true;
     }
     return false;
+  }
+
+  /**
+   * L'ŒIL « DÉJÀ VUE » DES IMAGES D'UNE BANDE (`lib/captures-vues.ts`). Une
+   * bande demande l'état de SES clés — seules celles pas encore demandées
+   * partent, par tranches. Une demande sans réponse se refera à la reconnexion.
+   */
+  demanderLesCapturesVues(cles: readonly string[]): void {
+    for (const cle of cles) this.vuesADemander.add(cle);
+    if (this.demandeDeVuesPrevue !== null) return;
+    // UN SEUL ALLER-RETOUR pour toutes les bandes posées dans le même souffle :
+    // un fil de cinquante réponses illustrées ne fait pas cinquante demandes.
+    this.demandeDeVuesPrevue = window.setTimeout(() => {
+      this.demandeDeVuesPrevue = null;
+      const lot = [...this.vuesADemander];
+      this.vuesADemander.clear();
+      for (const tranche of clesADemander(lot)) {
+        this.call<{ cles?: string[] }>({ type: 'captures.vues', cles: tranche }, 20000)
+          .then((reponse) => retenirLesVues(reponse?.cles ?? []))
+          .catch(() => oublierLaDemande(tranche));
+      }
+    }, 40);
+  }
+
+  private vuesADemander = new Set<string>();
+  private demandeDeVuesPrevue: number | null = null;
+
+  /**
+   * CES IMAGES VIENNENT D'ÊTRE AFFICHÉES EN GRAND : l'œil s'allume tout de
+   * suite ici, et le serveur le retient pour les autres appareils du compte.
+   * Un envoi qui n'a pas pu partir attend la reconnexion — il ne se perd pas.
+   */
+  marquerCapturesVues(cles: readonly string[]): void {
+    const nouvelles = retenirLesVues(cles);
+    if (!nouvelles.length) return;
+    noterAEnvoyer(nouvelles);
+    this.envoyerLesVuesEnAttente();
+  }
+
+  /** Les clés parties et pas encore accusées : elles ne repartent pas une seconde fois. */
+  private vuesEnVol = new Set<string>();
+
+  private envoyerLesVuesEnAttente(): void {
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+    for (const tranche of tranchesAEnvoyer()) {
+      const partantes = tranche.filter((cle) => !this.vuesEnVol.has(cle));
+      if (!partantes.length) continue;
+      for (const cle of partantes) this.vuesEnVol.add(cle);
+      // Confirmée seulement à l'accusé : un canal qui tombe en vol la laisse en attente.
+      this.call({ type: 'captures.voir', cles: partantes }, 20000)
+        .then(() => envoiConfirme(partantes))
+        .catch(() => {})
+        .finally(() => {
+          for (const cle of partantes) this.vuesEnVol.delete(cle);
+        });
+    }
   }
 
   /**
@@ -2234,6 +2561,13 @@ class Client {
     await this.demanderEnRoute(onglet, true);
   }
 
+  /** Au retour du lien : seules les colonnes restées sur un échec sont redemandées. */
+  private rechargerLesColonnesEnEchec(): void {
+    for (const onglet of ['actif', 'terminer', 'archive'] as const) {
+      if (this.state[CLE_ETAT_EN_ROUTE[onglet]]?.erreur) void this.chargerEnRoute(onglet);
+    }
+  }
+
   /** Le paquet suivant de la colonne, sous la dernière famille reçue. Rien quand tout est là. */
   async chargerLaSuiteEnRoute(onglet: OngletEnRoute = 'actif'): Promise<void> {
     if (!this.state[CLE_ETAT_EN_ROUTE[onglet]]?.restant) return;
@@ -2338,7 +2672,7 @@ class Client {
   /* ---------------- Les cartes par tranches ---------------- */
 
   /** Les tranches déjà demandées et pas encore reçues, par « projet/colonne ». */
-  private tranchesEnVol = new Set<string>();
+  private tranchesEnVol = new Map<string, Promise<boolean>>();
 
   private totauxApresCarte(
     state: AppState,
@@ -2374,8 +2708,7 @@ class Client {
     const { recues, total } = this.compteDeColonne(projectId, column);
     if (!resteSurLeServeur(recues, total)) return false;
     const chargees = Object.values(this.state.cards).filter((c) => c.projectId === projectId && c.column === column);
-    this.tranchesEnVol.add(cle);
-    try {
+    const demande = (async () => {
       const reponse = await this.call<{ cards: Card[]; agents: Agent[]; total: number }>({
         type: 'cards.tranche',
         projectId,
@@ -2391,6 +2724,10 @@ class Client {
         },
       }));
       return reponse.cards.length > 0;
+    })();
+    this.tranchesEnVol.set(cle, demande);
+    try {
+      return await demande;
     } finally {
       this.tranchesEnVol.delete(cle);
     }
@@ -2399,11 +2736,22 @@ class Client {
   /**
    * TOUTE LA COLONNE, tranche après tranche : une sélection en lot doit voir
    * toutes ses cartes, pas seulement celles que le défilement a fait venir.
+   *
+   * UNE TRANCHE DÉJÀ EN VOL S'ATTEND, elle ne fait pas rendre la main : le
+   * palier de chargement et le lot de « Déployer » peuvent demander la même
+   * colonne au même instant, et celui qui arrivait second repartait avec une
+   * colonne incomplète.
    */
   async chargerToutesLesCartes(projectId: string, column: ColumnKey): Promise<void> {
+    const cle = `${projectId}/${column}`;
     for (let garde = 0; garde < 500; garde += 1) {
       const { recues, total } = this.compteDeColonne(projectId, column);
       if (!resteSurLeServeur(recues, total)) return;
+      const enVol = this.tranchesEnVol.get(cle);
+      if (enVol) {
+        await enVol.catch(() => undefined);
+        continue;
+      }
       if (!(await this.chargerLaTranche(projectId, column))) return;
     }
   }
@@ -2522,6 +2870,60 @@ class Client {
       });
       if (!options.silencieux) this.signalerRefus(raison, card.id);
       return { ok: false, error: raison };
+    }
+  }
+
+  /**
+   * TOUTE LA COLONNE « TERMINER » EN MÉMOIRE : la page ne la charge que par
+   * paquets de vingt, et « Tout archiver » doit voir aussi les cartes en ligne
+   * qu'elle n'a pas encore affichées. S'arrête dès qu'un paquet ne fait pas
+   * baisser le reste (erreur, demande déjà en vol) : jamais de boucle sans fin.
+   */
+  async chargerToutTerminer(): Promise<void> {
+    for (;;) {
+      const avant = this.state.enRouteTerminer?.restant ?? 0;
+      if (!avant) return;
+      await this.chargerLaSuiteEnRoute('terminer');
+      const apres = this.state.enRouteTerminer;
+      if (!apres || apres.erreur || apres.restant >= avant) return;
+    }
+  }
+
+  /**
+   * RANGER (OU RESSORTIR) DES CARTES FINIES SUR LA PAGE « TABLEAUX DE BORD »
+   * SEULEMENT — « Tout archiver » en tête de « Terminer », ou un glisser
+   * entre « Terminer » et « Archiver ». La carte ne bouge PAS dans son projet :
+   * ni colonne, ni lot de publication (`card.rangerTableauDeBord`). L'écran
+   * range tout de suite (même règle que l'écho du démon, `repartirLaFamille`) ;
+   * le bilan ne se dit que pour un lot (`silencieux` pour un glisser).
+   */
+  async rangerDansLeTableauDeBord(cartes: Card[], range: boolean, options: { silencieux?: boolean } = {}): Promise<void> {
+    if (!cartes.length) return;
+    const instant = Date.now();
+    this.set((state) => {
+      let page: Pick<AppState, 'enRoute' | 'enRouteTerminer' | 'enRouteArchive'> = {
+        enRoute: state.enRoute,
+        enRouteTerminer: state.enRouteTerminer,
+        enRouteArchive: state.enRouteArchive,
+      };
+      for (const carte of cartes) {
+        const neuve = { ...carte, rangeeTableauDeBordAt: range ? instant : undefined, updatedAt: instant };
+        page = this.pageApresCarte({ ...state, ...page }, neuve);
+      }
+      return page;
+    });
+    try {
+      const reponse = await this.call<{ ids: string[] }>(
+        { type: 'card.rangerTableauDeBord', ids: cartes.map((c) => c.id), range },
+        30000,
+      );
+      if (options.silencieux) return;
+      const bilan = bilanDeLot(range ? CLE_PARTICIPE_ARCHIVAGE : CLE_PARTICIPE_RESSORTIE, reponse?.ids?.length ?? 0, []);
+      this.pushToast(bilan.niveau, bilan.texte);
+    } catch (err: any) {
+      // Le démon a refusé : l'écran se réaligne sur ce qu'il sait vraiment.
+      for (const onglet of ['terminer', 'archive'] as const) void this.chargerEnRoute(onglet);
+      this.pushToast('error', err?.message ?? String(err));
     }
   }
 

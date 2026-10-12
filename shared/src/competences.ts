@@ -38,6 +38,7 @@
  */
 
 import { classerRegles } from './extrait-regles.js';
+import { minusculesSansAccents } from './mots.js';
 
 /** Le nom du dossier de compétences dans le coffre d'un compte. */
 export const NOM_DOSSIER_COMPETENCES = 'skills';
@@ -506,11 +507,7 @@ export function sectionPresente(texte: string, titre: string): boolean {
 }
 
 function normaliserMot(mot: string): string {
-  return mot
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+  return minusculesSansAccents(mot).trim();
 }
 
 /** La description annonce-t-elle un déclenchement, ou la fiche déclare-t-elle un symptôme ? */

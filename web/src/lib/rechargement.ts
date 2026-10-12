@@ -42,7 +42,7 @@ function ecrire(etat: EtatDesRechargements): void {
  * service worker, vider les caches) : on ne le fait que si l'on recharge.
  */
 export function rechargerUneFois(
-  motif: 'version' | 'protocole',
+  motif: 'version' | 'protocole' | 'morceau',
   valeur: string,
   avant?: () => Promise<unknown>,
 ): boolean {

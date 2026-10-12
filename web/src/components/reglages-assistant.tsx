@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import {
   DEFINITIONS_NIVEAU,
   NIVEAUX_AGENT,
@@ -9,7 +9,7 @@ import {
   type ReglageNiveauAssistant,
 } from '@beluga/shared';
 import { LigneDeConfiguration } from '@/components/chat';
-import { RunSelectors, resoudreRun, type RunChoix } from '@/components/run-selectors';
+import { RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -20,7 +20,8 @@ import { t } from '@/lib/langue';
  * 02.10.2026) : replié sur UNE ligne de résumé — mode, niveau servi, modèle —
  * pour ne pas manger la hauteur du chat, téléphone compris ; déplié, le mode
  * (automatique ou modèle fixe), le plafond, puis moteur, modèle, réflexion et
- * compte, comme la carte de configuration d'une tâche.
+ * compte, comme la carte de configuration d'une tâche : chaque ligne ouvre la
+ * liste de son réglage en menu, ancré sous elle.
  *
  * Choisir un moteur, un modèle ou une réflexion à la main FIGE le modèle (le
  * démon bascule le mode, `agent.config`) ; « Revenir en automatique » rend la
@@ -30,7 +31,6 @@ export function ReglagesAssistant({ agent, niveau: niveauInitial }: { agent: Age
   const state = useApp();
   const [ouvert, setOuvert] = React.useState(false);
   const [niveau, setNiveau] = React.useState<ReglageNiveauAssistant>(niveauInitial ?? REGLAGE_NIVEAU_ASSISTANT_DEFAUT);
-  const [ouvrirSur, setOuvrirSur] = React.useState<'moteur' | 'modele' | 'reflexion' | 'compte' | undefined>(undefined);
   React.useEffect(() => {
     if (niveauInitial) setNiveau(niveauInitial);
   }, [niveauInitial]);
@@ -65,6 +65,18 @@ export function ReglagesAssistant({ agent, niveau: niveauInitial }: { agent: Age
       client.pushToast('error', err?.message ?? t('réglage impossible'));
     }
   };
+
+  /* Chaque ligne est le bouton de SON menu, ouvert droit sur la liste du réglage nommé. */
+  const ligne = (reglage: ReglageDeRun, nom: string, valeur: string) => (
+    <RunSelectors
+      engines={state.engines}
+      choix={agent.run}
+      onSelect={choisir}
+      comptes={state.quotas}
+      ouvrirSur={reglage}
+      declencheur={<LigneDeConfiguration nom={nom} valeur={valeur} />}
+    />
+  );
 
   const servi = agent.niveauServi ? t(DEFINITIONS_NIVEAU[agent.niveauServi].label) : null;
   const resume = [
@@ -124,30 +136,16 @@ export function ReglagesAssistant({ agent, niveau: niveauInitial }: { agent: Age
               type="button"
               onClick={() => regler({ mode: 'auto' })}
               data-assistant-revenir-auto
-              className="self-start rounded-md border border-border bg-surface px-2.5 py-1 text-[12.5px] text-text transition-colors hover:border-accent/50"
+              className="self-start rounded-md bg-raised px-2.5 py-1 text-[12.5px] text-text transition-colors hover:bg-border"
             >
               {t('Revenir en automatique')}
             </button>
           )}
 
-          <LigneDeConfiguration nom={t('Moteur')} valeur={retenu.engine?.label ?? '—'} onClick={() => setOuvrirSur('moteur')} />
-          <LigneDeConfiguration nom={t('Modèle')} valeur={retenu.model?.label ?? '—'} onClick={() => setOuvrirSur('modele')} />
-          <LigneDeConfiguration nom={t('Réflexion')} valeur={retenu.thinking?.label ?? '—'} onClick={() => setOuvrirSur('reflexion')} />
-          {comptes.length > 1 ? (
-            <LigneDeConfiguration nom={t('Compte')} valeur={compte?.label ?? t('Automatique')} onClick={() => setOuvrirSur('compte')} />
-          ) : null}
-
-          <RunSelectors
-            engines={state.engines}
-            choix={agent.run}
-            onSelect={choisir}
-            pleineLargeur
-            comptes={state.quotas}
-            masquerDeclencheur
-            ouvertControle={ouvrirSur !== undefined}
-            onOuvertControleChange={(o) => setOuvrirSur(o ? (ouvrirSur ?? 'moteur') : undefined)}
-            ouvrirSur={ouvrirSur}
-          />
+          {ligne('moteur', t('Moteur'), retenu.engine?.label ?? '—')}
+          {ligne('modele', t('Modèle'), retenu.model?.label ?? '—')}
+          {ligne('reflexion', t('Réflexion'), retenu.thinking?.label ?? '—')}
+          {comptes.length > 1 ? ligne('compte', t('Compte'), compte?.label ?? t('Automatique')) : null}
         </div>
       ) : null}
     </div>
@@ -177,8 +175,9 @@ function Choix({
           data-choix={o.id}
           onClick={() => o.id !== valeur && onChoisir(o.id)}
           className={cn(
-            'min-w-0 flex-1 truncate rounded-md border px-2 py-1 text-[13px] transition-colors',
-            o.id === valeur ? 'border-accent bg-raised font-medium text-text' : 'border-border bg-surface text-muted hover:border-accent/50',
+            'min-w-0 flex-1 truncate rounded-md px-2 py-1 text-[13px] transition-colors',
+            /* Le choix RETENU s'écrit en violet, sur son fond : aucun trait. */
+            o.id === valeur ? 'bg-raised font-medium text-teinte' : 'text-muted hover:bg-raised hover:text-text',
           )}
         >
           {o.label}

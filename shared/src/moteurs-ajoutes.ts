@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { FORME_ID_MOTEUR_AJOUTE, IDS_MOTEURS, type FicheMoteur } from './registre-moteurs.js';
 import type { AccesCoffre } from './coffre-fort.js';
+import { slugEntier } from './slugs.js';
 
 /**
  * LES MOTEURS AJOUTÉS DEPUIS LES RÉGLAGES — les règles pures.
@@ -46,14 +47,7 @@ export const FicheMoteurZ = z.object({
 
 /** « DeepSeek (Chine) » → « ext-deepseek-chine ». */
 export function idDeMoteurAjoute(nom: string): `ext-${string}` {
-  const racine =
-    nom
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 36) || 'moteur';
+  const racine = slugEntier(nom).slice(0, 36) || 'moteur';
   return `ext-${racine}`;
 }
 

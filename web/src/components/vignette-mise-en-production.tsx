@@ -1,3 +1,4 @@
+import * as React from 'react';
 import { Rocket } from 'lucide-react';
 import {
   descriptionDeLEtape,
@@ -7,10 +8,11 @@ import {
 } from '@beluga/shared';
 import { BarreProgression } from '@/components/barre-progression';
 import { PastilleProjet } from '@/components/pastille-projet';
+import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { Dot } from '@/components/ui';
 import { CLASSE_CADRE_SYSTEME } from '@/lib/gabarit-tableau';
 import { t } from '@/lib/langue';
-import { relativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 /**
  * LA CARTE SYSTÈME D'UNE MISE EN PRODUCTION (05/10/2026).
@@ -44,7 +46,7 @@ export function VignetteMiseEnProduction({
   onOpen: () => void;
   /** Le nom du projet en tête — utile hors du tableau d'un projet. */
   avecProjet?: boolean;
-  /** Sur « Tableaux de bord » : cadre de carte Système et ancienneté en pied, hauteur au contenu. */
+  /** Sur « Tableaux de bord » : cadre de carte Système, titre sur une ligne, hauteur au contenu. */
   formatCarte?: boolean;
 }) {
   const suivi = suiviDeLaPublication(run);
@@ -66,12 +68,26 @@ export function VignetteMiseEnProduction({
       : etape
         ? t('Arrêtée à l’étape « {etape} » : ouvrez le suivi pour voir pourquoi.', { etape })
         : t('Ouvrez le suivi pour voir ce qui s’est passé.');
+  /* Sur « Tableaux de bord » le titre tient sur UNE ligne : coupé, il porte son
+     texte entier en info-bulle (et la pastille « i »). */
+  const titreRef = React.useRef<HTMLHeadingElement>(null);
+  const titreCoupe = useTexteCoupe([titreRef], [titre, formatCarte]);
   const titreEtDescription = (
     <>
-      <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
-        <Rocket className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
-        {titre}
-      </h3>
+      <div className="flex items-start gap-1.5">
+        <h3
+          ref={titreRef}
+          title={formatCarte && titreCoupe ? titre : undefined}
+          className={cn(
+            'min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text',
+            formatCarte ? 'line-clamp-1' : 'line-clamp-2',
+          )}
+        >
+          <Rocket className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
+          {titre}
+        </h3>
+        {formatCarte && titreCoupe ? <BulleTexteCoupe>{titre}</BulleTexteCoupe> : null}
+      </div>
       <p
         data-description-carte
         className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted"
@@ -99,7 +115,7 @@ export function VignetteMiseEnProduction({
         className={
           formatCarte
             ? CLASSE_CADRE_SYSTEME
-            : 'relative z-10 cursor-pointer overflow-hidden rounded-md border border-publie/60 bg-raised px-2.5 py-2 transition-colors hover:border-publie'
+            : 'relative z-10 cursor-pointer overflow-hidden rounded-md border border-transparent bg-raised px-2.5 py-2 transition-colors hover:bg-border'
         }
       >
         <div className="mb-1 flex h-[18px] min-w-0 items-center gap-1.5 text-[12px]" data-tete-carte-en-route>
@@ -129,12 +145,7 @@ export function VignetteMiseEnProduction({
           </span>
         </div>
         {formatCarte ? (
-          <>
-            <div className="min-w-0" data-corps-systeme>{titreEtDescription}</div>
-            <div className="mt-auto flex shrink-0 items-center pb-1.5 pt-1 text-[12px] text-faint" data-anciennete-systeme={run.projectId}>
-              <span className="shrink-0">{relativeTime(run.endedAt ?? run.startedAt)}</span>
-            </div>
-          </>
+          <div className="min-w-0" data-corps-systeme>{titreEtDescription}</div>
         ) : (
           titreEtDescription
         )}

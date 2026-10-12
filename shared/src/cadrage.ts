@@ -1,3 +1,4 @@
+import { minusculesSansAccents } from './mots.js';
 /**
  * LA CARTE-FIL : ON DISCUTE SA TÂCHE DANS LA CARTE, PLUS DANS LE CHEF D'ORCHESTRE.
  *
@@ -234,14 +235,26 @@ export function titreEncoreVide(titre: string | undefined): boolean {
 }
 
 /**
- * La carte ouverte par le BOUTON ROBO du menu du bas n'existe vraiment que si
- * quelque chose y a été saisi — un message envoyé, ou un brouillon en train
- * de s'écrire. Sans l'un ni l'autre, elle repart en base à la fermeture du
- * tiroir : c'est cette décision, pure et testée seule, que `app.tsx` applique
- * à la fermeture (voir `carteRobotIdRef` dans `web/src/app.tsx`).
+ * La carte du bouton robo est-elle VRAIMENT vide ? Jugée par le SERVEUR, sur
+ * ce qu'il a en base — jamais sur l'état local d'un écran, qui peut ne pas
+ * avoir chargé les messages, tenir le brouillon sous une autre clé ou ne pas
+ * l'avoir encore poussé. Au moindre doute, la carte reste : une carte vide qui
+ * traîne coûte une ligne, une carte écrite qui disparaît coûte des minutes de
+ * rédaction.
  */
-export function carteRobotEstVide(etat: { nbMessages: number; brouillon?: string }): boolean {
-  return etat.nbMessages <= 0 && !(etat.brouillon ?? '').trim();
+export function carteDeCadrageEstVide(etat: {
+  nbMessages: number;
+  /** Les brouillons de tous les agents de la carte, plus la clé sans agent. */
+  brouillons: ReadonlyArray<string | undefined | null>;
+  nbPiecesJointes: number;
+  titre?: string;
+  description?: string;
+  agentAuTravail: boolean;
+}): boolean {
+  if (etat.nbMessages > 0 || etat.nbPiecesJointes > 0 || etat.agentAuTravail) return false;
+  if (etat.brouillons.some((b) => (b ?? '').trim())) return false;
+  if ((etat.description ?? '').trim()) return false;
+  return titreEncoreVide(etat.titre);
 }
 
 /**
@@ -561,7 +574,7 @@ export type IssueDeTourDeCadrage = (typeof ISSUES_DE_TOUR_DE_CADRAGE)[number];
  * manière, le résultat attendu, les points délicats — et laisse le modèle
  * écrire en paragraphes, comme dans une conversation directe.
  *
- * …MAIS COURTE, ET TOURNÉE VERS CE QUI VA ÊTRE FAIT (22/09/2026). La version
+ * …TOURNÉE VERS CE QUI VA ÊTRE FAIT, ET SANS PAVÉ (22/09/2026). La version
  * « développée, qui résume TOUTE la conversation » donnait des pavés qui
  * s'ouvraient en redisant à l'utilisateur ce qu'il venait d'écrire. Il l'a
  * refusée : la compréhension explique désormais, simplement et concrètement,
@@ -580,6 +593,14 @@ export type IssueDeTourDeCadrage = (typeof ISSUES_DE_TOUR_DE_CADRAGE)[number];
  * les fichiers, les fonctions, les technologies, bref le détail d'implémentation.
  * Cette interdiction n'a PAS été assouplie avec le reste.
  *
+ * …ET COMPLÈTE, PUISQU'ELLE EST LA SEULE À RACONTER LE CONSTAT (12/10/2026).
+ * La compréhension n'est plus un bloc replié dans la réflexion : elle se lit
+ * détachée, sous le bloc de travail, et c'est elle qui porte ce que ce bloc
+ * montrait — ce qui a été lu, mesuré, vérifié, et ce que cela explique. Elle
+ * ne redevient pas pour autant le pavé refusé le 22/09 : toujours tournée vers
+ * ce qui sera fait, jamais une reformulation de la demande ni le récit de
+ * l'échange. Le détail technique, lui, reste dans `partieTechnique`.
+ *
  * ELLE TIENT SEULE, SANS RACONTER L'ÉCHANGE. La compréhension est une seule
  * valeur sur la carte, réécrite à chaque tour : une version qui ne dirait que le
  * dernier message effacerait ce qui avait été décidé avant. Le démon redonne la
@@ -587,8 +608,7 @@ export type IssueDeTourDeCadrage = (typeof ISSUES_DE_TOUR_DE_CADRAGE)[number];
  * précisions reçues — dites comme ce qui sera fait, pas comme un récit.
  */
 export const FORME_DE_LA_COMPREHENSION =
-  'une explication SIMPLE ET CONCRÈTE de ce que tu VAS FAIRE, comme tu la dirais de vive voix : ce qui va changer, où on le verra (en nommant les écrans et les zones), ce qu’on constatera une fois le travail fini, et les points délicats que tu as tranchés. Tu NE REDIS PAS la demande — ni reformulation en ouverture, ni « vous voulez que… », ni récit de la conversation : l’utilisateur sait ce qu’il a demandé. Le texte tient seul : les précisions reçues depuis le premier message y figurent, dites comme ce qui sera fait. COURT : quelques paragraphes brefs, un peu plus pour un chantier, jamais un pavé ; AUCUN gabarit imposé, ni titre, ni tableau. Il s’adresse à quelqu’un qui ne programme pas : aucun détail d’implémentation, aucun chemin, aucun nom de fichier, de fonction ni de technologie, chaque notion dite par ce qu’elle fait et à quoi elle sert';
-
+  'une explication SIMPLE ET CONCRÈTE de ce que tu VAS FAIRE, comme tu la dirais de vive voix. Elle REMPLACE ce que montrait le bloc de réflexion : elle est donc COMPLÈTE. Elle dit, dans cet ordre naturel : ce que tu as CONSTATÉ dans le projet (ce que tu as lu, mesuré ou vérifié, et ce que cela explique), ce qui va changer et où on le verra (en nommant les écrans et les zones), les choix que tu as tranchés avec leur raison en une phrase, et ce qu’on constatera une fois le travail fini. Tu NE REDIS PAS la demande — ni reformulation en ouverture, ni « vous voulez que… », ni récit de la conversation : l’utilisateur sait ce qu’il a demandé. Le texte tient seul : les précisions reçues depuis le premier message y figurent, dites comme ce qui sera fait. Aussi long que le sujet l’exige — quelques paragraphes pour un geste simple, davantage pour un chantier —, mais jamais un pavé qui répète : chaque phrase apporte un fait, une décision ou une conséquence. AUCUN gabarit imposé, ni titre, ni tableau. Il s’adresse à quelqu’un qui ne programme pas : aucun détail d’implémentation, aucun chemin, aucun nom de fichier, de fonction ni de technologie, chaque notion dite par ce qu’elle fait et à quoi elle sert';
 export const CONSIGNE_CADRAGE = `TU ES L'AGENT DE CADRAGE D'UNE CARTE. Tu ne codes pas, tu ne modifies aucun fichier : la carte n'a pas encore de branche, et le travail sera fait après par un agent complet.
 
 C'EST UNE DISCUSSION, ET TU Y RÉPONDS D'ABORD. L'utilisateur te parle comme à un collègue expérimenté : chaque message reçoit une vraie réponse, en texte, dans le fil. S'il pose une question, tu y RÉPONDS EN PREMIER, avant tout le reste ; s'il en pose plusieurs, tu les prends toutes. Cette réponse est ARGUMENTÉE et OBJECTIVE, mais tenue comme un DIALOGUE : directe, en quelques phrases, sans redire la question, appuyée sur un vrai sondage du projet quand il le faut — ce que tu as vérifié se dit comme vérifié, et le reste comme une supposition. Tu vas droit à la conclusion : parmi les pistes, tu RECOMMANDES celle que tu retiendrais, en disant pourquoi en une ou deux phrases. La décision reste à l'utilisateur ; un avis qui ne conclut rien ne lui sert à rien. Tu SUIS LE FIL : ce qui a été dit aux messages d'avant compte, tu ne repars jamais de zéro.
@@ -743,21 +763,16 @@ export function projetsParActivite<P extends { id: string; name: string; archive
     .sort((a, b) => date(b) - date(a) || a.name.localeCompare(b.name));
 }
 
-/** Sans accents ni majuscules : « Réz » trouve « ProjetB ». */
-function aplatirNom(texte: string): string {
-  return texte.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-}
-
 /**
  * LA RECHERCHE DU VOLET « NOUVEL AGENT » : garde, DANS L'ORDRE REÇU, les
  * projets dont le nom contient chaque mot tapé (un ET, jamais un OU), sans
  * tenir compte des accents ni des majuscules. Une recherche vide rend tout.
  */
 export function filtrerProjetsParNom<P extends { name: string }>(projets: readonly P[], recherche: string): P[] {
-  const mots = aplatirNom(recherche).split(/\s+/).filter(Boolean);
+  const mots = minusculesSansAccents(recherche).split(/\s+/).filter(Boolean);
   if (!mots.length) return projets.slice();
   return projets.filter((p) => {
-    const nom = aplatirNom(p.name);
+    const nom = minusculesSansAccents(p.name);
     return mots.every((mot) => nom.includes(mot));
   });
 }

@@ -151,6 +151,15 @@ export const LISTE_DE_MENU: GeometrieDeListe = { hauteur: 32, ecart: 0, icone: 8
 export const RETRAIT_MEMBRE_DE_MENU = 'pl-7';
 
 /**
+ * LE TRAIT D'UNE BRANCHE, le même dans la colonne de gauche et dans les listes
+ * de choix : un POINTILLÉ fin et pâle (demande du 11/10/2026 : « quelque chose
+ * de plus discret »). Il dit seulement « ceux-ci vont avec celui-là » ; un
+ * trait plein dessinait une charpente dans une colonne qui n'a plus aucun
+ * cadre. Un trait qui porte une information suit `--faint`.
+ */
+export const CLASSE_TRAIT_DE_BRANCHE = 'pointer-events-none absolute border-dotted border-faint opacity-60';
+
+/**
  * LA BRANCHE D'ARBORESCENCE D'UN MEMBRE DANS UNE LISTE DE CHOIX — le pendant,
  * pour une liste à lignes fixes, de `BrancheMembre` (`sidebar.tsx`), dont la
  * géométrie reste calée sur la colonne de gauche. Un trait vertical descend du
@@ -179,8 +188,7 @@ export function BrancheDeListe({
   // suivants couvrent seulement l'écart qui les sépare de la ligne du dessus.
   const haut = premier ? -(ecart + milieu - 7.5) + 1.5 : -ecart;
   const largeur = iconeMembre - 2 - axe;
-  // Un trait qui porte une information suit `--faint`, atténué pour rester discret.
-  const trait = 'pointer-events-none absolute border-faint opacity-50';
+  const trait = CLASSE_TRAIT_DE_BRANCHE;
   return (
     /* Elle-même hors du flux : posée dans une ligne en `flex`, elle ne doit ni
        prendre de place ni ajouter l'écart d'un enfant de plus. */

@@ -132,6 +132,53 @@ export function agentTientSonTour(agent: {
 }
 
 /**
+ * UN CADRAGE QUI A RENDU SA RÉPONSE NE TRAVAILLE PLUS, VU D'UN RÉSUMÉ.
+ *
+ * Après la réponse, le statut passe à « terminé » (`endedAt` daté) mais le tour
+ * reste VIVANT le temps du rangement (`tourVivantDepuis`, MEM-0392) — et ce
+ * rangement peut durer. Pour un agent de CADRAGE, il ne reste alors plus rien
+ * à attendre de lui : la carte attend la validation de sa compréhension. La
+ * page « Tableaux de bord » disait pourtant « Cadrage en cours », point qui
+ * bat et « Réflexion en cours… » sous la carte (carte HaikoBill c4bc7c2f,
+ * 09.10.2026), alors que la réponse était rendue.
+ *
+ * DEUX GARDES : seul le rôle `cadrage` est visé — un agent de tâche range son
+ * dépôt, fusionne sa branche, et ce travail reste visible —, et la fin datée
+ * doit appartenir au tour EN COURS (`endedAt` ≥ `tourVivantDepuis`) : la fin du
+ * tour précédent n'éteint jamais un tour qui démarre.
+ *
+ * Seul l'AFFICHAGE change : le tour vivant, son rangement et la barre du
+ * tiroir (qui garde le lancement éteint tant que le démon tient le tour) ne
+ * bougent pas.
+ */
+export function cadrageAReponduCeTour(agent: {
+  role?: string;
+  status?: StatutDAgentSuivi | string;
+  tourVivantDepuis?: number;
+  endedAt?: number;
+}): boolean {
+  if (agent.role !== 'cadrage' || agent.status !== 'done') return false;
+  if (agent.tourVivantDepuis === undefined || agent.endedAt === undefined) return false;
+  return agent.endedAt >= agent.tourVivantDepuis;
+}
+
+/**
+ * CET AGENT S'AFFICHE-T-IL « AU TRAVAIL » sur un résumé (carte du tableau,
+ * vignette des « Tableaux de bord », compteurs) ? Le tour tenu
+ * (`agentTientSonTour`), moins le rangement d'un cadrage qui a déjà répondu
+ * (`cadrageAReponduCeTour`). Toutes les vues résumées lisent CE prédicat, pour
+ * qu'aucun compteur ne contredise une carte affichée.
+ */
+export function agentAuTravailALEcran(agent: {
+  role?: string;
+  status?: StatutDAgentSuivi | string;
+  tourVivantDepuis?: number;
+  endedAt?: number;
+}): boolean {
+  return agentTientSonTour(agent) && !cadrageAReponduCeTour(agent);
+}
+
+/**
  * Ce message resté « en cours d'écriture » est-il ORPHELIN — c'est-à-dire plus
  * écrit par personne ? C'est la même règle, lue dans l'autre sens : le démon
  * s'en sert pour éteindre la marque, l'interface pour ne pas l'afficher.

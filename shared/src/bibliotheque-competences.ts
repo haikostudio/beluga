@@ -21,6 +21,7 @@
 
 import { enTeteDeCompetence } from './competences.js';
 import { MOTIF_NOM_DE_FICHE } from './fiche-competence.js';
+import { slugEntier } from './slugs.js';
 
 /** Le registre des bibliothèques, à la racine du pool (caché : `lirePool` ne le prend pas pour une fiche). */
 export const FICHIER_REGISTRE_BIBLIOTHEQUES = '.bibliotheques.json';
@@ -121,14 +122,7 @@ export function idDeBibliothequeValide(id: string): boolean {
 
 /** Un texte quelconque, rendu en identifiant court : minuscules, sans accents, traits d'union. */
 export function enIdentifiant(texte: string, max = 40): string {
-  return String(texte ?? '')
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, max)
-    .replace(/-+$/g, '');
+  return slugEntier(String(texte ?? '')).slice(0, max).replace(/-+$/g, '');
 }
 
 /**

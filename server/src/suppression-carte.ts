@@ -24,9 +24,27 @@ import * as store from './store.js';
  * Le geste unique de suppression. Rend `false` quand la carte n'existait déjà
  * plus — l'appelant décide alors quoi en dire.
  */
-export function supprimerLaCarte(cardId: string): boolean {
+export function supprimerLaCarte(cardId: string, origine = 'geste humain'): boolean {
   const carte = store.getCard(cardId);
   if (!carte) return false;
+
+  // Aucune suppression ne passe plus sans trace : « qui a supprimé quoi » doit
+  // se retrouver après coup dans le journal.
+  try {
+    const agents = store.agentsDeLaCarte(cardId);
+    const prefs = store.readPreferences();
+    const messages = agents.reduce((n, a) => n + store.listMessages(a.id, 1000).length, 0);
+    const brouillon = agents.reduce((n, a) => {
+      const b = prefs[`draft.${a.id}`];
+      return n + (typeof b === 'string' ? b.length : 0);
+    }, 0);
+    log.info(
+      `suppression de la carte ${cardId} « ${carte.title} » (projet ${carte.projectId}) — origine : ${origine}, ` +
+        `${messages} message(s), brouillon de ${brouillon} signe(s), colonne ${carte.column}`,
+    );
+  } catch (err) {
+    log.warn(`suppression de la carte ${cardId} : journal impossible`, err);
+  }
 
   /*
    * Le nettoyage vient AVANT la suppression : `fermerLesQuestionsDeLaCarte`

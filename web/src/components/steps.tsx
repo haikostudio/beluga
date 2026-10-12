@@ -99,7 +99,7 @@ export function Steps({
   const summary = enCours ? (derniere?.label ?? t('préparation…')) : bilan;
 
   return (
-    <div className="mb-2 overflow-hidden rounded-md border border-border bg-surface/60">
+    <div className="mb-2 overflow-hidden rounded-xl bg-surface">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -121,7 +121,7 @@ export function Steps({
       </button>
 
       {open ? (
-        <ul className="space-y-0.5 border-t border-border px-2 py-1.5">
+        <ul className="space-y-0.5 px-2 pb-2">
           {steps.map((step) => {
             const isOpen = expanded.has(step.id);
             return (
@@ -180,7 +180,7 @@ export function Steps({
                     type="button"
                     data-capture-etape={step.id}
                     onClick={() => basculer(setEnGrand, step.id)}
-                    className="mx-1 mb-1 block overflow-hidden rounded border border-border bg-raised p-1"
+                    className="mx-1 mb-1 block overflow-hidden rounded bg-raised p-1"
                     title={enGrand.has(step.id) ? t('Réduire la capture') : t('Voir la capture en grand')}
                   >
                     <img

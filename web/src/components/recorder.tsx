@@ -286,11 +286,11 @@ export function MicButton({
       /*
        * LE MICRO EST UN BOUTON À PART ENTIÈRE, PAS UNE ICÔNE NUE. Il vit à
        * DROITE de la rangée du bas du composeur, juste à gauche de l'envoi :
-       * sans cadre ni fond il se lisait comme une décoration du champ. Mêmes
-       * traits que la variante « outline » des boutons
-       * (`border-border` + `bg-controle`, translucide dans les thèmes plats).
+       * sans fond il se lisait comme une décoration du champ. Même fond que
+       * la variante « outline » des boutons (`bg-controle`, un voile), et
+       * comme eux AUCUN trait.
        */
-      className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-controle text-muted transition-colors hover:bg-raised hover:text-text disabled:opacity-40"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-controle text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-40"
     >
       {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mic className="h-3.5 w-3.5" />}
     </button>
@@ -371,7 +371,7 @@ export function RecorderErrorBar({
   onDiscard: () => void;
 }) {
   return (
-    <div className="flex w-full items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-2.5 py-2 text-[13px] text-danger animate-slide-up">
+    <div className="flex w-full items-center gap-2 rounded-lg bg-danger/10 px-2.5 py-2 text-[13px] text-danger animate-slide-up">
       <AlertTriangle className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{message}</span>
       <div className="flex shrink-0 items-center gap-1">
@@ -379,7 +379,7 @@ export function RecorderErrorBar({
           type="button"
           onClick={onRetry}
           title={t('Réessayer l\'envoi')}
-          className="inline-flex h-7 items-center gap-1 rounded-md border border-danger/30 px-2 text-[12.5px] transition-colors hover:bg-danger/10"
+          className="inline-flex h-7 items-center gap-1 rounded-md bg-danger/10 px-2 text-[12.5px] transition-colors hover:bg-danger/20"
         >
           <RotateCw className="h-3.5 w-3.5" />
           

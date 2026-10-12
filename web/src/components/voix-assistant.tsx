@@ -27,6 +27,7 @@ import {
 import { ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { usePref } from '@/lib/prefs';
+import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
 import { useSurvol } from '@/lib/pointeur';
 import { useTelephone } from '@/lib/telephone';
 import { useApp } from '@/lib/use-app';
@@ -45,13 +46,13 @@ import {
 export const CLE_VOIX_MUETTE = 'voix.muet';
 
 /**
- * La clé qui affiche le module vocal flottant. Cachée par défaut (`false`) :
- * au premier chargement, personne n'a encore choisi de le montrer. Le module
- * continue de tourner sans interface tant qu'elle reste éteinte — écoute
- * permanente, conversation, lecture à voix haute — seul son affichage
- * s'efface, comme sur téléphone (`ancreMenu`, plus bas).
+ * La clé qui affiche le module vocal flottant (`lib/cles-de-voix.ts`, lisible
+ * sans charger ce module). Cachée par défaut (`false`). Le module continue de
+ * tourner sans interface tant qu'elle reste éteinte — écoute permanente,
+ * conversation, lecture à voix haute — seul son affichage s'efface, comme sur
+ * téléphone (`ancreMenu`, plus bas).
  */
-export const CLE_VOIX_VISIBLE = 'voix.visible';
+export { CLE_VOIX_VISIBLE };
 
 /**
  * La clé de l'ÉCOUTE PERMANENTE. Éteinte À CHAQUE OUVERTURE de l'application :
@@ -1368,7 +1369,7 @@ export function VoixAssistant() {
           }}
           title={t('Cliquer pour jeter la phrase')}
           aria-label={`Phrase entendue : ${ecoute.dictee || '…'} — cliquer pour la jeter`}
-          className={`absolute inset-x-0 flex items-center gap-2 border-t border-border bg-surface px-3 py-2 text-left text-[12.5px] text-text ${
+          className={`absolute inset-x-0 flex items-center gap-2 border-t border-transparent bg-surface px-3 py-2 text-left text-[12.5px] text-text ${
             ecoute.etat === 'relit' ? 'border-t-danger' : ''
           }`}
           style={{ bottom: `${VOIX_HAUTEUR_PIED}px` }}

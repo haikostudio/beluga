@@ -1,5 +1,6 @@
 import { arreterLaya } from './laya.js';
 import { veillerSurLaNuitDeLaya } from './laya-nuit.js';
+import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
 import { veillerSurLesSourcesDeStyles } from './studio-sources.js';
 import path from 'node:path';
 import { titreDuProcessus } from '@beluga/shared';
@@ -10,6 +11,8 @@ import { getDb, openDb } from './db.js';
 import { ANCIEN_DOSSIER_PAR_DEFAUT, passerLeDossierAuxBackups } from './passage-backups.js';
 import { log } from './logger.js';
 import { ensureCredentials } from './auth.js';
+import { chargerLIdentiteDInstallation, preparerLeCodeDInstallation } from './installation.js';
+import { surveillerLesNouveautes } from './installation-copie.js';
 import { createHttpServer } from './http.js';
 import { attachWebSocket } from './ws.js';
 import { bootstrapAccounts, prochaineTentativeQuota, refreshQuotas } from './accounts.js';
@@ -26,9 +29,11 @@ import { sampleCapacity } from './capacity.js';
 import { startScheduler, startVeille, tick } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
+import { archiverLesCartesEnLigneRestees } from './archive.js';
 import { reprendreLesRattrapages } from './rattrapage-ecartee.js';
 import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
+import { purgerCopiesDeProjetsSupprimes } from './copie-de-projet-supprime.js';
 import { planifierLesBackups } from './backups.js';
 import { purgeOldArchives } from './files.js';
 import { purgeOldAudio, scheduleDailyDigest } from './voice.js';
@@ -40,6 +45,7 @@ import { initPush } from './push.js';
 import { brancherLAvancementDesCartes } from './espace-commandes.js';
 import { amorcerFenetres } from './amorce.js';
 import { planifierAutoAmelioration } from './auto-amelioration.js';
+import { planifierLaVeilleDesCompetences } from './veille-competences.js';
 import { veillerSurLesCartes } from './juge-des-cartes.js';
 import { convertirLesDepotsAnnexes, rafraichirLesMeres, veillerSurLesMeres } from './regroupements.js';
 import { planifierLesCourriels } from './courriels-clients.js';
@@ -109,7 +115,23 @@ async function main(): Promise<void> {
   // Envois de pièces jointes coupés par un arrêt du démon : leurs provisoires partent.
   setImmediate(() => effacerProvisoiresOublies(dossiersDeLecture()));
 
+  // L'identité de l'installation AVANT tout ce qui la lit (notifications,
+  // courriels, création d'adresses) : `server/src/installation.ts`.
+  chargerLIdentiteDInstallation();
+
   const credentials = ensureCredentials();
+  /*
+   * UNE INSTALLATION NEUVE ATTEND SON PROPRIÉTAIRE : le code d'installation est
+   * tiré ici, et montré UNE fois. Qui l'a perdu en tire un neuf sur le serveur
+   * (`node scripts/code-installation.mjs`).
+   */
+  const code = preparerLeCodeDInstallation();
+  if (code) {
+    log.info('════════════════════════════════════════════════');
+    log.info(" CODE D'INSTALLATION — demandé à la première ouverture");
+    log.info(`   ${code}`);
+    log.info('════════════════════════════════════════════════');
+  }
   if (credentials) {
     log.info('════════════════════════════════════════════════');
     log.info(" ACCÈS BELUGA — à conserver, affiché une seule fois");
@@ -150,6 +172,8 @@ async function main(): Promise<void> {
   ensureLocalGroup();
   await adoptServerProjects();
   await refreshGitInfo();
+  // Le dépôt public a-t-il du nouveau ? Regardé une fois par jour, jamais appliqué seul.
+  surveillerLesNouveautes();
 
   // Les projets dont l'icône manque encore — jamais récupérée, ou fichier
   // disparu depuis : on la va chercher sans attendre un prochain changement
@@ -343,12 +367,19 @@ async function main(): Promise<void> {
    * (`server/src/rattrapage-ecartee.ts`).
    */
   setTimeout(() => void reprendreLesRattrapages(), 30_000).unref?.();
+  // Les cartes mises en ligne restées en « À déployer » rejoignent « Archivé » (`archive.ts`).
+  setTimeout(
+    () => void archiverLesCartesEnLigneRestees().catch((err) => log.warn('rangement des cartes en ligne restées', err)),
+    30_000,
+  ).unref?.();
   const rattrapageTimer = setInterval(() => void reprendreLesRattrapages(), 120_000);
   const janitorTimer = setInterval(
     () => {
       purgeOldArchives();
       purgeOldAudio();
       void refreshGitInfo();
+      // Les copies de secours des projets supprimés vivent 15 jours (`copie-de-projet-supprime.ts`).
+      void purgerCopiesDeProjetsSupprimes().catch((err) => log.warn('purge des copies de projets supprimés', err));
     },
     60 * 60 * 1000,
   );
@@ -361,6 +392,9 @@ async function main(): Promise<void> {
    * ce qu'on veut précisément éviter.
    */
   const autoAmeliorationTimer = planifierAutoAmelioration();
+  // La veille des sources de compétences : une fois par semaine, dimanche vers 1 h,
+  // un agent d'analyse cherche sur GitHub et le web et PROPOSE, sans rien importer.
+  const veilleDesCompetencesTimer = planifierLaVeilleDesCompetences();
   // Les deux courriels : le point du matin à Haiko, celui du lundi aux clients.
   const recapitulatifTimer = planifierLesCourriels();
   /*
@@ -432,6 +466,8 @@ async function main(): Promise<void> {
   const arreterLeJuge = veillerSurLesCartes();
   /* L'entraînement de Laya, entre 3 h et 7 h (`server/src/laya-nuit.ts`). */
   const arreterLaNuitDeLaya = veillerSurLaNuitDeLaya();
+  // Qui fige le démon ? Le fil principal bat, un gardien relève la pile d'un blocage (`sonde-de-blocage.ts`).
+  const arreterLaSonde = demarrerLaSondeDeBlocage();
   /* Les sources de la bibliothèque de styles du Studio, une fois par nuit (`server/src/studio-sources.ts`). */
   const arreterLesSourcesDeStyles = veillerSurLesSourcesDeStyles();
   /*
@@ -483,6 +519,7 @@ async function main(): Promise<void> {
     clearInterval(janitorTimer);
     clearInterval(rattrapageTimer);
     clearInterval(autoAmeliorationTimer);
+    clearInterval(veilleDesCompetencesTimer);
     clearInterval(recapitulatifTimer);
     clearInterval(menageDesCompetencesTimer);
     clearInterval(compactageTimer);
@@ -497,6 +534,7 @@ async function main(): Promise<void> {
     clearInterval(miseAJourMoteursTimer);
     arreterLeJuge();
     arreterLaNuitDeLaya();
+    arreterLaSonde();
     arreterLesSourcesDeStyles();
     arreterLesMeres();
     server.close(() => process.exit(0));

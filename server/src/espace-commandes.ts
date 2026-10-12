@@ -45,6 +45,7 @@ import {
   type EtapeCarteLiee,
   type EvenementEspace,
   type MotifNotification,
+  nomCourtDeLInstallation,
 } from '@beluga/shared';
 import * as cloche from './espace-notifications.js';
 import { mintDownload } from './auth.js';
@@ -308,7 +309,7 @@ function prevenirLesAutres(
   e: EvenementAAnnoncer,
   seulementClients = false,
 ): void {
-  const signature = !auteur || auteur.role === 'admin' ? 'Haiko' : nomDuCompte(auteur);
+  const signature = !auteur || auteur.role === 'admin' ? nomCourtDeLInstallation() : nomDuCompte(auteur);
   for (const cible of listerComptes()) {
     if (cible.id === auteur?.id || !cible.actif) continue;
     if (cible.role === 'client' && !peutVoirProjet(cible, e.projectId)) continue;
@@ -365,7 +366,13 @@ const PHRASES_ETAPE: Record<EtapeCarteLiee, { motif: MotifNotification; phrase: 
 };
 
 /** L'auteur d'une ligne d'historique que personne n'a signée : la carte liée qui avance. */
-const AUTEUR_AVANCEMENT = { id: 'beluga-avancement', nom: 'Haiko', role: 'admin' as const };
+const AUTEUR_AVANCEMENT = {
+  id: 'beluga-avancement',
+  get nom() {
+    return nomCourtDeLInstallation();
+  },
+  role: 'admin' as const,
+};
 
 /**
  * L'AVANCEMENT DE LA CARTE LIÉE PRÉVIENT SES CLIENTS. Branché sur le passage
@@ -741,7 +748,7 @@ export async function commandeDeLEspaceClient(
        * quand le client écrit.
        */
       const destinataire = compte.role === 'admin' ? compteParId(filId) : null;
-      const signature = compte.role === 'admin' ? 'Haiko' : nomDuCompte(compte);
+      const signature = compte.role === 'admin' ? nomCourtDeLInstallation() : nomDuCompte(compte);
       const corps = message.texte || 'Une pièce jointe';
       let url =
         compte.role === 'client'

@@ -322,9 +322,9 @@ export function BoutonAssistantEntete() {
   return (
     <Tooltip label={libelle}>
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        className={cn('relative shrink-0', retenu.ouvert && 'text-text')}
+        className={cn('relative h-8 w-8 shrink-0 text-muted', retenu.ouvert && 'text-text')}
         onClick={basculer}
         data-assistant-entete
         data-ouvert={retenu.ouvert ? 'oui' : 'non'}

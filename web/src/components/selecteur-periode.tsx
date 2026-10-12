@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { CalendarRange, ChevronLeft, ChevronRight } from 'lucide-react';
+import { CalendarRange, Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui';
 import { formatRegional, t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +28,12 @@ import { cn } from '@/lib/utils';
  * bornes) là où il veut — réglages, état local — et le serveur remet de toute
  * façon la période d'aplomb (bornes à l'envers, trop profondes).
  *
+ * `compact` — LA TENUE DU TÉLÉPHONE, là où la barre doit tenir sur la rangée
+ * des onglets ou dans la barre d'en-tête (demande du 11/10/2026) : UN SEUL
+ * bouton, qui dit la période retenue (« 30j », « 21 → 28 sept. ») et ouvre la
+ * liste des échelles, « Plage » en dernier. Mêmes repères, portés par les
+ * lignes du menu ; le bouton porte `data-periode-compacte`.
+ *
  * Repères de contrôle : `data-selecteur-periode`, `data-echelle-periode`,
  * `data-periode-libre` (sur le bouton « Plage » : `ouverte` | `fermee`),
  * `data-periode-menu`, `data-periode-calendrier="debut|fin"`,
@@ -40,6 +47,7 @@ export function SelecteurPeriode({
   onEchelle,
   onLibre,
   min,
+  compact = false,
 }: {
   /** Les échelles toutes prêtes, en JOURS. */
   echelles?: readonly number[];
@@ -51,10 +59,99 @@ export function SelecteurPeriode({
   onLibre: (debut: number, fin: number) => void;
   /** Le plus ancien jour qu'on peut choisir (la conservation des données). */
   min?: number;
+  /** Un seul bouton, qui ouvre la liste des périodes (téléphone). */
+  compact?: boolean;
 }) {
   const [ouvert, setOuvert] = React.useState(false);
   const libre = echelle === null;
   const segment = 'h-6 rounded-[5px] px-2 font-mono text-[11.5px] tabular-nums transition-colors';
+  const libelleDEchelle = (jours: number) => (jours === 365 ? t('1 an') : t('{n}j', { n: jours }));
+  /* « Plage » a été choisie dans le menu : les calendriers s'ouvrent une fois
+     le menu REFERMÉ (`onCloseAutoFocus`) — ouverts plus tôt, le retour du focus
+     vers le bouton les refermerait aussitôt. */
+  const versLaPlage = React.useRef(false);
+
+  if (compact) {
+    return (
+      <div className="flex shrink-0 items-center" data-selecteur-periode={echelle ?? 'libre'}>
+        <PopoverPrimitive.Root open={ouvert} onOpenChange={setOuvert}>
+          <DropdownMenu>
+            <PopoverPrimitive.Anchor asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg bg-raised px-2.5 text-[13px] text-text transition-colors hover:bg-border"
+                  aria-label="Période"
+                  data-periode-compacte
+                >
+                  <CalendarRange className="h-3.5 w-3.5 shrink-0 text-muted" />
+                  <span className="min-w-0 truncate tabular-nums">{libre ? libelleDePlage(debut, fin) : libelleDEchelle(echelle)}</span>
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+                </button>
+              </DropdownMenuTrigger>
+            </PopoverPrimitive.Anchor>
+            <DropdownMenuContent
+              align="end"
+              onCloseAutoFocus={(e) => {
+                if (!versLaPlage.current) return;
+                versLaPlage.current = false;
+                e.preventDefault();
+                setOuvert(true);
+              }}
+            >
+              {echelles.map((jours) => {
+                const actif = echelle === jours;
+                return (
+                  <DropdownMenuItem
+                    key={jours}
+                    className={cn(actif && 'text-teinte')}
+                    aria-current={actif ? 'true' : undefined}
+                    data-echelle-periode={jours}
+                    onSelect={() => onEchelle(jours)}
+                  >
+                    <span className="min-w-0 flex-1 tabular-nums">{libelleDEchelle(jours)}</span>
+                    {actif ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuItem
+                className={cn(libre && 'text-teinte')}
+                aria-current={libre ? 'true' : undefined}
+                data-periode-libre="fermee"
+                onSelect={() => {
+                  versLaPlage.current = true;
+                }}
+              >
+                <CalendarRange className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{libre ? libelleDePlage(debut, fin) : t('Plage')}</span>
+                {libre ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <PopoverPrimitive.Portal>
+            <PopoverPrimitive.Content
+              side="bottom"
+              align="end"
+              sideOffset={6}
+              collisionPadding={8}
+              className={CLASSE_DU_MENU_DES_CALENDRIERS}
+              data-periode-menu
+            >
+              <DeuxCalendriers
+                debut={debut}
+                fin={fin}
+                min={min}
+                onChoisi={(d, f) => {
+                  onLibre(d, f);
+                  setOuvert(false);
+                }}
+              />
+            </PopoverPrimitive.Content>
+          </PopoverPrimitive.Portal>
+        </PopoverPrimitive.Root>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-selecteur-periode={echelle ?? 'libre'}>
@@ -65,12 +162,12 @@ export function SelecteurPeriode({
             <button
               key={jours}
               type="button"
-              className={cn(segment, actif ? 'bg-raised text-text shadow-sm' : 'text-muted hover:text-text')}
+              className={cn(segment, actif ? 'bg-raised text-teinte shadow-sm' : 'text-muted hover:text-text')}
               aria-pressed={actif}
               data-echelle-periode={jours}
               onClick={() => onEchelle(jours)}
             >
-              {jours === 365 ? t('1 an') : t('{n}j', { n: jours })}
+              {libelleDEchelle(jours)}
             </button>
           );
         })}
@@ -81,7 +178,7 @@ export function SelecteurPeriode({
               className={cn(
                 segment,
                 'flex items-center gap-1',
-                libre ? 'bg-raised text-text shadow-sm' : 'font-sans text-muted hover:text-text',
+                libre ? 'bg-raised text-teinte shadow-sm' : 'font-sans text-muted hover:text-text',
                 ouvert && !libre && 'text-text',
               )}
               aria-pressed={libre}
@@ -97,7 +194,7 @@ export function SelecteurPeriode({
               align="end"
               sideOffset={6}
               collisionPadding={8}
-              className="z-50 w-[420px] rounded-lg border border-border bg-raised p-2.5 shadow-xl animate-fade-in max-sm:w-full max-sm:rounded-b-none max-sm:px-4 max-sm:pb-6 max-sm:pt-3"
+              className={CLASSE_DU_MENU_DES_CALENDRIERS}
               data-periode-menu
             >
               <DeuxCalendriers
@@ -116,6 +213,10 @@ export function SelecteurPeriode({
     </div>
   );
 }
+
+/** Le menu des deux calendriers : flottant sur ordinateur, panneau du bas sur toute la largeur du téléphone. */
+const CLASSE_DU_MENU_DES_CALENDRIERS =
+  'z-50 w-[420px] rounded-lg border border-border bg-raised p-2.5 shadow-xl animate-fade-in max-sm:!w-full max-sm:!max-w-none max-sm:rounded-b-none max-sm:px-4 max-sm:pb-6 max-sm:pt-3';
 
 /** Les deux mois côte à côte, et la plage en cours de choix. */
 function DeuxCalendriers({

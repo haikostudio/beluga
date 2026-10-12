@@ -338,6 +338,8 @@ export function enregistrerProcessus(
     [champ]: {
       ...(projet[champ] ?? {}),
       processus: { ...processus, ecritLe: store.now(), empreinte: empreinteDesReglages(avecAdresse, cible) },
+      /* Le processus écrit remplace l'ancien réglage : la marque « hérité » n'a plus lieu d'être. */
+      ...(cible === 'dev' ? { herite: undefined } : {}),
     },
   });
   bus.emit({ type: 'project.upsert', project: enregistre });

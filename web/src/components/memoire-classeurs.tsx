@@ -8,7 +8,6 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   CircleDot,
   Compass,
@@ -18,7 +17,6 @@ import {
   GitFork,
   History,
   Info,
-  Library,
   Lightbulb,
   Loader2,
   MessageSquare,
@@ -69,6 +67,8 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
+import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
+import { ColonneDeService } from '@/components/colonne-de-service';
 import { useTelephone } from '@/lib/telephone';
 import { Markdown } from '@/lib/markdown';
 import { client } from '@/lib/client';
@@ -122,6 +122,13 @@ interface Version {
 }
 
 const ZONE = 'flex min-h-0 min-w-0 flex-col';
+/**
+ * SUR TÉLÉPHONE, LE TEXTE D'UNE LISTE TOMBE SUR LA MARGE DE LA PAGE (16 px),
+ * comme le reste de l'écran : ses lignes ont un retrait intérieur de 10 px pour
+ * leur fond de survol, que la zone rattrape en débordant d'autant. Les deux
+ * s'additionnaient (22 puis 32 px du bord).
+ */
+const MARGE_DES_LISTES_AU_TELEPHONE = '-mx-2.5 py-1.5';
 const CHANGELOG = 'CHANGELOG';
 
 /** Ce que l'adresse désigne dans la mémoire : un classeur, une fiche, une unité. */
@@ -289,6 +296,8 @@ export function MemoireClasseurs({
       return;
     }
     setOuverte(cible.ficheId);
+    /* Sur ordinateur, la colonne de gauche descend avec l'adresse : elle montre les sujets du classeur visé. */
+    if (!telephone) setPageTel('fiche');
   }, [open, cible?.porteeId, cible?.ficheId, cible?.uniteId, porteeId, etat, ouverte, vise]);
 
   const ouvrirTrouvee = (u: Unite, fiche: string) => {
@@ -323,14 +332,15 @@ export function MemoireClasseurs({
             apresChoix?.();
           }}
           className={cn(
-            'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-raised',
+            'flex w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-text transition-colors hover:bg-raised',
             telephone && 'py-2.5 text-[14.5px]',
-            p.id === porteeId && 'bg-raised text-text',
+            p.id === porteeId && cn('text-teinte', telephone ? 'bg-raised' : 'bg-ligne-active'),
           )}
         >
           <span className="min-w-0 flex-1 truncate">{p.id === 'global' ? t('Global') : p.nom}</span>
-          {p.aRelire ? <span className="shrink-0 text-[11px] text-warning">{p.aRelire}</span> : null}
-          <span className="shrink-0 text-[11.5px] text-faint">{p.unites}</span>
+          {/* Les comptes restent lus et mesurés ; dans la colonne ils ne s'affichent plus. */}
+          {p.aRelire ? <span className={cn('shrink-0 text-[11px] text-warning', !telephone && 'sr-only')}>{p.aRelire}</span> : null}
+          <span className={cn('shrink-0 text-[11.5px] text-faint', !telephone && 'sr-only')}>{p.unites}</span>
         </button>
       ))}
     </div>
@@ -354,13 +364,13 @@ export function MemoireClasseurs({
               .map((d) => t(d.texte))
               .join(' ')}
             className={cn(
-              'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised',
+              'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-raised',
               telephone && 'py-2.5',
-              f.id === ouverte && 'bg-raised',
+              f.id === ouverte && (telephone ? 'bg-raised' : 'bg-ligne-active'),
             )}
           >
-            <span className="shrink-0 font-mono text-[11.5px] text-faint">{f.id.slice(0, 2)}</span>
-            <span className={cn('min-w-0 flex-1 truncate text-[13.5px]', f.unites ? 'text-text' : 'text-faint')}>{t(f.titre)}</span>
+            <span className={cn('shrink-0 font-mono text-[11.5px] text-faint', !telephone && 'sr-only')}>{f.id.slice(0, 2)}</span>
+            <span className={cn('min-w-0 flex-1 truncate text-[14px]', f.id === ouverte ? 'text-teinte' : f.unites ? 'text-text' : 'text-faint')}>{t(f.titre)}</span>
             <span className="shrink-0 text-[11.5px] text-faint">{f.unites}</span>
           </button>
         ))}
@@ -373,19 +383,19 @@ export function MemoireClasseurs({
             }}
             data-memoire-fiche={CHANGELOG}
             className={cn(
-              'mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised',
+              'mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-raised',
               telephone && 'py-2.5',
-              ouverte === CHANGELOG && 'bg-raised',
+              ouverte === CHANGELOG && cn('text-teinte', telephone ? 'bg-raised' : 'bg-ligne-active'),
             )}
           >
-            <History className="h-3 w-3 shrink-0 text-faint" />
-            <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{t('Changelog')}</span>
+            <History className="h-3.5 w-3.5 shrink-0 text-faint" />
+            <span className="min-w-0 flex-1 truncate text-[14px] text-text">{t('Changelog')}</span>
             <span className="shrink-0 text-[11.5px] text-faint">{etatCourant.changelog}</span>
           </button>
         ) : null}
         {/* Sur téléphone, « Dépréciées » vit dans le menu ⋮ : la liste des sujets ne porte que des sujets. */}
         {telephone ? null : (
-          <label className="mt-2 flex items-center gap-1.5 px-2 text-[12px] text-muted">
+          <label className="mt-3 flex items-center gap-2 px-2.5 text-[13px] text-muted">
             <input type="checkbox" checked={depreciees} onChange={(e) => setDepreciees(e.target.checked)} data-memoire-depreciees />
             {t('Dépréciées')}
             {portee?.depreciees ? <span className="text-faint">({portee.depreciees})</span> : null}
@@ -414,13 +424,13 @@ export function MemoireClasseurs({
     );
 
   const champDeRecherche = (
-    <div className="relative min-w-0 flex-1 sm:min-w-[180px]">
-      <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+    <div className="relative min-w-0 flex-1">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
       <Input
         value={recherche}
         onChange={(e) => setRecherche(e.target.value)}
         placeholder={partout ? t('Chercher partout…') : t('Chercher dans cette portée…')}
-        className="h-8 pl-7 text-[13px]"
+        className="h-9 rounded-lg pl-9 text-[14px]"
         autoComplete="off"
         autoFocus={telephone}
         data-memoire-recherche
@@ -430,65 +440,86 @@ export function MemoireClasseurs({
 
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
+      <DialogTitle className="sr-only">{t('Mémoire')}</DialogTitle>
+      {/* LE FIL D'ARIANE DIT LE CLASSEUR PUIS LE SUJET OUVERTS — « Services ›
+          Mémoire › Beluga › Publication » ; chaque cran y ramène.
+          SUR TÉLÉPHONE, LA PAGE N'A PLUS DE BARRE À ELLE (demande du 11/10/2026 :
+          « éviter les doubles header avec le titre à double ») : le nom de la
+          page affichée est le dernier cran de la barre d'en-tête, la flèche de
+          retour d'UN cran y prend la place du bouton des projets (`retour`), et
+          la recherche dépliée y prend la place du titre. */}
+      {telephone && rechercheOuverte ? (
+        <SuiteDuFil
+          onRacine={() => {
+            setRecherche('');
+            setRechercheOuverte(false);
+          }}
+        >
+          {champDeRecherche}
+        </SuiteDuFil>
+      ) : pageTel !== 'portees' && nomDePortee ? (
+        <SuiteDuFil
+          onRacine={() => setPageTel('portees')}
+          retour={{
+            action: () => setPageTel(pageTel === 'fiche' ? 'fiches' : 'portees'),
+            reperes: { 'data-memoire-retour': pageTel === 'fiche' ? 'fiches' : 'portees' },
+          }}
+        >
+          <CranDuFil
+            dernier={pageTel !== 'fiche' || !nomDuSujet}
+            onClick={() => setPageTel('fiches')}
+            data-portee-du-fil=""
+            {...(pageTel !== 'fiche' || !nomDuSujet ? { 'data-memoire-titre': '' } : {})}
+          >
+            {nomDePortee}
+          </CranDuFil>
+          {pageTel === 'fiche' && nomDuSujet ? (
+            <CranDuFil data-sujet-du-fil="" data-memoire-titre="">
+              {nomDuSujet}
+            </CranDuFil>
+          ) : null}
+        </SuiteDuFil>
+      ) : null}
       {telephone ? (
-        /*
-         * L'ENTÊTE DU TÉLÉPHONE TIENT SUR UNE LIGNE ET SERT DE BARRE DE RETOUR :
-         * hors de la première page, la flèche porte le nom de la page d'avant et
-         * y ramène d'un cran ; le titre dit la page affichée. La loupe déplie le
-         * champ sur la ligne (sa croix referme la recherche), et le menu ⋮ range
-         * tout le reste.
-         */
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2" data-memoire-entete="telephone">
-          {rechercheOuverte || pageTel === 'portees' ? (
-            <Library className="h-3.5 w-3.5 shrink-0 text-accent" />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setPageTel(pageTel === 'fiche' ? 'fiches' : 'portees')}
-              aria-label="Revenir en arrière"
-              title={t('Revenir à {page}', { page: pageTel === 'fiche' ? nomDePortee : t('Mémoire') })}
-              className="-ml-1 flex min-w-0 max-w-[42%] shrink-0 items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text"
-              data-memoire-retour={pageTel === 'fiche' ? 'fiches' : 'portees'}
-            >
-              <ChevronLeft className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 truncate text-[13px]">{pageTel === 'fiche' ? nomDePortee || '…' : t('Mémoire')}</span>
-            </button>
-          )}
+        /* DEUX ICÔNES DANS LA BARRE, pas une de plus : la loupe (ou la croix qui
+           referme la recherche), puis le menu à trois points, qui range tout le
+           reste. */
+        <GestesDePage>
           {rechercheOuverte ? (
-            <>
-              <DialogTitle className="sr-only">{t('Mémoire')}</DialogTitle>
-              {champDeRecherche}
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Fermer la recherche"
-                title={t('Fermer la recherche')}
-                data-memoire-fermer-recherche
-                onClick={() => {
-                  setRecherche('');
-                  setRechercheOuverte(false);
-                }}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-muted"
+              aria-label="Fermer la recherche"
+              title={t('Fermer la recherche')}
+              data-memoire-fermer-recherche
+              onClick={() => {
+                setRecherche('');
+                setRechercheOuverte(false);
+              }}
+            >
+              <X className="h-4 w-4" />
+            </Button>
           ) : (
-            <>
-              <DialogTitle className="min-w-0 flex-1 truncate" data-memoire-titre>
-                {pageTel === 'portees' ? t('Mémoire') : (pageTel === 'fiches' ? nomDePortee : nomDuSujet) || '…'}
-              </DialogTitle>
-              <Button variant="ghost" size="sm" aria-label="Chercher" title={t('Chercher')} data-memoire-ouvrir-recherche onClick={() => setRechercheOuverte(true)}>
-                <Search className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 text-muted"
+              aria-label="Chercher"
+              title={t('Chercher')}
+              data-memoire-ouvrir-recherche
+              onClick={() => setRechercheOuverte(true)}
+            >
+              <Search className="h-4 w-4" />
+            </Button>
           )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-menu>
+              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-menu>
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-w-[min(20rem,calc(100vw-1.5rem))]">
+            <DropdownMenuContent align="end">
               {/* Les deux bascules gardent le menu ouvert : on voit la coche changer. */}
               <DropdownMenuItem
                 data-memoire-partout
@@ -520,21 +551,43 @@ export function MemoireClasseurs({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </header>
+        </GestesDePage>
       ) : (
-        <header className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2" data-memoire-entete="ordinateur">
-          <Library className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="shrink-0">{t('Mémoire')}</DialogTitle>
-          {champDeRecherche}
-          <label className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-muted">
-            <input type="checkbox" checked={partout} onChange={(e) => setPartout(e.target.checked)} data-memoire-partout />
-            {t('Partout')}
-          </label>
-          <Button variant="ghost" size="sm" onClick={exporter} data-memoire-exporter>
-            <Download className="h-3 w-3" />
-            {t('Exporter')}
-          </Button>
-        </header>
+        <>
+          <GestesDePage>
+            <Button variant="ghost" size="sm" onClick={exporter} data-memoire-exporter>
+              <Download className="h-3.5 w-3.5" />
+              {t('Exporter')}
+            </Button>
+          </GestesDePage>
+          {/*
+           * LES CLASSEURS VIVENT DANS LA COLONNE DE GAUCHE, à la place des
+           * projets : d'abord les portées (Global, puis chaque projet) ; en
+           * choisir une descend d'un cran, vers ses sujets, et la flèche de la
+           * tête remonte. La recherche est en tête de cette colonne ; ses
+           * résultats en prennent la place.
+           */}
+          <ColonneDeService
+            niveau={pageTel === 'portees' ? null : { titre: nomDePortee || '…', onRetour: () => setPageTel('portees') }}
+          >
+            <div className="shrink-0 pb-2 pt-1" data-memoire-entete="ordinateur">
+              {champDeRecherche}
+              <label className="mt-2 flex items-center gap-2 px-2.5 text-[13px] text-muted">
+                <input type="checkbox" checked={partout} onChange={(e) => setPartout(e.target.checked)} data-memoire-partout />
+                {t('Partout')}
+              </label>
+            </div>
+            <ZoneDefilement hauteur={16} className="pb-4" data-memoire-zone={pageTel === 'portees' && !trouvees ? 'portees' : 'fiches'}>
+              {trouvees ? (
+                <ListeDesTrouvees trouvees={trouvees} demande={recherche} partout={partout} portees={portees} onOuvrir={ouvrirTrouvee} />
+              ) : pageTel === 'portees' ? (
+                listeDesPortees(() => setPageTel('fiches'))
+              ) : (
+                listeDesFiches(() => setPageTel('fiche'))
+              )}
+            </ZoneDefilement>
+          </ColonneDeService>
+        </>
       )}
       {telephone ? (
         /*
@@ -547,7 +600,7 @@ export function MemoireClasseurs({
         <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-disposition="telephone">
           {trouvees ? (
             <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiches" data-memoire-page="trouvees">
-              <ZoneDefilement fond="hsl(var(--bg))" className="px-1.5 py-1.5">
+              <ZoneDefilement fond="hsl(var(--bg))" className={MARGE_DES_LISTES_AU_TELEPHONE}>
                 <ListeDesTrouvees
                   trouvees={trouvees}
                   demande={recherche}
@@ -562,45 +615,28 @@ export function MemoireClasseurs({
             </section>
           ) : pageTel === 'portees' ? (
             <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="portees" data-memoire-page="portees">
-              <ZoneDefilement fond="hsl(var(--bg))" className="px-1.5 py-1.5">
+              <ZoneDefilement fond="hsl(var(--bg))" className={MARGE_DES_LISTES_AU_TELEPHONE}>
                 {listeDesPortees(() => setPageTel('fiches'))}
               </ZoneDefilement>
             </section>
           ) : pageTel === 'fiches' ? (
             <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiches" data-memoire-page="fiches">
-              <ZoneDefilement fond="hsl(var(--bg))" className="px-1.5 py-1.5">
+              <ZoneDefilement fond="hsl(var(--bg))" className={MARGE_DES_LISTES_AU_TELEPHONE}>
                 {listeDesFiches(() => setPageTel('fiche'))}
               </ZoneDefilement>
             </section>
           ) : (
-            <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiche" data-memoire-page="fiche">
+            /* Le sujet ouvert garde ses retraits d'ordinateur (`px-3`) : la
+               zone les rattrape, pour que son texte tombe sur la marge de la page. */
+            <section className={cn(ZONE, '-mx-3 flex-1 bg-bg')} data-memoire-zone="fiche" data-memoire-page="fiche">
               {detail}
             </section>
           )}
         </div>
       ) : (
-        <div
-          className="grid min-h-0 flex-1 grid-cols-[minmax(170px,220px)_minmax(220px,280px)_minmax(0,1fr)] grid-rows-1"
-          data-memoire-zones
-          data-memoire-disposition="ordinateur"
-        >
-          <section className={cn(ZONE, 'bg-bloc')} data-memoire-zone="portees">
-            <ZoneDefilement fond="hsl(var(--bloc))" className="px-1.5 py-1.5">
-              {listeDesPortees()}
-            </ZoneDefilement>
-          </section>
-
-          <section className={cn(ZONE, 'bg-surface')} data-memoire-zone="fiches">
-            <ZoneDefilement fond="hsl(var(--surface))" className="px-1.5 py-1.5">
-              {trouvees ? (
-                <ListeDesTrouvees trouvees={trouvees} demande={recherche} partout={partout} portees={portees} onOuvrir={ouvrirTrouvee} />
-              ) : (
-                listeDesFiches()
-              )}
-            </ZoneDefilement>
-          </section>
-
-          <section className={cn(ZONE, 'bg-bg')} data-memoire-zone="fiche">
+        /* SUR ORDINATEUR, la zone principale ne montre que le sujet ouvert. */
+        <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-disposition="ordinateur">
+          <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiche">
             {detail}
           </section>
         </div>

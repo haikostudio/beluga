@@ -2,16 +2,16 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
   ChevronDown,
-  Clock,
   ChevronUp,
-  Loader2,
-  Rocket,
-  X,
-  AlertTriangle,
   FilePlus2,
   GitCommitHorizontal,
+  Loader2,
+  Rocket,
+  Settings2,
+  X,
 } from 'lucide-react';
 import {
   Card,
@@ -26,6 +26,8 @@ import {
   depotsAPublierSeuls,
   depotsEntraines,
   type DepotsDeCarte,
+  estCarteMarketing,
+  resteSurLeServeur,
   annonceDeHeurts,
   annonceMiseAJourProduction,
   derniereMiseAJourProduction,
@@ -39,6 +41,7 @@ import {
   etapeDeLaColonne,
   libelleCompteLot,
   procedureEnPlace,
+  RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT,
   raisonProductionDesactivee,
   etatDeLInitialisation,
   type EtatDeLInitialisation,
@@ -66,6 +69,7 @@ import { CorpsDuVolet, VoletDePublication } from '@/components/volet-publication
 import {
   BulleInfo,
   Button,
+  CLASSE_POINT_DE_BOUTON,
   ConfirmDialog,
   Dot,
   Dialog,
@@ -82,6 +86,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { client } from '@/lib/client';
+import { useSignalerLaPublication } from '@/lib/signal-publication';
 import { useApp } from '@/lib/use-app';
 import { useMinute } from '@/lib/horloge';
 import { cn, duration, elapsed } from '@/lib/utils';
@@ -94,6 +99,17 @@ const DUREE_REUSSITE_MS = 3000;
 /* Le temps du fondu de sortie de l'anneau de colonne, aligné sur celui de la
    barre du bandeau (`transition-opacity duration-700`). */
 const DUREE_FONDU_ANNEAU_MS = 700;
+/**
+ * LE CHEVRON VIT DANS LE BOUTON « DÉPLOYER », À SON BORD DROIT. Un seul bloc à
+ * l'œil — même fond, mêmes coins, aucun espace : le libellé arrondit la gauche
+ * (`rounded-r-none`), le chevron la droite —, mais DEUX `button` : le libellé
+ * lance, le chevron ouvre le déroulé, chacun avec son nom pour un lecteur
+ * d'écran. Entre les deux, un fin trait vertical, tiré dans la couleur du
+ * texte du bouton et très atténué : il se lit sur l'aplat plein comme sur le
+ * fond discret, sans poser une couleur de plus. Ce n'est pas une bordure.
+ */
+const CLASSE_CHEVRON_REUNI =
+  'relative w-7 shrink-0 rounded-l-none px-0 before:pointer-events-none before:absolute before:inset-y-1.5 before:left-0 before:w-px before:bg-current before:opacity-25 before:content-[\'\']';
 
 /** L'étape d'une publication, nommée comme dans la règle pure. */
 function libelleEtape(cible: DeployRun['cible']): string {
@@ -137,6 +153,10 @@ export type InfosPublication = {
   /** Des conflits prévus sur le lot, que l'agent de publication résoudra en
    *  route — informatif, pas une alerte à traiter. */
   conflicts?: Conflict[];
+  /** La vérification de ce qui est prêt à partir n'a pas abouti : la raison
+   *  rendue par le serveur. Elle se lisait en rouge DANS la colonne, sous une
+   *  phrase que personne ne comprenait (demande du 11/10/2026). */
+  controle?: string;
 };
 
 export function DeployPanel({
@@ -148,11 +168,32 @@ export function DeployPanel({
   onSansCarte,
   onInitier,
   presentation = 'bloc',
+  enTete = false,
+  enMenu = false,
   actions,
 }: {
   projectId: string;
   cards: Card[];
   colonne?: ColumnKey;
+  /**
+   * SUR TÉLÉPHONE, LE GESTE EST UNE LIGNE DU MENU À TROIS POINTS DE LA BARRE
+   * D'EN-TÊTE (demande du 11/10/2026 : plus de pied de colonne ni de bande en
+   * bas de l'écran). Le composant reste monté — il porte ses pages, ses
+   * contrôles et sa confirmation — mais ne dessine plus son bouton : il DIT son
+   * état (`signal-publication.ts`), que le menu et son bouton lisent, et la
+   * ligne du menu ouvre la MÊME page que le bouton.
+   */
+  enMenu?: boolean;
+  /**
+   * LE BOUTON VIT DANS LA BARRE D'EN-TÊTE DE LA PAGE, en haut à droite (demande
+   * du 11/10/2026) : le tableau le monte par `GestesDePage`. `compact` y
+   * devient « Déployer » — une icône, son nom, le compte du lot — et `bandeau`
+   * un bouton à icône seule, qui porte la pastille des versions en attente.
+   * Rien d'autre ne change : mêmes contrôles, même confirmation, mêmes pages.
+   * Sur téléphone, où la barre n'a pas la place, le geste passe dans le menu à
+   * trois points (`enMenu`).
+   */
+  enTete?: boolean;
   /**
    * `bloc` : ancienne présentation, pleine largeur sous le titre de colonne —
    * plus utilisée par le tableau, gardée pour ne rien casser ailleurs.
@@ -219,7 +260,7 @@ export function DeployPanel({
     client.demanderProduction(null);
   }, [productionDemandee, projectId]);
   const tiroirFilAgent = (
-    <Drawer open={!!filAgent} onClose={() => setFilAgent(null)} empile>
+    <Drawer adresse="fil-agent-publication" open={!!filAgent} onClose={() => setFilAgent(null)} empile>
       {filAgent ? (
         <div className="flex min-h-0 flex-1 flex-col" data-fil-agent-production={filAgent}>
           <div className="shrink-0 px-4 pb-2">
@@ -317,6 +358,28 @@ export function DeployPanel({
   const embarked = etape?.sansLot
     ? []
     : cards.filter((card) => !card.excludedFromDeploy && !card.deployedAt);
+  /*
+   * LE LOT, C'EST TOUTE LA COLONNE — PAS LE PREMIER PAQUET REÇU.
+   *
+   * À l'ouverture d'un projet, le démon n'envoie que vingt cartes par colonne
+   * (`premiereTranche`, `shared/src/tranches-de-cartes.ts`) ; la suite ne vient
+   * qu'au défilement. Le compte du bouton et la fenêtre de sélection ne lisaient
+   * que ces cartes-là : « Déployer (20) » pour une colonne de trente, et
+   * `deploy.start` n'emportait que ces vingt — les dix autres restaient dans la
+   * colonne sans que rien ne le dise. Une étape qui a un lot fait donc venir
+   * TOUTE sa colonne dès qu'elle est montée, le chiffre annonce d'emblée ce qui
+   * reste à recevoir, et le clic attend la dernière tranche avant de cocher.
+   */
+  const colonneDuLot = etape && !etape.sansLot ? etape.source : null;
+  const compteDuLot = colonneDuLot ? client.compteDeColonne(projectId, colonneDuLot) : null;
+  const resteARecevoir = compteDuLot && resteSurLeServeur(compteDuLot.recues, compteDuLot.total)
+    ? compteDuLot.total - compteDuLot.recues
+    : 0;
+  const nombreDuLot = embarked.length + resteARecevoir;
+  React.useEffect(() => {
+    if (!colonneDuLot || !resteARecevoir) return;
+    void client.chargerToutesLesCartes(projectId, colonneDuLot).catch(() => undefined);
+  }, [projectId, colonneDuLot, resteARecevoir]);
   const active = run?.state === 'running';
   /* Deux blocs peuvent être à l'écran : chacun ne montre QUE sa publication. */
   const mienne = !!run && !!etape && runDeLEtape(run.cible, etape);
@@ -414,8 +477,14 @@ export function DeployPanel({
         })
         .catch((err: any) => {
           if (!vivant) return;
+          /* LA DEMANDE N'EST JAMAIS PARTIE (canal fermé) : ce n'est pas un
+             contrôle tombé. Le lien coupé se dit déjà par la raison du bouton
+             éteint, et le contrôle repart de lui-même au retour du lien. */
+          if (err?.canalFerme) return;
           setErreurControle(err?.message ?? t('contrôle impossible'));
         });
+    // Sans lien, rien ne partirait : on attend son retour, qui relance cet effet.
+    if (!state.connected) return;
     void controler();
     // Page cachée, le contrôle se tait ; il repart au retour à l'écran.
     const arreter = lancerIntervalleVisible(() => void controler(), 20000);
@@ -423,7 +492,7 @@ export function DeployPanel({
       vivant = false;
       arreter();
     };
-  }, [projectId, signature, active, run?.state, colonne, enPlace]);
+  }, [projectId, signature, active, run?.state, colonne, enPlace, state.connected]);
 
   /*
    * Le déroulé reste FERMÉ par défaut, même pendant MA publication : il ne
@@ -464,6 +533,42 @@ export function DeployPanel({
    * toutes cochées d'avance — et `deploy.start` n'est appelé qu'après avoir
    * confirmé la sélection.
    */
+  /*
+   * LA FENÊTRE DE SÉLECTION, TOUTES LES CARTES DU LOT COCHÉES D'AVANCE. Tant
+   * qu'il reste des cartes à recevoir, on les attend : cocher ce qui est déjà
+   * là, c'est laisser le reste dans la colonne. Le lot se relit alors dans le
+   * magasin — les cartes de ce rendu datent d'avant la dernière tranche.
+   */
+  const ouvrirLaSelection = async (siLotVide: () => void) => {
+    let lot = embarked;
+    if (colonneDuLot && resteARecevoir) {
+      setBusy(true);
+      try {
+        await client.chargerToutesLesCartes(projectId, colonneDuLot);
+      } catch (err: any) {
+        client.pushToast('error', err?.message ?? t('Les cartes à déployer n’ont pas pu être chargées.'));
+        return;
+      } finally {
+        setBusy(false);
+      }
+      lot = Object.values(client.lireEtat().cards).filter(
+        (card) =>
+          card.projectId === projectId &&
+          card.column === colonneDuLot &&
+          !estCarteMarketing(card) &&
+          !card.excludedFromDeploy &&
+          !card.deployedAt,
+      );
+    }
+    if (!lot.length) {
+      siLotVide();
+      return;
+    }
+    setSelection(new Set(lot.map((card) => card.id)));
+    setAvertissements([]);
+    setSelectionOuverte(true);
+  };
+
   const demarrer = () => {
     if (etape?.cible === 'production') {
       setConfirmation(true);
@@ -471,13 +576,7 @@ export function DeployPanel({
     }
     /* Aucune carte à choisir — seul du travail enregistré sans carte attend :
        un écran de sélection vide ne demanderait rien. On part directement. */
-    if (!embarked.length) {
-      void start();
-      return;
-    }
-    setSelection(new Set(embarked.map((card) => card.id)));
-    setAvertissements([]);
-    setSelectionOuverte(true);
+    void ouvrirLaSelection(() => void start());
   };
 
   /* La fenêtre de sélection demandée d'ailleurs : toutes les cartes du lot
@@ -487,16 +586,10 @@ export function DeployPanel({
   React.useEffect(() => {
     if (!selectionDemandee) return;
     setSelectionDemandee(0);
-    if (!embarked.length) {
-      setProcessOuvert(true);
-      return;
-    }
-    setSelection(new Set(embarked.map((card) => card.id)));
-    setAvertissements([]);
-    setSelectionOuverte(true);
+    void ouvrirLaSelection(() => setProcessOuvert(true));
   }, [selectionDemandee]);
 
-  const aPublier = embarked.length + enAttente.nombre;
+  const aPublier = nombreDuLot + enAttente.nombre;
   /*
    * Une publication réussie n'affiche plus son compte rendu : dès qu'elle
    * aboutit, le bloc repart vierge (bouton + chevron). Seuls le travail en
@@ -522,7 +615,7 @@ export function DeployPanel({
           verbe: etape.verbe,
           sansLot: etape.sansLot,
           aPublier,
-          cartesDansLaColonne: cards.length,
+          cartesDansLaColonne: Math.max(cards.length, compteDuLot?.total ?? 0),
           autrePublication: active && !mienne,
           agentsOccupes: busyAgents.filter((agent) => !agent.enPreparation).map((agent) => agent.title),
           lancementsEnPreparation: busyAgents.filter((agent) => agent.enPreparation).map((agent) => agent.title),
@@ -547,14 +640,16 @@ export function DeployPanel({
       infos.raisonEnCours = busyAgents.length > 0;
     }
     if (conflicts.length) infos.conflicts = conflicts;
+    if (erreurControle) infos.controle = erreurControle;
     return infos.moyen ||
       infos.autrePublication ||
       infos.productionBloquee ||
       infos.raison ||
-      infos.conflicts
+      infos.conflicts ||
+      infos.controle
       ? infos
       : null;
-  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente, productionBloquee, raisonBloquee, busyAgents, conflicts]);
+  }, [active, mienne, miseEnLigne, aPublier, etape?.cible, enAttente, productionBloquee, raisonBloquee, busyAgents, conflicts, erreurControle]);
 
   /* On remonte l'objet SANS en faire une dépendance : on suit sa signature,
      sinon la fonction passée en prop, recréée à chaque rendu, bouclerait. */
@@ -686,6 +781,25 @@ export function DeployPanel({
     };
   }, [voletOuvert, projectId, etape, mienne, run?.id]);
 
+  /* LE DÉPLOIEMENT DIT SON ÉTAT AU MENU DU HAUT quand il n'a plus de bouton
+     (téléphone). La ligne du menu ouvre le déroulé — d'où l'on déploie — ou,
+     sans processus, la rubrique qui l'initie. La mise en production, elle, le
+     dit depuis `BandeauProduction`, commun au projet seul et au regroupement. */
+  useSignalerLaPublication(
+    projectId,
+    'deploiement',
+    enMenu && presentation === 'compact' && etape
+      ? {
+          compte: enPlace ? aPublier : 0,
+          enRetard: false,
+          pourcent: suivi && suiviVisible ? suivi.pourcent : null,
+          enRoute,
+          tombee,
+        }
+      : null,
+    () => (enPlace ? setProcessOuvert(true) : onInitier?.()),
+  );
+
   if (!etape) return null;
 
   /*
@@ -702,6 +816,8 @@ export function DeployPanel({
     if (presentation === 'bandeau') {
       return (
         <BandeauProduction
+          enTete={enTete}
+          enMenu={enMenu}
           projectId={projectId}
           colonne={colonne}
           suivi="repos"
@@ -737,10 +853,14 @@ export function DeployPanel({
     const explications = (
       <>
         <p className="text-[12px] text-faint" data-procedure-absente={colonne}>
-          {t('Ce projet n’a pas encore de processus de mise en production : rien ne peut partir tant qu’il n’est pas initialisé.')}{' '}
+          {etape.cible === 'production'
+            ? t('Ce projet n’a pas encore de processus de mise en production : rien ne peut partir tant qu’il n’est pas initialisé.')
+            : t(RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT)}{' '}
           <span className="inline-flex align-middle" data-portee-etape={colonne}>
             <BulleInfo cote="start">
-              {t('Un agent étudie le projet, vous pose ses questions sur l’endroit qui accueille la production, puis écrit le processus que ce bouton suivra.')}
+              {etape.cible === 'production'
+                ? t('Un agent étudie le projet, vous pose ses questions sur l’endroit qui accueille la production, puis écrit le processus que ce bouton suivra.')
+                : t('Un agent étudie le projet, vous demande où le déployer — ce serveur par défaut, ou une autre machine —, puis écrit le processus que ce bouton suivra.')}
             </BulleInfo>
           </span>
         </p>
@@ -752,7 +872,9 @@ export function DeployPanel({
     if (presentation === 'compact') {
       return (
         <>
-          <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} compact />
+          {/* En menu (téléphone), c'est la ligne « Déployer » du menu du haut
+              qui mène à l'initialisation : le bouton ne se dessine pas. */}
+          {enMenu ? null : <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} compact />}
           {noeudDeroule ? createPortal(<div className="px-1.5 pt-1.5">{explications}</div>, noeudDeroule) : null}
         </>
       );
@@ -776,6 +898,13 @@ export function DeployPanel({
   /* Ma publication tourne : le bouton porte alors l'étape en cours au lieu du
      verbe, et le déroulé reflète les états réels. */
   const publicationEnCours = active && mienne;
+  /* LES DEUX ÉTATS DU BOUTON DE LANCEMENT, lus aussi par le chevron qui vit
+     dans le même bloc : PLEIN quand il y a de quoi lancer, PÂLI quand il est
+     éteint sans avancée à montrer. */
+  const lancementPlein = !publicationEnCours && (aPublier > 0 || !!etape?.sansLot);
+  const lancementPali =
+    !(publicationEnCours || suiviVisible) &&
+    ((!etape?.sansLot && !aPublier) || busy || active || busyAgents.length > 0 || !!productionBloquee);
   const etapeEnCours: DeployStepKey = run?.currentStep ?? 'merge';
   /* LE NOM DE L'ÉTAPE EN COURS, pris dans la table de CETTE étape de mise en
      ligne : « Mise en ligne » côté dev, « Transfert chez le client » côté
@@ -812,6 +941,8 @@ export function DeployPanel({
     const reconfiguration = modeDeroule ? null : initialisation;
     return (
       <BandeauProduction
+        enTete={enTete}
+        enMenu={enMenu}
         projectId={projectId}
         colonne={colonne}
         suivi={suivi && (modeSuivi || reussiteVisible) ? suivi.etat : 'repos'}
@@ -901,7 +1032,7 @@ export function DeployPanel({
               ) : null}
               {!publicationEnCours && erreurControle ? (
                 <p className="text-danger" data-erreur-controle-publication>
-                  {t('Le contrôle d’avant-clic a échoué : {erreurControle}', { erreurControle })}</p>
+                  {t('La vérification de ce qui est prêt à partir n’a pas abouti ({raison}). Elle est relancée toute seule.', { raison: erreurControle })}</p>
               ) : null}
               {derniere ? (
                 <p
@@ -997,9 +1128,25 @@ export function DeployPanel({
   if (presentation === 'compact') {
     return (
       <div
-        className="flex w-full min-w-0 flex-1 items-center gap-1"
+        /* EN MENU (téléphone) : rien ne se dessine ici. Les pages, la
+           confirmation et le déroulé partent par des portails ; le menu du
+           haut porte le geste. */
+        className={
+          enMenu
+            ? 'hidden'
+            : enTete
+              ? 'order-1 flex min-w-0 items-center gap-0.5'
+              : 'flex w-full min-w-0 flex-1 items-center gap-1'
+        }
         data-bloc-publication={colonne}
+        data-publication-en-tete={enTete ? '' : undefined}
+        data-publication-en-menu={enMenu ? '' : undefined}
       >
+        {/* UN SEUL BOUTON À L'ŒIL, DEUX ZONES DE CLIC (`CLASSE_CHEVRON_REUNI`) :
+            le libellé lance, le chevron — DANS le bouton, à son bord droit —
+            ouvre le déroulé. Aucun espace entre les deux, un fin trait vertical
+            les sépare. */}
+        <div className={cn('flex min-w-0 items-stretch', !enTete && 'flex-1')} data-bouton-reuni>
         <Button
           /* PLUS DE CONTOUR. Le variant `outline` dessinait un cadre dans une
              barre qu'on veut invisible ; `subtle` garde un fond lisible (donc
@@ -1013,7 +1160,8 @@ export function DeployPanel({
              `min-w-0` + `overflow-hidden` gardent la troncature du libellé
              malgré `flex-1`. */
           className={cn(
-            'relative min-w-0 flex-1 overflow-hidden border-0',
+            'relative min-w-0 overflow-hidden rounded-r-none border-0',
+            !enTete && 'flex-1',
             (publicationEnCours || suiviVisible) && 'disabled:opacity-100',
           )}
           data-bouton-publication
@@ -1042,14 +1190,23 @@ export function DeployPanel({
           ) : (
             <>
               {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Rocket className="h-3 w-3 shrink-0" />}
-              <span className="truncate">
-                {etape.bouton
-                  ? t(etape.bouton)
-                  : t('Tout {v0} ({v1})', {
-                      v0: etape.verbe,
-                      v1: libelleCompteLot(embarked.length, enAttente.nombre),
-                    })}
-              </span>
+              {enTete && !etape.bouton ? (
+                /* DANS LA BARRE D'EN-TÊTE : le nom seul, puis le compte du lot
+                   quand il y a quelque chose à envoyer. */
+                <span className="truncate" data-libelle-deployer>
+                  {t('Déployer')}
+                  {aPublier ? <span className="ml-1 tabular-nums opacity-70">({libelleCompteLot(nombreDuLot, enAttente.nombre)})</span> : null}
+                </span>
+              ) : (
+                <span className="truncate">
+                  {etape.bouton
+                    ? t(etape.bouton)
+                    : t('Tout {v0} ({v1})', {
+                        v0: etape.verbe,
+                        v1: libelleCompteLot(nombreDuLot, enAttente.nombre),
+                      })}
+                </span>
+              )}
             </>
           )}
           {/* L'AVANCÉE VIT DANS LE BOUTON (demande explicite de l'utilisateur,
@@ -1086,16 +1243,26 @@ export function DeployPanel({
         </Button>
 
         <Button
-          variant="outline"
-          size="icon-sm"
-          className="shrink-0"
+          /* LE MÊME FOND QUE LE LIBELLÉ, à chaque état : plein quand un lot
+             attend, discret sinon. Éteint, le libellé pâlit en entier
+             (`disabled:opacity-40`) ; le chevron, lui, reste un geste ouvert :
+             seul son FOND pâlit d'autant, pour que le bloc garde une seule
+             teinte, et son dessin reste lisible. */
+          variant={lancementPlein ? 'default' : 'subtle'}
+          size="sm"
+          className={cn(
+            CLASSE_CHEVRON_REUNI,
+            lancementPali && (lancementPlein ? 'bg-accent/40 hover:opacity-100' : 'bg-raised/40 hover:bg-raised'),
+          )}
           data-chevron-process
           aria-expanded={processOuvert}
           aria-label="Voir le déroulé des six étapes de la mise en ligne"
+          title={t('Voir le déroulé de la mise en ligne')}
           onClick={() => setProcessOuvert((v) => !v)}
         >
           <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
         </Button>
+        </div>
 
         {/* PUBLIER SEULEMENT UN DÉPÔT — même règle que le bloc plein largeur,
             mais posée dans le DÉROULÉ : un projet à plusieurs dépôts n'a pas à
@@ -1144,19 +1311,62 @@ export function DeployPanel({
           run={runDuFil ?? undefined}
           agentAOuvrir={agentDemande}
           controls={(publicationEnCours || rapport) && run && mienne ? <DeployControls run={run} /> : null}
-        />
-
-        {!publicationEnCours && erreurControle && noeudDeroule
-          ? createPortal(
-              <div className="px-1.5 pt-1.5">
-                <p className="flex items-start gap-1.5 text-[12px] text-danger" data-erreur-controle-publication>
-                  <X className="mt-[3px] h-2.5 w-2.5 shrink-0" />
-                  <span>{t('Le contrôle d’avant-clic a échoué : {erreurControle}', { erreurControle })}</span>
+          /* LA PAGE DU DÉPLOIEMENT PORTE SES DEUX GESTES. En haut à droite de sa
+             barre, les réglages de la procédure — qui ont quitté la tête de la
+             colonne « À déployer ». Tout en bas, sur toute la largeur, le MÊME
+             lancement que le bouton de la barre (mêmes garde-fous, même raison
+             quand il est éteint) : c'est en bas de la page qu'on déclenche,
+             comme pour la mise en production (demande du 11/10/2026). */
+          gestes={
+            onInitier ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0 text-muted"
+                onClick={() => onInitier()}
+                aria-label="Réglages du déploiement"
+                title={t('Réglages du déploiement')}
+                data-reglages-deploiement-page
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            ) : undefined
+          }
+          lancement={
+            <>
+              {raisonBloquee && !publicationEnCours && !busy ? (
+                /* UN BOUTON ÉTEINT DIT POURQUOI, en clair au-dessus de lui. */
+                <p className="px-1 text-[12px] leading-snug text-faint" data-raison-lancement>
+                  {raisonBloquee}
                 </p>
-              </div>,
-              noeudDeroule,
-            )
-          : null}
+              ) : null}
+              <Button
+                variant={!publicationEnCours && (aPublier || etape.sansLot) ? 'default' : 'subtle'}
+                size="pied"
+                className="min-w-0 gap-1.5"
+                data-lancer-depuis-la-page
+                title={!publicationEnCours && !busy ? raisonBloquee ?? undefined : undefined}
+                disabled={
+                  publicationEnCours ||
+                  (!etape.sansLot && !aPublier) ||
+                  busy ||
+                  active ||
+                  busyAgents.length > 0 ||
+                  !!productionBloquee
+                }
+                onClick={publicationEnCours ? undefined : demarrer}
+              >
+                {busy || publicationEnCours ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Rocket className="h-3 w-3 shrink-0" />}
+                <span className="truncate">
+                  {etape.bouton ? t(etape.bouton) : t('Déployer')}
+                  {!etape.bouton && aPublier ? (
+                    <span className="ml-1 tabular-nums opacity-70">({libelleCompteLot(nombreDuLot, enAttente.nombre)})</span>
+                  ) : null}
+                </span>
+              </Button>
+            </>
+          }
+        />
 
         <ConfirmDialog
           open={confirmation}
@@ -1197,11 +1407,11 @@ export function DeployPanel({
     <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
       {/* La TÊTE : le bouton d'action à gauche, le chevron du déroulé à droite.
           Pendant une publication, le bouton dit l'étape traitée. */}
-      <div className="relative flex items-stretch gap-1">
+      <div className="relative flex items-stretch" data-bouton-reuni>
         <Button
           variant={publicationEnCours ? 'outline' : aPublier || etape.sansLot ? 'default' : 'outline'}
           size="sm"
-          className="min-w-0 flex-1 overflow-hidden"
+          className="min-w-0 flex-1 overflow-hidden rounded-r-none border-0"
           data-bouton-publication
           disabled={
             publicationEnCours ||
@@ -1235,21 +1445,28 @@ export function DeployPanel({
                   ? t(etape.bouton)
                   : t('Tout {v0} ({v1})', {
                       v0: etape.verbe,
-                      v1: libelleCompteLot(embarked.length, enAttente.nombre),
+                      v1: libelleCompteLot(nombreDuLot, enAttente.nombre),
                     })}</span>
             </>
           )}
         </Button>
 
         {/* Le chevron n'ouvre plus un panneau posé sur les cartes : il ouvre le
-            TIROIR de la publication, où chaque étape porte son fil. */}
+            TIROIR de la publication, où chaque étape porte son fil. Il vit DANS
+            le bouton, à son bord droit (`CLASSE_CHEVRON_REUNI`) : même fond,
+            aucun espace, un fin trait entre les deux zones de clic. */}
         <Button
-          variant="outline"
+          variant={lancementPlein ? 'default' : 'outline'}
           size="sm"
-          className="w-7 shrink-0 px-0"
+          className={cn(
+            CLASSE_CHEVRON_REUNI,
+            'border-0',
+            lancementPali && lancementPlein && 'bg-accent/40 hover:opacity-100',
+          )}
           data-chevron-process
           aria-expanded={processOuvert}
           aria-label="Voir le déroulé des six étapes de la mise en ligne"
+          title={t('Voir le déroulé de la mise en ligne')}
           onClick={() => setProcessOuvert((v) => !v)}
         >
           <ChevronDown className={cn('h-3 w-3 transition-transform', processOuvert && 'rotate-180')} />
@@ -1352,26 +1569,12 @@ export function DeployPanel({
         </div>
       ) : null}
 
-      {/* Plus aucun bandeau jaune en permanence sous le bouton : pourquoi il est
-          éteint (lot vide, agents occupés, conflits prévus…) se lit désormais
-          depuis le bouton « ! » de la tête de colonne (`infosPublication.raison`
-          / `.conflicts`), à la demande. Seul un VRAI échec — le contrôle
-          d'avant-clic lui-même tombé — reste affiché, en rouge : ce n'est pas
-          une explication de routine. Il est du DÉROULÉ : sa hauteur ne doit pas
-          repousser les cartes, il part donc dans l'ancre de la colonne. */}
-      {!publicationEnCours && erreurControle ? (
-        (() => {
-          const alerte = (
-            <p className="flex items-start gap-1.5 text-[12px] text-danger" data-erreur-controle-publication>
-              <X className="mt-[3px] h-2.5 w-2.5 shrink-0" />
-              <span>{t('Le contrôle d’avant-clic a échoué : {erreurControle}', { erreurControle })}</span>
-            </p>
-          );
-          return noeudDeroule ? createPortal(<div className="mb-2 px-2">{alerte}</div>, noeudDeroule) : (
-            <div className="mt-1.5">{alerte}</div>
-          );
-        })()
-      ) : null}
+      {/* Plus AUCUNE phrase sous le bouton ni dans la colonne : pourquoi il est
+          éteint (lot vide, agents occupés, conflits prévus…) se lit depuis le
+          bouton « ! » de la tête de colonne (`infosPublication`), à la demande.
+          L'échec de la vérification du lot y est allé aussi (`.controle`) : en
+          rouge au-dessus des cartes, « Le contrôle d'avant-clic a échoué : non
+          connecté » ne disait rien à personne. */}
 
       {/* La confirmation de la MISE EN PRODUCTION : elle nomme l'étape et dit ce
           qui va réellement partir — l'écart entre la version en ligne et le
@@ -1465,10 +1668,26 @@ export function BandeauProduction({
   children,
   groupe = false,
   avant,
+  enTete = false,
+  enMenu = false,
 }: {
   projectId: string;
   colonne: ColumnKey;
   suivi: string;
+  /**
+   * SUR TÉLÉPHONE : plus de bande en bas de l'écran (demande du 11/10/2026). Le
+   * composant reste monté pour sa page, sans rien dessiner, et dit son état au
+   * menu à trois points de la barre d'en-tête, dont la ligne « Mise en
+   * production » ouvre cette page (`signal-publication.ts`).
+   */
+  enMenu?: boolean;
+  /**
+   * DANS LA BARRE D'EN-TÊTE DE LA PAGE : un bouton à ICÔNE SEULE (demande du
+   * 11/10/2026), la pastille des versions en attente dans son coin. Pendant
+   * une mise en production il devient le suivi — la roue et le pourcentage —,
+   * et la barre d'avancée court au ras de son bas.
+   */
+  enTete?: boolean;
   /** Le bandeau d'un REGROUPEMENT : son tiroir liste des projets, sans interrupteur ni réglages. */
   groupe?: boolean;
   /** Ce qui remplace la fusée de l'entête du tiroir (le retour vers la liste). */
@@ -1505,15 +1724,113 @@ export function BandeauProduction({
   /* La teinte du chiffre, la même que le « % » en tête du déroulé. */
   const teintePourcent =
     suivi === 'reussie' ? 'text-success' : suivi === 'en-echec' || suivi === 'arretee' ? 'text-danger' : 'text-en-cours';
+  const libelleDuBouton = [
+    t('Mise en production'),
+    pourcent !== null ? `${pourcent} %` : enAttente?.resume,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  useSignalerLaPublication(
+    projectId,
+    'production',
+    enMenu
+      ? {
+          compte: enAttente?.nombre ?? 0,
+          resume: enAttente?.resume,
+          enRetard: !!enAttente?.enRetard,
+          pourcent,
+          enRoute,
+          tombee,
+        }
+      : null,
+    () => onOuvert(true),
+  );
   return (
     <div
-      className="relative mx-3 shrink-0 overflow-hidden rounded-2xl border border-border"
-      style={{ backgroundColor: 'hsl(var(--fond-zone))' }}
+      className={
+        enMenu
+          ? 'hidden'
+          : enTete
+            ? /* RIEN N'EST ROGNÉ ICI : la pastille des versions en attente
+                 DÉPASSE du coin du bouton. L'ancien `overflow-hidden`, posé
+                 pour arrondir la barre d'avancée, la coupait en deux — c'est
+                 le bouton qui rogne désormais sa propre barre. */
+              'relative order-2 shrink-0'
+            : 'relative mx-3 shrink-0 overflow-hidden rounded-2xl border border-border'
+      }
+      style={enTete || enMenu ? undefined : { backgroundColor: 'hsl(var(--fond-zone))' }}
       data-bloc-publication={colonne}
       data-bandeau-production={projectId}
+      data-publication-en-tete={enTete ? '' : undefined}
+      data-publication-en-menu={enMenu ? '' : undefined}
       data-suivi={suivi}
       data-initialisation-production={initialisation ?? undefined}
     >
+      {enTete ? (
+        <button
+          type="button"
+          onClick={() => onOuvert(!ouvert)}
+          aria-expanded={ouvert}
+          aria-haspopup="dialog"
+          aria-label="Mise en production"
+          title={libelleDuBouton}
+          className={cn(
+            /* UN APLAT D'ENCRE, ICÔNE CLAIRE (demande du 11/10/2026 : « noir
+               avec l'icône blanche ») : noir en clair, gris soutenu en sombre —
+               le même jeton que le bouton qui arrête. Aucune bordure. */
+            'relative flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg bg-encre px-2 text-encre-fg transition-opacity hover:opacity-85',
+            ouvert && 'opacity-85',
+          )}
+          data-ouvrir-tiroir-production={ouvert ? 'ouvert' : 'ferme'}
+        >
+          {enRoute ? (
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          ) : tombee ? (
+            <X className="h-4 w-4 shrink-0" />
+          ) : (
+            <Rocket className="h-4 w-4 shrink-0" />
+          )}
+          {/* PENDANT UNE MISE EN PRODUCTION, le bouton est le suivi : son chiffre se lit sans rien ouvrir.
+              Il s'écrit dans l'encre du bouton — une teinte d'état ne se lirait pas sur l'aplat ;
+              l'échec se dit par la croix et par sa barre, restée rouge. */}
+          {pourcent !== null ? (
+            <span className="shrink-0 text-[12.5px] font-semibold tabular-nums" data-pourcent-bandeau={pourcent}>
+              {pourcent} %
+            </span>
+          ) : null}
+          {/* AU REPOS, la pastille dit combien de versions attendent ; un point, que la production est en retard.
+              Elle DÉBORDE du coin (`coin-deborde`) : posée dans le bouton, elle recouvrait la fusée. */}
+          {pourcent !== null || !enAttente ? null : enAttente.nombre > 0 ? (
+            <Pastille
+              nombre={enAttente.nombre}
+              ton="repondre"
+              position="coin-deborde"
+              /* Un liseré au fond de la page la détache de l'aplat du bouton. */
+              className="ring-2 ring-bg"
+              title={enAttente.resume}
+              data-mises-a-jour-en-attente={enAttente.nombre}
+              data-en-retard=""
+            />
+          ) : (
+            <span
+              className={cn(CLASSE_POINT_DE_BOUTON, enAttente.enRetard ? 'bg-warning' : 'hidden')}
+              data-mises-a-jour-en-attente={0}
+              data-en-retard={enAttente.enRetard ? '' : undefined}
+            />
+          )}
+          {/* L'agent de configuration au travail : son état reste lu, un point le signale. */}
+          {initialisation ? (
+            <>
+              <span className="sr-only">
+                <EtatDInitialisation etat={initialisation} reconfiguration={reconfiguration} />
+              </span>
+              {pourcent === null && !(enAttente && enAttente.nombre > 0) ? (
+                <span className={cn(CLASSE_POINT_DE_BOUTON, 'animate-pulse-soft bg-text')} aria-hidden />
+              ) : null}
+            </>
+          ) : null}
+        </button>
+      ) : (
       <button
         type="button"
         onClick={() => onOuvert(!ouvert)}
@@ -1580,7 +1897,16 @@ export function BandeauProduction({
           {ouvert ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
         </span>
       </button>
-      {barre}
+      )}
+      {enTete ? (
+        /* La barre d'avancée garde les coins du bouton : c'est ce calque qui
+           la rogne, plus l'enveloppe — qui coupait aussi la pastille. */
+        <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg" aria-hidden>
+          {barre}
+        </span>
+      ) : (
+        barre
+      )}
 
       {/* LE TIROIR DE LA PROCÉDURE : l'explication et le bouton de mise en
           production (la conversation de l'agent vit dans les réglages).
@@ -1712,7 +2038,7 @@ function SelectionDeploiementDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent data-selection-deploiement>
+      <DialogContent adresse="selection-deploiement" data-selection-deploiement>
         <DialogHeader>
           <div className="flex items-center gap-1">
             <DialogTitle>{t('Tâches à déployer')}</DialogTitle>
@@ -1724,7 +2050,7 @@ function SelectionDeploiementDialog({
 
         {annonce ? (
           <div
-            className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[12px] text-warning"
+            className="mt-3 rounded-md border border-transparent bg-warning/10 px-2.5 py-2 text-[12px] text-warning"
             data-annonce-heurts
           >
             <p className="flex items-start gap-1.5">
@@ -1864,7 +2190,7 @@ export function AlerteTravailSansCarte({
     <div
       data-travail-sans-carte={colonne}
       data-sans-carte-nombre={travail?.nombre ?? 0}
-      className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-[12px] leading-snug"
+      className="mb-1.5 rounded-md border border-transparent bg-warning/10 px-2 py-1.5 text-[12px] leading-snug"
     >
       <p className="flex items-start gap-1.5 font-medium text-warning">
         <AlertTriangle className="mt-[3px] h-3 w-3 shrink-0" />
@@ -1958,6 +2284,17 @@ export function BoutonInfosPublication({
           {infos.moyen ? (
             <p className="text-faint" data-moyen-mise-en-ligne>
               {infos.moyen}
+            </p>
+          ) : null}
+
+          {/* LA VÉRIFICATION DU LOT N'A PAS ABOUTI, en mots courants : l'écran
+              n'a pas pu lire ce qui est prêt à partir, et il réessaie seul
+              (toutes les vingt secondes). « Le contrôle d'avant-clic a échoué »
+              nommait un mécanisme que l'utilisateur ne connaît pas. */}
+          {infos.controle ? (
+            <p className="flex items-start gap-1.5 text-danger" data-erreur-controle-publication>
+              <X className="mt-[3px] h-2.5 w-2.5 shrink-0" />
+              <span>{t('La vérification de ce qui est prêt à partir n’a pas abouti ({raison}). Elle est relancée toute seule.', { raison: infos.controle })}</span>
             </p>
           ) : null}
 

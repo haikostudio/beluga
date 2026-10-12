@@ -215,7 +215,6 @@ export const MOTIFS_PAR_OUTIL: Record<string, { un: string; plusieurs?: string; 
   remember: { un: 'Je note un fait dans la mémoire du projet.', plusieurs: 'Je note {v0} faits dans la mémoire du projet.' },
   competences: { un: 'Je lis les compétences partagées.' },
   coffre_fort: { un: 'J’ouvre le coffre-fort.' },
-  compta: { un: 'Je passe par la facturation.' },
   attach_file: { un: 'Je joins un fichier à ma réponse.', plusieurs: 'Je joins {v0} fichiers à ma réponse.' },
   /* L'ANCIEN NOM RESTE SERVI : un fil ouvert avant le renommage l'appelle encore. */
   attach_screenshot: { un: 'Je joins un fichier à ma réponse.' },

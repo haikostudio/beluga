@@ -32,6 +32,7 @@ import {
 } from './studio.js';
 import { cantonnerCss, porteeDuSegment } from './studio-dessin.js';
 import { MARGE_SECURITE_STUDIO } from './studio-ancres.js';
+import { echapperHtml } from './demande-copiable.js';
 
 /** L'identifiant de composition attendu par HyperFrames. */
 export const ID_COMPOSITION_STUDIO = 'main';
@@ -73,10 +74,6 @@ export interface OptionsDeTraduction {
   sourcesApercu?: { scripts: string; medias: string; polices: string };
   /** Aperçu : le moteur de lecture, ajouté après la chronologie. */
   moteurApercu?: string;
-}
-
-function echapperHtml(t: string): string {
-  return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /** Un JSON posé dans une balise <script> ne doit jamais pouvoir la refermer. */
@@ -164,10 +161,8 @@ export function declarationsDeRetouche(r: Retouche, geometrie: boolean): [string
   if (r.opacite !== undefined && r.opacite < 1) filtres.push('opacity(' + n(r.opacite) + ')');
   if (r.flou) filtres.push('blur(' + n(r.flou) + 'px)');
   if (filtres.length) d.push(['filter', filtres.join(' '), false]);
-  if (r.couleur) {
-    oui('color', r.couleur);
-    oui('fill', r.couleur);
-  }
+  // La couleur du texte ; son REMPLISSAGE (une forme SVG) vit dans `declarationsDesFormes`, qui épargne les tracés ouverts.
+  if (r.couleur) oui('color', r.couleur);
   if (r.fond) oui('background-color', r.fond);
   if (r.degrade && r.degrade.arrets && r.degrade.arrets.length > 1) {
     var arrets = r.degrade.arrets
@@ -242,6 +237,41 @@ export function declarationsDeRetouche(r: Retouche, geometrie: boolean): [string
   return d;
 }
 
+/** Les formes DESSINÉES d'un SVG : ce qu'atteignent le trait et le remplissage d'une icône. */
+export const FORMES_DESSINEES = 'path,circle,rect,line,polyline,polygon,ellipse';
+
+/**
+ * OÙ PORTENT les déclarations des formes, à partir de la pièce : `soi` = la pièce elle-même (jamais si elle est
+ * marquée `fill="none"`, sinon tous ses tracés ouverts se rempliraient par héritage) ; `traces` = ses formes
+ * dessinées, elle comprise si elle en est une ; `pleins` = ses formes remplies — jamais un tracé ouvert marqué
+ * `fill="none"`, ni ce qu'un parent marque ainsi. Un suffixe qui commence par une espace vise les descendants.
+ */
+export const CIBLES_DES_FORMES: Record<'soi' | 'traces' | 'pleins', string[]> = {
+  soi: [':not([fill="none"])'],
+  traces: [` :is(${FORMES_DESSINEES})`, `:is(${FORMES_DESSINEES})`],
+  pleins: [` :is(${FORMES_DESSINEES}):not([fill="none"]):not([fill="none"] *)`],
+};
+
+/**
+ * LE TRAIT ET LE REMPLISSAGE D'UN DESSIN SVG — UNE SEULE ÉCRITURE POUR L'APERÇU ET L'EXPORT. Une icône au trait
+ * (chargeur, plus, coche) porte sa couleur sur ses TRACÉS (`stroke="#fff"`), pas sur le `<svg>` : une couleur
+ * posée sur lui seul ne changeait rien. Ces déclarations visent les formes de la pièce (`CIBLES_DES_FORMES`).
+ * La NUANCE d'un tracé (l'anneau pâle d'un chargeur, `rgba(…, .25)`) est gardée : la page l'a ramenée en
+ * opacité (`stroke-opacity`) avant les retouches (`CHRONOLOGIE`), la couleur posée ne la remplace pas.
+ * AUTONOME comme `declarationsDeRetouche` : le moteur de l'aperçu en reçoit le texte.
+ * Rend des triplets [cible, propriété, valeur], toujours en `!important`.
+ */
+export function declarationsDesFormes(r: Retouche): [string, string, string][] {
+  var d: [string, string, string][] = [];
+  if (r.couleur) {
+    d.push(['soi', 'fill', r.couleur]);
+    d.push(['pleins', 'fill', r.couleur]);
+  }
+  if (r.trait) d.push(['traces', 'stroke', r.trait]);
+  if (r.epaisseurTrait !== undefined) d.push(['traces', 'stroke-width', String(Math.round(r.epaisseurTrait * 1000) / 1000) + 'px']);
+  return d;
+}
+
 function regleDeRetouche(portee: string, elementId: string, r: Retouche): string {
   /* LA RETOUCHE SE COMPOSE AVEC LE MOUVEMENT, ELLE NE S'Y ADDITIONNE PAS DEUX FOIS.
      Quand GSAP lit une pièce pour la première fois, il ABSORBE les propriétés
@@ -252,10 +282,16 @@ function regleDeRetouche(portee: string, elementId: string, r: Retouche): string
      fait lire chaque pièce à GSAP) ; `!important` les garde devant un `none`
      posé en ligne par la suite. */
   const decl = declarationsDeRetouche(r, true).map(([p, v, importante]) => `${p}:${v}${importante ? ' !important' : ''}`);
-  if (!decl.length) return '';
   const cible = `[data-studio-id="${elementId}"]`;
   // Actives seulement une fois la chronologie construite (classe posée par `CHRONOLOGIE`).
-  return `#root.studio-retouches ${portee} ${cible},#root.studio-retouches ${portee}${cible}{${decl.join(';')}}`;
+  const selecteur = (suffixe: string) => `#root.studio-retouches ${portee} ${cible}${suffixe},#root.studio-retouches ${portee}${cible}${suffixe}`;
+  const regles = decl.length ? [`${selecteur('')}{${decl.join(';')}}`] : [];
+  const formes = declarationsDesFormes(r);
+  for (const [quoi, suffixes] of Object.entries(CIBLES_DES_FORMES)) {
+    const d = formes.filter(([q]) => q === quoi).map(([, p, v]) => `${p}:${v} !important`);
+    if (d.length) regles.push(`${suffixes.map(selecteur).join(',')}{${d.join(';')}}`);
+  }
+  return regles.join('');
 }
 
 /**
@@ -609,6 +645,18 @@ D.segments.forEach(function(s){
   });
  }
 });
+/* LES FORMES D'UN SVG GARDENT LEUR NUANCE QUAND ON LES RECOLORE (\`declarationsDesFormes\`) : un tracé de couleur
+   transparente (l'anneau pâle d'un chargeur, « rgba(…, .25) ») passe en couleur pleine + opacité, et une forme que le
+   CSS du dessin laisse sans remplissage le porte en attribut (\`fill="none"\`). Rien ne change à l'œil ; une couleur
+   réglée remplace alors la teinte sans écraser l'opacité, ni remplir un tracé ouvert. Fait AVANT les retouches. */
+(function(){
+ function nuance(x,k,p){var v=k[p];if(!v||v.indexOf('rgba(')!==0)return;var q=v.slice(5,-1).split(',');if(q.length!==4)return;var a=parseFloat(q[3]);if(!(a<1))return;var o=parseFloat(k[p==='stroke'?'strokeOpacity':'fillOpacity']);x.style.setProperty(p,'rgb('+q[0]+','+q[1]+','+q[2]+')');x.style.setProperty(p+'-opacity',String((isNaN(o)?1:o)*a));}
+ document.querySelectorAll('#root svg').forEach(function(s){[s].concat(Array.prototype.slice.call(s.querySelectorAll('*'))).forEach(function(x){
+  if(x.namespaceURI!=='http://www.w3.org/2000/svg')return;var k=getComputedStyle(x);
+  if(k.fill==='none'&&!x.hasAttribute('fill'))x.setAttribute('fill','none');
+  nuance(x,k,'stroke');nuance(x,k,'fill');
+ });});
+})();
 document.getElementById('root').classList.add('studio-retouches');
 /* LES PIÈCES ANCRÉES À UN REPÈRE (bord, marge de sécurité, centre) : mesurées à l'instant où elles
    ont été posées, puis décalées pour que leur bord retombe sur le repère dans CE cadre. Même géométrie
@@ -799,12 +847,21 @@ function nature(n){if(texte(n))return 'texte';if(/^(img|image|video)$/i.test(n.t
 /* SES STYLES CALCULÉS, lus à l'instant de la tête (après GSAP et les retouches) : l'inspecteur part de la vraie couleur, pas d'un blanc par défaut. */
 function quatre(c,p,s){return [c[p+'Top'+s],c[p+'Right'+s],c[p+'Bottom'+s],c[p+'Left'+s]].map(function(v){return parseFloat(v)||0;});}
 function coins(c){return [c.borderTopLeftRadius,c.borderTopRightRadius,c.borderBottomRightRadius,c.borderBottomLeftRadius].map(function(v){return parseFloat(v)||0;});}
-function styles(n){try{var c=getComputedStyle(n),b=n.getBoundingClientRect(),fs=parseFloat(c.fontSize)||0,trait=c.outlineStyle!=='none'&&parseFloat(c.outlineWidth);return {couleur:c.color,fond:c.backgroundColor,fondImage:c.backgroundImage!=='none'?c.backgroundImage:null,remplissage:c.fill,taillePolice:fs,largeur:n.offsetWidth||Math.round(b.width)||0,hauteur:n.offsetHeight||Math.round(b.height)||0,alignement:c.textAlign,alignementVertical:c.alignContent,contour:trait?c.outlineColor:c.borderTopColor,epaisseurContour:trait?parseFloat(c.outlineWidth):(c.borderTopStyle!=='none'?parseFloat(c.borderTopWidth)||0:0),contourStyle:trait?c.outlineStyle:c.borderTopStyle,arrondi:parseFloat(c.borderTopLeftRadius)||0,arrondiCoins:coins(c),police:c.fontFamily,graisse:parseFloat(c.fontWeight)||400,interligne:c.lineHeight==='normal'||!fs?null:Math.round(parseFloat(c.lineHeight)/fs*100)/100,espacementLettres:parseFloat(c.letterSpacing)||0,italique:c.fontStyle==='italic'||c.fontStyle==='oblique',decoration:c.textDecorationLine,casse:c.textTransform,marges:quatre(c,'padding',''),margesExterieures:quatre(c,'margin',''),ombres:c.boxShadow!=='none'?c.boxShadow:null,ombresTexte:c.textShadow!=='none'?c.textShadow:null,filtre:c.filter!=='none'?c.filter:null,flouArrierePlan:c.backdropFilter&&c.backdropFilter!=='none'?c.backdropFilter:null,fusion:c.mixBlendMode,opacite:parseFloat(c.opacity),rogner:c.overflow==='hidden'||c.overflow==='clip',cadrage:c.objectFit,source:n.currentSrc||n.getAttribute('src')||n.getAttribute('href')||null};}catch(e){return null;}}
+/* LES FORMES DESSINÉES de la pièce (elle comprise si elle en est une) : le TRAIT et le REMPLISSAGE montrés sont ceux
+   du premier tracé visible et de la première forme remplie, pas ceux du \`<svg>\` qui ne dessine rien lui-même. */
+var FORMES='${FORMES_DESSINEES}';
+function formes(n){var l=Array.prototype.slice.call(n.querySelectorAll(FORMES));if(n.matches&&n.matches(FORMES))l.unshift(n);return l;}
+function dessin(n){var tr=null,pl=null;formes(n).forEach(function(x){var k=getComputedStyle(x);if(!tr&&k.stroke!=='none'&&parseFloat(k.strokeWidth)>0)tr=k;if(!pl&&k.fill!=='none')pl=k;});return {trait:tr?tr.stroke:null,epaisseurTrait:tr?parseFloat(tr.strokeWidth)||0:null,remplissage:pl?pl.fill:null};}
+function styles(n){try{var c=getComputedStyle(n),b=n.getBoundingClientRect(),fs=parseFloat(c.fontSize)||0,trait=c.outlineStyle!=='none'&&parseFloat(c.outlineWidth),ds=dessin(n);return {couleur:c.color,fond:c.backgroundColor,fondImage:c.backgroundImage!=='none'?c.backgroundImage:null,remplissage:ds.remplissage||c.fill,trait:ds.trait,epaisseurTrait:ds.epaisseurTrait,taillePolice:fs,largeur:n.offsetWidth||Math.round(b.width)||0,hauteur:n.offsetHeight||Math.round(b.height)||0,alignement:c.textAlign,alignementVertical:c.alignContent,contour:trait?c.outlineColor:c.borderTopColor,epaisseurContour:trait?parseFloat(c.outlineWidth):(c.borderTopStyle!=='none'?parseFloat(c.borderTopWidth)||0:0),contourStyle:trait?c.outlineStyle:c.borderTopStyle,arrondi:parseFloat(c.borderTopLeftRadius)||0,arrondiCoins:coins(c),police:c.fontFamily,graisse:parseFloat(c.fontWeight)||400,interligne:c.lineHeight==='normal'||!fs?null:Math.round(parseFloat(c.lineHeight)/fs*100)/100,espacementLettres:parseFloat(c.letterSpacing)||0,italique:c.fontStyle==='italic'||c.fontStyle==='oblique',decoration:c.textDecorationLine,casse:c.textTransform,marges:quatre(c,'padding',''),margesExterieures:quatre(c,'margin',''),ombres:c.boxShadow!=='none'?c.boxShadow:null,ombresTexte:c.textShadow!=='none'?c.textShadow:null,filtre:c.filter!=='none'?c.filter:null,flouArrierePlan:c.backdropFilter&&c.backdropFilter!=='none'?c.backdropFilter:null,fusion:c.mixBlendMode,opacite:parseFloat(c.opacity),rogner:c.overflow==='hidden'||c.overflow==='clip',cadrage:c.objectFit,source:n.currentSrc||n.getAttribute('src')||n.getAttribute('href')||null};}catch(e){return null;}}
+/* LA PIÈCE CHOISIE EST TOUJOURS DÉCRITE (nature, styles, texte), même hors de son temps — tête de lecture avant ou
+   après son segment, ou pièce sans taille à cet instant : l'inspecteur garde ses VRAIS réglages. Seules ses
+   COORDONNÉES (le cadre que la page dessine) attendent qu'elle se voie : une pièce cachée n'a ni cadre ni poignées. */
 function placer(){
  var m={type:'boite',segmentId:null};
- if(choix&&choix.el.isConnected&&choix.seg.style.visibility!=='hidden'){
-  var b=choix.el.getBoundingClientRect();
-  if(b.width||b.height){var n=choix.el,src=n.getAttribute('data-param-src');m={type:'boite',segmentId:choix.segId,elementId:choix.elId,x:Math.round(b.left),y:Math.round(b.top),l:Math.round(b.width),h:Math.round(b.height),texte:!!choix.elId&&texte(n),ecrivable:!!choix.elId&&feuille(n),image:/^(img|image)$/i.test(n.tagName)?(src?'parametre':'fichier'):null,parametre:src||null,nature:nature(n),styles:styles(n),contenu:texte(n)?n.textContent:null};}
+ if(choix&&choix.el.isConnected){
+  var n=choix.el,src=n.getAttribute('data-param-src');
+  m={type:'boite',segmentId:choix.segId,elementId:choix.elId,texte:!!choix.elId&&texte(n),ecrivable:!!choix.elId&&feuille(n),image:/^(img|image)$/i.test(n.tagName)?(src?'parametre':'fichier'):null,parametre:src||null,nature:nature(n),styles:styles(n),contenu:texte(n)?n.textContent:null};
+  if(choix.seg.style.visibility!=='hidden'){var b=n.getBoundingClientRect();if(b.width||b.height){m.x=Math.round(b.left);m.y=Math.round(b.top);m.l=Math.round(b.width);m.h=Math.round(b.height);}}
  }
  if(lecture)return;
  var cle=JSON.stringify(m);if(cle===derniereBoite)return;derniereBoite=cle;dire(m);
@@ -860,9 +917,12 @@ document.addEventListener('pointerup',finir);document.addEventListener('pointerc
    parte. Les déclarations viennent de LA MÊME FONCTION que l'export (\`declarationsDeRetouche\`, recopiée ici telle
    quelle) : ce que l'aperçu montre est ce qui sera rendu. Le réglage reçu se pose PAR-DESSUS la retouche déjà gardée
    de la pièce (une opacité réglée ne fait pas tomber un flou déjà posé : les deux vivent dans \`filter\`). */
+var declarerFormes=(${declarationsDesFormes.toString()}),CIBLES_FORMES=${JSON.stringify(CIBLES_DES_FORMES)};
 var declarer=(${declarationsDeRetouche.toString()});
 function peindre(c,r){var garde=(D.retouches[c.segId]||{})[c.elId]||{},tout={},k;for(k in garde)tout[k]=garde[k];for(k in r)tout[k]=r[k];
  declarer(tout,false).forEach(function(x){c.el.style.setProperty(x[0],x[1],x[2]?'important':'');});
+ /* Le trait et le remplissage d'un SVG portent sur ses formes, comme la règle de l'export (\`regleDeRetouche\`). */
+ declarerFormes(tout).forEach(function(x){(CIBLES_FORMES[x[0]]||[]).forEach(function(suf){var l=suf.charAt(0)===' '?c.el.querySelectorAll(suf.slice(1)):(c.el.matches(suf)?[c.el]:[]);for(var i=0;i<l.length;i++)l[i].style.setProperty(x[1],x[2],'important');});});
 }
 /* UN GESTE TIRÉ PAR LA PAGE PARENTE (coin, bord, rotation) : posé comme le déplacement, en !important, puis le cadre se replace. */
 function enDirect(r,cible){

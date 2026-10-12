@@ -44,7 +44,11 @@ import {
   titreTexte,
 } from './gabarit-courriel.js';
 import { accord, enumeration, nombre, phraseDeChangement } from './phrases-courriel.js';
-import { HOTE_ESPACE_CLIENT } from './porte-client.js';
+import {
+  adresseAdministration,
+  adresseEspaceClient,
+  nomDeLEntreprise,
+} from './installation.js';
 
 /* ------------------------------------------------------------------ */
 /* Les rendez-vous                                                      */
@@ -57,20 +61,14 @@ export const HEURE_DU_COURRIEL_CLIENT = 8;
 /** L'heure du point quotidien de Haiko : avant celui des clients. */
 export const HEURE_DU_POINT_QUOTIDIEN = 7;
 
-/** L'adresse de Haiko. Le point quotidien ne va QU'À elle. */
-export const ADRESSE_DE_HAIKO = 'salut@haiko.studio';
-
-/**
- * L'EXPÉDITEUR. `haiko.studio` est le SEUL domaine vérifié chez Resend : un
- * envoi depuis un autre est refusé net. Écrit ici pour qu'on n'ait pas à le
- * redécouvrir en lisant un refus.
+/*
+ * LE DESTINATAIRE DU POINT QUOTIDIEN, L'EXPÉDITEUR ET LES DEUX ADRESSES DES
+ * LIENS NE SONT PLUS ÉCRITS ICI : ils appartiennent à l'installation
+ * (`shared/src/installation.ts` : `adresseDuRecapitulatif`,
+ * `expediteurDesCourriels`, `adresseEspaceClient`, `adresseAdministration`).
+ * Une valeur qui manque ÉTEINT le courriel concerné — le service d'envoi
+ * refuse de toute façon un expéditeur dont le domaine n'est pas vérifié.
  */
-export const DOMAINE_EXPEDITEUR = 'haiko.studio';
-export const EXPEDITEUR_RECAPITULATIF = `Haiko Studio <bonjour@${DOMAINE_EXPEDITEUR}>`;
-
-/** Où vit l'espace client, et où vit l'administration : les deux liens. */
-export const ADRESSE_ESPACE_CLIENT = `https://${HOTE_ESPACE_CLIENT}`;
-export const ADRESSE_ADMINISTRATION = 'https://belugatool.haikostudio.cloud';
 
 /* ------------------------------------------------------------------ */
 /* Les clés anti-doublon                                                */
@@ -346,7 +344,10 @@ export function changementsParDemande(
  * répondre. Le projet voyage avec l'identifiant — un client peut en avoir
  * plusieurs, et l'espace doit savoir lequel afficher avant d'ouvrir la fiche.
  */
-export function lienDuClient(demande: Pick<DemandeAuCourriel, 'id' | 'projectId'>, base = ADRESSE_ESPACE_CLIENT): string {
+export function lienDuClient(
+  demande: Pick<DemandeAuCourriel, 'id' | 'projectId'>,
+  base = adresseEspaceClient() || adresseAdministration(),
+): string {
   return `${base}/#${construireFragmentDeDemande(demande.projectId, demande.id)}`;
 }
 
@@ -355,7 +356,7 @@ export function lienDuClient(demande: Pick<DemandeAuCourriel, 'id' | 'projectId'
  * client et la bonne fiche. Ce n'est pas la même adresse que celle du client :
  * l'administration ne se sert pas sur `my.`.
  */
-export function lienDeHaiko(clientId: string, demandeId: string, base = ADRESSE_ADMINISTRATION): string {
+export function lienDeHaiko(clientId: string, demandeId: string, base = adresseAdministration()): string {
   return `${base}/#${construireFragment({ vue: 'espace', clientId, demandeId })}`;
 }
 
@@ -364,7 +365,7 @@ export function lienDeHaiko(clientId: string, demandeId: string, base = ADRESSE_
  * d'adresse à lui dans un courriel : il en a une maintenant, la même que celle
  * qu'ouvre une notification poussée touchée.
  */
-export function lienDeDiscussionDuClient(base = ADRESSE_ESPACE_CLIENT): string {
+export function lienDeDiscussionDuClient(base = adresseEspaceClient() || adresseAdministration()): string {
   return `${base}/#${FRAGMENT_DE_DISCUSSION}`;
 }
 
@@ -373,7 +374,7 @@ export function lienDeDiscussionDuClient(base = ADRESSE_ESPACE_CLIENT): string {
  * pas un fil par son adresse : elle ouvre l'espace DU CLIENT, où le fil est à
  * un clic. C'est la cible la plus proche que l'adresse sache décrire.
  */
-export function lienDeDiscussionDeHaiko(clientId: string, base = ADRESSE_ADMINISTRATION): string {
+export function lienDeDiscussionDeHaiko(clientId: string, base = adresseAdministration()): string {
   return `${base}/#${construireFragment({ vue: 'espace', clientId })}`;
 }
 
@@ -396,7 +397,8 @@ export function refusDEnvoiDesIdentifiants(envoyer: boolean | undefined, courrie
 }
 
 /** L'équipe qui signe les courriels adressés aux clients. */
-const EQUIPE = 'L’équipe Haiko Studio';
+/** La signature des courriels aux clients : l'équipe, au nom de l'entreprise réglée. */
+const equipe = (): string => `L’équipe ${nomDeLEntreprise()}`;
 
 /**
  * LE COURRIEL D'IDENTIFIANTS EST UN MOT DE BIENVENUE, pas une fiche technique :
@@ -410,10 +412,10 @@ export function courrielDIdentifiants(input: {
   motDePasse: string;
   lien?: string;
 }): { sujet: string; texte: string; html: string } {
-  const lien = input.lien ?? ADRESSE_ESPACE_CLIENT;
+  const lien = input.lien ?? (adresseEspaceClient() || adresseAdministration());
   const salutation = `Bienvenue ${input.nom} ! 🎉`;
   const intro =
-    'Votre espace client Haiko Studio est prêt. C’est votre coin à vous pour faire avancer vos projets avec nous, simplement.';
+    `Votre espace client ${nomDeLEntreprise()} est prêt. C’est votre coin à vous pour faire avancer vos projets avec nous, simplement.`;
   const points = [
     { emoji: '📌', icone: 'dossier', teinte: 'gris', texte: 'Suivre vos demandes, de la première idée à la mise en ligne' },
     { emoji: '💬', icone: 'bulle', teinte: 'gris', texte: 'Échanger avec nous au même endroit, sans chercher le bon courriel' },
@@ -421,7 +423,7 @@ export function courrielDIdentifiants(input: {
   ] as const;
   const rappel =
     'Ce mot de passe n’appartient qu’à vous : gardez-le précieusement et ne le partagez pas. Un oubli ? Écrivez-nous, on vous en redonne un en un clin d’œil.';
-  const fin = `À très vite !\n${EQUIPE}`;
+  const fin = `À très vite !\n${equipe()}`;
 
   const texte = [
     salutation,
@@ -461,7 +463,35 @@ export function courrielDIdentifiants(input: {
       noteAIcone('cadenas', 'gris', rappel),
     fin,
   });
-  return { sujet: '🎉 Bienvenue dans votre espace client Haiko Studio', texte, html };
+  return { sujet: `🎉 Bienvenue dans votre espace client ${nomDeLEntreprise()}`, texte, html };
+}
+
+/**
+ * LE MESSAGE D'INVITATION, À COPIER DANS UN SMS OU UNE MESSAGERIE : le même
+ * mot de bienvenue que le courriel d'identifiants, en quelques lignes. Il
+ * VOUVOIE, donne l'adresse de l'espace client, l'identifiant et le mot de
+ * passe, et ne porte aucune mise en page — une messagerie n'en lit pas.
+ */
+export function messageDInvitation(input: {
+  nom: string;
+  identifiant: string;
+  motDePasse: string;
+  lien?: string;
+}): string {
+  const lien = input.lien ?? (adresseEspaceClient() || adresseAdministration());
+  return [
+    `Bonjour ${input.nom},`,
+    '',
+    `Votre espace client ${nomDeLEntreprise()} est prêt : vous pouvez y suivre vos demandes et échanger avec nous.`,
+    '',
+    `Adresse : ${lien}`,
+    `Identifiant : ${input.identifiant}`,
+    `Mot de passe : ${input.motDePasse}`,
+    '',
+    'Ce mot de passe n’appartient qu’à vous : gardez-le précieusement. Un oubli ? Écrivez-nous.',
+    '',
+    `À très vite !\n${equipe()}`,
+  ].join('\n');
 }
 
 /* ------------------------------------------------------------------ */
@@ -546,7 +576,7 @@ export function courrielDuClient(
 ): { sujet: string; texte: string; html: string } {
   const lienDeLaDemande = liens.demande ?? ((d: DemandeAuCourriel) => lienDuClient(d));
   const lienDuFil = liens.discussion ?? (() => lienDeDiscussionDuClient());
-  const lienDeLEspace = liens.espace ?? (() => ADRESSE_ESPACE_CLIENT);
+  const lienDeLEspace = liens.espace ?? (() => adresseEspaceClient() || adresseAdministration());
 
   const messages = point.aLire.reduce((n, d) => n + d.nonLus, 0) + (point.discussion?.nonLus ?? 0);
   const bouges = combienDeChangements(point.aLire);
@@ -556,13 +586,13 @@ export function courrielDuClient(
   ]);
   const salutation = `Bonjour ${nom} 👋`;
   const intro = nouvelles
-    ? `Voici le point de la semaine chez Haiko Studio : ${nouvelles}. Tout est rassemblé juste en dessous ☕`
-    : 'Voici ce qui a avancé cette semaine chez Haiko Studio. Tout est rassemblé juste en dessous ☕';
+    ? `Voici le point de la semaine chez ${nomDeLEntreprise()} : ${nouvelles}. Tout est rassemblé juste en dessous ☕`
+    : `Voici ce qui a avancé cette semaine chez ${nomDeLEntreprise()}. Tout est rassemblé juste en dessous ☕`;
   const titreDesDemandes = `📌 ${point.aLire.length > 1 ? 'Vos demandes' : 'Votre demande'}`;
   const invitation =
     'Une question, une idée, ou juste un « c’est parfait » ? Répondez directement depuis votre espace client : on lit tout, promis.';
-  const fin = `Belle semaine à vous ! 🌿\n${EQUIPE}`;
-  const mention = 'Vous recevez ce point parce que vous avez un espace client chez Haiko Studio.';
+  const fin = `Belle semaine à vous ! 🌿\n${equipe()}`;
+  const mention = `Vous recevez ce point parce que vous avez un espace client chez ${nomDeLEntreprise()}.`;
 
   /* --- Le texte : la même chose, sans une seule balise. --- */
   const lignes: string[] = [salutation, '', intro, ''];
@@ -588,7 +618,7 @@ export function courrielDuClient(
     corps.push(
       titreDeSection('Votre discussion avec nous'),
       carteDeDiscussion({
-        titre: 'Vos échanges avec Haiko Studio',
+        titre: `Vos échanges avec ${nomDeLEntreprise()}`,
         cotePropre: 'client',
         bloc: blocDeMessages(point.discussion.messages),
         lien: lienDuFil(),
@@ -631,7 +661,7 @@ export function courrielDuClient(
       : point.aLire.length > 1
         ? `✨ Du nouveau sur ${point.aLire.length} de vos demandes`
         : point.discussion
-          ? '💬 Un message vous attend chez Haiko Studio'
+          ? `💬 Un message vous attend chez ${nomDeLEntreprise()}`
           : '☕ Votre point de la semaine';
   return { sujet, texte: lignes.join('\n'), html };
 }
@@ -655,7 +685,7 @@ export function courrielDeHaiko(
 ): { sujet: string; texte: string; html: string } {
   const lienDeLaDemande = liens.demande ?? ((c: string, d: DemandeAuCourriel) => lienDeHaiko(c, d.id));
   const lienDuFil = liens.discussion ?? ((c: string) => lienDeDiscussionDeHaiko(c));
-  const lienDeLEspace = liens.espace ?? (() => `${ADRESSE_ADMINISTRATION}/#${construireFragment({ vue: 'espace' })}`);
+  const lienDeLEspace = liens.espace ?? (() => `${adresseAdministration()}/#${construireFragment({ vue: 'espace' })}`);
 
   // « chez Alice » quand il n'y en a qu'un : plus parlant que « chez 1 client ».
   const chez = point.clients.length === 1 ? point.clients[0].nom : nombre(point.clients.length, 'client');

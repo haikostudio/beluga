@@ -1,5 +1,4 @@
 import * as React from 'react';
-import { Loader2, Power } from 'lucide-react';
 import {
   avertissementRedemarrage,
   resumeDeCeQuiSeraInterrompu,
@@ -8,7 +7,6 @@ import {
   raisonPublications,
 } from '@beluga/shared';
 import {
-  BulleInfo,
   Button,
   CLASSE_POINT_DE_BOUTON,
   Dialog,
@@ -17,7 +15,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DropdownMenuItem,
 } from '@/components/ui';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
@@ -25,33 +22,31 @@ import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 
 /**
- * LE REDÉMARRAGE DU SERVEUR, DANS LE MENU DES TROIS POINTS (demande du
- * 02/10/2026, sur tous les écrans).
+ * LE REDÉMARRAGE DU SERVEUR, DANS LES RÉGLAGES (page « Serveur et agents »).
  *
- * Il a vécu au pied de la colonne des projets, puis en icône dans le bandeau ;
- * il devient une ENTRÉE du menu, à côté du terminal du serveur
- * (`EntreeRedemarrage`). Son état reste visible menu fermé : le POINT commun
- * des boutons de l'entête, sur le coin haut droit des trois points (`PointRedemarrage`) :
- *  - point vert : le serveur tourne, rien n'attend ;
- *  - point orange : un redémarrage est requis (du code serveur plus récent
+ * Il a vécu au pied de la colonne des projets, en icône dans le bandeau, puis
+ * en entrée du menu des trois points ; ce menu ne garde plus que ce qui
+ * concerne la page affichée, et un geste qui vaut pour toute la machine se
+ * range dans les réglages, qu'on ouvre de partout (demande du 11/10/2026).
+ * Son état reste visible fenêtre fermée : le POINT commun des boutons, sur le
+ * coin haut droit du bouton des RÉGLAGES, au pied de la colonne
+ * (`PointRedemarrage`) :
+ *  - point invisible : le serveur tourne, rien n'attend ;
+ *  - point marqué : un redémarrage est requis (du code serveur plus récent
  *    attend), y compris demandé mais retenu par une publication ou un travail
  *    en cours (il partira tout seul) ;
- *  - point gris : le serveur redémarre (l'entrée montre une roue qui tourne).
- * L'entrée dit son libellé ; la raison vit derrière un « i » à sa droite.
- *
- * LA FENÊTRE DE CONFIRMATION VIT HORS DU MENU (`dialogue`, rendu par le
- * bandeau à côté du menu) : posée dans le menu, elle se démonterait avec lui à
- * l'instant où l'entrée le referme.
+ *  - point gris : le serveur redémarre (la ligne montre une roue qui tourne).
+ * La ligne dit son libellé, et sa raison dessous.
  *
  * Publier remplace l'interface tout de suite, mais le serveur continue de
  * tourner avec le code chargé à son démarrage : une correction côté serveur
- * n'existe pas tant qu'on ne l'a pas relancé. Le point orange dit exactement
- * ce moment-là — sinon rien ne le signale, et la correction semble n'avoir eu
+ * n'existe pas tant qu'on ne l'a pas relancé. Le point dit exactement ce
+ * moment-là — sinon rien ne le signale, et la correction semble n'avoir eu
  * aucun effet.
  *
- * Repères des contrôles : `data-bouton-redemarrage="menu"` sur l'entrée,
- * `data-etat-redemarrage` (`repos`, `attendu`, `retenu`, `en-cours`) sur
- * l'entrée ET sur le point (`data-point-redemarrage`).
+ * Repères des contrôles : `data-bouton-redemarrage="reglages"` sur le bouton,
+ * `data-etat-redemarrage` (`repos`, `attendu`, `retenu`, `en-cours`) sur le
+ * bouton ET sur le point (`data-point-redemarrage`).
  */
 export type EtatRedemarrage = 'repos' | 'attendu' | 'retenu' | 'en-cours';
 
@@ -104,7 +99,7 @@ export function useRedemarrage() {
           : null;
 
   /*
-   * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PAS L'ENTRÉE : c'est la FENÊTRE qui
+   * CE QUI RETIENT LE REDÉMARRAGE N'ÉTEINT PAS LE BOUTON : c'est la FENÊTRE qui
    * dit ce qui sera interrompu, et le forçage reste un second clic délibéré.
    * Seul le temps où le serveur repart l'éteint — il n'y a plus personne à qui
    * parler.
@@ -119,7 +114,7 @@ export function useRedemarrage() {
       retenu={retenu}
       onClose={() => setConfirmer(false)}
       onPartir={(force) => {
-        // L'entrée et le point passent à « en cours » DÈS LE CLIC.
+        // Le bouton et le point passent à « en cours » DÈS LE CLIC.
         setEnCours(true);
         // La réponse part avant la coupure ; la reconnexion se fait toute
         // seule, on rend donc la main au bout de quelques secondes. Un refus
@@ -142,53 +137,26 @@ export function useRedemarrage() {
   return { etat, libelle, raison, repart, ouvrir: () => setConfirmer(true), dialogue };
 }
 
-const COULEUR_DU_POINT: Record<EtatRedemarrage, string> = {
-  repos: 'bg-success',
+/* AU REPOS, LE POINT NE SE VOIT PAS. Un point vert permanent sur le bouton du
+   menu ne disait qu'une chose : « rien à signaler ». Il reste dans le document
+   (les contrôles lisent `data-point-redemarrage`), transparent ; il ne prend sa
+   couleur que lorsqu'un redémarrage est attendu, retenu ou en cours. */
+export const COULEUR_DU_POINT_DE_REDEMARRAGE: Record<EtatRedemarrage, string> = {
+  repos: 'bg-transparent',
   attendu: 'bg-warning',
   retenu: 'bg-warning',
   'en-cours': 'bg-faint',
 };
 
-/** Le point d'état, à cheval sur le coin haut droit du bouton des trois points (`CLASSE_POINT_DE_BOUTON`). */
+/** Le point d'état, à cheval sur le coin haut droit du bouton des réglages (`CLASSE_POINT_DE_BOUTON`). */
 export function PointRedemarrage({ etat }: { etat: EtatRedemarrage }) {
   return (
     <span
       aria-hidden
       data-point-redemarrage={etat === 'en-cours' ? 'gris' : etat === 'repos' ? 'vert' : 'orange'}
       data-etat-redemarrage={etat}
-      className={cn(CLASSE_POINT_DE_BOUTON, COULEUR_DU_POINT[etat])}
+      className={cn(CLASSE_POINT_DE_BOUTON, COULEUR_DU_POINT_DE_REDEMARRAGE[etat])}
     />
-  );
-}
-
-/** L'entrée « Redémarrer le serveur » du menu des trois points. */
-export function EntreeRedemarrage({ redemarrage }: { redemarrage: ReturnType<typeof useRedemarrage> }) {
-  const { etat, libelle, raison, repart, ouvrir } = redemarrage;
-  return (
-    <DropdownMenuItem
-      data-bouton-redemarrage="menu"
-      data-etat-redemarrage={etat}
-      disabled={repart}
-      onSelect={ouvrir}
-    >
-      {repart ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />}
-      <span className="min-w-0 flex-1 whitespace-nowrap">{libelle}</span>
-      {raison ? (
-        // La raison vit derrière un « i » : en ligne, sa phrase décidait de la
-        // largeur du menu entier. Un appui sur le « i » (ou dans sa bulle, qui
-        // remonte par l'arbre React) ne doit PAS ouvrir la confirmation : on
-        // arrête clic, relâchement et touches avant qu'ils n'atteignent l'entrée.
-        <span
-          onClick={(e) => e.stopPropagation()}
-          onPointerUp={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-          className="flex shrink-0"
-        >
-          <BulleInfo cote="end">{raison}</BulleInfo>
-        </span>
-      ) : null}
-      <span aria-hidden className={cn('h-1.5 w-1.5 shrink-0 rounded-full', COULEUR_DU_POINT[etat])} />
-    </DropdownMenuItem>
   );
 }
 
@@ -225,7 +193,7 @@ function DialogueDeRedemarrage({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:w-[min(480px,100%)]">
+      <DialogContent adresse="redemarrer" className="sm:w-[min(480px,100%)]">
         <DialogHeader>
           <DialogTitle>{t('Redémarrer le serveur ?')}</DialogTitle>
         </DialogHeader>

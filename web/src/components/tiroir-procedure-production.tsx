@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { Rocket, Settings2 } from 'lucide-react';
-import { explicationDuProcessus, type ProcessusDeProduction } from '@beluga/shared';
+import { explicationDuProcessus, pourquoiCeProcessus, type ProcessusDeProduction } from '@beluga/shared';
 import { BulleInfo, Button, DialogTitle, Drawer } from '@/components/ui';
 import { InterrupteurMiseEnProduction } from '@/components/interrupteur-mise-en-production';
-import { Markdown } from '@/lib/markdown';
+import { GestesDePage } from '@/components/entete-de-zone';
 import { useApp } from '@/lib/use-app';
 import { estTelephone } from '@/lib/telephone';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
@@ -54,38 +54,46 @@ export function TiroirProcedureProduction({
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
   return (
-    <Drawer open={open} onClose={onClose} plein={deroule || estTelephone()} hauteurFixe>
+    <Drawer adresse="procedure-production" open={open} onClose={onClose} plein={deroule || estTelephone()} hauteurFixe>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-procedure-production={projectId}>
-        <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]" data-entete-tiroir-production>
-          {avant ?? <Rocket className="h-3.5 w-3.5 shrink-0 text-muted" />}
-          <DialogTitle className="min-w-0 flex-1 truncate">{titre ?? t('Mise en production')}</DialogTitle>
-          {groupe ? null : (
-            <>
-              {/* L'INTERRUPTEUR DE MISE EN PRODUCTION : éteint par défaut, il
-                  grise le bouton du pied et le serveur refuse. */}
-              <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
-              {/* LES RÉGLAGES, À DROITE DE L'INTERRUPTEUR : la rubrique où l'agent
-                  de configuration écrit le processus, et où il se discute. Le
-                  tiroir se referme d'abord — deux fenêtres modales ne s'empilent
-                  pas. */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0 text-muted"
-                onClick={() => {
-                  onClose();
-                  ouvrirRubriqueDeLEtape(projectId, 'production');
-                }}
-                aria-label="Réglages de la mise en production"
-                title={t('Réglages de la mise en production')}
-                data-reglages-tiroir-production
-              >
-                <Settings2 className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-          {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
-        </header>
+        {/* LE TITRE EST LE DERNIER CRAN DU FIL D'ARIANE (il y monte de lui-même),
+            et SES GESTES MONTENT À DROITE DE LA BARRE D'EN-TÊTE (demande du
+            11/10/2026) : la fusée et l'interrupteur de mise en production, les
+            réglages, le bouton « ! ». Plus de rangée de boutons en tête de la
+            page ; sur téléphone, où la barre n'a pas la place, `GestesDePage`
+            les garde en tête du contenu. */}
+        <DialogTitle className="min-w-0 truncate px-4">{titre ?? t('Mise en production')}</DialogTitle>
+        <GestesDePage className="px-4">
+          <div className="flex shrink-0 items-center gap-2" data-entete-tiroir-production>
+            {avant ?? <Rocket className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />}
+            {groupe ? null : (
+              <>
+                {/* L'INTERRUPTEUR DE MISE EN PRODUCTION : éteint par défaut, il
+                    grise le bouton du pied et le serveur refuse. */}
+                <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
+                {/* LES RÉGLAGES, À DROITE DE L'INTERRUPTEUR : la rubrique où l'agent
+                    de configuration écrit le processus, et où il se discute. Le
+                    tiroir se referme d'abord — deux fenêtres modales ne s'empilent
+                    pas. */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-muted"
+                  onClick={() => {
+                    onClose();
+                    ouvrirRubriqueDeLEtape(projectId, 'production');
+                  }}
+                  aria-label="Réglages de la mise en production"
+                  title={t('Réglages de la mise en production')}
+                  data-reglages-tiroir-production
+                >
+                  <Settings2 className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+            {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
+          </div>
+        </GestesDePage>
 
         <div className="flex min-h-0 flex-1 flex-col pt-2" data-contenu-tiroir-production>
           {configuration}
@@ -96,13 +104,18 @@ export function TiroirProcedureProduction({
 }
 
 /**
- * L'EXPLICATION DE LA CONFIGURATION, en tête du tiroir :
- * ce que l'agent a écrit en mots courants, puis le détail des étapes, replié.
- * Un processus d'avant cette refonte n'a pas d'explication : son résumé la
- * remplace, et le détail reste là.
+ * L'EXPLICATION DE LA CONFIGURATION, en tête de la page de mise en production :
+ * POURQUOI ce processus, en deux phrases au plus (`pourquoiCeProcessus`, la
+ * même règle que la rubrique des réglages), puis CE QUI SE PASSERA AU CLIC —
+ * les étapes, en clair —, et le détail technique (les commandes), replié.
+ *
+ * Elle montrait le récit ENTIER de l'agent : sur un téléphone, plusieurs écrans
+ * d'un journal de travail (« je vérifie maintenant… ») avant d'arriver au
+ * bouton — relevé à la revue téléphone du 11/10/2026.
  */
 export function ExplicationDeConfiguration({ processus }: { processus?: ProcessusDeProduction }) {
-  const { texte, repli } = explicationDuProcessus(processus);
+  const { repli } = explicationDuProcessus(processus);
+  const pourquoi = pourquoiCeProcessus(processus);
   if (!processus?.etapes?.length) {
     return (
       <div className="flex flex-col gap-1.5 text-[13px] leading-snug" data-explication-configuration="absente">
@@ -118,12 +131,25 @@ export function ExplicationDeConfiguration({ processus }: { processus?: Processu
     );
   }
   return (
-    <div className="flex flex-col gap-2" data-explication-configuration={repli ? 'repli' : 'agent'}>
-      {texte ? <Markdown content={texte} className="text-[13.5px] leading-relaxed" /> : null}
+    <div className="flex flex-col gap-3" data-explication-configuration={repli ? 'repli' : 'agent'}>
+      {pourquoi ? (
+        <p className="text-[13.5px] leading-relaxed text-muted" data-pourquoi-ce-processus>
+          {pourquoi}
+        </p>
+      ) : null}
+      <div>
+        <p className="mb-1.5 text-[13.5px] font-medium text-text">{t('Ce qui se passera au clic')}</p>
+        <ol className="flex flex-col gap-1 text-[13.5px] leading-snug text-text" data-etapes-en-clair>
+          {processus.etapes.map((etape, rang) => (
+            <li key={rang} className="flex gap-2">
+              <span className="shrink-0 tabular-nums text-faint">{rang + 1}.</span>
+              <span className="min-w-0">{etape.libelle}</span>
+            </li>
+          ))}
+        </ol>
+      </div>
       <details className="group rounded-md bg-raised/35 px-2.5 py-1.5" data-etapes-configuration={processus.etapes.length}>
-        <summary className="cursor-pointer select-none text-[12.5px] text-muted">
-          {t('Les {v0} étapes jouées par le bouton', { v0: processus.etapes.length })}
-        </summary>
+        <summary className="cursor-pointer select-none text-[12.5px] text-muted">{t('Détail technique')}</summary>
         <ol className="mt-1.5 flex flex-col gap-1.5">
           {processus.etapes.map((etape, rang) => (
             <li key={rang} className="text-[12.5px] leading-snug">

@@ -13,7 +13,38 @@ import crypto from 'node:crypto';
 import { Attachment, aliasDePieceJointe, mimeDuFichier, nomSansCollision, nomSurDisque, refusDeTaille } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { dossierDEcriture } from './pieces-jointes.js';
+import { cheminDePieceJointe, dossierDEcriture } from './pieces-jointes.js';
+import { CONFIG } from './config.js';
+import { safeJoin } from './files.js';
+
+/**
+ * LES DOSSIERS OÙ UN AGENT PEUT PRENDRE UN FICHIER — UNE SEULE DÉFINITION,
+ * partagée par `attach_file` et par l'import du Studio (`outil-studio.ts`) :
+ * le dossier de travail de l'agent (où vit une capture prise par ses propres
+ * scripts), le dépôt du projet, et le dossier de données partagé de Beluga
+ * Build (pièces jointes, scripts de vérification « de tous les jours »).
+ *
+ * Un chemin absolu doit ÊTRE une racine ou commencer par « racine + / » (un
+ * préfixe trompeur comme « data2 » ne passe pas) ; un chemin relatif se
+ * résout dans chaque racine sans pouvoir en sortir. Rend le premier fichier
+ * existant, ou null.
+ */
+export function fichierPermis(demande: string, racines: Array<string | undefined | null>): string | null {
+  for (const racine of racines.filter(Boolean) as string[]) {
+    const essai = path.isAbsolute(demande)
+      ? path.resolve(demande) === path.resolve(racine) || path.resolve(demande).startsWith(path.resolve(racine) + path.sep)
+        ? demande
+        : null
+      : safeJoin(racine, demande);
+    if (essai && fs.existsSync(essai) && fs.statSync(essai).isFile()) return essai;
+  }
+  return null;
+}
+
+/** Les trois racines de `fichierPermis` pour un agent et son projet. */
+export function racinesDeLAgent(agentId: string, projet: { path: string }): Array<string | undefined> {
+  return [store.getAgent(agentId)?.workdir, projet.path, CONFIG.dataDir];
+}
 
 export type ResultatDeJointure =
   | { ok: true; attachment: Attachment; taille: number; nouvelle: boolean }
@@ -33,7 +64,8 @@ async function attendreUneTailleStable(fichier: string, essais = 10, pauseMs = 1
 
 export async function joindreUnFichier(opts: {
   projectId: string;
-  agentId: string;
+  /** Absent quand la pièce est rattachée à un brouillon sans agent. */
+  agentId?: string;
   cardId?: string;
   /** Chemin absolu d'un fichier déjà vérifié par l'appelant (racines autorisées). */
   fichier: string;
@@ -41,6 +73,8 @@ export async function joindreUnFichier(opts: {
   nom?: string;
   /** Attendre que le fichier cesse de grossir (capture détectée en plein tour). */
   attendreStable?: boolean;
+  /** La pièce vient de l'agent (outil de jointure, capture rangée) : elle porte `deLAgent`. */
+  deLAgent?: boolean;
 }): Promise<ResultatDeJointure> {
   const { fichier } = opts;
   const mime = mimeDuFichier(fichier);
@@ -70,9 +104,50 @@ export async function joindreUnFichier(opts: {
     cardId: opts.cardId,
     agentId: opts.agentId,
     createdAt: Date.now(),
+    deLAgent: opts.deLAgent ? true : undefined,
   });
   await fs.promises.writeFile(path.join(dossierDEcriture(), nomSurDisque(attachment)), data);
   store.saveAttachment(attachment);
   bus.emit({ type: 'attachments', projectId: opts.projectId, items: store.listAttachments(opts.projectId) });
   return { ok: true, attachment, taille: data.length, nouvelle: true };
+}
+
+/**
+ * UN TAG COLLÉ DEPUIS UNE AUTRE CARTE RAMÈNE SON FICHIER.
+ *
+ * Le champ de saisie ne retrouve les tags « [fichier: nom #alias] » que dans la
+ * liste du projet affiché. Un texte copié dans un AUTRE projet (ou avant que
+ * cette liste soit chargée) gardait ses tags sans aucun fichier. Chaque alias
+ * est cherché sur tout le dépôt : une pièce du même projet est rendue telle
+ * quelle ; celle d'un autre projet est RECOPIÉE dans celui-ci, par le même
+ * chemin qu'un fichier joint (poids, empreinte, dossier, événement), pour que le
+ * fil, la carte et ses droits ne dépendent jamais d'un projet voisin. Un même
+ * contenu déjà présent ici rend la pièce existante : coller deux fois ne double
+ * rien. Un alias inconnu (pièce retirée) est sauté sans bruit.
+ */
+export async function rattacherParAlias(opts: {
+  projectId: string;
+  agentId?: string;
+  cardId?: string;
+  alias: readonly string[];
+}): Promise<Array<{ alias: string; attachment: Attachment }>> {
+  const rendues: Array<{ alias: string; attachment: Attachment }> = [];
+  for (const source of store.attachmentsParAlias(opts.alias)) {
+    if (!source.alias) continue;
+    if (source.projectId === opts.projectId) {
+      rendues.push({ alias: source.alias, attachment: source });
+      continue;
+    }
+    const fichier = cheminDePieceJointe(source);
+    if (!fs.existsSync(fichier)) continue;
+    const jointure = await joindreUnFichier({
+      projectId: opts.projectId,
+      agentId: opts.agentId,
+      cardId: opts.cardId,
+      fichier,
+      nom: source.name,
+    });
+    if (jointure.ok) rendues.push({ alias: source.alias, attachment: jointure.attachment });
+  }
+  return rendues;
 }

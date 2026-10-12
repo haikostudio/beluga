@@ -1,15 +1,14 @@
 import * as React from 'react';
 import {
-  Archive,
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleDollarSign,
   FolderGit2,
   Loader2,
   Palette,
   Rocket,
   Settings2,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import {
@@ -41,13 +40,12 @@ import { useSystemeSombre, useThemeGeneral } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { type ClientEntry, type ContexteConfig } from '@/components/config-projet/communs';
+import { type ContexteConfig } from '@/components/config-projet/communs';
 import { RubriqueGeneral } from '@/components/config-projet/page-general';
 import { RubriqueApparence } from '@/components/config-projet/page-apparence';
 import { RubriqueDossiers } from '@/components/config-projet/page-dossiers';
 import { RubriqueDeploiement } from '@/components/config-projet/page-deploiement';
 import { RubriqueProduction } from '@/components/config-projet/page-production';
-import { RubriqueFacturation } from '@/components/config-projet/page-facturation';
 import { RubriqueRetrait } from '@/components/config-projet/page-retrait';
 
 /* ------------------------------------------------------------------ */
@@ -68,8 +66,7 @@ const RENDU_DES_RUBRIQUES: Record<
   dossiers: { icone: FolderGit2, rendu: RubriqueDossiers },
   deploiement: { icone: Rocket, rendu: RubriqueDeploiement },
   production: { icone: Upload, rendu: RubriqueProduction },
-  facturation: { icone: CircleDollarSign, rendu: RubriqueFacturation },
-  retrait: { icone: Archive, rendu: RubriqueRetrait },
+  retrait: { icone: Trash2, rendu: RubriqueRetrait },
 };
 
 /* ------------------------------------------------------------------ */
@@ -89,7 +86,8 @@ const RENDU_DES_RUBRIQUES: Record<
  * Même ossature que les réglages généraux : sur grand écran, le menu à gauche
  * et la rubrique choisie à droite, chacun dans sa propre `ZoneDefilement` ; sur
  * téléphone, le menu occupe l'écran et la rubrique le RECOUVRE, avec un bouton
- * de retour.
+ * de retour. Dans les deux cas, la rubrique qui retire le projet a son entrée
+ * à part : un bouton rouge « Supprimer », tout en bas du menu.
  *
  * UN SEUL « ENREGISTRER », en pied de fenêtre : les champs vivent ici et
  * descendent dans les rubriques, qui affichent et modifient sans jamais
@@ -111,11 +109,7 @@ export function ProjectSettings({
   onRubrique?: (rubrique: string) => void;
 }) {
   const state = useApp();
-  const [clients, setClients] = React.useState<ClientEntry[]>([]);
-  const [documents, setDocuments] = React.useState<any[]>([]);
-  const [clientsEnCours, setClientsEnCours] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
-  const [facturationJoignable, setFacturationJoignable] = React.useState(true);
 
   const [name, setName] = React.useState('');
   /* La SEULE chose que le déploiement demande de régler : l'adresse de
@@ -152,11 +146,6 @@ export function ProjectSettings({
      `useThemeApplique` le fait, et lui n'écoute le système que si l'automatique
      est allumé. */
   const systemeSombre = useSystemeSombre(true);
-  const [clientId, setClientId] = React.useState('');
-  const [rate, setRate] = React.useState('130');
-  const [documentId, setDocumentId] = React.useState('');
-  const [documentType, setDocumentType] = React.useState<'offer' | 'invoice'>('invoice');
-  const [ecartChiffrage, setEcartChiffrage] = React.useState<{ count: number; ratioMoyen: number } | null>(null);
   const [faviconEnCours, setFaviconEnCours] = React.useState(false);
   /* LA PORTE D'ENTRÉE FIXE DU PROJET (`shared/src/port-projet.ts`), en texte
      tant qu'on la saisit. Vide à l'enregistrement = le port est retiré. */
@@ -206,42 +195,8 @@ export function ProjectSettings({
     setServiceDeploiement(project.deploiement?.service ?? '');
     setEngine(project.defaultEngine ?? 'claude');
     setThemeProjet(reglageApparenceValide(project.theme));
-    setClientId(project.billing?.clientId ?? '');
-    setRate(String(project.billing?.hourlyRate ?? 130));
-    setDocumentId(project.billing?.defaultDocumentId ?? '');
-    setDocumentType(project.billing?.defaultDocumentType ?? 'invoice');
   }, [project?.id, open]);
 
-  React.useEffect(() => {
-    if (!open) return;
-    setClientsEnCours(true);
-    client
-      .call<{ clients: ClientEntry[]; available: boolean }>({ type: 'billing.clients' }, 120000)
-      .then((data) => {
-        setClients(data.clients ?? []);
-        setFacturationJoignable(data.available !== false && (data.clients ?? []).length > 0);
-      })
-      .catch(() => setFacturationJoignable(false))
-      .finally(() => setClientsEnCours(false));
-    client
-      .call<{ documents: any[] }>({ type: 'billing.documents' }, 120000)
-      .then((data) => setDocuments(data.documents ?? []))
-      .catch(() => setDocuments([]));
-  }, [open]);
-
-  React.useEffect(() => {
-    if (!open || !project) {
-      setEcartChiffrage(null);
-      return;
-    }
-    client
-      .call<{ ecart: { count: number; ratioMoyen: number } | null }>(
-        { type: 'card.ecartChiffrage', projectId: project.id },
-        60000,
-      )
-      .then((data) => setEcartChiffrage(data.ecart ?? null))
-      .catch(() => setEcartChiffrage(null));
-  }, [open, project?.id]);
 
   /*
    * LES BRANCHES DU DÉPÔT, à l'ouverture de la fenêtre. Elles viennent de
@@ -277,7 +232,6 @@ export function ProjectSettings({
    */
   if (!project) return null;
 
-  const chosen = clients.find((c) => c.id === clientId);
   /* Le port saisi, lu avec la MÊME règle que le serveur : un autre projet qui
      le porte déjà se dit ici, avant l'enregistrement. */
   const portLu = port.trim() ? normaliserPort(port.trim()) : null;
@@ -314,18 +268,6 @@ export function ProjectSettings({
             commande: commandeDeploiement.trim() || undefined,
             service: ecrireServices(serviceDeploiement),
           },
-          billing: clientId
-            ? {
-                clientId,
-                clientName: chosen?.name,
-                companyId: chosen?.companyId,
-                companyName: chosen?.companySlug ?? chosen?.companyName,
-                hourlyRate: Number(rate) || 130,
-                currency: 'CHF',
-                defaultDocumentId: documentId || undefined,
-                defaultDocumentType: documentId ? documentType : undefined,
-              }
-            : undefined,
         },
       });
       client.pushToast('success', t('Réglages du projet enregistrés'));
@@ -382,20 +324,8 @@ export function ProjectSettings({
     branches,
     branchesEnCours,
     branchesRaison,
-    clients,
-    documents,
-    clientsEnCours,
-    facturationJoignable,
-    clientId,
-    setClientId,
-    rate,
-    setRate,
-    documentId,
-    setDocumentId,
-    documentType,
-    setDocumentType,
-    ecartChiffrage,
     archiver,
+    fermer: onClose,
   };
 
   const Rendu = RENDU_DES_RUBRIQUES[ouverte.cle]?.rendu;
@@ -406,22 +336,28 @@ export function ProjectSettings({
         className="sm:w-[min(940px,100%)] sm:h-[min(680px,85dvh)] h-[88dvh]"
         data-config-projet={project.id}
       >
-        <DialogHeader className="flex shrink-0 items-center gap-2 border-b border-border px-4 pb-2.5 pr-10 pt-3">
-          {/* Le retour n'existe QUE sur téléphone, et seulement quand la
-              rubrique recouvre le menu. */}
-          {rubriqueAuPremierPlan ? (
-            <button
-              type="button"
-              data-retour-menu-config
-              onClick={() => setRubriqueAuPremierPlan(false)}
-              className="-ml-1 flex items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              <span className="text-[13px]">{t('Configuration')}</span>
-            </button>
-          ) : null}
-          <DialogTitle className={cn(rubriqueAuPremierPlan && 'sm:inline hidden')}>
-            {rubriqueAuPremierPlan ? t(ouverte.titre) : t('Configuration du projet')}
+        <DialogHeader
+          className="border-b border-border pb-2.5"
+          /* Le retour n'existe QUE sur téléphone, et seulement quand la
+             rubrique recouvre le menu : il prend la place de gauche, le titre
+             reste au milieu. */
+          gauche={
+            rubriqueAuPremierPlan ? (
+              <button
+                type="button"
+                data-retour-menu-config
+                onClick={() => setRubriqueAuPremierPlan(false)}
+                className="flex items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="text-[13px]">{t('Configuration')}</span>
+              </button>
+            ) : null
+          }
+        >
+          <DialogTitle className="min-w-0 truncate">
+            <span className={cn(rubriqueAuPremierPlan && 'max-sm:hidden')}>{t('Configuration du projet')}</span>
+            {rubriqueAuPremierPlan ? <span className="sm:hidden">{t(ouverte.titre)}</span> : null}
           </DialogTitle>
         </DialogHeader>
 
@@ -437,36 +373,63 @@ export function ProjectSettings({
             >
               <ZoneDefilement className="px-2 py-2">
                 <div className="space-y-0.5">
-                  {RUBRIQUES_CONFIG_PROJET.map((item) => {
+                  {RUBRIQUES_CONFIG_PROJET.filter((item) => !item.apart).map((item) => {
                     const Icone = RENDU_DES_RUBRIQUES[item.cle]?.icone;
                     return (
-                      <React.Fragment key={item.cle}>
-                        {/* LES GESTES IRRÉVERSIBLES SONT ÉCARTÉS DU RESTE : un
-                            trait les sépare, pour qu'on n'y tombe pas en
-                            parcourant le menu. */}
-                        {item.apart ? <div className="my-1.5 border-t border-faint" /> : null}
-                        <button
-                          type="button"
-                          data-rubrique-config={item.cle}
-                          data-actif={ouverte.cle === item.cle ? 'oui' : undefined}
-                          onClick={() => ouvrir(item.cle)}
-                          className={cn(
-                            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
-                            ouverte.cle === item.cle
-                              ? 'bg-raised text-text'
-                              : 'text-muted hover:bg-raised/60 hover:text-text',
-                            item.apart && ouverte.cle !== item.cle && 'text-danger/80 hover:text-danger',
-                          )}
-                        >
-                          {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
-                          <span className="min-w-0 flex-1 truncate">{t(item.titre)}</span>
-                          <ChevronRight className="h-3 w-3 shrink-0 text-faint sm:hidden" />
-                        </button>
-                      </React.Fragment>
+                      <button
+                        key={item.cle}
+                        type="button"
+                        data-rubrique-config={item.cle}
+                        data-actif={ouverte.cle === item.cle ? 'oui' : undefined}
+                        onClick={() => ouvrir(item.cle)}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
+                          /* SUR TÉLÉPHONE CE MENU EST UNE LISTE DE PAGES : aucune
+                             n'est « choisie » tant qu'on ne l'a pas ouverte, et la
+                             première ne se colore donc pas d'office. */
+                          ouverte.cle === item.cle
+                            ? 'text-muted sm:bg-raised sm:text-teinte'
+                            : 'text-muted hover:bg-raised/60 hover:text-text',
+                        )}
+                      >
+                        {Icone ? <Icone className="h-3.5 w-3.5 shrink-0 text-faint" /> : null}
+                        <span className="min-w-0 flex-1 truncate">{t(item.titre)}</span>
+                        <ChevronRight className="h-3 w-3 shrink-0 text-faint sm:hidden" />
+                      </button>
                     );
                   })}
                 </div>
               </ZoneDefilement>
+              {/* LA RUBRIQUE ÉCARTÉE (retirer le projet) VIT TOUT EN BAS DU
+                  MENU, sous la liste qui défile et hors d'elle : un bouton
+                  PLEIN ROUGE, sans trait au-dessus — l'exception demandée à la
+                  charte en noir et blanc, pour qu'on ne la confonde avec
+                  aucune autre. Il OUVRE la rubrique, il ne supprime rien. Le
+                  texte est BLANC dans les deux thèmes (`encre-fg`), comme
+                  demandé : en sombre, où le rouge du thème est plus pâle, le
+                  fond est foncé d'un cran (`dark:bg-danger/70`, posé sur le
+                  fond de la fenêtre) pour que ce blanc s'y lise. */}
+              <div className="shrink-0 space-y-1 px-2 pb-2 pt-1" data-menu-config-pied>
+                {RUBRIQUES_CONFIG_PROJET.filter((item) => item.apart).map((item) => {
+                  const Icone = RENDU_DES_RUBRIQUES[item.cle]?.icone;
+                  return (
+                    <button
+                      key={item.cle}
+                      type="button"
+                      data-rubrique-config={item.cle}
+                      data-rubrique-a-part
+                      data-actif={ouverte.cle === item.cle ? 'oui' : undefined}
+                      aria-current={ouverte.cle === item.cle ? 'page' : undefined}
+                      onClick={() => ouvrir(item.cle)}
+                      className="flex w-full items-center gap-2 rounded-md bg-danger px-2 py-1.5 text-left text-[13.5px] font-medium text-encre-fg transition-opacity hover:opacity-90 dark:bg-danger/70"
+                    >
+                      {Icone ? <Icone className="h-3.5 w-3.5 shrink-0" /> : null}
+                      <span className="min-w-0 flex-1 truncate">{t(item.titre)}</span>
+                      <ChevronRight className="h-3 w-3 shrink-0 sm:hidden" />
+                    </button>
+                  );
+                })}
+              </div>
             </nav>
 
             {/* -------------------------- LA RUBRIQUE -------------------------- */}

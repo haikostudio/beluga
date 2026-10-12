@@ -13,7 +13,7 @@ import {
   VARIABLE_DES_PRODUCTIONS,
   consigneDeProduction,
   Ampleur,
-  CONSIGNE_CREATION_PROJET,
+  consigneCreationProjet,
   CONSIGNE_CARTE_COURTE,
   CONSIGNE_SYNTHESE_CARTE,
   CONSIGNE_NIVEAU_AGENT,
@@ -211,6 +211,7 @@ import { briefingDesCompetencesValidees } from './proposition-competences.js';
 import { accueilDesConnaissances, compterUnites, oublierLesLectures, pistesDesConnaissances, pistesParLesMots, texteDesPistes } from './connaissances.js';
 import { allDone, mergeTodos } from './todos.js';
 import { callTool, cadrageAllowList, cadrageDenyList, toolsFor, writeMcpConfig } from './tools.js';
+import { consigneSystemeDuCahier } from './cahier-des-charges.js';
 import {
   AccountRecord,
   brancherAgentsDuCompte,
@@ -1146,6 +1147,11 @@ const posterTraitementEnAttente = new Map<string, NonNullable<PromptOptions['onC
  * Et si deux fins de tour se croisaient, la demande partie en second se remet
  * d'elle-même en file — l'agent est alors occupé — sans perdre son rang.
  */
+/** La file repart d'elle-même (une demande refermée dans la barre d'écriture, `queue.edition`). */
+export function reprendreLaFile(agentId: string): void {
+  enchainerLaFile(agentId);
+}
+
 function enchainerLaFile(agentId: string): void {
   if (live.has(agentId) || demarrant.has(agentId)) return;
   purgerLesReprisesMortes(agentId);
@@ -1928,8 +1934,9 @@ async function preparerLeTour(
      * cadrage qui ne se souvient plus de la précédente — contexte comprimé,
      * session neuve — n'en rendait qu'un morceau, celui du dernier message.
      * Elle lui est donc redonnée telle qu'elle est écrite, pour que la suivante
-     * la COMPLÈTE (`FORME_DE_LA_COMPREHENSION`). Quelques centaines de signes,
-     * et seulement pour ce rôle.
+     * la COMPLÈTE (`FORME_DE_LA_COMPREHENSION`). Elle est désormais plus
+     * fournie (12/10/2026 : elle porte le constat que le bloc de réflexion
+     * montrait) — quelques milliers de signes, et seulement pour ce rôle.
      */
     const precedente = agent.role === 'cadrage' ? card.parcours?.comprehension : undefined;
     if (precedente?.texte?.trim()) {
@@ -2617,6 +2624,14 @@ async function startTurn(
   const consigneDuSite =
     agent.role === 'deploy' ? '' : consigneDeProduction(productionsProtegees().filter((p) => p.projet === project.id));
   if (consigneDuSite) systemPrompt = `${systemPrompt}\n\n${consigneDuSite}`;
+  /*
+   * LE CAHIER DES CHARGES D'UN NOUVEAU PROJET a son propre parcours de cadrage
+   * (`shared/src/cahier-des-charges.ts`). La consigne ne vaut que pour le
+   * cadrage de CETTE carte, et ne change pas d'un tour à l'autre : le genre de
+   * la carte est fixé à sa naissance.
+   */
+  const consigneDuCahier = agent.role === 'cadrage' ? consigneSystemeDuCahier(agent.id) : '';
+  if (consigneDuCahier) systemPrompt = `${systemPrompt}\n\n${consigneDuCahier}`;
   composition = { ...composition, systemPromptCharacters: systemPrompt.length };
 
   const env: Record<string, string> = {
@@ -5816,7 +5831,7 @@ function corpsDeConsigne(
     /* Vaut pour TOUS les rôles : celui qui monte le projet comme celui qui
        propose la carte qui le montera. Un projet monté sans adresse est un
        projet dont chaque déploiement finira sans rien à contrôler. */
-    `${CONSIGNE_CREATION_PROJET}\n\n` +
+    `${consigneCreationProjet()}\n\n` +
     /* LE PÉRIMÈTRE suit le projet : celui de l'application voit tout mais
        propose une carte par projet, tout autre projet reste chez lui. Tranché
        sur `isSelf`, jamais sur un nom (`shared/src/perimetre-des-agents.ts`). */

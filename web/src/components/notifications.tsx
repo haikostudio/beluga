@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import { Bell, CheckCheck } from 'lucide-react';
 import { IconeDeNotification as IconeDeLigne, bordureDIcone } from './icone-notification';
 import {
@@ -7,7 +8,9 @@ import {
   journalDesNotifications,
   lieuAtteignable,
 } from '@beluga/shared';
-import { Button, CLASSE_POINT_DE_BOUTON, Drawer, EmptyState, Pastille, ZoneDefilement } from '@/components/ui';
+import { Button, CLASSE_POINT_DE_BOUTON, DialogTitle, Drawer, EmptyState, Pastille, ZoneDefilement } from '@/components/ui';
+import { GestesDePage } from '@/components/entete-de-zone';
+import { useTelephone } from '@/lib/telephone';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, relativeTime } from '@/lib/utils';
@@ -30,9 +33,10 @@ import { t } from '@/lib/langue';
  * Le repère `data-repere-questions` reste posé sur la PASTILLE, et seulement
  * quand quelque chose attend : la cloche, elle, ne disparaît plus jamais.
  */
-export function ClocheNotifications() {
+export function ClocheNotifications({ className }: { className?: string } = {}) {
   const state = useApp();
   const [open, setOpen] = React.useState(false);
+  useTiroirAdresse('notifications', open, setOpen);
 
   /*
    * LES PORTEURS QUE CE NAVIGATEUR CONNAÎT. Une annonce « une réponse est
@@ -102,15 +106,15 @@ export function ClocheNotifications() {
   return (
     <>
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon"
-        className="relative"
+        className={cn('relative h-8 w-8 text-muted', className)}
         aria-label={libelle}
         title={libelle}
         data-cloche-notifications
         onClick={ouvrir}
       >
-        <Bell className={cn('h-4 w-4', aRegler > 0 && 'text-warning')} />
+        <Bell className={cn('h-4 w-4', aRegler > 0 && 'text-text')} />
         {/* CE QUI ATTEND UNE RÉPONSE EST ORANGE : la pastille commune, ton « répondre ». */}
         {aRegler > 0 ? (
           <Pastille nombre={aRegler} ton="repondre" position="coin" data-repere-questions="" />
@@ -162,25 +166,36 @@ function TiroirNotifications({
     client.allerVersDecision(ligne.lieu);
   };
 
+  const telephone = useTelephone();
+  const toutEffacer = (
+    <Button variant="ghost" size="sm" className="shrink-0" onClick={() => client.viderAnnonces()} data-vider-notifications>
+      <CheckCheck className="h-3 w-3" />
+      {t('Tout effacer')}
+    </Button>
+  );
+
   return (
     <Drawer open={open} onClose={onClose} className="max-h-[80dvh]">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 pb-2">
-        <Bell className="h-3.5 w-3.5 shrink-0 text-muted" />
-        <span className="min-w-0 flex-1 text-[15.5px] font-semibold text-text">{t('Notifications')}</span>
-        {lignes.length ? (
-          <Button variant="ghost" size="sm" onClick={() => client.viderAnnonces()} data-vider-notifications>
-            <CheckCheck className="h-3 w-3" />
-            {t('Tout effacer')}
-          </Button>
-        ) : null}
-      </div>
+      {/* LE NOM DE LA PAGE EST DANS SA BARRE D'EN-TÊTE, à côté de la flèche de
+          retour. « Tout effacer » monte à sa droite sur ordinateur
+          (`GestesDePage`) ; sur téléphone, où la barre n'a pas la place, il
+          partage la ligne du résumé au lieu d'en prendre une à lui. Une rangée
+          pour le nom, une autre pour le bouton, sous une barre qui ne portait
+          que la flèche : trois lignes là où une suffit. */}
+      <DialogTitle className="px-3">{t('Notifications')}</DialogTitle>
+      {lignes.length && !telephone ? <GestesDePage className="px-3 pb-1">{toutEffacer}</GestesDePage> : null}
 
-      {aRegler ? (
-        <p className="shrink-0 px-3 py-1.5 text-[12.5px] text-warning" data-resume-notifications>
-          {aRegler > 1
-            ? t('{compte} décisions attendues de votre part', { compte: aRegler })
-            : t('Une décision attendue de votre part')}
-        </p>
+      {aRegler || (telephone && lignes.length) ? (
+        <div className="flex shrink-0 items-center gap-2 px-3 py-1">
+          <p className="min-w-0 flex-1 text-[12.5px] text-warning" data-resume-notifications={aRegler ? '' : undefined}>
+            {aRegler
+              ? aRegler > 1
+                ? t('{compte} décisions attendues de votre part', { compte: aRegler })
+                : t('Une décision attendue de votre part')
+              : null}
+          </p>
+          {telephone && lignes.length ? toutEffacer : null}
+        </div>
       ) : null}
 
       <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-2 pb-3">

@@ -1,8 +1,9 @@
 import * as React from 'react';
 import {
-  ArrowUpDown,
   CalendarClock,
+  Check,
   ChevronLeft,
+  ListFilter,
   Loader2,
   NotebookPen,
   Paperclip,
@@ -25,7 +26,11 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { EditeurRiche } from '@/components/editeur-riche';
 import { SilhouetteNotes } from '@/components/silhouettes';
+import { BoutonPrincipal, CranDuFil, GestePrincipal, SuiteDuFil } from '@/components/entete-de-zone';
+import { ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne } from '@/components/rubriques-de-colonne';
 import { client } from '@/lib/client';
+import { useImagesVues } from '@/lib/use-images-vues';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
@@ -35,6 +40,7 @@ import {
   LIBELLES_TRI,
   TRIS_NOTE,
   TRI_PAR_DEFAUT,
+  capturesDuFlux,
   echeanceDepassee,
   extraitDeNote,
   filtrerEtTrierNotes,
@@ -69,10 +75,10 @@ import { useElementAdresse } from '@/lib/adresse-element';
 
 /** Le ton d'une importance, en jetons du thème — jamais une couleur écrite en dur. */
 const TON_IMPORTANCE: Record<ImportanceNote, string> = {
-  haute: 'border-danger/40 text-danger',
-  moyenne: 'border-warning/40 text-warning',
-  basse: 'border-border text-muted',
-  aucune: 'border-transparent text-faint',
+  haute: 'bg-danger/10 text-danger',
+  moyenne: 'bg-raised text-text',
+  basse: 'bg-raised text-muted',
+  aucune: 'text-faint',
 };
 
 /** Le délai d'écriture : assez court pour ne rien perdre, assez long pour ne pas marteler. */
@@ -114,6 +120,42 @@ export function NotesPage({
   const [filtreProjet, setFiltreProjet] = React.useState<string | null>(null);
   const [ouverte, setOuverte] = React.useState<string | null>(null);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const [galerieDApercu, setGalerieDApercu] = React.useState<Attachment[]>([]);
+
+  /*
+   * L'ŒIL « DÉJÀ VUE » des images d'une note : le même mécanisme que la bande
+   * « Ce que l'agent a vu » (`useImagesVues`). Ouvrir une image en grand, ou la
+   * feuilleter, la marque ; l'œil se pose sur sa vignette. Pas de filtre ici.
+   */
+  const imagesDesNotes = React.useMemo(() => pieces.filter((p) => p.mime.startsWith('image/')), [pieces]);
+  const capturesDesNotes = React.useMemo(() => capturesDuFlux([], imagesDesNotes), [imagesDesNotes]);
+  const captureDe = React.useMemo(
+    () => new Map(capturesDesNotes.flatMap((c) => (c.genre === 'jointe' ? [[c.id, c] as const] : []))),
+    [capturesDesNotes],
+  );
+  const vues = useImagesVues(capturesDesNotes);
+  const { ouvrirEnMarquant, dejaVue, dejaVueAvantOuverture } = vues;
+  const pieceVue = React.useCallback(
+    (piece: Attachment) => {
+      const c = captureDe.get(piece.id);
+      return !!c && dejaVue(c);
+    },
+    [captureDe, dejaVue],
+  );
+  const pieceVueAvantOuverture = React.useCallback(
+    (piece: Attachment) => {
+      const c = captureDe.get(piece.id);
+      return c ? dejaVueAvantOuverture(c) : false;
+    },
+    [captureDe, dejaVueAvantOuverture],
+  );
+  const ouvrirPiece = React.useCallback(
+    (piece: Attachment) => {
+      ouvrirEnMarquant(captureDe.get(piece.id));
+      setApercu(piece);
+    },
+    [captureDe, ouvrirEnMarquant],
+  );
 
   const recevoir = React.useCallback((data: { notes?: Note[]; pieces?: Attachment[] }) => {
     setNotes(data.notes ?? []);
@@ -193,9 +235,12 @@ export function NotesPage({
   };
 
   /** Une note NEUVE part vide, sur le projet regardé, et s'ouvre aussitôt. */
+  const [creation, setCreation] = React.useState(false);
   const creer = async () => {
     const projet = filtreProjet ?? projectId ?? state.projects[0]?.id;
-    if (!projet) return;
+    if (!projet || creation) return;
+    setCreation(true);
+    const avant = new Set(notes.map((n) => n.id));
     try {
       const data = await client.call<{ notes: Note[]; pieces: Attachment[] }>({
         type: 'notes.enregistrer',
@@ -209,75 +254,110 @@ export function NotesPage({
         },
       });
       recevoir(data);
-      // La note créée est la plus récemment créée du projet visé.
-      const neuve = (data.notes ?? [])
-        .filter((n) => n.projectId === projet)
-        .sort((a, b) => b.creeLe - a.creeLe)[0];
+      // La note créée est celle qui n'existait pas avant l'appel — pas une
+      // supposition sur la date de création.
+      const neuve =
+        (data.notes ?? []).find((n) => n.projectId === projet && !avant.has(n.id)) ??
+        (data.notes ?? []).filter((n) => n.projectId === projet).sort((a, b) => b.creeLe - a.creeLe)[0];
       if (neuve) setOuverte(neuve.id);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('Note non enregistrée'));
+    } finally {
+      setCreation(false);
     }
   };
+
+  /* SUR ORDINATEUR, LA LISTE DES NOTES PREND LA COLONNE DE GAUCHE, à la place
+     des projets ; la zone principale ne montre que la note ouverte. */
+  const dansLaColonne = useColonneDeService();
 
   return (
     <div className="flex h-full min-h-0" data-page-notes>
       {/* LE VOLET DE GAUCHE : la liste des notes, en cartes.
           Sur téléphone les deux volets ne tiennent pas côte à côte : la liste
           s'efface dès qu'une note est ouverte, et une flèche y ramène. */}
-      <div
-        className={cn(
-          'min-h-0 w-full shrink-0 flex-col border-r border-border sm:flex sm:w-[320px]',
-          noteOuverte ? 'hidden' : 'flex',
-        )}
-      >
-        <div className="shrink-0 px-3 pt-3">
-          <div className="flex items-center gap-2">
-            <NotebookPen className="h-4 w-4 shrink-0 text-faint" />
-            <h1 className="min-w-0 flex-1 truncate text-[15px] font-medium">{t('Notes')}</h1>
-            <Button
-              variant="default"
-              size="icon-sm"
+      <VoletDesNotes dansLaColonne={dansLaColonne} cache={!!noteOuverte}>
+        <div className="shrink-0 pt-1">
+          <h1 className="sr-only">{t('Notes')}</h1>
+          {/* SUR TÉLÉPHONE, « NOUVELLE NOTE » EST LE BOUTON DU BAS DE L'ÉCRAN —
+              tant qu'on regarde la liste : une note ouverte reprend la place,
+              le bas de l'écran ne porte jamais deux choses. */}
+          {/* SUR ORDINATEUR, LE GESTE QUI CRÉE EST EN TÊTE DE LA COLONNE, noir et
+              détaché, comme dans les autres colonnes (demande du 12/10/2026). */}
+          {dansLaColonne ? (
+            <GesteDeCreationDeColonne
+              libelle={t('Nouvelle note')}
               data-ajouter-note
               aria-label="Ajouter une note"
-              disabled={!state.projects.length}
+              disabled={!state.projects.length || creation}
+              enCours={creation}
               onClick={() => void creer()}
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-
-          <div className="relative mt-2">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-            <Input
-              value={demande}
-              aria-label="Rechercher une note"
-              placeholder={t('Rechercher…')}
-              className="pl-7"
-              data-recherche-notes
-              onChange={(event) => setDemande(event.target.value)}
             />
+          ) : !noteOuverte ? (
+            <GestePrincipal>
+              <BoutonPrincipal
+                data-ajouter-note
+                aria-label="Ajouter une note"
+                disabled={!state.projects.length || creation}
+                onClick={() => void creer()}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t('Nouvelle note')}
+              </BoutonPrincipal>
+            </GestePrincipal>
+          ) : null}
+
+          {/* LA RECHERCHE ET, À SA DROITE, LE TRI : un bouton d'icône sans
+              libellé, sur la même rangée. Le tri retenu se lit dans son menu
+              (en violet, coché) et sur le bouton, pour une machine
+              (`data-tri-notes`). */}
+          <div className="flex items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+              <Input
+                value={demande}
+                aria-label="Rechercher une note"
+                placeholder={t('Rechercher…')}
+                className="h-9 rounded-lg pl-10 text-[14px]"
+                data-recherche-notes
+                onChange={(event) => setDemande(event.target.value)}
+              />
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  title={t('Trier les notes')}
+                  aria-label="Trier les notes"
+                  data-tri-notes={tri}
+                >
+                  <ListFilter className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {TRIS_NOTE.map((cle) => (
+                  <DropdownMenuItem
+                    key={cle}
+                    onSelect={() => setTri(cle)}
+                    data-tri={cle}
+                    data-actif={cle === tri ? '' : undefined}
+                    aria-current={cle === tri ? 'true' : undefined}
+                    className={cn(cle === tri && 'text-teinte')}
+                  >
+                    <span className="min-w-0 flex-1">{t(LIBELLES_TRI[cle])}</span>
+                    <Check className={cn('h-3.5 w-3.5 shrink-0 text-teinte', cle !== tri && 'invisible')} aria-hidden />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" aria-label="Trier les notes" data-tri-notes>
-                  <ArrowUpDown className="h-3.5 w-3.5" />
-                  {t(LIBELLES_TRI[tri])}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {TRIS_NOTE.map((cle) => (
-                  <DropdownMenuItem key={cle} onSelect={() => setTri(cle)}>
-                    {t(LIBELLES_TRI[cle])}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" aria-label="Filtrer par projet" data-filtre-projet>
+                <Button variant="ghost" size="sm" className={cn('px-2', !dansLaColonne && '-ml-2')} aria-label="Filtrer par projet" data-filtre-projet>
                   {filtreProjet ? nomDuProjet(filtreProjet) : t('Tous les projets')}
                 </Button>
               </DropdownMenuTrigger>
@@ -300,7 +380,10 @@ export function NotesPage({
           </div>
         </div>
 
-        <ZoneDefilement className="min-h-0 flex-1 px-2 pb-4 pt-2">
+        {/* SUR TÉLÉPHONE, LE TEXTE D'UNE NOTE TOMBE SUR LA MARGE DE LA PAGE, comme
+            le champ de recherche : la ligne garde son retrait de 14 px pour son
+            fond de survol, et la liste déborde d'autant. */}
+        <ZoneDefilement className={cn('min-h-0 flex-1 pb-6 pt-2', !dansLaColonne && '-mx-3.5')}>
           {chargement ? (
             /* PAS DE PHRASE D'ATTENTE : la liste à venir se dessine en
                silhouette, et l'état vide (« Aucune note pour l'instant »)
@@ -328,21 +411,19 @@ export function NotesPage({
                       data-note-ouverte={note.id === ouverte || undefined}
                       onClick={() => setOuverte(note.id)}
                       className={cn(
-                        'w-full rounded-md border border-transparent px-2.5 py-2 text-left transition-colors',
-                        note.id === ouverte ? 'bg-ligne-active' : 'hover:bg-surface',
+                        'w-full rounded-xl px-3.5 py-3 text-left transition-colors',
+                        note.id === ouverte ? 'bg-ligne-active' : 'hover:bg-raised',
                       )}
                     >
-                      <p className="truncate text-[13.5px] font-medium">{note.titre}</p>
+                      <p className={cn('truncate text-[14.5px] font-medium', note.id === ouverte && 'text-teinte')}>{note.titre}</p>
                       {extrait ? (
                         <p className="mt-0.5 truncate text-[12.5px] text-muted">{extrait}</p>
                       ) : null}
                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11.5px] text-faint">
-                        <span className="truncate rounded border border-border px-1.5 py-0.5">
-                          {nomDuProjet(note.projectId) || t('Projet retiré')}
-                        </span>
+                        <span className="truncate">{nomDuProjet(note.projectId) || t('Projet retiré')}</span>
                         {note.importance !== 'aucune' ? (
                           <span
-                            className={cn('rounded border px-1.5 py-0.5', TON_IMPORTANCE[note.importance])}
+                            className={cn('rounded-md px-1.5 py-0.5', TON_IMPORTANCE[note.importance])}
                           >
                             {t(LIBELLES_IMPORTANCE[note.importance])}
                           </span>
@@ -366,7 +447,15 @@ export function NotesPage({
             </ul>
           )}
         </ZoneDefilement>
-      </div>
+      </VoletDesNotes>
+
+      {/* LE FIL D'ARIANE DIT LA NOTE OUVERTE — « Services › Notes › son titre » ;
+          « Notes » y ramène à la liste. */}
+      {noteOuverte ? (
+        <SuiteDuFil onRacine={() => setOuverte(null)}>
+          <CranDuFil data-note-du-fil={noteOuverte.id}>{noteOuverte.titre || t('Sans titre')}</CranDuFil>
+        </SuiteDuFil>
+      ) : null}
 
       {/* LE VOLET DE DROITE : la note ouverte, en entier. */}
       <div
@@ -383,19 +472,59 @@ export function NotesPage({
             onRetour={() => setOuverte(null)}
             onRecu={recevoir}
             onSupprimer={() => void supprimer(noteOuverte)}
-            onApercu={setApercu}
+            onApercu={(piece, galerie) => {
+              setGalerieDApercu(galerie);
+              ouvrirPiece(piece);
+            }}
             pieceDe={pieceDe}
+            dejaVue={pieceVue}
           />
         ) : (
           <EmptyState
             icon={<NotebookPen className="h-5 w-5" />}
             title={t('Aucune note ouverte')}
-            hint={t('Choisissez une note à gauche, ou créez-en une avec le bouton +.')}
+            hint={t('Choisissez une note à gauche, ou créez-en une avec « Nouvelle note ».')}
           />
         )}
       </div>
 
-      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+      <AttachmentPreview
+        item={apercu}
+        onClose={() => setApercu(null)}
+        galerie={galerieDApercu}
+        onNaviguer={ouvrirPiece}
+        dejaVue={pieceVueAvantOuverture}
+      />
+    </div>
+  );
+}
+
+/**
+ * LE VOLET DE LA LISTE. Sur ordinateur il s'écrit dans la colonne de gauche
+ * (`ColonneDeService`) ; sur téléphone il reste dans la page, et s'efface dès
+ * qu'une note est ouverte.
+ */
+function VoletDesNotes({
+  dansLaColonne,
+  cache,
+  children,
+}: {
+  dansLaColonne: boolean;
+  cache: boolean;
+  children: React.ReactNode;
+}) {
+  if (dansLaColonne)
+    return (
+      <ColonneDeService>
+        <div className="flex min-h-0 flex-1 flex-col" data-volet-notes="colonne">
+          {children}
+        </div>
+      </ColonneDeService>
+    );
+  return (
+    /* LA MARGE DE LA PAGE, la même que partout sur téléphone (16 px). */
+    <div className={cn('min-h-0 w-full shrink-0 flex-col px-4', cache ? 'hidden' : 'flex')} data-volet-notes="page">
+      {children}
     </div>
   );
 }
@@ -415,14 +544,18 @@ function FicheNote({
   onSupprimer,
   onApercu,
   pieceDe,
+  dejaVue,
 }: {
   note: Note;
   pieces: Attachment[];
   onRetour: () => void;
   onRecu: (data: { notes?: Note[]; pieces?: Attachment[] }) => void;
   onSupprimer: () => void;
-  onApercu: (piece: Attachment) => void;
+  /** La pièce à ouvrir en grand, et les images de la note qu'on y feuillette. */
+  onApercu: (piece: Attachment, galerie: Attachment[]) => void;
   pieceDe: (id: string) => Attachment | null;
+  /** Cette image a-t-elle déjà été ouverte en grand ? Son vignette porte alors un œil. */
+  dejaVue: (piece: Attachment) => boolean;
 }) {
   const state = useApp();
   const [titre, setTitre] = React.useState(note.titre);
@@ -522,9 +655,9 @@ function FicheNote({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-fiche-note={note.id}>
+    <div className="mx-auto flex min-h-0 w-full max-w-[860px] flex-1 flex-col sm:px-6" data-fiche-note={note.id}>
       {/* Le bandeau : retour (sur téléphone), état d'enregistrement, gestes. */}
-      <div className="flex shrink-0 items-center gap-1.5 px-3 pt-3">
+      <div className="flex shrink-0 items-center gap-1.5 px-4 pt-1 sm:pt-2">
         <Button
           variant="ghost"
           size="icon-sm"
@@ -603,7 +736,7 @@ function FicheNote({
           aria-label="Échéance de la note"
           data-echeance-note
           onChange={(event) => setEcheance(event.target.value)}
-          className="h-7 rounded-md border border-border bg-surface px-2 text-[12.5px]"
+          className="h-7 rounded-md border border-transparent bg-raised px-2 text-[12.5px]"
         />
       </div>
 
@@ -618,20 +751,32 @@ function FicheNote({
       {/* Les fichiers joints à la note, sous le texte. */}
       {jointes.length ? (
         <div
-          className="flex shrink-0 flex-wrap gap-1.5 border-t border-border px-4 py-2"
+          className="flex shrink-0 flex-wrap gap-1.5 px-4 py-3"
           data-pieces-note
         >
           {jointes.map((id) => {
             const piece = pieceDe(id) ?? pieces.find((p) => p.id === id) ?? null;
             return piece ? (
               <div key={id} className="relative">
-                <AttachmentThumb item={piece} compact onOpen={() => onApercu(piece)} />
+                <AttachmentThumb
+                  item={piece}
+                  compact
+                  vue={dejaVue(piece)}
+                  onOpen={() =>
+                    onApercu(
+                      piece,
+                      jointes
+                        .map((j) => pieceDe(j) ?? pieces.find((p) => p.id === j))
+                        .filter((p): p is Attachment => !!p && p.mime.startsWith('image/')),
+                    )
+                  }
+                />
                 <button
                   type="button"
                   title={t('Retirer ce fichier')}
                   aria-label="Retirer ce fichier"
                   onClick={() => setJointes((actuelles) => actuelles.filter((f) => f !== id))}
-                  className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
+                  className="absolute -right-1 -top-1 rounded-full bg-raised p-0.5 text-faint shadow-sm transition-colors hover:bg-danger hover:text-sur-etat"
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>

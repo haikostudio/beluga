@@ -56,10 +56,16 @@ export function BandeauProductionGroupe({
   groupe,
   membres,
   colonne = 'archived',
+  enTete = false,
+  enMenu = false,
 }: {
   groupe: Pick<Project, 'id' | 'name'>;
   membres: Project[];
   colonne?: ColumnKey;
+  /** Dans la barre d'en-tête de la page : le bouton à icône seule (`BandeauProduction`). */
+  enTete?: boolean;
+  /** Sur téléphone : aucun bouton, une ligne du menu à trois points ouvre la page (`BandeauProduction`). */
+  enMenu?: boolean;
 }) {
   const state = useApp();
   const [ouvert, setOuvert] = React.useState(false);
@@ -243,6 +249,8 @@ export function BandeauProductionGroupe({
   return (
     <BandeauProduction
       groupe
+      enTete={enTete}
+      enMenu={enMenu}
       projectId={groupe.id}
       colonne={colonne}
       suivi={resume.suivi}

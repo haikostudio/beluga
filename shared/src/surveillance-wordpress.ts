@@ -115,7 +115,7 @@ export interface CopieDeTest {
   racine: string;
   /** L'outil en ligne de commande de WordPress sur ce serveur (« wp »). */
   wpCli: string;
-  /** L'adresse de la copie (« https://invia.haikostudio.cloud »). */
+  /** L'adresse de la copie (« https://copie.exemple.com »). */
   url?: string;
 }
 

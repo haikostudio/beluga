@@ -4,7 +4,9 @@ import { AgentContextUsage } from './contexte-agent.js';
 import { MetriquesSessionLlm } from './metriques-session.js';
 import { ReglageCreation, SuggestionCreation } from './mode-creation.js';
 import { CompetenceProposee } from './proposition-competence.js';
+import { CahierDesCharges } from './cahier-des-charges.js';
 import { aLaFormeDUnMoteur, type IdDeMoteur } from './registre-moteurs.js';
+import { EtatDeLAssistant, IdentiteDInstallation } from './installation.js';
 
 /* ------------------------------------------------------------------ */
 /* Moteurs, modèles, niveaux de réflexion                              */
@@ -161,6 +163,13 @@ export const ProcedureDeDeploiement = z.object({
   processus: ProcessusEcrit.optional(),
   /** L'agent de configuration du déploiement : sa conversation, reprenable. */
   agentId: z.string().optional(),
+  /**
+   * LE PROJET DÉPLOYAIT DÉJÀ avec la commande ou le service ci-dessus quand le
+   * déploiement est devenu « à initialiser » (migration 117, 10/10/2026) : il
+   * garde ce déroulé sans passer par l'agent. Jamais posé sur un projet neuf.
+   * Effacé dès qu'un processus est écrit.
+   */
+  herite: z.boolean().optional(),
 });
 export type ProcedureDeDeploiement = z.infer<typeof ProcedureDeDeploiement>;
 
@@ -294,7 +303,7 @@ export const Project = z.object({
   deploiement: ProcedureDeDeploiement.default({}),
   miseEnProduction: ProcedureDeMiseEnProduction.default({}),
   /**
-   * L'ADRESSE PUBLIQUE DE LA VERSION EN PRODUCTION (« https://formations.haiko.studio »),
+   * L'ADRESSE PUBLIQUE DE LA VERSION EN PRODUCTION (« https://www.exemple.com »),
    * saisie dans la rubrique « Mise en production » des réglages. C'est elle que
    * l'espace de suivi des visites autorise (`server/src/suivi-par-defaut.ts`) :
    * jamais devinée, puisqu'une mauvaise adresse déclarerait un site étranger.
@@ -528,6 +537,14 @@ export const Attachment = z.object({
   cardId: z.string().optional(),
   agentId: z.string().optional(),
   createdAt: z.number(),
+  /**
+   * CETTE PIÈCE A ÉTÉ JOINTE PAR L'AGENT (outil de jointure, capture rangée par
+   * le démon), non déposée par un humain. `agentId` ne le dit pas : il nomme la
+   * conversation propriétaire, pour les deux. C'est ce repère qui dit, sans
+   * charger aucun fil, quelles images comptent pour « pas encore vues »
+   * (`capturesPasEncoreVues`). Absent = non établi.
+   */
+  deLAgent: z.boolean().optional(),
   /**
    * L'INSTANT DE LA VIDÉO QUI LUI SERT D'APERÇU, en secondes. Pas une image
    * fabriquée et rangée à part : un instant — aucun outil de découpe vidéo n'est
@@ -1224,6 +1241,13 @@ export const Card = z.object({
    */
   parcours: ParcoursDeCarte.optional(),
   /**
+   * LE CAHIER DES CHARGES D'UN NOUVEAU PROJET : présent seulement sur la carte
+   * née de la case « Démarrer par un cahier des charges ». Avancement, phase,
+   * points restants et pause — l'état explicite qui permet de reprendre
+   * exactement où on s'était arrêté (`shared/src/cahier-des-charges.ts`).
+   */
+  cahierDesCharges: CahierDesCharges.optional(),
+  /**
    * CE QUE LE JUGE RAPIDE A DIT DE CETTE CARTE — et rien de plus : aucun de ces
    * verdicts ne supprime, ne refuse ni ne lance quoi que ce soit. Absent tant
    * qu'aucune clé n'est rangée au coffre (`shared/src/jugement-rapide.ts`).
@@ -1255,6 +1279,15 @@ export const Card = z.object({
    * quand. Elle ne dit donc pas la colonne actuelle, seulement le passage.
    */
   archivedAt: z.number().optional(),
+  /**
+   * RANGÉE SUR LA PAGE « TABLEAUX DE BORD », ET LÀ SEULEMENT. Une carte finie
+   * (« À déployer » ou « Archivé ») paraît dans « Terminer » tant que
+   * l'utilisateur ne l'a pas rangée dans « Archiver » (bouton « Tout archiver »
+   * ou glisser). Ce rangement ne touche NI la colonne du projet, NI le lot de
+   * la publication : la carte reste où elle est dans son tableau. Effacée dès
+   * que la carte repart en Demande ou Travail (`store.saveCard`).
+   */
+  rangeeTableauDeBordAt: z.number().optional(),
 });
 export type Card = z.infer<typeof Card>;
 
@@ -1975,6 +2008,15 @@ export const QueuedPrompt = z.object({
    * abandonnée — une reprise ne se rejoue jamais vers un tour déjà terminé.
    */
   repriseDe: z.string().optional(),
+  /**
+   * UNE DEMANDE QU'ON MODIFIE NE PART PAS (demande du 12/10/2026). L'écran pose
+   * ce repère (l'heure, rafraîchie toutes les deux minutes) tant que la demande
+   * est ouverte dans la barre d'écriture ; la file s'arrête devant elle, et
+   * repart quand la modification est enregistrée ou annulée. Au-delà de
+   * `EDITION_EN_FILE_PERIMEE_MS` sans nouvelle, le repère ne vaut plus : un
+   * écran fermé en pleine modification ne bloque pas la file pour toujours.
+   */
+  enEditionDepuis: z.number().optional(),
   createdAt: z.number(),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPrompt>;
@@ -2583,6 +2625,15 @@ export const Settings = z.object({
    * GLOBAL ; l'agent peut suggérer autre chose, pour une carte seulement.
    */
   creation: ReglageCreation.default({}),
+  /**
+   * L'IDENTITÉ DE CETTE INSTALLATION : son adresse, son nom de domaine, son
+   * espace client, ses courriels. Vide sur une installation neuve, et chaque
+   * fonction qui en dépend reste éteinte tant que sa valeur manque
+   * (`shared/src/installation.ts`).
+   */
+  installation: IdentiteDInstallation.default({}),
+  /** Où en est l'assistant de premier démarrage (`shared/src/installation.ts`). */
+  assistant: EtatDeLAssistant.default({}),
 });
 export type Settings = z.infer<typeof Settings>;
 

@@ -71,7 +71,14 @@ const abandonsDits = new Set<string>();
  */
 function cartesDeployables(project: Project): { pretes: Card[]; retenues: Card[] } {
   const enAttente = deployableCards(project.id, 'to_deploy');
-  const agents = store.listAgents(project.id);
+  /* SEULS LES AGENTS DE CES CARTES COMPTENT : `carteAttendUneDecision` ne lit
+     que celui que la carte reconnaît comme le sien (`card.agentId`). Relire
+     tous les agents du projet à chaque passe de quinze secondes figeait le
+     démon près de deux secondes (mesuré le 12/10/2026). */
+  const agents = store.agentsDesCartesEnCours(
+    [],
+    enAttente.map((card) => card.agentId).filter((id): id is string => !!id),
+  );
   const decisions = store.decisionsEnAttente();
   const pretes: Card[] = [];
   const retenues: Card[] = [];

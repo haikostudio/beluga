@@ -1,0 +1,128 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import type { Readable } from 'node:stream';
+import yazl from 'yazl';
+import { MAX_IMAGES_PAR_ARCHIVE, nomDArchiveDImages, nomsSansDoublon, type Attachment } from '@beluga/shared';
+
+/**
+ * « TOUT TÉLÉCHARGER » DE LA VISIONNEUSE : les images qu'elle parcourt, en UNE
+ * archive. EN DEUX TEMPS : `POST /api/attachments/archive` reçoit la liste
+ * (corps JSON), la vérifie ENTIÈRE (`verifierArchive`) et la met de côté sous
+ * un jeton (`deposerLot`) ; `GET …?lot=<jeton>` rend le zip. La liste ne passe
+ * plus dans l'adresse : au-delà de ~300 images, elle dépassait les 16 Ko
+ * d'entêtes que Node accepte, et la demande mourait en 431.
+ *
+ * LE MÊME CONTRÔLE QUE `/api/attachment`, POUR CHAQUE IMAGE : `peutLire` dit si
+ * le compte peut lire la pièce (pour un client : une pièce de SES demandes ou de
+ * SON fil ; une image du coffre-fort : l'administrateur seul). UNE SEULE pièce
+ * hors de portée refuse TOUTE l'archive, avec le refus ordinaire : un lot à
+ * moitié rempli se prendrait pour le lot entier.
+ *
+ * Les captures d'étape d'un agent (`/api/capture`) y entrent aussi, pour
+ * l'administrateur seul — un client n'en voit jamais.
+ *
+ * Chaque fichier garde son VRAI nom (`attachment.name`, jamais l'étiquette
+ * « #alias »), dédoublonné. L'archive part en FLUX et sans compression (des
+ * images sont déjà compressées) : rien ne tient en mémoire, et le poids final
+ * est connu d'avance pour l'entête `content-length`.
+ */
+export type ArchiveDesImages =
+  | { ok: true; nom: string; flux: Readable; poids: Promise<number>; fichiers: string[] }
+  | { ok: false; statut: 400 | 403 | 404; raison: string };
+
+export interface DemandeDArchive {
+  ids: string[];
+  /** Les captures d'étape, toutes du même projet. */
+  captures?: { projet: string; chemins: string[] };
+  nom?: string | null;
+}
+
+export interface AccesDeLArchive {
+  lirePiece: (id: string) => Attachment | null | undefined;
+  peutLire: (piece: Attachment) => boolean;
+  cheminDe: (piece: Attachment) => string;
+  /** Le fichier d'une capture d'étape, ou null ; absent : captures refusées (client). */
+  trouverCapture?: (projet: string, chemin: string) => string | null;
+  refus: string;
+}
+
+type Entree = { chemin: string; nom: string };
+type Refus = { ok: false; statut: 400 | 403 | 404; raison: string };
+
+/** TOUT CE QUI REFUSE UNE ARCHIVE, vérifié AVANT d'en écrire un octet : sert au dépôt du lot comme au zip. */
+export function verifierArchive(demande: DemandeDArchive, acces: AccesDeLArchive): { ok: true; entrees: Entree[] } | Refus {
+  const ids = [...new Set(demande.ids.filter(Boolean))];
+  const chemins = [...new Set(demande.captures?.chemins.filter(Boolean) ?? [])];
+  const total = ids.length + chemins.length;
+  if (!total) return { ok: false, statut: 400, raison: 'aucune image demandée' };
+  if (total > MAX_IMAGES_PAR_ARCHIVE) {
+    return { ok: false, statut: 400, raison: `plus de ${MAX_IMAGES_PAR_ARCHIVE} images à la fois : téléchargez-les séparément` };
+  }
+
+  const entrees: Entree[] = [];
+  for (const id of ids) {
+    const piece = acces.lirePiece(id);
+    // Une pièce absente et une pièce hors de portée disent la même chose : rien ne se devine.
+    if (!piece || !acces.peutLire(piece)) return { ok: false, statut: 403, raison: acces.refus };
+    const chemin = acces.cheminDe(piece);
+    if (!fs.existsSync(chemin)) return { ok: false, statut: 404, raison: `le fichier « ${piece.name} » est absent du disque` };
+    entrees.push({ chemin, nom: path.basename(piece.name) || 'image' });
+  }
+  if (chemins.length) {
+    if (!acces.trouverCapture || !demande.captures) return { ok: false, statut: 403, raison: acces.refus };
+    for (const c of chemins) {
+      const fichier = acces.trouverCapture(demande.captures.projet, c);
+      if (!fichier) return { ok: false, statut: 404, raison: 'une capture n’existe plus' };
+      entrees.push({ chemin: fichier, nom: path.basename(fichier) });
+    }
+  }
+  return { ok: true, entrees };
+}
+
+export function archiveDesImages(demande: DemandeDArchive, acces: AccesDeLArchive): ArchiveDesImages {
+  const verifiee = verifierArchive(demande, acces);
+  if (!verifiee.ok) return verifiee;
+  const { entrees } = verifiee;
+
+  const noms = nomsSansDoublon(entrees.map((e) => e.nom));
+  const zip = new yazl.ZipFile();
+  entrees.forEach((e, i) => zip.addFile(e.chemin, noms[i]!, { compress: false }));
+  // Les types de yazl taisent l'argument du rappel : c'est le poids final calculé (-1 s'il est inconnu).
+  const finir = zip.end.bind(zip) as unknown as (options: object, poidsCalcule: (octets: number) => void) => void;
+  const poids = new Promise<number>((resolve) => finir({}, resolve));
+  return { ok: true, nom: nomDArchiveDImages(demande.nom), flux: zip.outputStream as unknown as Readable, poids, fichiers: noms };
+}
+
+/*
+ * LES LOTS PRÉPARÉS : en mémoire, dix minutes, au nom du COMPTE qui les a
+ * déposés. Le jeton se relit autant de fois qu'il faut pendant sa vie (le
+ * navigateur peut faire un HEAD, reprendre un téléchargement) ; un autre
+ * compte, un jeton inconnu ou périmé : refus. Les droits sont REVÉRIFIÉS à
+ * chaque lecture (`archiveDesImages` avec le compte courant) — le jeton ne
+ * garde que la liste, jamais une permission.
+ */
+export const DUREE_D_UN_LOT_MS = 10 * 60_000;
+const MAX_LOTS = 200;
+const lots = new Map<string, { proprietaire: string; demande: DemandeDArchive; expire: number }>();
+
+function purgerLots(maintenant: number): void {
+  for (const [jeton, lot] of lots) if (lot.expire <= maintenant) lots.delete(jeton);
+}
+
+/** Met une liste VÉRIFIÉE de côté ; rend son jeton. */
+export function deposerLot(proprietaire: string, demande: DemandeDArchive, maintenant = Date.now()): string {
+  purgerLots(maintenant);
+  // Un flot de dépôts ne fait pas grossir la mémoire : les plus anciens partent.
+  while (lots.size >= MAX_LOTS) lots.delete(lots.keys().next().value!);
+  const jeton = crypto.randomBytes(18).toString('base64url');
+  lots.set(jeton, { proprietaire, demande, expire: maintenant + DUREE_D_UN_LOT_MS });
+  return jeton;
+}
+
+/** La liste d'un lot, pour SON compte seulement ; null sinon (inconnu, périmé, ou d'un autre compte). */
+export function lireLot(jeton: string, proprietaire: string, maintenant = Date.now()): DemandeDArchive | null {
+  purgerLots(maintenant);
+  const lot = lots.get(jeton);
+  return lot && lot.proprietaire === proprietaire ? lot.demande : null;
+}

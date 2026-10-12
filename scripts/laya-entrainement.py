@@ -69,7 +69,7 @@ def main():
     p.add_argument("--travail", required=True, help="dossier d'état de l'entraînement")
     p.add_argument("--fin", type=float, required=True, help="instant d'arrêt, en ms depuis l'époque")
     p.add_argument("--memoire-min", type=int, default=700)
-    p.add_argument("--fils", type=int, default=3)
+    p.add_argument("--fils", type=int, default=2)
     p.add_argument("--couches", type=int, default=4)
     p.add_argument("--epoques", type=int, default=3)
     p.add_argument("--lot", type=int, default=4)

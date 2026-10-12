@@ -568,17 +568,20 @@ export function genreDuMime(mime: string): MediaStudio['genre'] | null {
 }
 
 /** Une pièce jointe du projet entre dans la bibliothèque (import d'une photo, d'une vidéo, d'un son). */
-export function importerPieceJointe(projectId: string, attachmentId: string, extra: { licence?: string; creationId?: string } = {}): Resultat<{ media: MediaStudio }> {
+export function importerPieceJointe(
+  projectId: string,
+  attachmentId: string,
+  extra: { licence?: string; creationId?: string; duree?: number; largeur?: number; hauteur?: number } = {},
+): Resultat<{ media: MediaStudio; nouveau: boolean }> {
   const piece = store.getAttachment(attachmentId);
   if (!piece || piece.projectId !== projectId) return { ok: false, raison: 'fichier introuvable dans ce projet' };
   const genre = genreDuMime(piece.mime);
   if (!genre) return { ok: false, raison: 'seules les images, vidéos et sons entrent dans la bibliothèque' };
-  const deja = getDb().prepare("SELECT id FROM studio_medias WHERE project_id = ? AND attachment_id = ? AND provenance = 'import'").get(projectId, attachmentId) as
-    | { id: string }
-    | undefined;
-  if (deja) return { ok: true, media: lireMedia(deja.id)! };
+  const deja = mediaDejaImporte(projectId, attachmentId);
+  if (deja) return { ok: true, media: deja, nouveau: false };
   return {
     ok: true,
+    nouveau: true,
     media: ajouterMedia({
       projectId,
       ...(extra.creationId ? { creationId: extra.creationId } : {}),
@@ -588,8 +591,18 @@ export function importerPieceJointe(projectId: string, attachmentId: string, ext
       attachmentId: piece.id,
       mime: piece.mime,
       ...(extra.licence ? { licence: extra.licence } : {}),
+      ...(extra.duree ? { duree: extra.duree } : {}),
+      ...(extra.largeur && extra.hauteur ? { largeur: extra.largeur, hauteur: extra.hauteur } : {}),
     }),
   };
+}
+
+/** Le média déjà importé depuis cette pièce jointe, s'il existe (un import ne se double pas). */
+export function mediaDejaImporte(projectId: string, attachmentId: string): MediaStudio | null {
+  const deja = getDb().prepare("SELECT id FROM studio_medias WHERE project_id = ? AND attachment_id = ? AND provenance = 'import'").get(projectId, attachmentId) as
+    | { id: string }
+    | undefined;
+  return deja ? lireMedia(deja.id) : null;
 }
 
 /** Le fichier d'un média, sur le disque. */
@@ -651,6 +664,8 @@ interface LigneExport {
   voix_en_essai: number;
   reglages?: string | null;
   lot?: string | null;
+  demarre_le?: number | null;
+  termine_le?: number | null;
   cree_le: number;
   maj_le: number;
 }
@@ -683,6 +698,8 @@ function depuisLigneExport(l: LigneExport): ExportStudio {
     ...(l.lot ? { lot: l.lot } : {}),
     creeLe: l.cree_le,
     majLe: l.maj_le,
+    ...(l.demarre_le ? { demarreLe: l.demarre_le } : {}),
+    ...(l.termine_le ? { termineLe: l.termine_le } : {}),
   };
 }
 
@@ -728,8 +745,14 @@ export function majExport(id: string, champs: Partial<Pick<ExportStudio, 'etat' 
   const e = lireExport(id);
   if (!e) return null;
   const suivant = { ...e, ...champs };
+  const maintenant = Date.now();
   getDb()
-    .prepare('UPDATE studio_exports SET etat = ?, progression = ?, attachment_id = ?, affiche_id = ?, duree = ?, erreur = ?, maj_le = ? WHERE id = ?')
+    .prepare(
+      `UPDATE studio_exports SET etat = ?, progression = ?, attachment_id = ?, affiche_id = ?, duree = ?, erreur = ?, maj_le = ?,
+         demarre_le = CASE WHEN ? = 'en-cours' THEN COALESCE(demarre_le, ?) ELSE demarre_le END,
+         termine_le = CASE WHEN ? IN ('pret', 'echoue', 'annule') THEN COALESCE(termine_le, ?) ELSE termine_le END
+       WHERE id = ?`,
+    )
     .run(
       suivant.etat,
       suivant.progression,
@@ -737,7 +760,11 @@ export function majExport(id: string, champs: Partial<Pick<ExportStudio, 'etat' 
       suivant.afficheId ?? null,
       suivant.duree ?? null,
       suivant.erreur ?? null,
-      Date.now(),
+      maintenant,
+      suivant.etat,
+      maintenant,
+      suivant.etat,
+      maintenant,
       id,
     );
   if (champs.etat === 'pret') {

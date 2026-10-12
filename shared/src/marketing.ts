@@ -1,3 +1,4 @@
+import { slugEntier } from './slugs.js';
 /**
  * L'ATELIER MARKETING — les règles pures, sans base ni réseau.
  *
@@ -1018,14 +1019,7 @@ export function identifiantDeNavigateur(valeur: unknown): string | undefined {
  */
 export function nomDeRepere(valeur: unknown): string | undefined {
   if (typeof valeur !== 'string') return undefined;
-  const nom = valeur
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60)
-    .replace(/-+$/, '');
+  const nom = slugEntier(valeur).slice(0, 60).replace(/-+$/, '');
   return nom || undefined;
 }
 

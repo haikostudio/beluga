@@ -5,18 +5,23 @@ Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
-# LE CHEMIN CI-DESSOUS EST CELUI D'UNE INSTALLATION NEUVE (`/root/beluga`).
-# `scripts/installer-services.sh` le remplace par le dossier RÉEL du dépôt :
-# une machine installée avant le renommage garde le sien, sans rien casser.
+# CE FICHIER EST UN MODÈLE. `scripts/installer-services.sh` y remplace trois
+# choses par celles de la machine où il tourne, et pose le résultat dans
+# `/etc/systemd/system` :
+#   - le chemin `/root/beluga`        → le dossier RÉEL du dépôt ;
+#   - le compte et le groupe `beluga` → le compte propriétaire du dépôt ;
+#   - le dossier `/home/beluga`       → le dossier personnel de ce compte.
+# Une machine installée avant ces remplacements garde les siens, sans rien
+# casser : le script relit ce qui est en place et n'invente rien.
 Type=simple
-User=haiko
-Group=haiko
+User=beluga
+Group=beluga
 WorkingDirectory=/root/beluga
 Environment=NODE_ENV=production
-Environment=HOME=/home/utilisateur
+Environment=HOME=/home/beluga
 Environment=BELUGA_HOST=127.0.0.1
 Environment=BELUGA_PORT=7070
-Environment=PATH=/home/utilisateur/.local/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PATH=/home/beluga/.local/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Les secrets vivent HORS du dépôt : fichier facultatif.
 EnvironmentFile=-/etc/beluga.env
 ExecStart=/usr/bin/node /root/beluga/server/dist/main.js

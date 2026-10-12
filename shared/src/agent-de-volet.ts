@@ -37,3 +37,59 @@ export function estAgentDeVolet(
   if (agent.role === 'cadrage' || agent.workdir) return false;
   return (carte.labels ?? []).some((label) => LABELS_DE_VOLET.includes(label));
 }
+
+/**
+ * LE SERVICE D'OÙ VIENT LA CARTE D'UN AGENT DE VOLET. Un clic sur cette carte
+ * ramène l'utilisateur dans le service, sur la conversation de l'agent, et non
+ * dans le volet de la carte : « sinon je ne sais plus exactement à quoi ça
+ * correspond ». Le badge et le cadre jaune de la carte lisent la même règle.
+ *
+ * Un agent de configuration (déploiement, mise en production : rôle `deploy`)
+ * n'est JAMAIS un agent de volet : il garde sa carte Système violette, qui ouvre
+ * déjà son tiroir.
+ */
+export type ServiceDeCarte = 'studio' | 'marketing' | 'surveillance' | 'backups' | 'bibliotheque';
+
+/** Le service de chaque étiquette de volet. */
+const SERVICE_PAR_ETIQUETTE: ReadonlyArray<readonly [string, ServiceDeCarte]> = [
+  [LABEL_STUDIO, 'studio'],
+  [LABEL_MARKETING, 'marketing'],
+  [LABEL_SURVEILLANCE, 'surveillance'],
+  [LABEL_BACKUP, 'backups'],
+  [LABEL_BIBLIOTHEQUE, 'bibliotheque'],
+];
+
+/** Le service de la carte d'un agent de volet, ou `null` pour toute autre carte. */
+export function serviceDeLaCarte(
+  agent: { role?: string; workdir?: string | null } | null | undefined,
+  carte: { labels?: readonly string[] | null } | null | undefined,
+): ServiceDeCarte | null {
+  if (!estAgentDeVolet(agent, carte)) return null;
+  const etiquettes = carte?.labels ?? [];
+  return SERVICE_PAR_ETIQUETTE.find(([etiquette]) => etiquettes.includes(etiquette))?.[1] ?? null;
+}
+
+/** Le nom du service sur le badge de la carte (le dictionnaire le traduit à l'affichage). */
+export const NOM_DU_SERVICE: Readonly<Record<ServiceDeCarte, string>> = {
+  studio: 'Studio',
+  marketing: 'Marketing',
+  surveillance: 'Surveillance',
+  backups: 'Sauvegardes',
+  bibliotheque: 'Bibliothèque',
+};
+
+/**
+ * OÙ MÈNE LE CLIC : la vue du service et l'élément qu'elle ouvre (une création,
+ * le projet d'un atelier, un site). La bibliothèque de styles n'a pas de
+ * conversation dans le Studio : sa carte reste le seul endroit où lire son fil,
+ * elle n'a donc pas de lieu.
+ */
+export type LieuDeService = {
+  vue: 'studio' | 'marketing' | 'surveillance' | 'backups';
+  elementId: string;
+};
+
+/** Un service dont la conversation de l'agent se lit dans son propre écran. */
+export function serviceAUneConversation(service: ServiceDeCarte): boolean {
+  return service !== 'bibliotheque';
+}

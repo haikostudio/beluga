@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { DUREE_SYSTEME_TERMINE_MS, agentSystemeTermine, misesEnProductionAAfficher } from '@beluga/shared';
+import {
+  DUREE_SYSTEME_TERMINE_MS,
+  PROJET_DU_COFFRE,
+  agentSystemeTermine,
+  estUnReglageVide,
+  misesEnProductionAAfficher,
+  retenueParUneEdition,
+} from '@beluga/shared';
 import {
   Agent,
   Attachment,
@@ -28,6 +35,7 @@ import {
   Project,
   ProjectGroup,
   QueuedPrompt,
+  piecesApresModification,
   Settings,
   TaskProposal,
   cleDeSession,
@@ -63,6 +71,7 @@ import {
   type OngletEnRoute,
   pilesEnRoute,
   type TotauxParColonne,
+  definirIdentiteDInstallation,
 } from '@beluga/shared';
 import {
   HISTOIRE_DU_MOIS_MS,
@@ -98,6 +107,9 @@ export function getSettings(): Settings {
 export function saveSettings(patch: Partial<Settings>): Settings {
   const merged = Settings.parse({ ...getSettings(), ...patch });
   setMeta('settings', JSON.stringify(merged));
+  // L'identité de l'installation se lit en mémoire partout dans le code : un
+  // réglage enregistré vaut tout de suite, sans redémarrage.
+  if (patch.installation) definirIdentiteDInstallation(merged.installation);
   return merged;
 }
 
@@ -390,8 +402,20 @@ export function readPreferences(): Record<string, unknown> {
   return out;
 }
 
+/** Un seul réglage, sans relire les milliers d'autres (la diffusion d'un `prefs.set`). */
+export function readPreference(key: string): unknown {
+  const row = getDb().prepare('SELECT value FROM preferences WHERE key = ?').get(key) as { value: string } | undefined;
+  if (!row) return undefined;
+  try {
+    return JSON.parse(row.value);
+  } catch {
+    return row.value;
+  }
+}
+
 export function writePreference(key: string, value: unknown): void {
-  if (value === undefined || value === null) {
+  // Un brouillon vide se retire (`estUnReglageVide`) : il alourdissait le premier envoi de 280 Ko.
+  if (value === undefined || value === null || estUnReglageVide(key, value)) {
     getDb().prepare('DELETE FROM preferences WHERE key = ?').run(key);
     return;
   }
@@ -401,6 +425,36 @@ export function writePreference(key: string, value: unknown): void {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     )
     .run(key, JSON.stringify(value), now());
+}
+
+/* ------------------------------------------------------------------ */
+/* Images déjà vues                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CE QUE CHAQUE COMPTE A DÉJÀ OUVERT EN GRAND (`capture_vues`).
+ *
+ * Par COMPTE, jamais en commun : l'œil d'une vignette dit « VOUS l'avez déjà
+ * ouverte ». Et hors de `preferences`, dont chaque écriture rediffuse le bloc
+ * entier à tous les écrans. L'écran ne demande que les clés de la bande qu'il
+ * affiche : rien de tout cela ne part au premier envoi.
+ */
+export function capturesVues(userId: string, cles: readonly string[]): string[] {
+  if (!cles.length) return [];
+  const lignes = getDb()
+    .prepare('SELECT cle FROM capture_vues WHERE user_id = ? AND cle IN (SELECT value FROM json_each(?))')
+    .all(userId, JSON.stringify(cles)) as { cle: string }[];
+  return lignes.map((ligne) => ligne.cle);
+}
+
+/** Retient ces images comme vues, et rend celles qui ne l'étaient PAS encore. */
+export function marquerCapturesVues(userId: string, cles: readonly string[], at = now()): string[] {
+  const poser = getDb().prepare('INSERT OR IGNORE INTO capture_vues (user_id, cle, vue_le) VALUES (?, ?, ?)');
+  const nouvelles: string[] = [];
+  getDb().transaction(() => {
+    for (const cle of new Set(cles)) if (poser.run(userId, cle, at).changes) nouvelles.push(cle);
+  })();
+  return nouvelles;
 }
 
 /* ------------------------------------------------------------------ */
@@ -730,9 +784,9 @@ export function cartesEnRoute(
  * `placeDeLaFamille`, la même règle écrite en SQL).
  *
  *   1. `cand` : les familles qui ont une carte candidate — Demande ou Travail
- *      pour « Actifs », À déployer pour « Terminer », Archivé (en ligne ou
- *      non) pour « Archiver » (index `idx_cards_derniere_action`, qui
- *      commence par la colonne) ;
+ *      pour « Actifs », finie (À déployer ou Archivé) et pas rangée sur la
+ *      page pour « Terminer » (index `idx_cards_a_terminer`), finie et rangée
+ *      pour « Archiver » (`rangeeTableauDeBordAt`) ;
  *   2. `membres` : toutes les cartes de ces familles, la mère par sa clé, les
  *      filles par `carte_mere_id` (index `idx_cards_carte_mere`) ;
  *   3. `familles` : la clé de tri (dernière action de la plus récente carte
@@ -754,8 +808,8 @@ function famillesParDerniereAction(
     onglet === 'actif'
       ? `c.column_key IN (SELECT value FROM json_each(@enRoute))`
       : onglet === 'terminer'
-        ? `c.column_key = 'to_deploy'`
-        : `c.column_key = 'archived'`;
+        ? `c.column_key IN ('to_deploy', 'archived') AND c.rangee_tableau_de_bord_at IS NULL`
+        : `c.column_key IN ('to_deploy', 'archived') AND c.rangee_tableau_de_bord_at IS NOT NULL`;
   const avec = `
     WITH cand AS (
       SELECT DISTINCT COALESCE(c.carte_mere_id, c.id) AS fam
@@ -763,16 +817,16 @@ function famillesParDerniereAction(
        WHERE p.archived = 0 AND ${candidate} AND ${SANS_MARKETING}
     ),
     membres AS (
-      SELECT cand.fam, m.id, m.updated_at, m.column_key, m.deployed_at, m.project_id
+      SELECT cand.fam, m.id, m.updated_at, m.column_key, m.deployed_at, m.project_id, m.rangee_tableau_de_bord_at
         FROM cand JOIN cards m ON m.id = cand.fam
       UNION ALL
-      SELECT cand.fam, m.id, m.updated_at, m.column_key, m.deployed_at, m.project_id
+      SELECT cand.fam, m.id, m.updated_at, m.column_key, m.deployed_at, m.project_id, m.rangee_tableau_de_bord_at
         FROM cand JOIN cards m ON m.carte_mere_id = cand.fam
     ),
     visibles AS (
       SELECT x.*, (x.column_key IN (SELECT value FROM json_each(@enRoute))) AS en_route,
-             (x.column_key = 'to_deploy') AS a_terminer,
-             (x.column_key = 'archived') AS archivee
+             (x.column_key IN ('to_deploy', 'archived') AND x.rangee_tableau_de_bord_at IS NULL) AS a_terminer,
+             (x.column_key IN ('to_deploy', 'archived') AND x.rangee_tableau_de_bord_at IS NOT NULL) AS archivee
         FROM membres x JOIN projects p ON p.id = x.project_id
        WHERE p.archived = 0
     ),
@@ -832,6 +886,20 @@ function famillesParDerniereAction(
       .get(args(curseur)) as { n: number }
   ).n;
   return { cards, restant, curseur };
+}
+
+/**
+ * LES CARTES MISES EN LIGNE RESTÉES EN « À DÉPLOYER » : une publication passée
+ * sous la règle retirée « plus d'archivage automatique » (08/10/2026) les y a
+ * laissées. Une carte qui ENTRE dans « À déployer » perd sa date (DEC-149) :
+ * aucune autre ne peut y porter une date de mise en ligne.
+ */
+export function idsDesCartesEnLigneRestees(): string[] {
+  return (
+    getDb()
+      .prepare(`SELECT id FROM cards WHERE column_key = 'to_deploy' AND deployed_at > 0`)
+      .all() as { id: string }[]
+  ).map((r) => r.id);
 }
 
 /**
@@ -1138,6 +1206,12 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
     updatedAt: instant,
     lastReadAt: changeDeColonne ? Math.max(instant, card.lastReadAt ?? 0) : card.lastReadAt,
   });
+  /* Une carte qui repart en Demande ou Travail perd son rangement de la page
+     « Tableaux de bord » : finie de nouveau, elle reparaîtra dans « Terminer ».
+     La clé disparaît (jamais `undefined` écrit) : la carte se relit à l'identique. */
+  if ((COLONNES_EN_ROUTE as readonly string[]).includes(value.column) || value.rangeeTableauDeBordAt == null) {
+    delete value.rangeeTableauDeBordAt;
+  }
   /*
    * `updatedAt` EST LA DERNIÈRE ACTION SUR LA CARTE, PAS SA DERNIÈRE ÉCRITURE.
    *
@@ -1161,11 +1235,11 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
       `INSERT INTO cards (id, project_id, column_key, position, title, data, deployed_at, created_at, updated_at,
                           description, origin, agent_id, conversation_agent_id, analyse_demandee,
                           code_deja_enregistre, hors_tache, excluded_from_deploy, done_at, archived_at,
-                          last_read_at, run_engine, run_model, run_thinking, run_mode, carte_mere_id)
+                          rangee_tableau_de_bord_at, last_read_at, run_engine, run_model, run_thinking, run_mode, carte_mere_id)
        VALUES (@id, @project_id, @column_key, @position, @title, @data, @deployed_at, @created_at, @updated_at,
                @description, @origin, @agent_id, @conversation_agent_id, @analyse_demandee,
                @code_deja_enregistre, @hors_tache, @excluded_from_deploy, @done_at, @archived_at,
-               @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode, @carte_mere_id)
+               @rangee_tableau_de_bord_at, @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode, @carte_mere_id)
        ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, column_key = excluded.column_key,
          position = excluded.position, title = excluded.title, data = excluded.data,
          deployed_at = excluded.deployed_at, updated_at = excluded.updated_at,
@@ -1173,7 +1247,8 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
          conversation_agent_id = excluded.conversation_agent_id, analyse_demandee = excluded.analyse_demandee,
          code_deja_enregistre = excluded.code_deja_enregistre, hors_tache = excluded.hors_tache,
          excluded_from_deploy = excluded.excluded_from_deploy, done_at = excluded.done_at,
-         archived_at = excluded.archived_at, last_read_at = excluded.last_read_at,
+         archived_at = excluded.archived_at, rangee_tableau_de_bord_at = excluded.rangee_tableau_de_bord_at,
+         last_read_at = excluded.last_read_at,
          run_engine = excluded.run_engine, run_model = excluded.run_model,
          run_thinking = excluded.run_thinking, run_mode = excluded.run_mode,
          carte_mere_id = excluded.carte_mere_id`,
@@ -1370,6 +1445,29 @@ export function agentsAvecFileEnAttente(): Agent[] {
   const rows = getDb()
     .prepare(`SELECT data FROM agents WHERE id IN (SELECT DISTINCT agent_id FROM queue)`)
     .all() as { data: string }[];
+  return rows.map((r) => Agent.parse(JSON.parse(r.data)));
+}
+
+/**
+ * LES AGENTS QUI RETIENNENT LA PUBLICATION D'UN PROJET (`agentsOccupes`,
+ * `deploy.ts`, rejouée toutes les quinze secondes par le déploiement
+ * automatique) : ceux qui démarrent ou tournent, et ceux qui gardent un tour
+ * vivant — filtrés EN SQL, comme `agentsDeLaVeille`. `agentsOccupes` relisait
+ * TOUS les agents du projet, deux fois de suite : 2 500 lignes passées au
+ * modèle pour le projet de Beluga, soit l'essentiel des gels de 1,5 s du démon
+ * mesurés le 12/10/2026 (`data/logs/blocages.log`). Le filtre en code
+ * (`agentRetientLaPublication`) reste derrière : la base n'écarte QUE ce que la
+ * règle aurait écarté.
+ */
+export function agentsQuiRetiennentLaPublication(projectId: string): Agent[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT data FROM agents
+        WHERE project_id = ?
+          AND (status IN ('running', 'starting')
+               OR json_extract(data, '$.tourVivantDepuis') IS NOT NULL)`,
+    )
+    .all(projectId) as { data: string }[];
   return rows.map((r) => Agent.parse(JSON.parse(r.data)));
 }
 
@@ -2414,8 +2512,8 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
    * écrite, un message repris ailleurs — et le panneau attendait pendant que la
    * ligne du projet restait muette. On reprend donc ici les propositions
    * ENCORE EN ATTENTE portées par un message et absentes de la table. Le filtre
-   * SQL est étroit (deux `LIKE` sur des propositions non tranchées) : sur ce
-   * serveur, il ne ramène qu'une poignée de lignes.
+   * SQL est étroit (deux `LIKE` sur des propositions non tranchées, tenus par un
+   * index partiel) : sur ce serveur, il ne ramène qu'une poignée de lignes.
    */
   const portees = getDb()
     .prepare(
@@ -2423,7 +2521,12 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
               m.id AS messageId, m.data AS data, m.created_at AS createdAt
        FROM messages m
        JOIN agents a ON a.id = m.agent_id
-       WHERE m.data LIKE '%"proposals":[{%' AND m.data LIKE '%"decision":"pending"%'`,
+       -- L'INDEX PARTIEL D'ABORD (migration 121) : la colonne générée porte
+       -- ce même prédicat. Les deux LIKE restent derrière, pour que le
+       -- résultat ne dépende jamais de l'index seul. Sans lui, ce filet
+       -- balayait le texte de tous les messages à chaque calcul (418 ms).
+       WHERE m.a_proposition_en_attente = 1
+         AND m.data LIKE '%"proposals":[{%' AND m.data LIKE '%"decision":"pending"%'`,
     )
     .all() as {
     projectId: string;
@@ -2896,6 +2999,9 @@ export function dequeuePrompt(agentId: string): QueuedPrompt | null {
   const items = listQueue(agentId);
   if (!items.length) return null;
   const first = items[0];
+  /* La demande de tête est ouverte dans la barre d'écriture : la file l'attend
+     (`retenueParUneEdition`, shared/src/file-en-edition.ts). */
+  if (retenueParUneEdition(first, now())) return null;
   getDb().prepare('DELETE FROM queue WHERE id = ?').run(first.id);
   return first;
 }
@@ -2910,12 +3016,41 @@ export function clearQueue(agentId: string): number {
   return Number(info.changes ?? 0);
 }
 
-export function updateQueued(id: string, text: string): QueuedPrompt | null {
+/**
+ * Modifier un message en attente : son texte, et — quand l'écran les donne —
+ * les pièces qu'il porte après la modification. Sans liste, il garde les
+ * siennes ; avec, une pièce encore citée par un tag du texte ne se perd pas
+ * (`piecesApresModification`, `shared/src/pieces-message-en-attente.ts`). Tout
+ * le reste de la demande (bulle déjà écrite, silence, compte imposé, reprise)
+ * traverse la modification sans bouger.
+ */
+export function updateQueued(id: string, text: string, attachments?: string[]): QueuedPrompt | null {
   const row = getDb().prepare('SELECT data FROM queue WHERE id = ?').get(id) as { data: string } | undefined;
   if (!row) return null;
-  const item = QueuedPrompt.parse({ ...JSON.parse(row.data), text });
+  const avant = QueuedPrompt.parse(JSON.parse(row.data));
+  const piecesDOrigine = avant.attachments
+    .map((pieceId) => getAttachment(pieceId))
+    .filter((piece): piece is Attachment => !!piece);
+  const item = QueuedPrompt.parse({
+    ...avant,
+    text,
+    attachments: piecesApresModification(avant.attachments, piecesDOrigine, text, attachments),
+  });
   getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify(item), id);
   return item;
+}
+
+/**
+ * Une demande en attente s'ouvre (`actif`) ou se referme dans la barre
+ * d'écriture. Rend l'agent qui la porte, ou `null` si elle est déjà partie.
+ */
+export function marquerEditionEnFile(id: string, actif: boolean): string | null {
+  const row = getDb().prepare('SELECT agent_id, data FROM queue WHERE id = ?').get(id) as { agent_id: string; data: string } | undefined;
+  if (!row) return null;
+  const avant = QueuedPrompt.parse(JSON.parse(row.data));
+  const item = QueuedPrompt.parse({ ...avant, enEditionDepuis: actif ? now() : undefined });
+  getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify(item), id);
+  return row.agent_id;
 }
 
 export function removeQueued(id: string): string | null {
@@ -3090,6 +3225,24 @@ export function aliasDesPiecesJointes(): Set<string> {
     .prepare("SELECT json_extract(data, '$.alias') AS alias FROM attachments WHERE json_extract(data, '$.alias') IS NOT NULL")
     .all() as { alias: string }[];
   return new Set(rows.map((r) => r.alias));
+}
+
+/**
+ * LES PIÈCES DÉSIGNÉES PAR LEUR ALIAS, TOUS PROJETS CONFONDUS. L'alias est
+ * unique sur tout le dépôt (`aliasDesPiecesJointes`) : c'est ce qui permet de
+ * retrouver la pièce d'un tag collé depuis un autre projet. Les images du
+ * coffre-fort ne se rendent jamais par ce chemin.
+ */
+export function attachmentsParAlias(alias: readonly string[]): Attachment[] {
+  const voulus = [...new Set(alias.filter(Boolean))].slice(0, 50);
+  if (!voulus.length) return [];
+  const rows = getDb()
+    .prepare(
+      `SELECT data FROM attachments
+        WHERE project_id != ? AND json_extract(data, '$.alias') IN (${voulus.map(() => '?').join(', ')})`,
+    )
+    .all(PROJET_DU_COFFRE, ...voulus) as { data: string }[];
+  return rows.map((r) => Attachment.parse(JSON.parse(r.data)));
 }
 
 export function findAttachmentBySha(projectId: string, sha: string): Attachment | null {
@@ -3367,6 +3520,31 @@ export function recentDeploys(projectId: string, limit = 20): DeployRun[] {
     .prepare('SELECT data FROM deploys WHERE project_id = ? ORDER BY started_at DESC LIMIT ?')
     .all(projectId, limit) as { data: string }[];
   return rows.map((r) => DeployRun.parse(JSON.parse(r.data)));
+}
+
+/**
+ * LA DERNIÈRE RÉUSSITE DE CHAQUE ÉTAPE DE PUBLICATION D'UN PROJET.
+ *
+ * L'écran ne garde qu'UNE publication par projet, toutes étapes confondues
+ * (`deploys`) : la preuve d'un essai réussi du déploiement disparaissait donc
+ * à la première mise en production, et inversement — le repère « Essai
+ * réussi » de la page de réglage retombait à « Prêt à partir ». Cette lecture
+ * donne l'instant de la dernière publication RÉUSSIE de chaque étape, sans
+ * relire l'histoire du projet : une ligne par étape, sur les colonnes `state`
+ * et `cible` (une publication sans étape est un déploiement).
+ */
+export function dernieresReussitesDePublication(projectId: string): Partial<Record<'dev' | 'production', number>> {
+  const lignes = getDb()
+    .prepare(
+      `SELECT COALESCE(cible, 'dev') AS cible, MAX(COALESCE(ended_at, started_at)) AS le
+       FROM deploys WHERE project_id = ? AND state = 'success' GROUP BY COALESCE(cible, 'dev')`,
+    )
+    .all(projectId) as { cible: string; le: number | null }[];
+  const rendu: Partial<Record<'dev' | 'production', number>> = {};
+  for (const ligne of lignes) {
+    if ((ligne.cible === 'dev' || ligne.cible === 'production') && ligne.le) rendu[ligne.cible] = ligne.le;
+  }
+  return rendu;
 }
 
 /**

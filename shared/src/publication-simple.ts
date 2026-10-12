@@ -218,7 +218,7 @@ export type ProcessusDeProduction = {
   explication?: string;
   /**
    * L'ADRESSE VISÉE, déclarée par l'agent : la machine ou le site où le
-   * processus agit (« clients.haikostudio.cloud, dossier /srv/site »). La
+   * processus agit (« clients.exemple.com, dossier /srv/site »). La
    * rubrique la montre en tête du bloc « Processus en place ».
    */
   cible?: string;
@@ -420,12 +420,13 @@ export function promptInitialisationProduction(ctx: ContexteDInitialisation): st
     '1. Analyse le projet : sa pile, sa construction, ses scripts de déploiement, ses automatismes GitHub, ses fichiers de configuration serveur. Le coffre-fort (outil coffre_fort) contient les accès : lis-le, ne recopie JAMAIS un secret dans une commande — réfère-toi aux fichiers ou variables déjà présents sur ce serveur.',
     '2. INTERROGE l’utilisateur avec l’outil ask_user sur tout ce qui décide du processus et que le projet ne dit pas avec certitude : où tourne la production (ce serveur, un autre serveur, un hébergeur, une procédure GitHub), comment on y accède, ce qu’il faut y faire, ce qu’on contrôle à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer l’instance de production, même si tu crois la connaître.',
     '3. Prépare ce qui doit l’être (fichiers du projet, machine de production), sans jamais mettre en production.',
-    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : où vit la production, ce que tu as configuré ou modifié, et ce que fera le bouton « Mise en production », étape par étape. Elle est affichée telle quelle dans la rubrique « Mise en production » des réglages du projet. Puis le processus dans ce bloc exact, en fin de réponse :',
+    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : où vit la production, ce que tu as configuré ou modifié, et ce que fera le bouton « Mise en production », étape par étape. Elle s’affiche telle quelle sur la page « Mise en production » du projet, au-dessus du bouton qui lance. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
     '{"resume": "…ce qu’est la production de ce projet, en deux phrases…", "cible": "…la machine ou le site visé, par exemple « mon-site.ch, serveur clients, dossier /srv/mon-site »…", "adresse": "https://mon-site.ch", "etapes": [{"libelle": "Construire le site", "commande": "npm run build", "delaiS": 300}]}',
     FIN_PROCESSUS,
-    'Le champ « cible » dit en une ligne OÙ le processus agit : il est affiché en tête du processus, pour que l’utilisateur vérifie d’un coup d’œil l’adresse visée.',
+    'Le champ « resume » est ce que la rubrique affiche EN CLAIR sous « Pourquoi ce processus » : deux phrases au plus, en mots courants, qui disent pourquoi ce processus est le bon pour ce projet — jamais le récit de ton étude.',
+    'Le champ « cible » dit en une ligne OÙ le processus agit : il se lit dans le détail technique, pour que l’utilisateur vérifie l’adresse visée.',
     ctx.adresseProduction
       ? `Le champ « adresse » est l’URL SEULE du site public, celle que l’on contrôle après la mise en production. Adresse réglée aujourd’hui : ${ctx.adresseProduction}. Si le site public en a une autre, mets la bonne dans « adresse » et DIS l’écart dans ton explication : l’adresse réglée n’est jamais remplacée sans l’utilisateur.`
       : 'Le champ « adresse » est l’URL SEULE du site public, celle que l’on contrôle après la mise en production : aucune n’est réglée, celle que tu déclares sera enregistrée dans les réglages du projet. Déduis-la du projet ; ne pose une question que si tu ne peux pas la trouver.',
@@ -466,12 +467,19 @@ export type ContexteDuDeploiement = {
 /**
  * LE PROMPT DE L'AGENT DE CONFIGURATION DU DÉPLOIEMENT (29/09/2026). Même
  * démarche que la mise en production — analyser, interroger, rendre le
- * processus — mais pour la version de TRAVAIL, sur CE serveur. Tant qu'aucun
- * processus n'est écrit, le déroulé commun reste en service.
+ * processus — mais pour la version de TRAVAIL. Par défaut sur CE serveur ;
+ * depuis le 10/10/2026, l'agent DEMANDE d'abord si le déploiement vise ce
+ * serveur ou une autre machine désignée par l'utilisateur (accès cherché dans
+ * le coffre-fort, commandes ssh non interactives). Tant qu'aucun processus
+ * n'est écrit, le projet ne déploie pas — sauf Beluga et les projets `herite`,
+ * qui gardent le déroulé commun.
  */
 export function promptInitialisationDeploiement(ctx: ContexteDuDeploiement): string {
   return [
-    `Tu prépares le DÉPLOIEMENT du projet « ${ctx.projet} » (dossier ${ctx.dossier}) : la mise à jour de sa version de TRAVAIL, sur CE serveur.`,
+    `Tu prépares le DÉPLOIEMENT du projet « ${ctx.projet} » (dossier ${ctx.dossier}) : la mise à jour de sa version de TRAVAIL — par défaut sur CE serveur (l’instance de développement).`,
+    ctx.estBeluga
+      ? ''
+      : 'Tant que ton processus n’est pas écrit, ce projet NE SE DÉPLOIE PAS : le bouton reste éteint. Les réglages ci-dessous ne sont que des indices relevés sur le serveur, pas une procédure validée.',
     '',
     'Ce que Beluga Build fait déjà tout seul au clic sur « Publier », AVANT ton processus :',
     `- fusionner les branches des cartes du lot dans « ${ctx.brancheTravail} », enregistrer, puis envoyer « ${ctx.brancheTravail} » sur le dépôt distant.`,
@@ -491,13 +499,17 @@ export function promptInitialisationDeploiement(ctx: ContexteDuDeploiement): str
     '',
     'Ta démarche, dans cet ordre :',
     '1. Analyse le projet : sa pile, sa construction, ses services système (systemctl), son serveur de développement, ses scripts de mise à jour.',
-    '2. INTERROGE l’utilisateur avec l’outil ask_user sur ce que le projet ne dit pas avec certitude : quoi construire, quel service relancer, quoi contrôler à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer le déroulé.',
-    '3. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : ce que fera chaque déploiement, étape par étape. Elle est affichée telle quelle dans la rubrique « Déploiement » des réglages. Puis le processus dans ce bloc exact, en fin de réponse :',
+    ctx.estBeluga
+      ? '2. Beluga Build se déploie toujours sur ce serveur : ne pose pas la question de la machine.'
+      : '2. DEMANDE D’ABORD OÙ DÉPLOYER, avec ask_user : sur ce serveur (choix par défaut, recommandé) ou sur une autre machine. Si c’est une autre machine, demande laquelle, puis cherche son accès dans le coffre-fort (outil coffre_fort, « lister » avant toute question) ; tes étapes s’y connectent alors en ssh NON interactif (clé, « -o BatchMode=yes », délai borné), et le champ « cible » nomme cette machine. Un accès absent du coffre se dit en clair, avec ce qui manque.',
+    '3. INTERROGE l’utilisateur avec l’outil ask_user sur ce que le projet ne dit pas avec certitude : quoi construire, quel service relancer, quoi contrôler à la fin. Une question par appel, avec des choix quand c’est possible. Tu poses AU MOINS une question pour faire confirmer le déroulé.',
+    '4. Quand tout est clair, rends ton EXPLICATION en mots simples, pour quelqu’un qui ne programme pas : ce que fera chaque déploiement, étape par étape. Elle reste lisible dans cette conversation ; la rubrique « Déploiement » des réglages, elle, n’en montre que les étapes et le résumé. Puis le processus dans ce bloc exact, en fin de réponse :',
     '',
     DEBUT_PROCESSUS,
-    '{"resume": "…ce que fait le déploiement de ce projet, en deux phrases…", "cible": "…ce serveur, le service ou le site visé, par exemple « mon-projet.haikostudio.cloud, service autoproject-mon-projet »…", "adresse": "https://mon-projet.haikostudio.cloud", "etapes": [{"libelle": "Construire", "commande": "npm run build", "delaiS": 300}]}',
+    '{"resume": "…ce que fait le déploiement de ce projet, en deux phrases…", "cible": "…ce serveur, le service ou le site visé, par exemple « mon-projet.exemple.com, service autoproject-mon-projet »…", "adresse": "https://mon-projet.exemple.com", "etapes": [{"libelle": "Construire", "commande": "npm run build", "delaiS": 300}]}',
     FIN_PROCESSUS,
-    'Le champ « cible » dit en une ligne OÙ le processus agit : il est affiché en tête du processus.',
+    'Le champ « resume » est ce que la rubrique affiche EN CLAIR sous « Pourquoi ce processus » : deux phrases au plus, en mots courants, qui disent pourquoi ce processus est le bon pour ce projet — jamais le récit de ton étude.',
+    'Le champ « cible » dit en une ligne OÙ le processus agit : il se lit dans le détail technique.',
     ctx.devUrl
       ? `Le champ « adresse » est l’URL SEULE de la version de travail, celle que l’on contrôle à la fin de chaque déploiement (réglée aujourd’hui : ${ctx.devUrl}). Si elle est fausse, mets la bonne dans « adresse » et DIS l’écart dans ton explication : l’adresse réglée n’est jamais remplacée sans l’utilisateur. Jamais l’adresse de la production.`
       : 'Le champ « adresse » est l’URL SEULE de la version de travail sur ce serveur, celle que l’on contrôle à la fin de chaque déploiement : aucune n’est réglée, celle que tu déclares sera enregistrée dans les réglages du projet. Déduis-la du projet (vhost Caddy du port du projet) ; jamais l’adresse de la production.',

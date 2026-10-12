@@ -482,7 +482,7 @@ export function DeployControls({ run, actions = true }: { run: DeployRun; action
           {run.state === 'running' ? (
             <Button
               size="pied"
-              variant="outline"
+              variant="arret"
               onClick={() => void client.geste({ type: 'deploy.stop', runId: run.id }, t('Arrêter'))}
             >
               <Square className="h-2.5 w-2.5 fill-current" /> {t('Arrêter')}

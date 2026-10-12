@@ -126,6 +126,75 @@ export const DELAI_CANAL_MUET = 30_000;
 export const DELAI_AVANT_MESSAGE_DU_CANAL = 1_500;
 
 /**
+ * LE BATTEMENT NE COUPE PLUS LE LIEN SUR UN SEUL SILENCE.
+ *
+ * Le serveur se fige réellement par moments (jusqu'à 17 s mesurées le
+ * 12/10/2026, machine saturée) : l'écran concluait à un canal mort au bout de
+ * 8 s, le refermait, et se reconnectait — en redemandant tout, ce qui chargeait
+ * un serveur déjà à la peine. Un battement manqué n'est plus une preuve : le
+ * lien n'est abandonné qu'au SECOND battement manqué de suite, ou après un long
+ * silence complet. Toute trame reçue, quelle qu'elle soit, vaut preuve de vie.
+ */
+export const DELAI_PING_SANS_REPONSE = 20_000;
+export const BATTEMENTS_MANQUES_AVANT_ABANDON = 2;
+export const SILENCE_AVANT_ABANDON = 45_000;
+
+export function canalAAbandonner(lecture: { battementsManques: number; silence: number }): boolean {
+  return (
+    lecture.battementsManques >= BATTEMENTS_MANQUES_AVANT_ABANDON || lecture.silence >= SILENCE_AVANT_ABANDON
+  );
+}
+
+/*
+ * SUR UN RÉSEAU MOBILE, LE LIEN SE REFAIT VITE OU IL SE PERD (demande du
+ * 12/10/2026 : « la synchronisation se fait extrêmement difficilement sur
+ * mobile, comme si la connexion au serveur se faisait difficilement »).
+ *
+ * Trois trous, tous du côté de l'écran :
+ *
+ *  - une OUVERTURE qui ne s'achève pas restait « en cours » sans plafond :
+ *    l'écran attendait que le navigateur renonce — parfois plus d'une minute
+ *    sur un téléphone qui change de réseau —, et « Reconnecter » ne faisait
+ *    rien tant que l'ouverture traînait ;
+ *  - le signal « le réseau est revenu / a changé » (Wi-Fi vers 4G, tunnel) n'était
+ *    pas écouté : l'écran attendait son propre battement, 40 à 80 secondes ;
+ *  - un canal qui se dit ouvert après un changement de réseau n'était mis à
+ *    l'épreuve qu'au prochain battement.
+ *
+ * Les valeurs restent douces : l'écran ne doit pas redemander tout l'état à un
+ * démon déjà à la peine (il se fige réellement par moments), d'où le plafond
+ * d'ouverture large et le repli progressif inchangé entre deux tentatives.
+ */
+
+/** Une ouverture qui n'aboutit pas en ce délai est abandonnée, puis refaite. */
+export const DELAI_OUVERTURE_DU_CANAL = 12_000;
+/** La preuve de vie qu'on exige d'un canal « ouvert » après un changement de réseau. */
+export const DELAI_SONDE_DE_RESEAU = 6_000;
+/** Au retour à l'écran, un canal resté muet plus longtemps que ceci est mis à l'épreuve. */
+export const SILENCE_AVANT_SONDE_AU_RETOUR = 15_000;
+
+/**
+ * Combien de temps laisser encore à une ouverture démarrée à `ouvertureDepuis`
+ * avant de l'abandonner ; 0 : c'est l'heure. Une minuterie qui se déclenche un
+ * souffle trop tôt rend ici un petit reste, et se réarme — l'ouverture n'est
+ * donc jamais abandonnée trop tôt, ni oubliée.
+ */
+export function delaiRestantAvantAbandonDeLOuverture(ouvertureDepuis: number, maintenant: number): number {
+  return Math.max(0, DELAI_OUVERTURE_DU_CANAL - (maintenant - ouvertureDepuis));
+}
+
+/**
+ * Faut-il mettre le canal à l'épreuve au retour à l'écran ? Seulement si
+ * rien n'est arrivé depuis un moment : un canal qui parle encore n'a rien à
+ * prouver. Un canal qui n'a JAMAIS rien reçu (`null`) n'est pas ouvert depuis
+ * assez longtemps pour qu'on le sonde.
+ */
+export function sondeAuRetourNecessaire(dernierEvenementA: number | null | undefined, maintenant: number): boolean {
+  if (dernierEvenementA == null) return false;
+  return maintenant - dernierEvenementA >= SILENCE_AVANT_SONDE_AU_RETOUR;
+}
+
+/**
  * LA CLÉ DU MESSAGE PERSISTANT QUI DIT L'ÉTAT DU LIEN. Une seule entrée dans
  * la pile de messages porte cette clé : l'état du canal ne s'empile pas, il se
  * remplace (`pileAvecMessagePersistant`, `pile-messages.ts`).

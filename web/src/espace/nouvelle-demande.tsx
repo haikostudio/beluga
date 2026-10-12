@@ -86,7 +86,7 @@ export function NouvelleDemande({
   };
 
   return (
-    <Drawer open onClose={onFerme} className="max-h-[86dvh]">
+    <Drawer adresse="nouvelle-demande" open onClose={onFerme} className="max-h-[86dvh]">
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <DialogTitle className="min-w-0 flex-1 truncate">
           {modele ? t(modele.nom) : t('Nouvelle demande')}

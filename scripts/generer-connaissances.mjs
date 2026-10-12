@@ -40,7 +40,10 @@ import crypto from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { cheminDeLaBaseServie, dossierDesDonnees } from './lib/base-servie.mjs';
+// Le résolveur PUBLIÉ avec le dépôt (`scripts/base-servie.mjs`), pas celui des
+// contrôles (`scripts/lib/`), qui ne part pas au public : ce script est lancé
+// par le démon lui-même, sur toute installation.
+import { cheminDeLaBaseServie, dossierDeDonnees } from './base-servie.mjs';
 
 const RACINE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const partage = await import(path.join(RACINE, 'shared/dist/index.js'));
@@ -60,12 +63,12 @@ const PARALLELE = Math.max(1, Number(option('parallele', '3')) || 3);
 const PORTEES_PARALLELES = Math.max(1, Number(option('portees-paralleles', '1')) || 1);
 const SAUF = option('sauf', '').split(',').map((n) => n.trim().toLowerCase()).filter(Boolean);
 const LOT_SIGNES = Math.max(4000, Number(option('lot-signes', '30000')) || 30000);
-const DONNEES = dossierDesDonnees();
+const DONNEES = dossierDeDonnees();
 const SORTIE = option('sortie', path.join(DONNEES, 'connaissances', 'lots'));
 const CACHE = path.join(path.dirname(SORTIE), 'cache');
 const SAUVEGARDE = path.join(DONNEES, 'sauvegardes', 'memoire-avant-connaissances.json.gz');
 
-const db = new Database(cheminDeLaBaseServie(DONNEES), { readonly: true, fileMustExist: true });
+const db = new Database(cheminDeLaBaseServie(), { readonly: true, fileMustExist: true });
 const tableExiste = (nom) => Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(nom));
 
 /* ------------------------------------------------------------------ */

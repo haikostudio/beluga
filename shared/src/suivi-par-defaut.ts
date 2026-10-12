@@ -14,7 +14,7 @@ export const DIAGNOSTICS_SUIVI = ['ok', 'absent', 'mauvaise-cle', 'ancien-outil'
 export type DiagnosticSuivi = (typeof DIAGNOSTICS_SUIVI)[number];
 
 /** L'ancien outil de statistiques (Umami auto-hébergé) : à retirer partout. */
-const ANCIEN_OUTIL = [/stats\.haikostudio\.cloud\/script\.js/i, /\bdata-website-id\s*=/i];
+const ANCIEN_OUTIL = [/\bstats\.[a-z0-9.-]+\/script\.js/i, /\bdata-website-id\s*=/i];
 
 /** Les balises `<script …>` d'une page, telles qu'écrites. */
 function balisesScript(html: string): string[] {
@@ -107,7 +107,7 @@ export function consigneDeCorrection(diagnostic: DiagnosticSuivi): string {
   switch (diagnostic) {
     case 'ancien-outil':
       return [
-        'La page en production porte encore l’ANCIEN outil de statistiques (script « stats.haikostudio.cloud/script.js », attribut « data-website-id ») : le retirer partout, avec ses appels et sa configuration (fonctions d’événements, adresse de l’outil dans l’administration), puis poser le script de Beluga ci-dessous s’il manque.',
+        'La page en production porte encore l’ANCIEN outil de statistiques (script « stats.…/script.js », attribut « data-website-id ») : le retirer partout, avec ses appels et sa configuration (fonctions d’événements, adresse de l’outil dans l’administration), puis poser le script de Beluga ci-dessous s’il manque.',
         commun,
       ].join('\n');
     case 'mauvaise-cle':

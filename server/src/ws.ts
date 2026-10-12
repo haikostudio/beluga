@@ -17,6 +17,7 @@ import {
   RAISON_REGLAGES_VALIDES,
   comprehensionARattraper,
   LABEL_AUTO_AMELIORATION,
+  LABEL_VEILLE_COMPETENCES,
   REFUS_PLAN_SANS_COMPREHENSION,
   CONSIGNE_COMPREHENSION_REDEMANDEE,
   numeroDuProchainPlan,
@@ -82,9 +83,22 @@ import {
   type CompteUtilisateur,
   fusionDesProcedures,
   PROJET_DU_COFFRE,
+  EDITION_EN_FILE_PERIMEE_MS,
 } from '@beluga/shared';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import * as store from './store.js';
+import { etatDeLaCopie, nouveautes, recetteDeLaCopie, recupererLesNouveautes } from './installation-copie.js';
+import { lancerUnTravail, recetteDuGenre, travailDInstallation } from './installation-travaux.js';
+import { envoyerUnCourrielDEssai } from './envoi-des-courriels.js';
+import {
+  connecterGitHub,
+  etatDeLInstallation,
+  importerUneBibliothequeProposee,
+  noterUneEtape,
+  poserUneAdresse,
+  rangerUnSecret,
+} from './installation-commandes.js';
+import { apercuDeSuppression, supprimerDefinitivementLeProjet } from './suppression-projet.js';
 import { resumeDeRubrique, titresDesCartes } from './resume.js';
 import { bus } from './bus.js';
 import { deplacerLaCarteVersProjet } from './deplacement-vers-projet.js';
@@ -121,6 +135,7 @@ import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
 import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { repondreErreurDeTour } from './erreur-de-tour.js';
+import { supprimerLaCarteSiVide } from './carte-vide.js';
 import { supprimerLaCarte } from './suppression-carte.js';
 import { etatCapacite, listProcesses, controlProcess } from './capacity.js';
 import {
@@ -132,6 +147,7 @@ import {
   comptesOccupes,
   isRunning,
   agentsActifs,
+  reprendreLaFile,
 } from './runtime.js';
 import {
   agentDeCadrage,
@@ -144,6 +160,14 @@ import {
 import { relancerLaRedaction } from './redaction-de-demande.js';
 import { rattraperLeCadrageDeLaNuit } from './auto-amelioration.js';
 import { rattraperLaCarteSansCadrage, relancerLeCadrageJamaisParti } from './naissance-de-carte.js';
+import {
+  leverLaPauseSurMessage,
+  lireLeDocument,
+  lireLeDocumentDuProjet,
+  mettreEnPause,
+  ouvrirLeCahierDesCharges,
+  reprendre,
+} from './cahier-des-charges.js';
 import { getMeta, setMeta } from './db.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
 import { contexteDeConfiguration, etatDeProcedure, tourDeProcedure } from './procedure-publication.js';
@@ -252,6 +276,7 @@ import {
   effacerErreursInterface,
 } from './erreurs-interface.js';
 import { listDir, makeZip } from './files.js';
+import { rattacherParAlias } from './joindre-fichier.js';
 import { mintDownload } from './auth.js';
 import {
   chercherUnitesMelees,
@@ -273,8 +298,15 @@ import {
   versionsDeLUnite,
 } from './connaissances.js';
 import { generationEnCours, lancerLaGeneration } from './generation-connaissances.js';
-import { carteEnPublication, TEXTE_CARTE_EN_PUBLICATION } from '@beluga/shared';
+import {
+  BoiteDesAccuses,
+  brouillonSansLesPiecesParties,
+  carteEnPublication,
+  DOCUMENT_DU_CAHIER,
+  TEXTE_CARTE_EN_PUBLICATION,
+} from '@beluga/shared';
 import { PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee } from '@beluga/shared';
+import { estFinie, peutEtreRangee } from '@beluga/shared';
 import { detailPourCetEcran, elargirLePerimetre } from './perimetre-ecran.js';
 import { consigneAjoutDeMoteur, rappelAjoutDeMoteur } from '@beluga/shared';
 import {
@@ -290,7 +322,6 @@ import { dossierDesCompetences } from './competences.js';
 import { relevesDesCommandes } from './commandes-slash.js';
 import { scanProjects, registerProject, createProjectFolder } from './projects.js';
 import { depotsDuCompte, monterDepuisGithub } from './depots-github.js';
-import * as billing from './billing.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
 import { etatDesCategories, exporterDonnees, importerDonnees, lireDepot } from './export-donnees.js';
@@ -385,6 +416,21 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       ws.send(JSON.stringify(evenementPourLEcran(event)));
     };
     const unsubscribe = bus.subscribe(send);
+    /*
+     * LA RÉPONSE À UNE COMMANDE NE SE PERD PLUS AVEC SON CANAL. Une commande
+     * longue (créer un projet) peut finir après que l'écran a changé de canal :
+     * la réponse est alors GARDÉE au nom du compte, et rediffusée tout de suite
+     * aux autres canaux de ce compte — le nouveau canal de l'écran l'attend
+     * encore (`shared/src/accuses-orphelins.ts`).
+     */
+    const repondre = (accuse: AccuseServeur) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        send(accuse);
+        return;
+      }
+      accusesOrphelins.garder(compte.id, accuse, Date.now());
+      bus.emit({ ...accuse, pour: compte.id });
+    };
 
     /*
      * UN CLIENT NE REÇOIT PAS LE PREMIER ENVOI DE L'ADMINISTRATION. Ni projets,
@@ -409,11 +455,11 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         try {
           if (!commandeAutorisee(compte.role, envelope.cmd.type)) throw new Error(REFUS_HORS_PORTEE);
           const data = await handleCommand(envelope.cmd, compte);
-          if (envelope.id) send({ type: 'ack', id: envelope.id, ok: true, data });
+          if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
         } catch (err: any) {
           const brut = err?.message ?? String(err);
           log.warn(`commande client ${envelope.cmd.type} refusée :`, brut);
-          if (envelope.id) send({ type: 'ack', id: envelope.id, ok: false, error: await phrasePourLEcran(brut, envelope.cmd.type) });
+          if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: false, error: await phrasePourLEcran(brut, envelope.cmd.type) });
         }
       });
       ws.on('close', unsubscribe);
@@ -508,7 +554,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         // AVANT la commande : sa réponse passe déjà par le périmètre mis à jour.
         elargirLePerimetre(perimetre, envelope.cmd);
         const data = await handleCommand(envelope.cmd, compte);
-        if (envelope.id) send({ type: 'ack', id: envelope.id, ok: true, data });
+        if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
       } catch (err: any) {
         log.warn(`commande ${envelope.cmd.type}${contexteDeCommande(envelope.cmd)} refusée :`, err?.message ?? err);
         /* LE REFUS PART EN PHRASE SIMPLE : un message écrit par la machine
@@ -516,7 +562,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
            ou par Laya s'il est inconnu (`explication-d-erreur.ts`). Le
            texte brut reste au journal, juste au-dessus. */
         if (envelope.id)
-          send({ type: 'ack', id: envelope.id, ok: false, error: await phrasePourLEcran(err?.message ?? String(err), envelope.cmd.type) });
+          repondre({ type: 'ack', id: envelope.id, ok: false, error: await phrasePourLEcran(err?.message ?? String(err), envelope.cmd.type) });
       }
     });
 
@@ -798,6 +844,62 @@ function runChange(avant: Card['run'] | undefined, patch: Partial<Card['run']>):
   );
 }
 
+/** Les réponses dont le canal s'est fermé avant qu'elles partent (`acks.reclamer`). */
+type AccuseServeur = Extract<ServerEvent, { type: 'ack' }>;
+const accusesOrphelins = new BoiteDesAccuses<AccuseServeur>();
+
+/**
+ * LA CARTE « CAHIER DES CHARGES » D'UN PROJET QU'ON VIENT DE MONTER, sans
+ * retenir la réponse du montage plus de quelques secondes : passé ce délai,
+ * la carte naît quand même (elle arrive par `card.upsert`), seule la réponse
+ * part sans son identifiant.
+ */
+async function carteDuCahierSansRetenir(project: Project, description?: string): Promise<Card | null> {
+  const pose = ouvrirLeCahierDesCharges(project, description);
+  const delai = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000).unref?.());
+  return Promise.race([pose, delai]);
+}
+
+/**
+ * UNE QUESTION RÉPONDUE OU FERMÉE OUBLIE SON BROUILLON DE RÉPONSE (réglage
+ * `reponse.<question>`, tenu par la bulle — `web/src/components/bulle-question.tsx`),
+ * quel que soit le chemin de la réponse (bulle, barre d'écriture, autre appareil).
+ */
+function oublierLeBrouillonDeReponse(cle: string): void {
+  if (store.readPreference(cle) === undefined) return;
+  store.writePreference(cle, null);
+  diffuserLeReglage(cle);
+}
+
+/**
+ * LE RÉGLAGE QUI VIENT DE CHANGER PART SEUL, PAS LE BLOC ENTIER.
+ *
+ * Chaque écriture rediffusait les milliers de réglages à tous les écrans — plus
+ * de 280 Ko, à chaque pause de frappe, jusque sur un téléphone. On ne diffuse
+ * plus que la clé (`partiel`), `null` disant qu'elle a disparu ; l'écran la
+ * fusionne (`fusionnerLesReglages`). Le bloc entier ne part qu'à la connexion.
+ */
+function diffuserLeReglage(cle: string): void {
+  const valeur = store.readPreference(cle);
+  bus.emit({ type: 'prefs', prefs: { [cle]: valeur ?? null }, partiel: true });
+}
+
+/**
+ * LES PIÈCES ENVOYÉES AVEC UN MESSAGE SORTENT DU BROUILLON DE LA CONVERSATION
+ * (`draftAttachments.<agent>`), et tous les écrans le savent. Le champ
+ * d'écriture qui envoie le vide déjà de son côté ; ceci couvre le brouillon
+ * qu'un autre écran tient encore, ou a reposé entre-temps
+ * (`brouillonSansLesPiecesParties`, `shared/src/reglages-en-vol.ts`).
+ */
+function oublierLesPiecesParties(agentId: string, parties: readonly string[]): void {
+  if (!parties.length) return;
+  const cle = `draftAttachments.${agentId}`;
+  const { liste, change } = brouillonSansLesPiecesParties(store.readPreference(cle), parties);
+  if (!change) return;
+  store.writePreference(cle, liste);
+  diffuserLeReglage(cle);
+}
+
 async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur): Promise<unknown> {
   // L'espace client a ses propres commandes, et son propre cloisonnement.
   if (estCommandeDeLEspace(commande)) return commandeDeLEspaceClient(commande, compte);
@@ -807,6 +909,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'hello':
     case 'ping':
       return { at: Date.now() };
+
+    case 'acks.reclamer':
+      return { accuses: accusesOrphelins.reprendre(compte.id, cmd.ids, Date.now()) };
 
     // Le périmètre est posé à la réception (`elargirLePerimetre`) : rien d'autre à faire.
     case 'ecran.perimetre':
@@ -956,6 +1061,23 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true, project: updated };
     }
 
+    case 'project.apercuSuppression': {
+      return apercuDeSuppression(cmd.id);
+    }
+
+    /*
+     * LA SEULE PORTE QUI EFFACE UN PROJET (08/10/2026). Nom recopié, aucun agent
+     * au travail, sauvegarde faite, dépôt GitHub effacé d'abord : tout est dans
+     * `supprimerDefinitivementLeProjet`. Un refus rend l'erreur au demandeur.
+     */
+    case 'project.supprimerDefinitivement': {
+      const nom = store.getProject(cmd.id)?.name;
+      const resultat = await supprimerDefinitivementLeProjet(cmd.id, cmd.nomConfirme);
+      if (!resultat.ok) throw new Error(resultat.erreur ?? 'suppression impossible');
+      bus.toast('info', `« ${nom ?? 'Le projet'} » supprimé définitivement`);
+      return resultat;
+    }
+
     case 'project.open': {
       if (!store.getProject(cmd.id)) throw new Error('projet introuvable');
       bus.emit(instantaneDuProjet(cmd.id));
@@ -1079,6 +1201,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         port: cmd.port,
       });
       bus.emit({ type: 'project.upsert', project });
+      /* « Démarrer par un cahier des charges » : la carte naît, son agent ouvre
+         la discussion. La réponse emporte l'identifiant de la carte — l'écran
+         y entre tout de suite — mais n'attend jamais le premier tour de
+         l'agent (`sendPrompt` part sans être attendu), et pas plus de quelques
+         secondes la pose de la carte. */
+      const cahier = cmd.cahierDesCharges ? await carteDuCahierSansRetenir(project, cmd.description) : null;
       // Une étape ratée se dit : le projet existe quand même, mais il lui
       // manque quelque chose, et le taire ferait croire que tout est en place.
       const rates = etapes.filter((e) => !e.fait);
@@ -1087,7 +1215,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       } else {
         bus.toast('success', `Projet « ${project.name} » monté sur le serveur`);
       }
-      return { project, etapes };
+      return { project, etapes, cahierCardId: cahier?.id };
     }
 
     case 'github.depots':
@@ -1110,13 +1238,14 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         port: cmd.port,
       });
       bus.emit({ type: 'project.upsert', project });
+      const cahier = cmd.cahierDesCharges ? await carteDuCahierSansRetenir(project) : null;
       const ratees = etapes.filter((e) => !e.fait);
       if (ratees.length) {
         bus.toast('error', `Projet ajouté, mais ${ratees.length} étape(s) ont échoué`);
       } else {
         bus.toast('success', `« ${project.name} » ajouté depuis GitHub`);
       }
-      return { project, etapes };
+      return { project, etapes, cahierCardId: cahier?.id };
     }
 
     /* -------- Cartes -------- */
@@ -1237,6 +1366,29 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { card: updated };
     }
 
+    /*
+     * LE RANGEMENT DE LA PAGE « TABLEAUX DE BORD » : il ne touche QUE
+     * `rangeeTableauDeBordAt`. Jamais `archiveCard`, jamais la colonne : la
+     * carte reste où elle est dans son projet, et dans le lot de la prochaine
+     * publication si elle y était. Une carte encore en Demande ou Travail est
+     * laissée telle quelle (`estFinie`) ; une carte « À déployer » ne se range
+     * pas (`peutEtreRangee`) — seul le rangement est refusé, le retour reste libre.
+     */
+    case 'card.rangerTableauDeBord': {
+      const instant = Date.now();
+      const rangees: string[] = [];
+      for (const id of cmd.ids) {
+        const card = store.getCard(id);
+        if (!card || !estFinie(card)) continue;
+        if (cmd.range && !peutEtreRangee(card)) continue;
+        if (!!card.rangeeTableauDeBordAt === cmd.range) continue;
+        const ecrite = store.saveCard({ ...card, rangeeTableauDeBordAt: cmd.range ? instant : undefined });
+        bus.emit({ type: 'card.upsert', card: ecrite });
+        rangees.push(id);
+      }
+      return { ids: rangees };
+    }
+
     case 'card.move': {
       const card = store.getCard(cmd.id);
       if (!card) throw new Error('carte introuvable');
@@ -1315,7 +1467,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       /* Le rangement lui-même vit dans `rangerLaCarte` : c'est là que les dates
          qui suivent la colonne (« Terminé », « À déployer ») se posent ou se
          retirent, en un seul endroit rejouable. */
-      const updated = rangerLaCarte(card, target, cmd.position);
+      /* Une carte archivée à la main est rangée dans le même geste : un seul
+         état écrit, un seul `card.upsert`, jamais « Terminer » puis « Archiver ».
+         L'archivage automatique de la mise en ligne ne passe pas par ici. */
+      const updated = rangerLaCarte(card, target, cmd.position, Date.now());
       bus.emit({ type: 'card.upsert', card: updated });
       // Archiver une carte retire sa pastille : le compte se rediffuse.
       bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
@@ -1369,6 +1524,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true };
     }
 
+    /*
+     * RANGER UNE CARTE VIDE, jugée par le serveur : l'écran ne supprime plus
+     * jamais seul une carte d'après son état local (voir `carte-vide.ts`).
+     */
+    case 'card.supprimerSiVide': {
+      const resultat = supprimerLaCarteSiVide(cmd.id);
+      if (resultat.supprimee) bus.emit({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+      return resultat;
+    }
+
     case 'card.validate': {
       const result = validerCarte(cmd.id);
       if (!result.ok) throw new Error(result.error ?? 'validation impossible');
@@ -1405,6 +1570,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      */
     case 'card.comprehension.repondre': {
       const card = await repondreALaQuestionDeLaCarte(cmd.cardId, cmd.questionId, cmd.reponse);
+      oublierLeBrouillonDeReponse(`reponse.carte.${cmd.cardId}.${cmd.questionId}`);
       return { card };
     }
 
@@ -1610,7 +1776,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       } else if (
         dernier.role === 'cadrage' &&
         comprehensionARattraper({
-          automatique: card.labels.includes(LABEL_AUTO_AMELIORATION),
+          automatique: card.labels.includes(LABEL_AUTO_AMELIORATION) || card.labels.includes(LABEL_VEILLE_COMPETENCES),
           column: card.column,
           parcours: card.parcours,
           cadrageAuRepos: !isRunning(dernier.id),
@@ -1638,6 +1804,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'card.read': {
       marquerLue(cmd.cardId);
       return { ok: true };
+    }
+
+    case 'carte.lieu-de-service': {
+      const { lieuDuServiceDeLaCarte } = await import('./service-de-carte.js');
+      return { lieu: lieuDuServiceDeLaCarte(String(cmd.cardId ?? '')) };
     }
 
     case 'card.unread': {
@@ -1750,6 +1921,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       ) {
         throw new Error(TEXTE_CARTE_EN_PUBLICATION);
       }
+      /* LES PIÈCES PARTIES AVEC CE MESSAGE QUITTENT SON BROUILLON, ICI AUSSI :
+         le vidage de l'écran qui envoie ne suffit pas quand un autre écran
+         tient encore ce brouillon (`brouillonSansLesPiecesParties`). Un refus
+         plus bas les rend au champ d'écriture, qui les réenregistre. */
+      oublierLesPiecesParties(agent.id, cmd.attachments ?? []);
       /*
        * UN MESSAGE SOUS UN RAPPORT RENDU EST UNE NOUVELLE DEMANDE, PAS UN
        * TRAVAIL. Il partait chez l'agent de tâche — le dernier de la carte —,
@@ -1763,6 +1939,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * l'agent qui reçoit qui dit s'il attend.
        */
       const carteDuFil = agent.cardId ? store.getCard(agent.cardId) : null;
+      /* Écrire à l'agent d'un cahier des charges en pause, c'est le reprendre. */
+      leverLaPauseSurMessage(carteDuFil?.id);
       /*
        * UN MESSAGE SOUS UNE CARTE DÉJÀ EN LIGNE N'OUVRE UNE NOUVELLE CARTE QUE
        * SUR ACCORD (MEM-0354 : aucune carte ne naît sans un clic). Le champ
@@ -1936,6 +2114,28 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * bouton (`arretDeCarteAutorise`) et REFUSE un agent qui ne lui appartient
      * pas — le refus remonte et s'affiche, il ne passe jamais en silence.
      */
+    case 'card.cahierPause': {
+      const card = await mettreEnPause(cmd.id);
+      return { ok: true, card };
+    }
+
+    case 'card.cahierReprendre': {
+      const card = await reprendre(cmd.id);
+      return { ok: true, card };
+    }
+
+    case 'card.cahierDocument': {
+      const card = store.getCard(cmd.id);
+      if (!card) throw new Error('Carte introuvable.');
+      const lu = lireLeDocument(card);
+      return { chemin: DOCUMENT_DU_CAHIER, texte: lu?.texte ?? null };
+    }
+
+    case 'project.cahierDocument': {
+      if (!store.getProject(cmd.projectId)) throw new Error('Projet introuvable.');
+      return { chemin: DOCUMENT_DU_CAHIER, texte: lireLeDocumentDuProjet(cmd.projectId)?.texte ?? null };
+    }
+
     case 'agent.stop': {
       const agent = store.getAgent(cmd.agentId);
       const verdict = arretDeCarteAutorise({
@@ -2141,15 +2341,33 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'queue.update': {
-      const item = store.updateQueued(cmd.id, cmd.text);
+      const item = store.updateQueued(cmd.id, cmd.text, cmd.attachments);
       if (item) bus.emit({ type: 'queue.etat', agentId: item.agentId, queue: store.listQueue(item.agentId) });
-      return { ok: !!item };
+      /* `attachments` : les pièces que le message porte RÉELLEMENT désormais.
+         L'écran les compare à ce qu'il a demandé, pour ne jamais croire jointe
+         une pièce qui ne l'est pas (`terminerEdition`, `composer.tsx`). */
+      return { ok: !!item, attachments: item?.attachments };
     }
 
     case 'queue.remove': {
       const agentId = store.removeQueued(cmd.id);
       if (agentId) bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
+      /* La demande retirée retenait peut-être la file (on la modifiait). */
+      if (agentId) reprendreLaFile(agentId);
       return { ok: !!agentId };
+    }
+
+    case 'queue.edition': {
+      /* UNE DEMANDE QU'ON MODIFIE NE PART PAS : la file l'attend tant qu'elle
+         est ouverte, et repart dès qu'elle se referme (enregistrée ou annulée).
+         Un écran fermé en pleine modification : le repère périme, et la file
+         est relancée à ce moment-là. */
+      const agentId = store.marquerEditionEnFile(cmd.id, cmd.actif);
+      if (!agentId) return { ok: false };
+      bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
+      if (!cmd.actif) reprendreLaFile(agentId);
+      else setTimeout(() => reprendreLaFile(agentId), EDITION_EN_FILE_PERIMEE_MS + 1_000).unref?.();
+      return { ok: true };
     }
 
     /* -------- Propositions -------- */
@@ -2176,6 +2394,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       });
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
+      oublierLeBrouillonDeReponse(`reponse.${cmd.questionId}`);
 
       /*
        * UN ANCIEN ENCADRÉ DE COMPÉTENCE (d'avant la retenue d'office) N'EST
@@ -2258,6 +2477,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       });
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
+      oublierLeBrouillonDeReponse(`reponse.${cmd.questionId}`);
       /*
        * Un tour arrêté sur cette question ne doit pas rester suspendu à une
        * réponse qui ne viendra jamais : il repart, en sachant que rien n'a été
@@ -2618,6 +2838,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { etat: await etatDeLaProduction(cmd.projectId) };
     }
 
+    /* LA DERNIÈRE RÉUSSITE DE CHAQUE ÉTAPE : ce qui rend stable le repère
+       « Essai réussi » de la page de réglage. Lecture seule, une requête. */
+    case 'deploy.reussites':
+      return { reussites: store.dernieresReussitesDePublication(cmd.projectId) };
+
     /* -------- Fichiers -------- */
 
     case 'files.list': {
@@ -2641,6 +2866,18 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const items = store.listAttachments(cmd.projectId);
       bus.emit({ type: 'attachments', projectId: cmd.projectId, items });
       return { items };
+    }
+
+    case 'attachments.rattacher': {
+      if (cmd.projectId === PROJET_DU_COFFRE) return { pieces: [] };
+      if (!store.getProject(cmd.projectId)) throw new Error('projet inconnu');
+      const pieces = await rattacherParAlias({
+        projectId: cmd.projectId,
+        agentId: cmd.agentId,
+        cardId: cmd.cardId,
+        alias: cmd.alias,
+      });
+      return { pieces };
     }
 
     /*
@@ -2678,36 +2915,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     /* -------- Facturation -------- */
-
-    case 'billing.clients':
-      return { clients: await billing.listClients(), available: billing.billingAvailable() };
-
-    case 'billing.documents':
-      return { documents: await billing.listDocuments(cmd.clientId) };
-
-    case 'billing.push': {
-      const result = await billing.pushLine({
-        cardId: cmd.cardId,
-        documentType: cmd.documentType,
-        documentId: cmd.documentId,
-        title: cmd.title,
-        description: cmd.description,
-        clientExplanation: cmd.clientExplanation,
-        hours: cmd.hours,
-      });
-      if (!result.ok) throw new Error(result.error ?? 'ajout impossible');
-      bus.toast('success', `Ligne ajoutée au document ${result.documentNumber ?? ''}`.trim());
-      return result;
-    }
-
-    case 'billing.regenerate': {
-      const result = await billing.regenerateText({ cardId: cmd.cardId, field: cmd.field, hint: cmd.hint });
-      if (!result.ok) throw new Error(result.error ?? 'régénération impossible');
-      return result;
-    }
-
-    case 'billing.summary':
-      return { summary: await billing.summary() };
 
     case 'card.ecartChiffrage':
       return { ecart: ecartChiffrage(cmd.projectId) };
@@ -2775,12 +2982,91 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'prefs.set': {
       store.writePreference(cmd.key, cmd.value);
       // Tous les écrans ouverts suivent : même mise en page partout.
-      bus.emit({ type: 'prefs', prefs: store.readPreferences() });
+      diffuserLeReglage(cmd.key);
+      return { ok: true };
+    }
+
+    case 'captures.vues':
+      return { cles: store.capturesVues(compte.id, cmd.cles) };
+
+    case 'captures.voir': {
+      const nouvelles = store.marquerCapturesVues(compte.id, cmd.cles);
+      // Les autres appareils de CE compte suivent, et personne d'autre (`pour`).
+      if (nouvelles.length) bus.emit({ type: 'captures.vues', pour: compte.id, cles: nouvelles });
       return { ok: true };
     }
 
     case 'settings.update': {
       const settings = store.saveSettings(cmd.patch as any);
+      bus.emit({ type: 'settings', settings });
+      return { settings };
+    }
+
+    case 'installation.etat':
+      return {
+        etat: {
+          ...(await etatDeLInstallation()),
+          travail: travailDInstallation(),
+          copie: await etatDeLaCopie(),
+          nouveautes: await nouveautes(),
+        },
+      };
+
+    /*
+     * L'ÉCRAN FAIT INSTALLER. Il ne nomme qu'un GENRE : la ligne exécutée est
+     * écrite dans le démon (`recetteDuGenre`), et un genre inconnu est refusé.
+     * La réponse part dès le lancement ; la sortie suit par le bus. Une fois le
+     * travail fini, le catalogue des moteurs et le relevé des comptes sont
+     * relus pour TOUS les écrans : c'est ce qui fait passer « à installer » à
+     * « à connecter » sans que personne ne clique « Vérifier ».
+     */
+    case 'installation.installer':
+      return lancerUnTravail(cmd.genre, recetteDuGenre(cmd.genre), async () => {
+        bus.emit({ type: 'engines', engines: await listEngines(true) });
+        bus.emit({ type: 'quotas', quotas: await refreshQuotas(true) });
+      });
+
+    case 'installation.copie': {
+      const recette = await recetteDeLaCopie(cmd.nom);
+      if ('erreur' in recette) return { ok: false, erreur: recette.erreur };
+      return lancerUnTravail('copie', recette);
+    }
+
+    case 'installation.nouveautes':
+      return { etat: await nouveautes(cmd.forcer === true) };
+
+    case 'installation.nouveautes.appliquer': {
+      const recuperation = await recupererLesNouveautes();
+      if (!recuperation.ok) return recuperation;
+      if (recuperation.mode === 'carte') {
+        const carte = store.getCard(recuperation.cardId);
+        if (carte) bus.emit({ type: 'card.upsert', card: carte });
+        return recuperation;
+      }
+      const lancement = lancerUnTravail('mise-a-jour', recuperation.recette);
+      return lancement.ok ? { ok: true, mode: 'simple', travail: lancement.travail } : lancement;
+    }
+
+    case 'installation.courriel-essai':
+      return envoyerUnCourrielDEssai(cmd.a);
+
+    case 'installation.adresse': {
+      const resultat = await poserUneAdresse(cmd.genre, cmd.hote);
+      if (resultat.ok) bus.emit({ type: 'settings', settings: store.getSettings() });
+      return resultat;
+    }
+
+    case 'installation.secret':
+      return rangerUnSecret(cmd.genre, cmd.valeur);
+
+    case 'installation.github':
+      return { github: await connecterGitHub(cmd.jeton) };
+
+    case 'installation.bibliotheque':
+      return importerUneBibliothequeProposee(cmd.source);
+
+    case 'installation.etape': {
+      const settings = noterUneEtape(cmd.etape, cmd.issue);
       bus.emit({ type: 'settings', settings });
       return { settings };
     }

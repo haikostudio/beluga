@@ -63,7 +63,6 @@ export const OUTILS_DE_L_ASSISTANT = [
   'group_manage',
   'memoire',
   'competences',
-  'compta',
   'coffre_fort',
   'marketing',
   'statistiques',
@@ -116,7 +115,6 @@ export const DISALLOWED_NATIVE_ASSISTANT = [
   'AskUserQuestion',
 ] as const;
 
-const COMMANDES_COMPTA_LECTURE = new Set(['companies', 'clients', 'list', 'get', 'report']);
 
 function texte(valeur: unknown): string {
   return typeof valeur === 'string' ? valeur.trim() : '';
@@ -158,14 +156,6 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
       if (action === 'lister') return 'lecture';
       if (action === 'etat') return texte(args.etat) === 'active' ? 'ecriture' : 'suppression';
       return ['ecrire', 'retour', 'importer'].includes(action) ? 'ecriture' : 'suppression';
-    case 'compta': {
-      const commande = texte(args.command);
-      if (COMMANDES_COMPTA_LECTURE.has(commande)) return 'lecture';
-      // Une relance part chez le client par courriel : l'aperçu même passe par l'accord.
-      if (commande === 'relance') return 'envoi-client';
-      if (commande === 'delete' || commande === 'raw' || !commande) return 'suppression';
-      return 'ecriture';
-    }
     case 'coffre_fort':
       if (action === 'lister' || action === 'archives') return 'lecture';
       if (action === 'enregistrer' || action === 'restaurer') return 'ecriture';
@@ -427,6 +417,14 @@ export function reglagesDuTourDeLAssistant(
 export const TITRE_ASSISTANT_GLOBAL = 'Assistant Beluga';
 
 /**
+ * Ce que la consigne dit de la facturation : rien dans le dépôt public, où
+ * l'application de facturation Haiko n'existe pas (la ligne privée est retirée
+ * à la publication, la liste vide donne alors un texte vide).
+ */
+const MENTION_FACTURATION = [
+].join('');
+
+/**
  * LA CONSIGNE DE L'ASSISTANT, stable d'un tour à l'autre (elle est le préfixe
  * du cache). Elle décrit le rôle ; la frontière, elle, est tenue par le démon.
  */
@@ -441,7 +439,7 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil accepte un p
 - le MARKETING et son calendrier : marketing ; les STATISTIQUES : statistiques ;
 - la SURVEILLANCE : assistant_surveillances, surveillance_essai, surveillance_recette ;
 - les BACKUPS : assistant_backups, backup_essai, backup_recette ;
-- les NOTES : assistant_notes ; la FACTURATION : compta ;
+- les NOTES : assistant_notes ;${MENTION_FACTURATION}
 - les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier).
 
 TU NE TOUCHES JAMAIS AU CODE NI AUX BRANCHES : tu n'as ni commande, ni éditeur de fichier. Un changement de programme se propose en carte (board_create_card), confiée ensuite à un agent de tâche.

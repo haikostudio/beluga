@@ -6,11 +6,14 @@ import {
   MoteurDeLAssistant,
   connexionTerminee,
   moteursDeLAssistant,
+  type TravailDInstallation,
 } from '@beluga/shared';
 import { BulleInfo, Badge, Button, ZoneDefilement } from '@/components/ui';
 import { AjouterCle, BlocConnexion } from '@/components/connexion-compte';
 import { IconeMoteur } from '@/components/icone-moteur';
+import { BoutonInstaller, useTravailDuGenre } from '@/components/installation/travail';
 import { client } from '@/lib/client';
+import { installationEnDirect } from '@/lib/travail-installation';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -27,19 +30,25 @@ import { t } from '@/lib/langue';
  * à cliquer pour sortir.
  *
  * DEUX GESTES, ET PAS UN DE PLUS, par moteur :
- *  1. INSTALLER l'outil : la commande de l'éditeur, à coller dans un terminal
- *     du serveur. Elle n'est PAS lancée d'ici — le démon ne tourne pas sous le
- *     compte système qui doit recevoir l'outil, et un installateur parti en
- *     aveugle poserait le binaire là où personne ne le cherchera ;
+ *  1. INSTALLER l'outil : un BOUTON. Le démon lance la commande de l'éditeur
+ *     sous son propre compte — celui qui cherchera l'outil ensuite — et la
+ *     sortie s'affiche en direct (`installation/travail.tsx`). Personne ne
+ *     colle plus rien dans un terminal ; la commande ne se montre qu'en repli,
+ *     après un échec ;
  *  2. CONNECTER un compte : exactement la mécanique des réglages
  *     (`connexion-compte.tsx`), page de connexion pour Claude et Codex, clé
  *     d'accès pour Cursor.
  */
 
-export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () => void }) {
+/**
+ * LES MOTEURS ET CE QU'IL LEUR MANQUE — la liste seule, sans cadre autour. Elle
+ * sert deux écrans : l'assistant qui barre la route tant qu'aucun moteur ne
+ * répond (ci-dessous), et la page « Moteurs » de l'assistant de premier
+ * démarrage (`assistant-demarrage.tsx`), qui la pose dans sa propre page.
+ */
+export function ListeDesMoteurs() {
   const state = useApp();
   const moteurs = moteursDeLAssistant(state.engines, state.quotas);
-  const [relecture, setRelecture] = React.useState(false);
 
   // Les connexions déjà suivies par le serveur : sans cette demande, une
   // tentative lancée depuis un autre appareil serait invisible ici.
@@ -50,6 +59,18 @@ export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () =>
       .catch(() => undefined);
   }, []);
 
+  return (
+    <div className="space-y-2">
+      {moteurs.map((moteur) => (
+        <CarteMoteur key={moteur.id} moteur={moteur} />
+      ))}
+    </div>
+  );
+}
+
+/** « Vérifier à nouveau » : relit le catalogue des moteurs et le relevé des comptes. */
+export function BoutonRelireLesMoteurs() {
+  const [relecture, setRelecture] = React.useState(false);
   const relire = async () => {
     setRelecture(true);
     try {
@@ -61,6 +82,23 @@ export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () =>
       setRelecture(false);
     }
   };
+  return (
+    <Button variant="outline" size="sm" data-assistant-relire="1" disabled={relecture} onClick={relire}>
+      {relecture ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+      {t('Vérifier à nouveau')}
+    </Button>
+  );
+}
+
+export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () => void }) {
+  // Un travail d'installation lancé avant l'ouverture de cet écran (ou depuis
+  // un autre appareil) se retrouve ici, sortie comprise.
+  React.useEffect(() => {
+    client
+      .call<{ etat: { travail?: TravailDInstallation | null } }>({ type: 'installation.etat' })
+      .then((rendu) => installationEnDirect.reprendre(rendu.etat?.travail))
+      .catch(() => undefined);
+  }, []);
 
   return (
     <div
@@ -86,11 +124,7 @@ export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () =>
         </header>
 
         <ZoneDefilement className="min-h-0 flex-1 px-4 py-3" fond="hsl(var(--surface))">
-          <div className="space-y-2">
-            {moteurs.map((moteur) => (
-              <CarteMoteur key={moteur.id} moteur={moteur} />
-            ))}
-          </div>
+          <ListeDesMoteurs />
         </ZoneDefilement>
 
         <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
@@ -101,9 +135,7 @@ export function AssistantMoteurs({ onOuvrirReglages }: { onOuvrirReglages: () =>
           <Button variant="ghost" size="sm" data-assistant-reglages="1" onClick={onOuvrirReglages}>
             <Settings className="h-3 w-3" />
             {t('Ouvrir les réglages')}</Button>
-          <Button variant="outline" size="sm" data-assistant-relire="1" disabled={relecture} onClick={relire}>
-            {relecture ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-            {t('Vérifier à nouveau')}</Button>
+          <BoutonRelireLesMoteurs />
         </footer>
       </div>
     </div>
@@ -139,7 +171,7 @@ function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
       data-etape={moteur.etape}
       className={cn(
         'rounded-md border px-3 py-2.5',
-        pret ? 'border-success/40 bg-success/5' : 'border-border bg-bg',
+        pret ? 'border-transparent bg-raised' : 'border-transparent bg-surface',
       )}
     >
       <div className="flex items-center gap-2">
@@ -169,12 +201,11 @@ function CarteMoteur({ moteur }: { moteur: MoteurDeLAssistant }) {
 }
 
 /**
- * La commande d'installation, à copier puis à coller dans un terminal du
- * serveur. Elle est écrite en toutes lettres : rien ne s'exécute d'ici.
+ * L'INSTALLATION DE L'OUTIL, D'UN BOUTON. Le démon lance la commande de
+ * l'éditeur et montre sa sortie ; une fois l'outil posé, il relit lui-même le
+ * catalogue des moteurs, et cette étape se replie sur sa ligne cochée.
  */
 function EtapeInstallation({ moteur }: { moteur: MoteurDeLAssistant }) {
-  const [copie, setCopie] = React.useState(false);
-
   if (moteur.cliInstalle) {
     return (
       <p
@@ -188,6 +219,27 @@ function EtapeInstallation({ moteur }: { moteur: MoteurDeLAssistant }) {
     );
   }
 
+  return (
+    <div className="space-y-1.5 rounded-md border border-border bg-surface px-2 py-1.5" data-etape-installation="a-faire">
+      <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
+        <Terminal className="h-3 w-3" />
+        {t('1. Installer l\'outil sur le serveur')}
+        <BulleInfo cote="start">{t('Beluga Build l’installe lui-même sur ce serveur : vous voyez l’installation se dérouler, et l’étape suivante s’ouvre dès qu’elle est finie.')}</BulleInfo>
+      </p>
+      <BoutonInstaller genre={moteur.id} />
+      <CommandeEnRepli moteur={moteur} />
+    </div>
+  );
+}
+
+/**
+ * La commande de l'éditeur, pour qui préfère son terminal — montrée seulement
+ * APRÈS un échec de l'installation par bouton.
+ */
+function CommandeEnRepli({ moteur }: { moteur: MoteurDeLAssistant }) {
+  const { travail } = useTravailDuGenre(moteur.id);
+  const [copie, setCopie] = React.useState(false);
+  if (travail?.etat !== 'echoue') return null;
   const copier = async () => {
     try {
       await navigator.clipboard.writeText(moteur.commandeDInstallation);
@@ -197,15 +249,12 @@ function EtapeInstallation({ moteur }: { moteur: MoteurDeLAssistant }) {
       client.pushToast('error', t('copie impossible depuis ce navigateur'));
     }
   };
-
   return (
-    <div className="rounded-md border border-border bg-surface px-2 py-1.5" data-etape-installation="a-faire">
-      <p className="flex items-center gap-1.5 text-[12.5px] font-medium text-text">
-        <Terminal className="h-3 w-3" />
-        {t('1. Installer l\'outil sur le serveur')}
-        <BulleInfo cote="start">{t('À coller dans un terminal du serveur, puis revenez ici et cliquez sur « Vérifier à nouveau ».')}</BulleInfo>
+    <div className="space-y-1" data-repli-par-commande={moteur.id}>
+      <p className="text-[12.5px] leading-relaxed text-muted">
+        {t('Vous pouvez aussi la lancer vous-même, dans un terminal du serveur :')}
       </p>
-      <div className="mt-1 flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5">
         <code
           data-commande-installation={moteur.id}
           className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded bg-bg px-2 py-1 font-mono text-[12px] text-text"

@@ -70,14 +70,32 @@ export default {
         // cours, décompte des tâches, temps) : distinct de la conversation
         // qu'il porte tantôt sur bg, tantôt sur surface (styles.css).
         'bloc-etapes': 'hsl(var(--bloc-etapes))',
+        // Le décroché sous le champ d'écriture : un gris entre la page et le
+        // champ (styles.css).
+        decroche: 'hsl(var(--decroche))',
+        // LA SEULE COULEUR de la charte, avec le rouge de l'erreur : le violet
+        // du texte du décroché (`text-teinte`). À poser avec parcimonie
+        // (styles.css).
+        teinte: 'hsl(var(--teinte))',
+        // L'aplat d'encre (bulle de l'utilisateur, bouton qui arrête) : noir
+        // en clair, GRIS soutenu en sombre — jamais blanc (styles.css).
+        encre: { DEFAULT: 'hsl(var(--encre))', fg: 'hsl(var(--encre-fg))' },
       },
+      // L'ÉCHELLE DES RAYONS de la charte : des coins doux, jamais ronds au
+      // point de devenir des pilules — un bouton, un champ ou un groupe ont le
+      // même air de famille. `xl` et `2xl` servent aux bulles et au champ
+      // d'écriture.
       borderRadius: {
-        lg: '10px',
-        md: '8px',
         sm: '6px',
+        md: '8px',
+        lg: '12px',
+        xl: '14px',
+        '2xl': '18px',
       },
+      // Inter d'abord (`styles.css`), puis la police du système pour les
+      // écritures qu'elle ne couvre pas.
       fontFamily: {
-        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        sans: ['Inter Variable', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       keyframes: {

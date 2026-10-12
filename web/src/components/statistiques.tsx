@@ -1,5 +1,6 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Globe, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
+import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Globe, Route, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
 import {
   type AnalyseDesParcours,
   type Card,
@@ -32,6 +33,7 @@ import {
   Button,
   ConfirmDialog,
   DialogTitle,
+  TitreDePage,
   Drawer,
   Input,
   Tabs,
@@ -42,6 +44,9 @@ import {
 } from '@/components/ui';
 import { SelecteurPeriode } from '@/components/selecteur-periode';
 import { SilhouetteStatistiques } from '@/components/silhouettes';
+import { BoutonPrincipal, GestePrincipal, OptionDePage, OptionsDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
+import { ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import {
   BarresParCreneau,
   CourbeParJour,
@@ -58,7 +63,7 @@ import {
   nomDuPays,
   valeurIndicateur,
 } from '@/components/graphiques-statistiques';
-import { TableauDeBlocs, type BlocDuTableau } from '@/components/tableau-statistiques';
+import { FournirLeMenuDesBlocs, LignesDesBlocs, TableauDeBlocs, type BlocDuTableau, type BlocsDeLaPage } from '@/components/tableau-statistiques';
 import { InterrupteurDeSuivi } from '@/components/interrupteur-suivi';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { SelecteurDeProjet } from '@/components/selecteur-de-projet';
@@ -160,8 +165,14 @@ export function Statistiques({
   const version = Object.values(state.marketingVersions).reduce((a, b) => a + b, 0);
   const [liste, setListe] = React.useState<{ sites: LigneSite[]; jours: string[] } | null>(null);
   const [creation, setCreation] = React.useState(false);
+  useTiroirAdresse('nouveau-site-statistiques', creation, setCreation);
   /** LA RECHERCHE DE LA LISTE : oubliée à la fermeture, jamais gardée d'une visite à l'autre. */
   const [recherche, setRecherche] = React.useState('');
+  /* LA COLONNE DE GAUCHE EST CELLE DES STATISTIQUES (demande du 12/10/2026) :
+     le geste qui crée, détaché, puis les groupes de la liste. Sur téléphone,
+     le geste reste dans la page. */
+  const dansLaColonne = useColonneDeService();
+  const [groupe, setGroupe] = React.useState<GroupeDeLaListe>('tous');
   /** Un site tout juste créé s'ouvre sur l'assistant, directement au code à poser. */
   const [assistantVoulu, setAssistantVoulu] = React.useState(false);
 
@@ -181,6 +192,12 @@ export function Statistiques({
     setAssistantVoulu(assistant);
     onVise?.(id);
   };
+  /* Les chiffres des rubriques de la colonne : ceux de la liste, pas ceux de la recherche. */
+  const comptesDesGroupes = React.useMemo(() => {
+    const sites = liste?.sites ?? [];
+    const { actifs, inactifs } = separerProjetsActifs(sites.filter((s) => !s.autonome));
+    return { tous: sites.length, actifs: actifs.length, inactifs: inactifs.length, autonomes: sites.filter((s) => s.autonome).length };
+  }, [liste]);
 
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
@@ -188,24 +205,70 @@ export function Statistiques({
         <DetailDuSite key={vise} id={vise} sites={liste?.sites ?? []} assistantInitial={assistantVoulu} onChoisir={(id) => ouvrir(id)} onOuvrirCarte={onOuvrirCarte} />
       ) : (
         <>
-          <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-            <BarChart3 className="h-3.5 w-3.5 shrink-0 text-accent" />
-            <DialogTitle className="min-w-0 flex-1 truncate">{t('Statistiques')}</DialogTitle>
-            <Button size="sm" onClick={() => setCreation(true)} data-stats-nouveau-site>
-              <Plus className="h-3.5 w-3.5" />
-              {t('Nouveau site')}
-            </Button>
-          </header>
-          <div className="shrink-0 px-3 pb-2">
+          <TitreDePage>{t('Statistiques')}</TitreDePage>
+          {dansLaColonne ? (
+            <ColonneDeService>
+              <nav aria-label="Rubriques des statistiques" data-colonne-statistiques className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+                <GesteDeCreationDeColonne
+                  libelle={t('Nouveau site')}
+                  aria-label="Nouveau site"
+                  data-stats-nouveau-site
+                  onClick={() => setCreation(true)}
+                />
+                <RubriqueDeColonne
+                  icone={<BarChart3 />}
+                  libelle={t('Tous les sites')}
+                  compte={comptesDesGroupes.tous}
+                  actif={groupe === 'tous'}
+                  onClick={() => setGroupe('tous')}
+                  data-stats-groupe-rubrique="tous"
+                />
+                <RubriqueDeColonne
+                  icone={<Check />}
+                  libelle={t('Projets actifs')}
+                  compte={comptesDesGroupes.actifs}
+                  actif={groupe === 'actifs'}
+                  onClick={() => setGroupe('actifs')}
+                  data-stats-groupe-rubrique="actifs"
+                />
+                {comptesDesGroupes.inactifs || groupe === 'inactifs' ? (
+                  <RubriqueDeColonne
+                    icone={<Minus />}
+                    libelle={t('Projets inactifs')}
+                    compte={comptesDesGroupes.inactifs}
+                    actif={groupe === 'inactifs'}
+                    onClick={() => setGroupe('inactifs')}
+                    data-stats-groupe-rubrique="inactifs"
+                  />
+                ) : null}
+                <RubriqueDeColonne
+                  icone={<Globe />}
+                  libelle={t('Sites autonomes')}
+                  compte={comptesDesGroupes.autonomes}
+                  actif={groupe === 'autonomes'}
+                  onClick={() => setGroupe('autonomes')}
+                  data-stats-groupe-rubrique="autonomes"
+                />
+              </nav>
+            </ColonneDeService>
+          ) : (
+            <GestePrincipal>
+              <BoutonPrincipal onClick={() => setCreation(true)} data-stats-nouveau-site>
+                <Plus className="h-3.5 w-3.5" />
+                {t('Nouveau site')}
+              </BoutonPrincipal>
+            </GestePrincipal>
+          )}
+          <div className="shrink-0 pb-3">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
               <Input
                 value={recherche}
                 onChange={(e) => setRecherche(e.target.value)}
                 onKeyDown={(e) => e.key === 'Escape' && recherche && (e.stopPropagation(), setRecherche(''))}
                 placeholder={t('Rechercher un projet ou un site')}
                 aria-label="Rechercher un projet ou un site"
-                className="pl-7 pr-8"
+                className="h-10 rounded-xl pl-10 pr-9 text-[14px]"
                 data-stats-recherche
               />
               {recherche ? (
@@ -222,8 +285,8 @@ export function Statistiques({
               ) : null}
             </div>
           </div>
-          <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-            {liste === null ? <SilhouetteStatistiques /> : <ListeDesSites sites={liste.sites} recherche={recherche} onOuvrir={(id) => ouvrir(id)} />}
+          <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
+            {liste === null ? <SilhouetteStatistiques /> : <ListeDesSites sites={liste.sites} recherche={recherche} groupe={groupe} onOuvrir={(id) => ouvrir(id)} />}
           </ZoneDefilement>
         </>
       )}
@@ -258,7 +321,20 @@ function IconeDuSite({ site }: { site: Pick<LigneSite, 'id' | 'nom' | 'autonome'
  * nom et l'adresse : chaque compteur suit le filtre, un groupe vide disparaît,
  * et une phrase le dit quand rien ne correspond.
  */
-function ListeDesSites({ sites, recherche, onOuvrir }: { sites: LigneSite[]; recherche: string; onOuvrir: (id: string) => void }) {
+/** Le groupe de la liste que la colonne de gauche retient ; `tous` : les trois. */
+type GroupeDeLaListe = 'tous' | 'actifs' | 'inactifs' | 'autonomes';
+
+function ListeDesSites({
+  sites,
+  recherche,
+  groupe = 'tous',
+  onOuvrir,
+}: {
+  sites: LigneSite[];
+  recherche: string;
+  groupe?: GroupeDeLaListe;
+  onOuvrir: (id: string) => void;
+}) {
   const [garde, garder] = usePref<TriDeLaListe | null>('statistiques.liste.tri', null);
   // Le titre d'un groupe couvre EXACTEMENT les colonnes affichées : plus large, il en créerait de fantômes.
   const colonnes = useTelephone() ? 3 : 6;
@@ -267,6 +343,7 @@ function ListeDesSites({ sites, recherche, onOuvrir }: { sites: LigneSite[]; rec
   const { actifs, inactifs } = separerProjetsActifs(retenus.filter((s) => !s.autonome));
   const autonomes = retenus.filter((s) => s.autonome);
   const filtre = recherche.trim().length > 0;
+  const voir = (g: Exclude<GroupeDeLaListe, 'tous'>) => groupe === 'tous' || groupe === g;
   if (!sites.length) return <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun site mesuré.')}</p>;
   if (!retenus.length) {
     return (
@@ -285,17 +362,17 @@ function ListeDesSites({ sites, recherche, onOuvrir }: { sites: LigneSite[]; rec
     <table className="w-full table-fixed border-collapse text-left" data-stats-liste={retenus.length} data-stats-tri={`${tri.colonne}:${tri.sens}`}>
       <thead>
         <tr className="text-[11.5px] text-faint">
-          {entete('nom', t('Projet'), 'pl-1')}
+          {entete('nom', t('Projet'), 'pl-1 max-sm:pl-0')}
           <th className="hidden w-20 px-2 py-1.5 font-normal sm:table-cell" aria-hidden />
           {entete('visites', t('Visites'), 'w-[4.5rem] sm:w-24')}
           {entete('visiteurs', t('Visiteurs'), 'hidden w-24 sm:table-cell')}
           {entete('objectifs', t('Objectifs'), 'hidden w-24 sm:table-cell')}
-          {entete('tendance', t('Tendance'), 'w-24 pr-3 sm:w-28')}
+          {entete('tendance', t('Tendance'), 'w-24 pr-3 max-sm:pr-0 sm:w-28')}
         </tr>
       </thead>
-      {actifs.length || !filtre ? <GroupeDeSites titre={t('Projets actifs')} groupe="actifs" sites={actifs} colonnes={colonnes} onOuvrir={onOuvrir} /> : null}
-      {inactifs.length ? <GroupeDeSites titre={t('Projets inactifs')} groupe="inactifs" sites={inactifs} colonnes={colonnes} onOuvrir={onOuvrir} /> : null}
-      {autonomes.length || !filtre ? (
+      {voir('actifs') && (actifs.length || !filtre) ? <GroupeDeSites titre={t('Projets actifs')} groupe="actifs" sites={actifs} colonnes={colonnes} onOuvrir={onOuvrir} /> : null}
+      {voir('inactifs') && inactifs.length ? <GroupeDeSites titre={t('Projets inactifs')} groupe="inactifs" sites={inactifs} colonnes={colonnes} onOuvrir={onOuvrir} /> : null}
+      {voir('autonomes') && (autonomes.length || !filtre) ? (
         <GroupeDeSites
           titre={t('Sites autonomes')}
           groupe="autonomes"
@@ -365,7 +442,7 @@ function GroupeDeSites({
   return (
     <tbody data-stats-groupe={groupe}>
       <tr>
-        <th colSpan={colonnes} scope="colgroup" className="px-1 pb-1 pt-4 text-left text-[12px] font-medium text-faint">
+        <th colSpan={colonnes} scope="colgroup" className="pb-2 pt-8 text-left text-[13px] font-normal text-faint sm:px-3">
           {titre} <span className="tabular-nums">· {sites.length}</span>
         </th>
       </tr>
@@ -377,15 +454,18 @@ function GroupeDeSites({
               key={s.id}
               onClick={() => onOuvrir(s.id)}
               data-stats-site={s.id}
-              className="cursor-pointer border-t-2 border-surface bg-bloc text-[12.5px] transition-colors hover:bg-bloc/70"
+              className="cursor-pointer text-[13px] transition-colors hover:bg-surface"
             >
-              <td className="min-w-0 rounded-l-md py-2 pl-3 pr-2">
+              {/* SUR TÉLÉPHONE, LE TEXTE S'ALIGNE SUR LE CHAMP DE RECHERCHE : la
+                  ligne n'a pas de fond visible sans survol, son retrait
+                  s'ajoutait donc à la marge de la page (28 px au lieu de 16). */}
+              <td className="min-w-0 rounded-l-xl py-3 pr-2 sm:pl-3">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <IconeDuSite site={s} />
                   <button
                     type="button"
                     onClick={(e) => (e.stopPropagation(), onOuvrir(s.id))}
-                    className="min-w-0 truncate text-left text-[13px] font-medium text-text"
+                    className="min-w-0 truncate text-left text-[14.5px] font-medium text-text"
                   >
                     {s.nom}
                   </button>
@@ -414,7 +494,7 @@ function GroupeDeSites({
               <td className="hidden px-2 py-2 text-right tabular-nums text-text sm:table-cell" data-stats-objectifs-atteints={s.objectifs}>
                 {chiffre(s.objectifs)}
               </td>
-              <td className="rounded-r-md py-2 pl-2 pr-3 text-right">
+              <td className="rounded-r-xl py-3 pl-2 text-right sm:pr-3">
                 <FlecheDeTendance tendance={tendanceDesVisites(total, s.visitesPrecedentes)} />
               </td>
             </tr>
@@ -485,10 +565,11 @@ function SelecteurDeSite({ id, nom, sites, onChoisir }: { id: string; nom: strin
   const site = sites.find((s) => s.id === id);
   return (
     <SelecteurDeProjet
+      dansLeFil
       id={id}
       nom={nom}
       icone={site ? <IconeDuSite site={site} /> : null}
-      choix={sites.filter((s) => !s.autonome && s.actif).map((s) => ({ id: s.id, nom: s.nom, adresse: s.adresse, icone: <IconeDuSite site={s} /> }))}
+      choix={sites.filter((s) => !s.autonome && s.actif).map((s) => ({ id: s.id, nom: s.nom, adresse: s.adresse, icone: <IconeDuSite site={s} />, projetId: s.id }))}
       onChoisir={onChoisir}
       repere="stats"
       libelleFiltre={t('Filtrer les sites')}
@@ -516,6 +597,14 @@ function DetailDuSite({
   const [detail, setDetail] = React.useState<DetailSite | null>(null);
   const [onglet, setOnglet] = React.useState<OngletStats>('audience');
   const [assistant, setAssistant] = React.useState(!!assistantInitial);
+  const telephone = useTelephone();
+  /* LES ONGLETS SONT LES RUBRIQUES DE LA COLONNE DE GAUCHE (demande du
+     12/10/2026) : le site ouvert y porte son nom, une flèche qui ramène à la
+     liste, et « Audience » et « Parcours ». Sur téléphone, les onglets restent
+     dans la page. */
+  const dansLaColonne = useColonneDeService();
+  /** Les blocs du tableau affiché : sur téléphone, « Blocs » est une ligne du menu à trois points. */
+  const [blocsDeclares, setBlocsDeclares] = React.useState<BlocsDeLaPage | null>(null);
 
   React.useEffect(() => {
     let vivant = true;
@@ -534,9 +623,11 @@ function DetailDuSite({
   }, [id, version, periode.echelle, periode.debut, periode.fin]);
 
   const nom = detail?.nom ?? sites.find((s) => s.id === id)?.nom ?? t('Statistiques');
-  /** LE CHOIX DES DATES vit dans la barre d'outils de chaque onglet, juste avant « Blocs ». */
+  /** LE CHOIX DES DATES vit dans la barre d'en-tête, avec le fil d'Ariane (demande du 12/10/2026),
+   *  en tête des gestes de la page ; sur téléphone, c'est un seul bouton, à droite des onglets. */
   const dates = (
     <SelecteurPeriode
+      compact={telephone}
       echelle={periode.echelle}
       debut={periode.debut}
       fin={periode.fin}
@@ -548,52 +639,92 @@ function DetailDuSite({
   const bouton = detail ? boutonDuSuivi(detail.etatAffiche) : null;
   return (
     <>
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <Button variant="ghost" size="icon" aria-label="Tous les sites" title={t('Tous les sites')} onClick={() => onChoisir(null)} data-stats-retour>
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
+      {/* PLUS DE SECONDE BARRE (demande du 11/10/2026 : « tout doit se passer
+          au niveau de la barre d'en-tête avec le fil d'Ariane ») : le site
+          ouvert est le dernier cran du fil — « Services › Statistiques › ProjetA
+          Saas » —, il y ouvre la liste des autres sites, et « Statistiques » y
+          ramène à tous les sites. Ses gestes montent à droite de la barre. */}
+      <SuiteDuFil onRacine={() => onChoisir(null)} retour={{ action: () => onChoisir(null), reperes: { 'data-stats-retour': '' } }}>
+        <SeparateurDuFil />
         <SelecteurDeSite id={id} nom={nom} sites={sites} onChoisir={onChoisir} />
+      </SuiteDuFil>
+      {/* SUR TÉLÉPHONE, UNE SEULE RANGÉE SOUS LA BARRE (demande du 11/10/2026) :
+          les onglets et la période. Le suivi, l'installation et « Blocs » sont
+          les lignes du menu à trois points ; tant que le suivi n'est pas posé,
+          « Installer le suivi » est le bouton du bas de l'écran. */}
+      <OptionsDePage>
+        {telephone ? null : dates}
         {/* « SUIVI ACTIF » : le même réglage que l'atelier Marketing — éteint, le
             projet passe dans « Projets inactifs ». Un site autonome n'a pas cet état. */}
         {detail && !detail.autonome ? <InterrupteurDeSuivi projectId={detail.id} actif={detail.espace.actif !== false} libelle={t('Suivi actif')} repere="Suivi actif" /> : null}
         {/* L'INSTALLATION N'EST PLUS UN ONGLET (demande du 28/09/2026) : un
             bouton, en haut à droite, ouvre l'assistant pas à pas. */}
-        {detail && bouton ? (
-          <Button
-            size="sm"
-            variant={bouton.principal ? 'default' : 'subtle'}
-            className="shrink-0"
-            onClick={() => setAssistant(true)}
-            data-stats-installer={detail.etatAffiche}
-          >
-            {bouton.icone}
+        {detail && bouton && !bouton.principal ? (
+          <OptionDePage icone={bouton.icone} className="shrink-0" onClick={() => setAssistant(true)} data-stats-installer={detail.etatAffiche}>
             {bouton.libelle}
-          </Button>
+          </OptionDePage>
         ) : null}
-      </header>
+        {telephone && blocsDeclares ? <LignesDesBlocs declares={blocsDeclares} /> : null}
+      </OptionsDePage>
+      {detail && bouton?.principal ? (
+        <GestePrincipal>
+          <BoutonPrincipal variant="default" className="shrink-0" onClick={() => setAssistant(true)} data-stats-installer={detail.etatAffiche}>
+            {bouton.icone}
+            {telephone ? t('Installer le suivi') : bouton.libelle}
+          </BoutonPrincipal>
+        </GestePrincipal>
+      ) : null}
+      <ColonneDeService niveau={{ titre: nom, onRetour: () => onChoisir(null) }}>
+        <nav aria-label="Rubriques du site" data-colonne-statistiques-site className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+          <RubriqueDeColonne
+            icone={<BarChart3 />}
+            libelle={t('Audience')}
+            actif={onglet === 'audience'}
+            onClick={() => setOnglet('audience')}
+            data-stats-onglet="audience"
+          />
+          <RubriqueDeColonne
+            icone={<Route />}
+            libelle={t('Parcours')}
+            actif={onglet === 'parcours'}
+            onClick={() => setOnglet('parcours')}
+            data-stats-onglet="parcours"
+          />
+        </nav>
+      </ColonneDeService>
       {!detail ? (
-        <div className="px-3">
+        <div className="sm:px-3">
           <SilhouetteStatistiques lignes={3} />
         </div>
       ) : (
-        <Tabs value={onglet} onValueChange={(v) => setOnglet(v as OngletStats)} className="flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center px-3 pb-2">
-            <TabsList defilable>
-              <TabsTrigger value="audience" data-stats-onglet="audience">{t('Audience')}</TabsTrigger>
-              <TabsTrigger value="parcours" data-stats-onglet="parcours">{t('Parcours')}</TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="audience" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-4">
-              <Audience detail={detail} dates={dates} onInstaller={() => setAssistant(true)} />
-            </ZoneDefilement>
-          </TabsContent>
-          <TabsContent value="parcours" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-4">
-              <Parcours detail={detail} dates={dates} onInstaller={() => setAssistant(true)} onOuvrirCarte={onOuvrirCarte} />
-            </ZoneDefilement>
-          </TabsContent>
-        </Tabs>
+        <FournirLeMenuDesBlocs value={setBlocsDeclares}>
+          <Tabs value={onglet} onValueChange={(v) => setOnglet(v as OngletStats)} className="flex min-h-0 flex-1 flex-col">
+            {dansLaColonne ? null : (
+              <div className="flex shrink-0 items-center gap-2 pb-2 sm:px-3" data-stats-rangee-onglets>
+                <TabsList defilable>
+                  <TabsTrigger value="audience" data-stats-onglet="audience">{t('Audience')}</TabsTrigger>
+                  <TabsTrigger value="parcours" data-stats-onglet="parcours">{t('Parcours')}</TabsTrigger>
+                </TabsList>
+                {telephone ? (
+                  <>
+                    <span className="min-w-0 flex-1" aria-hidden />
+                    {dates}
+                  </>
+                ) : null}
+              </div>
+            )}
+            <TabsContent value="audience" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+              <ZoneDefilement fond="hsl(var(--surface))" className="pb-4 sm:px-3">
+                <Audience detail={detail} dates={null} onInstaller={() => setAssistant(true)} />
+              </ZoneDefilement>
+            </TabsContent>
+            <TabsContent value="parcours" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+              <ZoneDefilement fond="hsl(var(--surface))" className="pb-4 sm:px-3">
+                <Parcours detail={detail} dates={null} onInstaller={() => setAssistant(true)} onOuvrirCarte={onOuvrirCarte} />
+              </ZoneDefilement>
+            </TabsContent>
+          </Tabs>
+        </FournirLeMenuDesBlocs>
       )}
       {detail && assistant ? (
         <AssistantInstallation
@@ -738,7 +869,15 @@ function Audience({ detail, dates, onInstaller }: { detail: DetailSite; dates: R
       titre: t('Chiffres clés'),
       large: true,
       rendu: () => (
-        <div className="grid grid-cols-2 gap-1.5 rounded-md bg-bloc p-1.5 sm:grid-cols-3" data-stats-bloc="chiffres" data-stats-titre>
+        /* TOUTE LA LARGEUR : ce bloc n'a pas de rangée de titre. Marqué
+           `data-stats-titre` en entier, il recevait la réserve des deux boutons
+           du coin (64 px) sur TOUTE sa hauteur — une colonne vide à droite des
+           chiffres. Seul le libellé de la tuile du coin haut droit leur laisse
+           la place : la deuxième sur téléphone, la troisième sur ordinateur. */
+        <div
+          className="grid grid-cols-2 gap-1.5 rounded-md bg-bloc p-1.5 sm:grid-cols-3 max-sm:[&>*:nth-child(2)>span:first-child]:pr-12 sm:[&>*:nth-child(3)>span:first-child]:pr-12"
+          data-stats-bloc="chiffres"
+        >
           <Tuile cle="sessions" libelle={t('Sessions')} valeur={tb.sessions.toLocaleString(formatRegional())} explication={t('Une session : les pages vues d’affilée par une même personne, jusqu’à trente minutes d’absence.')} />
           <Tuile cle="utilisateurs" libelle={t('Utilisateurs')} valeur={tb.utilisateurs.toLocaleString(formatRegional())} explication={t('Les personnes différentes : reconnues en suivi complet, comptées jour par jour en suivi anonyme.')} />
           {indicateurs.map((i) => (
@@ -1317,7 +1456,7 @@ function FriseDuVisiteur({ id, visiteur, onClose }: { id: string; visiteur: stri
   if (!visiteur) return null;
   const heure = (instant: number) => new Date(instant).toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
   return (
-    <Drawer open onClose={onClose} empile>
+    <Drawer adresse="visiteur-statistiques" open onClose={onClose} empile>
       <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
         <DialogTitle className="min-w-0 flex-1 truncate">{t('Parcours du visiteur {id}', { id: visiteur.slice(0, 8) })}</DialogTitle>
       </header>
@@ -1547,7 +1686,7 @@ function AssistantInstallation({
   }
 
   return (
-    <Drawer open onClose={onClose} empile>
+    <Drawer adresse="suivi-statistiques" open onClose={onClose} empile>
       <header className="flex shrink-0 flex-col items-center gap-1.5 px-4 pb-3">
         <DialogTitle className="max-w-full truncate text-center" data-stats-assistant-titre>{t('Installer le suivi')}</DialogTitle>
         <span className={cn('text-center text-[12px]', couleurDuSuivi(carte && etat === 'absent' ? 'installation' : etat))} data-marketing-suivi-etat={carte && etat === 'absent' ? 'installation' : etat}>
@@ -1922,10 +2061,11 @@ function BlocChoix({
       {...repere}
       className={cn(
         'flex flex-col gap-0.5 rounded-md px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55',
-        actif ? 'bg-accent/15 ring-1 ring-accent' : 'bg-bloc hover:bg-bloc/70',
+        /* Le choix RETENU : son fond, et son titre en violet — plus d'anneau. */
+        actif ? 'bg-raised' : 'bg-bloc hover:bg-bloc/70',
       )}
     >
-      <span className="text-[13px] font-medium text-text">{titre}</span>
+      <span className={cn('text-[13px] font-medium', actif ? 'text-teinte' : 'text-text')}>{titre}</span>
       <span className="text-[12px] text-muted">{description}</span>
     </button>
   );

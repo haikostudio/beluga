@@ -16,6 +16,12 @@ import { TeteDeRubrique, type ContexteConfig } from './communs';
  * règle pure `shared/src/copies-mortes.ts`) ; rien ne part sans un clic sur
  * « Nettoyer », et le démon refuse tout chemin qui n'est pas posé sous le
  * dossier des copies du projet.
+ *
+ * LA ZONE EST UN NETTOYAGE, ET ELLE LE DIT (11/10/2026). Titrée « Copies de
+ * travail », vide la plupart du temps, elle a été prise pour une panne
+ * (« pourquoi j'ai pas d'information dans ce volet ? »). Son titre dit
+ * désormais ce qu'elle liste — ce qui est À NETTOYER — et son état vide dit
+ * qu'il n'y a rien à faire, en mots courants : ni « git », ni « copie morte ».
  */
 function CopiesDeTravail({ projectId, open }: { projectId: string; open: boolean }) {
   const [copies, setCopies] = React.useState<CopieMorte[]>([]);
@@ -75,14 +81,14 @@ function CopiesDeTravail({ projectId, open }: { projectId: string; open: boolean
   const total = tailleDesCopies(copies);
   const resume =
     copies.length === 1
-      ? t('1 copie morte, {taille}', { taille: bytes(total) })
-      : t('{n} copies mortes, {taille} en tout', { n: copies.length, taille: bytes(total) });
+      ? t('1 copie abandonnée, {taille}', { taille: bytes(total) })
+      : t('{n} copies abandonnées, {taille} en tout', { n: copies.length, taille: bytes(total) });
 
   return (
     <div data-copies-de-travail>
       <h3 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text mb-2">
-        <HardDrive className="h-3.5 w-3.5 text-faint" /> {t('Copies de travail')}
-        <BulleInfo cote="start">{t('Les copies que git ne liste plus restent sur le disque sans que « git worktree prune » les voie. Elles sont listées ici, et rien n’est effacé sans votre clic.')}</BulleInfo>
+        <HardDrive className="h-3.5 w-3.5 text-faint" /> {t('Copies de travail à nettoyer')}
+        <BulleInfo cote="start">{t('Chaque carte travaille dans sa propre copie du projet. Il arrive qu’une copie reste sur le disque après la fin de sa carte : elle est listée ici, et rien n’est effacé sans votre clic.')}</BulleInfo>
       </h3>
       {lecture ? (
         <p className="flex items-center gap-1.5 text-[13px] text-faint">
@@ -91,8 +97,8 @@ function CopiesDeTravail({ projectId, open }: { projectId: string; open: boolean
       ) : lectureRaison ? (
         <p className="text-[13px] text-faint" data-copies-raison>{lectureRaison}</p>
       ) : copies.length === 0 ? (
-        <p className="text-[13px] text-faint" data-copies-aucune>
-          {t('Aucune copie morte : git connaît toutes les copies de travail de ce projet.')}
+        <p className="text-[13px] text-muted" data-copies-aucune>
+          {t('Rien à nettoyer : aucune copie de travail abandonnée.')}
         </p>
       ) : (
         <div className="rounded-md border border-border bg-bloc" data-copies-liste>

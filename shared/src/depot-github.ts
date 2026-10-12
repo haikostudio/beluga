@@ -1,3 +1,4 @@
+import { slugEntier } from './slugs.js';
 /**
  * AJOUTER UN PROJET DEPUIS GITHUB.
  *
@@ -154,15 +155,7 @@ export function adresseDeClone(depot: DepotVise): string {
  * un projet neuf : minuscules, sans accent, sans signe exotique.
  */
 export function dossierPourDepot(nom: string): string {
-  return (
-    nom
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 50) || 'projet'
-  );
+  return slugEntier(nom).slice(0, 50) || 'projet';
 }
 
 /**

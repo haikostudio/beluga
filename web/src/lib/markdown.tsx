@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ChevronRight,
   OctagonAlert,
-  Plus,
   Check,
   ClipboardList,
   Search,
@@ -19,9 +18,10 @@ import {
   Hash,
   type LucideIcon,
 } from 'lucide-react';
-import { MOTIF_MARKDOWN_EN_LIGNE, paragraphBreakAfter, titreSansEmoji } from '@beluga/shared';
+import { MOTIF_MARKDOWN_EN_LIGNE, ligneDeSuggestion, paragraphBreakAfter, titreSansEmoji } from '@beluga/shared';
 import { cn } from './utils';
 import { t } from '@/lib/langue';
+import { useLignesDansLeChamp } from '@/lib/texte-du-champ';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
@@ -61,10 +61,10 @@ const SECTION_ICONS: { test: RegExp; icon: LucideIcon; tone: Tone }[] = [
 ];
 
 const TONE_CLASSES: Record<Tone, string> = {
-  info: 'border-info/30 bg-info/5',
-  success: 'border-success/30 bg-success/5',
-  warning: 'border-warning/30 bg-warning/5',
-  neutral: 'border-border bg-surface/60',
+  info: 'border-transparent bg-surface',
+  success: 'border-transparent bg-surface',
+  warning: 'border-transparent bg-surface',
+  neutral: 'border-transparent bg-surface',
 };
 
 /**
@@ -78,48 +78,152 @@ function styleFor(title: string, level = 2): { icon: LucideIcon; tone: Tone } {
 }
 
 const CALLOUTS: Record<string, { icon: React.ReactNode; className: string; label: string }> = {
-  TIP: { icon: <Lightbulb className="h-3.5 w-3.5" />, className: 'border-success/30 bg-success/5 text-success', label: 'Conseil' },
-  NOTE: { icon: <Info className="h-3.5 w-3.5" />, className: 'border-border bg-raised text-muted', label: 'Note' },
-  IMPORTANT: { icon: <Info className="h-3.5 w-3.5" />, className: 'border-border bg-raised text-text', label: 'Important' },
-  WARNING: { icon: <AlertTriangle className="h-3.5 w-3.5" />, className: 'border-warning/30 bg-warning/5 text-warning', label: 'Attention' },
-  CAUTION: { icon: <OctagonAlert className="h-3.5 w-3.5" />, className: 'border-danger/30 bg-danger/5 text-danger', label: 'Risque' },
+  TIP: { icon: <Lightbulb className="h-3.5 w-3.5" />, className: 'border-transparent bg-surface text-muted', label: 'Conseil' },
+  NOTE: { icon: <Info className="h-3.5 w-3.5" />, className: 'border-transparent bg-surface text-muted', label: 'Note' },
+  IMPORTANT: { icon: <Info className="h-3.5 w-3.5" />, className: 'border-transparent bg-raised text-text', label: 'Important' },
+  WARNING: { icon: <AlertTriangle className="h-3.5 w-3.5" />, className: 'border-transparent bg-raised text-text', label: 'Attention' },
+  CAUTION: { icon: <OctagonAlert className="h-3.5 w-3.5" />, className: 'border-transparent bg-danger/10 text-danger', label: 'Risque' },
 };
 
-function inline(text: string, key: string): React.ReactNode {
-  const nodes: React.ReactNode[] = [];
+/** Un morceau d'un texte en ligne : du texte nu, ou l'un de ses quatre habillages. */
+type MorceauEnLigne =
+  | { genre: 'texte' | 'gras' | 'code' | 'italique'; texte: string }
+  | { genre: 'lien'; texte: string; href: string };
+
+/**
+ * LE DÉCOUPAGE D'UN TEXTE EN LIGNE, LU UNE SEULE FOIS. Le rendu (`inline`) et
+ * le texte lisible (`texteEnLigne`) partent de ces mêmes morceaux : ce qui
+ * s'affiche en gras est exactement ce qui perd ses étoiles.
+ */
+function morceauxEnLigne(text: string): MorceauEnLigne[] {
+  const morceaux: MorceauEnLigne[] = [];
   // L'italique par soulignés ne s'ouvre qu'en bordure de mot : `userspsy_language_tmp` reste intact.
   const pattern = new RegExp(MOTIF_MARKDOWN_EN_LIGNE.source, MOTIF_MARKDOWN_EN_LIGNE.flags);
   let last = 0;
   let match: RegExpExecArray | null;
-  let index = 0;
 
   while ((match = pattern.exec(text)) !== null) {
-    if (match.index > last) nodes.push(text.slice(last, match.index));
+    if (match.index > last) morceaux.push({ genre: 'texte', texte: text.slice(last, match.index) });
     const token = match[0];
-    const id = `${key}-${index++}`;
-    if (token.startsWith('**')) nodes.push(<strong key={id}>{token.slice(2, -2)}</strong>);
-    else if (token.startsWith('`')) nodes.push(<code key={id}>{token.slice(1, -1)}</code>);
-    else if (token.startsWith('_')) nodes.push(<em key={id}>{token.slice(1, -1)}</em>);
+    if (token.startsWith('**')) morceaux.push({ genre: 'gras', texte: token.slice(2, -2) });
+    else if (token.startsWith('`')) morceaux.push({ genre: 'code', texte: token.slice(1, -1) });
+    else if (token.startsWith('_')) morceaux.push({ genre: 'italique', texte: token.slice(1, -1) });
     else {
       const linkMatch = token.match(/\[([^\]]+)\]\(([^)]+)\)/);
-      if (linkMatch) {
-        nodes.push(
-          <a key={id} href={linkMatch[2]} target="_blank" rel="noreferrer">
-            {linkMatch[1]}
-          </a>,
-        );
-      }
+      if (linkMatch) morceaux.push({ genre: 'lien', texte: linkMatch[1], href: linkMatch[2] });
     }
     last = match.index + token.length;
   }
-  if (last < text.length) nodes.push(text.slice(last));
-  return nodes;
+  if (last < text.length) morceaux.push({ genre: 'texte', texte: text.slice(last) });
+  return morceaux;
+}
+
+/**
+ * `sansLien` : le texte vit DANS un bouton (une idée à cocher). Un lien y
+ * serait un second geste niché dans le premier : seul son libellé s'affiche.
+ */
+function inline(text: string, key: string, sansLien = false): React.ReactNode {
+  let index = 0;
+  return morceauxEnLigne(text).map((morceau) => {
+    if (morceau.genre === 'texte') return morceau.texte;
+    const id = `${key}-${index++}`;
+    if (morceau.genre === 'lien') {
+      if (sansLien) return morceau.texte;
+      return (
+        <a key={id} href={morceau.href} target="_blank" rel="noreferrer">
+          {morceau.texte}
+        </a>
+      );
+    }
+    if (morceau.genre === 'gras') return <strong key={id}>{morceau.texte}</strong>;
+    if (morceau.genre === 'code') return <code key={id}>{morceau.texte}</code>;
+    return <em key={id}>{morceau.texte}</em>;
+  });
+}
+
+/**
+ * LE MÊME TEXTE, TEL QU'IL SE LIT : sans étoiles, sans accents graves, sans
+ * soulignés d'italique. C'est lui qu'une idée cochée dépose dans le champ
+ * d'écriture — personne n'envoie « **Titre** : … » à un agent.
+ */
+export function texteEnLigne(text: string): string {
+  return morceauxEnLigne(text)
+    .map((morceau) => morceau.texte)
+    .join('');
+}
+
+/** La ligne qu'une idée écrit dans le champ : c'est aussi elle que sa case y cherche. */
+function ligneDUneIdee(idee: string): string {
+  return ligneDeSuggestion(texteEnLigne(idee));
+}
+
+/**
+ * UNE IDÉE À COCHER : UNE LIGNE, SA CASE À GAUCHE.
+ *
+ * Chaque idée portait un « + » et son Markdown BRUT, étoiles comprises. Elle se
+ * lit désormais comme le reste du compte rendu (gras, italique et code rendus),
+ * et sa case dit ce qui est VRAIMENT dans le champ d'écriture : elle se déduit
+ * de son texte (`useLignesDansLeChamp`), jamais du souvenir d'un clic. Effacer
+ * la ligne à la main la décoche ; la retrouver dans un brouillon rechargé la
+ * coche. Un clic sur toute la ligne bascule.
+ *
+ * Un vrai `button` au rôle de case à cocher : Tab l'atteint, Espace et Entrée
+ * le basculent, et un lecteur d'écran annonce son état.
+ */
+function IdeeACocher({ idee, cle, onBasculer }: { idee: string; cle: string; onBasculer: (texte: string) => void }) {
+  const cochee = useLignesDansLeChamp([ligneDUneIdee(idee)]);
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={cochee}
+      data-suggestion-cliquable
+      data-idee-cochee={cochee ? 'oui' : 'non'}
+      onClick={() => onBasculer(texteEnLigne(idee))}
+      className={cn(
+        'group flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
+        cochee ? 'text-text' : 'text-muted',
+      )}
+    >
+      {/* La case vide se dessine en `--muted`, d'un trait franc : c'est lui qui
+          dit « ceci se coche » — plus pâle, on ne voyait plus la case, en clair
+          comme en sombre. */}
+      <span
+        aria-hidden
+        className={cn(
+          'mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] transition-colors',
+          cochee ? 'bg-accent text-accent-fg' : 'ring-[1.5px] ring-inset ring-muted group-hover:ring-text',
+        )}
+      >
+        {cochee ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
+      </span>
+      <span className="min-w-0 flex-1">{inline(idee, cle, true)}</span>
+    </button>
+  );
+}
+
+/** « Tout ajouter » tant qu'une idée manque dans le champ, « Tout retirer » quand elles y sont toutes. */
+function BoutonToutCocher({ idees, onBasculer }: { idees: string[]; onBasculer: (textes: string[]) => void }) {
+  const toutes = useLignesDansLeChamp(idees.map(ligneDUneIdee));
+  return (
+    <button
+      type="button"
+      onClick={() => onBasculer(idees.map(texteEnLigne))}
+      className="ml-auto rounded-md bg-raised px-2 py-0.5 text-[12px] font-normal text-muted transition-colors hover:text-text"
+    >
+      {toutes ? t('Tout retirer') : t('Tout ajouter')}
+    </button>
+  );
 }
 
 export interface MarkdownProps {
   content: string;
-  /** Suggestions retenues (pastilles actives dans le composeur). */
-  pickedEvolutions?: string[];
+  /**
+   * Le clic sur une idée à cocher, et sur « Tout ajouter ». Ils reçoivent le
+   * texte LISIBLE de l'idée (`texteEnLigne`), jamais son Markdown : c'est ce
+   * texte-là qui s'écrit dans le champ d'écriture. Ce qui est coché ne se
+   * passe pas ici — chaque ligne le lit dans le champ lui-même.
+   */
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
   /**
@@ -140,27 +244,36 @@ export interface MarkdownProps {
   listesCliquables?: boolean;
   /** Réponse encore en train d'arriver : pas de sommaire tant qu'elle bouge. */
   streaming?: boolean;
+  /**
+   * UN TEXTE QUI SE LIT COMME UNE RÉPONSE : ni sommaire, ni carte ni icône par
+   * section — des titres nus, suivis de leur texte. C'est le rendu d'un plan
+   * (`PlanRapport`, demande du 12/10/2026) ; les cases à cocher des idées
+   * restent. Le style des titres est celui du conteneur (`.plan-en-texte`).
+   */
+  enTexte?: boolean;
   className?: string;
 }
 
 export function Markdown({
   content,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   autreTitreCliquable,
   listesCliquables,
   streaming,
+  enTexte,
   className,
 }: MarkdownProps) {
   const blocks = React.useMemo(() => parse(content), [content]);
-  const picked = new Set(pickedEvolutions ?? []);
 
   /** Les listes de CETTE section se cochent-elles ? */
   const sectionCliquable = (titre: string) =>
     /évolutions possibles/i.test(titre) || !!autreTitreCliquable?.(titre);
 
-  const titres = React.useMemo(() => (streaming ? [] : sommaire(blocks, content)), [blocks, content, streaming]);
+  const titres = React.useMemo(
+    () => (streaming || enTexte ? [] : sommaire(blocks, content)),
+    [blocks, content, streaming, enTexte],
+  );
   const ancres = React.useRef(new Map<number, HTMLHeadingElement>());
   const [cible, setCible] = React.useState<number | null>(null);
 
@@ -177,52 +290,36 @@ export function Markdown({
   const renderBlock = (block: Block, index: number, dansEvolutions: boolean): React.ReactNode => {
     switch (block.kind) {
       case 'list':
+        if (dansEvolutions && onToggleEvolution) {
+          /* DES LIGNES À COCHER, PAS UNE LISTE À TIRETS : ni `ul` ni `li`, donc
+             ni le tiret ni la boîte flex de `.prose-hd li`. Le retrait négatif
+             cale la CASE sur le bord du texte voisin ; seul le fond du survol
+             déborde. */
+          return (
+            <div key={index} role="group" data-idees-a-cocher className="-mx-2 mb-4 flex flex-col gap-0.5">
+              {block.items.map((item, itemIndex) => (
+                <IdeeACocher key={itemIndex} idee={item} cle={`${index}-${itemIndex}`} onBasculer={onToggleEvolution} />
+              ))}
+            </div>
+          );
+        }
         return (
           <ul key={index}>
-            {block.items.map((item, itemIndex) => {
-              const isEvolution = dansEvolutions && !!onToggleEvolution;
-              const active = picked.has(item);
-              if (!isEvolution) {
-                // Le <li> est une boîte flex (tiret + contenu). Sans ce span,
-                // chaque fragment de texte et chaque `code` devient une
-                // colonne à part, écrasée à une lettre de large.
-                return (
-                  <li key={itemIndex}>
-                    <span className="min-w-0 flex-1">{inline(item, `${index}-${itemIndex}`)}</span>
-                  </li>
-                );
-              }
-              return (
-                // Pas de tiret devant une suggestion : la carte à cocher
-                // se suffit à elle-même.
-                <li key={itemIndex} className="!block before:content-none">
-                  <button
-                    type="button"
-                    data-suggestion-cliquable
-                    aria-pressed={active}
-                    onClick={() => onToggleEvolution?.(item)}
-                    className={cn(
-                      'group flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left transition-colors',
-                      active
-                        ? 'border-accent/40 bg-raised text-text'
-                        : 'border-border/60 bg-transparent text-muted hover:border-border hover:bg-raised',
-                    )}
-                  >
-                    <span className="mt-[3px] shrink-0">
-                      {active ? <Check className="h-3 w-3 text-success" /> : <Plus className="h-3 w-3 text-faint" />}
-                    </span>
-                    <span className="text-[14px] leading-snug">{item}</span>
-                  </button>
-                </li>
-              );
-            })}
+            {block.items.map((item, itemIndex) => (
+              // Le <li> est une boîte flex (tiret + contenu). Sans ce span,
+              // chaque fragment de texte et chaque `code` devient une
+              // colonne à part, écrasée à une lettre de large.
+              <li key={itemIndex}>
+                <span className="min-w-0 flex-1">{inline(item, `${index}-${itemIndex}`)}</span>
+              </li>
+            ))}
           </ul>
         );
 
       case 'callout': {
         const config = CALLOUTS[block.variant] ?? CALLOUTS.NOTE;
         return (
-          <div key={index} className={cn('my-3 flex gap-2 rounded-md border px-2.5 py-2', config.className)}>
+          <div key={index} className={cn('my-3 flex gap-2 rounded-xl border px-3.5 py-2.5', config.className)}>
             <span className="mt-0.5 shrink-0">{config.icon}</span>
             <div className="text-[14px] leading-relaxed">
               {block.lines.map((line, lineIndex) => (
@@ -274,7 +371,7 @@ export function Markdown({
       {/* Une entrée = une LIGNE pleine largeur : un sommaire se lit de haut en
           bas, pas comme une grappe de pastilles de tailles inégales. */}
       {titres.length ? (
-        <nav className="mb-4 overflow-hidden rounded-md border border-border bg-raised/60">
+        <nav className="mb-4 overflow-hidden rounded-xl bg-surface">
           <p className="border-b border-border/70 px-3 py-1.5 text-[12px] uppercase tracking-wide text-faint">
             {t('Sommaire')}</p>
           {titres.map((titre) => (
@@ -282,7 +379,7 @@ export function Markdown({
               key={titre.index}
               type="button"
               onClick={() => allerA(titre.index)}
-              className="flex w-full items-center gap-2 border-b border-border/40 px-3 py-2 text-left text-[14px] text-muted transition-colors last:border-b-0 hover:bg-surface hover:text-text"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[14px] text-muted transition-colors hover:bg-surface hover:text-text"
             >
               <titre.icon className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
               <span className="min-w-0 flex-1 truncate">{titreSansEmoji(titre.text)}</span>
@@ -310,15 +407,38 @@ export function Markdown({
 
         const headingIndex = section.index;
         const headingText = section.heading.text;
-        const { icon: IconeDuTitre, tone } = styleFor(headingText, section.heading.level);
         const inEvolutions = sectionCliquable(headingText);
         const items = inEvolutions ? nextListItems(blocks, headingIndex) : [];
-        const allPicked = items.length > 0 && items.every((item) => picked.has(item));
+
+        if (enTexte) {
+          /* UN TITRE NU, puis son texte : pas de cadre, pas d'icône. Le niveau
+             du titre reste lisible (le titre du plan, puis ses parties). */
+          const Titre = section.heading.level <= 1 ? 'h1' : section.heading.level === 2 ? 'h2' : 'h3';
+          return (
+            <React.Fragment key={headingIndex}>
+              <Titre
+                ref={(node: HTMLHeadingElement | null) => {
+                  if (node) ancres.current.set(headingIndex, node);
+                  else ancres.current.delete(headingIndex);
+                }}
+                data-titre-du-plan={section.heading.level}
+              >
+                <span>{titreSansEmoji(headingText)}</span>
+                {inEvolutions && items.length > 1 && onToggleAll ? (
+                  <BoutonToutCocher idees={items} onBasculer={onToggleAll} />
+                ) : null}
+              </Titre>
+              {body}
+            </React.Fragment>
+          );
+        }
+
+        const { icon: IconeDuTitre, tone } = styleFor(headingText, section.heading.level);
 
         return (
           <section
             key={headingIndex}
-            className={cn('my-3 rounded-md border px-3 py-2.5', TONE_CLASSES[tone])}
+            className={cn('my-3 rounded-2xl border px-4 py-3.5', TONE_CLASSES[tone])}
           >
             <h2
               ref={(node) => {
@@ -333,13 +453,7 @@ export function Markdown({
               <IconeDuTitre className="h-4 w-4 shrink-0 text-faint" aria-hidden />
               <span>{titreSansEmoji(headingText)}</span>
               {inEvolutions && items.length > 1 && onToggleAll ? (
-                <button
-                  type="button"
-                  onClick={() => onToggleAll(items)}
-                  className="ml-auto rounded border border-border px-1.5 py-0.5 text-[12px] font-normal text-muted hover:bg-raised hover:text-text"
-                >
-                  {allPicked ? t('Tout retirer') : t('Tout ajouter')}
-                </button>
+                <BoutonToutCocher idees={items} onBasculer={onToggleAll} />
               ) : null}
             </h2>
             {body}

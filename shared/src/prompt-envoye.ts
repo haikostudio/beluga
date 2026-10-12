@@ -1,12 +1,14 @@
 import type { SentContextEtat } from './models.js';
+import { consigneEnTeteDeSession } from './prefixe-cache.js';
 
 /**
  * LE PROMPT RÉELLEMENT ENVOYÉ, DANS LA CONVERSATION ELLE-MÊME.
  *
- * Il n'y a plus ni pastille à cliquer, ni tiroir à ouvrir : ce qui est parti au
+ * Il n'y a ni pastille à cliquer, ni tiroir à ouvrir : ce qui est parti au
  * moteur se lit dans le fil, côté agent, une étape par information reçue
  * (`filVisuelDeLAgent`, rendu par `web/src/components/prompt-envoye.tsx`).
- * Aucun compteur de jetons sur ces bulles : seulement du texte.
+ * Le TEXTE ENTIER se lit par un lien qui se déplie sur place
+ * (`partiesDuPromptEnvoye`). Aucun compteur de jetons : seulement du texte.
  */
 
 /**
@@ -221,4 +223,143 @@ export function filVisuelDeLAgent(contexte: SentContextEtat): BulleDuFilAgent[] 
   });
 
   return bulles;
+}
+
+/* ------------------------------------------------------------------ */
+/* LE TEXTE ENTIER, ET CE QUE LE MOTEUR EN A RELU AU CACHE             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ce que le moteur a fait d'une partie du prompt :
+ *  - `relu`  : relue au cache, le début de l'envoi étant identique au tour d'avant ;
+ *  - `ecrit` : posée dans le cache à ce tour, pour être relue aux tours suivants ;
+ *  - `neuf`  : envoyée neuve, ou sans que rien ne permette d'affirmer une relecture.
+ */
+export type EtatDeCache = 'relu' | 'ecrit' | 'neuf';
+
+/** Une partie du texte envoyé, dans l'ordre où le moteur la reçoit. */
+export interface PartieDuPromptEnvoye {
+  cle: 'consigne' | 'message';
+  /** Le titre, en français : l'écran le passe par `t()`. */
+  titre: string;
+  /** Le texte exact ; vide quand il a été purgé (`conserve` est alors faux). */
+  texte: string;
+  etat: EtatDeCache;
+  /** Faux quand le texte a été retiré pour borner le disque : on le DIT. */
+  conserve: boolean;
+  /** Une précision en français, quand l'état seul ne dit pas tout. */
+  note?: string;
+}
+
+/**
+ * LE PROMPT ENVOYÉ, EN DEUX PARTIES : les consignes générales, puis le message.
+ *
+ * Le moteur ne rend qu'un COMPTE de jetons relus au cache (`usage.cachedInputTokens`),
+ * jamais l'identité du texte relu. On n'affirme donc une relecture que pour ce
+ * qui est connaissable : le PRÉFIXE de la session. Sous Claude, la consigne
+ * entière EST ce préfixe (`consigneEnTeteDeSession`) : elle est « relue » dès le
+ * deuxième tour, à condition que la mesure ne dise pas zéro. Sans mesure, on
+ * retombe sur le repère `cached` du bloc, posé à l'envoi. L'historique du fil,
+ * lui, vit chez le moteur : il est relu, mais il n'est pas recopiable ici.
+ *
+ * Règle PURE : aucune base, aucun disque, aucun chiffre rendu.
+ */
+export function partiesDuPromptEnvoye(contexte: SentContextEtat): PartieDuPromptEnvoye[] {
+  const blocSysteme = contexte.blocks.find((bloc) => bloc.kind === 'system');
+  const consigne = contexte.systemInstruction?.content || blocSysteme?.text || '';
+  const enTete = consigneEnTeteDeSession(contexte.engine);
+
+  let etat: EtatDeCache = 'neuf';
+  let noteConsigne: string | undefined;
+  if (!enTete) {
+    noteConsigne =
+      'Ce moteur place les consignes après l’historique du fil : leur relecture au cache ne peut pas être affirmée.';
+  } else if (contexte.session === 'new') {
+    etat = 'ecrit';
+  } else {
+    const relus = contexte.usage?.cachedInputTokens;
+    etat = relus === undefined ? (blocSysteme?.cached ? 'relu' : 'neuf') : relus > 0 ? 'relu' : 'neuf';
+  }
+
+  const parties: PartieDuPromptEnvoye[] = [
+    {
+      cle: 'consigne',
+      titre: contexte.systemInstruction?.kind === 'reminder' ? 'Rappel de méthode' : 'Consignes générales',
+      texte: consigne,
+      etat,
+      conserve: consigne.trim().length > 0,
+      ...(noteConsigne ? { note: noteConsigne } : {}),
+    },
+    {
+      cle: 'message',
+      titre: 'Message envoyé',
+      texte: contexte.prompt ?? '',
+      etat: 'neuf',
+      conserve: (contexte.prompt ?? '').trim().length > 0,
+      ...(contexte.history === 'retained_by_engine'
+        ? { note: 'L’historique du fil, gardé par le moteur, n’est pas recopié ici.' }
+        : {}),
+    },
+  ];
+  return parties;
+}
+
+/* ------------------------------------------------------------------ */
+/* OÙ POSER LE LIEN, SUR UNE CARTE                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LE MESSAGE QU'UNE ENTRÉE « DEMANDE » DU JOURNAL DÉSIGNE.
+ *
+ * Sur une carte, la conversation est son parcours : la demande y est une entrée
+ * du journal, pas une bulle de message. Elle garde pourtant l'identifiant du
+ * message d'où elle vient (`donnees.messageId`, écrit par `journaliserLaDemande`),
+ * et c'est ce message qui porte le texte envoyé (`sentContext`).
+ */
+export function messageDeLaDemande(donnees: string | undefined): string | undefined {
+  if (!donnees) return undefined;
+  try {
+    const lu = JSON.parse(donnees) as { messageId?: unknown };
+    return typeof lu.messageId === 'string' && lu.messageId ? lu.messageId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Un tour du parcours : son message porteur, et l'agent qui l'a produit. */
+export interface TourDuParcours {
+  tourId: string;
+  agentId: string;
+}
+
+/**
+ * LES TOURS SANS BULLE DE DEMANDE, RANGÉS PAR POINT DU PARCOURS.
+ *
+ * Un tour lancé par un bouton (« Lancer », « Générer le plan ») n'écrit aucun
+ * message d'utilisateur : le texte envoyé est porté par la RÉPONSE de l'agent,
+ * dont l'identifiant est le `tourId` de ses entrées de journal. Chaque tour est
+ * rangé UNE SEULE FOIS, au premier point où il paraît, dans l'ordre du parcours :
+ * un tour qui laisse des traces dans « Travail » puis dans « Rapport » ne porte
+ * qu'un lien. Le point « Demande » n'en reçoit jamais : ses bulles portent le leur.
+ */
+export function toursSansBulleParPoint(
+  points: readonly {
+    ancre: string;
+    etape: string;
+    entrees: readonly { tourId?: string; agentId?: string }[];
+  }[],
+): Map<string, TourDuParcours[]> {
+  const vus = new Set<string>();
+  const parPoint = new Map<string, TourDuParcours[]>();
+  for (const point of points) {
+    if (point.etape === 'demande') continue;
+    for (const entree of point.entrees) {
+      if (!entree.tourId || !entree.agentId || vus.has(entree.tourId)) continue;
+      vus.add(entree.tourId);
+      const liste = parPoint.get(point.ancre) ?? [];
+      liste.push({ tourId: entree.tourId, agentId: entree.agentId });
+      parPoint.set(point.ancre, liste);
+    }
+  }
+  return parPoint;
 }

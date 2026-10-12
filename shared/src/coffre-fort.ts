@@ -1,3 +1,4 @@
+import { minusculesSansAccents } from './mots.js';
 /**
  * LE COFFRE-FORT — un seul endroit pour tous les identifiants.
  *
@@ -370,11 +371,7 @@ export function archivePurgeable(acces: Pick<AccesCoffre, 'archiveLe'>, maintena
 
 /** Enlève les accents et la casse : « Clé OVH » se trouve en tapant « cle ovh ». */
 export function normaliserRecherche(texte: string): string {
-  return (texte ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+  return minusculesSansAccents(texte ?? '').trim();
 }
 
 /**

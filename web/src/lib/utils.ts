@@ -173,3 +173,14 @@ export function dateHeure(at: number): string {
     minute: '2-digit',
   });
 }
+
+/**
+ * L'HEURE SEULE, À LA MINUTE (« 15:27 »), dans le format régional en vigueur.
+ *
+ * Pour une place très étroite — le coin d'une vignette de la bande « Ce que
+ * l'agent a vu » — où la date ne tient pas : elle se lit dans la visionneuse
+ * (`dateHeure`) et dans l'infobulle (`heureExacte`).
+ */
+export function heureSeule(at: number): string {
+  return new Date(at).toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
+}

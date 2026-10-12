@@ -54,12 +54,15 @@ import {
   rangerLaComprehension,
   recitDuPoint,
   tempsDuPassage,
+  toursSansBulleParPoint,
   resumeDeLEntree,
   travailEnSousPoints,
   VersionDuPassage,
   versionDuPassageDePlan,
   versionEnPreparation,
   vueDeLEntree,
+  type TourDuParcours,
+  type CompetenceProposee,
 } from '@beluga/shared';
 import { Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefilement } from '@/components/ui';
 import { ContenuDeLEntree, EncadreQuestion } from '@/components/contenu-journal';
@@ -67,18 +70,18 @@ import { BlocDuPlan } from '@/components/parcours-carte';
 import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
-import { EnTeteDePanneau, Panneau } from '@/components/panneau';
+import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
 import { Markdown } from '@/lib/markdown';
 import { client } from '@/lib/client';
 import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
-import { ApercuDesCaptures, BandeDesCaptures, OuvrirUneCapture, useGalerieDesCaptures } from '@/components/captures-du-flux';
+import { CompetenceDuFlux } from '@/components/encadre-competence';
+import { ApercuDesCaptures, OuvrirUneCapture, type GalerieDesCaptures } from '@/components/captures-du-flux';
 import { useTelephone } from '@/lib/telephone';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { cn, dateHeure, dureeFine, heureEtDuree } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { dernierVoletOuvert, retenirLeVolet } from '@/lib/volet-comprehension';
 
 /**
  * LE FLUX D'UNE CARTE EN GRANDS POINTS.
@@ -117,6 +120,61 @@ export const ICONE_DE_L_ETAPE: Record<EtapeDuParcours, React.ComponentType<{ cla
   travail: Wrench,
   rapport: Flag,
 };
+
+/**
+ * LE FIL D'UNE CARTE SE LIT COMME UNE DISCUSSION (refonte du 11/10/2026).
+ *
+ * Plus de grande ligne verticale ni de rond par étape : la demande est une
+ * bulle à droite, ce que l'agent rend se lit à gauche, et les étapes ne sont
+ * plus qu'un petit intitulé discret — la barre d'étapes, en haut de la page,
+ * dit déjà où l'on en est. Les mesures du premier niveau sont donc remises à
+ * plat ; celles du journal replié (les sous-points d'un travail) ne bougent
+ * pas. Le suivi d'une publication (`volet-publication.tsx`) garde, lui, le
+ * dessin à ronds de `MESURES_DU_FLUX`.
+ */
+const enDiscussion = (mesures: MesuresDuFlux): MesuresDuFlux => ({
+  ...mesures,
+  decalage: '',
+  ligne: 'hidden',
+  retraitDuContenu: '',
+  texteDuSousPoint: '',
+  rondDuSousPoint: 'hidden',
+});
+
+/**
+ * LA MARQUE D'ÉTAPE, ENTRE DEUX MESSAGES — comme la date dans une messagerie.
+ *
+ * Une petite pastille centrée : l'icône de l'étape et son nom. Elle dit où en
+ * est le fil (« Demande », « Compréhension », « Travail », « Rapport »…) sans
+ * rien encadrer. Une roue remplace l'icône tant que l'agent y travaille ; un
+ * triangle, quand l'étape est tombée.
+ */
+function MarqueDEtape({
+  icone: Icone,
+  titre,
+  etat,
+  repere,
+}: {
+  icone: React.ComponentType<{ className?: string }>;
+  titre: string;
+  etat: EtatDuPoint;
+  repere: string;
+}) {
+  return (
+    <div className="flex justify-center" data-marque-d-etape={repere} data-marque-etat={etat}>
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-raised px-3 py-1 text-[12.5px] font-medium text-muted">
+        {etat === 'encours' ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
+        ) : etat === 'erreur' ? (
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-danger" />
+        ) : (
+          <Icone className="h-3.5 w-3.5 shrink-0" />
+        )}
+        {titre}
+      </span>
+    </div>
+  );
+}
 
 /** Les mesures partagées par tout le flux, sans les repasser de main en main. */
 const MesuresContexte = React.createContext<MesuresDuFlux>(MESURES_DU_FLUX.ordinateur);
@@ -173,10 +231,28 @@ const useModeTechnique = () => React.useContext(ModeTechniqueContexte);
  */
 const NiveauDuSousPoint = React.createContext(0);
 
+/**
+ * LA CARTE D'UN PASSAGE OUVERTE EST UN POINT, ET SON DÉTAIL DES POINTS DESSOUS
+ * (demande du 11/10/2026 : « développe le point "agent au travail" avec des
+ * points en dessous »).
+ *
+ * La discussion a remis le premier niveau à plat (`enDiscussion`) : une bulle
+ * ou une réponse n'ont ni rond ni trait. Mais le DÉTAIL d'un passage — le
+ * dépôt, la réflexion, chaque tâche — se lisait alors comme une pile de lignes
+ * sans lien entre elles. Dans la carte ouverte, la ligne de tête porte donc
+ * son point, et chaque ligne du détail le sien, sur le même axe, reliés par un
+ * trait fin. Hors de la carte, rien ne change.
+ */
+const PointsDeLaCarte = React.createContext(false);
+/** La gouttière des points : 24 px, le point centré à 12 px, le texte juste après. */
+const TEXTE_APRES_LE_POINT = 'pl-6';
+
 /** Le retrait d'une ligne sans rond posée parmi des sous-points : alignée sur leur texte. */
 function useRetraitDuTexte() {
   const mesures = useMesures();
-  return React.useContext(NiveauDuSousPoint) === 0 ? mesures.texteDuSousPoint : 'pl-7';
+  const enCarte = React.useContext(PointsDeLaCarte);
+  if (React.useContext(NiveauDuSousPoint) !== 0) return 'pl-7';
+  return enCarte ? TEXTE_APRES_LE_POINT : mesures.texteDuSousPoint;
 }
 
 function SousPointDuFlux({
@@ -192,15 +268,30 @@ function SousPointDuFlux({
   const mesures = useMesures();
   const niveau = React.useContext(NiveauDuSousPoint);
   const surLAxe = niveau === 0;
+  /* Dans la carte ouverte d'un passage, le premier niveau porte son point. */
+  const pointe = surLAxe && React.useContext(PointsDeLaCarte);
   return (
     <li
-      className={cn('group relative', surLAxe ? mesures.texteDuSousPoint : 'pl-7')}
+      className={cn('group relative', pointe ? TEXTE_APRES_LE_POINT : surLAxe ? mesures.texteDuSousPoint : 'pl-7')}
       data-sous-point-niveau={niveau}
+      data-sous-point-pointe={pointe ? '' : undefined}
       {...attrs}
     >
-      {surLAxe ? null : (
+      {pointe ? (
+        /* D'un point au suivant : les lignes de la carte sont séparées de 12 px
+           (`gap-3`), et chaque point (5 px) est centré à 12 px du haut de sa
+           ligne. LE TRAIT NE PASSE PLUS SOUS LES POINTS (demande du 12/10/2026) :
+           il part 4 px sous ce point (19 px) et s'arrête 4 px avant le suivant
+           (12 px d'écart + 5,5 px dans la ligne suivante). */
         <span
-          className="absolute -bottom-[14px] left-[10px] top-[14px] w-px bg-faint/40 [li:last-child>&]:hidden"
+          className="absolute -bottom-[17.5px] left-[11.5px] top-[18.5px] w-px bg-faint/40 [li:last-child>&]:hidden"
+          aria-hidden
+          data-sous-point-trait
+        />
+      ) : surLAxe ? null : (
+        /* Imbriqué : point centré à 14 px ; le trait laisse 4 px de part et d'autre. */
+        <span
+          className="absolute -bottom-[7.5px] left-[10px] top-[20.5px] w-px bg-faint/40 [li:last-child>&]:hidden"
           aria-hidden
           data-sous-point-trait
         />
@@ -211,14 +302,14 @@ function SousPointDuFlux({
       <span
         className={cn(
           'absolute flex items-center justify-center',
-          surLAxe ? cn('top-0 h-6 w-6', mesures.rondDuSousPoint) : 'left-0 top-1 h-5 w-5',
+          pointe ? 'left-0 top-0 h-6 w-6' : surLAxe ? cn('top-0 h-6 w-6', mesures.rondDuSousPoint) : 'left-0 top-1 h-5 w-5',
         )}
         aria-hidden
         data-sous-point-rond
       >
         <PointDuFil ton={ton} />
       </span>
-      <div className="min-w-0 pb-2">
+      <div className={cn('min-w-0', surLAxe ? null : 'pb-2')}>
         <NiveauDuSousPoint.Provider value={niveau + 1}>{children}</NiveauDuSousPoint.Provider>
       </div>
     </li>
@@ -228,6 +319,16 @@ function SousPointDuFlux({
 /* ------------------------------------------------------------------ */
 /* Le flux                                                              */
 /* ------------------------------------------------------------------ */
+
+/**
+ * LA LARGEUR D'UN MESSAGE, POUR TOUT CE QUI SE LIT DANS LE FIL (demande du
+ * 12/10/2026). La bulle de l'utilisateur tient à 85 % de la colonne, et tout ce
+ * que l'agent montre — le résumé de la demande, le bloc de travail, sa
+ * compréhension, sa réponse — tient dans la MÊME largeur, collé à gauche : plus
+ * de texte qui court sur toute la colonne alors que la question est étroite.
+ * Une seule valeur, pour que les deux côtés ne dérivent pas.
+ */
+const LARGEUR_DU_FIL = 'max-w-[85%]';
 
 export interface OuvertureDemandee {
   /** L'ANCRE du passage à ouvrir — le DERNIER de son étape quand la barre l'appelle. */
@@ -250,15 +351,22 @@ export function FluxEnPoints({
   onBlocRendu,
   attente,
   lancement,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   onEcrireDansLeChamp,
   configuration,
   deploiement,
   journalCharge = true,
+  galerieDesCaptures,
 }: {
   carte: Card;
+  /**
+   * LES IMAGES DE L'AGENT, tenues par la page de la carte (`chat.tsx`) : la
+   * bande « Ce que l'agent a vu » est collée au-dessus de la barre d'écriture,
+   * hors de ce flux qui défile. Le flux garde l'aperçu en grand et le lien de
+   * ses vignettes (`OuvrirUneCapture`) vers cette même galerie.
+   */
+  galerieDesCaptures: GalerieDesCaptures;
   /**
    * OÙ EN EST LA MISE EN LIGNE DE LA CARTE (`etatDuDeploiement`). Dès qu'elle
    * est dans « À déployer » ou rangée, un dernier point le dit en bas du flux —
@@ -301,7 +409,6 @@ export function FluxEnPoints({
    * son parcours, jamais vide.
    */
   lancement?: EtapeDeLancement;
-  pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
   /** « Refuser », sur le bandeau d'un plan, écrit dans la barre d'écriture. */
@@ -314,16 +421,12 @@ export function FluxEnPoints({
   configuration?: React.ReactNode;
 }) {
   const telephone = useTelephone();
-  const mesures = telephone ? MESURES_DU_FLUX.telephone : MESURES_DU_FLUX.ordinateur;
+  const mesures = enDiscussion(telephone ? MESURES_DU_FLUX.telephone : MESURES_DU_FLUX.ordinateur);
   /*
-   * L'OUVERTURE EST UN CHOIX DE LECTURE, POINT PAR POINT. Tous les grands
-   * points s'ouvrent d'office (`pointsOuvertsDOffice`), sur toutes les
-   * itérations, et ouvrir l'un ne referme plus son voisin : l'accordéon, qui ne
-   * gardait qu'un passage ouvert par étape, obligeait à rouvrir chaque point
-   * pour relire une carte.
-   *
-   * `choisis` ne retient donc que les gestes faits À LA MAIN : un point refermé
-   * le reste tant que la carte est à l'écran, et un point neuf arrive ouvert.
+   * L'OUVERTURE EST UN CHOIX DE LECTURE, POINT PAR POINT : ouvrir un passage ne
+   * referme pas son voisin. `choisis` ne retient que les gestes faits À LA
+   * MAIN : un passage refermé le reste tant que la carte est à l'écran, même
+   * s'il tourne encore.
    */
   const [choisis, setChoisis] = React.useState<Record<string, boolean>>({});
   React.useEffect(() => setChoisis({}), [carte.id]);
@@ -339,7 +442,15 @@ export function FluxEnPoints({
       return { ...avant, [etape]: suite };
     });
 
-  const estOuvert = (point: PointDuParcours) => choisis[point.ancre] ?? ouvertsDOffice.includes(point.ancre);
+  /*
+   * UNE CARTE S'OUVRE D'OFFICE SI ELLE EST CE QU'ON VIENT LIRE OU CE QUI SE
+   * FAIT : le passage EN COURS (ses points s'ajoutent sous lui au fur et à
+   * mesure), le DERNIER rendu de l'agent, un plan qui attend sa décision, une
+   * étape tombée. Les passages d'avant tiennent en une ligne. La règle est
+   * pure : `pointsOuvertsDOffice` (`shared/src/parcours-en-points.ts`).
+   */
+  const ouvertes = React.useMemo(() => new Set(ouvertsDOffice), [ouvertsDOffice]);
+  const estOuvert = (point: PointDuParcours) => choisis[point.ancre] ?? ouvertes.has(point.ancre);
   const basculer = (point: PointDuParcours) => {
     const ouvrir = !estOuvert(point);
     setChoisis((avant) => ({ ...avant, [point.ancre]: ouvrir }));
@@ -403,24 +514,6 @@ export function FluxEnPoints({
     return derniere;
   }, [flux]);
 
-  /*
-   * LES IMAGES DE L'AGENT SE LISENT EN BAS DU FLUX : ce que ses étapes ont
-   * regardé (`RunStep.capture`) et les pièces image de SES messages (captures
-   * rangées, illustrations) — jamais celles que l'utilisateur a jointes
-   * (`capturesDuFlux`). La bande grandit en direct. Une vignette du fil ouvre
-   * le MÊME aperçu sur la MÊME liste (`OuvrirUneCapture`) : de n'importe quelle
-   * image, on passe à ses voisines.
-   */
-  const messagesDeLaCarte = useApp().cardMessages[carte.id]?.messages;
-  const { etapesDesCaptures, idsDesPieces } = React.useMemo(() => {
-    const deLAgent = (messagesDeLaCarte ?? []).filter((m) => m.role === 'assistant');
-    return {
-      etapesDesCaptures: deLAgent.flatMap((m) => m.steps.filter((step) => step.capture)),
-      idsDesPieces: [...new Set(deLAgent.flatMap((m) => m.attachments))],
-    };
-  }, [messagesDeLaCarte]);
-  const galerieDesCaptures = useGalerieDesCaptures(etapesDesCaptures, idsDesPieces, projectId);
-
   /* LES PASSAGES SEULS : c'est sur eux que chaque point « Plan » lit sa version. */
   const passages = React.useMemo(
     () => flux.flatMap((element) => (element.sorte === 'point' ? [element.point] : [])),
@@ -463,6 +556,28 @@ export function FluxEnPoints({
     return () => cancelAnimationFrame(image);
   }, [aViser?.cle, journalCharge]);
 
+  /* LES TOURS LANCÉS PAR UN BOUTON n'ont pas de bulle de demande : leur texte
+     envoyé se lit par un lien posé dans le point où ils laissent leur première
+     trace (`toursSansBulleParPoint`). Ceux d'une demande écrite ont leur lien
+     sous leur bulle (`LienPromptDeLaDemande`). */
+  const toursDuPrompt = React.useMemo(
+    () =>
+      toursSansBulleParPoint(
+        flux.flatMap((element) =>
+          element.sorte === 'point'
+            ? [
+                {
+                  ancre: element.point.ancre,
+                  etape: element.point.etape,
+                  entrees: [...element.point.traces, ...element.point.moments.map((moment) => moment.entree)],
+                },
+              ]
+            : [],
+        ),
+      ),
+    [flux],
+  );
+
   /* TANT QUE LE JOURNAL N'EST PAS LÀ, LE FLUX MONTRE SA FORME, PAS UN ÉTAT.
      Il est demandé après le premier rendu : calculer sur un journal vide
      faisait tourner « Demande » et « Travail » en même temps. */
@@ -471,10 +586,10 @@ export function FluxEnPoints({
   return (
     <MesuresContexte.Provider value={mesures}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
-      <div className="px-3 py-3" data-flux-points={carte.id}>
-        {/* LA LIGNE VERTICALE EST POSÉE UNE FOIS, SUR LE FLUX ENTIER : elle
-            court du premier rond au dernier, et les ronds opaques la percent. */}
-        <ol ref={racine} className="relative" data-flux-liste={flux.length}>
+      <div className="px-4 pb-6 pt-4" data-flux-points={carte.id}>
+        {/* UNE COLONNE DE DISCUSSION : les passages se suivent, séparés par de
+            l'air. Plus de ligne verticale (`mesures.ligne` vaut `hidden`). */}
+        <ol ref={racine} className="relative flex flex-col gap-6" data-flux-liste={flux.length}>
           <span className={cn('absolute bottom-6 top-6 w-px bg-faint/40', mesures.ligne)} aria-hidden />
           {flux.map((element) =>
             element.sorte === 'point' ? (
@@ -487,12 +602,12 @@ export function FluxEnPoints({
                 projectId={projectId}
                 configuration={configuration}
                 attente={element.point.ancre === ancreDeLAttente ? attente : null}
+                toursDuPrompt={toursDuPrompt.get(element.point.ancre)}
                 lancement={lancement}
                 ouvert={estOuvert(element.point)}
                 onBasculer={() => basculer(element.point)}
                 technique={!!techniques[element.point.etape]}
                 onBasculerTechnique={() => basculerTechnique(element.point.etape)}
-                pickedEvolutions={pickedEvolutions}
                 onToggleEvolution={onToggleEvolution}
                 onToggleAll={onToggleAll}
                 onEcrireDansLeChamp={onEcrireDansLeChamp}
@@ -506,11 +621,6 @@ export function FluxEnPoints({
             <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} />
           ) : null}
         </ol>
-        {galerieDesCaptures.captures.length && projectId ? (
-          <div className="pl-1 pt-1" data-captures-de-la-carte={galerieDesCaptures.captures.length}>
-            <BandeDesCaptures galerie={galerieDesCaptures} />
-          </div>
-        ) : null}
         {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
       </div>
       </OuvrirUneCapture.Provider>
@@ -552,6 +662,8 @@ function PointDeDeploiement({ etat, deployeeA }: { etat: Exclude<EtatDuDeploieme
           : etat === 'en_ligne'
             ? t('En ligne depuis le {v0}', { v0: dateHeure(deployeeA ?? 0) })
             : t('Rangée sans mise en ligne.');
+  void mesures;
+  void ton;
   return (
     <li
       id={ANCRE_DU_DEPLOIEMENT}
@@ -559,33 +671,12 @@ function PointDeDeploiement({ etat, deployeeA }: { etat: Exclude<EtatDuDeploieme
       data-point-ancre={ANCRE_DU_DEPLOIEMENT}
       data-point-etat={etatDuPoint}
       data-point-deploiement={etat}
-      className={cn('relative py-3', mesures.decalage)}
+      className="relative flex flex-col items-center gap-2"
     >
-      <span
-        className={cn(
-          'fond-de-zone absolute left-0 top-3 flex items-center justify-center rounded-full border-2 transition-colors',
-          mesures.rond,
-          ton.rond,
-        )}
-        aria-hidden
-        data-point-rond
-      >
-        {etat === 'en_cours' ? (
-          <Loader2 className={cn('animate-spin', mesures.icone, ton.icone)} />
-        ) : (
-          <Rocket className={cn(mesures.icone, ton.icone)} />
-        )}
-        {etatDuPoint === 'fait' ? (
-          <span className="fond-de-zone absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full">
-            <Check className="h-3 w-3 text-termine" />
-          </span>
-        ) : null}
-      </span>
-      <span className="block min-w-0">
-        <span className={cn('block text-[14.5px] font-semibold', ton.titre)}>{t('Déploiement')}</span>
-        <span className="block text-[14.5px] leading-relaxed text-muted" data-point-phrase>
-          {phrase}
-        </span>
+      <span aria-hidden data-point-rond className="hidden" />
+      <MarqueDEtape icone={Rocket} titre={t('Déploiement')} etat={etatDuPoint} repere="deploiement" />
+      <span className="text-center text-[13.5px] leading-relaxed text-muted" data-point-phrase>
+        {phrase}
       </span>
     </li>
   );
@@ -615,8 +706,8 @@ function PointDuFlux({
   technique,
   onBasculerTechnique,
   attente,
+  toursDuPrompt,
   lancement,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   onEcrireDansLeChamp,
@@ -636,10 +727,11 @@ function PointDuFlux({
   onBasculerTechnique: () => void;
   /** L'attente à écrire sous la phrase, quand ce point est celui qui attend. */
   attente?: AttenteDeLaDemande | null;
+  /** Les tours lancés par un bouton dont le texte envoyé se lit dans ce point. */
+  toursDuPrompt?: TourDuParcours[];
   /** L'étape de préparation diffusée, pour la barre du point « Préparation ». */
   lancement?: EtapeDeLancement;
   onBasculer: () => void;
-  pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
   onEcrireDansLeChamp?: (texte: string) => void;
@@ -667,6 +759,11 @@ function PointDuFlux({
     point.etape === 'plan' && versionDuPlan === null
       ? versionEnPreparation(point, carte.parcours?.plans ?? [], !!carte.parcours?.planDemandeA)
       : null;
+  /* LA COMPRÉHENSION SORT DU BLOC : ses moments se lisent sous la carte du
+     passage (`momentsDeComprehension`), le bloc à points ne porte plus que le
+     reste. */
+  const momentsDeComprehension = point.moments.filter((moment) => moment.sorte === 'comprehension');
+  const momentsDuCarton = point.moments.filter((moment) => moment.sorte !== 'comprehension');
   const aDuContenu =
     !!reglages ||
     !!preparation ||
@@ -675,6 +772,7 @@ function PointDuFlux({
     !!point.reponse ||
     point.questions.length > 0 ||
     point.memoire.length > 0 ||
+    !!point.competences?.length ||
     point.erreurs.length > 0;
 
   /* CE QUE L'AGENT A FAIT (le récit) et CE QU'IL A RENDU (le carton) : deux
@@ -695,7 +793,40 @@ function PointDuFlux({
   const planEnDeux = point.etape === 'plan' && (carte.parcours?.plans?.length ?? 0) > 0;
   const aUneEnteteDePlan =
     planEnDeux && point.moments.some((m) => m.sorte === 'plan-demande' || m.sorte === 'demande');
-  const cartonDe = (part: PartDuCarton, marque: string) => (
+  /* LE PLAN SE LIT COMME UNE RÉPONSE, HORS DE LA CARTE (demande du 12/10/2026) :
+     tant que sa version n'est pas rendue, le passage montre sa silhouette
+     dans la carte ; une fois rendue, le texte se pose sous la compréhension. */
+  const planDetache = planEnDeux && versionDuPlan !== null;
+  const cartonDe = (part: PartDuCarton, marque: string) =>
+    /* LE COMPTE RENDU COURANT N'A NI SOUS-POINT NI SECOND TITRE : la barre de la
+       carte le nomme, et sa liste de points se pose directement sur l'axe,
+       alignée à gauche. Les précédents gardent leur sous-point et leur barre
+       grise repliée. */
+    point.etape === 'rapport' && part === 'cadre' ? (
+      <>
+        {momentsDuCarton.map((moment) => {
+          const contenu = (
+            <Moment
+              moment={moment}
+              projectId={projectId}
+              onToggleEvolution={onToggleEvolution}
+              onToggleAll={onToggleAll}
+              carte={carte}
+              onEcrireDansLeChamp={onEcrireDansLeChamp}
+            />
+          );
+          return moment.sorte === 'rapport' && moment.dernier ? (
+            <li key={moment.entree.id} data-sous-point-flux={marque} className="min-w-0">
+              {contenu}
+            </li>
+          ) : (
+            <SousPointDuFlux key={moment.entree.id} attrs={{ 'data-sous-point-flux': marque }}>
+              {contenu}
+            </SousPointDuFlux>
+          );
+        })}
+      </>
+    ) : (
     <SousPointDuFlux
       attrs={{ 'data-sous-point-flux': marque }}
     >
@@ -704,21 +835,18 @@ function PointDuFlux({
         carte={carte}
         part={part}
         projectId={projectId}
-        pickedEvolutions={pickedEvolutions}
         onToggleEvolution={onToggleEvolution}
         onToggleAll={onToggleAll}
         onEcrireDansLeChamp={onEcrireDansLeChamp}
-        versionDuPlan={versionDuPlan}
-        passages={passages}
       />
     </SousPointDuFlux>
-  );
+    );
   const entete = aUneEnteteDePlan ? cartonDe('entete', 'demande-du-plan') : null;
   /* UN PASSAGE « PLAN » QUI ATTEND SA VERSION N'A PAS DE CADRE : il garde sa
      demande en tête et son récit, et la SILHOUETTE de la version qui arrive. */
   const sansCadre = planEnDeux && versionDuPlan === null;
   const carton =
-    point.moments.length && !sansCadre ? (
+    planDetache ? null : momentsDuCarton.length && !sansCadre ? (
       cartonDe('cadre', 'rendu')
     ) : preparation ? (
       <SousPointDuFlux
@@ -727,6 +855,61 @@ function PointDuFlux({
         <SilhouetteDuPlan version={preparation} />
       </SousPointDuFlux>
     ) : null;
+
+  /* CE QUI N'EST PAS ENCORE ARRIVÉ NE S'ÉCRIT PAS DANS LA DISCUSSION : la barre
+     d'étapes le montre déjà. Le passage reste dans le document, caché, pour que
+     la barre puisse toujours le viser. Le passage « Configuration » se cache de
+     même : les réglages de l'agent s'ouvrent depuis l'en-tête de la page — mais
+     son contenu reste monté, il porte la page de ces réglages. */
+  const cache = (point.etat === 'avenir' && !aDuContenu) || point.etape === 'configuration';
+  /* La demande parle d'elle-même : sa bulle se passe d'intitulé. */
+  const sansIntitule = point.etape === 'demande' && point.moments.length > 0;
+  /* La phrase fixe d'un passage ne se lit que tant qu'il VIT (en cours, en
+     erreur, en attente d'une décision) : sous un passage terminé, elle ne
+     redirait que ce que son contenu montre. */
+  const phraseUtile =
+    (!point.resume || point.phrase === PHRASE_PLAN_A_DECIDER) && (point.etat !== 'fait' || point.phrase === PHRASE_PLAN_A_DECIDER);
+
+  if (cache) {
+    return (
+      <li
+        id={point.ancre}
+        hidden
+        data-point={point.etape}
+        data-point-ancre={point.ancre}
+        data-point-rang={point.rang}
+        data-point-total={point.total}
+        data-point-etat={point.etat}
+        data-point-ouvert="non"
+      >
+        <span aria-hidden data-point-rond />
+        {reglages}
+      </li>
+    );
+  }
+
+  /* CE QUE LA CARTE PORTE, une fois ouverte : le dépôt, la mémoire, le récit du
+     travail, et ce qu'il a rendu. Un passage « Demande » n'y range que le
+     travail de l'agent — sa bulle, elle, est toujours à l'écran. */
+  const aDansLaCarte =
+    point.traces.length > 0 ||
+    point.memoire.length > 0 ||
+    !!point.competences?.length ||
+    !!preparation ||
+    (!sansIntitule && !planEnDeux && momentsDuCarton.length > 0) ||
+    (point.etape === 'travail' && point.total === 1);
+  /* La ligne de la carte : ce que l'agent en dit lui-même, sinon la phrase de
+     l'étape. C'est tout ce qu'on lit tant qu'on ne l'ouvre pas. */
+  const ligneDeLaCarte = point.resume?.trim() || t(point.phrase);
+  /* LE COMPTE RENDU RENDU N'A QU'UN TITRE (demande du 12/10/2026) : « Compte
+     rendu » et sa date, sur la barre de la carte. La phrase « Le compte rendu
+     est rendu. » redisait ce que ce titre dit déjà, et le même titre se
+     répétait dans la carte ouverte. La phrase reste pour les autres états
+     (en cours, question, interruption). */
+  const rapportRendu =
+    point.etape === 'rapport' && point.etat === 'fait'
+      ? point.moments.find((moment) => moment.sorte === 'rapport' && moment.dernier)
+      : undefined;
 
   return (
     <li
@@ -737,250 +920,257 @@ function PointDuFlux({
       data-point-total={point.total}
       data-point-etat={point.etat}
       data-point-ouvert={ouvert ? 'oui' : 'non'}
-      className={cn('relative py-3', mesures.decalage)}
+      className="relative flex flex-col gap-3"
     >
-      {/* LE GRAND ROND : l'icône lisible, le fond de la zone pour percer la ligne. */}
-      <span
-        className={cn(
-          'fond-de-zone absolute left-0 top-3 flex items-center justify-center rounded-full border-2 transition-colors',
-          mesures.rond,
-          ton.rond,
-        )}
-        aria-hidden
-        data-point-rond
-      >
-        {point.etat === 'encours' ? (
-          <Loader2 className={cn('animate-spin', mesures.icone, ton.icone)} />
-        ) : (
-          <Icone className={cn(mesures.icone, ton.icone)} />
-        )}
-        {point.etat === 'fait' ? (
-          <span className="fond-de-zone absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full">
-            <Check className="h-3 w-3 text-termine" />
-          </span>
-        ) : null}
-      </span>
+      {/* Le rond d'étape n'est plus dessiné ; son repère reste pour les contrôles. */}
+      <span aria-hidden data-point-rond className="hidden" />
 
-      <button
-        type="button"
-        onClick={onBasculer}
-        aria-expanded={ouvert}
-        aria-disabled={!aDuContenu}
-        data-point-bascule={point.etape}
-        className="flex w-full items-start gap-2 text-left"
-      >
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className={cn('text-[14.5px] font-semibold', ton.titre)}>{t(point.titre ?? LIBELLES_ETAPE[point.etape])}</span>
-            {/* CE QUI N'EST PAS ENCORE ARRIVÉ LE DIT. Le gris et l'absence de
-                coche portaient seuls l'information : au lancement, « Travail »
-                et « Rapport » se lisaient comme des étapes déjà passées. */}
-            {point.etat === 'avenir' ? (
-              <span
-                className="shrink-0 rounded-lg bg-raised px-1.5 text-[12.5px] text-faint"
-                data-point-avenir={point.sautee ? 'sautee' : ''}
-              >
-                {/* PASSÉE SANS RIEN LAISSER n'est pas « à venir » : on le dit. */}
-                {point.sautee ? t('sautée') : t('à venir')}
-              </span>
-            ) : null}
-            {point.at ? <span className="shrink-0 text-[12.5px] text-faint">{dateHeure(point.at)}</span> : null}
-            {/* LE TEMPS TOTAL DE L'ÉTAPE, tout à droite de son titre : la
-                colonne se lit alors de haut en bas comme une chronologie, sans
-                ouvrir un seul passage. */}
-            {temps?.dureeMs !== undefined ? (
-              <>
-                <span className="flex-1" />
-                <span
-                  className="shrink-0 pr-6 text-[12.5px] text-faint tabular-nums"
-                  data-duree-totale-etape={point.etape}
-                  title={t('Temps de travail de cette étape')}
-                >
-                  {dureeFine(temps.dureeMs / 1000)}
-                </span>
-              </>
-            ) : null}
-          </span>
-          {/* UN RÉSUMÉ ÉCRIT PAR L'AGENT REMPLACE LA PHRASE FIXE ; il se lit sous
-              le bouton, où il se sélectionne. Seule la consigne d'un plan qui
-              attend sa décision reste ici, en plus du résumé. */}
-          {!point.resume || point.phrase === PHRASE_PLAN_A_DECIDER ? (
-            <span className="block text-[14.5px] leading-relaxed text-muted" data-point-phrase>
-              {t(point.phrase)}
-            </span>
-          ) : null}
-          {/* LA BARRE DE LA PRÉPARATION, LA MÊME QUE SUR LA CARTE EN COLONNE.
-              Entre le clic et le premier mot du moteur, un rond qui tourne ne
-              dit pas où on en est : l'avancement vient de l'étape franchie
-              (`avancementDuLancement`), jamais d'une animation dans le vide.
-              Sans signal reçu — page ouverte en cours de route — la barre
-              part au minimum de son parcours : une barre à zéro se lirait
-              comme un geste tombé à côté. */}
-          {point.etape === 'preparation' && point.etat === 'encours' ? (
-            <span
-              className="mt-1.5 block h-1 w-full overflow-hidden rounded-full bg-faint/30"
-              data-lancement-barre={lancement ?? 'sans-signal'}
-              aria-hidden
-            >
-              <span
-                className="block h-full rounded-full bg-en-cours transition-[width] duration-500"
-                style={{ width: `${avancementDeLaPreparation(lancement)}%` }}
-                data-lancement-avancement={avancementDeLaPreparation(lancement)}
-              />
-            </span>
-          ) : null}
-          {/* LA PHRASE DE LA CARTE, LA MÊME QUE SUR SA VIGNETTE. Elle ne se
-              lisait que sur le tableau : on ouvrait la carte, et le tiroir
-              racontait l'autre moitié de l'histoire — l'erreur du tour — sans
-              jamais dire ce qui avait été sauvé. Les trois tons sont ceux de la
-              vignette : un travail acquis en bleu, une attente en jaune, un
-              constat en gris. */}
-          {point.mention ? (
-            <span
-              data-mention-point={point.mention.nature}
-              className={cn(
-                'mt-1.5 flex items-start gap-1.5 rounded border px-1.5 py-1 text-[12.5px] leading-snug',
-                point.mention.nature === 'travail'
-                  ? 'border-termine/30 bg-termine/10 text-termine'
-                  : point.mention.nature === 'information'
-                    ? 'border-border bg-surface text-faint'
-                    : 'border-warning/30 bg-warning/10 text-warning',
-              )}
-            >
-              {point.mention.nature === 'travail' ? (
-                <Check className="mt-[2px] h-3 w-3 shrink-0" aria-hidden />
-              ) : point.mention.nature === 'information' ? (
-                <Info className="mt-[2px] h-3 w-3 shrink-0" aria-hidden />
-              ) : (
-                <AlertTriangle className="mt-[2px] h-3 w-3 shrink-0" aria-hidden />
-              )}
-              <span className="min-w-0">{point.mention.texte}</span>
-            </span>
-          ) : null}
-          {/* L'ATTENTE, EN TOUTES LETTRES. Un rond qui tourne ne dit pas si
-              l'agent prépare son tour ou si la demande dort en file faute de
-              quota — et les deux se ressemblaient exactement à l'écran. */}
-          {attente ? (
-            <span
-              className="mt-0.5 flex items-center gap-1.5 text-[12.5px] leading-snug text-faint"
-              data-point-attente={attente.sorte}
-            >
-              <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
-              <span className="min-w-0">
-                {t(PHRASES_DE_L_ATTENTE[attente.sorte])}
-                {attente.position && attente.position > 1
-                  ? ` ${t('({v0}e en file)', { v0: attente.position })}`
-                  : ''}
-              </span>
-            </span>
-          ) : null}
-        </span>
-        {aDuContenu ? (
-          <ChevronRight
-            className={cn('mt-1.5 h-4 w-4 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')}
-            aria-hidden
-          />
-        ) : null}
-      </button>
+      {/* 1. LA MARQUE D'ÉTAPE, entre les messages. */}
+      <MarqueDEtape
+        icone={Icone}
+        titre={t(point.titre ?? LIBELLES_ETAPE[point.etape])}
+        etat={point.etat}
+        repere={point.etape}
+      />
 
-      {/* LE RÉSUMÉ DU POINT, HORS DU BOUTON : un texte posé dans un bouton ne se
-          sélectionne pas à la souris. Il s'écrit dans la langue de
-          l'utilisateur, donc il ne passe pas au dictionnaire. */}
-      {point.resume ? (
-        <p
-          className="mt-0.5 whitespace-pre-line break-words pr-6 text-[14.5px] leading-relaxed text-muted select-text"
-          data-point-resume={point.etape}
-        >
-          {point.resume}
+      {/* 2. CE QUE VOUS AVEZ ÉCRIT : la bulle de la demande (ou la précision
+          qui a fait refaire un plan), toujours à l'écran. */}
+      {sansIntitule ? (
+        <ol className="flex flex-col gap-3" data-point-demande>
+          {cartonDe('cadre', 'rendu')}
+        </ol>
+      ) : entete ? (
+        <ol className="flex flex-col gap-3" data-point-demande>
+          {entete}
+        </ol>
+      ) : null}
+
+      {/* LA SYNTHÈSE DE LA DEMANDE, sous sa bulle : ce que l'agent a compris
+          qu'on lui demandait, en mots courants, dès le début du tour. Elle ne
+          s'écrivait plus que sur la ligne de la carte du passage — or un
+          passage « Demande » n'a de carte que s'il a laissé une trace : la
+          synthèse ne paraissait donc plus nulle part. */}
+      {sansIntitule && point.resume?.trim() && !aDansLaCarte ? (
+        <p className={cn('whitespace-pre-line text-[13.5px] leading-relaxed text-muted', LARGEUR_DU_FIL)} data-point-resume>
+          {point.resume.trim()}
         </p>
       ) : null}
 
-      {/* LES FILLES D'UNE CARTE MÈRE, HORS DU BOUTON : chaque ligne porte son
-          propre lien, et un bouton ne se pose pas dans un bouton. */}
-      {point.filles?.length ? <FillesDuPoint point={point} /> : null}
-
-      {/* LES CARTES NÉES DE LA NUIT, hors du bouton elles aussi. */}
-      {point.propositions?.length ? <PropositionsDuPoint point={point} /> : null}
-
-      {/* LE BOUTON TECHNIQUE, EN HAUT À DROITE DE L'ÉTAPE. Il ne peut pas
-          vivre DANS la ligne d'entête : celle-ci est déjà un bouton, et un
-          bouton dans un bouton n'est pas cliquable. Il se pose donc par-dessus,
-          au même niveau que le titre, et ne paraît que sur un point OUVERT —
-          sinon il inviterait à un geste qui ne montre rien. */}
-      {ouvert && aDuContenu ? (
-        <button
-          type="button"
-          onClick={onBasculerTechnique}
-          aria-pressed={technique}
-          data-point-technique={point.etape}
-          data-point-technique-etat={technique ? 'oui' : 'non'}
-          title={technique ? t('Revenir au récit') : t('Voir le détail technique')}
-          aria-label={technique ? t('Revenir au récit') : t('Voir le détail technique')}
-          className={cn(
-            'absolute right-0 top-3 z-10 rounded p-1.5 transition-colors',
-            technique ? 'bg-raised text-muted' : 'text-faint hover:text-muted',
-          )}
-        >
-          <Terminal className="h-3.5 w-3.5" aria-hidden />
-        </button>
-      ) : null}
-
-      {ouvert && aDuContenu ? (
-        /*
-         * L'ORDRE D'UN PASSAGE OUVERT : L'ERREUR, PUIS LE TRAVAIL, PUIS LE
-         * RÉSULTAT. Le carton produit par l'agent — la compréhension, le plan,
-         * le compte rendu — se lisait AVANT la mémoire et les traces : chaque
-         * trace qui s'ajoutait en cours de tour le repoussait vers le bas, et
-         * on ne le voyait jamais arriver. Il se pose donc SOUS le travail qui
-         * l'a produit, en bas du passage. Les erreurs, elles, restent en tête.
-         */
-        /* TOUT CE QUE PORTE UN PASSAGE EST UN SOUS-POINT, sur une seule ligne
-           verticale : les réglages, les erreurs, le dépôt, la mémoire, le
-           récit et le carton rendu. Plus aucun encadré posé à côté du fil.
-           Les questions, elles, ont leur propre point (`PointDeQuestion`) :
-           un récapitulatif en tête de passage les redisait mot pour mot. */
-        <ol className={cn('mt-2', mesures.retraitDuContenu)} data-point-contenu={point.etape}>
-          {/* TOUT CE QUE CE POINT PORTE SUIT SA VUE : le récit par défaut, les
-              cartons techniques d'origine quand on l'a demandé. */}
-          {reglages ? (
-            <SousPointDuFlux
-              attrs={{ 'data-sous-point-flux': 'reglages' }}
-            >
-              {reglages}
-            </SousPointDuFlux>
-          ) : null}
+      {/* 3. CE QUI EST TOMBÉ SE VOIT TOUJOURS, hors de la carte. */}
+      {point.erreurs.length ? (
+        <ol className={cn('flex flex-col gap-3', LARGEUR_DU_FIL)}>
           {point.erreurs.map((erreur) => (
             <ErreurDansLePoint key={erreur.cle} erreur={erreur} carte={carte} />
           ))}
-          {/* LE RÉCAPITULATIF DU DÉPÔT NE SE RÉPÈTE PAS D'UNE ITÉRATION À
-              L'AUTRE : depuis qu'une nouvelle demande ouvre son propre point
-              « Travail », il ne se lit que sur un passage qui a VRAIMENT
-              travaillé — ou sur le seul qui existe. */}
-          {point.etape === 'travail' && (point.traces.length > 0 || point.total === 1) ? (
-            <DepotDuTravail carte={carte} traces={point.traces} />
-          ) : null}
-          <MemoireDuPoint lignes={point.memoire} etape={point.etape} />
-          {/* L'ORDRE EST LE MÊME PARTOUT, PLAN COMPRIS : ce qui a demandé,
-              puis le récit du travail, puis ce que ce travail a rendu. Le
-              cadre du plan était la seule exception — il se lisait avant le
-              récit — et cassait la lecture chronologique du fil. */}
-          {entete}
-          {recit}
-          {/* LA RÉPONSE DU TOUR, dans le cadre contrasté du plan : elle ne se
-              cache plus parmi les actions du récit. Le cadrage est une
-              DISCUSSION : elle se lit AVANT la compréhension que le même tour
-              a pu mettre à jour — d'abord ce que l'agent répond, puis ce
-              qu'il a compris. */}
-          {point.reponse ? (
-            <SousPointDuFlux
-              attrs={{ 'data-sous-point-flux': 'reponse' }}
-            >
-              <MomentDeReponse entree={point.reponse} />
-            </SousPointDuFlux>
-          ) : null}
-          {carton}
         </ol>
       ) : null}
+
+      {/* LE TEXTE ENVOYÉ AU MOTEUR par un tour lancé par un bouton : il n'a pas
+          de bulle de demande, son lien se pose donc ici, avant le détail. */}
+      {toursDuPrompt?.length ? <LiensDesPromptsDuPoint cardId={carte.id} tours={toursDuPrompt} className={cn('w-full', LARGEUR_DU_FIL)} /> : null}
+
+      {/* 4. LA CARTE DU PASSAGE : une ligne, qu'on ouvre pour le détail. */}
+      {aDansLaCarte || attente || point.mention || (point.etape === 'preparation' && point.etat === 'encours') ? (
+        <div className={cn('relative rounded-2xl bg-surface', LARGEUR_DU_FIL)} data-carte-du-passage={point.etape}>
+          <button
+            type="button"
+            onClick={onBasculer}
+            aria-expanded={ouvert}
+            aria-disabled={!aDansLaCarte}
+            data-point-bascule={point.etape}
+            className={cn('group/p flex w-full items-start gap-3 py-3 pr-4 text-left', aDansLaCarte ? 'pl-0' : 'pl-4')}
+          >
+            {/* LE POINT DU PASSAGE : celui de la ligne de tête, sur le même axe
+                que les points de son détail. Violet tant que l'agent y
+                travaille, rouge s'il est tombé, gris sinon. Ouvert, un trait
+                le relie au premier point du dessous. */}
+            {aDansLaCarte ? (
+              <span className="relative -mr-3 flex w-6 shrink-0 self-stretch justify-center" aria-hidden data-point-de-la-carte={point.etat}>
+                {/* Point de tête de 7 px centré à 12 px ; le premier point du dessous a son haut à
+                    21,5 px sous ce bloc (12 px de marge + 9,5 px). 4 px d'air de chaque côté. */}
+                {ouvert ? <span className="absolute -bottom-[17.5px] left-[11.5px] top-[19.5px] w-px bg-faint/40" data-point-de-la-carte-trait /> : null}
+                <span className="relative flex h-6 w-6 items-center justify-center">
+                  <PointDuFil
+                    ton={point.etat === 'encours' ? 'en-cours' : point.etat === 'erreur' ? 'erreur' : 'neutre'}
+                    /* Le violet est la couleur du travail de l'agent : le même
+                       que la ligne de tâche en cours, au-dessus du champ. */
+                    className={cn(
+                      'h-[7px] w-[7px]',
+                      point.etat === 'encours' && 'animate-pulse-soft bg-teinte motion-reduce:animate-none',
+                    )}
+                  />
+                </span>
+              </span>
+            ) : null}
+            <span className="min-w-0 flex-1">
+              {rapportRendu ? (
+                <span className="flex flex-wrap items-baseline gap-x-2 text-[14.5px] leading-relaxed" data-point-phrase data-rapport-titre>
+                  <span className="font-medium text-text">{t('Compte rendu')}</span>
+                  <span className="text-[12.5px] text-faint">{dateHeure(rapportRendu.entree.at)}</span>
+                </span>
+              ) : (
+                <span
+                  className={cn(
+                    'block text-[14.5px] leading-relaxed text-text',
+                    /* Fermée : deux lignes. Ouverte : le texte entier, avec ses
+                       paragraphes (un résumé les sépare d'une ligne vide). */
+                    ouvert ? 'whitespace-pre-line' : 'line-clamp-2',
+                  )}
+                  data-point-phrase
+                >
+                  {ligneDeLaCarte}
+                </span>
+              )}
+              {/* LA BARRE DE LA PRÉPARATION : entre le clic et le premier mot du
+                  moteur, l'avancement vient de l'étape franchie
+                  (`avancementDuLancement`), jamais d'une animation dans le vide. */}
+              {point.etape === 'preparation' && point.etat === 'encours' ? (
+                <span
+                  className="mt-2 block h-1 w-full max-w-[320px] overflow-hidden rounded-full bg-raised"
+                  data-lancement-barre={lancement ?? 'sans-signal'}
+                  aria-hidden
+                >
+                  <span
+                    className="block h-full rounded-full bg-en-cours transition-[width] duration-500"
+                    style={{ width: `${avancementDeLaPreparation(lancement)}%` }}
+                    data-lancement-avancement={avancementDeLaPreparation(lancement)}
+                  />
+                </span>
+              ) : null}
+              {/* LA PHRASE DE LA CARTE, LA MÊME QUE SUR SA VIGNETTE : ce qui a
+                  été sauvé, ce qui attend, ce qui s'est passé. */}
+              {point.mention ? (
+                <span
+                  data-mention-point={point.mention.nature}
+                  className="mt-1.5 flex items-start gap-1.5 text-[13px] leading-snug text-muted"
+                >
+                  {point.mention.nature === 'travail' ? (
+                    <Check className="mt-[2px] h-3.5 w-3.5 shrink-0" aria-hidden />
+                  ) : point.mention.nature === 'information' ? (
+                    <Info className="mt-[2px] h-3.5 w-3.5 shrink-0" aria-hidden />
+                  ) : (
+                    <AlertTriangle className="mt-[2px] h-3.5 w-3.5 shrink-0" aria-hidden />
+                  )}
+                  <span className="min-w-0">{point.mention.texte}</span>
+                </span>
+              ) : null}
+              {/* L'ATTENTE, EN TOUTES LETTRES : l'agent prépare son tour, ou la
+                  demande dort en file faute de quota. */}
+              {attente ? (
+                <span
+                  className="mt-1 flex items-center gap-1.5 text-[13px] leading-snug text-faint"
+                  data-point-attente={attente.sorte}
+                >
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                  <span className="min-w-0">
+                    {t(PHRASES_DE_L_ATTENTE[attente.sorte])}
+                    {attente.position && attente.position > 1 ? ` ${t('({v0}e en file)', { v0: attente.position })}` : ''}
+                  </span>
+                </span>
+              ) : null}
+              {/* Le temps de l'étape reste dans le document, pour les contrôles. */}
+              {temps?.dureeMs !== undefined ? (
+                <span className="sr-only" data-duree-totale-etape={point.etape}>
+                  {dureeFine(temps.dureeMs / 1000)}
+                </span>
+              ) : null}
+            </span>
+            {aDansLaCarte ? (
+              <ChevronRight
+                className={cn('mt-1 h-4 w-4 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')}
+                aria-hidden
+              />
+            ) : null}
+          </button>
+
+          {/* LE BOUTON « VUE TECHNIQUE », dans le coin de la carte ouverte. */}
+          {ouvert && aDansLaCarte ? (
+            <button
+              type="button"
+              onClick={onBasculerTechnique}
+              aria-pressed={technique}
+              data-point-technique={point.etape}
+              data-point-technique-etat={technique ? 'oui' : 'non'}
+              title={technique ? t('Revenir au récit') : t('Voir le détail technique')}
+              aria-label={technique ? t('Revenir au récit') : t('Voir le détail technique')}
+              className={cn(
+                'absolute right-10 top-2.5 z-10 rounded-md p-1.5 transition-colors',
+                technique ? 'bg-raised text-text' : 'text-faint hover:text-muted',
+              )}
+            >
+              <Terminal className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          ) : null}
+
+          {ouvert && aDansLaCarte ? (
+            /* L'ORDRE DU DÉTAIL : le dépôt, la mémoire, le récit du travail,
+               puis ce que ce travail a rendu — la compréhension, le plan, le
+               compte rendu. */
+            <PointsDeLaCarte.Provider value>
+              <ol className="flex flex-col gap-3 pb-4 pl-0 pr-4" data-point-contenu={point.etape}>
+                {point.etape === 'travail' && (point.traces.length > 0 || point.total === 1) ? (
+                  <DepotDuTravail carte={carte} traces={point.traces} />
+                ) : null}
+                <MemoireDuPoint lignes={point.memoire} etape={point.etape} />
+                <CompetencesDuPoint competences={point.competences} carteId={carte.id} />
+                {recit}
+                {sansIntitule ? null : carton}
+              </ol>
+            </PointsDeLaCarte.Provider>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* 5. LA RÉPONSE DE L'AGENT : un message, à gauche, toujours à l'écran. */}
+      {point.reponse ? (
+        <ol className="flex flex-col gap-3">
+          <SousPointDuFlux attrs={{ 'data-sous-point-flux': 'reponse' }}>
+            <MomentDeReponse entree={point.reponse} />
+          </SousPointDuFlux>
+        </ol>
+      ) : null}
+
+      {/* 6. LA COMPRÉHENSION, DÉTACHÉE DU BLOC : un texte posé sous le bloc de
+          travail (et sous la réponse qui la précède dans le tour), sur le fond
+          de la page, sans cadre ni en-tête — comme un message. Le bloc à points
+          ne garde que le travail de fond ; ce qu'on lisait dans sa ligne
+          « Compréhension n° N » se lit ICI, en entier. Chaque version s'ajoute
+          à la suite. */}
+      {momentsDeComprehension.length ? (
+        <ol className="flex flex-col gap-3" data-point-comprehension-detachee>
+          {momentsDeComprehension.map((moment) => (
+            <SousPointDuFlux key={moment.entree.id} attrs={{ 'data-sous-point-flux': 'comprehension' }}>
+              <MomentDeComprehension entree={moment.entree} numero={moment.numero} />
+            </SousPointDuFlux>
+          ))}
+        </ol>
+      ) : null}
+
+      {/* 7. LE PLAN, DÉTACHÉ DU BLOC COMME LA COMPRÉHENSION (demande du
+          12/10/2026 : « un plan doit être rendu sous forme de texte avec des
+          titres distincts, pas dans un bloc gris et en dehors du flux de la
+          réflexion, comme une réponse »). Du texte, sur le fond de la page, dans
+          la largeur d'un message, sous la compréhension du même tour. Chaque
+          version se lit en entier, à la suite : rien n'est replié. */}
+      {planDetache ? (
+        <ol className="flex flex-col gap-3" data-point-plan-detache>
+          <SousPointDuFlux attrs={{ 'data-sous-point-flux': 'plan' }}>
+            <MomentDePlan
+              point={point}
+              carte={carte}
+              passages={passages}
+              versionDuPlan={versionDuPlan}
+              onToggleEvolution={onToggleEvolution}
+              onToggleAll={onToggleAll}
+            />
+          </SousPointDuFlux>
+        </ol>
+      ) : null}
+
+      {/* LES FILLES D'UNE CARTE MÈRE et LES CARTES NÉES DE LA NUIT : chaque
+          ligne porte son propre lien. */}
+      {point.filles?.length ? <FillesDuPoint point={point} /> : null}
+      {point.propositions?.length ? <PropositionsDuPoint point={point} /> : null}
     </li>
   );
 }
@@ -1107,7 +1297,7 @@ type PartDuCarton = 'entete' | 'cadre';
 function SilhouetteDuPlan({ version }: { version: number }) {
   return (
     <div
-      className="rounded-lg border-2 border-border bg-fond-plan px-3 py-3"
+      className="rounded-[20px] bg-raised px-4 py-3.5"
       data-plan-en-preparation={version}
       aria-busy="true"
     >
@@ -1128,30 +1318,79 @@ function SilhouetteDuPlan({ version }: { version: number }) {
   );
 }
 
+/**
+ * LE PLAN D'UN PASSAGE, LU COMME UNE RÉPONSE : à gauche, SANS AUCUN FOND, dans
+ * la largeur d'un message — le même dessin que la compréhension détachée
+ * (`MomentDeComprehension`). Le bloc gris replié, son bandeau et son volet
+ * plein écran sur téléphone ont disparu : le texte entier est là, et la version
+ * rendue dit son heure en petit dessous.
+ */
+function MomentDePlan({
+  point,
+  carte,
+  passages,
+  versionDuPlan,
+  onToggleEvolution,
+  onToggleAll,
+}: {
+  point: PointDuParcours;
+  carte: Card;
+  passages: readonly PointDuParcours[];
+  versionDuPlan: VersionDuPassage;
+  onToggleEvolution?: (text: string) => void;
+  onToggleAll?: (items: string[]) => void;
+}) {
+  const plans = carte.parcours?.plans ?? [];
+  const moment = point.moments.find((m) => m.sorte === 'plan');
+  if (!plans.length || versionDuPlan === null) return null;
+  return (
+    <div className="flex scroll-mt-12 flex-col items-start" data-moment="plan-rendu">
+      <div data-bulle="agent" className={LARGEUR_DU_FIL}>
+        <BlocDuPlan
+          plans={plans}
+          version={versionDuPlan === 'courante' ? undefined : versionDuPlan}
+          /* L'AGENT DU PLAN EST CELUI QUI L'A ÉCRIT : c'est à lui que
+             « Valider » parle, pas à celui qui travaille aujourd'hui. */
+          agentId={moment?.entree.agentId ?? carte.agentId}
+          planValide={carte.parcours?.planValide ?? null}
+          /* ET LE PLAN D'UNE CARTE DÉJÀ LANCÉE NE SE DÉCIDE PLUS : la carte
+             le dit elle-même (colonne, agent qui la tient, code enregistré). */
+          etatCarte={{
+            colonne: carte.column,
+            agentDeLaCarte: carte.agentId,
+            codeDejaEnregistre: carte.codeDejaEnregistre,
+            /* …sauf le plan d'une RELANCE après rapport (`planDeLaRelance`). */
+            cadrageRouvertA: carte.parcours?.cadrageRouvertA,
+          }}
+          /* LE LOADER NE VISE QUE LE TOUR QUI ÉCRIT CE PLAN (`planEnCoursDEcriture`). */
+          passage={point}
+          passages={passages}
+          onToggleEvolution={onToggleEvolution ?? (() => undefined)}
+          onToggleAll={onToggleAll ?? (() => undefined)}
+          carte={carte}
+        />
+      </div>
+    </div>
+  );
+}
+
 function MomentsDuPoint({
   point,
   carte,
   part,
   projectId,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   onEcrireDansLeChamp,
-  versionDuPlan,
-  passages,
 }: {
   point: PointDuParcours;
   carte: Card;
-  passages: readonly PointDuParcours[];
   /** Quelle moitié dessiner. Hors du passage « Plan », seul `cadre` porte quelque chose. */
   part: PartDuCarton;
   projectId?: string;
-  pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
   onEcrireDansLeChamp?: (texte: string) => void;
-  /** La version que ce passage montre ; `null` : aucune, elle s'écrit encore. */
-  versionDuPlan: VersionDuPassage;
 }) {
   /*
    * LE POINT « PLAN » PORTE SA VERSION, PAS TOUTES. Chaque version rendue a
@@ -1162,7 +1401,6 @@ function MomentsDuPoint({
    */
   if (point.etape === 'plan') {
     const plans = carte.parcours?.plans ?? [];
-    const moment = point.moments.find((m) => m.sorte === 'plan');
     if (plans.length) {
       /* CE QUI A DEMANDÉ CETTE VERSION se lit EN TÊTE du passage : le clic
          « Générer le plan », ou la précision qui l'a fait refaire. Le cadre du
@@ -1178,52 +1416,21 @@ function MomentsDuPoint({
           </>
         );
       }
-      if (versionDuPlan === null) return null;
-      return (
-        <>
-          <BlocDuPlan
-            nu
-            plans={plans}
-            version={versionDuPlan === 'courante' ? undefined : versionDuPlan}
-            /* L'AGENT DU PLAN EST CELUI QUI L'A ÉCRIT : c'est à lui que
-               « Valider » parle, pas à celui qui travaille aujourd'hui. */
-            agentId={moment?.entree.agentId ?? carte.agentId}
-            /* « VALIDER » ÉCRIT SUR LA CARTE, et la carte dit ce qui est validé. */
-            cardId={carte.id}
-            planValide={carte.parcours?.planValide ?? null}
-            /* ET LE PLAN D'UNE CARTE DÉJÀ LANCÉE NE SE DÉCIDE PLUS : la carte
-               le dit elle-même (colonne, agent qui la tient, code enregistré). */
-            etatCarte={{
-              colonne: carte.column,
-              agentDeLaCarte: carte.agentId,
-              codeDejaEnregistre: carte.codeDejaEnregistre,
-              /* …sauf le plan d'une RELANCE après rapport (`planDeLaRelance`). */
-              cadrageRouvertA: carte.parcours?.cadrageRouvertA,
-            }}
-            ancre={point.ancre}
-            /* LE LOADER NE VISE QUE LE TOUR QUI ÉCRIT CE PLAN (`planEnCoursDEcriture`). */
-            passage={point}
-            passages={passages}
-            pickedEvolutions={pickedEvolutions ?? []}
-            onToggleEvolution={onToggleEvolution ?? (() => undefined)}
-            onToggleAll={onToggleAll ?? (() => undefined)}
-            /* SUR TÉLÉPHONE, LE PLAN S'OUVRE EN VOLET : il s'y LIT, il ne s'y
-               décide plus — la validation est unique, sous le champ. */
-            carte={carte}
-          />
-        </>
-      );
+      /* LE PLAN NE SE LIT PLUS DANS LA CARTE DU PASSAGE : il est posé sous la
+         compréhension, comme une réponse (`MomentDePlan`). */
+      return null;
     }
   }
   if (part === 'entete') return null;
   return (
     <>
-      {point.moments.map((moment) => (
+      {point.moments
+        .filter((moment) => moment.sorte !== 'comprehension')
+        .map((moment) => (
         <Moment
           key={moment.entree.id}
           moment={moment}
           projectId={projectId}
-          pickedEvolutions={pickedEvolutions}
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
           carte={carte}
@@ -1295,7 +1502,6 @@ function BoutonCopierLaDemande({ entree, projectId }: { entree: EntreeJournal; p
 function Moment({
   moment,
   projectId,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
   carte,
@@ -1303,7 +1509,6 @@ function Moment({
 }: {
   moment: MomentDuPoint;
   projectId?: string;
-  pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
   /** La carte : ses suppositions validées se lisent sur sa compréhension en cours. */
@@ -1315,24 +1520,30 @@ function Moment({
   switch (moment.sorte) {
     case 'demande':
       return (
-        <div className="rounded-lg border border-accent/30 bg-raised/40 px-3 py-2" data-moment={moment.sorte}>
-          {/* L'ENTÊTE PORTE SON BOUTON DE COPIE, À DROITE. Le libellé et la
-              date gardent leur ligne ; le bouton se pose au bout, à hauteur du
-              texte, et emporte la demande AVEC ses images. */}
-          <div className="mb-1 flex items-start gap-2">
-            <p className="min-w-0 flex-1 text-[12.5px] font-medium uppercase tracking-wide text-faint">
-              {moment.premiere ? t('Votre demande') : t('Précision')}
-              <span className="ml-2 normal-case tracking-normal">{dateHeure(entree.at)}</span>
-            </p>
-            <BoutonCopierLaDemande entree={entree} projectId={projectId} />
+        /* VOTRE MESSAGE : une bulle à DROITE, comme dans toute messagerie —
+           noire en clair, GRISE en sombre (`--encre`), jamais blanche. L'heure
+           se lit dessous, en petit ; le bouton de copie ne paraît qu'au survol. */
+        <div className="group/bulle flex flex-col items-end" data-moment={moment.sorte}>
+          <div
+            data-bulle="utilisateur"
+            className={cn('bulle-utilisateur rounded-[20px] bg-encre px-4 py-2.5 text-encre-fg', LARGEUR_DU_FIL)}
+          >
+            <ContenuDeLEntree entree={entree} projectId={projectId} />
           </div>
-          <ContenuDeLEntree entree={entree} projectId={projectId} />
+          <div className="mt-1 flex items-center gap-1 pr-1">
+            <span className="transition-opacity survol:opacity-0 group-hover/bulle:survol:opacity-100">
+              <BoutonCopierLaDemande entree={entree} projectId={projectId} />
+            </span>
+            <span className="text-[12px] text-faint" title={moment.premiere ? t('Votre demande') : t('Précision')}>
+              {dateHeure(entree.at)}
+            </span>
+          </div>
+          {/* CE QUE L'AGENT A VRAIMENT REÇU, à un clic sous votre message. */}
+          <LienPromptDeLaDemande entree={entree} className={cn('w-full self-start', LARGEUR_DU_FIL)} />
         </div>
       );
     case 'comprehension':
-      return (
-        <MomentDeComprehension entree={entree} numero={moment.numero} derniere={moment.derniere} />
-      );
+      return <MomentDeComprehension entree={entree} numero={moment.numero} />;
     case 'plan-demande':
       return (
         <p className="text-[12.5px] text-faint" data-moment="plan-demande">
@@ -1348,7 +1559,7 @@ function Moment({
             {moment.version ? t('Plan rendu · version {numero}', { numero: moment.version }) : t('Plan proposé')}
             <span className="ml-2 normal-case tracking-normal">{dateHeure(entree.at)}</span>
           </p>
-          <PlanRapport contenu={texte} courant={false} pickedEvolutions={pickedEvolutions ?? []} onToggleEvolution={onToggleEvolution} onToggleAll={onToggleAll} />
+          <PlanRapport contenu={texte} courant={false} onToggleEvolution={onToggleEvolution} onToggleAll={onToggleAll} />
         </div>
       );
     }
@@ -1357,7 +1568,6 @@ function Moment({
         <MomentDeRapport
           entree={entree}
           dernier={moment.dernier}
-          pickedEvolutions={pickedEvolutions}
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
         />
@@ -1370,20 +1580,21 @@ function Moment({
 /**
  * CE QUE L'AGENT A COMPRIS — le point que le vibe codeur vient lire. Rendu par
  * l'outil `rendre_comprehension` : le texte, ce qui reste flou, les sujets de
- * mémoire ouverts. La dernière version se lit d'office, les précédentes se
- * déplient.
+ * mémoire ouverts.
+ *
+ * UN TEXTE DÉTACHÉ, PAS UN BLOC (demande du 12/10/2026). Elle vivait dans la
+ * carte du passage, derrière une ligne grise « Compréhension n° N » et un
+ * panneau au fond contrasté ; or le bloc à points ne doit montrer que le travail
+ * de fond du modèle. Elle se lit maintenant SOUS ce bloc, sur le fond de la page,
+ * dans la largeur d'un message, avec son heure en petit dessous — comme une
+ * réponse. Plus d'en-tête, plus de panneau, plus de volet replié : le texte
+ * entier est là, et chaque nouvelle version s'ajoute à la suite.
+ *
+ * Elle porte tout ce que le panneau montrait : le texte (en points « Comment » /
+ * « Résultat » pour une compréhension d'avant les textes libres), les sujets de
+ * mémoire ouverts, et le détail technique en une petite ligne repliée.
  */
-function MomentDeComprehension({
-  entree,
-  numero,
-  derniere,
-}: {
-  entree: EntreeJournal;
-  numero: number;
-  derniere: boolean;
-}) {
-  const [choisi, setChoisi] = React.useState<boolean | undefined>(undefined);
-  const ouvert = choisi ?? derniere;
+function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; numero: number }) {
   const donnees = React.useMemo(() => {
     /*
      * PLUS AUCUNE SUPPOSITION À L'ÉCRAN (décision du 06/10/2026) : le bloc
@@ -1404,124 +1615,65 @@ function MomentDeComprehension({
   }, [entree.donnees]);
   const range = React.useMemo(() => rangerLaComprehension(entree.resultat ?? ''), [entree.resultat]);
 
-  /* QUELS VOLETS SONT OUVERTS — le premier d'office, ou celui qu'on lisait la
-     dernière fois. PLUSIEURS peuvent l'être à la fois : comparer deux points
-     d'une même compréhension est exactement ce qu'on vient faire. */
-  const [volets, setVolets] = React.useState<Set<string>>(() => new Set());
-  const marques = React.useMemo(
-    () => range.points.map((point, index) => point.reference ?? String(index + 1)),
-    [range.points],
-  );
-  const premierVolet = marques[0];
-  React.useEffect(() => {
-    if (!premierVolet) return;
-    const retenu = dernierVoletOuvert(entree.cardId, numero);
-    /* Un souvenir qui ne correspond plus à aucun point (compréhension réécrite)
-       retombe sur le premier volet, jamais sur un bloc tout fermé. */
-    const choix = retenu && marques.includes(retenu) ? retenu : premierVolet;
-    setVolets(new Set([choix]));
-  }, [entree.cardId, numero, premierVolet, marques]);
-
-  const basculerLeVolet = (marque: string) => {
-    setVolets((avant) => {
-      const apres = new Set(avant);
-      if (apres.has(marque)) apres.delete(marque);
-      else {
-        apres.add(marque);
-        /* ON NE RETIENT QUE L'OUVERTURE : refermer un volet ne dit pas lequel on
-           veut retrouver, et effacerait le souvenir sans rien mettre à la place. */
-        retenirLeVolet(entree.cardId, numero, marque);
-      }
-      return apres;
-    });
-  };
-
   return (
-    /* LE MÊME DESSIN QUE LA RÉPONSE : un EN-TÊTE au fond contrasté, qui est
-       aussi la bascule, puis le contenu dans un PANNEAU (`panneau.tsx`), sans
-       aucun trait. Replié, l'en-tête reste seul : il s'arrondit en bas aussi.
-       L'en-tête reste HORS de `.comprehension-unie`, qui n'admet qu'une taille.
-       `scroll-mt-12` : visé par son début, l'en-tête s'arrête sous le fondu. */
-    <div className="scroll-mt-12" data-moment="comprehension" data-comprehension-numero={numero}>
-      <button
-        type="button"
-        onClick={() => setChoisi(!ouvert)}
-        aria-expanded={ouvert}
-        className={cn('en-tete-de-panneau flex w-full items-center gap-2 px-3 py-1.5 text-left', ouvert ? 'rounded-t-md' : 'rounded-md')}
-        data-en-tete-de-panneau=""
-        data-comprehension-bascule
-      >
-        {/* LE TITRE SE LIT À LA TAILLE DE CE QU'IL OUVRE. À 12,5 px, il passait
-            sous le texte de la compréhension (14,5 px) et sous les intitulés
-            d'étape du fil, qui sont à la même taille : l'entrée du bloc était
-            plus petite que le bloc. L'heure, elle, reste un second plan. */}
-        <span className="text-[14.5px] font-semibold leading-relaxed text-text">
-          {t('Compréhension n° {v0}', { v0: numero })}
-        </span>
-        <span className="whitespace-nowrap text-[12.5px] text-faint">{dateHeure(entree.at)}</span>
-        <span className="flex-1" />
-        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
-      </button>
-      {ouvert ? (
-        <Panneau className="py-3">
-          <div className="comprehension-unie space-y-3" data-comprehension-contenu data-comprehension-forme={range.conforme ? 'points' : 'texte'}>
-            {range.conforme ? (
-              <>
-                {range.ouverture ? <Markdown content={range.ouverture} /> : null}
-                {/* LE SOMMAIRE ET LES POINTS SONT LA MÊME LISTE.
-                    Le sommaire numéroté s'affichait en tête, puis chaque point le
-                    reprenait numéro pour numéro : on lisait DEUX FOIS la même
-                    liste, la seconde noyée dans les explications. Les deux n'en
-                    font plus qu'une, en VOLETS : l'entête est la ligne de
-                    sommaire, et son contenu est le point développé.
-                    LE REPLI GARDE LE SOMMAIRE ENTIER quand il porte des lignes
-                    sans point correspondant (compréhension ancienne, numérotation
-                    décalée) : rien ne doit disparaître de l'écran. */}
-                {range.sommaire.length && range.points.length < range.sommaire.length ? (
-                  <ol className="list-decimal space-y-1 pl-5" data-comprehension-sommaire>
-                    {range.sommaire.map((ligne, index) => (
-                      <li key={index}>{ligne}</li>
-                    ))}
-                  </ol>
-                ) : null}
-                {/* LA COMPRÉHENSION SE LIT COMME LE COMPTE RENDU : un point gris,
-                    l'intitulé en titre, le texte dessous, reliés par le trait. */}
-                <ol className="space-y-0" data-comprehension-sommaire data-comprehension-volets={range.points.length}>
-                  {range.points.map((point, index) => {
-                    const marque = point.reference ?? String(index + 1);
-                    return (
-                      <PointDeLaComprehension
-                        key={index}
-                        intitule={point.intitule}
-                        reference={point.reference}
-                        derniere={index === range.points.length - 1}
-                        volet={marque}
-                        ouvert={volets.has(marque)}
-                        onBasculer={() => basculerLeVolet(marque)}
-                      >
-                        {point.explication ? <Markdown content={point.explication} /> : null}
-                        {point.comment ? <PartDuPointCompris libelle={t('Comment')} texte={point.comment} /> : null}
-                        {point.resultat ? <PartDuPointCompris libelle={t('Résultat')} texte={point.resultat} /> : null}
-                      </PointDeLaComprehension>
-                    );
-                  })}
+    /* LE MÊME DESSIN QUE LA RÉPONSE : à gauche, SANS AUCUN FOND, dans la largeur
+       d'un message. `scroll-mt-12` : visée par son début, elle s'arrête sous le
+       fondu du haut du fil. */
+    <div
+      className="flex scroll-mt-12 flex-col items-start"
+      data-moment="comprehension"
+      data-comprehension-numero={numero}
+      data-bloc-comprehension={entree.id}
+    >
+      <div data-bulle="agent" className={LARGEUR_DU_FIL}>
+        <div
+          className="comprehension-unie comprehension-detachee space-y-3"
+          data-comprehension-contenu
+          data-comprehension-forme={range.conforme ? 'points' : 'texte'}
+        >
+          {range.conforme ? (
+            <>
+              {range.ouverture ? <Markdown content={range.ouverture} /> : null}
+              {/* LE SOMMAIRE ET LES POINTS SONT LA MÊME LISTE. Le sommaire reste
+                  entier quand il porte des lignes sans point correspondant
+                  (compréhension ancienne, numérotation décalée) : rien ne doit
+                  disparaître de l'écran. */}
+              {range.sommaire.length && range.points.length < range.sommaire.length ? (
+                <ol className="list-decimal space-y-1 pl-5" data-comprehension-sommaire>
+                  {range.sommaire.map((ligne, index) => (
+                    <li key={index}>{ligne}</li>
+                  ))}
                 </ol>
-              </>
-            ) : (
-              /* LE TEXTE LIBRE — devenu le cas ORDINAIRE depuis que le cadrage
-                 n'impose plus de gabarit, et toujours celui des compréhensions
-                 écrites avant les volets. Rendu en paragraphes aérés (`mb-2.5`),
-                 dans un `div` et jamais dans un `button` : rien n'est replié
-                 ici, tout se lit et se copie d'un trait. */
-              <Markdown content={entree.resultat ?? ''} className="texte-du-fil [&_p]:mb-2.5" />
-            )}
-            {donnees.sujets.length ? (
-              <p>{t('Sujets de mémoire ouverts : {v0}', { v0: donnees.sujets.join(', ') })}</p>
-            ) : null}
-            {donnees.technique ? <DetailsTechniques technique={donnees.technique} /> : null}
-          </div>
-        </Panneau>
-      ) : null}
+              ) : null}
+              <div className="space-y-3" data-comprehension-sommaire data-comprehension-volets={range.points.length}>
+                {range.points.map((point, index) => (
+                  <section key={index} data-point-comprehension={point.intitule} data-point-reference={point.reference}>
+                    <p className="font-semibold">
+                      {point.reference ? <span className="mr-1.5 font-normal">{point.reference}.</span> : null}
+                      {point.intitule}
+                    </p>
+                    {point.explication ? <Markdown content={point.explication} /> : null}
+                    {point.comment ? <PartDuPointCompris libelle={t('Comment')} texte={point.comment} /> : null}
+                    {point.resultat ? <PartDuPointCompris libelle={t('Résultat')} texte={point.resultat} /> : null}
+                  </section>
+                ))}
+              </div>
+            </>
+          ) : (
+            /* LE TEXTE LIBRE — devenu le cas ORDINAIRE depuis que le cadrage
+               n'impose plus de gabarit, et toujours celui des compréhensions
+               écrites avant les volets. Rendu en paragraphes aérés (`mb-2.5`),
+               dans un `div` et jamais dans un `button` : tout se lit et se
+               copie d'un trait. */
+            <Markdown content={entree.resultat ?? ''} className="texte-du-fil [&_p]:mb-2.5" />
+          )}
+          {donnees.sujets.length ? (
+            <p>{t('Sujets de mémoire ouverts : {v0}', { v0: donnees.sujets.join(', ') })}</p>
+          ) : null}
+          {donnees.technique ? <DetailsTechniques technique={donnees.technique} /> : null}
+        </div>
+      </div>
+      <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
     </div>
   );
 }
@@ -1613,105 +1765,18 @@ function DetailsTechniques({ technique }: { technique: PartieTechniqueLue }) {
 }
 
 /**
- * UN POINT DE LA COMPRÉHENSION — UN VOLET, entête cliquable et contenu replié.
- *
- * Même dessin qu'une section du compte rendu (`rapport-flux.tsx`) : le point
- * gris de 5 px, le trait vertical, l'intitulé en gras. Ce qui change, c'est que
- * l'intitulé est aussi la LIGNE DE SOMMAIRE — numéro compris — et qu'un clic
- * dessus ouvre ou referme son développement. Un volet fermé ne laisse donc voir
- * que le sommaire ; la liste entière se lit d'un coup d'œil, et on descend dans
- * ce qu'on veut lire.
- *
- * Sans `volet`, le bloc reste un simple point toujours ouvert : c'est le cas de
- * « Ce que l'agent suppose », qui ne se cache pas.
- */
-function PointDeLaComprehension({
-  intitule,
-  reference,
-  derniere,
-  attrs,
-  volet,
-  ouvert = true,
-  onBasculer,
-  children,
-}: {
-  intitule: string;
-  /** Le numéro de la ligne du sommaire à laquelle ce point répond. */
-  reference?: string;
-  derniere: boolean;
-  attrs?: Record<string, string>;
-  /** La marque du volet : présente, l'entête devient une bascule. */
-  volet?: string;
-  ouvert?: boolean;
-  onBasculer?: () => void;
-  children?: React.ReactNode;
-}) {
-  const repliable = !!volet && !!onBasculer && !!children;
-  const entete = (
-    <>
-      {/* LA RÉFÉRENCE RENVOIE À LA LIGNE DU SOMMAIRE : elle se détache de
-          l'intitulé sans le concurrencer. */}
-      {reference ? <span className="mr-1.5 font-normal">{reference}.</span> : null}
-      {intitule}
-    </>
-  );
-  return (
-    <li
-      className="flex gap-3"
-      data-point-comprehension={intitule}
-      data-point-reference={reference}
-      data-volet-comprehension={volet}
-      data-volet-ouvert={repliable ? (ouvert ? 'oui' : 'non') : undefined}
-      {...attrs}
-    >
-      <div className="flex w-6 shrink-0 flex-col items-center">
-        <span className="flex h-[26px] w-6 items-center justify-center">
-          <PointDuFil />
-        </span>
-        {!derniere ? <span className="w-px flex-1 bg-faint/30" aria-hidden /> : null}
-      </div>
-      <div className={cn('min-w-0 flex-1', derniere && (!repliable || !ouvert) ? 'pb-0' : 'pb-4')}>
-        {repliable ? (
-          <button
-            type="button"
-            onClick={onBasculer}
-            aria-expanded={ouvert}
-            data-volet-bascule={volet}
-            className="flex w-full items-start gap-2 text-left font-medium"
-          >
-            <span className="min-w-0 flex-1">{entete}</span>
-            <ChevronRight
-              className={cn('mt-[3px] h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')}
-              aria-hidden
-            />
-          </button>
-        ) : (
-          <p className="font-medium">{entete}</p>
-        )}
-        {children && (!repliable || ouvert) ? (
-          <div className="mt-1" data-volet-contenu={volet}>
-            {children}
-          </div>
-        ) : null}
-      </div>
-    </li>
-  );
-}
-
-/**
- * LA MANIÈRE ET LE RÉSULTAT ATTENDU D'UN POINT COMPRIS.
- *
- * Un bloc à deux étages, sans aucun trait : le libellé dans un EN-TÊTE au fond
- * contrasté, le texte dans un PANNEAU dessous (`panneau.tsx`). La hiérarchie
- * passe par les fonds, comme sur la fiche d'une demande — jamais par une
- * bordure. Le texte garde ses retours à la ligne et se copie à la souris.
+ * LA MANIÈRE ET LE RÉSULTAT ATTENDU D'UN POINT COMPRIS : une ligne de texte
+ * sous l'intitulé, son libellé en gras — plus de panneau ni d'en-tête au fond
+ * contrasté, puisque la compréhension se lit sur le fond de la page. Le texte
+ * garde ses retours à la ligne et se copie à la souris.
  */
 function PartDuPointCompris({ libelle, texte }: { libelle: string; texte: string }) {
   return (
-    <div className="mt-2" data-point-part={libelle}>
-      <EnTeteDePanneau>{libelle}</EnTeteDePanneau>
-      <Panneau className="whitespace-pre-line">{texte}</Panneau>
-    </div>
+    <p className="mt-1 whitespace-pre-line" data-point-part={libelle}>
+      <span className="font-semibold">{libelle}</span>
+      {' — '}
+      {texte}
+    </p>
   );
 }
 
@@ -1725,77 +1790,75 @@ function PartDuPointCompris({ libelle, texte }: { libelle: string; texte: string
 function MomentDeReponse({ entree }: { entree: EntreeJournal }) {
   const texte = retirerLaStructureDeCadrage(entree.resultat ?? '').trim();
   return (
-    /* `scroll-mt-12` (48 px) : visé par son début, l'EN-TÊTE s'arrête sous le
-       fondu flouté du haut du fil (44 px, `ZoneDefilement`) et se lit net. */
-    <div className="scroll-mt-12" data-moment="reponse" data-bloc-reponse={entree.id}>
-      <EnTeteDePanneau className="flex items-baseline gap-2">
-        <span className="text-[14.5px] leading-relaxed">{t('Réponse')}</span>
-        <span className="whitespace-nowrap text-[12.5px] font-normal text-faint">{dateHeure(entree.at)}</span>
-      </EnTeteDePanneau>
-      <Panneau className="py-3">
-        <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5" />
-      </Panneau>
+    /* LA RÉPONSE DE L'AGENT : à GAUCHE, SANS AUCUN FOND, en clair comme en
+       sombre — seul ce que VOUS écrivez porte une bulle. `scroll-mt-12` : visée
+       par son début, elle s'arrête sous le fondu du haut du fil et se lit nette. */
+    <div className="flex scroll-mt-12 flex-col items-start" data-moment="reponse" data-bloc-reponse={entree.id}>
+      <div data-bulle="agent" className={LARGEUR_DU_FIL}>
+        <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text" />
+      </div>
+      <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
     </div>
   );
 }
 
 /**
  * LE COMPTE RENDU D'UN TOUR DE TRAVAIL, sur son gabarit : les six sections en
- * flux vertical, et l'écran dit celles qui manquent. Le dernier est ouvert,
- * les précédents repliés.
+ * flux vertical, et l'écran dit celles qui manquent.
+ *
+ * UN SEUL TITRE (demande du 12/10/2026). Le compte rendu courant n'a plus de
+ * barre à lui : la barre grise de la carte du passage porte « Compte rendu » et
+ * sa date, et c'est elle qui déplie la liste — celle-ci se pose juste dessous,
+ * alignée à gauche (`dansLaCarte`). Seuls les comptes rendus PRÉCÉDENTS (une
+ * relance en a écrit un nouveau) gardent leur propre barre grise, repliée,
+ * « Compte rendu précédent » et sa date.
  */
 function MomentDeRapport({
   entree,
   dernier,
-  pickedEvolutions,
   onToggleEvolution,
   onToggleAll,
 }: {
   entree: EntreeJournal;
   dernier: boolean;
-  pickedEvolutions?: string[];
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
 }) {
-  /*
-   * LE DERNIER COMPTE RENDU SE LIT DÉPLIÉ, MÊME APRÈS UNE RELANCE. Le choix
-   * « replié / déplié » était gardé tel quel d'un rendu à l'autre : un bloc
-   * refermé une fois restait fermé quand il redevenait le dernier, et la
-   * relance du 13/09/2026 n'affichait qu'une ligne « Compte rendu » repliée
-   * sous « Rapport ». Le choix ne vaut donc que pour CE compte rendu à CE rang.
-   */
+  /* Le choix « replié / déplié » d'un compte rendu précédent ne vaut que pour
+     CE compte rendu à CE rang. */
   const cle = `${entree.id}:${dernier ? 'dernier' : 'precedent'}`;
   const [choix, setChoix] = React.useState<{ cle: string; ouvert: boolean } | undefined>(undefined);
-  const ouvert = choix?.cle === cle ? choix.ouvert : dernier;
+  const ouvert = dernier ? true : choix?.cle === cle ? choix.ouvert : false;
   const texte = entree.resultat ?? '';
+  const liste = texte.trim() ? (
+    <RapportEnFlux
+      contenu={texte}
+      /* ALIGNÉE À GAUCHE, sur l'axe des points de la carte ; le chat garde son
+         alignement. */
+      dansLaCarte
+      onToggleEvolution={onToggleEvolution}
+      onToggleAll={onToggleAll}
+    />
+  ) : (
+    <p className={cn('text-[14.5px] leading-relaxed text-faint', dernier && 'pl-6')}>{t('texte non conservé')}</p>
+  );
   return (
     <div data-moment="rapport" data-rapport-dernier={dernier ? 'oui' : 'non'} data-rapport-ouvert={ouvert ? 'oui' : 'non'}>
-      <button type="button" onClick={() => setChoix({ cle, ouvert: !ouvert })} aria-expanded={ouvert} className="flex w-full items-center gap-2 text-left" data-rapport-bascule>
-        <span className="text-[12.5px] font-semibold text-text">
-          {dernier ? t('Compte rendu') : t('Compte rendu précédent')}
-        </span>
-        <span className="text-[12.5px] text-faint">{dateHeure(entree.at)}</span>
-        <span className="flex-1" />
-        <ChevronRight className={cn('h-3.5 w-3.5 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
-      </button>
-      {ouvert ? (
-        <div className="mt-1.5 space-y-2">
-          {texte.trim() ? (
-            <RapportEnFlux
-              contenu={texte}
-              /* DANS LE FIL D'UNE CARTE, L'ENTÊTE SE CALE AU BORD GAUCHE : le fil
-                 pose déjà son propre décalage, un second retrait décrochait le
-                 descriptif de tout ce qui l'entoure. Le chat, lui, garde le sien. */
-              enteteSansRetrait
-              pickedEvolutions={pickedEvolutions}
-              onToggleEvolution={onToggleEvolution}
-              onToggleAll={onToggleAll}
-            />
-          ) : (
-            <p className="text-[14.5px] leading-relaxed text-faint">{t('texte non conservé')}</p>
-          )}
-        </div>
-      ) : null}
+      {dernier ? null : (
+        <button
+          type="button"
+          onClick={() => setChoix({ cle, ouvert: !ouvert })}
+          aria-expanded={ouvert}
+          className="flex w-full items-center gap-2 rounded-lg bg-raised px-3 py-2 text-left"
+          data-rapport-bascule
+        >
+          <span className="text-[12.5px] font-semibold text-text">{t('Compte rendu précédent')}</span>
+          <span className="text-[12.5px] text-faint">{dateHeure(entree.at)}</span>
+          <span className="flex-1" />
+          <ChevronRight className={cn('h-3.5 w-3.5 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
+        </button>
+      )}
+      {ouvert ? <div className={dernier ? undefined : 'mt-2'}>{liste}</div> : null}
     </div>
   );
 }
@@ -1846,7 +1909,7 @@ function ErreurDansLePoint({ erreur, carte }: { erreur: ErreurDuPoint; carte: Ca
       ton="erreur"
       attrs={{ 'data-sous-point-flux': 'erreur' }}
     >
-    <div className="rounded-lg border border-danger/50 bg-danger/5 px-3 py-2" data-point-erreur={erreur.action ?? 'aucune'}>
+    <div className="rounded-2xl bg-danger/10 px-4 py-3" data-point-erreur={erreur.action ?? 'aucune'}>
       <p className="text-[14.5px] leading-relaxed text-text">
         <span className="min-w-0 whitespace-pre-line break-words">{t(erreur.texte)}</span>
       </p>
@@ -1873,33 +1936,23 @@ function ErreurDansLePoint({ erreur, carte }: { erreur: ErreurDuPoint; carte: Ca
  * au-dessus du champ ; le bouton y mène.
  */
 function PointDeQuestion({ etape, entree }: { etape: EtapeDuParcours; entree: EntreeJournal }) {
-  const mesures = useMesures();
   const vue = React.useMemo(() => vueDeLEntree(entree), [entree]);
   const question = vue.sorte === 'question' ? vue.question : resumeDeLEntree(entree) ?? t('Question posée');
   const description = vue.sorte === 'question' ? vue.description : undefined;
   return (
-    <li className={cn('relative py-3', mesures.decalage)} data-point-question={entree.id} data-point-question-etape={etape}>
-      <span
-        className={cn(
-          'fond-de-zone absolute left-0 top-3 flex items-center justify-center rounded-full border-2 border-warning bg-warning/10',
-          mesures.rond,
-        )}
-        aria-hidden
-      >
-        <MessageSquare className={cn('text-warning', mesures.icone)} />
-      </span>
-      <div className="rounded-lg border border-warning/50 bg-warning/5 px-3 py-2">
-        <p className="text-[12.5px] font-medium uppercase tracking-wide text-warning">{t('L’agent a une question')}</p>
-        <p className="mt-0.5 text-[14.5px] leading-relaxed text-text">{question}</p>
-        {description ? <p className="mt-0.5 text-[14.5px] leading-relaxed text-muted">{description}</p> : null}
-        <div className="mt-1.5 flex justify-end">
+    <li className="relative flex flex-col gap-3" data-point-question={entree.id} data-point-question-etape={etape}>
+      <MarqueDEtape icone={MessageSquare} titre={t('L’agent a une question')} etat="question" repere="question" />
+      <div className="rounded-2xl bg-surface px-4 py-3.5">
+        <p className="text-[14.5px] font-medium leading-relaxed text-text">{question}</p>
+        {description ? <p className="mt-1 text-[14.5px] leading-relaxed text-muted">{description}</p> : null}
+        <div className="mt-3 flex justify-end">
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             data-point-question-repondre
             onClick={() => document.querySelector('[data-panneau-decision]')?.scrollIntoView({ behavior: 'smooth', block: 'end' })}
           >
-            <MessageSquare className="h-3 w-3" />
+            <MessageSquare className="h-3.5 w-3.5" />
             {t('Répondre')}
           </Button>
         </div>
@@ -2011,6 +2064,34 @@ function DepotDuTravail({ carte, traces }: { carte: Card; traces: EntreeJournal[
  * d'avant le 13.09.2026 (ancien arbre) disent encore sujet, branche et poids. Une ligne sortie du contexte se lit quand même :
  * c'est l'histoire de la carte, pas seulement ce que l'agent a encore.
  */
+/**
+ * LES COMPÉTENCES RETENUES, UNE LIGNE CHACUNE, à l'heure où l'agent les a
+ * récupérées (`rangerLesCompetences`). Elles n'ont plus de panneau collé au
+ * champ d'écriture : elles vivent dans la carte ouverte de leur passage.
+ */
+function CompetencesDuPoint({
+  competences,
+  carteId,
+}: {
+  competences?: readonly CompetenceProposee[];
+  carteId: string;
+}) {
+  const messages = useApp().cardMessages[carteId]?.messages ?? [];
+  if (!competences?.length) return null;
+  return (
+    <>
+      {competences.map((competence) => (
+        <SousPointDuFlux
+          key={competence.nom}
+          attrs={{ 'data-sous-point-flux': 'competence', 'data-competence-ligne': competence.nom }}
+        >
+          <CompetenceDuFlux competence={competence} messages={messages} />
+        </SousPointDuFlux>
+      ))}
+    </>
+  );
+}
+
 function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: EtapeDuParcours }) {
   const [ouvert, setOuvert] = React.useState(false);
   if (!lignes.length) return null;
@@ -2037,7 +2118,7 @@ function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: Eta
     <SousPointDuFlux
       attrs={{ 'data-sous-point-flux': 'memoire' }}
     >
-    <div className="rounded-lg border border-border bg-raised/30" data-point-memoire={lignes.length}>
+    <div className="rounded-xl bg-raised/40" data-point-memoire={lignes.length}>
       <button type="button" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert} className="flex w-full items-center gap-2 px-3 py-1.5 text-left" data-point-memoire-bascule>
         <span className="min-w-0 flex-1 truncate text-[14.5px] text-muted" data-point-memoire-phrase>
           {phrase}
@@ -2045,7 +2126,7 @@ function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: Eta
         <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
       </button>
       {ouvert ? (
-        <ul className="space-y-1 border-t border-border px-3 py-2" data-point-memoire-contenu>
+        <ul className="space-y-1 px-3 pb-2.5" data-point-memoire-contenu>
           {lignes.map((ligne) => (
             <li key={ligne.id} className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]" data-point-memoire-ligne={ligne.cle}>
               <span className="min-w-0 break-words [overflow-wrap:anywhere] text-text">{nomDeLaLigne(ligne)}</span>
@@ -2189,6 +2270,8 @@ function RecitDuPassage({
 }) {
   const [tout, setTout] = React.useState(false);
   const retrait = useRetraitDuTexte();
+  const enCarte = React.useContext(PointsDeLaCarte);
+  const niveau = React.useContext(NiveauDuSousPoint);
   const recit = React.useMemo(() => recitDuPoint(entrees), [entrees]);
   const caches = recit.blocs.length - recit.montresDOffice;
   /* Les DERNIERS : `bloc.cle` reste la clé, donc un carton déplié ne se
@@ -2201,7 +2284,17 @@ function RecitDuPassage({
       {/* LE REPLI EST AU-DESSUS : il ne tient que les actions ANCIENNES, et la
           dernière action reste toujours à l'écran, juste au-dessus du total. */}
       {caches > 0 ? (
-        <li className={retrait}>
+        <li className={cn(retrait, 'relative')} data-blocs-repli-ligne>
+          {/* LE TRAIT NE S'INTERROMPT PAS ICI : cette ligne n'a pas de point, elle
+              porte donc le trait de l'axe jusqu'au point suivant (celui du
+              premier bloc montré), comme `SousPointDuFlux`. */}
+          {enCarte && niveau === 0 ? (
+            <span
+              className="absolute -bottom-[17.5px] left-[11.5px] top-[5.5px] w-px bg-faint/40 [li:first-child>&]:top-0"
+              aria-hidden
+              data-sous-point-trait
+            />
+          ) : null}
           <button
             type="button"
             onClick={() => setTout((t) => !t)}
@@ -2287,7 +2380,9 @@ function TravailEnSousPoints({ entrees, projectId }: { entrees: EntreeJournal[];
 
   return (
     <li className="pl-0" data-travail-sous-points={sousPoints.length}>
-      <ol>
+      {/* LES TÂCHES RESPIRENT (demande du 12/10/2026) : le même écart de 12 px
+          que les autres lignes de la carte, sur lequel le trait est réglé. */}
+      <ol className="flex flex-col gap-3">
         {sousPoints.map((sousPoint) => (
           <UnSousPointDuTravail
             key={sousPoint.cle}
@@ -2554,7 +2649,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
   const fenetre =
     source && enFenetre ? (
       <Dialog open onOpenChange={(o) => !o && setEnFenetre(false)}>
-        <DialogContentLibre className="sm:w-[min(900px,100%)]" data-fenetre-capture={bloc.cle}>
+        <DialogContentLibre adresse="capture" className="sm:w-[min(900px,100%)]" data-fenetre-capture={bloc.cle}>
           <DialogHeader className="pb-3">
             <DialogTitle className="min-w-0 truncate text-[14.5px]">{bloc.sujets[0] ?? dite}</DialogTitle>
           </DialogHeader>
@@ -2574,7 +2669,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
   if (technique) {
     return (
       <div
-        className={cn('rounded-lg border bg-raised/40 px-3 py-2', bloc.enEchec ? 'border-danger/50' : 'border-faint/30')}
+        className={cn('rounded-xl border bg-raised/40 px-3 py-2', bloc.enEchec ? 'border-danger/40' : 'border-transparent')}
         data-bloc-raconte={bloc.cle}
         data-bloc-raconte-genre={bloc.genre}
         data-bloc-raconte-vue="technique"
@@ -2615,7 +2710,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
               data-bloc-raconte-vignette={bloc.cle}
               onClick={agrandir}
               title={t('Voir la capture en grand')}
-              className="shrink-0 overflow-hidden rounded border border-faint/40 bg-raised p-0.5"
+              className="shrink-0 overflow-hidden rounded border border-transparent bg-raised p-0.5"
             >
               <img
                 src={source}
@@ -2706,7 +2801,7 @@ function UnBlocRaconte({ bloc, projectId }: { bloc: BlocRaconte; projectId?: str
           data-bloc-raconte-vignette={bloc.cle}
           onClick={agrandir}
           title={t('Voir la capture en grand')}
-          className="mt-1 block overflow-hidden rounded-md border border-faint/40 bg-raised p-0.5"
+          className="mt-1 block overflow-hidden rounded-md border border-transparent bg-raised p-0.5"
         >
           <img
             src={source}

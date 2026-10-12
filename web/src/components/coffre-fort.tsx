@@ -1,5 +1,26 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { Check, Copy, Eye, EyeOff, ImagePlus, Images, Key, Loader2, Archive, ArchiveRestore, Plus, Search, Trash2, X } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Asterisk,
+  Check,
+  Copy,
+  Database,
+  Eye,
+  EyeOff,
+  ImagePlus,
+  Images,
+  KeyRound,
+  Loader2,
+  Lock,
+  Plus,
+  Search,
+  Terminal,
+  Ticket,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   AccesCoffre,
   Attachment,
@@ -23,6 +44,9 @@ import {
   ConfirmDialog,
   DialogFooter,
   DialogTitle,
+  TitreDePage,
+  CLASSE_GROUPE_DE_LIGNES,
+  CLASSE_LIGNE_DE_GROUPE,
   Drawer,
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +61,9 @@ import {
   LigneFormulaire,
 } from '@/components/ui';
 import { SilhouetteCoffre } from '@/components/silhouettes';
+import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
+import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { ImageDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
@@ -102,6 +129,16 @@ function ficheVierge(type: TypeAcces, projectId: string | null): AccesCoffre {
   };
 }
 
+/** L'icône de chaque type d'accès, dans la colonne de gauche. */
+const ICONE_DU_TYPE: Readonly<Record<TypeAcces, React.ReactNode>> = {
+  'cle-api': <KeyRound />,
+  'mot-de-passe': <Lock />,
+  ssh: <Terminal />,
+  jeton: <Ticket />,
+  'base-de-donnees': <Database />,
+  autre: <Asterisk />,
+};
+
 export function CoffreFort({
   open,
   onClose,
@@ -125,11 +162,20 @@ export function CoffreFort({
      place de celle-ci. Sa recherche est la sienne — partager celle du fond
      ferait disparaître des lignes derrière, sans raison visible. */
   const [archivesOuvertes, setArchivesOuvertes] = React.useState(false);
+  useTiroirAdresse('archives-coffre', archivesOuvertes, setArchivesOuvertes);
   const [recherche, setRecherche] = React.useState('');
   /* VRAI DÈS LE PREMIER RENDU : l'effet qui lit le coffre ne tourne qu'APRÈS,
      et l'écran annonçait « aucun accès enregistré » le temps d'une image. */
   const [chargement, setChargement] = React.useState(true);
   const [fiche, setFiche] = React.useState<AccesCoffre | null>(null);
+  /* LA COLONNE DE GAUCHE EST CELLE DU COFFRE-FORT (demande du 12/10/2026 :
+     « chaque sidebar de chaque service doit être spécifique au service »). Sur
+     ordinateur elle porte « Nouvel accès », « Tous les accès », le classement
+     par type et « Archives » ; la barre d'en-tête n'a plus ces deux gestes.
+     Sur téléphone, rien ne change : ils restent dans la page. */
+  const dansLaColonne = useColonneDeService();
+  /** Le type d'accès retenu dans la colonne ; `null` : tous. */
+  const [typeRetenu, setTypeRetenu] = React.useState<TypeAcces | null>(null);
   /* Les images citées par les fiches, par identifiant : leurs vignettes. */
   const [pieces, setPieces] = React.useState<Attachment[]>([]);
 
@@ -189,7 +235,11 @@ export function CoffreFort({
     },
   });
 
-  const visibles = filtrerAcces(liste, recherche, nomProjet);
+  const visibles = filtrerAcces(liste, recherche, nomProjet).filter((acces) => !typeRetenu || acces.type === typeRetenu);
+  /* Les types qui ont au moins un accès, et celui qui est retenu : un type
+     vide n'est pas une rubrique à proposer. */
+  const typesPresents = TYPES_ACCES.filter((type) => type === typeRetenu || liste.some((acces) => acces.type === type));
+  const creerUnAcces = (type: TypeAcces) => setFiche(ficheVierge(type, state.activeProjectId ?? null));
   const recevoir = (nouvelle: AccesCoffre[], nouvellesArchives?: AccesCoffre[], nouvellesPieces?: Attachment[]) => {
     setListe(nouvelle);
     if (nouvellesArchives) setArchives(nouvellesArchives);
@@ -199,67 +249,127 @@ export function CoffreFort({
   return (
     <>
       <Drawer open={open} onClose={onClose} enPage={enPage}>
-        <header className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2">
-          <Key className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Coffre-fort')}</DialogTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setArchivesOuvertes(true)}
-            aria-haspopup="dialog"
-            data-coffre-voir-archives
-          >
-            <Archive className="h-3 w-3" />
-            {t('Archives')}
-            {archives.length ? <span className="text-faint">{archives.length}</span> : null}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="subtle" size="sm" data-coffre-creer>
-                <Plus className="h-3 w-3" />
-                {t('Nouvel accès')}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>{t('Type d’accès')}</DropdownMenuLabel>
-              {TYPES_ACCES.map((type) => (
-                <DropdownMenuItem
-                  key={type}
-                  data-coffre-type={type}
-                  onSelect={() => setFiche(ficheVierge(type, state.activeProjectId ?? null))}
-                >
-                  {t(LIBELLE_TYPE_ACCES[type])}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </header>
+        <TitreDePage>{t('Coffre-fort')}</TitreDePage>
+        {dansLaColonne ? null : (
+          <>
+          {/* SUR TÉLÉPHONE : « Archives » est une ligne du menu à trois points,
+              « Nouvel accès » le bouton du bas de l'écran — il y ouvre la même
+              liste des types d'accès. */}
+          <OptionsDePage>
+            <OptionDePage
+              variante="ghost"
+              icone={<Archive className="h-3 w-3" />}
+              onClick={() => setArchivesOuvertes(true)}
+              aria-haspopup="dialog"
+              data-coffre-voir-archives
+            >
+              {t('Archives')}
+              {archives.length ? <span className="text-faint">{archives.length}</span> : null}
+            </OptionDePage>
+          </OptionsDePage>
+          <GestePrincipal>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <BoutonPrincipal data-coffre-creer>
+                  <Plus className="h-3 w-3" />
+                  {t('Nouvel accès')}
+                </BoutonPrincipal>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{t('Type d’accès')}</DropdownMenuLabel>
+                {TYPES_ACCES.map((type) => (
+                  <DropdownMenuItem
+                    key={type}
+                    data-coffre-type={type}
+                    onSelect={() => setFiche(ficheVierge(type, state.activeProjectId ?? null))}
+                  >
+                    {t(LIBELLE_TYPE_ACCES[type])}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </GestePrincipal>
+          </>
+        )}
 
-        <div className="shrink-0 px-3 pb-2">
+        {/* LA COLONNE DU SERVICE : le geste qui crée, détaché ; puis les rubriques
+            (tous les accès, un type), puis les archives. */}
+        <ColonneDeService>
+          <nav aria-label="Rubriques du coffre-fort" data-colonne-coffre className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <GesteDeCreationDeColonne libelle={t('Nouvel accès')} data-coffre-creer aria-label="Nouvel accès" />
+              </DropdownMenuTrigger>
+              {/* LE FOCUS NE REVIENT PAS AU BOUTON DE LA COLONNE : choisir un type
+                  ouvre la fiche, et rendre le focus à un bouton posé HORS de
+                  cette page la fermait aussitôt (le focus hors d'une page
+                  empilée la dissout). */}
+              <DropdownMenuContent align="start" onCloseAutoFocus={(event) => event.preventDefault()}>
+                <DropdownMenuLabel>{t('Type d’accès')}</DropdownMenuLabel>
+                {TYPES_ACCES.map((type) => (
+                  <DropdownMenuItem key={type} data-coffre-type={type} onSelect={() => creerUnAcces(type)}>
+                    {t(LIBELLE_TYPE_ACCES[type])}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <RubriqueDeColonne
+              icone={<KeyRound />}
+              libelle={t('Tous les accès')}
+              compte={liste.length}
+              actif={typeRetenu === null}
+              onClick={() => setTypeRetenu(null)}
+              data-coffre-rubrique="tous"
+            />
+            {typesPresents.length ? <p className={CLASSE_SECTION_DE_SERVICE}>{t('Par type')}</p> : null}
+            {typesPresents.map((type) => (
+              <RubriqueDeColonne
+                key={type}
+                icone={ICONE_DU_TYPE[type]}
+                libelle={t(LIBELLE_TYPE_ACCES[type])}
+                compte={liste.filter((acces) => acces.type === type).length}
+                actif={typeRetenu === type}
+                onClick={() => setTypeRetenu(type)}
+                data-coffre-rubrique={type}
+              />
+            ))}
+            <p className={CLASSE_SECTION_DE_SERVICE}>{t('Retirés')}</p>
+            <RubriqueDeColonne
+              icone={<Archive />}
+              libelle={t('Archives')}
+              compte={archives.length}
+              onClick={() => setArchivesOuvertes(true)}
+              aria-haspopup="dialog"
+              data-coffre-voir-archives
+            />
+          </nav>
+        </ColonneDeService>
+
+        <div className="shrink-0 pb-5">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
             <Input
               value={recherche}
               onChange={(e) => setRecherche(e.target.value)}
               placeholder={t('Chercher par nom, projet ou type…')}
-              className="h-8 pl-7 text-[13px]"
+              className="h-10 rounded-xl pl-10 text-[14px]"
               autoComplete="off"
               data-coffre-recherche
             />
           </div>
         </div>
 
-        <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
+        <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
           {chargement && !liste.length ? (
             /* Les accès à venir en silhouette, jamais une phrase d'attente :
                l'état vide ne se dit qu'une fois la liste réellement reçue. */
             <SilhouetteCoffre />
           ) : !visibles.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">
-              {recherche ? t('Aucun accès ne correspond.') : t('Aucun accès enregistré pour l’instant.')}
+              {recherche || typeRetenu ? t('Aucun accès ne correspond.') : t('Aucun accès enregistré pour l’instant.')}
             </p>
           ) : (
-            <div className="flex flex-col gap-1" data-coffre-liste="actifs">
+            <div className={CLASSE_GROUPE_DE_LIGNES} data-coffre-liste="actifs">
               {visibles.map((acces) => (
                 <LigneAcces
                   key={acces.id}
@@ -370,10 +480,10 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
       type="button"
       onClick={onOuvrir}
       data-coffre-acces={acces.id}
-      className="flex w-full flex-col items-start gap-0.5 rounded-md border border-border bg-bloc px-2.5 py-2 text-left transition-colors hover:bg-raised"
+      className={cn('flex w-full flex-col items-start gap-1', CLASSE_LIGNE_DE_GROUPE)}
     >
       <span className="flex w-full min-w-0 items-center gap-1.5">
-        <span className="min-w-0 flex-1 truncate text-[13.5px] text-text">{acces.nom}</span>
+        <span className="min-w-0 flex-1 truncate text-[14.5px] text-text">{acces.nom}</span>
         {acces.images?.length ? (
           <span
             className="flex shrink-0 items-center gap-0.5 text-[12px] tabular-nums text-faint"
@@ -387,7 +497,10 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
         <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[acces.type])}</Badge>
       </span>
       <span className="flex w-full min-w-0 items-center gap-1.5 text-[12px] text-faint">
-        <span className="truncate">{projet ?? t('Général')}</span>
+        {/* LE PROJET GARDE SON NOM : c'est l'aperçu, plus long, qui se replie.
+            Deux textes repliables côte à côte se partageaient le manque de
+            place, et sur téléphone le projet se réduisait à une lettre. */}
+        <span className="max-w-[45%] shrink-0 truncate">{projet ?? t('Général')}</span>
         {acces.archiveLe ? (
           <>
             <span aria-hidden>·</span>
@@ -399,7 +512,7 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
         {apercu ? (
           <>
             <span aria-hidden>·</span>
-            <span className="truncate">{apercu}</span>
+            <span className="min-w-0 truncate">{apercu}</span>
           </>
         ) : null}
       </span>
@@ -449,6 +562,8 @@ function FicheAcces({
 
   const type = fiche?.type ?? 'autre';
   const archivee = Boolean(fiche?.archiveLe);
+  /** Le nom ENREGISTRÉ de la fiche — celui du fil d'Ariane et du grand titre. */
+  const titreDeLaFiche = fiche?.id ? fiche.nom || t('Accès') : t('Nouvel accès');
 
   const enregistrer = async () => {
     if (!fiche) return;
@@ -504,15 +619,30 @@ function FicheAcces({
   return (
     <>
       <Drawer open={fiche !== null} onClose={onClose} empile>
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">
-            {fiche?.id ? fiche.nom || t('Accès') : t('Nouvel accès')}
-          </DialogTitle>
+        {/* LE NOM DE LA FICHE EST LE DERNIER CRAN DU FIL D'ARIANE — « Services ›
+            Coffre-fort › son nom » ; son type se pose à droite de la barre
+            d'en-tête de la page. */}
+        <DialogTitle className="min-w-0 truncate px-3 pb-2">{titreDeLaFiche}</DialogTitle>
+        <GestesDePage className="px-3">
           <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[type])}</Badge>
-        </header>
+        </GestesDePage>
+
+        {/* ET IL SE LIT EN GRAND, EN TÊTE DE LA PAGE — le dessin d'un titre de
+            page (`TitreDePage`), avec de l'air au-dessus : le formulaire ne
+            commence plus collé sous la barre. C'est le nom ENREGISTRÉ, pas celui
+            qu'on est en train de taper. LE TITRE DE LA PAGE RESTE UNIQUE : celui
+            du fil d'Ariane est lu à voix haute, celui-ci n'en est que le dessin
+            (`aria-hidden`), pour ne pas le dire deux fois. */}
+        <p
+          aria-hidden
+          data-grand-titre-de-fiche
+          className="shrink-0 break-words px-3 pb-5 pt-5 text-[26px] font-semibold leading-tight tracking-tight text-text sm:pb-6 sm:pt-8"
+        >
+          {titreDeLaFiche}
+        </p>
 
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
-          <FormulaireEnColonnes largeurLibelle="9rem" data-coffre-fiche>
+          <FormulaireEnColonnes data-coffre-fiche>
             <Champ libelle={t('Nom')}>
               <Input
                 value={nom}
@@ -754,7 +884,7 @@ function ImagesDeLaFiche({
             type="button"
             onClick={() => champ.current?.click()}
             disabled={envoi}
-            className="flex h-[72px] min-w-[72px] flex-1 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-faint/50 px-2 text-center text-[12px] leading-tight text-faint transition-colors hover:bg-raised hover:text-text disabled:opacity-60"
+            className="flex h-[72px] min-w-[72px] flex-1 flex-col items-center justify-center gap-1 rounded-md bg-raised px-2 text-center text-[12px] leading-tight text-faint transition-colors hover:bg-border hover:text-text disabled:opacity-60"
             data-coffre-image-ajouter
           >
             {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
@@ -776,8 +906,7 @@ function ImagesDeLaFiche({
   );
 }
 
-/** Un libellé au-dessus de son champ, la même mise en page partout. */
-/** Une ligne de la fiche : son libellé dans la colonne de gauche, sa valeur à droite (`FormulaireEnColonnes`). */
+/** Une ligne de la fiche : son libellé au-dessus de sa valeur (`LigneFormulaire`). */
 function Champ({ libelle, children }: { libelle: string; children: React.ReactNode }) {
   return <LigneFormulaire libelle={libelle}>{children}</LigneFormulaire>;
 }

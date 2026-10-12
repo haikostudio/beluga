@@ -13,6 +13,7 @@ import {
   ordonnerJournal,
 } from './journal-carte.js';
 import type { ParcoursDeCarte, SuiviDUneFille } from './models.js';
+import type { CompetenceProposee } from './proposition-competence.js';
 import { PHRASES_DU_SUIVI, etatsDesPointsDeLaMere } from './regroupements.js';
 import {
   comprehensionApresLePlan,
@@ -238,6 +239,12 @@ export interface PointDuParcours {
   questions: QuestionDuPoint[];
   erreurs: ErreurDuPoint[];
   memoire: LigneDuCarnet[];
+  /**
+   * LES COMPÉTENCES RETENUES AU CADRAGE, rangées au passage dont elles sont
+   * nées (`rangerLesCompetences`) : elles se lisent DANS le flux, à l'heure où
+   * l'agent les a récupérées, plus dans un panneau collé au champ d'écriture.
+   */
+  competences?: CompetenceProposee[];
   /**
    * LA PHRASE DE LA CARTE, posée sur le DERNIER point du flux : c'est l'issue
    * du dernier tour, et c'est là que l'œil arrive. Le tableau et le tiroir
@@ -625,6 +632,29 @@ function rangerLaMemoire(passages: readonly PassageNu[], carnet: readonly LigneD
 }
 
 /**
+ * UNE COMPÉTENCE VA AU PASSAGE DANS LEQUEL ELLE A ÉTÉ RETENUE : le dernier
+ * passage réellement ouvert (il porte un `debut`) avant son `proposeeLe`, à
+ * défaut le premier. Les passages vides qui annoncent la suite n'en reçoivent
+ * jamais. Le rangement repart de zéro à chaque appel : aucune compétence deux fois.
+ */
+export function rangerLesCompetences(
+  passages: readonly PassageNu[],
+  competences: readonly CompetenceProposee[] | undefined,
+): void {
+  for (const passage of passages) passage.competences = undefined;
+  if (!competences?.length) return;
+  let candidats = passages.filter((passage) => passage.debut !== undefined && !passage.annonce);
+  if (!candidats.length) candidats = passages.filter((passage) => passage.etape === 'comprehension' && !passage.annonce);
+  if (!candidats.length) candidats = passages.filter((passage) => !passage.annonce).slice(0, 1);
+  if (!candidats.length) return;
+  for (const competence of competences) {
+    let choisi = candidats[0];
+    for (const passage of candidats) if ((passage.debut ?? 0) <= competence.proposeeLe) choisi = passage;
+    (choisi.competences ??= []).push(competence);
+  }
+}
+
+/**
  * CE TOUR EN POURSUIT-IL UN AUTRE ? Le jalon « Tour lancé » d'un tour de reprise
  * après limite porte `poursuiteDe` (le message du tour coupé,
  * `server/src/runtime.ts`). Toutes les entrées de ce tour partagent son
@@ -710,7 +740,14 @@ export interface ContexteDesPoints {
   tourEnCours: boolean;
   parcours?: Pick<
     ParcoursDeCarte,
-    'comprehension' | 'plans' | 'planDemandeA' | 'incident' | 'planValide' | 'issueDuTour' | 'cadrageRouvertA'
+    | 'comprehension'
+    | 'plans'
+    | 'planDemandeA'
+    | 'incident'
+    | 'planValide'
+    | 'issueDuTour'
+    | 'cadrageRouvertA'
+    | 'competencesProposees'
   > | null;
   /**
    * LES QUESTIONS ENCORE OUVERTES DANS LE FIL (`questionsOuvertesDuFil`),
@@ -1260,6 +1297,7 @@ export function pointsDuParcours(
   passages = avecLePassageDuTourVivant(passages, ctx, courante);
   /* ET LA PRÉPARATION OUVRE LE SIEN, entre le clic et le premier mot du moteur. */
   passages = avecLePassageDeLaPreparation(passages, ctx);
+  rangerLesCompetences(passages, ctx.parcours?.competencesProposees);
   if (carnet.length && passages.length !== avant) {
     /* La mémoire lue PENDANT ce tour appartient au passage qui tourne, pas au
        précédent : on la range une seconde fois, sur le flux complet. */
@@ -1692,7 +1730,16 @@ function resumesDuFil(points: PointDuParcours[], ctx: ContexteDesPoints): PointD
        résumé écrit existe : rien d'autre ne s'affiche avant d'être terminé. */
     if (point.etat !== 'fait' && !ecritSurLaDemande) return point;
     let resume: string | undefined;
-    if (point.etape === 'comprehension' && point.phrase === PHRASES_DU_POINT.comprehension.fait) {
+    /* LE COURT RÉSUMÉ NE SE RÉPÈTE PLUS DANS LE BLOC (12/10/2026) : quand la
+       compréhension est rendue, elle se lit EN ENTIER juste dessous, détachée du
+       bloc de travail. Le résumé ne sert plus que si la carte n'a aucune
+       compréhension à montrer (carte d'avant le journal, ou tenue par la seule
+       carte). Il reste écrit sur la carte et lu par les vignettes. */
+    if (
+      point.etape === 'comprehension' &&
+      point.phrase === PHRASES_DU_POINT.comprehension.fait &&
+      !point.moments.some((moment) => moment.sorte === 'comprehension')
+    ) {
       resume = resumesDuPoint(point).resumeComprehension;
     }
     if (point.etape === 'demande') {
@@ -1755,7 +1802,7 @@ function avecLeContenuDeLaCarte(
   const videIci = (index: number): boolean => {
     const point = points[index];
     const brut = passages[index];
-    return estVide(point) && (!brut || estVide(brut)) && !point.reponse && !point.memoire.length;
+    return estVide(point) && (!brut || estVide(brut)) && !point.reponse && !point.memoire.length && !point.competences?.length;
   };
   return points.map((point, index) => {
     if (point.annonce || point.etat !== 'fait' || !ETAPES_A_CONTENU.includes(point.etape)) return point;
@@ -2170,20 +2217,46 @@ export function dernierPassage(
 }
 
 /**
- * LES PASSAGES OUVERTS D'OFFICE, par leur ANCRE : TOUS.
+ * LES PASSAGES OUVERTS D'OFFICE, par leur ANCRE : CE QU'ON VIENT LIRE, ET CE
+ * QUI EST EN TRAIN DE SE FAIRE.
  *
- * Le flux jouait en accordéon — un seul passage ouvert par étape, le dernier —
- * et il fallait rouvrir un à un la demande, la compréhension et le travail de
- * chaque itération pour relire une carte. Depuis que le fil est découpé en
- * grands points, chacun se lit donc sans clic, sur toutes les itérations ; un
- * point refermé à la main le reste tant que la carte est à l'écran.
+ * La carte d'un passage tient en une ligne, qu'on ouvre pour le détail. Elle
+ * s'ouvre SEULE dans cinq cas :
+ *  - le passage est EN COURS (demande du 11/10/2026, capture #814e : « pourquoi
+ *    cet élément n'est pas ouvert avec les points comme demandé ») — ce que
+ *    l'agent fait se lit au fur et à mesure, un point par action, sans clic ;
+ *  - c'est le DERNIER RENDU de l'agent — sa compréhension, son plan, son compte
+ *    rendu (un passage qui porte un moment) ;
+ *  - le passage est tombé en ERREUR, ou attend une réponse (QUESTION) ;
+ *  - un plan attend sa décision (`PHRASE_PLAN_A_DECIDER`).
  *
- * Ce qui reste replié vit À L'INTÉRIEUR d'un point : les actions de l'agent
- * tiennent en une ligne chacune, et ne se déplient qu'au clic. Un passage qui
- * n'a encore rien à montrer (« à venir ») n'affiche rien de plus, ouvert ou non.
+ * Tout le reste — les passages d'avant, le travail terminé — reste replié : un
+ * passage qui finit se referme donc de lui-même, sauf s'il est le dernier
+ * rendu. Un geste fait à la main l'emporte toujours (`choisis`, dans
+ * `FluxEnPoints`).
+ *
+ * Ce qui reste replié DANS un passage ouvert ne change pas : les actions de
+ * l'agent tiennent en une ligne chacune, et ne se déplient qu'au clic.
  */
 export function pointsOuvertsDOffice(points: readonly PointDuParcours[]): string[] {
-  return points.map((point) => point.ancre);
+  let dernierRendu: string | undefined;
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const point = points[i]!;
+    if ((point.etape === 'comprehension' || point.etape === 'plan' || point.etape === 'rapport') && point.moments.length > 0) {
+      dernierRendu = point.ancre;
+      break;
+    }
+  }
+  return points
+    .filter(
+      (point) =>
+        point.ancre === dernierRendu ||
+        point.etat === 'encours' ||
+        point.etat === 'erreur' ||
+        point.etat === 'question' ||
+        point.phrase === PHRASE_PLAN_A_DECIDER,
+    )
+    .map((point) => point.ancre);
 }
 
 /* ------------------------------------------------------------------ */

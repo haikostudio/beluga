@@ -1,16 +1,16 @@
 import * as React from 'react';
-import { ArrowRight, BadgeCheck, Download, Loader2, Rocket, Upload } from 'lucide-react';
-import { type DepenseStudio, type FormatStudio, type ReglagesExport, REGLAGES_EXPORT_PAR_DEFAUT, exportFini, partagerLesExports } from '@beluga/shared';
+import { ArrowRight, Download, Loader2, Rocket, Upload } from 'lucide-react';
+import { type DepenseStudio, type ExportStudio, type FormatStudio, type ReglagesExport, REGLAGES_EXPORT_PAR_DEFAUT, avancementDesExports, exportFini, partagerLesExports } from '@beluga/shared';
 import { BarreProgression } from '@/components/barre-progression';
-import { BulleInfo, Button, Dialog, DialogContent, DialogFooter, DialogHeader, Drawer, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, Dialog, DialogContent, DialogFooter, DialogHeader, Drawer, DropdownMenuItem, ZoneDefilement } from '@/components/ui';
+import { useTenueDesOptions } from '@/components/entete-de-zone';
 import { client } from '@/lib/client';
 import { useTelephone } from '@/lib/telephone';
 import { usePref } from '@/lib/prefs';
 import { useTelechargement } from '@/lib/telechargement';
 import { t } from '@/lib/langue';
-import { cn } from '@/lib/utils';
 import { EtapeFichiers, EtapeFormats, PanneauVoix, fichiersDuLot, useAvancementDesVoix } from './panneaux';
-import { EnteteDeFenetre, Section } from './champs';
+import { EnteteDeFenetre } from './champs';
 import type { DonneesCreation } from './types';
 
 type Etape = 'voix' | 'formats' | 'fichiers';
@@ -20,9 +20,11 @@ const ETAPES: Etape[] = ['voix', 'formats', 'fichiers'];
  * « METTRE EN PRODUCTION » — le bouton du haut de l'éditeur. Il ouvre UNE
  * fenêtre qui se suit en TROIS ÉTAPES, l'une après l'autre :
  *
- *  1. LA VOIX FINALE ET LE MODÈLE : les voix de la création, le choix de la voix
- *     finale et son devis, « Valider la voix », ce qu'elles ont coûté, et
- *     « Garder comme modèle » ;
+ *  1. LA VOIX FINALE : UN SEUL BLOC — les voix de la création (cochées une fois
+ *     faites), le choix de la voix finale et son devis, l'historique de ce
+ *     qu'elles ont coûté (replié), « Valider la voix ». Il n'y a plus de bloc
+ *     « modèle » : la vidéo exportée devient d'elle-même le modèle du projet
+ *     (côté serveur, à chaque export vidéo) ;
  *  2. LES FORMATS ET LES RÉGLAGES : les formats à exporter se cochent, les
  *     réglages valent pour tous — « Exporter » lance une vidéo par format coché,
  *     toutes du même lot ;
@@ -60,10 +62,16 @@ export function FenetreMiseEnProduction({
   const { courants } = partagerLesExports(donnees.exports);
   const lot = React.useMemo(() => fichiersDuLot(donnees.creation.titre, courants), [donnees.creation.titre, courants.map((e) => `${e.id}:${e.etat}`).join('|')]);
   const telechargement = useTelechargement(lot.fichiers, lot.archive);
-  const enFabrication = courants.filter((e) => !exportFini(e)).length;
+  /* UN EXPORT QUI ATTEND OU SE FABRIQUE — quel qu'il soit, lancé d'ici, par l'agent ou après la voix — BLOQUE
+     « Exporter » : le pied devient « Voir la progression ». Un second clic remettait le même lot dans la file. */
+  const enFabrication = donnees.exports.filter((e) => !exportFini(e)).length;
 
   /** UN LOT : un export par format coché, sous le même repère ; l'écran passe aux fichiers dès qu'ils sont en file. */
   const exporter = (genre: 'video' | 'image') => {
+    if (enFabrication) {
+      setEtape('fichiers');
+      return;
+    }
     if (!formats.length || envoi) return;
     const repere = `lot-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     setEnvoi(true);
@@ -82,11 +90,11 @@ export function FenetreMiseEnProduction({
     })();
   };
 
-  const titre = etape === 'voix' ? t('Voix finale et modèle') : etape === 'formats' ? t('Formats et réglages') : t('Fichiers à télécharger');
+  const titre = etape === 'voix' ? t('Voix finale') : etape === 'formats' ? t('Formats et réglages') : t('Fichiers à télécharger');
   const aide = (
     <BulleInfo cote="end">
       {etape === 'voix'
-        ? t('Choisissez la voix finale et validez-la. Vous pouvez aussi garder la vidéo comme modèle. Continuez ensuite vers l’export.')
+        ? t('Choisissez la voix finale et validez-la, puis continuez vers l’export. La vidéo exportée devient le modèle du projet.')
         : etape === 'formats'
           ? t('Cochez les formats à sortir et réglez le fichier. Chaque format coché donne une vidéo, fabriquée sur le serveur, une à la fois.')
           : t('Les fichiers de votre dernier export. Téléchargez-les un par un ou tous ensemble ; les exports précédents sont rangés en dessous.')}
@@ -98,6 +106,10 @@ export function FenetreMiseEnProduction({
       titre={titre}
       sousTitre={<span data-studio-etape-production={rang + 1}>{t('Mettre en production · étape {n} sur 3', { n: rang + 1 })}</span>}
       onRetour={rang > 0 ? () => setEtape(ETAPES[rang - 1]!) : undefined}
+      /* Un retour INTERNE : d'une étape à la précédente, sans quitter la page.
+         Sans ce drapeau il disparaissait sur téléphone, où la fenêtre est une
+         page — seule restait la flèche de la barre, qui referme tout. */
+      retourInterne
       repereRetour="data-studio-retour-production"
       droite={aide}
       croix={!telephone}
@@ -108,11 +120,10 @@ export function FenetreMiseEnProduction({
     etape === 'voix' ? (
       <div className="flex flex-col gap-2" data-studio-production="reglages">
         <PanneauVoix donnees={donnees} onVoixEssai={onVoixEssai} />
-        <GarderCommeModele donnees={donnees} />
       </div>
     ) : etape === 'formats' ? (
       <div className="flex flex-col gap-2" data-studio-production="export">
-        <EtapeFormats donnees={donnees} choisis={formats} onChoisis={setChoisis} temps={temps} onImage={() => exporter('image')} />
+        <EtapeFormats donnees={donnees} choisis={formats} onChoisis={setChoisis} temps={temps} onImage={() => exporter('image')} enFabrication={enFabrication} />
         {donnees.exports.length ? (
           <Button size="sm" variant="ghost" className="w-full" onClick={() => setEtape('fichiers')} data-studio-voir-fichiers>
             {t('Voir les fichiers déjà exportés ({n})', { n: donnees.exports.length })}
@@ -129,6 +140,11 @@ export function FenetreMiseEnProduction({
       <Button variant="default" size="lg" onClick={() => setEtape('formats')} data-studio-ouvrir-export>
         {t('Continuer vers l’export')}
         <ArrowRight className="h-4 w-4" />
+      </Button>
+    ) : etape === 'formats' && enFabrication ? (
+      <Button variant="default" size="lg" onClick={() => setEtape('fichiers')} data-studio-voir-progression={enFabrication}>
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {t('Voir la progression ({n} en cours)', { n: enFabrication })}
       </Button>
     ) : etape === 'formats' ? (
       <Button variant="default" size="lg" disabled={!donnees.rendu.pret || !formats.length || envoi} onClick={() => exporter('video')} data-studio-exporter="video" data-studio-exporter-formats={formats.join(',')}>
@@ -172,7 +188,7 @@ export function FenetreMiseEnProduction({
     <Dialog open onOpenChange={(ouvert) => !ouvert && onClose()}>
       <DialogContent className="sm:max-h-[90dvh] sm:w-[min(640px,100%)]" aria-describedby={undefined} data-studio-fenetre-production={etape}>
         {/* La croix de la fenêtre occupe le coin droit, le retour le coin gauche : mêmes marges des deux côtés, titre au centre. */}
-        <DialogHeader className="px-3 pt-2.5">{entete}</DialogHeader>
+        <DialogHeader libre className="px-3 pt-2.5">{entete}</DialogHeader>
         {corps}
         <DialogFooter pleineLargeur>{principal}</DialogFooter>
       </DialogContent>
@@ -181,71 +197,81 @@ export function FenetreMiseEnProduction({
 }
 
 /**
- * « GARDER COMME MODÈLE » : la version courante devient le MODÈLE du projet,
- * rangé dans l'onglet « Style » pour repartir de lui (seule la vidéo entière).
- * Le bloc DIT ce qu'est un modèle et où en est le sien — pas de modèle, modèle
- * en retard sur la vidéo, ou modèle à jour — puis son bouton, en pleine largeur.
+ * Le bouton du haut de l'éditeur : il ouvre la fenêtre de mise en production.
+ * PENDANT LA FABRICATION DE LA VOIX FINALE, PUIS PENDANT CELLE DES EXPORTS, il
+ * en porte l'avancement — fenêtre fermée comme ouverte : le pourcentage après
+ * le libellé (« 1/4 · 37 % » pour les exports) et la barre fine au ras du bas
+ * (le modèle du bouton « Tout déployer »). La voix passe d'abord : l'export
+ * qui la suit attend qu'elle soit posée. En compact (téléphone), la barre
+ * seule. Le tic ne vit que dans ce bouton, et seulement pendant la fabrication.
  */
-function GarderCommeModele({ donnees }: { donnees: DonneesCreation }) {
-  const aJour = !!donnees.modele && donnees.modele.version === donnees.creation.version;
-  const libelle = aJour ? t('Modèle à jour') : donnees.modele ? t('Mettre le modèle à jour') : t('Garder comme modèle');
-  return (
-    <Section liste titre={t('Garder cette vidéo comme modèle (facultatif)')}>
-      <p className="text-[12.5px] text-muted">
-        {t('Un modèle est une copie figée de cette vidéo, rangée dans l’onglet « Style ». Une nouvelle vidéo peut repartir de lui, dans ce projet ou un autre. L’export n’en dépend pas.')}
-      </p>
-      <p className={cn('text-[12.5px]', aJour ? 'text-termine' : 'text-text')} data-studio-etat-modele>
-        {aJour
-          ? t('Le modèle est à jour : il correspond à la vidéo actuelle.')
-          : donnees.modele
-            ? t('Le modèle existant date de la version {a} ; la vidéo en est à la version {b}.', { a: donnees.modele.version, b: donnees.creation.version })
-            : t('Cette vidéo n’a pas encore de modèle.')}
-      </p>
-      <Button
-        variant={aJour ? 'ghost' : 'outline'}
-        disabled={aJour}
-        className="w-full"
-        data-studio-valider-creation={aJour ? 'a-jour' : donnees.modele ? 'en-retard' : 'aucun'}
-        onClick={() =>
-          client
-            .call<{ nouveau: boolean }>({ type: 'studio.modele.valider', creationId: donnees.creation.id })
-            .then((r) => client.pushToast('success', r.nouveau ? t('Vidéo gardée : elle est maintenant un modèle du projet.') : t('Le modèle est à jour.')))
-            .catch((err: any) => client.pushToast('error', err?.message ?? t('Validation impossible')))
-        }
-      >
-        <BadgeCheck className={cn('h-3.5 w-3.5', aJour && 'text-termine')} />
-        {libelle}
-      </Button>
-    </Section>
-  );
+/** `bloque` : l'agent de la création travaille, le bouton est grisé à 50 % et sans effet. */
+/** L'avancement de la production d'une création : la voix finale d'abord, sinon les exports. */
+function useAvancementDeLaProduction(depenses: DepenseStudio[], exports: ExportStudio[]) {
+  const voix = useAvancementDesVoix(depenses);
+  // Seule la progression des exports réveille l'appelant, pas chaque changement du magasin général.
+  const progression = React.useSyncExternalStore(client.subscribe, () => client.lireEtat().studioProgression);
+  const enExport = avancementDesExports(exports, Object.fromEntries(exports.map((e) => [e.id, progression[e.id]?.valeur ?? 0])));
+  const pourcent = voix ? Math.round(voix.global) : enExport ? enExport.pourcent : null;
+  const libelle = voix ? `${pourcent} %` : enExport ? `${enExport.faits}/${enExport.total} · ${enExport.pourcent} %` : null;
+  return { voix, enExport, pourcent, libelle };
 }
 
 /**
- * Le bouton du haut de l'éditeur : il ouvre la fenêtre de mise en production.
- * PENDANT LA FABRICATION DE LA VOIX FINALE, il en porte l'avancement — fenêtre
- * fermée comme ouverte : le pourcentage après le libellé et la barre fine au
- * ras du bas (le modèle du bouton « Tout déployer »). En compact (téléphone),
- * la barre seule. Le tic ne vit que dans ce bouton, et seulement pendant la
- * fabrication.
+ * LA PRODUCTION TOURNE-T-ELLE ? Sur téléphone, « Mettre en production » est une
+ * ligne du menu à trois points, démontée tant qu'il est fermé : c'est le bouton
+ * à trois points qui le dit à sa place (`OptionsDePage enCours`).
  */
-export function BoutonMiseEnProduction({ compact, depenses, onClick }: { compact: boolean; depenses: DepenseStudio[]; onClick: () => void }) {
-  const avancement = useAvancementDesVoix(depenses);
-  const pourcent = avancement ? Math.round(avancement.global) : null;
+export function useProductionEnCours(depenses: DepenseStudio[], exports: ExportStudio[]): boolean {
+  return useAvancementDeLaProduction(depenses, exports).pourcent !== null;
+}
+
+export function BoutonMiseEnProduction({ compact, bloque, depenses, exports, onClick }: { compact: boolean; bloque?: boolean; depenses: DepenseStudio[]; exports: ExportStudio[]; onClick: () => void }) {
+  const { voix, enExport, pourcent, libelle } = useAvancementDeLaProduction(depenses, exports);
+  const tenue = useTenueDesOptions();
+  /* DANS LE MENU À TROIS POINTS DU TÉLÉPHONE : une ligne nommée, son avancement à droite. */
+  if (tenue === 'ligne') {
+    return (
+      <DropdownMenuItem
+        disabled={bloque}
+        onSelect={onClick}
+        data-studio-mettre-en-production
+        data-studio-production-avancement={pourcent === null ? undefined : String(pourcent)}
+        data-studio-production-exports={!voix && enExport ? `${enExport.faits}/${enExport.total}` : undefined}
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted">
+          <Rocket className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1 truncate">{t('Mettre en production')}</span>
+        {libelle !== null ? <span className="shrink-0 text-[12px] font-semibold tabular-nums text-muted">{libelle}</span> : null}
+      </DropdownMenuItem>
+    );
+  }
   return (
     <Button
       size={compact ? 'icon' : 'sm'}
       variant="default"
-      className="relative overflow-hidden"
+      className="relative overflow-hidden disabled:opacity-50"
+      disabled={bloque}
       aria-label="Mettre en production"
-      title={pourcent === null ? t('Voix finale, modèle et export') : t('Voix finale en cours… {p} %', { p: pourcent })}
+      title={
+        bloque
+          ? t('L’agent travaille')
+          : voix
+          ? t('Voix finale en cours… {p} %', { p: pourcent ?? 0 })
+          : enExport
+            ? t('Export en cours : {a} sur {b} fini(s) · {p} %', { a: enExport.faits, b: enExport.total, p: enExport.pourcent })
+            : t('Voix finale et export')
+      }
       onClick={onClick}
       data-studio-mettre-en-production
       data-studio-production-avancement={pourcent === null ? undefined : String(pourcent)}
+      data-studio-production-exports={!voix && enExport ? `${enExport.faits}/${enExport.total}` : undefined}
     >
       <Rocket className="h-3.5 w-3.5" />
       {compact ? null : t('Mettre en production')}
-      {pourcent !== null && !compact ? <span className="shrink-0 text-[12px] font-semibold tabular-nums">{pourcent} %</span> : null}
-      {avancement ? <BarreProgression pourcent={avancement.global} teinte="en-cours" className="absolute inset-x-0 bottom-0" data-studio-production-barre="" /> : null}
+      {libelle !== null && !compact ? <span className="shrink-0 text-[12px] font-semibold tabular-nums">{libelle}</span> : null}
+      {pourcent !== null ? <BarreProgression pourcent={voix ? voix.global : pourcent} teinte="en-cours" className="absolute inset-x-0 bottom-0" data-studio-production-barre="" /> : null}
     </Button>
   );
 }

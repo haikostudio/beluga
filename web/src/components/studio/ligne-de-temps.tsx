@@ -7,6 +7,8 @@ import {
   AudioLines,
   Blend,
   Captions,
+  ChevronDown,
+  ChevronUp,
   Droplets,
   Film,
   Image as IconeImage,
@@ -131,7 +133,7 @@ export function iconeDeRecette(r: RecetteAnimation, classe = 'h-2.5 w-2.5') {
   }
 }
 
-function nomDuSegment(s: Segment): string {
+export function nomDuSegment(s: Segment): string {
   if (s.nom) return s.nom;
   if (s.genre === 'texte' || s.genre === 'voix') return s.texte.slice(0, 40) || t(libelleGenre(s.genre));
   return t(libelleGenre(s.genre));
@@ -211,6 +213,8 @@ export function LigneDeTemps({
   onAjouter,
   onOuvrirEditeur,
   adressesMedias,
+  ouverte = true,
+  onBasculer,
 }: {
   composition: Composition;
   /** Les adresses des fichiers : les blocs son et voix y lisent leur forme d'onde. */
@@ -224,6 +228,10 @@ export function LigneDeTemps({
   onOperation: (op: OperationStudio) => void;
   /** Le « + » d'une rangée : poser `quoi` sur cette piste, à cet instant. */
   onAjouter: (piste: Piste, quoi: QuoiAjouter, debut: number) => void;
+  /** Ordinateur : la ligne de temps est dépliée (défaut) ou repliée sur sa seule barre. */
+  ouverte?: boolean;
+  /** Présent = le chevron de la barre est posé ; absent (téléphone) = pas de chevron. */
+  onBasculer?: () => void;
 }) {
   const telephone = useTelephone();
   const [zoom, setZoom] = React.useState(telephone ? 60 : 90);
@@ -483,8 +491,22 @@ export function LigneDeTemps({
         <Button size="icon" variant="ghost" aria-label="Zoomer" title={t('Zoomer')} onClick={() => setZoom((z) => Math.min(400, z * 1.4))}>
           <ZoomIn className="h-3.5 w-3.5" />
         </Button>
+        {onBasculer ? (
+          <Button
+            size="icon"
+            variant="ghost"
+            aria-label={ouverte ? 'Replier la timeline' : 'Déplier la timeline'}
+            title={ouverte ? t('Replier la timeline') : t('Déplier la timeline')}
+            aria-expanded={ouverte}
+            onClick={onBasculer}
+            data-studio-timeline-bascule
+          >
+            {ouverte ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+          </Button>
+        ) : null}
       </div>
-      <div className="flex min-h-0">
+      {/* REPLIÉE, elle reste montée (zoom, tête de lecture, mesures gardés) mais ne prend plus aucune place. */}
+      <div className={cn('flex min-h-0', !ouverte && 'hidden')} data-studio-corps-ligne-de-temps>
         {/* Les noms des pistes restent fixes : seule la durée défile. */}
         <div className="w-[84px] shrink-0 sm:w-[104px]">
           <div style={{ height: HAUTEUR_REGLE }} />
@@ -585,7 +607,7 @@ export function LigneDeTemps({
                 key={p.id}
                 data-piste-id={p.id}
                 data-piste-genre={p.genre}
-                className={cn('relative border-t border-faint/20', target?.id === p.id && dragging && 'bg-accent/10', p.masquee && 'opacity-50')}
+                className={cn('relative', target?.id === p.id && dragging && 'bg-accent/10', p.masquee && 'opacity-50')}
                 style={{ height: HAUTEUR_PISTE }}
                 onPointerMove={(e) => survolerRangee(e, p)}
                 onPointerLeave={() => !menu && setSurvol(null)}

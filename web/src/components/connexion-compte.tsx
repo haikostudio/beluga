@@ -35,7 +35,7 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
         className={cn(
           'mt-1.5 rounded-md px-2 py-1 text-[12.5px] leading-relaxed',
           connexion.etape === 'reussie'
-            ? 'border border-success/30 bg-success/5 text-success'
+            ? 'border border-transparent bg-success/5 text-success'
             : 'border border-danger/30 bg-danger/5 text-danger',
         )}
       >
@@ -52,7 +52,7 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
     return (
       <p
         data-connexion-validation="1"
-        className="mt-1.5 flex items-center gap-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[12.5px] text-warning"
+        className="mt-1.5 flex items-center gap-1.5 rounded-md border border-transparent bg-warning/5 px-2 py-1 text-[12.5px] text-warning"
       >
         <Loader2 className="h-3 w-3 animate-spin" />
         {t('Connexion en cours…')}
@@ -152,6 +152,8 @@ export function AjouterCle({ engine, deplie = false }: { engine: EngineId; depli
   const [erreur, setErreur] = React.useState<string | null>(null);
 
   const valider = async () => {
+    // Entrée pressée pendant l'envoi : une seule demande part, pas deux.
+    if (envoi) return;
     setEnvoi(true);
     setErreur(null);
     try {
@@ -253,6 +255,8 @@ export function RemplacerCle({
   const [erreur, setErreur] = React.useState<string | null>(null);
 
   const valider = async () => {
+    // Entrée pressée pendant l'envoi : une seule demande part, pas deux.
+    if (envoi) return;
     setEnvoi(true);
     setErreur(null);
     try {

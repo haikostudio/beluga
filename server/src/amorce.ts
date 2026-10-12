@@ -230,6 +230,12 @@ let enCours = false;
  */
 export async function amorcerFenetres(): Promise<number> {
   if (enCours) return 0;
+  /* UN DÉMON D'ESSAI N'AMORCE JAMAIS : sa base est neuve, mais les comptes
+     qu'il lit sont les VRAIS. Chaque contrôle d'écran ouvrait ainsi la fenêtre
+     de cinq heures du compte principal (35 jetons) à l'heure où il tournait,
+     alors que son décor promet « aucun quota dépensé »
+     (`scripts/lib/demon-d-essai.mjs`, qui pose cette variable). */
+  if (process.env.BELUGA_SANS_AMORCE === '1') return 0;
   if (!getSettings().primeClaudeWindow) return 0;
   enCours = true;
   let amorces = 0;

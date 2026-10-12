@@ -31,16 +31,31 @@
 import { VUES_CENTRALES, type VueCentrale } from './vue-centrale.js';
 import { RUBRIQUE_CONFIG_PAR_DEFAUT } from './config-projet-rubriques.js';
 
+/** Un tableau de bord, avec sa carte ouverte par-dessus quand il y en a une. */
+type CarteSurTableauDeBord<V extends 'tableau-de-bord' | 'en-route'> = {
+  vue: V;
+  projectId?: string;
+  cardId?: string;
+  titreCarte?: string;
+  onglet?: string;
+};
+
 /**
  * L'écran décrit par l'adresse. Chaque vue porte, quand il y en a un,
  * l'ÉLÉMENT ouvert à l'intérieur : c'est lui qu'on partage, lui que vise une
  * notification.
  */
-export type EcranNavigateur =
+type EcranDeBase =
   | { vue: 'accueil' }
   | { vue: 'reglages'; page?: string }
-  | { vue: 'tableau-de-bord' }
-  | { vue: 'en-route' }
+  /*
+   * LES DEUX TABLEAUX DE BORD PEUVENT PORTER UNE CARTE OUVERTE : une carte
+   * ouverte d'un clic sur « En route » s'affiche PAR-DESSUS ce tableau (voir
+   * `carteVisibleSurLaVue`), et l'adresse doit la nommer — avec SON projet, qui
+   * n'est pas forcément le projet actif : « #en-route/projet/<id>/tache/<id> ».
+   */
+  | CarteSurTableauDeBord<'tableau-de-bord'>
+  | CarteSurTableauDeBord<'en-route'>
   /* Un projet, sa carte ouverte, et l'onglet affiché dans cette carte. */
   | { vue: 'projet'; projectId: string; cardId?: string; titreCarte?: string; onglet?: string }
   /*
@@ -73,6 +88,54 @@ export type EcranNavigateur =
    * bonne demande, prêt à répondre — pas sur un tableau à refouiller.
    */
   | { vue: 'espace'; clientId?: string; demandeId?: string };
+
+/**
+ * L'écran décrit par l'adresse, avec la PILE DES TIROIRS ouverts par-dessus :
+ * du plus bas au plus haut, chacun nommé par un mot court (« acces-clients »,
+ * « nouvel-acces »). Un tiroir est une destination : l'ouvrir empile une entrée
+ * d'historique, Précédent referme celui du dessus. Un nom inconnu est ignoré à
+ * la lecture par le composant qui n'existe pas, jamais bloquant.
+ */
+export type EcranNavigateur = EcranDeBase & { tiroirs?: string[] };
+
+/**
+ * LA PILE S'ÉCRIT EN SEGMENTS ORDINAIRES, APRÈS L'ÉCRAN :
+ * « #espace/volet/acces-clients/nouvel-acces ». Le mot « volet » ouvre la
+ * pile, chaque segment qui suit est un tiroir, du plus bas au plus haut.
+ *
+ * L'ANCIENNE FORME « #espace?tiroir=acces-clients,nouvel-acces » se LIT
+ * encore (liens déjà copiés) : l'écrivain la réécrit aussitôt dans la forme
+ * nouvelle, sans entrée d'historique de plus.
+ */
+const SEGMENT_TIROIRS = 'volet';
+const ANCIENNE_MARQUE_TIROIRS = '?tiroir=';
+
+/**
+ * Un nom de tiroir est un mot court sûr dans une adresse : le reste est jeté.
+ * « volet » lui-même est refusé : il ouvre la pile.
+ */
+function nomDeTiroirValide(nom: string): boolean {
+  return nom !== SEGMENT_TIROIRS && /^[a-z0-9][a-z0-9-]{0,47}$/.test(nom);
+}
+
+/**
+ * Sépare l'écran de sa pile de tiroirs. La pile commence au DERNIER segment
+ * « volet » : un identifiant d'écran est un UUID, un slug ou un mot réservé,
+ * jamais ce mot-là seul.
+ */
+function couperLesTiroirs(complet: string): { base: string; noms: string[] } {
+  const ancienne = complet.indexOf(ANCIENNE_MARQUE_TIROIRS);
+  if (ancienne >= 0) {
+    return {
+      base: complet.slice(0, ancienne),
+      noms: complet.slice(ancienne + ANCIENNE_MARQUE_TIROIRS.length).split(','),
+    };
+  }
+  const morceaux = complet.split('/');
+  const rang = morceaux.lastIndexOf(SEGMENT_TIROIRS);
+  if (rang < 0) return { base: complet, noms: [] };
+  return { base: morceaux.slice(0, rang).join('/'), noms: morceaux.slice(rang + 1) };
+}
 
 /** La vue d'adresse qui correspond à chaque destination de la colonne. */
 const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
@@ -143,15 +206,23 @@ export function slugTitre(titre: string): string {
  * lui-même. Un écran d'accueil rend une chaîne vide.
  */
 export function construireFragment(ecran: EcranNavigateur): string {
+  const base = construireFragmentSansTiroirs(ecran);
+  const tiroirs = (ecran.tiroirs ?? []).filter(nomDeTiroirValide);
+  if (!tiroirs.length) return base;
+  const pile = [SEGMENT_TIROIRS, ...tiroirs].join('/');
+  return base ? `${base}/${pile}` : pile;
+}
+
+function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
   switch (ecran.vue) {
     case 'reglages':
       // La SOUS-PAGE des réglages est dans l'adresse : les réglages sont un
       // menu de pages, un lien doit pouvoir en désigner une.
       return ecran.page ? `reglages/${encodeURIComponent(ecran.page)}` : 'reglages';
     case 'tableau-de-bord':
-      return 'tableau-de-bord';
+      return fragmentDeCarteSurTableau('tableau-de-bord', ecran);
     case 'en-route':
-      return 'en-route';
+      return fragmentDeCarteSurTableau('en-route', ecran);
     case 'notes':
       return ecran.noteId ? `notes/${encodeURIComponent(ecran.noteId)}` : 'notes';
     case 'coffre':
@@ -192,21 +263,47 @@ export function construireFragment(ecran: EcranNavigateur): string {
     }
     case 'projet': {
       if (!ecran.projectId) return '';
-      const base = `projet/${encodeURIComponent(ecran.projectId)}`;
-      if (!ecran.cardId) return base;
-      const slug = ecran.titreCarte ? slugTitre(ecran.titreCarte) : '';
-      const suffixe = slug ? `-${slug}` : '';
-      const carte = `${base}/tache/${encodeURIComponent(ecran.cardId)}${suffixe}`;
-      // L'ONGLET N'EST DANS L'ADRESSE QUE S'IL N'EST PAS LE PREMIER : « chat »
-      // est le point d'entrée par défaut, l'écrire n'apprendrait rien et
-      // allongerait toutes les adresses de carte déjà partagées.
-      return ecran.onglet && ecran.onglet !== ONGLET_DE_CARTE_PAR_DEFAUT
-        ? `${carte}/${encodeURIComponent(ecran.onglet)}`
-        : carte;
+      return fragmentDeCarte(`projet/${encodeURIComponent(ecran.projectId)}`, ecran);
     }
     default:
       return '';
   }
+}
+
+/**
+ * LA CARTE OUVERTE, à la suite de son lieu : « <base>/tache/<id>[-slug][/<onglet>] ».
+ * Le même mot sert sur le tableau d'un projet et sur les tableaux de bord : une
+ * carte s'écrit partout pareil.
+ */
+function fragmentDeCarte(
+  base: string,
+  ecran: { cardId?: string; titreCarte?: string; onglet?: string },
+): string {
+  if (!ecran.cardId) return base;
+  const slug = ecran.titreCarte ? slugTitre(ecran.titreCarte) : '';
+  const suffixe = slug ? `-${slug}` : '';
+  const carte = `${base}/tache/${encodeURIComponent(ecran.cardId)}${suffixe}`;
+  // L'ONGLET N'EST DANS L'ADRESSE QUE S'IL N'EST PAS LE PREMIER : « chat »
+  // est le point d'entrée par défaut, l'écrire n'apprendrait rien et
+  // allongerait toutes les adresses de carte déjà partagées.
+  return ecran.onglet && ecran.onglet !== ONGLET_DE_CARTE_PAR_DEFAUT
+    ? `${carte}/${encodeURIComponent(ecran.onglet)}`
+    : carte;
+}
+
+/**
+ * UN TABLEAU DE BORD, AVEC OU SANS CARTE OUVERTE PAR-DESSUS. La carte nomme son
+ * projet (« en-route/projet/<id>/tache/<id> ») : sur ces tableaux, les cartes
+ * viennent de tous les projets, le projet actif ne dit donc rien d'elle. Sans
+ * projet connu, la carte ne s'écrit pas : l'adresse reste celle du tableau,
+ * jamais une adresse qu'on ne saurait pas relire.
+ */
+function fragmentDeCarteSurTableau(
+  mot: 'tableau-de-bord' | 'en-route',
+  ecran: { projectId?: string; cardId?: string; titreCarte?: string; onglet?: string },
+): string {
+  if (!ecran.cardId || !ecran.projectId) return mot;
+  return fragmentDeCarte(`${mot}/projet/${encodeURIComponent(ecran.projectId)}`, ecran);
 }
 
 /**
@@ -215,7 +312,16 @@ export function construireFragment(ecran: EcranNavigateur): string {
  * bloquer l'ouverture.
  */
 export function lireFragment(hash: string): EcranNavigateur {
-  const brut = (hash || '').replace(/^#/, '').replace(/^\/+/, '').trim();
+  const complet = (hash || '').replace(/^#/, '').replace(/^\/+/, '').trim();
+  const { base, noms } = couperLesTiroirs(complet);
+  const ecran = lireFragmentSansTiroirs(base.replace(/\/+$/, ''));
+  const tiroirs = noms
+    .map((nom) => decodeSegment(nom).trim())
+    .filter((nom, i, tous) => nomDeTiroirValide(nom) && tous.indexOf(nom) === i);
+  return tiroirs.length ? { ...ecran, tiroirs } : ecran;
+}
+
+function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
   if (!brut) return { vue: 'accueil' };
 
   const morceaux = brut.split('/');
@@ -226,8 +332,18 @@ export function lireFragment(hash: string): EcranNavigateur {
     const page = decodeSegment(morceaux[1] ?? '');
     return page ? { vue: 'reglages', page } : { vue: 'reglages' };
   }
-  if (tete === 'tableau-de-bord') return { vue: 'tableau-de-bord' };
-  if (tete === 'en-route') return { vue: 'en-route' };
+  if (tete === 'tableau-de-bord' || tete === 'en-route') {
+    /* « <tableau>/projet/<id>/tache/<id>[-slug][/<onglet>] » : la carte ouverte
+       par-dessus. Toute autre suite rend le tableau nu : un lien abîmé n'est
+       jamais une panne. */
+    const projectId = morceaux[1] === 'projet' ? decodeSegment(morceaux[2] ?? '') : '';
+    if (projectId && morceaux[3] === 'tache' && morceaux[4]) {
+      const cardId = idDeCarte(decodeSegment(morceaux[4]));
+      const onglet = decodeSegment(morceaux[5] ?? '');
+      if (cardId) return { vue: tete, projectId, cardId, ...(onglet ? { onglet } : {}) };
+    }
+    return { vue: tete };
+  }
   if (tete === 'notes') {
     const noteId = decodeSegment(morceaux[1] ?? '');
     return noteId ? { vue: 'notes', noteId } : { vue: 'notes' };
@@ -315,12 +431,33 @@ export function lireFragment(hash: string): EcranNavigateur {
  * coûter un appui de plus sur le bouton Précédent.
  */
 export function memeEcran(a: EcranNavigateur, b: EcranNavigateur): boolean {
+  return memeEcranSansTiroirs(a, b) && memeTiroirs(a.tiroirs, b.tiroirs);
+}
+
+/** Deux piles de tiroirs identiques, dans le même ordre. */
+export function memeTiroirs(a?: string[], b?: string[]): boolean {
+  const x = a ?? [];
+  const y = b ?? [];
+  return x.length === y.length && x.every((nom, i) => nom === y[i]);
+}
+
+function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
   if (a.vue !== b.vue) return false;
   if (a.vue === 'projet' && b.vue === 'projet') {
     /* L'ONGLET EST UN DÉTAIL D'AFFICHAGE : passer de la conversation à
        « GitHub » ne change pas d'écran, sinon six onglets feraient six retours
        en arrière avant de sortir de la carte. */
     return a.projectId === b.projectId && (a.cardId ?? '') === (b.cardId ?? '');
+  }
+  if (
+    (a.vue === 'en-route' && b.vue === 'en-route') ||
+    (a.vue === 'tableau-de-bord' && b.vue === 'tableau-de-bord')
+  ) {
+    /* LA CARTE OUVERTE PAR-DESSUS EST UNE DESTINATION, comme sur le tableau d'un
+       projet : l'ouvrir empile une entrée, Précédent la referme. Sans cette
+       comparaison, le dernier `return true` jugeait « En route » et « En route
+       avec une carte » identiques — l'adresse se réécrivait sans historique. */
+    return (a.cardId ?? '') === (b.cardId ?? '') && (a.cardId ? a.projectId === b.projectId : true);
   }
   if (a.vue === 'config-projet' && b.vue === 'config-projet') {
     /* LA RUBRIQUE EST UNE DESTINATION, pas un détail d'affichage : passer du
@@ -356,7 +493,7 @@ export function memeEcran(a: EcranNavigateur, b: EcranNavigateur): boolean {
 
 /**
  * L'ADRESSE D'UNE FICHE DANS L'ESPACE DU CLIENT — l'autre visage, servi sur
- * `my.haikostudio.cloud`. Le projet voyage avec la demande : un client peut en
+ * l'adresse de l'espace client. Le projet voyage avec la demande : un client peut en
  * avoir plusieurs, et l'espace doit savoir lequel afficher avant d'ouvrir la
  * fiche. C'est l'adresse que porte le courriel du lundi matin.
  */
@@ -526,9 +663,20 @@ export function ecranDeLaVue(etat: {
   const element = etat.element ?? {};
   switch (etat.vue) {
     case 'tableau-de-bord':
-      return { vue: 'tableau-de-bord' };
-    case 'en-route':
-      return { vue: 'en-route' };
+    case 'en-route': {
+      /* La carte n'est dans l'adresse que si l'appelant dit qu'elle est
+         AFFICHÉE ici (`carteVisibleSurLaVue`) et de quel projet elle est. */
+      const carte =
+        etat.cardId && etat.projectId
+          ? {
+              projectId: etat.projectId,
+              cardId: etat.cardId,
+              ...(etat.titreCarte ? { titreCarte: etat.titreCarte } : {}),
+              ...(etat.onglet ? { onglet: etat.onglet } : {}),
+            }
+          : {};
+      return etat.vue === 'en-route' ? { vue: 'en-route', ...carte } : { vue: 'tableau-de-bord', ...carte };
+    }
     case 'notes':
       return { vue: 'notes', ...(element.notes ? { noteId: element.notes } : {}) };
     case 'coffre':

@@ -30,6 +30,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,6 +56,12 @@ const PRECEDENTE = path.join(LAYA, 'precedente');
 const MEMOIRE_DEPART_MO = Number(process.env.BELUGA_LAYA_NUIT_MEMOIRE_MO ?? 3200);
 /** En cours de route, sous ce plancher, la tranche s'arrête proprement. */
 const MEMOIRE_PLANCHER_MO = Number(process.env.BELUGA_LAYA_NUIT_PLANCHER_MO ?? 700);
+
+/** Les fils de calcul de l'entraînement (`BELUGA_LAYA_NUIT_FILS`), au plus la moitié des cœurs. */
+const FILS_DE_L_ENTRAINEMENT = Math.max(
+  1,
+  Math.min(Number(process.env.BELUGA_LAYA_NUIT_FILS ?? 2) || 2, Math.floor(os.cpus().length / 2) || 1),
+);
 
 const env = { ...process.env, HF_HOME: path.join(LAYA, 'hf'), HF_HUB_OFFLINE: '1', TRANSFORMERS_OFFLINE: '1' };
 const dire = (texte) => console.log(`${new Date().toLocaleTimeString('fr-CH')} ${texte}`);
@@ -142,7 +149,7 @@ if (args.includes('--revenir')) {
 
 const maintenant = new Date();
 if (!forcer && !dansLaFenetreDeNuit(maintenant)) {
-  console.log('Hors de la fenêtre de nuit (3 h – 7 h) : rien à faire. --forcer pour passer outre.');
+  console.log('Hors de la fenêtre de nuit (3 h – 7 h, heure de Zurich) : rien à faire. --forcer pour passer outre.');
   process.exit(0);
 }
 if (!fs.existsSync(PYTHON)) {
@@ -222,10 +229,20 @@ try {
         '--travail', path.join(TRAVAIL, 'passe'),
         '--fin', String(fin),
         '--memoire-min', String(MEMOIRE_PLANCHER_MO),
+        /* DEUX FILS, PAS TROIS : sur quatre cœurs partagés avec le serveur et les agents, un
+           entraînement à 240 % figeait le démon (12/10/2026). */
+        '--fils', String(FILS_DE_L_ENTRAINEMENT),
         ...(essai ? ['--max-pas', '3'] : []),
       ],
       { env, stdio: ['ignore', 'pipe', 'pipe'] },
     );
+    /* PRIORITÉ LA PLUS BASSE : l'entraînement ne passe plus jamais devant le serveur, les
+       agents ou la personne qui travaille — il prend ce qui reste. */
+    try {
+      if (p.pid) os.setPriority(p.pid, 19);
+    } catch {
+      /* priorité non posée : l'entraînement reste borné par ses fils et sa fin */
+    }
     let out = '';
     p.stdout.on('data', (d) => (out += d));
     p.stderr.on('data', (d) => {

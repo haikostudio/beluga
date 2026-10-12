@@ -18,6 +18,8 @@
  */
 
 /** Le strict nécessaire pour juger : ce qu'un message porte de pertinent. */
+import { aplatiLigne } from './mots.js';
+
 export interface MessageAJuger {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -59,16 +61,6 @@ const TOURNURES_SANS_DEMANDE = [
   'est-ce vraiment le cas',
 ];
 
-/** Minuscules, sans accents : pour comparer des tournures sans se tromper. */
-function aplati(texte: string): string {
-  return texte
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/['’]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 /**
  * La dernière phrase du texte : ce qui suit le dernier saut de ligne, puis le
@@ -110,7 +102,7 @@ export function questionEnTexteLibre(message: MessageAJuger): string | null {
   if (!phrase.endsWith('?')) return null;
   if (phrase.length < LONGUEUR_MINIMALE || phrase.length > LONGUEUR_MAXIMALE) return null;
 
-  const compare = aplati(phrase);
+  const compare = aplatiLigne(phrase);
   if (TOURNURES_SANS_DEMANDE.some((t) => compare.startsWith(t))) return null;
 
   return phrase;
@@ -241,7 +233,7 @@ function choixRecevable(texte: string): boolean {
 function sansDoublons(choix: string[]): string[] {
   const vus = new Set<string>();
   return choix.filter((c) => {
-    const cle = aplati(c);
+    const cle = aplatiLigne(c);
     if (vus.has(cle)) return false;
     vus.add(cle);
     return true;

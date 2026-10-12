@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Loader2, Sparkles, X } from 'lucide-react';
-import { REPONSE_PAS_UTILE, REPONSE_UTILISER, type Message } from '@beluga/shared';
+import { REPONSE_PAS_UTILE, REPONSE_UTILISER, type CompetenceProposee, type Message } from '@beluga/shared';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
@@ -32,10 +32,16 @@ export function EncadreCompetence({
   messageId,
   agentId,
   question,
+  ligne = false,
+  lectureSeule = false,
 }: {
   messageId: string;
   agentId?: string;
   question: Message['questions'][number];
+  /** Posée dans une ligne du flux (`CompetenceDuFlux`) : le point est celui de la ligne, pas de cadre propre. */
+  ligne?: boolean;
+  /** La question n'est pas dans le fil chargé : on lit l'état, on ne le change pas. */
+  lectureSeule?: boolean;
 }) {
   const state = useApp();
   /* Le geste parti : le bouton le dit dès le clic, sans attendre le serveur. */
@@ -45,7 +51,7 @@ export function EncadreCompetence({
   const cardId = agentId ? state.agents[agentId]?.cardId : undefined;
   const carte = cardId ? state.cards[cardId] : undefined;
   // La croix ne vit que tant que la carte est en cadrage : le démon tranche de toute façon.
-  const ecartable = carte?.column === 'planned';
+  const ecartable = !lectureSeule && carte?.column === 'planned';
 
   const trancher = async (geste: 'utiliser' | 'ecarter') => {
     if (parti) return;
@@ -83,8 +89,9 @@ export function EncadreCompetence({
     return (
       <div
         className={cn(
-          'flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[13.5px]',
-          utilisee ? 'border-competence/50 text-text' : 'border-faint/30 text-faint',
+          'flex items-center gap-1.5 text-[13.5px]',
+          !ligne && 'rounded-lg bg-raised/60 px-2.5 py-1.5',
+          utilisee ? 'text-text' : 'text-faint',
         )}
         data-competence-proposee={question.competence?.nom}
         data-competence-etat={utilisee ? 'utilisee' : 'ecartee'}
@@ -127,7 +134,7 @@ export function EncadreCompetence({
 
   return (
     <div
-      className="rounded-lg border border-competence bg-competence/[0.07] px-3 py-2.5"
+      className="rounded-lg border border-transparent bg-competence/[0.07] px-3 py-2.5"
       data-competence-proposee={question.competence?.nom}
       data-competence-etat="proposee"
     >
@@ -166,6 +173,47 @@ export function EncadreCompetence({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * UNE COMPÉTENCE, TELLE QUE LE FLUX DE RÉFLEXION LA LIT : la ligne de
+ * `EncadreCompetence`, sans cadre, posée dans la carte ouverte du passage où
+ * l'agent l'a récupérée. La question est retrouvée dans les messages de la
+ * carte ; absente (fil pas encore chargé), la ligne se lit sans geste.
+ */
+export function CompetenceDuFlux({
+  competence,
+  messages,
+}: {
+  competence: CompetenceProposee;
+  messages: readonly Message[];
+}) {
+  let messageId = '';
+  let agentId = competence.agentId;
+  let question: Message['questions'][number] | undefined;
+  for (const message of messages) {
+    const trouvee = message.questions.find((q) => q.id === competence.questionId);
+    if (trouvee) {
+      messageId = message.id;
+      agentId = message.agentId ?? agentId;
+      question = trouvee;
+      break;
+    }
+  }
+  const lectureSeule = !question;
+  const lue =
+    question ??
+    ({
+      id: competence.questionId,
+      question: competence.titre,
+      description: competence.correspondance,
+      competence: { nom: competence.nom, titre: competence.titre },
+      answer: competence.etat === 'utilisee' ? REPONSE_UTILISER : competence.etat === 'ecartee' ? REPONSE_PAS_UTILE : undefined,
+      cancelled: false,
+    } as unknown as Message['questions'][number]);
+  return (
+    <EncadreCompetence messageId={messageId} agentId={agentId} question={lue} ligne lectureSeule={lectureSeule} />
   );
 }
 
@@ -216,12 +264,9 @@ function FenetreCompetence({ nom, titre, onClose }: { nom: string; titre: string
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:w-[min(760px,100%)]" data-fenetre-competence={nom}>
+      <DialogContent adresse="competence" className="sm:w-[min(760px,100%)]" data-fenetre-competence={nom}>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-competence" />
-            <span className="min-w-0 truncate">{titre}</span>
-          </DialogTitle>
+          <DialogTitle className="min-w-0 truncate">{titre}</DialogTitle>
         </DialogHeader>
         {erreur ? (
           <p className="text-[13px] text-danger">{erreur}</p>

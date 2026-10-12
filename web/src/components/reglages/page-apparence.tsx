@@ -2,9 +2,6 @@ import * as React from 'react';
 import {
   Palette,
 } from 'lucide-react';
-import {
-  ambianceParId,
-} from '@beluga/shared';
 import { AppearancePicker } from '@/components/appearance-picker';
 import { useSystemeSombre, useThemeEnVigueur, useThemeGeneral } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
@@ -13,8 +10,9 @@ import { BulleInfo } from '@/components/ui';
 
 
 /**
- * L'ambiance ne décide plus de la clarté. Le suivi du système est le premier
- * interrupteur, puis chaque ambiance montre et commande ses deux variantes.
+ * UNE SEULE APPARENCE, NOIR ET BLANC : il ne reste qu'à choisir sa clarté. Le
+ * suivi du système est le premier interrupteur, puis deux cartes — clair,
+ * sombre — la fixent à la main.
  */
 export function SectionApparence() {
   const state = useApp();
@@ -29,7 +27,7 @@ export function SectionApparence() {
     <section>
       <h3 className="flex items-center gap-1.5 text-[13.5px] font-medium text-text mb-3">
         <Palette className="h-3.5 w-3.5 text-faint" />  {t('Thème général')}
-  <BulleInfo cote="start">{t('Choisissez séparément une ambiance de couleur et un mode clair ou sombre. Le réglage vaut sur l’ordinateur comme sur le téléphone, et chaque projet peut garder sa propre apparence.')}</BulleInfo>
+  <BulleInfo cote="start">{t('Choisissez le mode clair ou sombre, ou laissez l’ordinateur décider. Le réglage vaut sur l’ordinateur comme sur le téléphone, et chaque projet peut garder sa propre apparence.')}</BulleInfo>
 </h3>
 
       {/* UN PROJET QUI IMPOSE SON THÈME PASSE DEVANT, ET ON LE DIT ICI. Sans
@@ -38,12 +36,11 @@ export function SectionApparence() {
       {enVigueur.source === 'projet' ? (
         <p
           data-theme-recouvert
-          className="mb-3 rounded-md border border-termine/30 bg-termine/5 px-2.5 py-1.5 text-[12.5px] leading-relaxed text-muted"
+          className="mb-3 rounded-md border border-border bg-bloc px-2.5 py-1.5 text-[12.5px] leading-relaxed text-muted"
         >
-          {t('« {v0} » impose sa propre apparence ({v1}, mode {v2}) : c’est celle que vous voyez. Le choix ci-dessous vaut pour les autres projets.', {
+          {t('« {v0} » impose sa propre apparence (mode {v1}) : c’est celle que vous voyez. Le choix ci-dessous vaut pour les autres projets.', {
             v0: projetOuvert?.name,
-            v1: t(ambianceParId(enVigueur.ambiance).libelle),
-            v2: enVigueur.automatique
+            v1: enVigueur.automatique
               ? t('Automatique')
               : enVigueur.clarteChoisie === 'clair'
                 ? t('Clair')
@@ -52,9 +49,8 @@ export function SectionApparence() {
       ) : null}
       {enVigueur.parLeSysteme && enVigueur.source === 'general' ? (
         <p data-theme-par-le-systeme className="mb-3 text-[12.5px] leading-relaxed text-muted">
-          {t('Votre ordinateur est réglé en mode {v0}. L’ambiance « {v1} » garde ses couleurs et passera automatiquement d’une variante à l’autre.', {
+          {t('Votre ordinateur est réglé en mode {v0} : l’application le suit.', {
             v0: enVigueur.clarteAppliquee === 'clair' ? t('Clair') : t('Sombre'),
-            v1: t(ambianceParId(enVigueur.ambiance).libelle),
           })}</p>
       ) : null}
       <AppearancePicker value={apparence} onChange={setApparence} systemeSombre={systemeSombre} />

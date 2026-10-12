@@ -11,6 +11,7 @@
  * se rédige ici, dans la langue du lecteur. Les toasts de la porte client la
  * reprennent mot pour mot (`phraseDeNotification`).
  */
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import {
@@ -107,6 +108,7 @@ export function ClocheEspace({
   clientId?: string;
 }) {
   const [ouvert, setOuvert] = React.useState(false);
+  useTiroirAdresse('cloche-espace', ouvert, setOuvert);
   const [nonLues, setNonLues] = React.useState(0);
   /** `null` tant que la première page n'est pas arrivée : le tiroir montre sa silhouette. */
   const [liste, setListe] = React.useState<NotificationEspace[] | null>(null);

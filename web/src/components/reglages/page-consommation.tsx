@@ -25,7 +25,6 @@ export function UsageSection({ open }: { open: boolean }) {
       parMoteur: { engine?: string; frais: number; relu: number; tours: number }[];
     };
   } | null>(null);
-  const [summary, setSummary] = React.useState<any>(null);
   const [cursor, setCursor] = React.useState<
     { id: string; label: string; credit: CreditCursor }[] | null
   >(null);
@@ -33,10 +32,6 @@ export function UsageSection({ open }: { open: boolean }) {
   React.useEffect(() => {
     if (!open) return;
     client.call({ type: 'stats.usage' }).then(setUsage).catch(() => setUsage(null));
-    client
-      .call({ type: 'billing.summary' }, 120000)
-      .then((data) => setSummary(data?.summary))
-      .catch(() => setSummary(null));
     // L'usage Cursor du cycle, lu sur son tableau de bord pour chaque compte.
     client
       .call({ type: 'cursor.credit' }, 60000)
@@ -104,26 +99,6 @@ export function UsageSection({ open }: { open: boolean }) {
         </div>
       ) : null}
 
-      {summary && !summary.error ? (
-        <div className="mt-4">
-          <p className="flex items-center gap-1 text-[12px] uppercase tracking-wide text-faint mb-1.5">{t('Facturation du mois')}<BulleInfo cote="start">{t('Ce que l\'application de facturation a enregistré ce mois-ci. Lecture seule : Beluga Build n\'y écrit rien tout seul.')}</BulleInfo></p>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              [t('Facturé'), summary.invoiced ?? summary.total_invoiced],
-              [t('Encaissé'), summary.paid ?? summary.total_paid],
-              [t('En attente'), summary.outstanding ?? summary.total_outstanding],
-              [t('En retard'), summary.overdue ?? summary.total_overdue],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="rounded-md border border-border bg-bloc px-2 py-1.5">
-                <p className="text-[11.5px] uppercase tracking-wide text-faint">{label}</p>
-                <p className="mt-0.5 text-[14.5px] font-medium text-text">
-                  {typeof value === 'number' ? t('{v0} CHF', { v0: value.toLocaleString(formatRegional()) }) : '—'}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </section>
   );
 }

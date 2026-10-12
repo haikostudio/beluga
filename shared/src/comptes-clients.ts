@@ -1,3 +1,4 @@
+import { minusculesSansAccents } from './mots.js';
 /**
  * LES COMPTES : UN RÔLE, UNE PORTÉE.
  *
@@ -87,11 +88,7 @@ export interface VerdictDeCompte {
  * `jugerIdentifiant` reste la même — elle juge l'identifiant NORMALISÉ.
  */
 export function normaliserIdentifiant(brut: string): string {
-  return brut
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+  return minusculesSansAccents(brut.trim());
 }
 
 export function jugerIdentifiant(brut: string): VerdictDeCompte {

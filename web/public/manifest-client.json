@@ -1,6 +1,6 @@
 {
-  "name": "Haiko Chat",
-  "short_name": "Haiko Chat",
+  "name": "Espace client",
+  "short_name": "Espace client",
   "description": "Vos demandes, vos échanges",
   "start_url": "/",
   "scope": "/",

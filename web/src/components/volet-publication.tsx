@@ -51,6 +51,7 @@
  *     ce sont les ÉTAPES, jamais la présentation.
  */
 
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   Check,
@@ -104,6 +105,7 @@ import {
   motifLisible,
 } from '@/components/tiroir-deploiement';
 import { BulleInfo, Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { GestesDePage } from '@/components/entete-de-zone';
 import { client } from '@/lib/client';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { useApp } from '@/lib/use-app';
@@ -574,6 +576,7 @@ export function CorpsDuVolet({
   sansTitre = false,
   ouvrirSur = 'parcours',
   agentAOuvrir,
+  lancement,
 }: {
   /** L'étape dont ce volet déroule les propres étapes. */
   cible: CiblePublication;
@@ -581,6 +584,12 @@ export function CorpsDuVolet({
   run?: DeployRun | null;
   sousTitre?: string;
   controls?: React.ReactNode;
+  /**
+   * LE BOUTON QUI LANCE, TOUT EN BAS DU PIED, sur toute la largeur (demande du
+   * 11/10/2026) : comme sur la page de mise en production, c'est en bas de la
+   * page qu'on déclenche, sous ce qu'on vient de lire.
+   */
+  lancement?: React.ReactNode;
   sansTitre?: boolean;
   /**
    * SUR QUOI LE VOLET S'OUVRE quand c'est une porte NOMMÉE qui l'ouvre.
@@ -612,6 +621,7 @@ export function CorpsDuVolet({
   /* LE FIL DE CELUI QUI PUBLIE, dans son propre tiroir empilé : ouvert par le
      bouton du pied, ou d'emblée par la porte nommée `ouvrirSur`. */
   const [filOuvert, setFilOuvert] = React.useState(false);
+  useTiroirAdresse('fil-de-publication', filOuvert, setFilOuvert);
 
   const conducteur = run?.agentId ? (state.agents[run.agentId] ?? null) : null;
 
@@ -704,6 +714,7 @@ export function CorpsDuVolet({
      barre reste nue — on n'encombre pas une publication qui se passe bien. */
   const tombee = etapes.find((e) => e.etat === 'failed');
   const reponses = tombee ? reponsesToutesFaites(t(tombee.libelle)) : undefined;
+  const tachesDuLot = porteUnLot && !!run?.taches?.length;
 
   return (
     <>
@@ -761,33 +772,35 @@ export function CorpsDuVolet({
               />
             ))}
           </ul>
-
-          {/* OÙ EN EST CHAQUE TÂCHE DU LOT, sous le parcours : c'est ce
-              qu'on vient voir en premier, et ça appartient à la publication
-              ENTIÈRE, pas à l'une de ses étapes — donc visible quelle que
-              soit l'étape dépliée. Une étape SANS LOT (la mise en production)
-              n'embarque aucune carte : elle n'affiche rien du tout. */}
-          {porteUnLot && run?.taches?.length ? (
-            <div className="mt-2">
-              <TachesDuLot taches={run.taches} etapes={run.steps} runId={run.id} />
-            </div>
-          ) : null}
         </ZoneDefilement>
 
-        {/* LES GESTES, EN PIED FIXE : au bout d'un long parcours, ils ne
-            défilent plus hors de vue. « Arrêter » ou « Relancer » d'abord,
-            puis PARLER À CELUI QUI PUBLIE — un geste, pas une étape, et c'est
-            pour cela qu'il a quitté la liste du parcours. */}
-        {controls || conducteur || boutonDepannage ? (
+        {/* LE PIED FIXE : au bout d'un long parcours, rien de ce qui suit ne
+            défile hors de vue. D'abord OÙ EN EST CHAQUE TÂCHE DU LOT (demande
+            du 11/10/2026 : ce bloc quitte le parcours pour le bas de la page) —
+            c'est ce qu'on vient voir en premier, et ça appartient à la
+            publication ENTIÈRE, pas à l'une de ses étapes ; un long lot défile
+            dans sa propre zone, bornée. Une étape SANS LOT (la mise en
+            production) n'embarque aucune carte : elle n'affiche rien. Puis les
+            gestes — « Arrêter » ou « Relancer », PARLER À CELUI QUI PUBLIE — et,
+            tout en bas, le bouton qui LANCE. */}
+        {tachesDuLot || lancement || controls || conducteur || boutonDepannage ? (
           <div
             className="flex shrink-0 flex-col gap-1.5 border-t border-faint/20 px-2 pt-2"
             style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
             data-fenetre-pied
           >
+            {tachesDuLot && run ? (
+              <div className="flex max-h-[32dvh] min-h-0 flex-col" data-lot-en-pied>
+                <ZoneDefilement classeEnveloppe="min-h-0 flex-1" hauteur={16}>
+                  <TachesDuLot taches={run.taches ?? []} etapes={run.steps} runId={run.id} />
+                </ZoneDefilement>
+              </div>
+            ) : null}
             {controls}
             {/* RÉSOUDRE LE PROBLÈME : un agent répare, puis relance lui-même
                 la publication. Tant qu'il travaille, le même bouton le ROUVRE,
-                en orange ; le clic se voit tout de suite (roue qui tourne). */}
+                son texte en violet (ce que l'agent est en train de faire) ; le
+                clic se voit tout de suite (roue qui tourne). */}
             {boutonDepannage ? (
               <Button
                 size="pied"
@@ -795,12 +808,12 @@ export function CorpsDuVolet({
                 disabled={depannageEnvoye}
                 onClick={() => void resoudre()}
                 data-bouton-depannage={depannageVivant ? 'en-cours' : 'libre'}
-                className={cn(depannageVivant ? 'border-en-cours text-en-cours' : undefined)}
+                className={cn(depannageVivant ? 'text-teinte' : undefined)}
               >
                 {depannageEnvoye ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
                 {depannageVivant ? t('Dépannage en cours') : t('Résoudre le problème')}
                 {depannageVivant && relanceDemandee ? (
-                  <span className="text-en-cours">· {t('relance demandée')}</span>
+                  <span>· {t('relance demandée')}</span>
                 ) : null}
               </Button>
             ) : null}
@@ -821,7 +834,7 @@ export function CorpsDuVolet({
                 variant="outline"
                 onClick={() => setFilOuvert(true)}
                 data-point-conversation={questions ? 'question' : 'libre'}
-                className={cn(questions ? 'border-en-cours text-en-cours' : undefined)}
+                className={cn(questions ? 'bg-accent text-accent-fg hover:bg-accent hover:opacity-90' : undefined)}
               >
                 <MessagesSquare className="h-3.5 w-3.5" />
                 {t('En parler avec celui qui publie')}
@@ -834,6 +847,7 @@ export function CorpsDuVolet({
                 ) : null}
               </Button>
             ) : null}
+            {lancement}
           </div>
         ) : null}
       </div>
@@ -865,7 +879,7 @@ export function CorpsDuVolet({
 
       {/* LE VOLET DE L'AGENT DE DÉPANNAGE, empilé au-dessus : sa conversation
           et son avancement, en direct, sans quitter celui de la publication. */}
-      <Drawer open={!!agentOuvert} onClose={() => setAgentOuvert(null)} empile>
+      <Drawer adresse="agent-de-depannage" open={!!agentOuvert} onClose={() => setAgentOuvert(null)} empile>
         {agentOuvert ? (
           <div className="flex min-h-0 flex-1 flex-col" data-tiroir-depannage>
             <div className="shrink-0 px-4 pb-2">
@@ -914,6 +928,8 @@ export function VoletDePublication({
   run,
   sousTitre,
   controls,
+  gestes,
+  lancement,
   empile,
   agentAOuvrir,
 }: {
@@ -923,13 +939,34 @@ export function VoletDePublication({
   run?: DeployRun | null;
   sousTitre?: string;
   controls?: React.ReactNode;
+  /**
+   * LES GESTES DE LA PAGE, en haut à droite de sa barre d'en-tête : ses
+   * réglages (demande du 11/10/2026 : « le bouton paramètres doit être à
+   * l'intérieur de la fenêtre déploiement »).
+   */
+  gestes?: React.ReactNode;
+  /** Le bouton qui LANCE le déploiement : fixé tout en bas de la page (`CorpsDuVolet`). */
+  lancement?: React.ReactNode;
   empile?: boolean;
   /** L'agent à empiler d'emblée, demandé d'ailleurs (voir `CorpsDuVolet`). */
   agentAOuvrir?: { id: string; nonce: number } | null;
 }) {
   return (
-    <Drawer open={open} onClose={onClose} empile={empile}>
-      <CorpsDuVolet cible={cible} run={run} sousTitre={sousTitre} controls={controls} agentAOuvrir={agentAOuvrir} />
+    <Drawer
+      open={open}
+      onClose={onClose}
+      empile={empile}
+      adresse={cible === 'production' ? 'mise-en-production' : 'deploiement'}
+    >
+      {gestes ? <GestesDePage className="px-3">{gestes}</GestesDePage> : null}
+      <CorpsDuVolet
+        cible={cible}
+        run={run}
+        sousTitre={sousTitre}
+        controls={controls}
+        agentAOuvrir={agentAOuvrir}
+        lancement={lancement}
+      />
     </Drawer>
   );
 }

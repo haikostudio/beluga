@@ -26,6 +26,17 @@
  * L'ordre : LA PLUS RÉCENTE D'ABORD (tout à gauche de la bande), d'après le
  * début de l'étape ou la date de la pièce ; à égalité, l'ordre d'arrivée
  * renversé.
+ *
+ * CHAQUE IMAGE PORTE SON HEURE (`quand`) : celle qui sert déjà au tri — le
+ * moment où l'agent l'a regardée, à défaut la date de sa pièce. La vignette
+ * l'affiche, et la visionneuse aussi : une seule source, donc jamais deux
+ * heures pour la même image (la date de RANGEMENT d'une pièce, elle, tombe
+ * après l'étape).
+ *
+ * ET UNE IDENTITÉ QUI NE CHANGE PAS. La clé d'une capture d'étape devient celle
+ * de sa pièce le jour où le démon la range (`etape:…` → `jointe:…`), souvent
+ * en plein tour. Ce qui se retient par image — « déjà vue » — se lit donc sous
+ * les DEUX clés (`clesDeVue`), sinon le repère s'éteindrait tout seul.
  */
 
 import { pieceVenueDUneConstruction } from './images-ecrites.js';
@@ -47,12 +58,65 @@ export interface JointeDuTour {
 }
 
 export type CaptureDuFlux =
-  | { cle: string; genre: 'etape'; chemin: string; libelle: string }
-  | { cle: string; genre: 'jointe'; id: string; libelle: string; chemin?: string };
+  | { cle: string; genre: 'etape'; chemin: string; libelle: string; /** Quand l'agent l'a regardée (ms) ; 0 = inconnu. */ quand: number }
+  | {
+      cle: string;
+      genre: 'jointe';
+      id: string;
+      libelle: string;
+      chemin?: string;
+      /** Quand l'agent l'a regardée, à défaut la date de la pièce (ms) ; 0 = inconnu. */
+      quand: number;
+      /** La clé que cette image portait AVANT d'être rangée en pièce jointe. */
+      cleDOrigine?: string;
+    };
 
 /** Le dernier morceau d'un chemin, sans dépendre du système de fichiers. */
 export function nomDuChemin(chemin: string): string {
   return chemin.split(/[\\/]/).pop() ?? chemin;
+}
+
+/**
+ * LES BORNES D'UNE LISTE DE CLÉS envoyée au serveur (lire ou marquer les images
+ * vues). Une carte porte couramment des centaines d'images, chacune sous deux
+ * clés au plus : l'écran découpe sa demande en tranches (`tranchesDeCles`), le
+ * protocole refuse ce qui dépasse.
+ */
+export const MAX_CLES_DE_CAPTURES = 500;
+export const MAX_SIGNES_DE_CLE_DE_CAPTURE = 200;
+
+/** Une liste de clés, sans doublon ni clé hors borne, découpée en tranches acceptées par le protocole. */
+export function tranchesDeCles(cles: readonly string[], taille = MAX_CLES_DE_CAPTURES): string[][] {
+  const uniques = [...new Set(cles)].filter((cle) => cle.length > 0 && cle.length <= MAX_SIGNES_DE_CLE_DE_CAPTURE);
+  const tranches: string[][] = [];
+  for (let debut = 0; debut < uniques.length; debut += taille) tranches.push(uniques.slice(debut, debut + taille));
+  return tranches;
+}
+
+/** Les clés sous lesquelles une image a pu être retenue : la sienne, et celle d'avant son rangement. */
+export function clesDeVue(capture: CaptureDuFlux): string[] {
+  return capture.genre === 'jointe' && capture.cleDOrigine ? [capture.cle, capture.cleDOrigine] : [capture.cle];
+}
+
+/** Cette image a-t-elle déjà été affichée en grand ? Vrai dès que l'une de ses clés est retenue. */
+export function captureDejaVue(capture: CaptureDuFlux, vues: ReadonlySet<string>): boolean {
+  return clesDeVue(capture).some((cle) => vues.has(cle));
+}
+
+/** Les images qu'aucune de leurs clés ne retient encore : l'ordre de la liste est gardé. */
+export function capturesPasEncoreVues(captures: readonly CaptureDuFlux[], vues: ReadonlySet<string>): CaptureDuFlux[] {
+  return captures.filter((c) => !captureDejaVue(c, vues));
+}
+
+/**
+ * LES CLÉS À MARQUER POUR « TOUT MARQUER COMME VU » : celles de chaque image pas
+ * encore vue, sous ses DEUX clés possibles (`clesDeVue`), sans doublon. Les
+ * images déjà vues n'y sont pas — rien à renvoyer au serveur pour elles. Une
+ * carte de plusieurs centaines d'images donne plusieurs centaines de clés :
+ * l'envoi les découpe en tranches (`tranchesDeCles`).
+ */
+export function clesAMarquerVues(captures: readonly CaptureDuFlux[], vues: ReadonlySet<string>): string[] {
+  return [...new Set(capturesPasEncoreVues(captures, vues).flatMap(clesDeVue))];
 }
 
 export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: readonly JointeDuTour[] = []): CaptureDuFlux[] {
@@ -64,9 +128,8 @@ export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: rea
 
   const placees = new Set<string>();
   const chemins = new Set<string>();
-  const rendu: Array<{ capture: CaptureDuFlux; quand: number; rang: number }> = [];
-  const poser = (capture: CaptureDuFlux, quand: number | undefined) =>
-    rendu.push({ capture, quand: quand ?? 0, rang: rendu.length });
+  const rendu: Array<{ capture: CaptureDuFlux; rang: number }> = [];
+  const poser = (capture: CaptureDuFlux) => rendu.push({ capture, rang: rendu.length });
 
   for (const etape of etapes) {
     const chemin = etape.capture?.trim();
@@ -75,19 +138,27 @@ export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: rea
     if (piece) {
       if (placees.has(piece.id)) continue;
       placees.add(piece.id);
-      poser({ cle: `jointe:${piece.id}`, genre: 'jointe', id: piece.id, libelle: etape.label, chemin }, etape.startedAt ?? piece.createdAt);
+      poser({
+        cle: `jointe:${piece.id}`,
+        genre: 'jointe',
+        id: piece.id,
+        libelle: etape.label,
+        chemin,
+        quand: etape.startedAt ?? piece.createdAt ?? 0,
+        cleDOrigine: `etape:${etape.id}`,
+      });
       continue;
     }
     if (chemins.has(chemin)) continue;
     chemins.add(chemin);
-    poser({ cle: `etape:${etape.id}`, genre: 'etape', chemin, libelle: etape.label }, etape.startedAt);
+    poser({ cle: `etape:${etape.id}`, genre: 'etape', chemin, libelle: etape.label, quand: etape.startedAt ?? 0 });
   }
   for (const piece of images) {
     if (placees.has(piece.id)) continue;
     placees.add(piece.id);
-    poser({ cle: `jointe:${piece.id}`, genre: 'jointe', id: piece.id, libelle: piece.name }, piece.createdAt);
+    poser({ cle: `jointe:${piece.id}`, genre: 'jointe', id: piece.id, libelle: piece.name, quand: piece.createdAt ?? 0 });
   }
-  return rendu.sort((a, b) => b.quand - a.quand || b.rang - a.rang).map((r) => r.capture);
+  return rendu.sort((a, b) => b.capture.quand - a.capture.quand || b.rang - a.rang).map((r) => r.capture);
 }
 
 /**

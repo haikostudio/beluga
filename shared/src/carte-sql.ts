@@ -40,6 +40,7 @@ export const CHAMPS_SORTIS_DU_JSON = [
   'carteMereId',
   'doneAt',
   'archivedAt',
+  'rangeeTableauDeBordAt',
   'lastReadAt',
   'deployedAt',
   'createdAt',
@@ -68,6 +69,7 @@ export interface LigneCarte {
   excluded_from_deploy?: number | null;
   done_at?: number | null;
   archived_at?: number | null;
+  rangee_tableau_de_bord_at?: number | null;
   last_read_at?: number | null;
   run_engine?: string | null;
   run_model?: string | null;
@@ -101,6 +103,8 @@ export interface ColonnesCarte {
   excluded_from_deploy: number;
   done_at: number | null;
   archived_at: number | null;
+  /** Rangée dans « Archiver » de la page « Tableaux de bord », sans toucher au projet. */
+  rangee_tableau_de_bord_at: number | null;
   last_read_at: number | null;
   run_engine: string;
   run_model: string | null;
@@ -156,6 +160,7 @@ export function colonnesDeLaCarte(card: Card): ColonnesCarte {
     excluded_from_deploy: card.excludedFromDeploy ? 1 : 0,
     done_at: card.doneAt ?? null,
     archived_at: card.archivedAt ?? null,
+    rangee_tableau_de_bord_at: card.rangeeTableauDeBordAt ?? null,
     last_read_at: card.lastReadAt ?? null,
     run_engine: card.run.engine,
     run_model: card.run.model ?? null,
@@ -235,6 +240,10 @@ export function carteDepuisLigne(
     doneAt: nombre(ligne.done_at, 'doneAt'),
     deployedAt: nombre(ligne.deployed_at, 'deployedAt'),
     archivedAt: nombre(ligne.archived_at, 'archivedAt'),
+    // Absente, la clé ne s'écrit pas : une carte jamais rangée se relit à l'identique.
+    ...(nombre(ligne.rangee_tableau_de_bord_at, 'rangeeTableauDeBordAt') != null
+      ? { rangeeTableauDeBordAt: nombre(ligne.rangee_tableau_de_bord_at, 'rangeeTableauDeBordAt') }
+      : {}),
     lastReadAt: nombre(ligne.last_read_at, 'lastReadAt'),
   });
 }

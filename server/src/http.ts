@@ -38,8 +38,15 @@ import {
 } from '@beluga/shared';
 import { CONFIG, PATHS, ROOT, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
+import { creerLePremierCompte, installationEnAttente } from './installation.js';
+import { PARAMETRE_DU_LIEN, messageMotsDePasseDifferents, pageDInstallation } from './page-installation.js';
 import {
-  HOTE_ESPACE_CLIENT,
+  REPERE_DE_PORTE,
+  REPERE_D_IDENTITE,
+  identitePublique,
+  echapperHtml,
+  nomEspaceClient,
+  porteDuCompte,
   porteDeLHote,
   redirectionDeLaPorte,
   routeApiAutorisee,
@@ -69,7 +76,15 @@ import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
 import { scriptDeSuivi } from '@beluga/shared';
-import { IMAGE_ACCES_OCTETS_MAX, PROJET_DU_COFFRE, imageDuCoffreAcceptee } from '@beluga/shared';
+import {
+  IMAGE_ACCES_OCTETS_MAX,
+  PROJET_DU_COFFRE,
+  ROUTE_ARCHIVE_DES_IMAGES,
+  adresseDuLot,
+  imageDuCoffreAcceptee,
+  type CorpsDArchive,
+  type LotDArchive,
+} from '@beluga/shared';
 import { proposerAuCadrage } from './proposition-competences.js';
 import { creationAllumeePourLAgent } from './mode-creation.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
@@ -203,12 +218,55 @@ const MIME: Record<string, string> = {
  */
 const cacheCompresse = new Map<string, Buffer>();
 
-/** La page de l'application, renommée « Haiko Chat » pour le visage client. */
-export function pageAuNomDuClient(html: string): string {
-  return html
-    .replace(/<title>[^<]*<\/title>/, '<title>Haiko Chat</title>')
-    .replace(/(<meta name="apple-mobile-web-app-title" content=")[^"]*(")/, '$1Haiko Chat$2');
+/**
+ * La page de l'application, renommée pour le visage client : le nom de l'espace
+ * client réglé dans l'installation. Elle porte aussi le REPÈRE DE PORTE, qui
+ * dit à l'interface de monter l'espace client même quand l'adresse demandée
+ * n'est pas la sienne — le cas d'une installation à une seule adresse.
+ */
+/** La page, avec ce que l'interface doit savoir de l'installation avant de s'afficher. */
+export function pageAvecLIdentite(html: string): string {
+  const contenu = echapperHtml(JSON.stringify(identitePublique()));
+  return html.replace(/<head>/, `<head><meta name="${REPERE_D_IDENTITE}" content="${contenu}">`);
 }
+
+export function pageAuNomDuClient(html: string, nom = nomEspaceClient()): string {
+  const propre = echapperHtml(nom);
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${propre}</title>`)
+    .replace(/(<meta name="apple-mobile-web-app-title" content=")[^"]*(")/, `$1${propre}$2`)
+    .replace(/<head>/, `<head><meta name="${REPERE_DE_PORTE}" content="client">`);
+}
+
+/** La fiche d'installation du visage client, à son nom. */
+function manifesteAuNomDuClient(texte: string): string {
+  try {
+    const fiche = JSON.parse(texte) as Record<string, unknown>;
+    return JSON.stringify({ ...fiche, name: nomEspaceClient(), short_name: nomEspaceClient() });
+  } catch {
+    return texte;
+  }
+}
+
+/**
+ * LA COMMANDE QUI DONNE UN LIEN D'INSTALLATION NEUF, telle qu'on la tape sur le
+ * serveur. Elle nomme le dossier RÉEL de l'installation : un chemin d'exemple
+ * ne marcherait chez personne.
+ */
+function commandeDuCode(): string {
+  return `node ${path.join(CONFIG.selfPath, 'scripts', 'code-installation.mjs')} --lien`;
+}
+
+/**
+ * LES ENTÊTES DE LA PAGE D'INSTALLATION. Elle peut porter le code venu du lien :
+ * elle ne se garde donc nulle part, et l'adresse d'où l'on vient ne suit
+ * personne vers un autre site.
+ */
+const ENTETES_DE_LA_PAGE_D_INSTALLATION = {
+  'content-type': 'text/html; charset=utf-8',
+  'cache-control': 'no-store',
+  'referrer-policy': 'no-referrer',
+} as const;
 
 function serveStatic(res: http.ServerResponse, filePath: string): boolean {
   if (!fs.existsSync(filePath)) return false;
@@ -288,19 +346,19 @@ const LOGIN_PAGE = (error?: string) => `<!doctype html>
 </html>`;
 
 /**
- * LA PORTE DES CLIENTS. Une page à part, servie sur `my.haikostudio.cloud` :
+ * LA PORTE DES CLIENTS. Une page à part, servie sur l'adresse de l'espace client :
  * elle ne nomme jamais l'application d'administration, ne parle ni d'agents ni
  * de projets, et ne dit rien de plus qu'un formulaire. Le fond et les couleurs
  * suivent la marque, sans dépendre de l'interface construite : cette page doit
  * s'afficher même quand `web/dist` n'existe pas encore.
  */
-const PAGE_ENTREE_CLIENT = (error?: string) => `<!doctype html>
+const PAGE_ENTREE_CLIENT = (error?: string, nom = echapperHtml(nomEspaceClient())) => `<!doctype html>
 <html lang="fr" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#09090b">
-<title>Haiko Chat</title>
+<title>${nom}</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -321,7 +379,7 @@ const PAGE_ENTREE_CLIENT = (error?: string) => `<!doctype html>
 </head>
 <body>
 <form method="POST" action="/auth/login" data-porte="client">
-  <h1>Haiko Chat</h1>
+  <h1>${nom}</h1>
   <p class="sub">Vos demandes, vos échanges.</p>
   ${error ? `<div class="err">${error}</div>` : ''}
   <div><label for="u">Identifiant</label><input id="u" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" required autofocus></div>
@@ -367,6 +425,56 @@ export function createHttpServer(): http.Server {
           clients: bus.clientCount(),
           uptime: Math.round(process.uptime()),
         });
+      }
+
+      /*
+       * LE PREMIER COMPTE D'UNE INSTALLATION NEUVE. La porte n'existe que tant
+       * qu'aucun administrateur n'existe, et elle est gardée par le code
+       * d'installation (`server/src/installation.ts`). Le compte créé, la
+       * session s'ouvre dans la foulée : on ne redemande pas le mot de passe
+       * qu'on vient de choisir.
+       */
+      if (route === '/auth/installation' && req.method === 'POST') {
+        const body = (await readBody(req, 64 * 1024)).toString('utf8');
+        const isJson = (req.headers['content-type'] ?? '').includes('json');
+        const payload = isJson ? JSON.parse(body || '{}') : Object.fromEntries(new URLSearchParams(body));
+        const langues = typeof req.headers['accept-language'] === 'string' ? req.headers['accept-language'] : undefined;
+        const identifiant = String(payload.username ?? '');
+        const nomAffiche = String(payload.nomAffiche ?? '');
+        const motDePasse = String(payload.password ?? '');
+        // Un refus qui ne vient PAS du code (mot de passe trop court, identifiant
+        // refusé) garde le code venu du lien : sinon la personne devrait
+        // retourner le chercher pour une faute qui n'a rien à voir avec lui.
+        const refuser = (message: string, code = 400, garderLeCode = false) => {
+          if (isJson) return json(res, code, { ok: false, error: message });
+          res.writeHead(code, ENTETES_DE_LA_PAGE_D_INSTALLATION);
+          return res.end(
+            pageDInstallation({
+              acceptLanguage: langues,
+              erreur: message,
+              commande: commandeDuCode(),
+              saisie: { nomAffiche, identifiant },
+              codeDuLien: garderLeCode ? String(payload.code ?? '') : undefined,
+            }),
+          );
+        };
+        if (!installationEnAttente()) {
+          if (isJson) return json(res, 403, { ok: false, error: 'installation déjà faite' });
+          res.writeHead(302, { location: '/' });
+          return res.end();
+        }
+        if (!isJson && motDePasse !== String(payload.password2 ?? '')) return refuser(messageMotsDePasseDifferents(langues), 400, true);
+        const cree = creerLePremierCompte({ code: String(payload.code ?? ''), nomAffiche, identifiant, motDePasse }, clientIp(req));
+        if (!cree.ok) return refuser(cree.message, cree.raison === 'trop-d-essais' ? 429 : 400, cree.raison === 'compte');
+        const session = login(cree.identifiant, motDePasse, clientIp(req));
+        if (!session.ok) return refuser(session.error ?? 'connexion impossible');
+        const cookie = `${COOKIE}=${session.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${CONFIG.sessionDays * 86400}`;
+        if (isJson) {
+          res.writeHead(200, { 'set-cookie': cookie, 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ ok: true }));
+        }
+        res.writeHead(302, { 'set-cookie': cookie, location: '/' });
+        return res.end();
       }
 
       if (route === '/auth/login' && req.method === 'POST') {
@@ -588,38 +696,6 @@ export function createHttpServer(): http.Server {
         });
       }
 
-      /**
-       * RETROUVER LE PROJET D'UN CLIENT, PAR SON NOM.
-       *
-       * Un service extérieur connaît le nom d'un client — celui qui vient
-       * d'écrire, par exemple — pas l'identifiant technique du projet
-       * Beluga Build qui lui correspond. Cette adresse rend les clients déjà
-       * rapprochés d'un projet (réglages → onglet facturation), filtrés sur
-       * le nom quand `?client=` est donné. Même clé que la création de
-       * carte : lecture seule, rien n'est modifié.
-       */
-      if (route === ROUTE_CLIENTS_EXTERNE) {
-        if (req.method !== 'GET' && req.method !== 'HEAD') {
-          return json(res, 405, { ok: false, error: 'Cette adresse se lit en GET.' });
-        }
-
-        const presentee = cleDesEntetes(req.headers);
-        const verdict = jugerLaCle(presentee, presentee ? cleParSecret(presentee) : undefined);
-        if (!verdict.ok) {
-          log.warn('api externe', `appel refusé (${verdict.motif}) depuis ${clientIp(req)}`);
-          return json(res, verdict.statut, { ok: false, error: verdict.raison });
-        }
-
-        const recherche = url.searchParams.get('client') ?? url.searchParams.get('nom') ?? undefined;
-        const projets = store.listProjects(true).map((p) => ({
-          id: p.id,
-          name: p.name,
-          archive: p.archived,
-          billing: p.billing,
-        }));
-        const clients = rechercherClientsParNom(projets, recherche ?? undefined);
-        return json(res, 200, { ok: true, clients });
-      }
 
       /**
        * LE RELAIS LLM : un site extérieur fait rédiger un texte SANS porter la clé.
@@ -980,7 +1056,7 @@ export function createHttpServer(): http.Server {
       // (200 en text/html) et chaque pictogramme s'affichait cassé.
       //
       // DEUX FICHES D'INSTALLATION, UNE PAR VISAGE. Sur l'adresse de l'espace
-      // client, `/manifest.json` rend `manifest-client.json` — « Haiko Chat »,
+      // client, `/manifest.json` rend `manifest-client.json` — au nom de l'espace client,
       // la baleine — ; l'administration garde « Beluga Build ». Même adresse de
       // fichier des deux côtés : `index.html` et le cache du service worker
       // (par origine) n'ont rien à savoir.
@@ -991,8 +1067,17 @@ export function createHttpServer(): http.Server {
       ) {
         const racine = webRoot();
         const fichier =
-          route === '/manifest.json' && porteDeLHote(req.headers.host) === 'client' ? '/manifest-client.json' : route;
+          route === '/manifest.json' &&
+          porteDuCompte(porteDeLHote(req.headers.host), identiteDeLaRequete(req)?.role ?? null) === 'client'
+            ? '/manifest-client.json'
+            : route;
         const publicFile = path.join(racine, fichier.replace(/^\/+/, ''));
+        // La fiche d'installation du visage client porte le nom RÉGLÉ : elle se
+        // rend donc à la demande, jamais telle qu'écrite dans le dépôt.
+        if (fichier === '/manifest-client.json' && publicFile.startsWith(racine) && fs.existsSync(publicFile)) {
+          res.writeHead(200, { 'content-type': 'application/manifest+json', 'cache-control': 'no-cache' });
+          return res.end(manifesteAuNomDuClient(fs.readFileSync(publicFile, 'utf8')));
+        }
         if (publicFile.startsWith(racine) && serveStatic(res, publicFile)) return;
       }
 
@@ -1050,7 +1135,7 @@ export function createHttpServer(): http.Server {
       /*
        * DEUX VISAGES, UN SEUL DÉMON : C'EST L'ENTÊTE `Host` QUI DÉCIDE.
        *
-       * Sur `my.haikostudio.cloud`, un visiteur non identifié reçoit le
+       * Sur l'adresse de l'espace client, un visiteur non identifié reçoit le
        * formulaire CLIENT — sobre, à la marque, et qui ne dit rien de
        * l'application d'administration. Ailleurs, la page d'entrée habituelle.
        */
@@ -1059,6 +1144,21 @@ export function createHttpServer(): http.Server {
 
       if (!compte) {
         if (route.startsWith('/api/')) return json(res, 401, { error: 'session expirée' });
+        // UNE INSTALLATION NEUVE N'A PERSONNE À RECONNAÎTRE : elle montre la
+        // page qui fait créer le premier compte, pas un formulaire de connexion
+        // auquel personne ne pourrait répondre. Le code du lien de fin
+        // d'installation (`?installation=…`) y entre tout seul.
+        if (installationEnAttente()) {
+          const langues = typeof req.headers['accept-language'] === 'string' ? req.headers['accept-language'] : undefined;
+          res.writeHead(200, ENTETES_DE_LA_PAGE_D_INSTALLATION);
+          return res.end(
+            pageDInstallation({
+              acceptLanguage: langues,
+              commande: commandeDuCode(),
+              codeDuLien: url.searchParams.get(PARAMETRE_DU_LIEN) ?? undefined,
+            }),
+          );
+        }
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         return res.end(porte === 'client' ? PAGE_ENTREE_CLIENT() : LOGIN_PAGE());
       }
@@ -1289,6 +1389,98 @@ export function createHttpServer(): http.Server {
         return pipeline(fs.createReadStream(file), res).catch(() => {});
       }
 
+      /*
+       * « TOUT TÉLÉCHARGER » DE LA VISIONNEUSE (`server/src/archive-des-images.ts`) :
+       * les MÊMES deux règles que `/api/attachment`, pour chaque pièce — un client
+       * ne lit que ses pièces, le coffre ne sort que pour l'administrateur — et une
+       * seule pièce refusée refuse toute l'archive.
+       */
+      if (route === ROUTE_ARCHIVE_DES_IMAGES) {
+        const { archiveDesImages, deposerLot, lireLot, verifierArchive } = await import('./archive-des-images.js');
+        const acces = {
+          lirePiece: (id: string) => store.getAttachment(id),
+          peutLire: (piece: Attachment) =>
+            (compte.role !== 'client' || pieceLisiblePar(compte, piece.id)) &&
+            (piece.projectId !== PROJET_DU_COFFRE || compte.role === 'admin'),
+          cheminDe: cheminDePieceJointe,
+          trouverCapture:
+            compte.role === 'admin'
+              ? (projet: string, chemin: string) => {
+                  const p = store.getProject(projet);
+                  return p ? (imageDEtape(chemin, [p.path, CONFIG.dataDir, os.tmpdir()])?.file ?? null) : null;
+                }
+              : undefined,
+          refus: REFUS_HORS_PORTEE,
+        };
+        /* PRÉPARER : la liste arrive dans le CORPS, est vérifiée entière, et repart en adresse courte. */
+        if (req.method === 'POST') {
+          let corps: Partial<CorpsDArchive>;
+          try {
+            corps = JSON.parse((await readBody(req, 2 * 1024 * 1024)).toString('utf8') || '{}');
+          } catch {
+            return json(res, 400, { error: 'demande illisible' });
+          }
+          const texte = (v: unknown): v is string => typeof v === 'string';
+          const demande = {
+            ids: Array.isArray(corps.ids) ? corps.ids.filter(texte) : [],
+            captures: texte(corps.project) ? { projet: corps.project, chemins: Array.isArray(corps.chemins) ? corps.chemins.filter(texte) : [] } : undefined,
+            nom: texte(corps.nom) ? corps.nom : null,
+          };
+          const verifiee = verifierArchive(demande, acces);
+          if (!verifiee.ok) return json(res, verifiee.statut, { error: verifiee.raison });
+          const lot: LotDArchive = { adresse: adresseDuLot(deposerLot(compte.id, demande)) };
+          return json(res, 200, lot);
+        }
+        /* RECEVOIR : un lot préparé (`?lot=`), ou — petits lots écrits à la main — la liste dans l'adresse. */
+        const jeton = url.searchParams.get('lot');
+        const projetDesCaptures = url.searchParams.get('project');
+        const demande = jeton
+          ? lireLot(jeton, compte.id)
+          : {
+              ids: (url.searchParams.get('ids') ?? '').split(','),
+              captures: projetDesCaptures ? { projet: projetDesCaptures, chemins: url.searchParams.getAll('chemin') } : undefined,
+              nom: url.searchParams.get('nom'),
+            };
+        if (!demande) return json(res, 404, { error: 'cette archive n’est plus disponible : relancez le téléchargement' });
+        const r = archiveDesImages(demande, acces);
+        if (!r.ok) return json(res, r.statut, { error: r.raison });
+        const poids = await r.poids;
+        res.writeHead(200, {
+          'content-type': 'application/zip',
+          'cache-control': 'private, no-store',
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
+          ...(poids > 0 ? { 'content-length': poids } : {}),
+        });
+        if (req.method === 'HEAD') {
+          r.flux.destroy();
+          return res.end();
+        }
+        return pipeline(r.flux, res).catch(() => {});
+      }
+
+      /*
+       * LE CAHIER DES CHARGES D'UN PROJET, À EMPORTER : en PDF (mis en page par
+       * le Chrome du système) ou en texte Markdown. Sans document : 404, et le
+       * bouton qui y mène n'est de toute façon pas affiché.
+       */
+      if (route === '/api/projets/cahier-des-charges') {
+        const format = url.searchParams.get('format') === 'md' ? 'md' : 'pdf';
+        const { exporterLeCahier } = await import('./cahier-des-charges.js');
+        const r = await exporterLeCahier(String(url.searchParams.get('projet') ?? ''), format).catch((err) => {
+          log.error('export du cahier des charges impossible', err);
+          return undefined;
+        });
+        if (r === undefined) return json(res, 500, { error: 'Export du cahier des charges impossible.' });
+        if (!r) return json(res, 404, { error: 'Ce projet n’a pas de cahier des charges.' });
+        res.writeHead(200, {
+          'content-type': r.type,
+          'content-length': r.contenu.length,
+          'cache-control': 'private, no-store',
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
+        });
+        return res.end(r.contenu);
+      }
+
       /* L'extrait d'une voix finale du Studio : fabriqué une fois (quota gratuit), gardé, puis servi. */
       if (route === '/api/studio/extrait') {
         const { fichierDExtrait } = await import('./studio-generation.js');
@@ -1515,14 +1707,31 @@ export function createHttpServer(): http.Server {
         if (candidate.startsWith(racineWeb) && serveStatic(res, candidate)) return;
       }
 
+      /*
+       * UN MORCEAU D'HABILLAGE QUI N'EXISTE PLUS RÉPOND 404, JAMAIS LA PAGE
+       * D'ACCUEIL. Les morceaux portent une empreinte qui change à chaque mise en
+       * ligne : une application restée ouverte réclame un ancien nom. Lui rendre
+       * la page d'accueil en « 200 » faisait refuser ce faux script par le
+       * navigateur (« 'text/html' is not a valid JavaScript MIME type ») sans
+       * rien dire de la cause — un vrai 404 le dit, et l'écran se recharge
+       * (`vite:preloadError`, web/src/main.tsx).
+       */
+      if (/^\/assets\/.+\.(?:m?js|css|map|woff2?)$/i.test(route)) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end('Fichier introuvable : cette version de l’application n’est plus en ligne.');
+      }
+
       const indexFile = path.join(racineWeb, 'index.html');
       if (fs.existsSync(indexFile)) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache, must-revalidate' });
         const page = fs.readFileSync(indexFile);
         // Le NOM sous l'icône d'un iPhone vient de la page, pas de la fiche
-        // d'installation : côté client, titre et nom d'application disent
-        // « Haiko Chat ». `/index.html` passe donc ici, jamais en fichier brut.
-        return res.end(porte === 'client' ? pageAuNomDuClient(page.toString('utf8')) : page);
+        // d'installation : côté client, titre et nom d'application portent le
+        // nom de l'espace client. `/index.html` passe donc ici, jamais en
+        // fichier brut. Un compte CLIENT reçoit son espace même sur l'adresse
+        // commune (`porteDuCompte`).
+        const html = pageAvecLIdentite(page.toString('utf8'));
+        return res.end(porteDuCompte(porte, compte.role) === 'client' ? pageAuNomDuClient(html) : html);
       }
 
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

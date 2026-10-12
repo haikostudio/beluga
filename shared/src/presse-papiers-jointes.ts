@@ -169,3 +169,40 @@ export function jointesDesTags(
   }
   return trouvees;
 }
+
+/**
+ * LES TAGS QUE LA LISTE DU PROJET N'A PAS SU RETROUVER.
+ *
+ * Un texte copié dans une AUTRE carte — souvent d'un autre projet — nomme des
+ * pièces que la liste chargée dans la page ne connaît pas : le tag reste, le
+ * fichier ne suit pas. L'alias, lui, est unique sur tout le dépôt : on rend
+ * ceux des tags non résolus, pour les demander au serveur. Un tag d'avant, sans
+ * alias, n'a rien à demander et n'est pas rendu.
+ */
+export function aliasNonResolus(texte: string | null | undefined, resolues: Attachment[]): string[] {
+  const alias: string[] = [];
+  for (const nom of nomsDesTags(texte)) {
+    const voulu = aliasDuTag(nom);
+    if (!voulu || alias.includes(voulu)) continue;
+    if (resolues.some((item) => tagDesignePiece(nom, item))) continue;
+    alias.push(voulu);
+  }
+  return alias;
+}
+
+/**
+ * UN TAG QUI VISAIT LA PIÈCE D'UN AUTRE PROJET VISE DÉSORMAIS SA COPIE.
+ *
+ * Rattachée à la carte où l'on colle, la pièce reçoit un nouvel identifiant (et
+ * donc un nouvel alias) : le tag collé doit le suivre, sinon il désignerait un
+ * fichier que cette carte ne connaît pas. `remplacements` associe l'ancienne
+ * désignation (« image.png #af89 ») à la nouvelle. Le tag réécrit garde des
+ * espaces insécables, comme tout tag posé par le champ de saisie.
+ */
+export function tagsRedesignes(texte: string, remplacements: ReadonlyMap<string, string>): string {
+  if (!remplacements.size) return texte;
+  return texte.replace(/\[fichier:[  ]*([^\]\n]+)\]/g, (tag, contenu: string) => {
+    const nouvelle = remplacements.get(nomDuTag(contenu));
+    return nouvelle ? ancre(nouvelle) : tag;
+  });
+}

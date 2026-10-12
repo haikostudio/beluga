@@ -141,7 +141,7 @@ export function VignetteDemande({
           /* LE CADRE D'UNE CARTE BELUGA : fond `raised`, tour `border`, et le
              survol qui éclaircit le tour — le même geste que sur le tableau.
              Au-dessus de l'onglet (`z-10`), dont il mange le haut arrondi. */
-          'relative z-10 rounded-md border border-border bg-raised transition-colors hover:border-faint',
+          'relative z-10 rounded-xl bg-surface transition-colors hover:bg-raised',
           jauge.total ? 'rounded-b-none' : null,
           tenue && 'ring-1 ring-accent/50',
         )}
@@ -160,7 +160,7 @@ export function VignetteDemande({
         <button
           type="button"
           onClick={onOuvrir}
-          className="block w-full min-w-0 px-2.5 py-2 text-left"
+          className="block w-full min-w-0 px-3.5 py-3 text-left"
           data-ouvrir-demande={demande.id}
         >
           {/* LA PLACE DU « ⋮ » N'EST RÉSERVÉE QUE SUR CETTE RANGÉE : elle

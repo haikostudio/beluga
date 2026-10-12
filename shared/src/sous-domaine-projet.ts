@@ -11,8 +11,13 @@
  * ne bouge pas d'un iota et vit toujours dans le démon.
  */
 
-/** La zone dont dépendent toutes les adresses des projets. */
-export const ZONE_PROJETS = 'haikostudio.cloud';
+import { zoneDesProjets } from './installation.js';
+
+/*
+ * LA ZONE dont dépendent les adresses des projets n'est plus écrite ici : elle
+ * appartient à l'installation (`zoneDesProjets`, `shared/src/installation.ts`).
+ * Vide, la création d'adresse est éteinte et le montage le dit.
+ */
 
 /** Le nom ne peut pas être plus long que ce que le fournisseur accepte. */
 export const SOUS_DOMAINE_MAX = 40;
@@ -33,9 +38,8 @@ export function normaliserSousDomaine(saisi: string | undefined | null): string 
   const brut = (saisi ?? '').trim().toLowerCase();
   if (!brut) return '';
   const sansProtocole = brut.replace(/^[a-z]+:\/\//, '').replace(/\/.*$/, '');
-  const sansZone = sansProtocole.endsWith(`.${ZONE_PROJETS}`)
-    ? sansProtocole.slice(0, -(ZONE_PROJETS.length + 1))
-    : sansProtocole;
+  const zone = zoneDesProjets();
+  const sansZone = zone && sansProtocole.endsWith(`.${zone}`) ? sansProtocole.slice(0, -(zone.length + 1)) : sansProtocole;
   return sansZone
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -49,7 +53,8 @@ export function normaliserSousDomaine(saisi: string | undefined | null): string 
 /** L'adresse complète d'un nom court, telle qu'elle sera contrôlée après chaque déploiement. */
 export function adresseDuSousDomaine(nomCourt: string): string {
   const slug = normaliserSousDomaine(nomCourt);
-  return slug ? `https://${slug}.${ZONE_PROJETS}` : '';
+  const zone = zoneDesProjets();
+  return slug && zone ? `https://${slug}.${zone}` : '';
 }
 
 /** Le port sur lequel le projet écoute, ou `null` si la saisie n'en est pas un. */
@@ -109,11 +114,22 @@ export function jugerAdresseDemandee(saisie: {
  * un projet que le déploiement ne pourra jamais contrôler. La question se pose
  * AVANT le premier dossier, avec l'outil prévu pour ça.
  */
-export const CONSIGNE_CREATION_PROJET =
-  "CRÉER UN PROJET SUPPOSE DE CONNAÎTRE SON ADRESSE. Avant de monter quoi que ce soit — dossier, dépôt, fichiers de départ —, " +
-  `demande avec l'outil « ask_user » le SOUS-DOMAINE voulu (il finira par « .${ZONE_PROJETS} ») et le PORT sur lequel le projet écoutera sur le serveur. ` +
-  "Tu attends la réponse : ce n'est pas un détail qu'on règle après coup, c'est cette adresse qui sera contrôlée à la fin de chaque déploiement. " +
-  "Si l'utilisateur répond qu'il n'en veut pas, tu montes le projet sans adresse et tu le dis — mais tu ne le décides jamais à sa place.";
+export function consigneCreationProjet(zone = zoneDesProjets()): string {
+  if (!zone) {
+    return (
+      "CRÉER UN PROJET SUPPOSE DE CONNAÎTRE SON PORT. Avant de monter quoi que ce soit — dossier, dépôt, fichiers de départ —, " +
+      "demande avec l'outil « ask_user » le PORT sur lequel le projet écoutera sur le serveur. " +
+      "Cette installation n'a pas encore de nom de domaine pour ses projets : aucune adresse publique ne peut être créée, tu le dis en une phrase " +
+      '(elle se règle dans Réglages, page « Installation ») et tu montes le projet sans adresse.'
+    );
+  }
+  return (
+    "CRÉER UN PROJET SUPPOSE DE CONNAÎTRE SON ADRESSE. Avant de monter quoi que ce soit — dossier, dépôt, fichiers de départ —, " +
+    `demande avec l'outil « ask_user » le SOUS-DOMAINE voulu (il finira par « .${zone} ») et le PORT sur lequel le projet écoutera sur le serveur. ` +
+    "Tu attends la réponse : ce n'est pas un détail qu'on règle après coup, c'est cette adresse qui sera contrôlée à la fin de chaque déploiement. " +
+    "Si l'utilisateur répond qu'il n'en veut pas, tu montes le projet sans adresse et tu le dis — mais tu ne le décides jamais à sa place."
+  );
+}
 
 /**
  * L'ADRESSE DEMANDÉE ARRIVE INTACTE AU PROJET : AUCUNE RÉÉCRITURE D'ENTÊTE.

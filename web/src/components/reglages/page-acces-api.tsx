@@ -108,7 +108,7 @@ export function SectionClesApi({ open }: { open: boolean }) {
 
       {/* La clé en clair : une seule fois, ici et jamais plus */}
       {secret ? (
-        <div className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-2.5 py-2">
+        <div className="mt-3 rounded-md border border-transparent bg-warning/10 px-2.5 py-2">
           <p className="text-[12.5px] font-medium text-warning">
             {t('Clé de « {v0} » — copiez-la maintenant, elle ne sera plus jamais affichée.', { v0: secret.nom })}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

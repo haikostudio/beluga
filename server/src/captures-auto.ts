@@ -174,6 +174,7 @@ async function ranger(
         fichier: candidat.full,
         nom: nomDeCaptureRangee(path.basename(candidat.full), ctx.titreDeCarte),
         attendreStable: true,
+        deLAgent: true,
       });
       if (!jointure.ok) {
         log.info('captures-auto', `capture non rangée (${path.basename(candidat.full)}) : ${jointure.refus}`);

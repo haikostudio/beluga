@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ChevronDown } from 'lucide-react';
 import {
   Project,
   mentionEcartAuSchema,
@@ -6,6 +7,7 @@ import {
 } from '@beluga/shared';
 import { BulleInfo, LigneFormulaire, ListeDeroulante } from '@/components/ui';
 import { t } from '@/lib/langue';
+import { cn } from '@/lib/utils';
 
 /* ------------------------------------------------------------------ */
 /* CE QUE CHAQUE RUBRIQUE REÇOIT                                        */
@@ -50,7 +52,8 @@ export interface ContexteConfig {
   port: string;
   setPort: (valeur: string) => void;
   portLu: number | null;
-  portPartage: Project | undefined;
+  /** L'autre projet qui porte déjà ce port, ou `null` (`projetQuiPorteLePort`). */
+  portPartage: Project | null;
   portHorsPlage: boolean;
   faviconEnCours: boolean;
   relancerFavicon: () => void;
@@ -72,32 +75,13 @@ export interface ContexteConfig {
   branchesEnCours: boolean;
   branchesRaison: string;
 
-  /* --- Client et tarif --- */
-  clients: ClientEntry[];
-  documents: any[];
-  clientsEnCours: boolean;
-  facturationJoignable: boolean;
-  clientId: string;
-  setClientId: (valeur: string) => void;
-  rate: string;
-  setRate: (valeur: string) => void;
-  documentId: string;
-  setDocumentId: (valeur: string) => void;
-  documentType: 'offer' | 'invoice';
-  setDocumentType: (valeur: 'offer' | 'invoice') => void;
-  ecartChiffrage: { count: number; ratioMoyen: number } | null;
 
   /* --- Les gestes qui retirent le projet --- */
-  archiver: () => void;
+  archiver: () => Promise<void> | void;
+  /** Ferme la fenêtre des réglages (le projet vient d'être supprimé). */
+  fermer: () => void;
 }
 
-export interface ClientEntry {
-  id: string;
-  name: string;
-  companyId?: string;
-  companyName?: string;
-  companySlug?: string;
-}
 
 /* ------------------------------------------------------------------ */
 /* Les briques partagées par plusieurs rubriques                        */
@@ -117,7 +101,7 @@ export function TeteDeRubrique({
   titre: string;
   resume: string;
   aide?: string;
-  /** Un bouton posé en haut à droite du titre (l'agent de configuration d'une étape). */
+  /** Un bouton posé en haut à droite du titre (le cahier des charges du projet). */
   action?: React.ReactNode;
 }) {
   return (
@@ -129,6 +113,68 @@ export function TeteDeRubrique({
       </BulleInfo>
       {action ? <div className="ml-auto flex shrink-0 items-center pl-2">{action}</div> : null}
     </header>
+  );
+}
+
+/**
+ * UN REPLI : ce qui se règle rarement se range derrière une ligne à ouvrir
+ * (11/10/2026 — « trop d'informations »). Fermé, son contenu est RETIRÉ de la
+ * page : il ne reste ni au clavier ni aux contrôles. Rien n'est perdu pour
+ * autant, puisque les champs sont tenus par la coquille (`ContexteConfig`) et
+ * que l'unique « Enregistrer » les envoie tous, rangés ou non.
+ *
+ * UN AVERTISSEMENT NE SE RANGE JAMAIS : ce que le contenu aurait signalé
+ * (`avertissements`) reste écrit sous la ligne tant que le repli est fermé.
+ * Ouvert, c'est le contenu lui-même qui le dit, à côté de son champ.
+ *
+ * L'état est tenu par l'appelant, qui sait ainsi où poser ses avertissements.
+ * La ligne est un bouton à fond, sans bordure, et dit son état (`aria-expanded`).
+ */
+export function Repli({
+  titre,
+  repere,
+  ouvert,
+  onBascule,
+  avertissements,
+  children,
+}: {
+  titre: string;
+  /** Le repère du bouton, pour les contrôles : « reglages-avances » donne `data-reglages-avances`. */
+  repere: string;
+  ouvert: boolean;
+  onBascule: () => void;
+  /** Ce qui doit rester lisible quand le repli est fermé. */
+  avertissements?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const identifiant = React.useId();
+  return (
+    <section className="flex flex-col gap-2" data-repli-de-rubrique={repere} data-repli-ouvert={ouvert ? 'oui' : 'non'}>
+      <button
+        type="button"
+        aria-expanded={ouvert}
+        aria-controls={ouvert ? identifiant : undefined}
+        onClick={onBascule}
+        className="flex w-full items-center gap-1.5 rounded-md bg-raised/60 px-2.5 py-1.5 text-left text-[13px] text-text transition-colors hover:bg-raised"
+        {...{ [`data-${repere}`]: '' }}
+      >
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert ? '' : '-rotate-90')}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1">{titre}</span>
+      </button>
+      {!ouvert && avertissements ? (
+        <div className="flex flex-col gap-1.5" data-repli-avertissements={repere}>
+          {avertissements}
+        </div>
+      ) : null}
+      {ouvert ? (
+        <div id={identifiant} data-repli-contenu={repere}>
+          {children}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -168,7 +214,6 @@ export function ChoixDeBranche({
   mention: string;
 }) {
   const proposees = valeur && !branches.includes(valeur) ? [valeur, ...branches] : branches;
-  const ecart = mentionEcartAuSchema(cible, valeur);
   return (
     <LigneFormulaire libelle={titre} {...{ [repere]: '' }}>
       <ListeDeroulante
@@ -186,14 +231,25 @@ export function ChoixDeBranche({
         {valeur ? t('Le lot sera fusionné, enregistré et poussé sur « {valeur} ».', { valeur }) : mention}
         {raison ? ` ${raison}` : ''}
       </p>
-      {ecart ? (
-        <p
-          data-ecart-schema
-          className="rounded-md border border-en-cours/40 bg-en-cours/10 px-2 py-1.5 text-[11.5px] leading-snug text-text"
-        >
-          {ecart}
-        </p>
-      ) : null}
+      <EcartAuSchema cible={cible} valeur={valeur} />
     </LigneFormulaire>
+  );
+}
+
+/**
+ * L'ÉCART AU SCHÉMA DES DEUX BRANCHES, dit en clair. Il s'écrit sous la liste
+ * des branches ; et quand cette liste est rangée derrière « Réglages avancés »,
+ * la rubrique le repose sous le repli fermé — un avertissement ne se range pas.
+ */
+export function EcartAuSchema({ cible, valeur }: { cible: 'dev' | 'production'; valeur: string }) {
+  const ecart = mentionEcartAuSchema(cible, valeur);
+  if (!ecart) return null;
+  return (
+    <p
+      data-ecart-schema
+      className="rounded-md border border-transparent bg-en-cours/10 px-2 py-1.5 text-[11.5px] leading-snug text-text"
+    >
+      {ecart}
+    </p>
   );
 }

@@ -26,18 +26,15 @@ import {
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
-import { useDispositionTableau } from '@/lib/disposition-tableau';
 import {
   CLASSES_ALERTE_RANGEE,
   CLASSES_PIED_RANGEE,
   CLASSES_TETE_RANGEE,
-  CLASSE_HAUTEUR_CARTE,
   CLASSE_HAUTEUR_CARTE_EN_ROUTE,
   CLASSE_HAUTEUR_CORPS_EN_ROUTE,
-  CLASSE_LARGEUR_CARTE,
-  classesBande,
-  classesEmpilement,
-  classesRail,
+  CLASSES_BANDE,
+  CLASSES_EMPILEMENT,
+  CLASSES_RAIL,
   classesRangee,
   classesColonneEnRoute,
   classesRailEnRoute,
@@ -148,14 +145,15 @@ function SilhouetteCarte({ variante }: { variante: number }) {
  * haut droit de la carte : sans lui, la zone qui défile la coupait sur la
  * première carte de la liste.
  */
-export const GRILLE_EN_ROUTE = 'grid grid-cols-1 gap-4 pt-3';
+export const GRILLE_EN_ROUTE = 'grid grid-cols-1 gap-4';
 
 /**
  * LES CARTES D'UNE COLONNE EN ATTENTE. Chaque carte a la hauteur FIXE de la
  * carte en route (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`), exactement comme la vraie,
- * et la même forme : le projet et l'état DANS la carte, en haut, le titre, le
- * début de la description, la frise des étapes, puis l'ancienneté en bas à
- * gauche. Posée par la page dans une colonne dont la liste n'est pas arrivée.
+ * et la même forme : le projet et l'état DANS la carte, en haut, le titre sur
+ * une ligne, le début de la description, puis la frise des étapes — aucune
+ * ancienneté en bas. Posée par la page dans une colonne dont la liste n'est
+ * pas arrivée.
  */
 export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
   return (
@@ -172,7 +170,6 @@ export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
                 <Silhouette className="mt-[2px] h-3 w-3 shrink-0 rounded-sm" />
                 <div className="min-w-0 flex-1">
                   <Silhouette className={cn('h-3', LARGEURS[index % LARGEURS.length])} />
-                  {index % 3 !== 2 ? <Silhouette className="mt-1.5 h-3 w-[42%]" /> : null}
                 </div>
               </div>
               <Silhouette className="mt-2 h-2.5 w-[88%]" />
@@ -182,7 +179,6 @@ export function SilhouetteListeEnRoute({ nombre = 6 }: { nombre?: number }) {
             <div className="mt-3 flex h-3.5 shrink-0 items-center">
               <Silhouette className="h-1.5 w-full" />
             </div>
-            <Silhouette className="mb-1.5 mt-auto h-2.5 w-10" />
           </div>
         </div>
       ))}
@@ -231,29 +227,24 @@ const CARTES_PAR_COLONNE: Record<string, number> = {
 };
 
 /*
- * LES RANGÉES SONT DÉJÀ À LEUR PLACE FINALE. La silhouette pose le MÊME rail,
- * le MÊME empilement, les MÊMES rangées, bandeaux, bandes et pied que le vrai
+ * LES COLONNES SONT DÉJÀ À LEUR PLACE FINALE. La silhouette pose le MÊME rail,
+ * le MÊME empilement, les MÊMES colonnes, bandeaux, bandes et pied que le vrai
  * tableau (`board.tsx`) : toutes ces mesures viennent du gabarit partagé
- * (`lib/gabarit-tableau.ts`), jamais d'une copie. Et elle suit la MÊME
- * disposition, par le même crochet : en colonnes sur téléphone (le défaut), en
- * rangées sur ordinateur, ou ce que l'appareil a choisi. Conséquence voulue :
- * au remplacement, AUCUNE rangée ne se déplace, ni de côté ni en hauteur.
+ * (`lib/gabarit-tableau.ts`), jamais d'une copie. Conséquence voulue : au
+ * remplacement, AUCUNE colonne ne se déplace, ni de côté ni en hauteur.
  *
- * En rangées, toutes les rangées prennent la hauteur de la plus haute — « À
- * déployer », avec l'emplacement de son message et son pied : ce sont donc eux
- * qu'il faut dessiner à leur vraie taille (le bouton de réglage du bandeau,
- * `h-6`, et celui de mise en ligne du pied, `h-7`).
+ * « À déployer » porte l'emplacement de son message et son pied : ils se
+ * dessinent à leur vraie taille (le bouton de réglage du bandeau, `h-6`, et
+ * celui de mise en ligne du pied, `h-7`).
  */
 export function SilhouetteTableau() {
-  const { disposition } = useDispositionTableau();
   const telephone = useTelephone();
-  const enColonnes = disposition === 'colonnes';
   return (
     <Bloc zone="tableau" className="flex h-full min-h-0 flex-1 flex-col">
-      <div className={cn(classesRail(enColonnes), 'min-h-0 flex-1 overflow-hidden')}>
-        <div className={classesEmpilement(enColonnes)}>
+      <div className={cn(CLASSES_RAIL, 'min-h-0 flex-1 overflow-hidden')}>
+        <div className={CLASSES_EMPILEMENT}>
           {COLONNES_AFFICHEES.map((column, rang) => (
-            <div key={column} data-silhouette-colonne={column} className={classesRangee(enColonnes, telephone)}>
+            <div key={column} data-silhouette-colonne={column} className={classesRangee(telephone)}>
               <div className="flex h-full w-full flex-col">
                 {/* Le bandeau garde son VRAI libellé, à sa vraie place : la mise
                     en page est connue d'avance, seul le compte des cartes
@@ -263,16 +254,12 @@ export function SilhouetteTableau() {
                     {t(COLUMN_LABELS[column])}
                   </h2>
                   <Silhouette className="h-2.5 w-3 rounded-sm" />
-                  {column === 'planned' ? <Silhouette className="ml-auto h-7 w-[120px] rounded-md" /> : null}
                   {column === 'to_deploy' ? <Silhouette className="ml-auto h-6 w-16 rounded-md" /> : null}
                 </div>
                 {column === 'to_deploy' || column === 'archived' ? <div className={CLASSES_ALERTE_RANGEE} /> : null}
-                <div className={cn(classesBande(enColonnes), 'overflow-hidden')}>
+                <div className={cn(CLASSES_BANDE, 'overflow-hidden')}>
                   {Array.from({ length: CARTES_PAR_COLONNE[column] ?? 2 }, (_, index) => (
-                    <div
-                      key={index}
-                      className={cn(enColonnes ? 'w-full' : cn(CLASSE_LARGEUR_CARTE, CLASSE_HAUTEUR_CARTE), 'shrink-0')}
-                    >
+                    <div key={index} className="w-full shrink-0">
                       <SilhouetteCarte variante={rang + index} />
                     </div>
                   ))}
@@ -532,6 +519,40 @@ export function SilhouetteNotes({ lignes = 7 }: { lignes?: number }) {
             <Barre className="h-4 w-24 rounded" />
             {index % 3 === 0 ? <Barre className="h-4 w-16 rounded" /> : null}
             <Barre className="h-3 w-14 rounded" />
+          </div>
+        </div>
+      ))}
+    </Bloc>
+  );
+}
+
+/**
+ * LES ACCÈS CLIENTS : des cartes de compte, avec leur nom, leur état, leurs
+ * boutons, l'adresse de courriel et les pastilles de projets. Mêmes cadre et
+ * mêmes hauteurs que `LigneCompteClient`, pour que la liste ne saute pas quand
+ * les comptes arrivent — et pour qu'elle ne passe jamais pour une liste vide.
+ */
+export function SilhouetteAccesClients({ lignes = 3 }: { lignes?: number }) {
+  return (
+    <Bloc zone="acces-clients" className="flex flex-col gap-2">
+      {Array.from({ length: lignes }, (_, index) => (
+        <div key={index} className="rounded-md border border-transparent bg-surface p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <Barre className={cn('h-4', LARGEURS[index % LARGEURS.length])} />
+              <Barre className="mt-1.5 h-3 w-[40%]" />
+            </div>
+            <Barre className="h-5 w-9 rounded-full" />
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <Barre className="h-7 w-32 rounded" />
+            <Barre className="h-7 w-32 rounded" />
+            <Barre className="h-7 w-20 rounded" />
+          </div>
+          <Barre className="mt-2 h-7 w-full rounded-md" />
+          <div className="mt-2 flex items-center gap-1.5">
+            <Barre className="h-6 w-20 rounded-full" />
+            {index % 2 === 0 ? <Barre className="h-6 w-24 rounded-full" /> : null}
           </div>
         </div>
       ))}

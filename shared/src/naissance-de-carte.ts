@@ -141,6 +141,7 @@ export function cadrageJamaisParti(etat: {
     archivedAt?: number | null;
     briefing?: string | null;
     parcours?: { comprehension?: { texte?: string } | null; plans?: readonly unknown[] | null; planDemandeA?: number | null } | null;
+    cahierDesCharges?: { enPauseA?: number | null } | null;
   };
   agent: { role: string } | null;
   auRepos: boolean;
@@ -156,6 +157,9 @@ export function cadrageJamaisParti(etat: {
   if (carte.origin !== 'agent') return false;
   if (!(COLONNES_AVANT_LE_TRAVAIL as readonly string[]).includes(carte.column) || carte.archivedAt) return false;
   if (!String(carte.briefing ?? '').trim()) return false;
+  /* Un cahier des charges MIS EN PAUSE par l'utilisateur ne repart que sur son
+     « Reprendre » (`shared/src/cahier-des-charges.ts`). */
+  if (carte.cahierDesCharges?.enPauseA) return false;
   if (!etat.auRepos || etat.messages > 0 || etat.enFile > 0 || etat.aUneSession || etat.dejaRelance) return false;
   const p = carte.parcours;
   if (p?.comprehension?.texte?.trim() || (p?.plans?.length ?? 0) > 0 || p?.planDemandeA) return false;

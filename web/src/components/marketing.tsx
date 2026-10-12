@@ -1,9 +1,11 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
   Bot,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -11,20 +13,22 @@ import {
   ChevronRight,
   Circle,
   Clapperboard,
+  Columns3,
   Copy,
+  EllipsisVertical,
   FileText,
   Filter,
   Info,
   Link2,
   Loader2,
-  Megaphone,
   MessageCircleQuestion,
-  MoreVertical,
   PenLine,
   Plus,
   RotateCw,
   Save,
+  Share2,
   Sparkles,
+  Target,
   Trash2,
   TriangleAlert,
   X,
@@ -89,6 +93,8 @@ import {
 import {
   Badge,
   Button,
+  CLASSE_GROUPE_DE_LIGNES,
+  CLASSE_LIGNE_DE_GROUPE,
   ConfirmDialog,
   Dialog,
   DialogContent,
@@ -96,10 +102,12 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  TitreDePage,
   Drawer,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Input,
@@ -110,7 +118,10 @@ import {
   Textarea,
   ZoneDefilement,
 } from '@/components/ui';
-import { SilhouetteConversation, SilhouetteMarketing } from '@/components/silhouettes';
+import { SilhouetteConversation, SilhouetteMarketing, SilhouetteProjets } from '@/components/silhouettes';
+import { GestesDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
+import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne } from '@/components/rubriques-de-colonne';
 import { RepereAttention } from '@/components/repere-attention';
 import { Chat } from '@/components/chat';
 import { Markdown } from '@/lib/markdown';
@@ -153,6 +164,15 @@ import { CourbeParJour, MiniCourbe, Repartition, copier, dateCourte } from '@/co
  *    (`CorpsOnglet`) ; le reste en icônes nommées ;
  *  - listes et fiches s'ouvrent en tiroirs empilés ; le calendrier se lit en
  *    semaine sur téléphone, en quatre semaines sur ordinateur.
+ *
+ * RETOUCHES DU 11/10/2026 — SUR ORDINATEUR, LA NAVIGATION EST DANS LA COLONNE
+ * DE GAUCHE (`ColonneDeService`), sur deux niveaux : la liste des projets
+ * suivis (`ColonneDesProjets`), puis, un projet ouvert, ses quatre rubriques
+ * et « À faire ensuite ». La page, elle, ne garde que du contenu : le tableau
+ * de bord et « En attente par projet » à l'ouverture, la rubrique ouverte dans
+ * un projet — Calendrier et Contenus sur toute la largeur. Sur téléphone, où
+ * la colonne n'existe pas, rien ne change : tableaux des projets et barre
+ * d'onglets restent dans la page.
  */
 
 interface LigneProjetMarketing {
@@ -177,8 +197,17 @@ interface LigneProjetMarketing {
   visites: number[];
   /** Suivi marketing voulu ? Coupé, le projet passe dans « Projets inactifs ». */
   actif?: boolean;
-  /** Les cartes de l'atelier en cours (colonne « En cours » du tableau de bord). */
+  /** Les cartes de l'atelier en cours (rangée « En cours » du tableau de bord). */
   enCours?: TravailMarketingEnCours[];
+  /** Les prochaines actions NON FAITES du plan, trois au plus (« En attente par projet »). */
+  aFaire?: ActionAFaire[];
+}
+
+/** Une action du plan vue du tableau de bord : de quoi la nommer et la dater, pas son détail. */
+interface ActionAFaire {
+  id: string;
+  titre: string;
+  datePrevue: string | null;
 }
 
 interface TravailMarketingEnCours {
@@ -280,10 +309,23 @@ function lundiLocal(date: Date): Date {
  * LE VOLET D'EXPLICATION. Toutes les explications de l'écran s'y lisent : un
  * tiroir empilé, au doigt comme à la souris, qu'on referme en le tirant.
  */
-function VoletInfo({ ouvert, titre, onClose, children }: { ouvert: boolean; titre: string; onClose: () => void; children: React.ReactNode }) {
+function VoletInfo({
+  ouvert,
+  titre,
+  onClose,
+  children,
+  adresse,
+}: {
+  ouvert: boolean;
+  titre: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  /** Le nom du volet dans l'adresse ; absent quand l'appelant la tient déjà. */
+  adresse?: string;
+}) {
   if (!ouvert) return null;
   return (
-    <Drawer open onClose={onClose} empile>
+    <Drawer open onClose={onClose} empile adresse={adresse}>
       <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
         <Info className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
@@ -312,14 +354,14 @@ function PointInfo({ titre, children }: { titre: string; children: React.ReactNo
       >
         <Info className="h-3.5 w-3.5" />
       </button>
-      <VoletInfo ouvert={ouvert} titre={titre} onClose={() => setOuvert(false)}>
+      <VoletInfo ouvert={ouvert} titre={titre} onClose={() => setOuvert(false)} adresse="info-marketing">
         {children}
       </VoletInfo>
     </>
   );
 }
 
-/** Une action d'entête : une icône nommée sur ordinateur, une ligne du volet sur téléphone. */
+/** Une action d'entête : une icône nommée sur ordinateur, une entrée du menu sur téléphone. */
 interface ActionDEntete {
   cle: string;
   libelle: string;
@@ -332,13 +374,16 @@ interface ActionDEntete {
 /**
  * LES ACTIONS DE L'ENTÊTE, DANS TOUT L'OUTIL MARKETING (demande du 26/09/2026) :
  * sur ordinateur, les petites icônes restent visibles ; sur téléphone, elles
- * passent derrière UN bouton à trois points verticaux, qui ouvre un volet
- * listant chaque action par son nom — le point « i » compris. Une rangée
- * d'icônes serrées ne tenait pas à côté d'un titre sur 390 px.
+ * passent derrière UN bouton à trois points verticaux — le point « i » compris.
+ * Une rangée d'icônes serrées ne tenait pas à côté d'un titre sur 390 px.
+ *
+ * CE BOUTON OUVRE UN MENU, PLUS UNE PAGE (demande du 11/10/2026) : le menu
+ * commun (`DropdownMenu`), qui se pose de lui-même en panneau du bas sur
+ * téléphone. Le volet d'explications vit HORS du menu : celui-ci est démonté
+ * dès qu'il se referme, et le volet doit lui survivre.
  */
 function ActionsEntete({ actions = [], info }: { actions?: ActionDEntete[]; info?: { titre: string; contenu: React.ReactNode } }) {
   const telephone = useTelephone();
-  const [menu, setMenu] = React.useState(false);
   const [explications, setExplications] = React.useState(false);
   if (!telephone) {
     return (
@@ -355,48 +400,29 @@ function ActionsEntete({ actions = [], info }: { actions?: ActionDEntete[]; info
   if (!actions.length && !info) return null;
   return (
     <>
-      <Button size="icon" variant="ghost" aria-label="Plus d’actions" title={t('Plus d’actions')} onClick={() => setMenu(true)} data-marketing-menu-actions>
-        <MoreVertical className="h-4 w-4" />
-      </Button>
-      {menu ? (
-        <Drawer open onClose={() => setMenu(false)} empile>
-          <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-[max(env(safe-area-inset-bottom),12px)]">
-            <div className="flex flex-col gap-0.5 pt-1" data-marketing-volet-actions={actions.length + (info ? 1 : 0)}>
-              {actions.map((a) => (
-                <button
-                  key={a.cle}
-                  type="button"
-                  onClick={() => {
-                    setMenu(false);
-                    a.onClick();
-                  }}
-                  className="flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-[13.5px] text-text hover:bg-bloc"
-                  {...(a.repere ? { [a.repere]: '' } : {})}
-                >
-                  <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted">{a.icone}</span>
-                  {a.libelle}
-                </button>
-              ))}
-              {info ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenu(false);
-                    setExplications(true);
-                  }}
-                  className="flex h-11 w-full items-center gap-3 rounded-md px-3 text-left text-[13.5px] text-text hover:bg-bloc"
-                  data-marketing-info
-                >
-                  <Info className="h-4 w-4 shrink-0 text-muted" />
-                  {t('Explications')}
-                </button>
-              ) : null}
-            </div>
-          </ZoneDefilement>
-        </Drawer>
-      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button size="icon" variant="ghost" aria-label="Plus d’actions" title={t('Plus d’actions')} data-marketing-menu-actions>
+            <EllipsisVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[220px]" data-marketing-volet-actions={actions.length + (info ? 1 : 0)}>
+          {actions.map((a) => (
+            <DropdownMenuItem key={a.cle} onSelect={a.onClick} {...(a.repere ? { [a.repere]: '' } : {})}>
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted">{a.icone}</span>
+              <span className="min-w-0 truncate">{a.libelle}</span>
+            </DropdownMenuItem>
+          ))}
+          {info ? (
+            <DropdownMenuItem onSelect={() => setExplications(true)} data-marketing-info>
+              <Info className="h-4 w-4 shrink-0 text-muted" />
+              <span className="min-w-0 truncate">{t('Explications')}</span>
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
       {info ? (
-        <VoletInfo ouvert={explications} titre={info.titre} onClose={() => setExplications(false)}>
+        <VoletInfo ouvert={explications} titre={info.titre} onClose={() => setExplications(false)} adresse="explications-marketing">
           {info.contenu}
         </VoletInfo>
       ) : null}
@@ -448,6 +474,24 @@ function RangeeDeChoix({ children }: { children: React.ReactNode }) {
 /* L'écran                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * LA COLONNE DE GAUCHE PORTE-T-ELLE VRAIMENT LE MENU ? `useColonneDeService()`
+ * dit seulement « pas sur téléphone » ; `ColonneDeService`, lui, ne rend rien
+ * tant que l'application ne lui a pas donné sa place dans la colonne. Retirer
+ * la navigation de la page sur la seule foi du premier laisserait alors
+ * l'écran sans aucun chemin vers ses projets ni ses rubriques. Ce témoin est
+ * monté DANS le menu : il n'existe que si le menu est réellement à l'écran, et
+ * il le dit avant que le navigateur ne peigne — la page ne retire sa propre
+ * navigation qu'à ce moment-là.
+ */
+function TemoinDeColonne({ onPose }: { onPose: (pose: boolean) => void }) {
+  React.useLayoutEffect(() => {
+    onPose(true);
+    return () => onPose(false);
+  }, [onPose]);
+  return null;
+}
+
 export function Marketing({
   open,
   onClose,
@@ -468,15 +512,30 @@ export function Marketing({
   const state = useApp();
   const [vue, setVue] = React.useState<{ projets: LigneProjetMarketing[]; jours: string[] } | null>(null);
   const projectId = vise ?? null;
-  /** L'onglet voulu par le dernier clic : « Contenus » depuis la colonne « En cours », sinon le défaut. */
-  const [ongletVoulu, setOngletVoulu] = React.useState<Onglet | undefined>(undefined);
+  /* LA RUBRIQUE OUVERTE DU PROJET VIT ICI (11/10/2026), plus dans
+     `EspaceDuProjet` : la page doit la connaître pour choisir sa largeur. Elle
+     survit au changement de projet — `key={projectId}` remonte l'espace, pas
+     cet état : passer d'un projet à l'autre garde la rubrique ouverte. De
+     retour à la vue d'ensemble, elle retombe sur le défaut : un projet ouvert
+     par son adresse arrive sur le Calendrier. */
+  const [onglet, setOnglet] = React.useState<Onglet>(ONGLET_PAR_DEFAUT);
   React.useEffect(() => {
-    if (!projectId) setOngletVoulu(undefined);
+    if (!projectId) setOnglet(ONGLET_PAR_DEFAUT);
   }, [projectId]);
+  /** Ouvre un projet : sur « Contenus » depuis la rangée « En cours », sinon sur le défaut. */
+  const ouvrir = (id: string, voulu?: Onglet) => {
+    setOnglet(voulu && ONGLETS.includes(voulu) ? voulu : ONGLET_PAR_DEFAUT);
+    onVise?.(id);
+  };
+  /* Les projets sont-ils dans la colonne de gauche ? Sinon (téléphone, colonne
+     pas encore posée), la page garde ses deux tableaux. */
+  const colonne = useColonneDeService();
+  const [menuPose, setMenuPose] = React.useState(false);
+  const projetsDansLaColonne = colonne && menuPose;
 
   /* LE TABLEAU DE BORD SE RELIT EN DIRECT : à chaque événement `marketing`, et
      quand un agent commence ou finit son tour — c'est ainsi qu'une carte de
-     l'atelier entre dans la colonne « En cours », puis en sort. Les cartes
+     l'atelier entre dans la rangée « En cours », puis en sort. Les cartes
      marketing ne partent pas dans les paquets du tableau : seule cette
      lecture les apporte. La vue précédente reste affichée pendant la relecture. */
   const versionMarketing = Object.values(state.marketingVersions).reduce((a, b) => a + b, 0);
@@ -498,20 +557,32 @@ export function Marketing({
   }, [open, projectId, versionMarketing, agentsAuTravail]);
 
   return (
-    <Drawer open={open} onClose={onClose} enPage={enPage}>
+    /* LA LARGEUR SUIT LA RUBRIQUE (demande du 11/10/2026). Le tableau de bord,
+       les Canaux et le Positionnement se lisent : ils gardent la colonne
+       centrée de toutes les pages (`Drawer enPage`, sans surcharge). Le
+       Calendrier et les Contenus sont des PLANS DE TRAVAIL, comme le tableau
+       des cartes : ils prennent toute la zone principale (`max-w-none`
+       l'emporte sur la largeur par défaut). */
+    <Drawer open={open} onClose={onClose} enPage={enPage} className={projectId && ONGLETS_EN_PLEINE_LARGEUR.includes(onglet) ? 'max-w-none' : undefined}>
       {projectId ? (
-        <EspaceDuProjet key={projectId} projectId={projectId} ongletInitial={ongletVoulu} onRetour={() => onVise?.(null)}
-          onChangerProjet={(id, onglet) => {
-            setOngletVoulu(onglet);
-            onVise?.(id);
-          }}
+        <EspaceDuProjet
+          key={projectId}
+          projectId={projectId}
+          onglet={onglet}
+          onOnglet={setOnglet}
+          onRetour={() => onVise?.(null)}
+          onChangerProjet={(id) => onVise?.(id)}
           onOuvrirCarte={onOuvrirCarte}
         />
       ) : (
         <>
-          <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-            <Megaphone className="h-3.5 w-3.5 shrink-0 text-accent" />
-            <DialogTitle className="min-w-0 flex-1 truncate">{t('Marketing')}</DialogTitle>
+          {/* LE BOUTON À TROIS POINTS MONTE DANS LA BARRE D'EN-TÊTE, sur
+              ordinateur comme sur téléphone (`GestesDePage`) ; le grand titre
+              ne se dessine que sur ordinateur — sur téléphone le nom de la
+              page est déjà dans la barre. */}
+          <div className="flex min-w-0 shrink-0 items-start gap-2">
+          <TitreDePage className="min-w-0 flex-1">{t('Marketing')}</TitreDePage>
+          <GestesDePage className="pb-0 pt-0.5">
             <ActionsEntete
               info={{
                 titre: t('Marketing'),
@@ -527,21 +598,23 @@ export function Marketing({
                 ),
               }}
             />
-          </header>
-          <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
+          </GestesDePage>
+          </div>
+          {/* LES PROJETS VIVENT DANS LA COLONNE DE GAUCHE, à la place de ceux de
+              l'application : une seule colonne, jamais deux côte à côte. Sur
+              téléphone `ColonneDeService` ne rend rien, et la page garde ses
+              tableaux. */}
+          <ColonneDeService>
+            <TemoinDeColonne onPose={setMenuPose} />
+            <ColonneDesProjets projets={vue?.projets ?? null} onOuvrir={ouvrir} />
+          </ColonneDeService>
+          <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
             {vue === null ? (
               <SilhouetteMarketing />
             ) : !vue.projets.length ? (
               <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun projet actif.')}</p>
             ) : (
-              <TableauDeBordMarketing
-                projets={vue.projets}
-                jours={vue.jours}
-                onOuvrir={(id, onglet) => {
-                  setOngletVoulu(onglet);
-                  onVise?.(id);
-                }}
-              />
+              <TableauDeBordMarketing projets={vue.projets} jours={vue.jours} projetsDansLaColonne={projetsDansLaColonne} onOuvrir={ouvrir} />
             )}
           </ZoneDefilement>
         </>
@@ -551,29 +624,140 @@ export function Marketing({
 }
 
 /**
+ * LES PROJETS SUIVIS, DANS LA COLONNE DE GAUCHE (demande du 11/10/2026) : une
+ * ligne par projet ACTIF — son icône, son nom, à droite le nombre de contenus
+ * qui attendent une validation, et un repère discret quand son agent travaille
+ * (en violet, la couleur de ce que fait l'agent) ou attend une réponse. Un clic
+ * ouvre le projet. Dessous, « Ajouter un projet » rallume le suivi d'un projet
+ * inactif.
+ */
+function ColonneDesProjets({ projets, onOuvrir }: { projets: LigneProjetMarketing[] | null; onOuvrir: (projectId: string) => void }) {
+  const state = useApp();
+  if (projets === null) return <SilhouetteProjets lignes={4} />;
+  const { actifs, inactifs } = separerProjetsActifs(projets);
+  return (
+    <ZoneDefilement hauteur={16} className="pb-4" classeEnveloppe="w-full">
+      {/* LE GESTE QUI AJOUTE EST EN TÊTE, noir et détaché, comme dans les autres
+          colonnes (demande du 12/10/2026) — plus en bas de la liste. */}
+      {inactifs.length ? <AjouterUnProjet inactifs={inactifs} onOuvrir={onOuvrir} /> : null}
+      <nav aria-label="Projets suivis par le marketing" data-marketing-colonne-projets={actifs.length}>
+        {actifs.map((p) => {
+          const etat = etatDeLAgent(p, state);
+          return (
+            <button
+              key={p.projectId}
+              type="button"
+              onClick={() => onOuvrir(p.projectId)}
+              className={cn(CLASSE_LIGNE_DE_SERVICE, 'hover:bg-raised')}
+              data-marketing-projet={p.projectId}
+              data-marketing-agent-etat={etat}
+            >
+              <PastilleProjet project={state.projects.find((x) => x.id === p.projectId) ?? { name: p.nom, favicon: undefined }} />
+              <span className="min-w-0 flex-1 truncate">{p.nom}</span>
+              {etat === 'question' ? (
+                <MessageCircleQuestion className="h-3.5 w-3.5 shrink-0 text-muted" aria-label="Une question attend" data-marketing-ligne-question />
+              ) : null}
+              {projetAuTravail(p, state) ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-teinte" aria-label="Agent au travail" data-marketing-ligne-travaille />
+              ) : null}
+              {p.aValider > 0 ? (
+                <span className="shrink-0 text-[12.5px] tabular-nums text-muted" title={t('{n} à valider', { n: p.aValider })} data-marketing-ligne-a-valider={p.aValider}>
+                  {p.aValider.toLocaleString(formatRegional())}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        {!actifs.length ? <p className="px-2.5 py-1.5 text-[12.5px] leading-relaxed text-faint">{t('Aucun projet actif.')}</p> : null}
+      </nav>
+    </ZoneDefilement>
+  );
+}
+
+/**
+ * « AJOUTER UN PROJET » : le menu des projets INACTIFS. En choisir un rallume
+ * son suivi (`marketing.activer`, le réglage de l'interrupteur de sa page) PUIS
+ * l'ouvre. Le bouton tourne dès le clic, jusqu'à la réponse du démon ; il
+ * n'existe pas quand tous les projets sont déjà suivis.
+ */
+function AjouterUnProjet({ inactifs, onOuvrir }: { inactifs: LigneProjetMarketing[]; onOuvrir: (projectId: string) => void }) {
+  const projetsDeLApp = useApp().projects;
+  const [envoi, setEnvoi] = React.useState<string | null>(null);
+  const rallumer = async (projectId: string) => {
+    setEnvoi(projectId);
+    try {
+      await client.call({ type: 'marketing.activer', projectId, actif: true });
+      onOuvrir(projectId);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Réglage impossible'));
+    } finally {
+      setEnvoi(null);
+    }
+  };
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <GesteDeCreationDeColonne
+          libelle={t('Ajouter un projet')}
+          disabled={!!envoi}
+          enCours={!!envoi}
+          title={t('Rallumer le suivi marketing d’un projet inactif')}
+          data-marketing-ajouter-projet={inactifs.length}
+          data-marketing-ajout-en-cours={envoi ?? undefined}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[220px]" data-marketing-menu-ajouter={inactifs.length}>
+        <DropdownMenuLabel>{t('Projets inactifs')}</DropdownMenuLabel>
+        {inactifs.map((p) => (
+          <DropdownMenuItem key={p.projectId} onSelect={() => void rallumer(p.projectId)} data-marketing-ajouter-choix={p.projectId}>
+            <PastilleProjet project={projetsDeLApp.find((x) => x.id === p.projectId) ?? { name: p.nom, favicon: undefined }} />
+            <span className="min-w-0 truncate">{p.nom}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
  * LE TABLEAU DE BORD GLOBAL, à l'ouverture de l'outil : l'état de santé de
  * tous les projets d'un coup d'œil — les chiffres clés, la courbe des visites
- * de tous les projets, la répartition des contenus par étape —, puis une ligne
- * par projet. Tout vient de `marketing.lister` : UNE lecture pour tous les
- * projets, jamais les statistiques complètes de chacun.
+ * de tous les projets, la répartition des contenus par étape —, puis ce qui
+ * attend dans chaque projet. Tout vient de `marketing.lister` : UNE lecture
+ * pour tous les projets, jamais les statistiques complètes de chacun.
  *
- * DEMANDE DU 27/09/2026 : les chiffres en haut sur toute la largeur ; dessous,
- * sur ordinateur, les tableaux Actifs et Inactifs à gauche et les travaux de
- * l'atelier en cours à DROITE, chaque colonne avec son propre défilement ; sur
- * téléphone, une bande qui défile de côté au-dessus des « Projets actifs » ; un clic ouvre le projet sur « Contenus ».
- * Un projet dont le suivi est coupé (`actif === false`) passe dans « Projets
- * inactifs », en bas, et sort des chiffres, de la courbe et de la répartition.
+ * LES PROJETS DANS LA COLONNE DE GAUCHE, CE QUI ATTEND DANS LA PAGE (demande du
+ * 11/10/2026). Sur ordinateur, la liste des projets a quitté la page : elle
+ * vit dans la colonne de gauche (`ColonneDesProjets`), les inactifs derrière
+ * « Ajouter un projet ». La page, elle, se lit de haut en bas, sur UNE colonne :
+ * les cinq chiffres, la courbe des visites sur toute la largeur, « Contenus
+ * par étape » en tuiles côte à côte, les travaux de l'atelier « En cours » en
+ * RANGÉE (le plus récent à gauche), puis « En attente par projet » — les
+ * contenus à valider et les prochaines actions du plan de chaque projet qui
+ * attend quelque chose. Plus aucune zone ne défile à part : c'est la page qui
+ * défile. Un clic sur un travail ouvre son projet sur « Contenus ».
+ *
+ * SUR TÉLÉPHONE, RIEN NE CHANGE : il n'y a pas de colonne, donc la page garde
+ * ses deux tableaux, « Projets actifs » puis « Projets inactifs »
+ * (`projetsDansLaColonne` faux).
+ *
+ * Un projet dont le suivi est coupé (`actif === false`) sort des chiffres, de
+ * la courbe, de la répartition et de « En attente par projet ».
  */
 function TableauDeBordMarketing({
   projets: tous,
   jours,
+  projetsDansLaColonne,
   onOuvrir,
 }: {
   projets: LigneProjetMarketing[];
   jours: string[];
+  /** La liste des projets est dans la colonne de gauche : la page ne la redit pas, elle montre ce qui attend. */
+  projetsDansLaColonne: boolean;
   onOuvrir: (projectId: string, onglet?: Onglet) => void;
 }) {
   const state = useApp();
+  const telephone = useTelephone();
   const { actifs: projets, inactifs } = separerProjetsActifs(tous);
   const somme = (f: (p: LigneProjetMarketing) => number) => projets.reduce((s, p) => s + f(p), 0);
   const visitesParJour = jours.map((jour, i) => ({ jour, valeur: somme((p) => p.visites[i] ?? 0) }));
@@ -593,9 +777,18 @@ function TableauDeBordMarketing({
     { cle: 'publies', libelle: t('Publiés'), valeur: publies.toLocaleString(formatRegional()) },
   ];
   const ouvrirTravail = (projectId: string) => onOuvrir(projectId, 'contenus');
+  /* Les trois étapes d'avant la publication ont TOUJOURS leur tuile, même à
+     zéro : la rangée ne change pas de forme d'un jour à l'autre. « Publiés »
+     ne s'y ajoute que lorsqu'il y en a — son chiffre est déjà en tête. */
+  const etapes: EtapeEnTuile[] = [
+    { cle: 'brouillons', libelle: t('Brouillons'), n: brouillons },
+    { cle: 'a-valider', libelle: t('À valider'), n: aValider },
+    { cle: 'programmes', libelle: t('Programmés'), n: programmes },
+    ...(publies > 0 ? [{ cle: 'publies', libelle: t('Publiés'), n: publies }] : []),
+  ];
   return (
-    <div className="flex min-w-0 flex-col gap-3 md:h-full md:min-h-[480px]" data-marketing-tableau-de-bord={tous.length}>
-      <div className="flex min-w-0 shrink-0 flex-col gap-3" data-marketing-chiffres>
+    <div className="flex min-w-0 flex-col gap-3" data-marketing-tableau-de-bord={tous.length}>
+      <div className="flex min-w-0 flex-col gap-3" data-marketing-chiffres>
         <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
           {tuiles.map((x) => (
             <div key={x.cle} className="flex min-w-0 flex-col gap-0.5 rounded-md bg-bloc px-3 py-2" data-marketing-chiffre={x.cle}>
@@ -605,43 +798,144 @@ function TableauDeBordMarketing({
             </div>
           ))}
         </div>
-        <div className="grid gap-1.5 sm:grid-cols-[2fr_1fr]">
-          {visitesParJour.length ? <CourbeParJour cle="visites-globales" titre={t('Visites par jour, tous projets')} points={visitesParJour} /> : null}
+        {visitesParJour.length ? <CourbeParJour cle="visites-globales" titre={t('Visites par jour, tous projets')} points={visitesParJour} /> : null}
+        {/* Sur téléphone, rien ne change : la répartition reste la liste
+            d'avant, sous la courbe. */}
+        {telephone ? (
           <Repartition
             cle="etapes"
             titre={t('Contenus par étape')}
-            lignes={([[t('Brouillons'), brouillons], [t('À valider'), aValider], [t('Programmés'), programmes], [t('Publiés'), publies]] as [string, number][]).filter(([, n]) => n > 0)}
+            lignes={etapes.filter((e) => e.n > 0).map((e): [string, number] => [e.libelle, e.n])}
           />
-        </div>
+        ) : (
+          <EtapesEnTuiles etapes={etapes} />
+        )}
       </div>
-      {/* SOUS LES CHIFFRES, DEUX COLONNES dès `md` (demande du 27/09/2026) :
-          les tableaux à gauche, les cartes « En cours » à droite, chacune avec
-          son propre défilement. Sur téléphone, une seule colonne, et la bande
-          « En cours » au-dessus des « Projets actifs ». */}
-      <div className="flex min-w-0 flex-col gap-3 md:grid md:min-h-0 md:flex-1 md:grid-cols-[minmax(0,1fr)_260px]" data-marketing-colonnes>
-        <ZoneDefilement fond="hsl(var(--surface))" classeEnveloppe="min-w-0" data-marketing-colonne-projets>
-          <div className="flex min-w-0 flex-col gap-3">
-            <BandeEnCours travaux={travaux} onOuvrir={ouvrirTravail} />
+      <RangeeEnCours travaux={travaux} onOuvrir={ouvrirTravail} />
+      {projetsDansLaColonne ? (
+        <EnAttenteParProjet projets={projets} onOuvrir={onOuvrir} />
+      ) : (
+        <>
+          <TableauDesProjets
+            groupe="actifs"
+            titre={t('Projets actifs')}
+            vide={t('Aucun projet suivi : rallumez le suivi marketing depuis la page d’un projet.')}
+            cleReglage={CLE_REGLAGE_TABLEAU}
+            projets={projets}
+            onOuvrir={onOuvrir}
+          />
+          {inactifs.length ? (
             <TableauDesProjets
-              groupe="actifs"
-              titre={t('Projets actifs')}
-              vide={t('Aucun projet suivi : rallumez le suivi marketing depuis la page d’un projet.')}
-              cleReglage={CLE_REGLAGE_TABLEAU}
-              projets={projets}
+              groupe="inactifs"
+              titre={t('Projets inactifs')}
+              cleReglage={CLE_REGLAGE_TABLEAU_INACTIFS}
+              projets={inactifs}
               onOuvrir={onOuvrir}
             />
-            {inactifs.length ? (
-              <TableauDesProjets
-                groupe="inactifs"
-                titre={t('Projets inactifs')}
-                cleReglage={CLE_REGLAGE_TABLEAU_INACTIFS}
-                projets={inactifs}
-                onOuvrir={onOuvrir}
-              />
-            ) : null}
-          </div>
-        </ZoneDefilement>
-        <ColonneEnCours travaux={travaux} onOuvrir={ouvrirTravail} />
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * « EN ATTENTE PAR PROJET » (demande du 11/10/2026) : ce qui attend QUELQU'UN,
+ * projet par projet — le nombre de contenus à valider et les prochaines
+ * actions non faites du plan (trois au plus, comme « À faire ensuite » dans le
+ * projet), chacune avec sa date prévue. Un projet qui n'attend rien n'y figure
+ * pas ; quand aucun n'attend rien, une phrase le dit. Toute l'entrée ouvre le
+ * projet. Une liste regroupée : un seul fond, aucun trait.
+ */
+function EnAttenteParProjet({
+  projets,
+  onOuvrir,
+}: {
+  projets: LigneProjetMarketing[];
+  onOuvrir: (projectId: string, onglet?: Onglet) => void;
+}) {
+  const projetsDeLApp = useApp().projects;
+  const enAttente = projets.filter((p) => p.aValider > 0 || (p.aFaire?.length ?? 0) > 0);
+  return (
+    <div className="flex min-w-0 flex-col gap-1" data-marketing-en-attente={enAttente.length}>
+      <span className="flex min-h-6 items-center px-1 text-[12.5px] font-medium text-text">{t('En attente par projet')}</span>
+      {enAttente.length ? (
+        <div className={CLASSE_GROUPE_DE_LIGNES}>
+          {enAttente.map((p) => (
+            <button
+              key={p.projectId}
+              type="button"
+              /* ON ARRIVE LÀ OÙ L'ON A À FAIRE : sur les contenus quand seuls
+                 des contenus attendent d'être validés, sur le calendrier — où
+                 se lit le plan — dès qu'une action reste à faire. */
+              onClick={() => onOuvrir(p.projectId, (p.aFaire?.length ?? 0) > 0 ? undefined : 'contenus')}
+              className={cn(CLASSE_LIGNE_DE_GROUPE, 'flex min-w-0 flex-col gap-1.5 focus-visible:bg-raised focus-visible:outline-none')}
+              data-marketing-attente-projet={p.projectId}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <PastilleProjet project={projetsDeLApp.find((x) => x.id === p.projectId) ?? { name: p.nom, favicon: undefined }} />
+                <span className="min-w-0 flex-1 truncate text-[14px] text-text">{p.nom}</span>
+                {p.aValider > 0 ? (
+                  <span className="shrink-0 text-[12.5px] text-muted" data-marketing-attente-a-valider={p.aValider}>
+                    {t('{n} à valider', { n: p.aValider })}
+                  </span>
+                ) : null}
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+              </span>
+              {(p.aFaire ?? []).slice(0, 3).map((a) => (
+                <span key={a.id} className="flex min-w-0 items-center gap-2 pl-[23px] text-[13px]" data-marketing-attente-action={a.id}>
+                  <Circle className="h-3 w-3 shrink-0 text-faint" />
+                  <span className="min-w-0 flex-1 truncate text-muted">{a.titre}</span>
+                  {a.datePrevue ? <span className="shrink-0 text-[12px] text-faint">{dateCourte(a.datePrevue)}</span> : null}
+                </span>
+              ))}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="px-1 text-[12.5px] text-faint" data-marketing-en-attente-vide>
+          {t('Rien n’attend, dans aucun projet.')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface EtapeEnTuile {
+  cle: string;
+  libelle: string;
+  n: number;
+}
+
+/**
+ * « CONTENUS PAR ÉTAPE » EN TUILES CÔTE À CÔTE (demande du 11/10/2026), plus en
+ * liste dans une colonne à droite de la courbe : une tuile par étape — son
+ * nombre, sa part du total, et la barre qui dessine cette part.
+ */
+function EtapesEnTuiles({ etapes }: { etapes: EtapeEnTuile[] }) {
+  const total = etapes.reduce((s, e) => s + e.n, 0);
+  return (
+    <div className="flex min-w-0 flex-col gap-1" data-marketing-repartition="etapes">
+      <span className="flex min-h-6 items-center px-1 text-[12.5px] font-medium text-text" data-stats-titre>
+        {t('Contenus par étape')}
+      </span>
+      <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${etapes.length}, minmax(0, 1fr))` }}>
+        {etapes.map((e) => {
+          const part = total ? Math.round((e.n / total) * 100) : 0;
+          return (
+            <div key={e.cle} className="flex min-w-0 flex-col gap-1.5 rounded-md bg-bloc px-3 py-2.5" data-marketing-etape={e.cle}>
+              <span className="truncate text-[12px] text-faint">{e.libelle}</span>
+              <span className="flex min-w-0 items-baseline gap-2">
+                <span className="text-[18px] font-medium leading-tight text-text">{e.n.toLocaleString(formatRegional())}</span>
+                <span className="whitespace-nowrap text-[12px] text-faint">{part} %</span>
+              </span>
+              <span className="block h-1.5 overflow-hidden rounded-full bg-faint/15">
+                {/* Une étape qui compte peu garde un trait visible : 1 % ne s'efface pas. */}
+                <span className="block h-full rounded-full bg-text" style={{ width: `${e.n ? Math.max(2, (e.n / total) * 100) : 0}%` }} />
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -677,48 +971,53 @@ function TuileEnCours({ travail, onOuvrir, className }: { travail: TravailAffich
   );
 }
 
-/** LA COLONNE « EN COURS », à droite des tableaux et sous les chiffres, sur ordinateur seulement ; elle défile seule. */
-function ColonneEnCours({ travaux, onOuvrir }: { travaux: TravailAffiche[]; onOuvrir: (projectId: string) => void }) {
+/**
+ * « EN COURS », EN RANGÉE (demande du 11/10/2026) — plus une colonne à droite
+ * des tableaux : les travaux de l'atelier côte à côte, juste au-dessus de
+ * « En attente par projet » (des « Projets actifs » sur téléphone), LE PLUS
+ * RÉCENT À GAUCHE (`depuis`, la dernière fois que la carte a bougé). Jusqu'à trois, ils tiennent dans la largeur, alignés sur
+ * les tuiles du dessus ; au-delà, la rangée défile de côté : chaque carte se
+ * resserre un peu pour que la quatrième DÉPASSE et s'efface au bord — on voit
+ * qu'il en reste.
+ *
+ * Quand rien ne tourne : une ligne basse et discrète sur ordinateur — jamais
+ * une colonne vide —, et RIEN sur téléphone, où la place compte. Sur
+ * téléphone, c'est la bande d'avant, inchangée.
+ */
+function RangeeEnCours({ travaux, onOuvrir }: { travaux: TravailAffiche[]; onOuvrir: (projectId: string) => void }) {
+  const telephone = useTelephone();
+  if (!travaux.length && telephone) return null;
+  const duPlusRecent = [...travaux].sort((a, b) => b.depuis - a.depuis);
   return (
-    <aside className="hidden min-h-0 min-w-0 flex-col gap-1 md:flex" data-marketing-en-cours={travaux.length}>
-      <span className="flex min-h-6 shrink-0 items-center gap-2 px-1 text-[12.5px] font-medium text-text">
+    <div
+      className="flex min-w-0 flex-col gap-1"
+      data-marketing-en-cours={telephone ? undefined : travaux.length}
+      data-marketing-en-cours-bande={travaux.length}
+    >
+      <span className="flex min-h-6 items-center gap-2 px-1 text-[12.5px] font-medium text-text">
         {t('En cours')}
-        {travaux.length ? <span className="font-normal text-faint">{travaux.length}</span> : null}
+        {!travaux.length ? (
+          <span className="font-normal text-faint" data-marketing-en-cours-vide>
+            {t('Aucun travail en cours.')}
+          </span>
+        ) : telephone ? null : (
+          <span className="font-normal text-faint">{travaux.length}</span>
+        )}
       </span>
-      <ZoneDefilement fond="hsl(var(--surface))">
-        {travaux.length ? (
-          <div className="flex flex-col gap-1">
-            {travaux.map((x) => (
-              <TuileEnCours key={x.cardId} travail={x} onOuvrir={() => onOuvrir(x.projectId)} />
+      {travaux.length ? (
+        <ZoneDefilement axe="horizontal" voile={!telephone} className="snap-x">
+          <div className="flex gap-1.5 pb-1">
+            {duPlusRecent.map((x) => (
+              <TuileEnCours
+                key={x.cardId}
+                travail={x}
+                onOuvrir={() => onOuvrir(x.projectId)}
+                className={cn('w-[200px] shrink-0 snap-start', travaux.length > 3 ? 'sm:w-[30%]' : 'sm:w-[calc((100%-0.75rem)/3)]')}
+              />
             ))}
           </div>
-        ) : (
-          <p className="px-1 text-[12px] text-faint" data-marketing-en-cours-vide>
-            {t('Aucun travail en cours.')}
-          </p>
-        )}
-      </ZoneDefilement>
-    </aside>
-  );
-}
-
-/**
- * LA MÊME LISTE SUR TÉLÉPHONE : une bande de petites cartes qui défile de
- * côté, juste au-dessus des « Projets actifs ». Rien quand rien ne tourne —
- * sur un petit écran, la place compte.
- */
-function BandeEnCours({ travaux, onOuvrir }: { travaux: TravailAffiche[]; onOuvrir: (projectId: string) => void }) {
-  if (!travaux.length) return null;
-  return (
-    <div className="flex min-w-0 flex-col gap-1 md:hidden" data-marketing-en-cours-bande={travaux.length}>
-      <span className="px-1 text-[12.5px] font-medium text-text">{t('En cours')}</span>
-      <ZoneDefilement axe="horizontal" className="snap-x">
-        <div className="flex gap-1.5 pb-1">
-          {travaux.map((x) => (
-            <TuileEnCours key={x.cardId} travail={x} onOuvrir={() => onOuvrir(x.projectId)} className="w-[200px] shrink-0 snap-start" />
-          ))}
-        </div>
-      </ZoneDefilement>
+        </ZoneDefilement>
+      ) : null}
     </div>
   );
 }
@@ -783,6 +1082,10 @@ type LigneAffichee = LigneTableauMarketing & { source: LigneProjetMarketing; eta
  * sont gardés d'une visite à l'autre ; la règle est partagée et testée
  * (`shared/src/tableau-marketing.ts`). Sur téléphone, le tableau défile de
  * gauche à droite, le nom du projet restant collé au bord.
+ *
+ * DEPUIS LE 11/10/2026, CE TABLEAU EST CELUI DU TÉLÉPHONE : sur ordinateur les
+ * projets vivent dans la colonne de gauche (`ColonneDesProjets`), et il n'est
+ * plus monté que si cette colonne n'a pas pu recevoir le menu.
  */
 function TableauDesProjets({
   groupe,
@@ -831,17 +1134,23 @@ function TableauDesProjets({
   const filtrer = (filtres: FiltresTableauMarketing) => setReglage((r) => ({ ...r, filtres }));
   const unFiltre = Object.keys(reglage.filtres).length > 0;
 
-  // LE NOM À GAUCHE, TOUT LE RESTE SERRÉ À DROITE CONTRE LE CHEVRON : le
-  // projet prend la place libre, chaque autre colonne a sa largeur fixe
-  // (`table-fixed`) et s'aligne à droite, dans l'ordre voulu par l'utilisateur.
-  // La somme des largeurs (+ 150 px de nom) fixe le `min-w` de la table.
+  // LE NOM À GAUCHE, TOUT LE RESTE SERRÉ À DROITE : le projet prend la place
+  // libre, chaque autre colonne a sa largeur fixe (`table-fixed`) et s'aligne
+  // à droite, dans l'ordre voulu par l'utilisateur.
+  //
+  // DEUX JEUX DE LARGEURS. Sur téléphone, le tableau défile de côté : ses
+  // colonnes gardent leurs aises (836 px + 150 px de nom, d'où `min-w-[1000px]`).
+  // Dès `sm`, il TIENT DANS LA LARGEUR D'UNE PAGE (756 px), sans défiler : les
+  // mêmes six colonnes et le chevron, resserrés (606 px + 150 px de nom), des
+  // marges plus courtes, une barre d'avancement et une petite courbe réduites.
+  // Plus étroit encore, il défile de côté dans son cadre, jamais la page.
   const colonnes: { cle: ColonneTableauMarketing; libelle: string; classe: string }[] = [
-    { cle: 'projet', libelle: t('Projet'), classe: 'sticky left-0 z-10 bg-bloc' },
-    { cle: 'etape', libelle: t('Prochaine étape'), classe: 'w-[240px]' },
-    { cle: 'type', libelle: t('Type'), classe: 'w-[150px]' },
-    { cle: 'aValider', libelle: t('À valider'), classe: 'w-[120px]' },
-    { cle: 'avancement', libelle: t('Avancement'), classe: 'w-[140px]' },
-    { cle: 'visites', libelle: t('Visites'), classe: 'w-[150px]' },
+    { cle: 'projet', libelle: t('Projet'), classe: 'sticky left-0 z-10 bg-bloc sm:pr-1' },
+    { cle: 'etape', libelle: t('Prochaine étape'), classe: 'w-[240px] sm:w-[150px] sm:px-2' },
+    { cle: 'type', libelle: t('Type'), classe: 'w-[150px] sm:w-[122px] sm:px-2' },
+    { cle: 'aValider', libelle: t('À valider'), classe: 'w-[120px] sm:w-[92px] sm:px-2' },
+    { cle: 'avancement', libelle: t('Avancement'), classe: 'w-[140px] sm:w-[112px] sm:px-2' },
+    { cle: 'visites', libelle: t('Visites'), classe: 'w-[150px] sm:w-[102px] sm:pl-2 sm:pr-0' },
   ];
 
   return (
@@ -866,7 +1175,10 @@ function TableauDesProjets({
         ) : null}
       </div>
       <ZoneDefilement axe="horizontal" fond="hsl(var(--bloc))" className="rounded-md bg-bloc">
-        <table className="w-full min-w-[1000px] table-fixed border-collapse text-left" data-marketing-liste={projets.length} data-marketing-tableau>
+        {/* `isolate` : le nom collé au bord (`sticky z-10`) ne passe que devant
+            ses voisines. Sans cela il montait aussi devant le fondu de la page
+            qui défile, et restait net quand le reste de sa ligne s'effaçait. */}
+        <table className="isolate w-full min-w-[1000px] table-fixed border-collapse text-left sm:min-w-[740px]" data-marketing-liste={projets.length} data-marketing-tableau>
           <thead>
             <tr className="text-[12px] text-faint">
               {colonnes.map((c) => (
@@ -884,7 +1196,7 @@ function TableauDesProjets({
                   <FiltreDeColonne colonne={c.cle} filtres={reglage.filtres} natures={natures} onChange={filtrer} />
                 </EnteteDeColonne>
               ))}
-              <th aria-hidden className="w-9" />
+              <th aria-hidden className="w-9 sm:w-7" />
             </tr>
           </thead>
           <tbody>
@@ -1110,7 +1422,7 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
       }}
       className="group cursor-pointer border-t border-border/60 text-[12.5px] hover:bg-raised focus-visible:bg-raised focus-visible:outline-none"
     >
-      <td className="sticky left-0 z-10 bg-bloc px-3 py-2.5 group-hover:bg-raised group-focus-visible:bg-raised" data-marketing-cellule="projet">
+      <td className="sticky left-0 z-10 bg-bloc px-3 py-2.5 group-hover:bg-raised group-focus-visible:bg-raised sm:pr-1" data-marketing-cellule="projet">
         <span className="flex min-w-0 items-center gap-1.5">
           <PastilleProjet project={projet ?? { name: ligne.nom, favicon: undefined }} />
           <span className="truncate text-[13.5px] text-text">{ligne.nom}</span>
@@ -1119,7 +1431,7 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
           ) : null}
         </span>
       </td>
-      <td className="px-3 py-2.5 text-right" data-marketing-cellule="etape" title={ligne.texteEtape || undefined}>
+      <td className="px-3 py-2.5 text-right sm:px-2" data-marketing-cellule="etape" title={ligne.texteEtape || undefined}>
         {etat === 'travail' ? (
           <span className="flex min-w-0 items-center justify-end gap-1 text-en-cours" data-marketing-agent-travaille>
             <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
@@ -1134,19 +1446,19 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
           <span className="block truncate text-faint">{ligne.texteEtape || '—'}</span>
         )}
       </td>
-      <td className="px-3 py-2.5 text-right" data-marketing-cellule="type">
+      <td className="px-3 py-2.5 text-right sm:px-2" data-marketing-cellule="type">
         <span className="flex min-w-0 justify-end">
           <Badge tone={ligne.avancement >= 100 ? 'success' : 'neutral'} className="min-w-0 max-w-full">
             <span className="truncate">{source.nature ? libelleNature(source.nature) : t('À découvrir')}</span>
           </Badge>
         </span>
       </td>
-      <td className="px-3 py-2.5 text-right" data-marketing-cellule="a-valider">
+      <td className="px-3 py-2.5 text-right sm:px-2" data-marketing-cellule="a-valider">
         {ligne.aValider ? <Badge tone="warning">{ligne.aValider}</Badge> : <span className="text-faint">—</span>}
       </td>
-      <td className="px-3 py-2.5 text-right" data-marketing-cellule="avancement">
+      <td className="px-3 py-2.5 text-right sm:px-2" data-marketing-cellule="avancement">
         <span className="flex items-center justify-end gap-2 text-faint">
-          <span className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-faint/20">
+          <span className="h-1 w-16 shrink-0 overflow-hidden rounded-full bg-faint/20 sm:w-12">
             <span
               className={cn('block h-full rounded-full', ligne.avancement >= 100 ? 'bg-termine' : 'bg-en-cours')}
               style={{ width: `${ligne.avancement}%` }}
@@ -1155,9 +1467,12 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
           <span className="w-9 shrink-0 text-right tabular-nums">{ligne.avancement} %</span>
         </span>
       </td>
-      <td className="px-3 py-2.5 text-right" data-marketing-cellule="visites" title={t('Visites des quatre dernières semaines')}>
-        <span className="flex items-center justify-end gap-2">
-          <MiniCourbe valeurs={source.visites} />
+      <td className="px-3 py-2.5 text-right sm:pl-2 sm:pr-0" data-marketing-cellule="visites" title={t('Visites des quatre dernières semaines')}>
+        <span className="flex items-center justify-end gap-2 sm:gap-1.5">
+          {/* La petite courbe se resserre (40 px) là où le tableau doit tenir dans la page. */}
+          <span className="contents sm:[&>*]:w-10">
+            <MiniCourbe valeurs={source.visites} />
+          </span>
           <span className="shrink-0 tabular-nums text-faint">{ligne.visites.toLocaleString(formatRegional())}</span>
           {/* UN SITE DONT LE CODE MANQUE OU EST FAUX LE DIT, dans la colonne
               même où ses visites devraient se compter — par une icône seule,
@@ -1193,6 +1508,24 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
    onglet mémorisé ou demandé qui porterait encore ce nom retombe sur le défaut. */
 type Onglet = 'positionnement' | 'contenus' | 'calendrier' | 'canaux';
 const ONGLETS: readonly Onglet[] = ['positionnement', 'contenus', 'calendrier', 'canaux'];
+/** La rubrique d'arrivée d'un projet, quand rien d'autre n'est demandé. */
+const ONGLET_PAR_DEFAUT: Onglet = 'calendrier';
+/** Les rubriques qui sont des plans de travail : elles prennent toute la largeur de la zone principale. */
+const ONGLETS_EN_PLEINE_LARGEUR: readonly Onglet[] = ['calendrier', 'contenus'];
+
+/**
+ * LES QUATRE RUBRIQUES D'UN PROJET, dans l'ordre où elles se lisent — les
+ * lignes de la colonne de gauche sur ordinateur, les onglets de la page sur
+ * téléphone : une seule liste pour les deux.
+ */
+function rubriquesDuProjet(): { cle: Onglet; Icone: React.ComponentType<{ className?: string }>; libelle: string }[] {
+  return [
+    { cle: 'calendrier', Icone: CalendarDays, libelle: t('Calendrier') },
+    { cle: 'contenus', Icone: Columns3, libelle: t('Contenus') },
+    { cle: 'canaux', Icone: Share2, libelle: t('Canaux') },
+    { cle: 'positionnement', Icone: Target, libelle: t('Positionnement') },
+  ];
+}
 
 /**
  * L'AGENT ATTITRÉ, VU DE L'ÉCRAN : son état (pour le bouton unique) et le
@@ -1283,17 +1616,19 @@ function useAgentMarketing(projectId: string, espace: EspaceMarketing | null | u
 
 function EspaceDuProjet({
   projectId,
-  ongletInitial,
+  onglet,
+  onOnglet,
   onRetour,
   onChangerProjet,
   onOuvrirCarte,
 }: {
   projectId: string;
-  /** L'onglet d'arrivée : « Calendrier » par défaut, « Contenus » depuis la colonne « En cours ». */
-  ongletInitial?: Onglet;
+  /** La rubrique ouverte, tenue par `Marketing` : la page en tire sa largeur. */
+  onglet: Onglet;
+  onOnglet: (onglet: Onglet) => void;
   onRetour: () => void;
-  /** Passe à un autre projet actif en gardant l'onglet ouvert. */
-  onChangerProjet: (projectId: string, onglet: Onglet) => void;
+  /** Passe à un autre projet actif ; la rubrique ouverte est gardée. */
+  onChangerProjet: (projectId: string) => void;
   onOuvrirCarte?: (card: Card) => void;
 }) {
   const state = useApp();
@@ -1301,9 +1636,19 @@ function EspaceDuProjet({
   const [donnees, setDonnees] = React.useState<EspaceComplet | null>(null);
   // Les chiffres complets vivent dans le service Statistiques : l'espace n'en lit que 30 jours.
   const jours = 30;
-  const [onglet, setOnglet] = React.useState<Onglet>(ongletInitial && ONGLETS.includes(ongletInitial) ? ongletInitial : 'calendrier');
   const [contenuOuvert, setContenuOuvert] = React.useState<string | null>(null);
+  /* L'action du plan ouverte vit ICI, plus dans le calendrier : « À faire
+     ensuite » (colonne de gauche) et les pastilles du calendrier ouvrent le
+     même volet. */
+  const [actionOuverte, setActionOuverte] = React.useState<string | null>(null);
   const [creation, setCreation] = React.useState(false);
+  useTiroirAdresse('nouveau-contenu-marketing', creation, setCreation);
+  /* Les rubriques sont-elles dans la colonne de gauche ? Sinon (téléphone,
+     colonne pas encore posée), la page garde sa barre d'onglets et son bloc
+     « À faire ensuite ». */
+  const colonne = useColonneDeService();
+  const [menuPose, setMenuPose] = React.useState(false);
+  const rubriquesDansLaColonne = colonne && menuPose;
 
   React.useEffect(() => {
     let vivant = true;
@@ -1342,26 +1687,70 @@ function EspaceDuProjet({
   const chat = chatRetenu(chatBrut);
   const ouvrirChat = () => setChatBrut({ ...chat, ouvert: true });
   const contenu = donnees?.contenus.find((c) => c.id === contenuOuvert) ?? null;
+  const action = donnees?.actions?.find((a) => a.id === actionOuverte) ?? null;
   // Le voile n'attend que les DONNÉES de l'espace : avant elles, on ne sait pas
   // si le projet a déjà son agent, et un voile éphémère clignoterait.
   const voile = !!donnees && agent.etat === 'initialiser';
+  const rubriques = rubriquesDuProjet();
+  /* Ce qui rend le contenu hors d'atteinte sous le voile, où qu'il soit monté. */
+  const horsDAtteinte = { 'aria-hidden': voile || undefined, ...(voile ? { inert: '' } : {}) };
+
+  /** Le contenu d'une rubrique : le même, que la navigation soit dans la page ou dans la colonne. */
+  const panneau = (cle: Onglet, d: EspaceComplet) => {
+    if (cle === 'calendrier') {
+      return (
+        <OngletCalendrier
+          projectId={projectId}
+          contenus={d.contenus}
+          actions={d.actions ?? []}
+          aFaireDansLaColonne={rubriquesDansLaColonne}
+          onOuvrir={setContenuOuvert}
+          onOuvrirAction={setActionOuverte}
+          onAgent={ouvrirChat}
+        />
+      );
+    }
+    if (cle === 'contenus') {
+      return (
+        <OngletContenus
+          contenus={d.contenus}
+          cartes={d.cartes ?? []}
+          onOuvrirCarte={onOuvrirCarte}
+          onOuvrir={setContenuOuvert}
+          aUnAgent={agent.etat !== 'initialiser'}
+          auTravail={agent.etat === 'travail' || agent.etat === 'question'}
+          suiteEnvoyee={agent.envoi}
+          onAgent={ouvrirChat}
+          onSuite={() => void agent.lancer('suite')}
+          onEcrire={() => setCreation(true)}
+        />
+      );
+    }
+    if (cle === 'canaux') return <OngletCanaux projectId={projectId} donnees={d} onAgent={ouvrirChat} />;
+    return <OngletPositionnement projectId={projectId} fiche={d.espace?.fiche ?? {}} />;
+  };
 
   return (
     <>
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <Button variant="ghost" size="icon" aria-label="Tous les projets" title={t('Tous les projets')} onClick={onRetour} data-marketing-retour>
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
+      {/* PLUS DE SECONDE BARRE : le projet ouvert est le dernier cran du fil
+          d'Ariane — « Services › Marketing › ProjetA Saas » —, il y ouvre la liste
+          des autres projets, et « Marketing » y ramène à tous les projets. Ses
+          gestes montent à droite de la barre d'en-tête. */}
+      <SuiteDuFil onRacine={onRetour} retour={{ action: onRetour, reperes: { 'data-marketing-retour': '' } }}>
+        <SeparateurDuFil />
         <SelecteurDeProjet
+          dansLeFil
           id={projectId}
           nom={nomDuProjet}
           icone={iconeDe(projectId, nomDuProjet)}
-          choix={voisins.map((v) => ({ id: v.projectId, nom: v.nom, icone: iconeDe(v.projectId, v.nom) }))}
-          onChoisir={(id) => (id === projectId ? undefined : onChangerProjet(id, onglet))}
+          choix={voisins.map((v) => ({ id: v.projectId, nom: v.nom, icone: iconeDe(v.projectId, v.nom), projetId: v.projectId }))}
+          onChoisir={(id) => (id === projectId ? undefined : onChangerProjet(id))}
           repere="marketing"
           libelleFiltre={t('Filtrer les projets')}
           libelleVide={t('Aucun projet ne correspond.')}
         />
+      </SuiteDuFil>
+      <GestesDePage>
         {donnees ? <InterrupteurDeSuivi projectId={projectId} actif={donnees.espace?.actif !== false} /> : null}
         <ActionsEntete
           info={{
@@ -1374,7 +1763,37 @@ function EspaceDuProjet({
             ),
           }}
         />
-      </header>
+      </GestesDePage>
+
+      {/* LES RUBRIQUES DU PROJET VIVENT DANS LA COLONNE DE GAUCHE (demande du
+          11/10/2026), un cran sous la liste des projets : la tête de la colonne
+          porte le nom du projet, sa flèche ramène à la vue d'ensemble. Dessous,
+          « À faire ensuite » — les prochaines actions du plan restent sous les
+          yeux quelle que soit la rubrique ouverte. Sur téléphone, rien de tout
+          cela n'est rendu : la page garde ses onglets. */}
+      <ColonneDeService niveau={{ titre: nomDuProjet, onRetour }}>
+        <TemoinDeColonne onPose={setMenuPose} />
+        <ZoneDefilement hauteur={16} className="pb-4" classeEnveloppe="w-full">
+          <div>
+            <nav aria-label="Rubriques du projet">
+              {rubriques.map(({ cle, Icone, libelle }) => (
+                <button
+                  key={cle}
+                  type="button"
+                  onClick={() => onOnglet(cle)}
+                  aria-current={cle === onglet ? 'page' : undefined}
+                  className={cn(CLASSE_LIGNE_DE_SERVICE, cle === onglet ? 'bg-ligne-active text-teinte' : 'hover:bg-raised')}
+                  data-marketing-onglet={cle}
+                >
+                  <Icone className="h-4 w-4 shrink-0 text-muted" />
+                  <span className="min-w-0 flex-1 truncate">{libelle}</span>
+                </button>
+              ))}
+            </nav>
+            {donnees ? <AFaireEnsuite dansLaColonne actions={donnees.actions ?? []} onOuvrir={setActionOuverte} onAgent={ouvrirChat} /> : null}
+          </div>
+        </ZoneDefilement>
+      </ColonneDeService>
 
       {!donnees ? (
         <div className="px-2">
@@ -1382,70 +1801,127 @@ function EspaceDuProjet({
         </div>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col" data-marketing-zone-contenu>
-        <Tabs
-          value={onglet}
-          onValueChange={(v) => setOnglet(v as Onglet)}
-          className="flex min-h-0 flex-1 flex-col"
-          aria-hidden={voile || undefined}
-          {...(voile ? { inert: '' } : {})}
-        >
-          <div className="shrink-0 px-3 pb-2">
-            <TabsList defilable>
-              <TabsTrigger value="calendrier" data-marketing-onglet="calendrier">{t('Calendrier')}</TabsTrigger>
-              <TabsTrigger value="contenus" data-marketing-onglet="contenus">{t('Contenus')}</TabsTrigger>
-              <TabsTrigger value="canaux" data-marketing-onglet="canaux">{t('Canaux')}</TabsTrigger>
-              <TabsTrigger value="positionnement" data-marketing-onglet="positionnement">{t('Positionnement')}</TabsTrigger>
-            </TabsList>
-          </div>
-          <TabsContent value="calendrier" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <OngletCalendrier projectId={projectId} contenus={donnees.contenus} actions={donnees.actions ?? []} onOuvrir={setContenuOuvert} onAgent={ouvrirChat} />
-          </TabsContent>
-          <TabsContent value="contenus" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <OngletContenus
-              contenus={donnees.contenus}
-              cartes={donnees.cartes ?? []}
-              onOuvrirCarte={onOuvrirCarte}
-              onOuvrir={setContenuOuvert}
-              aUnAgent={agent.etat !== 'initialiser'}
-              auTravail={agent.etat === 'travail' || agent.etat === 'question'}
-              suiteEnvoyee={agent.envoi}
-              onAgent={ouvrirChat}
-              onSuite={() => void agent.lancer('suite')}
-              onEcrire={() => setCreation(true)}
-            />
-          </TabsContent>
-          <TabsContent value="canaux" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <OngletCanaux projectId={projectId} donnees={donnees} onAgent={ouvrirChat} />
-          </TabsContent>
-          <TabsContent value="positionnement" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-            <OngletPositionnement projectId={projectId} fiche={donnees.espace?.fiche ?? {}} />
-          </TabsContent>
-        </Tabs>
-        {voile ? (
-          <div
-            data-marketing-voile
-            className="absolute inset-0 z-10 flex items-center justify-center bg-bg/40 px-6 backdrop-blur-md"
-          >
-            <div className="flex max-w-[340px] flex-col items-center gap-3 text-center">
-              <Sparkles className="h-5 w-5 text-accent" />
-              <p className="text-[15px] font-medium leading-snug text-text">{t('Ce projet n’est pas encore initialisé')}</p>
-              <p className="text-[13px] leading-relaxed text-muted">
-                {t('L’agent marketing va vous poser quelques questions, puis établir la liste de tâches à suivre pour ce projet.')}
-              </p>
-              <Button onClick={ouvrirChat} data-marketing-voile-bouton>
-                <Bot className="h-3.5 w-3.5" />
-                {t('Ouvrir l’agent')}
-              </Button>
+          {rubriquesDansLaColonne ? (
+            /* La rubrique ouverte, seule : sa navigation est dans la colonne. */
+            <div className="flex min-h-0 flex-1 flex-col" data-marketing-rubrique={onglet} {...horsDAtteinte}>
+              {panneau(onglet, donnees)}
             </div>
-          </div>
-        ) : null}
+          ) : (
+            <Tabs value={onglet} onValueChange={(v) => onOnglet(v as Onglet)} className="flex min-h-0 flex-1 flex-col" {...horsDAtteinte}>
+              <div className="shrink-0 px-3 pb-2">
+                <TabsList defilable>
+                  {rubriques.map(({ cle, libelle }) => (
+                    <TabsTrigger key={cle} value={cle} data-marketing-onglet={cle}>
+                      {libelle}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+              {rubriques.map(({ cle }) => (
+                <TabsContent key={cle} value={cle} className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+                  {panneau(cle, donnees)}
+                </TabsContent>
+              ))}
+            </Tabs>
+          )}
+          {voile ? (
+            <div
+              data-marketing-voile
+              className="absolute inset-0 z-10 flex items-center justify-center bg-bg/40 px-6 backdrop-blur-md"
+            >
+              <div className="flex max-w-[340px] flex-col items-center gap-3 text-center">
+                <Sparkles className="h-5 w-5 text-accent" />
+                <p className="text-[15px] font-medium leading-snug text-text">{t('Ce projet n’est pas encore initialisé')}</p>
+                <p className="text-[13px] leading-relaxed text-muted">
+                  {t('L’agent marketing va vous poser quelques questions, puis établir la liste de tâches à suivre pour ce projet.')}
+                </p>
+                <Button onClick={ouvrirChat} data-marketing-voile-bouton>
+                  <Bot className="h-3.5 w-3.5" />
+                  {t('Ouvrir l’agent')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 
       {donnees ? <ChatFlottantMarketing donnees={donnees} projectId={projectId} suivi={agent} chat={chat} onChat={setChatBrut} /> : null}
       <TiroirContenu contenu={contenu} adresseLiens={donnees?.adresseLiens ?? ''} visuels={contenu ? donnees?.visuels?.[contenu.id] ?? [] : []} onClose={() => setContenuOuvert(null)} />
-      <TiroirNouveauContenu ouvert={creation} projectId={projectId} onClose={() => setCreation(false)} />
+      <TiroirNouveauContenu ouvert={creation} projectId={projectId} onClose={() => setCreation(false)} onCree={setContenuOuvert} />
+      <VoletAction action={action} onClose={() => setActionOuverte(null)} />
     </>
+  );
+}
+
+/**
+ * « À FAIRE ENSUITE » : les trois prochaines actions NON FAITES du plan, ou la
+ * phrase qui dit pourquoi il n'y en a pas. Un clic sur une action ouvre son
+ * détail (`VoletAction`).
+ *
+ * DEUX TENUES, UN SEUL CONTENU. Sur ordinateur, c'est une section de la
+ * colonne de gauche, sous les rubriques du projet (`dansLaColonne`). Sur
+ * téléphone, c'est le bloc d'avant, en tête du calendrier. Les deux portent le
+ * repère `data-marketing-a-faire`, au nombre d'actions listées.
+ */
+function AFaireEnsuite({
+  actions,
+  onOuvrir,
+  onAgent,
+  dansLaColonne,
+}: {
+  actions: ActionMarketing[];
+  onOuvrir: (id: string) => void;
+  onAgent: () => void;
+  dansLaColonne?: boolean;
+}) {
+  const aFaire = actions.filter((a) => !a.faitLe).slice(0, 3);
+  const toutEstFait = t('Tout le plan est fait. Demandez la suite à l’agent, dans sa bulle en bas à droite.');
+  const aucunPlan = t('Aucun plan pour l’instant : l’agent le pose pendant son analyse, lancée depuis sa bulle en bas à droite.');
+  if (dansLaColonne) {
+    return (
+      <>
+        <p className={CLASSE_SECTION_DE_SERVICE}>{t('À faire ensuite')}</p>
+        <div data-marketing-a-faire={aFaire.length}>
+          {aFaire.length ? (
+            aFaire.map((a) => (
+              <button key={a.id} type="button" onClick={() => onOuvrir(a.id)} className={cn(CLASSE_LIGNE_DE_SERVICE, 'hover:bg-raised')} data-marketing-a-faire-action={a.id}>
+                <Circle className="h-4 w-4 shrink-0 text-muted" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate">{a.titre}</span>
+                  {a.datePrevue ? <span className="truncate text-[12px] text-faint">{dateCourte(a.datePrevue)}</span> : null}
+                </span>
+              </button>
+            ))
+          ) : actions.length ? (
+            <p className="px-2.5 py-1 text-[12.5px] leading-relaxed text-muted">{toutEstFait}</p>
+          ) : (
+            <button type="button" onClick={onAgent} className="w-full rounded-lg px-2.5 py-1 text-left text-[12.5px] leading-relaxed text-faint transition-colors hover:text-text">
+              {aucunPlan}
+            </button>
+          )}
+        </div>
+      </>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1 rounded-md bg-bloc px-3 py-2.5" data-marketing-a-faire={aFaire.length}>
+      <span className="text-[13px] font-medium text-text">{t('À faire ensuite')}</span>
+      {aFaire.length ? (
+        aFaire.map((a) => (
+          <button key={a.id} type="button" onClick={() => onOuvrir(a.id)} className="flex min-w-0 items-center gap-2 rounded-sm py-1 text-left text-[13px] hover:bg-raised">
+            <Circle className="h-3.5 w-3.5 shrink-0 text-accent" />
+            <span className="min-w-0 flex-1 truncate text-text">{a.titre}</span>
+            {a.datePrevue ? <span className="shrink-0 text-[12px] text-faint">{dateCourte(a.datePrevue)}</span> : null}
+          </button>
+        ))
+      ) : actions.length ? (
+        <p className="text-[12.5px] text-termine">{toutEstFait}</p>
+      ) : (
+        <button type="button" onClick={onAgent} className="text-left text-[12.5px] text-faint hover:text-text">
+          {aucunPlan}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -1537,7 +2013,9 @@ function ChatFlottantMarketing({
   const espace = donnees.espace;
   const config = espace?.configuration;
   const [points, setPoints] = React.useState(false);
+  useTiroirAdresse('points-marketing', points, setPoints);
   const [rapport, setRapport] = React.useState(false);
+  useTiroirAdresse('rapport-marketing', rapport, setRapport);
   const [confirmer, setConfirmer] = React.useState(false);
   const { agent, agentId, etat } = suivi;
 
@@ -1938,7 +2416,7 @@ function OngletPositionnement({ projectId, fiche }: { projectId: string; fiche: 
                     }
                   }}
                   className={cn(
-                    'cursor-text select-text whitespace-pre-wrap break-words rounded-md border border-border bg-raised px-3 py-2.5 text-[13px] leading-relaxed transition-colors hover:ring-1 hover:ring-faint',
+                    'cursor-text select-text whitespace-pre-wrap break-words rounded-md bg-raised px-3 py-2.5 text-[13px] leading-relaxed transition-colors hover:ring-1 hover:ring-faint',
                     valeur.trim() ? 'text-text' : 'text-faint',
                   )}
                   data-marketing-texte={c.cle}
@@ -2335,7 +2813,7 @@ function OngletContenus({
       ) : null}
 
       <Dialog open={!!demande} onOpenChange={(ouvert) => !ouvert && !envoi && setDemande(null)}>
-        <DialogContent className="sm:w-[min(420px,100%)]" data-marketing-fenetre-date>
+        <DialogContent adresse="programmer-contenu" className="sm:w-[min(420px,100%)]" data-marketing-fenetre-date>
           <DialogHeader>
             <DialogTitle>{t('Programmer ce contenu')}</DialogTitle>
           </DialogHeader>
@@ -2368,7 +2846,17 @@ function OngletContenus({
   );
 }
 
-function TiroirNouveauContenu({ ouvert, projectId, onClose }: { ouvert: boolean; projectId: string; onClose: () => void }) {
+function TiroirNouveauContenu({
+  ouvert,
+  projectId,
+  onClose,
+  onCree,
+}: {
+  ouvert: boolean;
+  projectId: string;
+  onClose: () => void;
+  onCree?: (contenuId: string) => void;
+}) {
   const [titre, setTitre] = React.useState('');
   const [texte, setTexte] = React.useState('');
   const [canal, setCanal] = React.useState<string>('linkedin');
@@ -2382,8 +2870,10 @@ function TiroirNouveauContenu({ ouvert, projectId, onClose }: { ouvert: boolean;
   const creer = async () => {
     setEnCours(true);
     try {
-      await client.call({ type: 'marketing.contenu.creer', projectId, genre: 'post', canal, titre, texte });
+      const r = await client.call<{ contenu?: { id: string } }>({ type: 'marketing.contenu.creer', projectId, genre: 'post', canal, titre, texte });
       onClose();
+      // On arrive sur ce qu'on vient d'écrire : le brouillon s'ouvre aussitôt.
+      if (r?.contenu?.id) onCree?.(r.contenu.id);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('Contenu non créé'));
     } finally {
@@ -2445,18 +2935,22 @@ function OngletCalendrier({
   projectId,
   contenus,
   actions,
+  aFaireDansLaColonne,
   onOuvrir,
+  onOuvrirAction,
   onAgent,
 }: {
   projectId: string;
   contenus: ContenuMarketing[];
   actions: ActionMarketing[];
+  /** « À faire ensuite » est dans la colonne de gauche : la page ne le redit pas. */
+  aFaireDansLaColonne: boolean;
   onOuvrir: (id: string) => void;
+  /** Ouvre le détail d'une action du plan — le volet vit dans `EspaceDuProjet`. */
+  onOuvrirAction: (id: string) => void;
   onAgent: () => void;
 }) {
   const telephone = useTelephone();
-  const [actionOuverte, setActionOuverte] = React.useState<string | null>(null);
-  const action = actions.find((a) => a.id === actionOuverte) ?? null;
   const semaines = 4;
   const [decalage, setDecalage] = React.useState(0);
   // Téléphone : la plage chargée, en semaines comptées depuis celle d'aujourd'hui.
@@ -2481,7 +2975,6 @@ function OngletCalendrier({
     if (!a.datePrevue) continue;
     actionsParJour.set(a.datePrevue, [...(actionsParJour.get(a.datePrevue) ?? []), a]);
   }
-  const aFaire = actions.filter((a) => !a.faitLe).slice(0, 3);
 
   const resolve = React.useCallback((element: Element): DropTarget | null => {
     const cellule = element.closest('[data-marketing-jour]');
@@ -2539,7 +3032,7 @@ function OngletCalendrier({
         start(e, { id: a.id, kind: 'action', label: a.titre });
       }}
       onClick={() => {
-        if (!glisse.current) setActionOuverte(a.id);
+        if (!glisse.current) onOuvrirAction(a.id);
         glisse.current = false;
       }}
       className={cn(
@@ -2558,26 +3051,7 @@ function OngletCalendrier({
   const fin = jours[jours.length - 1];
   const nomsJours = jours.slice(0, 7).map((j) => dateCourte(j, { weekday: 'short' }));
 
-  const blocAFaire = (
-    <div className="flex flex-col gap-1 rounded-md bg-bloc px-3 py-2.5" data-marketing-a-faire={aFaire.length}>
-      <span className="text-[13px] font-medium text-text">{t('À faire ensuite')}</span>
-      {aFaire.length ? (
-        aFaire.map((a) => (
-          <button key={a.id} type="button" onClick={() => setActionOuverte(a.id)} className="flex min-w-0 items-center gap-2 rounded-sm py-1 text-left text-[13px] hover:bg-raised">
-            <Circle className="h-3.5 w-3.5 shrink-0 text-accent" />
-            <span className="min-w-0 flex-1 truncate text-text">{a.titre}</span>
-            {a.datePrevue ? <span className="shrink-0 text-[12px] text-faint">{dateCourte(a.datePrevue)}</span> : null}
-          </button>
-        ))
-      ) : actions.length ? (
-        <p className="text-[12.5px] text-termine">{t('Tout le plan est fait. Demandez la suite à l’agent, dans sa bulle en bas à droite.')}</p>
-      ) : (
-        <button type="button" onClick={onAgent} className="text-left text-[12.5px] text-faint hover:text-text">
-          {t('Aucun plan pour l’instant : l’agent le pose pendant son analyse, lancée depuis sa bulle en bas à droite.')}
-        </button>
-      )}
-    </div>
-  );
+  const blocAFaire = <AFaireEnsuite actions={actions} onOuvrir={onOuvrirAction} onAgent={onAgent} />;
 
   if (telephone) {
     return (
@@ -2597,16 +3071,14 @@ function OngletCalendrier({
             </>
           );
         }}
-      >
-        <VoletAction action={action} onClose={() => setActionOuverte(null)} />
-      </CalendrierContinu>
+      />
     );
   }
 
   return (
     <CorpsOnglet plein>
       <div className="flex flex-1 flex-col gap-2" data-marketing-calendrier="mois" data-marketing-plan={actions.length}>
-        {blocAFaire}
+        {aFaireDansLaColonne ? null : blocAFaire}
         <div className="flex items-center gap-1">
           <Button size="icon" variant="ghost" aria-label="Période précédente" title={t('Période précédente')} onClick={() => setDecalage((d) => d - semaines)} data-marketing-calendrier-avant>
             <ChevronLeft className="h-4 w-4" />
@@ -2667,7 +3139,6 @@ function OngletCalendrier({
           ))}
         </div>
       </div>
-      <VoletAction action={action} onClose={() => setActionOuverte(null)} />
     </CorpsOnglet>
   );
 }
@@ -2690,7 +3161,6 @@ function CalendrierContinu({
   entete,
   onPlus,
   rendreJour,
-  children,
 }: {
   jours: string[];
   aujourdhui: string;
@@ -2698,7 +3168,6 @@ function CalendrierContinu({
   entete: React.ReactNode;
   onPlus: (sens: -1 | 1) => void;
   rendreJour: (jour: string) => React.ReactNode;
-  children?: React.ReactNode;
 }) {
   const zone = React.useRef<HTMLDivElement | null>(null);
   const haut = React.useRef<HTMLDivElement | null>(null);
@@ -2856,7 +3325,6 @@ function CalendrierContinu({
         </div>
         <div ref={bas} aria-hidden className="h-px" data-marketing-calendrier-bas />
       </ZoneDefilement>
-      {children}
     </>
   );
 }
@@ -2876,7 +3344,7 @@ function VoletAction({ action, onClose }: { action: ActionMarketing | null; onCl
     }
   };
   return (
-    <VoletInfo ouvert titre={action.titre} onClose={onClose}>
+    <VoletInfo ouvert titre={action.titre} onClose={onClose} adresse="action-marketing">
       <p className="text-[12.5px] text-faint">
         {[action.datePrevue ? dateCourte(action.datePrevue) : null, action.canal ? libelleCanal(action.canal) : null].filter(Boolean).join(' · ')}
       </p>
@@ -3253,7 +3721,7 @@ function TiroirContenu({
 
   return (
     <>
-      <Drawer open onClose={onClose} empile hauteurFixe>
+      <Drawer adresse="contenu-marketing" open onClose={onClose} empile hauteurFixe>
         <header className="flex shrink-0 items-center gap-1 px-3 pb-2">
           <DialogTitle className="min-w-0 flex-1 truncate">{contenu.titre}</DialogTitle>
           <Badge tone={toneEtape(contenu.etape)}>{t(LIBELLE_ETAPE[contenu.etape])}</Badge>

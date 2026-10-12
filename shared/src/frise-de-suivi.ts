@@ -32,7 +32,17 @@ export const ETAPES_DE_SUIVI = ['demande', 'comprehension', 'travail', 'a_deploy
  * (`estCarteDuRendezVousDeNuit`, `avecLeParcoursDeLaNuit`).
  */
 export const ETAPES_DE_SUIVI_DE_LA_NUIT = ['demande', 'examen', 'propositions'] as const;
-export type EtapeDeSuivi = (typeof ETAPES_DE_SUIVI)[number] | (typeof ETAPES_DE_SUIVI_DE_LA_NUIT)[number];
+
+/**
+ * LA CARTE DU CAHIER DES CHARGES A AUSSI SES TROIS ÉTAPES : elle n'a ni
+ * compréhension ni travail, elle pose des questions puis passe la main à une
+ * carte de construction (`barreDuCahier`, `cahier-des-charges.ts`).
+ */
+export const ETAPES_DE_SUIVI_DU_CAHIER = ['creation', 'cahier', 'termine'] as const;
+export type EtapeDeSuivi =
+  | (typeof ETAPES_DE_SUIVI)[number]
+  | (typeof ETAPES_DE_SUIVI_DE_LA_NUIT)[number]
+  | (typeof ETAPES_DE_SUIVI_DU_CAHIER)[number];
 
 /** Le nom affiché au survol de chaque rond (traduit comme le reste). */
 export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
@@ -43,6 +53,9 @@ export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
   archivee: 'Archivée',
   examen: 'Examen',
   propositions: 'Propositions',
+  creation: 'Création du projet',
+  cahier: 'Définition du cahier des charges',
+  termine: 'Terminé',
 };
 
 /** Les ronds de CETTE carte : ceux d'une tâche, ou les trois de la nuit. */
@@ -52,7 +65,7 @@ export function etapesDeSuivi(carte: Pick<CarteDeSuivi, 'rendezVousDeNuit'>): re
 
 /** L'étape d'ARRIVÉE, finie pour de bon : rien ne s'y attend plus. */
 function etapeDArrivee(etape: EtapeDeSuivi): boolean {
-  return etape === 'archivee' || etape === 'propositions';
+  return etape === 'archivee' || etape === 'propositions' || etape === 'termine';
 }
 
 /** L'état d'un rond : passé, celui où se trouve la carte, ou à venir. */

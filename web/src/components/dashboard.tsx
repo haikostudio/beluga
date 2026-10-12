@@ -17,8 +17,11 @@ import { bornesDeLaPeriode, bornesDeLEchelle, rubriqueDuResume, type RubriqueDuR
 import { ZoneDefilement } from '@/components/ui';
 import { SelecteurPeriode } from '@/components/selecteur-periode';
 import { SilhouetteRubrique } from '@/components/silhouettes';
+import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
+import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { usePref } from '@/lib/prefs';
 import { t } from '@/lib/langue';
+import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 
 /*
@@ -119,6 +122,7 @@ function rubriques(): { groupe: string; entrees: { cle: RubriqueDuResume; Icone:
 export function Dashboard() {
   const [rubriqueGardee, setRubrique] = usePref<string>('resume.rubrique', 'ensemble');
   const rubrique = rubriqueDuResume(rubriqueGardee);
+  const telephone = useTelephone();
   const [periode, setPeriode] = React.useState<{ echelle: number | null; debut: number; fin: number }>(() => {
     const { debut, fin } = bornesDeLEchelle(30, Date.now());
     return { echelle: 30, debut, fin };
@@ -132,10 +136,12 @@ export function Dashboard() {
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-resume={rubrique}>
       {/* L'ENTÊTE : le titre, puis la période, calée à droite. On quitte la page
           par la colonne de gauche, ou par le menu du bas sur téléphone. */}
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <h1 className="text-[15px] font-semibold text-text">{t('Résumé')}</h1>
-        <div className="ml-auto" data-periode-resume={`${periode.debut}-${periode.fin}`}>
+      <h1 className="sr-only">{t('Résumé')}</h1>
+      <GestesDePage className="px-3">
+        <div data-periode-resume={`${periode.debut}-${periode.fin}`}>
           <SelecteurPeriode
+            /* Dans la barre d'en-tête du téléphone : un seul bouton. */
+            compact={telephone}
             echelles={[7, 30, 90]}
             echelle={periode.echelle}
             debut={periode.debut}
@@ -150,41 +156,49 @@ export function Dashboard() {
             }}
           />
         </div>
-      </header>
+      </GestesDePage>
 
-      <div className="flex min-h-0 flex-1">
-        {/* LA COLONNE DES RUBRIQUES, dès `md`. */}
-        <nav className="hidden w-56 shrink-0 md:flex" aria-label="Rubriques du resume">
-          <ZoneDefilement className="px-2 py-3" classeEnveloppe="w-full">
+      {/* LE FIL D'ARIANE DIT LA RUBRIQUE OUVERTE — « Services › Résumé ›
+          Consommation » ; « Résumé » y ramène à la vue d'ensemble. */}
+      <SuiteDuFil onRacine={() => setRubrique('ensemble')}>
+        <CranDuFil data-rubrique-du-fil={rubrique}>
+          {groupes.flatMap((groupe) => groupe.entrees).find((entree) => entree.cle === rubrique)?.libelle ?? ''}
+        </CranDuFil>
+      </SuiteDuFil>
+
+      {/* LES RUBRIQUES VIVENT DANS LA COLONNE DE GAUCHE, à la place des projets :
+          une seule colonne, jamais deux côte à côte. */}
+      <ColonneDeService>
+        <ZoneDefilement hauteur={16} className="pb-4" classeEnveloppe="w-full">
+          <nav aria-label="Rubriques du resume">
             {groupes.map((groupe) => (
-              <div key={groupe.groupe} className="mb-3">
-                <p className="px-2 pb-1 text-[11px] uppercase tracking-wide text-faint">{groupe.groupe}</p>
+              <div key={groupe.groupe}>
+                <p className={CLASSE_SECTION_DE_SERVICE}>{groupe.groupe}</p>
                 {groupe.entrees.map(({ cle, Icone, libelle }) => (
                   <button
                     key={cle}
                     type="button"
                     onClick={() => setRubrique(cle)}
                     aria-current={cle === rubrique ? 'page' : undefined}
-                    className={cn(
-                      'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-[13px] transition-colors',
-                      cle === rubrique ? 'bg-raised text-text' : 'text-muted hover:bg-bloc hover:text-text',
-                    )}
+                    className={cn(CLASSE_LIGNE_DE_SERVICE, cle === rubrique ? 'bg-ligne-active text-teinte' : 'hover:bg-raised')}
                     data-rubrique={cle}
                   >
-                    <Icone className="h-3.5 w-3.5 shrink-0" />
+                    <Icone className="h-4 w-4 shrink-0 text-muted" />
                     <span className="min-w-0 flex-1 truncate">{libelle}</span>
                   </button>
                 ))}
               </div>
             ))}
-          </ZoneDefilement>
-        </nav>
+          </nav>
+        </ZoneDefilement>
+      </ColonneDeService>
 
+      <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <ZoneDefilement className="px-3 py-3 sm:pb-20" data-fil="tableau-de-bord">
-            <div className="mx-auto w-full max-w-[1100px] space-y-4">
+          <ZoneDefilement className="px-3 py-2 sm:px-8 sm:pb-20 sm:pt-6" data-fil="tableau-de-bord">
+            <div className="mx-auto w-full max-w-[920px] space-y-6">
               {/* SUR TÉLÉPHONE, la colonne devient une liste déroulante en tête. */}
-              <label className="block md:hidden">
+              <label className="block sm:hidden">
                 <span className="sr-only">{t('Rubrique')}</span>
                 <select
                   value={rubrique}
@@ -205,11 +219,8 @@ export function Dashboard() {
               </label>
 
               <div>
-                <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-text">
-                  <ouverte.Icone className="h-4 w-4 text-faint" />
-                  {ouverte.libelle}
-                </h2>
-                <p className="mt-0.5 text-[12.5px] text-faint">{ouverte.aide}</p>
+                <h2 className="text-[26px] font-semibold tracking-tight text-text">{ouverte.libelle}</h2>
+                <p className="mt-1.5 text-[14.5px] text-muted">{ouverte.aide}</p>
               </div>
 
               <React.Suspense fallback={<SilhouetteRubrique />}>

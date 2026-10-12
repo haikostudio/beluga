@@ -40,8 +40,15 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
     pages: [
       {
         cle: 'theme',
-        titre: 'Thème et ambiance',
-        motsCles: ['sombre', 'clair', 'couleur', 'ambiance', 'apparence', 'nuit'],
+        titre: 'Clair ou sombre',
+        motsCles: ['sombre', 'clair', 'couleur', 'thème', 'apparence', 'nuit', 'noir', 'blanc'],
+      },
+      {
+        // La langue vivait dans le menu « … » de la barre d'en-tête : un réglage
+        // GÉNÉRAL se range ici, où on l'atteint depuis n'importe quel écran.
+        cle: 'langue',
+        titre: 'Langue',
+        motsCles: ['langue', 'français', 'english', 'anglais', 'deutsch', 'allemand', 'español', 'espagnol', '中文', 'chinois', 'traduction', 'language'],
       },
     ],
   },
@@ -106,6 +113,22 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
     cle: 'machine',
     titre: 'Machine',
     pages: [
+      {
+        // Ce qui change d'un serveur à l'autre : adresse, nom de domaine, courriels,
+        // espace client. Les pages de l'assistant de premier démarrage, réunies.
+        cle: 'installation',
+        titre: 'Installation',
+        motsCles: ['installation', 'domaine', 'adresse', 'courriel', 'email', 'resend', 'github', 'espace client', 'compétences', 'dictée', 'mise en route', 'assistant'],
+        libelles: ['Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
+      },
+      {
+        // Redémarrage, terminal et arrêt général : ce qui agit sur la machine
+        // entière, sorti du menu « … » qui ne garde que le contexte de la page.
+        cle: 'serveur',
+        titre: 'Serveur et agents',
+        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'serveur', 'démon'],
+        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents'],
+      },
       {
         cle: 'capacite',
         titre: 'Capacité du système',

@@ -5,9 +5,11 @@
  * La page d'accueil de l'application quand aucun projet n'est ouvert, et la
  * destination du bouton des agents, posé sous la navigation de la colonne de
  * gauche. Elle répond à une seule question : « où en est-on ? ». TROIS
- * colonnes (08/10/2026) : « Actifs » (Demande, Travail), « Terminer » (À
- * déployer : le travail rendu qui attend sa publication) et « Archiver » (tout
- * Archivé, mis en ligne ou rangé à la main) — la DERNIÈRE ACTION EN HAUT.
+ * colonnes (08/10/2026) : « Actifs » (Demande, Travail), « Terminer » (tout ce
+ * qui est fini — À déployer, mis en ligne, archivé dans son projet — tant que
+ * l'utilisateur ne l'a pas rangé) et « Archiver » (ce qu'il a rangé à la main,
+ * `rangeeTableauDeBordAt`) — la DERNIÈRE ACTION EN HAUT. Ranger ici ne touche
+ * jamais le tableau du projet.
  *
  * LA DERNIÈRE ACTION, C'EST `updatedAt`, dans les TROIS colonnes (demande de
  * l'utilisateur, 24.09.2026 : « trier par date/heure de la dernière action sur
@@ -28,7 +30,7 @@
 import type { ColumnKey } from './columns.js';
 import { extraitDeNote } from './editeur-riche.js';
 import { agentSystemeActif, agentSystemeTermine } from './cartes-systeme.js';
-import { agentTientSonTour } from './travail-en-cours.js';
+import { agentAuTravailALEcran } from './travail-en-cours.js';
 
 /**
  * Les colonnes du tableau que « Actifs » montre : Demande et Travail. « À
@@ -52,18 +54,38 @@ export function estEnRoute(carte: { column: string }): boolean {
   return (COLONNES_EN_ROUTE as readonly string[]).includes(carte.column);
 }
 
-/** La carte est-elle rendue, en attente de publication (« À déployer ») ? */
-export function estATerminer(carte: { column: string }): boolean {
-  return carte.column === 'to_deploy';
+/** Ce que les règles « Terminer » / « Archiver » lisent d'une carte. */
+export interface CarteFinie {
+  column: string;
+  rangeeTableauDeBordAt?: number | null;
+}
+
+/** La carte est-elle finie dans son projet (« À déployer » ou « Archivé ») ? */
+export function estFinie(carte: { column: string }): boolean {
+  return carte.column === 'to_deploy' || carte.column === 'archived';
 }
 
 /**
- * La carte est-elle rangée (« Archivé ») ? Mise en ligne OU NON : une carte
- * archivée à la main, abandonnée, la mère d'une demande commune (DEC-258)
- * paraissent toutes dans « Archiver ». `estDeployee` ne dit plus que le badge.
+ * LA CARTE EST-ELLE DANS « TERMINER » ? Finie — en attente de publication,
+ * mise en ligne ou archivée dans son projet — et PAS ENCORE rangée par
+ * l'utilisateur sur cette page (demande de l'utilisateur, 08/10/2026 : « c'est
+ * toutes les tâches terminées, qu'elles soient juste terminées, déployées ou
+ * autre »). Rien n'en sort tout seul : seul le geste « Tout archiver » ou un
+ * glisser vers « Archiver » pose `rangeeTableauDeBordAt` — et seulement pour
+ * une carte déjà archivée dans son projet (`peutEtreRangee`).
  */
-export function estRangee(carte: { column: string }): boolean {
-  return carte.column === 'archived';
+export function estATerminer(carte: CarteFinie): boolean {
+  return estFinie(carte) && !carte.rangeeTableauDeBordAt;
+}
+
+/**
+ * La carte est-elle dans « Archiver » ? Finie ET rangée par l'utilisateur sur
+ * cette page. Ce rangement ne change PAS la colonne de son projet : une carte
+ * « À déployer » rangée ici reste dans le lot de la prochaine publication.
+ * `estDeployee` ne dit que le badge.
+ */
+export function estRangee(carte: CarteFinie): boolean {
+  return estFinie(carte) && !!carte.rangeeTableauDeBordAt;
 }
 
 /**
@@ -152,16 +174,19 @@ export function agentsTerminesDeLaBande<T extends AgentPourLaBande>(agents: read
 export interface AgentPourLeCompteur {
   cardId?: string;
   projectId?: string;
+  role?: string;
   status?: string;
   tourVivantDepuis?: number;
+  endedAt?: number;
 }
 
 /**
  * COMBIEN DE CARTES « ACTIF » SONT AU TRAVAIL EN CE MOMENT — le premier nombre
  * de « 3/19 » dans l'onglet (demande de l'utilisateur, 24.09.2026).
  *
- * Le MÊME prédicat que le témoin orange des cartes (`agentTientSonTour`) :
- * « Au travail » et « Cadrage en cours » comptent tous deux, et le compteur ne
+ * Le MÊME prédicat que le témoin orange des cartes (`agentAuTravailALEcran`) :
+ * « Au travail » et « Cadrage en cours » comptent tous deux — pas le rangement
+ * d'un cadrage qui a déjà répondu —, et le compteur ne
  * peut pas contredire les cartes affichées. Il part des AGENTS, pas des cartes
  * reçues : la liste arrive par paquets de vingt, une carte au travail peut ne
  * pas être encore chargée. Une carte portée par deux agents compte une fois ;
@@ -179,7 +204,7 @@ export function nombreEnCoursEnRoute(
   for (const agent of agents) {
     if (!agent.cardId || cartes.has(agent.cardId)) continue;
     if (!agent.projectId || !projetsEnService.has(agent.projectId)) continue;
-    if (!agentTientSonTour(agent) || horsDeLaListe(agent.cardId)) continue;
+    if (!agentAuTravailALEcran(agent) || horsDeLaListe(agent.cardId)) continue;
     cartes.add(agent.cardId);
   }
   return cartes.size;
@@ -191,12 +216,10 @@ export function nombreEnCoursEnRoute(
  * LES TROIS COLONNES DE LA PAGE (demande de l'utilisateur, 08/10/2026, qui
  * remplace « Actifs » / « Terminés ») :
  *   - `actif` — « Actifs » : Demande et Travail (`estEnRoute`) ;
- *   - `terminer` — « Terminer » : À déployer, le travail rendu qui attend sa
- *     publication (`estATerminer`) ;
- *   - `archive` — « Archiver » : tout « Archivé » (`estRangee`), mis en ligne
- *     (badge « en ligne », `estDeployee`) ou rangé à la main. Avant, seules
- *     les cartes mises en ligne y paraissaient : une carte archivée à la main
- *     ne se voyait nulle part.
+ *   - `terminer` — « Terminer » : tout ce qui est fini (À déployer, mis en
+ *     ligne, archivé dans son projet) et pas encore rangé ici (`estATerminer`) ;
+ *   - `archive` — « Archiver » : ce que l'utilisateur a rangé ici, en bloc ou
+ *     au glisser (`estRangee`). Rien n'y entre tout seul.
  * Les trois suivent le MÊME ordre : la dernière action en haut.
  *
  * Ces mots ne recréent AUCUNE colonne du tableau (DEC-046) : ils lisent les
@@ -213,16 +236,68 @@ export interface CarteDeployee {
   column: string;
   deployedAt?: number;
   updatedAt: number;
+  rangeeTableauDeBordAt?: number | null;
 }
 
 /**
- * UNE CARTE EST-ELLE EN LIGNE ? Rangée en « Archivé » ET mise en ligne : c'est
- * ce qui pose le badge « en ligne » dans « Archiver ». `deployedAt` dit seul
+ * UNE CARTE EST-ELLE EN LIGNE ? Archivée dans son projet ET mise en ligne :
+ * c'est ce qui pose le badge « en ligne » dans « Terminer » et « Archiver ». `deployedAt` dit seul
  * qu'une carte est publiée, jamais sa colonne (PLAN §4). « À déployer » ne peut
  * pas en être : y entrer efface la date (DEC-149).
  */
 export function estDeployee(carte: CarteDeployee): carte is CarteDeployee & { deployedAt: number } {
   return carte.column === 'archived' && typeof carte.deployedAt === 'number' && carte.deployedAt > 0;
+}
+
+/**
+ * UNE CARTE PEUT-ELLE ÊTRE RANGÉE SUR LA PAGE ? Seulement si elle est déjà
+ * « Archivée » dans son projet (demande de l'utilisateur : l'archivage ne se
+ * fait que sur des cartes déployées, pas sur les autres). On teste la colonne,
+ * pas `estDeployee` : les cartes d'agents sans code (démon, attitrés, mères,
+ * ajouts de moteur) sont archivées SANS date de mise en ligne et resteraient
+ * coincées dans « Terminer ». Une carte « À déployer » n'est pas rangeable.
+ */
+export function peutEtreRangee(carte: { column: string }): boolean {
+  return carte.column === 'archived';
+}
+
+/**
+ * LE RANGEMENT D'UNE CARTE QUE L'ON DÉPLACE. Le seul endroit qui dit ce que
+ * devient `rangeeTableauDeBordAt` quand une carte change de colonne :
+ *
+ *  - archivée À LA MAIN (`rangeeA` donné : l'instant du geste), elle va tout
+ *    de suite dans « Archiver » de la page — un geste explicite, le menu de la
+ *    carte, la fiche, le glisser ou les actions de masse. Une carte déjà
+ *    rangée garde sa date ;
+ *  - archivée par un chemin AUTOMATIQUE (mise en ligne, agent sans code :
+ *    `rangeeA` absent), elle reste dans « Terminer » comme avant ;
+ *  - une carte qui QUITTE « Archivé » perd son rangement : remise « À
+ *    déployer », elle est finie sans être rangeable (`peutEtreRangee`), donc
+ *    elle doit repasser par « Terminer ».
+ *
+ * Rend la valeur à écrire ; `undefined` veut dire « la clé disparaît ».
+ */
+export function rangementApresDeplacement(
+  carte: { column: string; rangeeTableauDeBordAt?: number | null },
+  cible: string,
+  rangeeA?: number,
+): number | undefined {
+  if (carte.column === 'archived' && cible !== 'archived') return undefined;
+  const actuel = carte.rangeeTableauDeBordAt || undefined;
+  if (cible === 'archived' && rangeeA !== undefined) return actuel ?? rangeeA;
+  return actuel;
+}
+
+/**
+ * LES CARTES QUE « TOUT ARCHIVER » RANGE, EN TÊTE DE « TERMINER » : celles de
+ * la colonne qui sont déjà archivées dans leur projet (`peutEtreRangee`) ; les
+ * cartes « À déployer » restent dans « Terminer ». Le geste ne range que la
+ * page : il pose `rangeeTableauDeBordAt` sans toucher la colonne du projet ni
+ * le lot de la publication. La règle ne regarde que la carte, jamais la page :
+ * l'appelant donne toutes les cartes de la colonne, chargées ou non.
+ */
+export function cartesARangerDuTableauDeBord<T extends CarteDeployee>(cartes: readonly T[]): T[] {
+  return cartes.filter((carte) => estATerminer(carte) && peutEtreRangee(carte));
 }
 
 /*
@@ -284,8 +359,8 @@ export function debutsDesDemandes(messages: readonly PremierMessageDeCarte[]): R
  * au-dessus —, et c'est la famille ENTIÈRE qui choisit sa colonne, la plus à
  * gauche que ses cartes réclament :
  *   - « Actifs » tant qu'une de ses cartes est en Demande ou Travail ;
- *   - sinon « Terminer » tant qu'une est en À déployer ;
- *   - sinon « Archiver » (toutes rangées, en ligne ou non).
+ *   - sinon « Terminer » tant qu'une est finie sans être rangée ici ;
+ *   - sinon « Archiver » (toutes rangées ici par l'utilisateur).
  * La mère se range en « Archivé » SANS date de mise en ligne (DEC-258) : elle
  * suit toujours sa pile, elle n'est jamais jugée seule. Toutes les cartes de
  * la famille s'affichent dans sa pile, une fille abandonnée comprise.

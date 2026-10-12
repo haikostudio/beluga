@@ -1,4 +1,5 @@
 import { spawn, execFile } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,7 @@ import {
   delaiOutilMoteurMs,
   diseLaCause,
   enteteDuTour,
+  pluginsTiers,
   serveursTiers,
   surchargesCodexBridees,
 } from '@beluga/shared';
@@ -40,6 +42,99 @@ export function serveursTiersDuCompte(codexHome?: string): string[] {
 
 
 
+/**
+ * LES EXTENSIONS ÉTRANGÈRES du compte Codex (voir `pluginsTiers`), lues comme
+ * les serveurs d'outils : au fil des tours, sans cache.
+ */
+export function pluginsTiersDuCompte(codexHome?: string): string[] {
+  const dossier = codexHome?.trim() || path.join(os.homedir(), '.codex');
+  try {
+    return pluginsTiers(fs.readFileSync(path.join(dossier, 'config.toml'), 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+/** Ce que le dossier personnel de Codex porte et qu'un tour de Beluga ne doit PAS lire. */
+const PERSONNEL_DU_COMPTE = new Set(['AGENTS.md', 'AGENTS.override.md', 'hooks.json']);
+
+/**
+ * LA MAISON D'UN TOUR : un dossier à part où Codex lit sa configuration, sans
+ * les consignes globales ni les automatismes personnels de l'utilisateur.
+ *
+ * Codex lit `AGENTS.md` et `hooks.json` dans son dossier d'accueil, et aucune
+ * option ne les ignore (`--ignore-user-config` ne couvre que `config.toml`,
+ * mesuré sur codex-cli 0.146 : le modèle suivait encore la règle « Mémoire
+ * consultée »). Sous Claude, un tour n'a que les outils du projet ; la maison
+ * donne la même pièce à Codex. Tout le reste du dossier du compte — connexion,
+ * fils, bases d'état, configuration — y est relié par des liens : la reprise
+ * d'un fil et le coffre du compte restent ceux du compte, et le dossier
+ * personnel n'est jamais modifié.
+ *
+ * Stable par compte (jamais par tour) : rejouée à chaque lancement, elle ne
+ * fait que corriger ce qui a changé. `auth.json` est la seule pièce que Codex
+ * réécrit : s'il l'a remplacée par un fichier ordinaire dans la maison, on la
+ * RAPATRIE chez le compte (jeton rafraîchi) avant de remettre le lien.
+ */
+export function preparerMaisonDeTour(dossierDuCompte: string, atelier: string): string {
+  const reel = path.resolve(dossierDuCompte);
+  const nom = `${path.basename(reel).replace(/[^A-Za-z0-9_.-]/g, '_') || 'codex'}-${crypto
+    .createHash('sha1')
+    .update(reel)
+    .digest('hex')
+    .slice(0, 8)}`;
+  const maison = path.join(atelier, nom);
+  fs.mkdirSync(maison, { recursive: true });
+  // Le fil d'un tour doit toujours s'écrire chez le compte, jamais dans la maison.
+  fs.mkdirSync(path.join(reel, 'sessions'), { recursive: true });
+
+  for (const entree of fs.readdirSync(maison)) {
+    const ici = path.join(maison, entree);
+    const lien = (() => {
+      try {
+        return fs.lstatSync(ici);
+      } catch {
+        return null;
+      }
+    })();
+    if (!lien) continue;
+    if (!lien.isSymbolicLink() && entree === 'auth.json') {
+      try {
+        fs.copyFileSync(ici, path.join(reel, 'auth.json'));
+        fs.rmSync(ici, { force: true });
+      } catch {
+        /* le lien est remis plus bas, le compte garde sa connexion */
+      }
+      continue;
+    }
+    const source = path.join(reel, entree);
+    if (PERSONNEL_DU_COMPTE.has(entree) || !fs.existsSync(source)) {
+      // Une pièce disparue du compte, ou une pièce personnelle : plus rien ne la relie.
+      if (lien.isSymbolicLink()) fs.rmSync(ici, { force: true });
+    }
+  }
+
+  for (const entree of fs.readdirSync(reel)) {
+    if (PERSONNEL_DU_COMPTE.has(entree)) continue;
+    const ici = path.join(maison, entree);
+    const source = path.join(reel, entree);
+    try {
+      const actuel = fs.lstatSync(ici);
+      if (actuel.isSymbolicLink() && fs.readlinkSync(ici) === source) continue;
+      // Un fichier ordinaire créé par Codex dans la maison : le compte fait foi.
+      fs.rmSync(ici, { recursive: true, force: true });
+    } catch {
+      /* rien à cet emplacement : on crée le lien */
+    }
+    try {
+      fs.symlinkSync(source, ici);
+    } catch {
+      /* lien déjà posé par un tour concurrent */
+    }
+  }
+  return maison;
+}
+
 export const codexAdapter: EngineAdapter = {
   id: 'codex',
   label: 'Codex',
@@ -61,10 +156,25 @@ export const codexAdapter: EngineAdapter = {
 
   run(options: EngineRunOptions): EngineHandle {
     const args = buildCodexArgs(options);
+    /*
+     * UN TOUR DE BELUGA N'A QUE LES OUTILS DU PROJET, comme sous Claude : il lit
+     * sa configuration dans la maison du compte (`preparerMaisonDeTour`), sans
+     * les consignes globales ni les automatismes personnels de l'utilisateur.
+     * Si la maison ne peut pas se préparer, le tour part comme avant.
+     */
+    const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, FORCE_COLOR: '0' };
+    if (options.mcpBridgePath) {
+      try {
+        const compte = options.env?.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex');
+        env.CODEX_HOME = preparerMaisonDeTour(compte, path.join(os.homedir(), '.beluga', 'maisons-codex'));
+      } catch {
+        /* le dossier du compte reste utilisé tel quel */
+      }
+    }
 
     const child = spawn(codexAdapter.binary, args, {
       cwd: options.cwd,
-      env: { ...process.env, ...options.env, FORCE_COLOR: '0' },
+      env,
       // stdin fermé : sinon Codex attend une entrée supplémentaire et ne rend jamais la main.
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -286,6 +396,14 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
      * par sujet dans `docs/memoire/`, et se lit avec `project_memory`.
      */
     args.push('-c', 'features.memories=false');
+    /*
+     * LES EXTENSIONS DU COMPTE suivent les serveurs d'outils : une extension
+     * personnelle (mémoire, rappel…) apporte ses propres consignes et outils.
+     * Éteintes le temps du tour, comme le sont les serveurs étrangers.
+     */
+    for (const nom of pluginsTiersDuCompte(options.env?.CODEX_HOME)) {
+      args.push('-c', `plugins."${nom}".enabled=false`);
+    }
   }
 
   // Codex n'a pas de consigne « système » séparée : elle est collée devant la

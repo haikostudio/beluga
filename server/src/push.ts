@@ -1,5 +1,5 @@
 import webpush from 'web-push';
-import { construireFragment } from '@beluga/shared';
+import { construireFragment, identiteDInstallation } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 
@@ -22,7 +22,17 @@ export function initPush(): string | null {
       setMeta('push.privateKey', priv);
       log.info('clés de notification créées');
     }
-    webpush.setVapidDetails('mailto:contact@haikostudio.cloud', pub, priv);
+    /*
+     * LE CONTACT ANNONCÉ AUX SERVICES DE NOTIFICATION est celui de
+     * l'installation. Les services l'exigent mais ne lui écrivent qu'en cas
+     * d'abus : faute de contact réglé, on annonce l'adresse de l'installation
+     * elle-même — jamais celle de quelqu'un d'autre.
+     */
+    const identite = identiteDInstallation();
+    const contact = identite.contactDesNotifications
+      ? `mailto:${identite.contactDesNotifications}`
+      : identite.adressePublique || 'https://localhost';
+    webpush.setVapidDetails(contact, pub, priv);
     ready = true;
     return pub;
   } catch (err) {

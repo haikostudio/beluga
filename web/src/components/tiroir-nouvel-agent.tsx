@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Bot, Loader2, Search } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { TITRE_CARTE_DE_CADRAGE, filtrerProjetsParNom, projetsEnArbre, projetsParActivite, type Card } from '@beluga/shared';
-import { Drawer, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
+import { Dialog, DialogContentLibre, DialogHeader, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
 import {
   BrancheDeListe,
   IconeDeProjet,
@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
  * `carteRobotIdRef` dans `App`). Rien ne part au moteur avant la première
  * demande.
  */
-export async function creerCarteAgent(projectId: string, onCree: (cardId: string) => void): Promise<void> {
+export async function creerCarteAgent(projectId: string, onCree: (cardId: string) => void): Promise<boolean> {
   try {
     const data = await client.call<{ card: Card }>({
       type: 'card.create',
@@ -35,9 +35,12 @@ export async function creerCarteAgent(projectId: string, onCree: (cardId: string
     if (data?.card) {
       onCree(data.card.id);
       client.openCard(data.card.id);
+      return true;
     }
+    return false;
   } catch (err: any) {
     client.pushToast('error', err?.message ?? t('création impossible'));
+    return false;
   }
 }
 
@@ -102,19 +105,32 @@ export function TiroirNouvelAgent({
     if (enCours) return;
     setEnCours(projectId);
     client.setActiveProject(projectId);
-    await creerCarteAgent(projectId, onCree);
+    const cree = await creerCarteAgent(projectId, onCree);
     setEnCours(null);
-    onClose();
+    // Un refus laisse le volet ouvert : on peut choisir à nouveau.
+    if (cree) onClose();
   };
 
   return (
-    <Drawer open={open} onClose={onClose}>
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <Bot className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Dans quel projet ?')}</DialogTitle>
-      </header>
+    /* UNE FENÊTRE, au milieu de l'écran : choisir un projet prend deux secondes. */
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContentLibre
+        className="h-[min(560px,80dvh)] sm:w-[min(520px,100%)]"
+        /* SUR TÉLÉPHONE, LE FOCUS RESTE SUR LA FENÊTRE : celui que la fenêtre
+           pose d'office tombait sur la recherche, et le clavier cachait la
+           liste qu'on venait ouvrir. Sur ordinateur, l'effet ci-dessus le
+           donne à la recherche. */
+        onOpenAutoFocus={(event) => {
+          if (window.matchMedia('(min-width: 640px)').matches) return;
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true });
+        }}
+      >
+      <DialogHeader>
+        <DialogTitle className="min-w-0 truncate">{t('Dans quel projet ?')}</DialogTitle>
+      </DialogHeader>
       {liste.length ? (
-        <div className="relative mx-3 mb-2 shrink-0">
+        <div className="relative mx-4 mb-2 shrink-0">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-faint" />
           <Input
             ref={champRef}
@@ -169,6 +185,7 @@ export function TiroirNouvelAgent({
           </p>
         )}
       </ZoneDefilement>
-    </Drawer>
+      </DialogContentLibre>
+    </Dialog>
   );
 }

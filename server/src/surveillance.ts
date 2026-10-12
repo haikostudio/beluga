@@ -348,7 +348,7 @@ export function refermerIncidentDuSite(siteId: string): void {
 
 /**
  * NOTE LE COURRIEL D'ALERTE, AVANT DE L'ENVOYER. Comme `incident_lance_le` : un
- * envoi que Resend refuse ne doit pas repartir au contrôle suivant, et le rappel
+ * envoi que le service refuse ne doit pas repartir au contrôle suivant, et le rappel
  * de six heures se compte sur cette date. `alerte_courriel_depuis` garde le
  * DÉBUT de la panne annoncée — le premier courriel le pose, les rappels le
  * laissent tel quel.

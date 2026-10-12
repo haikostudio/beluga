@@ -49,7 +49,6 @@ const LIBELLES: Record<string, string> = {
   make_archive: 'Préparation d’une archive',
   competences: 'Lecture des compétences partagées',
   coffre_fort: 'Ouverture du coffre-fort',
-  compta: 'Facturation',
   attach_file: 'Fichier joint à la réponse',
   attach_screenshot: 'Fichier joint à la réponse',
   backup_recette: 'Aperçu du site',

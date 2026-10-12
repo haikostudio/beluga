@@ -56,7 +56,7 @@ export function VoletBackups({ projectId, onFermer }: { projectId: string; onFer
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-volet-backups data-archives={sites === null ? undefined : total}>
-      <div className="flex items-center justify-between border-b border-faint/40 px-3 py-2">
+      <div className="flex items-center justify-between px-3 py-2">
         <span className="flex items-center gap-1 text-[13px] font-medium text-text">
           {t('Backups du projet')}
           <BulleInfo cote="start">{t('Chaque archive est une copie de votre projet prise sur le serveur. Téléchargez celle dont vous avez besoin : rien n’est remis en place depuis ici.')}</BulleInfo>

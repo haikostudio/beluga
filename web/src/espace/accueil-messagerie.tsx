@@ -21,8 +21,7 @@
  * dimensions que les vrais blocs, pour que rien ne saute à leur arrivée.
  */
 import * as React from 'react';
-import { ListChecks, MessagesSquare } from 'lucide-react';
-import { Pastille, Tooltip, ZoneDefilement } from '@/components/ui';
+import { CLASSE_TITRE_SEUL_EN_BARRE, Pastille, Tooltip, ZoneDefilement } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import {
@@ -35,6 +34,8 @@ import {
   type FicheClientTableau,
 } from '@beluga/shared';
 import { SelecteurPeriode } from '@/components/selecteur-periode';
+import { OptionsDePage } from '@/components/entete-de-zone';
+import { useColonneDeService } from '@/components/colonne-de-service';
 import { TON_COLONNE, jourCourt, jourDe } from './formats';
 
 /** La période affichée, telle que le serveur l'a retenue. */
@@ -225,13 +226,11 @@ function ChiffreCle({
   icone?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-2 rounded-lg bg-raised px-2.5 py-2" data-chiffre-cle={repere}>
-      {icone ? <span className="mt-0.5 shrink-0 text-faint">{icone}</span> : null}
-      <span className="min-w-0">
-        <span className={cn('block text-[19px] font-semibold leading-tight tabular-nums', ton ?? 'text-text')}>
-          {valeur}
-        </span>
-        <span className="block text-[11.5px] leading-tight text-faint">{libelle}</span>
+    <div className="min-w-0" data-chiffre-cle={repere}>
+      <span className={cn('block text-[24px] font-semibold leading-tight tabular-nums', ton ?? 'text-text')}>{valeur}</span>
+      <span className="mt-1 flex items-center gap-1.5 text-[13px] leading-tight text-muted">
+        {icone ? <span className="shrink-0 text-faint">{icone}</span> : null}
+        {libelle}
       </span>
     </div>
   );
@@ -264,7 +263,7 @@ function FicheClient({
     <div
       role="button"
       tabIndex={0}
-      className="flex cursor-pointer flex-col gap-2 rounded-lg bg-surface p-3 transition-colors hover:bg-raised/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint active:bg-raised/60"
+      className="flex cursor-pointer items-center gap-3 rounded-xl px-3.5 py-3 transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint active:bg-raised"
       data-fiche-client={fiche.clientId}
       onClick={() => {
         // Un texte qu'on vient de sélectionner à la souris ne vaut pas un clic :
@@ -280,17 +279,17 @@ function FicheClient({
       }}
       data-en-attente={fiche.compteurs.nonLu || fiche.compteurs.aTraiter ? '' : undefined}
     >
-      <div className="flex min-w-0 items-start gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         <span
-          className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm"
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
           style={{ backgroundColor: couleur }}
           aria-hidden
         />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-medium text-text">{fiche.nomAffiche}</span>
+          <span className="block truncate text-[14.5px] font-medium text-text">{fiche.nomAffiche}</span>
           {/* LE PROJET SOUS LE NOM : deux clients peuvent porter des noms
               proches, c'est le projet qui lève le doute. */}
-          <span className="block truncate text-[11.5px] text-faint" data-fiche-projets>
+          <span className="block truncate text-[12.5px] text-faint" data-fiche-projets>
             {nomsDesProjets}
           </span>
         </span>
@@ -302,30 +301,23 @@ function FicheClient({
         />
       </div>
 
-      {/* LES MÊMES COLONNES QUE L'ENTÊTE, ramenées à ce client : on compare une
-          fiche au total sans changer de repère. */}
-      <dl className="grid grid-cols-4 gap-1 text-center" data-fiche-colonnes>
+      {/* LE DÉTAIL PAR COLONNE N'EST PLUS ÉCRIT SUR LA LIGNE : il reste lu à
+          voix haute et mesuré par les contrôles, et se lit en ouvrant le
+          client. La ligne ne garde que la date du dernier échange. */}
+      <dl className="sr-only" data-fiche-colonnes>
         {COLONNES_DEMANDE.map((colonne) => (
-          <span key={colonne} className="min-w-0 rounded bg-raised/60 px-1 py-1">
-            <dd
-              className={cn('text-[14px] font-semibold tabular-nums', TON_COLONNE[COULEURS_COLONNES_DEMANDE[colonne]])}
-              data-fiche-colonne={colonne}
-            >
-              {fiche.parColonne?.[colonne] ?? 0}
-            </dd>
-            <dt className="text-[10px] leading-tight text-faint">{t(TITRES_COLONNES_DEMANDE[colonne])}</dt>
+          <span key={colonne}>
+            <dd data-fiche-colonne={colonne}>{fiche.parColonne?.[colonne] ?? 0}</dd>
+            <dt>{t(TITRES_COLONNES_DEMANDE[colonne])}</dt>
           </span>
         ))}
       </dl>
-
-      <div className="flex items-center justify-between gap-2 text-[11.5px] text-faint">
-        <span data-fiche-taches={fiche.tachesOuvertes}>
-          {t('{v0} tâches ouvertes', { v0: String(fiche.tachesOuvertes) })}
-        </span>
-        <span data-fiche-activite>
-          {fiche.derniereActivite ? jourCourt(fiche.derniereActivite) : t('Aucun échange')}
-        </span>
-      </div>
+      <span className="sr-only" data-fiche-taches={fiche.tachesOuvertes}>
+        {t('{v0} tâches ouvertes', { v0: String(fiche.tachesOuvertes) })}
+      </span>
+      <span className="shrink-0 text-[12.5px] text-faint" data-fiche-activite>
+        {fiche.derniereActivite ? jourCourt(fiche.derniereActivite) : t('Aucun échange')}
+      </span>
     </div>
   );
 }
@@ -341,6 +333,7 @@ export function AccueilMessagerie({
   onEchelle,
   onPeriodeLibre,
   onOuvrirClient,
+  action,
 }: {
   /** `null` : les chiffres ne sont pas encore arrivés — on montre la silhouette. */
   fiches: FicheClientTableau[] | null;
@@ -351,8 +344,15 @@ export function AccueilMessagerie({
   onEchelle: (jours: number) => void;
   onPeriodeLibre: (debut: number, fin: number) => void;
   onOuvrirClient: (clientId: string) => void;
+  /** Le geste posé en haut à droite : l'engrenage de la gestion des comptes. */
+  action?: React.ReactNode;
 }) {
   const [masques, setMasques] = React.useState<Set<string>>(() => new Set());
+  /* SUR ORDINATEUR, LES CLIENTS VIVENT DANS LA COLONNE DE GAUCHE (demande du
+     12/10/2026) : nom, projet et pastilles y sont déjà, la page n'en garde que
+     l'activité. Sur téléphone la colonne n'existe pas : le bloc reste la porte
+     de chez chacun. */
+  const clientsEnColonne = useColonneDeService();
   const basculerClient = React.useCallback((clientId: string) => {
     setMasques((avant) => {
       const apres = new Set(avant);
@@ -362,7 +362,7 @@ export function AccueilMessagerie({
     });
   }, []);
 
-  if (!fiches || !periode) return <SilhouetteAccueil />;
+  if (!fiches || !periode) return <SilhouetteAccueil avecClients={!clientsEnColonne} />;
 
   const totaux = totauxDuTableau(fiches);
   /* La couleur d'un client suit l'ordre alphabétique de son identifiant : elle
@@ -379,15 +379,45 @@ export function AccueilMessagerie({
   return (
     <ZoneDefilement
       fond="hsl(var(--fond-zone, var(--bg)))"
-      className="min-h-0 flex-1 space-y-4 p-3"
+      className="min-h-0 flex-1 px-4 pb-12 pt-2 sm:px-8 sm:pt-8"
       data-accueil-messagerie={fiches.length}
       data-periode-jours={periode.jours}
     >
-      {/* LE GRAPHIQUE ET SA PÉRIODE, EN TÊTE : « quand a-t-on échangé » se lit
-          avant « combien » et « avec qui ». */}
-      <section className="space-y-2" data-bloc-graphique>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[11px] uppercase tracking-wide text-faint">{t('Échanges jour par jour')}</h2>
+      {/* UNE COLONNE ÉTROITE ET CENTRÉE, comme chaque page de service — et
+          TROIS choses seulement, dans l'ordre où on en a besoin : les clients
+          (la porte de chez chacun), puis les chiffres, puis le graphique. */}
+      <div className="mx-auto w-full max-w-[756px] space-y-10">
+      <div>
+        {/* SUR TÉLÉPHONE LE NOM DE LA PAGE NE S'ÉCRIT QU'UNE FOIS, dans la barre
+            d'en-tête : ce titre-ci reste seulement lu à voix haute. */}
+        <h1 className={cn('pb-5 text-[26px] font-semibold leading-tight tracking-tight text-text sm:pb-6', CLASSE_TITRE_SEUL_EN_BARRE)} data-titre-de-page>
+          {t('Messagerie')}
+        </h1>
+        {/* L'engrenage des comptes monte dans la barre d'en-tête ; sur téléphone
+            c'est une ligne nommée du menu à trois points (`OptionDePage`). */}
+        {action ? <OptionsDePage>{action}</OptionsDePage> : null}
+
+        {/* UNE LIGNE PAR CLIENT, LA PLUS ACTIVE EN TÊTE. Le serveur les a déjà
+            rangées : l'écran ne retrie rien, sinon les deux se contrediraient. */}
+        {clientsEnColonne ? null : (
+          <section className="flex flex-col gap-0.5 rounded-2xl bg-surface p-1.5" data-fiches-clients={fiches.length}>
+            {fiches.map((fiche) => (
+              <FicheClient
+                key={fiche.clientId}
+                fiche={fiche}
+                couleur={couleurDuClient(rangs.get(fiche.clientId) ?? 0)}
+                onOuvrir={() => onOuvrirClient(fiche.clientId)}
+              />
+            ))}
+          </section>
+        )}
+      </div>
+
+      {/* LES CHIFFRES ET LE GRAPHIQUE, SOUS UNE MÊME PÉRIODE. Des nombres nus,
+          sans boîte : c'est leur taille qui les fait lire. */}
+      <section className="space-y-6" data-bloc-graphique>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-[16px] font-semibold text-text">{t('Échanges jour par jour')}</h2>
           <SelecteurPeriode
             echelles={ECHELLES_DU_TABLEAU}
             echelle={echelle}
@@ -397,51 +427,29 @@ export function AccueilMessagerie({
             onLibre={onPeriodeLibre}
           />
         </div>
-        <GraphiqueJournalier jours={jours} series={series} masques={masques} />
-        {series.length ? (
-          <LegendeDuGraphique series={series} masques={masques} onBasculer={basculerClient} />
-        ) : null}
-      </section>
 
-      {/* LES CHIFFRES, COLONNE PAR COLONNE DU TABLEAU DES DEMANDES. Chaque
-          colonne garde la couleur qu'elle a sur le tableau : on la reconnaît
-          sans lire son nom. Deux colonnes à 320 px, six sur grand écran. */}
-      <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6" data-chiffres-cles>
-        {COLONNES_DEMANDE.map((colonne) => (
-          <ChiffreCle
-            key={colonne}
-            valeur={totaux.parColonne[colonne]}
-            libelle={t(TITRES_COLONNES_DEMANDE[colonne])}
-            repere={`colonne-${colonne}`}
-            ton={TON_COLONNE[COULEURS_COLONNES_DEMANDE[colonne]]}
-          />
-        ))}
-        <ChiffreCle
-          valeur={totaux.messages}
-          libelle={t('Messages sur la période')}
-          repere="messages"
-          icone={<MessagesSquare className="h-4 w-4" />}
-        />
-        <ChiffreCle
-          valeur={totaux.tachesOuvertes}
-          libelle={t('Tâches ouvertes')}
-          repere="taches-ouvertes"
-          icone={<ListChecks className="h-4 w-4" />}
-        />
-      </section>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-6" data-chiffres-cles>
+          {COLONNES_DEMANDE.map((colonne) => (
+            <ChiffreCle
+              key={colonne}
+              valeur={totaux.parColonne[colonne]}
+              libelle={t(TITRES_COLONNES_DEMANDE[colonne])}
+              repere={`colonne-${colonne}`}
+              ton={TON_COLONNE[COULEURS_COLONNES_DEMANDE[colonne]]}
+            />
+          ))}
+          <ChiffreCle valeur={totaux.messages} libelle={t('Messages sur la période')} repere="messages" />
+          <ChiffreCle valeur={totaux.tachesOuvertes} libelle={t('Tâches ouvertes')} repere="taches-ouvertes" />
+        </div>
 
-      {/* UNE FICHE PAR CLIENT, LA PLUS ACTIVE EN TÊTE. Le serveur les a déjà
-          rangées : l'écran ne retrie rien, sinon les deux se contrediraient. */}
-      <section className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3" data-fiches-clients={fiches.length}>
-        {fiches.map((fiche) => (
-          <FicheClient
-            key={fiche.clientId}
-            fiche={fiche}
-            couleur={couleurDuClient(rangs.get(fiche.clientId) ?? 0)}
-            onOuvrir={() => onOuvrirClient(fiche.clientId)}
-          />
-        ))}
+        <div className="space-y-2">
+          <GraphiqueJournalier jours={jours} series={series} masques={masques} />
+          {series.length ? (
+            <LegendeDuGraphique series={series} masques={masques} onBasculer={basculerClient} />
+          ) : null}
+        </div>
       </section>
+      </div>
     </ZoneDefilement>
   );
 }
@@ -450,26 +458,33 @@ export function AccueilMessagerie({
  * LA SILHOUETTE DE CET ÉCRAN. Ses blocs ont les MÊMES dimensions que les vrais :
  * à l'arrivée des chiffres, rien ne se décale.
  */
-export function SilhouetteAccueil() {
+export function SilhouetteAccueil({ avecClients = true }: { avecClients?: boolean } = {}) {
   return (
-    <div className="min-h-0 flex-1 space-y-4 p-3" data-silhouette="accueil-messagerie">
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="h-[14px] w-32 animate-pulse rounded bg-raised" />
-          <div className="h-7 w-52 animate-pulse rounded-md bg-raised" />
+    <div className="mx-auto min-h-0 w-full max-w-[820px] flex-1 space-y-10 px-4 pb-12 pt-2 sm:px-8 sm:pt-8" data-silhouette="accueil-messagerie">
+      <div>
+        <div className="mb-6 h-[30px] w-44 animate-pulse rounded-lg bg-raised" />
+        {avecClients ? (
+          <div className="space-y-0.5 rounded-2xl bg-surface p-1.5">
+            {[0, 1, 2].map((rang) => (
+              <div key={rang} className="flex h-[62px] items-center gap-3 px-3.5">
+                <div className="h-2.5 w-2.5 animate-pulse rounded-full bg-raised" />
+                <div className="h-[14px] w-40 animate-pulse rounded bg-raised" />
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="h-[18px] w-48 animate-pulse rounded bg-raised" />
+          <div className="h-8 w-52 animate-pulse rounded-lg bg-raised" />
         </div>
-        <div className="h-32 animate-pulse rounded bg-raised/70" />
-        <div className="h-[28px] w-40 animate-pulse rounded bg-raised/70" />
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-        {[0, 1, 2, 3, 4, 5].map((rang) => (
-          <div key={rang} className="h-[54px] animate-pulse rounded-lg bg-raised" />
-        ))}
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {[0, 1, 2].map((rang) => (
-          <div key={rang} className="h-[142px] animate-pulse rounded-lg bg-surface" />
-        ))}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
+          {[0, 1, 2, 3, 4, 5].map((rang) => (
+            <div key={rang} className="h-[50px] w-20 animate-pulse rounded-lg bg-raised/70" />
+          ))}
+        </div>
+        <div className="h-32 animate-pulse rounded-lg bg-raised/60" />
       </div>
     </div>
   );

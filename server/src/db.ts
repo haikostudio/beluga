@@ -1719,7 +1719,7 @@ export const MIGRATIONS: {
          SET data = json_set(data, '$.vitrineLiee', json_object(
                'site', (SELECT s.path FROM projects s WHERE json_extract(s.data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git' LIMIT 1),
                'constructeur', (SELECT c.path FROM projects c WHERE json_extract(c.data, '$.gitRemote') = 'git@github.com:haikostudio/beluga-vitrine.git' LIMIT 1),
-               'adresseEssai', 'https://belugabuild.haikostudio.cloud',
+               'adresseEssai', 'https://essai.exemple.invalid',
                'adresseProduction', 'https://belugabuild.com',
                'dossierProduction', '/srv/belugabuild',
                'serviceProduction', 'belugabuild-prod'))
@@ -1841,7 +1841,7 @@ export const MIGRATIONS: {
          SET data = json_set(data, '$.vitrineLiee', json_object(
                'site', (SELECT s.path FROM projects s WHERE json_extract(s.data, '$.gitRemote') = 'git@github.com:haikostudio/belugabuild.git' LIMIT 1),
                'constructeur', (SELECT c.path FROM projects c WHERE json_extract(c.data, '$.gitRemote') = 'git@github.com:haikostudio/beluga-vitrine.git' LIMIT 1),
-               'adresseEssai', 'https://belugabuild.haikostudio.cloud',
+               'adresseEssai', 'https://essai.exemple.invalid',
                'adresseProduction', 'https://belugabuild.com',
                'dossierProduction', '/srv/belugabuild',
                'serviceProduction', 'belugabuild-prod'))
@@ -2502,7 +2502,7 @@ export const MIGRATIONS: {
          SET data = json_set(
                json_remove(data, '$.vitrineLiee.adresseEssai'),
                '$.vitrineLiee.adresseConstructeur',
-               COALESCE(json_extract(data, '$.vitrineLiee.adresseConstructeur'), 'https://dev.haikostudio.cloud'))
+               COALESCE(json_extract(data, '$.vitrineLiee.adresseConstructeur'), 'https://vitrine.exemple.invalid'))
        WHERE json_extract(data, '$.vitrineLiee.adresseProduction') = 'https://belugabuild.com';
 
       UPDATE projects
@@ -2518,8 +2518,8 @@ export const MIGRATIONS: {
                  'haikostudio/belugabuild', 'haikostudio/beluga-site'),
                  'sur haikostudio/beluga.', 'sur haikostudio/beluga-dev.'),
                  'Le dépôt privé beluga ', 'Le dépôt privé beluga-dev '),
-                 ' ni belugabuild.haikostudio.cloud', ' ni https://dev.haikostudio.cloud'),
-                 'du site de production lié https://belugabuild.com —', 'du site de production lié https://belugabuild.com et de la vitrine Haiko https://dev.haikostudio.cloud —'),
+                 ' ni essai.exemple.invalid', ' ni https://vitrine.exemple.invalid'),
+                 'du site de production lié https://belugabuild.com —', 'du site de production lié https://belugabuild.com et de la vitrine Haiko https://vitrine.exemple.invalid —'),
                  '§depot-public§', 'haikostudio/beluga'))
        WHERE json_extract(data, '$.vitrineLiee.adresseProduction') = 'https://belugabuild.com'
          AND instr(json_extract(data, '$.miseEnProduction.prompt'), 'belugabuildtool') > 0;
@@ -2541,7 +2541,7 @@ export const MIGRATIONS: {
      */
     sql: `
       UPDATE projects
-         SET data = json_set(data, '$.vitrineLiee.adresseConstructeur', 'https://dev.haikostudio.cloud')
+         SET data = json_set(data, '$.vitrineLiee.adresseConstructeur', 'https://vitrine.exemple.invalid')
        WHERE json_extract(data, '$.vitrineLiee.adresseProduction') = 'https://belugabuild.com'
          AND json_type(data, '$.vitrineLiee.adresseConstructeur') IS NULL;
 
@@ -3787,6 +3787,168 @@ export const MIGRATIONS: {
      */
     sql: `
       ALTER TABLE studio_exports ADD COLUMN lot TEXT;
+    `,
+  },
+  {
+    id: 115,
+    name: 'cartes-rangement-du-tableau-de-bord',
+    siTable: 'cards',
+    /*
+     * LE TABLEAU CENTRAL RANGE À LA MAIN, LES PROJETS ARCHIVENT À LA MISE EN
+     * LIGNE. « Terminer » réunit toutes les cartes finies (« À déployer » ou
+     * « Archivé ») que l'utilisateur n'a pas encore rangées dans « Archiver »
+     * de la page « Tableaux de bord » (`rangeeTableauDeBordAt`). Ce rangement
+     * ne change jamais la colonne du projet.
+     *
+     * Les cartes DÉJÀ archivées à l'arrivée de la colonne y restent rangées :
+     * sans cela, « Terminer » se remplissait d'un coup de milliers de cartes.
+     */
+    sql: `
+      ALTER TABLE cards ADD COLUMN rangee_tableau_de_bord_at INTEGER;
+      UPDATE cards SET rangee_tableau_de_bord_at = COALESCE(archived_at, updated_at)
+       WHERE column_key = 'archived';
+      CREATE INDEX IF NOT EXISTS idx_cards_a_terminer ON cards(updated_at, id)
+       WHERE column_key IN ('to_deploy', 'archived') AND rangee_tableau_de_bord_at IS NULL;
+    `,
+  },
+  {
+    id: 116,
+    name: 'studio-chrono-d-export',
+    siTable: 'studio_exports',
+    /*
+     * LE CHRONOMÈTRE D'UN EXPORT : l'heure où la fabrication a VRAIMENT démarré
+     * (quand l'export sort de la file lourde) et celle où elle s'est arrêtée
+     * (prêt, échoué ou annulé). `cree_le` dit depuis quand l'export attend, ces
+     * deux-là disent combien de temps la fabrication a pris. Un export d'avant
+     * garde les deux vides : l'écran n'affiche alors aucun chrono pour lui.
+     */
+    sql: `
+      ALTER TABLE studio_exports ADD COLUMN demarre_le INTEGER;
+      ALTER TABLE studio_exports ADD COLUMN termine_le INTEGER;
+    `,
+  },
+  {
+    id: 117,
+    name: 'deploiement-herite',
+    siTable: 'projects',
+    /*
+     * LE DÉPLOIEMENT DEMANDE UNE INITIALISATION, SAUF POUR CE QUI DÉPLOYAIT DÉJÀ
+     * (10/10/2026). Un projet sans procédure passait pour « prêt » : son
+     * déploiement enregistrait et poussait, sautait reconstruction et
+     * redémarrage, puis se disait réussi (Justcrazy). Désormais le déploiement
+     * exige un processus écrit par son agent de configuration
+     * (`procedureEnPlace`, `shared/src/procedure-publication.ts`).
+     *
+     * Les projets qui déployaient déjà avec l'ancien réglage — une commande ou
+     * un service, sans processus — sont marqués `herite` ICI, une fois pour
+     * toutes : ils continuent comme avant. On ne juge JAMAIS la commande ou le
+     * service au vol, car le montage pré-remplit le service constaté
+     * (`reglageDeDeploiementConstate`) : un projet neuf passerait pour
+     * initialisé. Un projet créé après cette migration n'est donc jamais
+     * marqué, et passe par l'initialisation.
+     */
+    sql: `
+      UPDATE projects
+      SET data = json_set(data, '$.deploiement.herite', json('true'))
+      WHERE json_type(data, '$.deploiement') = 'object'
+        AND json_extract(data, '$.deploiement.processus') IS NULL
+        AND (
+          trim(coalesce(json_extract(data, '$.deploiement.commande'), '')) <> ''
+          OR trim(coalesce(json_extract(data, '$.deploiement.service'), '')) <> ''
+        );
+    `,
+  },
+  {
+    id: 118,
+    name: 'captures-vues',
+    /*
+     * LES IMAGES QU'UN COMPTE A DÉJÀ OUVERTES EN GRAND (12/10/2026). L'œil posé
+     * sur une vignette de « Ce que l'agent a vu » doit suivre du téléphone à
+     * l'ordinateur, et rester propre à chaque compte : une ligne par compte et
+     * par image, comme `demande_lectures` le fait pour les demandes.
+     *
+     * PAS dans `preferences` : cette table est commune à tous les comptes, et
+     * chaque écriture y rediffuse le bloc ENTIER — une carte porte couramment
+     * des centaines d'images.
+     *
+     * `cle` est la clé de l'image dans la bande (`jointe:<pièce>` ou
+     * `etape:<étape>`, `shared/src/captures-du-flux.ts`).
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS capture_vues (
+        user_id TEXT NOT NULL,
+        cle TEXT NOT NULL,
+        vue_le INTEGER NOT NULL,
+        PRIMARY KEY (user_id, cle)
+      );
+    `,
+  },
+  {
+    id: 119,
+    name: 'brouillons-vides-retires',
+    siTable: 'preferences',
+    /*
+     * LES BROUILLONS VIDES QUI ALOURDISSAIENT CHAQUE ÉCRAN (12/10/2026).
+     * `draft.<agent>` à `""` et `draftAttachments.<agent>` à `[]` : une ligne par
+     * conversation d'agent jamais nettoyée, 4 400 sur 4 616 réglages, soit
+     * 280 Ko des 384 Ko du premier envoi. Un brouillon absent se lit déjà comme
+     * vide ; le serveur n'en écrit plus (`estUnReglageVide`). Rien d'autre que
+     * des valeurs vides n'est touché — un brouillon réel reste.
+     */
+    sql: `
+      DELETE FROM preferences
+      WHERE (key LIKE 'draft.%' AND value = '""')
+         OR (key LIKE 'draftAttachments.%' AND value = '[]');
+    `,
+  },
+  {
+    id: 120,
+    name: 'pieces-de-l-agent',
+    siTable: ['attachments', 'messages'],
+    /*
+     * QUELLES PIÈCES VIENNENT DE L'AGENT (12/10/2026). Le filtre « pas encore
+     * vues » de l'onglet des pièces jointes ne compte que les images de l'agent,
+     * et `Attachment.agentId` nomme la conversation, pas l'auteur. Les pièces
+     * neuves portent `deLAgent` dès leur écriture ; celles d'avant se
+     * reconnaissent à leur place dans un message de l'agent (`attachments`) —
+     * c'est déjà ce qui les fait entrer dans la bande « Ce que l'agent a vu ».
+     */
+    sql: `
+      UPDATE attachments
+      SET data = json_set(data, '$.deLAgent', json('true'))
+      WHERE json_extract(data, '$.deLAgent') IS NULL
+        AND id IN (
+          SELECT j.value
+          FROM messages m, json_each(m.data, '$.attachments') j
+          WHERE m.role = 'assistant' AND json_type(m.data, '$.attachments') = 'array'
+        );
+    `,
+  },
+  {
+    id: 121,
+    name: 'proposition-en-attente-indexee',
+    siTable: 'messages',
+    /*
+     * LE FILET DES PROPOSITIONS À VALIDER NE BALAIE PLUS 590 Mo DE MESSAGES
+     * (12/10/2026). `calculerDecisionsEnAttente` reprend, à chaque calcul, les
+     * propositions « en attente » portées par un message mais absentes de la
+     * table des propositions — deux `LIKE` sur le texte de TOUS les messages :
+     * 418 ms sur 14 656 messages, soit l'essentiel des gels de 1,5 s du démon
+     * (`data/logs/blocages.log`), chacun retardant tous les écrans.
+     *
+     * Même but que `a_questions` (35) et `streaming` (49) — une colonne qui dit
+     * « ce message est à voir » et un index PARTIEL qui ne porte que ces
+     * lignes —, mais en colonne GÉNÉRÉE : c'est SQLite qui la tient à jour, à
+     * chaque écriture, d'où qu'elle vienne (`saveMessage`, un script, une
+     * migration). Aucune écriture du code ne peut l'oublier, aucun
+     * remplissage n'est à rejouer. Le prédicat est EXACTEMENT celui du filet :
+     * la requête le garde derrière l'index, elle ne change pas de résultat.
+     */
+    sql: `
+      ALTER TABLE messages ADD COLUMN a_proposition_en_attente INTEGER
+        GENERATED ALWAYS AS (data LIKE '%"proposals":[{%' AND data LIKE '%"decision":"pending"%') VIRTUAL;
+      CREATE INDEX idx_messages_proposition_en_attente
+        ON messages(a_proposition_en_attente) WHERE a_proposition_en_attente = 1;
     `,
   },
 ];

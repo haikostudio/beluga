@@ -11,10 +11,12 @@ import {
 } from './espace-client.js';
 import { NotificationEspace } from './espace-notifications.js';
 import { ConnexionCompte } from './connexion-compte.js';
+import { ETAPES_DE_L_ASSISTANT, EtatDesNouveautes, GENRES_DE_SECRET, TravailDInstallation } from './installation.js';
 import { FicheMoteurZ } from './moteurs-ajoutes.js';
 import { EntreeJournal } from './journal-carte.js';
 import { LigneDuCarnet } from './carnet-memoire.js';
 import { RUBRIQUES_DU_RESUME } from './resume.js';
+import { MAX_CLES_DE_CAPTURES, MAX_SIGNES_DE_CLE_DE_CAPTURE } from './captures-du-flux.js';
 import {
   Agent,
   AccountQuota,
@@ -39,7 +41,13 @@ import {
  * obligatoire — uniquement des champs optionnels, pour qu'un navigateur ouvert
  * depuis trois jours continue de fonctionner.
  */
-export const PROTOCOL_VERSION = 2;
+/*
+ * 2 → 3 : l'événement `prefs` peut ne porter QU'UNE PART des réglages
+ * (`partiel`). Un écran resté sur la version 2 y verrait son bloc entier
+ * remplacé par une clé : il se recharge donc une fois, comme pour le passage
+ * 1 → 2 (`doitRechargerPourLeProtocole`).
+ */
+export const PROTOCOL_VERSION = 3;
 
 /**
  * UN ÉCRAN RESTÉ OUVERT SUR UN AUTRE PROTOCOLE SE RECHARGE, UNE FOIS. La règle
@@ -106,6 +114,9 @@ export const EtatDuPool = z.object({
 });
 export type EtatDuPool = z.infer<typeof EtatDuPool>;
 
+/** Une liste de clés d'images de la bande « Ce que l'agent a vu », bornée. */
+const ClesDeCaptures = z.array(z.string().min(1).max(MAX_SIGNES_DE_CLE_DE_CAPTURE)).max(MAX_CLES_DE_CAPTURES);
+
 /* ------------------------------------------------------------------ */
 /* Client → serveur                                                    */
 /* ------------------------------------------------------------------ */
@@ -113,6 +124,11 @@ export type EtatDuPool = z.infer<typeof EtatDuPool>;
 export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hello'), protocol: z.number().optional() }),
   z.object({ type: z.literal('ping') }),
+  /**
+   * LES RÉPONSES PERDUES PENDANT UNE COUPURE (`shared/src/accuses-orphelins.ts`) :
+   * l'écran qui se reconnecte redemande celles qu'il attend encore.
+   */
+  z.object({ type: z.literal('acks.reclamer'), ids: z.array(z.string().max(80)).max(200) }),
   /**
    * CE QUE CET ÉCRAN REGARDE, EN PLUS DE SON PROJET (`shared/src/perimetre-ecran.ts`).
    * Le serveur déduit déjà le périmètre des demandes de l'écran (`project.open`,
@@ -138,6 +154,17 @@ export const ClientCommand = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('project.update'), id: z.string(), patch: z.record(z.any()) }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
+  /**
+   * CE QUI PARTIRAIT avec la suppression définitive d'un projet : nombres réels,
+   * dépôt GitHub visé, et la raison d'un refus éventuel. Ne touche à rien.
+   */
+  z.object({ type: z.literal('project.apercuSuppression'), id: z.string() }),
+  /**
+   * LA SUPPRESSION DÉFINITIVE : dépôt GitHub, dossier du serveur, projet et tout
+   * ce qui s'y rattache. `nomConfirme` doit valoir EXACTEMENT le nom du projet.
+   * Distincte de `project.delete`, qui ne fait que mettre de côté.
+   */
+  z.object({ type: z.literal('project.supprimerDefinitivement'), id: z.string(), nomConfirme: z.string() }),
   /**
    * LES PROJETS RÉUNIS (`shared/src/regroupements.ts`), depuis la rubrique
    * « Projets » des réglages : réunir sous un nom commun, renommer, compléter,
@@ -179,7 +206,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     limit: z.number().int().positive().max(200).optional(),
     /**
      * La colonne demandée (`OngletEnRoute`) : « Actifs » (défaut), « Terminer »
-     * (À déployer) ou « Archiver » (tout Archivé, en ligne ou non).
+     * (tout ce qui est fini, pas encore rangé sur la page) ou « Archiver »
+     * (rangé sur la page par l'utilisateur).
      */
     onglet: z.enum(['actif', 'terminer', 'archive']).optional(),
   }),
@@ -255,6 +283,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
     sousDomaine: z.string().optional(),
     /** Le port sur lequel le projet écoute sur le serveur. */
     port: z.number().optional(),
+    /**
+     * « Démarrer par un cahier des charges » : une carte naît au montage et son
+     * agent pose les questions (`shared/src/cahier-des-charges.ts`).
+     */
+    cahierDesCharges: z.boolean().optional(),
   }),
   /**
    * Les dépôts du compte GitHub connecté au serveur, pour en choisir un dans la
@@ -278,6 +311,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
     sousDomaine: z.string().optional(),
     /** Le port sur lequel le projet écoute sur le serveur. */
     port: z.number().optional(),
+    /**
+     * « Démarrer par un cahier des charges » : une carte naît au montage et son
+     * agent pose les questions (`shared/src/cahier-des-charges.ts`).
+     */
+    cahierDesCharges: z.boolean().optional(),
   }),
 
   // Cartes
@@ -305,7 +343,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
     column: ColumnKey,
     position: z.number().optional(),
   }),
+  /**
+   * RANGER (OU RESSORTIR) DES CARTES FINIES SUR LA PAGE « TABLEAUX DE BORD »
+   * SEULEMENT : `range` vrai les fait passer de « Terminer » à « Archiver »,
+   * faux les y ramène (`rangeeTableauDeBordAt`). La colonne du projet, la
+   * date de mise en ligne et le lot de la publication ne bougent pas.
+   */
+  z.object({
+    type: z.literal('card.rangerTableauDeBord'),
+    ids: z.array(z.string()).min(1).max(5000),
+    range: z.boolean(),
+  }),
   z.object({ type: z.literal('card.delete'), id: z.string() }),
+  z.object({ type: z.literal('card.supprimerSiVide'), id: z.string() }),
   /**
    * RATTACHER UNE CARTE À UN AUTRE PROJET. Commande DISTINCTE de `card.move` :
    * celle-ci ne touche pas à la colonne (la carte garde son étape) et ses refus
@@ -323,6 +373,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.validate'), id: z.string() }),
   z.object({ type: z.literal('card.start'), id: z.string() }),
   z.object({ type: z.literal('card.finish'), id: z.string() }),
+  /**
+   * LE CAHIER DES CHARGES D'UN NOUVEAU PROJET : mettre en pause (l'agent
+   * s'arrête, l'avancement reste), reprendre (l'agent repart à la question
+   * suivante), et lire le document tel qu'il est sur le disque.
+   */
+  z.object({ type: z.literal('card.cahierPause'), id: z.string() }),
+  z.object({ type: z.literal('card.cahierReprendre'), id: z.string() }),
+  z.object({ type: z.literal('card.cahierDocument'), id: z.string() }),
+  /** Le cahier des charges d'un PROJET (configuration du projet) : `texte` nul s'il n'existe pas. */
+  z.object({ type: z.literal('project.cahierDocument'), projectId: z.string() }),
   z.object({ type: z.literal('card.asap'), id: z.string(), value: z.boolean() }),
   /**
    * PROGRAMMER LE DÉPART D'UNE CARTE, à la main. `date` en millisecondes pose
@@ -407,6 +467,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.conversation'), cardId: z.string(), lire: z.boolean().optional() }),
   /** « J'ai lu » : éteint la pastille de réponse rendue sur cette carte. */
   z.object({ type: z.literal('card.read'), cardId: z.string() }),
+  /* OÙ MÈNE LE CLIC SUR LA CARTE D'UN AGENT DE VOLET : le service et l'élément qui porte la conversation de l'agent (`lieuDuServiceDeLaCarte`). */
+  z.object({ type: z.literal('carte.lieu-de-service'), cardId: z.string() }),
   /** « Marquer comme non lu » : rallume la pastille d'un rendu déjà consulté. */
   z.object({ type: z.literal('card.unread'), cardId: z.string() }),
   /**
@@ -466,8 +528,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
       account: z.string().optional(),
     }),
   }),
-  z.object({ type: z.literal('queue.update'), id: z.string(), text: z.string() }),
+  /* Modifier un message en attente. `attachments` : les pièces qu'il porte
+     APRÈS la modification (une pastille retirée, un fichier joint entre-temps).
+     Absent — un écran d'avant cette règle —, le message garde les siennes. */
+  z.object({
+    type: z.literal('queue.update'),
+    id: z.string(),
+    text: z.string(),
+    attachments: z.array(z.string()).optional(),
+  }),
   z.object({ type: z.literal('queue.remove'), id: z.string() }),
+  /* Une demande en attente s'ouvre (`actif`) ou se referme dans la barre
+     d'écriture : tant qu'elle est ouverte, la file ne la fait pas partir. */
+  z.object({ type: z.literal('queue.edition'), id: z.string(), actif: z.boolean() }),
 
   // Propositions de tâche
   /** Répondre à une question posée par un agent : il reprend aussitôt. */
@@ -679,6 +752,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * peut donc rien déclencher, et coûte zéro jeton.
    */
   z.object({ type: z.literal('deploy.etatProduction'), projectId: z.string() }),
+  /** L'instant de la dernière publication RÉUSSIE de chaque étape (repère « Essai réussi »). Lecture seule. */
+  z.object({ type: z.literal('deploy.reussites'), projectId: z.string() }),
 
   // Fichiers
   z.object({ type: z.literal('files.list'), projectId: z.string(), path: z.string().optional() }),
@@ -688,6 +763,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
     paths: z.array(z.string()),
   }),
   z.object({ type: z.literal('attachments.list'), projectId: z.string() }),
+  /*
+   * LES PIÈCES DES TAGS COLLÉS, retrouvées par leur alias sur tout le dépôt et
+   * rattachées au projet où l'on colle (recopiées si elles vivent ailleurs).
+   * Fermée aux comptes clients, comme toute commande non nommée dans
+   * `shared/src/droits-commandes.ts`.
+   */
+  z.object({
+    type: z.literal('attachments.rattacher'),
+    projectId: z.string(),
+    agentId: z.string().optional(),
+    cardId: z.string().optional(),
+    alias: z.array(z.string()).max(50),
+  }),
   /*
    * L'INSTANT QUI SERT D'APERÇU À UNE VIDÉO. `seconde: null` efface le choix et
    * rend la main à la recherche automatique. `manuel` distingue le GESTE d'un
@@ -708,27 +796,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('card.redaction.relancer'), cardId: z.string() }),
 
-  // Facturation
-  z.object({ type: z.literal('billing.clients') }),
-  z.object({ type: z.literal('billing.documents'), clientId: z.string().optional() }),
-  z.object({
-    type: z.literal('billing.push'),
-    cardId: z.string(),
-    documentType: z.enum(['offer', 'invoice']),
-    documentId: z.string().optional(),
-    title: z.string(),
-    description: z.string().optional(),
-    clientExplanation: z.string().optional(),
-    hours: z.number(),
-  }),
-  /** Le bouton « IA » d'un champ de la ligne facturée : il ne réécrit QUE son champ. */
-  z.object({
-    type: z.literal('billing.regenerate'),
-    cardId: z.string(),
-    field: z.enum(['title', 'description', 'clientExplanation']),
-    hint: z.string().optional(),
-  }),
-  z.object({ type: z.literal('billing.summary') }),
   /**
    * L'écart moyen entre chiffrage annoncé et durée réelle des dernières
    * cartes closes d'un projet — lu dans les réglages du projet, sans ouvrir
@@ -765,7 +832,39 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('settings.get') }),
   /** Réglages d'affichage (largeurs, thème, replis) : conservés en base. */
   z.object({ type: z.literal('prefs.set'), key: z.string(), value: z.any() }),
+  /**
+   * LES IMAGES DÉJÀ OUVERTES EN GRAND, PAR COMPTE (`capture_vues`). L'écran
+   * demande l'état des SEULES clés de la bande qu'il affiche (`captures.vues`),
+   * puis annonce chaque image qu'il montre en grand (`captures.voir`). Listes
+   * bornées (`MAX_CLES_DE_CAPTURES`) : au-delà, l'écran envoie par tranches.
+   */
+  z.object({ type: z.literal('captures.vues'), cles: ClesDeCaptures }),
+  z.object({ type: z.literal('captures.voir'), cles: ClesDeCaptures }),
   z.object({ type: z.literal('settings.update'), patch: z.record(z.any()) }),
+  /*
+   * L'INSTALLATION : ce que l'assistant de démarrage et la page « Installation »
+   * des réglages demandent au démon (`server/src/installation-commandes.ts`).
+   * Les réglages simples passent par `settings.update` ; ici, les GESTES.
+   */
+  z.object({ type: z.literal('installation.etat') }),
+  z.object({ type: z.literal('installation.adresse'), genre: z.enum(['administration', 'espace-client']), hote: z.string().max(253) }),
+  z.object({ type: z.literal('installation.secret'), genre: z.enum(GENRES_DE_SECRET), valeur: z.string().max(400) }),
+  /*
+   * L'ÉCRAN FAIT INSTALLER : il ne nomme qu'un GENRE (un moteur du registre, une
+   * fonction), jamais une commande — la ligne exécutée est écrite dans le démon.
+   */
+  z.object({ type: z.literal('installation.installer'), genre: z.string().max(40) }),
+  z.object({ type: z.literal('installation.copie'), nom: z.string().max(100).optional() }),
+  z.object({ type: z.literal('installation.nouveautes'), forcer: z.boolean().optional() }),
+  z.object({ type: z.literal('installation.nouveautes.appliquer') }),
+  z.object({ type: z.literal('installation.courriel-essai'), a: z.string().max(254) }),
+  z.object({ type: z.literal('installation.github'), jeton: z.string().max(400) }),
+  z.object({ type: z.literal('installation.bibliotheque'), source: z.string().max(200) }),
+  z.object({
+    type: z.literal('installation.etape'),
+    etape: z.enum(ETAPES_DE_L_ASSISTANT),
+    issue: z.enum(['faite', 'passee']),
+  }),
   z.object({ type: z.literal('capacity.processes') }),
   z.object({ type: z.literal('capacity.history') }),
   z.object({ type: z.literal('process.stop'), id: z.string() }),
@@ -1595,7 +1694,15 @@ export const ServerEvent = z.discriminatedUnion('type', [
     openedProjectId: z.string().optional(),
   }),
   z.object({ type: z.literal('pong'), at: z.number() }),
-  z.object({ type: z.literal('ack'), id: z.string(), ok: z.boolean(), data: z.any().optional(), error: z.string().optional() }),
+  z.object({
+    type: z.literal('ack'),
+    id: z.string(),
+    ok: z.boolean(),
+    data: z.any().optional(),
+    error: z.string().optional(),
+    /** Une réponse orpheline rediffusée : elle ne part que vers les écrans de CE compte. */
+    pour: z.string().optional(),
+  }),
   z.object({ type: z.literal('project.upsert'), project: Project }),
   z.object({ type: z.literal('project.delete'), id: z.string() }),
   /** Met un projet de côté sans rien perdre : son tableau et son historique restent. */
@@ -1811,7 +1918,18 @@ export const ServerEvent = z.discriminatedUnion('type', [
     }),
   }),
   z.object({ type: z.literal('settings'), settings: Settings }),
-  z.object({ type: z.literal('prefs'), prefs: z.record(z.any()) }),
+  /** Un travail d'installation lancé depuis l'écran : son état, puis sa sortie au fil de l'eau. */
+  z.object({ type: z.literal('installation.travail'), travail: TravailDInstallation }),
+  z.object({ type: z.literal('installation.sortie'), genre: z.string(), donnees: z.string() }),
+  z.object({ type: z.literal('installation.nouveautes'), etat: EtatDesNouveautes }),
+  z.object({
+    type: z.literal('prefs'),
+    prefs: z.record(z.any()),
+    /** Vrai : `prefs` ne porte que les clés qui changent (`null` = retirée), à fusionner dans le bloc connu. */
+    partiel: z.boolean().optional(),
+  }),
+  /** Des images viennent d'être ouvertes en grand par CE compte, sur un autre de ses appareils. */
+  z.object({ type: z.literal('captures.vues'), pour: z.string(), cles: z.array(z.string()) }),
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),
   z.object({ type: z.literal('files'), projectId: z.string(), path: z.string(), nodes: z.array(FileNode) }),
   z.object({

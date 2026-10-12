@@ -6,11 +6,14 @@ import {
   ChevronRight,
   Database,
   FolderTree,
+  Globe,
   KeyRound,
   Camera,
   Bug,
+  Languages,
   Loader2,
   Palette,
+  Power,
   Save,
   Scale,
   Search,
@@ -27,7 +30,7 @@ import {
   pagesDesReglages,
   type FicheDeReglage,
 } from '@beluga/shared';
-import { Dialog, DialogContentLibre, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
+import { Dialog, DialogContentLibre, DialogHeader, DialogTitle, Input, ZoneDefilement } from '@/components/ui';
 import { Silhouette, SilhouettePageReglages } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -61,6 +64,10 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
     icone: Palette,
     rendu: paresseux(() => import('@/components/reglages/page-apparence'), 'SectionApparence'),
   },
+  langue: {
+    icone: Languages,
+    rendu: paresseux(() => import('@/components/reglages/page-langue'), 'SectionLangue'),
+  },
   projets: {
     icone: FolderTree,
     rendu: paresseux(() => import('@/components/reglages/page-projets'), 'PageProjetsReunis'),
@@ -88,6 +95,14 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
     icone: Wallet,
     avecOuverture: true,
     rendu: paresseux(() => import('@/components/reglages/page-consommation'), 'UsageSection'),
+  },
+  installation: {
+    icone: Globe,
+    rendu: paresseux(() => import('@/components/reglages/page-installation'), 'PageInstallation'),
+  },
+  serveur: {
+    icone: Power,
+    rendu: paresseux(() => import('@/components/reglages/page-serveur'), 'SectionServeur'),
   },
   capacite: {
     icone: Activity,
@@ -245,24 +260,30 @@ function CorpsDesReglages({
 
   return (
     <>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
-        {/* Le retour n'existe QUE sur téléphone, et seulement quand la page
-            recouvre le menu. */}
-        {pageAuPremierPlan ? (
-          <button
-            type="button"
-            data-retour-menu-reglages
-            onClick={() => setPageAuPremierPlan(false)}
-            className="-ml-1 flex items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span className="text-[13px]">{t('Réglages')}</span>
-          </button>
-        ) : null}
-        <DialogTitle className={cn(pageAuPremierPlan && 'sm:inline hidden')}>
-          {pageAuPremierPlan && pageOuverte ? t(pageOuverte.titre) : t('Réglages')}
+      <DialogHeader
+        className="border-b border-border pb-2.5"
+        /* Le retour n'existe QUE sur téléphone, et seulement quand la page
+           recouvre le menu : il prend la place de gauche, le titre reste au
+           milieu. */
+        gauche={
+          pageAuPremierPlan ? (
+            <button
+              type="button"
+              data-retour-menu-reglages
+              onClick={() => setPageAuPremierPlan(false)}
+              className="flex items-center gap-0.5 rounded p-1 text-muted hover:bg-raised hover:text-text sm:hidden"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span className="text-[13px]">{t('Réglages')}</span>
+            </button>
+          ) : null
+        }
+      >
+        <DialogTitle className="min-w-0 truncate">
+          <span className={cn(pageAuPremierPlan && 'max-sm:hidden')}>{t('Réglages')}</span>
+          {pageAuPremierPlan && pageOuverte ? <span className="sm:hidden">{t(pageOuverte.titre)}</span> : null}
         </DialogTitle>
-      </header>
+      </DialogHeader>
 
       <div className="flex min-h-0 flex-1">
         {/* ---------------------------- LE MENU ---------------------------- */}
@@ -383,8 +404,10 @@ function MenuDesReglages({
                   onClick={() => onOuvrir(fiche.cle)}
                   className={cn(
                     'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13.5px]',
+                    /* Sur téléphone, ce menu est une liste de pages : aucune n'est
+                       « choisie » tant qu'on ne l'a pas ouverte. */
                     pageOuverte === fiche.cle && !enRecherche
-                      ? 'bg-raised text-text'
+                      ? 'text-muted sm:bg-raised sm:text-teinte'
                       : 'text-muted hover:bg-raised/60 hover:text-text',
                   )}
                 >

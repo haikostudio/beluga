@@ -116,7 +116,7 @@ export const TEXTE_ACCES_MAX = 20_000;
  * telle quelle dans les sources.
  */
 export const TEXTE_DE_RESPONSABILITE =
-  'Cet espace contient les informations d’accès direct à votre hébergement : serveur, base de données, administration. Tant qu’il reste fermé, Haiko garde seul la main sur ces accès et répond de leur sûreté. En l’ouvrant, vous prenez la responsabilité de tout ce qui sera fait avec ces informations, par vous ou par quiconque les recevra de vous. L’ouverture est enregistrée avec votre nom et la date, et ne peut pas être annulée de votre côté.';
+  'Cet espace contient les informations d’accès direct à votre hébergement : serveur, base de données, administration. Tant qu’il reste fermé, {nom} garde seul la main sur ces accès et répond de leur sûreté. En l’ouvrant, vous prenez la responsabilité de tout ce qui sera fait avec ces informations, par vous ou par quiconque les recevra de vous. L’ouverture est enregistrée avec votre nom et la date, et ne peut pas être annulée de votre côté.';
 
 /** La case à cocher : la confirmation explicite. */
 export const CONFIRMATION_ACCES = 'J’ai lu ces conditions et j’en prends la responsabilité.';
@@ -130,9 +130,9 @@ export const BOUTON_OUVRIR_ACCES = 'J’assume et j’ouvre l’accès';
  * qu'on ferme.
  */
 export const MENTIONS_ACCES_OUVERT = [
-  'Haiko n’est plus responsable de la sûreté des données sur le serveur : la boîte de Pandore est ouverte.',
+  '{nom} n’est plus responsable de la sûreté des données sur le serveur : la boîte de Pandore est ouverte.',
   'Cet accès va à l’encontre du contrat de maintenance, s’il y en a un.',
-  'Haiko ne peut plus être tenu responsable des problèmes survenus sur le site ou l’application.',
+  '{nom} ne peut plus être tenu responsable des problèmes survenus sur le site ou l’application.',
 ] as const;
 
 export const GesteDAcces = z.enum(['deverrouillage', 'reverrouillage']);

@@ -8,9 +8,8 @@
  * nomment l'état COURANT et rien d'autre ; c'est ce que le lecteur d'écran
  * annonce.
  *
- * L'AMBIANCE N'EST PAS PROPOSÉE. L'administration en a six ; l'espace client
- * garde l'ambiance d'origine et ne joue que sur la clarté — un choix de plus
- * dans un entête qui doit tenir sur un seul rang n'apporterait rien.
+ * UNE SEULE APPARENCE, NOIR ET BLANC, comme l'administration : le bouton ne
+ * joue que sur la clarté.
  *
  * LE CHOIX VIT SUR LE COMPTE, pas dans le navigateur : c'est la porte cliente
  * qui l'enregistre (`espace.moi.apparence`). Ce composant ne connaît qu'un

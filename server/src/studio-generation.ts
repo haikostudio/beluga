@@ -49,6 +49,9 @@ import { refaireLExportApresLaVoix } from './studio-rendu.js';
 import {
   ajouterMedia,
   assurerEspaceStudio,
+  genreDuMime,
+  importerPieceJointe,
+  mediaDejaImporte,
   compositionCourante,
   creerDepense,
   depensesValideesDeGenre,
@@ -101,6 +104,48 @@ export async function dureeDuFichier(fichier: string): Promise<number> {
   const d = Number(stdout.trim());
   if (!Number.isFinite(d) || d <= 0) throw new Error('durée illisible');
   return d;
+}
+
+/**
+ * Ce qu'on sait d'un média en UNE lecture ffprobe : la taille du premier flux d'image
+ * (image ou vidéo) et la durée (vidéo ou son). Ne lève jamais : un fichier illisible
+ * rend {}, et l'import se fait sans mesure.
+ */
+export async function mesurerMedia(fichier: string, genre: MediaStudio['genre']): Promise<{ duree?: number; largeur?: number; hauteur?: number }> {
+  try {
+    const { stdout } = await execFileAsync(
+      'ffprobe',
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:format=duration', '-of', 'json', fichier],
+      { timeout: 30_000 },
+    );
+    const j = JSON.parse(stdout) as { streams?: { width?: number; height?: number }[]; format?: { duration?: string } };
+    const flux = j.streams?.[0];
+    const largeur = Number(flux?.width);
+    const hauteur = Number(flux?.height);
+    const duree = Number(j.format?.duration);
+    return {
+      ...((genre === 'image' || genre === 'video') && largeur > 0 && hauteur > 0 ? { largeur, hauteur } : {}),
+      ...((genre === 'video' || genre === 'audio') && Number.isFinite(duree) && duree > 0 ? { duree } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Une pièce jointe entre dans la bibliothèque MESURÉE (taille, durée) : le chemin
+ * commun de l'import par l'agent et par le bouton de l'écran. Seul un NOUVEAU média
+ * se mesure — un doublon rend l'existant tel quel.
+ */
+export async function importerPieceJointeMesuree(
+  projectId: string,
+  attachmentId: string,
+  extra: { licence?: string; creationId?: string } = {},
+): Promise<Resultat<{ media: MediaStudio; nouveau: boolean }>> {
+  const piece = store.getAttachment(attachmentId);
+  const genre = piece && piece.projectId === projectId ? genreDuMime(piece.mime) : null;
+  const mesure = piece && genre && !mediaDejaImporte(projectId, attachmentId) ? await mesurerMedia(cheminDePieceJointe(piece), genre) : {};
+  return importerPieceJointe(projectId, attachmentId, { ...extra, ...mesure });
 }
 
 function fichierProvisoire(extension: string): string {
@@ -871,8 +916,7 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
     fs.rmSync(fichier, { force: true });
     if (!jointe.ok) throw new Error(jointe.refus);
     const genre: MediaStudio['genre'] = depense.genre === 'image' ? 'image' : depense.genre === 'clip' ? 'video' : 'audio';
-    let duree: number | undefined;
-    if (genre !== 'image') duree = await dureeDuFichier(cheminDuJoint(jointe.attachment.id)).catch(() => undefined);
+    const mesure = await mesurerMedia(cheminDuJoint(jointe.attachment.id), genre);
     ajouterMedia({
       projectId: creation.projectId,
       creationId: creation.id,
@@ -881,7 +925,7 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
       nom: `${depense.genre === 'image' ? 'Image' : depense.genre === 'clip' ? 'Clip' : 'Musique'} — ${String(depense.details.consigne ?? '').slice(0, 50)}`,
       attachmentId: jointe.attachment.id,
       mime,
-      ...(duree ? { duree } : {}),
+      ...mesure,
       licence: depense.genre === 'image' ? 'Générée par Codex pour ce projet' : `Générée par ${depense.modele} pour ce projet`,
       cout,
     });

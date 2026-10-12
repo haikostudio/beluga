@@ -8,21 +8,14 @@
  * Le fichier réel fait foi ; rien n'est dupliqué ni mis en cache ici.
  */
 
+import { echapperHtml as echapper } from './demande-copiable.js';
+
 /** L'adresse publique du changelog. */
 export const ROUTE_CHANGELOG = '/changelog';
 
 export interface EntreeChangelog {
   date: string;
   texte: string;
-}
-
-/** Le texte qui part dans une page : les chevrons et l'esperluette ne doivent rien ouvrir. */
-function echapper(texte: string): string {
-  return texte
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 /**

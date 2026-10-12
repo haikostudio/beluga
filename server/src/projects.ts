@@ -18,10 +18,11 @@ import {
   portsEnEcouteDansSs,
   refusPortDejaAttribue,
   sansRegroupements,
+  slugEntier,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { reglageDeDeploiementConstate } from './services-du-projet.js';
-import { CONFIG } from './config.js';
+import { CONFIG, PREMIER_DEMARRAGE_REEL } from './config.js';
 import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
 import { DnsResult, publishSubdomain } from './dns.js';
@@ -244,14 +245,7 @@ export async function createProjectFolder(input: {
   /** Le port sur lequel le projet écoute sur le serveur. */
   port?: number;
 }): Promise<{ project: Project; etapes: EtapeCreation[] }> {
-  const slug =
-    (input.folder?.trim() || input.name)
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      .slice(0, 50) || 'projet';
+  const slug = slugEntier(input.folder?.trim() || input.name).slice(0, 50) || 'projet';
 
   const etapes: EtapeCreation[] = [];
   const noter = (titre: string, fait: boolean, detail?: string) => etapes.push({ titre, fait, detail });
@@ -510,14 +504,25 @@ export async function adoptServerProjects(): Promise<number> {
   return count;
 }
 
-/** Le projet Beluga Build lui-même, inscrit au premier démarrage. */
-export async function ensureSelfProject(): Promise<Project> {
+/**
+ * Le projet Beluga Build lui-même. Là où il est déjà inscrit, il le reste.
+ *
+ * UNE INSTALLATION NEUVE PART AVEC UN TABLEAU VIDE : le projet de l'application
+ * n'y est plus inscrit d'office — celui qui installe Beluga Build veut piloter
+ * SES projets, pas le code de l'outil. Il reste inscrit d'office sur un serveur
+ * d'essai (les contrôles s'en servent), et sur demande
+ * (`BELUGA_INSCRIRE_BELUGA=1`) pour qui développe Beluga Build lui-même.
+ */
+export async function ensureSelfProject(options: { forcer?: boolean } = {}): Promise<Project | null> {
   const selfPath = path.resolve(CONFIG.selfPath);
   const existing = store.getProjectByPath(selfPath);
   if (existing) {
     if (!existing.isSelf) return store.saveProject({ ...existing, isSelf: true });
     return existing;
   }
+  // `forcer` : la page « Votre propre Beluga » de l'assistant le demande — c'est
+  // par elle, et par elle seule, que le projet arrive sur une installation neuve.
+  if (!options.forcer && PREMIER_DEMARRAGE_REEL && process.env.BELUGA_INSCRIRE_BELUGA !== '1') return null;
   const info = await gitInfo(selfPath);
   return registerProject({
     name: 'Beluga Build',

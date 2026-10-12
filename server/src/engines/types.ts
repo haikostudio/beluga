@@ -322,6 +322,7 @@ export function humanStep(
           board_delete_card: 'Suppression d\'une carte',
           propose_task: 'Proposition d\'une tâche',
           write_document: 'Rédaction d\'un document',
+          cahier_des_charges: 'Cahier des charges mis à jour',
           make_archive: 'Préparation d\'une archive',
           memoire: 'Base de connaissances',
           remember: 'Mise à jour de la mémoire du projet',

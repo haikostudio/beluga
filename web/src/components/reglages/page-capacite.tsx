@@ -94,16 +94,16 @@ export function SectionSysteme() {
                 ne dit plus « plus aucun agent ne peut démarrer » pour une
                 pointe de charge d'une minute. */}
             {ton === 'tendu' && !capacity.loadHoldReason ? (
-              <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
+              <p className="mt-1.5 rounded-md border border-transparent bg-warning/5 px-2 py-1 text-[13px] text-warning">
                 {t('Il ne reste presque plus de place : les prochaines tâches attendront leur tour.')}</p>
             ) : null}
             {capacity.loadHoldReason ? (
-              <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
+              <p className="mt-1.5 rounded-md border border-transparent bg-warning/5 px-2 py-1 text-[13px] text-warning">
                 {capacity.loadHoldReason}
               </p>
             ) : null}
             {capacity.paused ? (
-              <p className="mt-1.5 rounded-md border border-warning/30 bg-warning/5 px-2 py-1 text-[13px] text-warning">
+              <p className="mt-1.5 rounded-md border border-transparent bg-warning/5 px-2 py-1 text-[13px] text-warning">
                 {capacity.pauseReason}
               </p>
             ) : null}

@@ -15,19 +15,31 @@ import { t } from '@/lib/langue';
  * La mesure ne se fait qu'à l'arrivée d'une carte, quand son texte change, ou
  * quand sa largeur bouge.
  */
-const rappels = new WeakMap<Element, () => void>();
+/* Plusieurs mesures peuvent suivre le MÊME élément (le titre d'une carte porte
+   la mesure de tout son texte et celle de son seul titre) : chaque élément garde
+   donc un ENSEMBLE de rappels, jamais un seul que le dernier arrivé écraserait. */
+const rappels = new WeakMap<Element, Set<() => void>>();
 let observateur: ResizeObserver | null = null;
 
 function observer(element: Element, rappel: () => void): () => void {
   if (typeof ResizeObserver === 'undefined') return () => undefined;
   observateur ??= new ResizeObserver((entrees) => {
-    for (const entree of entrees) rappels.get(entree.target)?.();
+    for (const entree of entrees) rappels.get(entree.target)?.forEach((r) => r());
   });
-  rappels.set(element, rappel);
-  observateur.observe(element);
+  let ensemble = rappels.get(element);
+  if (!ensemble) {
+    ensemble = new Set();
+    rappels.set(element, ensemble);
+    observateur.observe(element);
+  }
+  ensemble.add(rappel);
   return () => {
-    rappels.delete(element);
-    observateur?.unobserve(element);
+    const restant = rappels.get(element);
+    restant?.delete(rappel);
+    if (restant && restant.size === 0) {
+      rappels.delete(element);
+      observateur?.unobserve(element);
+    }
   };
 }
 
@@ -50,25 +62,26 @@ function vider(): void {
   const lot = file;
   file = [];
   const avant = lot.map((d) => d.elements.map((e) => (e ? { ch: e.clientHeight, sh: e.scrollHeight } : null)));
-  const remis = lot.map((d) =>
-    d.elements.map((e) => {
-      if (!e) return null;
-      const memoire = { display: e.style.display, pli: e.style.getPropertyValue('-webkit-line-clamp') };
+  /* UN MÊME ÉLÉMENT PEUT SERVIR PLUSIEURS DEMANDES du lot (le titre d'une carte
+     porte la mesure de tout son texte et celle de son seul titre) : sa mise en
+     forme d'origine est notée UNE fois, avant qu'on le déplie. Notée une
+     seconde fois, elle serait celle de l'élément déjà déplié — et il resterait
+     déplié pour de bon. */
+  const memoires = new Map<HTMLElement, { display: string; pli: string }>();
+  for (const d of lot) {
+    for (const e of d.elements) {
+      if (!e || memoires.has(e)) continue;
+      memoires.set(e, { display: e.style.display, pli: e.style.getPropertyValue('-webkit-line-clamp') });
       e.style.display = 'block';
       e.style.setProperty('-webkit-line-clamp', 'unset');
-      return memoire;
-    }),
-  );
+    }
+  }
   const depliees = lot.map((d) => d.elements.map((e) => (e ? e.scrollHeight : 0)));
-  lot.forEach((d, n) =>
-    d.elements.forEach((e, k) => {
-      const memoire = remis[n][k];
-      if (!e || !memoire) return;
-      e.style.display = memoire.display;
-      if (memoire.pli) e.style.setProperty('-webkit-line-clamp', memoire.pli);
-      else e.style.removeProperty('-webkit-line-clamp');
-    }),
-  );
+  for (const [e, memoire] of memoires) {
+    e.style.display = memoire.display;
+    if (memoire.pli) e.style.setProperty('-webkit-line-clamp', memoire.pli);
+    else e.style.removeProperty('-webkit-line-clamp');
+  }
   lot.forEach((d, n) =>
     d.fin(
       d.elements.some((e, k) => {

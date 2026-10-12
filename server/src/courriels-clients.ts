@@ -1,7 +1,7 @@
 /**
- * LES DEUX COURRIELS DE L'ESPACE CLIENT, PAR RESEND.
+ * LES DEUX COURRIELS DE L'ESPACE CLIENT.
  *
- *  - LE POINT QUOTIDIEN DE HAIKO, chaque matin à 7 h, à `salut@haiko.studio` :
+ *  - LE POINT QUOTIDIEN, chaque matin à 7 h, à l'adresse réglée dans l'installation :
  *    tous les clients, ce qu'il n'a pas lu chez chacun, et ce qui a bougé
  *    depuis la veille ;
  *  - LE COURRIEL DU LUNDI MATIN, à 8 h, à CHAQUE client : ce qu'il n'a pas lu,
@@ -16,22 +16,23 @@
  *
  * Trois choses ne bougent pas :
  *
- *  - LA CLÉ EST LUE AU COFFRE-FORT, jamais écrite dans le dépôt (fiche
- *    « Resend — envoi d'e-mails Haiko Studio », à ne pas confondre avec celle
- *    du projet projetc) ;
- *  - L'EXPÉDITEUR EST SUR `haiko.studio`, seul domaine vérifié chez Resend :
- *    un envoi depuis un autre est refusé net ;
- *  - AUCUNE DÉPENDANCE NEUVE : un `fetch` sur `https://api.resend.com/emails`
- *    suffit. Le démon n'avait aucun code d'envoi de courriel, on n'en importe
- *    pas une bibliothèque entière pour trois champs.
+ *  - L'ENVOI PASSE PAR UNE SEULE PORTE (`envoi-des-courriels.ts`), qui connaît
+ *    trois façons d'envoyer — l'agent d'envoi du serveur, un service de
+ *    courriel, ou Resend — et retient celle réglée dans l'installation. Ce
+ *    fichier décide QUOI écrire, à QUI et QUAND ; jamais par où ça part ;
+ *  - LES SECRETS SONT LUS AU COFFRE-FORT, jamais écrits dans le dépôt ni dans
+ *    les réglages ;
+ *  - L'EXPÉDITEUR EST CELUI RÉGLÉ DANS L'INSTALLATION, sur un domaine que le
+ *    service d'envoi accepte : un envoi depuis un autre est refusé net, et SANS
+ *    expéditeur réglé rien ne part (`shared/src/installation.ts`).
  *
  * La garantie de non-répétition tient aux CLÉS écrites en base — la semaine
  * pour les clients, le jour pour Haiko : un démon redémarré le lundi à 8 h 30
  * repasse ici, et c'est elle qui l'arrête, pas la chance.
  */
 import {
-  ADRESSE_DE_HAIKO,
-  EXPEDITEUR_RECAPITULATIF,
+  adresseDuRecapitulatif,
+  expediteurDesCourriels,
   cleDeSemaine,
   cleDuJour,
   courrielDIdentifiants,
@@ -58,9 +59,9 @@ import {
   type LigneDeClient,
   type MessageAuCourriel,
 } from '@beluga/shared';
-import { listerAcces } from './coffre-fort.js';
 import { listerComptes } from './comptes.js';
 import { getMeta, setMeta } from './db.js';
+import { envoiPossible, envoyerUnCourriel, raisonDeLExtinction } from './envoi-des-courriels.js';
 import * as espace from './espace-client.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -81,45 +82,6 @@ export function dernierJourEnvoye(): string | undefined {
 }
 
 /**
- * LA CLÉ RESEND, LUE AU COFFRE. On la reconnaît à son SERVICE, pas à son nom :
- * un nom de fiche se retouche, un service non. La fiche du projet projetc porte le
- * même service — on écarte donc celle qui nomme un autre projet.
- */
-export function cleResend(): string | null {
-  const fiches = listerAcces().filter(
-    (fiche) => fiche.type === 'cle-api' && /resend/i.test(String(fiche.champs.service ?? fiche.nom)),
-  );
-  const pourBeluga = fiches.find((fiche) => !/projetc/i.test(fiche.nom)) ?? fiches[0];
-  const cle = String(pourBeluga?.champs.cle ?? '').trim();
-  return cle || null;
-}
-
-/**
- * L'ENVOI LUI-MÊME. Rend `null` quand tout va bien, la raison de l'échec sinon
- * — un refus de Resend doit SE VOIR, pas se perdre : c'est tout l'intérêt de
- * rendre la raison plutôt que de lever.
- */
-export async function envoyerParResend(
-  cle: string,
-  a: string,
-  sujet: string,
-  texte: string,
-  html: string,
-): Promise<string | null> {
-  try {
-    const reponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${cle}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ from: EXPEDITEUR_RECAPITULATIF, to: [a], subject: sujet, text: texte, html }),
-    });
-    if (reponse.ok) return null;
-    return `${reponse.status} ${(await reponse.text()).slice(0, 300)}`;
-  } catch (err: any) {
-    return err?.message ?? 'envoi impossible';
-  }
-}
-
-/**
  * LE TROISIÈME COURRIEL : LES IDENTIFIANTS D'UN COMPTE NEUF, SUR CASE COCHÉE.
  *
  * Il ne part que si Haiko l'a demandé en créant le compte, vers l'adresse
@@ -136,13 +98,16 @@ export async function envoyerLesIdentifiants(input: {
 }): Promise<{ envoye: boolean; raison?: string }> {
   const refus = refusDEnvoiDesIdentifiants(input.envoyer, input.courriel);
   if (refus) return { envoye: false, raison: refus };
-  const cle = cleResend();
-  if (!cle) return { envoye: false, raison: 'Aucune clé Resend au coffre-fort.' };
+  if (!envoiPossible()) {
+    // La phrase précise (un mot de passe qui manque, un agent absent) aide plus
+    // que la phrase générale : c'est elle qui s'affiche quand il y en a une.
+    return { envoye: false, raison: `${raisonDeLExtinction() || 'Aucune façon d’envoyer les courriels n’est réglée'}.` };
+  }
   const { sujet, texte, html } = courrielDIdentifiants(input);
-  const echec = await envoyerParResend(cle, String(input.courriel).trim(), sujet, texte, html);
+  const echec = await envoyerUnCourriel(String(input.courriel).trim(), sujet, texte, html);
   if (echec) {
     log.warn(`courriel d'identifiants refusé pour ${input.identifiant}`, echec);
-    return { envoye: false, raison: `Resend a refusé l’envoi : ${echec}` };
+    return { envoye: false, raison: `L’envoi a été refusé : ${echec}` };
   }
   log.info(`courriel d'identifiants envoyé à ${input.identifiant}`);
   return { envoye: true };
@@ -268,7 +233,7 @@ function nomDeProjet(projectId: string): string | undefined {
 /* ------------------------------------------------------------------ */
 
 export interface PassageQuotidien {
-  saute?: 'pas-l-heure' | 'pas-de-cle';
+  saute?: 'pas-l-heure' | 'envoi-eteint';
   envoye: boolean;
   clients: number;
   echec?: string;
@@ -278,18 +243,19 @@ export interface PassageQuotidien {
  * UN PASSAGE DU MATIN. `maintenant` est passé en argument pour qu'un essai
  * puisse le rejouer à 7 h sans attendre 7 h.
  *
- * Le courriel part à `salut@haiko.studio`, jamais à l'adresse d'un compte : ce
- * point-là n'appartient qu'à Haiko, et le destinataire ne se devine pas d'une
- * fiche qui pourrait changer.
+ * Le courriel part à l'adresse réglée dans l'installation, jamais à l'adresse
+ * d'un compte : le destinataire ne se devine pas d'une fiche qui pourrait
+ * changer. Sans adresse réglée, le point ne part pas.
  */
 export async function passageDuPointQuotidien(maintenant = Date.now()): Promise<PassageQuotidien> {
   if (!estLHeureDuPointQuotidien(maintenant, dernierJourEnvoye())) {
     return { saute: 'pas-l-heure', envoye: false, clients: 0 };
   }
-  const cle = cleResend();
-  if (!cle) {
-    log.warn('point quotidien : aucune clé Resend au coffre-fort, rien n’est envoyé');
-    return { saute: 'pas-de-cle', envoye: false, clients: 0 };
+  const destinataire = adresseDuRecapitulatif();
+  if (!destinataire || !envoiPossible()) {
+    // Une installation qui n'a pas réglé ses courriels ne le redit pas à chaque passage.
+    if (destinataire) log.warn(`point quotidien : rien n’est envoyé — ${raisonDeLExtinction()}`);
+    return { saute: 'envoi-eteint', envoye: false, clients: 0 };
   }
 
   // Le point se lit avec les yeux de l'ADMINISTRATION : ce qu'ELLE n'a pas lu.
@@ -326,12 +292,12 @@ export async function passageDuPointQuotidien(maintenant = Date.now()): Promise<
   const { sujet, texte, html } = courrielDeHaiko(point, {
     demande: (clientId, demande) => lienDeHaiko(clientId, demande.id),
   });
-  const echec = await envoyerParResend(cle, ADRESSE_DE_HAIKO, sujet, texte, html);
+  const echec = await envoyerUnCourriel(destinataire, sujet, texte, html);
   if (echec) {
-    log.warn('point quotidien refusé par Resend', echec);
+    log.warn('point quotidien : envoi refusé', echec);
     return { envoye: false, clients: point.clients.length, echec };
   }
-  log.info(`point quotidien envoyé à ${ADRESSE_DE_HAIKO} (${point.clients.length} client(s))`);
+  log.info(`point quotidien envoyé à ${destinataire} (${point.clients.length} client(s))`);
   return { envoye: true, clients: point.clients.length };
 }
 
@@ -342,7 +308,7 @@ export async function passageDuPointQuotidien(maintenant = Date.now()): Promise<
 /** Ce qu'un passage a fait, pour que le journal le dise en une ligne. */
 export interface PassageDuRecapitulatif {
   /** Pas l'heure, ou déjà envoyé cette semaine. */
-  saute?: 'pas-l-heure' | 'pas-de-cle';
+  saute?: 'pas-l-heure' | 'envoi-eteint';
   envoyes: number;
   vides: number;
   sansAdresse: number;
@@ -359,12 +325,11 @@ export async function passageDuRecapitulatif(maintenant = Date.now()): Promise<P
     return { ...bilan, saute: 'pas-l-heure' };
   }
 
-  const cle = cleResend();
-  if (!cle) {
-    // On NE marque PAS la semaine : sans clé, rien n'est parti, et le passage
-    // suivant doit pouvoir réessayer dès que la fiche est rangée au coffre.
-    log.warn('courriel du lundi : aucune clé Resend au coffre-fort, rien n’est envoyé');
-    return { ...bilan, saute: 'pas-de-cle' };
+  if (!envoiPossible()) {
+    // On NE marque PAS la semaine : l'envoi éteint, rien n'est parti, et le
+    // passage suivant doit pouvoir réessayer dès que ce qui manque est réglé.
+    if (expediteurDesCourriels()) log.warn(`courriel du lundi : rien n’est envoyé — ${raisonDeLExtinction()}`);
+    return { ...bilan, saute: 'envoi-eteint' };
   }
 
   const clients = listerComptes().filter((compte) => compte.role === 'client' && compte.actif);
@@ -388,7 +353,7 @@ export async function passageDuRecapitulatif(maintenant = Date.now()): Promise<P
     const { sujet, texte, html } = courrielDuClient(nomDuCompte(client as CompteUtilisateur), point, {
       demande: (demande) => lienDuClient(demande),
     });
-    const echec = await envoyerParResend(cle, client.courriel, sujet, texte, html);
+    const echec = await envoyerUnCourriel(client.courriel, sujet, texte, html);
     if (echec) {
       bilan.echecs.push(`${client.identifiant} : ${echec}`);
       log.warn(`courriel du lundi refusé pour ${client.identifiant}`, echec);
@@ -401,7 +366,7 @@ export async function passageDuRecapitulatif(maintenant = Date.now()): Promise<P
   /*
    * LA SEMAINE EST MARQUÉE MÊME SI RIEN N'EST PARTI (rien à dire nulle part, ou
    * aucune adresse) : le travail a bien été fait, et repasser dans dix minutes
-   * ne changerait rien. Seule l'absence de CLÉ ne marque pas — là, le travail
+   * ne changerait rien. Seul l'envoi ÉTEINT ne marque pas — là, le travail
    * n'a pas eu lieu.
    */
   setMeta(CLE_DERNIERE_SEMAINE, cleDeSemaine(maintenant));

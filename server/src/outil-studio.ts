@@ -12,6 +12,7 @@ import {
   dureeDeLaComposition,
   dureeExportee,
   estFormatStudio,
+  mimeDuFichier,
   montantLisible,
   nettoyerDessin,
   trouverSegment,
@@ -28,6 +29,7 @@ import {
   compositionCourante,
   creationDeLAgent,
   enregistrerVersion,
+  genreDuMime,
   listerDepenses,
   listerExports,
   listerMedias,
@@ -36,7 +38,9 @@ import {
   nouvelId,
 } from './studio.js';
 import { controlerComposition, imagesDeLaComposition, lancerExport } from './studio-rendu.js';
-import { devisDeGeneration, devisDesVoix, fabriquerVoixEssai, fabriquerVoixManquantes, voixDEssaiDisponibles } from './studio-generation.js';
+import * as store from './store.js';
+import { fichierPermis, joindreUnFichier, racinesDeLAgent } from './joindre-fichier.js';
+import { devisDeGeneration, devisDesVoix, fabriquerVoixEssai, fabriquerVoixManquantes, importerPieceJointeMesuree, voixDEssaiDisponibles } from './studio-generation.js';
 import { listerModeles, lireModele } from './studio-modeles.js';
 
 /**
@@ -51,6 +55,8 @@ import { listerModeles, lireModele } from './studio-modeles.js';
 
 interface Contexte {
   agentId: string;
+  /** La carte de la conversation du Studio : la pièce importée d'un chemin s'y rattache. */
+  cardId?: string;
 }
 interface Resultat {
   ok: boolean;
@@ -80,7 +86,12 @@ function texteDuControle(erreurs: string[], avertissements: string[]): string {
   ].join('\n');
 }
 
-export async function outilStudio(ctx: Contexte, _project: Project, args: Record<string, any>): Promise<Resultat> {
+/** L'orientation d'un média, dite à l'agent pour qu'il le place selon le format. */
+function orientation(largeur: number, hauteur: number): string {
+  return largeur === hauteur ? 'carré' : largeur > hauteur ? 'paysage' : 'portrait';
+}
+
+export async function outilStudio(ctx: Contexte, project: Project, args: Record<string, any>): Promise<Resultat> {
   const creation = creationDeLAgent(ctx.agentId);
   if (!creation) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio.' };
   const composition = compositionCourante(creation.id);
@@ -136,7 +147,7 @@ export async function outilStudio(ctx: Contexte, _project: Project, args: Record
           `BIBLIOTHÈQUE (${medias.length}) :`,
           ...medias.slice(0, 60).map(
             (m) =>
-              `- [${m.id}] ${m.genre} · ${m.provenance} · « ${m.nom} »${m.categorie ? ` · ${m.categorie}` : ''}${m.usage ? ` · ${m.usage}` : ''}${m.duree ? ` · ${m.duree.toFixed(1)} s` : ''}${m.licence ? ` · licence : ${m.licence}` : m.genre === 'audio' && m.provenance === 'import' ? ' · SANS LICENCE NOTÉE (inutilisable)' : ''}`,
+              `- [${m.id}] ${m.genre} · ${m.provenance} · « ${m.nom} »${m.categorie ? ` · ${m.categorie}` : ''}${m.usage ? ` · ${m.usage}` : ''}${m.largeur && m.hauteur ? ` · ${m.largeur}×${m.hauteur}` : ''}${m.duree ? ` · ${m.duree.toFixed(1)} s` : ''}${m.licence ? ` · licence : ${m.licence}` : m.genre === 'audio' && m.provenance === 'import' ? ' · SANS LICENCE NOTÉE (inutilisable)' : ''}`,
           ),
           depenses.length ? `DEVIS EN ATTENTE DU CLIC : ${depenses.map((d) => `${d.genre} ${montantLisible(d.plafond)}`).join(', ')}` : 'DEVIS EN ATTENTE : aucun.',
           exports.length ? `DERNIERS EXPORTS : ${exports.map((e) => `${e.format} ${e.genre} ${e.etat}`).join(', ')}` : 'EXPORTS : aucun.',
@@ -337,6 +348,61 @@ export async function outilStudio(ctx: Contexte, _project: Project, args: Record
       return {
         ok: true,
         text: `${trouves.map((s) => `- [${s.id}] « ${s.titre} » (${s.genre}) : ${s.phrase}`).join('\n')}\n« styles » avec « styleId » rend la direction entière d’un style. Cite les ids retenus dans tes pistes de mise en scène, sous la forme [style:<id>] : l’écran les montre en vignettes.`,
+      };
+    }
+
+    /*
+     * IMPORTER — l'agent range LUI-MÊME dans la bibliothèque de sa création un
+     * fichier de la machine ou une pièce jointe du projet, au lieu de demander
+     * à l'utilisateur de le télécharger puis de le réimporter. Mêmes dossiers
+     * permis et même plafond que « attach_file » ; images, vidéos et sons seulement,
+     * refusés sur leur type AVANT d'être lus. Dédoublonné deux fois : même contenu →
+     * même pièce (empreinte), même pièce → même média.
+     */
+    case 'importer': {
+      const chemin = typeof args.chemin === 'string' ? args.chemin.trim() : '';
+      const attachmentId = typeof args.attachmentId === 'string' ? args.attachmentId.trim() : '';
+      if (!chemin === !attachmentId) return { ok: false, text: 'Donne « chemin » (un fichier sur la machine) OU « attachmentId » (une pièce jointe du projet), pas les deux.' };
+      const refusDeGenre = 'seules les images, vidéos et sons entrent dans la bibliothèque';
+      let piece;
+      if (chemin) {
+        const full = fichierPermis(chemin, racinesDeLAgent(ctx.agentId, project));
+        if (!full) return { ok: false, text: `Fichier introuvable (ou hors du dossier de travail, du projet et des données de Beluga Build) : ${chemin}` };
+        if (!genreDuMime(mimeDuFichier(full))) return { ok: false, text: `Refusé : ${refusDeGenre} (${chemin}).` };
+        const nomVoulu = typeof args.nom === 'string' && args.nom.trim() ? args.nom.trim() : undefined;
+        const jointure = await joindreUnFichier({
+          projectId: creation.projectId,
+          agentId: ctx.agentId,
+          ...(ctx.cardId ? { cardId: ctx.cardId } : {}),
+          fichier: full,
+          ...(nomVoulu ? { nom: nomVoulu } : {}),
+        });
+        if (!jointure.ok) return { ok: false, text: `Refusé : ${jointure.refus} (${chemin}).` };
+        piece = jointure.attachment;
+      } else {
+        piece = store.getAttachment(attachmentId);
+        if (!piece || piece.projectId !== creation.projectId) return { ok: false, text: `Aucune pièce jointe « ${attachmentId} » dans ce projet.` };
+      }
+      const genre = genreDuMime(piece.mime);
+      if (!genre) return { ok: false, text: `Refusé : ${refusDeGenre}.` };
+      // Taille et durée mesurées (nouveau média seulement), sans jamais faire échouer l'import.
+      const r = await importerPieceJointeMesuree(creation.projectId, piece.id, {
+        creationId: creation.id,
+        ...(typeof args.licence === 'string' && args.licence.trim() ? { licence: args.licence.trim() } : {}),
+      });
+      if (!r.ok) return { ok: false, text: `Refusé : ${r.raison}.` };
+      const m = r.media;
+      const d = m.duree;
+      const taille = m.largeur && m.hauteur ? `, ${m.largeur}×${m.hauteur} (${orientation(m.largeur, m.hauteur)})` : '';
+      const usage =
+        genre === 'image'
+          ? `segment {genre: "image", mediaId: "${m.id}", ajustement: "contenir"|"couvrir"} par « operation » inserer, ou « studio-media:${m.id} » dans un dessin`
+          : genre === 'video'
+            ? `segment {genre: "video", mediaId: "${m.id}", debutMedia: 0, volume: 1, ajustement: "contenir"|"couvrir"} par « operation » inserer`
+            : `segment {genre: "audio", mediaId: "${m.id}", debutMedia: 0, volume: 1} sur une piste son, par « operation » inserer${m.licence ? '' : ' — note sa LICENCE (« licence ») avant de l’utiliser'}`;
+      return {
+        ok: true,
+        text: `${r.nouveau ? 'Rangé dans la bibliothèque' : 'Déjà dans la bibliothèque'} : [${m.id}] ${genre} « ${m.nom} »${taille}${d ? `, ${d.toFixed(2)} s` : ''}. À poser : ${usage}.`,
       };
     }
 

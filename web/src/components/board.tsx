@@ -1,7 +1,7 @@
 import * as React from 'react';
-import { Settings2, Plus, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Globe, Paperclip, Route, RotateCcw, X, Lightbulb, FileCheck2 } from 'lucide-react';
+import { Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList } from 'lucide-react';
 import {
-  TITRE_CARTE_DE_CADRAGE,
+  serviceDeLaCarte,
   debutDeLaDemande,
   Attachment,
   gestesGeles,
@@ -50,10 +50,12 @@ import {
   MENTION_REPRISE_COURTE,
   mentionArchivage,
   mentionDeReprise,
+  etatDuCahier,
   mentionCreneauConseille,
   mentionDepartProgramme,
   phraseDepartProgramme,
   RAISON_ATTENTE_LANCEMENT,
+  agentAuTravailALEcran,
   agentTientSonTour,
   runDeLEtape,
   mentionProgressionTaches,
@@ -76,6 +78,7 @@ import {
 } from '@beluga/shared';
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
 import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
+import { GestesDePage } from '@/components/entete-de-zone';
 import { PointNonLu } from '@/components/point-non-lu';
 import { RepereAttention } from '@/components/repere-attention';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
@@ -83,6 +86,7 @@ import { IconeMoteur } from '@/components/icone-moteur';
 import { nomCourtMoteur } from '@/components/run-selectors';
 import { SilhouetteTableau } from '@/components/silhouettes';
 import { BandeauTravail } from '@/components/bandeau-travail';
+import { BadgeDuService } from '@/components/badge-du-service';
 import { IndicateurActivite } from '@/components/indicateur-activite';
 import {
   Badge,
@@ -103,19 +107,16 @@ import { client } from '@/lib/client';
 import { MenuCarte } from '@/components/card-menu';
 import { DragItem, DropTarget, usePointerDrag } from '@/lib/dnd';
 import { readPref, writePref } from '@/lib/prefs';
-import { useDispositionTableau } from '@/lib/disposition-tableau';
 import {
   CLASSES_ALERTE_RANGEE,
-  CLASSES_PIED_RANGEE,
   CLASSES_TETE_RANGEE,
-  CLASSE_HAUTEUR_CARTE,
   CLASSE_HAUTEUR_CARTE_EN_ROUTE,
   CLASSE_HAUTEUR_CORPS_EN_ROUTE,
-  CLASSE_LARGEUR_CARTE,
+  CLASSE_LISERE_SERVICE,
   LARGEUR_CARTE_PX,
-  classesBande,
-  classesEmpilement,
-  classesRail,
+  CLASSES_BANDE,
+  CLASSES_EMPILEMENT,
+  CLASSES_RAIL,
   classesRangee,
 } from '@/lib/gabarit-tableau';
 import { useTelephone } from '@/lib/telephone';
@@ -355,7 +356,7 @@ function RepereAvancement({ avancement }: { avancement: AvancementColonne | null
 const PAUSE_ENTRE_GESTES_MS = 400;
 
 /**
- * LE PALIER DE CHARGEMENT, APRÈS la dernière carte posée d'une rangée.
+ * LE PALIER DE CHARGEMENT, APRÈS la dernière carte posée d'une colonne.
  *
  * Un seul élément observé par colonne : dès qu'il arrive à l'écran, le paquet
  * suivant est demandé. C'est le navigateur qui prévient, une fois.
@@ -378,16 +379,12 @@ function PalierDeChargement({
   posees,
   restant,
   onCharger,
-  axe = 'horizontal',
 }: {
   colonne: ColumnKey;
   posees: number;
   restant: number;
   onCharger: () => Promise<unknown> | void;
-  /** Le sens de la bande : couchée dans une rangée, debout dans une colonne. */
-  axe?: 'horizontal' | 'vertical';
 }) {
-  const vertical = axe === 'vertical';
   const ancre = React.useRef<HTMLDivElement>(null);
   // Le rappel change à chaque rendu du tableau : on le garde dans une référence
   // pour ne pas refaire l'observateur pour si peu.
@@ -396,8 +393,8 @@ function PalierDeChargement({
   const visible = React.useRef(false);
   const enVol = React.useRef(false);
   const zone = React.useRef<HTMLElement | null>(null);
-  /** Le dernier bord gauche VU de la bande : la rangée glisse à l'horizontale. */
-  const gaucheVue = React.useRef(0);
+  /** Le dernier haut VU de la bande : la colonne défile à la verticale. */
+  const hautVu = React.useRef(0);
   /* LES GESTES, numérotés : le palier est ARMÉ tant que le geste en cours
      n'est pas celui qui a fait venir le dernier paquet. Au départ, aucun
      paquet n'a été demandé par un geste (-1) : le palier est armé. */
@@ -407,11 +404,7 @@ function PalierDeChargement({
   const essayer = React.useRef(() => {});
   essayer.current = () => {
     const defilante = zone.current;
-    const defilable = defilante
-      ? vertical
-        ? defilante.scrollHeight > defilante.clientHeight + 1
-        : defilante.scrollWidth > defilante.clientWidth + 1
-      : false;
+    const defilable = defilante ? defilante.scrollHeight > defilante.clientHeight + 1 : false;
     const arme = geste.current !== gesteDuPaquet.current;
     if (!paquetAutorise({ visible: visible.current, enVol: enVol.current, arme, defilable })) return;
     gesteDuPaquet.current = geste.current;
@@ -426,13 +419,12 @@ function PalierDeChargement({
   React.useEffect(() => {
     const noeud = ancre.current;
     if (!noeud) return;
-    // La zone qui défile : la bande de cartes de la rangée (ou de la colonne).
-    const debord = (el: HTMLElement) => (vertical ? getComputedStyle(el).overflowY : getComputedStyle(el).overflowX);
-    const position = (el: HTMLElement | null) => (vertical ? el?.scrollTop : el?.scrollLeft) ?? 0;
+    // La zone qui défile : la bande de cartes de la colonne.
+    const position = (el: HTMLElement | null) => el?.scrollTop ?? 0;
     let parent = noeud.parentElement;
-    while (parent && !/(auto|scroll)/.test(debord(parent))) parent = parent.parentElement;
+    while (parent && !/(auto|scroll)/.test(getComputedStyle(parent).overflowY)) parent = parent.parentElement;
     zone.current = parent;
-    gaucheVue.current = position(parent);
+    hautVu.current = position(parent);
 
     const observateur = new IntersectionObserver(
       (entrees) => {
@@ -448,10 +440,9 @@ function PalierDeChargement({
        la barre envoient des dizaines d'événements à quelques millisecondes
        d'écart. Un événement qui suit une pause (`PAUSE_ENTRE_GESTES_MS`) ouvre
        un NOUVEAU geste ; chaque geste fait venir un paquet au plus — même si
-       le paquet rallonge la rangée et que le même geste ramène le palier en
-       vue. Au bout d'une rangée qui n'a rien gagné en largeur (vingt cartes
-       rangées dans un groupe replié), la bande ne défile plus : la roulette et
-       le doigt comptent alors comme l'avancée. */
+       le paquet rallonge la colonne et que le même geste ramène le palier en
+       vue. Au bout d'une colonne qui n'a rien gagné en hauteur, la bande ne
+       défile plus : la roulette et le doigt comptent alors comme l'avancée. */
     let dernierEvenement = Number.NEGATIVE_INFINITY;
     const evenement = (avance: boolean) => {
       const maintenant = performance.now();
@@ -459,18 +450,16 @@ function PalierDeChargement({
       dernierEvenement = maintenant;
       if (avance && visible.current) essayer.current();
     };
-    /* Avancer vers la DROITE : on compare au dernier bord gauche VU, relu après
-       chaque pose — un paquet qui se range peut déplacer le défilement sans
-       aucun geste. */
+    /* Avancer vers le BAS : on compare au dernier haut VU, relu après chaque
+       pose — un paquet qui se range peut déplacer le défilement sans aucun
+       geste. */
     const auDefilement = () => {
-      const gauche = position(parent);
-      const avance = gauche > gaucheVue.current + 1;
-      gaucheVue.current = gauche;
+      const haut = position(parent);
+      const avance = haut > hautVu.current + 1;
+      hautVu.current = haut;
       evenement(avance);
     };
-    /* Une bande couchée se pousse au pavé tactile (`deltaX`), à la molette
-       d'une souris qui n'a que `deltaY`, ou Maj enfoncée : les trois comptent. */
-    const aLaRoulette = (e: WheelEvent) => evenement(vertical ? e.deltaY > 0 : e.deltaX > 0 || e.deltaY > 0);
+    const aLaRoulette = (e: WheelEvent) => evenement(e.deltaY > 0);
     const auDoigt = () => evenement(true);
     parent?.addEventListener('scroll', auDefilement, { passive: true });
     parent?.addEventListener('wheel', aLaRoulette, { passive: true });
@@ -487,7 +476,7 @@ function PalierDeChargement({
      a pu le déplacer sans geste), la demande n'est plus en vol, et une colonne
      qui ne défile toujours pas continue de se remplir. */
   React.useEffect(() => {
-    gaucheVue.current = (vertical ? zone.current?.scrollTop : zone.current?.scrollLeft) ?? 0;
+    hautVu.current = zone.current?.scrollTop ?? 0;
     enVol.current = false;
     essayer.current();
   }, [posees]);
@@ -497,10 +486,7 @@ function PalierDeChargement({
       ref={ancre}
       data-palier-cartes={colonne}
       data-cartes-restantes={restant}
-      className={cn(
-        'flex shrink-0 items-center px-1.5 py-2 text-center text-[12px] text-faint',
-        vertical ? 'w-full justify-center' : 'w-[120px]',
-      )}
+      className="flex w-full shrink-0 items-center justify-center px-1.5 py-2 text-center text-[12px] text-faint"
     >
       {t('{restant} carte{v0} de plus…', { restant, v0: restant > 1 ? 's' : '' })}</div>
   );
@@ -517,12 +503,6 @@ export function Board({
   /* L'état du lien, lu une seule fois : pied de colonne, glisser-déposer et
      tuile « Nouvelle tâche » s'éteignent tous sur la même lecture. */
   const canal = useCanal();
-  /* LIGNES OU COLONNES : colonnes par défaut sur téléphone, rangées sur
-     ordinateur, et le bouton du bandeau du haut bascule de l'une à l'autre
-     (`lib/disposition-tableau.ts`). Seule l'ORIENTATION change : chaque
-     colonne porte exactement les pièces d'une rangée. */
-  const { disposition } = useDispositionTableau();
-  const enColonnes = disposition === 'colonnes';
   const telephone = useTelephone();
 
   const cards = React.useMemo(
@@ -834,17 +814,13 @@ export function Board({
   const rangeeEnTete = React.useCallback((): ColumnKey | null => {
     const node = rail.current;
     if (!node) return null;
-    // En colonnes, le même repère se lit sur l'axe horizontal.
-    const haut = enColonnes ? node.scrollLeft : node.scrollTop;
+    // Les colonnes se suivent de gauche à droite : le repère se lit sur l'axe horizontal.
+    const gauche = node.scrollLeft;
     const visible = Array.from(node.querySelectorAll<HTMLElement>('[data-column]'))
-      .filter((rangee) =>
-        enColonnes
-          ? rangee.offsetLeft + rangee.offsetWidth > haut + 24
-          : rangee.offsetTop + rangee.offsetHeight > haut + 24,
-      )
+      .filter((rangee) => rangee.offsetLeft + rangee.offsetWidth > gauche + 24)
       .shift();
     return (visible?.getAttribute('data-column') as ColumnKey | null) ?? null;
-  }, [enColonnes]);
+  }, []);
 
   /*
    * Tant que les cartes du projet ne sont pas arrivées, le tableau rend la
@@ -864,9 +840,8 @@ export function Board({
     if (!memorisee) return;
     const cible = rail.current?.querySelector<HTMLElement>(`[data-column="${memorisee}"]`);
     if (!cible) return;
-    if (enColonnes) rail.current!.scrollLeft = cible.offsetLeft - 12;
-    else rail.current!.scrollTop = cible.offsetTop - 12;
-  }, [projectId, tableauCharge, enColonnes]);
+    rail.current!.scrollLeft = cible.offsetLeft - 12;
+  }, [projectId, tableauCharge]);
 
   /*
    * LA CARTE MONTRÉE PAR LE BADGE BLEU D'UN PROJET. Le tiroir l'ouvre ; le
@@ -883,13 +858,12 @@ export function Board({
     const node = rail.current;
     const rangee = node?.querySelector<HTMLElement>(`[data-column="${colonneMontree}"]`);
     if (!node || !rangee) return;
-    if (enColonnes) node.scrollLeft = rangee.offsetLeft - 12;
-    else node.scrollTop = rangee.offsetTop - 12;
+    node.scrollLeft = rangee.offsetLeft - 12;
     rangee
       .querySelector<HTMLElement>(`[data-carte="${carteMontree.cardId}"]`)
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     client.montrerCarte(null);
-  }, [carteMontree, colonneMontree, tableauCharge, enColonnes]);
+  }, [carteMontree, colonneMontree, tableauCharge]);
 
   /*
    * Au défilement, on note la rangée en tête. L'écriture en base attend une
@@ -1293,10 +1267,10 @@ export function Board({
 
   /*
    * LE TABLEAU SUIT LA CARTE TIRÉE, SUR LES DEUX AXES.
-   * En haut ou en bas du cadre, ce sont les RANGÉES qui défilent (le tableau
-   * s'empile à la verticale). À gauche ou à droite, c'est la BANDE DE CARTES
-   * survolée qui glisse : sans elle, on ne pourrait pas déposer une carte au
-   * bout d'une rangée plus longue que l'écran.
+   * À gauche ou à droite du cadre, ce sont les COLONNES qui défilent (le
+   * tableau se lit de gauche à droite). En haut ou en bas, c'est la BANDE DE
+   * CARTES survolée qui glisse : sans elle, on ne pourrait pas déposer une
+   * carte au bout d'une colonne plus longue que l'écran.
    */
   React.useEffect(() => {
     if (!dragging || !pointer) return;
@@ -1305,25 +1279,17 @@ export function Board({
       const node = rail.current;
       if (!node) return;
       const boite = node.getBoundingClientRect();
-      /* En colonnes, les axes s'échangent : le tableau glisse de gauche à
-         droite, la colonne survolée de haut en bas. */
-      if (enColonnes) {
-        if (pointer.x < boite.left + zone) node.scrollLeft -= 14;
-        else if (pointer.x > boite.right - zone) node.scrollLeft += 14;
-      } else if (pointer.y < boite.top + zone) node.scrollTop -= 14;
-      else if (pointer.y > boite.bottom - zone) node.scrollTop += 14;
+      if (pointer.x < boite.left + zone) node.scrollLeft -= 14;
+      else if (pointer.x > boite.right - zone) node.scrollLeft += 14;
       const sous = document.elementFromPoint(pointer.x, pointer.y);
       const bande = sous?.closest<HTMLElement>('[data-bande-cartes]');
       if (!bande) return;
       const cadre = bande.getBoundingClientRect();
-      if (enColonnes) {
-        if (pointer.y < cadre.top + zone) bande.scrollTop -= 14;
-        else if (pointer.y > cadre.bottom - zone) bande.scrollTop += 14;
-      } else if (pointer.x < cadre.left + zone) bande.scrollLeft -= 14;
-      else if (pointer.x > cadre.right - zone) bande.scrollLeft += 14;
+      if (pointer.y < cadre.top + zone) bande.scrollTop -= 14;
+      else if (pointer.y > cadre.bottom - zone) bande.scrollTop += 14;
     }, 16);
     return () => window.clearInterval(timer);
-  }, [dragging, pointer, enColonnes]);
+  }, [dragging, pointer]);
 
   /*
    * LES CARTES DE CE PROJET NE SONT PAS ENCORE ARRIVÉES : le serveur les envoie
@@ -1341,43 +1307,72 @@ export function Board({
     );
   }
 
+  /*
+   * LES DEUX GESTES DE PUBLICATION, écrits UNE fois pour leurs deux places : la
+   * barre d'en-tête de la page sur ordinateur (`enTete`), et le menu à trois
+   * points de cette même barre sur téléphone (`!enTete` : le composant reste
+   * monté sans bouton, `enMenu`). Mêmes composants, mêmes réglages, mêmes
+   * pages : seule la tenue du geste change. Plus rien ne se pose en bas de
+   * l'écran du téléphone (demande du 11/10/2026).
+   */
+  const panneauDeDeploiement = (column: ColumnKey, columnCards: Card[], enTete: boolean) => (
+    <DeployPanel
+      projectId={projectId}
+      cards={columnCards}
+      colonne={column}
+      presentation="compact"
+      enTete={enTete}
+      enMenu={!enTete}
+      ancreDeroule={`deroule-publication-${projectId}-${column}`}
+      onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
+      onSansCarte={(travail) => setSansCarte((prev) => ({ ...prev, [column]: travail }))}
+      onInitier={() => {
+        const etapeCol = etapeDeLaColonne(column);
+        if (etapeCol) ouvrirRubriqueDeLEtape(projectId, etapeCol.cible);
+      }}
+    />
+  );
+  /* UN REGROUPEMENT NE PUBLIE RIEN LUI-MÊME : son bouton liste ses projets
+     membres, chacun avec le sien, plus un bouton qui les lance tous
+     (`bandeau-production-groupe.tsx`). Un projet ordinaire garde le sien. */
+  const miseEnProduction = (enTete: boolean) =>
+    membresDuGroupe.length && projetOuvert ? (
+      <BandeauProductionGroupe groupe={projetOuvert} membres={membresDuGroupe} enTete={enTete} enMenu={!enTete} />
+    ) : (
+      <DeployPanel
+        projectId={projectId}
+        cards={parColonne.archived}
+        colonne="archived"
+        presentation="bandeau"
+        enTete={enTete}
+        enMenu={!enTete}
+        onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, archived: infos }))}
+        onSansCarte={(travail) => setSansCarte((prev) => ({ ...prev, archived: travail }))}
+        /* Plus d'icône de réglages : le tiroir porte lui-même l'onglet
+           « Conversation » avec l'agent de configuration. */
+        actions={<BoutonInfosPublication colonne="archived" infos={infosPublication.archived ?? null} />}
+      />
+    );
+
   return (
     /* Le tableau DIT le projet qu'il montre : un contrôle qui pose une carte
        d'essai vise ce projet-là, sans deviner lequel est actif. */
     <div className="flex h-full min-h-0 flex-col" data-tableau={projectId}>
-      {/*
-        LE TABLEAU S'EMPILE EN RANGÉES, ET C'EST LUI QUI DÉFILE À LA VERTICALE.
-        Chaque rangée tient la LARGEUR ENTIÈRE et la hauteur d'une carte ; les
-        cartes s'y alignent à gauche et glissent latéralement dans leur propre
-        bande. Quatre rangées tiennent ainsi dans un écran d'ordinateur, et sur
-        téléphone c'est le tableau qui descend — jamais quatre colonnes de
-        300 px à pousser du doigt de gauche à droite.
-      */}
-      {/* EN COLONNES, le même rail se couche : il défile de gauche à droite,
-          colonne par colonne (aimantation au bord gauche, coupée pendant un
-          glisser pour ne pas lutter contre le défilement automatique). */}
+      {/* LE TABLEAU SE LIT EN COLONNES, ET SEULEMENT EN COLONNES : le rail
+          défile de gauche à droite, colonne par colonne (aimantation au bord
+          gauche, coupée pendant un glisser pour ne pas lutter contre le
+          défilement automatique). */}
       <ZoneDefilement
         ref={rail}
-        key={disposition}
-        axe={enColonnes ? 'horizontal' : 'vertical'}
+        axe="horizontal"
         classeEnveloppe="min-h-0 flex-1"
-        data-disposition-tableau={disposition}
-        className={cn(classesRail(enColonnes), enColonnes && !dragging && 'snap-x snap-mandatory')}
+        data-rail-du-tableau
+        className={cn(CLASSES_RAIL, !dragging && 'snap-x snap-mandatory')}
       >
-      {/* TOUTES LES RANGÉES ONT LA MÊME HAUTEUR, vides ou pleines : une grille
-          à pistes égales (`auto-rows-fr`) cale chaque rangée sur la plus haute
-          — « À déployer » et son pied compris. La grille vit dans une
-          enveloppe SANS hauteur imposée : posée directement sur le rail (qui a
-          la hauteur de l'écran), `1fr` étirerait les quatre rangées jusqu'à
-          remplir la fenêtre. */}
-      {/* En colonnes, les quatre étapes se posent côte à côte, pleine hauteur :
-          sur téléphone une colonne tient l'écran, sur ordinateur elles se
+      {/* Les quatre étapes se posent côte à côte, pleine hauteur : sur
+          téléphone une colonne tient l'écran, sur ordinateur elles se
           partagent la largeur. */}
-      <div
-        className={classesEmpilement(enColonnes)}
-        data-rangees-egales={enColonnes ? undefined : ''}
-        data-colonnes-cote-a-cote={enColonnes ? '' : undefined}
-      >
+      <div className={CLASSES_EMPILEMENT}>
       {COLONNES_AFFICHEES.map((column) => {
         const archives = column === 'archived';
         const columnCards = byColumn(column);
@@ -1416,7 +1411,7 @@ export function Board({
                  rangée visée. L'avancement (orange « En cours », bleu « À
                  déployer ») ne vit plus ici : il vit dans le bandeau de
                  titre, en fond plat (voir plus bas). */
-              classesRangee(enColonnes, telephone),
+              classesRangee(telephone),
               'transition-colors',
               over === column && allowed && 'bg-surface ring-1 ring-inset ring-accent',
               carteTiree && !allowed && 'opacity-40',
@@ -1431,8 +1426,7 @@ export function Board({
             <div
               className={cn(
                 CLASSES_TETE_RANGEE,
-                column === 'running' && 'bg-en-cours/10',
-                column === 'to_deploy' && 'bg-termine/10',
+
               )}
               data-tete-colonne={column}
             >
@@ -1463,10 +1457,12 @@ export function Board({
                   trois points. Un SEUL groupe collé à droite (`ml-auto` posé
                   UNE fois sur le conteneur). */}
               <div className="ml-auto flex min-w-0 items-center gap-1">
-                {/* « NOUVELLE TÂCHE », EN HAUT À DROITE DE « DEMANDE » : la
-                    place qu'occupait « Tout lancer ». Présent même rangée
-                    vide — c'est le seul chemin vers une nouvelle carte. */}
-                {column === 'planned' ? <BoutonNouvelleTache projectId={projectId} /> : null}
+                {/* « NOUVELLE TÂCHE » N'EST PLUS ICI : elle a rejoint le TOUT HAUT
+                    de la colonne de gauche (`nouvelle-tache.tsx`), au-dessus de
+                    « Fichiers », et se retrouve sur la page d'une tâche. Sur
+                    téléphone, le bas de l'écran porte un seul bouton « Nouvelle
+                    tâche », sur toute la largeur (`app.tsx`, même repère
+                    `data-nouvelle-carte`). */}
                 {/* LE GESTE DE LOT (« Tout archiver ») N'A PLUS DE BOUTON DANS
                     LE BANDEAU : il s'ouvre depuis le menu à trois points. Une
                     fois les cases sorties, son SECOND TEMPS (annuler /
@@ -1494,8 +1490,7 @@ export function Board({
                   </div>
                 ) : null}
                 {column === 'running' ? <RepereAvancement avancement={avancementDeCesCartes(columnCards)} /> : null}
-                {/* LES RÉGLAGES DE « À DÉPLOYER » VIVENT EN HAUT À DROITE, dans
-                    LES DEUX dispositions (rangées comme colonnes) : le « i »
+                {/* LES RÉGLAGES DE « À DÉPLOYER » VIVENT EN HAUT À DROITE : le « i »
                     des informations de mise en ligne, puis l'interrupteur de
                     déploiement automatique, juste avant le menu trois points.
                     Le pied de la rangée ne garde que le bouton de publication. */}
@@ -1510,20 +1505,9 @@ export function Board({
                       projectId={projectId}
                       actif={projetOuvert?.deploiementAutomatique === true}
                     />
-                    {/* LES RÉGLAGES DU DÉPLOIEMENT, à droite de l'interrupteur :
-                        la rubrique où l'agent de configuration écrit le
-                        processus, et où il se discute. */}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted"
-                      onClick={() => ouvrirRubriqueDeLEtape(projectId, 'dev')}
-                      aria-label="Réglages du déploiement"
-                      title={t('Réglages du déploiement')}
-                      data-reglages-deploiement-tete={column}
-                    >
-                      <Settings2 className="h-3.5 w-3.5" />
-                    </Button>
+                    {/* LES RÉGLAGES DU DÉPLOIEMENT NE SONT PLUS ICI : ils vivent
+                        dans la page du déploiement, à côté du bouton qui le
+                        lance (`DeployPanel`, `data-reglages-deploiement-page`). */}
                   </div>
                 ) : null}
                 {/* Le menu à trois points ne porte plus « Archives » : la
@@ -1565,7 +1549,7 @@ export function Board({
 
             {/* L'ANCRE DU DÉROULÉ de la publication : le bloc y pose, par
                 portail, ce qui n'a pas à rester figé (phrases d'explication,
-                échec du contrôle d'avant-clic). Vide le reste du temps. Elle
+                dépôts touchés). Vide le reste du temps. Elle
                 tient TOUTE LA LARGEUR de la rangée, hors de la bande qui
                 glisse : un texte n'a pas à défiler latéralement. */}
             {column === 'to_deploy' ? (
@@ -1602,31 +1586,30 @@ export function Board({
               En mode sélection, la case à cocher DÉBORDE du coin haut-gauche de
               la carte : il faut donc lui laisser la place.
             */}
-            {/* En colonnes, la même bande se dresse : les cartes s'empilent
-                de haut en bas et c'est elle qui défile, entre l'entête et le
-                pied. */}
+            {/* La bande se dresse : les cartes s'empilent de haut en bas et
+                c'est elle qui défile, entre l'entête et le pied. */}
             <ZoneDefilement
-              axe={enColonnes ? 'vertical' : 'horizontal'}
+              axe="vertical"
               voile
               barre
               fond="hsl(var(--surface))"
-              classeEnveloppe={enColonnes ? 'min-h-0 w-full flex-1' : 'w-full'}
+              classeEnveloppe="min-h-0 w-full flex-1"
               data-bande-cartes={column}
               className={cn(
-                classesBande(enColonnes),
-                enColonnes ? 'overscroll-y-contain' : 'overscroll-x-contain',
+                CLASSES_BANDE,
+                'overscroll-y-contain',
                 colonneEnLot === column && 'pl-[15px] pt-[15px]',
               )}
             >
               {column === 'running' && vignetteInitialisation ? (
-                <div className={cn(enColonnes ? 'w-full' : CLASSE_LARGEUR_CARTE, 'flex shrink-0 flex-col gap-2')}>
+                <div className="flex w-full shrink-0 flex-col gap-2">
                   {vignetteInitialisation}
                 </div>
               ) : null}
               {cartesPosees.map((card) => {
                 const cochable = colonneEnLot === column;
                 const tuile = (
-                  <div className={cn(enColonnes ? 'w-full' : CLASSE_LARGEUR_CARTE, 'shrink-0')}>
+                  <div className="w-full shrink-0">
                     <CardTile
                       card={card}
                       onOpen={(event) => clicCarte(card, column, event)}
@@ -1644,7 +1627,6 @@ export function Board({
                       coche={cochable ? selection.includes(card.id) : undefined}
                       menuOuvert={menuCarte === card.id}
                       onMenuChange={(ouvert) => setMenuCarte(ouvert ? card.id : null)}
-                      hauteurLibre={enColonnes}
                     />
                   </div>
                 );
@@ -1663,8 +1645,6 @@ export function Board({
               {resteDesCartes(totalDeColonne(column, columnCards.length), paquets[column] ?? 1) ||
               totalDeColonne(column, columnCards.length) > cartesPosees.length ? (
                 <PalierDeChargement
-                  key={disposition}
-                  axe={enColonnes ? 'vertical' : 'horizontal'}
                   colonne={column}
                   posees={cartesPosees.length}
                   restant={totalDeColonne(column, columnCards.length) - cartesPosees.length}
@@ -1692,8 +1672,8 @@ export function Board({
                 BAS de la rangée (`mt-auto`) sur toute sa largeur. Il ne porte
                 PLUS RIEN D'AUTRE que le bouton de publication — ni fusée ni nom
                 d'étape à gauche, ni interrupteur ni « i » à droite : ces deux
-                réglages vivent en haut à droite du bandeau de titre, dans les
-                deux dispositions. Pendant une mise en ligne, c'est DANS ce
+                réglages vivent en haut à droite du bandeau de titre.
+                Pendant une mise en ligne, c'est DANS ce
                 bouton que se lisent la barre d'avancée et le pourcentage. */}
             {column === 'to_deploy' ? (
               <>
@@ -1705,24 +1685,18 @@ export function Board({
                     la rangée est repris par le `pb-3` de ce pied : les contrôles
                     qui mesuraient « le pied et sa bande » retombent d'eux-mêmes
                     sur le pied seul (`nextElementSibling ?? pied`). */}
-                <div
-                  className={CLASSES_PIED_RANGEE}
-                  data-pied-rangee={column}
-                >
-                  <DeployPanel
-                    projectId={projectId}
-                    cards={columnCards}
-                    colonne={column}
-                    presentation="compact"
-                    ancreDeroule={`deroule-publication-${projectId}-${column}`}
-                    onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, [column]: infos }))}
-                    onSansCarte={(travail) => setSansCarte((prev) => ({ ...prev, [column]: travail }))}
-                    onInitier={() => {
-                      const etapeCol = etapeDeLaColonne(column);
-                      if (etapeCol) ouvrirRubriqueDeLEtape(projectId, etapeCol.cible);
-                    }}
-                  />
-                </div>
+                {/* « DÉPLOYER » VIT EN HAUT À DROITE, dans la barre d'en-tête de
+                    la page (demande du 11/10/2026). Le composant reste monté
+                    ICI — il lit les cartes de cette colonne et pose son déroulé
+                    dans son ancre ; seul son bouton part dans la barre
+                    (`GestesDePage`). SUR TÉLÉPHONE, PLUS DE PIED DE COLONNE :
+                    le geste est une ligne du menu à trois points du haut, et
+                    le composant ne dessine rien (`enMenu`). */}
+                {telephone ? (
+                  panneauDeDeploiement(column, columnCards, false)
+                ) : (
+                  <GestesDePage>{panneauDeDeploiement(column, columnCards, true)}</GestesDePage>
+                )}
               </>
             ) : null}
             </div>
@@ -1747,29 +1721,17 @@ export function Board({
       </ZoneDefilement>
 
       {/*
-        LE BANDEAU DE MISE EN PRODUCTION, en bas du tableau, en bande flottante
-        détachée des bords (mêmes marges et coins arrondis que le menu du bas
-        mobile). Un FRÈRE du rail, jamais un enfant de la ZoneDefilement : le
-        rail garde `min-h-0 flex-1` et remonte de la hauteur du bandeau au lieu
-        de passer dessous.
+        LA MISE EN PRODUCTION, ELLE AUSSI, VIT EN HAUT À DROITE : un bouton à
+        icône seule dans la barre d'en-tête, à côté de « Déployer ».
+        SUR TÉLÉPHONE, PLUS DE BANDE EN BAS DU TABLEAU (demande du 11/10/2026) :
+        le composant reste monté pour sa page, sans rien dessiner, et le menu à
+        trois points du haut porte la ligne « Mise en production », sa pastille
+        et son avancement (`enMenu`, `signal-publication.ts`).
       */}
-      {/* UN REGROUPEMENT NE PUBLIE RIEN LUI-MÊME : son bandeau liste ses projets
-          membres, chacun avec son bouton, plus un bouton qui les lance tous
-          (`bandeau-production-groupe.tsx`). Un projet ordinaire garde le sien. */}
-      {membresDuGroupe.length && projetOuvert ? (
-        <BandeauProductionGroupe groupe={projetOuvert} membres={membresDuGroupe} />
+      {telephone ? (
+        miseEnProduction(false)
       ) : (
-      <DeployPanel
-        projectId={projectId}
-        cards={parColonne.archived}
-        colonne="archived"
-        presentation="bandeau"
-        onInfos={(infos) => setInfosPublication((prev) => ({ ...prev, archived: infos }))}
-        onSansCarte={(travail) => setSansCarte((prev) => ({ ...prev, archived: travail }))}
-        /* Plus d'icône de réglages : le tiroir porte lui-même l'onglet
-           « Conversation » avec l'agent de configuration. */
-        actions={<BoutonInfosPublication colonne="archived" infos={infosPublication.archived ?? null} />}
-      />
+        <GestesDePage>{miseEnProduction(true)}</GestesDePage>
       )}
 
       {/* LA CONFIRMATION D'UN DÉPÔT QUI DÉPENSE. Elle nomme le geste exact et la
@@ -1805,38 +1767,6 @@ function maintenantEnChamp(): string {
 }
 
 /**
- * LE GESTE « NOUVELLE TÂCHE », UNE SEULE FOIS ÉCRIT. Le bouton en haut
- * à droite de « Demande » s'en sert ; tout autre dessin qui crée une carte
- * de cadrage passe par lui aussi. Un seul
- * geste — un second appel `card.create` recopié aurait fini par diverger.
- */
-function useNouvelleTache(projectId: string) {
-  const [busy, setBusy] = React.useState(false);
-  const ouvrir = async () => {
-    if (busy) return;
-    if (gestesGeles(client.lireEtat().canal)) {
-      client.pushToast('warning', t(RAISON_CANAL_COUPE));
-      return;
-    }
-    setBusy(true);
-    try {
-      const data = await client.call<{ card: Card }>({
-        type: 'card.create',
-        projectId,
-        title: TITRE_CARTE_DE_CADRAGE,
-        cadrage: true,
-      });
-      if (data?.card) client.openCard(data.card.id);
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('création impossible'));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return { busy, ouvrir };
-}
-
-/**
  * UN MENU OUVERT À L'APPUI LONG s'ouvre pendant que le doigt appuie encore :
  * le relever serait lu comme un geste au-dehors et refermerait tout dans la
  * seconde. On avale donc ce relâchement-là, et lui seul. Partagé par le
@@ -1858,39 +1788,6 @@ export function avalerLeRelachement(): void {
   }, 900);
 }
 
-/**
- * LE BOUTON « NOUVELLE TÂCHE », EN HAUT À DROITE DE LA RANGÉE « DEMANDE ».
- *
- * Il a remplacé la grande tuile permanente posée en tête des cartes (et, à sa
- * place dans l'entête, « Tout lancer ») : compact, au même endroit que le
- * geste de lot des autres rangées. Il n'est PAS une carte enregistrée : le
- * clic fait naître la VRAIE carte de cadrage et ouvre son fil. Sur écran
- * étroit, le libellé se coupe (jamais replié sur deux lignes) et le « + »
- * reste.
- */
-function BoutonNouvelleTache({ projectId }: { projectId: string }) {
-  const { busy, ouvrir } = useNouvelleTache(projectId);
-  const canal = useCanal();
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="min-w-0 max-w-[160px] shrink-0 overflow-hidden"
-      // Le repère des scripts de vérification : c'est LUI qui ouvre une
-      // carte-fil, comme l'ancienne tuile et, avant elle, le « + ».
-      data-nouvelle-carte="planned"
-      aria-label="Nouvelle tâche"
-      aria-busy={busy}
-      title={canal.gele ? canal.raison : undefined}
-      disabled={busy || canal.gele}
-      onClick={() => void ouvrir()}
-    >
-      {busy ? <Loader2 className="h-3 w-3 shrink-0 animate-spin" /> : <Plus className="h-3 w-3 shrink-0" />}
-      <span className="truncate">{t(TITRE_CARTE_DE_CADRAGE)}</span>
-    </Button>
-  );
-}
-
 export function CardTile({
   card,
   onOpen,
@@ -1899,7 +1796,6 @@ export function CardTile({
   coche,
   menuOuvert,
   onMenuChange,
-  hauteurLibre,
   enRoute,
 }: {
   card: Card;
@@ -1910,15 +1806,11 @@ export function CardTile({
    * coin haut droit — le badge « en ligne » y remplace celui qui précède le
    * titre au tableau. Sous le titre, le début de la DEMANDE — le premier
    * message écrit par l'utilisateur (`demande`), à défaut la description ;
-   * l'ancienneté tombe en bas à gauche. Absente, la carte est celle du
-   * tableau, inchangée.
+   * le titre tient sur UNE ligne, aucune ancienneté n'est écrite en bas, et la
+   * carte prend une hauteur fixe.
+   * Absente, la carte est celle du tableau : elle a la hauteur de son contenu.
    */
   enRoute?: { gauche: React.ReactNode; droite?: React.ReactNode; demande?: string };
-  /**
-   * EN COLONNES, la carte prend la hauteur de son contenu : la hauteur fixe
-   * n'existe que pour aligner les cartes voisines d'une même RANGÉE.
-   */
-  hauteurLibre?: boolean;
   onPointerDown?: (event: React.PointerEvent) => void;
   dimmed?: boolean;
   /** Non défini : pas de sélection en cours. Défini : la case s'affiche, cochée ou non. */
@@ -1936,9 +1828,9 @@ export function CardTile({
     () => (formeEnRoute ? demande || debutDeLaDemande(card.description) : ''),
     [formeEnRoute, demande, card.description],
   );
-  /* Le titre et la demande se replient sur deux lignes, et le corps d'une carte
-     « En route » a une hauteur fixe : dès que l'un des trois coupe le texte, une
-     pastille « i » le donne en entier. */
+  /* Le titre (une ligne sur « Tableaux de bord ») et la demande (deux lignes)
+     se replient, et le corps d'une carte « En route » a une hauteur fixe : dès
+     que l'un des trois coupe le texte, une pastille « i » le donne en entier. */
   const corpsRef = React.useRef<HTMLDivElement>(null);
   const titreRef = React.useRef<HTMLHeadingElement>(null);
   const descriptionRef = React.useRef<HTMLParagraphElement>(null);
@@ -1949,6 +1841,10 @@ export function CardTile({
     [titreRef, descriptionRef, corpsRef],
     [titreEnCours ? '' : card.title, extraitDescription, formeEnRoute],
   );
+  /* Sur « Tableaux de bord » le titre tient sur UNE ligne : coupé, il porte le
+     titre entier en info-bulle au survol. La mesure est celle du titre seul —
+     une demande coupée sous un titre entier ne pose aucune info-bulle dessus. */
+  const titreCoupe = useTexteCoupe([titreRef], [titreEnCours ? '' : card.title, formeEnRoute]);
   /*
    * L'appui long est suivi d'un clic que le navigateur envoie quand même : sans
    * ce garde-fou, le tiroir de la carte s'ouvrirait derrière le menu.
@@ -2042,6 +1938,8 @@ export function CardTile({
       }
     : undefined;
   const agent = card.agentId ? state.agents[card.agentId] : null;
+  /* LA CARTE D'UN SERVICE (agent de volet) : cadre et badge jaunes ; un clic la ramène au service. */
+  const service = serviceDeLaCarte(agent, card);
   const waiting = card.scheduling?.waitingReason;
   /* Une horloge UNIQUE pour toutes les cartes : vingt cartes ne font pas vingt
      minuteries. Elle sert à l'heure de départ comme au tour resté sans suite. */
@@ -2054,9 +1952,11 @@ export function CardTile({
   const creneau = mentionCreneauConseille(card, maintenant);
   const estimateFailed = card.estimate?.failed;
   // Un agent au travail sur la carte, quel qu'il soit : le voyant doit tourner
-  // même quand la carte n'a pas encore retenu son agent.
+  // même quand la carte n'a pas encore retenu son agent. Un cadrage qui a
+  // rendu sa réponse ne compte plus : son rangement n'est pas un travail
+  // qu'on attend (`agentAuTravailALEcran`).
   const agentActif = Object.values(state.agents).find(
-    (a) => a.cardId === card.id && agentTientSonTour(a),
+    (a) => a.cardId === card.id && agentAuTravailALEcran(a),
   );
   const agentAuTravail = !!agentActif;
   /*
@@ -2259,6 +2159,48 @@ export function CardTile({
   }
 
   /*
+   * LES PETITES INFORMATIONS D'UNE CARTE VIVENT DERRIÈRE SON « i » (refonte du
+   * 11/10/2026). Le bandeau du bas — créneau conseillé, départ programmé,
+   * raison d'attente, « n/N faites » — et la rangée d'étiquettes ne s'étalent
+   * plus sur la carte : la carte ne montre que son titre, son état et son
+   * ancienneté, et le « i » dit le reste. Seul ce qui VIT reste dessous : la
+   * préparation d'un lancement, le travail en cours, une attente de vous.
+   */
+  if (statut) {
+    const marqueur = 'marqueur' in statut ? statut.marqueur : undefined;
+    mentions.push({
+      cle: 'statut',
+      repere: {
+        'data-mention-statut': marqueur ?? 'attente',
+        ...(marqueur === 'progression-taches' ? { 'data-progression-taches': card.id } : {}),
+        ...(marqueur === 'depart-programme' ? { 'data-depart-programme': card.id } : {}),
+        ...(marqueur === 'creneau-conseille' ? { 'data-creneau-conseille': card.id } : {}),
+      },
+      classe: statut.ton === 'text-danger' ? 'text-danger' : 'text-muted',
+      icone:
+        marqueur === 'progression-taches'
+          ? ListChecks
+          : marqueur
+            ? CalendarClock
+            : statut.ton === 'text-danger'
+              ? AlertTriangle
+              : Clock,
+      texte: statut.texte,
+    });
+  }
+  if (!enRoute && (card.labels.length || card.billing)) {
+    mentions.push({
+      cle: 'etiquettes',
+      repere: { 'data-mention-etiquettes': true },
+      classe: 'text-muted',
+      icone: Info,
+      texte: [
+        ...card.labels,
+      ].join(' · '),
+    });
+  }
+
+  /*
    * « QU'EST-CE QUI TOURNE ENCORE ? » Depuis qu'un rapport rendu ferme la carte,
    * une carte RESTÉE dans « En cours » a forcément une raison — et elle doit se
    * lire sans ouvrir la carte : l'étape, depuis quand, ce qu'on attend. La règle
@@ -2306,7 +2248,21 @@ export function CardTile({
    * Partout ailleurs, l'ancienne mention garde la priorité — deux phrases pour
    * le même silence ne diraient rien de plus.
    */
-  const restant = sansSuite && restantBrut?.nature !== 'relance' ? null : restantBrut;
+  const restantDit = sansSuite && restantBrut?.nature !== 'relance' ? null : restantBrut;
+  /* Sous la carte, seulement ce qui VIT ou vous ATTEND : une question, un tour
+     à relancer, des filles au travail. Un simple rangement en cours se lit
+     derrière le « i ». */
+  const restant =
+    restantDit && ['question', 'relance', 'travaille'].includes(restantDit.nature) ? restantDit : null;
+  if (restantDit && !restant) {
+    mentions.push({
+      cle: 'restant',
+      repere: { 'data-travail-restant-mention': restantDit.nature },
+      classe: 'text-faint',
+      icone: Clock,
+      texte: phraseDuTravailRestant(restantDit),
+    });
+  }
 
   const etat = etatVisuelCarte({
     agentStatut: agent?.status,
@@ -2332,7 +2288,7 @@ export function CardTile({
 
   return (
     <div
-      className={cn('relative flex flex-col', !hauteurLibre && (enRoute ? CLASSE_HAUTEUR_CARTE_EN_ROUTE : CLASSE_HAUTEUR_CARTE), dimmed && 'opacity-40', secoue && 'animate-secousse')}
+      className={cn('relative flex flex-col', enRoute && CLASSE_HAUTEUR_CARTE_EN_ROUTE, dimmed && 'opacity-40', secoue && 'animate-secousse')}
       data-carte-secoue={secoue ? card.id : undefined}
       data-carte-attend={carteDoitSecouer({ alertes: alertesQuiSecouent, alertesVues }) ? card.id : undefined}
     >
@@ -2409,8 +2365,11 @@ export function CardTile({
           // pavé tactile) rend le texte sélectionnable — là, on veut pouvoir
           // copier le titre d'une carte, et ce qui est marqué
           // `data-carte-texte` le repasse en `select-text`.
-          'relative z-10 min-h-0 flex-1 cursor-pointer touch-manipulation select-none overflow-hidden rounded-md border border-border bg-raised px-2.5 py-2 transition-colors hover:border-faint',
-          (statut || travailActuel || restant) && 'rounded-b-none',
+          /* UNE CARTE N'A PLUS DE CADRE : un fond pâle la détache de la page,
+             un cran plus marqué au survol. */
+          'carte-du-tableau relative z-10 min-h-0 flex-1 cursor-pointer touch-manipulation select-none overflow-hidden rounded-xl bg-surface px-3.5 py-3 transition-colors hover:bg-raised',
+          service ? CLASSE_LISERE_SERVICE : null,
+          (preparation || travailActuel || restant) && 'rounded-b-none',
           enRoute && 'flex flex-col',
         )}
       >
@@ -2430,8 +2389,9 @@ export function CardTile({
               </div>
             ) : null}
           </div>
-        ) : card.deployedAt ? (
+        ) : card.deployedAt || service ? (
           <div className="mb-1 flex gap-1">
+            {service ? <BadgeDuService service={service} /> : null}
             {card.deployedAt ? (
               <Tooltip label={t('En ligne depuis le {v0}', { v0: new Date(card.deployedAt).toLocaleString(formatRegional()) })}>
                 <Badge tone="success">
@@ -2443,27 +2403,31 @@ export function CardTile({
         ) : null}
 
         {/* En forme « En route », le corps a une hauteur FIXE et se coupe : la
-            frise tombe au même endroit sur toutes les cartes, et l'ancienneté
-            reste toujours visible en bas. Au tableau, ce cadre
-            n'existe pas (`contents`). */}
+            frise tombe au même endroit sur toutes les cartes. Au tableau, ce
+            cadre n'existe pas (`contents`). */}
         <div ref={corpsRef} className={enRoute ? cn('shrink-0 overflow-hidden', CLASSE_HAUTEUR_CORPS_EN_ROUTE) : 'contents'}>
         <div className="flex items-start gap-1.5">
-          {/* Le titre est le texte que l'on cherche à COPIER, et le seul de la
-              carte qui ne soit pas tronqué : il revient donc à la ligne, y
-              compris au milieu d'un mot interminable (une adresse, un chemin),
-              plutôt que de sortir du cadre. L'icône du moteur ouvre son fil,
-              à la taille d'une lettre : elle ne prend pas de ligne à elle
-              seule, et ne bouge donc rien d'autre sur la carte. */}
+          {/* Le titre est le texte que l'on cherche à COPIER : au tableau d'un
+              projet il revient à la ligne, y compris au milieu d'un mot
+              interminable (une adresse, un chemin), plutôt que de sortir du
+              cadre. Sur « Tableaux de bord » il tient sur UNE ligne coupée par
+              « … » — le titre entier se lit au survol, et reste copiable en
+              entier à la souris. L'icône du moteur ouvre son fil, à la taille
+              d'une lettre : elle ne prend pas de ligne à elle seule, et ne
+              bouge donc rien d'autre sur la carte. */}
           <h3
             ref={titreRef}
             data-carte-texte
-            className="texte-copiable line-clamp-2 min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text"
+            title={formeEnRoute && titreCoupe && !titreEnCours ? card.title : undefined}
+            className={cn(
+              'texte-copiable min-w-0 flex-1 break-words text-[14.5px] font-medium leading-snug text-text',
+              /* Sur « Tableaux de bord » : UNE ligne, terminée par « … ». */
+              formeEnRoute ? 'line-clamp-1' : 'line-clamp-2',
+            )}
           >
-            <Tooltip label={t(nomCourtMoteur(state.engines.find((e) => e.id === card.run.engine)))}>
-              <span className="inline-block" data-icone-moteur={card.id}>
-                <IconeMoteur engine={card.run.engine} className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle" />
-              </span>
-            </Tooltip>
+            {/* Le moteur de la carte ne se lit plus sur sa vignette : il est dans
+                sa page. Son repère reste, caché, pour les contrôles. */}
+            <span className="hidden" data-icone-moteur={card.id} data-moteur={card.run.engine} />
             {titreEnCours ? (
               <span data-titre-en-construction className="animate-pulse font-normal italic text-muted">
                 {t('Titre en cours de création…')}
@@ -2504,8 +2468,10 @@ export function CardTile({
             className="mt-[2px]"
             data-attention-carte={card.id}
           />
-          {/* L'icône d'étape, permanente : la lecture ne l'éteint jamais. */}
-          {etape ? <IconeEtape etape={etape} cardId={card.id} /> : null}
+          {/* L'icône d'étape ne se dessine plus : la colonne (au tableau) ou la
+              tête de la carte (aux tableaux de bord) la disent. Son repère
+              reste, caché, pour les contrôles. */}
+          {etape ? <span className="hidden" data-etape-carte={card.id} data-etape={etape} /> : null}
           {/* Le voyant est à DROITE, au bout de la ligne du titre. Le point gris
               du repos et la coche du travail rendu ont disparu : la pastille
               bleue et l'icône d'étape les remplacent. */}
@@ -2530,33 +2496,25 @@ export function CardTile({
           </p>
         ) : null}
 
-        {/* Sur « Tableaux de bord », la carte ne montre aucune étiquette :
-            elles se lisent dans le tableau du projet et dans le tiroir. */}
-        {!enRoute && (card.labels.length || card.billing) ? (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {card.labels.slice(0, 3).map((label) => (
-              <Badge key={label}>{label}</Badge>
-            ))}
-            {card.billing ? <Badge tone="success">{t('déjà facturée')}</Badge> : null}
-          </div>
-        ) : null}
+        {/* LE CAHIER DES CHARGES SE LIT SANS OUVRIR LA CARTE : son avancement,
+            et « En pause » quand l'utilisateur l'a arrêté. */}
+        {!enRoute && card.cahierDesCharges ? <RepereCahier card={card} /> : null}
 
         {/* Sur « Tableaux de bord », le lien de regroupement ne s'écrit pas :
             la pile (`PileDeCartes`) montre la mère et ses filles ensemble. */}
         {!enRoute ? <LienDeRegroupement card={card} /> : null}
 
         {/*
-         * Le pied ne porte plus que l'ancienneté. Les repères techniques
-         * (durée prévue, durée réalisée, heures facturables, branche) n'aident
-         * pas à décider d'un coup d'œil : ils vivent dans le tiroir de la
-         * carte, onglets Détails et GitHub.
+         * Le pied ne porte plus que l'ancienneté (au tableau d'un projet). Les
+         * repères techniques (durée prévue, durée réalisée, heures
+         * facturables, branche) n'aident pas à décider d'un coup d'œil : ils
+         * vivent dans le tiroir de la carte, onglets Détails et GitHub.
          */}
         </div>
         {/* LA FRISE DES CINQ ÉTAPES, seulement sur « Tableaux de bord », juste
             sous le corps à hauteur fixe : elle tombe au même endroit sur
-            toutes les cartes, bande de travail en pied ou non. Son écart
-            au-dessus (`mt-3`, dans `FriseDeSuivi`) répond à l'air laissé
-            dessous, jusqu'à l'ancienneté : elle ne colle plus à la demande. */}
+            toutes les cartes, bande de travail en pied ou non. Elle est le
+            dernier mot de la tuile : rien n'est écrit dessous. */}
         {enRoute ? (
           <FriseDeSuivi
             cardId={card.id}
@@ -2576,22 +2534,15 @@ export function CardTile({
             )}
           />
         ) : null}
-        {/* LE PIED NE PORTE QUE L'ANCIENNETÉ. Sur « Tableaux de bord », rien
-            d'autre ne s'y pose : ni étiquettes, ni pastilles des sous-cartes —
-            la pile dépliée les montre déjà, une par une. Une bande de travail
-            en pied raccourcit la tuile : l'ancienneté y perd ses retraits, et
-            l'air qu'elle garde au-dessus de la bande vient de la hauteur de
-            la carte (`CLASSE_HAUTEUR_CARTE_EN_ROUTE`). Sans bande, le retrait
-            bas rend ces pixels : l'heure reste où elle était. */}
-        <div
-          className={cn(
-            'text-[12px] text-faint',
-            enRoute ? cn('mt-auto flex shrink-0 items-center', !(statut || travailActuel || restant) && 'pb-1.5 pt-1') : 'mt-1.5',
-          )}
-          data-anciennete-carte={enRoute ? card.id : undefined}
-        >
-          <span className="shrink-0">{relativeTime(card.updatedAt)}</span>
-        </div>
+        {/* L'ANCIENNETÉ n'est écrite qu'au tableau d'un projet. Sur « Tableaux
+            de bord » elle a disparu (demande du 12/10/2026, « gagner un peu en
+            hauteur ») : la tête de la carte dit déjà quand l'agent a rendu, et
+            la frise juste au-dessus est le dernier mot de la tuile. */}
+        {enRoute ? null : (
+          <div className="mt-1.5 text-[12px] text-faint">
+            <span className="shrink-0">{relativeTime(card.updatedAt)}</span>
+          </div>
+        )}
       </article>
 
       {preparation ? (
@@ -2610,8 +2561,7 @@ export function CardTile({
             data-lancement-en-cours={card.id}
             data-lancement-etape={preparation}
             className={cn(
-              'relative -mt-1 shrink-0 cursor-pointer overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none text-muted',
-              'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+              'relative shrink-0 cursor-pointer overflow-hidden rounded-b-xl bg-raised px-3.5 pb-2.5 pt-2 text-[12.5px] leading-none text-muted',
             )}
           >
             <span className="flex items-center gap-1">
@@ -2626,36 +2576,6 @@ export function CardTile({
                 style={{ width: `${Math.round(avancementDuLancement(preparation) * 100)}%` }}
                 data-lancement-avancement={Math.round(avancementDuLancement(preparation) * 100)}
               />
-            </span>
-          </div>
-        </Tooltip>
-      ) : statut ? (
-        <Tooltip label={statut.texte}>
-          <div
-            onClick={ouvrir}
-            className={cn(
-              // Toute la largeur de la carte, sur UNE ligne, sans marge latérale.
-              // Le petit espace en haut laisse voir l'ombre portée, qui donne
-              // l'impression que la carte recouvre la bande. Padding resserré
-              // (px-1.5, pas le px-2.5 du corps de la carte) : cette bande est
-              // un pied technique, pas le texte principal, et son icône comme
-              // sa pastille doivent coller aux bords pour laisser le texte de
-              // l'étape respirer avant d'être tronqué.
-              'relative -mt-1 shrink-0 cursor-pointer overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
-              'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
-              statut.ton,
-            )}
-          >
-            <span className="flex items-center gap-1">
-              {statut.icon}
-              <span
-                className="min-w-0 flex-1 truncate"
-                data-progression-taches={'marqueur' in statut && statut.marqueur === 'progression-taches' ? card.id : undefined}
-                data-depart-programme={'marqueur' in statut && statut.marqueur === 'depart-programme' ? card.id : undefined}
-                data-creneau-conseille={'marqueur' in statut && statut.marqueur === 'creneau-conseille' ? card.id : undefined}
-              >
-                {statut.texte}
-              </span>
             </span>
           </div>
         </Tooltip>
@@ -2682,8 +2602,7 @@ export function CardTile({
             data-travail-restant={card.id}
             data-travail-restant-nature={restant.nature}
             className={cn(
-              'relative -mt-1 shrink-0 cursor-pointer overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
-              'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+              'relative shrink-0 cursor-pointer overflow-hidden rounded-b-xl bg-raised px-3.5 pb-2.5 pt-2 text-[12.5px] leading-none',
               /* ORANGE POUR CE QUI ATTEND UN GESTE : une question posée, et
                  un tour resté en plan que rien ne relancera tout seul. */
               restant.nature === 'question' || restant.nature === 'relance'
@@ -2794,5 +2713,24 @@ function LienDeRegroupement({ card }: { card: Card }) {
     <p className="mt-1.5 truncate text-[12px] text-faint" data-carte-mere={card.carteMereId}>
       {phrase}
     </p>
+  );
+}
+
+/** L'avancement du cahier des charges, sur la carte du tableau. */
+function RepereCahier({ card }: { card: Card }) {
+  const cahier = card.cahierDesCharges;
+  if (!cahier) return null;
+  const etat = etatDuCahier(cahier);
+  return (
+    <div
+      className={cn('mt-1.5 flex items-center gap-1.5 text-[12px]', etat === 'en-pause' ? 'text-warning' : 'text-muted')}
+      data-repere-cahier={etat}
+    >
+      {etat === 'en-pause' ? <Pause className="h-3 w-3 shrink-0" /> : <ClipboardList className="h-3 w-3 shrink-0" />}
+      <span className="min-w-0 truncate">
+        {etat === 'en-pause' ? t('En pause') : etat === 'termine' ? t('Cahier des charges complet') : t('Cahier des charges')}
+        {cahier.total ? ` · ${cahier.faites}/${cahier.total}` : ''}
+      </span>
+    </div>
   );
 }

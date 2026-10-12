@@ -399,7 +399,7 @@ function VignetteProposition({
       </div>
 
       {avertissement ? (
-        <div className="mx-2.5 mb-2 flex gap-2 rounded-md border border-warning/30 bg-warning/5 px-2 py-1.5 text-[12px] leading-relaxed text-warning">
+        <div className="mx-2.5 mb-2 flex gap-2 rounded-md border border-transparent bg-warning/5 px-2 py-1.5 text-[12px] leading-relaxed text-warning">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span className="min-w-0">{avertissement}</span>
         </div>

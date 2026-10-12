@@ -1,26 +1,17 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   BarChart3,
   BookOpen,
-  Check,
-  ChevronsUpDown,
-  Menu,
-  MonitorCog,
-  PanelLeftClose,
-  PanelLeftOpen,
   EllipsisVertical,
   FolderOpen,
+  Loader2,
   Paperclip,
-  Palette,
-  Square,
-  TerminalSquare,
-  Volume2,
+  Play,
+  Rocket,
   Settings2,
-  Sun,
-  Moon,
-  Languages,
-  Rows3,
-  Columns3,
+  Square,
+  Volume2,
 } from 'lucide-react';
 import {
   Button,
@@ -31,103 +22,237 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
-  Switch,
-  Tooltip,
+  Pastille,
 } from '@/components/ui';
+import {
+  CLASSE_LIBELLE_EN_BANDE,
+  CLASSE_LIGNE_DE_SERVICE,
+  CLASSE_LIGNE_EN_BANDE,
+  ColonneDeService,
+} from '@/components/colonne-de-service';
 import { MemoryView } from '@/components/memory-view';
-import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
-
-/** L'afficheur de terminal est lourd : il part dans son propre morceau. */
-const TerminalServeur = React.lazy(() =>
-  import('@/components/terminal-serveur').then((m) => ({ default: m.TerminalServeur })),
-);
-import { EntreeRedemarrage, PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
-import { TiroirProjets } from '@/components/tiroir-projets';
-import { BoutonAssistantEntete } from '@/components/assistant-global';
-import { ClocheNotifications } from '@/components/notifications';
-import { QuotaBadge } from '@/components/quota-badge';
-import { AMBIANCES, LANGUES, ambianceParId, langueParId } from '@beluga/shared';
-import { useThemeGeneral } from '@/lib/theme';
+import { BoutonNouvelleTache } from '@/components/nouvelle-tache';
 import { client } from '@/lib/client';
+import { CLE_VOIX_VISIBLE } from '@/lib/cles-de-voix';
+import { usePref } from '@/lib/prefs';
+import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
+import { useSignalDePublication, type SignalLu } from '@/lib/signal-publication';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
-import { usePref } from '@/lib/prefs';
-import { useDispositionTableau } from '@/lib/disposition-tableau';
-import { useSecousseRepetee } from '@/lib/secousse-repetee';
 import { cn } from '@/lib/utils';
-import { t, formatRegional, useLangueGenerale } from '@/lib/langue';
+import { t, formatRegional } from '@/lib/langue';
 
-/** Le bandeau des quotas (PLAN §19) : où en sont les moteurs installés. */
-export function QuotaBar({
-  onOpenSettings,
-  onOpenProjects,
+/**
+ * LE RÉGLAGE « COLONNE REPLIÉE EN ICÔNES ». La clé a changé avec la refonte :
+ * l'ancienne (`sidebar.reduite`) repliait une colonne qui n'existe plus sous
+ * cette forme, et la reprendre aurait ouvert la nouvelle colonne — recherche,
+ * onglets, groupes — déjà repliée. Elle se présente donc DÉPLIÉE, et se replie
+ * depuis le menu général.
+ */
+export const CLE_COLONNE_REDUITE = 'colonne.reduite';
+
+/**
+ * OÙ EN EST LA LIAISON AVEC LE SERVEUR, ET QUI ATTEND AILLEURS.
+ *
+ * Un seul calcul, lu par le bouton des projets du téléphone et par le pied de
+ * la colonne sur ordinateur : la liaison rompue passe devant, puis « un autre
+ * projet attend une réponse », puis le calme. `enLigne` dit le premier seul —
+ * c'est lui que montre le point du moteur, au pied de la colonne.
+ */
+export function useEtatDeLiaison(): {
+  classe: string;
+  texte: string;
+  enLigne: boolean;
+  ailleurs: boolean;
+  agentsEnCours: number;
+} {
+  const state = useApp();
+  // « starting » compte aussi : un tour resté coincé dans sa préparation est
+  // justement celui qu'on veut pouvoir arrêter.
+  const agentsEnCours = Object.values(state.agents).filter(
+    (agent) => agent.status === 'running' || agent.status === 'starting',
+  ).length;
+  // Un autre projet que celui affiché attend une réponse.
+  const ailleurs = Object.entries(state.attention).some(
+    ([projectId, compte]) => compte > 0 && projectId !== state.activeProjectId,
+  );
+  if (!state.connected) {
+    return { classe: 'animate-pulse-soft bg-warning', texte: 'Reconnexion…', enLigne: false, ailleurs, agentsEnCours };
+  }
+  if (ailleurs) {
+    return { classe: 'bg-warning', texte: t('Un autre projet attend une réponse'), enLigne: true, ailleurs, agentsEnCours };
+  }
+  return {
+    classe: 'bg-success',
+    texte:
+      agentsEnCours > 1
+        ? t('Connecté au serveur · {v0} agents travaillent', { v0: agentsEnCours })
+        : t('Connecté au serveur'),
+    enLigne: true,
+    ailleurs,
+    agentsEnCours,
+  };
+}
+
+/** Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet ouvert. */
+export function useMoteurActif() {
+  const state = useApp();
+  const projetOuvert = state.projects.find((p) => p.id === state.activeProjectId);
+  return (
+    Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
+    projetOuvert?.defaultEngine ??
+    'claude'
+  );
+}
+
+/**
+ * LE BOUTON À TROIS POINTS DU PROJET, sur téléphone.
+ *
+ * IL PORTE CE QUE LES DEUX BARRES DU BAS DISAIENT SANS QU'ON LES OUVRE (demande
+ * du 11/10/2026 : plus de bande de production ni de pied « Tout déployer ») :
+ * la pastille des versions qui attendent la production, l'avancement d'une
+ * publication en cours (la roue et son pourcentage), et un point rouge quand
+ * elle est tombée. Une publication se suit donc toujours d'un coup d'œil, menu
+ * fermé. L'état vient des composants de publication eux-mêmes
+ * (`signal-publication.ts`) : rien n'est recalculé ici.
+ */
+export const BoutonOptionsDuProjet = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof Button>
+>(({ className, ...props }, ref) => {
+  const state = useApp();
+  const deploiement = useSignalDePublication(state.activeProjectId, 'deploiement');
+  const production = useSignalDePublication(state.activeProjectId, 'production');
+  const gestes = [production, deploiement].filter((geste): geste is SignalLu => !!geste);
+  const enRoute = gestes.find((geste) => geste.enRoute) ?? null;
+  const tombe = gestes.find((geste) => geste.tombee) ?? null;
+  /* Ce que le bouton chiffre : la publication en route d'abord, sinon celle
+     qui vient de finir ou de tomber. */
+  const suivi = enRoute ?? tombe ?? gestes.find((geste) => geste.pourcent !== null) ?? null;
+  const enAttente = production && production.pourcent === null ? production.compte : 0;
+  return (
+    <Button
+      ref={ref}
+      variant="ghost"
+      size="icon"
+      className={cn(
+        'relative h-8 shrink-0 text-muted',
+        /* Un chiffre à dire — un avancement, des versions en attente — : le
+           bouton s'élargit et l'écrit À CÔTÉ des trois points. Posée dans son
+           coin, la pastille les recouvrait. */
+        (suivi && suivi.pourcent !== null) || (!suivi && enAttente > 0) ? 'w-auto gap-1 px-1.5' : 'w-8',
+        className,
+      )}
+      aria-label="Options du projet"
+      title={t('Options')}
+      data-menu-general
+      data-publication={enRoute ? 'en-route' : tombe ? 'tombee' : enAttente > 0 ? 'en-attente' : undefined}
+      {...props}
+    >
+      {!suivi && enAttente > 0 ? (
+        <Pastille nombre={enAttente} ton="repondre" title={production?.resume} data-mises-a-jour-en-attente={enAttente} />
+      ) : null}
+      {enRoute ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <EllipsisVertical className="h-4 w-4 shrink-0" />}
+      {suivi && suivi.pourcent !== null ? (
+        <span
+          className={cn('shrink-0 text-[12px] font-semibold tabular-nums', suivi.tombee ? 'text-danger' : 'text-text')}
+          data-pourcent-menu={suivi.pourcent}
+        >
+          {suivi.pourcent} %
+        </span>
+      ) : null}
+      {tombe ? (
+        <span className={cn(CLASSE_POINT_DE_BOUTON, 'bg-danger')} data-publication-tombee aria-hidden />
+      ) : !suivi && enAttente <= 0 && production?.enRetard ? (
+        <span className={cn(CLASSE_POINT_DE_BOUTON, 'bg-warning')} data-mises-a-jour-en-attente={0} data-en-retard="" aria-hidden />
+      ) : null}
+    </Button>
+  );
+});
+BoutonOptionsDuProjet.displayName = 'BoutonOptionsDuProjet';
+
+/** Ce qu'une ligne de publication dit à droite : l'avancement, sinon ce qui attend. */
+function EtatDeLaLigneDePublication({ geste, pastille }: { geste: SignalLu; pastille?: boolean }) {
+  if (geste.pourcent !== null) {
+    return (
+      <span className={cn('shrink-0 text-[12.5px] font-semibold tabular-nums', geste.tombee ? 'text-danger' : 'text-text')}>
+        {geste.pourcent} %
+      </span>
+    );
+  }
+  if (geste.compte <= 0) return null;
+  return pastille ? (
+    <Pastille nombre={geste.compte} ton="repondre" title={geste.resume} />
+  ) : (
+    <span className="shrink-0 text-[12.5px] tabular-nums text-faint">{geste.compte}</span>
+  );
+}
+
+/**
+ * LES OPTIONS DE LA PAGE — celles du PROJET ouvert.
+ *
+ * ELLES NE PORTENT QUE CE QUI CONCERNE LA PAGE AFFICHÉE (demande du
+ * 11/10/2026) : ses fichiers, ses pièces jointes, sa mémoire, son point du
+ * jour, ses réglages, l'arrêt de SES agents. Le thème, la langue, le terminal,
+ * le redémarrage et l'arrêt de tous les agents sont des réglages GÉNÉRAUX : ils
+ * vivent dans la fenêtre des réglages, qu'on ouvre depuis n'importe quel écran.
+ * L'appelant ne le monte donc que sur le tableau d'un projet.
+ *
+ * DEUX FORMES, UNE SEULE LISTE D'ENTRÉES :
+ *  - `colonne` (ordinateur) : dans un projet, la colonne de gauche laisse la
+ *    place à ses options (`ColonneDeService`) — plus de bouton à trois points
+ *    sur le tableau ;
+ *  - `menu` (téléphone, où la colonne vit dans un panneau fermé) : le bouton à
+ *    trois points de la barre d'en-tête. Il y gagne, en tête, les deux gestes
+ *    de publication — « Déployer » et « Mise en production » —, qui n'ont plus
+ *    ni pied de colonne ni bande en bas de l'écran. Une ligne OUVRE la page du
+ *    geste ; rien ne part d'un toucher dans un menu.
+ *
+ * UN SEUL À L'ÉCRAN. Il porte ses fenêtres (mémoire du projet, confirmation
+ * d'arrêt) et leurs adresses : deux exemplaires montés ensemble se
+ * disputeraient ces adresses.
+ */
+export function MenuGeneral({
   onOpenDashboard,
   onOuvrirFichiers,
-  titreDeVue,
-  onOuvrirVue,
+  cote = 'end',
+  declencheur,
+  forme = 'menu',
 }: {
-  onOpenSettings: () => void;
-  /** Sur téléphone seulement : ouvre la liste des projets en panneau latéral. */
-  onOpenProjects?: () => void;
-  /**
-   * Sur téléphone seulement : ouvre le tableau de bord. Le menu du bas a cédé
-   * sa colonne centrale au module de voix, si bien que le tableau de bord se
-   * rejoint désormais par ce menu trois points. Sur grand écran, la colonne de
-   * gauche y mène déjà : l'entrée n'y est pas doublée.
-   */
+  /** Sur téléphone seulement : le résumé se rejoint par ce menu. */
   onOpenDashboard?: () => void;
   /** Ouvre le tiroir des fichiers ou celui des pièces jointes du projet ouvert. */
   onOuvrirFichiers?: (vue: 'fichiers' | 'pieces') => void;
-  /**
-   * Le titre d'une page qui n'appartient à aucun projet (« Tableaux de bord ») :
-   * il prend la place du nom du projet ouvert, qui n'y dirait rien.
-   */
-  titreDeVue?: string;
-  /**
-   * Ouvre une vue du centre. Avec lui, le NOM en haut devient un bouton : il
-   * ouvre le tiroir de changement de projet (`TiroirProjets`), sur téléphone
-   * comme sur ordinateur.
-   */
-  onOuvrirVue?: (vue: 'en-route' | 'projet') => void;
+  cote?: 'start' | 'end';
+  /** Le bouton qui ouvre le menu (forme `menu`). */
+  declencheur?: React.ReactElement;
+  forme?: 'menu' | 'colonne';
 }) {
   const state = useApp();
   const telephone = useTelephone();
-  const redemarrage = useRedemarrage();
-  /* LE MÊME RÉGLAGE QUE LA COLONNE DES PROJETS, lu depuis le magasin partagé :
-     le bouton vit ici, la colonne là-bas, et aucun état ne circule entre les
-     deux — ils lisent la même clé, ils ne peuvent pas diverger. */
-  const [colonneReduite, setColonneReduite] = usePref<boolean>('sidebar.reduite', false);
-  const projetOuvert = state.projects.find((p) => p.id === state.activeProjectId);
-  // Le moteur « en cours » : celui d'un agent qui travaille, sinon celui du projet.
-  const activeEngine =
-    Object.values(state.agents).find((agent) => agent.status === 'running')?.run.engine ??
-    projetOuvert?.defaultEngine ??
-    'claude';
-  const [apparence, setApparence] = useThemeGeneral();
-  const [langue, setLangue] = useLangueGenerale();
+  const deploiement = useSignalDePublication(state.activeProjectId, 'deploiement');
+  const production = useSignalDePublication(state.activeProjectId, 'production');
   const [speaking, setSpeaking] = React.useState(false);
   const [memoireOuverte, setMemoireOuverte] = React.useState(false);
+  useTiroirAdresse('memoire-projet', memoireOuverte, setMemoireOuverte);
   const [arretGroupe, setArretGroupe] = React.useState(false);
-  const [arretTous, setArretTous] = React.useState(false);
-  const [terminalOuvert, setTerminalOuvert] = React.useState(false);
-  const [projetsOuverts, setProjetsOuverts] = React.useState(false);
+  /* « ÉCOUTER LE POINT » N'EST PROPOSÉ QUE SI LE MODULE VOCAL FLOTTANT EST
+     AFFICHÉ (réglage « Afficher le module vocal flottant », éteint d'origine) :
+     sans lui, une entrée de plus qui ne mène à rien d'attendu. */
+  const [voixVisible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
 
   /*
-   * Les agents qui travaillent à cet instant : tous pour le compteur du coin
-   * gauche (c'est l'état de la machine), ceux du projet affiché pour l'arrêt
-   * groupé (on n'arrête jamais le travail d'un autre projet sans le dire).
+   * Les agents du projet affiché qui travaillent à cet instant : on n'arrête
+   * jamais d'ici le travail d'un autre projet (l'arrêt de TOUS les agents est
+   * dans les réglages).
    */
   // « starting » compte aussi : un tour resté coincé dans sa préparation est
-  // justement celui qu'on veut pouvoir arrêter, et il retient un redémarrage
-  // au même titre qu'un moteur en marche.
-  const enCours = Object.values(state.agents).filter(
-    (agent) => agent.status === 'running' || agent.status === 'starting',
+  // justement celui qu'on veut pouvoir arrêter.
+  const duProjet = Object.values(state.agents).filter(
+    (agent) =>
+      (agent.status === 'running' || agent.status === 'starting') && agent.projectId === state.activeProjectId,
   );
-  const duProjet = enCours.filter((agent) => agent.projectId === state.activeProjectId);
 
   const arreterLeProjet = () => {
     /*
@@ -150,26 +275,6 @@ export function QuotaBar({
       }
     });
   };
-
-  /*
-   * L'ARRÊT DE TOUS LES AGENTS DIT CE QU'IL A FAIT, geste par geste. Le serveur
-   * rend le bilan rédigé (`bilanDesArrets`) : combien de moteurs coupés,
-   * combien de tours refermés d'autorité, combien d'agents ne travaillaient
-   * déjà plus. On ne recompose donc rien ici — et surtout, on n'annonce plus
-   * une réussite sur un nombre qui ne disait pas si le clic avait mordu.
-   */
-  const arreterTousLesAgents = () =>
-    client
-      .call<{ count?: number; bilan?: { message?: string } }>({ type: 'agents.stop-all' })
-      .then((response) => {
-        const message = response?.bilan?.message;
-        if (message) client.pushToast('info', message);
-      })
-      .catch((err: any) => {
-        client.pushToast('error', err?.message ?? t('Arrêt refusé'));
-        // Relancée : sans cela le bouton en attente croirait avoir réussi.
-        throw err;
-      });
 
   const listen = async () => {
     setSpeaking(true);
@@ -210,220 +315,186 @@ export function QuotaBar({
     }
   };
 
-  const { disposition, basculer: basculerDisposition } = useDispositionTableau();
+  /* LA COLONNE (ordinateur) : les mêmes entrées, en lignes. Réduite à sa bande,
+     elle n'en garde que les icônes. */
+  const ligne = (
+    cle: string,
+    icone: React.ReactNode,
+    libelle: React.ReactNode,
+    geste: () => void,
+    options: { eteinte?: boolean; danger?: boolean; reperes?: Record<string, string> } = {},
+  ) => (
+    <button
+      key={cle}
+      type="button"
+      data-option-du-projet={cle}
+      {...options.reperes}
+      disabled={options.eteinte}
+      title={typeof libelle === 'string' ? libelle : undefined}
+      onClick={geste}
+      className={cn(
+        CLASSE_LIGNE_DE_SERVICE,
+        CLASSE_LIGNE_EN_BANDE,
+        'hover:bg-raised disabled:opacity-50',
+        options.danger && 'text-danger',
+      )}
+    >
+      <span className={cn('shrink-0', options.danger ? 'text-danger' : 'text-muted')}>{icone}</span>
+      <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{libelle}</span>
+    </button>
+  );
+  const sansProjet = !state.activeProjectId;
+  const fenetres = (
+    <>
+      <MemoryView
+        open={memoireOuverte}
+        projectId={state.activeProjectId ?? undefined}
+        onClose={() => setMemoireOuverte(false)}
+      />
 
-  // Un autre projet que celui affiché attend une réponse.
-  const ailleurs = Object.entries(state.attention).some(
-    ([projectId, compte]) => compte > 0 && projectId !== state.activeProjectId,
+      <ConfirmDialog
+        open={arretGroupe}
+        danger
+        title={
+          duProjet.length > 1
+            ? t('Arrêter les {v0} agents de ce projet ?', { v0: duProjet.length })
+            : t('Arrêter l’agent de ce projet ?')
+        }
+        description={t('Le travail en cours sera perdu. Les agents des autres projets continuent.')}
+        confirmLabel={t('Tout arrêter')}
+        onConfirm={arreterLeProjet}
+        onClose={() => setArretGroupe(false)}
+      />
+    </>
   );
 
-  /*
-   * LE POINT D'ÉTAT DU COIN HAUT GAUCHE — un seul repère, posé sur le bouton
-   * menu, à la place de l'ancienne icône « réseau » (des nœuds reliés) qui
-   * prenait sa propre place dans la barre. Il garde exactement ce que cette
-   * icône disait : la liaison au serveur, verte quand elle tient, orange et
-   * clignotante quand elle est rompue. La pastille orange « un AUTRE projet
-   * attend une réponse » vivait déjà à ce coin-là : les deux ne peuvent pas
-   * s'empiler, la liaison rompue passe donc devant, l'attente ailleurs
-   * ensuite, et le texte de survol dit toujours laquelle des deux on regarde.
-   */
-  /* Le même bouton se SECOUE, à intervalles, tant qu'un autre projet attend
-     un geste de vous : sur téléphone, c'est le seul chemin vers lui. */
-  const secoueProjets = useSecousseRepetee(!!onOpenProjects && ailleurs);
-
-  const pointEtat = !state.connected
-    ? { classe: 'animate-pulse-soft bg-warning', texte: 'Reconnexion…' }
-    : ailleurs
-      ? { classe: 'bg-warning', texte: t('Un autre projet attend une réponse') }
-      : {
-          classe: 'bg-success',
-          texte:
-            enCours.length > 1
-              ? t('Connecté au serveur · {v0} agents travaillent', { v0: enCours.length })
-              : t('Connecté au serveur'),
-        };
+  if (forme === 'colonne') {
+    return (
+      <>
+        <ColonneDeService>
+          <nav
+            aria-label="Options du projet"
+            data-options-du-projet
+            className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1"
+          >
+            {/* « NOUVELLE TÂCHE », TOUT EN HAUT : le seul chemin vers une nouvelle
+                carte, au-dessus des fichiers (demande du 12/10/2026). */}
+            {state.activeProjectId ? <BoutonNouvelleTache projectId={state.activeProjectId} /> : null}
+            {onOuvrirFichiers
+              ? [
+                  ligne('fichiers', <FolderOpen className="h-4 w-4" />, t('Fichiers'), () => onOuvrirFichiers('fichiers'), {
+                    eteinte: sansProjet,
+                    reperes: { 'data-menu-fichiers': '' },
+                  }),
+                  ligne('pieces', <Paperclip className="h-4 w-4" />, t('Pièces jointes'), () => onOuvrirFichiers('pieces'), {
+                    eteinte: sansProjet,
+                    reperes: { 'data-menu-pieces': '' },
+                  }),
+                ]
+              : null}
+            {ligne('memoire', <BookOpen className="h-4 w-4" />, t('Mémoire du projet'), () => setMemoireOuverte(true), {
+              eteinte: sansProjet,
+            })}
+            {voixVisible
+              ? ligne(
+                  'ecouter',
+                  <Volume2 className={cn('h-4 w-4', speaking && 'animate-pulse-soft')} />,
+                  t('Écouter le point'),
+                  () => void listen(),
+                  { eteinte: speaking },
+                )
+              : null}
+            {/* L'ARRÊT, TOUT EN BAS DE LA COLONNE, juste au-dessus de la ligne du
+                moteur, et DISCRET : texte rouge, petite icône, sans fond — la
+                même allure que « Supprimer définitivement… » des réglages du
+                projet. Un geste qui coupe du travail ne se pose jamais au
+                milieu des entrées anodines. */}
+            {duProjet.length ? (
+              <div className="mt-auto pb-1 pt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    'w-full justify-start text-danger hover:text-danger group-data-[bande]/colonne:justify-center group-data-[bande]/colonne:px-0',
+                  )}
+                  data-option-du-projet="arreter"
+                  data-arreter-agents
+                  title={`${t('Arrêter les agents du projet (')}${duProjet.length})`}
+                  onClick={() => setArretGroupe(true)}
+                >
+                  <Square className="h-3 w-3 shrink-0 fill-current" />
+                  <span className={cn('min-w-0 truncate', CLASSE_LIBELLE_EN_BANDE)}>
+                    {`${t('Arrêter les agents du projet (')}${duProjet.length})`}
+                  </span>
+                </Button>
+              </div>
+            ) : null}
+          </nav>
+        </ColonneDeService>
+        {/* LES RÉGLAGES DU PROJET ONT QUITTÉ LA COLONNE : un menu à trois points
+            verticaux, en haut à droite de la page, qui les range. */}
+        {declencheur ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 shrink-0 text-muted"
+                aria-label="Options du projet"
+                title={t('Options')}
+                data-menu-general
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align={cote} className="min-w-[230px]">
+              <DropdownMenuItem
+                data-option-du-projet="reglages"
+                data-reglages-du-projet-ouvert
+                disabled={sansProjet}
+                onSelect={() => state.activeProjectId && ouvrirConfigProjet(state.activeProjectId)}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+                {t('Réglages du projet')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+        {fenetres}
+      </>
+    );
+  }
 
   return (
-    <header
-      className={cn(
-        'flex shrink-0 items-center gap-2 bg-bg px-2.5',
-        !telephone && 'border-b border-border',
-      )}
-      style={{
-        paddingTop: 'env(safe-area-inset-top)',
-        height: 'calc(44px + env(safe-area-inset-top))',
-        paddingLeft: 'max(10px, env(safe-area-inset-left))',
-        paddingRight: 'max(10px, env(safe-area-inset-right))',
-      }}
-    >
-      {/* Tout à gauche : le bouton qui fait glisser la liste des projets
-          par-dessus l'écran. Il ne sert qu'au téléphone — sur grand écran la
-          colonne est déjà là. Il porte le MÊME habillage que les boutons de
-          droite (cadre arrondi, fond transparent, même taille, même survol) :
-          les deux côtés de la barre se répondent au lieu d'une icône nue à
-          gauche et de boutons encadrés à droite. Le point d'état est posé À
-          CHEVAL sur son coin haut droit, à la place et à la taille de celui de
-          la cloche (`CLASSE_POINT_DE_BOUTON`) : hors flux, il ne prend aucune
-          place au nom du projet. */}
-      {onOpenProjects ? (
-        <Tooltip label={t('Projets · {v0}', { v0: pointEtat.texte })}>
-          <Button
-            variant="outline"
-            size="icon"
-            className={cn('relative shrink-0 sm:hidden', secoueProjets && 'animate-secousse')}
-            data-projets-secoue={secoueProjets ? '' : undefined}
-            aria-label="Projets"
-            onClick={onOpenProjects}
-          >
-            <Menu className="h-3.5 w-3.5" />
-            <span
-              data-point-etat
-              className={cn(CLASSE_POINT_DE_BOUTON, pointEtat.classe)}
-            />
-          </Button>
-        </Tooltip>
-      ) : null}
-
-      {/* SUR GRAND ÉCRAN, LE MÊME COIN PORTE LE BOUTON QUI REPLIE LA COLONNE
-          DES PROJETS. Il était perdu au milieu de la colonne, dans la ligne de
-          titre « PROJETS » ; il remonte ici, tout à gauche de la barre, avec
-          l'habillage des boutons du coin opposé — les deux extrémités se
-          répondent. Le point d'état, qui s'affichait seul à cet endroit, se
-          pose dans SON coin haut droit, comme sur le bouton du téléphone : une
-          seule chose à regarder au lieu de deux. Son texte de survol dit les
-          deux à la fois.
-
-          La préférence `sidebar.reduite` est la MÊME que celle lue par la
-          colonne : les deux composants passent par le magasin des réglages, et
-          restent donc d'accord sans qu'aucun état ne circule entre eux. */}
-      <Tooltip label={`${colonneReduite ? t('Déplier le menu') : t('Replier le menu')} · ${pointEtat.texte}`}>
-        <Button
-          variant="outline"
-          size="icon"
-          className="relative hidden shrink-0 sm:inline-flex"
-          aria-pressed={colonneReduite}
-          aria-label={colonneReduite ? 'Deplier le menu' : 'Replier le menu'}
-          data-replier-colonne={colonneReduite ? 'reduite' : 'depliee'}
-          onClick={() => setColonneReduite(!colonneReduite)}
-        >
-          {colonneReduite ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
-          <span
-            data-point-etat
-            className={cn(CLASSE_POINT_DE_BOUTON, pointEtat.classe)}
-          />
-        </Button>
-      </Tooltip>
-
-      {/* Le nombre d'agents ne s'affiche que lorsque PLUSIEURS travaillent en
-          même temps : seul, un agent n'apprend rien de plus que la bande « en
-          cours ». */}
-      {enCours.length > 1 ? (
-        <Tooltip label={`${enCours.length} agents travaillent`}>
-          <span className="shrink-0 rounded-lg bg-raised px-1.5 text-[11.5px] font-medium tabular-nums text-muted">
-            {enCours.length}
-          </span>
-        </Tooltip>
-      ) : null}
-
-      {/* Le nom du projet ouvert, juste à côté du voyant de liaison : on sait
-          toujours dans quel projet on travaille, sans ouvrir la liste. Il prend
-          la place libre et se coupe proprement si le nom est long. Sur une
-          page de tous les projets (« Tableaux de bord »), c'est son titre.
-
-          C'EST UN BOUTON : un clic ouvre le tiroir de changement de projet
-          (`TiroirProjets`) — recherche, « Tableaux de bord » en tête, puis les
-          projets de la colonne. Le bouton ne s'étire pas sur toute la place
-          libre : il s'arrête à son texte, et c'est son enveloppe qui pousse
-          les boutons de droite. */}
-      {titreDeVue || projetOuvert ? (
-        <div className="flex min-w-0 flex-1">
-          {onOuvrirVue ? (
-            <Tooltip label={t('Changer de projet')}>
-              <button
-                type="button"
-                className="-mx-1 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left text-[14.5px] font-medium text-text transition-colors hover:bg-raised"
-                data-titre-bandeau
-                aria-haspopup="dialog"
-                onClick={() => setProjetsOuverts(true)}
-              >
-                <span className="min-w-0 truncate">{titreDeVue ?? projetOuvert?.name}</span>
-                <ChevronsUpDown className="h-3 w-3 shrink-0 text-faint" aria-hidden />
-              </button>
-            </Tooltip>
-          ) : (
-            <span
-              className="min-w-0 truncate text-[14.5px] font-medium text-text"
-              title={titreDeVue ?? projetOuvert?.name}
-              data-titre-bandeau
-            >
-              {titreDeVue ?? projetOuvert?.name}
-            </span>
-          )}
-        </div>
-      ) : (
-        <div className="flex-1" />
-      )}
-      {onOuvrirVue ? (
-        <TiroirProjets
-          open={projetsOuverts}
-          onClose={() => setProjetsOuverts(false)}
-          surTableauxDeBord={!!titreDeVue}
-          onOuvrirVue={onOuvrirVue}
-        />
-      ) : null}
-
-      <QuotaBadge activeEngine={activeEngine} />
-
-      {/* LA BASCULE LIGNES / COLONNES a quitté le bandeau : elle vit dans le
-          groupe « Affichage » du menu des trois points, avant « Thème ». */}
-
-      {/* LA CLOCHE DES NOTIFICATIONS : toujours là, qu'il y ait quelque chose
-          ou non. Elle ouvre un TIROIR qui réunit ce qui attend une décision —
-          projet, carte ou conversation, texte de la question — et tout ce que
-          le guichet de notifications a annoncé depuis. Le triangle de la
-          colonne de gauche reste, mais il n'est plus le seul chemin. */}
-      <ClocheNotifications />
-
-      {/* LE BOUTON « N PLACES » A ÉTÉ RETIRÉ DU BANDEAU. La capacité du
-          système — agents en cours, places libres, mémoire — se lit ENTIÈRE
-          dans les réglages ; un compteur de plus dans la barre du haut ne
-          servait à personne. */}
-
-      {/* LE VOLET DES FICHIERS N'A PLUS DE BOUTON DANS LE BANDEAU : « Fichiers »
-          et « Pièces jointes » sont deux entrées du menu des trois points, qui
-          ouvrent chacune un tiroir. */}
-
-      {/* LE TERMINAL DU SERVEUR VIT DANS LE MENU DES TROIS POINTS. Il occupait
-          un bouton à lui dans le bandeau ; sur téléphone, cette rangée serre déjà
-          le nom du projet et les pastilles, et un clic gagné ne valait pas la
-          place perdue. Son entrée se trouve dans le groupe « Serveur et agents »
-          du menu. */}
-
-      {/* L'ASSISTANT, SUR TÉLÉPHONE : un bouton juste avant les trois points
-          remplace le robot flottant ; le chat s'ouvre juste en dessous. Sur
-          ordinateur, le robot flottant en bas à droite reste seul. */}
-      {telephone ? <BoutonAssistantEntete /> : null}
-
-      {/* Un seul bouton : son, thème, redémarrage et réglages vivent derrière
-          les trois points (menu sur ordinateur, tiroir en bas sur téléphone).
-          LE REDÉMARRAGE DU SERVEUR y est une entrée, et son ÉTAT se lit sur ce
-          bouton, menu fermé : le point commun des boutons de l'entête, sur
-          son coin haut droit (vert, orange, gris). Sa fenêtre de confirmation est rendue HORS du menu,
-          juste après : dedans, elle se démonterait avec lui. */}
+    <>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" className="relative shrink-0" aria-label="Menu" title={t('Menu')}>
-            <EllipsisVertical className="h-3.5 w-3.5" />
-            <PointRedemarrage etat={redemarrage.etat} />
-          </Button>
-        </DropdownMenuTrigger>
-        {/* LE MENU EST RANGÉ EN QUATRE GROUPES, chacun sous un petit titre :
-            « Projet » (ce qu'on consulte du projet ouvert), « Affichage »
-            (comment l'écran se présente), « Serveur et agents » (ce qui agit
-            sur la machine, les arrêts en rouge en dernier), puis « Réglages »
-            seul tout en bas. Plus aucun séparateur n'isole une entrée unique.
-            Les sélecteurs `data-*` des contrôles ont suivi leur entrée. */}
-        <DropdownMenuContent align="end" className="min-w-[230px]">
+        <DropdownMenuTrigger asChild>{declencheur}</DropdownMenuTrigger>
+        {/* Les sélecteurs `data-*` des contrôles ont suivi leur entrée. */}
+        <DropdownMenuContent align={cote} className="min-w-[230px]">
+          {/* LES DEUX GESTES DE PUBLICATION, EN TÊTE (téléphone) : chacun dit
+              ce qui attend ou son avancement, et OUVRE sa page — le déroulé
+              du déploiement, la page de mise en production. C'est de là
+              qu'on lance, jamais d'un toucher dans ce menu. */}
+          {deploiement || production ? (
+            <>
+              <DropdownMenuLabel data-menu-groupe="publication">{t('Mise en ligne')}</DropdownMenuLabel>
+              {deploiement ? (
+                <DropdownMenuItem data-menu-deployer={deploiement.compte} onSelect={() => deploiement.ouvrir()}>
+                  <Play className="h-3.5 w-3.5" />
+                  <span className="min-w-0 flex-1 truncate">{t('Déployer')}</span>
+                  <EtatDeLaLigneDePublication geste={deploiement} />
+                </DropdownMenuItem>
+              ) : null}
+              {production ? (
+                <DropdownMenuItem data-menu-production={production.compte} onSelect={() => production.ouvrir()}>
+                  <Rocket className="h-3.5 w-3.5" />
+                  <span className="min-w-0 flex-1 truncate">{t('Mise en production')}</span>
+                  <EtatDeLaLigneDePublication geste={production} pastille />
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuLabel data-menu-groupe="projet">{t('Projet')}</DropdownMenuLabel>
           {/* Sur téléphone, le module de voix a pris la colonne centrale du menu
               du bas : le tableau de bord se rejoint donc ICI. Sur grand écran,
@@ -461,171 +532,27 @@ export function QuotaBar({
             <BookOpen className="h-3.5 w-3.5" />
             {t('Mémoire du projet')}
           </DropdownMenuItem>
-          <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
-            <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
-            {t('Écouter le point')}
-          </DropdownMenuItem>
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel data-menu-groupe="affichage">{t('Affichage')}</DropdownMenuLabel>
-          {/* LIGNES OU COLONNES. Le libellé et l'icône disent la disposition
-              vers laquelle le clic MÈNE ; le choix est retenu sur l'appareil,
-              jamais en base. `data-bascule-disposition` reste le sélecteur des
-              contrôles : il a suivi le geste, pas le bandeau. */}
-          <DropdownMenuItem data-bascule-disposition={disposition} onSelect={basculerDisposition}>
-            {disposition === 'lignes' ? <Columns3 className="h-3.5 w-3.5" /> : <Rows3 className="h-3.5 w-3.5" />}
-            {disposition === 'lignes' ? t('Afficher le tableau en colonnes') : t('Afficher le tableau en lignes')}
-          </DropdownMenuItem>
-          {/* Le menu rapide reprend les deux axes du réglage général : suivre le
-              système, puis clair/sombre, puis l'ambiance. Le projet ouvert peut
-              toujours recouvrir ce réglage ; l'onglet Apparence le dit. */}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger data-theme-menu>
-              <Palette className="h-3.5 w-3.5" />
-              <span className="flex-1">{t('Thème')}</span>
-              <span className="text-faint">{t(ambianceParId(apparence.ambiance).libelle)}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              <DropdownMenuItem
-                onSelect={() => setApparence({ ...apparence, automatique: !apparence.automatique })}
-                data-theme-auto-menu
-              >
-                <MonitorCog className="h-3.5 w-3.5" />
-                <span className="flex-1">{t('Suivre le système')}</span>
-                <Switch checked={apparence.automatique} className="pointer-events-none" aria-label="Suivre le système" />
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={apparence.automatique}
-                onSelect={() =>
-                  setApparence({ ...apparence, clarte: apparence.clarte === 'sombre' ? 'clair' : 'sombre' })
-                }
-                data-theme-mode-menu
-              >
-                {apparence.clarte === 'sombre' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-                <span className="flex-1">{t('Mode sombre')}</span>
-                <Switch
-                  checked={apparence.clarte === 'sombre'}
-                  disabled={apparence.automatique}
-                  className="pointer-events-none"
-                  aria-label="Mode sombre"
-                />
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {AMBIANCES.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  onSelect={() => setApparence({ ...apparence, ambiance: item.id })}
-                  data-theme-choix={item.id}
-                >
-                  <Palette className="h-3.5 w-3.5" />
-                  <span className="flex-1">{t(item.libelle)}</span>
-                  {item.id === apparence.ambiance ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          {/* LA LANGUE SE CHOISIT JUSTE SOUS LE THÈME, ET DE LA MÊME FAÇON.
-              Même sous-menu, même rappel du choix en cours à droite, même
-              dépliage AU SURVOL COMME AU CLIC — le téléphone et le clavier
-              n'ont pas de survol, et un réglage qu'on ne peut pas atteindre
-              sans souris n'existe pas sur la moitié des appareils. Une
-              différence, voulue : le nom d'une langue est écrit DANS cette
-              langue (« Deutsch », « 中文 ») et ne passe donc PAS par le
-              dictionnaire — c'est ce qui permet de retrouver la sienne quand
-              l'écran est dans une langue qu'on ne lit pas. */}
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger data-langue-menu>
-              <Languages className="h-3.5 w-3.5" />
-              <span className="flex-1">{t('Langue')}</span>
-              <span className="text-faint">{langueParId(langue).libelle}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
-              {LANGUES.map((item) => (
-                <DropdownMenuItem key={item.id} onSelect={() => setLangue(item.id)} data-langue-choix={item.id}>
-                  <span className="flex-1" lang={item.etiquette}>
-                    {item.libelle}
-                  </span>
-                  {item.id === langue ? <Check className="h-3.5 w-3.5 text-termine" /> : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel data-menu-groupe="serveur">{t('Serveur et agents')}</DropdownMenuLabel>
-          {/* L'ACCÈS AU TERMINAL DU SERVEUR. `data-terminal-bouton` reste le
-              sélecteur des contrôles : il a suivi le geste, pas la barre. */}
-          <DropdownMenuItem data-terminal-bouton onSelect={() => setTerminalOuvert(true)}>
-            <TerminalSquare className="h-3.5 w-3.5" />
-            {t('Terminal du serveur')}
-          </DropdownMenuItem>
-          <EntreeRedemarrage redemarrage={redemarrage} />
-          {/* Les arrêts, en rouge, ferment le groupe : un geste qui coupe du
-              travail ne se pose jamais au milieu des entrées anodines. */}
+          {voixVisible ? (
+            <DropdownMenuItem disabled={speaking} onSelect={() => void listen()}>
+              <Volume2 className={cn('h-3.5 w-3.5', speaking && 'animate-pulse-soft')} />
+              {t('Écouter le point')}
+            </DropdownMenuItem>
+          ) : null}
+          {/* L'arrêt, en rouge, ferme le menu : un geste qui coupe du travail
+              ne se pose jamais au milieu des entrées anodines. */}
           {duProjet.length ? (
-            <DropdownMenuItem className="text-danger" onSelect={() => setArretGroupe(true)}>
-              <Square className="h-3.5 w-3.5 fill-current" />
-              {t('Arrêter les agents du projet (')}{duProjet.length})
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-danger" onSelect={() => setArretGroupe(true)}>
+                <Square className="h-3.5 w-3.5 fill-current" />
+                {t('Arrêter les agents du projet (')}{duProjet.length})
+              </DropdownMenuItem>
+            </>
           ) : null}
-          {enCours.length ? (
-            <DropdownMenuItem className="text-danger" onSelect={() => setArretTous(true)}>
-              <Square className="h-3.5 w-3.5 fill-current" />
-              {t('Arrêter tous les agents (')}{enCours.length})
-            </DropdownMenuItem>
-          ) : null}
-
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onOpenSettings} data-reglages-menu>
-            <Settings2 className="h-3.5 w-3.5" />
-            {t('Réglages')}
-          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {redemarrage.dialogue}
 
-      {/* L'afficheur de terminal ne se télécharge qu'au premier clic. */}
-      <PanneauALaDemande monte={terminalOuvert}>
-        <TerminalServeur open={terminalOuvert} onClose={() => setTerminalOuvert(false)} />
-      </PanneauALaDemande>
-
-      <MemoryView
-        open={memoireOuverte}
-        projectId={state.activeProjectId ?? undefined}
-        onClose={() => setMemoireOuverte(false)}
-      />
-
-      <ConfirmDialog
-        open={arretGroupe}
-        danger
-        title={
-          duProjet.length > 1
-            ? t('Arrêter les {v0} agents de ce projet ?', { v0: duProjet.length })
-            : t('Arrêter l’agent de ce projet ?')
-        }
-        description={t('Le travail en cours sera perdu. Les agents des autres projets continuent.')}
-        confirmLabel={t('Tout arrêter')}
-        onConfirm={arreterLeProjet}
-        onClose={() => setArretGroupe(false)}
-      />
-
-      <ConfirmDialog
-        open={arretTous}
-        danger
-        title={
-          enCours.length > 1
-            ? t('Arrêter les {v0} agents en cours sur tous les projets ?', { v0: enCours.length })
-            : t('Arrêter l’agent en cours ?')
-        }
-        description={t('Chaque moteur est coupé sur-le-champ, sur tous les projets. Le travail déjà écrit reste sur la branche de sa carte ; c’est la réflexion en cours qui s’arrête.')}
-        confirmLabel={t('Arrêter tous les agents')}
-        onConfirm={() => {
-          void arreterTousLesAgents();
-          setArretTous(false);
-        }}
-        onClose={() => setArretTous(false)}
-      />
-    </header>
+      {fenetres}
+    </>
   );
 }

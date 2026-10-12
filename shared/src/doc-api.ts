@@ -28,6 +28,7 @@ import {
   ROUTE_LLM_EXTERNE,
   ROUTE_LLM_MODELES_EXTERNE,
 } from './relais-llm.js';
+import { echapperHtml as echapper } from './demande-copiable.js';
 
 /** L'adresse du mode d'emploi. Publique, en lecture seule. */
 export const ROUTE_DOC_API = '/api';
@@ -288,15 +289,6 @@ export function documentationApi(racine = ''): DocumentationApi {
     routeClients: documentationRouteClients(base),
     routeLlm: documentationRouteLlm(base),
   };
-}
-
-/** Le texte qui part dans une page : les chevrons et l’esperluette ne doivent rien ouvrir. */
-function echapper(texte: string): string {
-  return texte
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 /**

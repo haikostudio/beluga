@@ -1,48 +1,35 @@
 import * as React from 'react';
-import { LIBELLE_ETAPE_DE_SUIVI, tonDuSegmentDeSuivi, type EtapeDeSuivi, type SegmentDeSuivi, type TonDeSuivi } from '@beluga/shared';
+import { Check, Loader2 } from 'lucide-react';
+import { LIBELLE_ETAPE_DE_SUIVI, tonDuSegmentDeSuivi, type EtapeDeSuivi, type SegmentDeSuivi } from '@beluga/shared';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { ANNEAU_DU_TON, ICONE_DE_L_ETAPE, ICONE_DU_TON, degradeDuTrait } from '@/lib/ton-de-suivi';
 
 /**
- * LA BARRE D'ÉTAPES : CINQ ICÔNES RELIÉES, LEUR NOM DESSOUS, ET UN RACCOURCI.
+ * LA BARRE D'ÉTAPES : UNE RANGÉE DE RONDS, LEUR NOM À CÔTÉ, ET UN RACCOURCI.
  *
  * LES CINQ DE LA FRISE DE « TABLEAUX DE BORD » — Demande, Compréhension,
  * Travail, À déployer, Archivée (`barreDeSuivi`, `shared`) : une carte se lit
- * de la même façon ouverte ou dans la liste, et avec le MÊME DESSIN que
- * `FriseDeSuivi` — une icône par étape (`ICONE_DE_L_ETAPE`), reliées par un
- * trait fin en dégradé, bleu jusqu'où l'on a validé, pâle au-delà. Seule différence : ici le nom de chaque étape
- * s'écrit SOUS son rond, puisque le tiroir a la place de le dire.
+ * de la même façon ouverte ou dans la liste.
  *
- * Chaque icône prend le ton de son point, le même que la frise
- * (`tonDuSegmentDeSuivi`) : jaune qui scintille en cours, bleu qui clignote
- * quand un geste est attendu, bleu fixe pour l'étape où se trouve la carte une
- * fois finie, bleu aussi pour ce qui est validé, rouge erreur, pâle à venir ;
- * l'étape mise en avant est une icône plus grosse cerclée. C'est un MOYEN DE NAVIGATION : toucher une
- * étape (rond OU nom — le bouton couvre toute la colonne) fait défiler le
- * flux jusqu'au point correspondant et l'ouvre. L'étape active suit le point
- * visible pendant le défilement.
+ * LE DESSIN EST CELUI DE LA MAQUETTE, EN NOIR ET BLANC — plus aucune couleur :
+ *  - une étape FAITE : un rond plein, sa coche dedans, son nom en texte plein ;
+ *  - l'étape OÙ L'ON EST : un rond cerclé avec un point au centre (une roue
+ *    tant que l'agent y travaille, un point d'exclamation quand elle est
+ *    tombée), son nom en texte plein ;
+ *  - une étape À VENIR : un rond vide et pâle, son nom en gris.
+ * Un trait relie deux étapes : plein jusqu'où l'on est arrivé, pâle au-delà.
  *
- * LA BARRE OCCUPE TOUTE LA LARGEUR : le premier rond est posé sur le bord
- * gauche, le dernier sur le bord droit — alignés sur les onglets du dessus —,
- * et les trois autres à 25, 50 et 75 %. Pour cela les colonnes pèsent
- * 1 / 2 / 2 / 2 / 1 : la première et la dernière n'ont qu'une moitié de
- * trait. « Demande » s'aligne à gauche sous son rond, « Archivée » à droite,
- * les noms du milieu restent centrés sous le leur. Le trait entre deux ronds
- * est fait de deux moitiés (droite de l'un, gauche du suivant) qui portent
- * UN SEUL dégradé, de la couleur de gauche vers celle de droite, comme dans
- * la frise : chaque moitié peint le dégradé entier à deux fois sa largeur et
- * n'en montre que sa part (`bg-left` / `bg-right`), si bien que la couleur est
- * la même des deux côtés de la jonction.
+ * C'est un MOYEN DE NAVIGATION : toucher une étape fait défiler la discussion
+ * jusqu'au passage correspondant. L'étape mise en avant suit le passage visible
+ * pendant le défilement (`active`) ; elle se dit à voix haute (`aria-current`).
  *
- * Sur écran large elle vit en tête de la conversation ; sur téléphone elle
- * est collée sous le titre, seule avec lui.
+ * SUR TÉLÉPHONE, seul le nom de l'étape mise en avant s'écrit : cinq noms ne
+ * tiennent pas sur 390 px. Les ronds, eux, restent tous là. Chaque étape y
+ * prend LA PLACE DE SON CONTENU, et les traits se partagent le reste : à
+ * largeurs égales, le nom écrit (« Compréhension ») débordait de sa case et
+ * recouvrait le rond suivant. Il est aussi un cran plus petit, et se coupe en
+ * dernier recours plutôt que de chevaucher.
  */
-/** Un trait qui porte une information : `--faint`, jamais `--border`. */
-function moitieDeTrait(gauche: TonDeSuivi, droite: TonDeSuivi, cote: 'gauche' | 'droite'): string {
-  return cn(degradeDuTrait(gauche, droite), 'bg-[length:200%_100%]', cote === 'gauche' ? 'bg-left' : 'bg-right');
-}
-
 export function BarreDEtapes({
   segments,
   active,
@@ -52,73 +39,78 @@ export function BarreDEtapes({
   segments: SegmentDeSuivi[];
   /** L'étape mise en avant : le point visible, ou l'étape courante. */
   active: EtapeDeSuivi;
-  /** L'étape où se trouve la carte (`segmentActifDeSuivi`) : finie, elle reste bleue. */
+  /** L'étape où se trouve la carte (`segmentActifDeSuivi`). */
   courante: EtapeDeSuivi;
   onAller: (etape: EtapeDeSuivi) => void;
 }) {
   return (
-    <ol className="flex items-stretch" aria-label="Étapes du parcours" data-barre-etapes={active}>
+    <ol className="flex items-center gap-2 sm:gap-3" aria-label="Étapes du parcours" data-barre-etapes={active}>
       {segments.map((segment, i) => {
         const estActive = segment.etape === active;
         const ton = tonDuSegmentDeSuivi(segment, courante);
-        const premier = i === 0;
         const dernier = i === segments.length - 1;
-        const Icone = ICONE_DE_L_ETAPE[segment.etape];
-        const traitAvant = premier ? null : moitieDeTrait(tonDuSegmentDeSuivi(segments[i - 1], courante), ton, 'droite');
-        const traitApres = dernier ? null : moitieDeTrait(ton, tonDuSegmentDeSuivi(segments[i + 1], courante), 'gauche');
+        const faite = segment.etat === 'fait' && segment.etape !== courante;
+        const ici = segment.etape === courante || segment.etat === 'encours' || segment.etat === 'question' || segment.etat === 'erreur';
+        const atteinte = segment.etat !== 'avenir';
         return (
           <li
             key={segment.etape}
-            // Les extrémités pèsent une demi-colonne : leurs ronds tombent sur
-            // les bords, les autres à 25, 50 et 75 %. Leur nom, lui, déborde
-            // vers l'intérieur au lieu d'être tronqué.
-            className={cn('min-w-0', premier || dernier ? 'relative z-10 flex-1' : 'flex-[2]')}
+            className={cn('flex min-w-0 items-center gap-2 sm:gap-3', dernier ? 'shrink-0' : 'flex-auto sm:flex-1')}
           >
             <button
               type="button"
               data-segment={segment.etape}
               data-segment-etat={segment.etat}
               data-segment-ton={ton}
+              /* UNE ÉTAPE NON ATTEINTE LE DIT, au lieu de compter sur le seul
+                 gris : son infobulle l'écrit, et le repère suit. La discussion,
+                 elle, ne montre plus ce qui n'est pas encore arrivé. */
+              data-point-avenir={atteinte ? undefined : ''}
               aria-current={estActive ? 'step' : undefined}
               onClick={() => onAller(segment.etape)}
-              title={t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])}
-              className={cn('group flex w-full flex-col gap-1.5 py-1', premier ? 'items-start' : dernier ? 'items-end' : 'items-stretch')}
+              title={
+                atteinte
+                  ? t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])
+                  : `${t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])} · ${t('à venir')}`
+              }
+              className="group flex min-w-0 items-center gap-2 py-1 sm:shrink-0"
             >
-              <span className="flex h-3.5 w-full items-center" aria-hidden>
-                {premier ? null : <span className={cn('mr-1 h-px min-w-0 flex-1', traitAvant)} />}
-                <span
-                  className={cn(
-                    'flex shrink-0 items-center justify-center rounded-full transition-colors',
-                    estActive
-                      ? cn('h-3.5 w-3.5 ring-2', ton === 'avenir' ? 'text-text' : ICONE_DU_TON[ton], ANNEAU_DU_TON[ton])
-                      : cn('h-3 w-3', ICONE_DU_TON[ton]),
-                  )}
-                >
-                  <Icone className={estActive ? 'h-2.5 w-2.5' : 'h-3 w-3'} strokeWidth={2.25} />
-                </span>
-                {dernier ? null : <span className={cn('ml-1 h-px min-w-0 flex-1', traitApres)} />}
+              <span
+                aria-hidden
+                className={cn(
+                  'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full transition-colors',
+                  faite
+                    ? 'bg-text text-bg'
+                    : ici && atteinte
+                      ? 'border-[1.5px] border-text text-text'
+                      : 'border-[1.5px] border-faint/50 text-faint',
+                )}
+              >
+                {faite ? (
+                  <Check className="h-3 w-3" strokeWidth={3} />
+                ) : segment.etat === 'encours' ? (
+                  <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" strokeWidth={2.5} />
+                ) : segment.etat === 'erreur' ? (
+                  <span className="text-[11px] font-bold leading-none text-danger">!</span>
+                ) : ici && atteinte ? (
+                  <span className="h-2 w-2 rounded-full bg-text" />
+                ) : null}
               </span>
               <span
                 className={cn(
-                  'block text-[11px] leading-none transition-colors group-hover:text-text',
-                  premier
-                    ? 'whitespace-nowrap text-left'
-                    : dernier
-                      ? 'whitespace-nowrap text-right'
-                      : cn(
-                          'truncate px-1 text-center',
-                          // Sur téléphone, « Demande » et « Archivée » débordent de
-                          // leur demi-colonne : leurs voisins leur laissent la place
-                          // (à 360 px, « Demande » mordait de 8 px sur « Compréhension »).
-                          i === 1 && 'max-sm:pl-4',
-                          i === segments.length - 2 && 'max-sm:pr-4',
-                        ),
-                  estActive ? 'font-semibold text-text' : segment.etat === 'avenir' ? 'text-faint' : 'text-muted',
+                  'min-w-0 truncate text-[12px] leading-normal transition-colors group-hover:text-text sm:overflow-visible sm:text-[13px] sm:leading-none',
+                  atteinte ? 'font-medium text-text' : 'text-faint',
+                  !estActive && 'max-sm:hidden',
                 )}
               >
                 {t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])}
               </span>
             </button>
+            {/* Un trait qui porte une information : plein jusqu'où l'on est
+                arrivé (`--text`), pâle au-delà. */}
+            {dernier ? null : (
+              <span aria-hidden className={cn('h-px min-w-2 flex-1', faite ? 'bg-text/60' : 'bg-border')} />
+            )}
           </li>
         );
       })}

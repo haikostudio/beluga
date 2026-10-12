@@ -25,6 +25,8 @@ export const COMMANDES_CLIENT: readonly string[] = [
   // Le minimum vital du canal.
   'hello',
   'ping',
+  // Les réponses perdues pendant une coupure, redemandées à la reconnexion.
+  'acks.reclamer',
   // L'espace client, et rien d'autre.
   'espace.etat',
   'espace.demande.creer',
@@ -121,6 +123,7 @@ export const ROUTES_API_CLIENT: readonly string[] = [
   '/api/me',
   '/api/upload',
   '/api/attachment',
+  '/api/attachments/archive',
   '/api/download',
   '/api/erreur',
   '/api/push/subscribe',

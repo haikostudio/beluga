@@ -5,8 +5,7 @@
  * occuper au pixel près la place du vrai tableau (`board.tsx`) : sinon tout
  * saute à l'arrivée des cartes. Elle recopiait ces classes à la main, et la
  * copie avait dérivé — des cartes de 70 px contre 172, pas de pied sous « À
- * déployer », des rangées sur téléphone quand le tableau s'y pose en colonnes :
- * 160 px de saut par rangée sur ordinateur, plus de 1 000 px sur téléphone.
+ * déployer » : plus de 1 000 px de saut sur téléphone.
  * Les DEUX côtés importent désormais ces constantes : une retouche ici déplace
  * le tableau ET sa silhouette ensemble (`scripts/verif-silhouettes-chargement.mjs`).
  *
@@ -14,94 +13,98 @@
  * s'écrit ici en toutes lettres.
  */
 
-/** La largeur d'une carte dans sa rangée ; l'aperçu du glisser reprend ce nombre. */
+/** La largeur de l'aperçu d'une carte qu'on fait glisser. */
 export const LARGEUR_CARTE_PX = 268;
-export const CLASSE_LARGEUR_CARTE = 'w-[268px]';
 
 /**
- * LA HAUTEUR D'UNE CARTE EN RANGÉE. Une carte peut porter un titre d'une ou
- * deux lignes, un badge, une mention (reprise, sans suite, archivage…) et un
- * bandeau de pied (statut, travail en cours) — sans plafond, deux cartes
- * voisines n'avaient jamais la même hauteur et la rangée entière ondulait. Le
- * titre est donc borné à deux lignes (`line-clamp-2`, jamais posé dans un
- * bouton) et l'ensemble tient dans cette hauteur fixe. En colonnes, la hauteur
- * reste libre.
+ * « TABLEAUX DE BORD » : LA HAUTEUR D'UNE CARTE. Au tableau d'un projet, une
+ * carte a la hauteur de son contenu ; ici elle est fixe, pour que la frise des
+ * étapes tombe au même endroit sur toutes. Une bande de travail en pied
+ * (« Réflexion en cours »…, 30 px) raccourcit la tuile d'autant : la hauteur
+ * garde donc, sous la frise, de quoi loger cette bande et un peu d'air (7 px
+ * mesurés). Demande du 12/10/2026 (« gagner un peu en hauteur ») : plus
+ * d'ancienneté en pied, et un titre sur UNE ligne — la carte passe de 178 à
+ * 156 px. Elle reste FIXE : la silhouette de chargement a la même hauteur, et
+ * rien ne saute à l'arrivée des cartes.
  */
-export const CLASSE_HAUTEUR_CARTE = 'h-[172px]';
-
-/**
- * « TABLEAUX DE BORD » : LA HAUTEUR D'UNE CARTE, six pixels de plus qu'au
- * tableau. Une bande de travail en pied (« Réflexion en cours »…) raccourcit la
- * tuile, et la frise tombe au même endroit sur toutes : à 172 px, l'ancienneté
- * s'y collait contre la bande. Ces six pixels vont sous l'ancienneté ; sans
- * bande, le pied les garde en retrait bas (`pb-1.5`), et l'air autour de la
- * frise ne bouge pas.
- */
-export const CLASSE_HAUTEUR_CARTE_EN_ROUTE = 'h-[178px]';
+export const CLASSE_HAUTEUR_CARTE_EN_ROUTE = 'h-[156px]';
 
 /**
  * « TABLEAUX DE BORD » : LA HAUTEUR DU CORPS D'UNE CARTE (titre, début de la
  * demande), sous sa tête. Fixe, pour que la frise des étapes posée juste
  * dessous tombe au MÊME endroit sur toutes les cartes — qu'elles portent une
  * bande de travail en pied (qui raccourcit la tuile) ou non, et quelle que
- * soit la longueur de la demande. Deux lignes de titre et deux de demande y
+ * soit la longueur de la demande. Une ligne de titre et deux de demande y
  * tiennent ; au-delà, le corps se coupe.
  */
-export const CLASSE_HAUTEUR_CORPS_EN_ROUTE = 'h-[72px]';
+export const CLASSE_HAUTEUR_CORPS_EN_ROUTE = 'h-[60px]';
 
 /**
- * LE CADRE VIOLET DES CARTES SYSTÈME (agents sans carte, dépannages, agents de
- * configuration) : le jeton `--publie`, déjà décliné dans les douze palettes.
+ * LA TENUE DES CARTES SYSTÈME (agents sans carte, dépannages, agents de
+ * configuration) : la même que toute carte — un fond pâle, aucun cadre. Ce qui
+ * les distingue se lit dans leur tête (« Dépannage », « Mise en ligne »).
  */
 export const CLASSE_CADRE_SYSTEME =
-  'relative z-10 flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-md border border-publie/60 bg-raised px-2.5 py-2 transition-colors hover:border-publie';
-
-/** Le rail qui porte les rangées (vertical) ou les colonnes (horizontal). */
-export const classesRail = (enColonnes: boolean): string =>
-  enColonnes ? 'flex gap-2.5 scroll-px-3 px-3 py-3' : 'flex flex-col gap-2.5 px-3 py-3';
+  'relative z-10 flex min-h-0 flex-1 cursor-pointer flex-col overflow-hidden rounded-xl bg-surface px-3.5 py-3 transition-colors hover:bg-raised';
 
 /**
- * L'EMPILEMENT, DANS LE RAIL. En rangées, une grille à pistes égales
- * (`auto-rows-fr`) cale chaque rangée sur la plus haute — « À déployer » et son
- * pied compris.
+ * LES CARTES DE SERVICE (agents de volet : Studio, Marketing, Surveillance,
+ * Sauvegardes, bibliothèque de styles) ne portent plus de liseré : leur BADGE
+ * (`BadgeDuService`) dit d'où elles viennent. La constante reste, vide, pour
+ * les écrans qui la posent.
  */
-export const classesEmpilement = (enColonnes: boolean): string =>
-  enColonnes ? 'flex h-full min-w-full gap-2.5' : 'grid auto-rows-fr gap-2.5';
+export const CLASSE_LISERE_SERVICE = '';
 
-/** Une rangée (ou une colonne), sans ses couleurs d'état. */
-export const classesRangee = (enColonnes: boolean, telephone: boolean): string =>
-  [
-    'relative shrink-0 overflow-hidden rounded-lg bg-surface/70',
-    enColonnes
-      ? `h-full snap-start ${telephone ? 'w-[calc(100vw-2.5rem)]' : 'min-w-[280px] flex-1 basis-0'}`
-      : 'w-full',
-  ].join(' ');
+/*
+ * LE TABLEAU SE LIT EN COLONNES, ET SEULEMENT EN COLONNES : ses quatre états se
+ * posent côte à côte. Les noms « rangée » qui restent ci-dessous désignent une
+ * colonne — ils datent de l'affichage en rangées, retiré le 11/10/2026.
+ */
 
-/** Le bandeau de titre d'une rangée. */
-export const CLASSES_TETE_RANGEE = 'flex shrink-0 items-center gap-1.5 px-2 py-1.5';
+/**
+ * Le rail qui porte les colonnes : il défile de gauche à droite. Rien au-dessus :
+ * la barre d'en-tête (`h-14`, boutons centrés) laisse déjà 12 px sous eux, de
+ * quoi détacher les colonnes — un `pt-3` de plus faisait 40 px de vide
+ * (demande du 12/10/2026).
+ */
+export const CLASSES_RAIL = 'flex gap-2.5 scroll-px-3 px-3 pb-3 pt-0';
+
+/** Les colonnes côte à côte, pleine hauteur, dans le rail. */
+export const CLASSES_EMPILEMENT = 'flex h-full min-w-full gap-2.5';
+
+/**
+ * Une colonne, sans ses couleurs d'état : sur téléphone elle tient l'écran, sur
+ * ordinateur les quatre se partagent la largeur. Son LÉGER FOND
+ * (`.fond-de-colonne-tableau`, styles.css) la détache de la page, sans trait.
+ */
+export const classesRangee = (telephone: boolean): string =>
+  `fond-de-colonne-tableau relative shrink-0 overflow-hidden rounded-xl h-full snap-start ${telephone ? 'w-[calc(100vw-2.5rem)]' : 'min-w-[232px] flex-1 basis-0'}`;
+
+/**
+ * Le bandeau de titre d'une colonne : `pt-3` pour que le titre ne colle plus au
+ * bord haut de la colonne (demande du 12/10/2026). Son `pb-2` est LE SEUL air
+ * entre le titre et la première carte : l'emplacement du message et la bande
+ * n'en ajoutent plus, comme sur les tableaux de bord (même distance de
+ * l'axe du titre à la première carte, 18 px, mesurée).
+ */
+export const CLASSES_TETE_RANGEE = 'flex shrink-0 items-center gap-1.5 px-2 pb-2 pt-3';
 
 /**
  * L'emplacement du message « travail sans carte », posé au-dessus des cartes
- * de « À déployer » et « Archivé » — présent même vide : son `pt-1.5` compte
- * dans la hauteur de la rangée.
+ * de « À déployer » et « Archivé ». Vide, il ne pèse RIEN : l'air qui sépare le
+ * message des cartes est porté par le message lui-même
+ * (`AlerteTravailSansCarte`, `mb-1.5`).
  */
-export const CLASSES_ALERTE_RANGEE = 'shrink-0 px-1.5 pt-1.5';
+export const CLASSES_ALERTE_RANGEE = 'shrink-0 px-1.5';
 
 /**
- * La bande de cartes : ce qui défile, de côté en rangées, de haut en bas en
- * colonnes.
- *
- * EN RANGÉES, UNE BANDE VIDE GARDE LA HAUTEUR D'UNE CARTE (`min-h-[190px]` :
- * la carte de 172 px, plus `p-1.5` en haut et `pb-3` en bas). Sans ce
- * plancher, la hauteur commune des rangées dépendait des DONNÉES : « À
- * déployer » vide, tout le tableau raccourcissait de 50 px, puis rallongeait
- * à l'arrivée d'une carte — et la silhouette, qui ne peut pas savoir quelles
- * rangées seront vides, sautait de 150 px au chargement.
+ * La bande de cartes d'une colonne : ce qui défile, de haut en bas. Rien au
+ * -dessus de la première carte (`pt-0`) : le bandeau porte déjà l'air. En mode
+ * lot, `board.tsx` repose `pt-[15px]` pour la case à cocher qui déborde.
  */
-export const classesBande = (enColonnes: boolean): string =>
-  enColonnes ? 'flex flex-col gap-1.5 p-1.5' : 'flex min-h-[190px] items-start gap-1.5 p-1.5 pb-3';
+export const CLASSES_BANDE = 'flex flex-col gap-1.5 px-1.5 pb-1.5 pt-0';
 
-/** Le pied de « À déployer » : le bouton de mise en ligne, en bas de la rangée. */
+/** Le pied de « À déployer » : le bouton de mise en ligne, en bas de la colonne. */
 export const CLASSES_PIED_RANGEE = 'mt-auto flex shrink-0 items-center gap-2 px-2 pb-3 pt-1.5';
 
 /*
@@ -114,13 +117,13 @@ export const CLASSES_PIED_RANGEE = 'mt-auto flex shrink-0 items-center gap-2 px-
  */
 export const classesRailEnRoute = (telephone: boolean): string =>
   telephone
-    ? 'flex gap-2.5 scroll-px-3 px-3 py-3 snap-x snap-mandatory'
-    : 'mx-auto flex h-full w-full max-w-[1600px] gap-3 px-4 pb-4 pt-3';
+    ? 'flex gap-2.5 scroll-px-3 px-3 pb-3 pt-0 snap-x snap-mandatory'
+    : 'mx-auto flex h-full w-full max-w-[1600px] gap-3 px-4 pb-4 pt-0';
 
 /** Une colonne de la page : son fond, sa largeur, son aimantation. */
 export const classesColonneEnRoute = (telephone: boolean): string =>
   [
-    'flex min-h-0 flex-col overflow-hidden rounded-lg bg-surface/70',
+    'fond-de-colonne-tableau flex min-h-0 flex-col overflow-hidden rounded-xl',
     telephone ? 'w-[calc(100vw-2.5rem)] shrink-0 snap-start' : 'h-full min-w-0 flex-1 basis-0',
   ].join(' ');
 

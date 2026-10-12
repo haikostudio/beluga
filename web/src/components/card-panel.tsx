@@ -4,11 +4,15 @@ import {
   Archive,
   Check,
   ChevronDown,
-  CircleDollarSign,
   GitBranch,
-  Lightbulb,
   Loader2,
   MessageSquare,
+  MessagesSquare,
+  Github,
+  Play,
+  CloudUpload,
+  CircleDot,
+  EllipsisVertical,
   Paperclip,
   Rocket,
   RotateCcw,
@@ -17,7 +21,6 @@ import {
   PenLine,
   Trash2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   COLUMN_LABELS,
@@ -45,6 +48,8 @@ import {
   avisSurLUrgence,
   estUnRegroupement,
   membresActifsDuRegroupement,
+  estVoletDuCahier,
+  peutRedevenirNonLue,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -54,6 +59,8 @@ import {
   DialogContent,
   DialogTitle,
   Drawer,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   EmptyState,
   Input,
   Label,
@@ -69,6 +76,17 @@ import {
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
+import { MenuDesProjets } from '@/components/menu-des-projets';
+import { EnteteDeZone, useLieuDeLaZone } from '@/components/entete-de-zone';
+import {
+  CLASSE_LIBELLE_EN_BANDE,
+  CLASSE_REPERE_EN_BANDE,
+  CLASSE_LIGNE_DE_SERVICE,
+  CLASSE_LIGNE_EN_BANDE,
+  ColonneDeService,
+  useColonneDeService,
+} from '@/components/colonne-de-service';
+import { BoutonNouvelleTache } from '@/components/nouvelle-tache';
 import { PastilleProjet, PastillesEmpilees } from '@/components/pastille-projet';
 import { RepereAttention } from '@/components/repere-attention';
 import { SilhouetteTiroirCarte } from '@/components/silhouettes';
@@ -78,12 +96,17 @@ import { useApp } from '@/lib/use-app';
 import { estTelephone, useTelephone } from '@/lib/telephone';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
+import { MenuExportDuCahier } from '@/components/cahier-des-charges';
+
+/** La colonne de lecture d'une carte : la conversation se centre, elle ne s'étale pas. */
+export const CLASSE_COLONNE_DE_CARTE = 'max-w-[820px]';
 
 export function CardPanel({
   cardId,
   onClose,
   onglet,
   onOnglet,
+  onOuvrirVue,
 }: {
   cardId: string | null;
   onClose: () => void;
@@ -91,6 +114,8 @@ export function CardPanel({
   onglet?: string | null;
   /** …et l'onglet affiché, remonté pour que l'adresse le décrive. */
   onOnglet?: (onglet: string | null) => void;
+  /** La destination choisie dans la liste des projets du fil d'Ariane. */
+  onOuvrirVue?: (vue: 'en-route' | 'projet') => void;
 }) {
   const state = useApp();
   const card = cardId ? state.cards[cardId] : null;
@@ -116,8 +141,10 @@ export function CardPanel({
     /* LA FEUILLE A SA HAUTEUR AVANT D'AVOIR SON CONTENU (`hauteurFixe`) : le
        tiroir d'une tâche s'ouvre sur une silhouette, puis se remplit — il ne
        doit pas grandir d'un bond au passage. */
-    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe>
-      <TiroirDeCarte card={card} onClose={onClose} onglet={onglet} onOnglet={onOnglet} />
+    /* LA CARTE EST UNE PAGE, pleine largeur : elle pose elle-même sa barre
+       d'en-tête (fil d'Ariane, gestes, options) et centre sa conversation. */
+    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe entete={<></>} className="max-w-none sm:px-0">
+      <TiroirDeCarte card={card} onClose={onClose} onglet={onglet} onOnglet={onOnglet} onOuvrirVue={onOuvrirVue} />
     </Drawer>
   );
 }
@@ -141,11 +168,13 @@ function TiroirDeCarte({
   onClose,
   onglet,
   onOnglet,
+  onOuvrirVue,
 }: {
   card: Card;
   onClose: () => void;
   onglet?: string | null;
   onOnglet?: (onglet: string | null) => void;
+  onOuvrirVue?: (vue: 'en-route' | 'projet') => void;
 }) {
   const state = useApp();
   const recues = donneesDeCarteRecues(state, card.id);
@@ -158,8 +187,17 @@ function TiroirDeCarte({
     return () => window.clearTimeout(minuteur);
   }, [card.id]);
 
-  if (!recues && !tropLong) return <SilhouetteTiroirCarte />;
-  return <CardPanelBody card={card} onClose={onClose} onglet={onglet} onOnglet={onOnglet} />;
+  if (!recues && !tropLong) {
+    return (
+      <>
+        <EnteteDeZone onRetour={onClose} titre={card.title} />
+        <div className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col', CLASSE_COLONNE_DE_CARTE)}>
+          <SilhouetteTiroirCarte />
+        </div>
+      </>
+    );
+  }
+  return <CardPanelBody card={card} onClose={onClose} onglet={onglet} onOnglet={onOnglet} onOuvrirVue={onOuvrirVue} />;
 }
 
 /**
@@ -193,7 +231,7 @@ function CarteReclamee({ cardId, onClose }: { cardId: string; onClose: () => voi
     /* MÊME HAUTEUR QUE LE TIROIR ORDINAIRE : un lien direct vers une carte ne
        doit pas ouvrir une feuille d'une autre taille, puis en changer quand la
        carte arrive. */
-    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe>
+    <Drawer open onClose={onClose} plein={estTelephone()} hauteurFixe className="max-w-[920px] sm:px-0">
       {issue === 'attente' ? (
         <SilhouetteTiroirCarte />
       ) : (
@@ -230,13 +268,17 @@ function CardPanelBody({
   onClose,
   onglet: ongletVise,
   onOnglet,
+  onOuvrirVue,
 }: {
   card: Card;
   onClose: () => void;
   onglet?: string | null;
   onOnglet?: (onglet: string | null) => void;
+  onOuvrirVue?: (vue: 'en-route' | 'projet') => void;
 }) {
   const state = useApp();
+  /* Le bouton des services ouvre aussi le fil d'Ariane d'une carte. */
+  const lieu = useLieuDeLaZone();
   /*
    * L'agent de la conversation n'est PAS seulement celui de l'exécution : une
    * carte n'en reçoit un qu'au lancement, alors que son analyse a déjà parlé
@@ -316,7 +358,19 @@ function CardPanelBody({
   React.useEffect(() => {
     if (decisions > 0) setOnglet(ONGLET_DE_CARTE_PAR_DEFAUT);
   }, [decisions]);
-  const ongletActif = onglet;
+  /* LE VOLET DU CAHIER DES CHARGES N'A PAS D'ONGLETS : seule la conversation,
+     où se posent les questions (`estVoletDuCahier`). */
+  const voletDuCahier = estVoletDuCahier(card);
+  const ongletActif = voletDuCahier ? ONGLET_DE_CARTE_PAR_DEFAUT : onglet;
+  /* LA FIN DU CAHIER REFERME SON VOLET : la carte part dans « Archivé » et une
+     carte de construction prend la suite. Seul ce PASSAGE referme — une
+     carte du cahier rouverte depuis l'archive reste ouverte. */
+  const colonneVue = React.useRef(card.column);
+  React.useEffect(() => {
+    const avant = colonneVue.current;
+    colonneVue.current = card.column;
+    if (voletDuCahier && avant !== 'archived' && card.column === 'archived') onClose();
+  }, [card.column, voletDuCahier, onClose]);
   /* L'onglet affiché remonte à l'adresse. */
   React.useEffect(() => {
     remonterOnglet.current?.(ongletActif);
@@ -391,231 +445,280 @@ function CardPanelBody({
     dernierScroll.current = y;
   };
 
+  /* CE QUE LA CARTE A DE PLUS À DIRE — son état, ses étiquettes, sa date — ne
+     s'étale plus sous le titre : c'est rangé derrière le « i ». */
+  const etiquettes = (
+    <div data-tags-carte className="flex flex-wrap items-center gap-1.5 text-[12.5px] text-muted">
+      <Badge>{t(COLUMN_LABELS[card.column])}</Badge>
+      {card.deployedAt ? (
+        <Badge>
+          <Rocket className="h-2.5 w-2.5" /> {t('en ligne')}
+        </Badge>
+      ) : null}
+      {/* Une carte ressortie garde sa trace : on doit voir qu'elle était
+          passée par « Archivé », et quand. */}
+      {mentionArchivage(card) ? (
+        <Badge title={t('Archivée le {v0}', { v0: new Date(card.archivedAt!).toLocaleString(formatRegional()) })}>
+          <Archive className="h-2.5 w-2.5" /> {mentionArchivage(card)}
+        </Badge>
+      ) : null}
+      {/* Une carte qui se reprend le dit : le travail déjà fait est gardé. */}
+      {mentionDeReprise(card) ? (
+        <Badge title={mentionDeReprise(card)!}>
+          <RotateCcw className="h-2.5 w-2.5" /> {t('reprise')}
+        </Badge>
+      ) : null}
+      {[avisSurLUrgence(card)].map((avis) =>
+        avis ? (
+          <Badge key={avis.cle} title={t(avis.phrase)} data-avis-etiquette={avis.cle}>
+            <AlertTriangle className="h-2.5 w-2.5" /> {t(avis.titre)}
+          </Badge>
+        ) : null,
+      )}
+      {card.labels.map((label) => (
+        <Badge key={label}>{label}</Badge>
+      ))}
+      <span>{t('modifiée {v0}', { v0: relativeTime(card.updatedAt) })}</span>
+    </div>
+  );
+  void tagsVisibles;
+  void setTagsOuverts;
+  void barreVisible;
+  void membresDuGroupe;
+  void titreGenere;
+
+  /* LES OPTIONS DE LA TÂCHE VIVENT DANS LA COLONNE DE GAUCHE (demande du
+     11/10/2026) : dans une tâche, la colonne laisse la place à ses options —
+     conversation, commentaires, facturation, GitHub, « marquer comme non lu » —
+     sous une flèche qui ramène au projet. Le menu à trois points ne garde que
+     les déplacements et la suppression. SUR TÉLÉPHONE, où la colonne vit dans
+     un panneau fermé, tout reste dans ce menu, comme avant. */
+  const dansLaColonne = useColonneDeService();
+  const nonLuPossible = peutRedevenirNonLue({ colonne: card.column, renduA: card.renduA, luA: card.lastReadAt });
+  const ONGLETS: { cle: string; cleLibelle: string; Icone: React.ComponentType<{ className?: string }> }[] = [
+    { cle: 'chat', cleLibelle: 'Conversation', Icone: MessageSquare },
+    { cle: 'comments', cleLibelle: 'Commentaires', Icone: MessagesSquare },
+    { cle: 'github', cleLibelle: 'GitHub', Icone: Github },
+  ];
+  const entreesDOnglets = voletDuCahier || dansLaColonne ? null : (
+    <>
+      {ONGLETS.map(({ cle, cleLibelle, Icone }) => (
+        <DropdownMenuItem key={cle} data-onglet-carte={cle} onSelect={() => setOnglet(cle)}>
+          <Icone className="h-3.5 w-3.5" />
+          <span className="flex-1">{t(cleLibelle)}</span>
+          {cle === 'comments' ? <RoueDOnglet visible={!!chargement.comments} /> : null}
+          {cle === 'github' ? <RoueDOnglet visible={!!chargement.github} /> : null}
+          {ongletActif === cle ? <Check className="h-3.5 w-3.5" /> : null}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+    </>
+  );
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* Aucun filet sous le titre : c'est l'ESPACE qui sépare le titre de la
-          barre d'onglets. Le trait de 1 px se lisait comme un défaut
-          d'affichage, juste au-dessus des onglets et de la bande « en cours ».
-          Le retrait de la bordure remonte le contenu d'un pixel : on rend ce
-          pixel au bas de l'en-tête pour que rien ne bouge à l'écran. */}
-      <header className={cn('shrink-0 px-4', telephone ? 'pb-1.5' : 'pb-[13px]')}>
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            {/* LE TITRE GÉNÉRÉ SE VOIT DÈS LE PREMIER ÉCHANGE. L'agent de
-                cadrage l'écrit sur le prompt brut, avant même d'ouvrir la
-                mémoire : l'ampoule dit d'où il vient. Une carte encore
-                appelée « Nouvelle tâche » n'en porte pas — il n'y aurait rien
-                à signaler. La taille du titre ne bouge pas, seul le gras et
-                l'icône changent. */}
-            {/* SUR TÉLÉPHONE, LE TITRE TIENT SUR UNE LIGNE et c'est lui qu'on
-                touche pour déplier ce qui se replie dessous : les étiquettes
-                de la carte. L'écran reste au flux. */}
-            <DialogTitle
-              className={cn('flex min-w-0 items-start gap-1.5 leading-snug', telephone && 'cursor-pointer')}
-              data-titre-carte={telephone ? (tagsOuverts ? 'deplie' : 'replie') : 'ouvert'}
-              onClick={telephone ? () => setTagsOuverts((v) => !v) : undefined}
-            >
-              {/* Le visage du projet devant le titre : on sait de quel projet
-                  parle la tâche sans lire les étiquettes. */}
-              {project ? (
-                /* …ET IL MÈNE AU TABLEAU DE CE PROJET : la carte se referme,
-                   le projet s'ouvre sur son tableau — même depuis « Tableaux
-                   de bord ». Le clic ne remonte pas au titre, qui déplie les
-                   étiquettes sur téléphone. */
-                <button
-                  type="button"
-                  data-favicon-titre
-                  data-ouvrir-tableau-projet={project.id}
-                  aria-label="Ouvrir le tableau du projet"
-                  title={t('Ouvrir le tableau du projet')}
-                  className="mt-[3px] flex shrink-0 cursor-pointer rounded-sm transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    client.demanderTableau(project.id);
-                  }}
-                >
-                  {membresDuGroupe.length ? (
-                    <PastillesEmpilees projects={membresDuGroupe} fond="hsl(var(--surface))" />
+    <div className="flex min-h-0 flex-1 flex-col" data-page-carte={card.id}>
+      {/* LA BARRE D'EN-TÊTE DE LA CARTE : la flèche de retour, le fil d'Ariane
+          (le projet, puis le titre), les deux gestes de mise en ligne, et les
+          options derrière trois points. Rien d'autre. */}
+      <EnteteDeZone
+        avant={lieu?.avant}
+        onRetour={onClose}
+        /* Sur ordinateur, le retour est porté par la colonne de gauche. */
+        retourDansLaColonne={dansLaColonne}
+        chemin={
+          project
+            ? [
+                {
+                  libelle: project.name,
+                  /* Le nom du projet OUVRE LA LISTE DES PROJETS, comme sur les
+                     autres pages : « Tableaux de bord » en tête, le projet
+                     courant coché. Choisir referme la carte (`onOuvrirVue`). */
+                  menu: (declencheur: React.ReactElement) => (
+                    <MenuDesProjets
+                      declencheur={declencheur}
+                      projetCourantId={project.id}
+                      onOuvrirVue={(vue) => {
+                        if (onOuvrirVue) onOuvrirVue(vue);
+                        else client.demanderTableau(project.id);
+                      }}
+                    />
+                  ),
+                  /* Son icône le précède, et reste là sur téléphone où le nom
+                     est masqué. */
+                  icone: membresDuGroupe.length ? (
+                    <PastillesEmpilees projects={membresDuGroupe} />
                   ) : (
                     <PastilleProjet project={project} />
-                  )}
-                </button>
-              ) : null}
-              {titreGenere ? (
-                <Lightbulb data-titre-genere className="mt-[3px] h-4 w-4 shrink-0 text-en-cours" />
-              ) : null}
-              {titreEnCours ? (
-                <span
-                  data-titre-en-construction
-                  className={cn('min-w-0 animate-pulse font-normal italic text-muted', telephone && !tagsOuverts && 'truncate')}
-                >
-                  {t('Titre en cours de création…')}
-                </span>
-              ) : (
-                <span className={cn('min-w-0', titreGenere && 'font-semibold', telephone && !tagsOuverts && 'truncate')}>{card.title}</span>
-              )}
-            </DialogTitle>
-            {tagsVisibles ? (
-            <div data-tags-carte className="mt-1 flex flex-wrap items-center gap-1.5 text-[12.5px] text-faint">
-              <Badge>{t(COLUMN_LABELS[card.column])}</Badge>
-              {card.deployedAt ? (
-                <Badge tone="success">
-                  <Rocket className="h-2.5 w-2.5" /> {t('en ligne')}
-                </Badge>
-              ) : null}
-              {/* Une carte ressortie garde sa trace : on doit voir qu'elle
-                  était passée par « Archivé », et quand. */}
-              {mentionArchivage(card) ? (
-                <Tooltip label={t('Archivée le {v0}', { v0: new Date(card.archivedAt!).toLocaleString(formatRegional()) })}>
-                  <Badge>
-                    <Archive className="h-2.5 w-2.5" /> {mentionArchivage(card)}
-                  </Badge>
-                </Tooltip>
-              ) : null}
-              {/* Une carte qui se reprend le dit là où on lit son état : le
-                  travail déjà fait est gardé, on ne repart pas de zéro. */}
-              {mentionDeReprise(card) ? (
-                <Tooltip label={mentionDeReprise(card)!}>
-                  <Badge tone="warning">
-                    <RotateCcw className="h-2.5 w-2.5" /> {t('reprise')}
-                  </Badge>
-                </Tooltip>
-              ) : null}
-              {/* LE SEUL AVIS QUI SE LIT ENCORE AVEC L'ÉTAT DE LA CARTE :
-                  « demande pressante », sur une carte arrivée sans vous. Il ne
-                  rouvre rien et ne change aucune colonne
-                  (`shared/src/jugement-rapide.ts`). */}
-              {[avisSurLUrgence(card)].map((avis) =>
-                avis ? (
-                  <Tooltip key={avis.cle} label={t(avis.phrase)}>
-                    <Badge tone={avis.ton === 'attention' ? 'warning' : undefined} data-avis-etiquette={avis.cle}>
-                      <AlertTriangle className="h-2.5 w-2.5" /> {t(avis.titre)}
-                    </Badge>
-                  </Tooltip>
-                ) : null,
-              )}
-              {card.labels.map((label) => (
-                <Badge key={label}>{label}</Badge>
-              ))}
-              <span>{t('modifiée {v0}', { v0: relativeTime(card.updatedAt) })}</span>
-            </div>
-            ) : null}
-          </div>
-
-          {/* Sur téléphone, un chevron déplie les tags repliés — placé juste
-              avant le menu, à droite du titre. Absent sur ordinateur, où les
-              tags sont toujours visibles. */}
-          {telephone ? (
+                  ),
+                },
+              ]
+            : []
+        }
+        titre={
+          titreEnCours ? (
+            <span data-titre-en-construction className="animate-pulse font-normal italic text-muted">
+              {t('Titre en cours de création…')}
+            </span>
+          ) : (
+            <span data-titre-carte="ouvert">{card.title}</span>
+          )
+        }
+        menu={
+          <MenuCarte
+            card={card}
+            apresSuppression={onClose}
+            enTete={entreesDOnglets}
+            sansNonLu={dansLaColonne}
+            declencheur={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-8 w-8 shrink-0 text-muted"
+                aria-label="Autres actions"
+                data-menu-de-carte
+              >
+                <EllipsisVertical className="h-4 w-4" />
+                {decisions > 0 && ongletActif !== 'chat' && !dansLaColonne ? (
+                  <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-text" aria-hidden />
+                ) : null}
+              </Button>
+            }
+          />
+        }
+      >
+        {/* Le « i » : l'état, les étiquettes, la date. */}
+        <BulleInfo label={t('Détails de la carte')}>{etiquettes}</BulleInfo>
+        {/* À gauche des gestes : le raccourci vers la configuration de l'agent,
+            posé par la conversation. */}
+        <div ref={setEmplacementReglages} data-emplacement-reglages className="flex shrink-0 empty:hidden" />
+        {/* LE CAHIER DES CHARGES S'EXPORTE D'ICI, en PDF ou en texte. */}
+        {voletDuCahier ? <MenuExportDuCahier projectId={card.projectId} /> : null}
+        {/* LES DEUX GESTES DE MISE EN LIGNE DU PROJET, comme sur la maquette :
+            le déploiement (sur ce serveur) en contour, la mise en production en
+            aplat. Ils ouvrent les MÊMES pages que le tableau. */}
+        {voletDuCahier || telephone ? null : (
+          <>
             <Button
-              size="sm"
-              variant="ghost"
-              className="shrink-0 px-2"
-              aria-label={tagsOuverts ? 'Masquer les étiquettes' : 'Afficher les étiquettes'}
-              aria-expanded={tagsOuverts}
-              onClick={() => setTagsOuverts((v) => !v)}
+              variant="outline"
+              size="md"
+              className="h-9 gap-2 rounded-lg px-3.5"
+              data-geste-deploiement
+              onClick={() => client.demanderDeploiement({ projectId: card.projectId })}
             >
-              <ChevronDown className={cn('h-4 w-4 transition-transform', tagsOuverts && 'rotate-180')} />
+              <Play className="h-3.5 w-3.5" />
+              {t('Déploiement')}
             </Button>
-          ) : null}
+            <Button
+              variant="default"
+              size="md"
+              className="h-9 gap-2 rounded-lg px-3.5"
+              data-geste-production
+              onClick={() => client.demanderProduction({ projectId: card.projectId })}
+            >
+              <CloudUpload className="h-3.5 w-3.5" />
+              {t('Mise en production')}
+            </Button>
+          </>
+        )}
+      </EnteteDeZone>
+      {/* Le titre, pour les lecteurs d'écran : la page est une fenêtre Radix. */}
+      <DialogTitle className="sr-only">{card.title}</DialogTitle>
 
-          {/* Les gestes rares vivent ici : ils prenaient une ligne entière en
-              bas du tiroir. Menu déroulant sur ordinateur, tiroir pleine
-              largeur sur téléphone — le composant s'en charge tout seul. */}
-          {/* À gauche des trois points : le raccourci vers la configuration de
-              l'agent, posé par la conversation quand son bloc a quitté l'écran. */}
-          <div ref={setEmplacementReglages} data-emplacement-reglages className="flex shrink-0 empty:hidden" />
-          <MenuCarte card={card} apresSuppression={onClose} />
-        </div>
-        {/* SUR TÉLÉPHONE, LA BARRE D'ÉTAPES EST COLLÉE SOUS LE TITRE, avant
-            les onglets : la conversation la pose ici par un portail
-            (`emplacementBarre`, `chat.tsx`). Sur ordinateur, elle vit en tête
-            de la conversation. */}
-        {telephone ? <div ref={emplacementBarre} data-emplacement-barre className="mt-1.5" /> : null}
-      </header>
+      {/* LES OPTIONS DE LA TÂCHE, DANS LA COLONNE DE GAUCHE (`plan="page"` : la
+          page est ouverte par-dessus, le menu du projet attend dessous). La
+          ligne ouverte s'écrit en violet et se dit à voix haute. Colonne
+          réduite, il n'en reste que les icônes. */}
+      {dansLaColonne ? (
+        <ColonneDeService plan="page">
+          <nav aria-label="Options de la tâche" data-options-de-carte={card.id} className="flex flex-col gap-0.5 pt-1">
+            {/* « NOUVELLE TÂCHE », TOUT EN HAUT, au-dessus de « Conversation » :
+                le même bouton que dans la colonne du projet, pour une carte
+                créée depuis le projet de cette tâche. */}
+            <BoutonNouvelleTache projectId={card.projectId} />
+            {voletDuCahier
+              ? null
+              : ONGLETS.map(({ cle, cleLibelle, Icone }) => {
+                  const ouverte = ongletActif === cle;
+                  return (
+                    <button
+                      key={cle}
+                      type="button"
+                      data-onglet-carte={cle}
+                      aria-current={ouverte ? 'page' : undefined}
+                      title={t(cleLibelle)}
+                      onClick={() => setOnglet(cle)}
+                      className={cn(
+                        CLASSE_LIGNE_DE_SERVICE,
+                        CLASSE_LIGNE_EN_BANDE,
+                        'relative',
+                        ouverte ? 'bg-ligne-active text-teinte' : 'hover:bg-raised',
+                      )}
+                    >
+                      <Icone className={cn('h-4 w-4 shrink-0', !ouverte && 'text-muted')} />
+                      <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{t(cleLibelle)}</span>
+                      {/* Colonne réduite, la roue et le point quittent le flux
+                          de la ligne (`CLASSE_REPERE_EN_BANDE`) : en y restant,
+                          ils décalaient l'icône de « Commentaires » et de
+                          « GitHub » par rapport aux autres. */}
+                      {cle === 'comments' ? (
+                        <RoueDOnglet visible={!!chargement.comments} className={CLASSE_REPERE_EN_BANDE} />
+                      ) : null}
+                      {cle === 'github' ? (
+                        <RoueDOnglet visible={!!chargement.github} className={CLASSE_REPERE_EN_BANDE} />
+                      ) : null}
+                      {/* Une décision attend dans la conversation, qu'on a quittée. */}
+                      {cle === 'chat' && decisions > 0 && !ouverte ? (
+                        <span
+                          data-decision-attendue
+                          className={cn('h-1.5 w-1.5 shrink-0 rounded-full bg-text', CLASSE_REPERE_EN_BANDE)}
+                          aria-hidden
+                        />
+                      ) : null}
+                    </button>
+                  );
+                })}
+            {nonLuPossible ? (
+              <button
+                type="button"
+                data-menu-non-lu={card.id}
+                title={t('Marquer comme non lu')}
+                onClick={() => client.send({ type: 'card.unread', cardId: card.id })}
+                className={cn(CLASSE_LIGNE_DE_SERVICE, CLASSE_LIGNE_EN_BANDE, 'mt-3 hover:bg-raised')}
+              >
+                <CircleDot className="h-4 w-4 shrink-0 text-muted" />
+                <span className={cn('min-w-0 flex-1 truncate', CLASSE_LIBELLE_EN_BANDE)}>{t('Marquer comme non lu')}</span>
+              </button>
+            ) : null}
+          </nav>
+        </ColonneDeService>
+      ) : null}
 
       <MentionDeRedaction card={card} />
 
-      {/* La conversation a son propre onglet : les détails de l'agent ne la
-          compriment plus en haut de l'écran. Elle s'ouvre dès qu'il y a quelque
-          chose à y lire — une analyse en cours ou finie compte autant qu'un
-          agent d'exécution. */}
       <Tabs
         key={card.id}
         value={ongletActif}
         onValueChange={setOnglet}
         onScrollCapture={surDefilement}
-        /* LES BLOCS DU FIL PRENNENT LE FOND DE L'ONGLET OUVERT. La classe
-           `blocs-au-fond-de-l-onglet` (`styles.css`) pose `--fond-bloc-fil` sur
-           tout le volet : cadrage, analyse et questions s'y accordent au lieu
-           de poser leur propre teinte. La couleur y est refaite à partir des
-           trois fonds employés juste dessous — `--surface`, `--raised` à 35 %,
-           `--bg` à 55 % — donc juste dans les douze palettes. */
-        className="blocs-au-fond-de-l-onglet flex min-h-0 flex-1 flex-col"
+        className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col', CLASSE_COLONNE_DE_CARTE)}
       >
-        {/* Les onglets collent au bord : la marge de la barre s'ajoutait à
-            celle de la liste, et deux respirations superposées mangeaient une
-            bonne part de la largeur sur téléphone.
-
-            Sur téléphone, cette barre se replie quand on descend dans le
-            contenu et revient quand on remonte — l'enveloppe se ferme en
-            hauteur, l'onglet actif reste choisi. Sur ordinateur, rien ne bouge.
-
-            Style verre (glassmorphism) : un SEUL conteneur porte un fond et
-            un flou — plus l'ancien empilement piste (`bg-surface` sur
-            `TabsList`) + onglet actif (`bg-raised`), qui doublait le cadre.
-            La pilule de piste est neutralisée plus bas ; seul l'onglet actif
-            garde un fond LÉGÈREMENT plus sombre, sans aucune ombre : un creux
-            dessiné contredisait le parti pris plat de l'interface. */}
-        <div
-          data-barre-onglets
-          data-cachee={telephone && !barreVisible ? '' : undefined}
-          className={cn(
-            'mx-4 flex-none overflow-hidden rounded-md border border-border/40 bg-raised/35 backdrop-blur-md transition-all duration-200',
-            telephone ? 'mt-0.5' : 'mt-1',
-            telephone && !barreVisible && 'max-h-0 opacity-0',
-          )}
-        >
-        <ZoneDefilement axe="horizontal" classeEnveloppe="flex-none" className={telephone ? 'px-1 py-0.5' : 'px-1.5 py-1'}>
-          <TabsList className="w-full border-0 bg-transparent">
-            {/* La décision se prend DANS ce fil : l'onglet porte le même
-                triangle que la carte du tableau, sinon le tiroir ouvert
-                n'apprendrait plus rien. */}
-            <TabsTrigger
-              value="chat"
-              className="flex-1 gap-1 data-[state=active]:bg-bg/55"
-            >
-
-{t('Conversation')}
-<RepereAttention compte={decisions} icone={iconeDecision} data-attention-carte={card.id} />
-            </TabsTrigger>
-            {/* Cet onglet va CHERCHER ses données : tant qu'elles ne sont pas
-                là, une petite roue le dit — sinon on ne sait pas si l'onglet
-                est vide ou s'il arrive. */}
-            <TabsTrigger
-              value="comments"
-              className="flex-1 gap-1 data-[state=active]:bg-bg/55"
-            >
-
-{t('Commentaires')}
-<RoueDOnglet visible={!!chargement.comments} />
-            </TabsTrigger>
-            <TabsTrigger
-              value="billing"
-              className="flex-1 data-[state=active]:bg-bg/55"
-            >
-              {t('Facturation')}
-            </TabsTrigger>
-            <TabsTrigger
-              value="github"
-              className="flex-1 gap-1 data-[state=active]:bg-bg/55"
-            >
-
-{t('GitHub')}
-<RoueDOnglet visible={!!chargement.github} />
-            </TabsTrigger>
-          </TabsList>
-        </ZoneDefilement>
-        </div>
+        {/* SUR TÉLÉPHONE, LA BARRE D'ÉTAPES EST COLLÉE SOUS L'EN-TÊTE : la
+            conversation la pose ici par un portail (`emplacementBarre`,
+            `chat.tsx`). Sur ordinateur, elle vit en tête de la conversation. */}
+        {telephone ? <div ref={emplacementBarre} data-emplacement-barre className="px-4 pb-1" /> : null}
+        {/* Hors de la conversation, un mot dit où l'on est et y ramène — sur
+            téléphone seulement : sur ordinateur, la colonne de gauche le dit. */}
+        {ongletActif !== 'chat' && !dansLaColonne ? (
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-2 pt-1" data-barre-onglets>
+            <Button variant="ghost" size="sm" className="-ml-2 gap-1.5 text-muted" onClick={() => setOnglet('chat')}>
+              <MessageSquare className="h-3.5 w-3.5" />
+              {t('Conversation')}
+            </Button>
+            <span className="text-[14.5px] font-medium text-text">
+              {t(ONGLETS.find((item) => item.cle === ongletActif)?.cleLibelle ?? 'Conversation')}
+            </span>
+          </div>
+        ) : null}
 
         <TabsContent value="chat" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           <Chat
@@ -633,9 +736,6 @@ function CardPanelBody({
           </FournisseurDeChargement>
         </TabsContent>
 
-        <TabsContent value="billing" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <ZoneDefilement><BillingTab card={card} rate={project?.billing?.hourlyRate ?? 130} project={project} /></ZoneDefilement>
-        </TabsContent>
 
         <TabsContent value="github" className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
           <ZoneDefilement>
@@ -723,9 +823,12 @@ function MentionDeRedaction({ card }: { card: Card }) {
   );
 }
 
-function RoueDOnglet({ visible }: { visible: boolean }) {
+function RoueDOnglet({ visible, className }: { visible: boolean; className?: string }) {
   return (
-    <span data-onglet-charge={visible ? '' : undefined} className="inline-flex h-3 w-3 items-center justify-center">
+    <span
+      data-onglet-charge={visible ? '' : undefined}
+      className={cn('inline-flex h-3 w-3 shrink-0 items-center justify-center', className)}
+    >
       {visible ? <Loader2 className="h-3 w-3 animate-spin text-en-cours" /> : null}
     </span>
   );
@@ -753,12 +856,12 @@ export function Champ({
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  /* EN DEUX COLONNES ALIGNÉES : le libellé dans une colonne de largeur fixe,
-     la valeur pleine largeur à côté — toutes les lignes d'un formulaire
-     partagent ces colonnes. Sur téléphone, le libellé repasse au-dessus. */
+  /* LE LIBELLÉ AU-DESSUS DE SA VALEUR, à toutes les largeurs (règle de toute
+     l'application, comme `LigneFormulaire`) ; le bouton « IA » reste à droite,
+     sur la ligne du libellé. */
   return (
-    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-x-3" data-champ>
-      <div className="flex min-h-[20px] items-center justify-between gap-2 sm:min-h-8 sm:self-start">
+    <div className="flex flex-col gap-1.5" data-champ>
+      <div className="flex min-h-[20px] items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-1">
           <Label className="block">{label}</Label>
           {aide ? <BulleInfo cote="start">{aide}</BulleInfo> : null}
@@ -770,380 +873,6 @@ export function Champ({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Onglet Facturation                                                  */
-/* ------------------------------------------------------------------ */
-
-/**
- * LE BOUTON « IA » D'UN CHAMP DE TEXTE. Posé en haut à droite de son étiquette,
- * il ne réécrit QUE son champ : le serveur reçoit le nom du champ et le texte
- * actuel, et rend un texte nu qui remplace le contenu. Pendant la demande, le
- * bouton tourne — un bouton qui part en requête le dit dès le clic.
- */
-function BoutonIA({
-  cardId,
-  field,
-  valeur,
-  onTexte,
-}: {
-  cardId: string;
-  field: 'title' | 'description' | 'clientExplanation';
-  valeur: string;
-  onTexte: (texte: string) => void;
-}) {
-  const [encours, setEncours] = React.useState(false);
-
-  const regenerer = async () => {
-    if (encours) return;
-    setEncours(true);
-    try {
-      const data = await client.call({ type: 'billing.regenerate', cardId, field, hint: valeur });
-      if (data?.text) onTexte(String(data.text));
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Régénération impossible'));
-    } finally {
-      setEncours(false);
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      data-repere="bouton-ia"
-      onClick={regenerer}
-      disabled={encours}
-      title={t('Régénérer ce texte')}
-      aria-label="Régénérer ce texte"
-      className={cn(
-        'flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[11.5px] font-medium',
-        'text-muted transition-colors hover:bg-raised hover:text-text disabled:opacity-60',
-      )}
-    >
-      {encours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-      {t('IA')}
-    </button>
-  );
-}
-
-/**
- * LE TIROIR DE CHOIX DU DOCUMENT. Le menu déroulant d'avant n'affichait qu'une
- * suite de numéros : impossible de retrouver la facture d'un client sans les
- * ouvrir une à une. Ici, un champ de recherche en haut, le NOM DU CLIENT à
- * gauche, le titre du document et son numéro à droite ; la recherche filtre sur
- * l'un OU l'autre, et choisir referme le tiroir.
- *
- * Il s'empile par-dessus le tiroir de la carte, déjà ouvert (`empile`).
- */
-function SelecteurDeDocument({
-  open,
-  onClose,
-  documents,
-  documentId,
-  onChoisir,
-}: {
-  open: boolean;
-  onClose: () => void;
-  documents: any[];
-  documentId: string;
-  onChoisir: (id: string) => void;
-}) {
-  const [recherche, setRecherche] = React.useState('');
-
-  // Le champ repart vide à chaque ouverture : un filtre oublié donnerait
-  // l'impression que la liste s'est vidée toute seule.
-  React.useEffect(() => {
-    if (open) setRecherche('');
-  }, [open]);
-
-  const filtres = React.useMemo(() => {
-    const mots = recherche.trim().toLowerCase();
-    if (!mots) return documents;
-    return documents.filter((doc) =>
-      [doc.clientName, doc.number, doc.title].some((champ) => String(champ ?? '').toLowerCase().includes(mots)),
-    );
-  }, [documents, recherche]);
-
-  const choisir = (id: string) => {
-    onChoisir(id);
-    onClose();
-  };
-
-  return (
-    <Drawer open={open} onClose={onClose} empile className="max-h-[80dvh]">
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Choisir le document')}</DialogTitle>
-      </header>
-
-      <div className="shrink-0 px-3 pb-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-          <Input
-            autoFocus
-            value={recherche}
-            onChange={(event) => setRecherche(event.target.value)}
-            placeholder={t('Nom du client ou numéro…')}
-            aria-label="Rechercher un document"
-            className="pl-7"
-          />
-        </div>
-      </div>
-
-      <ZoneDefilement role="menu" aria-label="Documents" className="flex flex-col gap-1 px-2 pb-3">
-        {/* Toujours en tête : repartir d'un document neuf. */}
-        <LigneDeDocument actif={documentId === ''} onSelect={() => choisir('')}>
-          <span className="min-w-0 flex-1 truncate text-text">{t('Nouveau document')}</span>
-        </LigneDeDocument>
-
-        {filtres.map((doc) => (
-          <LigneDeDocument key={doc.id} actif={doc.id === documentId} onSelect={() => choisir(doc.id)}>
-            <span className="w-[38%] shrink-0 truncate text-text">
-              {doc.clientName || t('client inconnu')}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{doc.title || t('sans titre')}</span>
-            <span className="shrink-0 text-[11.5px] text-faint">{doc.number ?? ''}</span>
-          </LigneDeDocument>
-        ))}
-
-        {filtres.length === 0 ? (
-          <p className="px-2 py-6 text-center text-[13px] text-faint">{t('Aucun document ne correspond.')}</p>
-        ) : null}
-      </ZoneDefilement>
-    </Drawer>
-  );
-}
-
-function LigneDeDocument({
-  actif,
-  onSelect,
-  children,
-}: {
-  actif: boolean;
-  onSelect: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      role="menuitem"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
-      className={cn(
-        'flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[13px] outline-none',
-        actif ? 'border-accent/60 bg-accent/10 text-text' : 'border-border text-muted hover:bg-raised',
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-function BillingTab({ card, rate, project }: { card: Card; rate: number; project?: { billing?: any; name?: string } }) {
-  const [title, setTitle] = React.useState(card.billing?.title ?? card.estimate?.billingTitle ?? card.title);
-  const [description, setDescription] = React.useState(card.estimate?.billingDescription ?? card.description);
-  const [clientExplanation, setClientExplanation] = React.useState(
-    card.billing?.clientExplanation ?? card.estimate?.clientExplanation ?? '',
-  );
-  const [hours, setHours] = React.useState(String(card.billing?.hours ?? card.estimate?.seniorHours ?? ''));
-  const [documents, setDocuments] = React.useState<any[]>([]);
-  const defaut = project?.billing?.defaultDocumentId as string | undefined;
-  const [documentId, setDocumentId] = React.useState<string>(defaut ?? '');
-  const [type, setType] = React.useState<'offer' | 'invoice'>(
-    (project?.billing?.defaultDocumentType as 'offer' | 'invoice') ?? 'invoice',
-  );
-  const [available, setAvailable] = React.useState(true);
-  const [confirmeNouveau, setConfirmeNouveau] = React.useState(false);
-  /* Le tiroir de choix du document, empilé par-dessus celui de la carte. */
-  const [selecteurOuvert, setSelecteurOuvert] = React.useState(false);
-
-  React.useEffect(() => {
-    client
-      .call({ type: 'billing.documents' })
-      .then((data) => setDocuments(data.documents ?? []))
-      .catch(() => setAvailable(false));
-  }, []);
-
-  const amount = Number(hours) * rate;
-  /* Le tiroir ne montre que les documents du TYPE choisi juste au-dessus :
-     une facture ne se propose pas quand on remplit une offre. */
-  const documentsDuType = React.useMemo(
-    () => documents.filter((doc) => doc.type === type),
-    [documents, type],
-  );
-  const choisi = documentsDuType.find((doc) => doc.id === documentId);
-
-  const push = async () => {
-    /* Un refus de saisie est un ÉCHEC, pas un geste réussi : on le RELANCE
-       après l'avoir dit, sinon le bouton afficherait sa coche sans rien avoir
-       envoyé. */
-    if (!hours || Number.isNaN(Number(hours))) {
-      const raison = t('Indiquez un nombre d\'heures');
-      client.pushToast('warning', raison);
-      throw new Error(raison);
-    }
-    // Sans document par défaut sur le projet, on ne devine pas : il faut dire
-    // dans quelle facture ou quelle offre la ligne doit atterrir.
-    if (!defaut && !documentId && !confirmeNouveau) {
-      const raison = t('Choisissez le document, ou cochez « créer un nouveau document ».');
-      client.pushToast('warning', raison);
-      throw new Error(raison);
-    }
-    /* Le bouton pose lui-même sa roue : `push` lui REND sa requête, et une
-       erreur dite en rouge doit être RELANCÉE pour qu'il n'affiche pas de
-       coche sur un ajout raté. */
-    try {
-      await client.call({
-        type: 'billing.push',
-        cardId: card.id,
-        documentType: type,
-        documentId: documentId || undefined,
-        title,
-        description,
-        clientExplanation,
-        hours: Number(hours),
-      });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? 'ajout impossible');
-      throw err;
-    }
-  };
-
-  return (
-    <div className="space-y-4 px-4 py-3">
-      {card.billing ? (
-        <div className="flex items-center gap-2 rounded-md border border-success/30 bg-success/5 px-2.5 py-2 text-[13.5px] text-success">
-          <Check className="h-3.5 w-3.5" />
-          
-{t('Déjà facturée —')} {card.billing.documentType === 'offer' ? 'offre' : 'facture'}{' '}
-          {card.billing.documentNumber ?? card.billing.documentId} · {money(card.billing.amount)}
-        </div>
-      ) : null}
-
-      <Champ
-        label={t('Titre de la ligne')}
-        action={<BoutonIA cardId={card.id} field="title" valeur={title} onTexte={setTitle} />}
-      >
-        <Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} />
-      </Champ>
-
-      <Champ
-        label={t('Description')}
-        action={<BoutonIA cardId={card.id} field="description" valeur={description} onTexte={setDescription} />}
-      >
-        <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={4} />
-      </Champ>
-
-      <Champ
-        label={t('Explication client')}
-        aide={t('Ce que le client lira sur son devis ou sa facture — simple et ludique, sans jargon ni nom de fichier.')}
-        action={
-          <BoutonIA
-            cardId={card.id}
-            field="clientExplanation"
-            valeur={clientExplanation}
-            onTexte={setClientExplanation}
-          />
-        }
-      >
-        <Textarea
-          value={clientExplanation}
-          onChange={(event) => setClientExplanation(event.target.value)}
-          rows={3}
-        />
-      </Champ>
-
-      <Champ
-        label={t('Heures (développeur senior)')}
-        aide={t('Les heures qu\'un développeur senior mettrait à la main — jamais la durée machine de l\'agent ({v0}).', { v0: duration(
-          card.consumption?.machineSeconds,
-        ) })}
-      >
-        <Input
-          value={hours}
-          onChange={(event) => setHours(event.target.value.replace(',', '.'))}
-          inputMode="decimal"
-          placeholder="ex. 2.5"
-        />
-      </Champ>
-
-      {/* Le calcul est fait par l'outil de facturation : ici on ne fait que le montrer. */}
-      <div className="flex items-center justify-between rounded-md border border-border bg-raised px-3 py-2">
-        <span className="text-[13.5px] text-muted">
-          {t('{v0} h × {rate} CHF', { v0: hours || '—', rate })}</span>
-        <span className="text-[15.5px] font-semibold text-text">{hours ? money(amount) : '—'}</span>
-      </div>
-
-      {available ? (
-        <>
-          <Champ label={t('Type de document')}>
-            <ListeDeroulante
-              valeur={type}
-              titre={t('Type de document')}
-              repere="type-document"
-              onChoisir={(valeur) => setType(valeur as 'offer' | 'invoice')}
-              className="h-9 text-[14.5px]"
-              options={[
-                { valeur: 'invoice', libelle: t('Facture') },
-                { valeur: 'offer', libelle: t('Offre') },
-              ]}
-            />
-          </Champ>
-
-          <Champ label={t('Document')}>
-            {/* Le choix ne se fait plus dans un menu déroulant de numéros :
-                ce bouton ouvre un tiroir cherchable, par client ou par numéro. */}
-            <button
-              type="button"
-              data-repere="choisir-document"
-              onClick={() => setSelecteurOuvert(true)}
-              className="flex h-9 w-full items-center gap-2 rounded-md border border-border bg-raised px-2 text-left text-[14.5px] text-text"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {choisi
-                  ? [choisi.clientName, choisi.title || choisi.number].filter(Boolean).join(' — ')
-                  : t('Nouveau document')}
-              </span>
-              <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-            </button>
-          </Champ>
-
-          <SelecteurDeDocument
-            open={selecteurOuvert}
-            onClose={() => setSelecteurOuvert(false)}
-            documents={documentsDuType}
-            documentId={documentId}
-            onChoisir={setDocumentId}
-          />
-
-          {!defaut && !documentId ? (
-            <label className="flex items-start gap-2 rounded-md border border-border bg-raised px-2.5 py-2 text-[13px] text-muted">
-              <input
-                type="checkbox"
-                checked={confirmeNouveau}
-                onChange={(event) => setConfirmeNouveau(event.target.checked)}
-                className="mt-0.5 h-3.5 w-3.5 shrink-0"
-              />
-              <span>
-                {t('Ce projet n\'a pas de document attitré : cochez pour créer une nouvelle{v0} {v1} pour {v2}, ou choisissez un document existant ci-dessus.', { v0: ' ', v1: type === 'offer' ? 'offre' : 'facture', v2: project?.billing?.clientName ?? 'ce client' })}</span>
-            </label>
-          ) : null}
-
-          <Button variant="default" size="sm" className="w-full" onClick={push}>
-            <CircleDollarSign className="h-3 w-3" />
-            
-{t('Ajouter la ligne')}
-</Button>
-        </>
-      ) : (
-        <p className="text-[13.5px] text-faint">{t('L\'outil de facturation n\'est pas joignable depuis ce serveur.')}</p>
-      )}
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* Onglet Commentaires                                                 */
@@ -1364,7 +1093,12 @@ function CommentsTab({ card }: { card: Card }) {
         </div>
       </div>
 
-      <AttachmentPreview item={zoom} onClose={() => setZoom(null)} />
+      <AttachmentPreview
+        item={zoom}
+        onClose={() => setZoom(null)}
+        galerie={[...comments.flatMap((c) => c.attachments), ...attachments].filter((p) => p.mime.startsWith('image/'))}
+        nomDuLot={card.title}
+      />
     </div>
   );
 }

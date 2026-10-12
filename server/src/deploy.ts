@@ -37,6 +37,8 @@ import {
   DELAIS_DU_DEPLOIEMENT_MS,
   rienAReconstruire,
   aUnProcessus,
+  procedureEnPlace,
+  RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT,
   raisonProductionDesactivee,
   annonceDuDeploiement,
   commandeDeMiseAJour,
@@ -97,6 +99,7 @@ import { bus } from './bus.js';
 import { lancementsEnRouteDuProjet } from './lancements-en-route.js';
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
+import { garderLesMorceauxPrecedents } from './morceaux-precedents.js';
 import { lancerCommandeBornee } from './commande-bornee.js';
 import { fichiersEnConflitDuDossier, recollerLesDocumentsEnConflit } from './recollage-documentaire.js';
 import { notify } from './notify.js';
@@ -220,10 +223,10 @@ export type AgentOccupe = { id: string; title: string; enPreparation?: boolean }
 
 /** Les agents qui écrivent dans le dossier PARTAGÉ du projet : publier dessous est refusé. */
 export function agentsOccupes(projectId: string): AgentOccupe[] {
-  const agents: AgentOccupe[] = store
-    .listAgents(projectId)
-    .filter(agentRetientLaPublication)
-    .map((agent) => ({ id: agent.id, title: agent.title || 'agent sans titre' }));
+  /* UNE SEULE LECTURE, FILTRÉE EN BASE (`agentsQuiRetiennentLaPublication`) : la
+     liste et l'ensemble des agents déjà vus viennent des mêmes lignes. */
+  const retenus = store.agentsQuiRetiennentLaPublication(projectId).filter(agentRetientLaPublication);
+  const agents: AgentOccupe[] = retenus.map((agent) => ({ id: agent.id, title: agent.title || 'agent sans titre' }));
   /*
    * ET LES CARTES DONT LE LANCEMENT SE PRÉPARE ENCORE. Entre le clic et la
    * création de l'agent (copie de travail, branche, choix du compte) aucun agent
@@ -231,7 +234,7 @@ export function agentsOccupes(projectId: string): AgentOccupe[] {
    * et la carte s'ouvrait sur un dépôt à moitié fusionné. Le registre est daté :
    * un lancement pendu ne bloque pas la mise en ligne pour toujours.
    */
-  const dejaVues = new Set(store.listAgents(projectId).filter(agentRetientLaPublication).map((a) => a.id));
+  const dejaVues = new Set(retenus.map((a) => a.id));
   for (const cardId of lancementsEnRouteDuProjet(projectId)) {
     const card = store.getCard(cardId);
     if (!card || (card.agentId && dejaVues.has(card.agentId))) continue;
@@ -316,6 +319,7 @@ export async function moyenDeMiseEnLigne(projectId: string, cible?: CiblePublica
         : 'Aucun processus de mise en production : il faut d’abord l’initialiser.',
     };
   }
+  if (!procedureEnPlace(project, 'dev')) return { raison: RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT };
   const processusEcrit = processusJoueAuDeploiement(project);
   if (processusEcrit) {
     return {
@@ -332,11 +336,15 @@ export async function moyenDeMiseEnLigne(projectId: string, cible?: CiblePublica
   };
 }
 
-/** Ce qui empêche le clic, dit en clair : un projet sans processus de production. */
+/**
+ * Ce qui empêche le clic, dit en clair : un projet dont l'étape n'a pas de
+ * processus. Le déploiement aussi depuis le 10/10/2026 (sauf Beluga et les
+ * projets `herite`) : la phrase est la MÊME que sous le pied de carte.
+ */
 export function blocageMiseEnProduction(projectId: string, cible?: CiblePublication): string | null {
-  if (cible !== 'production') return null;
   const project = store.getProject(projectId);
   if (!project) return null;
+  if (cible !== 'production') return procedureEnPlace(project, 'dev') ? null : RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT;
   return aUnProcessus(project)
     ? null
     : 'Ce projet n’a pas encore de processus de mise en production : cliquez sur « Initialiser la mise en production ».';
@@ -415,6 +423,14 @@ function installerApplication(): string {
 
   fs.rmSync(provisoire, { recursive: true, force: true });
   fs.cpSync(source, provisoire, { recursive: true });
+
+  // Les morceaux de la version d'avant restent servis un moment : un écran resté
+  // ouvert les réclame encore (`morceaux-precedents.ts`).
+  try {
+    garderLesMorceauxPrecedents(path.join(cible, 'assets'), path.join(provisoire, 'assets'));
+  } catch (err) {
+    log.warn('anciens morceaux de l’application non conservés', err);
+  }
 
   fs.rmSync(ancien, { recursive: true, force: true });
   if (fs.existsSync(cible)) fs.renameSync(cible, ancien);
@@ -1216,6 +1232,13 @@ export async function startDeploy(
   }
   if (etape.cible === 'production' && !aUnProcessus(project)) {
     return { ok: false, error: blocageMiseEnProduction(projectId, 'production') ?? 'Aucun processus de mise en production.' };
+  }
+  /* LE DÉPLOIEMENT EXIGE SA PROCÉDURE (10/10/2026). Sans elle, il enregistrait
+     et poussait, sautait reconstruction et redémarrage, puis se disait réussi.
+     Tout chemin passe ici : bouton, pied de carte, déploiement automatique,
+     outil d'agent. Beluga et les projets `herite` ne sont jamais arrêtés. */
+  if (etape.cible === 'dev' && !procedureEnPlace(project, 'dev')) {
+    return { ok: false, error: RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT };
   }
   /* L'INTERRUPTEUR DE MISE EN PRODUCTION, éteint par défaut : tout chemin qui
      relance une production (bouton, « Relancer », file d'attente, outil

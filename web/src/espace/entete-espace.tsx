@@ -18,10 +18,19 @@
  *
  * ET TOUT CELA TIENT SUR UN SEUL RANG. Ce qui venait d'AU-DESSUS se pose à
  * gauche de cette ligne (`avant`), et le nom du projet le suit en second plan.
+ *
+ * DANS L'APPLICATION (la messagerie vue par Haiko, `onRacine`), CE RANG N'EXISTE
+ * PLUS : il n'y a qu'une barre d'en-tête, celle du fil d'Ariane (demande du
+ * 11/10/2026). Le client choisi et son projet en deviennent la suite —
+ * « Services › Messagerie › Camille » —, et la cloche comme le menu montent à
+ * droite de cette barre, SUR TÉLÉPHONE AUSSI (`GestesDePage`) : une seule rangée
+ * en haut de l'écran. L'espace des clients, qui n'a pas de fil d'Ariane, garde
+ * son rang.
  */
 import * as React from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Button, SelecteurTiroir } from '@/components/ui';
+import { GestesDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -34,7 +43,13 @@ export function EnteteEspace({
   apres,
   cloche,
   nonLusParProjet,
+  onRacine,
 }: {
+  /**
+   * L'entête se fond dans la barre d'en-tête de l'application : ce geste est
+   * celui du cran « Messagerie », qui ramène à la vue d'ensemble.
+   */
+  onRacine?: () => void;
   /** La cloche du client : posée parmi les boutons de droite, AVANT le nom et la déconnexion. */
   cloche?: React.ReactNode;
   /** Combien de demandes ont du nouveau, projet par projet — le sélecteur les montre. */
@@ -53,13 +68,38 @@ export function EnteteEspace({
   /** Le burger et son tiroir, posés en dernier. */
   menu?: React.ReactNode;
 }) {
+  if (onRacine) {
+    return (
+      <>
+        <SuiteDuFil onRacine={onRacine}>
+          <SeparateurDuFil />
+          {/* TOUTE LA LARGEUR RESTANTE DU FIL : sans `flex-1`, ce cran se
+              réduisait à son contenu et le nom du client, borné en pour cent
+              de lui-même, s'écrasait jusqu'à une lettre sur téléphone. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1.5" data-entete-espace="fil">
+            {avant}
+            {projets.length > 1 ? null : (
+              <span className="hidden min-w-0 truncate text-[12.5px] text-faint md:block" data-nom-projet>
+                {projets[0]?.nom ?? t('Mes demandes')}
+              </span>
+            )}
+          </span>
+        </SuiteDuFil>
+        <GestesDePage>
+          {cloche}
+          {apres}
+          {menu}
+        </GestesDePage>
+      </>
+    );
+  }
   return (
     /*
      * Le trait qui ferme l'entête est le SEUL qui reste : à 25 % d'opacité, il
      * pose une limite sans découper l'écran. Il reste sur `--faint`, jamais
      * `--border`, effacé dans les onze palettes plates.
      */
-    <div className="flex min-w-0 items-center gap-1.5 border-b border-faint/25 px-3 py-2" data-entete-espace>
+    <div className="flex min-w-0 items-center gap-1.5 px-3 py-2 sm:px-5" data-entete-espace>
       {avant}
       {/*
        * LE NOM DU PROJET, EN SECOND PLAN DERRIÈRE CE QUI PRÉCÈDE. Quand le

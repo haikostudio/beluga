@@ -24,7 +24,6 @@ import {
   ecrireSelection,
   etatAnnulerRetablir,
   historique,
-  importerPieceJointe,
   lireCreation,
   lireMedia,
   listerCreations,
@@ -47,6 +46,7 @@ import {
   extraitsDisponibles,
   fabriquerVoixEssai,
   fabriquerVoixManquantes,
+  importerPieceJointeMesuree,
   lancerGenerationValidee,
   soldeOpenRouter,
   validerVoixFinales,
@@ -215,7 +215,7 @@ export async function traiterCommandeStudio(cmd: any): Promise<unknown> {
     }
 
     case 'studio.media.importer':
-      return { media: ou(importerPieceJointe(String(cmd.projectId ?? ''), String(cmd.attachmentId ?? ''), { licence: cmd.licence, creationId: cmd.creationId })).media };
+      return { media: ou(await importerPieceJointeMesuree(String(cmd.projectId ?? ''), String(cmd.attachmentId ?? ''), { licence: cmd.licence, creationId: cmd.creationId })).media };
 
     case 'studio.media.modifier': {
       const m = modifierMedia(String(cmd.id ?? ''), cmd);

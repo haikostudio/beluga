@@ -4,7 +4,8 @@
  * LE FILTRE EST PAR COLONNE, À DROITE DU TITRE. Il vivait dans un menu unique de
  * l'entête : filtrer « À faire » vidait aussi « Terminé », et rien, dans la
  * colonne, ne disait qu'un filtre y retenait des demandes. Chaque colonne porte
- * donc son bouton, qui range son tri et ses filtres — et une PASTILLE qui
+ * donc son bouton, qui ouvre SOUS LUI un petit menu (son tri, ses filtres ; les
+ * filtres à choix déplient leur liste en sous-menu) — et une PASTILLE qui
  * compte les demandes que le filtre ET la recherche cachent (`vueDeLaColonne`).
  * Rien de caché : pas de pastille.
  *
@@ -31,9 +32,8 @@ import {
   GroupeTiroir,
   Input,
   MenuActions,
-  SelecteurTiroir,
+  SousMenuTiroir,
   ZoneDefilement,
-  type OptionSelecteur,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -99,11 +99,11 @@ export function ColonneDemandes({
   const titre = t(TITRES_COLONNES_DEMANDE[colonne]);
   const actifs = filtresActifs(filtre);
 
-  const optionsEtiquette: OptionSelecteur[] = [
+  const optionsEtiquette: { valeur: string; libelle: string }[] = [
     { valeur: '', libelle: t('Toutes les étiquettes') },
     ...etiquettes.map((etiquette) => ({ valeur: etiquette, libelle: etiquette })),
   ];
-  const optionsImportance: OptionSelecteur[] = [
+  const optionsImportance: { valeur: string; libelle: string }[] = [
     { valeur: '', libelle: t('Toutes les importances') },
     ...IMPORTANCES.map((niveau) => ({ valeur: niveau, libelle: t(TITRES_IMPORTANCE[niveau]) })),
   ];
@@ -117,12 +117,12 @@ export function ColonneDemandes({
          * hauteur est PLEINE dans les deux cas — c'est elle qui fait la
          * surface de dépôt.
          */
-        'flex h-full min-h-0 min-w-0 flex-col rounded-lg border border-border/60 bg-surface/70 transition-colors',
+        'flex h-full min-h-0 min-w-0 flex-col rounded-xl transition-colors',
         // LE WAGON : presque toute la largeur, la suivante en amorce.
         telephone ? 'w-[86vw] max-w-[420px] shrink-0 snap-center' : 'min-w-[220px] flex-1 basis-0',
         // La colonne visée pendant un glissement se signale : sans cela, on
         // lâche à l'aveugle.
-        visee && 'border-accent/60 bg-raised/60 ring-1 ring-inset ring-accent/40',
+        visee && 'bg-surface ring-1 ring-inset ring-faint/50',
       )}
       data-colonne-kanban={colonne}
       data-compte={cartes.length}
@@ -131,7 +131,7 @@ export function ColonneDemandes({
       <div className="flex min-w-0 shrink-0 items-center gap-2 px-2.5 pb-1 pt-1.5" data-tete-colonne={colonne}>
         <span
           className={cn(
-            'min-w-0 truncate text-[12px] font-medium uppercase tracking-wide',
+            'min-w-0 truncate text-[13.5px] font-medium',
             TON_COLONNE[COULEURS_COLONNES_DEMANDE[colonne]],
           )}
         >
@@ -172,36 +172,58 @@ export function ColonneDemandes({
               {(fermer) => (
                 <>
                   <GroupeTiroir titre={t('Filtrer')}>
+                    {/*
+                     * LES DEUX FILTRES À CHOIX DÉPLIENT LEUR LISTE EN SOUS-MENU,
+                     * à côté de leur entrée : choisir replie le sous-menu et
+                     * laisse le menu ouvert, la valeur retenue à droite.
+                     */}
                     {etiquettes.length ? (
-                      <SelecteurTiroir
-                        valeur={filtre.etiquette ?? ''}
-                        options={optionsEtiquette}
-                        onChoisir={(valeur) => onFiltre({ ...filtre, etiquette: valeur || undefined })}
+                      <SousMenuTiroir
                         titre={t('Étiquette')}
-                        repere={`etiquette-${colonne}`}
-                        empile
-                        declencheur={(ouvrir, libelle) => (
-                          <ActionTiroir onClick={ouvrir} valeur={libelle} data-filtre-etiquette={filtre.etiquette ?? ''}>
-                            {t('Étiquette')}
-                          </ActionTiroir>
-                        )}
-                      />
+                        valeur={optionsEtiquette.find((option) => option.valeur === (filtre.etiquette ?? ''))?.libelle}
+                        data-filtre-etiquette={filtre.etiquette ?? ''}
+                      >
+                        {(replier) =>
+                          optionsEtiquette.map((option) => (
+                            <ActionTiroir
+                              key={option.valeur}
+                              actif={option.valeur === (filtre.etiquette ?? '')}
+                              onClick={() => {
+                                onFiltre({ ...filtre, etiquette: option.valeur || undefined });
+                                replier();
+                              }}
+                              data-choix-etiquette={option.valeur}
+                            >
+                              {option.libelle}
+                            </ActionTiroir>
+                          ))
+                        }
+                      </SousMenuTiroir>
                     ) : null}
-                    <SelecteurTiroir
-                      valeur={filtre.importance ?? ''}
-                      options={optionsImportance}
-                      onChoisir={(valeur) =>
-                        onFiltre({ ...filtre, importance: (valeur || undefined) as ImportanceDemande | undefined })
-                      }
+                    <SousMenuTiroir
                       titre={t('Importance')}
-                      repere={`importance-${colonne}`}
-                      empile
-                      declencheur={(ouvrir, libelle) => (
-                        <ActionTiroir onClick={ouvrir} valeur={libelle} data-filtre-importance={filtre.importance ?? ''}>
-                          {t('Importance')}
-                        </ActionTiroir>
-                      )}
-                    />
+                      valeur={optionsImportance.find((option) => option.valeur === (filtre.importance ?? ''))?.libelle}
+                      data-filtre-importance={filtre.importance ?? ''}
+                    >
+                      {(replier) =>
+                        optionsImportance.map((option) => (
+                          <ActionTiroir
+                            key={option.valeur}
+                            actif={option.valeur === (filtre.importance ?? '')}
+                            onClick={() => {
+                              onFiltre({
+                                ...filtre,
+                                importance: (option.valeur || undefined) as ImportanceDemande | undefined,
+                              });
+                              replier();
+                            }}
+                            data-choix-importance={option.valeur}
+                          >
+                            {option.libelle}
+                          </ActionTiroir>
+                        ))
+                      }
+                    </SousMenuTiroir>
                     {/*
                      * CE QUI M'ATTEND SE LIT : les demandes où des messages me
                      * sont arrivés sans que je les aie ouverts.
@@ -302,7 +324,7 @@ export function ColonneDemandes({
           />
         ))}
         {!cartes.length ? (
-          <div className="rounded-md border border-dashed border-faint/40 px-3 py-6 text-center text-xs text-faint">
+          <div className="rounded-xl bg-surface/70 px-3 py-6 text-center text-[12.5px] text-faint">
             {masquees ? t('Les demandes de cette colonne sont masquées par le filtre ou la recherche.') : t('Rien ici pour le moment.')}
           </div>
         ) : null}

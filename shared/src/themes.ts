@@ -1,32 +1,32 @@
 /**
- * LES AMBIANCES ET LEUR MODE CLAIR / SOMBRE.
+ * UNE SEULE APPARENCE, NOIR ET BLANC, EN DEUX CLARTÉS.
  *
- * Une ambiance répond à « quelles couleurs ? » ; la clarté répond à « clair ou
- * sombre ? ». Ces deux choix sont indépendants. Le mode automatique ne remplace
- * plus l'ambiance : il laisse seulement l'ordinateur décider de la clarté.
+ * L'interface n'a plus d'ambiances colorées : elle est monochrome, et le seul
+ * choix qui reste est « clair ou sombre ? » — à la main, ou laissé à
+ * l'ordinateur (mode automatique).
+ *
+ * LES ANCIENS CHOIX SE RELISENT. Dix palettes ont existé (sable, ardoise,
+ * givre, sapin, contraste, chacune en clair et en sombre). Un réglage général,
+ * un réglage de projet ou un repère local qui porte encore l'un de ces noms se
+ * lit comme SA CLARTÉ : « sable » devient clair, « sapin » devient sombre. Rien
+ * n'est réécrit en base — c'est la lecture qui traduit, et le prochain choix
+ * enregistre un nom d'aujourd'hui.
  *
  * Les couleurs vivent dans `web/src/styles.css`. Ce catalogue ne garde que les
- * noms, les relations entre variantes et quatre couleurs d'aperçu par palette,
- * copiées des VRAIS jetons de la palette (contrôlé par `scripts/verif-themes.mjs`).
+ * noms et quatre couleurs d'aperçu par clarté, copiées des VRAIS jetons
+ * (contrôlé par `scripts/verif-themes.mjs`).
  */
 
 export type ClarteTheme = 'clair' | 'sombre';
-export type AmbianceId = 'origine' | 'sable' | 'ardoise' | 'givre' | 'sapin' | 'contraste';
+/**
+ * L'ambiance n'a plus qu'une valeur. Le type et le champ sont GARDÉS : le
+ * réglage enregistré s'écrit toujours « auto-origine-clair », forme que les
+ * serveurs déjà en service savent relire.
+ */
+export type AmbianceId = 'origine';
 
-/** La palette réellement posée sur l'écran : six ambiances, deux clartés. */
-export type ThemeId =
-  | 'sombre'
-  | 'clair'
-  | 'sable'
-  | 'sable-sombre'
-  | 'ardoise'
-  | 'ardoise-clair'
-  | 'givre'
-  | 'givre-sombre'
-  | 'sapin'
-  | 'sapin-clair'
-  | 'contraste'
-  | 'contraste-sombre';
+/** La palette réellement posée sur l'écran. */
+export type ThemeId = 'sombre' | 'clair';
 
 export type Theme = {
   id: ThemeId;
@@ -37,9 +37,8 @@ export type Theme = {
   plat: boolean;
   /**
    * Fond de page (`--bg`), teinte de la ligne active (`--ligne-active`),
-   * accent (`--accent`), texte (`--text`). Ce sont les jetons qui PORTENT
-   * l'ambiance : l'orange « en cours », commun aux douze palettes, n'y figure
-   * plus — il rendait les six aperçus indiscernables.
+   * accent (`--accent`), texte (`--text`) : ce qui distingue une clarté de
+   * l'autre d'un coup d'œil.
    */
   apercu: [string, string, string, string];
 };
@@ -53,168 +52,62 @@ export type Ambiance = {
 
 export const APPARENCE_PAR_DEFAUT: ThemeId = 'sombre';
 
-/**
- * Les noms historiques sont conservés pour les cinq palettes déjà proposées.
- * Leur variante opposée reçoit un suffixe ; le thème neutre garde les noms
- * `sombre` et `clair`, lus par plusieurs contrôles plus anciens.
- */
 export const THEMES: readonly Theme[] = [
   {
     id: 'sombre',
     ambiance: 'origine',
-    libelle: 'Origine',
-    description: 'Neutre et fidèle au dessin historique de Beluga Build.',
+    libelle: 'Sombre',
+    description: 'Noir et blanc, sur fond sombre.',
     clarte: 'sombre',
     plat: true,
-    apercu: ['hsl(0 0% 0%)', 'hsl(0 0% 18%)', 'hsl(0 0% 100%)', 'hsl(0 0% 100%)'],
+    apercu: ['hsl(0 0% 13%)', 'hsl(0 0% 19%)', 'hsl(0 0% 96%)', 'hsl(0 0% 93%)'],
   },
   {
     id: 'clair',
     ambiance: 'origine',
-    libelle: 'Origine',
-    description: 'Neutre et fidèle au dessin historique de Beluga Build.',
-    clarte: 'clair',
-    plat: false,
-    apercu: ['hsl(0 0% 100%)', 'hsl(0 0% 88%)', 'hsl(0 0% 0%)', 'hsl(0 0% 0%)'],
-  },
-  {
-    id: 'sable',
-    ambiance: 'sable',
-    libelle: 'Sable',
-    description: 'Chaud et doux, dans des beiges et des bruns.',
+    libelle: 'Clair',
+    description: 'Noir et blanc, sur fond clair.',
     clarte: 'clair',
     plat: true,
-    apercu: ['hsl(40 27% 91%)', 'hsl(40 24% 84%)', 'hsl(28 30% 22%)', 'hsl(35 22% 15%)'],
-  },
-  {
-    id: 'sable-sombre',
-    ambiance: 'sable',
-    libelle: 'Sable',
-    description: 'Chaud et doux, dans des beiges et des bruns.',
-    clarte: 'sombre',
-    plat: true,
-    apercu: ['hsl(35 18% 9%)', 'hsl(34 17% 27%)', 'hsl(38 70% 68%)', 'hsl(40 24% 94%)'],
-  },
-  {
-    id: 'ardoise',
-    ambiance: 'ardoise',
-    libelle: 'Ardoise',
-    description: 'Calme et feutré, dans des gris bleutés.',
-    clarte: 'sombre',
-    plat: true,
-    apercu: ['hsl(220 14% 11%)', 'hsl(220 13% 28%)', 'hsl(215 20% 95%)', 'hsl(215 20% 95%)'],
-  },
-  {
-    id: 'ardoise-clair',
-    ambiance: 'ardoise',
-    libelle: 'Ardoise',
-    description: 'Calme et feutré, dans des gris bleutés.',
-    clarte: 'clair',
-    plat: true,
-    apercu: ['hsl(220 18% 93%)', 'hsl(220 15% 79%)', 'hsl(220 45% 28%)', 'hsl(222 24% 13%)'],
-  },
-  {
-    id: 'givre',
-    ambiance: 'givre',
-    libelle: 'Givre',
-    description: 'Froid et lumineux, dans des blancs et des bleus glacés.',
-    clarte: 'clair',
-    plat: true,
-    apercu: ['hsl(210 30% 94%)', 'hsl(210 22% 80%)', 'hsl(217 70% 38%)', 'hsl(215 35% 12%)'],
-  },
-  {
-    id: 'givre-sombre',
-    ambiance: 'givre',
-    libelle: 'Givre',
-    description: 'Froid et lumineux, dans des blancs et des bleus glacés.',
-    clarte: 'sombre',
-    plat: true,
-    apercu: ['hsl(210 24% 8%)', 'hsl(209 22% 26%)', 'hsl(198 70% 72%)', 'hsl(205 34% 95%)'],
-  },
-  {
-    id: 'sapin',
-    ambiance: 'sapin',
-    libelle: 'Sapin',
-    description: 'Naturel et profond, dans des verts de forêt.',
-    clarte: 'sombre',
-    plat: true,
-    apercu: ['hsl(150 18% 9%)', 'hsl(148 16% 26%)', 'hsl(38 55% 55%)', 'hsl(60 12% 90%)'],
-  },
-  {
-    id: 'sapin-clair',
-    ambiance: 'sapin',
-    libelle: 'Sapin',
-    description: 'Naturel et profond, dans des verts de forêt.',
-    clarte: 'clair',
-    plat: true,
-    apercu: ['hsl(145 20% 92%)', 'hsl(145 16% 78%)', 'hsl(150 38% 24%)', 'hsl(150 25% 13%)'],
-  },
-  {
-    id: 'contraste',
-    ambiance: 'contraste',
-    libelle: 'Contraste',
-    description: 'Très marqué, pour lire facilement dans les situations difficiles.',
-    clarte: 'clair',
-    plat: true,
-    apercu: ['hsl(45 6% 92%)', 'hsl(45 10% 78%)', 'hsl(45 15% 10%)', 'hsl(45 10% 4%)'],
-  },
-  {
-    id: 'contraste-sombre',
-    ambiance: 'contraste',
-    libelle: 'Contraste',
-    description: 'Très marqué, pour lire facilement dans les situations difficiles.',
-    clarte: 'sombre',
-    plat: true,
-    apercu: ['hsl(45 8% 4%)', 'hsl(45 7% 26%)', 'hsl(45 15% 96%)', 'hsl(45 10% 98%)'],
+    apercu: ['hsl(0 0% 100%)', 'hsl(0 0% 93%)', 'hsl(0 0% 5%)', 'hsl(0 0% 5%)'],
   },
 ];
 
 export const AMBIANCES: readonly Ambiance[] = [
   {
     id: 'origine',
-    libelle: 'Origine',
-    description: 'Neutre et fidèle au dessin historique de Beluga Build.',
+    libelle: 'Noir et blanc',
+    description: 'Une seule apparence, en clair ou en sombre.',
     variantes: { clair: 'clair', sombre: 'sombre' },
-  },
-  {
-    id: 'sable',
-    libelle: 'Sable',
-    description: 'Chaud et doux, dans des beiges et des bruns.',
-    variantes: { clair: 'sable', sombre: 'sable-sombre' },
-  },
-  {
-    id: 'ardoise',
-    libelle: 'Ardoise',
-    description: 'Calme et feutré, dans des gris bleutés.',
-    variantes: { clair: 'ardoise-clair', sombre: 'ardoise' },
-  },
-  {
-    id: 'givre',
-    libelle: 'Givre',
-    description: 'Froid et lumineux, dans des blancs et des bleus glacés.',
-    variantes: { clair: 'givre', sombre: 'givre-sombre' },
-  },
-  {
-    id: 'sapin',
-    libelle: 'Sapin',
-    description: 'Naturel et profond, dans des verts de forêt.',
-    variantes: { clair: 'sapin-clair', sombre: 'sapin' },
-  },
-  {
-    id: 'contraste',
-    libelle: 'Contraste',
-    description: 'Très marqué, pour lire facilement dans les situations difficiles.',
-    variantes: { clair: 'contraste', sombre: 'contraste-sombre' },
   },
 ];
 
-const ANCIENS_NOMS: Record<string, ThemeId> = { dark: 'sombre', light: 'clair' };
+/**
+ * LES NOMS D'AVANT, ET LA CLARTÉ QU'ILS AVAIENT. « dark » et « light » datent
+ * du tout premier réglage ; les dix autres sont les palettes colorées retirées
+ * par la refonte. La table ne s'allège pas : un navigateur resté fermé six mois
+ * peut encore présenter l'un de ces noms.
+ */
+export const ANCIENS_THEMES: Readonly<Record<string, ThemeId>> = {
+  dark: 'sombre',
+  light: 'clair',
+  sable: 'clair',
+  'sable-sombre': 'sombre',
+  ardoise: 'sombre',
+  'ardoise-clair': 'clair',
+  givre: 'clair',
+  'givre-sombre': 'sombre',
+  sapin: 'sombre',
+  'sapin-clair': 'clair',
+  contraste: 'clair',
+  'contraste-sombre': 'sombre',
+};
 
 export function themeValide(valeur: unknown): ThemeId {
   if (typeof valeur !== 'string') return APPARENCE_PAR_DEFAUT;
   const nom = valeur.trim().toLowerCase();
   if (THEMES.some((theme) => theme.id === nom)) return nom as ThemeId;
-  return ANCIENS_NOMS[nom] ?? APPARENCE_PAR_DEFAUT;
+  return ANCIENS_THEMES[nom] ?? APPARENCE_PAR_DEFAUT;
 }
 
 export function themeParId(valeur: unknown): Theme {
@@ -222,9 +115,9 @@ export function themeParId(valeur: unknown): Theme {
   return THEMES.find((theme) => theme.id === id) ?? THEMES[0];
 }
 
-export function ambianceParId(valeur: unknown): Ambiance {
-  const id = typeof valeur === 'string' ? valeur.trim().toLowerCase() : '';
-  return AMBIANCES.find((ambiance) => ambiance.id === id) ?? AMBIANCES[0];
+/** Une seule ambiance : tout nom présenté, d'hier ou d'aujourd'hui, y mène. */
+export function ambianceParId(_valeur?: unknown): Ambiance {
+  return AMBIANCES[0];
 }
 
 export function themeDeLAmbiance(ambiance: unknown, clarte: ClarteTheme): ThemeId {
@@ -240,7 +133,7 @@ export function couleurDeBandeau(valeur: unknown): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* Le réglage enregistré : ambiance, clarté manuelle, automatique     */
+/* Le réglage enregistré : clarté manuelle, ou automatique            */
 /* ------------------------------------------------------------------ */
 
 export type ReglageApparence = {
@@ -267,16 +160,14 @@ export function reglageApparenceValide(valeur: unknown): ReglageApparence | null
 
   if (nom === THEME_SYSTEME) return { ...REGLAGE_APPARENCE_PAR_DEFAUT, automatique: true };
 
+  /* « auto-<ambiance>-<clarté> » : l'ambiance d'un ancien réglage est lue puis
+     oubliée, seule sa clarté de repli compte encore. */
   const automatique = /^auto-(origine|sable|ardoise|givre|sapin|contraste)-(clair|sombre)$/.exec(nom);
   if (automatique) {
-    return {
-      ambiance: automatique[1] as AmbianceId,
-      clarte: automatique[2] as ClarteTheme,
-      automatique: true,
-    };
+    return { ambiance: 'origine', clarte: automatique[2] as ClarteTheme, automatique: true };
   }
 
-  const ancien = ANCIENS_NOMS[nom] ?? nom;
+  const ancien = ANCIENS_THEMES[nom] ?? nom;
   const theme = THEMES.find((item) => item.id === ancien);
   return theme ? { ambiance: theme.ambiance, clarte: theme.clarte, automatique: false } : null;
 }
@@ -327,7 +218,7 @@ export type EntreeDeTheme = {
   systemeSombre?: boolean;
 };
 
-/** Le projet passe devant le général ; l'ordinateur ne décide que de la clarté. */
+/** Le projet passe devant le général ; en automatique, c'est l'ordinateur qui choisit la clarté. */
 export function themeAAppliquer(entree: EntreeDeTheme): ThemeApplique {
   const duProjet = reglageApparenceValide(entree.duProjet);
   const general = reglageApparenceValide(entree.general);

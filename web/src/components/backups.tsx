@@ -1,3 +1,4 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   Archive,
@@ -10,7 +11,8 @@ import {
   Clock,
   Database,
   FolderTree,
-  HardDriveDownload,
+  Globe,
+  HardDrive,
   History,
   Loader2,
   MessagesSquare,
@@ -19,6 +21,7 @@ import {
   Search,
   Sparkles,
   KanbanSquare,
+  ListFilter,
   Wrench,
   Trash2,
   TriangleAlert,
@@ -62,7 +65,12 @@ import {
   Button,
   ConfirmDialog,
   DialogFooter,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   DialogTitle,
+  TitreDePage,
   Drawer,
   Input,
   Label,
@@ -74,6 +82,9 @@ import {
   LigneFormulaire,
 } from '@/components/ui';
 import { SilhouetteBackups } from '@/components/silhouettes';
+import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
+import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -176,12 +187,17 @@ export function Backups({
      `data-backups-lancer`) en double dans la page, ce qui casse autant les
      contrôles au navigateur que la lecture d'écran. */
   const telephone = useTelephone();
+  /* LA COLONNE DE GAUCHE EST CELLE DES BACKUPS (demande du 12/10/2026) : le
+     geste qui crée, détaché, puis « Tout sauvegarder ». Sur téléphone, ces deux
+     gestes restent dans la page. */
+  const dansLaColonne = useColonneDeService();
   const [etat, setEtat] = React.useState<EtatBackups>(ETAT_VIDE);
   /* VRAI DÈS LE PREMIER RENDU, comme le coffre : sans cela l'écran affichait
      « aucun site à sauvegarder » avant même d'avoir demandé l'état. */
   const [chargement, setChargement] = React.useState(true);
   const [fiche, setFiche] = React.useState<SiteASauvegarder | null>(null);
   const [assistant, setAssistant] = React.useState(false);
+  useTiroirAdresse('nouveau-site-backups', assistant, setAssistant);
   const [projetLance, setProjetLance] = React.useState('');
   /* LE CLIC, EN ATTENDANT L'AGENT : le site visé, puis l'agent rendu par le
      démon. Le loader ne suit plus cette valeur seule — elle retombait dès la
@@ -388,82 +404,164 @@ export function Backups({
 
   return (
     <>
+      {/* LA LARGEUR EST CELLE DE TOUTES LES PAGES (`Drawer enPage`) : plus de
+          surcharge ici, le tableau des sites est taillé pour y tenir. */}
       <Drawer open={open} onClose={onClose} enPage={enPage}>
-        <header className="flex shrink-0 flex-wrap items-center gap-2 px-3 pb-2">
-          <HardDriveDownload className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Backups')}</DialogTitle>
-          <Button variant="subtle" size="sm" onClick={() => setAssistant(true)} data-backups-creer>
-            <Sparkles className="h-3 w-3" />
-            {t('Nouveau site')}
-          </Button>
-        </header>
+        <TitreDePage>{t('Backups')}</TitreDePage>
+        {dansLaColonne ? null : (
+          <>
+          {/* SUR TÉLÉPHONE : « Tout sauvegarder » est une ligne du menu à trois
+              points, « Nouveau site » le bouton du bas de l'écran. */}
+          <OptionsDePage>
+            {refusDestination ? null : (
+              <OptionDePage variante="ghost" icone={<Play className="h-3.5 w-3.5" />} onClick={() => void lancer()} data-backups-tout>
+                {t('Tout sauvegarder')}
+              </OptionDePage>
+            )}
+          </OptionsDePage>
+          <GestePrincipal>
+            <BoutonPrincipal onClick={() => setAssistant(true)} data-backups-creer>
+              <Sparkles className="h-3.5 w-3.5" />
+              {t('Nouveau site')}
+            </BoutonPrincipal>
+          </GestePrincipal>
+          </>
+        )}
+        <ColonneDeService>
+          <nav aria-label="Rubriques des backups" data-colonne-backups className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+            <GesteDeCreationDeColonne
+              libelle={t('Nouveau site')}
+              aria-label="Nouveau site"
+              data-backups-creer
+              onClick={() => setAssistant(true)}
+            />
+            <RubriqueDeColonne
+              icone={<HardDrive />}
+              libelle={t('Tous les sites')}
+              compte={resumes.length}
+              actif={fiche === null}
+              onClick={() => {
+                setFiche(null);
+                setRecherche('');
+              }}
+              data-backups-rubrique="sites"
+            />
+            {/* LES SITES ACTIFS, UN PAR LIGNE (demande du 12/10/2026) : un clic ouvre
+                sa fiche, la ligne du site ouvert se retient. */}
+            {resumes.some((r) => r.site.actif) ? (
+              <>
+                <p className={CLASSE_SECTION_DE_SERVICE}>{t('Sites actifs')}</p>
+                {[...resumes]
+                  .filter((r) => r.site.actif)
+                  .sort((a, b) => a.site.nom.localeCompare(b.site.nom, 'fr'))
+                  .map((r) => (
+                    <RubriqueDeColonne
+                      key={r.site.id}
+                      icone={<Globe />}
+                      libelle={r.site.nom}
+                      actif={fiche?.id === r.site.id}
+                      onClick={() => setFiche(r.site)}
+                      data-backups-colonne-site={r.site.id}
+                      data-statut={r.dernier?.statut ?? 'jamais'}
+                    />
+                  ))}
+              </>
+            ) : null}
+            {refusDestination ? null : (
+              <>
+                <p className={CLASSE_SECTION_DE_SERVICE}>{t('Actions')}</p>
+                <RubriqueDeColonne
+                  icone={<Play />}
+                  libelle={t('Tout sauvegarder')}
+                  onClick={() => void lancer()}
+                  data-backups-tout
+                />
+              </>
+            )}
+          </nav>
+        </ColonneDeService>
 
         {refusDestination ? (
           <div
-            className="mx-3 mb-2 flex shrink-0 items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2"
+            className="mb-3 flex shrink-0 items-start gap-2 rounded-xl bg-surface px-4 py-3"
             data-backups-sans-destination
           >
-            <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-            <p className="text-[12.5px] leading-relaxed text-text">{t(refusDestination)}</p>
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-text" />
+            <p className="text-[13.5px] leading-relaxed text-text">{t(refusDestination)}</p>
           </div>
-        ) : (
-          <div className="flex shrink-0 items-center gap-2 px-3 pb-2">
-            <p className="min-w-0 flex-1 truncate text-[12px] text-faint">
-              {t('Disque de stockage : {dossier}', { dossier: etat.dossier })}
-            </p>
-            <Button variant="ghost" size="sm" onClick={() => void lancer()} data-backups-tout>
-              <Play className="h-3 w-3" />
-              {t('Tout sauvegarder')}
-            </Button>
-          </div>
-        )}
+        ) : null}
 
+        {/* LA RECHERCHE ET, À SA DROITE SUR TÉLÉPHONE, LE TRI : un bouton
+            d'icône sans libellé, sur la même rangée (comme les notes). Les sites
+            y sont des FICHES, il n'y a plus d'entête à cliquer : le menu porte
+            les mêmes clés que les entêtes du tableau et le même second appui qui
+            inverse le sens. Il partage l'état `tri` — aucune règle de tri n'est
+            réécrite. Sur ordinateur, la rangée ne change pas. */}
         {resumes.length ? (
-          <div className="shrink-0 px-3 pb-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-faint" />
-              <Input
-                value={recherche}
-                onChange={(e) => setRecherche(e.target.value)}
-                placeholder={t('Rechercher un site…')}
-                className="h-8 pl-7 text-[13px]"
-                autoComplete="off"
-                data-backups-recherche
-              />
+          <div className="shrink-0 pb-5">
+            <div className="flex items-center gap-1.5">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+                <Input
+                  value={recherche}
+                  onChange={(e) => setRecherche(e.target.value)}
+                  placeholder={t('Rechercher un site…')}
+                  className="h-10 rounded-xl pl-10 text-[14px]"
+                  autoComplete="off"
+                  data-backups-recherche
+                />
+              </div>
+              {telephone ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 shrink-0"
+                      title={t('Trier les sites')}
+                      aria-label="Trier les sites"
+                      data-backups-tri-mobile={tri.colonne}
+                    >
+                      <ListFilter className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {CLES_TRI.map((colonne) => {
+                      const actif = tri.colonne === colonne;
+                      return (
+                        <DropdownMenuItem
+                          key={colonne}
+                          onSelect={() => trierPar(colonne)}
+                          data-backups-tri-choix={colonne}
+                          data-actif={actif ? '' : undefined}
+                          aria-current={actif ? 'true' : undefined}
+                          className={cn(actif && 'text-teinte')}
+                        >
+                          <span className="min-w-0 flex-1">{t(CLES_LIBELLE_TRI[colonne])}</span>
+                          {actif ? (
+                            tri.sens === 1 ? (
+                              <ArrowUp className="h-3.5 w-3.5 shrink-0 text-teinte" aria-hidden />
+                            ) : (
+                              <ArrowDown className="h-3.5 w-3.5 shrink-0 text-teinte" aria-hidden />
+                            )
+                          ) : null}
+                          <Check className={cn('h-3.5 w-3.5 shrink-0 text-teinte', !actif && 'invisible')} aria-hidden />
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
             </div>
           </div>
         ) : null}
 
-        {/* LE TRI, QUAND IL N'Y A PLUS D'ENTÊTES À CLIQUER. Sur téléphone les
-            sites sont des fiches : le menu ci-dessous porte les mêmes clés que
-            les entêtes du tableau et le même second appui qui inverse le sens.
-            Il partage l'état `tri` — aucune règle de tri n'est réécrite. */}
-        {telephone && resumesAffiches.length ? (
-          <div className="flex shrink-0 items-center gap-1 overflow-x-auto px-3 pb-2" data-backups-tri-mobile>
-            <span className="shrink-0 text-[11.5px] uppercase tracking-wide text-faint">{t('Trier')}</span>
-            {CLES_TRI.map((colonne) => {
-              const actif = tri.colonne === colonne;
-              return (
-                <Button
-                  key={colonne}
-                  variant={actif ? 'outline' : 'ghost'}
-                  size="sm"
-                  className="shrink-0"
-                  aria-pressed={actif}
-                  onClick={() => trierPar(colonne)}
-                  data-backups-tri-choix={colonne}
-                >
-                  {t(CLES_LIBELLE_TRI[colonne])}
-                  {actif ? (
-                    tri.sens === 1 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />
-                  ) : null}
-                </Button>
-              );
-            })}
-          </div>
-        ) : null}
-
-        <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
+        <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
+          {refusDestination ? null : (
+            <p className="truncate pb-2 text-[12.5px] text-faint" data-backups-disque>
+              {t('Disque de stockage : {dossier}', { dossier: etat.dossier })}
+            </p>
+          )}
           {chargement && !etat.sites.length ? (
             /* Le tableau à venir en silhouette : entêtes puis lignes, à leur
                place finale — plus de phrase grise ni d'état vide prématuré. */
@@ -485,17 +583,21 @@ export function Backups({
               ))}
             </div>
           ) : (
+            /* QUATRE COLONNES ET LES GESTES, DANS LA LARGEUR D'UNE PAGE : le
+               site prend la place libre et se tronque, tout le reste tient sur
+               une ligne sans retour. La cadence n'a plus sa colonne — elle se
+               lit sous la dernière prise, comme le nombre de points sous le
+               volume. */
             <table className="w-full border-collapse text-left" data-backups-tableau>
               <thead>
-                <tr className="border-b border-border text-[11.5px] uppercase tracking-wide text-faint">
+                <tr className="text-[12.5px] text-faint">
                   <EnteteTriable colonne="nom" tri={tri} onTrier={trierPar} className="pl-1">
                     {t('Site')}
                   </EnteteTriable>
-                  <th className="hidden px-2 py-1.5 font-normal sm:table-cell">{t('Fréquence')}</th>
                   <EnteteTriable colonne="dernier" tri={tri} onTrier={trierPar}>
                     {t('Dernière prise')}
                   </EnteteTriable>
-                  <EnteteTriable colonne="volume" tri={tri} onTrier={trierPar} className="hidden sm:table-cell">
+                  <EnteteTriable colonne="volume" tri={tri} onTrier={trierPar} className="hidden md:table-cell">
                     {t('Volume')}
                   </EnteteTriable>
                   <EnteteTriable colonne="statut" tri={tri} onTrier={trierPar}>
@@ -527,6 +629,8 @@ export function Backups({
         points={fiche ? (resumes.find((r) => r.site.id === fiche.id)?.points ?? []) : []}
         restaurations={etat.restaurations}
         onRestaurer={(point) => setPointARestaurer(point)}
+        relu={fiche ? agentAuTravail(fiche) : false}
+        onRelire={fiche ? () => void faireRelire(fiche) : undefined}
       />
 
       {/* L'assistant : le seul chemin de CRÉATION d'un site, depuis une phrase. */}
@@ -590,7 +694,7 @@ function EnteteTriable({
 }) {
   const actif = tri.colonne === colonne;
   return (
-    <th className={cn('px-2 py-1.5 font-normal', className)}>
+    <th className={cn('whitespace-nowrap px-2 py-1.5 font-normal', className)}>
       <button
         type="button"
         onClick={() => onTrier(colonne)}
@@ -628,7 +732,7 @@ function TiroirConversationAssistant({
   onClose: () => void;
 }) {
   return (
-    <Drawer open={depart !== null} onClose={onClose} empile className="h-[92dvh]">
+    <Drawer adresse="conversation-backups" open={depart !== null} onClose={onClose} empile className="h-[92dvh]">
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">
@@ -687,9 +791,10 @@ function BadgeRecette({ site }: { site: SiteASauvegarder }) {
  */
 function RecetteDuSite({ site }: { site: SiteASauvegarder }) {
   const [commandes, setCommandes] = React.useState(false);
+  useTiroirAdresse('commandes-backups', commandes, setCommandes);
   const recette = recetteEffective(site);
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border/60 pt-3" data-backups-recette-site={site.id}>
+    <div className="flex flex-col gap-1.5 pt-2" data-backups-recette-site={site.id}>
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
           <Archive className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -762,7 +867,9 @@ function ActionsDeSite({
   const { site, dernier } = resume;
   return (
     <>
-      {dernier?.statut === 'echec' ? (
+      {/* UNE PRISE PARTIELLE SE RÉPARE AUSSI (12/10/2026) : une part manquante
+          (la base, les pièces jointes) n'est pas une sauvegarde à jour. */}
+      {dernier?.statut === 'echec' || dernier?.statut === 'partiel' ? (
         <Button
           variant="ghost"
           size="sm"
@@ -833,7 +940,7 @@ function FicheSiteMobile(props: PropsDeSite) {
   const { resume, onOuvrir } = props;
   const { site, dernier, octets, points } = resume;
   return (
-    <div className="rounded-md border border-border/60 px-2.5 py-2" data-backups-site={site.id}>
+    <div className="rounded-xl bg-surface px-3.5 py-3" data-backups-site={site.id}>
       <button type="button" onClick={onOuvrir} className="flex w-full min-w-0 flex-col items-start gap-1 text-left">
         <span className="flex w-full min-w-0 items-center gap-1.5">
           <span className={cn('min-w-0 flex-1 truncate text-[13.5px]', site.actif ? 'text-text' : 'text-faint')}>
@@ -876,10 +983,13 @@ function FicheSiteMobile(props: PropsDeSite) {
 function LigneSite({ resume, travaille, bloque, relu, onOuvrir, onLancer, onConversation, onCarte, onRelire }: PropsDeSite) {
   const { site, dernier, octets, points } = resume;
   return (
-    <tr className="border-b border-border/60 last:border-0" data-backups-site={site.id}>
-      <td className="py-1.5 pl-1 pr-2 align-top">
-        <button type="button" onClick={onOuvrir} className="flex min-w-0 flex-col items-start gap-0.5 text-left">
-          <span className="flex min-w-0 items-center gap-1.5">
+    <tr className="group/ligne" data-backups-site={site.id}>
+      {/* LA COLONNE DU SITE PREND CE QUI RESTE, ET SE TRONQUE : `w-full` lui
+          donne la place libre, la largeur bornée empêche un nom long d'élargir
+          le tableau au-delà de la page. */}
+      <td className="w-full min-w-[9rem] max-w-[9rem] py-1.5 pl-1 pr-2 align-top">
+        <button type="button" onClick={onOuvrir} className="flex w-full min-w-0 flex-col items-start gap-0.5 text-left">
+          <span className="flex w-full min-w-0 items-center gap-1.5">
             <span className={cn('min-w-0 truncate text-[13.5px]', site.actif ? 'text-text' : 'text-faint')}>
               {site.nom}
             </span>
@@ -902,22 +1012,25 @@ function LigneSite({ resume, travaille, bloque, relu, onOuvrir, onLancer, onConv
           </span>
         </button>
       </td>
-      <td className="hidden px-2 py-1.5 align-top text-[12.5px] text-faint sm:table-cell">
-        {cadenceLisible(site.frequenceMinutes)}
-      </td>
-      <td className="px-2 py-1.5 align-top text-[12.5px] text-faint">
-        <span className="inline-flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          {dernier ? dateLisible(dernier.debut) : t('jamais')}
+      <td className="whitespace-nowrap px-2 py-1.5 align-top text-[12.5px] text-faint">
+        <span className="flex flex-col gap-0.5">
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {dernier ? dateLisible(dernier.debut) : t('jamais')}
+          </span>
+          <span className="text-[12px]">{cadenceLisible(site.frequenceMinutes)}</span>
         </span>
       </td>
-      <td className="hidden px-2 py-1.5 align-top text-[12.5px] text-faint sm:table-cell">
-        {t('{n} point(s) — {volume}', { n: points.length, volume: formaterOctets(octets) })}
+      <td className="hidden whitespace-nowrap px-2 py-1.5 align-top text-[12.5px] text-faint md:table-cell">
+        <span className="flex flex-col gap-0.5">
+          <span>{formaterOctets(octets)}</span>
+          <span className="text-[12px]">{t('{n} point(s)', { n: points.length })}</span>
+        </span>
       </td>
-      <td className="px-2 py-1.5 align-top">
+      <td className="whitespace-nowrap px-2 py-1.5 align-top">
         <BadgeStatut dernier={dernier} />
       </td>
-      <td className="py-1.5 pl-2 pr-1 align-top">
+      <td className="whitespace-nowrap py-1.5 pl-2 pr-1 align-top">
         <div className="flex items-center justify-end gap-1">
           <ActionsDeSite
             resume={resume}
@@ -1118,9 +1231,9 @@ function TableauProjetsSansSauvegarde({
   }, [projets, recherche]);
 
   return (
-    <section className="mt-4 flex flex-col gap-2" data-backups-projets-sans-fiche>
+    <section className="mt-10 flex flex-col gap-3" data-backups-projets-sans-fiche>
       <div className="flex items-center gap-1.5 px-1">
-        <h3 className="text-[13px] text-text">{t('Projets sans sauvegarde')}</h3>
+        <h3 className="text-[16px] font-semibold text-text">{t('Projets sans sauvegarde')}</h3>
         <Badge tone="neutral">{projets.length}</Badge>
         <BulleInfo cote="start">{t('Un clic sur « Configurer », et l’assistant écrit la sauvegarde du projet.')}</BulleInfo>
       </div>
@@ -1138,7 +1251,7 @@ function TableauProjetsSansSauvegarde({
       <div role="table" className="flex flex-col" data-backups-projets-tableau>
         <div
           role="row"
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border px-1 py-1.5 text-[11.5px] uppercase tracking-wide text-faint sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1 py-1.5 text-[12.5px] text-faint sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
         >
           <span role="columnheader">{t('Projet')}</span>
           <span role="columnheader" className="hidden sm:block">
@@ -1151,7 +1264,7 @@ function TableauProjetsSansSauvegarde({
             <div
               key={projet.id}
               role="row"
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-b border-border/60 px-1 py-1.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-1 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_7.5rem]"
               data-backups-projet-ligne={projet.id}
             >
               <span role="cell" className="flex min-w-0 flex-col">
@@ -1187,7 +1300,7 @@ function TableauProjetsSansSauvegarde({
 /* La fiche d'un site                                                   */
 /* ------------------------------------------------------------------ */
 
-/** Une ligne de formulaire : libellé à gauche, valeur à droite (`FormulaireEnColonnes`). */
+/** Une ligne de formulaire : libellé au-dessus, valeur dessous (`LigneFormulaire`). */
 function Champ({ libelle, aide, children }: { libelle: string; aide?: string; children: React.ReactNode }) {
   return (
     <LigneFormulaire libelle={libelle} aide={aide}>
@@ -1204,8 +1317,14 @@ function FicheSite({
   points,
   restaurations,
   onRestaurer,
+  relu = false,
+  onRelire,
 }: {
   fiche: SiteASauvegarder | null;
+  /** L'agent d'analyse travaille déjà sur ce site : le bouton tourne. */
+  relu?: boolean;
+  /** CONFIGURER AVEC L'AGENT : il relit le site, écrit ou répare sa recette. */
+  onRelire?: () => void;
   onClose: () => void;
   onChange: () => void;
   /** L'historique de CE site — l'ancien tiroir séparé vit ici désormais. */
@@ -1260,10 +1379,31 @@ function FicheSite({
   return (
     <>
       <Drawer open={fiche !== null} onClose={onClose} empile>
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">
-            {site.id ? site.nom || t('Site') : t('Nouveau site')}
-          </DialogTitle>
+        {/* LE NOM DU SITE EST LE DERNIER CRAN DU FIL D'ARIANE — « Services ›
+            Backup › ProjetE » ; son interrupteur et son « i » montent à droite
+            de la barre d'en-tête de la page. Plus de rangée de titre sous elle. */}
+        <DialogTitle className="min-w-0 truncate px-3 pb-2">
+          {site.id ? site.nom || t('Site') : t('Nouveau site')}
+        </DialogTitle>
+        <GestesDePage className="px-3">
+          {/* LE BOUTON DE L'AGENT REVIENT ICI (demande du 12/10/2026) : il ne
+              s'affichait que sur la liste, et seulement sur un échec ou un site
+              sans recette. Sur la fiche, il est toujours là. */}
+          {site.id && onRelire ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0"
+              disabled={relu}
+              onClick={onRelire}
+              title={site.recette ? t('Faire relire et réparer la recette de ce site par l’agent') : t('Faire écrire la recette de ce site par l’agent d’analyse')}
+              data-backups-fiche-agent={site.id}
+              data-agent-au-travail={relu ? '' : undefined}
+            >
+              {relu ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {relu ? t('L’agent travaille…') : t('Configurer avec l’agent')}
+            </Button>
+          ) : null}
           <BulleInfo>{t(
                 'Les identifiants restent sur ce serveur : ils servent à relire la base et les fichiers du site, chaque nuit.',
               )}</BulleInfo>
@@ -1272,7 +1412,7 @@ function FicheSite({
             onCheckedChange={(actif) => setSite((avant) => ({ ...avant, actif }))}
             data-backups-actif
           />
-        </header>
+        </GestesDePage>
 
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
           <FormulaireEnColonnes>
@@ -1474,7 +1614,7 @@ function FicheSite({
             {/* L'HISTORIQUE DE CE SITE : ce qui vivait dans un tiroir séparé
                 se lit maintenant ici, au clic sur le site lui-même. */}
             {site.id ? (
-              <div className="flex flex-col gap-1.5 border-t border-border/60 pt-3" data-backups-historique-site={site.id} data-pleine-largeur>
+              <div className="flex min-w-0 flex-col gap-1.5 pt-2" data-backups-historique-site={site.id} data-pleine-largeur>
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-text">
                     <History className="h-3.5 w-3.5 shrink-0 text-faint" />
@@ -1543,6 +1683,23 @@ function FicheSite({
 /* Un point de sauvegarde, réutilisé dans l'historique de la fiche      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * CE QUE LE DÉTAIL D'UN POINT DIT EN PLUS DE SON INVENTAIRE. Le verdict d'une
+ * archive (`verdictDeLArchive`) écrit dans le détail chaque étape manquée,
+ * « libellé : raison » — exactement ce que l'inventaire affiche déjà, étape par
+ * étape. Cette redite est retirée ; ce qui la précède (« filet avant la
+ * restauration du … ») reste. Un détail qui dit AUTRE CHOSE (archive illisible,
+ * manifeste manquant) est rendu tel quel.
+ */
+function detailHorsInventaire(point: PointDeSauvegarde): string {
+  const detail = (point.detail ?? '').trim();
+  const ratees = point.inventaire?.etapes.filter((etape) => !etape.ok) ?? [];
+  if (!detail || !ratees.length) return detail;
+  const dejaDit = ratees.map((etape) => `${etape.libelle} : ${etape.raison}`).join(' ; ');
+  if (!detail.endsWith(dejaDit)) return detail;
+  return detail.slice(0, detail.length - dejaDit.length).replace(/[\s—–-]+$/, '');
+}
+
 /** Un point de sauvegarde : sa date, son issue, son poids, et ce qui a cloché. */
 function LignePoint({
   point,
@@ -1554,11 +1711,9 @@ function LignePoint({
   onRestaurer: () => void;
 }) {
   const restaurable = point.statut !== 'echec' && !!(point.cheminArchive || point.chemin);
+  const detail = point.statut !== 'reussi' ? detailHorsInventaire(point) : '';
   return (
-    <div
-      className="flex flex-col gap-0.5 rounded-md border border-border bg-bloc px-2.5 py-1.5"
-      data-backups-point={point.id}
-    >
+    <div className="flex min-w-0 flex-col gap-1 rounded-md bg-bloc px-2.5 py-2" data-backups-point={point.id}>
       <span className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[12.5px] text-text">{dateLisible(point.debut)}</span>
         <span className="shrink-0 text-[12px] text-faint">{formaterOctets(volumeDuPoint(point))}</span>
@@ -1584,24 +1739,40 @@ function LignePoint({
       </span>
       <span className="text-[11.5px] leading-relaxed text-faint">{t(phraseDeStatut(point))}</span>
       {/* CE QUE L'ARCHIVE CONTIENT, relu dans le zip : c'est cet inventaire qui
-          a décidé du statut. Un point d'avant les archives le dit. */}
+          a décidé du statut. Un point d'avant les archives le dit.
+
+          UNE ÉTAPE, UNE LIGNE : son icône d'état, son libellé, et à droite ce
+          qu'elle a posé — court, il tient sur la ligne. Une étape MANQUÉE n'a
+          rien posé : sa raison (la sortie brute d'une commande, souvent un
+          long chemin sans espace) s'écrit SOUS le libellé, sur toute la
+          largeur, et se coupe où il faut. Elle ne loge plus dans la colonne
+          étroite des volumes, d'où elle débordait de la carte. */}
       {point.inventaire ? (
-        <ul className="flex flex-col gap-0.5" data-backups-inventaire={point.id}>
+        <ul className="flex min-w-0 flex-col gap-1" data-backups-inventaire={point.id}>
           {point.inventaire.etapes.map((etape) => (
             <li
               key={etape.id}
               className={cn(
-                'grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)_8.5rem] items-center gap-x-1.5 text-[11.5px]',
-                etape.ok ? 'text-faint' : 'text-warning',
+                'grid min-w-0 grid-cols-[0.75rem_minmax(0,1fr)_auto] items-start gap-x-1.5 gap-y-0.5 text-[11.5px] leading-relaxed',
+                etape.ok ? 'text-faint' : 'text-text',
               )}
+              data-backups-inventaire-etape={etape.ok ? 'prise' : 'manquee'}
             >
-              {etape.ok ? <Check className="h-3 w-3 shrink-0" /> : <TriangleAlert className="h-3 w-3 shrink-0" />}
-              <span className="min-w-0 truncate">{etape.libelle}</span>
-              <span className="text-right tabular-nums">
-                {etape.ok
-                  ? t('{n} fichier(s) — {volume}', { n: etape.fichiers, volume: formaterOctets(etape.octets) })
-                  : etape.raison}
-              </span>
+              {etape.ok ? (
+                <Check className="mt-[3px] h-3 w-3 shrink-0" />
+              ) : (
+                <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0" />
+              )}
+              <span className={cn('min-w-0 break-words', !etape.ok && 'col-span-2')}>{etape.libelle}</span>
+              {etape.ok ? (
+                <span className="whitespace-nowrap text-right tabular-nums">
+                  {t('{n} fichier(s) — {volume}', { n: etape.fichiers, volume: formaterOctets(etape.octets) })}
+                </span>
+              ) : (
+                <span className="col-span-2 col-start-2 min-w-0 break-words text-muted" data-backups-inventaire-raison>
+                  {etape.raison}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -1610,8 +1781,14 @@ function LignePoint({
           {t('Ancien format : un dossier, sans archive zip')}
         </span>
       ) : null}
-      {point.statut !== 'reussi' && point.detail ? (
-        <span className="text-[11.5px] leading-relaxed text-warning">{point.detail}</span>
+      {/* Le détail ne redit pas l'inventaire (`detailHorsInventaire`). */}
+      {detail ? (
+        <span
+          className={cn('min-w-0 break-words text-[11.5px] leading-relaxed', point.statut === 'echec' ? 'text-danger' : 'text-muted')}
+          data-backups-point-detail
+        >
+          {detail}
+        </span>
       ) : null}
     </div>
   );

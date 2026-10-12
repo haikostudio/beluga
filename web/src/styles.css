@@ -2,146 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * LA POLICE DE L'INTERFACE : Inter, en UN fichier variable par famille de
+ * caractères, hébergé avec l'application (licence OFL jointe, `polices/`).
+ * Aucun appel à un service de polices : l'application s'affiche hors ligne et
+ * ne dit rien d'elle à un tiers. Les écritures que ces deux fichiers ne
+ * couvrent pas (chinois, cyrillique…) retombent sur la police du système.
+ */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./polices/inter-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('./polices/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @layer base {
   /**
-   * SIX AMBIANCES, DEUX VARIANTES CHACUNE (`shared/src/themes.ts`).
+   * UNE SEULE APPARENCE, STRICTEMENT NOIR ET BLANC, EN DEUX CLARTÉS
+   * (`shared/src/themes.ts`).
    *
-   * Les palettes historiques gardent leur nom pour ne perdre aucun choix déjà
-   * enregistré. Leur variante opposée reçoit le suffixe `-clair` ou `-sombre`.
-   * Seule la variante claire d'origine garde ses bordures ; les onze autres
-   * palettes séparent les blocs par leurs paliers de fond.
+   * L'interface est PLATE et MONOCHROME, à la manière de ChatGPT ou de Claude
+   * Code : des gris neutres, sans la moindre teinte. AUCUNE couleur d'état —
+   * ni orange, ni bleu, ni vert. Ce qui est en cours, ce qui attend et ce qui
+   * est terminé se distinguent par la FORME (une roue qui tourne, une coche,
+   * un point plein ou creux) et par la GRAISSE, jamais par une teinte.
+   * Deux exceptions seulement :
+   *  - les icônes des projets (favicons) : ce sont des images, pas des jetons ;
+   *  - le ROUGE, gardé à l'erreur et au geste qui détruit.
    *
    * TROIS RÈGLES QUI TIENNENT L'ENSEMBLE.
    *
-   * 1. Le thème « sombre » n'a PAS de sélecteur `[data-theme]` à lui : c'est
-   *    `:root`, donc le défaut avant même que le script ne tourne — sinon
-   *    l'application clignote au chargement. Et le thème clair reste accroché à
-   *    `html:not(.dark)` : plusieurs contrôles basculent en clair en RETIRANT la
-   *    classe `dark`, sans toucher à l'attribut.
-   * 2. Les dix autres variantes viennent APRÈS `html:not(.dark)` et déclarent CHAQUE
-   *    jeton. Leur sélecteur a la même force que `:not(.dark)` : c'est l'ordre qui
-   *    tranche, et un jeton oublié retomberait sur la valeur du thème clair.
+   * 1. Le sombre n'a PAS de sélecteur `[data-theme]` à lui : c'est `:root`,
+   *    donc le défaut avant même que le script ne tourne — sinon l'application
+   *    clignote au chargement. Le clair reste accroché à `html:not(.dark)` :
+   *    plusieurs contrôles basculent en clair en RETIRANT la classe `dark`.
+   * 2. Les deux blocs déclarent CHAQUE jeton, dans le même ordre :
    *    `scripts/verif-themes.mjs` refuse un jeton manquant.
-   * 3. Aucune teinte ne s'écrit ailleurs que dans ces douze blocs. Un écran ne
+   * 3. Aucune teinte ne s'écrit ailleurs que dans ces deux blocs. Un écran ne
    *    connaît que les NOMS (`web/tailwind.config.js`).
+   *
+   * PRESQUE AUCUN TRAIT. `--border` est ramené tout près des fonds : un bloc ne
+   * se délimite plus par un cadre mais par son FOND, une marche au-dessus de
+   * celui qui le porte — page, puis `--surface`, puis `--raised`. Un champ ou
+   * un bouton « contour » reçoit donc un fond (`--raised`, `--controle`), sans
+   * quoi il disparaîtrait. Seul un trait qui PORTE une information reste
+   * visible : il suit `--faint`, jamais `--border`.
+   *
+   * LES JETONS D'AVANT LA REFONTE SONT GARDÉS, REMAPPÉS. `--en-cours`,
+   * `--termine`, `--success`, `--warning`, `--publie`, `--competence`… ne sont
+   * pas retirés du code : ils reçoivent un GRIS de la charte. Deux familles :
+   *  - ce qui APPELLE l'œil (en cours, vous attend, alerte) vaut le texte fort ;
+   *  - ce qui est ACQUIS (terminé, lu, réussi, en ligne) vaut un gris moyen.
+   * Une classe oubliée ne peut donc pas ramener une couleur.
    */
   :root {
-    /* Retour aux paliers d'origine (03.08.2026) : la version plus contrastée
-       éclaircissait trop les fonds, les cartes et les colonnes tiraient vers
-       le gris clair. Seul le fond de page reste au noir pur, qui ne gênait
-       personne. */
-    --bg: 0 0% 0%;
-    --surface: 0 0% 8%;
-    --raised: 0 0% 15%;
-    /* SANS UNE BORDURE, comme « sable » et « ardoise » (17.08.2026). Le trait
-       gris à 24 % était le dernier reste de l'ancienne facture : un bloc se
-       délimite par son fond — page 0 %, bloc 8 %, élément relevé 13 % —, plus
-       par un contour. La bordure est amenée À UN POINT du fond d'un bloc : elle
-       existe toujours dans le code, aucun écran ne bouge d'un pixel, elle ne se
-       voit simplement plus. Les deux corollaires des thèmes plats valent donc
-       ici aussi : l'ascenseur ne suit pas `--border` (plus bas), et un bouton
-       « contour » reçoit le fond translucide `--controle`. */
-    --border: 0 0% 9%;
-    --text: 0 0% 100%;
-    --muted: 0 0% 78%;
-    --faint: 0 0% 58%;
-    --accent: 0 0% 100%;
-    --accent-fg: 0 0% 3%;
-    --success: 142 55% 55%;
-    --warning: 38 90% 62%;
-    --nouveau: 50 90% 60%;
-    /* UN SITE « À SURVEILLER » (contrôle WordPress) : debout, mais avec un souci
-       à regarder. Un JAUNE, jeton à part : l'orange dit « en cours » et ne peut
-       pas servir d'alerte, et le rouge reste à la panne. Même valeur de départ
-       que `--nouveau`, sans en emprunter le sens. */
-    --a-surveiller: 50 90% 60%;
-    --danger: 0 75% 65%;
-    /* Enregistrement en cours : un état, pas une décoration. */
-    --record: 213 85% 52%;
-    --record-fg: 0 0% 100%;
-    /* Du neuf à lire : le travail rendu qu'on n'a pas encore ouvert. Ni une
-       alerte (orange), ni une réussite acquise (vert) — une nouvelle. */
-    --info: 205 90% 60%;
-    /* Une publication en cours : un violet franc, distinct de l'orange du
-       travail ordinaire (en-cours) et de l'orange d'alerte (warning) — c'est
-       un état, pas une décision à prendre, et il doit se voir d'un coup d'œil
-       comme n'étant PAS du travail ordinaire. */
-    --publie: 268 85% 68%;
-    /* LE VIOLET DES COMPÉTENCES PROPOSÉES AU CADRAGE (encadré « Utiliser » du fil).
-       Volontairement plus ROSE que `--publie`, qui dit « publication en cours » :
-       deux violets, deux sens. `-fg` est le texte posé sur le bouton plein. */
-    --competence: 288 72% 68%;
-    --competence-fg: 288 45% 12%;
-    /* LA CONVENTION D'AVANCEMENT, valable dans TOUTE l'application :
-       ORANGE = un travail EN COURS, BLEU = un travail TERMINÉ.
-       Deux jetons À PART, et non les états voisins qu'ils reprennent : la
-       teinte d'un travail qui avance ne doit pas bouger le jour où l'on
-       retouche l'orange d'AVERTISSEMENT (`warning`) ou le bleu du NEUF à lire
-       (`info`). Les valeurs de départ sont exactement celles de la colonne
-       « En cours » et de la colonne « Terminé » du tableau, pour que rien ne
-       change là où la convention était déjà tenue. */
-    --en-cours: 38 90% 62%;
-    --termine: 205 90% 60%;
-    /* LES SÉRIES D'UN GRAPHIQUE à plusieurs lignes (« Utilisateurs actifs »
-       des Statistiques) : violet, vert d'eau, rose. Trois teintes franches et
-       éloignées, qui n'empruntent NI l'orange du travail en cours NI le bleu du
-       terminé — une courbe n'est pas un état d'avancement. */
-    --serie-1: 262 83% 72%;
-    --serie-2: 168 70% 50%;
-    --serie-3: 335 80% 70%;
-    --travail: 46 90% 60%;
-    --termine-fg: 205 45% 12%;
-    /* EXCEPTION À LA CONVENTION, limitée à la frise des cartes et à la barre
-       d'étapes du tiroir : un agent qui travaille y scintille en JAUNE (ce
-       qui est fini ou validé reste bleu). Même
-       teinte que `--nouveau`, jeton à part pour ne pas emprunter son sens. */
-    /* Intensité de consommation (tableau de bord) : du jour calme au jour
-       chargé. Aucune teinte neuve — on REPREND les jetons d'état existants,
-       pour que les deux thèmes suivent d'eux-mêmes. Le haut du dégradé est
-       l'ORANGE d'attention, jamais le rouge de danger : une consommation forte
-       est un fait à voir, pas une panne à réparer. */
-    --intensite-calme: var(--success);
-    --intensite-chargee: var(--warning);
-    /* LE FOND D'UN PLAN. Un plan est le seul bloc du fil sur lequel il y a une
-       décision à prendre : il pose donc son propre gris, un cran au-dessus des
-       surfaces ordinaires, pour se repérer sans lire. Un gris NEUTRE, pas une
-       couleur d'état — un plan n'est ni en cours, ni terminé, ni en alerte. */
-    --fond-plan: 0 0% 14%;
-    /* LE VOILE qui assombrit la page derrière une fenêtre, un tiroir ou un menu
-       de téléphone. C'était un `bg-black/70` écrit en dur dans quatre endroits :
-       un noir pur convient à un thème noir, il alourdit un thème beige. */
+    --bg: 0 0% 13%;
+    --surface: 0 0% 16.5%;
+    --raised: 0 0% 21%;
+    --border: 0 0% 18%;
+    --text: 0 0% 93%;
+    --muted: 0 0% 70%;
+    --faint: 0 0% 52%;
+    --accent: 0 0% 96%;
+    --accent-fg: 0 0% 9%;
+    /* ACQUIS — terminé, réussi, en ligne, lu : un gris moyen. */
+    --success: 0 0% 68%;
+    /* APPELLE L'ŒIL — alerte, attente d'un geste : le texte fort. */
+    --warning: 0 0% 93%;
+    --nouveau: 0 0% 70%;
+    --a-surveiller: 0 0% 93%;
+    /* LE SEUL ROUGE : l'erreur, et le geste qui détruit. */
+    --danger: 0 72% 66%;
+    --record: 0 0% 93%;
+    --record-fg: 0 0% 9%;
+    --info: 0 0% 68%;
+    --publie: 0 0% 93%;
+    --competence: 0 0% 93%;
+    --competence-fg: 0 0% 9%;
+    /* L'AVANCEMENT, SANS COULEUR : en cours = fort, terminé = moyen. */
+    --en-cours: 0 0% 93%;
+    --termine: 0 0% 68%;
+    /* LES SÉRIES D'UN GRAPHIQUE : trois gris, du plus marqué au plus pâle. */
+    --serie-1: 0 0% 92%;
+    --serie-2: 0 0% 62%;
+    --serie-3: 0 0% 40%;
+    --travail: 0 0% 93%;
+    --termine-fg: 0 0% 9%;
+    --intensite-calme: var(--faint);
+    --intensite-chargee: var(--text);
+    --fond-plan: 0 0% 17%;
+    /* LE VOILE qui assombrit la page derrière une fenêtre. */
     --voile: 0 0% 0%;
-    /* LE TEXTE POSÉ SUR UNE COULEUR D'ÉTAT (bouton rouge, badge orange) : il ne
-       suit ni `--text` ni `--bg`, puisque la couleur qui le porte est la même
-       dans les deux clartés. C'était un `text-white` écrit en dur. */
-    --sur-etat: 0 0% 100%;
-    /* L'ONGLET ACTIF du menu du bas, sur téléphone. Un repère de NAVIGATION, pas
-       un état d'avancement : il ne peut donc pas emprunter `--en-cours`, dont la
-       teinte changerait le jour où l'on retouche l'orange du travail. */
-    --actif: 16 88% 54%;
-    --actif-fg: 0 0% 100%;
-    /* LE FOND D'UN BOUTON AU REPOS. Un bouton « contour » ne se dessine que par sa
-       bordure : dans un thème PLAT, où la bordure s'efface, il disparaîtrait — et
-       c'est le bouton le plus courant de l'application. Il reçoit donc un fond,
-       TRANSLUCIDE pour rester juste quel que soit le bloc qui le porte. Le thème
-       sombre étant devenu plat à son tour, il en reçoit un : un blanc à 6 %, qui
-       relève très légèrement le bloc qui porte le bouton.
+    /* LE TEXTE POSÉ SUR UN APLAT D'ÉTAT (bouton, pastille) : l'aplat est clair
+       en sombre, le texte y est donc foncé. */
+    --sur-etat: 0 0% 9%;
+    --actif: 0 0% 96%;
+    --actif-fg: 0 0% 9%;
+    /* LE FOND D'UN BOUTON « CONTOUR » AU REPOS : rien, son filet le dessine.
        L'alpha vit DANS le jeton, on n'écrit donc jamais `bg-controle/50`. */
-    --controle: 0 0% 100% / 0.06;
-    /* LA LIGNE DU PROJET OUVERT, colonne de gauche : `--raised` (13 %) restait
-       trop proche du fond de page dans les autres thèmes ; un jeton dédié,
-       nettement plus clair que le fond ET que le survol. */
-    --ligne-active: 0 0% 18%;
-    /* LE BANDEAU D'ÉTAPE sous une carte (chronomètre, étape en cours) : un
-       fond solide, un cran plus clair que le corps de la carte — jamais un
-       trait, un fond qui se voit. */
+    --controle: 0 0% 100% / 0.07;
+    /* LA LIGNE OUVERTE, colonne de gauche. */
+    --ligne-active: 0 0% 19%;
     --bandeau-etape: 0 0% 18%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur (étape en cours, décompte
-       des tâches, temps) : un dégradé vers `surface/0` le rendait transparent
-       en bas, donc confondu avec ce qu'il y a DERRIÈRE — `--bg` (fond de
-       conversation du chef) ou `--surface` (tiroir d'une carte). Un fond
-       SOLIDE, dédié, nettement au-dessus des deux. */
-    --bloc-etapes: 0 0% 20%;
+    --bloc-etapes: 0 0% 17%;
+    /* LE DÉCROCHÉ — le bandeau d'activité qui sort de sous le champ
+       d'écriture : un gris posé ENTRE le fond de la page et celui du champ
+       (`--raised`), un peu plus clair que ce dernier. */
+    --decroche: 0 0% 17%;
+    /* LA SEULE COULEUR DE L'INTERFACE, avec le rouge de l'erreur : un VIOLET
+       (demande du 11/10/2026 : « le violet, ça doit être la seule couleur
+       qu'on a dans l'application, avec parcimonie mais intelligemment »). Il
+       dit ce que l'agent est EN TRAIN DE FAIRE : le texte du décroché, et
+       rien d'autre pour l'instant. Tout nouvel usage se décide, il ne se
+       répand pas. Le jeton s'appelle `--teinte` (classe `text-teinte`) et non
+       `--violet` : `violet` est un nom de palette de Tailwind, que le contrôle
+       des couleurs en dur refuse à juste titre.
+       SECOND USAGE, demandé le même jour : l'élément CHOISI d'une liste de
+       choix (liste déroulante, menu, onglets, menu d'une fenêtre) s'écrit en
+       violet, « pour qu'on le distingue clairement ». */
+    --teinte: 262 85% 78%;
+    /* L'APLAT D'ENCRE — la bulle de l'utilisateur dans une discussion, et le
+       bouton qui arrête. En clair il est NOIR, comme l'accent ; en sombre
+       c'est un GRIS soutenu, jamais le blanc de l'accent : une bulle ou une
+       barre blanche éblouissait au milieu d'un écran noir (demande du
+       11/10/2026). */
+    --encre: 0 0% 22%;
+    --encre-fg: 0 0% 93%;
     color-scheme: dark;
   }
 
@@ -157,9 +155,9 @@
    * un iPhone sur un Chrome de serveur : `env()` ne se simule pas, une variable
    * oui (`scripts/lib/zone-sure.mjs`).
    *
-   * POSÉES SUR `html`, JAMAIS DANS `:root` : le bloc `:root` est la palette du
-   * thème « sombre », et `scripts/verif-themes.mjs` y lit la liste des jetons
-   * de couleur. Une seconde règle `:root` lui ferait croire à une palette vide.
+   * POSÉES SUR `html`, JAMAIS DANS `:root` : le bloc `:root` est la palette
+   * sombre, et `scripts/verif-themes.mjs` y lit la liste des jetons de
+   * couleur. Une seconde règle `:root` lui ferait croire à une palette vide.
    */
   html {
     --zone-sure-haut: env(safe-area-inset-top, 0px);
@@ -168,765 +166,84 @@
 
   html:not(.dark) {
     --bg: 0 0% 100%;
-    --surface: 0 0% 95%;
-    --raised: 0 0% 100%;
-    --border: 0 0% 80%;
-    --text: 0 0% 0%;
-    --muted: 0 0% 28%;
-    --faint: 0 0% 45%;
-    --accent: 0 0% 0%;
+    --surface: 0 0% 97.3%;
+    --raised: 0 0% 95%;
+    --border: 0 0% 94%;
+    --text: 0 0% 5%;
+    --muted: 0 0% 36%;
+    --faint: 0 0% 56%;
+    --accent: 0 0% 5%;
     --accent-fg: 0 0% 100%;
-    --success: 142 62% 28%;
-    --warning: 32 90% 36%;
-    --nouveau: 50 90% 40%;
-    --a-surveiller: 50 90% 40%;
-    --danger: 0 72% 42%;
-    --record: 213 85% 45%;
+    --success: 0 0% 38%;
+    --warning: 0 0% 5%;
+    --nouveau: 0 0% 36%;
+    --a-surveiller: 0 0% 5%;
+    --danger: 0 72% 46%;
+    --record: 0 0% 5%;
     --record-fg: 0 0% 100%;
-    --info: 205 90% 38%;
-    /* Sur fond clair, le violet doit rester lisible : on l'assombrit. */
-    --publie: 268 70% 48%;
-    --competence: 288 70% 48%;
-    --competence-fg: 288 40% 98%;
-    /* Même convention, assombrie pour rester lisible sur fond blanc. */
-    --en-cours: 32 90% 36%;
-    --termine: 205 90% 38%;
-    --serie-1: 262 70% 50%;
-    --serie-2: 170 85% 30%;
-    --serie-3: 335 75% 45%;
-    --travail: 46 90% 40%;
-    --termine-fg: 205 45% 98%;
-    /* Sur fond blanc, le même repère : un gris clair LÉGER, assez marqué pour
-       délimiter le cadre, assez pâle pour que le texte noir reste net. */
-    --fond-plan: 0 0% 92%;
-    /* Valeurs REPRISES telles quelles du comportement d'avant : le voile de ce
-       thème était déjà un noir à 70 %, et le texte d'un bouton d'état blanc. */
+    --info: 0 0% 38%;
+    --publie: 0 0% 5%;
+    --competence: 0 0% 5%;
+    --competence-fg: 0 0% 100%;
+    --en-cours: 0 0% 5%;
+    --termine: 0 0% 38%;
+    --serie-1: 0 0% 10%;
+    --serie-2: 0 0% 45%;
+    --serie-3: 0 0% 72%;
+    --travail: 0 0% 5%;
+    --termine-fg: 0 0% 100%;
+    --fond-plan: 0 0% 96.5%;
     --voile: 0 0% 0%;
+    /* En clair l'aplat d'état est foncé : le texte y est blanc. */
     --sur-etat: 0 0% 100%;
-    --actif: 16 88% 54%;
+    --actif: 0 0% 5%;
     --actif-fg: 0 0% 100%;
-    --controle: 0 0% 0% / 0;
-    /* LA LIGNE DU PROJET OUVERT : `--raised` (100 %) vaut exactement `--bg`
-       dans ce thème — la ligne active devenait invisible. Un gris nettement
-       plus sombre que le fond de page ET que le survol. */
-    --ligne-active: 0 0% 88%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, distinct
-       du corps de la carte. */
-    --bandeau-etape: 0 0% 82%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : distinct de `--bg`
-       (100 %) et de `--surface` (95 %), sans se confondre avec les deux autres
-       jetons dédiés ci-dessus. */
-    --bloc-etapes: 0 0% 79%;
+    --controle: 0 0% 0% / 0.05;
+    --ligne-active: 0 0% 93%;
+    --bandeau-etape: 0 0% 95.5%;
+    --bloc-etapes: 0 0% 96.5%;
+    --decroche: 0 0% 97%;
+    --teinte: 262 68% 50%;
+    --encre: 0 0% 5%;
+    --encre-fg: 0 0% 100%;
     color-scheme: light;
   }
 
   /**
-   * « SABLE » — CLAIR, CHAUD, SANS UNE BORDURE.
+   * DEUX ZONES : LA COLONNE DES PROJETS ET LA ZONE PRINCIPALE.
    *
-   * Le parti pris : un bloc ne se délimite plus par un trait mais par un fond qui
-   * contraste LÉGÈREMENT avec celui qui l'entoure. Trois paliers étagés de quatre
-   * points de luminosité — page 91 %, bloc 96 %, élément relevé 99 % —, assez pour
-   * que la hiérarchie se lise, assez peu pour que rien ne tranche.
+   * La colonne de gauche est un gris très pâle ; la zone principale —
+   * tableau, page d'une carte, service — EST le fond de page. AUCUN filet ne
+   * les sépare : c'est la marche de fond qui les distingue, comme dans
+   * ChatGPT. Les repères `data-zone` d'avant sont gardés
+   * (`gauche`, `centre`, `droite`) : « centre » et « droite » portent le même
+   * fond, puisque la conversation a pris la place du tableau au lieu de se
+   * poser à côté de lui.
    *
-   * Les bordures ne sont pas RETIRÉES du code (ce serait redessiner tous les
-   * écrans, et déplacer chaque cadre d'un pixel) : le jeton `--border` est amené à
-   * 93 %, soit entre le fond de page et le fond d'un bloc. Le trait existe encore,
-   * il ne se voit plus — et la mise en page ne bouge pas d'un cheveu.
-   *
-   * Conséquence à connaître : ce qui n'était visible QUE par sa bordure doit
-   * l'être autrement. C'est pourquoi l'ascenseur ne prend plus sa couleur dans
-   * `--border` (plus bas) : il y deviendrait invisible.
+   * Chaque règle pose sa teinte dans `--fond-zone` AVANT de peindre avec : ce
+   * qui vit DANS la zone peut reprendre son fond exact (`.fond-de-zone`, le
+   * menu du bas du téléphone) sans le recopier.
    */
-  html[data-theme='sable'] {
-    --bg: 40 27% 91%;
-    --surface: 41 34% 96%;
-    --raised: 42 42% 99%;
-    /* Entre le fond de page et le fond d'un bloc : un trait qui ne tranche sur
-       aucun des deux. */
-    --border: 40 22% 93%;
-    --text: 35 22% 15%;
-    --muted: 34 14% 34%;
-    --faint: 36 12% 48%;
-    /* L'accent est un brun chaud, jamais le noir du thème clair : il porte les
-       boutons principaux, il doit appartenir à la famille du thème. */
-    --accent: 28 30% 22%;
-    --accent-fg: 41 38% 97%;
-    /* Les états gardent leur RÔLE et changent de teinte : réchauffés d'un cran,
-       et assombris ce qu'il faut pour rester lisibles sur un fond clair. */
-    --success: 148 42% 30%;
-    --warning: 30 78% 37%;
-    --nouveau: 48 78% 38%;
-    --a-surveiller: 48 78% 38%;
-    --danger: 6 62% 44%;
-    --record: 212 66% 42%;
-    --record-fg: 41 38% 97%;
-    --info: 205 62% 37%;
-    --publie: 272 44% 47%;
-    --competence: 288 44% 47%;
-    --competence-fg: 290 35% 97%;
-    --en-cours: 28 78% 40%;
-    --termine: 205 62% 37%;
-    --serie-1: 264 45% 45%;
-    --serie-2: 166 55% 30%;
-    --serie-3: 338 55% 45%;
-    --travail: 46 78% 38%;
-    --termine-fg: 205 31% 98%;
-    /* Le cadre d'un plan descend SOUS le fond de page, seul sens qui lui reste
-       une fois les blocs posés au-dessus : c'est un bloc à décider, pas un bloc
-       ordinaire, et il doit se repérer sans lire. */
-    --fond-plan: 40 24% 86%;
-    --voile: 32 28% 18%;
-    --sur-etat: 41 38% 97%;
-    --actif: 22 72% 44%;
-    --actif-fg: 41 38% 97%;
-    /* Un brun chaud à 7 % : il ASSOMBRIT très légèrement le bloc qui porte le
-       bouton, quel que soit ce bloc. C'est ce qui remplace la bordure effacée. */
-    --controle: 32 25% 25% / 0.07;
-    /* LA LIGNE DU PROJET OUVERT, colonne de gauche : un fond nettement plus
-       sombre que le fond de page ET que le survol (`--surface`), puisque
-       `--raised` (99 %) frôle le blanc et s'y confondait. Même famille chaude. */
-    --ligne-active: 40 24% 84%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : `bg-border/30` s'y fondait avec le
-       fond de la colonne, la bordure de ce thème étant volontairement proche
-       des fonds. Un fond SOLIDE, assombri, dédié à ce pied de carte. */
-    --bandeau-etape: 40 22% 80%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : plus sombre encore,
-       distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 40 23% 77%;
-    color-scheme: light;
-  }
-
-  /**
-   * « ARDOISE » — SOMBRE, DOUX, SANS UNE BORDURE.
-   *
-   * Le même parti pris que « sable », de l'autre côté : aucun noir pur (le fond de
-   * page est à 11 %, ce qui laisse de la place pour étager DESSOUS comme dessus),
-   * des gris légèrement bleutés, et trois paliers de quatre à cinq points. La
-   * bordure est amenée au niveau du fond d'un bloc : elle disparaît sans que rien
-   * ne se déplace.
-   */
-  html[data-theme='ardoise'] {
-    --bg: 220 14% 11%;
-    --surface: 220 13% 16%;
-    --raised: 220 12% 21%;
-    /* Au niveau du fond d'un bloc : le trait s'efface. */
-    --border: 220 13% 17%;
-    --text: 215 20% 95%;
-    --muted: 215 14% 74%;
-    --faint: 215 12% 54%;
-    --accent: 215 20% 95%;
-    --accent-fg: 220 16% 12%;
-    --success: 150 48% 58%;
-    --warning: 36 85% 62%;
-    --nouveau: 50 85% 60%;
-    --a-surveiller: 50 85% 60%;
-    --danger: 2 68% 64%;
-    --record: 212 78% 56%;
-    --record-fg: 210 30% 98%;
-    --info: 205 78% 64%;
-    --publie: 265 74% 72%;
-    --competence: 288 72% 72%;
-    --competence-fg: 290 40% 11%;
-    --en-cours: 36 85% 62%;
-    --termine: 205 78% 64%;
-    --serie-1: 260 75% 74%;
-    --serie-2: 169 60% 55%;
-    --serie-3: 333 75% 72%;
-    --travail: 46 85% 60%;
-    --termine-fg: 205 39% 12%;
-    --fond-plan: 220 12% 22%;
-    --voile: 220 26% 5%;
-    /* Un blanc à peine bleuté, jamais le blanc pur du thème sombre d'origine :
-       aucune teinte ne se recopie d'un thème à l'autre. */
-    --sur-etat: 210 30% 99%;
-    --actif: 16 82% 52%;
-    --actif-fg: 210 30% 99%;
-    /* Sur fond sombre, l'inverse : un voile CLAIR à 7 %, qui relève le bouton. */
-    --controle: 210 30% 100% / 0.07;
-    /* LA LIGNE DU PROJET OUVERT : nettement plus claire que le fond de page ET
-       que le survol, même famille bleutée. */
-    --ligne-active: 220 13% 28%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié — la
-       bordure de ce thème est volontairement proche des fonds, elle ne peut
-       plus servir de repère ici. */
-    --bandeau-etape: 220 12% 27%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
-       distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 220 12% 29%;
-    color-scheme: dark;
-  }
-
-  /**
-   * « GIVRE » — CLAIR, FROID, SANS UNE BORDURE.
-   *
-   * Ce qui manquait au clair : « sable » est chaud, le thème d'origine est
-   * neutre — aucun des deux n'est FROID. Même parti pris flat design que
-   * « sable » (fond qui contraste légèrement, bordure amenée entre les fonds),
-   * mais des blancs BLEUTÉS plutôt que des beiges, et un accent bleu franc au
-   * lieu du brun de « sable » : la même mécanique, une famille différente.
-   */
-  html[data-theme='givre'] {
-    --bg: 210 30% 94%;
-    --surface: 210 26% 88%;
-    --raised: 210 35% 99%;
-    /* Entre le fond de page et le fond d'un bloc : un trait qui ne tranche sur
-       aucun des deux. */
-    --border: 210 24% 89%;
-    --text: 215 35% 12%;
-    --muted: 213 18% 32%;
-    --faint: 213 14% 48%;
-    /* Un bleu froid, jamais le brun de « sable » ni le noir du clair d'origine :
-       l'accent doit appartenir à la famille du thème. */
-    --accent: 217 70% 38%;
-    --accent-fg: 210 40% 98%;
-    --success: 152 55% 28%;
-    --warning: 30 85% 38%;
-    --nouveau: 50 85% 40%;
-    --a-surveiller: 50 85% 40%;
-    --danger: 355 70% 42%;
-    --record: 213 85% 42%;
-    --record-fg: 210 40% 98%;
-    --info: 205 85% 38%;
-    --publie: 262 55% 46%;
-    --competence: 288 55% 46%;
-    --competence-fg: 286 45% 99%;
-    --en-cours: 30 85% 38%;
-    --termine: 205 85% 38%;
-    --serie-1: 263 65% 48%;
-    --serie-2: 171 80% 28%;
-    --serie-3: 336 70% 44%;
-    --travail: 46 85% 40%;
-    --termine-fg: 205 42% 98%;
-    --fond-plan: 210 26% 84%;
-    --voile: 215 40% 15%;
-    --sur-etat: 210 40% 98%;
-    --actif: 16 82% 46%;
-    --actif-fg: 210 40% 98%;
-    /* Un bleu-marine à 6 % : il assombrit très légèrement le bloc qui porte le
-       bouton, quel que soit ce bloc — ce qui remplace la bordure effacée. */
-    --controle: 215 40% 20% / 0.06;
-    /* LA LIGNE DU PROJET OUVERT : nettement plus sombre que le fond de page ET
-       que le survol, même famille bleutée — piège rencontré en l'ajoutant
-       (17.08.2026) : ces jetons manquaient depuis l'arrivée de ce thème,
-       ce que `verif-themes.mjs` n'avait jamais refusé faute d'être rejoué avec
-       un navigateur en face. */
-    --ligne-active: 210 22% 80%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
-    --bandeau-etape: 210 20% 76%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
-       distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 210 21% 71%;
-    color-scheme: light;
-  }
-
-  /**
-   * « SAPIN » — SOMBRE, CHAUD, SANS UNE BORDURE.
-   *
-   * Ce qui manquait au sombre : « ardoise » est froid (des gris bleutés), le
-   * thème d'origine est neutre — aucun des deux n'est CHAUD. Même parti pris
-   * flat design que « ardoise » (bordure amenée au niveau du fond d'un bloc),
-   * mais des verts profonds plutôt que des gris bleutés, un texte à peine
-   * jauni et un accent doré chaud — jamais le bleu-gris de « ardoise ».
-   */
-  html[data-theme='sapin'] {
-    --bg: 150 18% 9%;
-    --surface: 150 15% 14%;
-    --raised: 148 14% 19%;
-    /* Au niveau du fond d'un bloc : le trait s'efface. */
-    --border: 148 14% 15%;
-    --text: 60 12% 90%;
-    --muted: 90 8% 68%;
-    --faint: 90 6% 52%;
-    --accent: 38 55% 55%;
-    --accent-fg: 150 20% 10%;
-    --success: 140 45% 55%;
-    --warning: 36 80% 58%;
-    --nouveau: 50 80% 56%;
-    --a-surveiller: 50 80% 56%;
-    --danger: 5 65% 60%;
-    --record: 210 75% 55%;
-    --record-fg: 150 20% 96%;
-    --info: 205 75% 60%;
-    --publie: 265 65% 68%;
-    --competence: 288 65% 68%;
-    --competence-fg: 286 48% 13%;
-    --en-cours: 36 80% 58%;
-    --termine: 205 75% 60%;
-    --serie-1: 261 70% 75%;
-    --serie-2: 164 55% 58%;
-    --serie-3: 334 70% 74%;
-    --travail: 46 80% 56%;
-    --termine-fg: 205 37% 12%;
-    --fond-plan: 148 13% 24%;
-    --voile: 150 30% 4%;
-    /* Un blanc chaud, à peine jauni — jamais le blanc pur du thème sombre
-       d'origine ni le blanc froid de « ardoise ». */
-    --sur-etat: 150 20% 97%;
-    --actif: 20 75% 50%;
-    --actif-fg: 150 20% 97%;
-    /* Sur fond sombre, l'inverse de « givre » : un voile chaud et clair à 6 %,
-       qui relève le bouton. */
-    --controle: 60 30% 95% / 0.06;
-    /* LA LIGNE DU PROJET OUVERT : nettement plus claire que le fond de page ET
-       que le survol, même famille verte — jeton manquant, ajouté le
-       17.08.2026 en même temps que « givre » et « contraste ». */
-    --ligne-active: 148 16% 26%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, éclairci, dédié. */
-    --bandeau-etape: 148 15% 25%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus clair,
-       distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 148 13% 28%;
-    color-scheme: dark;
-  }
-
-  /**
-   * « CONTRASTE » — CLAIR, TRÈS MARQUÉ, SANS UNE BORDURE.
-   *
-   * Un thème utilitaire : plein soleil sur l'écran, vue fatiguée — les nuances
-   * fines des autres thèmes s'effacent, il faut un texte proche du noir pur sur
-   * un fond proche du blanc, et des couleurs d'état SATURÉES plutôt que
-   * discrètes. Même mécanique flat design que les autres (les paliers de fond
-   * restent réguliers, aucune bordure ne se voit), mais la hiérarchie tient
-   * surtout au texte et aux états, poussés au maximum de lisibilité.
-   */
-  html[data-theme='contraste'] {
-    --bg: 45 6% 92%;
-    --surface: 45 6% 97%;
-    --raised: 45 8% 100%;
-    /* Au niveau du fond de page : le trait s'efface. */
-    --border: 45 6% 93%;
-    --text: 45 10% 4%;
-    --muted: 45 8% 24%;
-    --faint: 45 6% 40%;
-    --accent: 45 15% 10%;
-    --accent-fg: 45 10% 99%;
-    --success: 142 80% 22%;
-    --warning: 28 100% 30%;
-    --nouveau: 50 100% 32%;
-    --a-surveiller: 50 100% 32%;
-    --danger: 0 90% 34%;
-    --record: 213 95% 34%;
-    --record-fg: 45 10% 99%;
-    --info: 205 100% 28%;
-    --publie: 268 85% 32%;
-    --competence: 288 72% 32%;
-    --competence-fg: 292 30% 98%;
-    --en-cours: 28 100% 30%;
-    --termine: 205 100% 28%;
-    --serie-1: 265 90% 38%;
-    --serie-2: 172 100% 22%;
-    --serie-3: 337 90% 36%;
-    --travail: 46 100% 32%;
-    --termine-fg: 205 50% 98%;
-    --fond-plan: 45 6% 84%;
-    --voile: 45 20% 8%;
-    --sur-etat: 45 10% 99%;
-    --actif: 16 95% 40%;
-    --actif-fg: 45 10% 99%;
-    /* Un voile plus marqué que les autres thèmes plats (10 % contre 6-7 %) :
-       la lisibilité prime ici sur la discrétion. */
-    --controle: 45 20% 10% / 0.1;
-    /* LA LIGNE DU PROJET OUVERT : nettement plus sombre que le fond de page ET
-       que le survol, même famille neutre chaude — jeton manquant, ajouté le
-       17.08.2026. */
-    --ligne-active: 45 10% 78%;
-    /* LE BANDEAU D'ÉTAPE sous une carte : un fond solide, assombri, dédié. */
-    --bandeau-etape: 45 9% 74%;
-    /* LE BLOC DES ÉTAPES collé au-dessus du composeur : encore plus sombre,
-       distinct des deux jetons ci-dessus. */
-    --bloc-etapes: 45 6% 72%;
-    color-scheme: light;
-  }
-
-  /** Les cinq variantes qui manquaient : mêmes ambiances, clarté opposée. */
-  html[data-theme='sable-sombre'] {
-    --bg: 35 18% 9%;
-    --surface: 35 16% 14%;
-    --raised: 34 14% 19%;
-    --border: 35 15% 15%;
-    --text: 40 24% 94%;
-    --muted: 38 14% 72%;
-    --faint: 36 11% 53%;
-    --accent: 38 70% 68%;
-    --accent-fg: 35 22% 10%;
-    --success: 145 44% 57%;
-    --warning: 34 88% 64%;
-    --nouveau: 50 88% 62%;
-    --a-surveiller: 50 88% 62%;
-    --danger: 6 66% 63%;
-    --record: 210 72% 59%;
-    --record-fg: 40 30% 98%;
-    --info: 203 72% 64%;
-    --publie: 270 62% 72%;
-    --competence: 288 62% 72%;
-    --competence-fg: 292 42% 10%;
-    --en-cours: 34 88% 64%;
-    --termine: 203 72% 64%;
-    --serie-1: 259 60% 74%;
-    --serie-2: 167 50% 56%;
-    --serie-3: 332 65% 72%;
-    --travail: 46 88% 62%;
-    --termine-fg: 203 36% 12%;
-    --fond-plan: 34 14% 23%;
-    --voile: 35 28% 4%;
-    --sur-etat: 40 30% 97%;
-    --actif: 20 82% 55%;
-    --actif-fg: 40 30% 97%;
-    --controle: 42 35% 96% / 0.065;
-    --ligne-active: 34 17% 27%;
-    --bandeau-etape: 34 15% 26%;
-    --bloc-etapes: 33 14% 29%;
-    color-scheme: dark;
-  }
-
-  html[data-theme='ardoise-clair'] {
-    --bg: 220 18% 93%;
-    --surface: 220 16% 88%;
-    --raised: 220 22% 98%;
-    --border: 220 16% 89%;
-    --text: 222 24% 13%;
-    --muted: 220 15% 31%;
-    --faint: 218 12% 47%;
-    --accent: 220 45% 28%;
-    --accent-fg: 220 30% 97%;
-    --success: 150 50% 29%;
-    --warning: 31 82% 37%;
-    --nouveau: 50 82% 38%;
-    --a-surveiller: 50 82% 38%;
-    --danger: 358 66% 43%;
-    --record: 214 78% 41%;
-    --record-fg: 220 32% 99%;
-    --info: 206 76% 36%;
-    --publie: 266 53% 45%;
-    --competence: 288 53% 45%;
-    --competence-fg: 284 38% 97%;
-    --en-cours: 31 82% 37%;
-    --termine: 206 76% 36%;
-    --serie-1: 258 55% 46%;
-    --serie-2: 173 70% 27%;
-    --serie-3: 339 65% 42%;
-    --travail: 46 82% 38%;
-    --termine-fg: 206 38% 98%;
-    --fond-plan: 220 17% 83%;
-    --voile: 222 34% 13%;
-    --sur-etat: 220 32% 98%;
-    --actif: 17 80% 45%;
-    --actif-fg: 220 32% 98%;
-    --controle: 222 30% 18% / 0.065;
-    --ligne-active: 220 15% 79%;
-    --bandeau-etape: 220 14% 75%;
-    --bloc-etapes: 220 16% 70%;
-    color-scheme: light;
-  }
-
-  html[data-theme='givre-sombre'] {
-    --bg: 210 24% 8%;
-    --surface: 210 22% 13%;
-    --raised: 210 19% 18%;
-    --border: 210 21% 14%;
-    --text: 205 34% 95%;
-    --muted: 207 20% 72%;
-    --faint: 209 16% 52%;
-    --accent: 198 70% 72%;
-    --accent-fg: 212 30% 9%;
-    --success: 153 46% 59%;
-    --warning: 32 84% 66%;
-    --nouveau: 50 84% 64%;
-    --a-surveiller: 50 84% 64%;
-    --danger: 354 67% 65%;
-    --record: 206 82% 58%;
-    --record-fg: 202 38% 99%;
-    --info: 198 81% 66%;
-    --publie: 260 67% 73%;
-    --competence: 288 67% 73%;
-    --competence-fg: 284 44% 12%;
-    --en-cours: 32 84% 66%;
-    --termine: 198 81% 66%;
-    --serie-1: 257 80% 76%;
-    --serie-2: 170 65% 55%;
-    --serie-3: 331 80% 74%;
-    --travail: 46 84% 64%;
-    --termine-fg: 198 40% 12%;
-    --fond-plan: 210 18% 22%;
-    --voile: 212 40% 3%;
-    --sur-etat: 202 38% 98%;
-    --actif: 18 78% 56%;
-    --actif-fg: 202 38% 98%;
-    --controle: 198 45% 97% / 0.062;
-    --ligne-active: 209 22% 26%;
-    --bandeau-etape: 209 20% 25%;
-    --bloc-etapes: 208 18% 28%;
-    color-scheme: dark;
-  }
-
-  html[data-theme='sapin-clair'] {
-    --bg: 145 20% 92%;
-    --surface: 145 18% 97%;
-    --raised: 145 24% 100%;
-    --border: 145 17% 93%;
-    --text: 150 25% 13%;
-    --muted: 148 16% 31%;
-    --faint: 146 12% 46%;
-    --accent: 150 38% 24%;
-    --accent-fg: 145 30% 98%;
-    --success: 142 58% 27%;
-    --warning: 29 84% 36%;
-    --nouveau: 50 84% 38%;
-    --a-surveiller: 50 84% 38%;
-    --danger: 4 68% 41%;
-    --record: 208 76% 40%;
-    --record-fg: 145 34% 99%;
-    --info: 202 74% 35%;
-    --publie: 264 51% 44%;
-    --competence: 288 51% 44%;
-    --competence-fg: 289 42% 99%;
-    --en-cours: 29 84% 36%;
-    --termine: 202 74% 35%;
-    --serie-1: 266 50% 44%;
-    --serie-2: 165 65% 26%;
-    --serie-3: 334 60% 43%;
-    --travail: 46 84% 38%;
-    --termine-fg: 202 37% 98%;
-    --fond-plan: 145 18% 82%;
-    --voile: 150 32% 12%;
-    --sur-etat: 145 34% 98%;
-    --actif: 15 86% 43%;
-    --actif-fg: 145 34% 98%;
-    --controle: 150 28% 16% / 0.064;
-    --ligne-active: 145 16% 78%;
-    --bandeau-etape: 145 15% 74%;
-    --bloc-etapes: 145 17% 69%;
-    color-scheme: light;
-  }
-
-  html[data-theme='contraste-sombre'] {
-    --bg: 45 8% 4%;
-    --surface: 45 6% 10%;
-    --raised: 45 5% 16%;
-    --border: 45 5% 11%;
-    --text: 45 10% 98%;
-    --muted: 45 8% 78%;
-    --faint: 45 7% 62%;
-    --accent: 45 15% 96%;
-    --accent-fg: 45 12% 5%;
-    --success: 142 76% 64%;
-    --warning: 30 100% 68%;
-    --nouveau: 50 100% 66%;
-    --a-surveiller: 50 100% 66%;
-    --danger: 0 86% 70%;
-    --record: 212 92% 65%;
-    --record-fg: 45 20% 99%;
-    --info: 201 96% 69%;
-    --publie: 271 80% 76%;
-    --competence: 288 72% 76%;
-    --competence-fg: 289 38% 14%;
-    --en-cours: 30 100% 68%;
-    --termine: 201 96% 69%;
-    --serie-1: 263 100% 80%;
-    --serie-2: 168 90% 62%;
-    --serie-3: 330 100% 78%;
-    --travail: 46 100% 66%;
-    --termine-fg: 201 48% 12%;
-    --fond-plan: 45 5% 21%;
-    --voile: 45 26% 1%;
-    --sur-etat: 45 20% 99%;
-    --actif: 19 92% 62%;
-    --actif-fg: 45 20% 99%;
-    --controle: 45 18% 98% / 0.075;
-    --ligne-active: 45 7% 26%;
-    --bandeau-etape: 45 6% 26%;
-    --bloc-etapes: 45 5% 30%;
-    color-scheme: dark;
-  }
-
-  /**
-   * L'ÉTAGEMENT DES TROIS GRANDES ZONES, DANS LES DOUZE PALETTES.
-   * étendu aux six autres le même jour).
-   *
-   * La colonne des projets, le tableau et la conversation empruntaient tous
-   * `--bg` sans le moindre fond à eux : trois régions peintes de la même
-   * main, qui se fondaient dans le même fond — la faiblesse est née dans le
-   * thème sombre (aucune bordure ne les séparait plus depuis qu'il est
-   * devenu plat), mais elle touchait déjà les six autres, borderless ou pas
-   * : rien ne distinguait ces trois zones avant cette règle. Trois fonds
-   * DÉDIÉS, posés en repère (`data-zone`, `sidebar.tsx` et `app.tsx`),
-   * viennent les étager sans qu'aucun écran ne bouge d'un pixel.
-   *
-   * SCOPÉ à chaque thème par `html[data-theme='…']` (ou `html:not(.dark)`
-   * pour « clair », qui suit la même détection que son propre bloc de
-   * jetons), jamais posé comme un jeton CSS partagé dans un des douze blocs
-   * ci-dessus : ces règles ne sont donc JAMAIS lues par le comparateur de
-   * jetons de `scripts/verif-themes.mjs` (qui ne scanne que les douze blocs
-   * connus), et aucun thème ne peut retomber en silence sur la valeur d'un
-   * autre faute de les avoir déclarées.
-   *
-   * Chaque théme suit son PROPRE sens d'élévation : `--surface` est plus
-   * CLAIR ou plus SOMBRE que `--bg` selon la palette — la colonne des projets et
-   * le tableau se placent donc entre les deux, dans le même sens, et la
-   * conversation se place entre `--surface` et `--raised`. Valeurs choisies
-   * par PROPORTION du même écart (35 %, 65 % puis 45 % du suivant), jamais
-   * recopiées d'un thème à l'autre.
-   *
-   * Chaque règle pose sa teinte dans `--fond-zone` AVANT de peindre avec :
-   * ce qui vit DANS la zone peut donc reprendre le fond exact de la zone sans
-   * le recopier douze fois. C'est ce dont se sert le MENU DU BAS du téléphone
-   * (`app.tsx`, `data-menu-bas`), qui porte lui aussi un `data-zone` — celui de
-   * l'écran affiché — pour prolonger le fond du tableau ou de la conversation
-   * au lieu de poser une bande `--bg` sous eux.
-   */
+  html.dark [data-zone='gauche'],
   html[data-theme='sombre'] [data-zone='gauche'] {
-    --fond-zone: 0 0% 3%;
+    --fond-zone: 0 0% 9.5%;
     background-color: hsl(var(--fond-zone));
   }
-  html[data-theme='sombre'] [data-zone='centre'] {
-    --fond-zone: 0 0% 5%;
-    background-color: hsl(var(--fond-zone));
-  }
+  html.dark [data-zone='centre'],
+  html[data-theme='sombre'] [data-zone='centre'],
+  html.dark [data-zone='droite'],
   html[data-theme='sombre'] [data-zone='droite'] {
-    --fond-zone: 0 0% 11%;
+    --fond-zone: 0 0% 13%;
     background-color: hsl(var(--fond-zone));
   }
 
   html:not(.dark) [data-zone='gauche'] {
-    --fond-zone: 0 0% 98%;
+    --fond-zone: 0 0% 97.5%;
     background-color: hsl(var(--fond-zone));
   }
-  html:not(.dark) [data-zone='centre'] {
-    --fond-zone: 0 0% 96%;
-    background-color: hsl(var(--fond-zone));
-  }
+  html:not(.dark) [data-zone='centre'],
   html:not(.dark) [data-zone='droite'] {
-    --fond-zone: 0 0% 99%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='sable'] [data-zone='gauche'] {
-    --fond-zone: 40 26% 93%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sable'] [data-zone='centre'] {
-    --fond-zone: 40 28% 94%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sable'] [data-zone='droite'] {
-    --fond-zone: 41 30% 97%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='ardoise'] [data-zone='gauche'] {
-    --fond-zone: 220 14% 13%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='ardoise'] [data-zone='centre'] {
-    --fond-zone: 220 13% 14%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='ardoise'] [data-zone='droite'] {
-    --fond-zone: 220 12% 18%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='givre'] [data-zone='gauche'] {
-    --fond-zone: 210 26% 92%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='givre'] [data-zone='centre'] {
-    --fond-zone: 210 28% 90%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='givre'] [data-zone='droite'] {
-    --fond-zone: 210 24% 93%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='sapin'] [data-zone='gauche'] {
-    --fond-zone: 148 16% 11%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sapin'] [data-zone='centre'] {
-    --fond-zone: 148 15% 12%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sapin'] [data-zone='droite'] {
-    --fond-zone: 148 14% 16%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='contraste'] [data-zone='gauche'] {
-    --fond-zone: 45 8% 94%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='contraste'] [data-zone='centre'] {
-    --fond-zone: 45 7% 95%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='contraste'] [data-zone='droite'] {
-    --fond-zone: 45 6% 98%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='sable-sombre'] [data-zone='gauche'] {
-    --fond-zone: 35 17% 11%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sable-sombre'] [data-zone='centre'] {
-    --fond-zone: 35 16% 12%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sable-sombre'] [data-zone='droite'] {
-    --fond-zone: 34 15% 16%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='ardoise-clair'] [data-zone='gauche'] {
-    --fond-zone: 220 17% 91%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='ardoise-clair'] [data-zone='centre'] {
-    --fond-zone: 220 16% 90%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='ardoise-clair'] [data-zone='droite'] {
-    --fond-zone: 220 18% 93%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='givre-sombre'] [data-zone='gauche'] {
-    --fond-zone: 210 23% 10%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='givre-sombre'] [data-zone='centre'] {
-    --fond-zone: 210 22% 11%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='givre-sombre'] [data-zone='droite'] {
-    --fond-zone: 210 20% 15%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='sapin-clair'] [data-zone='gauche'] {
-    --fond-zone: 145 19% 94%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sapin-clair'] [data-zone='centre'] {
-    --fond-zone: 145 18% 95%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='sapin-clair'] [data-zone='droite'] {
-    --fond-zone: 145 20% 98%;
-    background-color: hsl(var(--fond-zone));
-  }
-
-  html[data-theme='contraste-sombre'] [data-zone='gauche'] {
-    --fond-zone: 45 7% 6%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='contraste-sombre'] [data-zone='centre'] {
-    --fond-zone: 45 6% 8%;
-    background-color: hsl(var(--fond-zone));
-  }
-  html[data-theme='contraste-sombre'] [data-zone='droite'] {
-    --fond-zone: 45 5% 13%;
+    --fond-zone: 0 0% 100%;
     background-color: hsl(var(--fond-zone));
   }
 
@@ -950,6 +267,10 @@
     height: 100dvh; /* onglet de navigateur : suit la barre d'adresse */
     height: var(--hauteur-app, 100dvh); /* installée sur le téléphone : l'écran réel */
     font-family: theme('fontFamily.sans');
+    /* Les réglages d'Inter qui comptent à petite taille : le « 1 » à pied, le
+       zéro ouvert, et un interlettrage à peine resserré. */
+    font-feature-settings: 'cv11', 'ss01', 'calt';
+    letter-spacing: -0.005em;
     overflow: hidden;
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
@@ -1024,8 +345,63 @@
 }
 
 @layer components {
+  /* LES COMMANDES DE L'ŒIL (`commandes-des-vues.tsx`) : une seule rangée, qui
+     se réduit à l'œil + son nombre et à la double coche quand la PLACE qui lui
+     reste — pas l'écran — est étroite. 24 rem couvre les libellés entiers de
+     la plus longue des cinq langues. Le libellé complet n'est jamais retiré :
+     masqué à l'œil (`sr-only`), il reste lu par les lecteurs d'écran. */
+  .commandes-des-vues {
+    container-type: inline-size;
+  }
+  .commandes-des-vues .commandes-long {
+    @apply sr-only;
+  }
+  @container (min-width: 24rem) {
+    .commandes-des-vues .commandes-court {
+      display: none;
+    }
+    .commandes-des-vues .commandes-long {
+      @apply not-sr-only;
+      white-space: nowrap;
+    }
+  }
+
   .surface {
     @apply bg-surface border border-border rounded-lg;
+  }
+
+  /* LA BULLE DE L'UTILISATEUR, dans la discussion d'une carte : sombre, à
+     droite. Ce qu'elle contient a été écrit pour un fond clair (un encadré à
+     bandeau, un texte gris) : dans la bulle, l'encadré s'efface et le texte
+     prend la couleur posée sur l'aplat (`--encre-fg`). Les pastilles de
+     fichier et les vignettes gardent leur propre tenue. */
+  .bulle-utilisateur [data-encadre] {
+    @apply overflow-visible rounded-none bg-transparent;
+  }
+  .bulle-utilisateur [data-encadre-bandeau] {
+    display: none;
+  }
+  .bulle-utilisateur [data-encadre] > div {
+    @apply p-0;
+  }
+  .bulle-utilisateur .prose-hd {
+    @apply text-[14.5px] leading-[1.6];
+  }
+  .bulle-utilisateur .prose-hd :is(p, li, strong, em, a, h1, h2, h3, h4) {
+    color: hsl(var(--encre-fg));
+  }
+  .bulle-utilisateur .prose-hd p {
+    @apply mb-2;
+  }
+  .bulle-utilisateur .prose-hd > *:last-child {
+    @apply mb-0;
+  }
+  .bulle-utilisateur .prose-hd :is(code, pre) {
+    background-color: hsl(var(--encre-fg) / 0.14);
+    color: hsl(var(--encre-fg));
+  }
+  .bulle-utilisateur .prose-hd li::before {
+    color: hsl(var(--encre-fg) / 0.6);
   }
 
   /* LA BULLE VISÉE PAR UN CLIC SUR UNE ALERTE. Le fil vient de défiler jusqu'à
@@ -1053,15 +429,12 @@
     }
   }
 
-  /* LE FOND D'UN BLOC (bordure) POSÉ DANS UN TIROIR OU UNE FENÊTRE. Le tiroir
-     et la fenêtre valent tous deux `--surface` : un bloc qui reprend
-     `--surface` s'y fond, et `--border` ne suffit plus à le distinguer dans
-     les thèmes plats, où le trait s'efface. Jamais `--raised` ni `--bg`, qui
-     ÉCLAIRCISSENT dans les thèmes clairs (déjà tenté, écarté) — `--voile`
-     reste une teinte sombre dans les douze palettes, le mélange fonce donc
-     toujours d'un même cran, quel que soit le thème. */
+  /* LE FOND D'UN BLOC POSÉ DANS UN TIROIR OU UNE FENÊTRE. Le tiroir et la
+     fenêtre valent tous deux `--surface` : un bloc qui reprend `--surface` s'y
+     fond. Il prend donc une DEMI-MARCHE vers `--raised`, qui se détache du
+     fond dans les deux clartés (il fonce en clair, éclaircit en sombre). */
   .bg-bloc {
-    background-color: color-mix(in srgb, hsl(var(--surface)) 92%, hsl(var(--voile)) 8%);
+    background-color: color-mix(in srgb, hsl(var(--raised)) 55%, hsl(var(--surface)));
   }
 
   .hairline {
@@ -1213,6 +586,15 @@
   .comprehension-unie *:not(svg):not(svg *) {
     color: hsl(var(--muted)) !important;
   }
+  /* LA COMPRÉHENSION DÉTACHÉE SE LIT COMME UNE RÉPONSE (12/10/2026) : posée sur
+     le fond de la page, elle prend la couleur d'un message (`--text`), pas le
+     gris atténué du bloc de travail où elle vivait. La taille et l'interligne ne
+     bougent pas — une seule valeur pour tout le texte. Les icônes (chevron du
+     détail technique) gardent leur `--faint`, comme ci-dessus. */
+  .comprehension-detachee,
+  .comprehension-detachee *:not(svg):not(svg *) {
+    color: hsl(var(--text)) !important;
+  }
   /* Les titres gardent leur gras et leur air, pas leur graduation : sans le
      trait ni la taille, c'est le saut de paragraphe qui les détache. */
   .comprehension-unie .prose-hd h2 {
@@ -1247,6 +629,41 @@
     @apply mt-4 mb-2 border-t-0 pt-0 tracking-normal text-text;
   }
   .texte-du-fil > :is(h1, h2, h3):first-child {
+    @apply mt-0;
+  }
+
+  /* UN PLAN SE LIT COMME UNE RÉPONSE, À TITRES DISTINCTS (12/10/2026).
+     Posé sur le conteneur de `PlanRapport`, autour d'un `Markdown enTexte` : ni
+     sommaire, ni carte, ni icône par partie — des titres nus. Le texte garde la
+     taille d'un message (14,5 px, interligne 1,625 : MEM-3218) et la couleur
+     d'une réponse (`--text`) ; ce sont les TITRES qui se détachent — le titre du
+     plan, puis chaque partie —, par le gras, un cran de taille et de l'air
+     au-dessus, sans trait ni fond. Classe LOCALE : `.prose-hd` et `.texte-du-fil`
+     ne bougent pas. */
+  .plan-en-texte {
+    @apply text-[14.5px] leading-relaxed;
+  }
+  .plan-en-texte .prose-hd :is(p, li, td, th, blockquote) {
+    font-size: 14.5px;
+    line-height: 1.625;
+    color: hsl(var(--text));
+  }
+  .plan-en-texte .prose-hd p {
+    @apply mb-2.5;
+  }
+  .plan-en-texte .prose-hd :is(h1, h2, h3) {
+    @apply mb-2 mt-7 flex items-center gap-2 border-t-0 pt-0 font-semibold leading-snug tracking-normal text-text;
+  }
+  .plan-en-texte .prose-hd h1 {
+    @apply mt-0 text-[19px] leading-tight tracking-tight;
+  }
+  .plan-en-texte .prose-hd h2 {
+    @apply text-[16.5px];
+  }
+  .plan-en-texte .prose-hd h3 {
+    @apply mt-5 text-[15px];
+  }
+  .plan-en-texte .prose-hd > :is(h1, h2, h3):first-child {
     @apply mt-0;
   }
 
@@ -1415,6 +832,40 @@
   background-color: hsl(var(--fond-zone, var(--bg)));
 }
 
+/* LE LÉGER FOND DES COLONNES DU TABLEAU (demande du 12/10/2026), aussi celles
+   de la page « Tableaux de bord ». Sans trait ni cadre : une marche de fond.
+   La colonne REPOSE `--fond-zone` : ce qui vit dedans et lit le fond de sa zone
+   (`.fond-de-zone`, le bloc des sous-cartes) suit la colonne, pas la page.
+   Clair : 97,5 % sur une page à 100 % (demande du 12/10/2026 : à 96 %, la
+   colonne et la bande de travail du bas d'une carte, `bg-raised` à 95 %,
+   se confondaient). DANS une colonne, les cartes prennent le blanc de la page
+   et leur survol le gris de `--raised` : `--surface` (97,3 %) ne se
+   distinguerait plus d'une colonne à 97,5 %. Sombre : 9 % sous une page à
+   13 % ; les cartes (16,5 %) et leur survol (21 %) restent au-dessus. */
+html:not(.dark) .fond-de-colonne-tableau {
+  --fond-zone: 0 0% 97.5%;
+  background-color: hsl(var(--fond-zone));
+}
+html.dark .fond-de-colonne-tableau,
+html[data-theme='sombre'] .fond-de-colonne-tableau {
+  --fond-zone: 0 0% 9%;
+  background-color: hsl(var(--fond-zone));
+}
+/* Sombre : le bloc des sous-cartes (« Tableaux de bord ») se cale à 60 % du
+   chemin entre la colonne et une carte (`--surface`), et non plus à mi-chemin
+   de `--raised` : sur la colonne à 9 %, ce mi-chemin tombait à 1,03 d'une
+   carte. MESURÉ : colonne → bloc 1,12, bloc → carte 1,11
+   (`verif-en-route.mjs`, point 15). */
+html.dark .fond-de-colonne-tableau .bloc-sous-cartes {
+  --fond-bloc-sous-cartes: color-mix(in srgb, hsl(var(--surface)) 60%, hsl(var(--fond-zone)));
+}
+html:not(.dark) .fond-de-colonne-tableau .carte-du-tableau {
+  background-color: hsl(var(--bg));
+}
+html:not(.dark) .fond-de-colonne-tableau .carte-du-tableau:hover {
+  background-color: hsl(var(--raised));
+}
+
 /* UN BLOC À DEUX ÉTAGES (`panneau.tsx`) : deux MARCHES au-dessus du fond de la
    zone, l'en-tête au-dessus du panneau, sans aucun trait.
    Les deux fonds partent du fond du plan et sont POUSSÉS VERS LA COULEUR DU
@@ -1509,18 +960,18 @@ html:not(.dark) :is(
    plus claire de la palette, comme un interrupteur à segments. `bg-bg/55`
    n'était, en clair, qu'à un ou deux points du fond de la conversation. */
 html:not(.dark) [data-barre-onglets] [role='tab'][data-state='active'] {
-  background-color: hsl(var(--raised));
+  background-color: hsl(var(--bg));
 }
 
-/* LES ÉTAPES « À VENIR » DU FIL D'UNE CARTE. La pastille « à venir » était un
-   blanc (`bg-raised`) posé sur un fond presque blanc, et le grand rond d'icône
-   reprenait EXACTEMENT le fond de la zone derrière un trait pâle : « Travail »
-   et « Rapport » semblaient délavés. En clair, la pastille prend un voile, et
-   le rond garde son fond OPAQUE (il perce la ligne verticale) sous un voile
-   posé en image de fond, avec un trait un cran plus marqué. */
-html:not(.dark) [data-point-avenir] {
-  background-color: hsl(var(--voile) / 0.08);
-}
+/* LES ÉTAPES « À VENIR » DU FIL D'UNE CARTE. Le grand rond d'icône reprenait
+   EXACTEMENT le fond de la zone derrière un trait pâle : « Travail » et
+   « Rapport » semblaient délavés. En clair, le rond garde son fond OPAQUE (il
+   perce la ligne verticale) sous un voile posé en image de fond, avec un trait
+   un cran plus marqué.
+   PLUS AUCUN FOND SUR `[data-point-avenir]` : ce repère est désormais porté par
+   les étapes de la FRISE (`barre-etapes.tsx`), qui se disent par un rond pâle
+   et un nom en gris — un voile gris derrière le nom y faisait une étiquette
+   (demande du 11/10/2026 : « il y a des fonds gris »). */
 html:not(.dark) [data-point-etat='avenir'] > [data-point-rond] {
   background-image: linear-gradient(hsl(var(--voile) / 0.06), hsl(var(--voile) / 0.06));
   border-color: hsl(var(--faint) / 0.6);
@@ -1536,4 +987,11 @@ html.en-veille *,
 html.en-veille *::before,
 html.en-veille *::after {
   animation-play-state: paused !important;
+}
+
+/* LE FIL D'ARIANE D'UNE PAGE SANS TITRE : tant que la page n'a pas écrit son
+   titre dans la barre (`data-titre-de-page-ici` vide), le chevron qui le
+   précède s'efface avec lui — le fil ne se termine jamais sur « › ». */
+[data-fil-d-ariane] > svg:has(+ [data-titre-de-page-ici]:empty) {
+  display: none;
 }

@@ -1,5 +1,5 @@
 /**
- * LA PORTE CLIENT — la racine de l'application servie sur my.haikostudio.cloud.
+ * LA PORTE CLIENT — la racine de l'application servie sur l'adresse de l'espace client.
  *
  * Elle ne monte RIEN de l'application d'administration : ni magasin général, ni
  * colonne de gauche, ni tableau. Le fichier est chargé à la demande depuis
@@ -28,6 +28,7 @@ import {
   themeDeLAmbiance,
   themeDuSysteme,
   type NotificationEspace,
+  identiteDInstallation,
 } from '@beluga/shared';
 import { PileDeMessages, usePileDeMessages } from '@/components/messages-passagers';
 import { VisionneuseDeLien } from '@/components/visionneuse-de-lien';
@@ -293,9 +294,9 @@ export function PorteClient() {
           demandeVisee={vise.demandeId}
           navigation={navigation}
           onEcranOuvert={ecrireLAdresse}
-          /* « HAIKO CHAT », LE NOM DE L'APPLICATION INSTALLÉE, redit en tête : un
-             nom propre, il ne se traduit pas. */
-          enteteAvant={<span className="shrink-0 text-[14px] font-semibold text-text">Haiko Chat</span>}
+          /* LE NOM DE L'APPLICATION INSTALLÉE, redit en tête : celui de l'espace
+             client réglé dans l'installation. Un nom propre, il ne se traduit pas. */
+          enteteAvant={<span className="shrink-0 text-[14px] font-semibold text-text">{identiteDInstallation().nomEspaceClient || t('Espace client')}</span>}
           enteteApres={
             /*
              * LE NOM DE LA PERSONNE CONNECTÉE N'EST PLUS DANS L'ENTÊTE : elle

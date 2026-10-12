@@ -281,7 +281,23 @@ function textesDAide(
   return textes.filter((texte): texte is string => Boolean(texte));
 }
 
-export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
+/**
+ * LE TÉMOIN DU MOTEUR. Deux tenues pour le même menu des quotas :
+ *  - `pied` : la carte au bas de la colonne des projets — logo, « LLM en
+ *    ligne » et son point de liaison, puis le compte qui défile et ses deux
+ *    pourcentages consommés ; le détail se lit en ouvrant ;
+ *  - `bande` : la même, réduite au logo, quand la colonne est repliée.
+ */
+export function QuotaBadge({
+  activeEngine,
+  variante = 'pied',
+  liaison,
+}: {
+  activeEngine: EngineId;
+  variante?: 'pied' | 'bande';
+  /** L'état de la liaison avec le serveur : le point à côté de « LLM en ligne ». */
+  liaison?: { classe: string; texte: string; enLigne: boolean };
+}) {
   const [open, setOpen] = React.useState(false);
   const state = client.lireEtat();
   // Les lignes de suivi (Gemini) ne vivent que dans ce volet : ailleurs, `state.quotas` ne porte que des comptes.
@@ -421,6 +437,27 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
   const videDroite = cursorActif && creditActif?.autresPct === undefined;
   const chiffreGauche = cursorActif ? chiffreRond(creditActif?.cursorPct) : String(Math.round(session));
   const chiffreDroite = cursorActif ? chiffreRond(creditActif?.autresPct) : String(Math.round(semaine));
+  /*
+   * LES POURCENTAGES DU COMPTE AFFICHÉ, lus au pied de la colonne pendant que
+   * les comptes défilent (demande du 11/10/2026 : « affiche les pourcentages de
+   * chaque LLM dans cette partie lorsqu'elle tourne »). Les deux mêmes parts
+   * consommées que dans le menu : fenêtre courte puis semaine ; pour Cursor,
+   * ses modèles puis les autres. UNE PART QUI N'A PAS PU ÊTRE LUE NE S'ÉCRIT
+   * PAS — jamais un « 0 % » inventé. Ce sont des parts de quota, pas des
+   * compteurs de jetons.
+   */
+  const pourcents: { chiffre: string; nom: string }[] = [];
+  if (cursorActif) {
+    if (!videGauche) pourcents.push({ chiffre: chiffreGauche, nom: t('Modèles Cursor') });
+    if (!videDroite) pourcents.push({ chiffre: chiffreDroite, nom: t('Autres modèles') });
+    // Un forfait au mois (MiMo) : sa seule part est celle du mois.
+    const mois = current?.usageMesuree?.mois;
+    if (typeof mois?.usedPct === 'number') pourcents.push({ chiffre: chiffreRond(mois.usedPct), nom: libelleFenetre(mois, 'weekly') });
+  } else {
+    if (current?.session) pourcents.push({ chiffre: chiffreGauche, nom: libelleFenetre(current.session, 'session') });
+    if (current?.weekly) pourcents.push({ chiffre: chiffreDroite, nom: libelleFenetre(current.weekly, 'weekly') });
+  }
+  const pourcentsEnClair = pourcents.map(({ chiffre, nom }) => `${nom} ${chiffre} %`).join(' · ');
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -432,8 +469,11 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
             Radix ici : imbriqué dans le déclencheur du menu, il se disputait
             le même bouton. */}
         <button
-          className="flex h-7 items-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
-          title={current?.label ?? t('Quotas des moteurs')}
+          className={cn(
+            'flex min-w-0 items-center rounded-lg text-left transition-colors hover:bg-raised',
+            variante === 'bande' ? 'relative h-9 w-9 justify-center' : 'h-11 flex-1 gap-2.5 px-2.5',
+          )}
+          title={[liaison?.texte, current?.label ?? t('Quotas des moteurs'), pourcentsEnClair].filter(Boolean).join(' · ')}
           aria-label={current?.label ? `${t('Quotas des moteurs')} · ${current.label}` : t('Quotas des moteurs')}
           onMouseEnter={() => setSurvole(true)}
           onMouseLeave={() => setSurvole(false)}
@@ -444,15 +484,38 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
         >
           {current ? (
             <span key={current.id} data-logo-badge={current.engine} className="flex shrink-0 animate-fade-in [animation-duration:500ms]">
-              <IconeMoteur engine={current.engine} className="h-3.5 w-3.5 shrink-0" />
+              <IconeMoteur engine={current.engine} className={cn('shrink-0', variante === 'bande' ? 'h-4 w-4' : 'h-5 w-5')} />
             </span>
           ) : null}
-          {/* Une part Cursor illisible laisse sa piste vide : jamais un 0 % inventé. */}
-          <span className="flex shrink-0 items-center gap-1">
-            <RondQuota pct={session} vide={videGauche} chiffre={chiffreGauche} />
-            <RondQuota pct={semaine} vide={videDroite} chiffre={chiffreDroite} />
-          </span>
-          <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+          {variante === 'bande' ? (
+            liaison ? (
+              <span data-point-etat className={cn('absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full', liaison.classe)} />
+            ) : null
+          ) : (
+            <>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-[13.5px] font-medium leading-tight text-text">
+                  <span className="truncate">{liaison && !liaison.enLigne ? t('Reconnexion…') : t('LLM en ligne')}</span>
+                  {liaison ? <span data-point-etat className={cn('h-1.5 w-1.5 shrink-0 rounded-full', liaison.classe)} /> : null}
+                </span>
+                {/* Le compte qui défile, puis ses pourcentages : c'est le nom
+                    qui se tronque, jamais les chiffres. La ligne garde sa
+                    hauteur, avec ou sans chiffres. */}
+                <span className="flex items-baseline gap-1.5 text-[12px] leading-tight text-faint">
+                  <span className="min-w-0 truncate">{current?.label ?? t('Quotas des moteurs')}</span>
+                  {pourcents.length ? (
+                    <span
+                      key={current?.id}
+                      data-pourcents-du-compte={current?.id}
+                      className="shrink-0 animate-fade-in tabular-nums text-muted [animation-duration:500ms]"
+                    >
+                      {pourcents.map(({ chiffre }) => `${chiffre} %`).join(' · ')}
+                    </span>
+                  ) : null}
+                </span>
+              </span>
+            </>
+          )}
         </button>
       </DropdownMenuTrigger>
 
@@ -460,7 +523,7 @@ export function QuotaBadge({ activeEngine }: { activeEngine: EngineId }) {
           défile : sinon sa dernière ligne (journal, roue des réglages) sortait
           de l'écran, hors d'atteinte. */}
       <DropdownMenuContent
-        align="end"
+        align="start"
         className="p-2 sm:max-h-[var(--radix-dropdown-menu-content-available-height)] sm:w-[310px]"
       >
         <div className="mb-1.5 flex items-center justify-between gap-1.5">
@@ -964,7 +1027,7 @@ function libelleFenetre(
 ): string {
   const secondes = win.durationSeconds;
   if (secondes === 5 * 60 * 60) return t('Fenêtre 5 h');
-  if (secondes === 7 * 24 * 60 * 60) return 'Semaine';
+  if (secondes === 7 * 24 * 60 * 60) return t('Semaine');
   // Un forfait mensuel (MiMo) : de 28 à 31 jours selon le mois.
   if (secondes && secondes >= 28 * 24 * 3600 && secondes <= 31 * 24 * 3600) return t('Mois');
   if (secondes && secondes < 24 * 60 * 60) {

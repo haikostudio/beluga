@@ -135,8 +135,16 @@ export interface Retouche {
   opacite?: number;
   /** Le texte réécrit à la main ; ses retours à la ligne (`\n`) sont rendus tels quels. */
   texte?: string;
-  /** Couleur du texte (et remplissage d'un dessin SVG). */
+  /** Couleur du texte (et remplissage d'un dessin SVG : ses formes remplies, jamais un tracé ouvert). */
   couleur?: string;
+  /**
+   * LE TRAIT D'UN DESSIN SVG (icône au trait : chargeur, plus, coche…) : la couleur et l'épaisseur de
+   * TOUS ses tracés. Une icône porte sa couleur sur ses tracés (`stroke="#fff"`), pas sur le `<svg>` :
+   * `couleur` seule ne l'atteignait pas. La transparence d'origine d'un tracé est gardée.
+   */
+  trait?: string;
+  /** En unités du dessin (celles de son `viewBox`). */
+  epaisseurTrait?: number;
   /** Couleur de fond d'une forme (`background-color`). */
   fond?: string;
   /**
@@ -583,6 +591,10 @@ export interface ExportStudio {
   lot?: string;
   creeLe: number;
   majLe: number;
+  /** L'heure où la fabrication a vraiment démarré (sortie de la file lourde) ; absente tant qu'il attend, et sur un export d'avant. */
+  demarreLe?: number;
+  /** L'heure où la fabrication s'est arrêtée (prêt, échoué ou annulé) ; absente tant qu'il attend ou se fabrique. */
+  termineLe?: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -654,6 +666,8 @@ function lireRetouche(r: any): Retouche | null {
   if (typeof r.texte === 'string') sortie.texte = r.texte.slice(0, 2000);
   if (r.couleur !== undefined && r.couleur !== null) sortie.couleur = couleurValide(r.couleur);
   if (r.fond !== undefined && r.fond !== null) sortie.fond = couleurValide(r.fond);
+  if (r.trait !== undefined && r.trait !== null) sortie.trait = couleurValide(r.trait);
+  if (r.epaisseurTrait !== undefined && r.epaisseurTrait !== null) sortie.epaisseurTrait = arrondi(nombre(r.epaisseurTrait, 1, 0, 200));
   // `null` efface la taille posée : le cadre revient à celle du dessin.
   if (r.largeur !== undefined && r.largeur !== null) sortie.largeur = Math.round(nombre(r.largeur, 100, 4, 20000));
   if (r.hauteur !== undefined && r.hauteur !== null) sortie.hauteur = Math.round(nombre(r.hauteur, 100, 4, 20000));

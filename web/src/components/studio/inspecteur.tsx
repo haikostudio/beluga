@@ -42,7 +42,9 @@ import {
   dureeDeLaComposition,
   MODES_FUSION,
   OMBRES_MAX,
+  blocsDeLaPiece,
   piecesDuDessin,
+  type BlocDeReglage,
   POLICES_STUDIO,
   RECETTES_ANIMATION,
   retouchesDuFormat,
@@ -98,7 +100,7 @@ export function Inspecteur({
   composition: Composition;
   segmentId: string | null;
   elementId: string | null;
-  /** Sur ORDINATEUR, les calques ont leur colonne à gauche de l'aperçu : l'inspecteur ne les redit pas. */
+  /** Sur ORDINATEUR, les calques vivent dans la colonne de gauche de l'application : l'inspecteur ne les redit pas. */
   calquesAilleurs?: boolean;
   /** Choisir une pièce du dessin depuis le panneau « Calques » (elle se sélectionne aussi dans l'aperçu). */
   onChoisirPiece: (elementId: string | null) => void;
@@ -109,6 +111,10 @@ export function Inspecteur({
   onOperation: (op: OperationStudio) => Promise<unknown> | void;
   onVoixEssai: (segmentId: string) => Promise<unknown>;
 }) {
+  /* LA DERNIÈRE DESCRIPTION CONNUE DE LA PIÈCE RÉGLÉE : pendant que l'aperçu se reconstruit (après chaque réglage) ou
+     tant qu'il ne l'a pas encore redite, le volet garde ses vrais réglages au lieu de retomber à la seule position. */
+  const derniere = React.useRef<BoiteDuCadre | null>(null);
+  if (piece && piece.segmentId === segmentId && (piece.elementId ?? null) === elementId) derniere.current = piece;
   const trouve = segmentId ? trouverSegment(composition, segmentId) : null;
   if (!trouve) {
     return (
@@ -123,8 +129,9 @@ export function Inspecteur({
   const fin = s.debut + s.duree;
   const peutCouper = temps > s.debut + 0.1 && temps < fin - 0.1 && s.genre !== 'voix' && s.genre !== 'sous-titres';
 
-  // La boîte de l'aperçu ne compte que si elle parle de LA pièce réglée ici.
-  const boite = piece && piece.segmentId === s.id && (piece.elementId ?? null) === elementId ? piece : null;
+  // La boîte de l'aperçu ne compte que si elle parle de LA pièce réglée ici ; à défaut, la dernière connue de cette pièce.
+  const memoire = derniere.current && derniere.current.segmentId === s.id && (derniere.current.elementId ?? null) === elementId ? derniere.current : null;
+  const boite = piece && piece.segmentId === s.id && (piece.elementId ?? null) === elementId ? piece : memoire;
   const piecesDeLaScene = s.genre === 'dessin' ? piecesDuDessin(s.gabarit.html) : [];
   const parametresDeLaPiece = piecesDeLaScene.find((p) => p.id === elementId)?.parametres ?? [];
   // Un paramètre TEXTE posé sur la pièce est son contenu : il se règle dans le bloc « Texte » (sur plusieurs lignes).
@@ -218,8 +225,6 @@ export function Inspecteur({
             medias={medias}
             onOperation={onOperation}
             boite={boite}
-            // Le texte, les couleurs, la typographie et les effets ne se règlent que dans un dessin : ailleurs, le segment les porte déjà.
-            reglagesDuContenu={s.genre === 'dessin'}
             parametresTexte={
               s.genre === 'dessin' && parametresTexteDeLaPiece.length ? (
                 <ParametresDuDessin segment={s} medias={medias} onOperation={onOperation} ids={parametresTexteDeLaPiece} />
@@ -591,7 +596,6 @@ function RetouchesDeLaPiece({
   medias,
   onOperation,
   boite,
-  reglagesDuContenu,
   parametresTexte,
   parametres,
 }: {
@@ -603,8 +607,6 @@ function RetouchesDeLaPiece({
   onOperation: (op: OperationStudio) => unknown;
   /** Ce que l'aperçu dit de la pièce : sa nature et ses styles réels (absent : pas encore reçu). */
   boite: BoiteDuCadre | null;
-  /** Texte, couleurs, typographie et effets : seulement pour une pièce de dessin. */
-  reglagesDuContenu: boolean;
   /** Les paramètres TEXTE de l'agent posés sur cette pièce : son contenu se règle par eux. */
   parametresTexte: React.ReactNode;
   /** Ses autres paramètres (couleurs, nombres, médias…). */
@@ -617,7 +619,9 @@ function RetouchesDeLaPiece({
   const montrer = direct ? (retouche: Retouche) => direct({ segmentId: segment.id, elementId, retouche }) : undefined;
   const nature = boite?.nature;
   const st = boite?.styles ?? null;
-  const contenu = reglagesDuContenu ? nature : undefined;
+  /* LES BLOCS DE CETTE PIÈCE : une seule table (`blocsDeLaPiece`, shared), selon ce qu'elle est et ce qui la porte. */
+  const blocs = blocsDeLaPiece(segment.genre, nature, !!st?.trait);
+  const offre = (b: BlocDeReglage) => blocs.includes(b);
   const epaisseur = r.epaisseurContour ?? Math.round(st?.epaisseurContour ?? 0);
   const couleurContour = r.contour ?? enCouleur(st?.contour) ?? '#000000';
   const arrondiCoins = r.arrondiCoins ?? (r.arrondi !== undefined ? undefined : st?.arrondiCoins && new Set(st.arrondiCoins).size > 1 ? quatre(st.arrondiCoins) : undefined);
@@ -685,7 +689,7 @@ function RetouchesDeLaPiece({
             </Button>
           </Ligne>
         ) : null}
-        {contenu ? (
+        {offre('contour') ? (
           <Ligne libelle={t('Arrondi')} className="gap-1">
             {coinsSepares ? (
               <ChampQuatre
@@ -724,7 +728,7 @@ function RetouchesDeLaPiece({
 
       {/* LE TEXTE : son contenu sur plusieurs lignes (Entrée va à la ligne, y compris pour une phrase animée mot par mot),
           puis sa typographie et ses alignements. */}
-      {contenu === 'texte' ? (
+      {offre('texte') ? (
         <Section titre={t('Texte')} cle="texte" data-studio-bloc-texte={elementId}>
           {parametresTexte ? (
             parametresTexte
@@ -797,7 +801,8 @@ function RetouchesDeLaPiece({
               repere="studio-alignement"
               data-studio-retouche="alignement"
             />
-            <span className="h-5 w-px shrink-0 bg-faint/30" aria-hidden />
+            {/* Les deux groupes (horizontal, vertical) se séparent par un VIDE, plus par un trait. */}
+            <span className="w-1.5 shrink-0" aria-hidden />
             <ChampBoutons
               valeur={r.alignementVertical ?? verticalDe(st?.alignementVertical)}
               options={[
@@ -817,7 +822,7 @@ function RetouchesDeLaPiece({
       ) : null}
 
       {/* UNE IMAGE : le média du projet qu'elle montre, et comment elle tient dans son cadre. */}
-      {contenu === 'image' ? (
+      {offre('image') ? (
         <Section titre={t('Image')} cle="image" data-studio-bloc-image={elementId}>
           <Ligne libelle={t('Source')}>
             <ChampChoix titre={t('Source')} valeur={r.source ?? ''} options={[{ valeur: '', libelle: t('Celle du dessin') }, ...imagesDuProjet]} onValider={(v) => poser({ source: v || null })} data-studio-retouche="source" />
@@ -842,7 +847,7 @@ function RetouchesDeLaPiece({
         <Ligne libelle={t('Opacité')}>
           <ChampNombre valeur={opacite} pas={1} min={0} max={100} unite="%" onValider={(v) => poser({ opacite: v / 100 })} data-studio-retouche="opacite" />
         </Ligne>
-        {contenu ? (
+        {blocs.length > 2 ? (
           <>
             <Ligne libelle={t('Fusion')}>
               <ChampChoix titre={t('Mode de fusion')} valeur={r.fusion ?? (MODES_FUSION as readonly string[]).find((m) => m === st?.fusion) ?? 'normal'} options={MODES_FUSION.map((m) => ({ valeur: m, libelle: libelleFusion(m) }))} onValider={(v) => poser({ fusion: v })} data-studio-retouche="fusion" />
@@ -855,9 +860,9 @@ function RetouchesDeLaPiece({
       </Section>
 
       {/* LE REMPLISSAGE : couleur unie (transparence comprise, « aucune » possible) ou dégradé ; une forme SVG se remplit de sa couleur. */}
-      {contenu ? (
+      {offre('remplissage') ? (
         <Section titre={t('Remplissage')} cle="remplissage" data-studio-couleurs-piece={elementId}>
-          {contenu === 'svg' ? (
+          {nature === 'svg' ? (
             <Ligne libelle={t('Couleur')}>
               <ChampCouleur transparence valeur={r.couleur ?? enCouleur(st?.remplissage) ?? enCouleur(st?.couleur) ?? ''} onValider={(v) => poser({ couleur: v })} onApercu={montrer ? (v) => montrer({ couleur: v }) : undefined} data-studio-retouche="couleur" />
             </Ligne>
@@ -885,8 +890,28 @@ function RetouchesDeLaPiece({
         </Section>
       ) : null}
 
+      {/* LE TRAIT D'UNE ICÔNE SVG (chargeur, plus, coche…) : la couleur et l'épaisseur de TOUS ses tracés. La couleur
+          d'une icône vit sur ses tracés, pas sur le <svg> : sans ce bloc, elle ne changeait pas. Un tracé pâle reste pâle. */}
+      {offre('trait') ? (
+        <Section titre={t('Trait')} cle="trait" data-studio-bloc-trait={elementId}>
+          <Ligne libelle={t('Couleur')}>
+            <ChampCouleur transparence valeur={r.trait ?? enCouleur(st?.trait ?? undefined) ?? ''} onValider={(v) => poser({ trait: v })} onApercu={montrer ? (v) => montrer({ trait: v }) : undefined} data-studio-retouche="trait" />
+          </Ligne>
+          <Ligne libelle={t('Épaisseur')}>
+            <ChampNombre
+              valeur={r.epaisseurTrait ?? Math.round((st?.epaisseurTrait ?? 0) * 10) / 10}
+              pas={0.5}
+              min={0}
+              title={t('Épaisseur des tracés, dans les unités du dessin')}
+              onValider={(v) => poser({ epaisseurTrait: v })}
+              data-studio-retouche="epaisseurTrait"
+            />
+          </Ligne>
+        </Section>
+      ) : null}
+
       {/* LE CONTOUR : sa couleur, son épaisseur, où passe le trait (dedans, la pièce ne grossit pas) et son style. */}
-      {contenu ? (
+      {offre('contour') ? (
         <Section titre={t('Contour')} cle="contour">
           <Ligne libelle={t('Couleur')}>
             <ChampCouleur
@@ -930,7 +955,7 @@ function RetouchesDeLaPiece({
       ) : null}
 
       {/* LES MARGES : l'espace entre le cadre et son contenu (intérieures), et autour du cadre (extérieures). */}
-      {contenu && contenu !== 'svg' ? (
+      {offre('marges') ? (
         <Section titre={t('Marges')} cle="marges">
           <Ligne libelle={t('Intérieures')}>
             <ChampQuatre valeurs={r.marges ?? quatre(st?.marges)} lettres={['H', 'D', 'B', 'G']} libelles={[t('Marge du haut'), t('Marge de droite'), t('Marge du bas'), t('Marge de gauche')]} min={0} onValider={(q) => poser({ marges: q })} data-studio-retouche="marges" />
@@ -943,7 +968,7 @@ function RetouchesDeLaPiece({
 
       {/* LES EFFETS : autant d'ombres qu'on veut (portées, intérieures, ou celles des lettres), le flou de la pièce
           et celui de ce qu'il y a derrière elle. */}
-      {contenu ? (
+      {offre('effets') ? (
         <Section
           titre={t('Effets')}
           cle="effets"
@@ -1160,6 +1185,10 @@ export function Calques({
   onOperation,
   onChoisirPiece,
   onOuvrirEditeur,
+  titre,
+  actif,
+  onChoisirDessin,
+  enColonne = false,
 }: {
   segment: SegmentDessin;
   elementId: string | null;
@@ -1169,6 +1198,14 @@ export function Calques({
   onChoisirPiece: (elementId: string | null) => void;
   /** Le DOUBLE-CLIC sur une pièce : elle se choisit et la fenêtre d'édition s'ouvre sur elle. */
   onOuvrirEditeur?: (elementId: string) => void;
+  /** Le nom du dessin en tête de la liste, à la place de « Calques » (colonne : un groupe par dessin). */
+  titre?: string;
+  /** Ce dessin est celui choisi dans la ligne de temps : sa tête se marque. */
+  actif?: boolean;
+  /** Un clic sur la tête choisit le dessin entier. */
+  onChoisirDessin?: () => void;
+  /** Posé dans la colonne de gauche : sans fond ni marge à soi, la colonne les porte. */
+  enColonne?: boolean;
 }) {
   const pieces = React.useMemo(() => piecesDuDessin(segment.gabarit.html), [segment.gabarit.html]);
   const retouches = retouchesDuFormat(segment, format, formatDeBase);
@@ -1197,12 +1234,34 @@ export function Calques({
   parcourir(undefined, 0);
   const poser = (id: string, r: Retouche) => onOperation({ op: 'retouche', segmentId: segment.id, elementId: id, retouche: r, format });
   return (
-    <section ref={liste} className="flex flex-col gap-1 rounded-md bg-bloc px-2 py-2.5" data-studio-calques={segment.id}>
-      <header className="flex items-center gap-2 px-1 pb-0.5">
-        <Layers className="h-3.5 w-3.5 text-faint" />
-        <h3 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">{t('Calques')}</h3>
-        <span className="text-[11.5px] text-faint">{pieces.length}</span>
-      </header>
+    <section
+      ref={liste}
+      className={cn('flex flex-col gap-1', enColonne ? 'py-1' : 'rounded-md bg-bloc px-2 py-2.5')}
+      data-studio-calques={segment.id}
+      data-studio-calques-actif={actif ? '' : undefined}
+    >
+      {onChoisirDessin ? (
+        <button
+          type="button"
+          onClick={onChoisirDessin}
+          aria-current={actif ? 'true' : undefined}
+          className={cn(
+            'flex min-h-7 items-center gap-2 rounded-md px-1 pb-0.5 text-left transition-colors hover:bg-raised/60',
+            actif ? 'text-teinte' : 'text-text',
+          )}
+          data-studio-calques-tete={segment.id}
+        >
+          <Layers className="h-3.5 w-3.5 shrink-0 text-faint" />
+          <h3 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">{titre ?? t('Calques')}</h3>
+          <span className="text-[11.5px] text-faint">{pieces.length}</span>
+        </button>
+      ) : (
+        <header className="flex items-center gap-2 px-1 pb-0.5">
+          <Layers className="h-3.5 w-3.5 text-faint" />
+          <h3 className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">{titre ?? t('Calques')}</h3>
+          <span className="text-[11.5px] text-faint">{pieces.length}</span>
+        </header>
+      )}
       {lignes.map(({ id, profondeur }) => {
         const piece = pieces.find((p) => p.id === id)!;
         const r = retouches[id] ?? {};

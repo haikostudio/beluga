@@ -87,7 +87,7 @@ export function VoletVerification({ sourceId, nom, onClose }: { sourceId: string
   };
 
   return (
-    <Drawer open onClose={onClose} empile plein={telephone}>
+    <Drawer adresse="verification-studio" open onClose={onClose} empile plein={telephone}>
       <header className="shrink-0 px-3 pb-2">
         <EnteteDeFenetre titre={nom ? t('Passer la vérification — {nom}', { nom }) : t('Passer la vérification')} onRetour={onClose} />
       </header>

@@ -30,9 +30,10 @@ export interface RubriqueDeConfig {
   /** Ce que la rubrique regroupe, en une ligne — clé du dictionnaire aussi. */
   resume: string;
   /**
-   * Une rubrique ÉCARTÉE du reste : les gestes irréversibles (archiver,
-   * effacer). Elle reste atteignable, mais le menu la pose à part pour qu'on
-   * ne tombe pas dessus en parcourant les autres.
+   * Une rubrique ÉCARTÉE du reste : celle qui retire le projet (le mettre de
+   * côté, le supprimer). Elle reste atteignable, mais le menu la pose à part,
+   * tout en bas, sur un bouton rouge : on ne tombe pas dessus en parcourant
+   * les autres, et on ne la confond avec aucune.
    */
   apart?: boolean;
 }
@@ -52,7 +53,7 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
   {
     cle: 'apparence',
     titre: 'Apparence',
-    resume: 'Une ambiance propre à ce projet, ou le réglage général.',
+    resume: 'Clair ou sombre pour ce projet, ou le réglage général.',
   },
   {
     cle: 'dossiers',
@@ -69,15 +70,14 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
     titre: 'Mise en production',
     resume: 'Envoyer le résultat là où le public le voit, souvent ailleurs.',
   },
-  {
-    cle: 'facturation',
-    titre: 'Client et tarif',
-    resume: 'Le client facturé, son tarif horaire, le document par défaut.',
-  },
+  /* La CLÉ reste « retrait » : elle vit dans l'adresse
+     (« #projet/<id>/config/retrait ») et des liens la portent déjà. Seul le
+     titre a changé — la rubrique propose les deux gestes, et son bouton
+     d'entrée dit le plus grave. */
   {
     cle: 'retrait',
-    titre: 'Mettre de côté',
-    resume: 'Retirer ce projet de la colonne de gauche, sans rien perdre.',
+    titre: 'Supprimer',
+    resume: 'Mettre ce projet de côté sans rien perdre, ou le supprimer pour de bon.',
     apart: true,
   },
 ];

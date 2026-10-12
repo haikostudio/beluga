@@ -295,3 +295,26 @@ export function serveursTiers(configToml: string, garde = 'beluga'): string[] {
   }
   return [...noms];
 }
+
+/**
+ * Les extensions (« plugins ») branchées dans la configuration d'un moteur.
+ *
+ * Une extension du compte peut apporter ses propres consignes, outils de
+ * mémoire et automatismes : le modèle les suit à la place de ceux du projet
+ * (le bloc « Mémoire consultée » d'un plugin personnel, par exemple). Comme
+ * pour `serveursTiers`, on les éteint le temps d'un tour d'agent. Les deux
+ * écritures TOML sont reconnues : `[plugins."nom@place"]` et
+ * `plugins."nom@place".enabled = …`.
+ */
+export function pluginsTiers(configToml: string): string[] {
+  const noms = new Set<string>();
+  for (const ligne of configToml.split('\n')) {
+    const texte = ligne.trim();
+    if (texte.startsWith('#')) continue;
+    const entete = texte.match(/^\[\s*plugins\s*\.\s*"([^"]+)"\s*(?:\.[A-Za-z0-9_."-]+)*\s*\]/);
+    const affectation = texte.match(/^plugins\s*\.\s*"([^"]+)"\s*(?:\.[A-Za-z0-9_.-]+)?\s*=/);
+    const nom = entete?.[1] ?? affectation?.[1];
+    if (nom) noms.add(nom);
+  }
+  return [...noms];
+}

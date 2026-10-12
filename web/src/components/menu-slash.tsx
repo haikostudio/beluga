@@ -53,8 +53,9 @@ export function MenuSlash({
       data-menu-slash
       className={cn(
         // Mêmes règles que le repère des tâches : pas de marge latérale (il vit
-        // dans le conteneur du champ), bord bas absent, recouvrement de 8px.
-        'relative z-0 -mb-2 flex shrink-0 flex-col rounded-t-lg',
+        // dans le conteneur du champ), bord bas absent, et 24 px de
+        // recouvrement — le rayon du champ, sous lequel il passe vraiment.
+        'relative z-0 -mb-6 flex shrink-0 flex-col rounded-t-[20px]',
         'border border-b-0 border-border bg-bloc-etapes',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
@@ -70,7 +71,7 @@ export function MenuSlash({
       </div>
 
       {commandes.length ? (
-        <ZoneDefilement classeEnveloppe="max-h-[min(35vh,240px)] flex-none" className="px-1.5 pb-4 pt-1">
+        <ZoneDefilement classeEnveloppe="max-h-[min(35vh,240px)] flex-none" className="px-1.5 pb-8 pt-1">
           <ul>
             {commandes.map((commande, rang) => (
               <li key={`${commande.origine}-${commande.nom}`}>
@@ -113,7 +114,7 @@ export function MenuSlash({
           </ul>
         </ZoneDefilement>
       ) : (
-        <p className="px-3 pb-4 pt-1 text-[12.5px] leading-snug text-faint">
+        <p className="px-3 pb-8 pt-1 text-[12.5px] leading-snug text-faint">
           {t('Aucune commande « / » pour ce moteur : continuez d’écrire normalement.')}
         </p>
       )}
@@ -134,7 +135,7 @@ export function PastilleCommande({ nom, onRetirer }: { nom: string; onRetirer: (
     <div className="mb-1.5 flex flex-wrap items-center gap-1.5 px-1">
       <span
         data-commande-reconnue={nom}
-        className="inline-flex max-w-full items-center gap-1 rounded border border-accent/40 bg-accent/12 px-1.5 py-0.5 text-[12.5px] text-accent"
+        className="inline-flex max-w-full items-center gap-1 rounded border border-transparent bg-accent/12 px-1.5 py-0.5 text-[12.5px] text-accent"
       >
         <Slash className="h-3 w-3 shrink-0" />
         <span className="truncate">{nom}</span>

@@ -28,8 +28,15 @@ export function InfoTravail({
   className,
   icone,
   alterner = false,
+  classeDuTexte,
 }: {
   quoi: string;
+  /**
+   * La couleur de la phrase et de sa roue. Absente : le gris du texte discret.
+   * Le décroché du champ d'écriture y pose le violet, seule couleur de
+   * l'interface.
+   */
+  classeDuTexte?: string;
   avancement?: { done: number; total: number } | null;
   temps?: string | null;
   className?: string;
@@ -58,8 +65,8 @@ export function InfoTravail({
 
   return (
     <>
-      {icone ?? <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin text-en-cours', className)} />}
-      <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{quoi}</span>
+      {icone ?? <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin', classeDuTexte ?? 'text-en-cours', className)} />}
+      <span className={cn('min-w-0 flex-1 truncate text-[13px]', classeDuTexte ?? 'text-muted')}>{quoi}</span>
       {avancement || temps ? (
         <span
           data-avancement-travail

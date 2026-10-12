@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { ArrowLeft, Ban, ChevronRight } from 'lucide-react';
 import { POLICES_STUDIO } from '@beluga/shared';
-import { Button, DialogTitle, Input, ListeDeroulante, Switch, Textarea, type OptionSelecteur } from '@/components/ui';
+import { Button, DialogTitle, EmplacementDuTitreDePage, Input, ListeDeroulante, Switch, Textarea, type OptionSelecteur } from '@/components/ui';
+import { GestesDePage } from '@/components/entete-de-zone';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 import { ecrireCouleur, lireCouleur } from './apercu';
@@ -12,17 +13,19 @@ import { ecrireCouleur, lireCouleur } from './apercu';
  * relâché, case changée) : une opération par geste, donc une version par
  * geste — jamais une version par lettre tapée.
  *
- * ALIGNÉS EN DEUX COLONNES : chaque `Section` est une grille dont la première
- * colonne (largeur fixe) porte les libellés et la seconde les valeurs, pleine
- * largeur. Une `Ligne` ne pose aucune boîte (`display: contents`) ; ce qui
- * n'est pas une ligne (zone de texte sans libellé, note, bouton) se range DANS
- * la colonne des valeurs. Les unités (« s », « px ») vivent dans le champ.
+ * LE LIBELLÉ AU-DESSUS DE SA VALEUR (demande du 09/10/2026, valable dans toute
+ * l'application) : chaque `Section` est une colonne de lignes, et chaque
+ * `Ligne` pose son libellé puis son champ, pleine largeur. Ce qui n'est pas
+ * une ligne (zone de texte sans libellé, note, bouton) se range à sa place
+ * dans la colonne. Les unités (« s », « px ») vivent dans le champ.
  */
 
 export function Ligne({ libelle, children, className }: { libelle: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="contents" data-ligne>
-      <span className="flex min-h-8 min-w-0 items-center self-start text-[12.5px] leading-tight text-muted">{libelle}</span>
+    <label className="flex min-w-0 flex-col gap-1" data-ligne>
+      <span className="min-w-0 text-[12.5px] leading-tight text-muted" data-ligne-libelle>
+        {libelle}
+      </span>
       <span className={cn('flex min-h-8 min-w-0 items-center gap-2 text-[13px]', className)}>{children}</span>
     </label>
   );
@@ -506,7 +509,7 @@ export function Section({
       {!ouvert ? null : liste ? (
         <div className="flex flex-col gap-1">{children}</div>
       ) : (
-        <div className="grid grid-cols-[6.75rem_minmax(0,1fr)] items-start gap-x-2.5 gap-y-1.5 [&>:not([data-ligne])]:col-start-2" data-studio-grille>
+        <div className="flex flex-col gap-2.5" data-studio-grille>
           {children}
         </div>
       )}
@@ -520,6 +523,12 @@ export function Section({
  * Trois colonnes dont les deux de côté ont la même largeur : le titre reste
  * centré, qu'il y ait un retour ou non. Le geste principal, lui, va dans le
  * pied (`DialogFooter pleineLargeur`) — plus aucun bouton aligné à droite.
+ *
+ * DANS UNE PAGE DE L'APPLICATION (un `Drawer` : nouvelle création, style,
+ * bibliothèque…), IL N'Y A PLUS QU'UNE BARRE, celle du fil d'Ariane : le titre
+ * y monte en dernier cran, l'aide se pose à sa droite (`GestesDePage`), et la
+ * flèche de la barre referme la page. Seul un retour INTERNE (`retourInterne` :
+ * revenir d'une étape à la précédente sans quitter la page) garde sa flèche ici.
  */
 export function EnteteDeFenetre({
   titre,
@@ -528,8 +537,11 @@ export function EnteteDeFenetre({
   repereRetour = 'data-studio-retour',
   droite,
   croix,
+  retourInterne = false,
   ...reste
 }: {
+  /** Le retour mène à l'étape d'avant DANS la page : il garde sa flèche, même sous le fil d'Ariane. */
+  retourInterne?: boolean;
   titre: string;
   /** Une ligne discrète sous le titre (l'étape d'un parcours). */
   sousTitre?: React.ReactNode;
@@ -544,6 +556,21 @@ export function EnteteDeFenetre({
    */
   croix?: boolean;
 } & Record<`data-${string}`, string | number | undefined>) {
+  const dansUnePage = React.useContext(EmplacementDuTitreDePage) !== null;
+  if (dansUnePage) {
+    return (
+      <div className="flex shrink-0 items-center gap-1 empty:hidden" data-studio-entete-fenetre="page" {...reste}>
+        {retourInterne && onRetour ? (
+          <Button size="icon" variant="ghost" aria-label="Retour" title={t('Retour')} onClick={onRetour} {...{ [repereRetour]: '' }}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        ) : null}
+        <DialogTitle data-studio-titre-fenetre>{titre}</DialogTitle>
+        {sousTitre ? <span className="min-w-0 truncate text-[11.5px] text-faint">{sousTitre}</span> : null}
+        {droite ? <GestesDePage className="pb-0">{droite}</GestesDePage> : null}
+      </div>
+    );
+  }
   return (
     <div className={cn('grid items-center gap-1', croix ? 'grid-cols-[3.75rem_minmax(0,1fr)_3.75rem]' : 'grid-cols-[2rem_minmax(0,1fr)_2rem]')} data-studio-entete-fenetre {...reste}>
       {onRetour ? (

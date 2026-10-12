@@ -40,6 +40,32 @@ function depotPrincipal(): string {
 const dataDir = env('BELUGA_DATA', path.join(ROOT, 'data'));
 
 /**
+ * CE SERVEUR EST-IL UN ESSAI ? Un contrôle monte son propre démon sur une base
+ * à lui (`BELUGA_DATA` ailleurs que `<dépôt>/data`) ou se déclare
+ * (`BELUGA_ESSAI=1`) — la même lecture que celle du nom du processus
+ * (`titreDuProcessus`, `shared/src/demon.ts`).
+ */
+export const DEMON_D_ESSAI =
+  process.env.BELUGA_ESSAI === '1' || path.resolve(dataDir) !== path.resolve(path.join(ROOT, 'data'));
+
+/**
+ * LE PREMIER DÉMARRAGE D'UNE VRAIE INSTALLATION N'EST PAS CELUI D'UN ESSAI.
+ *
+ * Une installation neuve attend son propriétaire : aucun compte n'est créé à sa
+ * place (il le crée dans le navigateur, derrière un code d'installation), aucun
+ * projet n'est inscrit d'office, et l'assistant de démarrage l'accueille.
+ *
+ * Les dizaines de contrôles de `scripts/`, eux, montent un démon sur une base
+ * vierge et comptent y trouver un compte et le projet de l'application : ils
+ * gardent l'ancien départ. `BELUGA_PREMIER_DEMARRAGE=reel` force le vrai
+ * parcours sur un essai (c'est ce que fait le contrôle de l'installation
+ * neuve), `=essai` l'ancien sur un dépôt de travail.
+ */
+export const PREMIER_DEMARRAGE_REEL =
+  process.env.BELUGA_PREMIER_DEMARRAGE === 'reel' ||
+  (!DEMON_D_ESSAI && process.env.BELUGA_PREMIER_DEMARRAGE !== 'essai');
+
+/**
  * LE STOCKAGE DES PIÈCES JOINTES EST CENTRAL, ET IL NE SUIT PAS LA COPIE DE CARTE.
  *
  * Une image déposée est écrite UNE FOIS, dans `<dépôt principal>/data/attachments`,

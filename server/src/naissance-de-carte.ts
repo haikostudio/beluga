@@ -18,6 +18,7 @@
 import {
   COLONNES_AVANT_LE_TRAVAIL,
   LABEL_AUTO_AMELIORATION,
+  LABEL_VEILLE_COMPETENCES,
   LABEL_MARKETING,
   cadrageJamaisParti,
   carteSansDemande,
@@ -166,7 +167,7 @@ export function cadrageDeLaCarteJamaisParti(card: Card): Agent | null {
 
 function auteurDeLaCarte(card: Card): AuteurDeCarte {
   if (card.labels.includes(LABEL_MARKETING)) return 'marketing';
-  if (card.labels.includes(LABEL_AUTO_AMELIORATION)) return 'nuit';
+  if (card.labels.includes(LABEL_AUTO_AMELIORATION) || card.labels.includes(LABEL_VEILLE_COMPETENCES)) return 'nuit';
   return card.origin === 'agent' ? 'agent' : 'utilisateur';
 }
 
@@ -242,7 +243,7 @@ export function completerLesDemandesManquantes(): number {
  */
 export async function rattraperLaCarteSansCadrage(card: Card): Promise<boolean> {
   if (card.column !== 'planned' || card.origin !== 'agent') return false;
-  if (card.labels.includes(LABEL_AUTO_AMELIORATION) || card.demandeClientId) return false;
+  if (card.labels.includes(LABEL_AUTO_AMELIORATION) || card.labels.includes(LABEL_VEILLE_COMPETENCES) || card.demandeClientId) return false;
   if (card.agentId || card.conversationAgentId || store.getLastAgentByCard(card.id)) return false;
   const auteur: AuteurDeCarte = card.labels.includes(LABEL_MARKETING) ? 'marketing' : 'agent';
   let carte = card;

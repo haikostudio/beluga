@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Check, Circle, Loader2, Paperclip, X } from 'lucide-react';
-import { Attachment, reponsePrete, texteDeReponse, triImages } from '@beluga/shared';
+import { Attachment, reponsePrete, texteDeReponse } from '@beluga/shared';
 import { Button, Textarea } from '@/components/ui';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { PastilleDeFichier } from '@/components/pastille-de-fichier';
@@ -9,6 +9,48 @@ import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { oublierLaSaisie, retenirLaSaisie } from '@/lib/saisie-de-question';
+import { writePref } from '@/lib/prefs';
+
+/**
+ * LE BROUILLON D'UNE RÉPONSE : le texte écrit dans la bulle, les choix cochés et
+ * les images jointes, tant que la réponse n'est pas partie. Il vit CÔTÉ SERVEUR,
+ * dans un réglage nommé d'après la question (`reponse.<question>`) : rien ne se
+ * perd au rechargement, et chaque appareil ouvert le voit aussitôt — ce qu'on
+ * ajoute au téléphone apparaît sur l'ordinateur, comme les autres réglages
+ * partagés (demande du 09/10/2026). Il s'efface quand la réponse part ou que
+ * la question se ferme (aussi côté serveur, `question.answer` / `question.cancel`).
+ */
+export interface BrouillonDeReponse {
+  choisis: string[];
+  texte: string;
+  images: Attachment[];
+}
+const BROUILLON_VIDE: BrouillonDeReponse = { choisis: [], texte: '', images: [] };
+
+/** Les clés des brouillons de réponse — une par question, jamais deux pour la même. */
+export const cleDeBrouillonDeReponse = {
+  outil: (questionId: string) => `reponse.${questionId}`,
+  texte: (messageId: string) => `reponse.texte.${messageId}`,
+  carte: (cardId: string, questionId: string) => `reponse.carte.${cardId}.${questionId}`,
+};
+
+function lireBrouillon(brut: unknown): BrouillonDeReponse {
+  if (!brut || typeof brut !== 'object') return BROUILLON_VIDE;
+  const b = brut as Partial<BrouillonDeReponse>;
+  return {
+    choisis: Array.isArray(b.choisis) ? b.choisis.filter((c): c is string => typeof c === 'string') : [],
+    texte: typeof b.texte === 'string' ? b.texte : '',
+    images: Array.isArray(b.images) ? b.images.filter((i): i is Attachment => !!i && typeof (i as Attachment).id === 'string') : [],
+  };
+}
+const memesIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+const memesImages = (a: readonly Attachment[], b: readonly Attachment[]) =>
+  memesIds(
+    a.map((i) => i.id),
+    b.map((i) => i.id),
+  );
+const memeBrouillon = (a: BrouillonDeReponse, b: BrouillonDeReponse) =>
+  a.texte === b.texte && memesIds(a.choisis, b.choisis) && memesImages(a.images, b.images);
 
 /**
  * Les pièces jointes d'un message : les images se voient tout de suite, les
@@ -108,6 +150,7 @@ export function BulleQuestion({
   onAnnuler,
   repere,
   cleDeSaisie,
+  cleDeBrouillon,
 }: {
   question: QuestionAAfficher;
   /** Le projet : c'est lui qui porte les pièces jointes. */
@@ -134,12 +177,59 @@ export function BulleQuestion({
    * (`saisie-de-question.ts`). Absente : la barre ne répond pas à cette question.
    */
   cleDeSaisie?: string;
+  /**
+   * Le réglage où vit le brouillon de cette réponse (`cleDeBrouillonDeReponse`).
+   * Absent : la réponse n'est gardée que dans cette page.
+   */
+  cleDeBrouillon?: string;
 }) {
-  const [choisis, setChoisis] = React.useState<string[]>([]);
+  /* Le brouillon tel que le serveur le tient : la bulle en part, et le suit. */
+  const brut = React.useSyncExternalStore(
+    client.subscribe,
+    () => (cleDeBrouillon ? client.lireEtat().prefs[cleDeBrouillon] : undefined),
+    () => undefined,
+  );
+  const empreinte = JSON.stringify(brut ?? null);
+  const distant = React.useMemo(() => lireBrouillon(brut), [empreinte]);
+  const [choisis, setChoisis] = React.useState<string[]>(distant.choisis);
   /** Le texte libre de la réponse, écrit directement dans la bulle. */
-  const [texteLibre, setTexteLibre] = React.useState('');
+  const [texteLibre, setTexteLibre] = React.useState(distant.texte);
   /** Les images jointes à la réponse, avant l'envoi. */
-  const [images, setImages] = React.useState<Attachment[]>([]);
+  const [images, setImages] = React.useState<Attachment[]>(distant.images);
+  /*
+   * CE QUE LA BULLE REFLÉTAIT DU SERVEUR. Un changement venu d'ailleurs (l'autre
+   * appareil) n'est suivi, champ par champ, que si la bulle montrait encore
+   * l'ancienne valeur : une frappe en cours ici n'est jamais écrasée.
+   */
+  const dernierDistant = React.useRef<BrouillonDeReponse>(distant);
+  React.useEffect(() => {
+    const avant = dernierDistant.current;
+    if (memeBrouillon(avant, distant)) return;
+    dernierDistant.current = distant;
+    setChoisis((actuel) => (memesIds(actuel, avant.choisis) ? distant.choisis : actuel));
+    setTexteLibre((actuel) => (actuel === avant.texte ? distant.texte : actuel));
+    setImages((actuel) => (memesImages(actuel, avant.images) ? distant.images : actuel));
+  }, [distant]);
+  const ecrireLeBrouillon = React.useCallback(
+    (brouillon: BrouillonDeReponse) => {
+      if (!cleDeBrouillon) return;
+      dernierDistant.current = brouillon;
+      const vide = !brouillon.choisis.length && !brouillon.texte && !brouillon.images.length;
+      writePref(cleDeBrouillon, vide ? null : brouillon);
+    },
+    [cleDeBrouillon],
+  );
+  /* Chaque geste part au serveur : une case ou une image tout de suite, la
+     frappe après 600 ms de calme (une écriture par pause, pas par lettre). */
+  React.useEffect(() => {
+    if (!cleDeBrouillon) return;
+    const local: BrouillonDeReponse = { choisis, texte: texteLibre, images };
+    const reflet = dernierDistant.current;
+    if (memeBrouillon(local, reflet)) return;
+    const seulLeTexte = memesIds(choisis, reflet.choisis) && memesImages(images, reflet.images);
+    const minuteur = window.setTimeout(() => ecrireLeBrouillon(local), seulLeTexte ? 600 : 0);
+    return () => window.clearTimeout(minuteur);
+  }, [cleDeBrouillon, choisis, texteLibre, images, ecrireLeBrouillon]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
   const [envoi, setEnvoi] = React.useState(false);
@@ -150,17 +240,12 @@ export function BulleQuestion({
   const reponsePossible = question.options.length > 0 || !!question.allowFreeText;
 
   /**
-   * Joindre des images à la réponse. On réutilise le dépôt de fichiers de la
-   * barre d'écriture, à l'identique — seul le tri change : ici, des images et
-   * rien d'autre, et un fichier refusé le dit au lieu de disparaître.
+   * Joindre des pièces à la réponse : images ET fichiers (une maquette, une
+   * charte, un PDF). On réutilise le dépôt de fichiers de la barre d'écriture,
+   * à l'identique ; l'agent reçoit chaque pièce par son chemin.
    */
   const joindre = async (fichiers: FileList | File[]) => {
-    const { gardees, refusees } = triImages(
-      Array.from(fichiers).map((file) => ({ file, name: file.name, mime: file.type })),
-    );
-    if (refusees.length) {
-      client.pushToast('warning', t('Seules les images peuvent être jointes à une réponse.'));
-    }
+    const gardees = Array.from(fichiers).map((file) => ({ file }));
     if (!gardees.length) return;
     setEnvoiFichier(true);
     try {
@@ -183,7 +268,7 @@ export function BulleQuestion({
         setImages((current) => (current.some((a) => a.id === jointe.id) ? current : [...current, jointe]));
       }
     } catch {
-      client.pushToast('error', t('Envoi de l\'image impossible'));
+      client.pushToast('error', t('Envoi du fichier impossible'));
     } finally {
       setEnvoiFichier(false);
     }
@@ -201,6 +286,8 @@ export function BulleQuestion({
     setEnvoi(true);
     try {
       await onRepondre(reponse, images.map((a) => a.id));
+      // La réponse est partie : son brouillon n'a plus lieu d'être, nulle part.
+      ecrireLeBrouillon(BROUILLON_VIDE);
     } finally {
       setEnvoi(false);
     }
@@ -262,7 +349,7 @@ export function BulleQuestion({
       className={cn(
         'rounded-lg px-3 py-2.5',
         variante === 'attention'
-          ? 'border border-warning/40 bg-raised'
+          ? 'border border-transparent bg-raised'
           : variante === 'contraste'
             ? 'bg-raised'
             : 'bg-bloc-fil',
@@ -355,6 +442,7 @@ export function BulleQuestion({
                 type="button"
                 onClick={() => basculer(option.id)}
                 data-option-question={option.id}
+                data-option-retenue={actif ? '' : undefined}
                 className={cn(
                   'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
                   /* LE CHOIX RETENU DOIT RESTER VISIBLE : sur ces variantes,
@@ -362,15 +450,15 @@ export function BulleQuestion({
                      même fond n'aurait plus rien montré. */
                   surFondRaised
                     ? actif
-                      ? 'bg-text/10 text-text'
+                      ? 'bg-text/10 text-teinte'
                       : 'text-muted hover:bg-text/5'
                     : actif
-                      ? 'bg-raised text-text'
+                      ? 'bg-raised text-teinte'
                       : 'text-muted hover:bg-raised/60',
                 )}
               >
                 <span className="mt-0.5 shrink-0">
-                  {actif ? <Check className="h-3 w-3 text-success" /> : <Circle className="h-3 w-3 text-faint" />}
+                  {actif ? <Check className="h-3 w-3 text-teinte" /> : <Circle className="h-3 w-3 text-faint" />}
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[14px] leading-snug">
@@ -404,6 +492,7 @@ export function BulleQuestion({
           </p>
         <Textarea
           value={texteLibre}
+          data-question-texte
           onChange={(event) => setTexteLibre(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
@@ -427,14 +516,14 @@ export function BulleQuestion({
       {images.length ? (
         <div className="mt-1.5 flex flex-wrap gap-1.5" data-images-reponse>
           {images.map((image) => (
-            <div key={image.id} className="relative">
+            <div key={image.id} className="relative" data-image-reponse={image.id}>
               <AttachmentThumb item={image} compact onOpen={() => setApercu(image)} />
               <button
                 type="button"
-                title={t('Retirer cette image')}
-                aria-label={`Retirer l'image ${image.name}`}
+                title={t('Retirer cette pièce jointe')}
+                aria-label={`Retirer la pièce ${image.name}`}
                 onClick={() => setImages((liste) => liste.filter((a) => a.id !== image.id))}
-                className="absolute -right-1 -top-1 rounded-full border border-border bg-surface p-0.5 text-faint hover:border-danger/40 hover:text-danger"
+                className="absolute -right-1 -top-1 rounded-full bg-raised p-0.5 text-faint shadow-sm transition-colors hover:bg-danger hover:text-sur-etat"
               >
                 <X className="h-2.5 w-2.5" />
               </button>
@@ -443,7 +532,7 @@ export function BulleQuestion({
         </div>
       ) : null}
 
-      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} />
+      <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={images} />
 
       {/* Une question peut porter assez d'options pour dépasser l'écran. Les
           deux issues restent donc collées au bas du fil pendant sa lecture :
@@ -473,7 +562,6 @@ export function BulleQuestion({
             <input
               ref={fileRef}
               type="file"
-              accept="image/*"
               multiple
               className="hidden"
               data-champ-image
@@ -485,8 +573,8 @@ export function BulleQuestion({
             <Button
               variant="ghost"
               size="sm"
-              title={t('Joindre une image')}
-              aria-label="Joindre une image à la réponse"
+              title={t('Joindre une image ou un fichier')}
+              aria-label="Joindre une pièce à la réponse"
               disabled={envoiFichier}
               onClick={() => fileRef.current?.click()}
             >
@@ -495,24 +583,28 @@ export function BulleQuestion({
               ) : (
                 <Paperclip className="h-3 w-3" />
               )}
-{t('Image')}
+{t('Joindre')}
 </Button>
           </>
         ) : null}
         {/* Sans aucune façon de répondre, « Annuler » est la SEULE issue : il
-            prend toute la largeur de la bulle, avec sa bordure, au lieu de se
-            faire passer pour un lien discret posé dans un coin. */}
+            prend toute la largeur de la bulle, en bouton PLEIN (rouge au
+            survol), au lieu de se faire passer pour un lien discret posé dans
+            un coin. */}
         {onAnnuler ? (
           <Button
-            variant={reponsePossible ? 'ghost' : 'outline'}
+            variant={reponsePossible ? 'ghost' : 'arret'}
             size="sm"
             title={t('Fermer la question sans répondre')}
-            onClick={onAnnuler}
+            onClick={async () => {
+              await onAnnuler();
+              ecrireLeBrouillon(BROUILLON_VIDE);
+            }}
             data-annuler-question
             className={cn(
               reponsePossible
                 ? 'text-faint hover:text-danger'
-                : 'w-full justify-center border-danger/40 text-danger hover:bg-danger/10 hover:text-danger',
+                : 'w-full justify-center',
             )}
           >
             <X className="h-3 w-3" />

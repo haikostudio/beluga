@@ -28,10 +28,10 @@ export function PointNonLu({
           event.stopPropagation();
           onLire();
         }}
-        className="group absolute -right-3 -top-3 z-20 flex h-6 w-6 items-center justify-center rounded-full"
+        className="group absolute -right-2 -top-2 z-20 flex h-6 w-6 items-center justify-center rounded-full"
         {...attributs}
       >
-        <span className="h-2.5 w-2.5 rounded-full bg-termine shadow-sm transition-transform duration-150 group-hover:scale-[1.8] group-focus-visible:scale-[1.8]" />
+        <span className="h-2 w-2 rounded-full bg-text ring-2 ring-bg transition-transform duration-150 group-hover:scale-[1.8] group-focus-visible:scale-[1.8]" />
       </button>
     </Tooltip>
   );

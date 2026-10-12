@@ -1,10 +1,12 @@
 /**
- * Répondre à la question d'un agent EN IMAGES.
+ * Répondre à la question d'un agent AVEC DES PIÈCES JOINTES.
  *
- * Le champ de réponse accepte des images — bouton, collage, glisser-déposer —
- * et rien d'autre : une capture d'écran vaut souvent mieux qu'un paragraphe,
- * un tableur ou une archive n'aurait aucun sens ici. Les deux règles ci-dessous
- * sont pures : elles ne touchent ni la base ni le disque, et se rejouent seules.
+ * Le champ de réponse accepte des images ET, depuis le cahier des charges
+ * (09.10.2026), tout autre fichier — bouton, collage, glisser-déposer : une
+ * maquette en PDF, une charte, un logo vectoriel répondent mieux qu'un
+ * paragraphe. Le fichier part à l'agent par son chemin, comme une image.
+ * `estImage` reste utile à l'affichage (vignette ou simple nom). Les règles
+ * ci-dessous sont pures : ni base ni disque, et se rejouent seules.
  */
 
 /** Ce qu'on sait d'un fichier avant de l'envoyer : son nom et son type. */
@@ -57,10 +59,10 @@ export function triImages<T extends FichierChoisi>(fichiers: T[]): { gardees: T[
  * Une image seule suffit à répondre : sans cette mention, la réponse serait
  * vide et la question resterait ouverte.
  */
-export function texteDeReponse(libelles: string[], complement: string, nbImages: number): string {
+export function texteDeReponse(libelles: string[], complement: string, nbPieces: number): string {
   const morceaux = [libelles.join(', '), complement.trim()].filter(Boolean);
-  if (nbImages === 1) morceaux.push('1 image jointe');
-  else if (nbImages > 1) morceaux.push(`${nbImages} images jointes`);
+  if (nbPieces === 1) morceaux.push('1 pièce jointe');
+  else if (nbPieces > 1) morceaux.push(`${nbPieces} pièces jointes`);
   return morceaux.join(' — ');
 }
 

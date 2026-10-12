@@ -18,6 +18,7 @@
  * les fonds et les tons, jamais par une bordure.
  */
 import * as React from 'react';
+import { nomCourtDeLInstallation } from '@beluga/shared';
 import { Loader2, X } from 'lucide-react';
 import { BulleInfo, Button, DialogTitle, Drawer, Input, Label, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
@@ -157,7 +158,7 @@ export function TiroirProfil({ onFermer }: { onFermer: () => void }) {
     profil !== null && nom.trim() === profil.nomAffiche && courriel.trim() === (profil.courriel ?? '');
 
   return (
-    <Drawer open onClose={onFermer} plein={telephone}>
+    <Drawer adresse="profil" open onClose={onFermer} plein={telephone}>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-profil data-profil-charge={profil ? '' : undefined}>
         <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
           <DialogTitle className="min-w-0 flex-1 truncate">{t('Mon profil')}</DialogTitle>
@@ -189,7 +190,7 @@ export function TiroirProfil({ onFermer }: { onFermer: () => void }) {
             <Bloc
               repere="informations"
               titre={t('Vos informations')}
-              aide={t('Le nom que voit Haiko sous vos messages, et l’adresse où vous prévenir.')}
+              aide={t('Le nom que voit {nom} sous vos messages, et l’adresse où vous prévenir.', { nom: nomCourtDeLInstallation() })}
             >
               <Champ
                 libelle={t('Nom affiché')}

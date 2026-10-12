@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { porteDeLHote } from '@beluga/shared';
+import { REPERE_DE_PORTE, REPERE_D_IDENTITE, definirIdentiteDInstallation, porteDeLHote } from '@beluga/shared';
 import { Filet } from './components/filet';
 import { brancherRemonteeErreurs } from './lib/erreurs';
 import { rechargerUneFois } from './lib/rechargement';
@@ -10,14 +10,34 @@ import { t } from '@/lib/langue';
 /*
  * DEUX VISAGES, DEUX MORCEAUX : L'UN NE TÉLÉCHARGE JAMAIS L'AUTRE.
  *
- * L'adresse demandée décide de la racine montée — l'espace client sur
- * `my.haikostudio.cloud`, l'application d'administration ailleurs. Les deux
+ * L'adresse demandée décide de la racine montée — l'espace client sur son
+ * adresse à lui (« my.… »), l'application d'administration ailleurs. Les deux
  * arrivent par un import DYNAMIQUE : le navigateur d'un client ne charge donc
  * pas le tableau, les agents et les quotas, et celui de Haiko ne paie pas le
  * poids d'un écran qu'il ouvre rarement.
  */
+/*
+ * Le démon dit quelle porte monter quand il le sait mieux que l'adresse : sur
+ * une installation à une seule adresse, un compte client est servi au même
+ * endroit que l'administration, et c'est son RÔLE qui décide (repère posé dans
+ * la page par `pageAuNomDuClient`, `server/src/http.ts`).
+ */
+/*
+ * CE QUE LE DÉMON DIT DE L'INSTALLATION, lu AVANT le premier affichage : le nom
+ * de l'entreprise, celui de l'espace client, la zone des projets. Les textes
+ * qui les citent n'ont ainsi rien à attendre.
+ */
+try {
+  const brut = document.querySelector(`meta[name="${REPERE_D_IDENTITE}"]`)?.getAttribute('content');
+  if (brut) definirIdentiteDInstallation(JSON.parse(brut));
+} catch {
+  /* une page sans repère (serveur de développement) garde l'identité vierge */
+}
+
+const porteAnnoncee = document.querySelector(`meta[name="${REPERE_DE_PORTE}"]`)?.getAttribute('content');
+
 const Racine = React.lazy(() =>
-  porteDeLHote(location.hostname) === 'client'
+  porteAnnoncee === 'client' || porteDeLHote(location.hostname) === 'client'
     ? import('./espace/porte-client').then((m) => ({ default: m.PorteClient }))
     : import('./app').then((m) => ({ default: m.App })),
 );
@@ -31,11 +51,47 @@ const Infobulles = React.lazy(() => import('./components/ui').then((m) => ({ def
  */
 brancherRemonteeErreurs();
 
+/*
+ * UN MORCEAU DE CODE QUI N'EXISTE PLUS SE RECHARGE, IL NE LAISSE PAS L'ÉCRAN VIDE.
+ *
+ * Chaque mise en ligne renomme les morceaux de l'application (leur nom porte
+ * une empreinte). Une application restée ouverte — ou installée sur le
+ * téléphone — réclame ensuite un morceau disparu : le serveur répondait la page
+ * d'accueil à la place, le navigateur refusait ce « script » (« Importing a
+ * module script failed », « 'text/html' is not a valid JavaScript MIME type »),
+ * et la zone restait blanche jusqu'à une relance à la main. 25 cas relevés sur
+ * iPhone en cinq jours (12/10/2026).
+ *
+ * Vite signale l'échec d'un import dynamique par `vite:preloadError`. On
+ * recharge UNE fois par morceau manquant, par le compteur commun
+ * (`lib/rechargement.ts` : repos entre deux rechargements, plafond, jamais de
+ * boucle) ; si le compteur refuse, l'erreur suit son chemin et le filet de
+ * composant la dit.
+ */
+window.addEventListener('vite:preloadError', (event) => {
+  const erreur = (event as Event & { payload?: unknown }).payload;
+  const nom = erreur instanceof Error ? erreur.message : String(erreur ?? 'morceau');
+  if (rechargerUneFois('morceau', nom)) event.preventDefault();
+});
+
+/* CE QU'ON VOIT PENDANT QUE L'APPLICATION ARRIVE : la même pause que « Connexion
+   au serveur… », posée dès le premier rendu. Sans elle, la page restait vide
+   pendant le téléchargement des morceaux — des secondes, sur un téléphone. */
+function Demarrage() {
+  return (
+    <div className="grid h-full place-items-center bg-bg" data-demarrage>
+      <div className="flex flex-col items-center gap-2">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-faint border-t-transparent" aria-hidden />
+      </div>
+    </div>
+  );
+}
+
 // Le filet de dernier recours : plutôt un message lisible qu'une page vide.
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <Filet onReprendre={() => location.reload()}>
-      <React.Suspense fallback={null}>
+      <React.Suspense fallback={<Demarrage />}>
         <Racine />
         {/* Chaque `title` des DEUX visages devient l'infobulle maison : rapide, en fondu. */}
         <Infobulles />

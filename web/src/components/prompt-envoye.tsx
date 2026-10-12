@@ -9,7 +9,8 @@ import { t } from '@/lib/langue';
  *
  * Il vit à gauche, comme une parole de l'agent. Chaque résultat ajoute ses
  * propres bulles courtes à la suite : la recherche, ce qui a été compris et les
- * directives éventuellement retrouvées. Le prompt complet n'est jamais recopié ici.
+ * directives éventuellement retrouvées. Le texte entier du prompt ne tient pas
+ * dans ces bulles : il se lit par le lien de `prompt-envoye-complet.tsx`.
  */
 export function BullesDuPromptEnvoye({
   contexte,

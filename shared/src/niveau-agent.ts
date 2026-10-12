@@ -25,6 +25,7 @@
 
 import { modeleBanni, sansModelesBannis } from './modele-banni.js';
 import type { MoteurCatalogue, ModeleCatalogue } from './reglages-proposition.js';
+import { minusculesSansAccents } from './mots.js';
 
 /** Les trois paliers, du plus économe au plus ample. */
 export type NiveauAgent = 'leger' | 'standard' | 'approfondi';
@@ -93,11 +94,7 @@ export const DEFINITIONS_NIVEAU: Record<NiveauAgent, DefinitionNiveau> = {
  */
 export function niveauDemande(valeur: unknown): NiveauAgent | undefined {
   if (typeof valeur !== 'string') return undefined;
-  const mot = valeur
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
+  const mot = minusculesSansAccents(valeur.trim());
   if (!mot) return undefined;
   if (/^(leger|light|simple|rapide)$/.test(mot)) return 'leger';
   if (/^(standard|normal|moyen|medium)$/.test(mot)) return 'standard';

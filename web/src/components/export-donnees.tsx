@@ -53,7 +53,7 @@ const POLITIQUES: PolitiqueConflit[] = ['ignorer', 'remplacer', 'remettre-a-zero
 
 export function TiroirDonnees({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
-    <Drawer open={open} onClose={onClose} className="max-w-2xl">
+    <Drawer adresse="export-donnees" open={open} onClose={onClose}>
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <Database className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">{t('Export et import des données')}</DialogTitle>
@@ -407,7 +407,7 @@ function CaseCategorie({
 function Avertissement({ manquantes }: { manquantes: CategorieExport[] }) {
   return (
     <p
-      className="mt-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[12.5px] leading-relaxed text-warning"
+      className="mt-2 flex items-start gap-2 rounded-md border border-transparent bg-warning/10 px-2.5 py-2 text-[12.5px] leading-relaxed text-warning"
       data-donnees-orphelins
     >
       <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

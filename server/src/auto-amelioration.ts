@@ -32,6 +32,8 @@ import {
   heritageAnalyseDeProposition,
   LABEL_AUTO_AMELIORATION,
   LABEL_RENDEZ_VOUS_DE_NUIT,
+  LABEL_VEILLE_COMPETENCES,
+  demandeDeCadrageDeLaVeille,
   propositionsEnAttente,
   raisonDite,
   rapportDuRendezVous,
@@ -98,6 +100,11 @@ export const PERIODE_DE_VEILLE_MS = 10 * 60 * 1000;
 
 /** Un seul rendez-vous à la fois : deux ne doivent jamais se chevaucher. */
 let enCours = false;
+
+/** Le rendez-vous de nuit tourne-t-il ? La veille des compétences s'efface devant lui. */
+export function rendezVousDeNuitEnCours(): boolean {
+  return enCours;
+}
 
 export function dernierPassage(): number | undefined {
   const brut = getMeta(CLE_DERNIER_PASSAGE);
@@ -190,7 +197,12 @@ export async function noterLesPropositionsDeLaNuit(agentId: string): Promise<num
   }
 }
 
-export function accepterPropositionsDeLaNuit(agentId: string, catalogue: MoteurCatalogue[] = []): Card[] {
+export function accepterPropositionsDeLaNuit(
+  agentId: string,
+  catalogue: MoteurCatalogue[] = [],
+  /** L'étiquette posée sur chaque carte : celle de la nuit, ou celle de la veille des compétences. */
+  etiquette: string = LABEL_AUTO_AMELIORATION,
+): Card[] {
   const messages = store.listMessages(agentId);
   // Deux propositions PENDING peuvent partager le même message : chaque
   // acceptation doit repartir du message déjà mis à jour par la précédente,
@@ -215,7 +227,7 @@ export function accepterPropositionsDeLaNuit(agentId: string, catalogue: MoteurC
     const message = parMessage.get(messageId);
     if (!message) continue;
 
-    const labels = [...new Set([...(proposal.labels ?? []), LABEL_AUTO_AMELIORATION])];
+    const labels = [...new Set([...(proposal.labels ?? []), etiquette])];
     const heritage = heritageAnalyseDeProposition(proposal, proposal.title, proposal.description);
     const card = createCard(agent.projectId, {
       title: proposal.title,
@@ -274,7 +286,12 @@ export function accepterPropositionsDeLaNuit(agentId: string, catalogue: MoteurC
  *
  * Rend le nombre de cadrages réellement partis.
  */
-export async function ouvrirLesCadragesDeLaNuit(cartes: Card[], nomDuProjet: string): Promise<number> {
+export async function ouvrirLesCadragesDeLaNuit(
+  cartes: Card[],
+  nomDuProjet: string,
+  /** La demande du premier tour : celle de la nuit par défaut, celle de la veille des compétences sinon. */
+  demande: typeof demandeDeCadrageDeLaNuit = demandeDeCadrageDeLaNuit,
+): Promise<number> {
   let partis = 0;
   for (const carte of cartes) {
     try {
@@ -290,7 +307,7 @@ export async function ouvrirLesCadragesDeLaNuit(cartes: Card[], nomDuProjet: str
        * lit dans le tiroir du prompt envoyé, comme tout appel interne.
        * `template: 'none'` : un cadrage ne rend pas un compte rendu à titres.
        */
-      await sendPrompt(cadrage.id, demandeDeCadrageDeLaNuit(carte, nomDuProjet), {
+      await sendPrompt(cadrage.id, demande(carte, nomDuProjet), {
         template: 'none',
         silent: true,
       });
@@ -318,7 +335,8 @@ export async function ouvrirLesCadragesDeLaNuit(cartes: Card[], nomDuProjet: str
  */
 export async function rattraperLeCadrageDeLaNuit(card: Card, nomDuProjet: string): Promise<boolean> {
   if (card.column !== 'planned') return false;
-  if (!card.labels.includes(LABEL_AUTO_AMELIORATION)) return false;
+  const deLaVeille = card.labels.includes(LABEL_VEILLE_COMPETENCES);
+  if (!deLaVeille && !card.labels.includes(LABEL_AUTO_AMELIORATION)) return false;
   if (card.agentId || card.conversationAgentId) return false;
   if (store.getLastAgentByCard(card.id)) return false;
   // Une carte d'avant le plancher peut porter le palier léger : on la relève
@@ -331,7 +349,9 @@ export async function rattraperLeCadrageDeLaNuit(card: Card, nomDuProjet: string
     const relevee = store.saveCard({ ...card, run: plancher as Card['run'] });
     bus.emit({ type: 'card.upsert', card: relevee });
   }
-  return (await ouvrirLesCadragesDeLaNuit([card], nomDuProjet)) > 0;
+  return (
+    (await ouvrirLesCadragesDeLaNuit([card], nomDuProjet, deLaVeille ? demandeDeCadrageDeLaVeille : demandeDeCadrageDeLaNuit)) > 0
+  );
 }
 
 /**

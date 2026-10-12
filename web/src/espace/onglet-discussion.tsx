@@ -157,7 +157,7 @@ export function OngletDiscussion({
     <>
       {ouverte && largeur ? (
         <div
-          className="absolute z-30 flex flex-col overflow-hidden rounded-xl border border-faint/40 bg-surface shadow-2xl"
+          className="absolute z-30 flex flex-col overflow-hidden rounded-2xl bg-bg shadow-2xl ring-1 ring-faint/20"
           style={{
             left: fenetre.gauche,
             width: fenetre.largeur,

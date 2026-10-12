@@ -44,6 +44,7 @@ import {
   productionAutomatiqueSuspendue,
   rythmeDeLUtilisateur,
   transitionPermise,
+  adresseAdministration,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { mediasDuContenuMarketing } from './studio.js';
@@ -67,7 +68,9 @@ import * as store from './store.js';
 
 /** L'adresse publique de Beluga, d'où les sites chargent le script et où ils envoient leurs visites (MEM-1175). */
 export function adresseDeBeluga(): string {
-  return (process.env.BELUGA_ADRESSE_PUBLIQUE || 'https://belugatool.haikostudio.cloud').replace(/\/+$/, '');
+  // L'adresse réglée dans l'installation, sinon celle donnée à l'installation
+  // par l'environnement. Vide : aucun script de suivi ne peut être proposé.
+  return (process.env.BELUGA_ADRESSE_PUBLIQUE || adresseAdministration()).replace(/\/+$/, '');
 }
 
 /* ------------------------------------------------------------------ */
@@ -920,6 +923,46 @@ function contenusParProjet(): Map<string, Record<string, number>> {
   return parProjet;
 }
 
+/** Combien d'actions du plan la vue d'ensemble montre par projet, au plus. */
+export const ACTIONS_A_FAIRE_MAX = 3;
+
+/** Une action du plan, telle que la vue d'ensemble la montre : de quoi la nommer et la dater, rien d'autre. */
+interface ActionAFaire {
+  id: string;
+  titre: string;
+  datePrevue: string | null;
+}
+
+/**
+ * LES PROCHAINES ACTIONS NON FAITES DU PLAN DE CHAQUE PROJET — une requête pour
+ * tous, bornée à `ACTIONS_A_FAIRE_MAX` par projet DANS la requête : le détail
+ * de chaque action et le reste du plan ne quittent pas la base. Même ordre que
+ * `listerActions` (la date prévue, puis la naissance) : le bloc « En attente
+ * par projet » du tableau de bord et « À faire ensuite » d'un projet disent
+ * donc les mêmes actions.
+ */
+function actionsAFaireParProjet(): Map<string, ActionAFaire[]> {
+  const lignes = getDb()
+    .prepare(
+      `SELECT id, projet, titre, datePrevue FROM (
+         SELECT id, project_id AS projet, titre, date_prevue AS datePrevue,
+                ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY COALESCE(date_prevue, '9999') ASC, cree_le ASC) AS rang
+           FROM marketing_actions
+          WHERE fait_le IS NULL
+       )
+       WHERE rang <= ?
+       ORDER BY projet, rang`,
+    )
+    .all(ACTIONS_A_FAIRE_MAX) as { id: string; projet: string; titre: string; datePrevue: string | null }[];
+  const parProjet = new Map<string, ActionAFaire[]>();
+  for (const l of lignes) {
+    const liste = parProjet.get(l.projet) ?? [];
+    liste.push({ id: l.id, titre: l.titre, datePrevue: l.datePrevue });
+    parProjet.set(l.projet, liste);
+  }
+  return parProjet;
+}
+
 /**
  * LA LIGNE D'UN PROJET DANS LE TABLEAU DE BORD de l'outil : où il en est, ce
  * qui attend, sa tendance, et si son agent travaille — sans rien charger
@@ -931,6 +974,7 @@ export function vueDEnsemble(maintenant = Date.now()) {
   const jours = derniersJours(maintenant);
   const visites = visitesParProjetEtJour(Date.parse(`${jours[0]}T00:00:00Z`));
   const contenus = contenusParProjet();
+  const aFaire = actionsAFaireParProjet();
   return store
     .listProjects()
     .filter((p) => !p.archived && !estUnRegroupement(p))
@@ -964,6 +1008,9 @@ export function vueDEnsemble(maintenant = Date.now()) {
         visites: jours.map((j) => parJour?.get(j) ?? 0),
         actif: espace ? espace.actif : true,
         enCours: espace && espace.actif ? travauxEnCours(p.id) : [],
+        /* Les prochaines actions du plan, pour « En attente par projet » : un
+           projet au suivi coupé n'attend plus rien de personne. */
+        aFaire: espace && espace.actif ? (aFaire.get(p.id) ?? []) : [],
       };
     });
 }

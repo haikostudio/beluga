@@ -6,6 +6,7 @@ import {
   agentTientSonTour,
   etatDuBoutonDeConfiguration,
   processusDeLEtape,
+  procedureEnPlace,
   type CiblePublication,
   type EtatProcedure,
 } from '@beluga/shared';
@@ -24,20 +25,40 @@ import {
 import { t } from '@/lib/langue';
 
 /**
- * L'AGENT DE CONFIGURATION D'UNE ÉTAPE — un bouton dans l'EN-TÊTE de la
+ * CE QUE L'ÉCRAN SAIT DE L'AGENT DE CONFIGURATION D'UNE ÉTAPE : tient-il son
+ * tour, est-il arrêté sur sa question. Lu en un seul endroit, pour que le
+ * bouton et la phrase d'état posée à côté de lui (`OuJEnSuis`) ne puissent
+ * jamais dire deux choses différentes.
+ */
+export function useAgentDeConfiguration(projectId: string, cible: CiblePublication) {
+  const state = useApp();
+  const projet = state.projects.find((p) => p.id === projectId);
+  const agentId = agentDeConfiguration(projet, cible);
+  const agent = agentId ? state.agents[agentId] : undefined;
+  const procedure = state.procedures[`${projectId}:${cible}`];
+  return {
+    projet,
+    auTravail: !!procedure?.enCours || (!!agent && agentTientSonTour(agent)),
+    question: !!procedure?.question || agent?.attendReponse === true,
+  };
+}
+
+/**
+ * L'AGENT DE CONFIGURATION D'UNE ÉTAPE — un bouton dans le PREMIER BLOC de la
  * rubrique de cette étape (réglages du projet), et un TIROIR monté une seule
  * fois pour toute l'application (refonte du 30/09/2026).
  *
- * LE BOUTON vit en haut à droite du titre « Déploiement » ou « Mise en
- * production » ; il n'est plus pleine largeur en bas de page. Son libellé suit
+ * LE BOUTON est le seul du bloc « où j'en suis » des rubriques « Déploiement »
+ * et « Mise en production », à côté de la phrase d'état (11/10/2026 ; il vivait
+ * en haut à droite du titre). Son libellé suit
  * l'état (`etatDuBoutonDeConfiguration`) : « Initialiser » tant qu'aucun
  * processus n'est écrit, « Agent au travail… » avec une roue pendant un tour,
  * « Répondre à l'agent » quand il attend sa réponse, « Reconfigurer » ensuite.
  * `voile` : la mise en production est désactivée, le bouton s'éteint et dit
- * pourquoi au survol — le bloc de l'interrupteur, juste dessous, le dit aussi.
+ * pourquoi au survol — l'interrupteur, juste au-dessus, le dit aussi.
  *
  * LE TIROIR (`TiroirAgentDeConfiguration`) écoute `ouvrirAgentDeConfiguration`.
- * Le bouton d'en-tête l'ouvre par-dessus la fenêtre de réglages ; la vignette
+ * Le bouton de la rubrique l'ouvre par-dessus la fenêtre de réglages ; la vignette
  * de l'agent au tableau et l'aiguillage des agents l'ouvrent seul, sans
  * fenêtre de réglages. Une conversation d'agent ne se pose jamais en ligne
  * dans une page qui défile : dans le tiroir, le fil est seul à défiler.
@@ -57,15 +78,11 @@ export function BoutonAgentDeConfiguration({
   cible: CiblePublication;
   voile?: string | null;
 }) {
-  const state = useApp();
-  const projet = state.projects.find((p) => p.id === projectId);
-  const agentId = agentDeConfiguration(projet, cible);
-  const agent = agentId ? state.agents[agentId] : undefined;
-  const procedure = state.procedures[`${projectId}:${cible}`];
+  const { projet, auTravail, question } = useAgentDeConfiguration(projectId, cible);
   const etat = etatDuBoutonDeConfiguration({
     processus: !!processusDeLEtape(projet, cible),
-    auTravail: !!procedure?.enCours || (!!agent && agentTientSonTour(agent)),
-    question: !!procedure?.question || agent?.attendReponse === true,
+    auTravail,
+    question,
   });
   return (
     <Button
@@ -103,7 +120,7 @@ export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAg
     return () => window.removeEventListener(EVENEMENT_AGENT_CONFIGURATION, ouvrir);
   }, []);
   return (
-    <Drawer open={!!demande} onClose={() => setDemande(null)} empile plein={estTelephone()} hauteurFixe>
+    <Drawer adresse="agent-de-configuration" open={!!demande} onClose={() => setDemande(null)} empile plein={estTelephone()} hauteurFixe>
       {demande ? (
         <div className="flex min-h-0 flex-1 flex-col" data-tiroir-agent-configuration={demande.cible}>
           <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
@@ -176,7 +193,9 @@ function ConversationDeConfiguration({ projectId, cible }: { projectId: string; 
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center" data-conversation-procedure="aucune">
         <p className="max-w-md text-[13px] leading-snug text-muted">
           {cible === 'dev'
-            ? t('Un agent étudie le projet, vous pose ses questions, puis écrit un processus de déploiement propre à ce projet. Tant qu’il n’est pas écrit, le déroulé commun reste en service.')
+            ? procedureEnPlace(projet, 'dev')
+              ? t('Un agent étudie le projet, vous pose ses questions, puis écrit un processus de déploiement propre à ce projet. Tant qu’il n’est pas écrit, le déroulé commun reste en service.')
+              : t('Un agent étudie le projet, vous demande où et comment le déployer, puis écrit le processus que le bouton « Déployer » suivra. Tant qu’il n’est pas écrit, rien ne se déploie.')
             : t('Un agent étudie le projet, vous pose ses questions sur l’endroit qui accueille la production, puis écrit le processus que le bouton « Mise en production » suivra.')}
         </p>
         <BoutonInitierProcedure cible={cible} onOuvrir={demarrer} />

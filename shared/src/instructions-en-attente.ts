@@ -253,8 +253,9 @@ export const SUJET_DE_REPLI = 'methode';
  * que le fichier passait son plafond, dont neuf déposées sans la moindre ligne
  * « - sujet : ». Une entrée qui a un TEXTE va donc dans le sujet de REPLI, avec
  * une phrase qui dit d'où elle vient et où la déplacer : mal rangée mais lue,
- * plutôt que bien étiquetée et perdue. Seule une entrée VIDE est encore refusée
- * — elle n'a rien à ranger.
+ * plutôt que bien étiquetée et perdue. Une entrée sans corps mais avec une ligne
+ * `contrat` est rangée aussi : le contrat lui sert de texte. Seule une entrée
+ * sans corps NI contrat est encore refusée — elle n'a rien à ranger.
  */
 export function planDeFusion(
   entrees: readonly EntreeDInstruction[],
@@ -266,7 +267,10 @@ export function planDeFusion(
   const plan: PlanDeFusion = { parSujet: [], contrat: [], retraits: [], refusees: [] };
 
   for (const entree of entrees) {
-    if (!entree.texte.trim()) {
+    // Une entrée sans corps mais avec un contrat n'est pas vide : le contrat
+    // sert alors de texte (la ligne courte est tout ce que son auteur a écrit).
+    const texteRange = entree.texte.trim() || entree.contrat?.trim() || '';
+    if (!texteRange) {
       plan.refusees.push({ entree, raison: 'entrée sans texte : rien à ranger' });
       continue;
     }
@@ -298,7 +302,7 @@ export function planDeFusion(
       : ` _(déposée ${
           demande ? `sous le sujet « ${entree.sujet} », qui n'existe pas` : 'sans sujet'
         } ; rangée ici par défaut — à déplacer dans le fichier de son vrai sujet.)_`;
-    const texte = `\n- **${entree.titre}** — ${entree.texte.trim()}${note}\n`;
+    const texte = `\n- **${entree.titre}** — ${texteRange}${note}\n`;
     const deja = plan.parSujet.find((p) => p.sujet === sujet);
     if (deja) deja.texte += texte;
     else plan.parSujet.push({ sujet, texte });

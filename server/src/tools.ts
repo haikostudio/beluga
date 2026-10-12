@@ -104,6 +104,7 @@ import {
   FORME_DE_LA_COMPREHENSION,
   FORME_DES_RESUMES_DU_FIL,
   SIGNES_MINIMUM_EN_CLAIR,
+  RUBRIQUES_MINIMUM_DU_CAHIER,
   lirePlanRendu,
   numeroDuProchainPlan,
   rendrePlan,
@@ -116,7 +117,7 @@ import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
 import { completerDonneesDuJournal, dernierJalonDeDemande } from './journal-carte.js';
 import { CONFIG, PATHS } from './config.js';
-import { joindreUnFichier } from './joindre-fichier.js';
+import { fichierPermis, joindreUnFichier, racinesDeLAgent } from './joindre-fichier.js';
 import { mintDownload } from './auth.js';
 import {
   LECTURE_FICHE_MAX,
@@ -181,6 +182,7 @@ import {
   rythmeDuProjet,
 } from './marketing.js';
 import { estAgentStudio, mediasDuContenuMarketing } from './studio.js';
+import { ecrireLeCahier, estAgentDuCahier, ouvrirLeCahierDesCharges } from './cahier-des-charges.js';
 import {
   DEFINITION_OUTIL_STUDIO,
   LABEL_MARKETING,
@@ -247,41 +249,6 @@ import { chercherUnDoublon, classerLeGenreDeLaCarte, garderLesPertinents, propos
 
 const execFileAsync = promisify(execFile);
 
-/**
- * LE SCRIPT DE LA COMPÉTENCE DE FACTURATION.
- *
- * L'outil `compta` (ci-dessous) lance ce script — jamais un chemin écrit en dur
- * vers le dossier personnel d'un compte. On le déduit de la compétence
- * partagée « compta » : son dossier (`data/competences/compta`, un lien ou un
- * vrai dossier) porte `scripts/compta.mjs`. Absente : `undefined`, et l'outil le
- * dit au lieu d'échouer sur un chemin inventé.
- */
-function cheminScriptCompta(): string | undefined {
-  const compta = listerCompetences().find((c) => c.nom === 'compta');
-  if (!compta) return undefined;
-  const script = path.join(compta.dossier, 'scripts', 'compta.mjs');
-  return fs.existsSync(script) ? script : undefined;
-}
-
-/** Les commandes du script de facturation (voir le SKILL.md de la compétence). */
-const COMMANDES_COMPTA = [
-  'companies',
-  'clients',
-  'client-create',
-  'list',
-  'get',
-  'create',
-  'update',
-  'set-items',
-  'add-items',
-  'add-payment',
-  'convert',
-  'relance',
-  'delete',
-  'goal',
-  'report',
-  'raw',
-];
 
 export interface ToolDef {
   name: string;
@@ -670,6 +637,11 @@ export const TOOL_DEFS: ToolDef[] = [
           description: "À mettre à vrai UNIQUEMENT si l'utilisateur a dit ne pas vouloir d'adresse publique (creer)",
         },
         github: { type: 'boolean', description: 'Créer le dépôt GitHub privé (creer, vrai par défaut)' },
+        cahierDesCharges: {
+          type: 'boolean',
+          description:
+            "Démarrer par un cahier des charges : une carte naît et son agent pose les questions du projet (creer, vrai par défaut ; faux si l'utilisateur ne le veut pas)",
+        },
         groupe: {
           type: 'string',
           description: "Le groupe d'arrivée, par son nom — « aucun » pour sortir le projet de son groupe (deplacer)",
@@ -898,7 +870,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "CADRAGE — SEULEMENT QUAND LA CONSIGNE TE LE DEMANDE : rends le PLAN COMPLET de la carte, toutes ses parties. Le démon le met en forme, l'enregistre en version n, et l'écran l'affiche ; n'écris pas le plan en texte. Un plan incomplet est refusé avec ce qui manque. Toutes les parties affichées sont lues par l'utilisateur, qui ne programme pas : mots courants, aucun nom de fichier, de fonction ni de technologie. Le détail technique va dans « notesTechniques ».",
     inputSchema: {
       type: 'object',
-      required: ['titre', 'enClair', 'synthese', 'taches', 'decisions', 'faisabilite', 'chemin', 'consequences', 'ameliorations'],
+      required: ['titre', 'enClair', 'cahierDesCharges', 'synthese', 'taches', 'decisions', 'faisabilite', 'chemin', 'consequences', 'ameliorations'],
       properties: {
         titre: { type: 'string', description: 'Le titre court du plan' },
         enClair: {
@@ -906,6 +878,20 @@ export const TOOL_DEFS: ToolDef[] = [
           minLength: SIGNES_MINIMUM_EN_CLAIR,
           description:
             "L'OUVERTURE DU PLAN, affichée AVANT la liste des tâches : deux à quatre courts paragraphes adressés à l'utilisateur, qui ne programme pas, pour qu'il se représente le résultat — ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira. Deux phrases au moins, aucun nom de fichier ni de technologie.",
+        },
+        cahierDesCharges: {
+          type: 'array',
+          minItems: RUBRIQUES_MINIMUM_DU_CAHIER,
+          description:
+            "LE CAHIER DES CHARGES, affiché entre l'ouverture et la liste des tâches : des rubriques, dans l'ordre « Contexte et objectifs », « Pour qui », « Périmètre » (compris ET exclu), « Fonctionnalités attendues », « Règles et contraintes », « Critères de réussite » (plus une rubrique si le sujet l'exige). Chacune détaillée, en mots courants, lisible par qui n'a pas suivi les échanges.",
+          items: {
+            type: 'object',
+            required: ['titre', 'contenu'],
+            properties: {
+              titre: { type: 'string', description: 'Le nom de la rubrique' },
+              contenu: { type: 'string', description: 'Son contenu détaillé, en texte suivi ou en puces' },
+            },
+          },
         },
         synthese: {
           type: 'string',
@@ -965,6 +951,27 @@ export const TOOL_DEFS: ToolDef[] = [
           description:
             "JAMAIS AFFICHÉ À L'UTILISATEUR : le détail technique utile à l'agent qui fera le travail — fichiers, fonctions, commandes, contrôles à lancer, pièges repérés. Il le reçoit avec le plan.",
         },
+      },
+    },
+  },
+  {
+    name: 'cahier_des_charges',
+    description:
+      "CAHIER DES CHARGES — APRÈS CHAQUE RÉPONSE de l'utilisateur, AVANT la question suivante : enregistre le document ENTIER (Markdown, gabarit de la compétence, parties pas encore tranchées marquées « à voir ») et l'avancement. Le démon l'écrit dans docs/cahier-des-charges.md du projet et met à jour la carte, que l'utilisateur lit pendant qu'elle s'écrit. C'est ce qui permet de reprendre après une pause. « termine » = vrai quand plus rien n'est à voir.",
+    inputSchema: {
+      type: 'object',
+      required: ['document', 'faites', 'phase'],
+      properties: {
+        document: { type: 'string', description: 'Le cahier des charges ENTIER, en Markdown : il remplace le fichier' },
+        faites: { type: 'number', description: 'Questions déjà tranchées' },
+        total: { type: 'number', description: 'Questions prévues en tout, ajusté en chemin' },
+        phase: {
+          type: 'string',
+          enum: ['vision', 'interfaces', 'mecanismes', 'technologies', 'hebergement', 'identite', 'relecture'],
+          description: 'La phase en cours',
+        },
+        restants: { type: 'array', items: { type: 'string' }, description: 'Ce qui reste à voir, quelques mots chacun' },
+        termine: { type: 'boolean', description: 'Vrai quand toutes les questions sont tranchées' },
       },
     },
   },
@@ -1092,37 +1099,6 @@ export const TOOL_DEFS: ToolDef[] = [
           type: 'string',
           enum: ['projet', 'centrale'],
           description: '« projet » (défaut) ou « centrale » : le GLOBAL, commun à tous les projets, pour un fait qui vaut partout',
-        },
-      },
-    },
-  },
-  {
-    name: 'compta',
-    description:
-      "Exécute une opération de FACTURATION Haiko (compta.haikostudio.cloud) : lire, lister, créer ou modifier " +
-      "offres, factures, clients et paiements. Ouvert à TOUT agent, chef d'orchestre compris — c'est le seul moyen, " +
-      "pour un chef bridé en lecture seule, d'atteindre l'outil de facturation. Commandes : companies, clients, " +
-      "client-create, list, get, create, update, set-items, add-items, add-payment, convert, relance, delete, goal, " +
-      "report, raw. La syntaxe exacte de chaque commande et le format des specs JSON sont dans le mode d'emploi de la " +
-      "compétence « compta » (data/competences/compta/SKILL.md) — le lire avant d'appeler. Garde-fous inchangés : " +
-      "créer TOUJOURS en brouillon (draft) et ne passer un document en sent/paid/accepted que sur demande explicite ; " +
-      "« relance » avec send:true UNIQUEMENT après validation explicite de l'utilisateur (montrer d'abord l'aperçu, " +
-      "sans send). Rend la sortie JSON du script telle quelle.",
-    inputSchema: {
-      type: 'object',
-      required: ['command'],
-      properties: {
-        command: {
-          type: 'string',
-          enum: COMMANDES_COMPTA,
-          description: 'La commande de facturation à lancer',
-        },
-        args: {
-          type: 'array',
-          items: { type: 'string' },
-          description:
-            "Les arguments de la commande, dans l'ordre du mode d'emploi. Un spec JSON se passe comme un SEUL " +
-            'argument (une chaîne JSON), ex. get → ["invoice", "FA-0012"], create → ["quote", "{…json…}"].',
         },
       },
     },
@@ -1704,6 +1680,8 @@ export const TASK_ONLY_TOOLS = new Set([
 export function outilServiA(nom: string, agentId: string): boolean {
   if (nom === 'marketing') return estAgentMarketing(agentId);
   if (nom === 'studio') return estAgentStudio(agentId);
+  // Le cahier des charges : le seul cadrage d'une carte née de la case « Démarrer par un cahier des charges ».
+  if (nom === 'cahier_des_charges') return estAgentDuCahier(agentId);
   // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
   if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
@@ -1732,7 +1710,7 @@ export const CADRAGE_BLOCKED_TOOLS = new Set([
  * déjà lancé — et lui offrir ces outils ferait réécrire le parcours d'une
  * carte en plein travail.
  */
-export const CADRAGE_ONLY_TOOLS = new Set(['rendre_comprehension', 'rendre_plan', 'deplacer_vers_projet']);
+export const CADRAGE_ONLY_TOOLS = new Set(['rendre_comprehension', 'rendre_plan', 'deplacer_vers_projet', 'cahier_des_charges']);
 
 /** Les outils du mode « Création » : servis seulement quand la carte l'a allumé. */
 export const CREATION_TOOLS = new Set(['deleguer', 'evaluer', 'suggerer_modele']);
@@ -2391,6 +2369,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             port: demande.port,
           });
           bus.emit({ type: 'project.upsert', project: monte.project });
+          const cahier = demande.cahierDesCharges
+            ? await ouvrirLeCahierDesCharges(monte.project, demande.description)
+            : null;
           const rates = monte.etapes.filter((e) => !e.fait);
           // Une étape ratée se dit : le projet existe quand même, mais il lui
           // manque quelque chose, et le taire ferait croire que tout est en place.
@@ -2407,6 +2388,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             ok: true,
             text:
               `Projet « ${monte.project.name} » monté (${monte.project.path}), inscrit dans la colonne de gauche.\n${deroule}\n\n` +
+              (cahier
+                ? `Une carte « Cahier des charges » est née dans ce projet : son agent pose déjà les questions à l'utilisateur. ` +
+                  `Ne propose AUCUNE autre carte de démarrage : c'est elle qui mène au plan de construction.`
+                : '') +
               // UN PROJET NEUF PART DE CE QUI EST DÉJÀ APPRIS AILLEURS (décision du
               // 2026-10-02) : les compétences communes qui conviennent à son genre
               // se proposent, et l'utilisateur choisit.
@@ -2558,26 +2543,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'attach_screenshot': {
       const demande = String(args.path ?? '').trim();
       if (!demande) return { ok: false, text: 'Aucun chemin donné.' };
-      const agent = store.getAgent(ctx.agentId);
-      /*
-       * TROIS RACINES ACCEPTÉES : le dossier de travail de CETTE carte (où vit
-       * une capture prise par ses propres scripts), le dépôt du projet, et le
-       * dossier de données partagé de Beluga Build (où les scripts de vérification
-       * « de tous les jours » écrivent, hors de toute copie de carte).
-       */
-      const racines = [agent?.workdir, project.path, CONFIG.dataDir].filter(Boolean) as string[];
-      let full: string | null = null;
-      for (const racine of racines) {
-        const essai = path.isAbsolute(demande)
-          ? path.resolve(demande) === path.resolve(racine) || path.resolve(demande).startsWith(path.resolve(racine) + path.sep)
-            ? demande
-            : null
-          : safeJoin(racine, demande);
-        if (essai && fs.existsSync(essai) && fs.statSync(essai).isFile()) {
-          full = essai;
-          break;
-        }
-      }
+      /* TROIS RACINES ACCEPTÉES — définies une seule fois, partagées avec l'import du Studio. */
+      const full = fichierPermis(demande, racinesDeLAgent(ctx.agentId, project));
       if (!full) return { ok: false, text: `Fichier introuvable : ${demande}` };
       /*
        * PLUS AUCUN REFUS SUR L'EXTENSION, ET LE SEUL REFUS QUI RESTE EST LE
@@ -2592,6 +2559,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         cardId: ctx.cardId,
         fichier: full,
         nom: nomVoulu,
+        deLAgent: true,
       });
       if (!jointure.ok) return { ok: false, text: `${jointure.refus} (${demande})` };
       const { attachment } = jointure;
@@ -2624,8 +2592,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const options = Array.isArray(args.options)
         ? args.options.slice(0, 8).map((opt: any, index: number) => ({
             id: `o${index}`,
-            label: String(opt?.label ?? opt ?? '').slice(0, 120),
-            description: typeof opt?.description === 'string' ? opt.description.slice(0, 200) : undefined,
+            /* Des plafonds LARGES : l'explication d'un choix était coupée net à
+               200 signes, au milieu d'une phrase (« La fiche reste au nom »). */
+            label: String(opt?.label ?? opt ?? '').slice(0, 240),
+            description: typeof opt?.description === 'string' ? opt.description.trim().slice(0, 1000) : undefined,
           }))
         : [];
 
@@ -2817,6 +2787,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           ? `Compréhension enregistrée, avec ${comprehension.questionsEnAttente.length} question(s) qui attendent l’utilisateur sur la carte. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.`
           : 'Compréhension enregistrée. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.',
       };
+    }
+
+    case 'cahier_des_charges': {
+      if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
+      return ecrireLeCahier(ctx.agentId, args);
     }
 
     case 'rendre_plan': {
@@ -3274,7 +3249,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (!estAgentStudio(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio.' };
       // Chargé à l'appel : le module tire le rendu et la voix, inutiles à tout autre outil.
       const { outilStudio } = await import('./outil-studio.js');
-      return outilStudio(ctx, project, args);
+      return outilStudio({ agentId: ctx.agentId, ...(ctx.cardId ? { cardId: ctx.cardId } : {}) }, project, args);
     }
 
     /* LA BIBLIOTHÈQUE DE STYLES : l'agent d'une source (`server/src/studio-sources.ts`). */
@@ -3682,37 +3657,6 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return { ok: false, text: 'Action inconnue : « lister », « enregistrer », « supprimer », « archives » ou « restaurer ».' };
     }
 
-    case 'compta': {
-      const commande = String(args.command ?? '').trim();
-      if (!commande) return { ok: false, text: 'Une commande de facturation est requise (ex. « get », « list »).' };
-      if (!COMMANDES_COMPTA.includes(commande)) {
-        return { ok: false, text: `Commande de facturation inconnue : « ${commande} ». Voir le mode d'emploi de la compétence compta.` };
-      }
-      const script = cheminScriptCompta();
-      if (!script) {
-        return {
-          ok: false,
-          text: "La compétence de facturation « compta » est introuvable : aucun scripts/compta.mjs dans le dossier des compétences.",
-        };
-      }
-      const reste = Array.isArray(args.args) ? args.args.map((a: any) => String(a)) : [];
-      try {
-        // Le script tourne dans le processus du démon (sous l'utilisateur des
-        // agents), donc HORS du bac à sable du chef bridé : c'est ce qui ouvre
-        // la facturation au chef en lecture seule. Il lit sa clé API dans le
-        // dossier personnel courant, d'où l'environnement hérité tel quel.
-        const { stdout } = await execFileAsync(process.execPath, [script, commande, ...reste], {
-          timeout: 60000,
-          maxBuffer: 8 * 1024 * 1024,
-        });
-        return { ok: true, text: stdout.trim() || '(aucune sortie)' };
-      } catch (err: any) {
-        // compta.mjs écrit ses erreurs sur stderr et sort en code 1 : on remonte
-        // la raison en clair plutôt qu'un « échec » muet.
-        const detail = String(err?.stderr || err?.message || err).trim();
-        return { ok: false, text: `Facturation : ${detail || 'commande échouée sans détail.'}` };
-      }
-    }
 
     default:
       return { ok: false, text: `Outil inconnu : ${name}.` };

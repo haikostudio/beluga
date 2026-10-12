@@ -42,6 +42,7 @@ import {
   siteVierge,
 } from './backups.js';
 import { GENRES_D_ETAPE, VARIABLES_DE_RECETTE, phraseDeRecette } from './backups-recette.js';
+import { minusculesSansAccents } from './mots.js';
 
 /** Ce que l'écran envoie quand l'utilisateur lance l'agent. */
 export interface DemandeDeConfiguration {
@@ -88,11 +89,7 @@ export function moyenDemande(valeur: unknown): MoyenFichiers | undefined {
 
 function motPropre(valeur: unknown): string | undefined {
   if (typeof valeur !== 'string') return undefined;
-  const mot = valeur
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
+  const mot = minusculesSansAccents(valeur.trim());
   return mot || undefined;
 }
 

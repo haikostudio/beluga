@@ -1,7 +1,16 @@
 import * as React from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import { filtrerLesSites } from '@beluga/shared';
-import { DialogTitle, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input } from '@/components/ui';
+import {
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  EmplacementDuTitreDePage,
+  Input,
+} from '@/components/ui';
+import { IndicateursDeProjet } from '@/components/indicateurs-de-projet';
 import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
@@ -11,6 +20,13 @@ export interface ChoixDeProjet {
   nom: string;
   adresse?: string | null;
   icone: React.ReactNode;
+  /**
+   * L'identifiant du PROJET que ce choix désigne, quand c'en est un : la ligne
+   * montre alors à droite ce qui y travaille et ce qui y attend
+   * (`IndicateursDeProjet`). Absent — un site autonome, qui n'est pas un
+   * projet —, la ligne reste nue.
+   */
+  projetId?: string;
 }
 
 /**
@@ -27,6 +43,10 @@ export interface ChoixDeProjet {
  * d'office que sur ordinateur — sur téléphone, le clavier couvrirait la liste.
  * `repere` fixe le préfixe des marqueurs `data-<repere>-selecteur`, `-choix`,
  * `-choix-filtre`, `-choix-vide` que lisent les scripts de vérification.
+ *
+ * `dansLeFil` : le sélecteur EST un cran du fil d'Ariane (`SuiteDuFil`) — même
+ * taille que les autres crans, un fond au survol. C'est par lui qu'on passe
+ * d'un projet à l'autre depuis la barre d'en-tête.
  */
 export function SelecteurDeProjet({
   id,
@@ -37,7 +57,9 @@ export function SelecteurDeProjet({
   repere,
   libelleFiltre,
   libelleVide,
+  dansLeFil = false,
 }: {
+  dansLeFil?: boolean;
   id: string;
   nom: string;
   icone: React.ReactNode;
@@ -62,9 +84,21 @@ export function SelecteurDeProjet({
   return (
     <DropdownMenu onOpenChange={(ouvert) => !ouvert && setFiltre('')}>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" {...marque('selecteur')}>
+        <button
+          type="button"
+          className={
+            dansLeFil
+              ? '-mx-1 flex min-w-0 items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-raised data-[state=open]:bg-raised'
+              : 'flex min-w-0 flex-1 items-center gap-1.5 text-left'
+          }
+          {...marque('selecteur')}
+        >
           {icone}
-          <DialogTitle className="min-w-0 truncate">{nom}</DialogTitle>
+          {/* Ce nom reste DANS son bouton : il ne monte pas, seul, dans le fil
+              d'Ariane d'une page qui l'entourerait. */}
+          <EmplacementDuTitreDePage.Provider value={null}>
+            <DialogTitle className={dansLeFil ? 'min-w-0 truncate text-[14.5px] font-medium' : 'min-w-0 truncate'}>{nom}</DialogTitle>
+          </EmplacementDuTitreDePage.Provider>
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-faint" />
         </button>
       </DropdownMenuTrigger>
@@ -92,7 +126,8 @@ export function SelecteurDeProjet({
           retenus.map((c) => (
             <DropdownMenuItem key={c.id} onSelect={() => onChoisir(c.id)} {...marque('choix', c.id)}>
               {c.icone}
-              <span className={cn('truncate', c.id === id && 'font-medium')}>{c.nom}</span>
+              <span className={cn('min-w-0 flex-1 truncate', c.id === id && 'font-medium')}>{c.nom}</span>
+              {c.projetId ? <IndicateursDeProjet projectId={c.projetId} /> : null}
             </DropdownMenuItem>
           ))
         ) : (

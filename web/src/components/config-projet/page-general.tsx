@@ -3,6 +3,7 @@ import { FormulaireEnColonnes, Input, LigneFormulaire, ListeDeroulante } from '@
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { TeteDeRubrique, type ContexteConfig } from './communs';
+import { BoutonCahierDuProjet } from '@/components/cahier-des-charges';
 
 /** L'ESSENTIEL : le nom du projet, et le moteur sur lequel ses cartes partent. */
 export function RubriqueGeneral({ ctx }: { ctx: ContexteConfig }) {
@@ -12,6 +13,8 @@ export function RubriqueGeneral({ ctx }: { ctx: ContexteConfig }) {
       <TeteDeRubrique
         titre={t('L’essentiel')}
         resume={t('Le nom du projet et le moteur sur lequel ses cartes partent.')}
+        /* LE CAHIER DES CHARGES DU PROJET, à relire ou exporter — seulement s'il existe. */
+        action={<BoutonCahierDuProjet projectId={ctx.project.id} />}
       />
 
       <FormulaireEnColonnes>

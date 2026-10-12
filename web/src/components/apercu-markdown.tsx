@@ -41,7 +41,7 @@ export function BasculeApercu({
           aria-pressed={format === item.cle}
           className={cn(
             'inline-flex h-6 items-center gap-1 rounded px-2 text-[12.5px] font-medium transition-colors',
-            format === item.cle ? 'bg-raised text-text' : 'text-muted hover:text-text',
+            format === item.cle ? 'bg-raised text-teinte' : 'text-muted hover:text-text',
           )}
         >
           {item.icone}

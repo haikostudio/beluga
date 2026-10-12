@@ -142,24 +142,66 @@ export function resumeReglagesExport(
 /**
  * LE LOT COURANT ET LES ANCIENS EXPORTS. Un clic sur « Exporter » lance un LOT :
  * une vidéo par format coché, toutes marquées du même `lot`. L'écran des
- * fichiers ne montre que le lot le plus récent ; tout ce qui le précède est
- * « ancien » (replié, et vidé par un bouton). Un export sans lot (lancé par
- * l'agent, ou refait seul après la voix finale) forme un lot à lui seul.
+ * fichiers montre le lot le plus récent ET TOUT EXPORT PAS ENCORE FINI, quel que
+ * soit son lot : un export qui attend ou se fabrique n'est jamais rangé, replié,
+ * sous « Anciens exports » (on ne pouvait plus l'y voir ni l'annuler). Les anciens
+ * sont les exports FINIS d'avant (vidés par un bouton). Un export sans lot (lancé
+ * par l'agent, ou refait seul après la voix finale) forme un lot à lui seul.
  * `exports` arrive du plus récent au plus ancien, comme `listerExports`.
  */
-export function partagerLesExports<E extends Pick<ExportStudio, 'id' | 'lot' | 'creeLe'>>(exports: E[]): { courants: E[]; anciens: E[] } {
+export function partagerLesExports<E extends Pick<ExportStudio, 'id' | 'lot' | 'creeLe'> & Partial<Pick<ExportStudio, 'etat'>>>(exports: E[]): { courants: E[]; anciens: E[] } {
   const tries = [...exports].sort((a, b) => b.creeLe - a.creeLe);
   const dernier = tries[0];
   if (!dernier) return { courants: [], anciens: [] };
   const cle = dernier.lot ?? dernier.id;
-  // Le lot se lit DANS L'ORDRE OÙ IL A ÉTÉ LANCÉ (celui des formats cochés) ; les anciens, du plus récent au plus ancien.
-  const courants = tries.filter((e) => (e.lot ?? e.id) === cle).reverse();
-  return { courants, anciens: tries.filter((e) => (e.lot ?? e.id) !== cle) };
+  const courant = (e: E) => (e.lot ?? e.id) === cle || !exportFini(e);
+  // Le lot se lit DANS L'ORDRE OÙ IL A ÉTÉ LANCÉ (celui de la file) ; les anciens, du plus récent au plus ancien.
+  const courants = tries.filter(courant).reverse();
+  return { courants, anciens: tries.filter((e) => !courant(e)) };
 }
 
 /** Un export est-il fini (prêt, échoué ou annulé) ? Seul un export fini peut être retiré. */
-export function exportFini(e: Pick<ExportStudio, 'etat'>): boolean {
+export function exportFini(e: Partial<Pick<ExportStudio, 'etat'>>): boolean {
   return e.etat !== 'en-file' && e.etat !== 'en-cours';
+}
+
+/**
+ * L'AVANCEMENT DES EXPORTS, pour le bouton « Mettre en production » : tant
+ * qu'un export du lot courant attend ou se fabrique, combien sont finis sur
+ * combien, et le pourcentage d'ensemble (un export fini compte pour 1, celui
+ * qui se fabrique pour sa progression, un export en file pour 0). Les annulés
+ * ne comptent pas. `null` quand rien ne tourne.
+ * `progressions` : la progression diffusée en direct (0 à 1), par export.
+ */
+export function avancementDesExports(
+  exports: Pick<ExportStudio, 'id' | 'lot' | 'creeLe' | 'etat' | 'progression'>[],
+  progressions: Record<string, number> = {},
+): { faits: number; total: number; pourcent: number } | null {
+  const suivis = partagerLesExports(exports).courants.filter((e) => e.etat !== 'annule');
+  if (!suivis.some((e) => !exportFini(e))) return null;
+  const part = (e: (typeof suivis)[number]) =>
+    exportFini(e) ? 1 : e.etat === 'en-cours' ? Math.max(0, Math.min(1, Math.max(progressions[e.id] ?? 0, e.progression ?? 0))) : 0;
+  const somme = suivis.reduce((s, e) => s + part(e), 0);
+  return { faits: suivis.filter(exportFini).length, total: suivis.length, pourcent: Math.min(99, Math.round((somme / suivis.length) * 100)) };
+}
+
+/**
+ * UN EXPORT EN DOUBLE : la même vidéo (même format, même version, mêmes
+ * réglages) attend déjà ou se fabrique. La relancer ne ferait que l'ajouter à
+ * la file derrière elle — c'est ce qui donnait « En attente de la machine » à
+ * chaque nouveau clic. Seules les vidéos sont gardées : une image se prend à un
+ * instant choisi, deux images ne sont jamais le même fichier.
+ */
+export function exportEnDouble(
+  exports: Pick<ExportStudio, 'genre' | 'format' | 'version' | 'reglages' | 'etat'>[],
+  demande: { genre: 'video' | 'image'; format: FormatStudio; version: number; reglages: ReglagesExport },
+): boolean {
+  if (demande.genre !== 'video') return false;
+  const memes = (a: ReglagesExport, b: ReglagesExport) =>
+    a.qualite === b.qualite && a.definition === b.definition && a.ips === b.ips && a.fichier === b.fichier && a.sansSon === b.sansSon;
+  return exports.some(
+    (e) => !exportFini(e) && e.genre === 'video' && e.format === demande.format && e.version === demande.version && memes(e.reglages ?? REGLAGES_EXPORT_PAR_DEFAUT, demande.reglages),
+  );
 }
 
 /**
@@ -176,4 +218,45 @@ export function nomsSansDoublon(noms: string[]): string[] {
     const point = nom.lastIndexOf('.');
     return point > 0 ? `${nom.slice(0, point)}-${n}${nom.slice(point)}` : `${nom}-${n}`;
   });
+}
+
+/**
+ * « 12 s », « 2 min 39 s », « 1 h 05 min » : une durée en millisecondes, sans
+ * décimale. Une durée négative (horloges qui divergent d'une seconde) se lit « 0 s ».
+ */
+export function dureeDExportLisible(ms: number): string {
+  const secondes = Math.max(0, Math.floor(ms / 1000));
+  if (secondes < 60) return `${secondes} s`;
+  const minutes = Math.floor(secondes / 60);
+  if (minutes < 60) return `${minutes} min ${secondes % 60} s`;
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`;
+}
+
+/**
+ * LE CHRONOMÈTRE D'UN EXPORT. Trois temps qui ne se mélangent jamais :
+ *  - `attente` : l'export attend son tour (la machine fabrique une vidéo à la
+ *    fois) — on dit depuis quand ;
+ *  - `fabrication` : il se fabrique — l'heure de départ et le temps écoulé,
+ *    l'attente d'avant dite à part ;
+ *  - `termine` : il est fini — le temps total de la fabrication, du départ à
+ *    l'arrêt, sans l'attente.
+ * Un export sans heure de départ (fabriqué avant que le chrono existe, ou
+ * annulé avant d'avoir démarré) n'a pas de chrono : `null`, jamais un temps
+ * inventé ni négatif.
+ */
+export type ChronoDExport =
+  | { genre: 'attente'; depuis: number; attenteMs: number }
+  | { genre: 'fabrication'; demarreLe: number; ecouleMs: number; attenteMs: number }
+  | { genre: 'termine'; demarreLe: number; fabricationMs: number; attenteMs: number };
+
+export function chronoDeLExport(
+  e: Pick<ExportStudio, 'etat' | 'creeLe' | 'demarreLe' | 'termineLe'>,
+  maintenant: number,
+): ChronoDExport | null {
+  if (e.etat === 'en-file') return { genre: 'attente', depuis: e.creeLe, attenteMs: Math.max(0, maintenant - e.creeLe) };
+  if (!e.demarreLe) return null;
+  const attenteMs = Math.max(0, e.demarreLe - e.creeLe);
+  if (e.etat === 'en-cours') return { genre: 'fabrication', demarreLe: e.demarreLe, ecouleMs: Math.max(0, maintenant - e.demarreLe), attenteMs };
+  if (!e.termineLe) return null;
+  return { genre: 'termine', demarreLe: e.demarreLe, fabricationMs: Math.max(0, e.termineLe - e.demarreLe), attenteMs };
 }

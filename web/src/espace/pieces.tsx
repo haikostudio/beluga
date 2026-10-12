@@ -6,11 +6,12 @@
  * attendant. Un fichier trop lourd est refusé AVANT de partir, en le disant.
  */
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, Download, Paperclip, X } from 'lucide-react';
-import { Button, DialogTitle, Drawer } from '@/components/ui';
+import { Paperclip, X } from 'lucide-react';
+import { Button } from '@/components/ui';
+import { AttachmentPreview } from '@/components/attachment-preview';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { genreDuFichier, refusDeTaille, type GenrePiece } from '@beluga/shared';
+import { genreDuFichier, refusDeTaille, type Attachment, type GenrePiece } from '@beluga/shared';
 import { IconeDeGenre, PastilleDeFichier } from '@/components/pastille-de-fichier';
 import { GrilleDImages } from '@/components/grille-images';
 import { LecteurVideo, VignetteVideo } from '@/components/lecteur-video';
@@ -153,7 +154,7 @@ export function EnvoisEnCours({
       {envois.map((envoi) => (
         <div
           key={envoi.cle}
-          className="rounded-md border border-faint/60 bg-surface px-3 py-2"
+          className="rounded-lg bg-surface px-3 py-2"
           data-envoi={envoi.nom}
           data-progression={Math.round(envoi.part * 100)}
           data-envoi-echec={envoi.erreur ? '1' : undefined}
@@ -197,7 +198,7 @@ export function PiecesDeposees({ pieces, onRetirer }: { pieces: PieceEnvoyee[]; 
       {pieces.map((piece) => (
         <span
           key={piece.id}
-          className="inline-flex items-center gap-1.5 rounded-md border border-faint/60 bg-surface px-2 py-1 text-xs text-muted"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-surface px-2 py-1 text-xs text-muted"
         >
           <IconeDeGenre genre={genreDuFichier(piece.mime)} className="h-3.5 w-3.5" />
           <span className="max-w-[160px] truncate">{piece.name}</span>
@@ -213,15 +214,13 @@ export function PiecesDeposees({ pieces, onRetirer }: { pieces: PieceEnvoyee[]; 
 }
 
 /**
- * LA VISIONNEUSE : UNE IMAGE EN GRAND, LES FLÈCHES POUR PASSER À LA SUIVANTE.
- *
- * Une image jointe se TÉLÉCHARGEAIT au clic : il fallait l'ouvrir dans un autre
- * onglet, puis revenir, pour chaque image d'une discussion. Le geste par défaut
- * est désormais VOIR — le téléchargement reste un bouton, sous l'image.
- *
- * Les flèches, à l'écran comme au clavier (gauche, droite), parcourent TOUTES
- * les images qu'on lui donne, dans leur ordre ; elles s'éteignent sur la
- * première et la dernière. Échap referme, comme tout tiroir.
+ * LA VISIONNEUSE DE L'ESPACE CLIENT EST CELLE DE L'APPLICATION
+ * (`AttachmentPreview`) : fenêtre centrée de hauteur fixe, zoom au clic, à la
+ * molette et au pincement, carrousel qui boucle, et menu « Cette image / Tout en
+ * une archive / Toutes séparément ». Ce composant n'est qu'un ADAPTATEUR : le
+ * client manipule des pièces `{ id, nom }` et un rang, la visionneuse des
+ * pièces jointes et une pièce ouverte. L'archive passe par la même route, qui
+ * refuse au client toute pièce qui n'est pas à lui.
  */
 export function Visionneuse({
   images,
@@ -229,95 +228,36 @@ export function Visionneuse({
   onIndex,
   onFermer,
 }: {
-  images: { id: string; nom: string }[];
+  images: { id: string; nom: string; mime?: string; taille?: number }[];
   /** L'image montrée ; `null` : la visionneuse est fermée. */
   index: number | null;
   onIndex: (index: number) => void;
   onFermer: () => void;
 }) {
-  const piece = index !== null ? images[index] : undefined;
-  const premiere = index === 0;
-  const derniere = index !== null && index >= images.length - 1;
-
-  React.useEffect(() => {
-    if (index === null) return;
-    const touche = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft' && index > 0) {
-        event.preventDefault();
-        onIndex(index - 1);
-      } else if (event.key === 'ArrowRight' && index < images.length - 1) {
-        event.preventDefault();
-        onIndex(index + 1);
-      }
-    };
-    window.addEventListener('keydown', touche);
-    return () => window.removeEventListener('keydown', touche);
-  }, [index, images.length, onIndex]);
-
+  const galerie = React.useMemo(
+    () =>
+      images.map(
+        (piece) =>
+          ({
+            id: piece.id,
+            projectId: '',
+            name: piece.nom,
+            mime: piece.mime || 'image/png',
+            size: piece.taille ?? 0,
+            sha: '',
+            createdAt: 0,
+          }) as Attachment,
+      ),
+    [images],
+  );
   return (
-    <Drawer open={Boolean(piece)} onClose={onFermer} empile hauteurFixe>
-      {piece ? (
-        <div
-          className="flex min-h-0 flex-1 flex-col"
-          data-visionneuse={index}
-          data-visionneuse-total={images.length}
-          data-image-montree={piece.id}
-        >
-          <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-            <DialogTitle className="min-w-0 flex-1 truncate">{piece.nom}</DialogTitle>
-            <span className="shrink-0 text-[12px] text-faint">
-              {(index ?? 0) + 1} / {images.length}
-            </span>
-            <Button size="icon-sm" variant="ghost" onClick={onFermer} title={t('Fermer')} data-fermer-visionneuse>
-              <X className="h-4 w-4" />
-            </Button>
-          </header>
-          <div className="relative flex min-h-0 flex-1 items-center justify-center px-12 pb-2">
-            <img
-              key={piece.id}
-              src={`/api/attachment?id=${piece.id}`}
-              alt={piece.nom}
-              className="max-h-full max-w-full rounded-md object-contain"
-              data-image-visionneuse={piece.id}
-            />
-            <Button
-              size="icon"
-              variant="subtle"
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full"
-              onClick={() => index !== null && onIndex(index - 1)}
-              disabled={premiere}
-              title={t('Image précédente')}
-              aria-label="Image precedente"
-              data-image-precedente
-            >
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <Button
-              size="icon"
-              variant="subtle"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full"
-              onClick={() => index !== null && onIndex(index + 1)}
-              disabled={derniere}
-              title={t('Image suivante')}
-              aria-label="Image suivante"
-              data-image-suivante
-            >
-              <ChevronRight className="h-5 w-5" />
-            </Button>
-          </div>
-          <div className="flex shrink-0 justify-center px-3 pb-3 pt-1">
-            <a
-              href={`/api/attachment?id=${piece.id}&download=1`}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-accent px-3 text-[14px] font-medium text-accent-fg transition-opacity hover:opacity-90"
-              data-telecharger-image={piece.id}
-            >
-              <Download className="h-4 w-4" />
-              {t('Télécharger')}
-            </a>
-          </div>
-        </div>
-      ) : null}
-    </Drawer>
+    <AttachmentPreview
+      item={index !== null ? (galerie[index] ?? null) : null}
+      onClose={onFermer}
+      galerie={galerie}
+      onNaviguer={(piece) => onIndex(galerie.findIndex((p) => p.id === piece.id))}
+      adresse="piece"
+    />
   );
 }
 
@@ -355,7 +295,7 @@ export function Galerie({
                 ? setVue(images.findIndex((image) => image.id === piece.id))
                 : setOuverte(ouverte === piece.id ? null : piece.id)
             }
-            className="group relative h-20 w-28 shrink-0 overflow-hidden rounded-md border border-faint/60 bg-surface text-left"
+            className="group relative h-20 w-28 shrink-0 overflow-hidden rounded-lg bg-surface text-left"
             data-piece={piece.nom}
             data-genre={piece.genre}
           >
@@ -384,7 +324,7 @@ export function Galerie({
         ))}
       </div>
       {ouverte ? (
-        <div className="mt-3 overflow-hidden rounded-md border border-faint/60 bg-surface p-2" data-piece-ouverte={ouverte}>
+        <div className="mt-3 overflow-hidden rounded-lg bg-surface p-2" data-piece-ouverte={ouverte}>
           {(() => {
             const piece = pieces.find((p) => p.id === ouverte)!;
             if (piece.genre === 'image') {

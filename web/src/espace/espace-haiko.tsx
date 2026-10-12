@@ -31,10 +31,14 @@
  * télécharge pas.
  */
 import * as React from 'react';
-import { ArrowLeft, ChevronDown, Settings, UserPlus, UserRound, X } from 'lucide-react';
+import { ChevronDown, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from 'lucide-react';
 import { BulleInfo, Button, DialogTitle, Drawer, EmptyState, Pastille, SelecteurTiroir, ZoneDefilement } from '@/components/ui';
+import { CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
+import { OptionDePage } from '@/components/entete-de-zone';
 import { SilhouetteEspaceHaiko } from '@/components/silhouettes';
 import { PastillesMessagerie } from '@/components/pastilles-messagerie';
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
@@ -51,7 +55,13 @@ import { canalEspace } from './canal-espace';
 import { EspaceClient, type MoiDansLEspace } from './espace-client';
 import { AccueilMessagerie, type PeriodeDuTableau } from './accueil-messagerie';
 import { usePref } from '@/lib/prefs';
-import { PERIODE_PAR_DEFAUT_JOURS, bornesDeLEchelle, joursDeLaPeriode, type FicheClientTableau } from '@beluga/shared';
+import {
+  PERIODE_PAR_DEFAUT_JOURS,
+  bornesDeLEchelle,
+  joursDeLaPeriode,
+  nomCourtDeLInstallation,
+  type FicheClientTableau,
+} from '@beluga/shared';
 
 interface ClientVu {
   id: string;
@@ -76,13 +86,18 @@ export function EspaceHaiko({
    *  détail d'affichage DANS la messagerie (`memeEcran`). */
   onVise?: (vise: { clientId?: string; demandeId?: string } | undefined) => void;
 } = {}) {
-  const [moi, setMoi] = React.useState<{ id: string; nomAffiche: string }>({ id: 'haiko', nomAffiche: 'Haiko' });
+  const [moi, setMoi] = React.useState<{ id: string; nomAffiche: string }>({
+    id: 'admin',
+    nomAffiche: nomCourtDeLInstallation(),
+  });
   const [clients, setClients] = React.useState<ClientVu[] | null>(null);
   const [choisi, setChoisi] = React.useState<string | null>(null);
   /** Le tiroir « Ajouter un client », et le mot de passe du compte qu'il vient de créer. */
   const [creation, setCreation] = React.useState(false);
   const [secret, setSecret] = React.useState<SecretMontre | null>(null);
   const [gestionAcces, setGestionAcces] = React.useState(false);
+  useTiroirAdresse('ajout-client', creation, setCreation, { pret: clients !== null });
+  useTiroirAdresse('acces-clients', gestionAcces, setGestionAcces, { pret: clients !== null });
   /** Le client à sélectionner dès que la liste rechargée le contient. */
   const aChoisir = React.useRef<string | null>(null);
   /*
@@ -428,6 +443,31 @@ export function EspaceHaiko({
     </Button>
   );
 
+  /*
+   * L'ENGRENAGE SEUL NE SE TROUVAIT PAS (demande du 09.10.2026) : il ne vivait
+   * que dans le titre du sélecteur, donc après avoir ouvert un client, et la
+   * vue d'ensemble n'en avait aucun. Deux accès de plus, vers LA MÊME gestion :
+   * l'engrenage en haut à droite de la vue d'ensemble (`action` d'
+   * `AccueilMessagerie`), et ce bouton libellé dans le pied du sélecteur, à
+   * côté de « Ajouter un client ». Il referme le sélecteur AVANT d'ouvrir la
+   * gestion : jamais deux tiroirs empilés sur un téléphone.
+   */
+  const boutonGererLesComptes = (avant?: () => void) => (
+    <Button
+      size="pied"
+      variant="ghost"
+      className="min-w-0 flex-1"
+      onClick={() => {
+        avant?.();
+        setGestionAcces(true);
+      }}
+      data-gerer-les-comptes
+    >
+      <UsersRound className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 truncate">{t('Gérer les comptes')}</span>
+    </Button>
+  );
+
   const tiroirGestionAcces = (
     <Drawer
       open={gestionAcces}
@@ -453,16 +493,68 @@ export function EspaceHaiko({
             <X className="h-4 w-4" />
           </Button>
         </header>
-        <ZoneDefilement fond="hsl(var(--surface))" className="min-h-0 flex-1 px-3 pb-3">
-          <GestionComptesClients actif={gestionAcces} nu />
-        </ZoneDefilement>
+        <GestionComptesClients actif={gestionAcces} nu enTiroir />
       </div>
     </Drawer>
+  );
+
+  /** LA COLONNE DU SERVICE (demande du 12/10/2026) : le geste qui ajoute, détaché ; la vue d'ensemble,
+   *  un client par ligne, les comptes. Sur téléphone la colonne n'existe pas : le sélecteur de client
+   *  et ses gestes restent dans la page. */
+  const colonneDeMessagerie = (
+    <ColonneDeService>
+      <nav aria-label="Rubriques de la messagerie" data-colonne-messagerie className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+        <GesteDeCreationDeColonne
+          libelle={t('Ajouter un client')}
+          aria-label="Ajouter un client"
+          data-ajouter-client-colonne
+          onClick={() => {
+            setSecret(null);
+            setCreation(true);
+          }}
+        />
+        {clients.length ? (
+          <>
+            <RubriqueDeColonne
+              icone={<LayoutGrid />}
+              libelle={t('Vue d’ensemble')}
+              actif={choisi === null}
+              onClick={revenirALAccueil}
+              data-colonne-messagerie-accueil
+            />
+            <p className={CLASSE_SECTION_DE_SERVICE}>{t('Clients')}</p>
+            {clients.map((c) => (
+              <RubriqueDeColonne
+                key={c.id}
+                icone={<UserRound />}
+                libelle={`${c.nomAffiche}${c.actif ? '' : ` ${t('(suspendu)')}`}`}
+                /* LE CLIENT SE LIT ICI, PLUS DANS LA PAGE (demande du 12/10/2026) : le
+                   projet sous le nom lève le doute entre deux noms proches, et les
+                   deux pastilles disent qui attend quoi. */
+                detail={c.projets.map((p) => p.nom).join(' · ') || t('Aucun projet')}
+                fin={<PastillesMessagerie compteurs={c.compteurs} />}
+                actif={choisi === c.id}
+                onClick={() => ouvrirClient(c.id)}
+                data-colonne-client={c.id}
+              />
+            ))}
+          </>
+        ) : null}
+        <p className={CLASSE_SECTION_DE_SERVICE}>{t('Comptes')}</p>
+        <RubriqueDeColonne
+          icone={<UsersRound />}
+          libelle={t('Gérer les comptes')}
+          onClick={() => setGestionAcces(true)}
+          data-gerer-les-comptes-colonne
+        />
+      </nav>
+    </ColonneDeService>
   );
 
   if (!clients.length) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6" data-espace-haiko data-aucun-client>
+        {colonneDeMessagerie}
         <EmptyState
           icon={<UserRound className="h-5 w-5" />}
           title={t('Aucun client pour l’instant')}
@@ -486,6 +578,7 @@ export function EspaceHaiko({
   if (choisi === null) {
     return (
       <div className="flex h-full min-h-0 flex-col" data-espace-haiko data-vue-accueil>
+        {colonneDeMessagerie}
         <AccueilMessagerie
           fiches={fiches}
           periode={periode}
@@ -493,6 +586,19 @@ export function EspaceHaiko({
           onEchelle={(jours) => setChoixPeriode({ jours })}
           onPeriodeLibre={(debut, fin) => setChoixPeriode({ debut, fin })}
           onOuvrirClient={ouvrirClient}
+          action={
+            <OptionDePage
+              compact
+              taille="icon-sm"
+              icone={<Settings className="h-4 w-4" />}
+              onClick={() => setGestionAcces(true)}
+              title={t('Gérer les comptes')}
+              aria-label="Gerer les comptes"
+              data-reglages-accueil
+            >
+              {t('Gérer les comptes')}
+            </OptionDePage>
+          }
         />
         {tiroirDeCreation}
         {tiroirGestionAcces}
@@ -525,20 +631,12 @@ export function EspaceHaiko({
    */
   const selecteurDeClient = (
     <>
-      {/* LA FLÈCHE DE RETOUR VERS LA VUE D'ENSEMBLE, en tête de la ligne, à
-          gauche du nom du client et du projet — là où on la cherche. */}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={revenirALAccueil}
-        title={t('Revenir à la vue d’ensemble')}
-        aria-label="Revenir a la vue d ensemble"
-        data-retour-accueil
-        className="shrink-0"
-      >
-        <ArrowLeft className="h-4 w-4" />
-      </Button>
-    <span className="relative inline-flex min-w-0 shrink-0 max-w-[55%] sm:max-w-[280px]">
+      {/* PLUS DE FLÈCHE DE RETOUR ICI : le client est un cran du fil d'Ariane,
+          et c'est le cran « Messagerie », juste avant lui, qui ramène à la vue
+          d'ensemble (`enteteDansLeFil`). */}
+    {/* LE NOM PREND LA PLACE QUI RESTE, et se replie dessus : une borne en pour
+        cent d'un parent ajusté à son contenu l'écrasait jusqu'à une lettre. */}
+    <span className="relative inline-flex min-w-0 max-w-full sm:max-w-[280px]">
       <SelecteurTiroir
         valeur={client_.id}
         options={clients.map((c) => ({
@@ -556,7 +654,12 @@ export function EspaceHaiko({
         onChoisir={setChoisi}
         titre={t('Clients')}
         repere="client"
-        pied={(fermer) => boutonAjouter(fermer)}
+        pied={(fermer) => (
+          <div className="flex items-center gap-1.5" data-pied-clients>
+            <span className="flex min-w-0 flex-1">{boutonAjouter(fermer)}</span>
+            {boutonGererLesComptes(fermer)}
+          </div>
+        )}
         actionTitre={() => boutonGestionAcces}
         declencheur={(ouvrir, libelle) => (
           <Button
@@ -567,7 +670,8 @@ export function EspaceHaiko({
             data-choix-client={client_.id}
             title={libelle}
           >
-            <UserRound className="h-4 w-4 shrink-0 text-faint" />
+            {/* Sur téléphone, le bouton des services (la même silhouette) le précède déjà. */}
+            <UserRound className="hidden h-4 w-4 shrink-0 text-faint sm:block" />
             <span className="min-w-0 truncate">{libelle}</span>
             <ChevronDown className="h-3 w-3 shrink-0 text-faint" aria-hidden />
           </Button>
@@ -595,7 +699,7 @@ export function EspaceHaiko({
     ? clients.flatMap((c) => c.demandes.map((d) => ({ demande: d, client: c }))).find((x) => x.demande.id === conversion)
     : undefined;
   const tiroirDeConversion = (
-    <Drawer open={Boolean(conversion)} onClose={() => setConversion(null)} empile>
+    <Drawer adresse="conversion-demande" open={Boolean(conversion)} onClose={() => setConversion(null)} empile>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-conversion={conversion ?? undefined}>
         <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
           <DialogTitle className="min-w-0 truncate">{t('En faire une tâche')}</DialogTitle>
@@ -642,6 +746,7 @@ export function EspaceHaiko({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-espace-haiko data-vue={telephone ? 'telephone' : 'large'}>
+      {colonneDeMessagerie}
       {/*
        * LE GESTE QUI N'APPARTIENT QU'À HAIKO — « en faire une carte » — a
        * quitté son rang de boutons : il est sous le « ⋮ » de chaque vignette
@@ -657,6 +762,7 @@ export function EspaceHaiko({
           navigation={arrivee ? { n: arrivee } : undefined}
           gestesHaiko={gestesHaiko}
           enteteAvant={selecteurDeClient}
+          enteteDansLeFil={revenirALAccueil}
         />
       </div>
       {tiroirDeCreation}

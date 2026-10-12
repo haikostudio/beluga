@@ -18,12 +18,12 @@
  *  4. UN MOT QUAND TOUT EST REVENU, mais seulement si un courriel de panne
  *     était parti : sinon personne n'attend d'apaisement.
  *
- * Le serveur (`server/src/alerte-courriel-site.ts`) écrit et envoie par Resend ;
+ * Le serveur (`server/src/alerte-courriel-site.ts`) écrit et envoie par la porte d'envoi (`server/src/envoi-des-courriels.ts`) ;
  * `server/src/surveillance.ts` compte, note la date AVANT l'envoi et déclenche.
  */
 
 import { construireFragment } from './adresse-navigateur.js';
-import { ADRESSE_ADMINISTRATION } from './courriels-clients.js';
+import { adresseAdministration } from './installation.js';
 import {
   blocAIcone,
   champ,
@@ -75,7 +75,7 @@ export type DecisionDeCourriel =
  * n'y est pas encore, ou le dernier courriel de cette panne est trop récent.
  *
  * Le refus « rappel trop récent » se juge sur `alerteCourrielLe`, POSÉE AVANT
- * l'envoi : un envoi refusé par Resend ne se rejoue donc pas au contrôle
+ * l'envoi : un envoi refusé par le service d'envoi ne se rejoue donc pas au contrôle
  * suivant, et un rappel en boucle est impossible.
  */
 export function decisionDeCourrielDePanne(
@@ -144,7 +144,7 @@ export interface CourrielDeSite {
  * `adresse-navigateur.ts`, jamais un chemin recopié à la main.
  */
 export function lienDeLaSurveillance(siteId: string): string {
-  return `${ADRESSE_ADMINISTRATION}/#${construireFragment({ vue: 'surveillance', siteId })}`;
+  return `${adresseAdministration()}/#${construireFragment({ vue: 'surveillance', siteId })}`;
 }
 
 /** Les boutons de fin d'un courriel de surveillance : la fiche dans Beluga, puis le service lui-même. */

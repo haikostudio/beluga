@@ -19,7 +19,7 @@
  * (`server/src/test/plan-gabarit.test.ts`).
  */
 
-import { BLOC_DES_DECISIONS, BLOC_DES_TACHES, BLOC_EN_CLAIR, PARTIES_DU_PLAN, type PartieDePlan } from './plan-complet.js';
+import { BLOC_DES_DECISIONS, BLOC_DES_TACHES, BLOC_DU_CAHIER, BLOC_EN_CLAIR, PARTIES_DU_PLAN, type PartieDePlan } from './plan-complet.js';
 import { aplatiCompact as aplati } from './mots.js';
 
 /** Une partie du plan, telle que l'affichage la dessine. */
@@ -50,6 +50,11 @@ export interface PlanRange {
    * avant ce bloc.
    */
   enClair: string | null;
+  /**
+   * LE BLOC « Cahier des charges » : ses rubriques (« ### … »), posées entre
+   * l'ouverture et les tâches. `null` sur un plan rendu avant ce bloc.
+   */
+  cahier: string | null;
   /**
    * LE BLOC « Liste des tâches » : ce qu'il y a à réaliser, chaque
    * point avec sa description. `null` sur un plan de l'ancienne forme.
@@ -113,6 +118,11 @@ export function blocDesTachesOuvertPar(ligne: string): boolean {
   return intituleOuvertPar(ligne, [BLOC_DES_TACHES]) !== null;
 }
 
+/** LA LIGNE OUVRE-T-ELLE LE BLOC « CAHIER DES CHARGES » ? Même statut que la liste des tâches. */
+export function blocDuCahierOuvertPar(ligne: string): boolean {
+  return intituleOuvertPar(ligne, [BLOC_DU_CAHIER]) !== null;
+}
+
 /** LA LIGNE OUVRE-T-ELLE L'OUVERTURE « EN CLAIR » ? Même statut que la liste des tâches. */
 export function blocEnClairOuvertPar(ligne: string): boolean {
   return intituleOuvertPar(ligne, [BLOC_EN_CLAIR]) !== null;
@@ -161,9 +171,10 @@ export function rangerLePlan(texte: string): PlanRange {
      serait pris pour le résumé — NI dans une partie du gabarit. Chacun a sa
      propre pile. */
   const lignesEnClair: string[] = [];
+  const lignesDuCahier: string[] = [];
   const lignesDesTaches: string[] = [];
   const lignesDesDecisions: string[] = [];
-  let blocOuvert: 'en-clair' | 'taches' | 'decisions' | null = null;
+  let blocOuvert: 'en-clair' | 'cahier' | 'taches' | 'decisions' | null = null;
 
   for (const ligne of lignes) {
     const ouverte = partieOuvertePar(ligne);
@@ -182,6 +193,10 @@ export function rangerLePlan(texte: string): PlanRange {
       blocOuvert = 'en-clair';
       continue;
     }
+    if (!courante && blocDuCahierOuvertPar(ligne)) {
+      blocOuvert = 'cahier';
+      continue;
+    }
     if (!courante && blocDesTachesOuvertPar(ligne)) {
       blocOuvert = 'taches';
       continue;
@@ -192,6 +207,7 @@ export function rangerLePlan(texte: string): PlanRange {
     }
     if (courante) corps.get(courante.nom)!.push(ligne);
     else if (blocOuvert === 'en-clair') lignesEnClair.push(ligne);
+    else if (blocOuvert === 'cahier') lignesDuCahier.push(ligne);
     else if (blocOuvert === 'taches') lignesDesTaches.push(ligne);
     else if (blocOuvert === 'decisions') lignesDesDecisions.push(ligne);
     else preambule.push(ligne);
@@ -199,6 +215,7 @@ export function rangerLePlan(texte: string): PlanRange {
 
   const { titre, resume, reste } = enteteDuPreambule(preambule.join('\n'));
   const enClair = lignesEnClair.join('\n').trim() || null;
+  const cahier = lignesDuCahier.join('\n').trim() || null;
   const taches = lignesDesTaches.join('\n').trim() || null;
   const decisions = lignesDesDecisions.join('\n').trim() || null;
 
@@ -229,6 +246,7 @@ export function rangerLePlan(texte: string): PlanRange {
     titre,
     resume,
     enClair,
+    cahier,
     taches,
     decisions,
     parties,
@@ -327,6 +345,10 @@ export function planEnTexteSimple(texte: string): string | null {
   if (range.enClair) {
     blocs.push(`## ${BLOC_EN_CLAIR.nom}`);
     blocs.push(range.enClair);
+  }
+  if (range.cahier) {
+    blocs.push(`## ${BLOC_DU_CAHIER.nom}`);
+    blocs.push(range.cahier);
   }
   if (range.taches) {
     blocs.push(`## ${BLOC_DES_TACHES.nom}`);

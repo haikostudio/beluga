@@ -7,7 +7,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
-    <meta name="theme-color" content="#09090b" />
+    <meta name="theme-color" content="#212121" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Beluga" />
@@ -43,18 +43,26 @@
        */
       (function () {
         var PALETTES = {
-          sombre: ['sombre', 'hsl(0 0% 0%)'],
+          sombre: ['sombre', 'hsl(0 0% 13%)'],
           clair: ['clair', 'hsl(0 0% 100%)'],
-          sable: ['clair', 'hsl(40 27% 91%)'],
-          'sable-sombre': ['sombre', 'hsl(35 18% 9%)'],
-          ardoise: ['sombre', 'hsl(220 14% 11%)'],
-          'ardoise-clair': ['clair', 'hsl(220 18% 93%)'],
-          givre: ['clair', 'hsl(210 30% 94%)'],
-          'givre-sombre': ['sombre', 'hsl(210 24% 8%)'],
-          sapin: ['sombre', 'hsl(150 18% 9%)'],
-          'sapin-clair': ['clair', 'hsl(145 20% 92%)'],
-          contraste: ['clair', 'hsl(45 6% 92%)'],
-          'contraste-sombre': ['sombre', 'hsl(45 8% 4%)'],
+        };
+        /* LES NOMS D'AVANT LA REFONTE (dix palettes colorées, et les deux tout
+           premiers noms) se lisent comme leur CLARTÉ — la même table que
+           `ANCIENS_THEMES` du catalogue. Un navigateur qui garde « sable » en
+           repère s'ouvre donc en clair, sans passer par le sombre. */
+        var ANCIENS = {
+          dark: 'sombre',
+          light: 'clair',
+          sable: 'clair',
+          'sable-sombre': 'sombre',
+          ardoise: 'sombre',
+          'ardoise-clair': 'clair',
+          givre: 'clair',
+          'givre-sombre': 'sombre',
+          sapin: 'sombre',
+          'sapin-clair': 'clair',
+          contraste: 'clair',
+          'contraste-sombre': 'sombre',
         };
         var repere = null;
         try {
@@ -62,7 +70,7 @@
         } catch (erreur) {
           repere = null;
         }
-        var theme = repere && PALETTES[repere] ? repere : 'sombre';
+        var theme = repere && PALETTES[repere] ? repere : (repere && ANCIENS[repere]) || 'sombre';
         var sombre = PALETTES[theme][0] === 'sombre';
         document.documentElement.classList.toggle('dark', sombre);
         document.documentElement.dataset.theme = theme;
@@ -73,7 +81,16 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- CE QU'ON VOIT AVANT QUE LE PREMIER CODE ARRIVE : une pause qui tourne, dans
+         les couleurs de la page. Sans elle, un téléphone restait sur une page
+         vide pendant tout le téléchargement. React la remplace au premier rendu
+         (`Demarrage`, web/src/main.tsx, prend le relais). -->
+    <style>
+      #demarrage { display: grid; place-items: center; height: 100%; }
+      #demarrage span { width: 20px; height: 20px; border: 2px solid hsl(0 0% 55%); border-top-color: transparent; border-radius: 50%; animation: demarrage-tourne 0.9s linear infinite; }
+      @keyframes demarrage-tourne { to { transform: rotate(360deg); } }
+    </style>
+    <div id="root"><div id="demarrage"><span></span></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 /**
  * L'ESPACE CLIENT : UN KANBAN QU'ON GLISSE, UN TIROIR, UN FIL.
  *
- * Le MÊME écran sert deux personnes : le client, sur `my.haikostudio.cloud`, et
+ * Le MÊME écran sert deux personnes : le client, sur l'adresse de l'espace client, et
  * Haiko, depuis sa colonne de gauche. La seule différence tient à la SIGNATURE
  * des messages et à deux gestes réservés (annoncer une date de livraison,
  * transformer une demande en carte) — pas à deux interfaces à tenir à jour.
@@ -167,7 +167,7 @@ export function VoletDiscussion({
       data-non-lus={nonLus}
       data-discussion-chargement={chargement}
     >
-      <div className="flex items-center justify-between border-b border-faint/40 px-3 py-2">
+      <div className="flex items-center justify-between px-3 py-2">
         <span className="text-[13px] font-medium text-text">{t('Discussion')}</span>
         {onFermer ? (
           <Button size="icon-sm" variant="ghost" onClick={onFermer} title={t('Fermer')} data-fermer-discussion>
@@ -256,7 +256,7 @@ export function VoletDiscussion({
       </ZoneDefilement>
       {/* PAS DE ZONE SÛRE ICI : la fenêtre de discussion flotte AU-DESSUS de
           la bande de l'onglet, jamais contre le bord bas de l'écran. */}
-      <div className="flex shrink-0 flex-col gap-2 border-t border-faint/40 p-2" data-pied-discussion>
+      <div className="flex shrink-0 flex-col gap-2 p-2" data-pied-discussion>
         <EnvoisEnCours envois={envois.envois} onReprendre={envois.reprendre} onOublier={envois.oublier} />
         <PiecesDeposees pieces={envois.pieces} onRetirer={envois.retirerPiece} />
         <div className="flex min-w-0 items-end gap-1.5">
@@ -281,10 +281,10 @@ export function VoletDiscussion({
         </div>
       </div>
       {/* LES IMAGES DE LA DISCUSSION S'AGRANDISSENT, COMME CELLES D'UNE FICHE :
-          la même visionneuse, les mêmes flèches, le même bouton de
-          téléchargement sous l'image. */}
+          la visionneuse de l'application, son zoom, son carrousel qui boucle et
+          son menu de téléchargement. */}
       <Visionneuse
-        images={images.map((piece) => ({ id: piece.id, nom: piece.nom }))}
+        images={images}
         index={visionneuse}
         onIndex={setVisionneuse}
         onFermer={() => setVisionneuse(null)}
@@ -305,6 +305,7 @@ export function EspaceClient({
   demandeVisee,
   gestesHaiko,
   enteteAvant,
+  enteteDansLeFil,
   enteteApres,
   navigation,
   onDeconnexion,
@@ -348,6 +349,11 @@ export function EspaceClient({
    * tableau, soit un tiers de l'entête d'un téléphone pour un seul nom.
    */
   enteteAvant?: React.ReactNode;
+  /**
+   * L'ENTÊTE SE FOND DANS LA BARRE DE L'APPLICATION (vu comme Haiko) : le geste
+   * est celui du cran « Messagerie », qui ramène à la vue d'ensemble.
+   */
+  enteteDansLeFil?: () => void;
   /**
    * CE QUI SE POSE À DROITE DE L'ENTÊTE, AVANT LE BURGER. Vu depuis la porte
    * client, c'est le nom de la personne connectée, qui avait son propre rang.
@@ -845,6 +851,7 @@ export function EspaceClient({
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <EnteteEspace
           avant={enteteAvant}
+          onRacine={enteteDansLeFil}
           projectId={projectId}
           projets={projectIdImpose ? moi.projets.filter((p) => p.id === projectId) : moi.projets}
           onProjet={setProjectId}
@@ -881,6 +888,7 @@ export function EspaceClient({
               onProfil={monProfil ? () => setProfil(true) : undefined}
               onDeconnexion={onDeconnexion}
               comptesDuClient={moi.role === 'admin' ? gestesHaiko?.comptesDuClient?.(projectId) : undefined}
+              enPoints={!!enteteDansLeFil}
             />
           }
         />
@@ -1020,7 +1028,7 @@ export function EspaceClient({
        * interrogent le serveur dès leur montage, et rien ne doit partir pour
        * un panneau que personne ne regarde.
        */}
-      <Drawer open={voletOuvert} onClose={fermerLeVolet} plein={telephone}>
+      <Drawer adresse="volet-espace" open={voletOuvert} onClose={fermerLeVolet} plein={telephone}>
         <div
           className="flex min-h-0 flex-1 flex-col"
           data-volet-espace={volet ?? undefined}

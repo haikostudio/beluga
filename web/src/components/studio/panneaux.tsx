@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { BadgeCheck, ChevronRight, Clapperboard, Copy, Download, FileAudio, Film, Image as IconeImage, KeyRound, Loader2, Pause, PenTool, Play, Plus, Trash2, Upload, X } from 'lucide-react';
+import { BadgeCheck, Check, ChevronRight, Clapperboard, Copy, Download, FileAudio, Film, Image as IconeImage, KeyRound, Loader2, Pause, PenTool, Play, Plus, Trash2, Upload, X } from 'lucide-react';
 import {
   type ExportStudio,
   type FormatStudio,
@@ -9,9 +9,12 @@ import {
   type DepenseStudio,
   type SegmentVoix,
   type ReglagesExport,
+  type ChronoDExport,
   CLES_FORMATS_STUDIO,
   FORMATS_STUDIO,
   REGLAGES_EXPORT_PAR_DEFAUT,
+  chronoDeLExport,
+  dureeDExportLisible,
   exportFini,
   extensionDExport,
   nomDExport,
@@ -38,6 +41,7 @@ import { LecteurVideo } from '@/components/lecteur-video';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { useSeconde } from '@/lib/horloge';
 import { cn } from '@/lib/utils';
 import { usePref } from '@/lib/prefs';
 import { type FichierATelecharger, useTelechargement } from '@/lib/telechargement';
@@ -225,30 +229,40 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
   }, [cle, donnees.creation.id]);
 
   const depensesVoix = donnees.depenses.filter((d) => d.genre === 'voix' && d.etat !== 'en-attente').slice(0, 5);
+  const [historiqueOuvert, setHistoriqueOuvert] = React.useState(false);
+  const dateDeGeneration = (instant: number) => new Date(instant).toLocaleString(formatRegional(), { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 
+  /* UN SEUL BLOC : les voix (une case cochée quand la voix est entièrement faite), le choix de la voix finale, UNE ligne
+     de coût (le détail dans un « i »), l'historique replié, puis le bouton gris. */
   return (
     <div className="flex flex-col gap-2" data-studio-panneau="voix">
-      <Section liste titre={t('Les voix de la création')}>
+      <Section
+        liste
+        titre={t('Voix finale')}
+        action={<BulleInfo cote="end">{t('Écoutez les voix et choisissez celle du projet : toutes les phrases seront dites par elle. Elle remplace la voix d’essai au moment où vous la validez. Elle est payée par le crédit OpenRouter de Beluga Build, quel que soit le projet.')}</BulleInfo>}
+      >
         {!voix.length ? <p className="text-[12.5px] text-faint">{t('Aucune voix : ajoutez un segment « Voix » ou demandez-le à l’agent.')}</p> : null}
         {voix.map((v) => {
           const autreVoix = phraseDansUneAutreVoix(v, voixDuProjet);
           const suivi = avancement?.phrases[v.id];
+          const faite = v.etat === 'finale' && !autreVoix;
           return (
             <div key={v.id} className="flex flex-col gap-1 py-0.5 text-[12.5px]" data-studio-ligne-voix={v.id} data-etat={autreVoix ? 'autre-voix' : v.etat}>
               <div className="flex items-center gap-2">
                 <span
-                  className={cn(
-                    'h-2 w-2 shrink-0 rounded-full',
-                    autreVoix || v.etat === 'a-revalider' ? 'bg-warning' : v.etat === 'finale' ? 'bg-termine' : v.etat === 'essai' ? 'bg-en-cours' : 'bg-faint',
-                  )}
-                />
+                  className={cn('flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border', faite ? 'border-termine bg-termine text-white' : 'border-faint')}
+                  data-studio-voix-case={faite ? 'oui' : 'non'}
+                >
+                  {faite ? <Check className="h-3 w-3" strokeWidth={3} aria-hidden /> : null}
+                  <span className="sr-only">{faite ? t('Voix finale faite') : t('Voix pas encore finale')}</span>
+                </span>
                 <span className="min-w-0 flex-1 truncate">{v.texte || t('(texte vide)')}</span>
                 {suivi ? (
                   <span className={cn('shrink-0 tabular-nums', suivi.etat === 'echec' ? 'text-danger' : 'text-muted')} data-studio-voix-pourcent={Math.round(suivi.pourcent)}>
                     {suivi.etat === 'echec' ? t('Échec') : suivi.etat === 'attente' ? t('En attente') : `${Math.round(suivi.pourcent)} %`}
                   </span>
-                ) : (
-                  <span className={cn('shrink-0', autreVoix ? 'text-warning' : 'text-faint')}>
+                ) : faite ? null : (
+                  <span className={cn('shrink-0', autreVoix || v.etat === 'a-revalider' ? 'text-warning' : 'text-faint')}>
                     {autreVoix ? t('Autre voix ({voix})', { voix: v.voixFinale ?? '?' }) : libelleEtatVoix(v.etat)}
                   </span>
                 )}
@@ -258,11 +272,11 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
                   pourcent={suivi.pourcent}
                   erreur={suivi.etat === 'echec'}
                   teinte={suivi.etat === 'faite' ? 'success' : 'en-cours'}
-                  className="ml-4 w-auto rounded-full"
+                  className="ml-6 w-auto rounded-full"
                   data-studio-voix-barre={suivi.etat}
                 />
               ) : null}
-              {suivi?.raison ? <span className="ml-4 text-[12px] text-danger">{suivi.raison}</span> : null}
+              {suivi?.raison ? <span className="ml-6 text-[12px] text-danger">{suivi.raison}</span> : null}
             </div>
           );
         })}
@@ -271,13 +285,7 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
             {t('Fabriquer les voix d’essai (gratuit)')}
           </Button>
         ) : null}
-      </Section>
 
-      <Section
-        liste
-        titre={t('Voix finale')}
-        action={<BulleInfo cote="end">{t('Écoutez les voix et choisissez celle du projet : toutes les phrases seront dites par elle. Elle remplace la voix d’essai au moment où vous la validez. Elle est payée par le crédit OpenRouter de Beluga Build, quel que soit le projet.')}</BulleInfo>}
-      >
         <ChampChoix
           titre={t('Voix finale du projet')}
           valeur={voixDuProjet}
@@ -293,13 +301,21 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
         />
         <div className="mt-1 flex flex-col gap-1.5">
           {raisonDevis ? <p className="text-[12px] text-danger">{raisonDevis}</p> : null}
-          {refaire && !enCours ? <p className="text-[12px] text-termine">{t('Toutes les voix sont en voix finale.')}</p> : null}
           {devis && !enCours ? (
-            /* LE DEVIS EN PHRASES : ce qui sera dit, ce que ça coûtera au plus, ce qui reste. */
-            <div className="flex flex-col gap-0.5 text-[12.5px] text-muted" data-studio-devis-voix={devis.plafond}>
-              <span data-studio-prise-unique>{t('Toute la voix en une seule prise : {n} phrase(s), environ {s} s, dites ensemble par {voix}.', { n: devis.segments.length, s: Math.max(1, Math.round(devis.secondes)), voix: voixDuProjet })}</span>
-              <span>{t('Coût maximum : {prix}, payé par le crédit OpenRouter de Beluga Build.', { prix: montantLisible(devis.plafond) })}</span>
-              {devis.solde !== null ? <span>{t('Crédit restant : {solde}.', { solde: montantLisible(devis.solde) })}</span> : null}
+            /* LE DEVIS EN UNE LIGNE : ce qui sera dit et ce que ça coûtera au plus ; le reste se lit dans le « i ». */
+            <div className="flex items-center gap-1.5 text-[12.5px] text-muted" data-studio-devis-voix={devis.plafond}>
+              <span className="min-w-0 flex-1" data-studio-prise-unique>
+                {t('{n} phrase(s) · environ {s} s · jusqu’à {prix}', { n: devis.segments.length, s: Math.max(1, Math.round(devis.secondes)), prix: montantLisible(devis.plafond) })}
+              </span>
+              <BulleInfo cote="end">
+                {[
+                  t('Toute la voix est dite en une seule prise par {voix}. Le coût maximum est payé par le crédit OpenRouter de Beluga Build.', { voix: voixDuProjet }),
+                  refaire ? t('Toutes les voix sont en voix finale.') : null,
+                  devis.solde !== null ? t('Crédit restant : {solde}.', { solde: montantLisible(devis.solde) }) : null,
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              </BulleInfo>
             </div>
           ) : null}
           {devis && !devis.cle ? (
@@ -311,8 +327,45 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
               </Button>
             </div>
           ) : null}
+
+          {/* L'HISTORIQUE, replié : la date de génération et le montant débité, rien de plus. */}
+          {depensesVoix.length ? (
+            <div data-studio-historique-voix={historiqueOuvert ? 'ouvert' : 'ferme'}>
+              <button
+                type="button"
+                onClick={() => setHistoriqueOuvert((o) => !o)}
+                aria-expanded={historiqueOuvert}
+                className="flex min-h-8 w-full items-center gap-1.5 text-left text-[12.5px] text-muted"
+                data-studio-historique-voix-bascule
+              >
+                <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', historiqueOuvert && 'rotate-90')} aria-hidden />
+                {t('Historique des voix')}
+              </button>
+              {historiqueOuvert ? (
+                <table className="mt-0.5 w-full text-[12px] text-muted">
+                  <thead>
+                    <tr className="text-left text-faint">
+                      <th className="py-0.5 pr-2 font-normal">{t('Date')}</th>
+                      <th className="py-0.5 text-right font-normal">{t('Montant')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {depensesVoix.map((d) => (
+                      <tr key={d.id} data-studio-depense-voix={d.etat}>
+                        <td className="py-0.5 pr-2 tabular-nums">{dateDeGeneration(d.creeLe)}</td>
+                        <td className={cn('py-0.5 text-right tabular-nums', d.etat === 'echouee' && 'text-danger')}>
+                          {d.etat === 'faite' ? montantLisible(d.montantReel ?? 0) : d.etat === 'echouee' ? t('Échec') : t('En cours')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </div>
+          ) : null}
+
           <Button
-            variant="default"
+            variant="outline"
             className="relative h-auto min-h-9 w-full overflow-hidden whitespace-normal py-1.5"
             disabled={!devis || !devis.cle || enCours}
             onClick={() => client.call({ type: 'studio.voix.valider', creationId: donnees.creation.id, plafond: devis?.plafond ?? 0, ...(refaire ? { refaire: true } : {}) })}
@@ -332,19 +385,6 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
           </Button>
         </div>
       </Section>
-
-      {depensesVoix.length ? (
-        <Section liste titre={t('Ce que les voix ont coûté')}>
-          {depensesVoix.map((d) => (
-            <p key={d.id} className="text-[12px] text-muted" data-studio-depense-voix={d.etat}>
-              {d.etat === 'faite' || d.etat === 'echouee'
-                ? t('{raison} — débité : {montant} (plafond {plafond})', { raison: d.raison, montant: montantLisible(d.montantReel ?? 0), plafond: montantLisible(d.plafond) })
-                : t('{raison} — en cours', { raison: d.raison })}
-              {d.erreur ? <span className="block text-danger">{d.erreur}</span> : null}
-            </p>
-          ))}
-        </Section>
-      ) : null}
     </div>
   );
 }
@@ -356,7 +396,8 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
 function etatDeLExport(e: ExportStudio): string {
   switch (e.etat) {
     case 'en-file':
-      return t('En attente de la machine');
+      // La machine fabrique UNE vidéo à la fois : celle-ci passe après celles qui la précèdent, affichées au-dessus.
+      return t('En attente : la machine fabrique une vidéo à la fois');
     case 'en-cours':
       return t('Fabrication en cours');
     case 'pret':
@@ -395,8 +436,11 @@ export function EtapeFormats({
   onChoisis,
   temps,
   onImage,
+  enFabrication = 0,
 }: {
   donnees: DonneesCreation;
+  /** Combien d'exports attendent ou se fabriquent : tant qu'il y en a, on n'en relance pas. */
+  enFabrication?: number;
   /** Les formats cochés : un export par format. */
   choisis: FormatStudio[];
   onChoisis: (formats: FormatStudio[]) => void;
@@ -418,20 +462,39 @@ export function EtapeFormats({
   return (
     <div className="flex flex-col gap-2" data-studio-panneau="exports">
       <Section liste titre={t('Formats à exporter')} data-studio-formats-export={choisis.join(',')}>
-        {formats.map((f) => (
-          <label key={f} className="flex min-h-9 cursor-pointer items-center gap-2.5 text-[13px]" data-studio-format-export={f}>
-            <input
-              type="checkbox"
-              checked={choisis.includes(f)}
-              onChange={(e) => onChoisis(e.target.checked ? formats.filter((x) => x === f || choisis.includes(x)) : choisis.filter((x) => x !== f))}
-              className="h-4 w-4 shrink-0 accent-[hsl(var(--accent))]"
-            />
-            <span className="min-w-0 flex-1">{libelleFormat(f)}</span>
-            <span className="shrink-0 tabular-nums text-faint">
-              {f} · {FORMATS_STUDIO[f].largeur}×{FORMATS_STUDIO[f].hauteur}
-            </span>
-          </label>
-        ))}
+        {/* LES FORMATS SONT DES CARTES : la silhouette de l'image, son nom et sa taille ; une carte choisie porte l'accent
+            et sa coche. Un appui la prend ou la laisse — on peut ne sortir qu'un seul format. */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {formats.map((f) => {
+            const pris = choisis.includes(f);
+            const { largeur, hauteur } = FORMATS_STUDIO[f];
+            return (
+              <button
+                key={f}
+                type="button"
+                aria-pressed={pris}
+                onClick={() => onChoisis(pris ? choisis.filter((x) => x !== f) : formats.filter((x) => x === f || choisis.includes(x)))}
+                className={cn(
+                  'relative flex min-w-0 flex-col items-center gap-1.5 rounded-md px-2 pb-2 pt-3 text-center transition-colors',
+                  pris ? 'bg-accent/15 text-text' : 'bg-raised text-muted hover:text-text',
+                )}
+                data-studio-format-export={f}
+                data-choisi={pris ? 'oui' : 'non'}
+              >
+                <span className={cn('absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full', pris ? 'bg-accent text-accent-fg' : 'bg-bloc')} aria-hidden>
+                  {pris ? <Check className="h-3 w-3" /> : null}
+                </span>
+                <span className="flex h-12 w-12 items-center justify-center" aria-hidden>
+                  <span className={cn('block rounded-[3px] border-2', pris ? 'border-accent' : 'border-faint')} style={largeur >= hauteur ? { width: 44, height: (44 * hauteur) / largeur } : { height: 44, width: (44 * largeur) / hauteur }} />
+                </span>
+                <span className="w-full truncate text-[12.5px] font-medium">{libelleFormat(f)}</span>
+                <span className="w-full truncate text-[11px] tabular-nums text-faint">
+                  {f} · {largeur}×{hauteur}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         {!choisis.length ? <p className="text-[12px] text-warning">{t('Cochez au moins un format.')}</p> : null}
         {CLES_FORMATS_STUDIO.some((f) => !formats.includes(f)) ? (
           <div className="flex flex-wrap items-center gap-1 text-[12px] text-muted">
@@ -543,10 +606,11 @@ export function EtapeFormats({
             data-studio-export-image={reglages.image}
           />
         </Ligne>
-        <Button size="sm" variant="outline" className="w-full" disabled={!donnees.rendu.pret || !choisis.length} onClick={onImage} data-studio-exporter="image">
+        <Button size="sm" variant="outline" className="w-full" disabled={!donnees.rendu.pret || !choisis.length || enFabrication > 0} onClick={onImage} data-studio-exporter="image">
           <IconeImage className="h-3.5 w-3.5" />
           {t('Exporter une image')}
         </Button>
+        {enFabrication > 0 ? <p className="text-[11.5px] text-en-cours" data-studio-export-bloque>{t('Un export est en cours : attendez qu’il finisse, ou annulez-le, avant d’en lancer un autre.')}</p> : null}
         <p className="text-[11.5px] text-faint">{t('L’image est prise à l’endroit de la tête de lecture ({t} s).', { t: (Math.round(temps * 10) / 10).toLocaleString(formatRegional()) })}</p>
       </Section>
     </div>
@@ -576,10 +640,25 @@ function TelechargerLExport({ fichier, repere }: { fichier: FichierATelecharger;
 
 /** L'action d'une ligne d'export : annuler tant qu'il se fabrique, télécharger quand il est prêt. */
 function ActionDeLExport({ titre, e }: { titre: string; e: ExportStudio }) {
+  const [annulation, setAnnulation] = React.useState(false);
   if (e.etat === 'en-file' || e.etat === 'en-cours') {
     return (
-      <Button size="icon" variant="ghost" aria-label="Annuler l’export" title={t('Annuler l’export')} onClick={() => client.call({ type: 'studio.export.annuler', id: e.id })}>
-        <X className="h-3.5 w-3.5" />
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Annuler l’export"
+        title={t('Annuler l’export')}
+        disabled={annulation}
+        onClick={() => {
+          setAnnulation(true);
+          client
+            .call({ type: 'studio.export.annuler', id: e.id })
+            .catch((err: any) => client.pushToast('error', err?.message ?? t('Annulation impossible')))
+            .finally(() => setAnnulation(false));
+        }}
+        data-studio-annuler-export={e.id}
+      >
+        {annulation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
       </Button>
     );
   }
@@ -587,9 +666,31 @@ function ActionDeLExport({ titre, e }: { titre: string; e: ExportStudio }) {
   return fichier ? <TelechargerLExport fichier={fichier} repere={e.id} /> : null;
 }
 
+/** L'heure d'un départ, courte : « 11:50 ». */
+function heureDeDepart(at: number): string {
+  return new Date(at).toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * LE CHRONO D'UN EXPORT, en une ligne : depuis quand il attend, l'heure où sa
+ * fabrication a démarré et le temps écoulé, puis le temps total qu'elle a pris.
+ * L'attente d'avant le départ se dit à part — elle n'est jamais comptée dans la
+ * fabrication.
+ */
+function texteDuChrono(chrono: ChronoDExport, pret: boolean): string {
+  const attente = chrono.genre !== 'attente' && chrono.attenteMs >= 5000 ? ` · ${t('attente avant le départ : {duree}', { duree: dureeDExportLisible(chrono.attenteMs) })}` : '';
+  if (chrono.genre === 'attente') return t('En attente depuis {heure} · {duree}', { heure: heureDeDepart(chrono.depuis), duree: dureeDExportLisible(chrono.attenteMs) });
+  if (chrono.genre === 'fabrication') return `${t('Départ à {heure} · {duree} écoulées', { heure: heureDeDepart(chrono.demarreLe), duree: dureeDExportLisible(chrono.ecouleMs) })}${attente}`;
+  const duree = dureeDExportLisible(chrono.fabricationMs);
+  return `${pret ? t('Fabriquée en {duree}', { duree }) : t('Arrêtée après {duree}', { duree })}${attente}`;
+}
+
 /** L'état d'un export, en une ligne (et sa barre tant qu'il se fabrique). */
 function EtatDeLExport({ e }: { e: ExportStudio }) {
   const p = useApp().studioProgression[e.id];
+  /* L'horloge ne tourne que tant que l'export attend ou se fabrique : un export fini garde son temps figé. */
+  const maintenant = useSeconde(!exportFini(e));
+  const chrono = chronoDeLExport(e, maintenant);
   return (
     <>
       <p className={cn('text-[12px]', e.etat === 'echoue' ? 'text-danger' : e.etat === 'pret' ? 'text-termine' : e.etat === 'annule' ? 'text-faint' : 'text-en-cours')}>
@@ -598,6 +699,11 @@ function EtatDeLExport({ e }: { e: ExportStudio }) {
         {e.erreur ? ` — ${e.erreur}` : ''}
         {e.voixEnEssai && e.etat === 'pret' ? ` · ${t('{n} voix d’essai', { n: e.voixEnEssai })}` : ''}
       </p>
+      {chrono ? (
+        <p className="text-[12px] tabular-nums text-muted" data-studio-chrono={chrono.genre}>
+          {texteDuChrono(chrono, e.etat === 'pret')}
+        </p>
+      ) : null}
       {e.etat === 'en-cours' ? (
         <div className="h-1 overflow-hidden rounded-full bg-raised">
           <div className="h-full bg-en-cours transition-all" style={{ width: `${Math.round((p?.valeur ?? 0.03) * 100)}%` }} />
@@ -608,21 +714,41 @@ function EtatDeLExport({ e }: { e: ExportStudio }) {
 }
 
 /**
- * ÉTAPE 3 — LES FICHIERS À TÉLÉCHARGER. On n'y voit que le LOT du dernier clic
- * « Exporter » (`partagerLesExports`) : chaque fichier avec son état, sa barre,
- * son lecteur et son téléchargement. Tout ce qui précède est rangé, replié, sous
- * « Anciens exports », où un bouton les retire pour de bon (lignes et fichiers,
- * jamais un export encore en fabrication) après confirmation.
+ * ÉTAPE 3 — LES FICHIERS À TÉLÉCHARGER. On y voit le LOT du dernier clic
+ * « Exporter » ET tout export qui attend ou se fabrique encore
+ * (`partagerLesExports`) : chaque fichier avec son état, sa barre, son lecteur,
+ * son téléchargement, et sa croix tant qu'il n'est pas fini ; « Tout annuler »
+ * dès que deux exports restent à faire. Les exports FINIS d'avant sont rangés,
+ * repliés, sous « Anciens exports », où un bouton les retire pour de bon
+ * (lignes et fichiers) après confirmation.
  */
 export function EtapeFichiers({ donnees }: { donnees: DonneesCreation }) {
   const titre = donnees.creation.titre;
   const { courants, anciens } = partagerLesExports(donnees.exports);
   const [anciensOuverts, setAnciensOuverts] = React.useState(false);
   const [aConfirmer, setAConfirmer] = React.useState(false);
+  const [annulation, setAnnulation] = React.useState(false);
   const aVider = anciens.filter(exportFini).length;
+  const aFaire = courants.filter((e) => !exportFini(e));
+  /** TOUT ANNULER : chaque export qui attend ou se fabrique est arrêté (un nouvel export le refait au besoin). */
+  const toutAnnuler = () => {
+    setAnnulation(true);
+    void Promise.allSettled(aFaire.map((e) => client.call({ type: 'studio.export.annuler', id: e.id })))
+      .then((r) => {
+        const rates = r.filter((x) => x.status === 'rejected').length;
+        if (rates) client.pushToast('error', t('{n} export(s) n’ont pas pu être annulés : ils étaient peut-être déjà finis.', { n: rates }));
+      })
+      .finally(() => setAnnulation(false));
+  };
   return (
     <div className="flex flex-col gap-2" data-studio-panneau="fichiers">
       {!courants.length ? <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun fichier pour l’instant : revenez à l’étape précédente pour exporter.')}</p> : null}
+      {aFaire.length >= 2 ? (
+        <Button size="sm" variant="outline" className="w-full" disabled={annulation} onClick={toutAnnuler} data-studio-tout-annuler={aFaire.length}>
+          {annulation ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+          {t('Tout annuler ({n} exports à faire)', { n: aFaire.length })}
+        </Button>
+      ) : null}
       {courants.map((e) => (
         <Section liste key={e.id} titre={titreDeLExport(e)} action={<ActionDeLExport titre={titre} e={e} />}>
           <div data-studio-export={e.id} data-etat={e.etat} data-studio-lot={e.lot ?? ''} className="flex flex-col gap-1.5">

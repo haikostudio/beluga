@@ -3,9 +3,13 @@
  *
  * Refonte du 22/09/2026, complétée le 29/09/2026. La MISE EN PRODUCTION part
  * d'une page blanche : tant que le projet n'a pas de PROCESSUS, rien ne peut
- * partir. Le DÉPLOIEMENT a désormais le sien aussi, FACULTATIF : tant qu'aucun
- * n'est écrit, le déroulé commun reste en service (`publication-simple.ts`) —
- * il est donc toujours « en place ». Pour chaque étape, un agent étudie le
+ * partir. Le DÉPLOIEMENT a le sien aussi, et depuis le 10/10/2026 il est
+ * EXIGÉ de la même façon : un projet sans processus de déploiement ne déploie
+ * pas — il passait pour prêt, et son déploiement sautait reconstruction et
+ * redémarrage avant de se dire réussi. Seuls Beluga (son déroulé propre) et les
+ * projets marqués `herite` (ils déployaient déjà par commande ou service,
+ * migration 117) gardent le déroulé commun (`publication-simple.ts`) sans
+ * initialisation. Pour chaque étape, un agent étudie le
  * projet, INTERROGE l'utilisateur (outil ask_user) puis rend le processus —
  * une suite d'étapes que le bouton déroulera ensuite telle quelle, sans agent.
  * Sa conversation vit dans la rubrique de son étape, dans les réglages du
@@ -26,16 +30,26 @@ import {
 } from './publication-simple.js';
 
 export type ProjetAvecProcedures = {
+  isSelf?: boolean;
   miseEnProduction?: { processus?: ProcessusDeProduction; agentId?: string };
-  deploiement?: { processus?: ProcessusDeProduction; agentId?: string };
+  deploiement?: { processus?: ProcessusDeProduction; agentId?: string; herite?: boolean };
 };
 
+/** Le projet a-t-il un processus de déploiement écrit par son agent ? */
+export function aUnProcessusDeDeploiement(projet: ProjetAvecProcedures | undefined): boolean {
+  return (projet?.deploiement?.processus?.etapes?.length ?? 0) > 0;
+}
+
 /**
- * L'étape est-elle prête à partir ? Le déploiement l'est TOUJOURS ; la mise en
- * production seulement quand son processus a été écrit.
+ * L'étape est-elle prête à partir ? Chacune seulement quand son processus a
+ * été écrit. Le déploiement garde deux exceptions : Beluga lui-même (son
+ * déroulé propre), et un projet marqué `herite`, qui déployait déjà par
+ * commande ou service avant cette règle. Jamais déduit de la commande ou du
+ * service : le montage pré-remplit le service constaté.
  */
 export function procedureEnPlace(projet: ProjetAvecProcedures | undefined, cible: CiblePublication): boolean {
-  return cible === 'dev' ? true : aUnProcessus(projet);
+  if (cible === 'production') return aUnProcessus(projet);
+  return !!projet?.isSelf || aUnProcessusDeDeploiement(projet) || projet?.deploiement?.herite === true;
 }
 
 /**
@@ -76,6 +90,179 @@ export const LIBELLE_BOUTON_DE_CONFIGURATION: Record<EtatDuBoutonDeConfiguration
   question: 'Répondre à l’agent',
   reconfigurer: 'Reconfigurer',
 };
+
+/* ------------------------------------------------------------------ */
+/* OÙ EN EST UNE ÉTAPE : la phrase d'état et les trois repères          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * OÙ EN EST UNE ÉTAPE DE PUBLICATION (11/10/2026). Les rubriques
+ * « Déploiement » et « Mise en production » s'ouvraient sur des champs, un
+ * journal d'étude et un processus déplié : « on ne comprend rien, trop
+ * d'informations ». Elles s'ouvrent désormais sur UNE phrase d'état et trois
+ * repères, et cette règle dit laquelle :
+ *   - `question` : l'agent de configuration attend une réponse (ask_user) ;
+ *   - `etude` : il tient son tour — il étudie le projet, ou réécrit le processus ;
+ *   - `a-configurer` : rien n'est en place, l'étape ne peut pas partir ;
+ *   - `a-reverifier` : l'étape peut partir, mais un réglage qui décide du
+ *     processus a changé depuis son écriture ;
+ *   - `pret` : l'étape peut partir, et rien n'a bougé depuis.
+ * Même ordre que le bouton (`etatDuBoutonDeConfiguration`) : la question passe
+ * avant le travail, et l'agent au travail avant ce qui est déjà en place.
+ *
+ * Elle ne lit que ce que la rubrique sait déjà : aucune donnée neuve du serveur.
+ */
+export type EtatDeLEtapeDePublication = 'a-configurer' | 'etude' | 'question' | 'pret' | 'a-reverifier';
+
+/** Ce que la rubrique sait de son étape, au moment où elle s'affiche. */
+export type SituationDeLEtape = {
+  /**
+   * L'étape peut partir (`procedureEnPlace`) : son processus est écrit, ou le
+   * déroulé commun la sert (Beluga, projet hérité). Jamais déduit d'un champ.
+   */
+  enPlace: boolean;
+  /** L'agent de configuration tient son tour. */
+  auTravail: boolean;
+  /** L'agent de configuration est arrêté sur sa question. */
+  question: boolean;
+  /** Un réglage a changé depuis l'écriture du processus (`reglagesChangesDepuisLeProcessus`). */
+  reglagesChanges: boolean;
+};
+
+export function etatDeLEtapeDePublication(situation: SituationDeLEtape): EtatDeLEtapeDePublication {
+  if (situation.question) return 'question';
+  if (situation.auTravail) return 'etude';
+  if (!situation.enPlace) return 'a-configurer';
+  return situation.reglagesChanges ? 'a-reverifier' : 'pret';
+}
+
+/**
+ * LES TROIS REPÈRES D'AVANCEMENT, dans l'ordre : l'étude de l'agent, le
+ * processus établi, puis l'étape prête. Le dernier ne dit « Essai réussi » que
+ * sur PREUVE (`essaiReussiConnu`) ; sans elle il dit « Prêt à partir », qui est
+ * vrai dans tous les cas — l'écran n'annonce jamais un essai qu'il n'a pas vu.
+ */
+export type RepereDAvancement = {
+  cle: 'etude' | 'processus' | 'pret' | 'essai' | 'a-reverifier';
+  etat: 'fait' | 'en-cours' | 'a-faire' | 'a-revoir';
+};
+
+export const LIBELLE_REPERE_D_AVANCEMENT: Record<RepereDAvancement['cle'], string> = {
+  etude: 'Étude',
+  processus: 'Processus établi',
+  pret: 'Prêt à partir',
+  essai: 'Essai réussi',
+  'a-reverifier': 'À revérifier',
+};
+
+export function reperesDAvancement(
+  situation: SituationDeLEtape & {
+    /** Un processus propre au projet est écrit (`processusDeLEtape`) : l'étude a donc abouti. */
+    processus: boolean;
+    /** Une publication réussie de cette étape est connue de l'écran (`essaiReussiConnu`). */
+    essaiReussi: boolean;
+  },
+): RepereDAvancement[] {
+  const etudie = situation.question || situation.auTravail;
+  /* Le dernier repère tant que rien ne peut partir : le but à atteindre. */
+  let dernier: RepereDAvancement = { cle: 'essai', etat: 'a-faire' };
+  if (situation.enPlace) {
+    if (situation.reglagesChanges) dernier = { cle: 'a-reverifier', etat: 'a-revoir' };
+    else dernier = { cle: situation.essaiReussi ? 'essai' : 'pret', etat: 'fait' };
+  }
+  return [
+    /* Une étude qui reprend sur un processus déjà écrit est bien EN COURS. */
+    { cle: 'etude', etat: etudie ? 'en-cours' : situation.processus ? 'fait' : 'a-faire' },
+    /* Le déroulé commun en service vaut un processus établi : c'est lui qui part. */
+    { cle: 'processus', etat: situation.enPlace ? 'fait' : 'a-faire' },
+    dernier,
+  ];
+}
+
+/** Ce que l'écran garde de la dernière publication d'un projet (son magasin, `deploys`). */
+export type DernierePublicationConnue = {
+  state?: string;
+  cible?: CiblePublication;
+  startedAt?: number;
+  endedAt?: number;
+};
+
+/**
+ * UN ESSAI RÉUSSI EST-IL CONNU ? Deux preuves, l'une ou l'autre suffit :
+ *
+ *  - LA DERNIÈRE RÉUSSITE DE L'ÉTAPE, DITE PAR LE SERVEUR (`derniereReussite`,
+ *    commande `deploy.reussites`). C'est elle qui rend le repère STABLE : elle
+ *    ne dépend pas de la publication la plus récente du projet.
+ *  - la dernière publication que l'écran garde du projet, quand elle est bien
+ *    de CETTE étape (une publication sans étape est un déploiement, celui du
+ *    lot de « À déployer ») et qu'elle a réussi. L'écran n'en garde qu'UNE par
+ *    projet, toutes étapes confondues : seule, cette preuve retombait dès que
+ *    l'autre étape publiait. Elle reste, pour l'instant où la publication vient
+ *    de finir et où le serveur n'a pas encore été relu.
+ *
+ * Dans les deux cas la réussite ne compte que si elle n'est pas plus vieille
+ * que le processus : un processus récrit depuis n'a pas encore fait ses
+ * preuves. L'absence de preuve n'est jamais lue comme un échec — le repère dit
+ * alors « Prêt à partir », rien de plus.
+ */
+export function essaiReussiConnu(
+  publication: DernierePublicationConnue | undefined,
+  cible: CiblePublication,
+  processusEcritLe?: number,
+  derniereReussite?: number | null,
+): boolean {
+  const assezRecente = (le: number) => !processusEcritLe || le >= processusEcritLe;
+  if (derniereReussite && assezRecente(derniereReussite)) return true;
+  if (!publication || publication.state !== 'success') return false;
+  if ((publication.cible ?? 'dev') !== cible) return false;
+  return assezRecente(publication.endedAt ?? publication.startedAt ?? 0);
+}
+
+/** Combien de phrases la rubrique garde pour dire pourquoi ce processus. */
+export const PHRASES_DU_POURQUOI_MAX = 2;
+
+/**
+ * POURQUOI CE PROCESSUS, EN DEUX PHRASES AU PLUS. La rubrique montrait le récit
+ * entier de l'agent (« Étude de l'agent ») : un journal de plusieurs écrans,
+ * qui commence par ce qu'il était en train de vérifier. On garde le RÉSUMÉ que
+ * l'agent rend avec son processus — il lui est demandé en deux phrases — et, à
+ * défaut (processus sans résumé), le début de son explication. Les marques de
+ * mise en forme sont retirées : ce texte se lit tel quel, sans rendu.
+ */
+export function pourquoiCeProcessus(
+  processus: Pick<ProcessusDeProduction, 'resume' | 'explication'> | undefined,
+): string {
+  const source = processus?.resume?.trim() || processus?.explication?.trim() || '';
+  return premieresPhrases(sansMiseEnForme(source), PHRASES_DU_POURQUOI_MAX);
+}
+
+/** Un texte d'agent ramené à une ligne : ni titres, ni gras, ni puces. */
+function sansMiseEnForme(texte: string): string {
+  return texte
+    .split('\n')
+    .filter((ligne) => !/^\s*#{1,6}\s/.test(ligne))
+    .map((ligne) => ligne.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''))
+    .join(' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*|__|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Les `max` premières phrases d'un texte. Une phrase finit sur un point (ou
+ * « ! », « ? », « … ») suivi d'une espace et d'une majuscule : le point d'une
+ * adresse (« 46.224.231.253 », « kipou.app, ») ne coupe donc rien.
+ */
+function premieresPhrases(texte: string, max: number): string {
+  const fin = /[.!?…]+["»”)]*(?=\s+[\p{Lu}«“"(]|\s*$)/gu;
+  let compte = 0;
+  for (let trouve = fin.exec(texte); trouve; trouve = fin.exec(texte)) {
+    compte += 1;
+    if (compte === max) return texte.slice(0, trouve.index + trouve[0].length).trim();
+  }
+  return texte;
+}
 
 /** L'agent de configuration retenu sur le projet pour cette étape, s'il y en a un. */
 export function agentDeConfiguration(

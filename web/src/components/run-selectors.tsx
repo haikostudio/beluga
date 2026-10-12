@@ -1,26 +1,46 @@
 import * as React from 'react';
-import { Check, ChevronDown, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { AccountQuota, EngineInfo, RunConfig, messageDeRepli, nomCourtDuMoteur, resoudreRun } from '@beluga/shared';
-import { Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  ouvertureAuClic,
+  rendreLeFocusALEntreeDuSousMenu,
+} from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 
 /**
- * Les trois réglages d'un agent — moteur, modèle, niveau de réflexion — dans
+ * Les réglages d'un agent — moteur, modèle, niveau de réflexion, compte — dans
  * UN SEUL point d'entrée : un bouton qui résume la configuration actuelle et
- * ouvre, au clic, un tiroir d'aperçu à trois lignes, alignées à gauche (le nom
- * du réglage au-dessus, sa valeur juste en dessous). Choisir une ligne ouvre
- * un SECOND tiroir, empilé par-dessus le premier — jamais un remplacement de
- * son contenu — avec la liste verticale de CE seul réglage. Aucun bouton
- * retour : le tiroir du dessus se referme comme n'importe quel tiroir (voile,
- * geste, échappement) et retrouve l'aperçu resté ouvert en dessous — que ce
- * retour vienne d'un choix retenu ou d'un renoncement, l'aperçu, lui, ne se
- * ferme JAMAIS tout seul. La barre d'écriture affiche ce point d'entrée pour
- * l'agent en cours, la carte à valider pour l'agent qui l'exécutera plus
- * tard : même composant, même comportement.
+ * ouvre, au clic, UN PETIT MENU ANCRÉ SOUS LUI — jamais une page (demande du
+ * 11/10/2026 : « un bouton d'options ouvre un menu déroulant »). Le menu porte
+ * une entrée par réglage, qui montre sa valeur actuelle ; chacune DÉPLIE la
+ * liste de ses choix en sous-menu, à côté d'elle (un panneau du bas sur
+ * téléphone). Choisir une valeur replie le sous-menu et LAISSE LE MENU OUVERT,
+ * ses valeurs à jour : on règle le moteur puis le modèle sans rouvrir quoi que
+ * ce soit. Le menu se referme comme tout menu — un clic ailleurs, l'échappement.
+ *
+ * La barre d'écriture affiche ce point d'entrée pour l'agent en cours, la carte
+ * à valider pour l'agent qui l'exécutera plus tard : même composant, même
+ * comportement.
+ *
+ * UN ÉCRAN QUI MONTRE DÉJÀ SES RÉGLAGES LIGNE PAR LIGNE confie SA ligne au menu
+ * (`declencheur`) et nomme le réglage qu'elle ouvre (`ouvrirSur`) : le menu est
+ * alors DIRECTEMENT la liste de ce réglage, ancrée à la ligne cliquée.
  */
 
 export type RunChoix = Partial<Pick<RunConfig, 'engine' | 'model' | 'thinking' | 'account'>>;
+
+/** Les quatre réglages, dans l'ordre où ils se lisent. */
+export type ReglageDeRun = 'moteur' | 'modele' | 'reflexion' | 'compte';
 
 /**
  * Le nom court du moteur, celui que tout le monde utilise à l'oral : « Claude »,
@@ -40,7 +60,20 @@ export function nomCourtMoteur(engine: Pick<EngineInfo, 'id' | 'label'> | undefi
  */
 export { resoudreRun };
 
-type SousVue = 'moteur' | 'modele' | 'reflexion' | 'compte' | null;
+type ComptesConnus = Pick<AccountQuota, 'id' | 'engine' | 'label' | 'disabled'>[];
+
+/** Tout ce que le menu montre, lu UNE fois : le choix résolu, les comptes du moteur, l'alerte de repli. */
+function lireLesReglages(engines: EngineInfo[], choix: RunChoix | undefined, comptes: ComptesConnus | undefined) {
+  const resolu = resoudreRun(engines, choix);
+  const comptesDuMoteur = (comptes ?? []).filter((c) => c.engine === resolu.engine?.id && !c.disabled);
+  const compteChoisi = choix?.account ? comptesDuMoteur.find((c) => c.id === choix.account) : undefined;
+  return { ...resolu, comptesDuMoteur, compteChoisi, avertissementModele: messageDeRepli(resolu.engine) };
+}
+type ReglagesLus = ReturnType<typeof lireLesReglages>;
+
+/** La tenue d'un menu de réglages : assez large pour un nom de modèle, borné à la place libre. */
+const CLASSE_MENU_DE_REGLAGES =
+  'min-w-[240px] sm:max-h-[min(480px,var(--radix-dropdown-menu-content-available-height))] sm:max-w-[min(340px,calc(100vw-16px))]';
 
 export function RunSelectors({
   engines,
@@ -48,9 +81,7 @@ export function RunSelectors({
   onSelect,
   pleineLargeur,
   comptes,
-  masquerDeclencheur,
-  ouvertControle,
-  onOuvertControleChange,
+  declencheur,
   ouvrirSur,
 }: {
   engines: EngineInfo[];
@@ -60,314 +91,299 @@ export function RunSelectors({
   /** Le bouton d'entrée prend toute la largeur — pour un pied de carte empilé. */
   pleineLargeur?: boolean;
   /**
-   * Tous les comptes connus, tous moteurs confondus (`state.quotas`). La ligne
+   * Tous les comptes connus, tous moteurs confondus (`state.quotas`). L'entrée
    * « Compte » ne s'affiche que si plusieurs d'entre eux, une fois filtrés sur
    * le moteur choisi et non coupés, se disputent le travail — sinon le choix
    * automatique suffit et n'a rien à montrer.
    */
-  comptes?: Pick<AccountQuota, 'id' | 'engine' | 'label' | 'disabled'>[];
+  comptes?: ComptesConnus;
   /**
-   * Cache le bouton d'entrée : celui qui appelle porte déjà son propre
-   * déclencheur (une bulle du fil, par exemple) et pilote l'ouverture du
-   * tiroir d'aperçu lui-même via `ouvertControle` / `onOuvertControleChange` —
-   * sans ce couple, le tiroir ne pourrait plus jamais s'ouvrir.
+   * LE BOUTON DE CELUI QUI APPELLE, à la place du bouton de résumé. Un menu a
+   * besoin de SON bouton comme ancre : un écran qui a déjà le sien (une ligne
+   * de configuration, l'icône du Studio) le confie ici, et c'est sous lui que
+   * le menu s'ouvre. Un élément qui transmet sa référence et ses propriétés à
+   * un vrai `button`.
    */
-  masquerDeclencheur?: boolean;
-  ouvertControle?: boolean;
-  onOuvertControleChange?: (ouvert: boolean) => void;
+  declencheur?: React.ReactElement;
   /**
-   * OUVRIR DIRECTEMENT SUR UN RÉGLAGE. La carte de configuration d'une tâche
-   * neuve affiche déjà les trois valeurs : cliquer « Modèle » doit donner la
-   * liste des modèles, pas un aperçu qu'il faut re-cliquer. Sans cette
-   * propriété, le tiroir s'ouvre sur son aperçu, comme partout ailleurs.
+   * LE MENU EST DIRECTEMENT LA LISTE D'UN RÉGLAGE. La carte de configuration
+   * d'une tâche neuve affiche déjà les quatre valeurs : cliquer « Modèle » doit
+   * donner la liste des modèles sous cette ligne, pas un menu qui les répète.
+   * Sans cette propriété, le menu porte une entrée par réglage.
    */
-  ouvrirSur?: 'moteur' | 'modele' | 'reflexion' | 'compte';
+  ouvrirSur?: ReglageDeRun;
 }) {
-  const { installed, engine, models, model, thinkingOptions, thinking } = resoudreRun(engines, choix);
-  const [ouvertInterne, setOuvertInterne] = React.useState(false);
-  const ouvert = ouvertControle ?? ouvertInterne;
-  const setOuvert = onOuvertControleChange ?? setOuvertInterne;
-  const [sousVue, setSousVue] = React.useState<SousVue>(null);
-  const avertissementModele = messageDeRepli(engine);
-
-  /*
-   * L'ouverture demandée sur un réglage PRÉCIS n'est jouée qu'au moment où le
-   * tiroir s'ouvre : rejouée à chaque rendu, elle rouvrirait la liste que
-   * l'utilisateur vient de refermer.
-   */
-  const etaitOuvert = React.useRef(false);
-  React.useEffect(() => {
-    if (ouvert && !etaitOuvert.current && ouvrirSur) setSousVue(ouvrirSur);
-    if (!ouvert) setSousVue(null);
-    etaitOuvert.current = ouvert;
-  }, [ouvert, ouvrirSur]);
-
-  const comptesDuMoteur = (comptes ?? []).filter((c) => c.engine === engine?.id && !c.disabled);
-  const compteChoisi = choix?.account ? comptesDuMoteur.find((c) => c.id === choix.account) : undefined;
+  const lu = lireLesReglages(engines, choix, comptes);
+  const [ouvert, setOuvert] = React.useState(false);
 
   const resume = [
-    nomCourtMoteur(engine),
-    model?.label,
-    thinkingOptions.length > 1 ? thinking?.label : null,
-    compteChoisi ? compteChoisi.label : null,
+    nomCourtMoteur(lu.engine),
+    lu.model?.label,
+    lu.thinkingOptions.length > 1 ? lu.thinking?.label : null,
+    lu.compteChoisi ? lu.compteChoisi.label : null,
   ]
     .filter(Boolean)
     .join(' · ');
 
-  const fermerTout = () => {
-    setOuvert(false);
-    setSousVue(null);
-  };
+  return (
+    <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
+      <DropdownMenuTrigger asChild {...ouvertureAuClic(() => setOuvert(true))}>
+        {declencheur ?? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
+              pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
+            )}
+            data-selecteur="config"
+          >
+            <SlidersHorizontal className="h-3 w-3 shrink-0" />
+            <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
+              {resume || t('Réglages')}
+            </span>
+            <ChevronDown className="h-2.5 w-2.5 shrink-0" />
+          </Button>
+        )}
+      </DropdownMenuTrigger>
+      {ouvrirSur ? (
+        /* Un seul réglage : le menu EST sa liste, et choisir le referme — il n'y
+           a rien d'autre à y faire. Il garde le nom de la ligne qui l'a ouvert. */
+        <DropdownMenuContent
+          align="start"
+          collisionPadding={8}
+          className={CLASSE_MENU_DE_REGLAGES}
+          data-menu-reglages={ouvrirSur}
+        >
+          <ListeDUnReglage reglage={ouvrirSur} lu={lu} choix={choix} onChoisir={(patch) => onSelect(patch)} />
+        </DropdownMenuContent>
+      ) : (
+        /* Tous les réglages : le menu porte SON nom, pas celui du bouton — un
+           résumé qui change à chaque choix. */
+        <DropdownMenuContent
+          align="start"
+          collisionPadding={8}
+          className={CLASSE_MENU_DE_REGLAGES}
+          data-menu-reglages="tous"
+          aria-labelledby={undefined}
+          aria-label="Réglages de l'agent"
+        >
+          <DropdownMenuLabel>{t('Réglages de l\'agent')}</DropdownMenuLabel>
+          <EntreesDeReglages engines={engines} choix={choix} onSelect={onSelect} comptes={comptes} />
+        </DropdownMenuContent>
+      )}
+    </DropdownMenu>
+  );
+}
 
-  const choisir = (patch: RunChoix) => {
-    onSelect(patch);
-    setSousVue(null);
-  };
+/**
+ * LES ENTRÉES D'UN MENU DE RÉGLAGES — une par réglage, qui montre sa valeur et
+ * déplie sa liste en sous-menu. Elles se posent dans N'IMPORTE QUEL menu
+ * (`DropdownMenuContent`) : celui du bouton de résumé ci-dessus, ou celui de la
+ * configuration d'une carte (`chat.tsx`), qui a son propre bouton.
+ *
+ * « Réflexion » ne paraît que si le modèle offre plusieurs niveaux, « Compte »
+ * que si plusieurs comptes du moteur se disputent le travail.
+ *
+ * `data-valeur` porte la valeur SEULE, sans le nom du réglage ni la flèche —
+ * c'est ce que les scripts de vérification lisent, plutôt que de reconstituer
+ * le texte affiché.
+ */
+export function EntreesDeReglages({
+  engines,
+  choix,
+  onSelect,
+  comptes,
+}: {
+  engines: EngineInfo[];
+  choix: RunChoix | undefined;
+  onSelect: (patch: RunChoix) => void;
+  comptes?: ComptesConnus;
+}) {
+  const lu = lireLesReglages(engines, choix, comptes);
+  /* UN SEUL SOUS-MENU À LA FOIS, et c'est ici qu'on le sait : un choix le
+     replie sans toucher au menu. */
+  const [deplie, setDeplie] = React.useState<ReglageDeRun | null>(null);
 
-  const titreSousVue =
-    sousVue === 'moteur'
-      ? t('Moteur')
-      : sousVue === 'modele'
-        ? engine?.live
-          ? t('Modèle (liste du moteur)')
-          : t('Modèle')
-        : sousVue === 'reflexion'
-          ? t('Niveau de réflexion')
-          : sousVue === 'compte'
-            ? t('Compte')
-            : '';
+  const entree = (reglage: ReglageDeRun, titre: string, valeur: string, alerte?: boolean) => (
+    <DropdownMenuSub
+      key={reglage}
+      open={deplie === reglage}
+      onOpenChange={(ouvert) => setDeplie((avant) => (ouvert ? reglage : avant === reglage ? null : avant))}
+    >
+      <DropdownMenuSubTrigger data-selecteur={reglage} data-valeur={valeur} className="min-w-0 rounded-md py-2">
+        <span className="shrink-0 text-faint">{titre}</span>
+        <span className="min-w-0 flex-1 truncate text-right text-text">{valeur}</span>
+        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title={t('Liste de secours')} /> : null}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="min-w-[220px] sm:max-w-[min(340px,calc(100vw-16px))]">
+        <ListeDUnReglage
+          reglage={reglage}
+          lu={lu}
+          choix={choix}
+          onChoisir={(patch, evenement) => {
+            /* LE SOUS-MENU SE REPLIE, LE MENU RESTE : la valeur choisie s'y lit
+               aussitôt, et le réglage suivant est à un clic. */
+            evenement.preventDefault();
+            onSelect(patch);
+            rendreLeFocusALEntreeDuSousMenu(evenement.currentTarget as Element | null);
+            setDeplie(null);
+          }}
+        />
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
 
   return (
     <>
-      {masquerDeclencheur ? null : (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setOuvert(true)}
-          className={cn(
-            'min-w-0 gap-1 text-[13px] text-faint hover:text-text',
-            pleineLargeur ? 'w-full justify-between px-1.5' : 'px-1.5',
-          )}
-          data-selecteur="config"
-        >
-          <SlidersHorizontal className="h-3 w-3 shrink-0" />
-          <span className={cn('truncate', pleineLargeur ? '' : 'max-w-[130px] sm:max-w-[220px]')}>
-            {resume || t('Réglages')}
-          </span>
-          <ChevronDown className="h-2.5 w-2.5 shrink-0" />
-        </Button>
-      )}
-
-      {/* Le tiroir d'aperçu : trois lignes, chacune alignée à gauche. */}
-      <Drawer open={ouvert} onClose={fermerTout}>
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <SlidersHorizontal className="h-3.5 w-3.5 shrink-0 text-accent" />
-          <DialogTitle className="min-w-0 flex-1 truncate">{t('Réglages de l\'agent')}</DialogTitle>
-        </header>
-        <div
-          role="menu"
-          aria-label="Réglages de l'agent"
-          // Masqué de l'arbre d'accessibilité pendant qu'un détail est
-          // ouvert par-dessus : les scripts qui comptent les entrées de la
-          // liste du dessus ne doivent pas retomber sur ces trois lignes.
-          aria-hidden={sousVue !== null || undefined}
-          className="flex flex-col gap-1 px-2 pb-3"
-        >
-          <LigneApercu
-            titre={t('Moteur')}
-            valeur={nomCourtMoteur(engine)}
-            repere="moteur"
-            menuitem={sousVue === null}
-            onClick={() => setSousVue('moteur')}
-          />
-          <LigneApercu
-            titre={t('Modèle')}
-            valeur={model?.label ?? '—'}
-            repere="modele"
-            alerte={!!avertissementModele}
-            menuitem={sousVue === null}
-            onClick={() => setSousVue('modele')}
-          />
-          {thinkingOptions.length > 1 ? (
-            <LigneApercu
-              titre={t('Réflexion')}
-              valeur={thinking?.label ?? '—'}
-              repere="reflexion"
-              menuitem={sousVue === null}
-              onClick={() => setSousVue('reflexion')}
-            />
-          ) : null}
-          {comptesDuMoteur.length > 1 ? (
-            <LigneApercu
-              titre={t('Compte')}
-              valeur={compteChoisi?.label ?? t('Automatique')}
-              repere="compte"
-              menuitem={sousVue === null}
-              onClick={() => setSousVue('compte')}
-            />
-          ) : null}
-        </div>
-      </Drawer>
-
-      {/* Le tiroir de détail : empilé par-dessus l'aperçu, sans bouton retour —
-          le refermer (voile, geste, échappement) retrouve l'aperçu resté ouvert. */}
-      <Drawer open={sousVue !== null} onClose={() => setSousVue(null)} empile>
-        <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-          <DialogTitle className="min-w-0 flex-1 truncate">{titreSousVue}</DialogTitle>
-        </header>
-        {sousVue === 'modele' && avertissementModele ? (
-          <p data-repli="liste-de-secours" className="px-3 pb-1.5 text-[12px] leading-snug text-warning" role="note">
-            {avertissementModele}
-          </p>
-        ) : null}
-        <ZoneDefilement role="menu" aria-label={titreSousVue} className="flex flex-col gap-1 px-2 pb-3">
-          {sousVue === 'moteur'
-            ? installed.map((e) => (
-                <ItemListe
-                  key={e.id}
-                  actif={e.id === engine?.id}
-                  moteurId={e.id}
-                  onSelect={() => choisir({ engine: e.id as RunConfig['engine'] })}
-                >
-                  <span className="min-w-0 flex-1 truncate">{nomCourtMoteur(e)}</span>
-                  {e.version ? (
-                    <span className="shrink-0 text-[11px] text-faint">
-                      {e.version.replace(/[^\d.]/g, '').slice(0, 8)}
-                    </span>
-                  ) : null}
-                </ItemListe>
-              ))
-            : null}
-
-          {sousVue === 'modele'
-            ? models.map((m) => {
-                const note =
-                  m.note ??
-                  (m.releasedAt
-                    ? new Date(m.releasedAt).toLocaleDateString(formatRegional(), { month: '2-digit', year: '2-digit' })
-                    : undefined);
-                return (
-                  <ItemListe key={m.id} actif={m.id === model?.id} modeleId={m.id} onSelect={() => choisir({ model: m.id })}>
-                    {m.appetite ? <Appetite level={m.appetite} /> : null}
-                    <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                    {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
-                  </ItemListe>
-                );
-              })
-            : null}
-
-          {sousVue === 'reflexion'
-            ? thinkingOptions.map((niveau) => (
-                <ItemListe
-                  key={niveau.id}
-                  actif={niveau.id === thinking?.id}
-                  onSelect={() => choisir({ thinking: niveau.id })}
-                >
-                  <span className="min-w-0 flex-1 truncate">{niveau.label}</span>
-                </ItemListe>
-              ))
-            : null}
-
-          {sousVue === 'compte' ? (
-            <>
-              {/* Repartir sur la répartition automatique — celle qui suit le
-                  quota disponible — plutôt que sur un compte figé. */}
-              <ItemListe actif={!choix?.account} onSelect={() => choisir({ account: undefined })}>
-                <span className="min-w-0 flex-1 truncate">{t('Automatique')}</span>
-              </ItemListe>
-              {comptesDuMoteur.map((c) => (
-                <ItemListe key={c.id} actif={c.id === choix?.account} onSelect={() => choisir({ account: c.id })}>
-                  <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                </ItemListe>
-              ))}
-            </>
-          ) : null}
-        </ZoneDefilement>
-      </Drawer>
+      {entree('moteur', t('Moteur'), nomCourtMoteur(lu.engine))}
+      {entree('modele', t('Modèle'), lu.model?.label ?? '—', !!lu.avertissementModele)}
+      {lu.thinkingOptions.length > 1 ? entree('reflexion', t('Réflexion'), lu.thinking?.label ?? '—') : null}
+      {lu.comptesDuMoteur.length > 1
+        ? entree('compte', t('Compte'), lu.compteChoisi?.label ?? t('Automatique'))
+        : null}
     </>
   );
 }
 
 /**
- * Une ligne de l'aperçu, alignée à gauche : le nom du réglage au-dessus, sa
- * valeur actuelle juste en dessous, une flèche vers sa liste. `data-valeur`
- * porte la valeur SEULE, sans le nom du réglage ni la flèche — c'est ce que
- * les scripts de vérification lisent, plutôt que de reconstituer le texte
- * affiché.
+ * LA LISTE DES CHOIX D'UN RÉGLAGE : son titre, l'avertissement de la liste de
+ * secours pour les modèles, puis un choix par ligne. Elle sert telle quelle au
+ * sous-menu d'une entrée et au menu ouvert directement sur un réglage.
  */
-function LigneApercu({
-  titre,
-  valeur,
-  repere,
-  alerte,
-  menuitem,
-  onClick,
+function ListeDUnReglage({
+  reglage,
+  lu,
+  choix,
+  onChoisir,
 }: {
-  titre: string;
-  valeur: string;
-  repere: string;
-  alerte?: boolean;
-  /** L'état du mode plan, lu tel quel par les scripts de vérification. */
-  /** Faux tant qu'un détail est ouvert par-dessus : la ligne sort alors de la
-   * liste des « menuitem », pour ne pas se mêler à celles du tiroir du dessus. */
-  menuitem: boolean;
-  onClick: () => void;
+  reglage: ReglageDeRun;
+  lu: ReglagesLus;
+  choix: RunChoix | undefined;
+  onChoisir: (patch: RunChoix, evenement: Event) => void;
 }) {
+  const titre =
+    reglage === 'moteur'
+      ? t('Moteur')
+      : reglage === 'modele'
+        ? lu.engine?.live
+          ? t('Modèle (liste du moteur)')
+          : t('Modèle')
+        : reglage === 'reflexion'
+          ? t('Niveau de réflexion')
+          : t('Compte');
+
+  let lignes: React.ReactNode[] = [];
+  if (reglage === 'moteur') {
+    lignes = lu.installed.map((e) => (
+      <ChoixDeReglage
+        key={e.id}
+        actif={e.id === lu.engine?.id}
+        moteurId={e.id}
+        onChoisir={(evenement) => onChoisir({ engine: e.id as RunConfig['engine'] }, evenement)}
+      >
+        <span className="min-w-0 flex-1 truncate">{nomCourtMoteur(e)}</span>
+        {e.version ? (
+          <span className="shrink-0 text-[11px] text-faint">{e.version.replace(/[^\d.]/g, '').slice(0, 8)}</span>
+        ) : null}
+      </ChoixDeReglage>
+    ));
+  } else if (reglage === 'modele') {
+    lignes = lu.models.map((m) => {
+      const note =
+        m.note ??
+        (m.releasedAt
+          ? new Date(m.releasedAt).toLocaleDateString(formatRegional(), { month: '2-digit', year: '2-digit' })
+          : undefined);
+      return (
+        <ChoixDeReglage
+          key={m.id}
+          actif={m.id === lu.model?.id}
+          modeleId={m.id}
+          onChoisir={(evenement) => onChoisir({ model: m.id }, evenement)}
+        >
+          {m.appetite ? <Appetite level={m.appetite} /> : null}
+          <span className="min-w-0 flex-1 truncate">{m.label}</span>
+          {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
+        </ChoixDeReglage>
+      );
+    });
+  } else if (reglage === 'reflexion') {
+    lignes = lu.thinkingOptions.map((niveau) => (
+      <ChoixDeReglage
+        key={niveau.id}
+        actif={niveau.id === lu.thinking?.id}
+        onChoisir={(evenement) => onChoisir({ thinking: niveau.id }, evenement)}
+      >
+        <span className="min-w-0 flex-1 truncate">{niveau.label}</span>
+      </ChoixDeReglage>
+    ));
+  } else {
+    lignes = [
+      /* Repartir sur la répartition automatique — celle qui suit le quota
+         disponible — plutôt que sur un compte figé. */
+      <ChoixDeReglage key="§automatique" actif={!choix?.account} onChoisir={(evenement) => onChoisir({ account: undefined }, evenement)}>
+        <span className="min-w-0 flex-1 truncate">{t('Automatique')}</span>
+      </ChoixDeReglage>,
+      ...lu.comptesDuMoteur.map((c) => (
+        <ChoixDeReglage
+          key={c.id}
+          actif={c.id === choix?.account}
+          onChoisir={(evenement) => onChoisir({ account: c.id }, evenement)}
+        >
+          <span className="min-w-0 flex-1 truncate">{c.label}</span>
+        </ChoixDeReglage>
+      )),
+    ];
+  }
+
   return (
-    <button
-      type="button"
-      role={menuitem ? 'menuitem' : undefined}
-      data-selecteur={repere}
-      data-valeur={valeur}
-      onClick={onClick}
-      className="flex items-center justify-between gap-2 rounded-md px-2 py-2 text-left hover:bg-raised"
-    >
-      <span className="flex min-w-0 flex-col items-start gap-0.5">
-        <span className="text-[11px] uppercase tracking-wide text-faint">{titre}</span>
-        <span className="max-w-[220px] truncate text-[14px] text-text">{valeur}</span>
-      </span>
-      <span className="ml-auto flex shrink-0 items-center gap-1.5">
-        {alerte ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" title={t('Liste de secours')} /> : null}
-        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
-      </span>
-    </button>
+    <div className="flex flex-col gap-0.5" data-selecteur-liste={reglage}>
+      <DropdownMenuLabel>{titre}</DropdownMenuLabel>
+      {reglage === 'modele' && lu.avertissementModele ? (
+        <p data-repli="liste-de-secours" className="px-2 pb-1 text-[12px] leading-snug text-warning" role="note">
+          {lu.avertissementModele}
+        </p>
+      ) : null}
+      {lignes}
+      {!lignes.length ? <p className="px-2 py-2 text-[13px] text-faint">{t('Rien à choisir pour ce réglage.')}</p> : null}
+    </div>
   );
 }
 
-function ItemListe({
+/**
+ * Un choix d'une liste : une entrée de menu (`role="menuitem"`). Le choix
+ * RETENU s'écrit en violet avec sa coche et le dit à une machine (`data-actif`,
+ * `aria-current`) — aucun trait autour.
+ */
+function ChoixDeReglage({
   actif,
   moteurId,
   modeleId,
-  onSelect,
+  onChoisir,
   children,
 }: {
   actif: boolean;
   moteurId?: string;
   modeleId?: string;
-  onSelect: () => void;
+  onChoisir: (evenement: Event) => void;
   children: React.ReactNode;
 }) {
   return (
-    <div
-      role="menuitem"
+    <DropdownMenuItem
       data-moteur-id={moteurId}
       data-modele-id={modeleId}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
+      data-actif={actif ? '' : undefined}
+      aria-current={actif ? 'true' : undefined}
+      onSelect={onChoisir}
       className={cn(
-        'flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[13px] outline-none',
-        actif ? 'border-accent/60 bg-accent/10 text-text' : 'border-border text-muted hover:bg-raised',
+        'gap-2 rounded-md px-2 py-1.5 text-[13px]',
+        actif ? 'text-teinte' : 'text-muted data-[highlighted]:text-text',
       )}
     >
       {children}
-      {actif ? <Check className="ml-auto h-3 w-3 shrink-0 text-success" /> : null}
-    </div>
+      <Check className={cn('h-3.5 w-3.5 shrink-0 text-teinte', !actif && 'invisible')} aria-hidden />
+    </DropdownMenuItem>
   );
 }
 

@@ -1,6 +1,6 @@
+import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
-  ArrowLeft,
   Bot,
   Clapperboard,
   Copy,
@@ -11,12 +11,14 @@ import {
   Play,
   Plus,
   Redo2,
+  Search,
   Send,
   SlidersHorizontal,
   Trash2,
   Undo2,
   Volume2,
   VolumeX,
+  Loader2,
 } from 'lucide-react';
 import {
   type Agent,
@@ -24,9 +26,11 @@ import {
   type OperationStudio,
   type Piste,
   CLES_FORMATS_STUDIO,
+  agentTientSonTour,
   FORMATS_STUDIO,
   dureeExportee,
   piecesDuDessin,
+  minusculesSansAccents,
   trouverSegment,
 } from '@beluga/shared';
 import {
@@ -34,6 +38,7 @@ import {
   ConfirmDialog,
   DialogFooter,
   DialogTitle,
+  TitreDePage,
   Drawer,
   FormulaireEnColonnes,
   Input,
@@ -45,20 +50,26 @@ import {
 import { Chat } from '@/components/chat';
 import { RunSelectors, resoudreRun, type RunChoix } from '@/components/run-selectors';
 import { SilhouetteConversation, SilhouetteStudio } from '@/components/silhouettes';
+import { BoutonPrincipal, GestePrincipal, GestesDePage, OptionDePage, OptionsDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
+import { CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
+import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { client } from '@/lib/client';
+import { writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
+import { usePref } from '@/lib/prefs';
+import { ResizeHandle, ResizeHandleHorizontale, useResizable } from '@/components/resizer';
 import { formatRegional, t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 import { Apercu, ApercuEnDirect, type ApercuDirect, type BoiteDuCadre, type MessageDuCadre, type PoigneeApercu } from './apercu';
 import { AvancementDeCreation } from './avancement';
 import { EditeurElement } from './editeur-element';
 import { PanneauSources, PanneauStyles, StylesCites, demandeDAppliquer, type StyleDeLaGalerie } from './styles';
-import { LigneDeTemps, type QuoiAjouter } from './ligne-de-temps';
+import { LigneDeTemps, nomDuSegment, type QuoiAjouter } from './ligne-de-temps';
 import { Calques, Inspecteur, ReglagesDeComposition } from './inspecteur';
 import { DepensesEnAttente, PanneauBibliotheque, choisirEtImporter } from './panneaux';
 import { EnteteDeFenetre } from './champs';
-import { BoutonMiseEnProduction, FenetreMiseEnProduction } from './production';
+import { BoutonMiseEnProduction, FenetreMiseEnProduction, useProductionEnCours } from './production';
 import { libelleFormat } from './libelles';
 import { VoletVerification } from './verification';
 import type { DonneesCreation, LigneCreation, ResumeModele } from './types';
@@ -66,7 +77,7 @@ import type { DonneesCreation, LigneCreation, ResumeModele } from './types';
 /**
  * LE STUDIO — visuels fixes et vidéos animées de chaque projet.
  *
- * Deux écrans : la LISTE des créations (par projet), puis l'ÉDITEUR d'une
+ * Deux écrans : la LISTE des créations (une seule rangée de vignettes, avec une recherche), puis l'ÉDITEUR d'une
  * création — aperçu au centre (cadre isolé, même traduction que l'export),
  * ligne de temps en bas, inspecteur et agent à côté. Sur téléphone : aperçu en
  * haut, ligne de temps au doigt dessous, inspecteur, agent, voix et exports en
@@ -108,7 +119,13 @@ export function Studio({
   /* « #studio/verification:<source> » : l'alerte de la cloche mène droit au volet « Passer la vérification » de CETTE source. */
   const verification = vise?.startsWith('verification:') ? vise.slice('verification:'.length) : null;
   return (
-    <Drawer open={open} onClose={onClose} enPage={enPage}>
+    <Drawer
+      open={open}
+      onClose={onClose}
+      enPage={enPage}
+      // L'atelier d'une création prend toute la largeur ; la liste garde la colonne centrée.
+      className={vise && !verification ? 'max-w-none sm:px-3 sm:pt-2' : 'max-w-[980px]'}
+    >
       {vise && !verification ? (
         <Editeur key={vise} creationId={vise} onRetour={() => onVise?.(null)} onOuvrir={(id) => onVise?.(id)} />
       ) : (
@@ -123,11 +140,43 @@ export function Studio({
 /* La liste                                                             */
 /* ------------------------------------------------------------------ */
 
+/** Un bouton de la barre du haut bloqué pendant le travail de l'agent : grisé à 50 % (le bouton, lui, grise à 40 %). */
+const BLOQUE = 'disabled:opacity-50';
+
+/**
+ * LES OPTIONS DE L'ATELIER SUR TÉLÉPHONE : les lignes du menu à trois points de
+ * la barre d'en-tête. Composant à part : seul lui se redessine à chaque pas de
+ * l'export, et son bouton tourne tant que la production avance — le menu fermé
+ * ne montre pas ses lignes.
+ */
+function OptionsDeLAtelierAuTelephone({
+  donnees,
+  bloque,
+  onBibliotheque,
+  onProduction,
+}: {
+  donnees: DonneesCreation;
+  bloque: boolean;
+  onBibliotheque: () => void;
+  onProduction: () => void;
+}) {
+  const enCours = useProductionEnCours(donnees.depenses, donnees.exports);
+  return (
+    <OptionsDePage enCours={enCours}>
+      <OptionDePage icone={<Library className="h-3.5 w-3.5" />} disabled={bloque} onClick={onBibliotheque} aria-label="Bibliothèque" data-studio-ouvrir-bibliotheque>
+        {t('Bibliothèque')}
+      </OptionDePage>
+      <BoutonMiseEnProduction compact={false} bloque={bloque} depenses={donnees.depenses} exports={donnees.exports} onClick={onProduction} />
+    </OptionsDePage>
+  );
+}
+
 function ListeDesCreations({ onOuvrir }: { onOuvrir: (id: string) => void }) {
   const state = useApp();
   const version = state.studioVersions['*'] ?? 0;
   const [vue, setVue] = React.useState<{ creations: LigneCreation[]; projets: { id: string; name: string }[] } | null>(null);
   const [nouvelle, setNouvelle] = React.useState(false);
+  useTiroirAdresse('nouvelle-creation-studio', nouvelle, setNouvelle);
 
   React.useEffect(() => {
     let vivant = true;
@@ -144,27 +193,70 @@ function ListeDesCreations({ onOuvrir }: { onOuvrir: (id: string) => void }) {
     };
   }, [version]);
 
-  const parProjet = React.useMemo(() => {
-    const groupes = new Map<string, { nom: string; creations: LigneCreation[] }>();
-    for (const c of vue?.creations ?? []) {
-      const g = groupes.get(c.projectId) ?? { nom: c.projet, creations: [] };
-      g.creations.push(c);
-      groupes.set(c.projectId, g);
-    }
-    return [...groupes.entries()];
+  const [recherche, setRecherche] = React.useState('');
+  /* LA COLONNE DE GAUCHE EST CELLE DU STUDIO (demande du 12/10/2026) : le geste
+     qui crée, détaché, « Toutes les créations » et un classement par projet.
+     Sur téléphone, le geste reste dans la page. */
+  const dansLaColonne = useColonneDeService();
+  /** Le projet retenu dans la colonne (son nom, tel que la ligne le porte) ; `null` : tous. */
+  const [projetRetenu, setProjetRetenu] = React.useState<string | null>(null);
+  const projetsDesCreations = React.useMemo(() => {
+    const comptes = new Map<string, number>();
+    for (const c of vue?.creations ?? []) comptes.set(c.projet, (comptes.get(c.projet) ?? 0) + 1);
+    return [...comptes].sort((a, b) => a[0].localeCompare(b[0]));
   }, [vue]);
+  /* Le filtre est LOCAL (titre et projet, sans casse ni accents) : aucune frappe n'appelle le serveur. */
+  const affichees = React.useMemo(() => {
+    const cherche = minusculesSansAccents(recherche.trim());
+    const toutes = (vue?.creations ?? []).filter((c) => !projetRetenu || c.projet === projetRetenu);
+    return cherche ? toutes.filter((c) => minusculesSansAccents(`${c.titre} ${c.projet}`).includes(cherche)) : toutes;
+  }, [vue, recherche, projetRetenu]);
 
   return (
     <>
-      <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <Clapperboard className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Studio')}</DialogTitle>
-        <Button size="sm" variant="default" onClick={() => setNouvelle(true)} data-studio-nouvelle>
-          <Plus className="h-3.5 w-3.5" />
-          {t('Nouvelle création')}
-        </Button>
-      </header>
-      <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-4">
+      <TitreDePage>{t('Studio')}</TitreDePage>
+      {dansLaColonne ? (
+        <ColonneDeService>
+          <nav aria-label="Rubriques du studio" data-colonne-studio className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+            <GesteDeCreationDeColonne
+              libelle={t('Nouvelle création')}
+              aria-label="Nouvelle création"
+              data-studio-nouvelle
+              onClick={() => setNouvelle(true)}
+            />
+            <RubriqueDeColonne
+              icone={<Clapperboard />}
+              libelle={t('Toutes les créations')}
+              compte={vue?.creations.length}
+              actif={projetRetenu === null}
+              onClick={() => setProjetRetenu(null)}
+              data-studio-rubrique="toutes"
+            />
+            {projetsDesCreations.length > 1 || projetRetenu ? <p className={CLASSE_SECTION_DE_SERVICE}>{t('Par projet')}</p> : null}
+            {projetsDesCreations.length > 1 || projetRetenu
+              ? projetsDesCreations.map(([nom, nombre]) => (
+                  <RubriqueDeColonne
+                    key={nom}
+                    icone={<Globe />}
+                    libelle={nom}
+                    compte={nombre}
+                    actif={projetRetenu === nom}
+                    onClick={() => setProjetRetenu(nom)}
+                    data-studio-rubrique-projet={nom}
+                  />
+                ))
+              : null}
+          </nav>
+        </ColonneDeService>
+      ) : (
+        <GestePrincipal>
+          <BoutonPrincipal onClick={() => setNouvelle(true)} data-studio-nouvelle>
+            <Plus className="h-3.5 w-3.5" />
+            {t('Nouvelle création')}
+          </BoutonPrincipal>
+        </GestePrincipal>
+      )}
+      <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
         {vue === null ? (
           <SilhouetteStudio />
         ) : !vue.creations.length ? (
@@ -175,38 +267,56 @@ function ListeDesCreations({ onOuvrir }: { onOuvrir: (id: string) => void }) {
             </p>
           </div>
         ) : (
-          <div className="flex flex-col gap-4" data-studio-liste>
-            {parProjet.map(([projectId, g]) => (
-              <section key={projectId} className="flex flex-col gap-2">
-                <h3 className="px-1 text-[12.5px] font-semibold text-muted">{g.nom}</h3>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {g.creations.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => onOuvrir(c.id)}
-                      className="flex flex-col overflow-hidden rounded-md bg-bloc text-left transition-colors hover:bg-raised"
-                      data-studio-creation={c.id}
-                    >
-                      <span className="flex aspect-[4/5] items-center justify-center bg-raised">
-                        {c.afficheId ? (
-                          <img src={`/api/attachment?id=${encodeURIComponent(c.afficheId)}`} alt="" className="h-full w-full object-cover" loading="lazy" />
-                        ) : (
-                          <Clapperboard className="h-6 w-6 text-faint" />
-                        )}
+          <div className="flex flex-col gap-6">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" aria-hidden />
+              <Input
+                type="search"
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                placeholder={t('Rechercher une création…')}
+                aria-label="Rechercher une création"
+                className="h-10 rounded-xl pl-10 text-[14px]"
+                data-studio-recherche
+              />
+            </div>
+            {affichees.length ? (
+              /* UNE SEULE RANGÉE POUR TOUT : des vignettes de taille fixe (même forme 4/5), qui passent à la ligne. */
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-4" data-studio-liste>
+                {affichees.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onOuvrir(c.id)}
+                    className="flex flex-col overflow-hidden rounded-xl bg-surface text-left transition-colors hover:bg-raised"
+                    data-studio-creation={c.id}
+                  >
+                    <span className="relative flex aspect-[4/5] items-center justify-center overflow-hidden bg-raised">
+                      {/* L'image remplit la boîte SANS la tirer : une affiche verticale ne rend pas sa vignette plus haute. */}
+                      {c.afficheId ? (
+                        <img src={`/api/attachment?id=${encodeURIComponent(c.afficheId)}`} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <Clapperboard className="h-5 w-5 text-faint" />
+                      )}
+                    </span>
+                    <span className="flex flex-col gap-0.5 px-2 py-1.5">
+                      <span className="truncate text-[12.5px] font-medium text-text">{c.titre}</span>
+                      <span className="truncate text-[11px] text-muted" data-studio-creation-projet>
+                        {c.projet}
                       </span>
-                      <span className="flex flex-col gap-0.5 px-2.5 py-2">
-                        <span className="truncate text-[13px] font-medium text-text">{c.titre}</span>
-                        <span className="truncate text-[11.5px] text-faint">
-                          {c.formats.map(libelleFormat).join(' · ')} · {(Math.round(c.duree * 10) / 10).toLocaleString(formatRegional())} s
-                        </span>
-                        {c.voixEnEssai ? <span className="text-[11.5px] text-en-cours">{t('{n} voix d’essai', { n: c.voixEnEssai })}</span> : null}
+                      <span className="truncate text-[11px] text-faint">
+                        {c.formats.map(libelleFormat).join(' · ')} · {(Math.round(c.duree * 10) / 10).toLocaleString(formatRegional())} s
                       </span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
+                      {c.voixEnEssai ? <span className="text-[11px] text-en-cours">{t('{n} voix d’essai', { n: c.voixEnEssai })}</span> : null}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="px-1 py-4 text-[13.5px] text-muted" data-studio-aucun-resultat>
+                {t('Aucune création ne correspond à cette recherche.')}
+              </p>
+            )}
           </div>
         )}
       </ZoneDefilement>
@@ -235,14 +345,25 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
       vivant = false;
     };
   }, [projet]);
+  /* UNE CRÉATION, UN CLIC : le bouton tourne pendant l'appel et n'en part qu'un ;
+     un refus se dit, et le volet reste ouvert pour réessayer. */
+  const [enCours, setEnCours] = React.useState(false);
   const creer = async () => {
-    const r = await client.call<{ creation: { id: string } }>(
-      modele
-        ? { type: 'studio.creation.creer', projectId: projet, titre: titre.trim() || undefined, depuisModele: modele }
-        : { type: 'studio.creation.creer', projectId: projet, titre: titre.trim() || undefined, formats },
-    );
-    onClose();
-    onCree(r.creation.id);
+    if (enCours) return;
+    setEnCours(true);
+    try {
+      const r = await client.call<{ creation: { id: string } }>(
+        modele
+          ? { type: 'studio.creation.creer', projectId: projet, titre: titre.trim() || undefined, depuisModele: modele }
+          : { type: 'studio.creation.creer', projectId: projet, titre: titre.trim() || undefined, formats },
+      );
+      onClose();
+      onCree(r.creation.id);
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Création impossible'));
+    } finally {
+      setEnCours(false);
+    }
   };
   return (
     <Drawer open onClose={onClose} empile>
@@ -251,7 +372,7 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
       </header>
       <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-3">
         <div className="text-[13.5px]" data-studio-formulaire>
-          <FormulaireEnColonnes largeurLibelle="7rem">
+          <FormulaireEnColonnes>
             <LigneFormulaire libelle={t('Projet')}>
               <ListeDeroulante
                 valeur={projet}
@@ -299,7 +420,8 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
         </div>
       </ZoneDefilement>
       <DialogFooter pleineLargeur>
-        <Button variant="default" size="lg" disabled={!projet || (!modele && !formats.length)} onClick={creer} data-studio-creer>
+        <Button variant="default" size="lg" disabled={enCours || !projet || (!modele && !formats.length)} onClick={creer} data-studio-creer>
+          {enCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
           {t('Créer')}
         </Button>
       </DialogFooter>
@@ -319,12 +441,31 @@ function NouvelleCreation({ projets, onClose, onCree }: { projets: { id: string;
  * en production ».
  */
 type Panneau = 'reglages' | 'agent' | 'bibliotheque';
-/** Le volet de droite (ordinateur) : la conversation, ou « Style » ouvert par son bouton d'entête. */
-type VoletDeDroite = Exclude<Panneau, 'reglages'>;
+
+/**
+ * LE FOND D'UN PANNEAU DE L'ATELIER, DIT À CE QUI DÉFILE DEDANS. Les calques et la conversation sont posés sur
+ * `.bg-bloc` (styles.css) ; leurs zones qui défilent s'estompent vers `--fond-zone-defilement`, que la page règle sur
+ * SON fond. Sans cette teinte reposée par le panneau, la conversation portait une bande claire en haut et en bas, et
+ * les calques une ombre : deux fonds de trop dans une zone qui n'en a qu'un.
+ */
+const FOND_DE_PANNEAU: React.CSSProperties = {
+  ['--fond-zone-defilement' as string]: 'color-mix(in srgb, hsl(var(--raised)) 55%, hsl(var(--surface)))',
+};
 
 function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRetour: () => void; onOuvrir: (id: string) => void }) {
   const state = useApp();
   const telephone = useTelephone();
+  /* Sur ordinateur, « Bibliothèque » et « Style » sont des rubriques de la colonne de gauche. */
+  const dansLaColonne = useColonneDeService();
+  // Ordinateur : colonnes, hauteur de la ligne de temps et repli, mémorisés EN BASE (même mise en page partout).
+  // Les plafonds suivent LA PLACE DE L'ATELIER, pour qu'on ne puisse pas écraser l'aperçu : la fenêtre moins la
+  // colonne de gauche de l'application (`--zone-principale-gauche`, posée par app.tsx). Mesurés sur la fenêtre
+  // entière, ils laissaient 194 px à l'aperçu sur un écran de 1440 px, calques et conversation tirés à fond.
+  const largeurDeLAtelier =
+    window.innerWidth - (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--zone-principale-gauche')) || 0);
+  const voletDeDroite = useResizable('studio.volet', { initial: 400, min: 300, max: Math.min(640, Math.round(largeurDeLAtelier * 0.4)) });
+  const hauteurTimeline = useResizable('studio.timeline', { axe: 'y', initial: 300, min: 150, max: Math.max(220, Math.round(window.innerHeight * 0.6)) });
+  const [timelineOuverte, setTimelineOuverte] = usePref<boolean>('studio.timelineOuverte', true);
   // `reprise` avance après une coupure : la création ouverte se relit même si aucun signal ne l'a nommée.
   const version = (state.studioVersions[creationId] ?? 0) + (state.studioVersions.reprise ?? 0);
   const [donnees, setDonnees] = React.useState<DonneesCreation | null>(null);
@@ -334,10 +475,25 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
   const [selection, setSelection] = React.useState<string[]>([]);
   const [element, setElement] = React.useState<string | null>(null);
   const [format, setFormat] = React.useState<FormatStudio | null>(null);
-  const [panneau, setPanneau] = React.useState<VoletDeDroite>('agent');
-  const [tiroir, setTiroir] = React.useState<Panneau | null>(null);
+  const [tiroir, setTiroir] = React.useState<Exclude<Panneau, 'bibliotheque'> | null>(null);
+  /**
+   * « STYLE » S'OUVRE DANS UN VOLET, plus dans la colonne de droite (demande du
+   * 09/10/2026) : composition, kit de marque et médias du projet, posés
+   * par-dessus l'éditeur, sur ordinateur comme sur téléphone. La colonne de
+   * droite ne montre plus que la conversation avec l'agent.
+   */
+  const [styleOuvert, setStyleOuvert] = React.useState(false);
+  /* Une AUTRE création ouverte (depuis un modèle du volet « Style », par
+     exemple) repart sans volet : on arrive sur elle, pas sur le style. */
+  const creationVue = React.useRef(creationId);
+  React.useEffect(() => {
+    if (creationVue.current === creationId) return;
+    creationVue.current = creationId;
+    setStyleOuvert(false);
+  }, [creationId]);
   /** LA GALERIE DE STYLES, dans son tiroir posé par-dessus l'application. */
   const [galerie, setGalerie] = React.useState(false);
+  useTiroirAdresse('galerie-studio', galerie, setGalerie);
   const [vueSources, setVueSources] = React.useState(false);
   const [renommer, setRenommer] = React.useState(false);
   const [supprimer, setSupprimer] = React.useState(false);
@@ -348,6 +504,11 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
   const [boite, setBoite] = React.useState<BoiteDuCadre | null>(null);
   /** LA FENÊTRE « METTRE EN PRODUCTION » (voix finale, modèle, export). */
   const [production, setProduction] = React.useState(false);
+  useTiroirAdresse('production-studio', production, setProduction);
+  /** LE TEXTE DE L'ACCUEIL (création sans agent) : « Appliquer » un style le remplit sans l'envoyer. */
+  const [demandeAccueil, setDemandeAccueil] = React.useState('');
+  /** Un style appliqué pendant que la conversation est affichée : déposé dans son champ, qui le complète à la suite. */
+  const [depot, setDepot] = React.useState<{ texte: string; nonce: number } | null>(null);
   const apercu = React.useRef<PoigneeApercu | null>(null);
   /** Une couleur choisie dans l'inspecteur se voit dans l'aperçu PENDANT le choix. */
   const direct = React.useCallback((m: ApercuDirect) => apercu.current?.direct(m), []);
@@ -372,6 +533,19 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
   }, [creationId, version]);
 
   const composition = donnees?.composition;
+  /* L'AGENT DE LA CRÉATION TRAVAILLE : le témoin suit l'agent (tour vivant, ou statut en cours), pas un message.
+     Tant qu'il travaille, la barre du haut est grisée à 50 % et sans effet — ses gestes se marcheraient dessus. */
+  const agentId = donnees?.creation.agentId ?? null;
+  const agentDeLaCreation = agentId ? (state.agents[agentId] ?? null) : null;
+  const agentTravaille = agentDeLaCreation ? agentTientSonTour(agentDeLaCreation) : false;
+  React.useEffect(() => {
+    // Le bouton « Style » est éteint pendant le travail de l'agent : son volet se referme.
+    if (agentTravaille) setStyleOuvert(false);
+  }, [agentTravaille]);
+  React.useEffect(() => {
+    // Sur téléphone, le volet de l'agent n'est pas monté : sans cela, son travail resterait invisible d'ici.
+    if (agentId && !agentDeLaCreation) void client.chargerAgent(agentId);
+  }, [agentId, !!agentDeLaCreation]);
   // La vidéo dure jusqu'au marqueur bleu : la lecture s'y arrête, comme l'export.
   const duree = composition ? dureeExportee(composition) : 0;
   const formatAffiche: FormatStudio = format ?? composition?.format ?? '9:16';
@@ -478,6 +652,11 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       if (cible && (cible.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(cible.tagName))) return;
       // La fenêtre d'édition ouverte ne garde que annuler / rétablir : Suppr ou Espace y viseraient l'éditeur derrière.
       if (editeur && !((e.ctrlKey || e.metaKey) && /^[zy]$/i.test(e.key))) return;
+      // L'agent travaille : annuler, rétablir et supprimer sont bloqués au clavier comme à la souris.
+      if (agentTravaille && ((e.ctrlKey || e.metaKey) ? /^[zy]$/i.test(e.key) : e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault();
+        return;
+      }
       if (e.key === ' ') {
         e.preventDefault();
         basculerLecture();
@@ -504,7 +683,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
     };
     window.addEventListener('keydown', touche);
     return () => window.removeEventListener('keydown', touche);
-  }, [basculerLecture, aller, duree, temps, selection, element, operer, annuler, retablir, editeur]);
+  }, [basculerLecture, aller, duree, temps, selection, element, operer, annuler, retablir, editeur, agentTravaille]);
 
   const voixEssai = React.useCallback(
     async (segmentId?: string) => {
@@ -532,6 +711,14 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
     if (choisi) apercu.current?.selectionner(choisi, id);
     setEditeur((e) => (e ? { ...e, elementId: id } : e));
   };
+  /** Une pièce choisie depuis la colonne : son dessin peut ne pas être celui de la ligne de temps — on le choisit avec. */
+  const choisirPieceDe = (segmentId: string, id: string | null) => {
+    if (segmentId === choisi) return choisirPiece(id);
+    setSelection([segmentId]);
+    setElement(id);
+    apercu.current?.selectionner(segmentId, id);
+    setEditeur((e) => (e ? { segmentId, elementId: id } : e));
+  };
   const images = donnees.medias.filter((m) => m.genre === 'image').map((m) => ({ valeur: m.id, libelle: m.nom }));
   /** « Modifier » sur une image de l'aperçu : un fichier de la bibliothèque, ou un nouveau importé. */
   const changerImage = (boite: BoiteDuCadre, valeur: string) => {
@@ -545,18 +732,42 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
     if (valeur === '__importer') void choisirEtImporter(donnees, 'image/*', (m) => poser(m.id));
     else if (valeur) poser(valeur);
   };
-  /** « Appliquer » un style : la demande part à l'agent de la création, et sa conversation s'ouvre. */
-  const appliquerStyle = (style: StyleDeLaGalerie) =>
-    client
-      .call({ type: 'studio.assistant', creationId, demande: demandeDAppliquer(style) })
-      .then(() => {
-        client.pushToast('success', t('Demande envoyée à l’agent : « {titre} ».', { titre: style.titre }));
-        setGalerie(false);
-        if (telephone) setTiroir('agent');
-        else setPanneau('agent');
-      })
-      .catch((err: any) => client.pushToast('error', err?.message ?? t('Envoi impossible')));
-  const segmentChoisi = choisi ? trouverSegment(composition, choisi)?.segment ?? null : null;
+  /**
+   * « Appliquer » un style : la demande s'ÉCRIT dans le champ de l'agent, à la suite de ce qui s'y trouve, et
+   * ne part PAS — l'utilisateur la complète puis l'envoie. Avec un agent, c'est son brouillon (`draft.<agent>`,
+   * que le champ suit ou charge à son ouverture) ; sans agent, le texte de l'accueil.
+   */
+  const appliquerStyle = (style: StyleDeLaGalerie) => {
+    const demande = demandeDAppliquer(style);
+    const suite = (avant: string) => (avant.trim() ? `${avant.replace(/\s+$/, '')}\n${demande}` : demande);
+    if (agentId) {
+      if (document.querySelector('[data-studio-agent="conversation"] textarea')) {
+        // Le champ est à l'écran : il garde ce qu'on y tape à la volée (pas encore dans le brouillon) et prend le curseur.
+        setDepot({ texte: demande, nonce: Date.now() });
+        window.setTimeout(() => setDepot(null), 300);
+      } else {
+        // Volet fermé (téléphone) : le brouillon de l'agent, que le champ affichera à son ouverture.
+        const cle = `draft.${agentId}`;
+        writePref(cle, suite(String(client.lireEtat().prefs[cle] ?? '')));
+      }
+    } else setDemandeAccueil(suite(demandeAccueil));
+    setGalerie(false);
+    setStyleOuvert(false);
+    if (telephone) setTiroir('agent');
+    // Le champ prend le curseur, à la fin du texte, une fois le volet (re)monté.
+    window.setTimeout(() => {
+      const zone = document.querySelector<HTMLTextAreaElement>('[data-studio-agent] textarea');
+      if (!zone) return;
+      zone.focus();
+      zone.setSelectionRange(zone.value.length, zone.value.length);
+      zone.scrollTop = zone.scrollHeight;
+    }, 250);
+  };
+  /** TOUS LES DESSINS DE L'ANIMATION, dans l'ordre du temps : leurs calques vivent dans la colonne de gauche. */
+  const dessins = composition.pistes
+    .flatMap((piste) => piste.segments)
+    .filter((seg): seg is Extract<typeof seg, { genre: 'dessin' }> => seg.genre === 'dessin' && piecesDuDessin(seg.gabarit.html).length > 0)
+    .sort((a, b) => a.debut - b.debut);
   const contenuDuPanneau = (p: Panneau) =>
     p === 'reglages' ? (
       <Inspecteur
@@ -574,7 +785,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         piece={boite}
       />
     ) : p === 'agent' ? (
-      <PanneauAgent donnees={donnees} onAppliquerStyle={appliquerStyle} />
+      <PanneauAgent donnees={donnees} onAppliquerStyle={appliquerStyle} demande={demandeAccueil} onDemande={setDemandeAccueil} depot={depot} />
     ) : (
       <div className="flex flex-col gap-2">
         <ReglagesDeComposition composition={composition} onOperation={operer} />
@@ -617,63 +828,171 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       });
   };
 
+  /*
+   * LES DEUX MOITIÉS DE LA BARRE DE L'ATELIER, posées dans la barre d'en-tête de
+   * l'application sur ordinateur COMME SUR TÉLÉPHONE : le nom de la création en
+   * dernier cran du fil d'Ariane, les gestes à droite. L'atelier n'a plus de
+   * rangée à lui (demande du 11/10/2026).
+   */
+  const cranDeLaCreation = (
+    <>
+      <button
+        type="button"
+        className="-mx-1 flex min-w-0 shrink items-baseline gap-2 truncate rounded-md px-1 py-1 text-left transition-colors hover:bg-raised"
+        onClick={() => setRenommer(true)}
+        title={t('Renommer')}
+        data-studio-titre-creation
+      >
+        <DialogTitle className="truncate text-[14.5px] font-medium">{donnees.creation.titre}</DialogTitle>
+        <span className="hidden truncate text-[12.5px] text-faint md:block">{donnees.projet}</span>
+      </button>
+      {/* DUPLIQUER ET SUPPRIMER SE COLLENT AU TITRE : ils parlent de la création elle-même. */}
+      {!telephone ? (
+        <span className="flex shrink-0 items-center" data-studio-gestes-creation>
+          <Button variant="ghost" size="icon" className={BLOQUE} disabled={agentTravaille} aria-label="Dupliquer la création" title={agentTravaille ? t('L’agent travaille') : t('Dupliquer la création')} onClick={async () => onOuvrir((await client.call<{ creation: { id: string } }>({ type: 'studio.creation.dupliquer', id: creationId })).creation.id)}>
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className={BLOQUE} disabled={agentTravaille} aria-label="Supprimer la création" title={agentTravaille ? t('L’agent travaille') : t('Supprimer la création')} onClick={() => setSupprimer(true)}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </span>
+      ) : null}
+    </>
+  );
+  /* ANNULER ET RÉTABLIR : dans la barre d'en-tête sur ordinateur ; sur téléphone,
+     dans la rangée de l'aperçu, à côté du son et de la lecture — on s'en sert
+     sans arrêt, ils restent à un seul appui au lieu de partir dans un menu. */
+  const annulerEtRetablir = (
+    <>
+      <Button variant="ghost" size="icon" aria-label="Annuler" title={agentTravaille ? t('L’agent travaille') : t('Annuler (Ctrl+Z)')} className={BLOQUE} disabled={agentTravaille || !donnees.annulerRetablir.annuler} onClick={annuler} data-studio-annuler>
+        <Undo2 className="h-3.5 w-3.5" />
+      </Button>
+      <Button variant="ghost" size="icon" aria-label="Rétablir" title={agentTravaille ? t('L’agent travaille') : t('Rétablir (Ctrl+Maj+Z)')} className={BLOQUE} disabled={agentTravaille || !donnees.annulerRetablir.retablir} onClick={retablir} data-studio-retablir>
+        <Redo2 className="h-3.5 w-3.5" />
+      </Button>
+    </>
+  );
+  const gestesDeLAtelier = (
+    <>
+      {annulerEtRetablir}
+      {/* LA BIBLIOTHÈQUE DE STYLES ET LE VOLET « STYLE », entre Annuler/Rétablir et
+          « Mettre en production » — SUR TÉLÉPHONE ; sur ordinateur, ce sont deux
+          rubriques de la colonne de gauche (demande du 12/10/2026). */}
+      {dansLaColonne ? null : (<>
+      <Button
+        size="sm"
+        variant={galerie ? 'subtle' : 'ghost'}
+        onClick={() => setGalerie((g) => !g)}
+        className={BLOQUE}
+        disabled={agentTravaille}
+        aria-pressed={galerie}
+        aria-label="Bibliothèque"
+        title={agentTravaille ? t('L’agent travaille') : t('Bibliothèque de styles : une mise en scène à confier à l’agent')}
+        data-studio-ouvrir-bibliotheque
+      >
+        <Library className="h-3.5 w-3.5" />
+        {t('Bibliothèque')}
+      </Button>
+      <Button
+        size="sm"
+        variant={styleOuvert ? 'subtle' : 'ghost'}
+        onClick={() => setStyleOuvert((ouvert) => !ouvert)}
+        className={BLOQUE}
+        disabled={agentTravaille}
+        aria-pressed={styleOuvert}
+        title={agentTravaille ? t('L’agent travaille') : t('Style : kit de marque, médias et modèles du projet')}
+        data-studio-onglet="bibliotheque"
+      >
+        <Palette className="h-3.5 w-3.5" />
+        {t('Style')}
+      </Button>
+      </>)}
+      <BoutonMiseEnProduction compact={false} bloque={agentTravaille} depenses={donnees.depenses} exports={donnees.exports} onClick={() => setProduction(true)} />
+    </>
+  );
+
   return (
     <ApercuEnDirect.Provider value={direct}>
     <div className="flex min-h-0 flex-1 flex-col" data-studio-editeur={creationId}>
-      <header className="flex shrink-0 items-center gap-1.5 px-3 pb-2">
-        <Button variant="ghost" size="icon" aria-label="Toutes les créations" title={t('Toutes les créations')} onClick={onRetour} data-studio-retour>
-          <ArrowLeft className="h-3.5 w-3.5" />
-        </Button>
-        <button type="button" className="min-w-0 shrink truncate text-left" onClick={() => setRenommer(true)} title={t('Renommer')}>
-          <DialogTitle className="truncate">{donnees.creation.titre}</DialogTitle>
-          <span className="block truncate text-[11.5px] text-faint">{donnees.projet}</span>
-        </button>
-        {/* DUPLIQUER ET SUPPRIMER SE COLLENT AU TITRE : ils parlent de la création elle-même. */}
-        {!telephone ? (
-          <span className="flex shrink-0 items-center" data-studio-gestes-creation>
-            <Button variant="ghost" size="icon" aria-label="Dupliquer la création" title={t('Dupliquer la création')} onClick={async () => onOuvrir((await client.call<{ creation: { id: string } }>({ type: 'studio.creation.dupliquer', id: creationId })).creation.id)}>
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" aria-label="Supprimer la création" title={t('Supprimer la création')} onClick={() => setSupprimer(true)}>
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          </span>
-        ) : null}
-        <span className="min-w-0 flex-1" aria-hidden />
-        <Button variant="ghost" size="icon" aria-label="Annuler" title={t('Annuler (Ctrl+Z)')} disabled={!donnees.annulerRetablir.annuler} onClick={annuler} data-studio-annuler>
-          <Undo2 className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" aria-label="Rétablir" title={t('Rétablir (Ctrl+Maj+Z)')} disabled={!donnees.annulerRetablir.retablir} onClick={retablir} data-studio-retablir>
-          <Redo2 className="h-3.5 w-3.5" />
-        </Button>
-        {/* LA BIBLIOTHÈQUE DE STYLES ET LE VOLET « STYLE », entre Annuler/Rétablir et « Mettre en production ». */}
-        <Button
-          size="sm"
-          variant={galerie ? 'subtle' : 'ghost'}
-          onClick={() => setGalerie((g) => !g)}
-          aria-pressed={galerie}
-          aria-label="Bibliothèque"
-          title={t('Bibliothèque de styles : une mise en scène à confier à l’agent')}
-          data-studio-ouvrir-bibliotheque
-        >
-          <Library className="h-3.5 w-3.5" />
-          {!telephone ? t('Bibliothèque') : null}
-        </Button>
-        {!telephone ? (
-          <Button
-            size="sm"
-            variant={panneau === 'bibliotheque' ? 'subtle' : 'ghost'}
-            onClick={() => setPanneau((p) => (p === 'bibliotheque' ? 'agent' : 'bibliotheque'))}
-            aria-pressed={panneau === 'bibliotheque'}
-            title={t('Style : kit de marque, médias et modèles du projet')}
+      {/* UNE SEULE BARRE D'EN-TÊTE (demande du 11/10/2026 : « pour le studio, il
+          faut qu'il n'y ait qu'une header, celle avec le fil d'Ariane ») : la
+          création ouverte est le dernier cran du fil — « Services › Studio ›
+          Lancement service » —, « Studio » y ramène à toutes les créations, et
+          les gestes de l'atelier montent à droite de la barre.
+          SUR TÉLÉPHONE AUSSI, depuis la même date : la flèche de retour est dans
+          la barre (`retour`), « Bibliothèque » et « Mettre en production » sont
+          les lignes du menu à trois points, Annuler / Rétablir vivent dans la
+          rangée de l'aperçu. L'atelier ne pose AUCUN bouton en bas de l'écran :
+          le bas porte déjà Agent / Réglages / Style. */}
+      <SuiteDuFil onRacine={onRetour} retour={{ action: onRetour, reperes: { 'data-studio-retour': '' } }}>
+        <SeparateurDuFil />
+        {cranDeLaCreation}
+      </SuiteDuFil>
+      {/* LA COLONNE DE GAUCHE PORTE LA CRÉATION OUVERTE : son titre, la flèche
+          qui ramène à la liste, puis « Bibliothèque » et « Style ». */}
+      <ColonneDeService niveau={{ titre: donnees.creation.titre, onRetour }}>
+        <nav aria-label="Rubriques de la création" data-colonne-studio-creation className="flex min-h-0 flex-1 flex-col gap-0.5 pt-1">
+          <RubriqueDeColonne
+            icone={<Library />}
+            libelle={t('Bibliothèque')}
+            actif={galerie}
+            disabled={agentTravaille}
+            title={agentTravaille ? t('L’agent travaille') : t('Bibliothèque de styles : une mise en scène à confier à l’agent')}
+            onClick={() => setGalerie((g) => !g)}
+            aria-pressed={galerie}
+            data-studio-ouvrir-bibliotheque
+          />
+          <RubriqueDeColonne
+            icone={<Palette />}
+            libelle={t('Style')}
+            actif={styleOuvert}
+            disabled={agentTravaille}
+            title={agentTravaille ? t('L’agent travaille') : t('Style : kit de marque, médias et modèles du projet')}
+            onClick={() => setStyleOuvert((ouvert) => !ouvert)}
+            aria-pressed={styleOuvert}
             data-studio-onglet="bibliotheque"
-          >
-            <Palette className="h-3.5 w-3.5" />
-            {t('Style')}
-          </Button>
-        ) : null}
-        <BoutonMiseEnProduction compact={telephone} depenses={donnees.depenses} onClick={() => setProduction(true)} />
-      </header>
+          />
+          {/* LES CALQUES DE TOUTE L'ANIMATION (demande du 12/10/2026), un groupe par dessin : la
+              pièce choisie dans l'aperçu s'y marque et vient à l'écran. Ils ont quitté la colonne
+              posée à gauche de l'aperçu, qui laisse sa place à l'image. Les identifiants de pièces
+              ne sont uniques que dans leur dessin : seul le dessin choisi reçoit la pièce choisie. */}
+          <p className={CLASSE_SECTION_DE_SERVICE}>{t('Calques')}</p>
+          <ZoneDefilement className="min-h-0 flex-1 pb-4" data-studio-colonne-calques>
+            {dessins.length ? (
+              dessins.map((dessin) => (
+                <Calques
+                  key={dessin.id}
+                  enColonne
+                  titre={nomDuSegment(dessin)}
+                  actif={dessin.id === choisi}
+                  onChoisirDessin={() => choisir(dessin.id, false)}
+                  segment={dessin}
+                  elementId={dessin.id === choisi ? element : null}
+                  format={formatAffiche}
+                  formatDeBase={composition.format}
+                  onOperation={operer}
+                  onChoisirPiece={(id) => choisirPieceDe(dessin.id, id)}
+                  onOuvrirEditeur={(id) => ouvrirEditeur(dessin.id, id)}
+                />
+              ))
+            ) : (
+              <p className="px-2.5 py-2 text-[12.5px] text-faint" data-studio-calques-vide>
+                {t('Aucun dessin dans l’animation pour l’instant.')}
+              </p>
+            )}
+          </ZoneDefilement>
+        </nav>
+      </ColonneDeService>
+      {telephone ? (
+        <OptionsDeLAtelierAuTelephone
+          donnees={donnees}
+          bloque={agentTravaille}
+          onBibliotheque={() => setGalerie((g) => !g)}
+          onProduction={() => setProduction(true)}
+        />
+      ) : (
+        <GestesDePage>{gestesDeLAtelier}</GestesDePage>
+      )}
 
       <DepensesEnAttente donnees={donnees} />
 
@@ -681,31 +1000,11 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
           égales avec la ligne de temps, se retrouvait plus basse que l'aperçu qu'elle contient, et la ligne de temps
           (durée, règle des secondes) remontait SUR le bas de l'image. La ligne de temps prend ce qui reste. */}
       <div className={cn('flex min-h-0', telephone ? 'shrink-0 flex-col' : 'flex-1 flex-row gap-2 px-3')} data-studio-rangee-apercu>
-        {/* LES CALQUES (ordinateur) : leur colonne à gauche de l'aperçu, la droite reste aux réglages. */}
-        {!telephone ? (
-          <aside className="flex w-[240px] shrink-0 flex-col overflow-hidden rounded-md bg-bloc xl:w-[260px]" data-studio-colonne-calques>
-            <ZoneDefilement fond="color-mix(in srgb, hsl(var(--surface)) 92%, hsl(var(--voile)) 8%)" className="pb-2">
-              {segmentChoisi?.genre === 'dessin' && piecesDuDessin(segmentChoisi.gabarit.html).length ? (
-                <Calques
-                  segment={segmentChoisi}
-                  elementId={element}
-                  format={formatAffiche}
-                  formatDeBase={composition.format}
-                  onOperation={operer}
-                  onChoisirPiece={choisirPiece}
-                  onOuvrirEditeur={(id) => ouvrirEditeur(segmentChoisi.id, id)}
-                />
-              ) : (
-                <p className="px-3 py-3 text-[12.5px] text-faint" data-studio-calques-vide>
-                  {t('Choisissez un dessin dans la ligne de temps pour voir ses calques.')}
-                </p>
-              )}
-            </ZoneDefilement>
-          </aside>
-        ) : null}
-        {/* L'APERÇU ET SES COMMANDES : le cadre foncé commence en haut de la rangée, et porte les formats, le son et la lecture. */}
-        <div className={cn('flex min-h-0 min-w-0 flex-col', telephone ? 'h-[42vh] shrink-0 px-3' : 'flex-1')}>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md bg-bg" data-studio-cadre-apercu>
+        {/* L'APERÇU ET SES COMMANDES : le canevas commence en haut de la rangée, et porte les formats, le son et la lecture.
+            SON FOND EST UN GRIS TRÈS CLAIR (`--surface`) : il se détache du fond de la page comme du cadre de la vidéo, qui
+            garde le sien — sur le fond de la page, une vidéo blanche se perdait dans le blanc. */}
+        <div className={cn('flex min-h-0 min-w-0 flex-col', telephone ? 'h-[42vh] shrink-0' : 'flex-1')}>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md bg-surface" data-studio-cadre-apercu>
             <div className="flex shrink-0 items-center gap-1 px-1.5 pt-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" data-studio-formats>
                 {donnees.creation.formats.map((f) => (
@@ -723,6 +1022,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
                   </Button>
                 ))}
               </div>
+              {telephone ? annulerEtRetablir : null}
               <Button size="icon" variant="ghost" aria-label={muet ? 'Remettre le son' : 'Couper le son'} title={muet ? t('Remettre le son') : t('Couper le son')} onClick={() => setMuet((m) => !m)}>
                 {muet ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
               </Button>
@@ -762,25 +1062,42 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
 
         {/* LE VOLET DE CÔTÉ (ordinateur) */}
         {!telephone ? (
-          <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-md bg-bloc xl:w-[400px]" data-studio-volet>
-            {/* LE VOLET NE PORTE PLUS D'ONGLETS : la conversation avec l'agent, et le
-                volet « Style » quand son bouton d'entête est allumé (un second clic
-                ramène à la conversation). Les réglages d'un élément vivent dans sa
-                fenêtre d'édition (double-clic, « Ouvrir l'éditeur »). */}
-            {panneau === 'agent' ? (
-              <div className="flex min-h-0 flex-1 flex-col">{contenuDuPanneau('agent')}</div>
-            ) : (
-              <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
-                {contenuDuPanneau(panneau)}
-              </ZoneDefilement>
-            )}
+          <ResizeHandle
+            className="-mx-1.5"
+            onPointerDown={(event) => voletDeDroite.start(event, 'right')}
+            onDoubleClick={voletDeDroite.reset}
+            data-studio-poignee="volet"
+          />
+        ) : null}
+        {!telephone ? (
+          <aside className="flex shrink-0 flex-col overflow-hidden rounded-md bg-bloc" style={{ width: voletDeDroite.width, ...FOND_DE_PANNEAU }} data-studio-volet>
+            {/* LE VOLET DE DROITE N'EST QUE LA CONVERSATION avec l'agent. « Style »
+                s'ouvre dans son propre volet, par-dessus (plus bas) ; les réglages
+                d'un élément vivent dans sa fenêtre d'édition (double-clic, « Ouvrir
+                l'éditeur »). */}
+            <div className="flex min-h-0 flex-1 flex-col">{contenuDuPanneau('agent')}</div>
           </aside>
         ) : null}
       </div>
 
-      {/* LA LIGNE DE TEMPS */}
-      <div className={cn('flex min-h-0 flex-col pt-2', telephone ? 'flex-1' : 'max-h-[34vh] shrink-0')} data-studio-rangee-ligne-de-temps>
-        <ZoneDefilement fond="hsl(var(--surface))" className="px-1 pb-2">
+      {/* LA LIGNE DE TEMPS : sur ordinateur, sa hauteur est celle que l'on a choisie (poignée au-dessus) ; repliée, il ne reste que sa barre.
+          La poignée est LE SEUL TRAIT entre les panneaux et la ligne de temps : sa marge haute la pose à mi-chemin des deux,
+          au lieu de la coller sous les panneaux. */}
+      {!telephone && timelineOuverte ? (
+        <ResizeHandleHorizontale
+          className="mt-1.5"
+          onPointerDown={(event) => hauteurTimeline.start(event, 'bottom')}
+          onDoubleClick={hauteurTimeline.reset}
+          data-studio-poignee="timeline"
+        />
+      ) : null}
+      <div
+        className={cn('flex min-h-0 flex-col pt-2', telephone ? 'flex-1' : 'shrink-0')}
+        style={!telephone && timelineOuverte ? { height: hauteurTimeline.size } : undefined}
+        data-studio-rangee-ligne-de-temps
+      >
+        {/* Sans `fond` imposé : le fondu suit le fond de la PAGE qui porte la ligne de temps (un gris de tiroir y laissait une bande). */}
+        <ZoneDefilement className="px-1 pb-2">
           <LigneDeTemps
             composition={composition}
             adressesMedias={donnees.adressesMedias}
@@ -791,6 +1108,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
             onOperation={(op) => void operer(op).catch(() => undefined)}
             onAjouter={ajouterSurLaPiste}
             onOuvrirEditeur={(id) => ouvrirEditeur(id)}
+            ouverte={telephone || timelineOuverte}
+            onBasculer={telephone ? undefined : () => setTimelineOuverte(!timelineOuverte)}
           />
         </ZoneDefilement>
       </div>
@@ -799,7 +1118,11 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       {telephone ? (
         <nav className="flex shrink-0 items-center justify-around px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5" data-studio-barre-telephone>
           {onglets.map((o) => (
-            <button key={o.cle} type="button" onClick={() => setTiroir(o.cle)} className="flex flex-col items-center gap-0.5 px-2 py-1 text-[11px] text-muted" data-studio-ouvrir={o.cle}>
+            <button
+              key={o.cle}
+              type="button"
+              onClick={() => (o.cle === 'bibliotheque' ? setStyleOuvert(true) : setTiroir(o.cle))}
+              className="flex flex-col items-center gap-0.5 px-2 py-1 text-[11px] text-muted" data-studio-ouvrir={o.cle}>
               <o.Icone className="h-4 w-4" />
               {o.libelle}
             </button>
@@ -807,7 +1130,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         </nav>
       ) : null}
       {telephone && tiroir ? (
-        <Drawer open onClose={() => setTiroir(null)} empile plein>
+        <Drawer open onClose={() => setTiroir(null)} empile plein adresse={`${tiroir}-studio`}>
           <header className="shrink-0 px-3 pb-2">
             <EnteteDeFenetre titre={onglets.find((o) => o.cle === tiroir)?.libelle ?? ''} onRetour={() => setTiroir(null)} />
           </header>
@@ -821,6 +1144,25 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         </Drawer>
       ) : null}
 
+      {/* « STYLE » : composition, kit de marque, médias et modèles du projet, dans
+          un volet posé par-dessus l'éditeur — sur ordinateur comme sur téléphone. */}
+      <Drawer
+        open={styleOuvert}
+        onClose={() => setStyleOuvert(false)}
+        onOuvrir={() => setStyleOuvert(true)}
+        adresse="style-studio"
+        empile
+        plein={telephone}
+        hauteurFixe={!telephone}
+      >
+        <header className="shrink-0 px-3 pb-2">
+          <EnteteDeFenetre titre={t('Style')} onRetour={() => setStyleOuvert(false)} />
+        </header>
+        <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-4">
+          <div data-studio-tiroir-style>{contenuDuPanneau('bibliotheque')}</div>
+        </ZoneDefilement>
+      </Drawer>
+
       {/* LA BIBLIOTHÈQUE DE STYLES : un tiroir posé par-dessus l'application, jamais un volet de côté. */}
       {galerie ? (
         <Drawer open onClose={() => setGalerie(false)} empile>
@@ -830,6 +1172,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
             <EnteteDeFenetre
               titre={vueSources ? t('Sources de la bibliothèque') : t('Bibliothèque')}
               onRetour={vueSources ? () => setVueSources(false) : () => setGalerie(false)}
+              /* Depuis les sources, la flèche est un retour INTERNE : elle reste sous le fil d'Ariane. */
+              retourInterne={vueSources}
               repereRetour={vueSources ? 'data-studio-bibliotheque-sources' : 'data-studio-retour'}
               droite={
                 vueSources ? null : (
@@ -904,11 +1248,22 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
 /* L'agent de la création                                               */
 /* ------------------------------------------------------------------ */
 
-function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation; onAppliquerStyle: (s: StyleDeLaGalerie) => void }) {
+function PanneauAgent({
+  donnees,
+  onAppliquerStyle,
+  demande,
+  onDemande: setDemande,
+  depot,
+}: {
+  donnees: DonneesCreation;
+  onAppliquerStyle: (s: StyleDeLaGalerie) => void;
+  demande: string;
+  onDemande: (texte: string) => void;
+  depot: { texte: string; nonce: number } | null;
+}) {
   const state = useApp();
   const agentId = donnees.creation.agentId ?? null;
   const agent: Agent | null = agentId ? (state.agents[agentId] ?? null) : null;
-  const [demande, setDemande] = React.useState('');
 
   React.useEffect(() => {
     if (agentId && !agent) void client.chargerAgent(agentId);
@@ -926,6 +1281,7 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
           agent={agent}
           projectId={donnees.creation.projectId}
           creuxReserveAilleurs
+          depot={depot}
           avancementDansLeFil={({ todos, busy, dernierTexte }) => (
             <>
               <AvancementDeCreation todos={todos} busy={busy} />
@@ -972,7 +1328,7 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
         }}
         rows={4}
         placeholder={t('Une vidéo de 15 secondes qui présente notre nouvelle offre, ton enjoué…')}
-        className="min-h-[96px] rounded-md border border-border bg-controle px-3 py-2 text-[13.5px] text-text"
+        className="min-h-[96px] rounded-md border border-transparent bg-controle px-3 py-2 text-[13.5px] text-text"
         data-studio-demande
       />
       <Button variant="default" disabled={!demande.trim()} onClick={envoyer} data-studio-envoyer>
@@ -998,7 +1354,6 @@ function PanneauAgent({ donnees, onAppliquerStyle }: { donnees: DonneesCreation;
  */
 function ConfigurationDeLAgent({ donnees, agent }: { donnees: DonneesCreation; agent: Agent | null }) {
   const state = useApp();
-  const [ouvert, setOuvert] = React.useState(false);
   const choisi = agent?.run ?? donnees.creation.runAgent;
   const choix = (choisi ?? { engine: 'claude' }) as RunChoix;
   const retenu = resoudreRun(state.engines, choix);
@@ -1035,26 +1390,24 @@ function ConfigurationDeLAgent({ donnees, agent }: { donnees: DonneesCreation; a
       <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted" data-studio-config-resume={resume}>
         {resume}
       </span>
-      <Button
-        size="icon"
-        variant="ghost"
-        className="shrink-0"
-        title={t('Configuration de l’agent')}
-        aria-label="Configuration de l’agent"
-        aria-pressed={ouvert}
-        onClick={() => setOuvert(true)}
-        data-studio-config-agent-bouton
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5" />
-      </Button>
+      {/* L'icône est le bouton du menu des réglages : il s'ouvre sous elle. */}
       <RunSelectors
         engines={state.engines}
         choix={choix}
         onSelect={(patch) => void choisir(patch)}
         comptes={state.quotas}
-        masquerDeclencheur
-        ouvertControle={ouvert}
-        onOuvertControleChange={setOuvert}
+        declencheur={
+          <Button
+            size="icon"
+            variant="ghost"
+            className="shrink-0"
+            title={t('Configuration de l’agent')}
+            aria-label="Configuration de l’agent"
+            data-studio-config-agent-bouton
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+          </Button>
+        }
       />
     </div>
   );

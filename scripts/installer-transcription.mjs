@@ -66,5 +66,8 @@ if (!fs.existsSync(path.join(VENV, 'bin', 'piper'))) {
   process.exit(1);
 }
 
-console.log('\nMoteur de dictée en place. À vérifier :');
-console.log('  node scripts/verif-dictee-bout-en-bout.mjs');
+console.log('\nMoteur de dictée en place.');
+// Le contrôle de bout en bout ne voyage pas avec la copie publique : on ne
+// l'annonce que là où il existe.
+const controle = path.join(path.dirname(fileURLToPath(import.meta.url)), 'verif-dictee-bout-en-bout.mjs');
+if (fs.existsSync(controle)) console.log('À vérifier :\n  node scripts/verif-dictee-bout-en-bout.mjs');

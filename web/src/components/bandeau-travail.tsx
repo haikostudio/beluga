@@ -48,8 +48,9 @@ export function BandeauTravail({
         // Resserré (px-1.5 au lieu de px-2.5) : l'icône colle au bord gauche,
         // la pastille de temps au bord droit, et le nom de l'étape gagne la
         // place ainsi rendue.
-        'relative -mt-1 flex shrink-0 cursor-pointer items-center gap-1 overflow-hidden rounded-b-md bg-bandeau-etape px-1.5 pb-1.5 pt-2 text-[12.5px] leading-none',
-        'shadow-[inset_0_7px_6px_-6px_rgba(0,0,0,0.75)]',
+        /* Le pied vivant d'une carte : même fond que sa marche de survol, ses
+           coins bas, aucune ombre. */
+        'relative flex shrink-0 cursor-pointer items-center gap-1.5 overflow-hidden rounded-b-xl bg-raised px-3.5 pb-2.5 pt-2 text-[12.5px] leading-none',
         className,
       )}
       {...autres}

@@ -1,12 +1,14 @@
+import * as React from 'react';
 import { UploadCloud } from 'lucide-react';
 import { agentTientSonTour, type Agent, type EtatDeLInitialisation, type Project } from '@beluga/shared';
 import { BandeauTravail } from '@/components/bandeau-travail';
 import { PastilleProjet } from '@/components/pastille-projet';
+import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { Dot } from '@/components/ui';
 import { ouvrirAgentDeConfiguration } from '@/lib/ouvrir-config-projet';
 import { CLASSE_CADRE_SYSTEME } from '@/lib/gabarit-tableau';
 import { t } from '@/lib/langue';
-import { cn, relativeTime } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 /**
  * LA VIGNETTE SPÉCIALE DE L'INITIALISATION DE LA MISE EN PRODUCTION.
@@ -44,22 +46,38 @@ export function VignetteInitialisationProduction({
   reconfiguration?: boolean;
   /** Le nom du projet en tête — utile hors du tableau d'un projet. */
   avecProjet?: boolean;
-  /** Sur « Tableaux de bord » : cadre de carte Système, description et ancienneté, hauteur au contenu. */
+  /** Sur « Tableaux de bord » : cadre de carte Système, titre sur une ligne et description, hauteur au contenu. */
   formatCarte?: boolean;
 }) {
   const auTravail = agentTientSonTour(agent);
   /* Le tiroir de l'agent s'ouvre sur ce qu'il a rendu. */
   const ouvrir = () => ouvrirAgentDeConfiguration(agent.projectId, cible);
+  const titre =
+    cible === 'dev'
+      ? t('Configuration du déploiement')
+      : reconfiguration
+        ? t('Configuration de la mise en production')
+        : t('Initialisation de la mise en production');
+  /* Sur « Tableaux de bord » le titre tient sur UNE ligne : coupé, il porte son
+     texte entier en info-bulle (et la pastille « i »). */
+  const titreRef = React.useRef<HTMLHeadingElement>(null);
+  const titreCoupe = useTexteCoupe([titreRef], [titre, formatCarte]);
   const titreEtDescription = (
     <>
-      <h3 className="line-clamp-2 min-w-0 break-words text-[14px] font-medium leading-snug text-text">
-        <UploadCloud className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
-        {cible === 'dev'
-          ? t('Configuration du déploiement')
-          : reconfiguration
-            ? t('Configuration de la mise en production')
-            : t('Initialisation de la mise en production')}
-      </h3>
+      <div className="flex items-start gap-1.5">
+        <h3
+          ref={titreRef}
+          title={formatCarte && titreCoupe ? titre : undefined}
+          className={cn(
+            'min-w-0 flex-1 break-words text-[14px] font-medium leading-snug text-text',
+            formatCarte ? 'line-clamp-1' : 'line-clamp-2',
+          )}
+        >
+          <UploadCloud className="relative -top-px mr-1 inline h-[13px] w-[13px] align-middle text-publie" />
+          {titre}
+        </h3>
+        {formatCarte && titreCoupe ? <BulleTexteCoupe>{titre}</BulleTexteCoupe> : null}
+      </div>
       {formatCarte ? (
         <p data-description-carte className="mt-1 line-clamp-1 break-words text-[12.5px] leading-snug text-muted">
           {cible === 'dev'
@@ -88,7 +106,7 @@ export function VignetteInitialisationProduction({
         className={cn(
           formatCarte
             ? CLASSE_CADRE_SYSTEME
-            : 'relative z-10 cursor-pointer rounded-md border border-publie/60 bg-raised px-2.5 py-2 transition-colors hover:border-publie',
+            : 'relative z-10 cursor-pointer rounded-md border border-transparent bg-raised px-2.5 py-2 transition-colors hover:bg-border',
           auTravail && 'rounded-b-none',
         )}
       >
@@ -119,17 +137,9 @@ export function VignetteInitialisationProduction({
           </span>
         </div>
         {formatCarte ? (
-          <>
-            <div className="min-w-0" data-corps-systeme>
-              {titreEtDescription}
-            </div>
-            <div
-              className={cn('mt-auto flex shrink-0 items-center text-[12px] text-faint', !auTravail && 'pb-1.5 pt-1')}
-              data-anciennete-systeme={agent.projectId}
-            >
-              <span className="shrink-0">{relativeTime(auTravail ? agent.updatedAt : (agent.endedAt ?? agent.updatedAt))}</span>
-            </div>
-          </>
+          <div className="min-w-0" data-corps-systeme>
+            {titreEtDescription}
+          </div>
         ) : (
           titreEtDescription
         )}
