@@ -544,7 +544,10 @@ function CardPanelBody({
                     />
                   ),
                   /* Son icône le précède, et reste là sur téléphone où le nom
-                     est masqué. */
+                     est masqué. Un appui dessus referme la carte et montre le
+                     tableau du projet : `onClick` ne sert qu'à l'icône, le nom
+                     garde la liste des projets (la branche `menu` passe avant). */
+                  onClick: () => client.demanderTableau(project.id),
                   icone: membresDuGroupe.length ? (
                     <PastillesEmpilees projects={membresDuGroupe} />
                   ) : (

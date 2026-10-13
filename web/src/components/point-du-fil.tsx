@@ -1,14 +1,15 @@
 import { cn } from '@/lib/utils';
 
 /**
- * LE POINT DU SECOND NIVEAU — un seul dessin pour tout le fil d'une carte.
+ * LE POINT DU SECOND NIVEAU — le repli d'une ligne dont la sorte n'a pas
+ * d'icône.
  *
- * Les sous-points du flux (actions racontées, réglages, réponse, mémoire,
- * dépôt…), les sections du compte rendu et les points de la compréhension
- * portaient chacun un petit rond bordé avec son icône : le fil devenait une
- * mosaïque. Ils partagent désormais ce point plein de 5 px, sans icône, d'un
- * gris contrasté (`--muted`, jamais `--border` qui s'efface sur les palettes
- * plates).
+ * Chaque ligne du fil porte l'icône fine et grise de sa sorte
+ * (`icone-du-point.tsx`) : commande, mémoire, compétence, fichier, recherche…
+ * Ce point plein de 5 px d'un gris contrasté (`--muted`, jamais `--border` qui
+ * s'efface sur les palettes plates) ne sert plus que pour une ligne de sorte
+ * inconnue, une ligne interne d'un encadré, les sections du compte rendu et
+ * les points de la compréhension.
  *
  * LA COULEUR NE REVIENT QUE LÀ OÙ ELLE PORTE UNE INFORMATION : rouge pour une
  * action en échec, orange pour ce qui tourne encore (règle « orange pour ce

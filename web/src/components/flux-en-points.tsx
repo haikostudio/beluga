@@ -18,8 +18,10 @@ import {
   RotateCcw,
   Terminal,
   Wrench,
+  type LucideIcon,
 } from 'lucide-react';
 import { PointDuFil, type TonDuPoint } from '@/components/point-du-fil';
+import { ICONE_DE_LA_LIGNE, ICONE_DU_GENRE, RondDeLaLigne } from '@/components/icone-du-point';
 import {
   AttenteDeLaDemande,
   BlocRaconte,
@@ -257,11 +259,17 @@ function useRetraitDuTexte() {
 
 function SousPointDuFlux({
   ton = 'neutre',
+  icone,
   attrs,
   children,
 }: {
   /** Gris par défaut ; la couleur ne revient que pour une erreur ou un travail en cours. */
   ton?: TonDuPoint;
+  /**
+   * L'icône de la sorte de ligne (`icone-du-point.tsx`). Sans elle — sorte
+   * inconnue, ligne interne d'un encadré — la ligne garde son point gris.
+   */
+  icone?: LucideIcon;
   attrs?: Record<string, string | number | undefined>;
   children: React.ReactNode;
 }) {
@@ -279,26 +287,35 @@ function SousPointDuFlux({
     >
       {pointe ? (
         /* D'un point au suivant : les lignes de la carte sont séparées de 12 px
-           (`gap-3`), et chaque point (5 px) est centré à 12 px du haut de sa
+           (`gap-3`), et chaque point ou icône est centré à 12 px du haut de sa
            ligne. LE TRAIT NE PASSE PLUS SOUS LES POINTS (demande du 12/10/2026) :
-           il part 4 px sous ce point (19 px) et s'arrête 4 px avant le suivant
-           (12 px d'écart + 5,5 px dans la ligne suivante). */
+           il part 4 px sous ce point (18,5 px) ou cette icône de 14 px (23 px)
+           et s'arrête 4 px avant l'icône suivante (12 px d'écart + 5 px dans la
+           ligne suivante). */
         <span
-          className="absolute -bottom-[17.5px] left-[11.5px] top-[18.5px] w-px bg-faint/40 [li:last-child>&]:hidden"
+          className={cn(
+            'absolute -bottom-[13px] left-[11.5px] w-px bg-faint/40 [li:last-child>&]:hidden',
+            icone ? 'top-[23px]' : 'top-[18.5px]',
+          )}
           aria-hidden
           data-sous-point-trait
         />
       ) : surLAxe ? null : (
-        /* Imbriqué : point centré à 14 px ; le trait laisse 4 px de part et d'autre. */
+        /* Imbriqué : point ou icône centré à 14 px ; le trait laisse 4 px de part
+           et d'autre (icône de 14 px : de 25 px à 3 px avant la suivante). */
         <span
-          className="absolute -bottom-[7.5px] left-[10px] top-[20.5px] w-px bg-faint/40 [li:last-child>&]:hidden"
+          className={cn(
+            'absolute -bottom-[3px] left-[10px] w-px bg-faint/40 [li:last-child>&]:hidden',
+            icone ? 'top-[25px]' : 'top-[20.5px]',
+          )}
           aria-hidden
           data-sous-point-trait
         />
       )}
       {/* L'EMPLACEMENT DE L'ANCIEN ROND RESTE, TRANSPARENT : 24 px sur l'axe
-          (20 px en imbriqué), et le point gris de 5 px se centre dedans. Le
-          texte et le trait ne bougent donc pas d'un pixel. */}
+          (20 px en imbriqué), et l'icône de la sorte (14 px), ou à défaut le
+          point gris de 5 px, se centre dedans. Le texte ne bouge donc pas d'un
+          pixel. */}
       <span
         className={cn(
           'absolute flex items-center justify-center',
@@ -307,7 +324,7 @@ function SousPointDuFlux({
         aria-hidden
         data-sous-point-rond
       >
-        <PointDuFil ton={ton} />
+        <RondDeLaLigne icone={icone} ton={ton} />
       </span>
       <div className={cn('min-w-0', surLAxe ? null : 'pb-2')}>
         <NiveauDuSousPoint.Provider value={niveau + 1}>{children}</NiveauDuSousPoint.Provider>
@@ -820,7 +837,7 @@ function PointDuFlux({
               {contenu}
             </li>
           ) : (
-            <SousPointDuFlux key={moment.entree.id} attrs={{ 'data-sous-point-flux': marque }}>
+            <SousPointDuFlux key={moment.entree.id} icone={ICONE_DE_LA_LIGNE.rapport} attrs={{ 'data-sous-point-flux': marque }}>
               {contenu}
             </SousPointDuFlux>
           );
@@ -850,6 +867,7 @@ function PointDuFlux({
       cartonDe('cadre', 'rendu')
     ) : preparation ? (
       <SousPointDuFlux
+        icone={ICONE_DE_LA_LIGNE.plan}
         attrs={{ 'data-sous-point-flux': 'plan-en-preparation' }}
       >
         <SilhouetteDuPlan version={preparation} />
@@ -986,9 +1004,9 @@ function PointDuFlux({
                 le relie au premier point du dessous. */}
             {aDansLaCarte ? (
               <span className="relative -mr-3 flex w-6 shrink-0 self-stretch justify-center" aria-hidden data-point-de-la-carte={point.etat}>
-                {/* Point de tête de 7 px centré à 12 px ; le premier point du dessous a son haut à
-                    21,5 px sous ce bloc (12 px de marge + 9,5 px). 4 px d'air de chaque côté. */}
-                {ouvert ? <span className="absolute -bottom-[17.5px] left-[11.5px] top-[19.5px] w-px bg-faint/40" data-point-de-la-carte-trait /> : null}
+                {/* Point de tête de 7 px centré à 12 px ; la première icône du dessous a son haut à
+                    17 px sous ce bloc (12 px de marge + 5 px). 4 px d'air de chaque côté. */}
+                {ouvert ? <span className="absolute -bottom-[13px] left-[11.5px] top-[19.5px] w-px bg-faint/40" data-point-de-la-carte-trait /> : null}
                 <span className="relative flex h-6 w-6 items-center justify-center">
                   <PointDuFil
                     ton={point.etat === 'encours' ? 'en-cours' : point.etat === 'erreur' ? 'erreur' : 'neutre'}
@@ -1124,7 +1142,7 @@ function PointDuFlux({
       {/* 5. LA RÉPONSE DE L'AGENT : un message, à gauche, toujours à l'écran. */}
       {point.reponse ? (
         <ol className="flex flex-col gap-3">
-          <SousPointDuFlux attrs={{ 'data-sous-point-flux': 'reponse' }}>
+          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
             <MomentDeReponse entree={point.reponse} />
           </SousPointDuFlux>
         </ol>
@@ -1139,7 +1157,7 @@ function PointDuFlux({
       {momentsDeComprehension.length ? (
         <ol className="flex flex-col gap-3" data-point-comprehension-detachee>
           {momentsDeComprehension.map((moment) => (
-            <SousPointDuFlux key={moment.entree.id} attrs={{ 'data-sous-point-flux': 'comprehension' }}>
+            <SousPointDuFlux key={moment.entree.id} icone={ICONE_DE_LA_LIGNE.comprehension} attrs={{ 'data-sous-point-flux': 'comprehension' }}>
               <MomentDeComprehension entree={moment.entree} numero={moment.numero} />
             </SousPointDuFlux>
           ))}
@@ -1154,7 +1172,7 @@ function PointDuFlux({
           version se lit en entier, à la suite : rien n'est replié. */}
       {planDetache ? (
         <ol className="flex flex-col gap-3" data-point-plan-detache>
-          <SousPointDuFlux attrs={{ 'data-sous-point-flux': 'plan' }}>
+          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.plan} attrs={{ 'data-sous-point-flux': 'plan' }}>
             <MomentDePlan
               point={point}
               carte={carte}
@@ -1907,6 +1925,7 @@ function ErreurDansLePoint({ erreur, carte }: { erreur: ErreurDuPoint; carte: Ca
   return (
     <SousPointDuFlux
       ton="erreur"
+      icone={ICONE_DE_LA_LIGNE.erreur}
       attrs={{ 'data-sous-point-flux': 'erreur' }}
     >
     <div className="rounded-2xl bg-danger/10 px-4 py-3" data-point-erreur={erreur.action ?? 'aucune'}>
@@ -2000,6 +2019,7 @@ function DepotDuTravail({ carte, traces }: { carte: Card; traces: EntreeJournal[
   ];
   return (
     <SousPointDuFlux
+      icone={ICONE_DE_LA_LIGNE.depot}
       attrs={{ 'data-sous-point-flux': 'depot', 'data-point-depot': 'oui' }}
     >
       <button
@@ -2083,6 +2103,7 @@ function CompetencesDuPoint({
       {competences.map((competence) => (
         <SousPointDuFlux
           key={competence.nom}
+          icone={ICONE_DE_LA_LIGNE.competence}
           attrs={{ 'data-sous-point-flux': 'competence', 'data-competence-ligne': competence.nom }}
         >
           <CompetenceDuFlux competence={competence} messages={messages} />
@@ -2116,6 +2137,7 @@ function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: Eta
           : t('mémoire du projet');
   return (
     <SousPointDuFlux
+      icone={ICONE_DE_LA_LIGNE['memoire-ouverte']}
       attrs={{ 'data-sous-point-flux': 'memoire' }}
     >
     <div className="rounded-xl bg-raised/40" data-point-memoire={lignes.length}>
@@ -2197,7 +2219,7 @@ function BlocsRacontes({
      `data-reflexion-repliee` sont le point d'appui des contrôles (MEM-0582). */
   if (repliable && actions > 0) {
     return (
-      <SousPointDuFlux attrs={{ 'data-reflexion-repliee': reflexionOuverte ? 'ouverte' : 'repliee' }}>
+      <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reflexion} attrs={{ 'data-reflexion-repliee': reflexionOuverte ? 'ouverte' : 'repliee' }}>
         <button
           type="button"
           onClick={() => setReflexionOuverte((avant) => !avant)}
@@ -2290,7 +2312,7 @@ function RecitDuPassage({
               premier bloc montré), comme `SousPointDuFlux`. */}
           {enCarte && niveau === 0 ? (
             <span
-              className="absolute -bottom-[17.5px] left-[11.5px] top-[5.5px] w-px bg-faint/40 [li:first-child>&]:top-0"
+              className="absolute -bottom-[13px] left-[11.5px] top-[5.5px] w-px bg-faint/40 [li:first-child>&]:top-0"
               aria-hidden
               data-sous-point-trait
             />
@@ -2312,6 +2334,7 @@ function RecitDuPassage({
           <SousPointDuFlux
             key={bloc.cle}
             ton={bloc.enEchec ? 'erreur' : 'neutre'}
+            icone={ICONE_DU_GENRE[bloc.genre]}
             /* LE REPÈRE DU RÉCIT SE POSE SUR SON PREMIER SOUS-POINT : c'est
                lui qui situe le récit dans l'ordre du passage, et c'est ce que
                les contrôles lisent. */
@@ -2432,6 +2455,7 @@ function UnSousPointDuTravail({
   return (
     <SousPointDuFlux
       ton={tonDuSousPoint(sousPoint)}
+      icone={sousPoint.sorte === 'reflexion' ? ICONE_DE_LA_LIGNE.reflexion : ICONE_DU_GENRE.tache}
       attrs={{
         'data-sous-point': sousPoint.cle,
         'data-sous-point-sorte': sousPoint.sorte,
