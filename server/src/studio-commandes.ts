@@ -53,6 +53,7 @@ import {
   voixDEssaiDisponibles,
 } from './studio-generation.js';
 import { lancerAgentStudio } from './assistant-studio.js';
+import { enregistrerService, etatDesServices, modeleVideoRetenu, retenirModeleVideo, retirerService, testerService } from './studio-services.js';
 import { copierModele, creerDepuisModele, listerModeles, modeleDeLaCreation, resumeDuModele, supprimerModele, validerCreationEnModele } from './studio-modeles.js';
 
 /**
@@ -102,6 +103,8 @@ export function creationOuverte(id: string) {
       return m ? { id: m.id, version: m.version, majLe: m.majLe } : null;
     })(),
     modeles: listerModeles(creation.projectId).map(resumeDuModele),
+    /* Le modèle vidéo retenu pour cette création (« Vidéo » : choisi dans le chat), ou rien pour du motion design. */
+    modeleVideo: modeleVideoRetenu(creation.id),
     projets: store
       .listProjects()
       .filter((p) => !p.archived)
@@ -333,6 +336,30 @@ export async function traiterCommandeStudio(cmd: any): Promise<unknown> {
 
     case 'studio.assistant':
       return await lancerAgentStudio({ creationId: String(cmd.creationId ?? ''), demande: String(cmd.demande ?? '') });
+
+    /* LES SERVICES DE CRÉATION de l'utilisateur (paramètres) : la clé est testée avant d'être rangée au coffre. */
+    case 'studio.services.lister':
+      return { services: etatDesServices() };
+    case 'studio.services.enregistrer': {
+      const r = await enregistrerService(String(cmd.service ?? ''), cmd.champs ?? {});
+      if (!r.ok) throw new Error(r.raison);
+      return { test: r.test, services: etatDesServices() };
+    }
+    case 'studio.services.tester':
+      return { test: await testerService(String(cmd.service ?? '')), services: etatDesServices() };
+    case 'studio.services.retirer': {
+      const r = retirerService(String(cmd.service ?? ''));
+      if (!r.ok) throw new Error(r.raison ?? 'retrait impossible');
+      return { services: etatDesServices() };
+    }
+    /* LE MODÈLE VIDÉO CHOISI DANS L'ENCADRÉ DU CHAT : gardé sur la création, puis dit à l'agent, qui reprend. */
+    case 'studio.modeleVideo.choisir': {
+      const creationId = String(cmd.creationId ?? '');
+      if (!lireCreation(creationId)) throw new Error('création introuvable');
+      const r = ou(retenirModeleVideo(creationId, String(cmd.service ?? ''), String(cmd.modele ?? '')));
+      await lancerAgentStudio({ creationId, demande: `Pour cette vidéo, j’utilise le modèle ${r.nom}. C’est retenu pour la création : continue.` });
+      return { retenu: r.retenu };
+    }
 
     case 'studio.depuisMarketing': {
       const { lireContenu } = await import('./marketing.js');

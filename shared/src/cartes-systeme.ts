@@ -34,6 +34,8 @@ export interface AgentSysteme {
   tourVivantDepuis?: number;
   attendReponse?: boolean;
   endedAt?: number;
+  /** L'Assistant Beluga (stocké avec le rôle « deploy ») : jamais une carte Système. */
+  assistantGlobal?: boolean;
 }
 
 /**
@@ -51,12 +53,14 @@ export function agentSystemeActif(agent: AgentSysteme): boolean {
  * « Archiver ».
  *
  * Jamais un agent posé sur une carte (sa carte porte sa propre pastille), ni
- * un agent encore actif (`agentSystemeActif`), ni l'analyse de nuit : elle
+ * l'Assistant Beluga (`assistantGlobal`, 15/10/2026 : il passait pour une
+ * « mise en ligne »), ni un agent encore actif (`agentSystemeActif`), ni l'analyse de nuit : elle
  * finit sans que personne l'attende, et ce qu'elle trouve arrive déjà sous
  * forme de cartes proposées.
  */
 export function agentSystemeTermine(agent: AgentSysteme, maintenant: number): boolean {
   if (agent.cardId) return false;
+  if (agent.assistantGlobal) return false;
   if (agent.role === 'analysis') return false;
   if (agentSystemeActif(agent)) return false;
   return systemeFiniRecemment(agent.endedAt, maintenant);

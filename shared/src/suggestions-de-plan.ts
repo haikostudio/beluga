@@ -106,3 +106,26 @@ export function texteApresRetrait(actuel: string, ligneARetirer: string): string
   if (restantes.length === lignes.length) return actuel ?? '';
   return restantes.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+/**
+ * CETTE LIGNE EST-ELLE ÉCRITE DANS CE TEXTE ? La question se pose avec la règle
+ * du retrait elle-même (`texteApresRetrait`) : une ligne est « là » quand la
+ * retirer changerait le texte. La case d'une idée et le geste qui la décoche ne
+ * peuvent donc pas se contredire.
+ */
+export function ligneEstDansLeTexte(texte: string, ligne: string): boolean {
+  return texteApresRetrait(texte, ligne) !== texte;
+}
+
+/**
+ * UNE IDÉE EST « ENVOYÉE » QUAND UN MESSAGE PARTI CONTIENT SA LIGNE.
+ *
+ * Une idée cochée s'écrit dans la barre d'écriture, et c'est de ce texte que
+ * sa case se déduit. L'envoi vide la barre : la case se décochait, comme si
+ * rien n'avait été retenu. Elle se lit donc aussi dans les messages réellement
+ * partis — la ligne y figure telle que `ligneDeSuggestion` l'a écrite.
+ */
+export function ideeDejaEnvoyee(messagesEnvoyes: readonly string[], ligne: string): boolean {
+  if (!(ligne ?? '').trim()) return false;
+  return messagesEnvoyes.some((message) => ligneEstDansLeTexte(message, ligne));
+}

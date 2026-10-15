@@ -43,6 +43,11 @@ export interface EngineEvent {
     costUsd?: number;
     durationMs?: number;
     turns?: number;
+    /**
+     * Ce qu'ont consommé les AIDES (sous-agents) du tour, À CÔTÉ du principal :
+     * jamais ajouté aux totaux ci-dessus ni au quota (`partDesAides`, claude.ts).
+     */
+    aides?: { tokens: number; sortie: number; modeles: string[] };
   };
   /** kind=context : taille du DERNIER appel, jamais le total facturé. */
   context?: { tokens: number; window?: number };
@@ -79,6 +84,12 @@ export interface EngineRunOptions {
    */
   mcpBridgePath?: string;
   /**
+   * Des serveurs MCP de plus pour CE tour (REA pour l'agent d'un clonage,
+   * `server/src/rea.ts`). Claude et Cursor les lisent dans `mcpConfigPath` ;
+   * Codex les reçoit en surcharges `mcp_servers.<nom>.*`.
+   */
+  mcpServeursEnPlus?: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
+  /**
    * Chemin du GARDE DU DÉMON (script Node) : posé devant chaque commande d'un
    * agent, il refuse celles qui pourraient couper le serveur ou un moteur au
    * travail (`shared/src/garde-demon.ts`).
@@ -91,6 +102,12 @@ export interface EngineRunOptions {
    * fois l'analyse faite, et pour tout autre rôle.
    */
   verrouAnalysePath?: string;
+  /**
+   * Chemin du VERROU DE LISTE (script Node), posé devant les commandes et les
+   * modifications d'un agent de tâche : tant que le tour n'a pas annoncé sa
+   * liste de tâches, il fait refuser l'action (`shared/src/liste-obligatoire.ts`).
+   */
+  verrouListePath?: string;
   /** Accès complet : agents de tâche. Le chef d'orchestre, lui, reste bridé. */
   fullAccess: boolean;
   /** Le rôle de l'agent, tel que le démon le nomme. */

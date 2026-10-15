@@ -3,6 +3,10 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  ETATS_DE_L_ANALYSE,
+  GENRES_DE_SOURCE,
+  MODES_DE_CLONAGE,
+  PHASES_DU_CAHIER,
   colonneApresComprehensionDeRelance,
   LABEL_BIBLIOTHEQUE,
   jugerRecetteSource,
@@ -82,6 +86,8 @@ import {
   echeanceArchive,
   champsDuType,
   filtrerAcces,
+  jugerAcces,
+  trouverDossier,
   analyseDeCadrageFaite,
   ecritureDeCarteAutoriseeAuCadrage,
   REFUS_AVANT_ANALYSE,
@@ -91,6 +97,7 @@ import {
   appelantPeutDeplacerLaCarte,
   REFUS_DEPLACEMENT_HORS_CADRAGE,
   phraseDeDeplacementParLeCadrage,
+  consigneDArretApresDeplacement,
   trouverLeProjetVise,
   REFUS_AVANT_LE_TITRE,
   titreDeCarteADonner,
@@ -110,7 +117,21 @@ import {
   rendrePlan,
   IDS_MOTEURS,
 } from '@beluga/shared';
-import { listerAcces, listerArchives, enregistrerAcces, imagesDesAcces, restaurerAcces, supprimerAcces } from './coffre-fort.js';
+import {
+  listerAcces,
+  listerArchives,
+  enregistrerAcces,
+  enregistrerDossier,
+  effacerLesImagesOrphelines,
+  imagesDemandeesParUnAgent,
+  imagesDesAcces,
+  listerDossiers,
+  listerDossiersArchives,
+  restaurerAcces,
+  restaurerDossier,
+  supprimerAcces,
+  supprimerDossier,
+} from './coffre-fort.js';
 import * as store from './store.js';
 import { REFUS_SORTIE_GROUPE_LOCAL } from '@beluga/shared';
 import { createProjectFolder } from './projects.js';
@@ -183,6 +204,7 @@ import {
 } from './marketing.js';
 import { estAgentStudio, mediasDuContenuMarketing } from './studio.js';
 import { ecrireLeCahier, estAgentDuCahier, ouvrirLeCahierDesCharges } from './cahier-des-charges.js';
+import type { ServeurMcp } from './rea.js';
 import {
   DEFINITION_OUTIL_STUDIO,
   LABEL_MARKETING,
@@ -642,6 +664,21 @@ export const TOOL_DEFS: ToolDef[] = [
           description:
             "Démarrer par un cahier des charges : une carte naît et son agent pose les questions du projet (creer, vrai par défaut ; faux si l'utilisateur ne le veut pas)",
         },
+        source: {
+          type: 'object',
+          description:
+            "CLONAGE (creer) : le produit existant dont le projet part — site, SaaS, application de bureau, Android, iPhone, jeu. " +
+            "Le cahier des charges est alors coché d'office : son agent demande « vrai clone ou inspiration », analyse la source puis rédige le cahier.",
+          properties: {
+            url: { type: 'string', description: 'Le lien du produit (site, page de boutique…)' },
+            nom: { type: 'string', description: 'Le produit nommé en clair, s’il n’y a pas de lien' },
+            fichiers: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Chemins ABSOLUS de fichiers sur le serveur (APK, archive, HAR, captures), recopiés dans le projet',
+            },
+          },
+        },
         groupe: {
           type: 'string',
           description: "Le groupe d'arrivée, par son nom — « aucun » pour sortir le projet de son groupe (deplacer)",
@@ -741,7 +778,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'deplacer_vers_projet',
     description:
-      "CADRAGE SEULEMENT — déplace TA carte vers le projet qu'elle vise vraiment, quand la demande relève clairement d'un autre projet que celui-ci. Sans « projet », rend la liste des projets possibles. Le déplacement emporte la conversation ; ton tour s'arrête juste après, et le cadrage reprend tout seul dans le projet d'accueil. Refusé pour une carte déjà lancée ou née d'une demande client. En cas de doute entre plusieurs projets, demande d'abord à l'utilisateur (« ask_user »).",
+      "CADRAGE SEULEMENT — déplace TA carte vers le projet qu'elle vise vraiment, quand la demande relève clairement d'un autre projet que celui-ci. Sans « projet », rend la liste des projets possibles. Le déplacement emporte la conversation ; ton tour s'arrête juste après, sans rien écrire, et le cadrage reprend tout seul dans le projet d'accueil. Refusé pour une carte déjà lancée ou née d'une demande client. En cas de doute entre plusieurs projets, demande d'abord à l'utilisateur (« ask_user »).",
     inputSchema: {
       type: 'object',
       properties: {
@@ -967,11 +1004,15 @@ export const TOOL_DEFS: ToolDef[] = [
         total: { type: 'number', description: 'Questions prévues en tout, ajusté en chemin' },
         phase: {
           type: 'string',
-          enum: ['vision', 'interfaces', 'mecanismes', 'technologies', 'hebergement', 'identite', 'relecture'],
-          description: 'La phase en cours',
+          enum: [...PHASES_DU_CAHIER],
+          description: 'La phase en cours (« source » : seulement pour un cahier qui part d’un produit existant)',
         },
         restants: { type: 'array', items: { type: 'string' }, description: 'Ce qui reste à voir, quelques mots chacun' },
         termine: { type: 'boolean', description: 'Vrai quand toutes les questions sont tranchées' },
+        mode: { type: 'string', enum: [...MODES_DE_CLONAGE], description: 'Cahier à source : vrai clone ou inspiration profonde' },
+        identiteReprise: { type: 'boolean', description: 'Clone seulement : nom, logo, textes et images repris' },
+        genre: { type: 'string', enum: [...GENRES_DE_SOURCE], description: 'Cahier à source : le genre confirmé du produit' },
+        analyse: { type: 'string', enum: [...ETATS_DE_L_ANALYSE], description: 'Cahier à source : où en est l’analyse REA' },
       },
     },
   },
@@ -1125,15 +1166,39 @@ export const TOOL_DEFS: ToolDef[] = [
       "elle n'est pas effacée mais ARCHIVÉE six mois, puis effacée pour de bon ; « archives » liste les fiches " +
       "retirées et « restaurer » (avec « id ») en remet une en service. N'archive que ce qui est VRAIMENT périmé, " +
       "une fiche d'un autre projet sert peut-être encore à quelqu'un. UNE FICHE PEUT PORTER DES IMAGES (capture " +
-      "d'écran, code QR, document scanné) : « lister » en donne le chemin sur une ligne « image : … », et tu les " +
-      "ouvres comme n'importe quel fichier (outil de lecture) quand elles servent ton travail. Tu n'en ajoutes pas " +
-      "et tu n'en retires pas : c'est l'utilisateur qui les pose, et corriger une fiche garde ses images.",
+      "d'écran, code QR, document scanné, jusqu'à 12) : « lister » en donne le chemin et l'« id » sur une ligne " +
+      "« image : … », et tu les ouvres comme n'importe quel fichier (outil de lecture) quand elles servent ton " +
+      "travail. TU PEUX LES JOINDRE ET LES RETIRER TOI-MÊME : « enregistrer » avec le paramètre « images » — la " +
+      "liste COMPLÈTE de ce que la fiche doit porter. Joindre une photo envoyée par l'utilisateur = « enregistrer » " +
+      "avec l'« id » de la fiche (ou sans « id » pour une fiche neuve) et « images » = les images déjà portées " +
+      "(leur « id » vu dans « lister ») PLUS l'alias de la pièce jointe de la conversation (« 74ad », la marque " +
+      "« #74ad » d'un tag « [fichier: … #74ad] » ou le chemin d'un fichier). Retirer = redonner la liste sans elle " +
+      "(« [] » vide la fiche). Sans « images », corriger une fiche GARDE ses photos. Si une photo est refusée " +
+      "(introuvable, pas une image, trop lourde, plus de 12), la réponse dit la raison réelle : cite-la. Tu ne " +
+      "réponds JAMAIS que tu n'as pas le droit de joindre une image : tu as l'outil, utilise-le. " +
+      "LES DOSSIERS RANGENT LES FICHES (un seul niveau, jamais un dossier dans un dossier ; un dossier n'a qu'un nom " +
+      "et un projet, aucun secret). « lister » dit le « dossier » de chaque fiche et la recherche porte sur son nom. " +
+      "« enregistrer » avec « dossier » (nom ou « id ») range la fiche dedans — le dossier est CRÉÉ s'il n'existe pas, " +
+      "et la fiche prend son projet ; « dossier » vide (\"\") la ressort de son dossier ; sans « dossier », rien ne " +
+      "bouge. « dossiers » liste les dossiers (et ceux archivés) avec leur nombre de fiches ; « dossier_enregistrer » " +
+      "crée un dossier (« nom ») ou renomme celui que « dossier » désigne ; « dossier_supprimer » archive le dossier " +
+      "ET toutes ses fiches ensemble, et « dossier_restaurer » les remet ensemble. Les fiches gardent leur règle : " +
+      "UNE FICHE PAR SECRET, le dossier ne porte jamais un identifiant.",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['lister', 'enregistrer', 'supprimer', 'archives', 'restaurer'], description: 'Ce que tu veux faire' },
+        action: {
+          type: 'string',
+          enum: ['lister', 'enregistrer', 'supprimer', 'archives', 'restaurer', 'dossiers', 'dossier_enregistrer', 'dossier_supprimer', 'dossier_restaurer'],
+          description: 'Ce que tu veux faire',
+        },
         recherche: { type: 'string', description: "Mots cherchés (pour « lister » ; vide = tout montrer)" },
+        dossier: {
+          type: 'string',
+          description:
+            "Un dossier, par son nom ou son « id ». Pour « enregistrer » : le dossier où ranger la fiche (créé s'il n'existe pas ; \"\" = la sortir de son dossier ; absent = ne rien changer). Pour « dossier_enregistrer » : le dossier à renommer. Pour « dossier_supprimer » et « dossier_restaurer » : le dossier visé.",
+        },
         id: { type: 'string', description: "L'identifiant d'une fiche déjà rangée, pour la corriger (pour « enregistrer »), la retirer (pour « supprimer ») ou la remettre en service (pour « restaurer »)" },
         nom: { type: 'string', description: "Le nom de la fiche (pour « enregistrer »)" },
         type: { type: 'string', enum: [...TYPES_ACCES], description: "Le type d'accès (pour « enregistrer »)" },
@@ -1142,6 +1207,14 @@ export const TOOL_DEFS: ToolDef[] = [
           description: "Les valeurs, par champ du type choisi (pour « enregistrer »), ex. { \"hote\": \"…\", \"utilisateur\": \"…\", \"cle\": \"…\" }",
         },
         note: { type: 'string', description: 'Une note libre (pour « enregistrer »)' },
+        images: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            "Les images que la fiche doit porter après l'enregistrement (pour « enregistrer »). Chaque élément : l'« id » d'une image " +
+            "déjà portée (vu dans « lister »), l'alias d'une pièce jointe (« 74ad » ou « #74ad »), ou le chemin d'un fichier. " +
+            "Absent = la fiche garde ses images ; une liste, même vide, REMPLACE les images de la fiche.",
+        },
       },
     },
   },
@@ -2370,7 +2443,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           });
           bus.emit({ type: 'project.upsert', project: monte.project });
           const cahier = demande.cahierDesCharges
-            ? await ouvrirLeCahierDesCharges(monte.project, demande.description)
+            ? await ouvrirLeCahierDesCharges(monte.project, demande.description, demande.source)
             : null;
           const rates = monte.etapes.filter((e) => !e.fait);
           // Une étape ratée se dit : le projet existe quand même, mais il lui
@@ -2680,7 +2753,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       });
       return {
         ok: true,
-        text: `La carte est dans le projet « ${vise.projet.name} ». ARRÊTE TON TOUR ICI : n'appelle plus aucun outil. Termine par une seule phrase qui dit à l'utilisateur que la carte est partie dans « ${vise.projet.name} » et pourquoi. Le cadrage y reprend tout seul dès la fin de ce tour, avec la mémoire et le code de ce projet.`,
+        text: consigneDArretApresDeplacement(vise.projet.name),
       };
     }
 
@@ -2784,8 +2857,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return {
         ok: true,
         text: comprehension.questionsEnAttente?.length
-          ? `Compréhension enregistrée, avec ${comprehension.questionsEnAttente.length} question(s) qui attendent l’utilisateur sur la carte. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.`
-          : 'Compréhension enregistrée. Elle s’affiche déjà sur la carte : ta réponse en texte ne la recopie pas — elle répond à ce qui a été demandé, et dit d’une phrase que la compréhension est à jour.',
+          ? `Compréhension enregistrée, avec ${comprehension.questionsEnAttente.length} question(s) qui attendent l’utilisateur sur la carte. Elle s’affiche déjà sur la carte et EST la réponse de ce tour : ne l’écris pas une seconde fois en texte — une phrase au plus, ou rien.`
+          : 'Compréhension enregistrée. Elle s’affiche déjà sur la carte et EST la réponse de ce tour : ne l’écris pas une seconde fois en texte — une phrase au plus, ou rien.',
       };
     }
 
@@ -3564,12 +3637,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * n'est donc plus une barrière : c'est une ÉTIQUETTE, dite sur sa ligne.
        */
       const nomDuProjet = (id: string | null) => (id ? store.getProject(id)?.name : undefined);
+      // Les dossiers actifs ET archivés : une fiche archivée peut citer un dossier archivé.
+      const dossiersConnus = () => [...listerDossiers(), ...listerDossiersArchives()];
+      const nomDuDossier = (id: string | null) => (id ? dossiersConnus().find((d) => d.id === id)?.nom : undefined);
 
       if (action === 'lister' || action === 'archives') {
         const archives = action === 'archives';
         const tout = archives ? listerArchives() : listerAcces();
         const recherche = typeof args.recherche === 'string' ? args.recherche.trim() : '';
-        const filtres = recherche ? filtrerAcces(tout, recherche, nomDuProjet) : tout;
+        const filtres = recherche ? filtrerAcces(tout, recherche, nomDuProjet, nomDuDossier) : tout;
         if (!filtres.length) {
           if (archives) return { ok: true, text: recherche ? `Aucune archive ne correspond à « ${recherche} ».` : 'Aucune fiche archivée.' };
           return { ok: true, text: recherche ? `Aucun accès ne correspond à « ${recherche} ».` : 'Le coffre-fort est vide.' };
@@ -3584,6 +3660,8 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             : ' · partagé Beluga Build';
           const echeance = echeanceArchive(a);
           const archive = echeance ? ` · archivée, effacée le ${new Date(echeance).toISOString().slice(0, 10)}` : '';
+          const leDossier = nomDuDossier(a.dossierId ?? null);
+          const dossierDit = leDossier ? ` · dossier : ${leDossier}` : '';
           /*
            * LES IMAGES DE LA FICHE, par leur CHEMIN : une capture, un code QR
            * ou un document scanné se REGARDE, et un moteur en ligne de
@@ -3591,9 +3669,9 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
            * ouvert à tout tour (`dossiersDeDonneesOuverts`).
            */
           const images = imagesDesAcces([a])
-            .map((piece) => `\n  image : ${piece.chemin} (${piece.name})`)
+            .map((piece) => `\n  image : ${piece.chemin} (${piece.name}) — id ${piece.id}`)
             .join('');
-          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type]}${portee}${archive})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
+          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type]}${portee}${dossierDit}${archive})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
         });
         return { ok: true, text: lignes.join('\n') };
       }
@@ -3612,6 +3690,56 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
          * vient, et tout le monde la lira de toute façon.
          */
         const projectId = existante ? existante.projectId : ctx.projectId;
+        /*
+         * LES IMAGES : absentes = la fiche garde les siennes ; une liste (même
+         * vide) les remplace. Chaque alias de pièce jointe est recopié sous le
+         * projet réservé du coffre AVANT l'enregistrement, et tout refus dit sa
+         * vraie raison — un outil qui manquait se lisait « pas le droit ».
+         */
+        let images: string[] | undefined;
+        if (args.images !== undefined && args.images !== null) {
+          if (!Array.isArray(args.images)) {
+            return { ok: false, text: "Enregistrement impossible : « images » est une liste d'alias de pièces jointes (ex. [\"74ad\"]), vide pour retirer toutes les images." };
+          }
+          const dejaPortees = existante ? (listerAcces().find((a) => a.id === id)?.images ?? []) : [];
+          const jugees = await imagesDemandeesParUnAgent({
+            entrees: args.images,
+            dejaPortees,
+            racines: racinesDeLAgent(ctx.agentId, project),
+          });
+          if (!jugees.ok) return { ok: false, text: `Enregistrement impossible : ${jugees.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
+          images = jugees.ids;
+        }
+        /*
+         * LE DOSSIER : absent = la fiche reste où elle est ; \"\" = elle sort
+         * de son dossier ; un nom ou un id = elle y entre (le dossier naît au
+         * premier usage, au projet en cours). Le dossier n'est créé qu'une fois
+         * la fiche jugée valable : un refus ne laisse pas de dossier vide.
+         */
+        let dossierId: string | null | undefined;
+        let dossierCree = false;
+        if (args.dossier !== undefined && args.dossier !== null) {
+          const cle = String(args.dossier).trim();
+          if (!cle) dossierId = null;
+          else {
+            const jugee = jugerAcces({ id, nom: args.nom, type: args.type, projectId, champs: args.champs, note: args.note });
+            if (!jugee.ok) {
+              if (images) effacerLesImagesOrphelines(images);
+              return { ok: false, text: `Enregistrement impossible : ${jugee.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
+            }
+            const trouve = trouverDossier(listerDossiers(), cle);
+            if (trouve) dossierId = trouve.id;
+            else {
+              const cree = enregistrerDossier({ nom: cle, projectId: ctx.projectId });
+              if (!cree.ok) {
+                if (images) effacerLesImagesOrphelines(images);
+                return { ok: false, text: `Dossier impossible : ${cree.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
+              }
+              dossierId = cree.dossier.id;
+              dossierCree = true;
+            }
+          }
+        }
         const resultat = enregistrerAcces({
           id,
           nom: args.nom,
@@ -3619,18 +3747,30 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           projectId,
           champs: args.champs,
           note: args.note,
+          images,
+          ...(dossierId !== undefined ? { dossierId } : {}),
         });
         // « Accès refusé » disait une porte fermée pour un simple champ manquant
         // — exactement ce qu'un agent ne doit jamais croire ni répéter.
         if (!resultat.ok) {
+          // Les copies faites pour cet essai ne restent pas sans fiche.
+          if (images) effacerLesImagesOrphelines(images);
           return { ok: false, text: `Enregistrement impossible : ${resultat.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
         }
         const ou = resultat.acces.projectId
           ? `du projet « ${nomDuProjet(resultat.acces.projectId) ?? resultat.acces.projectId} »`
           : 'partagé de Beluga Build';
+        const rangee = resultat.acces.dossierId
+          ? ` Rangé dans le dossier « ${nomDuDossier(resultat.acces.dossierId) ?? resultat.acces.dossierId} »${dossierCree ? ' (créé)' : ''}.`
+          : dossierId === null
+            ? ' Sorti de son dossier.'
+            : '';
         return {
           ok: true,
-          text: `Accès « ${resultat.acces.nom} » (${LIBELLE_TYPE_ACCES[resultat.acces.type]}) ${id ? 'corrigé' : 'enregistré'} dans le coffre-fort ${ou}.`,
+          text:
+            `Accès « ${resultat.acces.nom} » (${LIBELLE_TYPE_ACCES[resultat.acces.type]}) ${id ? 'corrigé' : 'enregistré'} dans le coffre-fort ${ou}.` +
+            (images ? ` Images portées : ${resultat.acces.images?.length ?? 0}.` : '') +
+            rangee,
         };
       }
 
@@ -3654,7 +3794,69 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         return { ok: true, text: `Accès « ${archivee.nom} » restauré dans le coffre-fort.` };
       }
 
-      return { ok: false, text: 'Action inconnue : « lister », « enregistrer », « supprimer », « archives » ou « restaurer ».' };
+      /* ------------------------- les dossiers ------------------------- */
+
+      if (action === 'dossiers') {
+        const fiches = listerAcces();
+        const ligne = (d: { id: string; nom: string; projectId: string | null }, archive: boolean) => {
+          const n = fiches.filter((a) => a.dossierId === d.id).length;
+          const portee = d.projectId ? `projet ${nomDuProjet(d.projectId) ?? d.projectId}` : 'partagé Beluga Build';
+          return `- [${d.id}] ${d.nom} (${portee}${archive ? ', archivé avec ses fiches' : ` · ${n} fiche${n > 1 ? 's' : ''}`})`;
+        };
+        const actifs = listerDossiers();
+        const archives = listerDossiersArchives();
+        if (!actifs.length && !archives.length) return { ok: true, text: 'Aucun dossier dans le coffre-fort.' };
+        return {
+          ok: true,
+          text: [...actifs.map((d) => ligne(d, false)), ...(archives.length ? ['Archivés :', ...archives.map((d) => ligne(d, true))] : [])].join('\n'),
+        };
+      }
+
+      if (action === 'dossier_enregistrer') {
+        const cle = typeof args.dossier === 'string' ? args.dossier.trim() : typeof args.id === 'string' ? args.id.trim() : '';
+        const nom = typeof args.nom === 'string' ? args.nom : '';
+        let resultat;
+        if (cle) {
+          const existant = trouverDossier(listerDossiers(), cle);
+          if (!existant) return { ok: false, text: `Aucun dossier actif ne s'appelle « ${cle} » : « dossiers » les liste.` };
+          resultat = enregistrerDossier({ id: existant.id, nom: nom || existant.nom, projectId: existant.projectId });
+        } else {
+          resultat = enregistrerDossier({ nom, projectId: ctx.projectId });
+        }
+        if (!resultat.ok) return { ok: false, text: `Dossier impossible : ${resultat.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
+        const ou = resultat.dossier.projectId
+          ? `du projet « ${nomDuProjet(resultat.dossier.projectId) ?? resultat.dossier.projectId} »`
+          : 'partagé de Beluga Build';
+        return { ok: true, text: `Dossier « ${resultat.dossier.nom} » ${cle ? 'corrigé' : 'créé'} ${ou} — id ${resultat.dossier.id}.` };
+      }
+
+      if (action === 'dossier_supprimer') {
+        const cle = typeof args.dossier === 'string' ? args.dossier.trim() : typeof args.id === 'string' ? args.id.trim() : '';
+        if (!cle) return { ok: false, text: "Donne le « dossier » à supprimer (son nom ou son « id »)." };
+        const existant = trouverDossier(listerDossiers(), cle);
+        if (!existant) return { ok: false, text: `Aucun dossier actif ne s'appelle « ${cle} » : « dossiers » les liste.` };
+        const resultat = supprimerDossier(existant.id);
+        if (!resultat.ok) return { ok: false, text: `Suppression refusée : ${resultat.raison}` };
+        return {
+          ok: true,
+          text: `Dossier « ${existant.nom} » archivé avec ses ${resultat.fiches ?? 0} fiche(s) : ils quittent le coffre actif et seront effacés pour de bon dans six mois, sauf restauration (« dossier_restaurer »).`,
+        };
+      }
+
+      if (action === 'dossier_restaurer') {
+        const cle = typeof args.dossier === 'string' ? args.dossier.trim() : typeof args.id === 'string' ? args.id.trim() : '';
+        if (!cle) return { ok: false, text: "Donne le « dossier » à restaurer (son nom ou son « id »)." };
+        const archive = trouverDossier(listerDossiersArchives(), cle);
+        if (!archive) return { ok: false, text: `Aucun dossier archivé ne s'appelle « ${cle} » : « dossiers » liste les archivés.` };
+        const resultat = restaurerDossier(archive.id);
+        if (!resultat.ok) return { ok: false, text: `Restauration refusée : ${resultat.raison}` };
+        return { ok: true, text: `Dossier « ${archive.nom} » restauré avec ses ${resultat.fiches ?? 0} fiche(s).` };
+      }
+
+      return {
+        ok: false,
+        text: 'Action inconnue : « lister », « enregistrer », « supprimer », « archives », « restaurer », « dossiers », « dossier_enregistrer », « dossier_supprimer » ou « dossier_restaurer ».',
+      };
     }
 
 
@@ -3913,9 +4115,12 @@ export function writeMcpConfig(
   agentId: string,
   bridgePath: string,
   tourId = '',
+  /** Des serveurs de plus, pour ce seul agent (REA pour l'agent d'un clonage, `server/src/rea.ts`). */
+  serveursEnPlus: Record<string, ServeurMcp> = {},
 ): void {
   const config = {
     mcpServers: {
+      ...serveursEnPlus,
       beluga: {
         command: process.execPath,
         args: [bridgePath],

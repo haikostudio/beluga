@@ -11,13 +11,14 @@
  * pas encore connue de l'écran — rend `null` : l'appelant rouvre alors la carte,
  * comme avant. Un clic ne tombe jamais dans le vide.
  */
-import { serviceDeLaCarte, type Card, type LieuDeService, type ServiceDeCarte } from '@beluga/shared';
+import { serviceDeLaCarte, serviceVisible, type Card, type LieuDeService, type ServiceDeCarte } from '@beluga/shared';
 import { client } from '@/lib/client';
 
 /** Le service de cette carte, d'après l'agent que l'écran connaît d'elle. */
 export function serviceDeLaCarteALEcran(card: Pick<Card, 'agentId' | 'labels'> | null | undefined): ServiceDeCarte | null {
   if (!card?.agentId) return null;
-  return serviceDeLaCarte(client.lireEtat().agents[card.agentId], card);
+  const etat = client.lireEtat();
+  return serviceVisible(serviceDeLaCarte(etat.agents[card.agentId], card), etat.studioOuvert);
 }
 
 /** Où mène la carte : la vue du service et l'élément ouvert, ou `null` pour la rouvrir telle quelle. */

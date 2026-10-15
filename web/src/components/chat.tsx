@@ -67,6 +67,8 @@ import {
   TEXTE_BARRE_EN_ATTENTE,
   modeleActuel,
   idDuMessageDeSynthese,
+  estUneAide,
+  carteEnPause,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -98,8 +100,14 @@ import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
 import { useApp, useCanal } from '@/lib/use-app';
-import { ContexteTexteDuChamp, creerTexteDuChamp, ligneDansLeTexte } from '@/lib/texte-du-champ';
-import { cn, jourDuMessage } from '@/lib/utils';
+import {
+  ContexteTexteDuChamp,
+  ContexteTextesEnvoyes,
+  creerTexteDuChamp,
+  ligneDansLeTexte,
+  useTextesEnvoyes,
+} from '@/lib/texte-du-champ';
+import { cn, duration, jourDuMessage } from '@/lib/utils';
 import { useMinute } from '@/lib/horloge';
 import { t, formatRegional } from '@/lib/langue';
 import { useSeconde } from '@/lib/horloge';
@@ -206,6 +214,10 @@ export function Chat({
     : agent
       ? (state.messages[agent.id] ?? [])
       : [];
+  /* LES MESSAGES DÉJÀ PARTIS : une idée à cocher dont la ligne y figure reste
+     cochée après l'envoi (`useIdeeEnvoyee`). La liste ne change que lorsqu'un
+     message part, jamais à chaque signe de la réponse qui s'écrit. */
+  const textesEnvoyes = useTextesEnvoyes(messages);
   /*
    * LE FIL EST-IL SEULEMENT EN TRAIN D'ARRIVER ? Une liste vide se lit de deux
    * façons opposées : « rien à dire » ou « pas encore reçu ». On les sépare sur
@@ -357,6 +369,7 @@ export function Chat({
       colonne: carte?.column ?? 'planned',
       roleAgent: agent?.role,
       tourEnCours: busy,
+      enPause: carteEnPause(carte?.scheduling),
       messages: messagesDuParcours,
       parcours: carte?.parcours,
       /* Canal coupé ou état pas encore redemandé : `busy` et le parcours
@@ -384,6 +397,8 @@ export function Chat({
       carte?.column,
       carte?.parcours,
       carte?.scheduling?.tourEnVolDepuis,
+      carte?.scheduling?.suspendu,
+      carte?.scheduling?.enPause,
       agent?.id,
       agent?.role,
       agent?.status,
@@ -545,6 +560,8 @@ export function Chat({
           /* LE TOUR S'EST-IL ARRÊTÉ EN ROUTE ? Les points « Travail » et
              « Rapport » ne se cochent plus sur la seule colonne. */
           tourNonAbouti: nonAbouti,
+          /* SUSPENDUE À LA MAIN : le point « Travail » reste neutre et se reprend. */
+          enPause: contexteDuParcours.enPause,
           /* UN TOUR DE CADRAGE TOMBÉ se lit sur la Compréhension, tant que la
              décision du bas attend — jamais sur Travail ni Rapport. */
           dernierTourEnEchec: contexteDuParcours.dernierTourEnEchec,
@@ -582,6 +599,7 @@ export function Chat({
       questionsOuvertes,
       nonAbouti,
       contexteDuParcours.dernierTourEnEchec,
+      contexteDuParcours.enPause,
       decisionsDeTour,
       carte?.sansModification,
       carte?.suiviDesFilles,
@@ -1016,6 +1034,7 @@ export function Chat({
         {/* Les idées à cocher d'un compte rendu lisent leur case dans le champ
             d'écriture de CETTE conversation (`ContexteTexteDuChamp`). */}
         <ContexteTexteDuChamp.Provider value={champ}>
+        <ContexteTextesEnvoyes.Provider value={textesEnvoyes}>
         <MessageView
           message={message}
           allMessages={messages}
@@ -1038,6 +1057,7 @@ export function Chat({
              recopiaient la conversation de cadrage. */
           filAgentMasque={filDesRecherchesMasque}
         />
+        </ContexteTextesEnvoyes.Provider>
         </ContexteTexteDuChamp.Provider>
       </div>
     );
@@ -1195,9 +1215,9 @@ export function Chat({
                 onOuvert={setReglagesOuverts}
                 declencheur={
                   <Button
-                    size="sm"
+                    size="icon-barre"
                     variant="ghost"
-                    className="shrink-0 px-2"
+                    className="shrink-0"
                     title={t('Configuration de l’agent')}
                     aria-label="Configuration de l’agent"
                     data-raccourci-reglages={reglagesCarte.vu.modifiable ? 'modifiable' : 'lecture'}
@@ -1238,6 +1258,7 @@ export function Chat({
               {/* Les idées à cocher du compte rendu lisent leur case dans le
                   champ d'écriture de CETTE carte (`ContexteTexteDuChamp`). */}
               <ContexteTexteDuChamp.Provider value={champ}>
+              <ContexteTextesEnvoyes.Provider value={textesEnvoyes}>
               <FluxEnPoints
                 carte={carte}
                 projectId={projectId}
@@ -1277,6 +1298,7 @@ export function Chat({
                 onToggleAll={toggleAll}
                 onEcrireDansLeChamp={ecrireDansLeChamp}
               />
+              </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
               <div ref={bottomRef} />
             </ZoneDefilement>
@@ -1572,6 +1594,21 @@ function SeparateurAgent({ titre }: { titre: string }) {
  * l'agent affiché appartient à une autre, pas de bouton du tout — mieux vaut
  * rien qu'un faux (`arretDeCarteAutorise`).
  */
+/**
+ * CE QUI OCCUPE L'AGENT, EN DIRECT. La ligne de tâche annoncée dit le BUT ;
+ * l'étape qui tourne dit le GESTE — et, dès qu'elle dure, depuis combien de
+ * temps : c'est elle qui explique une tâche qui « ne bouge plus » (une
+ * commande lente, une aide au travail). Les aides actives se comptent.
+ */
+function ceQuiOccupe(tache: string | undefined, etape: Message['steps'][number] | undefined, etapes: Message['steps']): string {
+  const depuis = etape?.startedAt ? Date.now() - etape.startedAt : 0;
+  const geste = etape ? (depuis >= 10_000 ? `${etape.label} · ${duration(depuis / 1000)}` : etape.label) : undefined;
+  const aides = etapes.filter((step) => step.state === 'running' && estUneAide(step)).length;
+  const lesAides = aides > 1 ? t('{n} aides au travail', { n: aides }) : null;
+  const base = tache ? (geste && depuis >= 10_000 ? `${tache} — ${geste}` : tache) : (geste ?? t('Réflexion en cours…'));
+  return lesAides ? `${base} · ${lesAides}` : base;
+}
+
 function TravailEnCours({
   agent,
   messages,
@@ -1644,7 +1681,7 @@ function TravailEnCours({
       ? TEXTE_BARRE_EN_ATTENTE
       : rangeLeTour
         ? t('L’agent termine son tour…')
-        : (todoEnCours?.label ?? etapeEnCours?.label ?? t('Réflexion en cours…'));
+        : ceQuiOccupe(todoEnCours?.label, etapeEnCours, dernier?.steps ?? []);
 
   // Le chronomètre et le compte « n/N » ne parlent que d'un travail EN COURS :
   // une fois le tour refermé, le compte est déjà dans la phrase ci-dessus, et

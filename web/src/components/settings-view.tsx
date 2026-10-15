@@ -9,6 +9,7 @@ import {
   Globe,
   KeyRound,
   Camera,
+  Clapperboard,
   Bug,
   Languages,
   Loader2,
@@ -137,6 +138,10 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
     avecReglages: true,
     rendu: paresseux(() => import('@/components/reglages/page-mode-creation'), 'PageModeCreation'),
   },
+  'services-creation': {
+    icone: Clapperboard,
+    rendu: paresseux(() => import('@/components/reglages/page-services-creation'), 'PageServicesCreation'),
+  },
   'juge-rapide': {
     icone: Scale,
     avecOuverture: true,
@@ -193,7 +198,15 @@ function CorpsDesReglages({
   onPageChange?: (page: string) => void;
 }) {
   const state = useApp();
-  const groupes = ARBORESCENCE_REGLAGES;
+  /* « Services de création » n'existe que pour qui a le Studio (`shared/src/studio-reserve.ts`). */
+  const groupes = React.useMemo(
+    () =>
+      ARBORESCENCE_REGLAGES.map((groupe) => ({
+        ...groupe,
+        pages: groupe.pages.filter((item) => item.cle !== 'services-creation' || state.studioOuvert),
+      })),
+    [state.studioOuvert],
+  );
   const pages = React.useMemo(() => pagesDesReglages(groupes), [groupes]);
 
   /* LA PAGE OUVERTE est retenue d'une ouverture à l'autre, et l'adresse la

@@ -275,7 +275,7 @@ export function VoletDiscussion({
             data-champ-message
           />
           <BoutonJoindre onFichiers={envois.ajouter} compact />
-          <Button size="icon" onClick={envoyer} disabled={envois.occupe} data-envoyer-message>
+          <Button size="icon" aria-label="Envoyer" onClick={envoyer} disabled={envois.occupe} data-envoyer-message>
             <Send className="h-4 w-4" />
           </Button>
         </div>

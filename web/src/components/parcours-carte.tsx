@@ -5,15 +5,15 @@ import {
   Check,
   ChevronDown,
   Clock,
-  ListChecks,
   Loader2,
   MessageSquare,
   RotateCcw,
   Rocket,
-  Square,
+  Pause,
   Trash2,
   X,
   Zap,
+  FastForward,
 } from 'lucide-react';
 import {
   Agent,
@@ -54,11 +54,14 @@ import {
   type PassageDePlanLu,
   phraseDeLErreurDeTour,
   modeleActuel,
+  niveauDeReflexionQuiPart,
   procedureEnPlace,
   raisonDeployerDepuisLaCarte,
   prochaineQuestionDeCarte,
   COLONNES_AVANT_LE_TRAVAIL,
   estVoletDuCahier,
+  carteEnPause,
+  MESSAGE_DE_REPRISE,
 } from '@beluga/shared';
 import { BulleInfo, Button, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
 import { CarouselQuestions } from '@/components/carousel-questions';
@@ -244,6 +247,46 @@ export function BlocDuPlan({
 }
 
 /**
+ * LES DIFFÉRENCES AVEC LA VERSION SUIVANTE, REPLIÉES D'OFFICE : c'est un détail
+ * de comparaison, pas ce qu'on lit en ouvrant le plan. Le libellé reste visible
+ * et ouvre la liste des lignes ; le corps du plan, lui, ne se démonte jamais.
+ */
+function DifferencesDuPlan({ diff }: { diff: NonNullable<ReturnType<typeof differencesDeTexte>> }) {
+  const [ouvert, setOuvert] = React.useState(false);
+  return (
+    <div className="mt-4" data-diff-du-plan data-diff-ouvert={ouvert ? 'oui' : 'non'}>
+      <button
+        type="button"
+        aria-expanded={ouvert}
+        onClick={() => setOuvert((v) => !v)}
+        className="flex items-center gap-1 text-[12.5px] text-faint hover:text-text"
+      >
+        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', !ouvert && '-rotate-90')} />
+        {t('Différences avec la version suivante')}
+      </button>
+      {ouvert ? (
+        <div className="mt-1 space-y-0.5 font-mono text-[12px] leading-relaxed">
+          {diff.map((ligne, index) => (
+            <div
+              key={index}
+              className={cn(
+                'whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                ligne.type === 'ajoute' && 'bg-success/10 text-success',
+                ligne.type === 'retire' && 'text-danger line-through',
+                ligne.type === 'egal' && 'text-faint',
+              )}
+            >
+              {ligne.type === 'ajoute' ? '+ ' : ligne.type === 'retire' ? '- ' : '  '}
+              {ligne.texte || ' '}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * LE CORPS DU PLAN, SANS SON ENVELOPPE : le texte du plan et ce qui a changé
  * vers la version suivante. Plus aucun choix de niveau : un plan validé part
  * avec le modèle de la configuration de l'agent. Il ne sait RIEN de l'endroit où
@@ -274,25 +317,7 @@ function CorpsDuPlan({
       />
 
       {diff ? (
-        <div className="mt-4" data-diff-du-plan>
-          <p className="mb-1 text-[12.5px] text-faint">{t('Différences avec la version suivante')}</p>
-          <div className="space-y-0.5 font-mono text-[12px] leading-relaxed">
-            {diff.map((ligne, index) => (
-              <div
-                key={index}
-                className={cn(
-                  'whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
-                  ligne.type === 'ajoute' && 'bg-success/10 text-success',
-                  ligne.type === 'retire' && 'text-danger line-through',
-                  ligne.type === 'egal' && 'text-faint',
-                )}
-              >
-                {ligne.type === 'ajoute' ? '+ ' : ligne.type === 'retire' ? '- ' : '  '}
-                {ligne.texte || ' '}
-              </div>
-            ))}
-          </div>
-        </div>
+        <DifferencesDuPlan diff={diff} />
       ) : null}
 
     </>
@@ -405,10 +430,12 @@ export function PanneauDeDecision({
           </button>
 
           {replie ? null : (
+            /* LE DÉFILEMENT RESTE DANS LE PANNEAU (`overscroll-contain`) : arrivé à
+               son bout, il ne passe plus au fil derrière lui. */
             <ZoneDefilement
               classeEnveloppe="max-h-[45vh]"
               fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
-              className="space-y-2 px-2.5 pb-2.5"
+              className="space-y-2 overscroll-contain px-2.5 pb-2.5"
               data-panneau-corps
             >
               {questions.length ? (
@@ -481,7 +508,7 @@ function QuestionsDeLaCarte({ carte, projectId }: { carte: Card; projectId?: str
       <ZoneDefilement
         classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl border border-transparent bg-bloc-fil"
         fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
-        className="px-2.5 pb-2.5"
+        className="overscroll-contain px-2.5 pb-2.5"
       >
         <p className="flex items-center gap-2 px-0.5 py-2 text-[13.5px] font-medium text-text">
           <MessageSquare className="h-4 w-4 shrink-0 text-warning" aria-hidden />
@@ -605,7 +632,7 @@ function iconeDuGeste(geste: GesteDuParcours) {
         ? RotateCcw
         : geste === 'terminer'
           ? Check
-          : Square;
+          : Pause;
 }
 
 /**
@@ -650,7 +677,7 @@ function BoutonDeGeste({
     etatPrecedent.current = geste.possible;
   }, [geste.geste, geste.possible]);
 
-  const Icone = libelle === t(LIBELLE_REPRENDRE) ? RotateCcw : iconeDuGeste(geste.geste);
+  const Icone = libelle?.startsWith(t(LIBELLE_REPRENDRE)) ? RotateCcw : iconeDuGeste(geste.geste);
   const arretRouge = geste.geste === 'arreter';
 
   return (
@@ -668,8 +695,8 @@ function BoutonDeGeste({
             CLASSES_BOUTON_DU_FIL,
             colle && 'rounded-r-none',
             vientDeSallumer && 'animate-appel',
-            /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Arrêter » est
-               un aplat rouge à écriture blanche (variante `arret`). */
+            /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Suspendre »
+               est un aplat rouge à écriture blanche (variante `arret`). */
             geste.possible
               ? arretRouge
                 ? null
@@ -755,6 +782,10 @@ function GestesDuChapitre({
     (carte.run?.model && moteurDeLaCarte ? modeleActuel(moteurDeLaCarte, carte.run.model)?.label : undefined) ??
     carte.run?.model ??
     DEFINITIONS_NIVEAU[NIVEAU_DU_PLAN].label;
+  /* LE NIVEAU DE RÉFLEXION SE LIT À CÔTÉ DU MODÈLE : celui de la configuration
+     de l'agent, résolu par la même règle — jamais un autre. Rien sans modèle
+     posé (le palier part seul) ni quand le modèle n'offre qu'un niveau. */
+  const niveauQuiPart = niveauDeReflexionQuiPart(moteurs, carte.run);
   /*
    * LES GESTES DE RANGEMENT, décidés par les mêmes règles pures qu'au pied du
    * tiroir : `gesteCarte` pour l'autorisation de dépense et la sortie d'une
@@ -777,22 +808,18 @@ function GestesDuChapitre({
   const avanceUtile = !!avance.cible && avance.cible !== 'running' && !peut('terminer').affiche;
   const principal = gestes[0];
   /*
-   * LA FIN DE TÂCHE N'A PLUS QU'UN BOUTON (demande du 02.10.2026). Un rapport
-   * rendu, une carte « À déployer » ou « Archivé » alignaient jusqu'à quatre
-   * boutons — terminer, reprendre, passer à l'étape suivante, déployer le lot,
-   * remettre en demande. Ils vivent désormais dans un TIROIR, ouvert par un
-   * seul bouton « Actions de la tâche ». « Remettre en demande » (« Retirer du
-   * lot à publier », « Sortir de l'archive ») a disparu : écrire à l'agent
-   * ramène déjà la carte en « Demande ». Le « Reprendre » d'une carte
-   * INTERROMPUE (chapitre travail) n'est pas une fin de tâche : il reste direct.
+   * LA FIN DE TÂCHE N'A PLUS DE LISTE. Le bouton « Actions de la tâche » (qui
+   * ouvrait un tiroir de quatre gestes) est devenu, sur une carte « À déployer »,
+   * un seul bouton « Déployer » : un clic ouvre la fenêtre de mise en ligne du
+   * lot. Un rapport rendu (« Terminer la tâche », « Reprendre ») montre ses
+   * gestes DIRECTEMENT, comme tout chapitre ; l'archivage reste au tableau.
    *
-   * UNE CARTE RELANCÉE N'EST PLUS EN FIN DE TÂCHE (`barreEnFinDeTache`) : un
+   * UNE CARTE RELANCÉE N'EST PAS EN FIN DE TÂCHE (`barreEnFinDeTache`) : un
    * message sous son rapport a rouvert son cadrage, et la rangée montre le
    * geste du cadrage — « Valider et lancer », éteint pendant la réflexion —,
-   * jamais « Actions de la tâche » (capture #35079, 04.10.2026).
+   * jamais « Déployer » (capture #35079, 04.10.2026).
    */
   const finDeTache = barreEnFinDeTache({ carte, chapitre: principal?.chapitre });
-  const [tiroirFin, setTiroirFin] = React.useState(false);
   /*
    * LE PREMIER DÉPART D'UNE CARTE DONT AUCUN AGENT NE S'EST SAISI. Le pied du
    * tiroir portait ici un second bouton de lancement, à côté de celui du
@@ -806,9 +833,20 @@ function GestesDuChapitre({
      qui ouvre la fenêtre de déploiement de tout le lot — sauf relancée
      (`lotDeployableDepuisLaCarte`). */
   const deployerLeLot = lotDeployableDepuisLaCarte(carte);
-  const rangement = avanceUtile || deployerLeLot;
+  /* En fin de tâche, plus d'étape suivante ici : « Déployer » seul (l'archivage
+     se fait au tableau, par la règle `avanceDEtape`). */
+  const rangement = (avanceUtile && !finDeTache) || deployerLeLot;
 
-  const duChapitre = principal && principal.geste !== 'aucun' ? gestes : [];
+  /*
+   * « SUSPENDRE » NE S'ALLUME QUE POUR L'AGENT DE LA CARTE. Le tiroir peut
+   * retomber sur l'agent d'une autre tâche : le démon refuserait le clic
+   * (`arretDeCarteAutorise`), le bouton s'éteint donc d'avance et dit pourquoi.
+   */
+  const duChapitre = (principal && principal.geste !== 'aucun' ? gestes : []).map((geste) =>
+    geste.geste === 'arreter' && geste.possible && !arret.possible
+      ? { ...geste, possible: false, raison: arret.raison }
+      : geste,
+  );
   if (!duChapitre.length && !rangement) return null;
 
   /*
@@ -826,6 +864,12 @@ function GestesDuChapitre({
     /* UN SEUL CLIC POUR DEUX COMMANDES : la validation s'écrit sur la carte,
        le lancement suit aussitôt (`validerEtLancer`). */
     if (geste.geste === 'valider-et-lancer') return validerEtLancer(carte);
+    /* UNE CARTE SUSPENDUE SE REPREND PAR UN MESSAGE à son agent : même session,
+       même conversation (`MESSAGE_DE_REPRISE`), jamais un second lancement. */
+    const agentEnPause = agent?.id ?? carte.agentId;
+    if (geste.geste === 'reprendre' && carteEnPause(carte.scheduling) && agentEnPause) {
+      return client.call({ type: 'agent.prompt', agentId: agentEnPause, text: MESSAGE_DE_REPRISE }).catch(refuse);
+    }
     if (geste.geste === 'lancer' || geste.geste === 'reprendre') {
       /* Le chemin de lancement est UNIQUE (`demanderLeLancement`) : c'est lui
          qui porte l'attente, la phrase d'un délai dépassé et le refus relancé. */
@@ -838,67 +882,12 @@ function GestesDuChapitre({
     return undefined;
   };
 
-  if (finDeTache) {
-    /* Un geste du tiroir le referme dès qu'il a abouti : la carte change
-       d'état, et le tiroir n'a plus rien à proposer de juste. */
-    const agirPuisFermer = async (geste: EtatDuGeste) => {
-      await agir(geste);
-      setTiroirFin(false);
-    };
-    return (
-      <div
-        data-barre-action={principal?.geste ?? 'aucun'}
-        data-geste-possible={principal?.possible ? 'oui' : 'non'}
-        data-gestes={duChapitre.map((g) => g.geste).join(',')}
-        data-fin-de-tache
-      >
-        <Button
-          type="button"
-          size="sm"
-          variant="default"
-          data-bouton-fin-de-tache
-          onClick={() => setTiroirFin(true)}
-          className={cn(CLASSES_BOUTON_DU_FIL, 'w-full')}
-        >
-          <ListChecks className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate">{t('Actions de la tâche')}</span>
-        </Button>
-        <Drawer adresse="fin-de-tache" open={tiroirFin} onClose={() => setTiroirFin(false)} empile>
-          <div className="flex flex-col gap-3 px-4 pb-5" data-tiroir-fin-de-tache={carte.id}>
-            <DialogTitle>{t('Actions de la tâche')}</DialogTitle>
-            <p className="text-[13px] leading-snug text-muted">
-              {t('Pour reprendre le travail, écrivez simplement à l’agent : la carte revient d’elle-même en « Demande ».')}
-            </p>
-            <div className="flex flex-col gap-1.5 [&>*]:w-full">
-              {duChapitre.map((geste, index) => (
-                <BoutonDeGeste key={geste.geste} geste={geste} principal={index === 0} onAgir={agirPuisFermer} />
-              ))}
-              {avanceUtile ? (
-                <BoutonEtapeSuivante
-                  card={carte}
-                  agentActif={agentAuTravail}
-                  className={CLASSES_BOUTON_DU_FIL}
-                  onAvancer={() => {
-                    setTiroirFin(false);
-                    avancer([{ card: carte, agentActif: agentAuTravail }]);
-                  }}
-                />
-              ) : null}
-              {deployerLeLot ? <BoutonDeployerLeLot carte={carte} /> : null}
-            </div>
-          </div>
-        </Drawer>
-        {arret.dialogue}
-        {dialogueAvance}
-      </div>
-    );
-  }
-
   return (
     <div
       data-barre-action={principal?.geste ?? 'aucun'}
-      data-geste-possible={principal?.possible ? 'oui' : 'non'}
+      data-geste-possible={duChapitre[0]?.possible ? 'oui' : 'non'}
       data-gestes={duChapitre.map((g) => g.geste).join(',')}
+      data-fin-de-tache={finDeTache ? '' : undefined}
     >
       {/* PLUS AUCUN AVIS ÉCRIT AU-DESSUS DU LANCEMENT : la note du relecteur se
           lit sur l'indicateur à trois barres de la barre d'écriture
@@ -918,11 +907,22 @@ function GestesDuChapitre({
               (geste.geste === 'lancer' || geste.geste === 'reprendre' || geste.geste === 'valider-et-lancer');
             const libelle =
               geste.geste === 'valider-et-lancer'
-                ? /* LE MODÈLE QUI PARTIRA SE LIT SUR LE BOUTON : celui de la carte,
-                     modifiable jusqu'à ce clic ; à défaut, le palier du cadrage. */
-                  `${t(libelleDeValidation(carte.scheduling))} · ${modeleQuiPart}`
-                : geste.geste === 'lancer' && departSansAgent
-                  ? t(libelleDeLancement(carte))
+                ? /* LE MODÈLE ET SON NIVEAU SE LISENT SUR LE BOUTON : ceux de la
+                     carte, modifiables jusqu'à ce clic ; à défaut, le palier du
+                     cadrage. */
+                  [t(libelleDeValidation(carte.scheduling)), modeleQuiPart, niveauQuiPart].filter(Boolean).join(' · ')
+                : geste.geste === 'lancer'
+                  ? /* « LANCER » DIT AUSSI CE QUI PART : le modèle posé sur la
+                       carte et son niveau, comme « Valider et lancer ». Rien
+                       sans modèle posé — le palier du cadrage n'est pas celui
+                       du travail déjà validé. */
+                    [
+                      departSansAgent ? t(libelleDeLancement(carte)) : t(LIBELLES_GESTE.lancer),
+                      carte.run?.model ? modeleQuiPart : undefined,
+                      niveauQuiPart,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
                   : undefined;
             return scinde ? (
               <div key={geste.geste} className="flex min-w-[150px] flex-1 items-stretch" data-bouton-scinde={carte.id}>
@@ -935,6 +935,9 @@ function GestesDuChapitre({
                   possible={geste.possible}
                   {...(geste.raison ? { raison: geste.raison } : {})}
                 />
+                {/* LE LANCEMENT AUTOMATIQUE, à droite de « Valider et lancer » :
+                    il se règle PENDANT la réflexion, quand le bouton est éteint. */}
+                {geste.geste === 'valider-et-lancer' ? <InterrupteurLancementAutomatique carte={carte} /> : null}
               </div>
             ) : (
               <BoutonDeGeste key={geste.geste} geste={geste} principal={index === 0} libelle={libelle} onAgir={agir} />
@@ -954,7 +957,7 @@ function GestesDuChapitre({
             duChapitre.length && 'mt-1.5',
           )}
         >
-          {avanceUtile ? (
+          {avanceUtile && !finDeTache ? (
             <BoutonEtapeSuivante
               card={carte}
               agentActif={agentAuTravail}
@@ -962,11 +965,10 @@ function GestesDuChapitre({
               onAvancer={() => avancer([{ card: carte, agentActif: agentAuTravail }])}
             />
           ) : null}
-          {deployerLeLot ? <BoutonDeployerLeLot carte={carte} /> : null}
+          {deployerLeLot ? <BoutonDeployerLeLot carte={carte} seul={finDeTache && !duChapitre.length} /> : null}
         </div>
       ) : null}
 
-      {arret.dialogue}
       {dialogueAvance}
     </div>
   );
@@ -981,7 +983,7 @@ function GestesDuChapitre({
  * du démon (`raisonDeployerDepuisLaCarte`) : jamais allumé sur un lot que
  * `deploy.start` refuserait, un agent encore au travail en tête.
  */
-function BoutonDeployerLeLot({ carte }: { carte: Card }) {
+function BoutonDeployerLeLot({ carte, seul = false }: { carte: Card; seul?: boolean }) {
   const etat = useApp();
   const projectId = carte.projectId;
   const raison = React.useMemo(() => {
@@ -1005,7 +1007,7 @@ function BoutonDeployerLeLot({ carte }: { carte: Card }) {
       <Button
         type="button"
         size="sm"
-        variant="outline"
+        variant={seul && !raison ? 'default' : 'outline'}
         data-geste="deployer-lot"
         data-raison-eteint={raison ? '' : undefined}
         aria-disabled={!!raison}
@@ -1019,11 +1021,13 @@ function BoutonDeployerLeLot({ carte }: { carte: Card }) {
           CLASSES_BOUTON_DU_FIL,
           raison
             ? 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint'
-            : 'bg-raised text-text hover:bg-border',
+            : seul
+              ? 'bg-accent text-accent-fg hover:opacity-90'
+              : 'bg-raised text-text hover:bg-border',
         )}
       >
         <Rocket className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate">{t('Déployer le lot')}</span>
+        <span className="min-w-0 truncate">{t('Déployer')}</span>
       </Button>
     </BoutonPrincipal>
   );
@@ -1065,6 +1069,53 @@ export async function validerEtLancer(carte: Card): Promise<unknown> {
     throw err;
   }
   return client.demanderLeLancement(carte.id);
+}
+
+/**
+ * L'INTERRUPTEUR « LANCEMENT AUTOMATIQUE » (`shared/src/lancement-automatique.ts`).
+ *
+ * Sur la carte, éteint à la naissance. Allumé, le démon fait lui-même
+ * « Valider et lancer » dès que la compréhension est prête — et plan rendu si
+ * le cahier des charges est allumé. Violet quand il est allumé (l'élément
+ * choisi) ; un refus du démon s'écrit en rouge, au journal de la carte.
+ */
+function InterrupteurLancementAutomatique({ carte }: { carte: Card }) {
+  const [enVol, setEnVol] = React.useState(false);
+  const actif = !!carte.parcours?.lancementAutomatique;
+  return (
+    <Tooltip
+      label={
+        actif
+          ? t('Lancement automatique allumé : la tâche partira seule dès la compréhension prête.')
+          : t('Lancement automatique : lancer la tâche seule dès que la compréhension est prête.')
+      }
+    >
+      <button
+        type="button"
+        role="switch"
+        aria-checked={actif}
+        aria-label={t('Lancement automatique')}
+        aria-busy={enVol || undefined}
+        disabled={enVol}
+        data-lancement-automatique={actif ? 'allume' : 'eteint'}
+        onClick={() => {
+          setEnVol(true);
+          void client
+            .call({ type: 'card.lancement.automatique', cardId: carte.id, actif: !actif })
+            .catch((err: any) => client.signalerRefus(err?.message ?? t('Geste refusé'), carte.id))
+            .finally(() => setEnVol(false));
+        }}
+        className={cn(
+          'ml-1.5 flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
+          actif ? 'bg-raised text-teinte' : 'bg-raised text-faint hover:text-muted',
+          enVol && 'cursor-wait',
+        )}
+      >
+        <FastForward className={cn('h-3.5 w-3.5', enVol && 'animate-pulse')} />
+        <span className="whitespace-nowrap">{t('Auto')}</span>
+      </button>
+    </Tooltip>
+  );
 }
 
 /* ------------------------------------------------------------------ */

@@ -185,7 +185,7 @@ export function MenuCarte({
           {declencheur ? (
             declencheur
           ) : ancrage === 'bouton' ? (
-            <Button size="sm" variant="ghost" className="-mr-1 shrink-0 px-2" aria-label="Autres actions">
+            <Button size="sm" variant="ghost" className="-mr-1 shrink-0 px-2" aria-label="Autres actions" title={t('Autres actions')}>
               <EllipsisVertical className="h-4 w-4" />
             </Button>
           ) : (

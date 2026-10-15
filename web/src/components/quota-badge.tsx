@@ -811,7 +811,7 @@ function ReleveAncien({
   useMinute();
   const fraicheur = fraicheurDuReleve(fetchedAt);
   return (
-    <div className="mt-1 text-[11.5px] text-warning">
+    <div className="mt-1 text-[11.5px] text-danger">
       <p>{erreur}</p>
       {fraicheur ? <p>{t('Chiffres anciens — {fraicheur}', { fraicheur })}</p> : null}
       {/* UN COMPTE COUPÉ DOIT DIRE OÙ ON LE RÉTABLIT. Le volet annonçait la
@@ -1007,7 +1007,7 @@ function JournalDesAmorces({ ouvertMenu, onReglages }: { ouvertMenu: boolean; on
               <li key={`${entree.account}-${entree.at}`} className="flex items-baseline gap-1.5 text-[11px]">
                 <span className="shrink-0 text-faint">{heureCourte(entree.at)}</span>
                 <span className="min-w-0 flex-1 truncate text-muted">{nom(entree.account)}</span>
-                <span className={cn('shrink-0', entree.ok ? 'text-faint' : 'text-warning')}>
+                <span className={cn('shrink-0', entree.ok ? 'text-faint' : 'text-danger')}>
                   {entree.ok ? 'ok' : (entree.error ?? 'refus')}
                 </span>
               </li>

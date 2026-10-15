@@ -217,7 +217,8 @@ export async function monterDepuisGithub(
   const port = await portDuNouveauProjet(input.port);
 
   const etapes: EtapeCreation[] = [];
-  const noter = (titre: string, fait: boolean, detail?: string) => etapes.push({ titre, fait, detail });
+  const noter = (titre: string, fait: boolean, detail?: string, titreSiEchec?: string) =>
+    etapes.push({ titre: fait ? titre : (titreSiEchec ?? titre), fait, detail });
 
   // Le dossier des projets appartient à l'administrateur : même convention que
   // pour un projet neuf (voir createProjectFolder), on crée avec élévation puis
@@ -245,7 +246,7 @@ export async function monterDepuisGithub(
    * première carte : chaque tâche sur sa branche, fusion sur « dev » au clic.
    */
   const posees = await assurerLesBranchesDeLaRegle(cible);
-  noter('Branches « dev » et « main » en place', posees.ok, posees.details.join(' ; '));
+  noter('Branches « dev » et « main » en place', posees.ok, posees.details.join(' ; '), 'Branches « dev » et « main » pas en place');
 
   /*
    * L'adresse publique, AVANT l'inscription : c'est elle que le projet garde et

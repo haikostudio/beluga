@@ -59,6 +59,35 @@ export function prochaineRevisionDeVeille(lecture: LectureDeVeille, maintenant: 
 }
 
 /*
+ * UNE PAGE GELÉE SANS PRÉVENIR SE RECONNAÎT À SON HORLOGE.
+ *
+ * Constaté sur iPhone (demande du 14/10/2026) : l'application ouverte, le
+ * téléphone se verrouille, on travaille sur l'ordinateur, on revient — le
+ * tableau ne bouge plus, il faut fermer l'application. Le système GÈLE la page
+ * sans toujours émettre `visibilitychange`, `pagehide` ni `freeze` : au retour,
+ * elle croit n'être jamais partie, ne passe pas par la veille, et garde un canal
+ * « ouvert » dont la route est morte. Seul le battement finissait par le
+ * déclarer muet — deux pings manqués, une quarantaine de secondes.
+ *
+ * Une horloge TÉMOIN bat à `PAS_DU_TEMOIN_D_HORLOGE_MS` tant que la page est à
+ * l'écran. Un écart réel bien plus long que ce pas ne s'explique que par un
+ * gel (ou un ordinateur mis en veille) : la page passe alors par la veille,
+ * comme si elle l'avait vue venir — canal refait, état complet redemandé.
+ * Le seuil laisse large place à un fil principal simplement occupé.
+ */
+export const PAS_DU_TEMOIN_D_HORLOGE_MS = 2_000;
+export const ECART_DE_GEL_MS = 10_000;
+
+/**
+ * La page sort-elle d'un gel ? `dernierBattementA` est le dernier battement du
+ * témoin ; `null` quand il ne battait pas (page cachée, veille) : rien à juger.
+ */
+export function pageSortieDUnGel(dernierBattementA: number | null, maintenant: number): boolean {
+  if (dernierBattementA == null) return false;
+  return maintenant - dernierBattementA >= ECART_DE_GEL_MS;
+}
+
+/*
  * LES REDESSINS EN RAFALE SE REGROUPENT.
  *
  * Chaque événement du serveur prévenait aussitôt tous les composants abonnés :

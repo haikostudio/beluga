@@ -5,7 +5,6 @@ import {
   ChevronRight,
   FolderGit2,
   Loader2,
-  Palette,
   Rocket,
   Settings2,
   Trash2,
@@ -17,9 +16,6 @@ import {
   RUBRIQUE_CONFIG_PAR_DEFAUT,
   rubriqueConnue,
   rubriqueDeConfig,
-  type ReglageApparence,
-  reglageApparenceValide,
-  themeChoisiDepuisReglage,
   normaliserPort,
   portDansLaPlage,
   projetQuiPorteLePort,
@@ -36,13 +32,11 @@ import {
 } from '@/components/ui';
 import { Filet } from '@/components/filet';
 import { client } from '@/lib/client';
-import { useSystemeSombre, useThemeGeneral } from '@/lib/theme';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { type ContexteConfig } from '@/components/config-projet/communs';
 import { RubriqueGeneral } from '@/components/config-projet/page-general';
-import { RubriqueApparence } from '@/components/config-projet/page-apparence';
 import { RubriqueDossiers } from '@/components/config-projet/page-dossiers';
 import { RubriqueDeploiement } from '@/components/config-projet/page-deploiement';
 import { RubriqueProduction } from '@/components/config-projet/page-production';
@@ -62,7 +56,6 @@ const RENDU_DES_RUBRIQUES: Record<
   { icone: React.ComponentType<{ className?: string }>; rendu: React.ComponentType<{ ctx: ContexteConfig }> }
 > = {
   general: { icone: Settings2, rendu: RubriqueGeneral },
-  apparence: { icone: Palette, rendu: RubriqueApparence },
   dossiers: { icone: FolderGit2, rendu: RubriqueDossiers },
   deploiement: { icone: Rocket, rendu: RubriqueDeploiement },
   production: { icone: Upload, rendu: RubriqueProduction },
@@ -78,7 +71,7 @@ const RENDU_DES_RUBRIQUES: Record<
  * de 1150 lignes à dérouler.
  *
  * C'était l'écran le plus dense de l'application : le nom, le moteur,
- * l'apparence, les dossiers, les copies de travail, le déploiement, les
+ * les dossiers, les copies de travail, le déploiement, les
  * adresses, les branches, la mise en production, le client, puis l'archivage
  * et la suppression, tout à la suite dans une seule colonne. Trouver un
  * réglage voulait dire tout parcourir.
@@ -136,16 +129,6 @@ export function ProjectSettings({
   const [commandeDeploiement, setCommandeDeploiement] = React.useState('');
   const [serviceDeploiement, setServiceDeploiement] = React.useState('');
   const [engine, setEngine] = React.useState<string>('claude');
-  /* `null` = ce projet n'impose rien et suit le réglage général. C'est bien un
-     null explicite, pas un `undefined` : seul lui peut RETIRER un thème déjà
-     enregistré, `undefined` disparaissant du bloc envoyé au serveur. */
-  const [themeProjet, setThemeProjet] = React.useState<ReglageApparence | null>(null);
-  const [apparenceGenerale] = useThemeGeneral();
-  /* POUR L'APERÇU SEULEMENT : le sélecteur montre ce que « automatique »
-     donnerait à cet instant. Cet écran ne POSE aucun thème — seul
-     `useThemeApplique` le fait, et lui n'écoute le système que si l'automatique
-     est allumé. */
-  const systemeSombre = useSystemeSombre(true);
   const [faviconEnCours, setFaviconEnCours] = React.useState(false);
   /* LA PORTE D'ENTRÉE FIXE DU PROJET (`shared/src/port-projet.ts`), en texte
      tant qu'on la saisit. Vide à l'enregistrement = le port est retiré. */
@@ -194,7 +177,6 @@ export function ProjectSettings({
     setCommandeDeploiement(project.deploiement?.commande ?? '');
     setServiceDeploiement(project.deploiement?.service ?? '');
     setEngine(project.defaultEngine ?? 'claude');
-    setThemeProjet(reglageApparenceValide(project.theme));
   }, [project?.id, open]);
 
 
@@ -251,7 +233,6 @@ export function ProjectSettings({
         patch: {
           name: name.trim() || project.name,
           defaultEngine: engine,
-          theme: themeProjet ? themeChoisiDepuisReglage(themeProjet) : null,
           devUrl: devUrl.trim() || undefined,
           adresseProduction: adresseProduction.trim() || undefined,
           /* `null`, et non `undefined` : seul lui RETIRE un port enregistré. */
@@ -292,10 +273,6 @@ export function ProjectSettings({
     setName,
     engine,
     setEngine,
-    themeProjet,
-    setThemeProjet,
-    apparenceGenerale,
-    systemeSombre,
     devUrl,
     setDevUrl,
     adresseProduction,

@@ -53,7 +53,11 @@ async function main() {
         'x-beluga-agent': agent,
         'x-beluga-tour': process.env.BELUGA_TOUR ?? '',
       },
-      body: JSON.stringify({ outil: typeof entree?.tool_name === 'string' ? entree.tool_name : '' }),
+      body: JSON.stringify({
+        outil: typeof entree?.tool_name === 'string' ? entree.tool_name : '',
+        // Le chemin lu : le démon laisse passer la lecture d'une pièce jointe.
+        chemin: typeof entree?.tool_input?.file_path === 'string' ? entree.tool_input.file_path : '',
+      }),
       signal: AbortSignal.timeout(DELAI_MS),
     });
     if (!res.ok) return;

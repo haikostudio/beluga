@@ -239,7 +239,7 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
       <Section
         liste
         titre={t('Voix finale')}
-        action={<BulleInfo cote="end">{t('Écoutez les voix et choisissez celle du projet : toutes les phrases seront dites par elle. Elle remplace la voix d’essai au moment où vous la validez. Elle est payée par le crédit OpenRouter de Beluga Build, quel que soit le projet.')}</BulleInfo>}
+        action={<BulleInfo cote="end">{t('Écoutez les voix et choisissez celle du projet : toutes les phrases seront dites par elle. Elle remplace la voix d’essai au moment où vous la validez. Elle est payée par votre compte OpenRouter s’il est branché dans les paramètres (« Services de création »), sinon par le crédit OpenRouter de Beluga Build.')}</BulleInfo>}
       >
         {!voix.length ? <p className="text-[12.5px] text-faint">{t('Aucune voix : ajoutez un segment « Voix » ou demandez-le à l’agent.')}</p> : null}
         {voix.map((v) => {
@@ -309,7 +309,7 @@ export function PanneauVoix({ donnees, onVoixEssai }: { donnees: DonneesCreation
               </span>
               <BulleInfo cote="end">
                 {[
-                  t('Toute la voix est dite en une seule prise par {voix}. Le coût maximum est payé par le crédit OpenRouter de Beluga Build.', { voix: voixDuProjet }),
+                  t('Toute la voix est dite en une seule prise par {voix}. Le coût maximum est payé par votre compte OpenRouter s’il est branché, sinon par le crédit OpenRouter de Beluga Build.', { voix: voixDuProjet }),
                   refaire ? t('Toutes les voix sont en voix finale.') : null,
                   devis.solde !== null ? t('Crédit restant : {solde}.', { solde: montantLisible(devis.solde) }) : null,
                 ]

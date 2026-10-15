@@ -856,7 +856,7 @@ export function CorpsDuVolet({
           parle sans perdre l'étape qu'on était en train de lire, et on la
           retrouve en refermant. `plein` lui donne la HAUTEUR entière — sans
           lui, un tiroir de conversation s'arrête sur son contenu. */}
-      <Drawer open={filOuvert && !!conducteur} onClose={() => setFilOuvert(false)} empile plein>
+      <Drawer open={filOuvert && !!conducteur} onClose={() => setFilOuvert(false)} empile plein feuille>
         {conducteur ? (
           <div className="flex min-h-0 flex-1 flex-col" data-volet-conversation>
             <div className="shrink-0 px-4 pb-2">
@@ -879,7 +879,7 @@ export function CorpsDuVolet({
 
       {/* LE VOLET DE L'AGENT DE DÉPANNAGE, empilé au-dessus : sa conversation
           et son avancement, en direct, sans quitter celui de la publication. */}
-      <Drawer adresse="agent-de-depannage" open={!!agentOuvert} onClose={() => setAgentOuvert(null)} empile>
+      <Drawer adresse="agent-de-depannage" open={!!agentOuvert} onClose={() => setAgentOuvert(null)} empile feuille>
         {agentOuvert ? (
           <div className="flex min-h-0 flex-1 flex-col" data-tiroir-depannage>
             <div className="shrink-0 px-4 pb-2">
@@ -956,6 +956,7 @@ export function VoletDePublication({
       open={open}
       onClose={onClose}
       empile={empile}
+      feuille
       adresse={cible === 'production' ? 'mise-en-production' : 'deploiement'}
     >
       {gestes ? <GestesDePage className="px-3">{gestes}</GestesDePage> : null}

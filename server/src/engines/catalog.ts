@@ -3,7 +3,6 @@ import path from 'node:path';
 import {
   dedoublonnerModeles,
   familleDeModele,
-  limiterAuxPlusRecents,
   ModelInfo,
   modeleBanni,
   remplacantDUnBanni,
@@ -189,7 +188,7 @@ export async function claudeCatalog(): Promise<Catalogue> {
   return { models: claudeFallback(), live: false, error: dernierEchec };
 }
 
-async function claudeCatalogAvec(token: string): Promise<Catalogue> {
+export async function claudeCatalogAvec(token: string): Promise<Catalogue> {
   {
     const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
       headers: {
@@ -228,12 +227,11 @@ async function claudeCatalogAvec(token: string): Promise<Catalogue> {
 
     // Le plus RÉCENT en haut, le plus ancien en bas — jamais l'ordre alphabétique.
     models.sort(byRecency);
-    // Le catalogue affiché garde la version la plus récente de CHAQUE famille :
-    // un modèle ancien, plus cher et moins capable, ne doit plus se choisir par
-    // habitude — mais aucune famille ne disparaît du menu pour autant. Sauf les
-    // familles BANNIES (Fable, `shared/src/modele-banni.ts`), retirées AVANT le
-    // tri par famille : sinon la plus récente d'entre elles resterait au menu.
-    return { models: limiterAuxPlusRecents(sansModelesBannis(models)), live: true };
+    // TOUT LE CATALOGUE, du plus récent au plus ancien (demande de l'utilisateur :
+    // « lister l'ensemble des modèles dispo ») : le menu en montre dix, puis
+    // « Afficher plus » et une recherche. Seules les familles BANNIES (Fable,
+    // `shared/src/modele-banni.ts`) sont retirées.
+    return { models: sansModelesBannis(models), live: true };
   }
 }
 
@@ -388,7 +386,7 @@ export async function cursorCatalog(): Promise<Catalogue> {
         });
       });
       models.sort(byRecency);
-      return { models: limiterAuxPlusRecents(dedoublonnerModeles(sansModelesBannis(models))), live: true };
+      return { models: dedoublonnerModeles(sansModelesBannis(models)), live: true };
     } catch (err: any) {
       dernierEchec = err?.message ?? String(err);
     }
@@ -499,11 +497,10 @@ export function resolveModel(models: ModelInfo[], wanted: string | undefined): s
   const needle = wanted.toLowerCase();
   const motCle = ['opus', 'sonnet', 'haiku', 'codex', 'gpt'].find((f) => needle.includes(f));
   if (motCle) {
-    // Le plus récent de la famille : les identifiants récents trient en dernier.
-    const candidats = models
-      .filter((m) => m.id.toLowerCase().includes(motCle) || m.label.toLowerCase().includes(motCle))
-      .sort((a, b) => a.id.localeCompare(b.id));
-    if (candidats.length) return candidats[candidats.length - 1].id;
+    // Le plus récent de la famille : la liste arrive triée du plus récent au
+    // plus ancien, et garde désormais les anciennes versions.
+    const recent = models.find((m) => m.id.toLowerCase().includes(motCle) || m.label.toLowerCase().includes(motCle));
+    if (recent) return recent.id;
   }
   return models[0]?.id;
 }

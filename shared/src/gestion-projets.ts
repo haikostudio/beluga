@@ -27,6 +27,7 @@
  */
 
 import { caseCahierCocheeParDefaut } from './cahier-des-charges.js';
+import { lireSourceFournie, type SourceDuClonage } from './clonage.js';
 import { minusculesSansAccents } from './mots.js';
 
 /* ------------------------------------------------------------------ */
@@ -172,6 +173,8 @@ export type DemandeProjet =
       github: boolean;
       /** « Démarrer par un cahier des charges » — vrai par défaut, comme la case d'un projet vide. */
       cahierDesCharges: boolean;
+      /** Le produit existant dont le projet part (clonage, `clonage.ts`) : force le cahier des charges. */
+      source?: SourceDuClonage;
     }
   | { geste: 'renommer'; cible: string; nom: string }
   | { geste: 'deplacer'; cible: string; groupe?: string; horsGroupe: boolean; position?: number }
@@ -251,6 +254,7 @@ export function lireGesteProjet(args: Record<string, unknown>): Recevable<Demand
       return { ok: false, raison: REFUS_CREATION_SANS_ADRESSE };
     }
     const port = portBrut === undefined || portBrut === null || portBrut === '' ? undefined : Number(portBrut);
+    const source = lireSourceFournie(args.source);
     if (port !== undefined && !Number.isFinite(port)) {
       return { ok: false, raison: `Port refusé : « ${String(portBrut)} » n'est pas un nombre.` };
     }
@@ -265,8 +269,10 @@ export function lireGesteProjet(args: Record<string, unknown>): Recevable<Demand
         port,
         sansAdresse,
         github: args.github === undefined ? true : vrai(args.github),
+        /* Une source à cloner ne se comprend qu'avec son cahier des charges : il est coché d'office. */
         cahierDesCharges:
-          args.cahierDesCharges === undefined ? caseCahierCocheeParDefaut('vide') : vrai(args.cahierDesCharges),
+          !!source || (args.cahierDesCharges === undefined ? caseCahierCocheeParDefaut('vide') : vrai(args.cahierDesCharges)),
+        source,
       },
     };
   }

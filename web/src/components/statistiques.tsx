@@ -35,6 +35,7 @@ import {
   DialogTitle,
   TitreDePage,
   Drawer,
+  ChampMotDePasse,
   Input,
   Tabs,
   TabsContent,
@@ -72,6 +73,7 @@ import { useApp } from '@/lib/use-app';
 import { usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
 import { formatRegional, t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { cn } from '@/lib/utils';
 
 /**
@@ -344,7 +346,20 @@ function ListeDesSites({
   const autonomes = retenus.filter((s) => s.autonome);
   const filtre = recherche.trim().length > 0;
   const voir = (g: Exclude<GroupeDeLaListe, 'tous'>) => groupe === 'tous' || groupe === g;
-  if (!sites.length) return <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun site mesuré.')}</p>;
+  if (!sites.length) {
+    return (
+      <PasAPas
+        repere="statistiques"
+        titre={t('Aucun site mesuré.')}
+        explication={t('Les statistiques comptent les visites de vos sites, sans cookie, et montrent d’où viennent vos visiteurs.')}
+        etapes={[
+          t('Ouvrez un projet qui a une adresse publique.'),
+          t('Installez le suivi des visites : un agent le pose dans le site.'),
+          t('Les visites s’affichent ici dès qu’elles arrivent.'),
+        ]}
+      />
+    );
+  }
   if (!retenus.length) {
     return (
       <p className="px-1 py-3 text-[12.5px] text-faint" data-stats-recherche-vide>
@@ -2014,7 +2029,7 @@ function EtudeDuSite({ detail, onOuvrirCarte }: { detail: DetailSite; onOuvrirCa
           <p className="text-[12px] text-muted">{t('Adresse étudiée : {adresse}', { adresse: detail.espace.configuration.adresse ?? '—' })}</p>
           <div className="grid gap-1.5 sm:grid-cols-2">
             <Input value={identifiant} onChange={(e) => setIdentifiant(e.target.value)} placeholder={t('Identifiant (facultatif)')} autoComplete="off" data-stats-etude-champ="identifiant" />
-            <Input type="password" value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} placeholder={t('Mot de passe (facultatif)')} autoComplete="new-password" data-stats-etude-champ="mot-de-passe" />
+            <ChampMotDePasse value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} placeholder={t('Mot de passe (facultatif)')} autoComplete="off" data-stats-etude-champ="mot-de-passe" />
           </div>
           <Button type="submit" size="sm" className="self-start" disabled={envoi || !detail.espace.configuration.adresse} data-stats-etude-demander>
             {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}

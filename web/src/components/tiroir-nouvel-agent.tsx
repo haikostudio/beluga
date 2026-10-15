@@ -12,6 +12,7 @@ import {
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { BoutonPremierProjet } from '@/components/pas-a-pas';
 import { cn } from '@/lib/utils';
 
 /**
@@ -179,10 +180,17 @@ export function TiroirNouvelAgent({
               </li>
             ))}
           </ul>
+        ) : liste.length ? (
+          <p className="px-2 py-4 text-[13px] text-faint">{t('Aucun projet ne correspond à cette recherche.')}</p>
         ) : (
-          <p className="px-2 py-4 text-[13px] text-faint">
-            {liste.length ? t('Aucun projet ne correspond à cette recherche.') : t('Aucun projet ouvert.')}
-          </p>
+          /* AUCUN PROJET DU TOUT : un agent a besoin d'un projet — on propose de le créer, la fenêtre se ferme d'abord. */
+          <div className="flex flex-col items-center gap-3 px-4 py-8 text-center" data-aucun-projet>
+            <p className="text-[14px] font-medium text-text">{t('Aucun projet pour l’instant')}</p>
+            <p className="max-w-[300px] text-[13px] leading-relaxed text-muted">
+              {t('Un agent travaille toujours dans un projet. Créez le vôtre, puis revenez ici pour lui confier une demande.')}
+            </p>
+            <BoutonPremierProjet avant={onClose} />
+          </div>
         )}
       </ZoneDefilement>
       </DialogContentLibre>

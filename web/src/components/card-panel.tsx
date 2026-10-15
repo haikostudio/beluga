@@ -21,6 +21,7 @@ import {
   PenLine,
   Trash2,
   X,
+  AppWindow,
 } from 'lucide-react';
 import {
   COLUMN_LABELS,
@@ -50,9 +51,16 @@ import {
   membresActifsDuRegroupement,
   estVoletDuCahier,
   peutRedevenirNonLue,
+  ETAT_DU_REPLI_INITIAL,
+  cleApercuOuvert,
+  recalerLeRepli,
+  repliALOuverture,
+  suivreLeDefilement,
+  type EtatDuRepli,
 } from '@beluga/shared';
 import {
   BulleInfo,
+  CLASSE_RANGEE_DE_BOUTONS,
   Badge,
   Button,
   Dialog,
@@ -77,7 +85,8 @@ import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-prev
 import { Chat } from '@/components/chat';
 import { MenuCarte } from '@/components/card-menu';
 import { MenuDesProjets } from '@/components/menu-des-projets';
-import { EnteteDeZone, useLieuDeLaZone } from '@/components/entete-de-zone';
+import { EnteteDeZone, SeparateurDuFil, useLieuDeLaZone } from '@/components/entete-de-zone';
+import { BoutonDeBranche } from '@/components/bouton-de-branche';
 import {
   CLASSE_LIBELLE_EN_BANDE,
   CLASSE_REPERE_EN_BANDE,
@@ -93,10 +102,13 @@ import { SilhouetteTiroirCarte } from '@/components/silhouettes';
 import { client, donneesDeCarteRecues } from '@/lib/client';
 import { FournisseurDeChargement, useChargementOnglet, useOngletsQuiChargent } from '@/lib/chargement-onglet';
 import { useApp } from '@/lib/use-app';
-import { estTelephone, useTelephone } from '@/lib/telephone';
+import { estTelephone, useTabletteOuTelephone, useTelephone } from '@/lib/telephone';
+import { usePref } from '@/lib/prefs';
 import { cn, duration, money, relativeTime } from '@/lib/utils';
 import { t, formatRegional } from '@/lib/langue';
 import { MenuExportDuCahier } from '@/components/cahier-des-charges';
+import { ResizeHandle, useResizable } from '@/components/resizer';
+import { VoletApercu } from '@/components/volet-apercu';
 
 /** La colonne de lecture d'une carte : la conversation se centre, elle ne s'étale pas. */
 export const CLASSE_COLONNE_DE_CARTE = 'max-w-[820px]';
@@ -403,6 +415,9 @@ function CardPanelBody({
    * n'existe pas.
    */
   const telephone = useTelephone();
+  /* Téléphone ou tablette (moins de 1024 px) : la double entête s'y affiche, et
+     son rang du haut s'y replie au défilement. */
+  const petitEcran = useTabletteOuTelephone();
   /*
    * LE TITRE A-T-IL ÉTÉ GÉNÉRÉ ? Une carte qui porte encore le mot par défaut
    * n'a rien à signaler ; dès qu'un titre est écrit — par l'agent de cadrage
@@ -416,33 +431,138 @@ function CardPanelBody({
   const tagsVisibles = !telephone || tagsOuverts;
 
   /*
-   * La barre d'onglets se retire quand on descend dans le contenu et revient
-   * quand on remonte, pour libérer de la hauteur de lecture — téléphone
-   * seulement. `onScrollCapture` sur le conteneur des onglets attrape le
+   * L'en-tête maître et la barre d'étapes se retirent quand on descend dans le
+   * contenu et reviennent quand on remonte, pour libérer de la hauteur de
+   * lecture — téléphone seulement. `onScrollCapture` sur le conteneur des onglets attrape le
    * défilement de n'importe quel onglet (le chat a son propre défilement, les
    * autres passent par ZoneDefilement) : scroll ne remonte pas en bulle, mais
-   * il descend bien en phase de capture. On change de sens à partir d'un petit
-   * seuil pour ne pas battre sur un micro-tremblement.
+   * il descend bien en phase de capture. Le sens se juge par rapport à un
+   * POINT DE RÉFÉRENCE (`suivreLeDefilement`, `repli-au-defilement.ts`), pas
+   * à l'événement précédent : un défilement lent replie aussi.
    */
   const emplacementBarre = React.useRef<HTMLDivElement>(null);
   /* L'icône qui rouvre la configuration de l'agent s'y pose par un portail
      (`Chat`) : un état, pas une référence, pour que la conversation la voie. */
   const [emplacementReglages, setEmplacementReglages] = React.useState<HTMLDivElement | null>(null);
   const [barreVisible, setBarreVisible] = React.useState(true);
-  const dernierScroll = React.useRef(0);
+  /* LE VOLET D'APERÇU (`volet-apercu.tsx`) : le site de développement du
+     projet à droite, la conversation réduite à gauche — sur téléphone, il prend
+     l'écran entier et la conversation est MASQUÉE (pas démontée : défilement,
+     brouillon et pièces en attente restent). Seulement quand le projet a une
+     adresse de développement. L'ÉTAT OUVERT / FERMÉ SE RETIENT EN BASE, par
+     projet et séparément pour téléphone et ordinateur : la clé change avec
+     l'écran, l'état affiché la suit. Fermé tant que la préférence n'est pas
+     arrivée (jamais « ouvert puis fermé »). */
+  const [apercu, setApercu] = usePref<boolean>(cleApercuOuvert(card.projectId, telephone), false);
+  // L'état vit AUSSI dans une référence : l'écouteur la lit sans attendre un rendu.
+  const repli = React.useRef<EtatDuRepli>(ETAT_DU_REPLI_INITIAL);
+  const zoneSuivie = React.useRef<HTMLElement | null>(null);
+  const zoneTouchee = React.useRef<HTMLElement | null>(null);
+  const imageEnAttente = React.useRef(0);
+  const gesteJusqua = React.useRef(0);
+  const figeJusqua = React.useRef(0);
   // Un changement d'onglet remet tout à plat : chaque onglet a son propre
   // défilement, comparer leurs positions n'aurait aucun sens.
   React.useEffect(() => {
-    dernierScroll.current = 0;
+    repli.current = ETAT_DU_REPLI_INITIAL;
+    zoneSuivie.current = null;
     setBarreVisible(true);
   }, [onglet]);
+  React.useEffect(() => () => window.cancelAnimationFrame(imageEnAttente.current), []);
+  /*
+   * SEUL UN DÉFILEMENT VOULU REPLIE L'EN-TÊTE (demande du 14/10/2026 : en
+   * descendant, l'en-tête maître et la barre d'étapes se retirent). Une réponse
+   * qui arrive fait elle aussi descendre le fil, tout seul : sans ce garde,
+   * l'en-tête disparaissait pendant qu'on ne touchait à rien.
+   *
+   * Le GESTE s'ouvre au doigt qui glisse ou à la molette, et reste ouvert TANT
+   * QUE LE DÉFILEMENT CONTINUE : l'élan qui suit le doigt levé (l'inertie de
+   * l'iPhone) en fait partie. Hors geste, rien ne bascule : la référence se
+   * recale seulement là où l'on est, pour que le geste suivant parte de là.
+   */
+  const DUREE_DU_GESTE = 200;
+  /* Le repli change la hauteur de la zone qui défile : en bas du fil, la
+     position recule toute seule pendant l'animation (200 ms). Ce recul n'est pas
+     un geste — sans ce gel, il ramenait l'en-tête aussitôt replié. */
+  const DUREE_DU_GEL = 260;
+  const noterLeGeste = () => {
+    gesteJusqua.current = performance.now() + DUREE_DU_GESTE;
+  };
+  const trancher = () => {
+    imageEnAttente.current = 0;
+    const zone = zoneTouchee.current;
+    if (!zone) return;
+    const y = zone.scrollTop;
+    const max = zone.scrollHeight - zone.clientHeight;
+    const maintenant = performance.now();
+    const avant = repli.current;
+    const dansLeGeste = maintenant <= gesteJusqua.current;
+    if (dansLeGeste) gesteJusqua.current = maintenant + DUREE_DU_GESTE;
+    if (zone !== zoneSuivie.current || !dansLeGeste || maintenant < figeJusqua.current) {
+      zoneSuivie.current = zone;
+      repli.current = recalerLeRepli(avant, y, max);
+      return;
+    }
+    const apres = suivreLeDefilement(avant, y, max);
+    repli.current = apres;
+    if (apres.masque !== avant.masque) {
+      figeJusqua.current = maintenant + DUREE_DU_GEL;
+      setBarreVisible(!apres.masque);
+    }
+  };
+  /*
+   * À L'OUVERTURE D'UNE TÂCHE, L'EN-TÊTE SE REPLIE COMME APRÈS UN DÉFILEMENT
+   * (`repliALOuverture`). Le fil se pose en bas par programme, puis s'allonge
+   * encore quand son journal arrive : on attend qu'il soit STABLE (même hauteur
+   * pendant `STABLE_A_L_OUVERTURE`) avant de trancher, une seule fois, sous le
+   * gel habituel — sinon l'en-tête clignoterait. Un geste de l'utilisateur
+   * pendant l'attente reprend la main : on ne décide plus à sa place.
+   */
+  const page = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (!petitEcran) return;
+    const STABLE_A_L_OUVERTURE = 300;
+    const ATTENTE_MAX_A_L_OUVERTURE = 4000;
+    const debut = performance.now();
+    let image = 0;
+    let hauteur = -1;
+    let stableDepuis = debut;
+    const regarder = () => {
+      image = 0;
+      const maintenant = performance.now();
+      if (maintenant - debut > ATTENTE_MAX_A_L_OUVERTURE || maintenant <= gesteJusqua.current) return;
+      const fil = page.current?.querySelector<HTMLElement>('[data-fil="parcours"]');
+      // Onglet caché (`hidden`) : ce n'est pas le fil qu'on lit.
+      if (fil && fil.offsetParent !== null && fil.scrollHeight > 0) {
+        if (fil.scrollHeight !== hauteur) {
+          hauteur = fil.scrollHeight;
+          stableDepuis = maintenant;
+        } else if (maintenant - stableDepuis >= STABLE_A_L_OUVERTURE) {
+          /* Seule la barre des étapes se replie : l'en-tête du haut reste. */
+          const barre = emplacementBarre.current?.getBoundingClientRect().height ?? 0;
+          const etat = repliALOuverture(fil.scrollTop, fil.scrollHeight - fil.clientHeight, barre);
+          if (etat) {
+            zoneSuivie.current = fil;
+            repli.current = etat;
+            figeJusqua.current = maintenant + DUREE_DU_GEL;
+            setBarreVisible(false);
+          }
+          return;
+        }
+      }
+      image = window.requestAnimationFrame(regarder);
+    };
+    image = window.requestAnimationFrame(regarder);
+    return () => window.cancelAnimationFrame(image);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.id, petitEcran]);
   const surDefilement = (event: React.UIEvent) => {
-    if (!telephone) return;
-    const y = (event.target as HTMLElement).scrollTop;
-    const precedent = dernierScroll.current;
-    if (y > precedent + 6 && y > 48) setBarreVisible(false);
-    else if (y < precedent - 6) setBarreVisible(true);
-    dernierScroll.current = y;
+    if (!petitEcran) return;
+    const zone = event.target;
+    // Le champ d'écriture défile aussi : ce n'est pas la page qu'on lit.
+    if (!(zone instanceof HTMLElement) || zone instanceof HTMLTextAreaElement) return;
+    zoneTouchee.current = zone;
+    if (!imageEnAttente.current) imageEnAttente.current = window.requestAnimationFrame(trancher);
   };
 
   /* CE QUE LA CARTE A DE PLUS À DIRE — son état, ses étiquettes, sa date — ne
@@ -483,7 +603,6 @@ function CardPanelBody({
   );
   void tagsVisibles;
   void setTagsOuverts;
-  void barreVisible;
   void membresDuGroupe;
   void titreGenere;
 
@@ -515,19 +634,67 @@ function CardPanelBody({
     </>
   );
 
+  /*
+   * LA LARGEUR DE LA CONVERSATION, QUAND L'APERÇU EST OUVERT : réglable par une
+   * poignée, mémorisée en base (`width.conversation-apercu`), 400 px au départ.
+   * Le plafond suit LA PLACE RÉELLE de la rangée (mesurée, pas la fenêtre : la
+   * colonne de gauche peut être repliée) et laisse toujours 360 px à l'aperçu.
+   */
+  const [rangee, setRangee] = React.useState<HTMLDivElement | null>(null);
+  const [placeDeLaRangee, setPlaceDeLaRangee] = React.useState(0);
+  React.useEffect(() => {
+    if (!rangee) return;
+    const mesurer = () => setPlaceDeLaRangee(rangee.clientWidth);
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(rangee);
+    return () => observateur.disconnect();
+  }, [rangee]);
+  const largeurDuChat = useResizable('conversation-apercu', {
+    initial: 400,
+    min: 320,
+    max: placeDeLaRangee ? Math.max(320, Math.min(720, placeDeLaRangee - 360)) : 720,
+  });
+  /* Pendant le glisser, le site ne doit pas capter le pointeur : son cadre est d'une autre origine. */
+  const [poigneeTenue, setPoigneeTenue] = React.useState(false);
+  React.useEffect(() => {
+    if (!poigneeTenue) return;
+    const relacher = () => setPoigneeTenue(false);
+    window.addEventListener('pointerup', relacher);
+    window.addEventListener('pointercancel', relacher);
+    return () => {
+      window.removeEventListener('pointerup', relacher);
+      window.removeEventListener('pointercancel', relacher);
+    };
+  }, [poigneeTenue]);
+
+  const adresseDeDev = project?.devUrl?.trim() || undefined;
+  const apercuOuvert = apercu && !!adresseDeDev && !voletDuCahier;
+  const apercuPleinEcran = apercuOuvert && telephone;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-page-carte={card.id}>
+    <div ref={page} className="flex min-h-0 flex-1 flex-col" data-page-carte={card.id}>
       {/* LA BARRE D'EN-TÊTE DE LA CARTE : la flèche de retour, le fil d'Ariane
           (le projet, puis le titre), les deux gestes de mise en ligne, et les
           options derrière trois points. Rien d'autre. */}
       <EnteteDeZone
         avant={lieu?.avant}
-        onRetour={onClose}
+        deuxRangsSurPetitEcran
+        /* Aperçu ouvert sur téléphone : la flèche le referme d'abord, et ramène
+           à la conversation ; un second appui quitte la carte. */
+        onRetour={apercuPleinEcran ? () => setApercu(false) : onClose}
         /* Sur ordinateur, le retour est porté par la colonne de gauche. */
         retourDansLaColonne={dansLaColonne}
         chemin={
           project
             ? [
+                /* LE FIL, DE GAUCHE À DROITE : les services (`avant`), « Tableaux
+                   de bord », le projet et son favicon, la branche, puis le nom de
+                   la tâche (demande du 15/10/2026). */
+                {
+                  libelle: t('Tableaux de bord'),
+                  onClick: () => (onOuvrirVue ? onOuvrirVue('en-route') : client.demanderTableau(project.id)),
+                },
                 {
                   libelle: project.name,
                   /* Le nom du projet OUVRE LA LISTE DES PROJETS, comme sur les
@@ -566,6 +733,18 @@ function CardPanelBody({
             <span data-titre-carte="ouvert">{card.title}</span>
           )
         }
+        /* LA BRANCHE DE LA TÂCHE, entre le projet et le nom de la tâche : la
+           voir, la gérer, suivre son parcours vers la mise en ligne
+           (`BoutonDeBranche`). Pas pour le cahier des charges, qui n'a pas de
+           branche. */
+        avantTitre={
+          voletDuCahier ? undefined : (
+            <>
+              <BoutonDeBranche card={card} />
+              <SeparateurDuFil />
+            </>
+          )
+        }
         menu={
           <MenuCarte
             card={card}
@@ -575,8 +754,8 @@ function CardPanelBody({
             declencheur={
               <Button
                 variant="ghost"
-                size="icon"
-                className="relative h-8 w-8 shrink-0 text-muted"
+                size="icon-barre"
+                className="relative shrink-0 text-muted"
                 aria-label="Autres actions"
                 data-menu-de-carte
               >
@@ -590,10 +769,31 @@ function CardPanelBody({
         }
       >
         {/* Le « i » : l'état, les étiquettes, la date. */}
-        <BulleInfo label={t('Détails de la carte')}>{etiquettes}</BulleInfo>
+        <BulleInfo label={t('Détails de la carte')} dansBarre>{etiquettes}</BulleInfo>
         {/* À gauche des gestes : le raccourci vers la configuration de l'agent,
             posé par la conversation. */}
-        <div ref={setEmplacementReglages} data-emplacement-reglages className="flex shrink-0 empty:hidden" />
+        <div ref={setEmplacementReglages} data-emplacement-reglages className={cn('shrink-0 empty:hidden', CLASSE_RANGEE_DE_BOUTONS)} />
+        {adresseDeDev && !voletDuCahier ? (
+          <Tooltip label={apercu ? t('Fermer l’aperçu') : t('Aperçu du site de développement')}>
+            <Button
+              variant="ghost"
+              size="icon-barre"
+              aria-label="Aperçu du site de développement"
+              aria-pressed={apercu}
+              data-geste-apercu={apercu ? 'ouvert' : 'ferme'}
+              onClick={() => {
+                setApercu(!apercu);
+                // L'en-tête repart déplié, à l'ouverture comme au retour.
+                repli.current = ETAT_DU_REPLI_INITIAL;
+                zoneSuivie.current = null;
+                setBarreVisible(true);
+              }}
+              className={cn('shrink-0', apercu ? 'text-teinte hover:text-teinte' : 'text-muted')}
+            >
+              <AppWindow className="h-4 w-4" />
+            </Button>
+          </Tooltip>
+        ) : null}
         {/* LE CAHIER DES CHARGES S'EXPORTE D'ICI, en PDF ou en texte. */}
         {voletDuCahier ? <MenuExportDuCahier projectId={card.projectId} /> : null}
         {/* LES DEUX GESTES DE MISE EN LIGNE DU PROJET, comme sur la maquette :
@@ -611,15 +811,17 @@ function CardPanelBody({
               <Play className="h-3.5 w-3.5" />
               {t('Déploiement')}
             </Button>
+            {/* ICÔNE SEULE (demande du 15/10/2026) : le nom est dit au survol. */}
             <Button
               variant="default"
-              size="md"
-              className="h-9 gap-2 rounded-lg px-3.5"
+              size="icon-barre"
+              className="shrink-0 rounded-lg"
+              aria-label="Mise en production"
+              title={t('Mise en production')}
               data-geste-production
               onClick={() => client.demanderProduction({ projectId: card.projectId })}
             >
-              <CloudUpload className="h-3.5 w-3.5" />
-              {t('Mise en production')}
+              <CloudUpload className="h-4 w-4" />
             </Button>
           </>
         )}
@@ -698,17 +900,43 @@ function CardPanelBody({
 
       <MentionDeRedaction card={card} />
 
+      <div ref={setRangee} className="flex min-h-0 flex-1">
       <Tabs
         key={card.id}
         value={ongletActif}
         onValueChange={setOnglet}
         onScrollCapture={surDefilement}
-        className={cn('mx-auto flex min-h-0 w-full flex-1 flex-col', CLASSE_COLONNE_DE_CARTE)}
+        onTouchMoveCapture={noterLeGeste}
+        onWheelCapture={noterLeGeste}
+        data-conversation-masquee={apercuPleinEcran ? '' : undefined}
+        style={apercuOuvert && !apercuPleinEcran ? { width: largeurDuChat.width } : undefined}
+        className={cn(
+          'flex min-h-0 flex-col',
+          apercuPleinEcran
+            ? 'hidden'
+            : apercuOuvert
+              ? 'shrink-0'
+              : cn('mx-auto w-full flex-1', CLASSE_COLONNE_DE_CARTE),
+        )}
       >
         {/* SUR TÉLÉPHONE, LA BARRE D'ÉTAPES EST COLLÉE SOUS L'EN-TÊTE : la
             conversation la pose ici par un portail (`emplacementBarre`,
             `chat.tsx`). Sur ordinateur, elle vit en tête de la conversation. */}
-        {telephone ? <div ref={emplacementBarre} data-emplacement-barre className="px-4 pb-1" /> : null}
+        {telephone ? (
+          /* Elle seule se replie quand on descend (l'en-tête du haut reste), et revient dès qu'on remonte. */
+          <div
+            data-repli-des-etapes
+            data-barre-masquee={barreVisible ? undefined : ''}
+            className={cn(
+              'grid shrink-0 transition-[grid-template-rows,opacity] duration-200 ease-out',
+              barreVisible ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+            )}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div ref={emplacementBarre} data-emplacement-barre className="px-4 pb-1" />
+            </div>
+          </div>
+        ) : null}
         {/* Hors de la conversation, un mot dit où l'on est et y ramène — sur
             téléphone seulement : sur ordinateur, la colonne de gauche le dit. */}
         {ongletActif !== 'chat' && !dansLaColonne ? (
@@ -748,6 +976,18 @@ function CardPanelBody({
           </ZoneDefilement>
         </TabsContent>
       </Tabs>
+      {apercuOuvert && !apercuPleinEcran ? (
+        <ResizeHandle
+          onPointerDown={(event) => {
+            largeurDuChat.start(event, 'left');
+            setPoigneeTenue(true);
+          }}
+          onDoubleClick={largeurDuChat.reset}
+          data-conversation-poignee=""
+        />
+      ) : null}
+      {apercuOuvert ? <VoletApercu adresse={adresseDeDev!} projectId={card.projectId} onFermer={() => setApercu(false)} inerte={poigneeTenue} /> : null}
+      </div>
 
     </div>
   );
@@ -1058,6 +1298,7 @@ function CommentsTab({ card }: { card: Card }) {
                 <button
                   type="button"
                   aria-label="Retirer"
+                  title={t('Retirer')}
                   className="absolute -right-1 -top-1 rounded-full bg-surface p-0.5 text-faint opacity-100 transition-opacity hover:text-text md:opacity-0 md:group-hover:opacity-100"
                   onClick={() => setAttachments((current) => current.filter((a) => a.id !== item.id))}
                 >
@@ -1255,9 +1496,19 @@ function GithubTab({ card }: { card: Card }) {
   const annexesTouches = (tracking?.depots ?? []).filter((depot) => depot.fichiers.length || depot.commits.length);
 
   if (!tracking?.branch) {
+    /* « Jamais lancée » ne se dit que d'une carte qui ne l'a VRAIMENT jamais
+       été : la base retenue au lancement, une fin de tour ou un compte rendu
+       sans modification prouvent le contraire. */
+    const lancee = !!(tracking?.baseSha || card.doneAt || card.sansModification);
     return (
       <div className="px-4 py-3">
-        <p className="text-[13.5px] text-faint">{t('Cette carte n\'a pas encore de branche : elle n\'a jamais été lancée.')}</p>
+        <p className="text-[13.5px] text-faint" data-github-sans-branche>
+          {card.sansModification
+            ? t('Cette carte n\'a modifié aucun fichier.')
+            : lancee
+              ? t('Cette carte a travaillé, mais sa branche n\'est plus retrouvée dans le dépôt.')
+              : t('Cette carte n\'a pas encore de branche : elle n\'a jamais été lancée.')}
+        </p>
       </div>
     );
   }
@@ -1277,7 +1528,9 @@ function GithubTab({ card }: { card: Card }) {
             {resume.total
               ? t('{v0} fichier{v1} — {v2}', { v0: resume.total, v1: resume.total > 1 ? 's' : '', v2: phraseDesFichiers(resume) })
               : tracking.fetchedAt
-                ? t('Aucun fichier touché par cette branche pour l\'instant.')
+                ? tracking.brancheSupprimee
+                  ? t('Aucun fichier touché par cette branche.')
+                  : t('Aucun fichier touché par cette branche pour l\'instant.')
                 : t('Fichiers en cours de lecture…')}
             {lignes.ajoutees || lignes.supprimees ? (
               <span className="ml-1.5 font-mono text-[12.5px]">

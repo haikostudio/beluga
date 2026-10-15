@@ -120,7 +120,7 @@ export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAg
     return () => window.removeEventListener(EVENEMENT_AGENT_CONFIGURATION, ouvrir);
   }, []);
   return (
-    <Drawer adresse="agent-de-configuration" open={!!demande} onClose={() => setDemande(null)} empile plein={estTelephone()} hauteurFixe>
+    <Drawer adresse="agent-de-configuration" open={!!demande} onClose={() => setDemande(null)} empile plein={estTelephone()} hauteurFixe feuille>
       {demande ? (
         <div className="flex min-h-0 flex-1 flex-col" data-tiroir-agent-configuration={demande.cible}>
           <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">

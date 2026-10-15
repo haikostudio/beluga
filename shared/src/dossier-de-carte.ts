@@ -25,7 +25,7 @@
  * `.git` de la copie pointe vers lui.
  */
 
-import { nomDeBranche, memeDossier } from './branche-de-carte.js';
+import { nomDuDossierDeLaCopie, memeDossier } from './branche-de-carte.js';
 
 /** Le dossier qui rassemble les copies de travail des cartes, dans le dépôt. */
 export const DOSSIER_DES_CARTES = '.worktrees';
@@ -33,11 +33,13 @@ export const DOSSIER_DES_CARTES = '.worktrees';
 const propre = (chemin: string | undefined | null) => (chemin ?? '').trim().replace(/\/+$/, '');
 
 /**
- * Le nom du dossier d'une carte : celui de sa branche, sans le « tache/ ». Même
- * source que la branche, donc jamais deux repères qui se contredisent.
+ * Le nom du dossier d'une carte : l'ancien nom de branche (quarante signes de
+ * titre), sans le « tache/ ». Les branches neuves sont plus courtes
+ * (`nomDeBranche`), mais le dossier garde son nom : une copie ouverte avant le
+ * raccourcissement doit rester retrouvable au même endroit.
  */
 export function nomDuDossierDeCarte(titre: string, cardId: string): string {
-  return nomDeBranche(titre, cardId).slice('tache/'.length);
+  return nomDuDossierDeLaCopie(titre, cardId);
 }
 
 /**

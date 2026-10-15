@@ -9,7 +9,7 @@ import * as DropdownPrimitive from '@radix-ui/react-dropdown-menu';
 import * as SwitchPrimitive from '@radix-ui/react-switch';
 import * as SeparatorPrimitive from '@radix-ui/react-separator';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { ArrowLeft, Check, ChevronDown, ChevronRight, EllipsisVertical, Info, Loader2, Search, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, EllipsisVertical, Eye, EyeOff, Info, Loader2, Search, WandSparkles, X } from 'lucide-react';
 import {
   DUREE_REUSSITE_MS,
   EVENEMENT_ATTENTE_LONGUE,
@@ -18,6 +18,7 @@ import {
   chiffreDePastille,
   estUneRequete,
   etatApresIssue,
+  genererMotDePasse,
   issueDeLaReponse,
   niveauQuota,
   suiteDesEtats,
@@ -78,6 +79,8 @@ const buttonVariants = cva(
         md: 'h-9 px-3.5 text-[14.5px]',
         lg: 'h-10 px-4 text-[14.5px]',
         icon: 'h-7 w-7',
+        /* La case d'icône d'une BARRE d'en-tête (voir `CLASSE_RANGEE_DE_BOUTONS`). */
+        'icon-barre': 'h-8 w-8',
         'icon-sm': 'h-6 w-6',
         /*
          * LE BOUTON D'UN PIED — en bas d'un écran, d'une colonne ou d'un tiroir,
@@ -137,6 +140,20 @@ function libelleDuBouton(children: React.ReactNode): string {
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, sansAttente = false, onClick, children, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
+    const dansUneBarre = React.useContext(DansUneBarreDEnTete);
+    /*
+     * UN BOUTON À ICÔNE SEULE DIT CE QU'IL FAIT AU SURVOL (demande du
+     * 15/10/2026 : « des infobulles partout »). Son nom accessible devient son
+     * `title`, que la couche des infobulles (`CoucheDesInfobulles`) rend en bulle
+     * rapide. Jamais en double : un `title` posé à la main gagne, et dans un
+     * `Tooltip` la bulle est déjà celle de l'enveloppe.
+     */
+    const dansUneInfobulle = React.useContext(DansUneInfobulle);
+    const nomAccessible = props['aria-label'];
+    const titreParDefaut =
+      !asChild && !dansUneInfobulle && props.title === undefined && typeof size === 'string' && size.startsWith('icon') && typeof nomAccessible === 'string' && nomAccessible
+        ? t(nomAccessible)
+        : undefined;
     const [etat, setEtat] = React.useState<EtatDeBouton>('repos');
     /* Un bouton démonté pendant sa requête ne doit rien reposer : la carte est
        souvent rangée ailleurs par la réponse même qu'on attendait. */
@@ -194,7 +211,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <Comp
         className={cn(
-          buttonVariants({ variant, size }),
+          buttonVariants({ variant, size: dansUneBarre && size === 'icon' ? 'icon-barre' : size }),
           suivi && suivi !== 'repos' && 'relative',
           occupe && 'pointer-events-none',
           className,
@@ -204,6 +221,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-attente={suivi && suivi !== 'repos' ? suivi : undefined}
         onClick={auClic}
         {...props}
+        {...(titreParDefaut ? { title: titreParDefaut } : {})}
       >
         {suivi && suivi !== 'repos' ? (
           <>
@@ -242,6 +260,87 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
   ),
 );
 Input.displayName = 'Input';
+
+/**
+ * LE CHAMP DE MOT DE PASSE — le seul de l'application.
+ *
+ * Tout champ secret (mot de passe, phrase secrète, clé, jeton) passe par lui :
+ * un ŒIL posé DANS le champ, à droite, montre ou masque ce qu'on tape. Là où
+ * l'on CRÉE un mot de passe, `onGenerer` ajoute un second bouton : il tire un
+ * mot de passe solide (`genererMotDePasse`) et le rend à l'appelant, qui le pose
+ * dans la saisie ET dans la confirmation, puis montre les deux en clair (props
+ * `visible` / `onVisibleChange`, partagées par les deux champs). Là où l'on
+ * SAISIT un mot de passe existant (connexion, mot de passe actuel, clé à
+ * ranger), pas de générateur : il n'aurait aucun sens.
+ *
+ * `className` habille le champ lui-même (hauteur, police) ; `cadre`, la boîte
+ * qui le porte (sa place dans une rangée : `flex-1`…). Compétence globale :
+ * « champ-de-mot-de-passe-avec-oeil-et-generateur ».
+ */
+export const ChampMotDePasse = React.forwardRef<
+  HTMLInputElement,
+  Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+    onGenerer?: (motDePasse: string) => void;
+    visible?: boolean;
+    onVisibleChange?: (visible: boolean) => void;
+    cadre?: string;
+  }
+>(({ className, cadre, onGenerer, visible: visibleImpose, onVisibleChange, ...props }, ref) => {
+  const [visibleLocal, setVisibleLocal] = React.useState(false);
+  const visible = visibleImpose ?? visibleLocal;
+  const basculer = (suivant: boolean) => {
+    setVisibleLocal(suivant);
+    onVisibleChange?.(suivant);
+  };
+  const generer = () => {
+    onGenerer?.(genererMotDePasse());
+    basculer(true);
+  };
+  return (
+    <div className={cn('relative w-full', cadre)} data-champ-mot-de-passe>
+      <input
+        ref={ref}
+        type={visible ? 'text' : 'password'}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        className={cn(
+          'h-10 w-full rounded-lg border border-transparent bg-raised px-3.5 text-[14.5px] text-text placeholder:text-faint transition-colors focus-visible:border-faint/60 focus-visible:outline-none disabled:opacity-50',
+          onGenerer ? 'pr-[4.25rem]' : 'pr-10',
+          className,
+        )}
+        {...props}
+      />
+      <div className="absolute inset-y-0 right-1.5 flex items-center gap-0.5">
+        {onGenerer ? (
+          <button
+            type="button"
+            data-generer-mot-de-passe
+            title={t('Générer un mot de passe solide')}
+            aria-label="Générer un mot de passe"
+            disabled={props.disabled}
+            onClick={generer}
+            className="grid h-7 w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text disabled:opacity-50"
+          >
+            <WandSparkles className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          data-oeil-mot-de-passe={visible ? 'visible' : 'masque'}
+          title={visible ? t('Masquer') : t('Afficher')}
+          aria-label={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+          aria-pressed={visible}
+          onClick={() => basculer(!visible)}
+          className="grid h-7 w-7 place-items-center rounded-md text-muted transition-colors hover:bg-border hover:text-text"
+        >
+          {visible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+    </div>
+  );
+});
+ChampMotDePasse.displayName = 'ChampMotDePasse';
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
   ({ className, ...props }, ref) => (
@@ -375,6 +474,35 @@ Badge.displayName = 'Badge';
  * Contrôle : `scripts/verif-curseur-pastilles-selecteur.mjs`.
  */
 export const CLASSE_POINT_DE_BOUTON = 'pointer-events-none absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full';
+
+/**
+ * LA RÈGLE D'UNE RANGÉE DE BOUTONS : UN SEUL PAS, D'UN BOUT À L'AUTRE.
+ *
+ * Les boutons d'une même rangée (barre d'en-tête, rangée du bas du champ
+ * d'écriture, colonne des projets, petit assistant) ont chacun une case de
+ * même taille et sont séparés du MÊME écart : leurs centres tombent à pas
+ * égal, et l'œil lit une répartition régulière. L'écart de base est celui de
+ * l'ordinateur (6 px), un peu réduit sur téléphone (4 px) — mais jamais
+ * différent d'un bouton à l'autre dans une même rangée.
+ *
+ * La case est celle de la rangée : 32 px dans une barre d'en-tête
+ * (`h-8 w-8`, taille `icon-barre`), 28 px dans le champ d'écriture
+ * (`h-7 w-7`, taille `icon`). Un bouton à libellé garde la largeur de son
+ * texte, mais sa marge intérieure vaut celle de la case d'icône voisine
+ * (`CLASSE_MARGE_DU_LIBELLE_DU_CHAMP`) : le vide jusqu'au voisin est le même.
+ * Une rangée porte `data-rangee-de-boutons`, que lit
+ * `scripts/verif-ecarts-des-boutons.mjs`.
+ */
+export const CLASSE_RANGEE_DE_BOUTONS = 'flex items-center gap-1 sm:gap-1.5';
+/** La marge intérieure d'un bouton à libellé du champ d'écriture : celle de sa case d'icône de 28 px (glyphe de 14 px). */
+export const CLASSE_MARGE_DU_LIBELLE_DU_CHAMP = 'px-[7px]';
+/**
+ * VRAI DANS LES GESTES D'UNE BARRE D'EN-TÊTE (`GestesDePage`, `OptionsDePage`).
+ * Un bouton-icône (`size="icon"`, 28 px) qui y est posé prend alors la case de
+ * la barre (`icon-barre`, 32 px) : une page n'a pas à connaître la taille de la
+ * barre où ses gestes montent, et ses boutons n'y cassent pas le pas régulier.
+ */
+export const DansUneBarreDEnTete = React.createContext(false);
 
 /**
  * LA PASTILLE CHIFFRÉE, UNE SEULE POUR TOUTE L'APPLICATION.
@@ -1161,7 +1289,7 @@ function FenetreCentree({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       {/*
        * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
        * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
@@ -1330,7 +1458,7 @@ export function FenetreDeVisionneuse({
   const croix = React.useRef<HTMLButtonElement>(null);
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/80 backdrop-blur-[3px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/80 backdrop-blur-[3px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
       <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center sm:p-4">
         <DialogPrimitive.Content
           data-fenetre-visionneuse
@@ -1398,6 +1526,8 @@ export const CLASSE_LARGEUR_DE_CONTENU = 'max-w-[820px]';
 /** Les marges d'une page autour de son contenu : avec elles, 756 px de lecture. */
 export const CLASSE_MARGES_DE_PAGE = 'px-4 sm:px-8';
 export const CLASSE_LARGEUR_PAGE = CLASSE_LARGEUR_DE_CONTENU;
+/** La largeur de la feuille du bas (`Drawer feuille`) : 960 px au plus sur grand écran. */
+const CLASSE_LARGEUR_TIROIR = 'max-w-[960px]';
 
 /* Une hauteur demandée pour l'ancienne feuille (`max-h-[80dvh]`, `h-[92dvh]`)
    n'a plus de sens sur une page, qui prend toujours la hauteur de la zone. */
@@ -1468,17 +1598,22 @@ function FeuilleDeTiroir({
            ailleurs, la page n'a plus lieu d'être. Tout autre clic extérieur
            (message passager, assistant, module de voix) la laisse ouverte —
            et, dans la colonne, le bouton qui la replie ou la déplie : il ne
-           mène nulle part, il change seulement la place qu'elle prend. */
+           mène nulle part, il change seulement la place qu'elle prend — comme
+           le pied de la colonne, qui n'ouvre que des volets par-dessus. */
         onInteractOutside={(event) => {
           onInteractOutside?.(event);
           const cible = event.target as Element | null;
           /* …et, dans la colonne, le MENU DE LA PAGE ELLE-MÊME (les options
              d'une tâche, `data-colonne-de-page`) : y choisir une ligne change
-             ce que la page montre, il ne la quitte pas. */
+             ce que la page montre, il ne la quitte pas.
+             …et le PIED de la colonne (`data-pied-colonne` : quotas, cloche,
+             réglages) : il n'ouvre que des volets ou des fenêtres par-dessus la
+             page, on la retrouve en les refermant. */
           if (
             !cible?.closest?.('[data-colonne-projets]') ||
             cible.closest('[data-replier-colonne]') ||
-            cible.closest('[data-colonne-de-page]')
+            cible.closest('[data-colonne-de-page]') ||
+            cible.closest('[data-pied-colonne]')
           )
             event.preventDefault();
         }}
@@ -1543,6 +1678,139 @@ function FeuilleDeTiroir({
   );
 }
 
+/**
+ * LA FEUILLE DU BAS, À LA DEMANDE (`Drawer feuille`) : voile, feuille qui monte
+ * du bas, poignée qu'on tire vers le bas pour refermer. C'est l'ancien tiroir,
+ * rétabli pour DEUX surfaces seulement — « Déploiement » et « Mise en
+ * production » (demande du 15/10/2026 : « des drawers, pas des pages
+ * entières »). Tout le reste de l'application garde sa page de zone.
+ *
+ * Elle n'a ni barre d'en-tête ni fil d'Ariane : le titre et les gestes de son
+ * contenu se posent EN TÊTE de la feuille, dans le contenu (`DialogTitle`,
+ * `GestesDePage` y retrouvent leur repli « sans barre »).
+ */
+function FeuilleDuBas({
+  onClose,
+  open,
+  plein,
+  hauteurFixe,
+  empile,
+  className,
+  children,
+}: {
+  onClose: () => void;
+  open: boolean;
+  plein?: boolean;
+  hauteurFixe?: boolean;
+  empile?: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [decalage, setDecalage] = React.useState(0);
+  const depart = React.useRef<number | null>(null);
+  const poignee = {
+    onPointerDown: (event: React.PointerEvent) => {
+      depart.current = event.clientY;
+      try {
+        (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+      } catch {
+        /* rien à capturer : les écouteurs suffisent */
+      }
+    },
+    onPointerMove: (event: React.PointerEvent) => {
+      if (depart.current === null) return;
+      setDecalage(Math.max(0, event.clientY - depart.current));
+    },
+    onPointerUp: () => {
+      if (depart.current === null) return;
+      depart.current = null;
+      // `onClose()` ne vit pas dans la fonction de mise à jour : React la joue
+      // pendant le rendu.
+      const tire = decalage;
+      setDecalage(0);
+      if (tire > 110) onClose();
+    },
+  };
+  const hauteurPleine = 'calc(100dvh - max(10px, var(--zone-sure-haut, 0px)) - var(--clavier, 0px))';
+  return (
+    <DialogPrimitive.Portal>
+      {/* LE VOILE NE CAPTE RIEN : la feuille n'est pas modale (`modal={false}`),
+          un clic dans la colonne des projets la referme ET y mène, comme pour
+          une page. Le voile n'est que l'assombrissement du fond. */}
+      <div
+        data-voile-tiroir
+        data-state={open ? 'open' : 'closed'}
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-50 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out"
+      />
+      <DialogPrimitive.Content
+        onInteractOutside={(event) => {
+          /* Ni le focus qui passe ailleurs, ni un menu, une fenêtre ou une
+             info-bulle posés par-dessus ne referment la feuille ; un clic dans
+             le fond (colonne, tableau), si. Le bouton qui replie la colonne et
+             son pied n'y mènent nulle part. */
+          const cible = event.target as Element | null;
+          const origine = (event.detail as { originalEvent?: Event } | undefined)?.originalEvent;
+          if (
+            origine?.type === 'focusin' ||
+            cible?.closest?.(
+              '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-replier-colonne], [data-pied-colonne], [data-fenetre-centree]',
+            )
+          )
+            event.preventDefault();
+        }}
+        data-tiroir={plein ? 'plein' : 'normal'}
+        data-tiroir-empile={empile ? 'oui' : undefined}
+        data-feuille-du-bas
+        className={cn(
+          'fixed inset-x-0 z-50 mx-auto flex w-full flex-col overflow-hidden bg-surface outline-none',
+          CLASSE_LARGEUR_TIROIR,
+          'rounded-t-xl sm:rounded-t-2xl',
+          'data-[state=open]:animate-slide-sheet data-[state=closed]:animate-slide-sheet-out',
+          empile ? 'shadow-[0_-14px_38px_-10px_rgba(0,0,0,0.7)]' : 'shadow-[0_-10px_30px_-12px_rgba(0,0,0,0.55)]',
+          className,
+        )}
+        style={{
+          bottom: 'var(--clavier, 0px)',
+          maxHeight: plein ? hauteurPleine : 'calc(92dvh - var(--clavier, 0px))',
+          height: plein ? hauteurPleine : hauteurFixe ? 'calc(92dvh - var(--clavier, 0px))' : undefined,
+          paddingBottom: 'var(--zone-sure-bas, 0px)',
+          transform: decalage ? `translateY(${decalage}px)` : undefined,
+          transition: depart.current === null ? 'transform 180ms ease-out' : undefined,
+          ['--fond-zone-defilement' as string]: 'hsl(var(--surface))',
+        }}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus?.({ preventScroll: true });
+        }}
+        tabIndex={-1}
+      >
+        <div
+          {...poignee}
+          onPointerCancel={poignee.onPointerUp}
+          data-poignee-tiroir
+          className={cn(
+            'flex shrink-0 cursor-grab touch-none justify-center active:cursor-grabbing',
+            plein ? 'pb-2 pt-3.5' : 'pb-3 pt-5',
+          )}
+        >
+          <DialogPrimitive.Close
+            aria-label="Fermer"
+            className="h-1 w-10 rounded-full bg-muted transition-colors hover:bg-text"
+          />
+        </div>
+        {/* Une feuille n'a pas de barre de page : son titre et ses gestes
+            restent dans son contenu, jamais dans la barre de la page dessous. */}
+        <EmplacementDuTitreDePage.Provider value={null}>
+          <CibleDesGestesDePage.Provider value={null}>
+            <CibleDuBasDePage.Provider value={null}>{children}</CibleDuBasDePage.Provider>
+          </CibleDesGestesDePage.Provider>
+        </EmplacementDuTitreDePage.Provider>
+      </DialogPrimitive.Content>
+    </DialogPrimitive.Portal>
+  );
+}
+
 export function Drawer({
   open,
   onClose,
@@ -1556,11 +1824,18 @@ export function Drawer({
   onOuvrir,
   pret,
   entete,
+  feuille,
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
   className?: string;
+  /**
+   * LA FEUILLE DU BAS au lieu de la page de zone : voile, poignée à tirer,
+   * titre et gestes en tête du contenu. Réservé à « Déploiement » et « Mise en
+   * production » — les autres écrans restent des pages (refonte du 11/10/2026).
+   */
+  feuille?: boolean;
   /** L'en-tête propre à la page (fil d'Ariane, gestes) ; sans lui, la barre « Retour ». */
   entete?: React.ReactNode;
   /**
@@ -1646,6 +1921,16 @@ export function Drawer({
     );
   }
 
+  if (feuille) {
+    return (
+      <DialogPrimitive.Root open={open} modal={false} onOpenChange={(next) => !next && onClose()}>
+        <FeuilleDuBas onClose={onClose} open={open} plein={plein} hauteurFixe={hauteurFixe} empile={empile} className={className}>
+          {children}
+        </FeuilleDuBas>
+      </DialogPrimitive.Root>
+    );
+  }
+
   return (
     /* `modal={false}` : la page ne fige pas le reste de l'écran — la colonne des
        projets reste cliquable (voir `FeuilleDeTiroir`). */
@@ -1723,7 +2008,7 @@ export function SidePanel({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
         <DialogPrimitive.Content
           aria-label={title}
           className={cn(
@@ -1845,6 +2130,9 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Vrai sous un `Tooltip` : un bouton y garde sa bulle d'enveloppe, sans `title` en doublon. */
+const DansUneInfobulle = React.createContext(false);
+
 export function Tooltip({ children, label }: { children: React.ReactNode; label: React.ReactNode }) {
   const survol = useSurvol();
   // Sans survol, l'infobulle ne s'affichera JAMAIS (elle est masquée en dessous
@@ -1852,6 +2140,7 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
   // qu'il vise — un interrupteur, par exemple. On ne le pose donc pas du tout.
   if (!label || !survol) return <>{children}</>;
   return (
+    <DansUneInfobulle.Provider value>
     <TooltipPrimitive.Root delayDuration={DELAI_INFOBULLE_MS}>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
@@ -1871,6 +2160,7 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
+    </DansUneInfobulle.Provider>
   );
 }
 
@@ -2006,11 +2296,21 @@ export function BulleInfo({
   children,
   label,
   cote = 'end',
+  dansBarre: dansBarreVoulue,
 }: {
   children: React.ReactNode;
   label?: string;
   cote?: 'start' | 'end';
+  /**
+   * DANS UNE BARRE D'EN-TÊTE : la même case de 32 px que les boutons qui
+   * l'entourent (`CLASSE_RANGEE_DE_BOUTONS`), au lieu de la petite case de
+   * 20 px d'un « i » posé à côté d'un titre — qui faisait paraître l'écart
+   * plus large de ce côté-là.
+   */
+  dansBarre?: boolean;
 }) {
+  const dansUneBarre = React.useContext(DansUneBarreDEnTete);
+  const dansBarre = dansBarreVoulue ?? dansUneBarre;
   const [ouvert, setOuvert] = React.useState(false);
   const fermeture = React.useRef<number | undefined>(undefined);
   const pointeur = React.useRef('');
@@ -2042,9 +2342,12 @@ export function BulleInfo({
             // au lieu de la refermer aussitôt.
             if (pointeur.current === 'mouse' && ouvert) e.preventDefault();
           }}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-faint transition-colors hover:bg-bloc hover:text-text data-[state=open]:text-text"
+          className={cn(
+            'flex shrink-0 items-center justify-center text-faint transition-colors hover:bg-bloc hover:text-text data-[state=open]:text-text',
+            dansBarre ? 'h-8 w-8 rounded-lg' : 'h-5 w-5 rounded-full',
+          )}
         >
-          <Info className="h-3.5 w-3.5" />
+          <Info className={dansBarre ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
         </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
@@ -2057,7 +2360,7 @@ export function BulleInfo({
           onOpenAutoFocus={(e) => e.preventDefault()}
           onPointerEnter={entrer}
           onPointerLeave={sortir}
-          className="z-50 max-w-[300px] select-text whitespace-pre-line rounded-md border border-border bg-raised px-2.5 py-2 text-[12.5px] font-normal normal-case leading-relaxed tracking-normal text-muted shadow-xl animate-fade-in max-sm:max-w-none max-sm:rounded-b-none max-sm:px-4 max-sm:pb-6 max-sm:pt-3"
+          className="z-[60] max-w-[300px] select-text whitespace-pre-line rounded-md border border-border bg-raised px-2.5 py-2 text-[12.5px] font-normal normal-case leading-relaxed tracking-normal text-muted shadow-xl animate-fade-in max-sm:max-w-none max-sm:rounded-b-none max-sm:px-4 max-sm:pb-6 max-sm:pt-3"
         >
           {children}
         </PopoverPrimitive.Content>
@@ -2160,8 +2463,60 @@ function usePoigneeDuBas(fermer: () => void) {
  */
 export const CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR = 'max-sm:!w-full max-sm:!max-w-none';
 
+/**
+ * LA TAPE QUI FERME UN MENU DU BAS NE TOUCHE RIEN D'AUTRE (demande du
+ * 13/10/2026 : fermer le volet des quotas ouvrait « Dans quel projet ? »).
+ *
+ * La bibliothèque des menus ferme à l'APPUI, pas au clic, contrairement aux
+ * fenêtres. Le tiroir se retire ensuite pendant 200 ms, puis sa couche
+ * disparaît ; or le doigt, lui, est encore posé. Quand il se lève, le clic du
+ * même geste est distribué à ce qui se trouve alors SOUS le doigt — ici le
+ * bouton « Nouvel agent » de la colonne des projets — et un toucher un peu long
+ * suffit à dépasser la sortie du tiroir. Aucune couche ne tient plus ce clic :
+ * on l'attrape donc nous-mêmes, une seule fois, avant qu'il n'atteigne la page.
+ *
+ * L'écouteur ne vit que de cet appui au clic du MÊME geste. Il tombe sur
+ * `pointercancel` (le geste est devenu un défilement : aucun clic ne viendra),
+ * 400 ms après le relâché (le clic suit le relâché presque aussitôt), à l'appui
+ * suivant, et par un garde-fou — un clic qui n'a rien à voir avec la fermeture
+ * ne doit jamais être mangé. Seul le téléphone est concerné : sur grand écran
+ * le menu n'est pas un tiroir et le clic ordinaire reste celui de la page.
+ */
+function avalerLaTapeDeFermeture(): void {
+  if (typeof window === 'undefined' || window.matchMedia('(min-width: 640px)').matches) return;
+  let relache = false;
+  let minuterie: number | undefined;
+  const garde = window.setTimeout(() => retirer(), 10_000);
+  function retirer() {
+    window.clearTimeout(minuterie);
+    window.clearTimeout(garde);
+    window.removeEventListener('click', avaler, true);
+    window.removeEventListener('pointerup', apresLeRelache, true);
+    window.removeEventListener('pointercancel', retirer, true);
+    window.removeEventListener('pointerdown', apresUnAutreAppui, true);
+  }
+  function avaler(event: Event) {
+    event.stopPropagation();
+    event.preventDefault();
+    retirer();
+  }
+  function apresLeRelache() {
+    relache = true;
+    minuterie = window.setTimeout(retirer, 400);
+  }
+  function apresUnAutreAppui() {
+    // Un nouvel appui, une fois le doigt levé : le clic attendu n'est pas venu.
+    if (relache) retirer();
+  }
+  window.addEventListener('click', avaler, true);
+  window.addEventListener('pointerup', apresLeRelache, true);
+  window.addEventListener('pointercancel', retirer, true);
+  window.addEventListener('pointerdown', apresUnAutreAppui, true);
+}
+
 export function DropdownMenuContent({
   className,
+  onPointerDownOutside,
   ...props
 }: React.ComponentPropsWithoutRef<typeof DropdownPrimitive.Content>) {
   /*
@@ -2184,7 +2539,9 @@ export function DropdownMenuContent({
         ref={panneau}
         sideOffset={4}
         className={cn(
-          'z-50 flex min-w-[190px] flex-col overflow-hidden border border-border bg-bg p-1.5 shadow-xl',
+          // RANG 60 : AU-DESSUS DE LA COLONNE DÉPLIÉE AU SURVOL (`z-[55]`, sidebar.tsx),
+          // qui ouvre elle-même des menus — en `z-50`, ils passeraient sous elle.
+          'z-[60] flex min-w-[190px] flex-col overflow-hidden border border-border bg-bg p-1.5 shadow-xl',
           'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
           // La hauteur réelle de l'écran, mesurée en direct : dvh seul laisse
           // une bande vide quand l'application est installée sur le téléphone.
@@ -2198,6 +2555,11 @@ export function DropdownMenuContent({
           CLASSE_PANNEAU_DU_BAS_PLEINE_LARGEUR,
         )}
         style={styleDeLaPoignee}
+        onPointerDownOutside={(event) => {
+          onPointerDownOutside?.(event);
+          // Un appelant qui retient la fermeture garde aussi son clic.
+          if (!event.defaultPrevented) avalerLaTapeDeFermeture();
+        }}
         {...props}
       >
         {/* Le voile part dans la page, pas ici : la bibliothèque n'accepte
@@ -2288,7 +2650,7 @@ export function DropdownMenuSubContent({
         alignOffset={-4}
         collisionPadding={8}
         className={cn(
-          'z-50 flex min-w-[170px] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
+          'z-[60] flex min-w-[170px] flex-col overflow-hidden rounded-md border border-border bg-surface p-1 shadow-xl',
           'max-h-[min(420px,var(--radix-dropdown-menu-content-available-height))]',
           'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
           'max-sm:z-[70] max-sm:max-h-[calc(var(--hauteur-app,100dvh)*0.7)] max-sm:rounded-b-none max-sm:rounded-t-xl',
@@ -3323,7 +3685,7 @@ export function MenuActions({
   children,
   className,
   empile,
-  taille = 'icon-sm',
+  taille: tailleVoulue,
 }: {
   titre: string;
   repere: string;
@@ -3345,6 +3707,8 @@ export function MenuActions({
   taille?: ButtonProps['size'];
 }) {
   void empile;
+  const dansUneBarre = React.useContext(DansUneBarreDEnTete);
+  const taille = tailleVoulue ?? (dansUneBarre ? 'icon-barre' : 'icon-sm');
   const [ouvert, setOuvert] = React.useState(false);
   const fermer = React.useCallback(() => setOuvert(false), []);
 

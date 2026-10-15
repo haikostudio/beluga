@@ -38,10 +38,18 @@ import {
   PRISE_ENTIERE,
   trouverSegment,
   FORMATS_STUDIO,
+  dureeAjustee,
+  modeleVideoDeService,
+  poserLExtrait,
+  ratioAjuste,
+  ratioDuFormat,
+  serviceDeCreation,
+  type IdServiceCreation,
 } from '@beluga/shared';
 import { CONFIG } from './config.js';
 import { getMeta, setMeta } from './db.js';
 import { listerAcces } from './coffre-fort.js';
+import { cleDuService, fabriquerClipChezLeService, modeleVideoRetenu, plafondDuClip } from './studio-services.js';
 import { joindreUnFichier } from './joindre-fichier.js';
 import { resoudre } from './voice.js';
 import { dansLaFileLourde } from './studio-file.js';
@@ -60,6 +68,8 @@ import {
   enregistrerVersion,
   lireCreation,
   lireDepense,
+  nettoyerLesDessins,
+  nouvelId,
   solderDepense,
   type Resultat,
 } from './studio.js';
@@ -371,15 +381,27 @@ export async function fabriquerVoixManquantes(creationId: string): Promise<{ fai
 const OPENROUTER = 'https://openrouter.ai/api/v1';
 export const MODELE_VOIX_OPENROUTER = `google/${MODELE_TTS_GEMINI}`;
 
+/**
+ * LA CLÉ OPENROUTER DU STUDIO : D'ABORD CELLE QUE L'UTILISATEUR A BRANCHÉE
+ * (paramètres, « Services de création » — demande du 14/10/2026 : son propre
+ * compte, pas celui de Beluga Build), sinon celle du relais de Beluga Build.
+ * Voix finale, musique, clips par OpenRouter et solde affiché la lisent ici.
+ */
 function cleOpenRouter(): string | undefined {
+  const branchee = cleDuService('openrouter');
+  if (branchee) return branchee;
   try {
     return cleOpenRouterDuRelais(listerAcces());
   } catch {
     return undefined;
   }
 }
+/** Le compte OpenRouter qui paie : celui de l'utilisateur s'il est branché. */
+export function payeurOpenRouter(): 'utilisateur' | 'beluga' {
+  return cleDuService('openrouter') ? 'utilisateur' : 'beluga';
+}
 /** Ce que dit l'écran quand la clé manque : où la poser, sans jargon de fournisseur. */
-export const RAISON_SANS_CLE_OPENROUTER = 'aucune clé OpenRouter dans le coffre-fort : la voix finale passe par l’espace OpenRouter de Beluga Build (fiche « OpenRouter — Haiko — relais IA »)';
+export const RAISON_SANS_CLE_OPENROUTER = 'aucune clé OpenRouter : branchez votre compte dans les paramètres, rubrique « Services de création » (sinon la voix finale passe par l’espace OpenRouter de Beluga Build, fiche « OpenRouter — Haiko — relais IA » du coffre-fort)';
 
 let prixEnCache: { a: number; prix: { parJetonAudio: number; parJetonTexte: number } } | null = null;
 
@@ -849,6 +871,13 @@ export async function devisDeGeneration(entree: {
   duree?: number;
   format?: FormatStudio;
   avecSon?: boolean;
+  /** Où poser l'extrait sur la ligne de temps (secondes) ; sinon à la suite des visuels. */
+  debut?: number;
+  /** La piste de visuels voulue, si elle est libre à cet instant. */
+  pisteId?: string;
+  /** Le service et le modèle ; sinon celui retenu pour la création (« Vidéo »). */
+  service?: string;
+  modeleService?: string;
   raison: string;
   demandeePar: 'humain' | 'agent';
 }): Promise<Resultat<{ depense: DepenseStudio }>> {
@@ -860,6 +889,40 @@ export async function devisDeGeneration(entree: {
   let modele: string;
   let plafond: number | null;
   const details: Record<string, unknown> = { consigne, format };
+  if (entree.genre === 'clip') {
+    if (Number.isFinite(entree.debut) && Number(entree.debut) >= 0) details.debut = Math.round(Number(entree.debut) * 100) / 100;
+    if (entree.pisteId) details.pisteId = String(entree.pisteId).slice(0, 64);
+  }
+  /*
+   * UN EXTRAIT PAR LE SERVICE DE L'UTILISATEUR (demande du 14/10/2026) : le
+   * modèle nommé, sinon celui retenu pour la création. Le prix est lu en direct
+   * quand le service le publie (fal.ai) ; sinon le devis le DIT (« prix non
+   * publié ») et c'est l'utilisateur qui décide, d'un clic.
+   */
+  const retenu = entree.genre === 'clip' ? (entree.service ? { service: entree.service, modele: String(entree.modeleService ?? '') } : modeleVideoRetenu(creation.id)) : null;
+  if (entree.genre === 'clip' && retenu) {
+    const service = serviceDeCreation(retenu.service);
+    const m = modeleVideoDeService(retenu.service, retenu.modele);
+    if (!service || !m) return { ok: false, raison: 'ce modèle n’est pas au catalogue des services de création' };
+    if (!cleDuService(service.id)) return { ok: false, raison: `${service.nom} n’est pas branché : la clé se pose dans les paramètres, rubrique « Services de création »` };
+    const dims = FORMATS_STUDIO[format];
+    const duree = dureeAjustee(m, Number(entree.duree));
+    const avecSon = !!entree.avecSon && m.son;
+    Object.assign(details, { service: service.id, modeleService: m.id, duree, avecSon, ratio: ratioAjuste(m, ratioDuFormat(dims.largeur, dims.hauteur)) });
+    return {
+      ok: true,
+      depense: creerDepense({
+        projectId: creation.projectId,
+        creationId: creation.id,
+        genre: 'clip',
+        modele: `${service.nom} · ${m.nom}`,
+        plafond: await plafondDuClip(service.id, m.id, duree),
+        raison: entree.raison.trim().slice(0, 400) || consigne.slice(0, 200),
+        details,
+        demandeePar: entree.demandeePar,
+      }),
+    };
+  }
   if (entree.genre === 'clip') {
     const duree = [4, 6, 8].includes(Number(entree.duree)) ? Number(entree.duree) : 4;
     modele = MODELE_CLIP;
@@ -908,21 +971,37 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
     if (depense.genre === 'image') {
       ({ fichier, mime } = await dansLaFileLourde(() => imageParCodex(String(depense.details.consigne ?? ''), String(depense.details.format ?? '1:1'))));
     } else if (depense.genre === 'clip') {
-      ({ fichier, mime, cout } = await clipParOpenRouter(depense));
+      const d = depense.details as any;
+      const m = d.service ? modeleVideoDeService(d.service, d.modeleService) : undefined;
+      if (d.service && m) {
+        fichier = fichierProvisoire('mp4');
+        await fabriquerClipChezLeService({ service: d.service as IdServiceCreation, modele: m, consigne: String(d.consigne ?? ''), duree: Number(d.duree), ratio: d.ratio ?? null, son: !!d.avecSon }, fichier);
+        mime = 'video/mp4';
+        // Le service ne rend pas son prix réel : on compte le plafond affiché, quand il était publié.
+        cout = depense.plafond ?? 0;
+      } else {
+        ({ fichier, mime, cout } = await clipParOpenRouter(depense));
+      }
+      // TOUT EXTRAIT EST TÉLÉCHARGÉ, SÉPARÉ EN IMAGE ET SON, PUIS POSÉ sur la ligne de temps (demande du 14/10/2026).
+      await poserLeClipSepare(depense, creation, fichier, cout);
+      fs.rmSync(fichier, { force: true });
+      solderDepense(depenseId, d.service && depense.plafond === null ? {} : { montantReel: cout });
+      return;
     } else {
       ({ fichier, mime, cout } = await musiqueParOpenRouter(depense));
     }
     const jointe = await joindreUnFichier({ projectId: creation.projectId, agentId: creation.agentId ?? '', fichier, nom: `${depense.genre}-${depense.id}${path.extname(fichier)}` });
     fs.rmSync(fichier, { force: true });
     if (!jointe.ok) throw new Error(jointe.refus);
-    const genre: MediaStudio['genre'] = depense.genre === 'image' ? 'image' : depense.genre === 'clip' ? 'video' : 'audio';
+    // Le clip a sa propre voie, plus haut (séparé puis posé) : ici, une image ou une musique.
+    const genre: MediaStudio['genre'] = depense.genre === 'image' ? 'image' : 'audio';
     const mesure = await mesurerMedia(cheminDuJoint(jointe.attachment.id), genre);
     ajouterMedia({
       projectId: creation.projectId,
       creationId: creation.id,
       genre,
       provenance: 'genere',
-      nom: `${depense.genre === 'image' ? 'Image' : depense.genre === 'clip' ? 'Clip' : 'Musique'} — ${String(depense.details.consigne ?? '').slice(0, 50)}`,
+      nom: `${depense.genre === 'image' ? 'Image' : 'Musique'} — ${String(depense.details.consigne ?? '').slice(0, 50)}`,
       attachmentId: jointe.attachment.id,
       mime,
       ...mesure,
@@ -933,6 +1012,85 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
   } catch (err: any) {
     solderDepense(depenseId, { erreur: String(err?.message ?? err).slice(0, 300) });
   }
+}
+
+/**
+ * SÉPARER L'IMAGE ET LE SON D'UN EXTRAIT : l'image sans le son (copiée telle
+ * quelle, rien n'est réencodé) et, s'il en a un, le son seul. Un extrait SANS
+ * piste son ne donne que l'image : jamais un son vide.
+ */
+export async function separerImageEtSon(fichier: string): Promise<{ video: string; audio?: string }> {
+  const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index', '-of', 'csv=p=0', fichier], { timeout: 30_000 });
+  const aDuSon = stdout.trim().length > 0;
+  const video = fichierProvisoire('mp4');
+  await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-i', fichier, '-map', '0:v:0', '-an', '-c:v', 'copy', '-movflags', '+faststart', video], { timeout: 5 * 60_000 });
+  if (!aDuSon) return { video };
+  const audio = fichierProvisoire('m4a');
+  await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-i', fichier, '-map', '0:a:0', '-vn', '-c:a', 'aac', '-b:a', '192k', audio], { timeout: 5 * 60_000 });
+  return { video, audio };
+}
+
+/** La fin des visuels de la composition : un extrait sans place donnée s'y pose, à la suite. */
+function finDesVisuels(c: Composition): number {
+  return c.pistes.filter((p) => p.genre === 'visuel').reduce((fin, p) => p.segments.reduce((f, s) => Math.max(f, s.debut + s.duree), fin), 0);
+}
+
+/**
+ * L'EXTRAIT SÉPARÉ, RANGÉ PUIS POSÉ : l'image et le son entrent dans la
+ * bibliothèque de la création, puis sur la ligne de temps, calés au même
+ * instant (`poserLExtrait`). La composition est relue À CET INSTANT : un geste
+ * fait pendant la fabrication n'est pas écrasé.
+ */
+async function poserLeClipSepare(depense: DepenseStudio, creation: { id: string; projectId: string; agentId?: string | null }, fichier: string, cout: number): Promise<void> {
+  const d = depense.details as any;
+  const { video, audio } = await dansLaFileLourde(() => separerImageEtSon(fichier));
+  const consigne = String(d.consigne ?? '').slice(0, 50);
+  const licence = `Générée par ${depense.modele} pour ce projet`;
+  const ranger = async (chemin: string, genre: 'video' | 'audio') => {
+    const jointe = await joindreUnFichier({ projectId: creation.projectId, agentId: creation.agentId ?? '', fichier: chemin, nom: `${genre === 'video' ? 'clip' : 'son-du-clip'}-${depense.id}${path.extname(chemin)}` });
+    fs.rmSync(chemin, { force: true });
+    if (!jointe.ok) throw new Error(jointe.refus);
+    const mesure = await mesurerMedia(cheminDuJoint(jointe.attachment.id), genre);
+    return {
+      media: ajouterMedia({
+        projectId: creation.projectId,
+        creationId: creation.id,
+        genre,
+        provenance: 'genere',
+        nom: `${genre === 'video' ? 'Clip' : 'Son du clip'} — ${consigne}`,
+        attachmentId: jointe.attachment.id,
+        mime: genre === 'video' ? 'video/mp4' : 'audio/mp4',
+        ...mesure,
+        licence,
+        cout: genre === 'video' ? cout : 0,
+      }),
+      duree: mesure.duree,
+    };
+  };
+  const image = await ranger(video, 'video');
+  const son = audio ? await ranger(audio, 'audio') : null;
+  const actuelle = compositionCourante(creation.id);
+  if (!actuelle) return;
+  const duree = Math.max(0.5, Math.round((image.duree ?? Number(d.duree) ?? 4) * 100) / 100);
+  const r = poserLExtrait(
+    actuelle,
+    {
+      videoMediaId: image.media.id,
+      ...(son ? { audioMediaId: son.media.id } : {}),
+      debut: Number.isFinite(d.debut) ? Number(d.debut) : finDesVisuels(actuelle),
+      duree,
+      nom: `Clip — ${consigne}`,
+      ...(d.pisteId ? { pisteVisuelleId: String(d.pisteId) } : {}),
+    },
+    nouvelId,
+  );
+  if (!r.ok) {
+    log.warn(`studio : clip rangé en bibliothèque mais pas posé (${r.raison})`);
+    return;
+  }
+  const propre = nettoyerLesDessins(actuelle, r.composition);
+  if (!propre.ok) return;
+  enregistrerVersion(creation.id, propre.composition, r.resume, 'systeme');
 }
 
 function cheminDuJoint(attachmentId: string): string {

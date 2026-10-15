@@ -151,6 +151,7 @@ function FilesTab({ projectId }: { projectId: string }) {
           <Button
             variant="ghost"
             size="icon-sm"
+            aria-label="Dossier parent"
             onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}
           >
             <ChevronLeft className="h-3 w-3" />

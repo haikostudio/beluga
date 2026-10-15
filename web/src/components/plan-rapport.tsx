@@ -30,7 +30,9 @@ import { Markdown } from '@/lib/markdown';
  *
  * CE QUI RESTE : les idées de la partie « Améliorations apportées » sont
  * toujours CLIQUABLES — un clic dépose l'idée dans la barre d'écriture, sans
- * rien envoyer (`estTitreDesSuggestions`, règle partagée).
+ * rien envoyer (`estTitreDesSuggestions`, règle partagée). Une idée DÉJÀ
+ * ENVOYÉE reste cochée, et ne se clique plus ; dans un plan dépassé, la liste
+ * montre seulement ce qui est parti.
  */
 export interface PlanRapportProps {
   contenu: string;
@@ -64,6 +66,9 @@ export function PlanRapport({
         content={texte ?? contenu}
         onToggleEvolution={courant ? onToggleEvolution : undefined}
         onToggleAll={courant ? onToggleAll : undefined}
+        /* UN PLAN DÉPASSÉ ne propose plus rien, mais garde COCHÉES les idées
+           qui en sont parties : sinon on croirait qu'aucune n'a été retenue. */
+        ideesFigees={!courant}
         autreTitreCliquable={estTitreDesSuggestions}
         streaming={streaming}
       />

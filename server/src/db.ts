@@ -3951,6 +3951,79 @@ export const MIGRATIONS: {
         ON messages(a_proposition_en_attente) WHERE a_proposition_en_attente = 1;
     `,
   },
+  {
+    id: 122,
+    name: 'consommation-des-aides',
+    siTable: 'usage',
+    /*
+     * CE QUE CONSOMMENT LES AIDES (sous-agents) D'UN TOUR, À PART. Le moteur ne
+     * le comptait nulle part : `usage` ne porte que l'agent principal. Ajout
+     * purement additif, comme la migration 15 : `tokens`, le quota et la
+     * facturation ne bougent pas — la hausse de quota mesurée sur le compte
+     * contient déjà les aides. Lu par `scripts/mesure-sous-agents.mjs`, jamais
+     * affiché (« plus aucun compteur de jetons visible »).
+     */
+    sql: `
+      ALTER TABLE usage ADD COLUMN aides_tokens INTEGER DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN aides_sortie INTEGER DEFAULT 0;
+      ALTER TABLE usage ADD COLUMN aides_modeles TEXT;
+    `,
+  },
+  {
+    id: 123,
+    name: 'branche-choisie-des-cartes',
+    siTable: 'cards',
+    /*
+     * LA BRANCHE D'UNE CARTE SE CHOISIT (bouton de branche du fil d'Ariane) :
+     * renommée, créée depuis un départ choisi ou reprise d'une autre carte.
+     * Vraies colonnes, comme tous les champs d'une carte ; NULL = la branche
+     * tirée du titre (`nomDeBranche`), comme avant.
+     */
+    sql: `
+      ALTER TABLE cards ADD COLUMN branche_choisie TEXT;
+      ALTER TABLE cards ADD COLUMN branche_de_depart TEXT;
+    `,
+  },
+  {
+    id: 124,
+    name: 'retrait-du-theme-propre-aux-projets',
+    siTable: 'projects',
+    /*
+     * IL N'Y A PLUS QU'UN SEUL RÉGLAGE D'APPARENCE, le général. Un thème posé
+     * sur un projet (Haiko Studio était resté en sombre) passait devant lui et
+     * faisait croire le réglage cassé : la clé disparaît de chaque projet.
+     */
+    sql: `
+      UPDATE projects
+         SET data = json_remove(data, '$.theme')
+       WHERE json_type(data, '$.theme') IS NOT NULL;
+    `,
+  },
+  {
+    id: 125,
+    name: 'coffre-fort-dossiers',
+    siTable: 'secrets',
+    /*
+     * LES DOSSIERS DU COFFRE-FORT : un nom, un projet, un seul niveau. Table À
+     * PART — jamais une ligne de `secrets` — pour qu'aucun lecteur de fiches
+     * (agents, surveillances, relais) ne prenne un dossier pour un secret.
+     * `secrets.dossier_id` range une fiche ; NULL = à la racine. Archiver un
+     * dossier archive ses fiches avec le même `archive_le`.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS dossiers_coffre (
+        id TEXT PRIMARY KEY,
+        nom TEXT NOT NULL,
+        project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL,
+        archive_le INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_dossiers_coffre_archive ON dossiers_coffre(archive_le);
+      ALTER TABLE secrets ADD COLUMN dossier_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_secrets_dossier ON secrets(dossier_id);
+    `,
+  },
 ];
 
 export function openDb(): DB {

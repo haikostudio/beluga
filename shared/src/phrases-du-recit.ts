@@ -72,7 +72,17 @@ export const MOTIFS_DE_PHRASE: Record<
   tache: { un: 'Je mets ma liste de tâches à jour.', plusieurs: 'Je mets ma liste de tâches à jour {v0} fois.' },
   note: { un: 'Je note ce que je viens de voir.', plusieurs: 'Je pose {v0} notes.' },
   outil: { un: 'Je me sers d’un outil du projet.', plusieurs: 'Je me sers {v0} fois d’un outil du projet.' },
+  suspension: { un: 'Je m’arrête : vous avez suspendu la tâche.', plusieurs: 'Je m’arrête {v0} fois : vous avez suspendu la tâche.' },
 };
+
+/** La phrase d'une suspension, à l'heure du geste (heure locale de l'écran). */
+export const PHRASE_SUSPENDUE_A = 'Tâche suspendue à la main à {v0}.';
+
+/** HH:MM, à l'heure de l'écran qui lit le fil. */
+function heureCourte(at: number): string {
+  const date = new Date(at);
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
 
 /**
  * UNE PHRASE D'AGENT SE LIT-ELLE ? Elle vient du journal, donc du moteur : on
@@ -151,6 +161,11 @@ function enPhrase(texte: string): string {
  * son sujet quand celui-ci est un vrai mot français.
  */
 export function phraseDuBloc(bloc: BlocRaconte): PhraseRacontee {
+  /* UNE SUSPENSION DIT SON HEURE : c'est le repère de l'endroit où le travail
+     s'est arrêté, et le seul détail utile. */
+  if (bloc.genre === 'suspension' && bloc.compte === 1 && bloc.debutAt > 0) {
+    return { dit: 'demon', motif: PHRASE_SUSPENDUE_A, valeurs: { v0: heureCourte(bloc.debutAt) } };
+  }
   if (bloc.ditParLAgent && phraseDAgentLisible(bloc.ditParLAgent)) {
     const cadre = CADRE_DE_L_AGENT[bloc.genre];
     if (cadre) return { dit: 'demon', motif: cadre, valeurs: { v0: enMorceau(bloc.ditParLAgent) } };

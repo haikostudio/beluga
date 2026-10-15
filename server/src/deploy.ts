@@ -1455,15 +1455,33 @@ async function deployer(
     /* Ce que chaque carte fusionnée a apporté : c'est ce qui permet, quand la
        suivante heurte, de nommer CONTRE QUI (MEM-1064, `cartesHeurtees`). */
     const fusionnees: CarteFusionneeDuLot[] = [];
+    /* UNE BRANCHE PARTAGÉE NE SE FUSIONNE QU'UNE FOIS (bouton de branche : des
+       cartes reprennent la même, l'une après l'autre). Les cartes qui la
+       portent partent ENSEMBLE : la suivante suit le sort de la première. */
+    const sortDesBranches = new Map<string, { titre: string; ecartee?: string }>();
     for (const card of cards) {
       verifierArret();
       const branch = card.github?.branch;
       if (!branch || ecartees.has(card.id)) continue;
+      const deja = sortDesBranches.get(branch);
+      if (deja) {
+        if (deja.ecartee) {
+          ecartees.add(card.id);
+          current = marquerLaTache(current, card.id, 'ecartee', deja.ecartee);
+          recitFusion.push(`${prefixe(d)}${branch} : partagée avec « ${deja.titre} », écartée avec elle.`);
+          noterLEcartementSurLaCarte(card, deja.ecartee);
+        } else {
+          current = marquerLaTache(current, card.id, 'fusionnee');
+          recitFusion.push(`${prefixe(d)}${branch} : déjà fusionnée avec « ${deja.titre} »`);
+        }
+        continue;
+      }
       const existe = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
       if (!existe.ok || !existe.out.trim()) {
         if (d.principal) current = marquerLaTache(current, card.id, 'absente');
         continue;
       }
+      sortDesBranches.set(branch, { titre: card.title });
       current = progresser(current, 'merge', `${prefixe(d)}Fusion de ${branch}…`);
       current = marquerLaTache(current, card.id, 'fusion');
       noter(current, 'merge', `$ git merge --no-edit ${branch}`, 'commande');
@@ -1503,6 +1521,7 @@ async function deployer(
         ? `la fusion n’a pas rendu la main en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.fusion)}`
         : mentionDeLEcartement({ branche: branch, brancheDAccueil: branche, fichiers: enConflit, contre });
       ecartees.add(card.id);
+      sortDesBranches.set(branch, { titre: card.title, ecartee: raison });
       recitFusion.push(
         `${prefixe(d)}${fusion.delaiDepasse ? `${branch} : ÉCARTÉE — ${raison}.` : raison} La carte reste dans « À déployer ».`,
       );

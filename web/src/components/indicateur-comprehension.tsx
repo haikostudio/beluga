@@ -68,7 +68,7 @@ export function IndicateurComprehension({ carte }: { carte?: Card | null }) {
       <span
         data-indicateur-comprehension={String(lu.barres)}
         role="img"
-        className="flex h-7 w-6 shrink-0 items-end justify-center gap-[2px] px-0.5 pb-1.5"
+        className="flex h-7 w-7 shrink-0 items-end justify-center gap-[2px] px-0.5 pb-1.5"
       >
         {HAUTEURS.map((hauteur, rang) => (
           <span

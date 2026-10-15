@@ -46,6 +46,11 @@ import {
   COLONNES_AVANT_LE_TRAVAIL,
   cadrageRouvertApresRapport,
   carteEnCadrage,
+  allumerLeCahierToutSeul,
+  raisonDAttendreLeLancement,
+  questionsSansReponse,
+  consigneDeDemandeComplexe,
+  jugerLaComplexite,
   messageDeLaCarteVaAuCadrage,
   messageOuvreUneNouvelleCarte,
   TEXTE_ACCORD_NOUVELLE_CARTE,
@@ -56,6 +61,7 @@ import {
   sortieAutorisee,
   RAISON_SUSPENDU,
   RAISON_ARRETE_A_LA_MAIN,
+  textesRendusParLaFile,
   arretDeCarteAutorise,
   bilanDesArrets,
   agentApresNouveauDepart,
@@ -72,24 +78,28 @@ import {
   lireLienGithub,
   REFUS_LIEN_MAL_FORME,
   filAvecLaSynthese,
-  reponseParLaBarre,
-  texteRepondALaQuestion,
   motDeContexteDeCommande,
   programmerLeDepart,
   ROUTE_TERMINAL,
   REFUS_HORS_PORTEE,
+  commandeDuStudio,
+  evenementDuStudio,
   commandeAutorisee,
   evenementAutorise,
   type CompteUtilisateur,
   fusionDesProcedures,
   PROJET_DU_COFFRE,
   EDITION_EN_FILE_PERIMEE_MS,
+  lireSourceFournie,
+  type SourceDuClonage,
 } from '@beluga/shared';
+import { compteEstSuperAdministrateur } from './super-admin.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
+import { agirSurLaBranche, branchesDeLaCarte } from './gestion-de-branche.js';
 import * as store from './store.js';
 import { etatDeLaCopie, nouveautes, recetteDeLaCopie, recupererLesNouveautes } from './installation-copie.js';
 import { lancerUnTravail, recetteDuGenre, travailDInstallation } from './installation-travaux.js';
-import { envoyerUnCourrielDEssai } from './envoi-des-courriels.js';
+import { envoyerUnCourrielDEssai, sortieDirecteGardee } from './envoi-des-courriels.js';
 import {
   connecterGitHub,
   etatDeLInstallation,
@@ -146,6 +156,7 @@ import {
   stopAllAgents,
   comptesOccupes,
   isRunning,
+  brancherFinDeTourDeCadrage,
   agentsActifs,
   reprendreLaFile,
 } from './runtime.js';
@@ -215,16 +226,43 @@ import {
   depotsTouchesParLesCartes,
 } from './deploy.js';
 import { reconcilierLaCarte } from './rattrapage-ecartee.js';
-import { rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
+import { mettreLaCarteEnPause, rangerLaCarte, suspendreLaCarte } from './deplacement-carte.js';
 
 import { fermerLesQuestionsDeLaCarte } from './fermeture-questions.js';
 import { repondreALaQuestionDeLaCarte } from './questions-de-carte.js';
-import { annulerLAttente, questionEnAttenteDeLAgent, repondreALAttente } from './attente-question.js';
+import { annulerLAttente, repondreALAttente } from './attente-question.js';
 import { ecarterLaCompetence, lireLaCompetence, trancherLaCompetence } from './proposition-competences.js';
 import { archiveCard } from './archive.js';
 import { etatDemon, demanderRedemarrage } from './demon.js';
 import { creerCleApi, listerClesApi, oublierCleApi, revoquerCleApi } from './cles-api.js';
-import { enregistrerAcces, imagesDesAcces, listerAcces, listerArchives, restaurerAcces, supprimerAcces } from './coffre-fort.js';
+import {
+  enregistrerAcces,
+  enregistrerDossier,
+  imagesDesAcces,
+  listerAcces,
+  listerArchives,
+  listerDossiers,
+  listerDossiersArchives,
+  rangerAcces,
+  restaurerAcces,
+  restaurerDossier,
+  supprimerAcces,
+  supprimerDossier,
+} from './coffre-fort.js';
+
+/** L'état entier du coffre, tel que chaque réponse du canal le rend : fiches, archives, dossiers, images. */
+function etatDuCoffre() {
+  const liste = listerAcces();
+  const archives = listerArchives();
+  return {
+    liste,
+    archives,
+    dossiers: listerDossiers(),
+    dossiersArchives: listerDossiersArchives(),
+    pieces: imagesDesAcces([...liste, ...archives]),
+  };
+}
+
 import { phrasePourLEcran } from './explication-d-erreur.js';
 import { enregistrerNote, listerNotes, piecesDesNotes, supprimerNote } from './notes.js';
 import { etatDuJuge, listerLesTraces } from './jugement-rapide.js';
@@ -318,7 +356,8 @@ import {
   bilanDesTraces,
   usageAllume,
 } from '@beluga/shared';
-import { dossierDesCompetences } from './competences.js';
+import { competencesAExplorer, dossierDesCompetences, modeDEmploiDeLaFiche } from './competences.js';
+import { nomsSemes } from './semis-competences.js';
 import { relevesDesCommandes } from './commandes-slash.js';
 import { scanProjects, registerProject, createProjectFolder } from './projects.js';
 import { depotsDuCompte, monterDepuisGithub } from './depots-github.js';
@@ -401,11 +440,15 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
      * qui a demandé cette conversation. Tout le reste part comme avant.
      */
     const perimetre = { projet: null as string | null, agents: new Set<string>(), cartes: new Set<string>() };
+    /* LE DROIT AU STUDIO SE CALCULE UNE FOIS, À LA CONNEXION, POUR CE COMPTE (`shared/src/studio-reserve.ts`). */
+    const studioOuvert = compteEstSuperAdministrateur(compte);
     const send = (event: ServerEvent) => {
       if (ws.readyState !== WebSocket.OPEN) return;
       if (!evenementAutorise(compte.role, event.type)) return;
       if (compte.role === 'client' && !evenementPourCeClient(event, compte)) return;
       if (compte.role !== 'client' && !detailPourCetEcran(event, perimetre)) return;
+      // LE STUDIO NE PARLE QU'À SON SUPER ADMINISTRATEUR : ni signal, ni image de son navigateur d'essai.
+      if (!studioOuvert && evenementDuStudio(event.type)) return;
       /*
        * UN ÉVÉNEMENT QUI NOMME SON DESTINATAIRE NE VA QU'À LUI — administrateur
        * compris. L'écran de Haiko recevait les chiffres des pastilles de TOUS
@@ -508,6 +551,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       type: 'ready',
       protocol: PROTOCOL_VERSION,
       version: CONFIG.version,
+      studioOuvert,
       settings: store.getSettings(),
       prefs,
       projects: projets,
@@ -768,6 +812,101 @@ export async function demanderLePlan(cardId: string): Promise<{ ok: true; numero
 }
 
 /**
+ * LE LANCEMENT AUTOMATIQUE (`shared/src/lancement-automatique.ts`).
+ *
+ * Appelé à la fin d'un tour de cadrage (et à l'allumage de l'interrupteur) :
+ * on attend que le tour soit VRAIMENT refermé — l'agent ne parle plus —, puis
+ * on rejoue le geste « Valider et lancer » : validation, puis `startCard`.
+ * Un refus ne passe jamais en silence : il s'écrit au journal de la carte, en
+ * échec (rouge), avec sa raison.
+ */
+/* Branché sur la fin de CHAQUE tour de cadrage (`runtime.ts`) : pas par
+   `onComplete`, qui retirerait la demande de la file d'attente faute de quota. */
+brancherFinDeTourDeCadrage((cardId, agentId, ok) => {
+  if (store.getCard(cardId)?.parcours?.lancementAutomatique) void lancerSiAutomatique(cardId, agentId, ok);
+});
+
+async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: boolean): Promise<void> {
+  const debut = Date.now();
+  while (isRunning(agentId) && Date.now() - debut < 120_000) {
+    await new Promise((fin) => setTimeout(fin, 1_000));
+  }
+  const card = store.getCard(cardId);
+  if (!card?.parcours?.lancementAutomatique || !carteEnCadrage(card)) return;
+  const comprise = card.parcours.comprehension;
+  const messages = store.listMessages(agentId, 5);
+  const questionEnAttente =
+    messages.some((m) => (m.questions ?? []).some((q) => !q.answer && !q.cancelled)) ||
+    (comprise ? questionsSansReponse(comprise).length > 0 : false);
+  const raison = raisonDAttendreLeLancement({
+    actif: true,
+    tourReussi: tourReussi && !isRunning(agentId),
+    ...(comprise?.texte?.trim() ? { comprehensionAt: comprise.at } : {}),
+    questionEnAttente,
+    planSouhaite: !!card.parcours.planSouhaite,
+    planDemande: !!card.parcours.planDemandeA,
+    plansRendusA: (card.parcours.plans ?? []).map((plan) => plan.at),
+  });
+  if (raison) {
+    log.info(`lancement automatique de ${cardId} en attente : ${raison}`);
+    return;
+  }
+  const noterLeRefus = (texte: string) => {
+    const jalon = ajouterAuJournal({
+      cardId,
+      phase: phaseDeLaCarte(cardId, 'cadrage'),
+      nature: 'jalon',
+      libelle: 'Lancement automatique refusé',
+      agentId,
+      agentRole: 'cadrage',
+      resultat: texte,
+      reussie: false,
+    });
+    if (jalon) bus.emit({ type: 'journal.entree', entree: jalon });
+  };
+  const validee = validerLaComprehension(cardId);
+  if (!validee.ok) {
+    noterLeRefus(validee.error ?? 'validation impossible');
+    return;
+  }
+  bus.emit({ type: 'attention', ...store.signalAttention() });
+  const lance = await startCard(cardId).catch((err: any) => ({ ok: false, error: String(err?.message ?? err) }));
+  if (!lance.ok) noterLeRefus(lance.error ?? 'lancement impossible');
+  else bus.emit({ type: 'attention', ...store.signalAttention() });
+}
+
+/**
+ * UNE DEMANDE COMPLEXE ALLUME LE « CAHIER DES CHARGES » (`shared/src/demande-complexe.ts`).
+ *
+ * Sur un message de cadrage jugé complexe, l'interrupteur s'allume tout seul —
+ * une seule fois, et jamais s'il a déjà été touché à la main — et le tour
+ * emporte la consigne qui fait poser davantage de questions. Rend cette
+ * consigne, ou rien.
+ */
+function allumerSurDemandeComplexe(
+  agent: { role: string; cardId?: string },
+  texte: string,
+  nombreDeJointes: number,
+): string | undefined {
+  if (agent.role !== 'cadrage' || !agent.cardId) return undefined;
+  const card = store.getCard(agent.cardId);
+  if (!card || !carteEnCadrage(card)) return undefined;
+  const jugement = jugerLaComplexite(texte, nombreDeJointes);
+  if (!jugement.complexe) return undefined;
+  if (allumerLeCahierToutSeul(card.parcours?.planSouhaite, jugement)) {
+    const ecrite = store.saveCard({
+      ...card,
+      parcours: { ...(card.parcours ?? { plans: [] }), planSouhaite: true, planAutomatique: true },
+    });
+    bus.emit({ type: 'card.upsert', card: ecrite });
+  } else if (!store.getCard(agent.cardId)?.parcours?.planSouhaite) {
+    // Éteint à la main : l'utilisateur ne veut pas de plan, on ne force rien.
+    return undefined;
+  }
+  return consigneDeDemandeComplexe(jugement);
+}
+
+/**
  * L'INTERRUPTEUR « PLAN » EST-IL ALLUMÉ SUR LA CARTE DE CET AGENT ?
  *
  * Si oui, la demande de plan est MARQUÉE sur la carte (même drapeau que le
@@ -854,8 +993,8 @@ const accusesOrphelins = new BoiteDesAccuses<AccuseServeur>();
  * la carte naît quand même (elle arrive par `card.upsert`), seule la réponse
  * part sans son identifiant.
  */
-async function carteDuCahierSansRetenir(project: Project, description?: string): Promise<Card | null> {
-  const pose = ouvrirLeCahierDesCharges(project, description);
+async function carteDuCahierSansRetenir(project: Project, description?: string, source?: SourceDuClonage): Promise<Card | null> {
+  const pose = ouvrirLeCahierDesCharges(project, description, source);
   const delai = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000).unref?.());
   return Promise.race([pose, delai]);
 }
@@ -904,6 +1043,19 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
   // L'espace client a ses propres commandes, et son propre cloisonnement.
   if (estCommandeDeLEspace(commande)) return commandeDeLEspaceClient(commande, compte);
 
+  /*
+   * LE STUDIO N'A QU'UNE PORTE : cette ligne. Toute commande « studio.… » et la
+   * rubrique « studio » du résumé refusent un compte qui n'est pas super
+   * administrateur — même phrase qu'une commande qui n'existe pas
+   * (`shared/src/studio-reserve.ts`).
+   */
+  if (
+    (commandeDuStudio(commande.type) || (commande.type === 'stats.resume' && commande.rubrique === 'studio')) &&
+    !compteEstSuperAdministrateur(compte)
+  ) {
+    throw new Error(REFUS_HORS_PORTEE);
+  }
+
   const cmd: Exclude<ClientEnvelope['cmd'], CommandeDeLEspace> = commande;
   switch (cmd.type) {
     case 'hello':
@@ -947,7 +1099,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (!current) throw new Error('projet introuvable');
       /* Les dépôts annexes ne se règlent plus depuis l'écran (DEC-258) : ce
          patch général ne les touche jamais. */
-      const { depots: _depotsIgnores, ...patch } = cmd.patch as Record<string, unknown>;
+      /* Plus de thème propre à un projet : le réglage général vaut partout, et
+         un ancien écran qui enverrait encore `theme` n'en pose aucun. */
+      const { depots: _depotsIgnores, theme: _themeIgnore, ...patch } = cmd.patch as Record<string, unknown>;
       /* UNE ADRESSE PUBLIQUE SAISIE OU CHANGÉE n'est plus une adresse
          rattrapée : sa marque tombe, et son suivi part (ci-dessous). */
       const adresseChangee =
@@ -1206,7 +1360,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
          y entre tout de suite — mais n'attend jamais le premier tour de
          l'agent (`sendPrompt` part sans être attendu), et pas plus de quelques
          secondes la pose de la carte. */
-      const cahier = cmd.cahierDesCharges ? await carteDuCahierSansRetenir(project, cmd.description) : null;
+      /* Une source à cloner coche d'office le cahier : c'est lui qui l'analyse. */
+      const source = lireSourceFournie(cmd.source);
+      const cahier =
+        cmd.cahierDesCharges || source ? await carteDuCahierSansRetenir(project, cmd.description, source) : null;
       // Une étape ratée se dit : le projet existe quand même, mais il lui
       // manque quelque chose, et le taire ferait croire que tout est en place.
       const rates = etapes.filter((e) => !e.fait);
@@ -1639,7 +1796,7 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'card.plan.souhaite': {
       const card = store.getCard(cmd.cardId);
       if (!card) throw new Error('carte introuvable');
-      const parcours = { ...(card.parcours ?? { plans: [] }), planSouhaite: cmd.actif };
+      const parcours = { ...(card.parcours ?? { plans: [] }), planSouhaite: cmd.actif, planAutomatique: undefined };
       const ecrite = store.saveCard({ ...card, parcours });
       bus.emit({ type: 'card.upsert', card: ecrite });
       return { card: ecrite };
@@ -1650,6 +1807,23 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * la carte, et rien d'autre ; c'est le PROCHAIN tour qui emporte la
      * consigne du chef d'orchestre et ses outils de délégation.
      */
+    /*
+     * L'INTERRUPTEUR « LANCEMENT AUTOMATIQUE » : un état écrit sur la carte.
+     * Allumé alors que la compréhension est DÉJÀ prête et que rien ne tourne,
+     * il part tout de suite — sinon, à la fin du prochain tour de cadrage.
+     */
+    case 'card.lancement.automatique': {
+      const card = store.getCard(cmd.cardId);
+      if (!card) throw new Error('carte introuvable');
+      const parcours = { ...(card.parcours ?? { plans: [] }), lancementAutomatique: cmd.actif };
+      const ecrite = store.saveCard({ ...card, parcours });
+      bus.emit({ type: 'card.upsert', card: ecrite });
+      if (cmd.actif && card.agentId && !isRunning(card.agentId)) {
+        void lancerSiAutomatique(card.id, card.agentId, true);
+      }
+      return { card: ecrite };
+    }
+
     case 'card.creation.souhaitee': {
       const card = store.getCard(cmd.cardId);
       if (!card) throw new Error('carte introuvable');
@@ -1980,57 +2154,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         if (touchee) bus.emit({ type: 'card.upsert', card: touchee });
       }
       /*
-       * L'AGENT EST ARRÊTÉ SUR SA QUESTION : CE QU'ON ÉCRIT EST LA RÉPONSE.
-       *
-       * La bulle de la question portait son propre champ de saisie, doublon de
-       * la barre d'écriture — laquelle invite pourtant à répondre là (« l'agent
-       * attend votre réponse… »). Ce qu'on y écrivait partait dans la FILE
-       * d'attente de l'agent, lue une fois son travail fini, et la question
-       * restait ouverte pour toujours : bouton « Annuler » et triangle orange
-       * compris. La barre répond donc à la question, par le MÊME chemin que le
-       * bouton de la bulle (`texteRepondALaQuestion`).
+       * LA BARRE D'ÉCRITURE NE RÉPOND JAMAIS À UNE QUESTION. Un message écrit
+       * pendant que l'agent attend sa réponse suit le chemin ordinaire : il
+       * s'empile dans la file (`sendPrompt`, tour vivant) et partira à la fin
+       * du tour, comme quand l'agent travaille. On répond DANS la bulle de la
+       * question (champ libre, choix, bouton « Répondre » → `question.answer`).
        */
-      const enAttente = questionEnAttenteDeLAgent(cmd.agentId);
-      /*
-       * ET MÊME UN TOUR DÉJÀ REFERMÉ : plus personne n'attend dans le registre,
-       * mais la bulle du DERNIER message garde sa question ouverte, avec ses
-       * boutons. Y répondre par la barre la referme et relance l'agent, comme
-       * le ferait le bouton « Répondre ».
-       */
-      const porteur = enAttente ? store.messageDeLaQuestion(cmd.agentId, enAttente) : null;
-      const posee = porteur?.questions.find((q) => q.id === enAttente);
-      const ouverte = porteur
-        ? {
-            messageId: porteur.id,
-            questionId: enAttente!,
-            texteLibre: posee?.allowFreeText ?? true,
-            options: (posee?.options ?? []).map((option) => option.label),
-          }
-        : store.questionOuverteDuDernierMessage(cmd.agentId);
-      const questionARepondre = texteRepondALaQuestion({
-        questionEnAttente: ouverte?.questionId ?? null,
-        texte: cmd.text,
-        texteLibreAutorise: ouverte?.texteLibre,
-      });
-      if (questionARepondre && ouverte) {
-        /*
-         * …ET ELLE EMPORTE CE QUE LA BULLE TENAIT DÉJÀ. Un choix coché dans la
-         * bulle, puis une précision écrite dans la barre : seul le texte
-         * partait, et le choix était perdu. La réponse prend la forme de celle
-         * du bouton « Répondre » (`reponseParLaBarre`), images de la bulle
-         * comprises.
-         */
-        const saisie = cmd.saisiesDeQuestion?.[questionARepondre];
-        const jointes = [...new Set([...(cmd.attachments ?? []), ...(saisie?.images ?? [])])];
-        return handleCommand({
-          type: 'question.answer',
-          messageId: ouverte.messageId,
-          questionId: questionARepondre,
-          answer: reponseParLaBarre({ texte: cmd.text, options: ouverte.options, saisie }),
-          attachments: jointes,
-        } as ClientEnvelope['cmd'], compte);
-      }
-
       /*
        * DISCUTER D'UN CHIFFRAGE. Le chiffrage vit désormais dans le tour de
        * l'agent d'exécution : c'est donc à LUI qu'on écrit pour corriger une
@@ -2074,8 +2203,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
        * marque la demande sur la carte pour que le filet de relance
        * (`planManquant`, `server/src/runtime.ts`) s'applique comme au clic.
        */
+      const consigneComplexe = allumerSurDemandeComplexe(agent, cmd.text, cmd.attachments?.length ?? 0);
       const planDuTour = annoncerPlanDuMemeTour(agent);
-      const contextePlan = planDuTour?.consigne;
+      const contextePlan = [consigneComplexe, planDuTour?.consigne].filter(Boolean).join('\n\n') || undefined;
       /*
        * L'AGENT DE CONFIGURATION (déploiement ou mise en production) se parle par cette
        * même barre, depuis la rubrique de son étape dans les réglages du projet :
@@ -2209,6 +2339,49 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       }
 
       return { stopped, geste: decision.geste, message: decision.message };
+    }
+
+    case 'agent.suspend': {
+      const agent = store.getAgent(cmd.agentId);
+      const verdict = arretDeCarteAutorise({
+        carte: cmd.cardId,
+        agent: agent ? { id: agent.id, cardId: agent.cardId } : null,
+      });
+      if (!verdict.possible) throw new Error(verdict.raison ?? 'suspension refusée');
+
+      /*
+       * LA FILE TOMBE EN PREMIER, MAIS ELLE N'EST PAS JETÉE. Même ordre que
+       * l'arrêt (refermer un tour dépile la file en partant : vidée après, elle
+       * relancerait l'agent qu'on suspend) ; ce que l'utilisateur avait tapé
+       * repart vers l'écran, qui le remet dans le champ d'écriture.
+       */
+      const fileRendue = textesRendusParLaFile(store.listQueue(cmd.agentId));
+      const vides = store.clearQueue(cmd.agentId);
+      if (vides) bus.emit({ type: 'queue.etat', agentId: cmd.agentId, queue: [] });
+
+      /*
+       * LA PAUSE AVANT LA COUPE. La fin du tour coupé lit la marque et laisse
+       * la carte en « En cours » (`carteApresFinDeTour`) ; posée après, une
+       * fermeture d'autorité aurait pu ranger la carte entre-temps.
+       */
+      const carte = cmd.cardId ? store.getCard(cmd.cardId) : null;
+      if (carte?.column === 'running') mettreLaCarteEnPause(carte);
+
+      /*
+       * La coupe elle-même est celle de l'arrêt : moteur coupé, achevé s'il
+       * fait la sourde oreille, tour refermé d'autorité s'il n'y a plus de
+       * moteur. La SESSION, elle, n'est pas touchée : le prochain message
+       * reprend le même fil, avec tout son contexte.
+       */
+      const decision = arreterLAgent(cmd.agentId);
+      /*
+       * UNE SUSPENSION RÉUSSIE NE S'ANNONCE PAS EN ALERTE. Le bouton rend sa
+       * requête (roue, puis coche), le fil écrit « Tâche suspendue à la main à
+       * HH:MM » (`JALON_TOUR_SUSPENDU`) et le bouton du bas devient
+       * « Reprendre » : c'est assez. Seul un clic qui n'a RIEN suspendu se dit.
+       */
+      if (!decision.travaillait) bus.toast('info', decision.message, cmd.cardId, 'agent-interrompu');
+      return { suspendu: decision.travaillait, geste: decision.geste, message: decision.message, fileRendue };
     }
 
     /*
@@ -2927,6 +3100,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'github.deploiements':
       return { deploiements: github.deploiementsDeCarte(cmd.cardId) };
 
+    case 'card.branches':
+      return { branches: await branchesDeLaCarte(cmd.cardId) };
+
+    case 'card.branche':
+      return { reponse: await agirSurLaBranche(cmd) };
+
     case 'github.merge': {
       const result = await github.mergeCard(cmd.cardId, cmd.method, cmd.auto);
       if (!result.ok) throw new Error(result.error ?? 'fusion impossible');
@@ -3046,6 +3225,17 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const lancement = lancerUnTravail('mise-a-jour', recuperation.recette);
       return lancement.ok ? { ok: true, mode: 'simple', travail: lancement.travail } : lancement;
     }
+
+    case 'installation.competences':
+      return { fiches: competencesAExplorer(nomsSemes()) };
+
+    case 'installation.competence': {
+      const texte = modeDEmploiDeLaFiche(cmd.nom);
+      return texte === null ? { ok: false, erreur: 'Cette compétence n’existe plus.' } : { ok: true, texte };
+    }
+
+    case 'installation.courriel-sonde':
+      return sortieDirecteGardee();
 
     case 'installation.courriel-essai':
       return envoyerUnCourrielDEssai(cmd.a);
@@ -3304,34 +3494,62 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     // Retirer une fiche l'ARCHIVE six mois : chaque réponse rend donc aussi les archives.
     // …et les IMAGES des fiches (`pieces`), pour que l'écran affiche leurs vignettes.
+    // …et les DOSSIERS (actifs, puis archivés avec leurs fiches).
     case 'coffre.lister': {
       const acces = listerAcces();
       const archives = listerArchives();
-      return { acces, archives, pieces: imagesDesAcces([...acces, ...archives]) };
+      return {
+        acces,
+        archives,
+        dossiers: listerDossiers(),
+        dossiersArchives: listerDossiersArchives(),
+        pieces: imagesDesAcces([...acces, ...archives]),
+      };
     }
 
     case 'coffre.enregistrer': {
       const resultat = enregistrerAcces(cmd.acces);
       if (!resultat.ok) throw new Error(resultat.raison);
-      const liste = listerAcces();
-      const archives = listerArchives();
-      return { acces: resultat.acces, liste, archives, pieces: imagesDesAcces([...liste, ...archives]) };
+      return { acces: resultat.acces, ...etatDuCoffre() };
     }
 
     case 'coffre.supprimer': {
       const resultat = supprimerAcces(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'accès introuvable');
-      const liste = listerAcces();
-      const archives = listerArchives();
-      return { ok: true, liste, archives, pieces: imagesDesAcces([...liste, ...archives]) };
+      return { ok: true, ...etatDuCoffre() };
     }
 
     case 'coffre.restaurer': {
       const resultat = restaurerAcces(String(cmd.id ?? ''));
       if (!resultat.ok) throw new Error(resultat.raison ?? 'archive introuvable');
-      const liste = listerAcces();
-      const archives = listerArchives();
-      return { ok: true, liste, archives, pieces: imagesDesAcces([...liste, ...archives]) };
+      return { ok: true, ...etatDuCoffre() };
+    }
+
+    // Ranger une fiche dans un dossier (`dossierId`) ou la ressortir (vide).
+    case 'coffre.ranger': {
+      const dossierId = typeof cmd.dossierId === 'string' && cmd.dossierId.trim() ? cmd.dossierId.trim() : null;
+      const resultat = rangerAcces(String(cmd.id ?? ''), dossierId);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { acces: resultat.acces, ...etatDuCoffre() };
+    }
+
+    case 'coffre.dossier.enregistrer': {
+      const resultat = enregistrerDossier(cmd.dossier);
+      if (!resultat.ok) throw new Error(resultat.raison);
+      return { dossier: resultat.dossier, ...etatDuCoffre() };
+    }
+
+    // Retirer un dossier archive ses fiches avec lui ; le restaurer les rend ensemble.
+    case 'coffre.dossier.supprimer': {
+      const resultat = supprimerDossier(String(cmd.id ?? ''));
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'dossier introuvable');
+      return { ok: true, fiches: resultat.fiches ?? 0, ...etatDuCoffre() };
+    }
+
+    case 'coffre.dossier.restaurer': {
+      const resultat = restaurerDossier(String(cmd.id ?? ''));
+      if (!resultat.ok) throw new Error(resultat.raison ?? 'archive introuvable');
+      return { ok: true, fiches: resultat.fiches ?? 0, ...etatDuCoffre() };
     }
 
     /* -------- Le juge rapide -------- */
@@ -3753,6 +3971,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'studio.depense.valider':
     case 'studio.depense.refuser':
     case 'studio.credit':
+    case 'studio.services.lister':
+    case 'studio.services.enregistrer':
+    case 'studio.services.tester':
+    case 'studio.services.retirer':
+    case 'studio.modeleVideo.choisir':
     case 'studio.assistant':
     case 'studio.depuisMarketing':
     {

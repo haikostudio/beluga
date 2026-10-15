@@ -62,13 +62,47 @@ export const RAISON_DOSSIER_INJOIGNABLE =
  */
 export type EtatDuDossier = 'depot' | 'sans-depot' | 'injoignable';
 
+/** Combien de signes du titre le nom d'une BRANCHE reprend (demande du 15/10/2026 : « un peu plus courte »). */
+export const LONGUEUR_DU_TITRE_DANS_LA_BRANCHE = 24;
+/** Le nom du DOSSIER de la copie garde son ancienne longueur : une copie déjà ouverte ne change pas de place. */
+const LONGUEUR_DU_TITRE_DANS_LE_DOSSIER = 40;
+
 /**
- * Le nom de branche d'une carte : « tache/<titre> - <début du numéro> ». Sans
- * titre exploitable, on garde au moins le numéro — jamais de branche anonyme.
+ * Le titre d'une branche : au plus `LONGUEUR_DU_TITRE_DANS_LA_BRANCHE` signes,
+ * coupés entre deux mots quand la coupe tombe au milieu d'un (pas avant le
+ * douzième signe : un mot très long se coupe où il est), sans tiret final.
+ */
+export function titreDeBranche(titre: string): string {
+  const slug = slugEntier(titre ?? '');
+  const max = LONGUEUR_DU_TITRE_DANS_LA_BRANCHE;
+  if (slug.length <= max) return slug;
+  const coupe = slug.slice(0, max);
+  if (slug[max] === '-') return coupe.replace(/-+$/, '');
+  const dernier = coupe.lastIndexOf('-');
+  return (dernier >= max / 2 ? coupe.slice(0, dernier) : coupe).replace(/-+$/, '');
+}
+
+/**
+ * Le nom de branche d'une carte : « tache/<titre court>-<début du numéro> ».
+ * Sans titre exploitable, on garde au moins le numéro — jamais de branche
+ * anonyme.
+ *
+ * ATTENTION : c'est le nom d'une branche NEUVE. Une carte déjà lancée garde la
+ * sienne (`brancheDeLaCarte` lit d'abord `github.branch`), jamais ce nom
+ * recalculé.
  */
 export function nomDeBranche(titre: string, cardId: string): string {
-  const slug = slugEntier(titre ?? '').slice(0, 40);
-  return `tache/${slug || 'sans-titre'}-${cardId.slice(0, 6)}`;
+  return `tache/${titreDeBranche(titre) || 'sans-titre'}-${cardId.slice(0, 6)}`;
+}
+
+/**
+ * Le nom du dossier de la copie de travail d'une carte : l'ancien nom de
+ * branche (quarante signes de titre), inchangé. Il ne suit pas la branche —
+ * une copie déjà ouverte resterait sinon introuvable.
+ */
+export function nomDuDossierDeLaCopie(titre: string, cardId: string): string {
+  const slug = slugEntier(titre ?? '').slice(0, LONGUEUR_DU_TITRE_DANS_LE_DOSSIER);
+  return `${slug || 'sans-titre'}-${cardId.slice(0, 6)}`;
 }
 
 /**

@@ -35,6 +35,7 @@ import { EngineAdapter, EngineEvent, EngineHandle, EngineRunOptions, ResultatDuM
 import { arreterProcessus, finDuProcessus } from './fin-de-processus.js';
 import { cleDuCompteCursor, listAccountRecords } from '../accounts.js';
 import { log } from '../logger.js';
+import { cheminDeLOutil } from './outil-du-moteur.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -387,7 +388,10 @@ async function detecterLOutilCursor(): Promise<{ installed: boolean; version?: s
 export const cursorAdapter: EngineAdapter = {
   id: 'cursor',
   label: 'Cursor',
-  binary: process.env.BELUGA_CURSOR_BIN || '/usr/local/bin/cursor-agent',
+  /* L'installateur de Cursor pose l'outil dans `~/.local/bin` : cherché, jamais figé. */
+  get binary() {
+    return cheminDeLOutil({ nom: 'cursor-agent', impose: process.env.BELUGA_CURSOR_BIN, historique: '/usr/local/bin/cursor-agent' });
+  },
   defaultModel: MODELE_CURSOR_PAR_DEFAUT,
 
   /**

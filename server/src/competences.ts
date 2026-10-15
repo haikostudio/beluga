@@ -839,3 +839,35 @@ export function enregistrerLePool(racine = dossierDesCompetences(), message = 'm
     log.warn(`pool de compétences non enregistré : ${(err as Error).message}`);
   }
 }
+
+/**
+ * LE POOL À EXPLORER, vu de la mise en route : chaque fiche en service, son
+ * résumé, ses thèmes et son ORIGINE — publiée avec Beluga Build (semée),
+ * importée d'une bibliothèque, ou écrite ici. Le texte ne voyage pas : il se lit
+ * fiche par fiche (`modeDEmploiDeLaFiche`).
+ */
+export function competencesAExplorer(
+  semees: Set<string>,
+  racine = dossierDesCompetences(),
+): { nom: string; description: string; themes: string[]; origine: 'publiee' | 'bibliotheque' | 'ici'; bibliotheque?: string }[] {
+  return lirePool(racine)
+    .fiches.filter((fiche) => ficheEnService(fiche.etat))
+    .map((fiche) => ({
+      nom: fiche.nom,
+      description: fiche.description,
+      themes: fiche.themes,
+      origine: fiche.bibliotheque ? 'bibliotheque' : semees.has(path.basename(fiche.dossier)) ? 'publiee' : 'ici',
+      ...(fiche.bibliotheque ? { bibliotheque: fiche.bibliotheque } : {}),
+    }));
+}
+
+/** Le mode d'emploi d'UNE fiche, sans son en-tête — cherchée par son nom dans le pool, jamais par un chemin reçu. */
+export function modeDEmploiDeLaFiche(nom: string, racine = dossierDesCompetences()): string | null {
+  const fiche = lirePool(racine).fiches.find((f) => f.nom === nom);
+  if (!fiche) return null;
+  try {
+    return fs.readFileSync(fiche.fichier, 'utf8').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '').trim();
+  } catch {
+    return null;
+  }
+}

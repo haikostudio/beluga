@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { modeleBanni, modelePermis, TodoItem } from '@beluga/shared';
 import { log } from '../logger.js';
+import { AIDES_FERMEES, aidesDeLecture } from './aides-claude.js';
 import {
   agentBride,
   dossierDesFilsClaude,
@@ -13,6 +14,7 @@ import {
   environnementDeLaListeDeTaches,
   hooksDuGardeDuDemon,
   hooksDuVerrouDAnalyse,
+  hooksDuVerrouDeListe,
   reglagesClaudeDuChef,
 } from '@beluga/shared';
 import {
@@ -159,7 +161,16 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
    */
   args.push('--strict-mcp-config');
   if (options.allowedTools?.length) args.push('--allowedTools', options.allowedTools.join(','));
-  if (options.disallowedTools?.length) args.push('--disallowedTools', options.disallowedTools.join(','));
+  /*
+   * LES AIDES D'UN AGENT DE TÂCHE SONT ÉCONOMES OU FERMÉES (`aides-claude.ts`) :
+   * « Explore » passe sur le modèle léger, les aides qui écrivent ou héritent du
+   * modèle du principal sont refusées. La définition est la même à chaque tour
+   * — elle ne touche pas au préfixe du cache.
+   */
+  const aidesEncadrees = options.role === 'task' && options.fullAccess;
+  if (aidesEncadrees) args.push('--agents', aidesDeLecture());
+  const outilsFermes = [...(options.disallowedTools ?? []), ...(aidesEncadrees ? AIDES_FERMEES : [])];
+  if (outilsFermes.length) args.push('--disallowedTools', outilsFermes.join(','));
 
   // LA FRONTIÈRE DU CHEF BRIDÉ, côté Claude. Le bac à sable est ÉTEINT : le chef
   // lance ce qu'il veut (construire, installer, déployer, redémarrer, administrer
@@ -213,6 +224,7 @@ export function buildClaudeArgs(options: EngineRunOptions): string[] {
   const gardes = [
     ...((options.gardeDuDemonPath ? hooksDuGardeDuDemon(options.gardeDuDemonPath).PreToolUse : []) as unknown[]),
     ...((options.verrouAnalysePath ? hooksDuVerrouDAnalyse(options.verrouAnalysePath).PreToolUse : []) as unknown[]),
+    ...((options.verrouListePath ? hooksDuVerrouDeListe(options.verrouListePath).PreToolUse : []) as unknown[]),
   ];
   const permissionsDuChef = (reglagesDuChef?.permissions ?? {}) as {
     additionalDirectories?: string[];
@@ -292,6 +304,7 @@ export const claudeAdapter: EngineAdapter = {
 
     const pendingSteps = new Map<string, string>();
     const taches = new SuiviDesTaches();
+    const cumul = new CumulDesResultats();
     let buffer = '';
     let stderr = '';
     /*
@@ -312,7 +325,7 @@ export const claudeAdapter: EngineAdapter = {
         return;
       }
       aParle = true;
-      emitFromClaude(event, options.onEvent, pendingSteps, taches);
+      emitFromClaude(event, options.onEvent, pendingSteps, taches, cumul);
     };
 
     child.stdout.on('data', (chunk: Buffer) => {
@@ -447,6 +460,86 @@ export function contexteDepuisResultatClaude(event: any): { tokens: number; wind
   return { tokens, window: principal?.contextWindow };
 }
 
+interface UsageDuResultat {
+  input_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  output_tokens: number;
+}
+
+/**
+ * UNE AIDE EN ARRIÈRE-PLAN COUPE LE TOUR EN MORCEAUX, CHACUN AVEC SON RÉSULTAT.
+ *
+ * L'agent principal lance l'aide (en arrière-plan par défaut sur Claude Code
+ * 2.1.296), rend un premier résultat (« j'attends son retour »), puis le même
+ * processus repart à l'arrivée de l'aide et rend un SECOND résultat. Mesuré le
+ * 13/10/2026 : `usage` de chaque résultat ne compte que SON morceau, tandis que
+ * `modelUsage` est le cumul du processus entier. Garder le dernier `usage`
+ * perdait donc la consommation des morceaux précédents ; on les additionne ici,
+ * et c'est ce cumul que l'événement d'usage rend au démon.
+ */
+export class CumulDesResultats {
+  private total: UsageDuResultat = {
+    input_tokens: 0,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    output_tokens: 0,
+  };
+  private duree = 0;
+  private tours = 0;
+
+  ajouter(event: any): { usage: UsageDuResultat; durationMs: number; turns: number } {
+    const u = event?.usage ?? {};
+    for (const cle of Object.keys(this.total) as (keyof UsageDuResultat)[]) this.total[cle] += Number(u[cle]) || 0;
+    this.duree += Number(event?.duration_ms) || 0;
+    this.tours += Number(event?.num_turns) || 0;
+    return { usage: { ...this.total }, durationMs: this.duree, turns: this.tours };
+  }
+}
+
+/**
+ * CE QUE LES AIDES (sous-agents) ONT CONSOMMÉ PENDANT LE TOUR.
+ *
+ * Mesuré le 13/10/2026 sur Claude Code 2.1.296 : `usage` des résultats ne compte
+ * QUE l'agent principal (cumulé par `CumulDesResultats`), tandis que
+ * `modelUsage` additionne tout le processus, sous-agents compris, rangés PAR MODÈLE — une aide sur le même modèle que le principal se
+ * fond donc dans sa ligne. La part des aides est l'écart entre les deux, poste
+ * par poste, jamais négatif : aucun tri par modèle n'est nécessaire.
+ *
+ * Elle n'entre dans AUCUN total affiché ni dans le relevé de quota : la hausse
+ * de quota d'un compte est déjà mesurée en entier et attribuée une seule fois.
+ * Elle sert à juger, chiffres en main, si une aide fait gagner ou perdre.
+ */
+export function partDesAides(
+  event: any,
+  /** Le principal CUMULÉ sur tous les résultats du processus (`CumulDesResultats`). */
+  principalCumule?: UsageDuResultat,
+): { tokens: number; sortie: number; modeles: string[] } | null {
+  const usage = principalCumule ?? event?.usage ?? {};
+  const entrees = Object.entries(event?.modelUsage ?? {}) as [string, any][];
+  if (!entrees.length) return null;
+  const somme = (cle: string) => entrees.reduce((total, [, u]) => total + (Number(u?.[cle]) || 0), 0);
+  const ecart = (total: number, principal: unknown) => Math.max(0, total - (Number(principal) || 0));
+  const entree =
+    ecart(somme('inputTokens'), usage.input_tokens) +
+    ecart(somme('cacheReadInputTokens'), usage.cache_read_input_tokens) +
+    ecart(somme('cacheCreationInputTokens'), usage.cache_creation_input_tokens);
+  const sortie = ecart(somme('outputTokens'), usage.output_tokens);
+  if (entree + sortie <= 0) return null;
+  // Les modèles des aides : tous ceux qui ne portent pas le principal, plus le
+  // sien quand sa ligne dépasse ce que le principal a consommé seul.
+  const poidsPrincipal =
+    (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
+  const poids = (u: any) => (u?.inputTokens ?? 0) + (u?.cacheReadInputTokens ?? 0) + (u?.cacheCreationInputTokens ?? 0);
+  const [principal] = [...entrees].sort(
+    (a, b) => Math.abs(poids(a[1]) - poidsPrincipal) - Math.abs(poids(b[1]) - poidsPrincipal),
+  );
+  const modeles = entrees
+    .filter(([nom, u]) => nom !== principal[0] || poids(u) > poidsPrincipal || (u?.outputTokens ?? 0) > (usage.output_tokens ?? 0))
+    .map(([nom]) => nom);
+  return { tokens: entree + sortie, sortie, modeles };
+}
+
 /**
  * La liste de tâches annoncée par le moteur. Les versions récentes de Claude
  * Code ne proposent plus « TodoWrite » mais « TaskCreate » / « TaskUpdate » :
@@ -504,6 +597,7 @@ export function emitFromClaude(
   onEvent: (e: EngineEvent) => void,
   pendingSteps: Map<string, string>,
   taches?: SuiviDesTaches,
+  cumul?: CumulDesResultats,
 ): void {
   switch (event.type) {
     case 'system':
@@ -610,7 +704,11 @@ export function emitFromClaude(
       if (event.session_id) onEvent({ kind: 'session', sessionId: event.session_id });
       const context = contexteDepuisResultatClaude(event);
       if (context) onEvent({ kind: 'context', context });
-      const usage = event.usage ?? {};
+      // Le morceau de CE résultat donne la taille du contexte ; le cumul des
+      // morceaux du processus donne ce que le tour a consommé (voir plus haut).
+      const morceau = event.usage ?? {};
+      const cumule = cumul?.ajouter(event);
+      const usage = cumule?.usage ?? morceau;
       onEvent({
         kind: 'usage',
         usage: {
@@ -618,14 +716,15 @@ export function emitFromClaude(
           outputTokens: usage.output_tokens ?? 0,
           cachedTokens: usage.cache_read_input_tokens ?? 0,
           contextTokens: sommeContexte(
-            usage.input_tokens,
-            usage.cache_creation_input_tokens,
-            usage.cache_read_input_tokens,
-            usage.output_tokens,
+            morceau.input_tokens,
+            morceau.cache_creation_input_tokens,
+            morceau.cache_read_input_tokens,
+            morceau.output_tokens,
           ),
           costUsd: event.total_cost_usd,
-          durationMs: event.duration_ms,
-          turns: event.num_turns,
+          durationMs: cumule?.durationMs ?? event.duration_ms,
+          turns: cumule?.turns ?? event.num_turns,
+          aides: partDesAides(event, cumule?.usage) ?? undefined,
         },
       });
       if (event.is_error || event.subtype === 'error_during_execution') {

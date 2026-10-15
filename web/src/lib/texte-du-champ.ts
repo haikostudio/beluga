@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { texteApresRetrait } from '@beluga/shared';
+import { ideeDejaEnvoyee, ligneEstDansLeTexte } from '@beluga/shared';
 
 /**
  * LE TEXTE DU CHAMP D'ÉCRITURE, LU EN DIRECT PAR CE QUI L'ENTOURE.
@@ -53,7 +53,7 @@ export const ContexteTexteDuChamp = React.createContext<TexteDuChamp | null>(nul
  * idée que l'utilisateur a complétée n'est plus la ligne d'origine.
  */
 export function ligneDansLeTexte(texte: string, ligne: string): boolean {
-  return texteApresRetrait(texte, ligne) !== texte;
+  return ligneEstDansLeTexte(texte, ligne);
 }
 
 const SANS_CHAMP = () => () => undefined;
@@ -66,4 +66,32 @@ export function useLignesDansLeChamp(lignes: readonly string[]): boolean {
     const texte = champ.lire();
     return lignes.every((ligne) => ligneDansLeTexte(texte, ligne));
   });
+}
+
+/**
+ * LES MESSAGES DÉJÀ PARTIS, tels que la conversation les a envoyés. Une idée
+ * dont la ligne figure dans l'un d'eux est retenue pour de bon : sa case reste
+ * cochée après l'envoi, et ne se rouvre plus (`useIdeeEnvoyee`).
+ *
+ * La liste ne change que lorsqu'un message part : `useTextesEnvoyes` rend la
+ * MÊME liste tant que les textes sont les mêmes, pour que la réponse de l'agent
+ * qui s'écrit signe après signe ne redessine pas les cases.
+ */
+const AUCUN_MESSAGE: readonly string[] = [];
+export const ContexteTextesEnvoyes = React.createContext<readonly string[]>(AUCUN_MESSAGE);
+
+export function useTextesEnvoyes(messages: readonly { role: string; content?: unknown }[]): readonly string[] {
+  const derniere = React.useRef<readonly string[]>(AUCUN_MESSAGE);
+  const suivante = messages
+    .filter((message) => message.role === 'user' && typeof message.content === 'string' && message.content.trim())
+    .map((message) => message.content as string);
+  const identique =
+    suivante.length === derniere.current.length && suivante.every((texte, i) => texte === derniere.current[i]);
+  if (!identique) derniere.current = suivante.length ? suivante : AUCUN_MESSAGE;
+  return derniere.current;
+}
+
+/** Cette ligne est-elle déjà partie dans un message de la conversation ? */
+export function useIdeeEnvoyee(ligne: string): boolean {
+  return ideeDejaEnvoyee(React.useContext(ContexteTextesEnvoyes), ligne);
 }

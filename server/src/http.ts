@@ -12,6 +12,7 @@ import {
   REFUS_AVANT_ANALYSE,
   analyseDeCadrageFaite,
   outilVerrouilleAvantAnalyse,
+  lectureDePieceJointeAutorisee,
   ROUTE_CARTE_EXTERNE,
   ROUTE_CLIENTS_EXTERNE,
   ROUTE_LLM_EXTERNE,
@@ -39,7 +40,9 @@ import {
 import { CONFIG, PATHS, ROOT, webRoot } from './config.js';
 import { checkSession, login, logout, resolveDownload, getInternalToken, currentUsername, mintDownload } from './auth.js';
 import { creerLePremierCompte, installationEnAttente } from './installation.js';
+import { compteEstSuperAdministrateur } from './super-admin.js';
 import { PARAMETRE_DU_LIEN, messageMotsDePasseDifferents, pageDInstallation } from './page-installation.js';
+import { STYLE_DU_CHAMP, TEXTES_DU_CHAMP_FR, champMotDePasseHtml, scriptDuChamp } from './champ-mot-de-passe-html.js';
 import {
   REPERE_DE_PORTE,
   REPERE_D_IDENTITE,
@@ -52,11 +55,13 @@ import {
   routeApiAutorisee,
   peutVoirProjet,
   REFUS_HORS_PORTEE,
+  routeApiDuStudio,
   type CompteUtilisateur,
 } from '@beluga/shared';
 import { demandeDUneePiece, filDUnePiece } from './espace-client.js';
 import { deposerArchive, examinerArchive } from './export-donnees.js';
-import { cheminDePieceJointe, dossierDEcriture } from './pieces-jointes.js';
+import { cheminDePieceJointe, dossierDEcriture, dossiersDeLecture } from './pieces-jointes.js';
+import { largeurDemandee, miniatureDe } from './miniatures.js';
 import { recevoirAuFilDeLEau } from './envoi-piece-jointe.js';
 import { pipeline } from 'node:stream/promises';
 import * as store from './store.js';
@@ -93,6 +98,7 @@ import {
   ajouterConsultationMemoireAuTour,
   attachToCurrentMessage,
   journaliserDansLeTour,
+  jugerLAppelSousListe,
   liveRun,
 } from './runtime.js';
 import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
@@ -308,6 +314,16 @@ function serveStatic(res: http.ServerResponse, filePath: string): boolean {
   return true;
 }
 
+/**
+ * Le mot de passe des deux pages de connexion : l'œil seul — on y SAISIT un mot
+ * de passe existant, un générateur n'y aurait aucun sens.
+ */
+const CHAMP_DE_CONNEXION = champMotDePasseHtml({
+  id: 'p',
+  attributs: 'name="password" autocomplete="current-password" required',
+  textes: TEXTES_DU_CHAMP_FR,
+});
+
 const LOGIN_PAGE = (error?: string) => `<!doctype html>
 <html lang="fr" class="dark">
 <head>
@@ -331,7 +347,7 @@ const LOGIN_PAGE = (error?: string) => `<!doctype html>
            font-size:14px; font-weight:600; cursor:pointer; }
   button:hover { background:#e4e4e7; }
   .err { background:#2a1215; border:1px solid #5c1f26; color:#fca5a5; padding:9px 11px; border-radius:8px; font-size:13px; }
-</style>
+${STYLE_DU_CHAMP}</style>
 </head>
 <body>
 <form method="POST" action="/auth/login">
@@ -339,9 +355,10 @@ const LOGIN_PAGE = (error?: string) => `<!doctype html>
   <p class="sub">Pilotage de projets par agents.</p>
   ${error ? `<div class="err">${error}</div>` : ''}
   <div><label for="u">Identifiant</label><input id="u" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" required autofocus></div>
-  <div><label for="p">Mot de passe</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
+  <div><label for="p">Mot de passe</label>${CHAMP_DE_CONNEXION}</div>
   <button type="submit">Entrer</button>
 </form>
+${scriptDuChamp(TEXTES_DU_CHAMP_FR)}
 </body>
 </html>`;
 
@@ -375,7 +392,7 @@ const PAGE_ENTREE_CLIENT = (error?: string, nom = echapperHtml(nomEspaceClient()
            font-size:14px; font-weight:600; cursor:pointer; }
   button:hover { background:#e4e4e7; }
   .err { background:#2a1215; border:1px solid #5c1f26; color:#fca5a5; padding:9px 11px; border-radius:8px; font-size:13px; }
-</style>
+${STYLE_DU_CHAMP}</style>
 </head>
 <body>
 <form method="POST" action="/auth/login" data-porte="client">
@@ -383,9 +400,10 @@ const PAGE_ENTREE_CLIENT = (error?: string, nom = echapperHtml(nomEspaceClient()
   <p class="sub">Vos demandes, vos échanges.</p>
   ${error ? `<div class="err">${error}</div>` : ''}
   <div><label for="u">Identifiant</label><input id="u" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" required autofocus></div>
-  <div><label for="p">Mot de passe</label><input id="p" name="password" type="password" autocomplete="current-password" required></div>
+  <div><label for="p">Mot de passe</label>${CHAMP_DE_CONNEXION}</div>
   <button type="submit">Entrer</button>
 </form>
+${scriptDuChamp(TEXTES_DU_CHAMP_FR)}
 </body>
 </html>`;
 
@@ -817,16 +835,39 @@ export function createHttpServer(): http.Server {
          * cadrage : elle rend « faite ».
          */
         if (route === '/internal/analyse') {
-          let corps: { outil?: unknown } = {};
+          let corps: { outil?: unknown; chemin?: unknown } = {};
           try {
             corps = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
           } catch {
             corps = {};
           }
           const outil = typeof corps?.outil === 'string' ? corps.outil : '';
+          const chemin = typeof corps?.chemin === 'string' ? corps.chemin : '';
           let analyseFaite = true;
+          /*
+           * LA PIÈCE JOINTE DÉPOSÉE SE LIT D'EMBLÉE : c'est la demande de
+           * l'utilisateur, pas le projet. Le chemin est RÉSOLU (liens suivis)
+           * avant d'être comparé aux dossiers de pièces jointes, eux aussi résolus.
+           */
+          const resoudre = (p: string): string => {
+            try {
+              return fs.realpathSync(p);
+            } catch {
+              return p;
+            }
+          };
+          const pieceJointe =
+            agent.role === 'cadrage' &&
+            !!chemin &&
+            lectureDePieceJointeAutorisee({
+              outil,
+              chemin: resoudre(chemin),
+              dossiers: [PATHS.attachments, PATHS.attachmentsStockage, ...dossiersDeLecture()]
+                .filter((d): d is string => typeof d === 'string' && d.length > 0)
+                .map(resoudre),
+            });
           // Un outil de préparation (ToolSearch) n'est jamais retenu, même par un vieux réglage.
-          if (agent.role === 'cadrage' && (!outil || outilVerrouilleAvantAnalyse(outil))) {
+          if (!pieceJointe && agent.role === 'cadrage' && (!outil || outilVerrouilleAvantAnalyse(outil))) {
             try {
               analyseFaite = analyseDeCadrageFaite({
                 ouverturesMemoire: store.consultationsDeLAgent(agentId).ouvertures,
@@ -836,6 +877,24 @@ export function createHttpServer(): http.Server {
             }
           }
           return json(res, 200, { analyseFaite, text: analyseFaite ? '' : REFUS_AVANT_ANALYSE });
+        }
+        /*
+         * LA LISTE OBLIGATOIRE, DEMANDÉE À L'APPEL. Le script posé devant les
+         * commandes et les modifications d'un agent de tâche
+         * (`server/verrou-liste.mjs`) demande ici si l'action peut partir.
+         */
+        if (route === '/internal/liste') {
+          let corps: { outil?: unknown; sousAgent?: unknown } = {};
+          try {
+            corps = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
+          } catch {
+            corps = {};
+          }
+          const jugement = jugerLAppelSousListe(agentId, {
+            outil: typeof corps?.outil === 'string' ? corps.outil : '',
+            sousAgent: corps?.sousAgent === true,
+          });
+          return json(res, 200, jugement);
         }
         if (route === '/internal/call') {
           const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
@@ -1183,6 +1242,10 @@ export function createHttpServer(): http.Server {
       if (route.startsWith('/api/') && !routeApiAutorisee(compte.role, route)) {
         return json(res, 403, { error: REFUS_HORS_PORTEE });
       }
+      /* LES ROUTES DU STUDIO NE SERVENT QUE SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`) : même refus que pour une route fermée. */
+      if (routeApiDuStudio(route) && !compteEstSuperAdministrateur(compte)) {
+        return json(res, 403, { error: REFUS_HORS_PORTEE });
+      }
 
       /* ---------------- API authentifiée ---------------- */
 
@@ -1353,6 +1416,23 @@ export function createHttpServer(): http.Server {
           taille = fs.statSync(file).size;
         } catch {
           return json(res, 404, { error: 'fichier absent' });
+        }
+        /*
+         * UNE VIGNETTE (`&w=`) SE SERT EN MINIATURE : jamais l'original décodé
+         * pour quelques dizaines de pixels (`miniatures.ts`).
+         */
+        const largeur = url.searchParams.get('download') ? null : largeurDemandee(url.searchParams.get('w'));
+        if (largeur && !req.headers.range) {
+          const mini = await miniatureDe(file, attachment.mime, largeur);
+          if (mini) {
+            res.writeHead(200, {
+              'content-type': mini.mime,
+              'cache-control': 'private, max-age=86400',
+              'content-length': mini.taille,
+            });
+            if (req.method === 'HEAD') return res.end();
+            return pipeline(fs.createReadStream(mini.file), res).catch(() => {});
+          }
         }
         /*
          * LECTURE PARTIELLE : le lecteur vidéo demande un morceau
@@ -1547,6 +1627,14 @@ export function createHttpServer(): http.Server {
       if (route === '/api/favicon') {
         const trouve = fichierFavicon(url.searchParams.get('project') ?? '');
         if (!trouve) return json(res, 404, { error: 'icône introuvable' });
+        const largeur = largeurDemandee(url.searchParams.get('w'));
+        if (largeur) {
+          const mini = await miniatureDe(trouve.file, trouve.mime, largeur);
+          if (mini) {
+            res.writeHead(200, { 'content-type': mini.mime, 'cache-control': 'private, max-age=3600', 'content-length': mini.taille });
+            return pipeline(fs.createReadStream(mini.file), res).catch(() => {});
+          }
+        }
         res.writeHead(200, { 'content-type': trouve.mime, 'cache-control': 'private, max-age=3600' });
         return fs.createReadStream(trouve.file).pipe(res);
       }

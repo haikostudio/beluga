@@ -33,6 +33,7 @@ import { client } from '@/lib/client';
 import { useImagesVues } from '@/lib/use-images-vues';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { cn } from '@/lib/utils';
 import {
   IMPORTANCES_NOTE,
@@ -390,15 +391,25 @@ export function NotesPage({
                attend d'être VRAI pour paraître. */
             <SilhouetteNotes />
           ) : !visibles.length ? (
-            <EmptyState
-              icon={<NotebookPen className="h-5 w-5" />}
-              title={notes.length ? t('Aucune note ne correspond') : t('Aucune note pour l’instant')}
-              hint={
-                notes.length
-                  ? t('Changez la recherche ou le filtre de projet.')
-                  : t('Une note garde une idée, une échéance, un fichier — sans passer par le tableau.')
-              }
-            />
+            notes.length ? (
+              <EmptyState
+                icon={<NotebookPen className="h-5 w-5" />}
+                title={t('Aucune note ne correspond')}
+                hint={t('Changez la recherche ou le filtre de projet.')}
+              />
+            ) : (
+              <PasAPas
+                repere="notes"
+                icone={<NotebookPen className="h-6 w-6" />}
+                titre={t('Aucune note pour l’instant')}
+                explication={t('Une note garde une idée, une échéance, un fichier — sans passer par le tableau.')}
+                etapes={[
+                  t('Écrivez une note : une idée, un rappel, un document à garder.'),
+                  t('Rattachez-la à un projet si elle le concerne.'),
+                  t('Retrouvez-la ici, avec celles du même projet.'),
+                ]}
+              />
+            )
           ) : (
             <ul className="flex flex-col gap-1" data-liste-notes>
               {visibles.map((note) => {

@@ -12,6 +12,12 @@ import path from 'node:path';
 import {
   COMPETENCE_DU_CAHIER,
   DOCUMENT_DU_CAHIER,
+  DOSSIER_DE_LA_SOURCE,
+  RAPPORT_D_ANALYSE,
+  consigneDuClonage,
+  demandeDuPremierTourDuClonage,
+  nomDeFichierDeSource,
+  type SourceDuClonage,
   DOSSIER_INSPIRATION,
   TITRE_CARTE_CAHIER,
   cahierNeuf,
@@ -33,6 +39,7 @@ import { bus } from './bus.js';
 import { log } from './logger.js';
 import { PATHS } from './config.js';
 import { safeJoin } from './files.js';
+import { cheminDuModeDEmploiRea } from './rea.js';
 
 /*
  * LE MOTEUR, LES OUTILS ET LE CADRAGE SE CHARGENT À LA DEMANDE : les outils
@@ -62,6 +69,15 @@ export function estAgentDuCahier(agentId: string): boolean {
 }
 
 /**
+ * L'AGENT D'UN CAHIER QUI PART D'UN PRODUIT EXISTANT (clonage) : le seul qui
+ * reçoit le serveur MCP de REA (`server/src/rea.ts`). Aucun autre agent n'en
+ * paie les schémas.
+ */
+export function estAgentDuClonage(agentId: string): boolean {
+  return !!carteDuCahierDeLAgent(agentId)?.cahierDesCharges?.source;
+}
+
+/**
  * LA CONSIGNE DU PARCOURS, à ajouter à la consigne système du cadrage de cette
  * carte. Vide pour tout autre agent.
  */
@@ -69,7 +85,34 @@ export function consigneSystemeDuCahier(agentId: string): string {
   const carte = carteDuCahierDeLAgent(agentId);
   if (!carte) return '';
   const projet = store.getProject(carte.projectId);
-  return consigneDuCahier(cheminDeLaCompetence(), projet?.path ?? '');
+  const source = carte.cahierDesCharges?.source;
+  const cahier = consigneDuCahier(cheminDeLaCompetence(), projet?.path ?? '', !!source);
+  if (!source) return cahier;
+  return `${cahier}\n\n${consigneDuClonage(source, projet?.path ?? '', cheminDuModeDEmploiRea())}`;
+}
+
+/**
+ * LES FICHIERS DE LA SOURCE (APK, archive, HAR, captures) recopiés dans le
+ * projet, sous `docs/inspiration/source/`. Rend leurs chemins relatifs au
+ * projet ; un fichier illisible est sauté et dit dans le journal.
+ */
+function recopierLesFichiersDeLaSource(projet: Project, fichiers: string[]): string[] {
+  const copies: string[] = [];
+  for (const brut of fichiers) {
+    const origine = path.resolve(brut);
+    try {
+      if (!fs.statSync(origine).isFile()) continue;
+      const relatif = path.posix.join(DOSSIER_DE_LA_SOURCE, nomDeFichierDeSource(path.basename(origine)));
+      const cible = safeJoin(projet.path, relatif);
+      if (!cible) continue;
+      fs.mkdirSync(path.dirname(cible), { recursive: true });
+      fs.copyFileSync(origine, cible);
+      copies.push(relatif);
+    } catch (err) {
+      log.warn(`fichier de source « ${brut} » non recopié dans « ${projet.name} » : ${(err as Error).message}`);
+    }
+  }
+  return copies;
 }
 
 /**
@@ -78,8 +121,16 @@ export function consigneSystemeDuCahier(agentId: string): string {
  * de quota — jamais un envoi direct. Rien n'est attendu : le montage rend la
  * main tout de suite.
  */
-export async function ouvrirLeCahierDesCharges(projet: Project, description?: string): Promise<Card | null> {
+export async function ouvrirLeCahierDesCharges(
+  projet: Project,
+  description?: string,
+  sourceFournie?: SourceDuClonage,
+): Promise<Card | null> {
   const dit = String(description ?? '').trim();
+  const source = sourceFournie
+    ? { ...sourceFournie, fichiers: recopierLesFichiersDeLaSource(projet, sourceFournie.fichiers) }
+    : undefined;
+  const montrer = source ? [source.url, source.nom, ...source.fichiers].filter(Boolean).join(', ') : '';
   try {
     const { createCard } = await import('./tools.js');
     const { ouvrirLeCadrageDeLaCarte } = await import('./naissance-de-carte.js');
@@ -87,20 +138,27 @@ export async function ouvrirLeCahierDesCharges(projet: Project, description?: st
     const nee = createCard(projet.id, {
       title: TITRE_CARTE_CAHIER,
       description:
-        `Établir le cahier des charges du projet « ${projet.name} », question par question, puis le plan de construction. ` +
+        (source
+          ? `Analyser le produit existant (${montrer}), décider entre vrai clone et inspiration, puis établir le cahier des charges du projet « ${projet.name} » à partir de ce qui a été trouvé. `
+          : `Établir le cahier des charges du projet « ${projet.name} », question par question, puis le plan de construction. `) +
         `Une fois les deux validés, la carte construit l'application en un seul long travail (compétence « ${COMPETENCE_DU_CAHIER} »).`,
       briefing:
         `Démarrer le projet « ${projet.name} » par un cahier des charges : ce que fait l'application et pour qui, ` +
         `ses interfaces, ses fonctionnalités, ses technologies, son hébergement et son identité visuelle.` +
+        (source ? `\n\nLe projet part d'un produit existant : ${montrer}. Rapport d'analyse : ${RAPPORT_D_ANALYSE}.` : '') +
         (dit ? `\n\nCe que l'utilisateur a dit du projet en le créant : ${dit}` : ''),
       origin: 'user',
       cadrage: true,
     });
-    const carte = store.saveCard({ ...nee, cahierDesCharges: cahierNeuf() });
+    const carte = store.saveCard({ ...nee, cahierDesCharges: cahierNeuf(source) });
     bus.emit({ type: 'card.upsert', card: carte });
     const cadrage = await ouvrirLeCadrageDeLaCarte(carte, 'utilisateur', false);
-    if (cadrage) {
-      void sendPrompt(cadrage.id, demandeDuPremierTour({ name: projet.name, description: dit }), { template: 'none', silent: true }).catch((err) =>
+    /* Sous les tests, aucun moteur ne part : la carte et son cadrage suffisent à juger. */
+    if (cadrage && !process.env.NODE_TEST_CONTEXT) {
+      const premier = source
+        ? demandeDuPremierTourDuClonage({ name: projet.name, description: dit }, source)
+        : demandeDuPremierTour({ name: projet.name, description: dit });
+      void sendPrompt(cadrage.id, premier, { template: 'none', silent: true }).catch((err) =>
         log.error(`le cahier des charges de « ${projet.name} » n'a pas pu partir`, err),
       );
     }

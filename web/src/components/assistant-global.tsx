@@ -7,6 +7,7 @@ import {
   MARGE_CHAT,
   ROND_ROBOT,
   chatDeLAssistant,
+  droiteAvecVoisin,
   droiteDuRobot,
   estTelephoneChat,
   type Agent,
@@ -19,7 +20,7 @@ import { ReglagesAssistant } from '@/components/reglages-assistant';
 import { SilhouetteConversation } from '@/components/silhouettes';
 import { BulleInfo, Button, CLASSE_POINT_DE_BOUTON, Switch, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
-import { poserAgentDeLAssistant, useEtatAssistant } from '@/lib/assistant-global';
+import { poserAgentDeLAssistant, useEtatAssistant, useRondVoisin } from '@/lib/assistant-global';
 import { usePointerDrag, type DragItem } from '@/lib/dnd';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -61,7 +62,10 @@ export function AssistantGlobal() {
   const state = useApp();
   const { retenu, retenir: setBrut, agent: agentDuMagasin, travaille, questions } = useEtatAssistant();
   const [geste, setGeste] = React.useState<ChatAssistant | null>(null);
-  const etat = geste ?? retenu;
+  const rondVoisin = useRondVoisin();
+  const etatRetenu = geste ?? retenu;
+  /* Sur la page Marketing, son rond tient le coin : le robot se range à sa gauche, sans que la préférence change. */
+  const etat = { ...etatRetenu, droite: droiteAvecVoisin(etatRetenu.droite, rondVoisin) };
 
   const [fenetre, setFenetre] = React.useState<FenetreChat>(lireFenetre);
   React.useEffect(() => {

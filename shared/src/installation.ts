@@ -239,6 +239,35 @@ export function adresseEstProvisoire(adresse: string, service = SERVICE_D_ADRESS
   return hoteNu(adresse).endsWith(`.${service}`);
 }
 
+/**
+ * L'ADRESSE PROPOSÉE POUR L'ESPACE CLIENT — le champ n'arrive plus vide.
+ *
+ * Ce qui est déjà réglé décide : le nom de domaine des projets, sinon celui de
+ * l'adresse de Beluga Build (son premier mot retiré quand elle en a trois ou
+ * plus : `beluga.exemple.com` → `espace.exemple.com`). Sans nom de domaine, on
+ * propose un sous-domaine de l'adresse PROVISOIRE du serveur
+ * (`espace.1-2-3-4.sslip.io`), qui mène ici sans rien enregistrer. Rien à
+ * proposer : `null`.
+ */
+export function adresseProposeePourLEspaceClient(reglages: {
+  adressePublique?: string;
+  zoneDesProjets?: string;
+  ip?: string;
+}): { hote: string; origine: 'domaine' | 'provisoire' } | null {
+  const zone = hoteNu(reglages.zoneDesProjets ?? '');
+  if (zone && !adresseEstProvisoire(zone)) return { hote: `espace.${zone}`, origine: 'domaine' };
+  const admin = hoteNu(reglages.adressePublique ?? '');
+  if (admin && !adresseEstProvisoire(admin) && nomDeDomaineValide(admin)) {
+    const mots = admin.split('.');
+    const racine = mots.length >= 3 ? mots.slice(1).join('.') : admin;
+    return { hote: `espace.${racine}`, origine: 'domaine' };
+  }
+  if (admin && adresseEstProvisoire(admin)) return { hote: `espace.${admin}`, origine: 'provisoire' };
+  const ip = (reglages.ip ?? '').trim();
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return { hote: `espace.${ip.replace(/\./g, '-')}.${SERVICE_D_ADRESSE_PROVISOIRE}`, origine: 'provisoire' };
+  return null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Le code d'installation                                               */
 /* ------------------------------------------------------------------ */

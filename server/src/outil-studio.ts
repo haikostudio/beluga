@@ -18,6 +18,8 @@ import {
   trouverSegment,
   validerComposition,
   voixPasFinales,
+  REPERE_SERVICES_CREATION,
+  resumeDesServicesPourLAgent,
   voixFinaleDuProjet,
   phraseDansUneAutreVoix,
   tousLesSegments,
@@ -40,8 +42,9 @@ import {
 import { controlerComposition, imagesDeLaComposition, lancerExport } from './studio-rendu.js';
 import * as store from './store.js';
 import { fichierPermis, joindreUnFichier, racinesDeLAgent } from './joindre-fichier.js';
-import { devisDeGeneration, devisDesVoix, fabriquerVoixEssai, fabriquerVoixManquantes, importerPieceJointeMesuree, voixDEssaiDisponibles } from './studio-generation.js';
+import { payeurOpenRouter, devisDeGeneration, devisDesVoix, fabriquerVoixEssai, fabriquerVoixManquantes, importerPieceJointeMesuree, voixDEssaiDisponibles } from './studio-generation.js';
 import { listerModeles, lireModele } from './studio-modeles.js';
+import { modeleVideoRetenu, retenirModeleVideo, servicesVideoBranches } from './studio-services.js';
 
 /**
  * L'OUTIL « studio » — réservé à l'agent attitré d'une création
@@ -253,7 +256,7 @@ export async function outilStudio(ctx: Contexte, project: Project, args: Record<
         if (!d.ok) return { ok: false, text: d.raison };
         return {
           ok: true,
-          text: `Devis de la voix finale, en UNE seule prise pour toute la vidéo : ${d.devis.segments.length} phrase(s), ≈ ${Math.round(d.devis.secondes)} s, plafond ${montantLisible(d.devis.plafond)}, payé par l’espace OpenRouter de Beluga Build${d.devis.cle ? '' : ' — MAIS aucune clé OpenRouter n’est au coffre-fort : dis-le à l’utilisateur, la fenêtre « Mettre en production » le mène au coffre'}. Seul l’utilisateur la lance, avec « Valider la voix » dans la fenêtre « Mettre en production ».`,
+          text: `Devis de la voix finale, en UNE seule prise pour toute la vidéo : ${d.devis.segments.length} phrase(s), ≈ ${Math.round(d.devis.secondes)} s, plafond ${montantLisible(d.devis.plafond)}, payé par ${payeurOpenRouter() === 'utilisateur' ? 'le compte OpenRouter de l’utilisateur (branché dans ses paramètres)' : 'l’espace OpenRouter de Beluga Build'}${d.devis.cle ? '' : ' — MAIS aucune clé OpenRouter n’est branchée : dis-le à l’utilisateur, il la branche dans les paramètres, rubrique « Services de création »'}. Seul l’utilisateur la lance, avec « Valider la voix » dans la fenêtre « Mettre en production ».`,
         };
       }
       if (args.segmentId) {
@@ -274,13 +277,51 @@ export async function outilStudio(ctx: Contexte, project: Project, args: Record<
         duree: Number(args.duree),
         ...(format ? { format } : {}),
         avecSon: !!args.avecSon,
+        ...(Number.isFinite(Number(args.debut)) && args.debut !== undefined ? { debut: Number(args.debut) } : {}),
+        ...(args.pisteId ? { pisteId: String(args.pisteId) } : {}),
+        ...(args.service ? { service: String(args.service), modeleService: String(args.modele ?? '') } : {}),
         raison: String(args.raison ?? ''),
         demandeePar: 'agent',
       });
       if (!r.ok) return { ok: false, text: r.raison };
+      if (genre === 'clip' && r.depense.details.service) {
+        return {
+          ok: true,
+          text: `Devis posé à l’écran : un extrait de ${r.depense.details.duree} s par ${r.depense.modele}, ${r.depense.plafond === null ? 'prix non publié par le service (dis-le à l’utilisateur : c’est son compte chez ce service qui paie)' : `jusqu’à ${montantLisible(r.depense.plafond)}`}. RIEN n’est lancé : l’utilisateur valide ou refuse d’un clic. Une fois fabriqué, l’extrait est téléchargé, séparé en image et son, et posé tout seul sur la ligne de temps à ${r.depense.details.debut ?? 'la suite des visuels'} s — tu n’as pas à le poser.`,
+        };
+      }
       return {
         ok: true,
         text: `Devis posé à l’écran (${genre}, ${r.depense.plafond === null ? 'prix non publié par le fournisseur' : montantLisible(r.depense.plafond)}). RIEN n’est lancé : l’utilisateur valide ou refuse d’un clic. Dis-lui pourquoi c’est utile, en une phrase.`,
+      };
+    }
+
+    /*
+     * LES MODÈLES VIDÉO DES SERVICES BRANCHÉS PAR L'UTILISATEUR (demande du
+     * 14/10/2026). Sans argument : le modèle retenu pour la création, ou ceux
+     * qu'il peut choisir, ou rien (l'agent fait alors paraître l'encadré).
+     * Avec « service » et « modele » : retient le choix de l'utilisateur.
+     */
+    case 'modeles': {
+      if (args.service || args.modele) {
+        const r = retenirModeleVideo(creation.id, String(args.service ?? ''), String(args.modele ?? ''));
+        return r.ok ? { ok: true, text: `Modèle retenu pour cette création : ${r.nom}. Tes devis d’extraits passent désormais par lui (« generer », genre « clip »).` } : { ok: false, text: r.raison };
+      }
+      const retenu = modeleVideoRetenu(creation.id);
+      const branches = servicesVideoBranches();
+      if (!branches.length) {
+        return {
+          ok: true,
+          text: `AUCUN service vidéo n’est branché. Dis-le à l’utilisateur en une phrase et écris le repère ${REPERE_SERVICES_CREATION} dans ta réponse : l’écran y pose un encadré avec le bouton « Ouvrir les paramètres » (rubrique « Services de création »). Dès qu’un service est branché, l’encadré propose ses modèles et l’utilisateur choisit : tu recevras son choix. N’invente pas de vidéo sans modèle.`,
+        };
+      }
+      return {
+        ok: true,
+        text: [
+          retenu ? `Modèle déjà retenu pour cette création : « ${retenu.modele} » chez « ${retenu.service} » (ne le redemande pas).` : 'Aucun modèle retenu pour cette création : demande-le par « ask_user », ta recommandation en premier, puis retiens-le avec « modeles », « service » et « modele ».',
+          'Services branchés et leurs modèles :',
+          resumeDesServicesPourLAgent(branches),
+        ].join('\n'),
       };
     }
 

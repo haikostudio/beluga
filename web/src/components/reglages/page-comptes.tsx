@@ -64,7 +64,7 @@ export function SectionComptes() {
     <section>
       <div className="mb-2 flex items-center gap-1.5">
         <h3 className="flex items-center gap-1 flex-1 text-[13.5px] font-medium text-text">{t('Comptes et quotas')}<BulleInfo cote="start">{t('L\'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en premier, la relève ne sert qu\'en cas d\'épuisement.')}</BulleInfo></h3>
-        <Button variant="ghost" size="icon-sm" data-relire-quotas onClick={() => void client.geste({ type: 'quota.refresh' }, t('Relecture des quotas'))}>
+        <Button variant="ghost" size="icon-sm" aria-label="Relire les quotas" data-relire-quotas onClick={() => void client.geste({ type: 'quota.refresh' }, t('Relecture des quotas'))}>
           <RefreshCw className="h-3 w-3" />
         </Button>
       </div>
@@ -556,7 +556,7 @@ export function EtatCursor({ accountId }: { accountId: string }) {
       {etat.cliInstalle ? (
         <p>{t('outil « cursor-agent » installé{v0}', { v0: etat.versionDuCli ? ` (version ${etat.versionDuCli})` : '' })}</p>
       ) : (
-        <p className="text-warning">
+        <p className="text-danger">
           {t('outil « cursor-agent » absent du serveur — {v0}', { v0: etat.erreurDuCli ?? 'aucun tour ne peut partir' })}</p>
       )}
     </div>

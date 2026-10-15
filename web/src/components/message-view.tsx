@@ -34,6 +34,8 @@ import {
   heureExacte,
   propositionsDuFil,
   reponsePrete,
+  repartitionDuTemps,
+  REPARTITION_DUREE_MINIMALE_MS,
   emballerJointes,
   jointesDuMessage,
   texteAvecTagsDesJointes,
@@ -56,7 +58,6 @@ import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
 import { BulleQuestion, PiecesJointes, cleDeBrouillonDeReponse } from '@/components/bulle-question';
 import { EncadresDeCompetences } from '@/components/encadre-competence';
-import { SAISIE_EN_TEXTE } from '@/lib/saisie-de-question';
 import { Steps } from '@/components/steps';
 import { CapturesDuFlux } from '@/components/captures-du-flux';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
@@ -481,8 +482,49 @@ export function MessageView({
           texte={message.content}
           cle={message.id}
         />
+        {!message.streaming ? <RepartitionDuTour steps={etapes} dureeMs={message.durationMs} /> : null}
       </div>
     </>
+  );
+}
+
+/**
+ * OÙ EST PASSÉ LE TEMPS DE CE TOUR (`shared/src/repartition-du-temps.ts`).
+ *
+ * Sous une réponse qui a vraiment duré : une barre fine, puis les parts en
+ * clair (« Réflexion 45 % · Commandes 30 % · Aides 15 % ») et l'étape qui a
+ * pesé le plus, quand une seule a pris le gros du temps — c'est elle qui dit
+ * POURQUOI une tâche a été longue. Monochrome, sauf les AIDES : leur travail se
+ * peint en violet (`--teinte`), comme dans le déroulé.
+ */
+function RepartitionDuTour({ steps, dureeMs }: { steps: Message['steps']; dureeMs?: number }) {
+  const repartition = React.useMemo(() => repartitionDuTemps(steps, dureeMs), [steps, dureeMs]);
+  if (!repartition || repartition.totalMs < REPARTITION_DUREE_MINIMALE_MS || repartition.parts.length < 2) return null;
+  const teinteDe = (genre: string, index: number) =>
+    genre === 'aides' ? 'bg-teinte' : index % 2 === 0 ? 'bg-muted' : 'bg-faint';
+  return (
+    <div className="mt-1 max-w-[420px] text-[12.5px] text-faint" data-repartition-du-temps="">
+      <div className="flex h-1 w-full gap-px overflow-hidden rounded-full" aria-hidden>
+        {repartition.parts.map((part, index) => (
+          <span key={part.genre} className={teinteDe(part.genre, index)} style={{ width: `${part.pourcent}%` }} />
+        ))}
+      </div>
+      <div className="mt-0.5 flex flex-wrap gap-x-2">
+        {repartition.parts.map((part) => (
+          <span key={part.genre} className={cn(part.genre === 'aides' && 'text-teinte')} title={duration(part.ms / 1000)}>
+            {t(part.libelle)} {part.pourcent} %
+          </span>
+        ))}
+      </div>
+      {repartition.plusLongue ? (
+        <div className={cn('truncate', repartition.plusLongue.genre === 'aides' && 'text-teinte')}>
+          {t('Le plus long : {etape} ({duree})', {
+            etape: repartition.plusLongue.libelle,
+            duree: duration(repartition.plusLongue.ms / 1000),
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -732,7 +774,6 @@ export function QuestionCard({
       repere={{ 'data-question-agent': question.id }}
       /* UNE QUESTION À CHOIX PUR N'EST PAS RÉPONDUE PAR LA BARRE : ce qu'on y
          écrit reste une demande de plus, et le choix coché reste dans la bulle. */
-      cleDeSaisie={question.allowFreeText ? question.id : undefined}
       cleDeBrouillon={cleDeBrouillonDeReponse.outil(question.id)}
       onRepondre={async (reponse, attachments) => {
         try {
@@ -817,7 +858,6 @@ export function QuestionEnTexteCard({
         agentId={agentId}
         /* Voir `QuestionCard` : le panneau de décision porte déjà son cadre. */
         variante={sansEntete ? 'contraste' : 'attention'}
-        cleDeSaisie={`${SAISIE_EN_TEXTE}${messageId}`}
         cleDeBrouillon={cleDeBrouillonDeReponse.texte(messageId)}
         entete={
           sansEntete ? undefined : (

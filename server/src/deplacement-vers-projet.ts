@@ -116,7 +116,15 @@ export function deplacerLaCarteVersProjet(
   let deplacee: Card | null = null;
   try {
     db.transaction(() => {
-      deplacee = store.saveCard({ ...card, projectId: projetCibleId, position });
+      /* La branche choisie et son départ nomment des branches du dépôt QUITTÉ :
+         ils ne suivent pas la carte. */
+      deplacee = store.saveCard({
+        ...card,
+        projectId: projetCibleId,
+        position,
+        brancheChoisie: undefined,
+        brancheDeDepart: undefined,
+      });
 
       for (const agent of agents) {
         store.saveAgent({ ...agent, projectId: projetCibleId });

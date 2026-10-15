@@ -1,8 +1,8 @@
 /**
  * ARRÊTER DEPUIS UNE CARTE N'ARRÊTE QUE SA TÂCHE.
  *
- * Le bouton « Arrêter l'action en cours » vit dans la bande du fil, y compris
- * dans le tiroir d'une carte. L'agent qu'il vise y était choisi par une cascade
+ * Le bouton « Suspendre » vit dans la barre d'action du fil, y compris dans
+ * le tiroir d'une carte. L'agent qu'il vise y était choisi par une cascade
  * de replis (l'agent de la carte, sinon l'agent actif de la conversation, sinon
  * le dernier agent connu) : quand le premier maillon manquait, le bouton
  * pointait un agent qui ne travaillait PLUS pour cette carte, et c'est une
@@ -27,10 +27,10 @@ export interface VerdictArret {
   raison?: string;
 }
 
-export const RAISON_ARRET_SANS_AGENT = "Aucun agent ne travaille pour cette carte : il n'y a rien à arrêter.";
+export const RAISON_ARRET_SANS_AGENT = "Aucun agent ne travaille pour cette carte : il n'y a rien à suspendre.";
 
 export const RAISON_ARRET_ETRANGER =
-  "Cet agent ne travaille pas pour cette carte : l'arrêter couperait une autre tâche.";
+  "Cet agent ne travaille pas pour cette carte : le suspendre couperait une autre tâche.";
 
 /**
  * Peut-on arrêter `agent` depuis le tiroir de la carte `carte` ?
@@ -114,4 +114,75 @@ export const RAISON_ARRETE_A_LA_MAIN =
  */
 export function colonneApresArretALaMain(colonne: string): 'planned' | null {
   return colonne === 'running' ? 'planned' : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* SUSPENDRE AU LIEU D'ARRÊTER                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La phrase portée par la carte dont on vient de SUSPENDRE l'agent. La carte
+ * reste en « En cours » : la phrase dit pourquoi plus rien n'y bouge, et ce
+ * qui la fera repartir.
+ */
+export const RAISON_SUSPENDU_EN_PAUSE = 'Agent suspendu : il attend votre message pour reprendre.';
+
+/**
+ * LA CARTE EST-ELLE SUSPENDUE SUR PLACE ?
+ *
+ * Le bouton « Suspendre » (ancien « Arrêter ») coupe le tour SANS ranger la
+ * carte : elle reste en « En cours », l'agent garde sa session, et c'est le
+ * prochain message de l'utilisateur qui le relance. Deux marques ensemble :
+ * `suspendu` — que l'ordonnanceur, la reprise de quota et la reprise après
+ * redémarrage respectent déjà, rien ne repart donc seul — et `enPause`, qui
+ * dit au balayage des cartes oubliées que « suspendue + En cours » est voulu,
+ * pas un rangement perdu (`issueDeCarteOubliee`).
+ *
+ * `enPause` seule ne vaut rien : tout geste qui efface `suspendu` (lancement,
+ * dépôt, relance) lève donc aussi la pause, même s'il ignore son existence.
+ */
+export function carteEnPause(scheduling?: { suspendu?: boolean; enPause?: boolean } | null): boolean {
+  return !!(scheduling?.suspendu && scheduling?.enPause);
+}
+
+/**
+ * LE MESSAGE QUE PORTE LE BOUTON « REPRENDRE » d'une carte suspendue. La
+ * suspension garde la session : c'est le prochain message qui relance l'agent,
+ * dans la MÊME conversation. Le bouton envoie donc ce message-là, par le même
+ * chemin qu'un message tapé — jamais un second lancement qui renverrait toute
+ * la demande de la carte.
+ */
+export const MESSAGE_DE_REPRISE = 'Reprends le travail là où tu t’étais arrêté.';
+
+/** Ce que la file d'attente rend au champ d'écriture : un texte par message tapé. */
+export interface MessageDeFile {
+  text: string;
+  /** Demande interne (relance, reprise de quota) : jamais rendue au champ. */
+  silencieuse?: boolean;
+  poursuite?: boolean;
+  repriseDe?: string;
+}
+
+/**
+ * LES MESSAGES EN FILE REVIENNENT DANS LE CHAMP. Suspendre vide la file AVANT
+ * de couper (sinon le tour refermé la dépilerait et relancerait l'agent) ; ce
+ * que l'utilisateur avait tapé n'est pas jeté pour autant : le démon le rend,
+ * et l'écran le remet dans le brouillon. Les demandes internes ne sont pas des
+ * textes de l'utilisateur : elles tombent.
+ */
+export function textesRendusParLaFile(file: readonly MessageDeFile[]): string[] {
+  return file
+    .filter((m) => !m.silencieuse && !m.poursuite && !m.repriseDe)
+    .map((m) => m.text.trim())
+    .filter(Boolean);
+}
+
+/**
+ * LE BROUILLON APRÈS LA SUSPENSION : ce qui était déjà saisi reste en tête,
+ * intact, et les messages rendus suivent, séparés par une ligne vide. Rien
+ * n'est envoyé : l'utilisateur relit et envoie lui-même.
+ */
+export function brouillonApresSuspension(brouillon: string, textesRendus: readonly string[]): string {
+  const morceaux = [brouillon.replace(/\s+$/, ''), ...textesRendus].filter((m) => m.trim() !== '');
+  return morceaux.join('\n\n');
 }

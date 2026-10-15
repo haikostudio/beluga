@@ -4,7 +4,7 @@ import {
   EtatDemon,
   MESSAGE_REDEMARRAGE_FORCE,
   messageDuTravailSauve,
-  nomDeBranche,
+  brancheDeLaCarte,
   decisionSurSignalDArret,
   raisonSignalRetenu,
   redemarrageNecessaire,
@@ -196,7 +196,7 @@ async function sauverPuisToutArreter(): Promise<void> {
         agentId,
         messageDuTravailSauve({
           fichiers: enregistre ? fichiers : [],
-          branche: nomDeBranche(carte.title, carte.id),
+          branche: brancheDeLaCarte(carte),
           motif: MOTIF_REDEMARRAGE_FORCE,
         }),
       );

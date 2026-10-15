@@ -1,5 +1,10 @@
 import * as React from 'react';
-import { doitVeiller, prochaineRevisionDeVeille } from '@beluga/shared';
+import {
+  doitVeiller,
+  PAS_DU_TEMOIN_D_HORLOGE_MS,
+  pageSortieDUnGel,
+  prochaineRevisionDeVeille,
+} from '@beluga/shared';
 
 /**
  * LA VEILLE DE L'ÉCRAN, BRANCHÉE SUR LE NAVIGATEUR (`shared/src/veille-ecran.ts`).
@@ -18,7 +23,9 @@ import { doitVeiller, prochaineRevisionDeVeille } from '@beluga/shared';
  * Tant qu'un garde dit oui, la page ne dort pas.
  *
  * Un téléphone peut GELER la page sans prévenir par `visibilitychange` : on
- * écoute aussi `pagehide` / `pageshow`, `freeze` / `resume` et `focus`.
+ * écoute aussi `pagehide` / `pageshow`, `freeze` / `resume` et `focus` — et,
+ * parce que l'iPhone peut ne RIEN dire du tout, une horloge témoin reconnaît
+ * le gel au trou qu'il laisse dans le temps (`pageSortieDUnGel`).
  */
 
 type Garde = () => boolean;
@@ -30,6 +37,9 @@ const ecouteursDeVisibilite = new Set<() => void>();
 let cacheDepuis: number | null = null;
 let enVeille = false;
 let minuteur: number | null = null;
+/** Le témoin d'horloge : il ne bat que page à l'écran et éveillée. */
+let temoin: number | null = null;
+let dernierBattementA: number | null = null;
 
 /** Ce qui doit continuer sans écran le dit ici. Rend de quoi retirer le garde. */
 export function garderEveilleTantQue(garde: Garde): () => void {
@@ -107,12 +117,54 @@ function reviser(gelee = false): void {
 function quitterLEcran(gelee = false): void {
   const dejaCachee = cacheDepuis != null;
   if (!dejaCachee) cacheDepuis = Date.now();
+  arreterLeTemoin();
   if (!dejaCachee) for (const ecouteur of [...ecouteursDeVisibilite]) ecouteur();
   reviser(gelee);
 }
 
+/*
+ * LE TÉMOIN D'HORLOGE. Page à l'écran et éveillée seulement : caché, il se tait
+ * (un onglet caché voit ses minuteries ralenties, ce qui ressemblerait à un gel).
+ */
+function arreterLeTemoin(): void {
+  if (temoin != null) window.clearInterval(temoin);
+  temoin = null;
+  dernierBattementA = null;
+}
+
+function suivreLeTemoin(): void {
+  if (cacheDepuis != null || enVeille) {
+    arreterLeTemoin();
+    return;
+  }
+  dernierBattementA = Date.now();
+  if (temoin != null) return;
+  temoin = window.setInterval(() => {
+    if (!sortirDUnGelSilencieux()) dernierBattementA = Date.now();
+  }, PAS_DU_TEMOIN_D_HORLOGE_MS);
+}
+
+/**
+ * UNE PAGE QUI REVIENT D'UN GEL QU'ELLE N'A PAS VU passe par la veille, comme
+ * si elle l'avait vu venir : le canal, resté « ouvert » sur une route morte, est
+ * refait tout de suite, et le réveil redemande l'état complet. Rend vrai si
+ * c'était le cas.
+ */
+function sortirDUnGelSilencieux(): boolean {
+  if (cacheDepuis != null || enVeille) return false;
+  if (!pageSortieDUnGel(dernierBattementA, Date.now())) return false;
+  basculer(true);
+  basculer(false);
+  suivreLeTemoin();
+  return true;
+}
+
 function revenirALEcran(): void {
-  if (cacheDepuis == null && !enVeille) return;
+  if (cacheDepuis == null && !enVeille) {
+    // Retour sans départ annoncé (focus, pageshow, resume) : le témoin dit s'il y a eu gel.
+    sortirDUnGelSilencieux();
+    return;
+  }
   arreterLeMinuteur();
   /*
    * UNE PAGE GELÉE N'A PAS PU S'ENDORMIR ELLE-MÊME : ses minuteries ne
@@ -123,6 +175,7 @@ function revenirALEcran(): void {
   if (!enVeille && doitVeiller({ cacheDepuis, gardes: gardesActifs() }, Date.now())) basculer(true);
   cacheDepuis = null;
   basculer(false);
+  suivreLeTemoin();
   for (const ecouteur of [...ecouteursDeVisibilite]) ecouteur();
 }
 
@@ -139,6 +192,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   document.addEventListener('resume', jugerLaVisibilite);
   window.addEventListener('focus', jugerLaVisibilite);
   if (document.visibilityState === 'hidden') quitterLEcran();
+  else suivreLeTemoin();
 }
 
 function abonnerALaVisibilite(prevenir: () => void): () => void {
@@ -205,5 +259,6 @@ if (typeof window !== 'undefined' && import.meta.env.MODE !== 'production') {
     enVeille: estEnVeille,
     cachee: pageCachee,
     gardes: gardesActifs,
+    temoinBat: () => temoin != null,
   };
 }

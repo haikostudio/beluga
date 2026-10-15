@@ -232,11 +232,89 @@ export function resumeDeBranche(suivi: {
   fusionnee?: boolean;
   branchePrincipale?: string;
   fetchedAt?: number;
+  brancheSupprimee?: boolean;
 }): ResumeDeBranche {
   if (!suivi.branch) return { etat: 'inconnue', phrase: "Cette carte n'a pas encore de branche." };
+  // Supprimée à l'archivage : elle ne l'est que parce qu'elle était fusionnée.
+  if (suivi.brancheSupprimee) return { etat: 'fusionnee', phrase: 'Fusionnée, puis rangée' };
   if (!suivi.fetchedAt) return { etat: 'inconnue', phrase: 'Branche pas encore relevée.' };
   const principale = suivi.branchePrincipale || 'la branche principale';
   return suivi.fusionnee
     ? { etat: 'fusionnee', phrase: `Fusionnée dans « ${principale} »` }
     : { etat: 'ouverte', phrase: `Pas encore fusionnée dans « ${principale} »` };
+}
+
+/* ------------------------------------------------------------------ */
+/* Une branche fusionnée puis supprimée                                 */
+/* ------------------------------------------------------------------ */
+
+export interface FusionRetrouvee {
+  /** Le commit de fusion lui-même. */
+  fusion: string;
+  /** Son premier parent : la branche d'accueil juste avant la fusion. */
+  avant: string;
+  /** Son second parent : le dernier enregistrement de la branche de la carte. */
+  sommet: string;
+}
+
+/**
+ * RETROUVER LA FUSION D'UNE BRANCHE QUI N'EXISTE PLUS. Une branche de carte
+ * fusionnée est supprimée à l'archivage ; son travail vit dans l'histoire de
+ * la branche d'accueil, sous un commit de fusion qui porte son NOM
+ * (« Merge branch 'tache/…' » ou « Merge branch 'tache/…' into dev »). On lit
+ * la sortie de `git log --merges --format='%H %P%x09%s'` et l'on rend la plus
+ * RÉCENTE fusion qui nomme exactement cette branche — une fusion qui en cite
+ * une autre dont le nom commence pareil ne compte pas.
+ */
+export function fusionDeLaBranche(sortie: string, branche: string): FusionRetrouvee | undefined {
+  const nom = branche.trim();
+  if (!nom) return undefined;
+  return fusionsParBranche(sortie).get(nom);
+}
+
+/** Le nom de branche porté par un message de fusion git, ou rien. */
+export function brancheDuMessageDeFusion(sujet: string): string | undefined {
+  const m = /^Merge branch ['"]([^'"]+)['"](?: into \S+)?$/.exec(sujet.trim());
+  return m?.[1];
+}
+
+/**
+ * TOUTES LES FUSIONS D'UN DÉPÔT, PAR NOM DE BRANCHE — lues en UNE passe de
+ * `git log --merges --format='%H %P%x09%s'` (plus récente d'abord). C'est ce
+ * qui rend le rattrapage de centaines de cartes possible sans un `git log`
+ * par carte. La plus récente fusion d'un nom l'emporte.
+ */
+export function fusionsParBranche(sortie: string): Map<string, FusionRetrouvee> {
+  const out = new Map<string, FusionRetrouvee>();
+  for (const ligne of sortie.split('\n')) {
+    const tab = ligne.indexOf('\t');
+    if (tab < 0) continue;
+    const shas = ligne.slice(0, tab).trim().split(/\s+/);
+    if (shas.length < 3) continue;
+    const nom = brancheDuMessageDeFusion(ligne.slice(tab + 1));
+    if (!nom || out.has(nom)) continue;
+    out.set(nom, { fusion: shas[0]!, avant: shas[1]!, sommet: shas[2]! });
+  }
+  return out;
+}
+
+/**
+ * LA BRANCHE PERDUE D'UNE CARTE, RETROUVÉE PARMI LES FUSIONS. D'abord le nom
+ * qu'elle porterait aujourd'hui ; sinon une branche « tache/… » qui finit par
+ * son NUMÉRO (le titre a pu changer depuis le lancement). Une seule candidate
+ * par numéro, jamais une devinette entre plusieurs.
+ */
+export function brancheRetrouvee(
+  fusions: Map<string, FusionRetrouvee>,
+  nomAttendu: string,
+  cardId: string,
+): { branche: string; fusion: FusionRetrouvee } | undefined {
+  const exacte = fusions.get(nomAttendu);
+  if (exacte) return { branche: nomAttendu, fusion: exacte };
+  const signature = cardId.slice(0, 6);
+  if (!signature) return undefined;
+  const candidates = [...fusions.entries()].filter(([nom]) => nom.startsWith('tache/') && nom.endsWith(`-${signature}`));
+  if (candidates.length !== 1) return undefined;
+  const [branche, fusion] = candidates[0]!;
+  return { branche, fusion };
 }

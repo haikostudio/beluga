@@ -47,7 +47,7 @@ import {
   decisionDArchivage,
   dossiersOrphelins,
   estDossierDeCarte,
-  nomDeBranche,
+  brancheDeLaCarte,
   objetsCitesDansLErreur,
   trierLeNettoyage,
   DELAI_OUVERTURE_DE_COPIE_MS,
@@ -293,7 +293,7 @@ async function ouvrirVraiment(
   card: Card,
   reglees?: BranchesDePublication,
 ): Promise<DossierOuvert> {
-  const branche = nomDeBranche(card.title, card.id);
+  const branche = brancheDeLaCarte(card);
   /* Sur le disque local quand le projet est servi par le réseau
      (`server/src/copies-de-cartes.ts`) ; une copie déjà ouverte à l'ancien
      endroit reste la sienne. */
@@ -343,7 +343,16 @@ async function ouvrirVraiment(
    * l'instance servie, et referait le travail des cartes déjà déployées.
    * Sans réglage ni branche « dev », c'est la principale — comme avant.
    */
-  const depart = await brancheDeDeploiement(racine, reglees);
+  /*
+   * UN DÉPART CHOISI À LA MAIN (bouton de branche, `brancheDeDepart`) passe
+   * avant la branche de déploiement — s'il existe encore dans le dépôt.
+   */
+  const departChoisi = (card.brancheDeDepart ?? '').trim();
+  const departConnu =
+    departChoisi && !(existe.ok && existe.out.trim())
+      ? (await git(racine, ['rev-parse', '--verify', '--quiet', departChoisi], 20000)).out.trim()
+      : '';
+  const depart = departConnu ? departChoisi : await brancheDeDeploiement(racine, reglees);
 
   /*
    * L'ÉTAT DE L'OUVERTURE, qui traverse les réparations. `depuis` et `neuve`
@@ -831,6 +840,10 @@ export async function enregistrerLeTravailEnCours(dossier: string): Promise<bool
  * principal : les fermetures d'un projet se suivent, une par une.
  */
 const files = new Map<string, Promise<unknown>>();
+/** La file des gestes git d'un dépôt : ouvrir, refermer, archiver, changer de branche (`gestion-de-branche.ts`). */
+export function sousLaFileDuDepot<T>(racine: string, travail: () => Promise<T>): Promise<T> {
+  return aLaQueue(racine, travail);
+}
 function aLaQueue<T>(racine: string, travail: () => Promise<T>): Promise<T> {
   const precedent = files.get(racine) ?? Promise.resolve();
   const suivant = precedent.catch(() => undefined).then(travail);
@@ -1198,7 +1211,7 @@ async function supprimerLaBrancheFusionnee(racine: string, branche: string, depl
 }
 
 /** `refermerDossierDeCarte` sans la file — pour un appelant qui la tient déjà. */
-async function refermerSansFile(racine: string, dossier: string): Promise<BilanFermeture> {
+export async function refermerSansFile(racine: string, dossier: string): Promise<BilanFermeture> {
   if (!fs.existsSync(dossier)) return { fusionnee: false, retire: true, raison: 'dossier déjà refermé' };
   const enregistre = await enregistrerLeTravailEnCours(dossier);
   const sale = await git(dossier, ['status', '--porcelain'], 60000);

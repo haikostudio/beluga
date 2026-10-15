@@ -6,7 +6,9 @@
  * elle peut couper le démon Beluga Build — un `pkill` au motif trop large, un
  * `kill -9` sur son numéro, un `systemctl restart beluga` —, ou si elle ÉCRIT
  * sur un vrai site hors mise en production, le garde la REFUSE et dit quoi
- * faire à la place. Tout le reste passe sans un mot.
+ * faire à la place. Une commande qui bloquerait la tâche à attendre (boucle,
+ * long sommeil, serveur d'essai au premier plan) l'est aussi. Tout le reste
+ * passe sans un mot.
  *
  * Règle de prudence : au moindre doute (règle illisible, entrée inattendue), on
  * LAISSE PASSER. Un garde qui se trompe en bloquant arrêterait tout le travail
@@ -55,6 +57,19 @@ async function main() {
     // Code 2 : le moteur n'exécute pas la commande et rend ce texte à l'agent.
     process.stderr.write(regle.refusDuGarde(verdict) + '\n');
     process.exit(2);
+  }
+
+  /*
+   * LES ATTENTES INUTILES (`shared/src/garde-attentes.ts`) : une boucle
+   * d'attente, un long sommeil, un serveur d'essai ou un « tail -f » lancés au
+   * premier plan bloquent la tâche. Refusés avant de partir, avec leurs issues.
+   */
+  if (typeof regle.commandeAttendEnVain === 'function') {
+    const attente = regle.commandeAttendEnVain(commande, { arrierePlan: entree?.tool_input?.run_in_background === true });
+    if (attente?.refusee) {
+      process.stderr.write(regle.refusDesAttentes(attente) + '\n');
+      process.exit(2);
+    }
   }
 
   /*

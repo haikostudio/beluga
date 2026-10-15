@@ -348,44 +348,32 @@ export const Project = z.object({
    */
   depotSansDonneesSensibles: z.boolean().default(false),
   /**
-   * LA VITRINE LIÉE (`server/src/vitrine-liee.ts`) : le site dont la
-   * démonstration montre CE projet. Réglée, chaque déploiement réussi
-   * reconstruit la démo depuis la branche de déploiement et la pose sur
-   * l'instance d'essai du site ; chaque mise en production la reconstruit depuis
-   * la branche de production et met le site de production à jour. Toujours par
-   * le filtre de contenu, jamais au prix de la publication elle-même. Absente
-   * par défaut.
+   * LA VITRINE LIÉE : le site dont la démonstration montre CE projet. La
+   * publication n'y touche plus (retirée à la refonte de la publication) : la
+   * démo est refaite par des minuteries de nuit propres à chaque site. Ce
+   * réglage ne porte plus que les ADRESSES du site, lues par le dépannage de
+   * site (`server/src/depannage-site.ts`), l'assistant marketing
+   * (`server/src/assistant-marketing.ts`) et `scripts/verif-demo-a-jour.mjs`.
+   * Les autres sous-champs sont HÉRITÉS : rien ne les lit plus, ils restent
+   * dans le schéma pour les projets d'avant. Absente par défaut.
    */
   vitrineLiee: z
     .object({
-      /** Le dossier du dépôt du site (sa branche « dev » est servie en essai). */
+      /** HÉRITÉ : le dossier du dépôt du site. Plus lu par la publication. */
       site: z.string(),
-      /** Le dossier du projet qui construit la démo (`scripts/construire-demo.mjs`). */
+      /** HÉRITÉ : le dossier du projet qui construit la démo. Plus lu. */
       constructeur: z.string(),
-      /**
-       * L'adresse de l'instance d'essai, pour lire la démo servie. ABSENTE, le
-       * déploiement ne touche plus au site : seule la mise en production y pose
-       * la démo, tirée de la branche de production.
-       */
+      /** L'adresse de l'instance d'essai du site, pour lire la démo servie. */
       adresseEssai: z.string().optional(),
-      /**
-       * L'adresse où le CONSTRUCTEUR sert lui-même la démo (vitrine Haiko).
-       * Réglée, chaque mise en production y dépose la même démo filtrée et le
-       * remet en ligne par son `scripts/mettre-en-ligne.sh`.
-       */
+      /** L'adresse où le CONSTRUCTEUR sert lui-même la démo (vitrine Haiko). */
       adresseConstructeur: z.string().optional(),
-      /**
-       * VRAI, chaque DÉPLOIEMENT (branche de développement) nourrit AUSSI la
-       * vitrine du constructeur (`adresseConstructeur`), depuis le commit qui
-       * vient d'être déployé. Le site officiel, lui, n'est touché au déploiement
-       * que si `adresseEssai` existe.
-       */
+      /** HÉRITÉ : ne commande plus rien, le déploiement ne refait plus la démo. */
       constructeurSuitLeDeploiement: z.boolean().optional(),
       /** L'adresse de production, pour lire la démo servie. */
       adresseProduction: z.string().optional(),
-      /** Le dossier servi en production, recopié depuis la branche de production du site. */
+      /** HÉRITÉ : le dossier servi en production du site. Plus lu. */
       dossierProduction: z.string().optional(),
-      /** Le service à relancer quand le serveur du site de production change. */
+      /** HÉRITÉ : le service du site de production. Plus lu. */
       serviceProduction: z.string().optional(),
     })
     .optional(),
@@ -397,15 +385,6 @@ export const Project = z.object({
    * les cartes ; le champ reste lisible pour les projets d'avant.
    */
   lastVisitedAt: z.number().optional(),
-  /**
-   * LE THÈME PROPRE À CE PROJET (`shared/src/themes.ts`). Réglé, il IMPOSE son
-   * apparence à TOUTE l'application dès que le projet est ouvert : on reconnaît
-   * d'un coup d'œil où l'on travaille. ABSENT ou `null`, le projet suit le
-   * réglage général — d'où le `nullish` et non un simple `optional` : c'est
-   * `null` qui permet de RETIRER un thème déjà posé, `undefined` disparaissant
-   * du bloc envoyé au serveur.
-   */
-  theme: z.string().nullish(),
   /** Rang choisi à la main dans la colonne de gauche : petit = en haut. */
   rank: z.number().default(1000),
   /** Groupe de rangement choisi par l'utilisateur (« Clients », « Perso »…). */
@@ -604,6 +583,18 @@ export const GithubTracking = z.object({
    * fusion, où la principale contient déjà la branche.
    */
   baseSha: z.string().optional(),
+  /**
+   * LE DERNIER ENREGISTREMENT DE LA BRANCHE, retenu avant qu'elle soit
+   * supprimée à l'archivage (branche fusionnée). Avec `baseSha`, il suffit à
+   * relire ce que la carte a changé quand la branche n'existe plus.
+   */
+  sommetSha: z.string().optional(),
+  /**
+   * La branche a été SUPPRIMÉE du dépôt (fusionnée, puis archivée). Son NOM
+   * reste dans `branch` : sans lui, l'onglet « GitHub » concluait qu'une carte
+   * qui a travaillé « n'a jamais été lancée ».
+   */
+  brancheSupprimee: z.boolean().optional(),
   /** La branche dans laquelle celle de la carte doit rejoindre. */
   branchePrincipale: z.string().optional(),
   /** Le premier enregistrement de la branche : sa date de naissance réelle. */
@@ -688,6 +679,18 @@ export const SchedulingState = z.object({
    * efface la marque.
    */
   suspendu: z.boolean().optional(),
+  /**
+   * LA SUSPENSION SUR PLACE — bouton « Suspendre » d'une carte en travail.
+   *
+   * Toujours posée AVEC `suspendu` (l'ordonnanceur et la reprise après
+   * redémarrage la respectent donc sans rien savoir d'elle), mais la carte
+   * RESTE en « En cours » : l'agent a gardé son contexte et attend le prochain
+   * message de l'utilisateur, qui efface les deux marques. Sans elle, le
+   * balayage des cartes oubliées lirait `suspendu` + « En cours » comme un
+   * rangement perdu et renverrait la carte en « Planifié »
+   * (`carteEnPause`, `shared/src/arret-carte.ts`).
+   */
+  enPause: z.boolean().optional(),
   /**
    * LE LANCEMENT A ÉTÉ DEMANDÉ, MAIS UNE PORTE QUI SE ROUVRE SEULE L'A REFUSÉ —
    * plus un compte avec du quota, plus de place sur la machine
@@ -979,6 +982,17 @@ export const ParcoursDeCarte = z.object({
    * second clic.
    */
   planSouhaite: z.boolean().optional(),
+  /**
+   * L'INTERRUPTEUR A ÉTÉ ALLUMÉ PAR LE DÉMON, sur une demande jugée complexe
+   * (`shared/src/demande-complexe.ts`) — l'infobulle le dit. Un clic de
+   * l'utilisateur le retire.
+   */
+  planAutomatique: z.boolean().optional(),
+  /**
+   * L'INTERRUPTEUR « LANCEMENT AUTOMATIQUE », à droite de « Valider et lancer » :
+   * sur la carte, éteint à la naissance (`shared/src/lancement-automatique.ts`).
+   */
+  lancementAutomatique: z.boolean().optional(),
   /**
    * L'INTERRUPTEUR « CRÉATION » DE LA BARRE D'ÉCRITURE, voisin de « Plan » et
    * rangé de la même façon : sur la carte, éteint à la naissance. Allumé,
@@ -1288,6 +1302,15 @@ export const Card = z.object({
    * que la carte repart en Demande ou Travail (`store.saveCard`).
    */
   rangeeTableauDeBordAt: z.number().optional(),
+  /**
+   * LA BRANCHE CHOISIE PAR L'UTILISATEUR pour cette carte (bouton de branche du
+   * fil d'Ariane) : renommée, créée depuis un départ choisi, ou reprise d'une
+   * autre carte. Elle FAIT FOI dès qu'elle est posée ; absente, la branche est
+   * celle que `nomDeBranche` tire du titre (`brancheDeLaCarte`).
+   */
+  brancheChoisie: z.string().optional(),
+  /** Le point de départ choisi pour une branche encore à créer (sinon la branche de déploiement). */
+  brancheDeDepart: z.string().optional(),
 });
 export type Card = z.infer<typeof Card>;
 

@@ -191,7 +191,7 @@ export function VisionneuseDeLien() {
           className="overflow-x-auto p-2"
         >
           {echec ? (
-            <p className="p-6 text-center text-[13.5px] text-faint" data-visionneuse-echec>
+            <p className="p-6 text-center text-[13.5px] text-danger" data-visionneuse-echec>
               {t('Ouverture impossible')}
             </p>
           ) : !fichier ? (

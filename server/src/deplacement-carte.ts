@@ -9,6 +9,8 @@ import {
   RAISON_PONT_MORT,
   ROLES_QUI_DEPLACENT,
   colonneApresArretALaMain,
+  carteEnPause,
+  RAISON_SUSPENDU_EN_PAUSE,
   colonneApresMoteurMuet,
   colonneApresPanneDuMoteur,
   colonneApresPontMort,
@@ -198,6 +200,21 @@ export interface FinDeTour {
  */
 export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
   const leSien = tourDeLaCarte(card, fin.agentId);
+
+  /*
+   * LA CARTE SUSPENDUE SUR PLACE NE SE RANGE PAS. Le bouton « Suspendre » a
+   * posé la pause AVANT de couper : le tour qui se termine maintenant est
+   * celui qu'on a coupé, et il ne décide plus de rien — ni « À déployer » sur
+   * un dépôt qui a bougé, ni « Planifié » sur un moteur qui s'est tu. La carte
+   * attend le prochain message, là où elle est.
+   */
+  if (leSien && carteEnPause(card.scheduling)) {
+    return {
+      ...card,
+      scheduling: { ...card.scheduling!, tourEnVolDepuis: undefined },
+      codeDejaEnregistre: dejaEnregistreApres(card, fin),
+    };
+  }
 
   const relanceMoteurMuet = leSien ? colonneApresMoteurMuet(card.column, fin.role, fin.moteurMuet) : null;
   /*
@@ -464,6 +481,8 @@ export function rangerLesCartesOubliees(): void {
          * quoi la carte reste en « En cours » à jamais (§ `issueDeCarteOubliee`).
          */
         suspendue: card.scheduling?.suspendu === true,
+        /* …SAUF LA PAUSE VOULUE : bouton « Suspendre », la carte attend un message. */
+        enPause: carteEnPause(card.scheduling),
         dejaEnregistre: !!card.codeDejaEnregistre,
         decisionOuverte: carteAttendUneDecision(card, agents, decisions),
       },
@@ -631,6 +650,8 @@ export function suspendreLaCarte(card: Card, raison: string): Card {
     scheduling: {
       ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
       suspendu: true,
+      // Garée pour de bon : ce n'est plus une pause sur place.
+      enPause: undefined,
       waitingReason: raison,
       tourEnVolDepuis: undefined,
       // Le geste humain l'emporte sur une reprise promise : une carte qui
@@ -640,4 +661,37 @@ export function suspendreLaCarte(card: Card, raison: string): Card {
   });
   bus.emit({ type: 'card.upsert', card: suspendue });
   return suspendue;
+}
+
+/**
+ * METTRE LA CARTE EN PAUSE — le bouton « Suspendre » d'une carte en travail.
+ *
+ * Le contraire de `suspendreLaCarte` sur un seul point : la COLONNE NE BOUGE
+ * PAS. L'agent garde sa session, la carte reste en « En cours » avec sa phrase
+ * (`RAISON_SUSPENDU_EN_PAUSE`), et c'est le prochain message de l'utilisateur
+ * qui relance le tour (`replacerCarteAuDemarrage` lève alors la pause).
+ *
+ * Les deux marques sont posées ensemble (`carteEnPause`) : `suspendu` tient
+ * l'ordonnanceur, la reprise de quota et la reprise après redémarrage à
+ * l'écart ; `enPause` empêche le balayage de prendre la carte pour un
+ * rangement perdu. La marque de vol et la reprise promise tombent, comme à
+ * l'arrêt : plus aucun tour ne rangera cette carte.
+ *
+ * À appeler AVANT de couper l'agent : la fin du tour coupé lit cette marque
+ * et laisse la carte où elle est (`carteApresFinDeTour`).
+ */
+export function mettreLaCarteEnPause(card: Card): Card {
+  const enPause = store.saveCard({
+    ...card,
+    scheduling: {
+      ...(card.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
+      suspendu: true,
+      enPause: true,
+      waitingReason: RAISON_SUSPENDU_EN_PAUSE,
+      tourEnVolDepuis: undefined,
+      reprendreDesQuePossible: undefined,
+    },
+  });
+  bus.emit({ type: 'card.upsert', card: enPause });
+  return enPause;
 }

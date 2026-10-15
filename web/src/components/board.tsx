@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList } from 'lucide-react';
 import {
   serviceDeLaCarte,
+  serviceVisible,
   debutDeLaDemande,
   Attachment,
   gestesGeles,
@@ -63,6 +64,7 @@ import {
   natureDeLaMention,
   phraseDuTravailRestant,
   travailRestant,
+  carteEnPause,
   repereVisible,
   sortieAutorisee,
   gesteDuDepot,
@@ -258,6 +260,7 @@ function MenuTeteColonne({
           variant="ghost"
           className="-mr-1 h-6 shrink-0 px-1.5 text-faint"
           aria-label="Actions de la colonne"
+          title={t('Actions de la colonne')}
           data-menu-colonne={colonne}
         >
           <EllipsisVertical className="h-4 w-4" />
@@ -1939,7 +1942,7 @@ export function CardTile({
     : undefined;
   const agent = card.agentId ? state.agents[card.agentId] : null;
   /* LA CARTE D'UN SERVICE (agent de volet) : cadre et badge jaunes ; un clic la ramène au service. */
-  const service = serviceDeLaCarte(agent, card);
+  const service = serviceVisible(serviceDeLaCarte(agent, card), state.studioOuvert);
   const waiting = card.scheduling?.waitingReason;
   /* Une horloge UNIQUE pour toutes les cartes : vingt cartes ne font pas vingt
      minuteries. Elle sert à l'heure de départ comme au tour resté sans suite. */
@@ -2233,6 +2236,9 @@ export function CardTile({
            * lecture que `dernierTourEnEchec`, `deplacement-carte.ts`).
            */
           suspendu: card.scheduling?.suspendu,
+          /* SUSPENDUE SUR PLACE (bouton « Suspendre ») : elle attend un
+             message, pas une relance (`carteEnPause`). */
+          enPause: carteEnPause(card.scheduling),
           dernierTourEnEchec: agent ? agent.status === 'failed' || agent.status === 'stopped' : false,
           /* ET LES ÉTAPES JAMAIS FAITES : un tour peut s'être terminé
              proprement en laissant des lignes de sa liste sur le carreau. La
@@ -2302,6 +2308,7 @@ export function CardTile({
           type="button"
           aria-pressed={coche}
           aria-label={coche ? 'Retirer de la sélection' : 'Ajouter à la sélection'}
+          title={coche ? t('Retirer de la sélection') : t('Ajouter à la sélection')}
           onClick={(event) => {
             event.stopPropagation();
             onOpen();

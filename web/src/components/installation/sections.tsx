@@ -5,6 +5,7 @@ import {
   NOM_DE_COPIE_PAR_DEFAUT,
   PREREGLAGES_SMTP,
   adresseDeCourrielValide,
+  adresseProposeePourLEspaceClient,
   hoteNu,
   nomDeDepotValide,
   nomDeDomaineValide,
@@ -13,8 +14,9 @@ import {
   type IdentiteDInstallation,
   type TravailDInstallation,
 } from '@beluga/shared';
-import { Button, Input, Switch } from '@/components/ui';
+import { Button, ChampMotDePasse, Input, Switch } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
+import { ExplorateurDeCompetences } from '@/components/installation/explorateur-competences';
 import { BoutonInstaller, SortieDuTravail, useTravailDuGenre } from '@/components/installation/travail';
 import { useRedemarrage } from '@/components/redemarrage';
 import { client } from '@/lib/client';
@@ -208,14 +210,13 @@ function ChampSecret({
   return (
     <Champ label={label} aide={aide}>
       <div className="flex items-center gap-1.5">
-        <Input
-          type="password"
+        <ChampMotDePasse
           data-secret={genre}
           value={valeur}
           autoComplete="off"
           placeholder={range ? t('Déjà rangée — collez-en une autre pour la remplacer') : t('Collez la clé ici')}
           onChange={(event) => setValeur(event.target.value)}
-          className="flex-1"
+          cadre="flex-1"
         />
         <Button variant="subtle" size="md" data-ranger-secret={genre} disabled={!valeur.trim() || envoi} onClick={ranger}>
           {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
@@ -263,6 +264,7 @@ function ChampDAdresse({
   exemple,
   actuelle,
   apres,
+  proposition,
 }: {
   genre: 'administration' | 'espace-client';
   label: string;
@@ -270,8 +272,15 @@ function ChampDAdresse({
   exemple: string;
   actuelle: string;
   apres: () => Promise<void>;
+  /** Une adresse déjà remplie, à valider d'un clic ou à corriger, et d'où elle vient. */
+  proposition?: { hote: string; explication: string } | null;
 }) {
-  const [valeur, setValeur] = React.useState('');
+  const [valeur, setValeur] = React.useState(actuelle ? '' : (proposition?.hote ?? ''));
+  /* La proposition arrive avec l'état de l'installation : le champ la prend tant qu'on n'y a rien tapé. */
+  const touche = React.useRef(false);
+  React.useEffect(() => {
+    if (!touche.current && !actuelle && proposition?.hote) setValeur(proposition.hote);
+  }, [proposition?.hote, actuelle]);
   const [envoi, setEnvoi] = React.useState(false);
   const [refus, setRefus] = React.useState<string | null>(null);
   const [posee, setPosee] = React.useState<string | null>(null);
@@ -315,7 +324,10 @@ function ChampDAdresse({
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          onChange={(event) => setValeur(event.target.value)}
+          onChange={(event) => {
+            touche.current = true;
+            setValeur(event.target.value);
+          }}
           className="flex-1"
         />
         <Button variant="subtle" size="md" data-poser-adresse={genre} disabled={!valeur.trim() || envoi} onClick={poser}>
@@ -323,6 +335,11 @@ function ChampDAdresse({
           {t('Mettre en place')}
         </Button>
       </div>
+      {proposition && !actuelle && hoteNu(valeur) === proposition.hote ? (
+        <p className="text-[13px] leading-relaxed text-muted" data-adresse-proposee={genre}>
+          {proposition.explication}
+        </p>
+      ) : null}
       {posee ? <LigneDEtat fait>{t('Adresse en place : {adresse}', { adresse: posee })}</LigneDEtat> : null}
       <Refus texte={refus} />
     </Champ>
@@ -342,7 +359,11 @@ function ChoixEnLignes<Valeur extends string>({
 }: {
   repere: string;
   valeur: string;
-  choix: readonly { id: Valeur; nom: string; detail?: string }[];
+  /**
+   * `bloque` : le choix ne peut pas marcher ici (dit en rouge, et il ne se
+   * prend plus) ; `conseille` : celui qu'on recommande, marqué d'un mot.
+   */
+  choix: readonly { id: Valeur; nom: string; detail?: string; bloque?: string; conseille?: boolean }[];
   onChoisir: (id: Valeur) => void;
 }) {
   return (
@@ -356,18 +377,25 @@ function ChoixEnLignes<Valeur extends string>({
             role="radio"
             aria-checked={choisi}
             data-choix-valeur={un.id}
+            data-choix-bloque={un.bloque ? '1' : undefined}
+            disabled={Boolean(un.bloque) && !choisi}
             onClick={() => onChoisir(un.id)}
             className={cn(
-              'flex w-full items-start gap-2.5 rounded-lg bg-raised px-3 py-2.5 text-left transition-colors hover:bg-raised/80',
+              'flex w-full items-start gap-2.5 rounded-lg bg-raised px-3 py-2.5 text-left transition-colors hover:bg-raised/80 disabled:cursor-not-allowed',
               choisi ? 'text-teinte' : 'text-text',
+              un.bloque && !choisi && 'text-muted',
             )}
           >
             <span className="mt-[3px] flex h-3.5 w-3.5 shrink-0 items-center justify-center">
               {choisi ? <Check className="h-3.5 w-3.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-faint" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-[14px] font-medium">{un.nom}</span>
+              <span className="flex items-center gap-2 text-[14px] font-medium">
+                {un.nom}
+                {un.conseille ? <span className="rounded bg-bg px-1.5 py-px text-[11.5px] font-normal text-muted">{t('Conseillé')}</span> : null}
+              </span>
               {un.detail ? <span className="block text-[13px] leading-relaxed text-muted">{un.detail}</span> : null}
+              {un.bloque ? <span className="mt-0.5 block text-[13px] leading-relaxed text-danger">{un.bloque}</span> : null}
             </span>
           </button>
         );
@@ -522,14 +550,13 @@ export function SectionGitHub({ etat, relire }: { etat: EtatDeLInstallation | nu
           aide={t('À créer sur github.com, dans Settings, Developer settings, Personal access tokens, avec les droits « repo » et « workflow ». Il reste sur ce serveur.')}
         >
           <div className="flex items-center gap-1.5">
-            <Input
-              type="password"
+            <ChampMotDePasse
               data-jeton-github
               value={jeton}
               autoComplete="off"
               placeholder="ghp_xxxxxxxxxxxx"
               onChange={(event) => setJeton(event.target.value)}
-              className="flex-1"
+              cadre="flex-1"
             />
             <Button variant="subtle" size="md" data-relier-github disabled={!jeton.trim() || envoi} onClick={connecter}>
               {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
@@ -548,12 +575,53 @@ export function SectionGitHub({ etat, relire }: { etat: EtatDeLInstallation | nu
 /* Les courriels                                                        */
 /* ------------------------------------------------------------------ */
 
+/** Le choix « Par ce serveur » : dit ouvert une fois la sonde passée, sinon invite à l'essai (bloqué, l'appelant remplace ce détail). */
+const CHOIX_PAR_CE_SERVEUR = (sortie: { agent: boolean; port25: boolean } | null) => ({
+  id: 'serveur' as const,
+  nom: t('Par ce serveur'),
+  detail: sortie ? t('Rien à créer ailleurs : la sortie directe est ouverte sur ce serveur.') : t('Rien à créer ailleurs. Beaucoup d’hébergeurs bloquent pourtant cet envoi : faites l’essai.'),
+});
+
 export function SectionCourriels({ etat, relire }: { etat: EtatDeLInstallation | null; relire: () => Promise<void> }) {
   const { identite, enregistrer } = useIdentite();
   // Une installation d'avant ce réglage envoie déjà par Resend : c'est ce que le démon retient.
   const mode = identite.modeDesCourriels || etat?.courriels.mode || '';
+  /*
+   * LA SORTIE DIRECTE EST SONDÉE DÈS L'OUVERTURE. Beaucoup d'hébergeurs ferment
+   * le port 25 : on le disait seulement après un essai raté, en rouge sous le
+   * bouton. L'étape le sait maintenant d'emblée — « Par ce serveur » se dit
+   * bloqué et ne se prend plus, et le service de courriel passe en tête.
+   */
+  const [sortie, setSortie] = React.useState<{ agent: boolean; port25: boolean } | null>(null);
+  React.useEffect(() => {
+    let vivant = true;
+    client
+      .call<{ agent: boolean; port25: boolean }>({ type: 'installation.courriel-sonde' }, 30_000)
+      .then((rendu) => vivant && setSortie(rendu))
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+    };
+  }, []);
+  const blocage = !sortie
+    ? undefined
+    : !sortie.port25
+      ? t('Bloqué chez votre hébergeur : la sortie directe des courriels (port 25) est fermée sur ce serveur. Choisissez un service de courriel.')
+      : !sortie.agent
+        ? t('Aucun programme d’envoi n’est installé sur ce serveur. Choisissez un service de courriel.')
+        : undefined;
+  const expediteurGmail = /@(gmail|googlemail)\.com$/i.test(identite.expediteurDesCourriels ?? '');
+  const passerParUnService = () => {
+    enregistrer({ modeDesCourriels: 'smtp', ...(expediteurGmail ? { smtpHote: 'smtp.gmail.com', smtpPort: '587' } : {}) });
+    window.setTimeout(() => void relire(), 400);
+  };
   return (
-    <div className="space-y-5" data-section-installation="courriels" data-mode-des-courriels={mode || 'aucun'}>
+    <div
+      className="space-y-5"
+      data-section-installation="courriels"
+      data-mode-des-courriels={mode || 'aucun'}
+      data-sortie-directe={sortie ? (blocage ? 'bloquee' : 'ouverte') : 'sondage'}
+    >
       <ChampIdentite
         cle="nomDeLEntreprise"
         label={t('Nom de votre entreprise')}
@@ -582,7 +650,7 @@ export function SectionCourriels({ etat, relire }: { etat: EtatDeLInstallation |
       />
       <Champ
         label={t('Par où envoyer les courriels')}
-        aide={t('Essayez d’abord l’envoi par ce serveur : il n’y a rien à créer ailleurs. S’il est bloqué par votre hébergeur, l’essai ci-dessous vous le dit, et n’importe quel service de courriel fait l’affaire.')}
+        aide={t('Beluga Build vérifie tout seul si ce serveur peut envoyer lui-même. S’il est bloqué par votre hébergeur, n’importe quel service de courriel fait l’affaire.')}
       >
         <ChoixEnLignes
           repere="mode-des-courriels"
@@ -593,11 +661,28 @@ export function SectionCourriels({ etat, relire }: { etat: EtatDeLInstallation |
             window.setTimeout(() => void relire(), 400);
           }}
           choix={[
-            { id: 'serveur', nom: t('Par ce serveur'), detail: t('Rien à créer ailleurs. Beaucoup d’hébergeurs bloquent pourtant cet envoi : faites l’essai.') },
-            { id: 'smtp', nom: t('Par un service de courriel'), detail: t('Celui que vous avez déjà : votre hébergeur de courriels, Brevo, Mailgun, Gmail…') },
+            ...(blocage ? [] : [CHOIX_PAR_CE_SERVEUR(sortie)]),
+            { id: 'smtp', nom: t('Par un service de courriel'), detail: t('Celui que vous avez déjà : votre hébergeur de courriels, Brevo, Mailgun, Gmail…'), conseille: Boolean(blocage) },
             { id: 'resend', nom: 'Resend', detail: t('Un service d’envoi par clé : créez-y un compte et vérifiez votre nom de domaine.') },
+            ...(blocage ? [{ ...CHOIX_PAR_CE_SERVEUR(sortie), detail: undefined, bloque: blocage }] : []),
           ]}
         />
+        {!sortie ? (
+          <p className="flex items-center gap-1.5 text-[13px] text-muted" data-sonde-en-cours>
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('Vérification de l’envoi direct depuis ce serveur…')}
+          </p>
+        ) : null}
+        {blocage && mode === 'serveur' ? (
+          <div className="flex flex-wrap items-center gap-2" data-envoi-direct-impossible>
+            <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-danger">
+              {t('Avec ce choix, aucun courriel ne partira : passez par un service de courriel.')}
+            </p>
+            <Button variant="subtle" size="sm" onClick={passerParUnService} data-passer-par-un-service>
+              {expediteurGmail ? t('Envoyer par Gmail') : t('Passer par un service de courriel')}
+            </Button>
+          </div>
+        ) : null}
       </Champ>
       {mode === 'smtp' ? (
         <div className="space-y-3" data-reglages-smtp>
@@ -618,7 +703,17 @@ export function SectionCourriels({ etat, relire }: { etat: EtatDeLInstallation |
           <ChampIdentite cle="smtpHote" label={t('Serveur d’envoi')} aide={t('L’adresse du serveur d’envoi (SMTP) donnée par votre service de courriel.')} exemple="smtp.exemple.com" valide={refusDeDomaine} />
           <ChampIdentite cle="smtpPort" label={t('Port')} aide={t('Presque toujours 587 ; 465 chez quelques services.')} exemple="587" />
           <ChampIdentite cle="smtpIdentifiant" label={t('Identifiant')} aide={t('Souvent votre adresse de courriel, ou l’identifiant que le service vous a donné.')} exemple="bonjour@exemple.com" />
-          <ChampSecret genre="smtp" label={t('Mot de passe du service de courriel')} range={Boolean(etat?.secrets.smtp)} apres={relire} />
+          <ChampSecret
+            genre="smtp"
+            label={t('Mot de passe du service de courriel')}
+            aide={
+              /gmail\.com$/i.test(identite.smtpHote ?? '')
+                ? t('Chez Gmail, ce n’est pas votre mot de passe habituel : créez un « mot de passe d’application » dans votre compte Google (Sécurité, Validation en deux étapes, Mots de passe des applications), puis collez-le ici.')
+                : undefined
+            }
+            range={Boolean(etat?.secrets.smtp)}
+            apres={relire}
+          />
         </div>
       ) : null}
       {mode === 'resend' ? (
@@ -697,6 +792,17 @@ function CourrielDEssai({ parDefaut, relire }: { parDefaut: string; relire: () =
 
 export function SectionEspaceClient({ etat, relire }: { etat: EtatDeLInstallation | null; relire: () => Promise<void> }) {
   const { identite } = useIdentite();
+  /* La configuration déjà faite décide de l'adresse proposée : domaine, sinon adresse provisoire du serveur. */
+  const proposee = adresseProposeePourLEspaceClient({ adressePublique: identite.adressePublique, zoneDesProjets: identite.zoneDesProjets, ip: etat?.ip });
+  const proposition = proposee
+    ? {
+        hote: proposee.hote,
+        explication:
+          proposee.origine === 'domaine'
+            ? t('Proposée d’après votre nom de domaine. Créez d’abord chez votre fournisseur de noms un enregistrement « A » vers {ip}, puis mettez-la en place.', { ip: etat?.ip || '…' })
+            : t('Proposée d’après l’adresse provisoire de ce serveur : elle fonctionne tout de suite, sans nom de domaine. Vous pourrez la remplacer par la vôtre plus tard.'),
+      }
+    : null;
   return (
     <div className="space-y-5" data-section-installation="espace-client">
       <ChampIdentite
@@ -712,6 +818,7 @@ export function SectionEspaceClient({ etat, relire }: { etat: EtatDeLInstallatio
         exemple="my.exemple.com"
         actuelle={identite.hoteEspaceClient ? `https://${identite.hoteEspaceClient}` : ''}
         apres={relire}
+        proposition={etat?.reverseProxyGere === false ? null : proposition}
       />
       {etat && !etat.reverseProxyGere ? (
         <ChampIdentite
@@ -801,6 +908,7 @@ export function SectionCompetences({ etat, relire }: { etat: EtatDeLInstallation
       <p className="text-[13.5px] leading-relaxed text-muted" data-sources-par-un-agent>
         {t('Ce choix n’est pas définitif. Vous pourrez toujours ajouter d’autres sources de compétences plus tard : il suffit de le demander à un agent, en lui donnant l’adresse de la bibliothèque.')}
       </p>
+      <ExplorateurDeCompetences rafraichir={importees.join(',')} />
     </div>
   );
 }

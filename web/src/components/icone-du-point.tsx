@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Lightbulb,
   ListChecks,
+  Pause,
   MessageCircleQuestion,
   MessageSquare,
   Pencil,
@@ -54,6 +55,7 @@ export const ICONE_DU_GENRE: Record<GenreDeBloc, LucideIcon> = {
   tache: ListChecks,
   note: StickyNote,
   outil: Wrench,
+  suspension: Pause,
 };
 
 /** Les sortes de ligne propres au fil, qui ne sont pas un genre raconté. */

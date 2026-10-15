@@ -3,7 +3,9 @@ import { appliquerTiroirs, oublierLAttenteSiEcranChange, usePileDeTiroirs, useTi
 import { LayoutGrid, Loader2, Plus } from 'lucide-react';
 import { BandeauMiseAJour } from '@/components/bandeau-mise-a-jour';
 import { BandeauConnexionLente } from '@/components/bandeau-connexion-lente';
-import { TooltipProvider, Button, CibleDuBasDePage, EmptyState, EnteteDePageParDefaut, SidePanel, defilerDepuisLesMarges } from '@/components/ui';
+import { TooltipProvider, Button, CibleDuBasDePage, EnteteDePageParDefaut, SidePanel, defilerDepuisLesMarges } from '@/components/ui';
+import { BoutonPremierProjet, PasAPas } from '@/components/pas-a-pas';
+import { VisiteGuidee } from '@/components/visite-guidee';
 import { BoutonOptionsDuProjet, MenuGeneral, useEtatDeLiaison } from '@/components/quota-bar';
 import { TerminalDeLApplication } from '@/components/terminal-de-l-application';
 import { ClocheNotifications } from '@/components/notifications';
@@ -17,6 +19,7 @@ import {
   FournirLaSuiteDuFil,
   CLASSE_CIBLE_DES_GESTES,
   FournirLeLieu,
+  FournirLeMenuPrincipal,
   type CranDuChemin,
   type ReperesDeRetour,
 } from '@/components/entete-de-zone';
@@ -299,6 +302,17 @@ export function App() {
   /* LA SOUS-PAGE DES RÉGLAGES vit dans l'adresse, comme la carte ouverte : les
      réglages sont un menu de pages, un lien doit pouvoir en désigner une. */
   const [settingsPage, setSettingsPage] = React.useState<string | undefined>(undefined);
+  /* UN ÉCRAN PEUT OUVRIR LES RÉGLAGES SUR UNE RUBRIQUE (`beluga:ouvrir-reglages`,
+     détail `{ page }`) — l'encadré du Studio mène ainsi à « Services de création ». */
+  React.useEffect(() => {
+    const ouvrir = (event: Event) => {
+      const page = (event as CustomEvent<{ page?: string }>).detail?.page;
+      if (page) setSettingsPage(page);
+      setSettingsOpen(true);
+    };
+    window.addEventListener('beluga:ouvrir-reglages', ouvrir);
+    return () => window.removeEventListener('beluga:ouvrir-reglages', ouvrir);
+  }, []);
   /*
    * LA CONFIGURATION D'UN PROJET, ET LA RUBRIQUE OUVERTE DEDANS.
    *
@@ -321,6 +335,19 @@ export function App() {
    * RACCOURCIS de lecture : tout le code qui les appelait continue de marcher.
    */
   const [vueCentrale, setVueCentrale] = React.useState<VueCentrale>('projet');
+  /*
+   * LE STUDIO EST FERMÉ À QUI N'EST PAS SUPER ADMINISTRATEUR : une adresse
+   * « #studio », une vue gardée, le clic sur la carte d'un agent de volet ou un
+   * lien le ramenaient à un écran que le démon refuse. Dès que l'état complet
+   * est là — jamais avant : le droit n'est pas encore connu —, on retombe sur le
+   * tableau. Un seul endroit pour tous ces chemins.
+   */
+  React.useEffect(() => {
+    if (state.pret && !state.studioOuvert && vueCentrale === 'studio') {
+      setVueCentrale('projet');
+      setElementVise({});
+    }
+  }, [state.pret, state.studioOuvert, vueCentrale]);
   /*
    * LA FICHE DÉSIGNÉE PAR L'ADRESSE, dans l'espace client : le lien porté par
    * le point quotidien envoyé à Haiko. Il ouvre l'écran sur le bon client ET la
@@ -617,7 +644,8 @@ export function App() {
       if (window.innerWidth < 640) setMobileView('board');
       // Aucun message éphémère pour les autres : un simple renseignement n'est
       // pas l'un des trois genres qui alertent (`messageAlerte`).
-      if (agent.role === 'deploy') {
+      // L'Assistant Beluga porte le rôle « deploy » sans être une publication.
+      if (agent.role === 'deploy' && !agent.assistantGlobal) {
         /* UN AGENT DE CONFIGURATION (déploiement ou mise en production) ouvre
            son TIROIR, sans fenêtre de réglages (30/09/2026). */
         const projetDeLAgent = etat.projects.find((p) => p.id === agent.projectId);
@@ -1246,10 +1274,20 @@ export function App() {
      bouton des projets, juste devant le titre. */
   const boutonDesServices = <BoutonDesServices vue={vueCentrale} onOuvrirVue={ouvrirVue} cote="start" />;
   /* OÙ L'ON EST, dit une fois : une page ouverte par-dessus la zone le reprend
-     pour écrire son propre fil d'Ariane (`EnteteDePage`). Sur téléphone, une
-     page ouverte n'a pas la place pour le bouton des services devant sa flèche
-     de retour : il ne vit que sur les pages principales. */
-  const lieu = { chemin: cheminDeLaPage, titre: titreDeLaPage, avant: telephone ? undefined : boutonDesServices };
+     pour écrire son propre fil d'Ariane (`EnteteDePage`). Le bouton des services
+     la suit partout, téléphone compris (demande du 13/10/2026) : juste après la
+     flèche de retour, avant le titre — on change de service sans refermer la
+     page d'abord. */
+  const lieu = { chemin: cheminDeLaPage, titre: titreDeLaPage, avant: boutonDesServices };
+  /* LE MENU PRINCIPAL DU TÉLÉPHONE, à portée de toute page à deux rangs
+     (la tâche) : le bouton qui ouvre la colonne des projets. */
+  const menuPrincipal = React.useMemo(
+    () => ({
+      ouvrir: () => setProjetsOuverts(true),
+      point: !liaison.enLigne || liaison.ailleurs ? { classe: liaison.classe, texte: liaison.texte } : null,
+    }),
+    [liaison.enLigne, liaison.ailleurs, liaison.classe, liaison.texte],
+  );
   /* LA SUITE DU FIL, écrite par le service affiché : l'enfant où l'on se trouve. */
   const suiteDuFil = React.useMemo(
     () => ({
@@ -1376,6 +1414,7 @@ export function App() {
     <TooltipProvider>
       <EnteteDePageParDefaut.Provider value={EnteteDePage}>
       <FournirLeLieu value={lieu}>
+      <FournirLeMenuPrincipal value={menuPrincipal}>
       <FournirLaSuiteDuFil value={suiteDuFil}>
       <FournirLaColonneDeService value={colonneDeService}>
       <div
@@ -1509,7 +1548,7 @@ export function App() {
             >
               {/* LES GESTES DE LA PAGE AFFICHÉE : chaque service y pose les
                   siens (`GestesDePage`), devant les boutons communs. */}
-              <div ref={setCibleDesGestes} data-gestes-de-page="barre" className={CLASSE_CIBLE_DES_GESTES} />
+              <div ref={setCibleDesGestes} data-gestes-de-page="barre" data-rangee-de-boutons className={CLASSE_CIBLE_DES_GESTES} />
               {/* SUR ORDINATEUR, LA CLOCHE VIT DANS LE PIED DE LA COLONNE, à côté des
                   réglages (demande du 12/10/2026) ; sur téléphone, elle reste ici. */}
               {telephone ? <ClocheNotifications /> : null}
@@ -1614,7 +1653,7 @@ export function App() {
                   />
                 </PanneauALaDemande>
               </Filet>
-            ) : vueCentrale === 'studio' ? (
+            ) : vueCentrale === 'studio' && state.studioOuvert ? (
               <Filet zone="Studio">
                 <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteStudio /></AttenteEcran>}>
                   <Studio
@@ -1673,10 +1712,18 @@ export function App() {
                  tous les projets, plutôt qu'un vide. */
               pageEnRoute
             ) : (
-              <EmptyState
-                icon={<LayoutGrid className="h-5 w-5" />}
-                title={t('Aucun projet sélectionné')}
-                hint={t('Ajoutez un projet depuis la colonne de gauche pour commencer.')}
+              /* AUCUN PROJET DU TOUT : un pas-à-pas court et le bouton qui ouvre l'ajout. */
+              <PasAPas
+                repere="premier-projet"
+                icone={<LayoutGrid className="h-6 w-6" />}
+                titre={t('Votre premier projet')}
+                explication={t('Un projet, c’est un site ou une application que vos agents font avancer, carte après carte.')}
+                etapes={[
+                  t('Créez le projet : un dépôt GitHub existant, ou un nouveau.'),
+                  t('Décrivez ce que vous voulez à un agent : il en fait une carte.'),
+                  t('Suivez la carte sur le tableau jusqu’à « À déployer », puis publiez quand vous le décidez.'),
+                ]}
+                action={<BoutonPremierProjet />}
               />
             )}
             </CibleDuBasDePage.Provider>
@@ -1905,6 +1952,10 @@ export function App() {
         <Filet zone="Assistant global" muet>
           <AssistantGlobal />
         </Filet>
+        {/* La visite guidée du premier démarrage : une bulle à la fois, fermable. */}
+        <Filet zone="Visite guidée" muet>
+          <VisiteGuidee />
+        </Filet>
         <Filet zone="Module de voix" muet>
           <PanneauALaDemande monte>
             <VoixAssistant />
@@ -1914,6 +1965,7 @@ export function App() {
       </div>
       </FournirLaColonneDeService>
       </FournirLaSuiteDuFil>
+      </FournirLeMenuPrincipal>
       </FournirLeLieu>
       </EnteteDePageParDefaut.Provider>
     </TooltipProvider>

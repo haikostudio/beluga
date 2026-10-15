@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Download, Loader2, TerminalSquare, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Download, Loader2, TerminalSquare, TriangleAlert } from 'lucide-react';
 import type { TravailDInstallation } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
@@ -15,17 +15,19 @@ import { t } from '@/lib/langue';
  * (`server/src/installation-travaux.ts`) et la sortie s'affiche ici, en direct.
  * L'écran ne nomme qu'un GENRE ; la commande est écrite dans le démon.
  *
- * DEUX PLACES POUR LE TERMINAL, selon la largeur :
- *  - dans l'assistant de démarrage sur ordinateur, il occupe le volet de DROITE
- *    (`VoletDuTerminal`) — la page à gauche, ce qui se passe à droite ;
- *  - partout ailleurs (téléphone, réglages, écran des moteurs), il se déplie
- *    SOUS le bouton qui a lancé le travail (`SortieDuTravail`).
+ * DEUX PLACES POUR LE TERMINAL :
+ *  - dans l'assistant de démarrage, une BARRE collée en bas de l'écran
+ *    (`BarreDuTerminal`), repliée au repos : elle s'ouvre toute seule quand une
+ *    installation travaille et se referme quand elle a réussi — un volet de
+ *    droite toujours ouvert prenait la moitié de l'écran pour ne rien montrer ;
+ *  - partout ailleurs (réglages, écran des moteurs), il se déplie SOUS le
+ *    bouton qui a lancé le travail (`SortieDuTravail`).
  * `TerminalACote` dit aux boutons lequel des deux est en place.
  */
 
 const AfficheurDeSortie = React.lazy(() => import('@/components/installation/afficheur-de-sortie'));
 
-/** Vrai quand un volet de terminal est déjà affiché à côté : le bouton ne déplie alors rien sous lui. */
+/** Vrai quand la barre du terminal de l'assistant montre déjà la sortie : le bouton ne déplie alors rien sous lui. */
 export const TerminalACote = React.createContext(false);
 
 /** Lance un travail d'installation ; rend le refus à afficher, ou `null` quand il est parti. */
@@ -118,8 +120,8 @@ export function BoutonInstaller({
 
 /**
  * Le terminal déplié sous le bouton : une boîte de hauteur fixe, qui ne pousse
- * pas la page à chaque ligne. Il ne se pose pas quand le volet de droite montre
- * déjà la même sortie.
+ * pas la page à chaque ligne. Il ne se pose pas quand la barre de l'assistant
+ * montre déjà la même sortie.
  */
 export function SortieDuTravail() {
   const aCote = React.useContext(TerminalACote);
@@ -133,36 +135,74 @@ export function SortieDuTravail() {
   );
 }
 
+/** Le temps pendant lequel une installation réussie reste sous les yeux avant que la barre se replie. */
+const REPLI_APRES_REUSSITE_MS = 2500;
+
 /**
- * LE VOLET DE DROITE DE L'ASSISTANT. Toujours là sur ordinateur : on sait d'un
- * regard si quelque chose tourne. Tant que rien n'a été lancé, il le dit au lieu
- * de montrer un rectangle noir.
+ * LA BARRE DU TERMINAL DE L'ASSISTANT, collée en bas de l'écran.
+ *
+ * Repliée, elle tient sur une ligne : ce qui tourne, ou la dernière issue. Elle
+ * S'OUVRE TOUTE SEULE au départ d'une installation, se REPLIE quelques
+ * secondes après une réussite, et RESTE OUVERTE sur un échec, pour qu'on lise
+ * pourquoi. Un clic sur la ligne l'ouvre ou la replie à la main. Tant que rien
+ * n'a jamais été lancé, elle ne se montre pas.
  */
-export function VoletDuTerminal({ className }: { className?: string }) {
+export function BarreDuTerminal({ className }: { className?: string }) {
   const travail = useTravailDInstallation();
+  const etat = travail?.etat;
+  const [ouverte, setOuverte] = React.useState(etat === 'en-cours' || etat === 'echoue');
+
+  React.useEffect(() => {
+    if (etat === 'en-cours' || etat === 'echoue') {
+      setOuverte(true);
+      return;
+    }
+    if (etat !== 'reussi') return;
+    const repli = window.setTimeout(() => setOuverte(false), REPLI_APRES_REUSSITE_MS);
+    return () => window.clearTimeout(repli);
+  }, [etat, travail?.debut]);
+
+  if (!travail) return null;
   return (
-    <aside data-terminal-d-installation="a-cote" className={cn('flex min-h-0 flex-col rounded-xl bg-surface', className)}>
-      <header className="flex h-10 shrink-0 items-center gap-2 px-3 text-[13px] text-muted">
-        <TerminalSquare className="h-3.5 w-3.5" />
-        <span className="flex-1">{t('Ce qui se passe sur le serveur')}</span>
-        {travail?.etat === 'en-cours' ? (
+    <section
+      data-terminal-d-installation="en-bas"
+      data-ouvert={ouverte ? 'oui' : 'non'}
+      className={cn('flex shrink-0 flex-col rounded-xl bg-surface', className)}
+    >
+      <button
+        type="button"
+        data-basculer-terminal
+        aria-expanded={ouverte}
+        onClick={() => setOuverte((avant) => !avant)}
+        className="flex h-10 w-full shrink-0 items-center gap-2 rounded-xl px-3 text-left text-[13px] text-muted transition-colors hover:text-text"
+      >
+        <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t('Ce qui se passe sur le serveur')}</span>
+        {etat === 'en-cours' ? (
           <span className="flex items-center gap-1.5 text-teinte" data-travail-en-cours>
             <Loader2 className="h-3 w-3 animate-spin" />
             {t('en cours')}
           </span>
+        ) : etat === 'reussi' ? (
+          <span className="flex items-center gap-1 text-success">
+            <Check className="h-3 w-3" />
+            {t('Terminé.')}
+          </span>
+        ) : etat === 'echoue' ? (
+          <span className="flex items-center gap-1 text-danger">
+            <TriangleAlert className="h-3 w-3" />
+            {t('L’installation a échoué.')}
+          </span>
         ) : null}
-      </header>
-      <div className="min-h-0 flex-1 px-2 pb-2">
-        {travail ? (
+        {ouverte ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronUp className="h-3.5 w-3.5 shrink-0" />}
+      </button>
+      {ouverte ? (
+        <div className="h-[min(320px,38vh)] min-h-0 px-2 pb-2">
           <React.Suspense fallback={null}>
             <AfficheurDeSortie />
           </React.Suspense>
-        ) : (
-          <p className="px-1 pt-1 text-[13px] leading-relaxed text-faint" data-terminal-au-repos>
-            {t('Rien ne tourne pour l’instant. Dès que vous lancez une installation, vous la voyez se dérouler ici, ligne par ligne.')}
-          </p>
-        )}
-      </div>
-    </aside>
+        </div>
+      ) : null}
+    </section>
   );
 }

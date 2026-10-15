@@ -125,7 +125,7 @@ export function VignetteInitialisationProduction({
             {etat === 'question' ? (
               <span className="text-warning">{t('attend votre réponse')}</span>
             ) : etat === 'fini' ? (
-              <span className="text-faint">{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
+              <span className={agent.status === 'failed' ? 'text-danger' : 'text-faint'}>{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
             ) : (
               <>
                 <Dot tone="running" pulse />

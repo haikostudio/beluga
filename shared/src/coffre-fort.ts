@@ -121,9 +121,32 @@ export interface AccesCoffre {
    * avec elle. Absent = aucune image (fiche d'avant cette mécanique).
    */
   images?: string[];
+  /**
+   * LE DOSSIER où la fiche est rangée (un seul niveau). Absent ou `null` = à la
+   * racine du coffre. Un dossier ne porte aucun secret : il ne sert qu'à ranger.
+   */
+  dossierId?: string | null;
+}
+
+/**
+ * UN DOSSIER DU COFFRE : un nom et un projet, rien d'autre. Il vit dans sa propre
+ * table — jamais parmi les fiches — pour que ni un agent, ni une surveillance, ni
+ * un relais ne puisse le prendre pour un secret. Un seul niveau : un dossier ne
+ * contient que des fiches, jamais un autre dossier.
+ */
+export interface DossierCoffre {
+  id: string;
+  nom: string;
+  /** Le projet du dossier ; vide = Beluga Build lui-même. Ses fiches le suivent. */
+  projectId: string | null;
+  creeLe: number;
+  modifieLe: number;
+  /** L'instant où le dossier (et ses fiches) ont été retirés ; `null` = actif. */
+  archiveLe?: number | null;
 }
 
 export const NOM_ACCES_MAX = 80;
+export const NOM_DOSSIER_MAX = 80;
 export const NOTE_ACCES_MAX = 2000;
 export const VALEUR_CHAMP_MAX = 20000;
 /** Combien d'images une fiche peut porter. */
@@ -192,6 +215,11 @@ export type JugementAcces =
       note: string;
       /** Absent = l'appelant n'a rien dit des images : la fiche garde les siennes. */
       images?: string[];
+      /**
+       * Absent = l'appelant n'a rien dit du dossier : la fiche reste où elle est.
+       * `null` = la sortir de son dossier ; une chaîne = l'y ranger.
+       */
+      dossierId?: string | null;
     }
   | { ok: false; raison: string };
 
@@ -238,7 +266,90 @@ export function jugerAcces(brut: unknown): JugementAcces {
   // ce sont des identifiants de fichiers, pas un texte où compter des secrets.
   const images = jugerImages(o.images);
 
-  return { ok: true, nom, type, projectId, champs, note, ...(images ? { images } : {}) };
+  // Le dossier suit la même règle que les images : le taire ne déplace rien.
+  let dossierId: string | null | undefined;
+  if (o.dossierId !== undefined) {
+    dossierId = typeof o.dossierId === 'string' && o.dossierId.trim() ? o.dossierId.trim() : null;
+  }
+
+  return {
+    ok: true,
+    nom,
+    type,
+    projectId,
+    champs,
+    note,
+    ...(images ? { images } : {}),
+    ...(dossierId !== undefined ? { dossierId } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* LES DOSSIERS                                                        */
+/* ------------------------------------------------------------------ */
+
+export type JugementDossier =
+  | { ok: true; nom: string; projectId: string | null }
+  | { ok: false; raison: string };
+
+/** Ce qui arrive pour un dossier : un nom, un projet — rien de plus n'est gardé. */
+export function jugerDossier(brut: unknown): JugementDossier {
+  const o = (brut ?? {}) as Record<string, unknown>;
+  const nom = String(o.nom ?? '').trim();
+  if (!nom) return { ok: false, raison: 'Donnez un nom à ce dossier.' };
+  if (nom.length > NOM_DOSSIER_MAX)
+    return { ok: false, raison: `Le nom d’un dossier ne peut pas dépasser ${NOM_DOSSIER_MAX} signes.` };
+  const projetBrut = o.projectId;
+  const projectId = typeof projetBrut === 'string' && projetBrut.trim() ? projetBrut.trim() : null;
+  return { ok: true, nom, projectId };
+}
+
+/** Un groupe d'affichage : un dossier et ses fiches, ou (`dossier: null`) les fiches à la racine. */
+export interface GroupeDeDossier {
+  dossier: DossierCoffre | null;
+  acces: AccesCoffre[];
+}
+
+/**
+ * Range des fiches par dossier : les dossiers d'abord, par ordre alphabétique
+ * (même vides, sauf si `sansVides`), puis les fiches restées à la racine. Une
+ * fiche qui cite un dossier inconnu retombe à la racine plutôt que de disparaître.
+ */
+export function regrouperParDossier(
+  liste: readonly AccesCoffre[],
+  dossiers: readonly DossierCoffre[],
+  options: { sansVides?: boolean } = {},
+): GroupeDeDossier[] {
+  const connus = new Map(dossiers.map((d) => [d.id, d]));
+  const parDossier = new Map<string, AccesCoffre[]>();
+  const racine: AccesCoffre[] = [];
+  for (const fiche of liste) {
+    const id = fiche.dossierId ?? null;
+    if (id && connus.has(id)) {
+      const groupe = parDossier.get(id) ?? [];
+      groupe.push(fiche);
+      parDossier.set(id, groupe);
+    } else racine.push(fiche);
+  }
+  const groupes: GroupeDeDossier[] = [...dossiers]
+    .sort((a, b) => a.nom.localeCompare(b.nom))
+    .map((dossier) => ({ dossier, acces: parDossier.get(dossier.id) ?? [] }))
+    .filter((g) => !options.sansVides || g.acces.length > 0);
+  if (racine.length) groupes.push({ dossier: null, acces: racine });
+  return groupes;
+}
+
+/** Retrouve un dossier par son identifiant ou, à défaut, par son nom (casse et accents ignorés). */
+export function trouverDossier<T extends Pick<DossierCoffre, 'id' | 'nom'>>(
+  dossiers: readonly T[],
+  cle: string,
+): T | undefined {
+  const brut = (cle ?? '').trim();
+  if (!brut) return undefined;
+  const parId = dossiers.find((d) => d.id === brut);
+  if (parId) return parId;
+  const nom = normaliserRecherche(brut);
+  return dossiers.find((d) => normaliserRecherche(d.nom) === nom);
 }
 
 /* ------------------------------------------------------------------ */
@@ -380,8 +491,8 @@ export function normaliserRecherche(texte: string): string {
  * fiche — et le taper dans une barre de recherche serait le pire endroit où
  * l'écrire.
  */
-export function texteCherchable(acces: AccesCoffre, nomProjet?: string): string {
-  const morceaux = [acces.nom, LIBELLE_TYPE_ACCES[acces.type] ?? '', nomProjet ?? '', acces.note];
+export function texteCherchable(acces: AccesCoffre, nomProjet?: string, nomDossier?: string): string {
+  const morceaux = [acces.nom, LIBELLE_TYPE_ACCES[acces.type] ?? '', nomProjet ?? '', nomDossier ?? '', acces.note];
   for (const champ of champsDuType(acces.type)) {
     if (champ.secret) continue;
     const valeur = acces.champs[champ.cle];
@@ -399,11 +510,12 @@ export function filtrerAcces(
   liste: readonly AccesCoffre[],
   recherche: string,
   nomProjet: (projectId: string | null) => string | undefined = () => undefined,
+  nomDossier: (dossierId: string | null) => string | undefined = () => undefined,
 ): AccesCoffre[] {
   const mots = normaliserRecherche(recherche).split(/\s+/).filter(Boolean);
   if (!mots.length) return [...liste];
   return liste.filter((acces) => {
-    const texte = texteCherchable(acces, nomProjet(acces.projectId));
+    const texte = texteCherchable(acces, nomProjet(acces.projectId), nomDossier(acces.dossierId ?? null));
     return mots.every((mot) => texte.includes(mot));
   });
 }

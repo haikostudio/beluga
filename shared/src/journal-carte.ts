@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { delaiOutilMoteurMs, estUneConsigneAuMoteur } from './attente-question.js';
-import { JALON_TOUR_ARRETE, JALON_TOUR_EN_PAUSE, JALON_TOUR_NON_PARTI } from './issue-de-tour.js';
+import { JALON_TOUR_ARRETE, JALON_TOUR_EN_PAUSE, JALON_TOUR_NON_PARTI, JALON_TOUR_SUSPENDU } from './issue-de-tour.js';
 
 /**
  * LE JOURNAL D'UNE CARTE — UN SEUL DOCUMENT, TOUTE SA VIE.
@@ -419,6 +419,8 @@ const GENRE_PAR_JALON: Record<string, GenreAction> = {
   [JALON_TOUR_EN_PAUSE]: 'point',
   [JALON_TOUR_NON_PARTI]: 'point',
   [JALON_TOUR_ARRETE]: 'point',
+  /* Une SUSPENSION à la main : une ligne neutre du travail (`recitDeLEntree`). */
+  [JALON_TOUR_SUSPENDU]: 'point',
   [JALON_ECARTEE_DU_LOT]: 'incident',
   [JALON_RATTRAPAGE_APRES_ECARTEMENT]: 'point',
 };

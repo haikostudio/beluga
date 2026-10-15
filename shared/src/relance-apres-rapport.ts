@@ -29,7 +29,7 @@
  *     repère tombe alors. Elle ne part JAMAIS seule : ses essais passés ne
  *     valent pas un geste de lancement ;
  *   - tant que la carte est relancée, son tiroir ne montre JAMAIS le bouton de
- *     fin de tâche (« Actions de la tâche ») ni « Déployer le lot », où qu'elle
+ *     fin de tâche (« Déployer ») ni « Déployer le lot », où qu'elle
  *     soit posée (`barreEnFinDeTache`, `lotDeployableDepuisLaCarte`).
  *
  * Historique : la version du 16.09.2026 déplaçait la carte dès le message mais
@@ -205,10 +205,11 @@ export function colonneApresReponseSansCadrage(carte: {
 }
 
 /**
- * LE TIROIR MONTRE-T-IL LE BOUTON DE FIN DE TÂCHE (« Actions de la tâche ») ?
+ * LA RANGÉE EST-ELLE EN FIN DE TÂCHE (« Déployer », ou « Terminer la tâche » direct) ?
  *
- * Un rapport rendu, une carte « À déployer » ou « Archivé » n'ont qu'un bouton,
- * qui ouvre le tiroir des actions de fin. UNE CARTE RELANCÉE N'EST PLUS EN FIN
+ * Un rapport rendu et une carte « À déployer » n'ont plus de liste d'actions :
+ * « Terminer la tâche » est un bouton direct, « Déployer » ouvre la fenêtre
+ * de mise en ligne du lot. UNE CARTE RELANCÉE N'EST PLUS EN FIN
  * DE TÂCHE, où qu'elle soit posée : son cadrage réfléchit à une nouvelle
  * demande, et la rangée montre le geste du cadrage (« Valider et lancer »,
  * éteint tant que la compréhension n'est pas rendue), comme sur une carte

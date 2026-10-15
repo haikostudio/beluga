@@ -28,6 +28,7 @@ import { z } from 'zod';
 import { echapperHtml as echapper } from './demande-copiable.js';
 import type { EtapeDeSuivi } from './frise-de-suivi.js';
 import type { SegmentDeSuivi } from './parcours-en-points.js';
+import { DOSSIER_DE_LA_SOURCE, LIBELLES_GENRES_DE_SOURCE, RAPPORT_D_ANALYSE, SourceDuClonage, majDeLaSource } from './clonage.js';
 
 /** Le document, rangé dans le projet. */
 export const DOCUMENT_DU_CAHIER = 'docs/cahier-des-charges.md';
@@ -53,8 +54,13 @@ export function titreDeLaCarteDeSuite(nomDuProjet: string): string {
 /** La marque d'une partie encore à trancher, dans le document. */
 export const MARQUE_A_VOIR = 'à voir';
 
-/** Les phases du questionnaire, dans l'ordre où l'agent les déroule. */
+/**
+ * Les phases du questionnaire, dans l'ordre où l'agent les déroule. « source »
+ * n'existe que pour un cahier qui part d'un produit existant (`clonage.ts`) :
+ * un cahier ordinaire commence à « vision » (`phasesDuCahier`).
+ */
 export const PHASES_DU_CAHIER = [
+  'source',
   'vision',
   'interfaces',
   'mecanismes',
@@ -66,6 +72,7 @@ export const PHASES_DU_CAHIER = [
 export type PhaseDuCahier = (typeof PHASES_DU_CAHIER)[number];
 
 export const LIBELLES_PHASES_DU_CAHIER: Record<PhaseDuCahier, string> = {
+  source: 'Source',
   vision: 'Vision et public',
   interfaces: 'Interfaces',
   mecanismes: 'Fonctionnalités',
@@ -96,12 +103,23 @@ export const CahierDesCharges = z.object({
    * second « termine » ne fait pas naître une seconde carte.
    */
   suiteId: z.string().optional(),
+  /**
+   * LE PRODUIT EXISTANT DONT CE CAHIER PART (clonage, `clonage.ts`), fixé à la
+   * naissance de la carte. Absent : cahier ordinaire, rien ne change pour lui.
+   */
+  source: SourceDuClonage.optional(),
 });
 export type CahierDesCharges = z.infer<typeof CahierDesCharges>;
 
-/** L'état neuf, posé à la naissance de la carte. */
-export function cahierNeuf(): CahierDesCharges {
+/** L'état neuf, posé à la naissance de la carte. Avec une source, on commence par elle. */
+export function cahierNeuf(source?: SourceDuClonage): CahierDesCharges {
+  if (source) return { faites: 0, total: 0, phase: 'source', restants: [], source };
   return { faites: 0, total: 0, phase: 'vision', restants: [] };
+}
+
+/** Les phases d'un cahier : « source » en tête pour un clonage seulement. */
+export function phasesDuCahier(aUneSource: boolean): PhaseDuCahier[] {
+  return PHASES_DU_CAHIER.filter((p) => aUneSource || p !== 'source');
 }
 
 export type EtatDuCahier = 'en-cours' | 'en-pause' | 'termine';
@@ -137,8 +155,9 @@ export function lireAvancement(
   let total = entier(args.total) ?? avant.total;
   if (total < faites) total = faites;
   const phaseLue = String(args.phase ?? avant.phase);
-  if (!(PHASES_DU_CAHIER as readonly string[]).includes(phaseLue)) {
-    return { ok: false, raison: `Phase inconnue « ${phaseLue} » : ${PHASES_DU_CAHIER.join(', ')}.` };
+  const phases = phasesDuCahier(!!avant.source);
+  if (!(phases as readonly string[]).includes(phaseLue)) {
+    return { ok: false, raison: `Phase inconnue « ${phaseLue} » : ${phases.join(', ')}.` };
   }
   const restants = Array.isArray(args.restants)
     ? args.restants.map((r) => String(r ?? '').trim()).filter(Boolean).slice(0, 40).map((r) => r.slice(0, 200))
@@ -156,6 +175,7 @@ export function lireAvancement(
       enPauseA: undefined,
       termineA: termine ? avant.termineA ?? maintenant : undefined,
       suiteId: avant.suiteId,
+      source: majDeLaSource(avant.source, args),
     },
   };
 }
@@ -258,10 +278,10 @@ export function partiesDuCahier(markdown: string): PartieDuCahier[] {
  * carte seulement (`server/src/runtime.ts`). Elle ne change pas d'un tour à
  * l'autre : le genre de la carte est fixé à sa naissance.
  */
-export function consigneDuCahier(cheminCompetence: string, cheminDuProjet: string): string {
+export function consigneDuCahier(cheminCompetence: string, cheminDuProjet: string, aUneSource = false): string {
   return `CETTE CARTE SUIT LE PARCOURS DU CAHIER DES CHARGES D'UN NOUVEAU PROJET. Là où il diffère du cadrage ordinaire, c'est ce parcours qui prime.
 
-TON MODE D'EMPLOI est la compétence commune « ${COMPETENCE_DU_CAHIER} » : lis-la ENTIÈRE dès ton premier tour (${cheminCompetence}, avec ses annexes dans le même dossier) et suis son questionnaire, phase par phase : ${PHASES_DU_CAHIER.map((p) => LIBELLES_PHASES_DU_CAHIER[p]).join(' → ')}.
+TON MODE D'EMPLOI est la compétence commune « ${COMPETENCE_DU_CAHIER} » : lis-la ENTIÈRE dès ton premier tour (${cheminCompetence}, avec ses annexes dans le même dossier) et suis son questionnaire, phase par phase : ${phasesDuCahier(aUneSource).map((p) => LIBELLES_PHASES_DU_CAHIER[p]).join(' → ')}.
 
 UNE QUESTION À LA FOIS, AVEC « ask_user » : chacune a ses choix, sa « description » (ce que change la réponse, en mots courants) et la réponse que tu CONSEILLES, en tête et marquée « (recommandé) ». Saute ce que les réponses précédentes rendent sans objet. Une précision de produit ne se suppose jamais ; une manière de construire se décide et s'écrit comme décidée.
 
@@ -289,10 +309,16 @@ Lis la compétence « ${COMPETENCE_DU_CAHIER} », écris un premier document (to
 /** La reprise après une pause : tout ce qu'il faut pour repartir sans la conversation. */
 export function demandeDeRepriseDuCahier(cahier: CahierDesCharges, document: string | undefined): string {
   const restants = cahier.restants.length ? cahier.restants.map((r) => `- ${r}`).join('\n') : '(aucun point noté)';
+  const s = cahier.source;
+  const source = s
+    ? `\nLA SOURCE : ${[s.url, ...s.fichiers].filter(Boolean).join(', ')}${s.genre ? ` (${LIBELLES_GENRES_DE_SOURCE[s.genre]})` : ''} — ` +
+      `${s.mode === 'clone' ? `vrai clone, identité ${s.identiteReprise === true ? 'reprise' : s.identiteReprise === false ? 'non reprise' : 'pas encore tranchée'}` : s.mode === 'inspiration' ? 'inspiration profonde' : 'mode pas encore tranché'}` +
+      `, analyse ${s.analyse === 'terminee' ? `terminée (rapport : ${RAPPORT_D_ANALYSE})` : s.analyse === 'en-cours' ? 'commencée, à reprendre' : s.analyse === 'echouee' ? 'échouée' : 'pas encore faite'}.\n`
+    : '';
   return `REPRISE DU CAHIER DES CHARGES APRÈS UNE PAUSE. L'utilisateur revient : repars EXACTEMENT où tu t'étais arrêté.
 
 AVANCEMENT ENREGISTRÉ : ${cahier.faites} question(s) tranchée(s)${cahier.total ? ` sur ${cahier.total} prévue(s)` : ''}, phase « ${LIBELLES_PHASES_DU_CAHIER[cahier.phase]} ».
-
+${source}
 CE QUI RESTE À VOIR :
 ${restants}
 
@@ -316,7 +342,7 @@ LIS D'ABORD, EN ENTIER :
 - les sources d'inspiration fournies par l'utilisateur, s'il y en a : ${cheminDuProjet}/${DOSSIER_INSPIRATION}/ ;
 - la compétence « ${COMPETENCE_DU_CAHIER} » (${cheminCompetence}), dont la méthode de construction fait foi.
 
-PUIS, sans attendre qu'on te le demande : rends ta compréhension avec « rendre_comprehension », puis le PLAN DE CONSTRUCTION avec « rendre_plan ». Le plan suit la méthode de construction de la compétence ; sa PREMIÈRE étape recopie le cahier des charges et le dossier d'inspiration dans la copie de travail et les enregistre, car la copie de travail d'une carte ne contient que ce qui est enregistré.
+PUIS, sans attendre qu'on te le demande : rends ta compréhension avec « rendre_comprehension », puis le PLAN DE CONSTRUCTION avec « rendre_plan ». Le plan suit la méthode de construction de la compétence ; sa PREMIÈRE étape recopie le cahier des charges et le dossier d'inspiration dans la copie de travail et les enregistre, car la copie de travail d'une carte ne contient que ce qui est enregistré — SAUF ${DOSSIER_DE_LA_SOURCE}/ (les fichiers d'un produit cloné : APK, archives, parfois lourds), qui se lit dans le dossier du projet et ne s'enregistre jamais ; le rapport d'analyse (${RAPPORT_D_ANALYSE}), lui, s'enregistre.
 
 Tout ce qui est écrit dans le cahier est TRANCHÉ : ne repose aucune de ses questions. Une précision qui manque vraiment se demande avec « ask_user ». Puis ARRÊTE-TOI : l'utilisateur valide le plan, et c'est ce clic qui lance la construction.`;
 }

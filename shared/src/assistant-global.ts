@@ -29,6 +29,7 @@
  */
 
 import { CONSIGNE_PERIMETRE_ASSISTANT } from './perimetre-des-agents.js';
+import { REGLE_DEMANDE_DE_CLONAGE } from './clonage.js';
 import {
   HAUTEUR_CHAT_MIN,
   LARGEUR_CHAT_MAX,
@@ -157,8 +158,14 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
       if (action === 'etat') return texte(args.etat) === 'active' ? 'ecriture' : 'suppression';
       return ['ecrire', 'retour', 'importer'].includes(action) ? 'ecriture' : 'suppression';
     case 'coffre_fort':
-      if (action === 'lister' || action === 'archives') return 'lecture';
-      if (action === 'enregistrer' || action === 'restaurer') return 'ecriture';
+      if (action === 'lister' || action === 'archives' || action === 'dossiers') return 'lecture';
+      if (
+        action === 'enregistrer' ||
+        action === 'restaurer' ||
+        action === 'dossier_enregistrer' ||
+        action === 'dossier_restaurer'
+      )
+        return 'ecriture';
       return 'suppression';
     case 'marketing':
       if (action === 'lire') return 'lecture';
@@ -261,11 +268,22 @@ export function texteDeRefus(reponse: string): string {
 export const CLE_ASSISTANT_GLOBAL = 'assistant-global';
 
 /**
- * PLACE PAR DÉFAUT DU ROBOT : à GAUCHE du rond de l'agent marketing (posé à
- * 16 px du bord droit), pour que les deux ronds ne se recouvrent jamais.
+ * PLACE PAR DÉFAUT DU ROBOT : DANS LE COIN, à 16 px du bord droit (demande du
+ * 14/10/2026 — il flottait à 76 px du bord, laissant un vide dans le coin pour
+ * le rond de l'agent marketing, qui n'existe que sur la page Marketing). Là, et
+ * là seulement, le robot se décale à sa gauche (`DROITE_A_COTE_DU_ROND_VOISIN`).
  */
-export const DROITE_ROBOT_DEFAUT = 16 + 48 + 12;
+export const DROITE_ROBOT_DEFAUT = 16;
 export const ROND_ROBOT = 48;
+/** La place du robot quand le rond de l'agent marketing occupe le coin. */
+export const DROITE_A_COTE_DU_ROND_VOISIN = 16 + 48 + 12;
+/** L'ancienne place par défaut : une préférence qui la porte encore n'a jamais été choisie à la main. */
+const ANCIENNE_DROITE_PAR_DEFAUT = 16 + 48 + 12;
+
+/** La distance du robot au bord droit, décalée si le rond voisin occupe le coin. */
+export function droiteAvecVoisin(droite: number, rondVoisin: boolean): number {
+  return rondVoisin && droite < DROITE_A_COTE_DU_ROND_VOISIN ? DROITE_A_COTE_DU_ROND_VOISIN : droite;
+}
 
 /** La distance du robot au bord droit, ramenée dans l'écran. */
 export function droiteDuRobot(droite: unknown, largeurFenetre: number, marge = 8): number {
@@ -308,7 +326,8 @@ export function chatAssistantRetenu(valeur: unknown): ChatAssistant {
   const nombre = (x: unknown, repli: number) => (typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 20_000 ? x : repli);
   return {
     ouvert: v.ouvert === true,
-    droite: nombre(v.droite, CHAT_ASSISTANT_DEFAUT.droite),
+    // L'ancienne place par défaut revient au coin ; une place glissée à la main reste la sienne.
+    droite: v.droite === ANCIENNE_DROITE_PAR_DEFAUT ? DROITE_ROBOT_DEFAUT : nombre(v.droite, CHAT_ASSISTANT_DEFAUT.droite),
     largeur: nombre(v.largeur, CHAT_ASSISTANT_DEFAUT.largeur),
     hauteur: nombre(v.hauteur, CHAT_ASSISTANT_DEFAUT.hauteur),
   };
@@ -434,7 +453,7 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil accepte un p
 - le RÉSUMÉ de tous les projets, les cartes et leur avancement : assistant_resume, board_list_cards, board_create_card, board_update_card, board_move_card, board_delete_card ;
 - les PROJETS et leurs groupes : project_manage, group_manage ;
 - la MÉMOIRE et les compétences : memoire, competences ;
-- le COFFRE-FORT : coffre_fort (tu peux ressortir un accès en clair quand on te le demande) ;
+- le COFFRE-FORT : coffre_fort (tu peux ressortir un accès en clair quand on te le demande, et JOINDRE ou RETIRER les photos d'une fiche : « enregistrer » avec « images », l'alias de la pièce jointe de la conversation — tu ne réponds jamais que tu n'en as pas le droit ; tu RANGES les fiches en dossiers : « enregistrer » avec « dossier », « dossiers », « dossier_enregistrer », « dossier_supprimer » et « dossier_restaurer ») ;
 - la MESSAGERIE de l'espace client : assistant_messagerie (ce qui attend une réponse, lire une demande, répondre, créer, archiver) ;
 - le MARKETING et son calendrier : marketing ; les STATISTIQUES : statistiques ;
 - la SURVEILLANCE : assistant_surveillances, surveillance_essai, surveillance_recette ;
@@ -443,6 +462,8 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil accepte un p
 - les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier).
 
 TU NE TOUCHES JAMAIS AU CODE NI AUX BRANCHES : tu n'as ni commande, ni éditeur de fichier. Un changement de programme se propose en carte (board_create_card), confiée ensuite à un agent de tâche.
+
+${REGLE_DEMANDE_DE_CLONAGE}
 
 ${CONSIGNE_PERIMETRE_ASSISTANT}
 

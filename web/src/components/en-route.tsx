@@ -70,6 +70,7 @@ import {
   estUnRegroupement,
   membresActifsDuRegroupement,
   serviceDeLaCarte,
+  serviceVisible,
 } from '@beluga/shared';
 import { CLE_ETAT_EN_ROUTE, client } from '@/lib/client';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
@@ -1008,7 +1009,7 @@ function CarteEnRoute({
   const state = useApp();
   const projet = state.projects.find((p) => p.id === card.projectId);
   /* LA CARTE D'UN SERVICE (agent de volet) porte le badge du service, à côté de l'étape. */
-  const service = serviceDeLaCarte(card.agentId ? state.agents[card.agentId] : null, card);
+  const service = serviceVisible(serviceDeLaCarte(card.agentId ? state.agents[card.agentId] : null, card), state.studioOuvert);
   /* UNE MÈRE TRAVAILLE PAR SES FILLES : son coin dit « Au travail » tant que
      l'une d'elles tourne, jamais « Rendue » sur le seul cadrage fini. */
   const fillesAuTravail =
@@ -1175,7 +1176,7 @@ function VignetteAgent({ agent, onOpen }: { agent: Agent; onOpen: () => void }) 
                   <span className="text-en-cours">{t('Au travail')}</span>
                 </>
               ) : (
-                <span className="text-faint">{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
+                <span className={agent.status === 'failed' ? 'text-danger' : 'text-faint'}>{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
               )}
             </span>
             {/* L'ARRÊT, le seul geste d'arrêt de ces agents : il arrête
@@ -1278,7 +1279,7 @@ function VignetteDepannage({ agent, onOpen }: { agent: Agent; onOpen: () => void
                 <span className="text-en-cours">{t('Au travail')}</span>
               </>
             ) : (
-              <span className="text-faint">{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
+              <span className={agent.status === 'failed' ? 'text-danger' : 'text-faint'}>{agent.status === 'failed' ? t('échec') : t('terminé')}</span>
             )}
           </span>
         </div>

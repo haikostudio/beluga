@@ -377,7 +377,7 @@ function LigneDEcart({ tache, runId }: { tache: TacheDuLot; runId?: string }) {
     setEnvoi(false);
   };
   const teinte =
-    etat === 'revenu' ? 'text-success' : etat === 'lance' ? 'text-en-cours' : etat === 'echec' ? 'text-warning' : 'text-muted';
+    etat === 'revenu' ? 'text-success' : etat === 'lance' ? 'text-en-cours' : etat === 'echec' ? 'text-danger' : 'text-muted';
   return (
     <div className="ml-6 mt-0.5 space-y-1" data-ecart-de-tache={tache.cardId}>
       {tache.detail ? (

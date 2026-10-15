@@ -70,6 +70,7 @@ import {
   BulleInfo,
   Button,
   CLASSE_POINT_DE_BOUTON,
+  CLASSE_RANGEE_DE_BOUTONS,
   ConfirmDialog,
   Dot,
   Dialog,
@@ -260,7 +261,7 @@ export function DeployPanel({
     client.demanderProduction(null);
   }, [productionDemandee, projectId]);
   const tiroirFilAgent = (
-    <Drawer adresse="fil-agent-publication" open={!!filAgent} onClose={() => setFilAgent(null)} empile>
+    <Drawer adresse="fil-agent-publication" open={!!filAgent} onClose={() => setFilAgent(null)} empile plein feuille>
       {filAgent ? (
         <div className="flex min-h-0 flex-1 flex-col" data-fil-agent-production={filAgent}>
           <div className="shrink-0 px-4 pb-2">
@@ -1135,7 +1136,7 @@ export function DeployPanel({
           enMenu
             ? 'hidden'
             : enTete
-              ? 'order-1 flex min-w-0 items-center gap-0.5'
+              ? cn('order-1 min-w-0', CLASSE_RANGEE_DE_BOUTONS)
               : 'flex w-full min-w-0 flex-1 items-center gap-1'
         }
         data-bloc-publication={colonne}

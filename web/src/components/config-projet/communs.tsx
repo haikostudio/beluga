@@ -3,7 +3,6 @@ import { ChevronDown } from 'lucide-react';
 import {
   Project,
   mentionEcartAuSchema,
-  type ReglageApparence,
 } from '@beluga/shared';
 import { BulleInfo, LigneFormulaire, ListeDeroulante } from '@/components/ui';
 import { t } from '@/lib/langue';
@@ -37,12 +36,6 @@ export interface ContexteConfig {
   setName: (valeur: string) => void;
   engine: string;
   setEngine: (valeur: string) => void;
-
-  /* --- Apparence --- */
-  themeProjet: ReglageApparence | null;
-  setThemeProjet: (valeur: ReglageApparence | null) => void;
-  apparenceGenerale: ReglageApparence;
-  systemeSombre: boolean;
 
   /* --- Déploiement --- */
   devUrl: string;

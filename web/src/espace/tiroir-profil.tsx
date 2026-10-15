@@ -20,7 +20,7 @@
 import * as React from 'react';
 import { nomCourtDeLInstallation } from '@beluga/shared';
 import { Loader2, X } from 'lucide-react';
-import { BulleInfo, Button, DialogTitle, Drawer, Input, Label, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, ChampMotDePasse, DialogTitle, Drawer, Input, Label, ZoneDefilement } from '@/components/ui';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
 import { canalEspace } from './canal-espace';
@@ -71,6 +71,22 @@ function Champ({
   );
 }
 
+/** Le même champ, pour un mot de passe : l'œil toujours, le générateur quand on en crée un. */
+function ChampSecret({
+  libelle,
+  ...props
+}: { libelle: string } & React.ComponentProps<typeof ChampMotDePasse>) {
+  const id = React.useId();
+  return (
+    <div className="flex flex-col gap-1">
+      <Label htmlFor={id} className="text-[12px] text-muted">
+        {libelle}
+      </Label>
+      <ChampMotDePasse id={id} {...props} />
+    </div>
+  );
+}
+
 export function TiroirProfil({ onFermer }: { onFermer: () => void }) {
   const telephone = useTelephone();
   const [profil, setProfil] = React.useState<MonProfil | null>(null);
@@ -81,6 +97,8 @@ export function TiroirProfil({ onFermer }: { onFermer: () => void }) {
   const [actuel, setActuel] = React.useState('');
   const [nouveau, setNouveau] = React.useState('');
   const [confirmation, setConfirmation] = React.useState('');
+  /** Le nouveau mot de passe et sa répétition se montrent ensemble : un mot généré se lit dans les deux. */
+  const [nouveauVisible, setNouveauVisible] = React.useState(false);
   /** Le bloc en cours d'enregistrement : son bouton le dit dès le clic. */
   const [enCours, setEnCours] = React.useState<'profil' | 'identifiant' | 'motDePasse' | null>(null);
   const [erreur, setErreur] = React.useState<string | null>(null);
@@ -231,9 +249,8 @@ export function TiroirProfil({ onFermer }: { onFermer: () => void }) {
                 onChange={(event) => setIdentifiant(event.target.value)}
                 data-champ-identifiant-profil
               />
-              <Champ
+              <ChampSecret
                 libelle={t('Mot de passe actuel')}
-                type="password"
                 autoComplete="current-password"
                 value={motDePasseIdentifiant}
                 onChange={(event) => setMotDePasseIdentifiant(event.target.value)}
@@ -260,28 +277,33 @@ export function TiroirProfil({ onFermer }: { onFermer: () => void }) {
               titre={t('Mot de passe')}
               aide={t('En le changeant, tous vos appareils déjà connectés devront entrer à nouveau.')}
             >
-              <Champ
+              <ChampSecret
                 libelle={t('Mot de passe actuel')}
-                type="password"
                 autoComplete="current-password"
                 value={actuel}
                 onChange={(event) => setActuel(event.target.value)}
                 data-champ-mot-de-passe-actuel
               />
-              <Champ
+              <ChampSecret
                 libelle={t('Nouveau mot de passe')}
-                type="password"
                 autoComplete="new-password"
                 value={nouveau}
                 onChange={(event) => setNouveau(event.target.value)}
+                visible={nouveauVisible}
+                onVisibleChange={setNouveauVisible}
+                onGenerer={(motDePasse) => {
+                  setNouveau(motDePasse);
+                  setConfirmation(motDePasse);
+                }}
                 data-champ-mot-de-passe-nouveau
               />
-              <Champ
+              <ChampSecret
                 libelle={t('Répétez le nouveau mot de passe')}
-                type="password"
                 autoComplete="new-password"
                 value={confirmation}
                 onChange={(event) => setConfirmation(event.target.value)}
+                visible={nouveauVisible}
+                onVisibleChange={setNouveauVisible}
                 data-champ-mot-de-passe-confirmation
               />
               <Button

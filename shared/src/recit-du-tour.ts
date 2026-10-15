@@ -1,4 +1,5 @@
 import { EntreeJournal, JALON_TOUR_LANCE, genreDAction } from './journal-carte.js';
+import { JALON_TOUR_SUSPENDU } from './issue-de-tour.js';
 import { libelleDOutil, libelleLisible, nomSansPont } from './noms-outils.js';
 import { VueDEntree, vueDeLEntree } from './contenu-journal.js';
 
@@ -49,6 +50,8 @@ export const GENRES_DE_BLOC = [
   'tache',
   'note',
   'outil',
+  /* Une SUSPENSION à la main : le geste de l'utilisateur, dit en une ligne neutre. */
+  'suspension',
 ] as const;
 export type GenreDeBloc = (typeof GENRES_DE_BLOC)[number];
 
@@ -407,6 +410,9 @@ export function recitDeLEntree(entree: EntreeJournal): RecitDEntree {
         ...(vue.intention ? { ditParLAgent: court(vue.intention, 140)! } : {}),
       });
     case 'point': {
+      /* LA SUSPENSION À LA MAIN N'EST PAS UNE LIGNE DE LISTE : elle se dit
+         « Tâche suspendue à la main à HH:MM », jamais « Je passe à… ». */
+      if (entree.nature === 'jalon' && entree.libelle === JALON_TOUR_SUSPENDU) return { genre: 'suspension' };
       /* L'INTITULÉ D'UNE LIGNE DE LISTE DE TÂCHES EST DU TEXTE D'AGENT : il
          dit ce qu'il fait, mieux que « liste tenue à jour ». */
       const intitule = court(entree.libelle, 140);
@@ -457,6 +463,7 @@ export const TITRES_DU_GENRE: Record<GenreDeBloc, { un: string; plusieurs: strin
   tache: { un: 'Liste des tâches tenue à jour', plusieurs: 'Liste des tâches tenue à jour {v0} fois' },
   note: { un: 'Note de l’agent', plusieurs: '{v0} notes de l’agent' },
   outil: { un: 'Outil du projet utilisé', plusieurs: 'Outil du projet utilisé {v0} fois' },
+  suspension: { un: 'Tâche suspendue à la main', plusieurs: 'Tâche suspendue à la main {v0} fois' },
 };
 
 

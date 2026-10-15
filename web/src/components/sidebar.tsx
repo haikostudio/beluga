@@ -57,6 +57,7 @@ import {
   Button,
   CLASSE_BOUTON_DE_CREATION,
   CLASSE_POINT_DE_BOUTON,
+  CLASSE_RANGEE_DE_BOUTONS,
   ConfirmDialog,
   Dialog,
   DialogContent,
@@ -95,6 +96,7 @@ import { useApp } from '@/lib/use-app';
 import { useGlissementDeCarte } from '@/lib/deplacement-de-projet';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { ouvrirLAjoutDeProjet } from '@/components/pas-a-pas';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 
 /** Un élément de la colonne : un projet hors groupe, ou un groupe entier. */
@@ -738,8 +740,14 @@ export function Sidebar({
         className={cn(
           'flex min-h-0 flex-1 flex-col',
           reduitEffectif &&
+            /* RANG 55 : DEVANT TOUTES LES PAGES, même celles ouvertes par-dessus
+               une autre (`Drawer empile`, `z-50`, posées en portail APRÈS la
+               colonne — à rang égal, elles gagnaient et coupaient le panneau au
+               bord de la bande). Les menus et bulles qu'il ouvre sont en
+               `z-[60]` ; une FENÊTRE modale ouverte (son voile porte
+               `data-voile-de-fenetre`) le renvoie en `z-40`, sous elle. */
             (survolee
-              ? 'absolute inset-y-0 left-0 z-50 w-[var(--largeur-projets)] shadow-2xl'
+              ? 'absolute inset-y-0 left-0 z-[55] w-[var(--largeur-projets)] shadow-2xl [body:has([data-voile-de-fenetre][data-state=open])_&]:z-40'
               : 'w-[var(--largeur-bande)]'),
         )}
       >
@@ -749,7 +757,8 @@ export function Sidebar({
          * garde que le bouton qui la déplie.
          */}
         <div
-          className={cn('flex h-14 shrink-0 items-center gap-1', bandeSeule ? 'justify-center px-0' : 'pl-4 pr-2.5')}
+          className={cn('h-14 shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'justify-center px-0' : 'pl-4 pr-2.5')}
+          data-rangee-de-boutons
           data-titre-projets={bandeSeule ? 'bande' : 'deplie'}
         >
           {bandeSeule ? (
@@ -937,7 +946,7 @@ export function Sidebar({
             </div>
           ) : (
             <>
-              <div className="group/section mt-5 flex h-8 items-center gap-0.5 pl-2.5 pr-1">
+              <div className={cn('group/section mt-5 h-8 pl-2.5 pr-1', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons>
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-faint">{t('Projets')}</span>
                 <Tooltip label={t('Nouveau groupe')}>
                   <button
@@ -1180,7 +1189,15 @@ export function Sidebar({
               {/* « Aucun projet inscrit » ne s'écrit que si la colonne n'en a
                   vraiment aucun. */}
               {bandeSeule ? null : !entries.length && !espaceDev ? (
-                <p className="px-2.5 py-2 text-[13px] text-faint">{t('Aucun projet inscrit.')}</p>
+                <button
+                  type="button"
+                  data-creer-premier-projet="colonne"
+                  onClick={ouvrirLAjoutDeProjet}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-muted transition-colors hover:bg-raised hover:text-text"
+                >
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                  {t('Créer votre premier projet')}
+                </button>
               ) : null}
             </>
           )}
@@ -1225,7 +1242,8 @@ export function Sidebar({
             réglages. Rien d'autre. */}
         <div
           data-pied-colonne
-          className={cn('flex shrink-0 gap-1', bandeSeule ? 'flex-col items-center px-0 pb-3 pt-2' : 'items-center px-2 pb-2.5 pt-1.5')}
+          data-rangee-de-boutons
+          className={cn('shrink-0', CLASSE_RANGEE_DE_BOUTONS, bandeSeule ? 'flex-col px-0 pb-3 pt-2' : 'px-2 pb-2.5 pt-1.5')}
         >
           {/* LE POINT DU MOTEUR NE DIT QUE LA LIAISON : plein quand elle tient,
               battant quand elle est rompue. */}
@@ -1445,7 +1463,7 @@ function EnteteGroupe({
         // était plus basse que son propre bouton de nom en mode ouvert (une
         // lettre tient dans moins de hauteur qu'un libellé) — chaque groupe
         // décalait d'autant tout ce qui suivait entre les deux modes.
-        'group/g flex h-9 items-center gap-0.5 rounded-lg transition-colors hover:bg-raised',
+        'group/g flex h-9 items-center gap-1 rounded-lg transition-colors hover:bg-raised sm:gap-1.5',
         bande ? 'justify-center px-0' : 'pl-2.5 pr-1',
         dimmed && 'opacity-40',
         secoue && 'animate-secousse',
@@ -2004,7 +2022,7 @@ function LigneEspaceDev({
  * outils (réglages, poignée) ne paraissent qu'au survol, à droite.
  */
 const CLASSE_LIGNE_DE_PROJET =
-  'group relative flex h-9 w-full items-center gap-0.5 rounded-lg text-[14px] text-text transition-[transform,background-color] duration-150 motion-reduce:transition-none';
+  'group relative flex h-9 w-full items-center gap-1 rounded-lg text-[14px] text-text transition-[transform,background-color] duration-150 motion-reduce:transition-none sm:gap-1.5';
 const CLASSE_OUTIL_DE_LIGNE =
   'flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-faint transition-opacity hover:bg-border hover:text-text survol:opacity-0 group-hover:survol:opacity-100';
 
@@ -2231,11 +2249,11 @@ function DerouleDesEtapes({ etapes }: { etapes: Etape[] }) {
           {etape.fait ? (
             <Check className="mt-[3px] h-3 w-3 shrink-0 text-success" />
           ) : (
-            <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0 text-warning" />
+            <TriangleAlert className="mt-[3px] h-3 w-3 shrink-0 text-danger" />
           )}
           <span className="min-w-0 flex-1">
-            <span className={etape.fait ? 'text-muted' : 'text-warning'}>{etape.titre}</span>
-            {etape.detail ? <span className="block break-words text-[11.5px] text-faint">{etape.detail}</span> : null}
+            <span className={etape.fait ? 'text-muted' : 'text-danger'}>{etape.titre}</span>
+            {etape.detail ? <span className={cn('block break-words text-[11.5px]', etape.fait ? 'text-faint' : 'text-danger/80')}>{etape.detail}</span> : null}
           </span>
         </li>
       ))}
@@ -2308,6 +2326,10 @@ function ProjectsDialog({
      application (`caseCahierCocheeParDefaut`). */
   const [withCahier, setWithCahier] = React.useState(caseCahierCocheeParDefaut('vide'));
   const [ghCahier, setGhCahier] = React.useState(caseCahierCocheeParDefaut('github'));
+  /* LE PRODUIT À CLONER (facultatif) : un lien ou un nom. Rempli, il coche le
+     cahier des charges, qui part alors de cette source (`shared/src/clonage.ts`). */
+  const [newSource, setNewSource] = React.useState('');
+  const avecSource = !!newSource.trim();
   /* L'adresse publique se demande ICI, au montage : un projet monté sans elle
      est un projet dont le déploiement n'a rien à contrôler à la fin. */
   const [newSousDomaine, setNewSousDomaine] = React.useState('');
@@ -2364,7 +2386,8 @@ function ProjectsDialog({
           github: withGithub,
           sousDomaine: newSousDomaine.trim() || undefined,
           port: newPort ? Number(newPort) : undefined,
-          cahierDesCharges: withCahier,
+          cahierDesCharges: withCahier || avecSource,
+          source: newSource.trim() || undefined,
         },
         /* La création de l'adresse attend que le nom soit visible sur Internet :
            le montage peut donc durer plus longtemps qu'avant. */
@@ -2377,13 +2400,14 @@ function ProjectsDialog({
       setNewResume('');
       setNewSousDomaine('');
       setNewPort('');
+      setNewSource('');
       /* La fenêtre reste ouverte tant qu'une étape a échoué : c'est le seul
          endroit où l'on peut lire laquelle et pourquoi. Sinon elle se referme
          et l'on arrive dans le projet, sur sa carte du cahier. */
       const toutFait = (data.etapes ?? []).every((etape) => etape.fait);
       if (toutFait) {
         onClose();
-        entrerDansLeProjet(data.project.id, data.cahierCardId, withCahier);
+        entrerDansLeProjet(data.project.id, data.cahierCardId, withCahier || avecSource);
       } else client.setActiveProject(data.project.id);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('création impossible'));
@@ -2575,7 +2599,7 @@ function ProjectsDialog({
                   <Loader2 className="h-3 w-3 animate-spin" />  {t('Lecture des dépôts du compte GitHub…')}
 </p>
               ) : depotsErreur ? (
-                <p className="mt-2 text-[13px] text-warning">{depotsErreur}</p>
+                <p className="mt-2 text-[13px] text-danger">{depotsErreur}</p>
               ) : depotsVisibles.length ? (
                 <ZoneDefilement classeEnveloppe="mt-1.5 max-h-[220px] flex-none" className="space-y-0.5">
                   {depotsVisibles.map((depot) => (
@@ -2667,6 +2691,17 @@ function ProjectsDialog({
               >
                 <Input value={newResume} onChange={(event) => setNewResume(event.target.value)} placeholder={t('Le site vitrine de l\'atelier')} />
               </LigneFormulaire>
+              <LigneFormulaire
+                libelle={t('Produit à cloner ou dont s\'inspirer (facultatif)')}
+                aide={t('Le lien ou le nom d\'un site, d\'un SaaS, d\'une application ou d\'un jeu existant. Beluga vous demandera si vous voulez un vrai clone ou vous en inspirer, l\'analysera puis rédigera le cahier des charges à partir de ce qu\'il a trouvé. Un fichier (APK, captures) se joint à la première question.')}
+              >
+                <Input
+                  value={newSource}
+                  onChange={(event) => setNewSource(event.target.value)}
+                  placeholder="https://…"
+                  data-source-a-cloner
+                />
+              </LigneFormulaire>
               {/* L'adresse publique : demandée ici, créée pendant le montage. */}
               <LigneFormulaire
                 libelle={t('Adresse publique du projet (facultatif)')}
@@ -2712,7 +2747,7 @@ function ProjectsDialog({
 {t('Créer aussi le dépôt privé sur GitHub')}
 </label>
             <label className="flex items-center gap-2 text-[14px] text-muted" data-case-cahier="vide">
-              <Switch checked={withCahier} onCheckedChange={setWithCahier} />
+              <Switch checked={withCahier || avecSource} disabled={avecSource} onCheckedChange={setWithCahier} />
               <span>{t('Démarrer par un cahier des charges')}</span>
               <BulleInfo cote="start">
                 {t('Une carte « Cahier des charges » apparaît dans le projet : son agent vous pose les questions une à une, rédige le cahier des charges sous vos yeux, puis le plan de construction. On peut le mettre en pause et le reprendre plus tard.')}

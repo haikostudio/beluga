@@ -32,7 +32,7 @@
  */
 import * as React from 'react';
 import { ChevronDown, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from 'lucide-react';
-import { BulleInfo, Button, DialogTitle, Drawer, EmptyState, Pastille, SelecteurTiroir, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, DialogTitle, Drawer, Pastille, SelecteurTiroir, ZoneDefilement } from '@/components/ui';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
 import { OptionDePage } from '@/components/entete-de-zone';
@@ -41,6 +41,7 @@ import { PastillesMessagerie } from '@/components/pastilles-messagerie';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { useTelephone } from '@/lib/telephone';
 import type { DemandeAffichee } from '@beluga/shared';
 import {
@@ -555,10 +556,16 @@ export function EspaceHaiko({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6" data-espace-haiko data-aucun-client>
         {colonneDeMessagerie}
-        <EmptyState
-          icon={<UserRound className="h-5 w-5" />}
-          title={t('Aucun client pour l’instant')}
-          hint={t('Ajoutez votre premier client : il reçoit un accès à son espace.')}
+        <PasAPas
+          repere="messagerie"
+          icone={<UserRound className="h-6 w-6" />}
+          titre={t('Aucun client pour l’instant')}
+          explication={t('La messagerie réunit vos clients : chacun a son espace pour déposer ses demandes et suivre leur avancement.')}
+          etapes={[
+            t('Ajoutez votre premier client : il reçoit un accès à son espace.'),
+            t('Envoyez-lui l’invitation : il se connecte et vous écrit.'),
+            t('Chaque demande devient une carte confiée à un agent, et le client suit où elle en est.'),
+          ]}
         />
         <div className="flex w-full max-w-[280px] items-center gap-1.5">
           {boutonAjouter()}

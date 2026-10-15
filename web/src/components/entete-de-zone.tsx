@@ -4,7 +4,9 @@ import { ArrowLeft, ChevronDown, ChevronRight, EllipsisVertical, Loader2, Menu }
 import {
   Button,
   CLASSE_POINT_DE_BOUTON,
+  CLASSE_RANGEE_DE_BOUTONS,
   CibleDesGestesDePage,
+  DansUneBarreDEnTete,
   CibleDuBasDePage,
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +17,7 @@ import {
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
-import { useTelephone } from '@/lib/telephone';
+import { useTabletteOuTelephone, useTelephone } from '@/lib/telephone';
 
 /**
  * L'ENDROIT DE LA BARRE D'EN-TÊTE OÙ UNE PAGE POSE SES GESTES. L'application le
@@ -32,6 +34,38 @@ export const FournirLaCibleDesGestes = CibleDesGestes.Provider;
  * la porte déjà et remet `--zone-sure-entete` à zéro (`FeuilleDeTiroir`).
  */
 const MARGE_HAUTE_DE_LA_BARRE = 'var(--zone-sure-entete, var(--zone-sure-haut, 0px))';
+
+/**
+ * LE MENU PRINCIPAL DU TÉLÉPHONE (la colonne des projets, qui vit dans un
+ * panneau). L'application le fournit : la barre à DEUX RANGS d'une tâche, qui
+ * n'est pas celle de l'application, le pose elle aussi tout en haut, au lieu de
+ * la flèche de retour qui l'y remplaçait (demande du 15/10/2026).
+ */
+export interface MenuPrincipalDuTelephone {
+  ouvrir: () => void;
+  /** Ce qui attend ailleurs (liaison rompue, un projet qui attend). */
+  point?: { classe: string; texte: string } | null;
+}
+const MenuPrincipal = React.createContext<MenuPrincipalDuTelephone | null>(null);
+export const FournirLeMenuPrincipal = MenuPrincipal.Provider;
+
+/** Le bouton du menu principal : il ouvre la colonne des projets, sur téléphone. */
+function BoutonDuMenuPrincipal({ ouvrir, point }: MenuPrincipalDuTelephone) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-barre"
+      className="relative shrink-0 text-muted sm:hidden"
+      aria-label="Projets"
+      title={point ? `${t('Projets')} · ${point.texte}` : t('Projets')}
+      data-menu-principal
+      onClick={ouvrir}
+    >
+      <Menu className="h-4 w-4" />
+      {point ? <span data-point-etat className={cn(CLASSE_POINT_DE_BOUTON, point.classe)} /> : null}
+    </Button>
+  );
+}
 
 /** Un cran qui se clique : son fond paraît au survol, comme tout bouton de la barre. */
 const CLASSE_CRAN_CLIQUABLE =
@@ -211,11 +245,11 @@ export function CranDuFil({
  * portail des clients, qui n'a pas de fil d'Ariane — les trois restent en tête
  * du contenu, alignés à droite, comme avant.
  */
-const CLASSE_RANGEE_DE_PAGE = 'flex shrink-0 flex-wrap items-center justify-end gap-2 pb-3';
+const CLASSE_RANGEE_DE_PAGE = 'flex shrink-0 flex-wrap items-center justify-end gap-1 pb-3 sm:gap-1.5';
 
 export function GestesDePage({ children, className }: { children: React.ReactNode; className?: string }) {
   const cible = React.useContext(CibleDesGestes);
-  if (cible) return createPortal(children, cible);
+  if (cible) return createPortal(<DansUneBarreDEnTete.Provider value>{children}</DansUneBarreDEnTete.Provider>, cible);
   return (
     <div data-gestes-de-page="page" className={cn(CLASSE_RANGEE_DE_PAGE, className)}>
       {children}
@@ -262,8 +296,8 @@ export function OptionsDePage({
        l'ordre où les portails se montent : après les gestes posés tels quels,
        avant le geste principal. */
     return createPortal(
-      <div className="order-[9000] flex min-w-0 items-center gap-1.5" data-options-de-page="barre">
-        {children}
+      <div className={cn('order-[9000] min-w-0', CLASSE_RANGEE_DE_BOUTONS)} data-options-de-page="barre" data-rangee-de-boutons>
+        <DansUneBarreDEnTete.Provider value>{children}</DansUneBarreDEnTete.Provider>
       </div>,
       cible,
     );
@@ -274,8 +308,8 @@ export function OptionsDePage({
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="order-[9000] h-8 w-8 shrink-0 text-muted"
+          size="icon-barre"
+          className="order-[9000] shrink-0 text-muted"
           aria-label="Plus d’options"
           title={t('Plus d’options')}
           data-options-de-page="menu"
@@ -372,7 +406,7 @@ export function GestePrincipal({ children }: { children: React.ReactNode }) {
   }
   if (cible) {
     return createPortal(
-      <div className="order-last flex shrink-0 items-center gap-1.5" data-geste-principal="barre">
+      <div className={cn('order-last shrink-0', CLASSE_RANGEE_DE_BOUTONS)} data-geste-principal="barre">
         {children}
       </div>,
       cible,
@@ -421,7 +455,7 @@ export const BoutonPrincipal = React.forwardRef<HTMLButtonElement, Omit<ButtonPr
  * aucune place tant que rien n'y est posé : vide, il ajoutait un écart devant
  * la cloche.
  */
-export const CLASSE_CIBLE_DES_GESTES = 'flex min-w-0 items-center gap-1.5 max-sm:empty:hidden';
+export const CLASSE_CIBLE_DES_GESTES = cn('min-w-0 max-sm:empty:hidden', CLASSE_RANGEE_DE_BOUTONS);
 
 /** Un cran du fil d'Ariane : un lieu, et de quoi y retourner. */
 export interface CranDuChemin {
@@ -476,9 +510,19 @@ export function EnteteDeZone({
   avantTitre,
   children,
   menu,
+  deuxRangsSurPetitEcran = false,
   className,
   ...attributs
 }: {
+  /**
+   * SUR TÉLÉPHONE ET SUR TABLETTE (moins de 1024 px), DEUX RANGS (la page d'une
+   * tâche, demandes du 14/10/2026 puis du 15/10/2026) : en haut, l'EN-TÊTE
+   * MAÎTRE — le menu principal (la colonne des projets) à gauche, les gestes et
+   * le menu à droite ; dessous, le fil d'Ariane lui-même, qui s'ouvre sur le
+   * BOUTON DES SERVICES (plus de flèche de retour : on remonte par le menu
+   * principal ou par l'icône du projet). Sur ordinateur, un seul rang.
+   */
+  deuxRangsSurPetitEcran?: boolean;
   /** Les lieux qui mènent à la page, du plus large au plus proche. */
   chemin?: CranDuChemin[];
   titre: React.ReactNode;
@@ -529,27 +573,17 @@ export function EnteteDeZone({
   menu?: React.ReactNode;
   className?: string;
 } & Record<`data-${string}`, string | number | boolean | undefined>) {
-  return (
-    <header
-      data-entete-de-zone
-      {...attributs}
-      className={cn('flex h-14 shrink-0 items-center gap-2 px-3 sm:px-5', className)}
-      style={{
-        /* LA MARGE DE LA BARRE D'ÉTAT DU TÉLÉPHONE SE COMPTE UNE FOIS. Sur le
-           tableau, cette barre est seule à la porter. Dans une page ouverte
-           par-dessus (`FeuilleDeTiroir`), la feuille la porte déjà et remet
-           `--zone-sure-entete` à zéro : comptée deux fois, elle laissait une
-           bande vide de la hauteur de l'heure au-dessus de chaque page. */
-        paddingTop: MARGE_HAUTE_DE_LA_BARRE,
-        height: `calc(3.5rem + ${MARGE_HAUTE_DE_LA_BARRE})`,
-      }}
-    >
+  const petitEcran = useTabletteOuTelephone();
+  const menuPrincipal = React.useContext(MenuPrincipal);
+  const deuxRangs = deuxRangsSurPetitEcran && petitEcran;
+  const retour = (
+    <>
       {onRetour ? (
         <Tooltip label={t('Retour')}>
           <Button
             variant="ghost"
-            size="icon"
-            className={cn('h-8 w-8 shrink-0 text-muted', !avant && 'sm:-ml-1.5', retourDansLaColonne && 'sm:hidden')}
+            size="icon-barre"
+            className={cn('shrink-0 text-muted', !avant && 'sm:-ml-1.5', retourDansLaColonne && 'sm:hidden')}
             aria-label="Retour"
             {...(reperesDeRetour ? { 'data-retour-du-fil': '', ...reperesDeRetour } : { 'data-retour-carte': '' })}
             {...(retourDePage ? { 'data-retour-de-page': '', 'data-poignee-tiroir': '' } : {})}
@@ -561,8 +595,8 @@ export function EnteteDeZone({
       ) : onOuvrirColonne ? (
         <Button
           variant="ghost"
-          size="icon"
-          className="relative h-8 w-8 shrink-0 text-muted sm:hidden"
+          size="icon-barre"
+          className="relative shrink-0 text-muted sm:hidden"
           aria-label="Projets"
           title={pointDeColonne ? `${t('Projets')} · ${pointDeColonne.texte}` : t('Projets')}
           onClick={onOuvrirColonne}
@@ -571,14 +605,10 @@ export function EnteteDeZone({
           {pointDeColonne ? <span data-point-etat className={cn(CLASSE_POINT_DE_BOUTON, pointDeColonne.classe)} /> : null}
         </Button>
       ) : null}
-      {/* LE BOUTON DES SERVICES, À GAUCHE DU TITRE : on change de service depuis
-          le fil d'Ariane, sans passer par la colonne. Sur ordinateur il ouvre
-          la barre (`sm:order-first`) ; sur téléphone il suit le bouton des
-          projets, juste devant le titre — plus à droite, où il se perdait
-          entre la cloche et l'assistant. */}
-      {avant ? <div className="flex shrink-0 items-center sm:order-first sm:-ml-1.5" data-avant-le-fil>{avant}</div> : null}
-
-      <nav aria-label="Fil d'Ariane" data-fil-d-ariane className="flex min-w-0 flex-1 items-center gap-1.5 text-[14.5px]">
+    </>
+  );
+  const fil = (
+      <nav aria-label="Fil d'Ariane" data-fil-d-ariane className={cn('min-w-0 flex-1 text-[14.5px]', CLASSE_RANGEE_DE_BOUTONS)}>
         {chemin.map((cran, rang) => (
           <React.Fragment key={`${rang}-${cran.libelle}`}>
             {cran.icone ? (
@@ -589,12 +619,12 @@ export function EnteteDeZone({
                   aria-label={cran.libelle}
                   title={cran.libelle}
                   onClick={cran.onClick}
-                  className="flex h-8 shrink-0 items-center justify-center rounded-md px-1.5 transition-colors hover:bg-raised max-sm:-mx-1"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised"
                 >
                   {cran.icone}
                 </button>
               ) : (
-                <span data-icone-du-cran className="flex h-8 shrink-0 items-center justify-center">
+                <span data-icone-du-cran className="flex h-8 w-8 shrink-0 items-center justify-center">
                   {cran.icone}
                 </span>
               )
@@ -704,13 +734,77 @@ export function EnteteDeZone({
         )}
         {suite}
       </nav>
-
+  );
+  const droite = (
+    <>
       {children || menu ? (
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className={cn('shrink-0', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="droite">
           {children}
           {menu}
         </div>
       ) : null}
+    </>
+  );
+
+  if (deuxRangs) {
+    return (
+      <div
+        data-entete-de-zone
+        data-entete-deux-rangs
+        {...attributs}
+        className={cn('shrink-0', className)}
+        /* La marge de la barre d'état se compte une fois, sur le bloc entier. */
+        style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE }}
+      >
+        {/* L'EN-TÊTE MAÎTRE : les boutons globaux. Il reste TOUJOURS affiché :
+            seule la barre des étapes, dessous, se replie au défilement. */}
+        <div data-entete-maitre="visible">
+          <div className="flex h-12 items-center gap-1 px-3">
+            {/* LE MENU PRINCIPAL, TOUT EN HAUT : toujours à portée, sur chaque page. */}
+            {menuPrincipal ? <BoutonDuMenuPrincipal {...menuPrincipal} /> : null}
+            {/* LE BOUTON DES SERVICES, JUSTE À DROITE DU MENU : menu / services
+                à gauche, les options de la page à droite (demande du 15/10/2026). */}
+            {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
+            <span className="flex-1" />
+            {droite}
+          </div>
+        </div>
+        {/* LE FIL D'ARIANE : « Tableaux de bord », le projet, la branche et le
+            titre. Le bouton des services est monté dans le rang du haut. Ce
+            rang-là reste toujours. */}
+        <div className="flex h-12 items-center gap-1 px-3" data-rang-du-titre>
+          {fil}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <header
+      data-entete-de-zone
+      {...attributs}
+      className={cn('flex h-14 shrink-0 items-center gap-1 px-3 sm:gap-1.5 sm:px-5', className)}
+      style={{
+        /* LA MARGE DE LA BARRE D'ÉTAT DU TÉLÉPHONE SE COMPTE UNE FOIS. Sur le
+           tableau, cette barre est seule à la porter. Dans une page ouverte
+           par-dessus (`FeuilleDeTiroir`), la feuille la porte déjà et remet
+           `--zone-sure-entete` à zéro : comptée deux fois, elle laissait une
+           bande vide de la hauteur de l'heure au-dessus de chaque page. */
+        paddingTop: MARGE_HAUTE_DE_LA_BARRE,
+        height: `calc(3.5rem + ${MARGE_HAUTE_DE_LA_BARRE})`,
+      }}
+    >
+      {retour}
+      {/* LE BOUTON DES SERVICES, À GAUCHE DU TITRE : on change de service depuis
+          le fil d'Ariane, sans passer par la colonne. Sur ordinateur il ouvre
+          la barre (`sm:order-first`) ; sur téléphone il suit le bouton des
+          projets, juste devant le titre — plus à droite, où il se perdait
+          entre la cloche et l'assistant. */}
+      {avant ? <div className="flex shrink-0 items-center sm:order-first sm:-ml-1.5" data-avant-le-fil>{avant}</div> : null}
+
+      {fil}
+
+      {droite}
     </header>
   );
 }
@@ -746,7 +840,7 @@ export function EnteteDePage({
       titre=""
       emplacementDuTitre={onCibleDuTitre}
     >
-      <div ref={onCibleDesGestes} data-gestes-de-page="barre" className={CLASSE_CIBLE_DES_GESTES} />
+      <div ref={onCibleDesGestes} data-gestes-de-page="barre" data-rangee-de-boutons className={CLASSE_CIBLE_DES_GESTES} />
     </EnteteDeZone>
   );
 }

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { Card, CopieDeDepot, DepotAnnexe, Project, aPlusieursDepots, nomDeBranche } from '@beluga/shared';
+import { Card, CopieDeDepot, DepotAnnexe, Project, aPlusieursDepots, brancheDeLaCarte } from '@beluga/shared';
 import * as store from './store.js';
 import { log } from './logger.js';
 import { dossierDeCarte } from './copies-de-cartes.js';
@@ -83,7 +83,7 @@ export function avecLesBasesAnnexes(github: Card['github'], copies: CopieAnnexe[
 /** Referme chaque copie annexe de la carte en fin de tour : travail enregistré d'office, branche gardée. */
 export async function refermerLesCopiesAnnexes(project: Project, card: Card): Promise<BilanFermeture[]> {
   const bilans: BilanFermeture[] = [];
-  const branche = nomDeBranche(card.title, card.id);
+  const branche = brancheDeLaCarte(card);
   for (const copie of copiesAnnexesPrevues(project, card)) {
     if (!fs.existsSync(copie.dossier)) continue;
     try {
@@ -99,7 +99,7 @@ export async function refermerLesCopiesAnnexes(project: Project, card: Card): Pr
 
 /** La branche de la carte porte-t-elle du travail dans au moins un annexe ? */
 export async function travailDansLesAnnexes(project: Project, card: Card): Promise<boolean> {
-  const branche = nomDeBranche(card.title, card.id);
+  const branche = brancheDeLaCarte(card);
   for (const copie of copiesAnnexesPrevues(project, card)) {
     const porte = await travailDejaSurLaBranche(
       copie.depot.path,

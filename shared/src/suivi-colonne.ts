@@ -841,6 +841,12 @@ export interface CarteOubliee {
    * « dernier tour en échec » l'excluant précisément du balayage.
    */
   suspendue?: boolean;
+  /**
+   * …SAUF QUAND C'EST VOULU : la carte a été SUSPENDUE SUR PLACE (bouton
+   * « Suspendre », `carteEnPause`). Elle attend le prochain message de
+   * l'utilisateur dans « En cours », et rien ne doit l'en sortir.
+   */
+  enPause?: boolean;
 }
 
 /**
@@ -946,6 +952,13 @@ export function issueDeCarteOubliee(etat: CarteOubliee, maintenant: number): Iss
    * Elle retombe donc là où le geste voulait la mettre, en gardant sa phrase :
    * on ne rend pas une raison de plus, celle qui l'a suspendue dit déjà tout.
    */
+  /*
+   * LA PAUSE VOULUE PASSE AVANT : `suspendue` + « En cours » n'est un
+   * rangement perdu que si personne n'a demandé à la carte de rester là. Le
+   * bouton « Suspendre » le demande — l'agent attend le prochain message, avec
+   * son contexte.
+   */
+  if (etat.enPause) return CARTE_INCHANGEE;
   if (etat.suspendue) return { colonne: 'planned', raison: null };
   if (etat.dernierTourEnEchec) return CARTE_INCHANGEE;
   if (etat.decisionOuverte) return CARTE_INCHANGEE;

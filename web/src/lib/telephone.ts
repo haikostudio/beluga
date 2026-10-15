@@ -8,6 +8,27 @@ import React from 'react';
  */
 export const REQUETE_TELEPHONE = '(max-width: 639px)';
 
+/**
+ * Téléphone OU tablette : tout ce qui tient sous 1024 px, la limite `lg`. C'est
+ * la largeur, pas le pointeur, qui décide (demande du 15/10/2026 : « tablette »
+ * = de 640 à 1023 px) ; la double entête de la page d'une tâche s'y affiche.
+ */
+export const REQUETE_TABLETTE_OU_TELEPHONE = '(max-width: 1023px)';
+
+/** La même question que `useTelephone`, au seuil de la tablette : suivie, elle se repose au redimensionnement. */
+export function useTabletteOuTelephone(): boolean {
+  const lire = () => typeof window !== 'undefined' && window.matchMedia(REQUETE_TABLETTE_OU_TELEPHONE).matches;
+  const [petit, setPetit] = React.useState(lire);
+  React.useEffect(() => {
+    const media = window.matchMedia(REQUETE_TABLETTE_OU_TELEPHONE);
+    const suivre = () => setPetit(media.matches);
+    suivre();
+    media.addEventListener('change', suivre);
+    return () => media.removeEventListener('change', suivre);
+  }, []);
+  return petit;
+}
+
 /** Réponse d'un coup, sans suivi — pour un choix initial (pas dans le rendu). */
 export function estTelephone(): boolean {
   return typeof window !== 'undefined' && window.matchMedia(REQUETE_TELEPHONE).matches;

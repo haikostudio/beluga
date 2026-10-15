@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { KeyRound, Loader2, Save, Send } from 'lucide-react';
 import { ConnexionCompte, connexionTerminee, descriptionMoteur, nomCourtDuMoteur, type EngineId } from '@beluga/shared';
-import { BulleInfo, Button, Input } from '@/components/ui';
+import { BulleInfo, Button, ChampMotDePasse, Input } from '@/components/ui';
 import { client } from '@/lib/client';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -199,15 +199,17 @@ export function AjouterCle({ engine, deplie = false }: { engine: EngineId; depli
           onChange={(event) => setNom(event.target.value)}
           className="h-7 w-40 text-[13.5px]"
         />
-        <Input
+        <ChampMotDePasse
           value={cle}
+          autoComplete="off"
           placeholder={t('Clé d’accès {moteur}', { moteur })}
           disabled={envoi}
           onChange={(event) => setCle(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') valider();
           }}
-          className="h-7 min-w-0 flex-1 text-[13.5px]"
+          cadre="min-w-0 flex-1"
+          className="h-7 text-[13.5px]"
         />
         <Button size="sm" disabled={envoi || !nom.trim() || !cle.trim()} onClick={valider}>
           {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
@@ -286,9 +288,10 @@ export function RemplacerCle({
         ) : null}
       </p>
       <div className="mt-1 flex flex-wrap items-center gap-1.5">
-        <Input
+        <ChampMotDePasse
           autoFocus
           value={cle}
+          autoComplete="off"
           placeholder={t('Clé d’accès {moteur}', { moteur })}
           disabled={envoi}
           onChange={(event) => setCle(event.target.value)}
@@ -296,7 +299,8 @@ export function RemplacerCle({
             if (event.key === 'Enter' && cle.trim()) void valider();
             if (event.key === 'Escape') onFini();
           }}
-          className="h-7 min-w-0 flex-1 text-[13.5px]"
+          cadre="min-w-0 flex-1"
+          className="h-7 text-[13.5px]"
           data-champ-nouvelle-cle
         />
         <Button size="sm" disabled={envoi || !cle.trim()} onClick={valider} data-valider-nouvelle-cle>

@@ -41,6 +41,8 @@ export const CHAMPS_SORTIS_DU_JSON = [
   'doneAt',
   'archivedAt',
   'rangeeTableauDeBordAt',
+  'brancheChoisie',
+  'brancheDeDepart',
   'lastReadAt',
   'deployedAt',
   'createdAt',
@@ -70,6 +72,8 @@ export interface LigneCarte {
   done_at?: number | null;
   archived_at?: number | null;
   rangee_tableau_de_bord_at?: number | null;
+  branche_choisie?: string | null;
+  branche_de_depart?: string | null;
   last_read_at?: number | null;
   run_engine?: string | null;
   run_model?: string | null;
@@ -105,6 +109,9 @@ export interface ColonnesCarte {
   archived_at: number | null;
   /** Rangée dans « Archiver » de la page « Tableaux de bord », sans toucher au projet. */
   rangee_tableau_de_bord_at: number | null;
+  /** La branche choisie à la main (`brancheChoisie`) et son départ. */
+  branche_choisie: string | null;
+  branche_de_depart: string | null;
   last_read_at: number | null;
   run_engine: string;
   run_model: string | null;
@@ -161,6 +168,8 @@ export function colonnesDeLaCarte(card: Card): ColonnesCarte {
     done_at: card.doneAt ?? null,
     archived_at: card.archivedAt ?? null,
     rangee_tableau_de_bord_at: card.rangeeTableauDeBordAt ?? null,
+    branche_choisie: card.brancheChoisie ?? null,
+    branche_de_depart: card.brancheDeDepart ?? null,
     last_read_at: card.lastReadAt ?? null,
     run_engine: card.run.engine,
     run_model: card.run.model ?? null,
@@ -244,6 +253,8 @@ export function carteDepuisLigne(
     ...(nombre(ligne.rangee_tableau_de_bord_at, 'rangeeTableauDeBordAt') != null
       ? { rangeeTableauDeBordAt: nombre(ligne.rangee_tableau_de_bord_at, 'rangeeTableauDeBordAt') }
       : {}),
+    ...(texte(ligne.branche_choisie, 'brancheChoisie') ? { brancheChoisie: texte(ligne.branche_choisie, 'brancheChoisie') } : {}),
+    ...(texte(ligne.branche_de_depart, 'brancheDeDepart') ? { brancheDeDepart: texte(ligne.branche_de_depart, 'brancheDeDepart') } : {}),
     lastReadAt: nombre(ligne.last_read_at, 'lastReadAt'),
   });
 }

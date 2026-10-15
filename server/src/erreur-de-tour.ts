@@ -6,7 +6,7 @@ import {
   choixDejaFerme,
   consigneDeReprise,
   expliquerLErreur,
-  nomDeBranche,
+  brancheDeLaCarte,
 } from '@beluga/shared';
 import { bus } from './bus.js';
 import { notify } from './notify.js';
@@ -191,7 +191,7 @@ function consigneDeRelanceApresErreur(agent: Agent, cause: string): string {
     raison:
       `ton tour précédent a été coupé net par une erreur : ${cause.trim()}. ` +
       'L’utilisateur a demandé de RELANCER.',
-    branche: carte ? nomDeBranche(carte.title, carte.id) : undefined,
+    branche: carte ? brancheDeLaCarte(carte) : undefined,
     dossier: agent.workdir ?? undefined,
     etapes,
     codeDejaEnregistre: carte?.codeDejaEnregistre,

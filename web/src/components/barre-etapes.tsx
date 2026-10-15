@@ -5,6 +5,14 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
+ * Sous cette largeur de barre, les cinq noms se marchent dessus : seul celui de
+ * l'étape mise en avant s'écrit. Calibré sur « Compréhension » + « À déployer »
+ * en 13 px, avec les ronds et les traits ; mesuré sur la barre elle-même, jamais
+ * sur la fenêtre (la conversation se règle à la souris, le menu se replie).
+ */
+const LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS = 560;
+
+/**
  * LA BARRE D'ÉTAPES : UNE RANGÉE DE RONDS, LEUR NOM À CÔTÉ, ET UN RACCOURCI.
  *
  * LES CINQ DE LA FRISE DE « TABLEAUX DE BORD » — Demande, Compréhension,
@@ -23,9 +31,10 @@ import { t } from '@/lib/langue';
  * jusqu'au passage correspondant. L'étape mise en avant suit le passage visible
  * pendant le défilement (`active`) ; elle se dit à voix haute (`aria-current`).
  *
- * SUR TÉLÉPHONE, seul le nom de l'étape mise en avant s'écrit : cinq noms ne
- * tiennent pas sur 390 px. Les ronds, eux, restent tous là. Chaque étape y
- * prend LA PLACE DE SON CONTENU, et les traits se partagent le reste : à
+ * SUR TÉLÉPHONE, ET DÈS QUE LA BARRE EST TROP ÉTROITE (`compacte`, mesurée),
+ * seul le nom de l'étape mise en avant s'écrit : cinq noms ne tiennent pas sur
+ * 390 px, ni dans une conversation calée à côté de l'aperçu. Les ronds, eux,
+ * restent tous là. Chaque étape y prend LA PLACE DE SON CONTENU, et les traits se partagent le reste : à
  * largeurs égales, le nom écrit (« Compréhension ») débordait de sa case et
  * recouvrait le rond suivant. Il est aussi un cran plus petit, et se coupe en
  * dernier recours plutôt que de chevaucher.
@@ -43,8 +52,25 @@ export function BarreDEtapes({
   courante: EtapeDeSuivi;
   onAller: (etape: EtapeDeSuivi) => void;
 }) {
+  const [liste, setListe] = React.useState<HTMLOListElement | null>(null);
+  const [compacte, setCompacte] = React.useState(false);
+  React.useEffect(() => {
+    if (!liste) return;
+    const mesurer = () => setCompacte(liste.clientWidth < LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS);
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(liste);
+    return () => observateur.disconnect();
+  }, [liste]);
+
   return (
-    <ol className="flex items-center gap-2 sm:gap-3" aria-label="Étapes du parcours" data-barre-etapes={active}>
+    <ol
+      ref={setListe}
+      className="flex items-center gap-2 sm:gap-3"
+      aria-label="Étapes du parcours"
+      data-barre-etapes={active}
+      data-barre-compacte={compacte ? '' : undefined}
+    >
       {segments.map((segment, i) => {
         const estActive = segment.etape === active;
         const ton = tonDuSegmentDeSuivi(segment, courante);
@@ -55,7 +81,10 @@ export function BarreDEtapes({
         return (
           <li
             key={segment.etape}
-            className={cn('flex min-w-0 items-center gap-2 sm:gap-3', dernier ? 'shrink-0' : 'flex-auto sm:flex-1')}
+            className={cn(
+              'flex min-w-0 items-center gap-2 sm:gap-3',
+              dernier ? 'shrink-0' : compacte ? 'flex-auto' : 'flex-auto sm:flex-1',
+            )}
           >
             <button
               type="button"
@@ -73,7 +102,7 @@ export function BarreDEtapes({
                   ? t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])
                   : `${t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])} · ${t('à venir')}`
               }
-              className="group flex min-w-0 items-center gap-2 py-1 sm:shrink-0"
+              className={cn('group flex min-w-0 items-center gap-2 py-1', !compacte && 'sm:shrink-0')}
             >
               <span
                 aria-hidden
@@ -98,9 +127,10 @@ export function BarreDEtapes({
               </span>
               <span
                 className={cn(
-                  'min-w-0 truncate text-[12px] leading-normal transition-colors group-hover:text-text sm:overflow-visible sm:text-[13px] sm:leading-none',
+                  'min-w-0 truncate text-[12px] leading-normal transition-colors group-hover:text-text sm:text-[13px] sm:leading-none',
+                  !compacte && 'sm:overflow-visible',
                   atteinte ? 'font-medium text-text' : 'text-faint',
-                  !estActive && 'max-sm:hidden',
+                  !estActive && (compacte ? 'hidden' : 'max-sm:hidden'),
                 )}
               >
                 {t(LIBELLE_ETAPE_DE_SUIVI[segment.etape])}

@@ -560,6 +560,36 @@ export function grouperParTheme(liste: Competence[]): { theme: string; fiches: C
 }
 
 /**
+ * Comme `grouperParTheme`, mais chaque fiche n'entre que dans UN thème : le plus
+ * précis (celui qui compte le moins de fiches de la liste), et à égalité le
+ * premier déclaré. Sert au briefing, où répéter un nom sous chacun de ses thèmes
+ * coûte des milliers de signes à chaque session ; le sommaire complet, lui,
+ * garde `grouperParTheme`.
+ */
+export function grouperParThemePrincipal(liste: Competence[]): { theme: string; fiches: Competence[] }[] {
+  const cleDe = (theme: string) => theme.trim().toLowerCase() || THEME_PAR_DEFAUT;
+  const themesDe = (fiche: Competence) =>
+    (fiche.themes.length ? fiche.themes : [THEME_PAR_DEFAUT]).map(cleDe);
+  const effectifs = new Map<string, number>();
+  for (const fiche of liste) {
+    for (const theme of new Set(themesDe(fiche))) effectifs.set(theme, (effectifs.get(theme) ?? 0) + 1);
+  }
+  const groupes = new Map<string, Competence[]>();
+  for (const fiche of liste) {
+    const themes = themesDe(fiche);
+    let choisi = themes[0];
+    for (const theme of themes) if ((effectifs.get(theme) ?? 0) < (effectifs.get(choisi) ?? 0)) choisi = theme;
+    groupes.set(choisi, [...(groupes.get(choisi) ?? []), fiche]);
+  }
+  return [...groupes]
+    .map(([theme, fiches]) => ({
+      theme,
+      fiches: [...fiches].sort((a, b) => a.nom.localeCompare(b.nom, 'fr')),
+    }))
+    .sort((a, b) => a.theme.localeCompare(b.theme, 'fr'));
+}
+
+/**
  * LE BLOC ANNONCÉ DANS LE BRIEFING — UN SOMMAIRE, PLUS UNE ÉNUMÉRATION.
  *
  * L'ancien bloc écrivait une ligne par fiche, description entière comprise, à
@@ -608,7 +638,8 @@ export function classerCompetences(
 }
 
 /**
- * Le sommaire par thème d'une liste de fiches — une ligne par thème. Une NUANCE
+ * Le sommaire par thème d'une liste de fiches — une ligne par thème, chaque nom
+ * UNE seule fois. Une NUANCE
  * (fiche propre qui étend une commune de la liste `servies`) ne s'y nomme jamais
  * seule : elle cède sa place à sa commune, qui s'écrit « commune (+ nuance x) ».
  */
@@ -623,7 +654,7 @@ function lignesParTheme(liste: Competence[], servies: readonly Competence[] = li
     const nuances = servies.filter((autre) => communeEtendue(autre, servies) === fiche).map((autre) => autre.nom);
     return nuances.length ? `${fiche.nom} (+ nuance ${nuances.join(', ')})` : fiche.nom;
   };
-  return grouperParTheme(vue)
+  return grouperParThemePrincipal(vue)
     .map((groupe) => `- ${groupe.theme} (${groupe.fiches.length}) : ${groupe.fiches.map(nommer).join(', ')}`)
     .join('\n');
 }

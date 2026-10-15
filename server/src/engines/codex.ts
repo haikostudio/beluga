@@ -23,6 +23,7 @@ import {
   sommeContexte,
 } from './types.js';
 import { arreterProcessus, finDuProcessus } from './fin-de-processus.js';
+import { cheminDeLOutil } from './outil-du-moteur.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -138,7 +139,19 @@ export function preparerMaisonDeTour(dossierDuCompte: string, atelier: string): 
 export const codexAdapter: EngineAdapter = {
   id: 'codex',
   label: 'Codex',
-  binary: process.env.BELUGA_CODEX_BIN || '/root/.local/bin/codex',
+  /*
+   * Cherché là où l'outil est RÉELLEMENT posé (`cheminDeLOutil`) : le chemin
+   * figé de la machine d'origine laissait un Codex fraîchement installé
+   * invisible sur un serveur neuf.
+   */
+  get binary() {
+    return cheminDeLOutil({
+      nom: 'codex',
+      impose: process.env.BELUGA_CODEX_BIN,
+      enPlus: [path.join(os.homedir(), '.codex/packages/standalone/current/bin/codex')],
+      historique: '/root/.local/bin/codex',
+    });
+  },
   defaultModel: 'gpt-5.1-codex',
 
   async detect() {
@@ -386,6 +399,14 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
      * chaque fois, `project_memory` jamais). On les éteint LE TEMPS D'UN TOUR
      * d'agent — la configuration de l'utilisateur n'est pas touchée.
      */
+    /* Les serveurs de plus de CE tour (REA, pour l'agent d'un clonage). */
+    for (const [nom, serveur] of Object.entries(options.mcpServeursEnPlus ?? {})) {
+      set(`mcp_servers.${nom}.command`, serveur.command);
+      set(`mcp_servers.${nom}.args`, serveur.args);
+      set(`mcp_servers.${nom}.default_tools_approval_mode`, 'approve');
+      set(`mcp_servers.${nom}.tool_timeout_sec`, 600);
+      for (const [cle, valeur] of Object.entries(serveur.env)) set(`mcp_servers.${nom}.env.${cle}`, valeur);
+    }
     for (const nom of serveursTiersDuCompte(options.env?.CODEX_HOME)) {
       args.push('-c', `mcp_servers.${nom}.enabled=false`);
     }

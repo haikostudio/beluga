@@ -203,7 +203,7 @@ export function PiecesDeposees({ pieces, onRetirer }: { pieces: PieceEnvoyee[]; 
           <IconeDeGenre genre={genreDuFichier(piece.mime)} className="h-3.5 w-3.5" />
           <span className="max-w-[160px] truncate">{piece.name}</span>
           {onRetirer ? (
-            <button type="button" onClick={() => onRetirer(piece.id)} className="text-faint hover:text-text">
+            <button type="button" title={t('Retirer')} aria-label="Retirer" onClick={() => onRetirer(piece.id)} className="text-faint hover:text-text">
               <X className="h-3 w-3" />
             </button>
           ) : null}

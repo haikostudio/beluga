@@ -45,6 +45,7 @@ import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { formatRegional, t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { bytes, cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
 
@@ -262,9 +263,16 @@ export function Surveillance({
                connaît pas, pas parce qu'aucune adresse n'est surveillée. */
             <SilhouetteSurveillance />
           ) : !sites.length ? (
-            <p className="px-1 py-3 text-[12.5px] text-faint">
-              {t('Aucune surveillance pour l’instant. Créez-en une avec l’agent.')}
-            </p>
+            <PasAPas
+              repere="surveillance"
+              titre={t('Aucune surveillance pour l’instant. Créez-en une avec l’agent.')}
+              explication={t('La surveillance vérifie vos sites à intervalle régulier et vous prévient dès que l’un d’eux tombe.')}
+              etapes={[
+                t('Demandez à l’agent de surveiller une adresse.'),
+                t('Il prépare la vérification et l’essaie devant vous.'),
+                t('Une panne vous est signalée, et une enquête se lance si elle se répète.'),
+              ]}
+            />
           ) : !sitesAffiches.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucune surveillance dans cette rubrique.')}</p>
           ) : (

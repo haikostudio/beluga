@@ -134,6 +134,7 @@ import { createPortal } from 'react-dom';
 import { usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
 import { formatRegional, t } from '@/lib/langue';
+import { poserLeRondVoisin } from '@/lib/assistant-global';
 import { cn } from '@/lib/utils';
 import { usePointerDrag, type DropTarget } from '@/lib/dnd';
 import { CourbeParJour, MiniCourbe, Repartition, copier, dateCourte } from '@/components/graphiques-statistiques';
@@ -402,7 +403,7 @@ function ActionsEntete({ actions = [], info }: { actions?: ActionDEntete[]; info
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button size="icon" variant="ghost" aria-label="Plus d’actions" title={t('Plus d’actions')} data-marketing-menu-actions>
+          <Button size="icon-barre" variant="ghost" aria-label="Plus d’actions" title={t('Plus d’actions')} data-marketing-menu-actions>
             <EllipsisVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -2018,6 +2019,11 @@ function ChatFlottantMarketing({
   useTiroirAdresse('rapport-marketing', rapport, setRapport);
   const [confirmer, setConfirmer] = React.useState(false);
   const { agent, agentId, etat } = suivi;
+  // Ce rond tient le coin bas droit : le robot de l'assistant se range à sa gauche tant qu'il est là.
+  React.useEffect(() => {
+    poserLeRondVoisin(true);
+    return () => poserLeRondVoisin(false);
+  }, []);
 
   const [fenetre, setFenetre] = React.useState<FenetreChat>(lireFenetre);
   React.useEffect(() => {
@@ -3673,6 +3679,8 @@ function TiroirContenu({
   const [heure, setHeure] = React.useState('');
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [aSupprimer, setASupprimer] = React.useState(false);
+  /* LE VISUEL SE FAIT DANS LE STUDIO : sans lui, le tiroir n'en propose ni la création ni l'ouverture. */
+  const studioOuvert = useApp().studioOuvert;
 
   React.useEffect(() => {
     setTitre(contenu?.titre ?? '');
@@ -3727,13 +3735,17 @@ function TiroirContenu({
           <Badge tone={toneEtape(contenu.etape)}>{t(LIBELLE_ETAPE[contenu.etape])}</Badge>
           <ActionsEntete
             actions={[
-              {
-                cle: 'visuel',
-                libelle: visuels.length ? t('Ouvrir le visuel') : t('Créer le visuel'),
-                icone: <Clapperboard className="h-3.5 w-3.5" />,
-                onClick: () => void creerLeVisuel(contenu.id),
-                repere: 'data-marketing-creer-visuel',
-              },
+              ...(studioOuvert
+                ? [
+                    {
+                      cle: 'visuel',
+                      libelle: visuels.length ? t('Ouvrir le visuel') : t('Créer le visuel'),
+                      icone: <Clapperboard className="h-3.5 w-3.5" />,
+                      onClick: () => void creerLeVisuel(contenu.id),
+                      repere: 'data-marketing-creer-visuel',
+                    },
+                  ]
+                : []),
               { cle: 'texte', libelle: t('Copier le texte'), icone: <Copy className="h-3.5 w-3.5" />, onClick: () => void copier(texte, t('Texte')), repere: 'data-marketing-copier-texte' },
               ...(lien
                 ? [{ cle: 'lien', libelle: t('Copier le lien de suivi'), icone: <Link2 className="h-3.5 w-3.5" />, onClick: () => void copier(lien, t('Lien de suivi')), repere: 'data-marketing-copier-lien' }]
@@ -3797,7 +3809,7 @@ function TiroirContenu({
                 <Input type="time" value={heure} disabled={publie} onChange={(e) => setHeure(e.target.value)} className="w-full min-w-0 appearance-none text-[13px]" data-marketing-tiroir-heure />
               </label>
             </div>
-            {visuels.length ? (
+            {!studioOuvert ? null : visuels.length ? (
               <div className="flex flex-col gap-1.5" data-marketing-visuels={visuels.length}>
                 <span className="text-[12px] text-muted">{t('Visuel du Studio')}</span>
                 <div className="flex flex-wrap gap-2">

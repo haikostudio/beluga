@@ -7,7 +7,7 @@
  *
  * LES ANCIENS CHOIX SE RELISENT. Dix palettes ont existé (sable, ardoise,
  * givre, sapin, contraste, chacune en clair et en sombre). Un réglage général,
- * un réglage de projet ou un repère local qui porte encore l'un de ces noms se
+ * ou un repère local qui porte encore l'un de ces noms se
  * lit comme SA CLARTÉ : « sable » devient clair, « sapin » devient sombre. Rien
  * n'est réécrit en base — c'est la lecture qui traduit, et le prochain choix
  * enregistre un nom d'aujourd'hui.
@@ -188,7 +188,7 @@ export function themeDuSysteme(ambiance: unknown, systemeSombre: boolean): Theme
   return themeDeLAmbiance(ambiance, systemeSombre ? 'sombre' : 'clair');
 }
 
-export type SourceDeTheme = 'projet' | 'general';
+export type SourceDeTheme = 'general';
 
 export type ThemeApplique = {
   theme: ThemeId;
@@ -211,19 +211,20 @@ export type ThemeApplique = {
   ecouteLeSysteme: boolean;
 };
 
-/** Les trois entrées d'où le thème peut venir. */
+/**
+ * Les deux entrées d'où le thème peut venir. Il n'y a PLUS de thème propre à un
+ * projet : le réglage général vaut pour tous les projets.
+ */
 export type EntreeDeTheme = {
-  duProjet?: unknown;
   general?: unknown;
   systemeSombre?: boolean;
 };
 
-/** Le projet passe devant le général ; en automatique, c'est l'ordinateur qui choisit la clarté. */
+/** Le réglage général seul ; en automatique, c'est l'ordinateur qui choisit la clarté. */
 export function themeAAppliquer(entree: EntreeDeTheme): ThemeApplique {
-  const duProjet = reglageApparenceValide(entree.duProjet);
   const general = reglageApparenceValide(entree.general);
-  const reglage = duProjet ?? general ?? REGLAGE_APPARENCE_PAR_DEFAUT;
-  const source: SourceDeTheme = duProjet ? 'projet' : 'general';
+  const reglage = general ?? REGLAGE_APPARENCE_PAR_DEFAUT;
+  const source: SourceDeTheme = 'general';
   const clarteAppliquee: ClarteTheme = reglage.automatique
     ? entree.systemeSombre
       ? 'sombre'
@@ -266,8 +267,8 @@ export function apparenceRetenue(dernierConnu: unknown, recue: unknown): unknown
   return reglageApparenceValide(dernierConnu) ? dernierConnu : undefined;
 }
 
-/** Laquelle des trois entrées a bougé entre deux calculs d'apparence. */
-export type CauseDeBascule = 'projet' | 'general' | 'systeme';
+/** Laquelle des entrées a bougé entre deux calculs d'apparence. */
+export type CauseDeBascule = 'general' | 'systeme';
 
 /** Le même choix écrit de deux façons ne compte pas pour un changement. */
 function memeReglage(avant: unknown, apres: unknown): boolean {
@@ -288,7 +289,6 @@ function memeReglage(avant: unknown, apres: unknown): boolean {
  */
 export function causeDeLaBascule(avant: EntreeDeTheme, apres: EntreeDeTheme): CauseDeBascule[] {
   const causes: CauseDeBascule[] = [];
-  if (!memeReglage(avant.duProjet, apres.duProjet)) causes.push('projet');
   if (!memeReglage(avant.general, apres.general)) causes.push('general');
   const ecoute = themeAAppliquer(apres).ecouteLeSysteme || themeAAppliquer(avant).ecouteLeSysteme;
   if (ecoute && !!avant.systemeSombre !== !!apres.systemeSombre) causes.push('systeme');

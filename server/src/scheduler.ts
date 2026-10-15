@@ -31,7 +31,7 @@ import {
   estLaBrancheDeLaCarte,
   etatDuDepart,
   raisonDattente,
-  nomDeBranche,
+  brancheDeLaCarte,
   phraseDepuisReponse,
   porteDuDepot,
   porteDuDossier,
@@ -56,6 +56,7 @@ import {
   NIVEAU_DU_PLAN,
   consigneDesDepots,
   depotsDuProjet,
+  carteEnPause,
 } from '@beluga/shared';
 import { avecLesBasesAnnexes, copiesAnnexesOccupees, ouvrirLesCopiesAnnexes, type CopieAnnexe } from './copies-des-depots.js';
 import { menageDesDossiers, ouvrirDossierDeCarte, travailDejaSurLaBranche } from './dossier-de-carte.js';
@@ -297,6 +298,24 @@ export async function portesDures(card: Card): Promise<Gate> {
     const dossier = porteDuDossier({ cardId: card.id, dossier: vise }, occupantsDesDossiers(card.id));
     if (!dossier.ok) return { ok: false, reason: dossier.raison };
 
+    /*
+     * UNE BRANCHE PARTAGÉE SE TRAVAILLE L'UNE APRÈS L'AUTRE (bouton de branche,
+     * `brancheChoisie`). Tant que l'agent d'une autre carte y travaille, git
+     * refuserait de la poser dans une seconde copie : la carte attend son tour,
+     * et repart seule.
+     */
+    const branche = brancheDeLaCarte(card);
+    const voisine = store
+      .listCards(card.projectId)
+      .find((c) => c.id !== card.id && c.agentId && isRunning(c.agentId) && brancheDeLaCarte(c) === branche);
+    if (voisine) {
+      return {
+        ok: false,
+        reason: `La branche « ${branche} » est partagée avec « ${voisine.title} », dont l'agent travaille encore : cette carte démarrera dès qu'il aura rendu.`,
+        reprisePossible: true,
+      };
+    }
+
     const depot = porteDuDepot(await etatDuDossierDuProjet(project.path));
     if (!depot.ok) return { ok: false, reason: depot.raison };
     /* Chaque dépôt ANNEXE du projet doit être un dépôt joignable, lui aussi : la
@@ -376,7 +395,7 @@ export async function checkGates(card: Card): Promise<Gate> {
 /* ------------------------------------------------------------------ */
 
 export function branchName(card: Card): string {
-  return nomDeBranche(card.title, card.id);
+  return brancheDeLaCarte(card);
 }
 
 /** Le dossier est-il un dépôt git ? La question se pose AVANT de lancer. */
@@ -1250,9 +1269,13 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
       {
         ...(card.github ?? { checks: [], commits: [], fichiers: [], activity: [] }),
         branch,
+        // Une branche (re)créée au lancement existe : elle n'est plus « supprimée ».
+        brancheSupprimee: undefined,
+        sommetSha: undefined,
         // La base n'est notée qu'à la CRÉATION de la branche, et jamais réécrite :
         // c'est elle qui dira, même après la fusion, ce que cette carte a touché.
-        baseSha: card.github?.baseSha ?? prepa.base,
+        // …sauf si l'ancienne branche a été supprimée : la nouvelle repart d'ailleurs.
+        baseSha: (card.github?.brancheSupprimee ? undefined : card.github?.baseSha) ?? prepa.base,
       },
       prepa.annexes ?? [],
     ),
@@ -1357,7 +1380,7 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
     // Les images jointes au chef d'orchestre voyagent jusqu'ici : elles entrent
     // dans le bloc « PIÈCES JOINTES » du prompt, comme pour un message direct.
     attachments: card.attachments,
-    onComplete: async (text, ok, measurement) => {
+    onComplete: async (text, ok, measurement, fin) => {
       // Le tour est allé jusqu'au bout : plus rien à préparer.
       finDeLaPreparation();
       /*
@@ -1419,7 +1442,10 @@ ${consigneChiffrage}Va au bout : lis ce qu'il faut, modifie, teste, puis enregis
         // Une tâche finie est l'un des TROIS motifs qui alertent : le message
         // est un « success », son motif dit qu'il s'affiche quand même.
         bus.toast('success', `Agent terminé : ${fresh.title}`, fresh.id, 'tache-terminee');
-      } else {
+      } else if (!fin?.arretDemande && !carteEnPause(fresh.scheduling)) {
+        /* UNE COUPE DEMANDÉE À LA MAIN N'EST PAS UN ÉCHEC : « Suspendre » ne
+           laisse qu'une ligne neutre dans le fil, « Arrêter » dit déjà son
+           geste. Seule une vraie panne garde « Agent en échec ». */
         bus.toast('error', `Agent en échec : ${fresh.title}`, fresh.id, 'tache-echec');
       }
     },
@@ -1727,7 +1753,7 @@ async function menageDesDossiersDeCarte(): Promise<void> {
 function marquerCodeDejaEnregistre(projectId: string, branche: string, sauveDOffice: boolean): void {
   const carte = store
     .listCards(projectId)
-    .find((c) => nomDeBranche(c.title, c.id) === branche || estLaBrancheDeLaCarte(branche, c.id));
+    .find((c) => brancheDeLaCarte(c) === branche || (!c.brancheChoisie && estLaBrancheDeLaCarte(branche, c.id)));
   if (!carte) return;
   if (carte.codeDejaEnregistre && !sauveDOffice) return;
   const marquee = store.saveCard({

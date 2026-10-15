@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
+  SERVEUR_MCP_REA,
   Agent,
   AgentRole,
   CONSIGNE_CADRAGE,
@@ -17,6 +18,7 @@ import {
   CONSIGNE_CARTE_COURTE,
   CONSIGNE_SYNTHESE_CARTE,
   CONSIGNE_NIVEAU_AGENT,
+  CONSIGNE_DES_ATTENTES,
   Card,
   DeployRun,
   ETAPE_PONT,
@@ -77,6 +79,7 @@ import {
   etatApresCoupure,
   TraceDuTravail,
   raisonDeCoupure,
+  carteEnPause,
   cumulerPartsQuota,
   contexteApresCompression,
   decisionEnTexteLibre,
@@ -110,6 +113,10 @@ import {
   RAPPEL_DE_VULGARISATION,
   consigneDeLangue,
   LANGUE_DORIGINE,
+  ETAT_INITIAL_DE_LA_LISTE,
+  type EtatDeLaListeObligatoire,
+  jugerLaListeObligatoire,
+  listeObligatoirePourLeTour,
   type LangueId,
   type NiveauDAccueil,
   niveauDAccueil,
@@ -126,6 +133,7 @@ import {
   ETAPE_PLAN_RECLAME,
   ETAPE_PLAN_RECLAME_ID,
   comprehensionManquante,
+  texteApresDeplacement,
   issueDeLaRelance,
   issueAEcrire,
   CONSIGNE_COMPREHENSION_RECLAMEE,
@@ -134,7 +142,7 @@ import {
   ETAPE_COMPREHENSION_RECLAMEE_ID,
   questionEnTexteLibre,
   NIVEAU_PAR_DEFAUT,
-  nomDeBranche,
+  brancheDeLaCarte,
   observerContexte,
   plafondDeContexte,
   raisonDeRepli,
@@ -211,7 +219,8 @@ import { briefingDesCompetencesValidees } from './proposition-competences.js';
 import { accueilDesConnaissances, compterUnites, oublierLesLectures, pistesDesConnaissances, pistesParLesMots, texteDesPistes } from './connaissances.js';
 import { allDone, mergeTodos } from './todos.js';
 import { callTool, cadrageAllowList, cadrageDenyList, toolsFor, writeMcpConfig } from './tools.js';
-import { consigneSystemeDuCahier } from './cahier-des-charges.js';
+import { consigneSystemeDuCahier, estAgentDuClonage } from './cahier-des-charges.js';
+import { serveurMcpRea } from './rea.js';
 import {
   AccountRecord,
   brancherAgentsDuCompte,
@@ -307,6 +316,12 @@ export interface LiveRun {
    */
   outilsDesEtapes: Map<string, { outil: string; entree?: Record<string, unknown> }>;
   todos: TodoItem[];
+  /**
+   * LA LISTE OBLIGATOIRE DE CE TOUR (`shared/src/liste-obligatoire.ts`) :
+   * absente quand le tour n'y est pas tenu (cadrage, dépannage, assistants).
+   * Le crochet du moteur la consulte à chaque commande ou modification.
+   */
+  listeObligatoire?: EtatDeLaListeObligatoire;
   /** La liste entièrement cochée n'est annoncée qu'une fois par tour. */
   todosNotified?: boolean;
   /** TOUT le texte du tour, bout à bout : ce qui s'affiche en direct. */
@@ -556,6 +571,43 @@ export function journaliserDansLeTour(agentId: string, entree: AjoutJournalDuTou
     tourId: reste.tourId ?? run.messageId,
   });
   if (ecrite) bus.emit({ type: 'journal.entree', entree: ecrite });
+}
+
+/**
+ * LE CROCHET DE LA LISTE OBLIGATOIRE DEMANDE ICI, À L'APPEL, si la commande ou
+ * la modification de l'agent peut partir (`server/verrou-liste.mjs`,
+ * `shared/src/liste-obligatoire.ts`). Un tour qui n'est plus vivant, ou qui n'y
+ * est pas tenu, laisse toujours passer : un verrou ne mure jamais un agent.
+ * Chaque refus, et le filet qui lâche, s'écrivent au journal de la carte.
+ */
+export function jugerLAppelSousListe(
+  agentId: string,
+  appel: { outil: string; sousAgent?: boolean },
+): { refuse: boolean; texte: string } {
+  const run = live.get(agentId);
+  const etat = run?.listeObligatoire;
+  if (!run || !etat) return { refuse: false, texte: '' };
+  const decision = jugerLaListeObligatoire(etat, appel);
+  run.listeObligatoire = decision.etat;
+  if (decision.geste === 'refuser') {
+    journaliserDansLeTour(agentId, {
+      cle: `liste-obligatoire:refus:${decision.etat.refus}`,
+      nature: 'jalon',
+      libelle: 'Action retenue : liste de tâches demandée d’abord',
+      donnees: { outil: appel.outil, refus: decision.etat.refus },
+    });
+    return { refuse: true, texte: decision.texte };
+  }
+  if (decision.geste === 'lacher') {
+    log.warn(`liste obligatoire : l'agent ${agentId} n'a toujours pas annoncé sa liste après ${etat.refus} refus — on le laisse passer`);
+    journaliserDansLeTour(agentId, {
+      cle: 'liste-obligatoire:lache',
+      nature: 'jalon',
+      libelle: 'Liste de tâches jamais annoncée : l’agent continue sans',
+      donnees: { outil: appel.outil, refus: etat.refus },
+    });
+  }
+  return { refuse: false, texte: '' };
 }
 
 /**
@@ -881,7 +933,13 @@ export interface PromptOptions {
    */
   demandeur?: Demandeur;
   /** Appelé quand le tour est fini, avec le texte et les mesures indépendantes du moteur. */
-  onComplete?: (text: string, ok: boolean, measurement: TurnMeasurement) => void | Promise<void>;
+  onComplete?: (
+    text: string,
+    ok: boolean,
+    measurement: TurnMeasurement,
+    /** Le tour a-t-il été coupé À LA MAIN (« Suspendre », « Arrêter ») ? Un geste, pas un échec. */
+    fin?: { arretDemande?: boolean },
+  ) => void | Promise<void>;
 }
 
 interface ContexteUtilisateurDuTour {
@@ -1078,16 +1136,25 @@ export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'a
      */
     const phraseAEffacer = enVol && carte.sansModification !== undefined;
     const marqueAPoser = enVol && !carte.scheduling?.tourEnVolDepuis;
+    /*
+     * LE MESSAGE QU'ATTENDAIT UNE CARTE SUSPENDUE SUR PLACE. Le bouton
+     * « Suspendre » a laissé la carte en « En cours » (`carteEnPause`) : il n'y
+     * a donc aucune colonne à changer, mais la pause, elle, doit tomber — sans
+     * quoi la carte travaillerait en portant encore « il attend votre
+     * message », et l'ordonnanceur la tiendrait à l'écart au tour suivant.
+     */
+    const pauseALever = carteEnPause(carte.scheduling);
     // Rien à déplacer, rien à effacer : on ne touche pas au reste de la carte —
     // une carte rangée dans une fin de parcours n'a pas à voir sa date de
     // clôture ni sa suspension effacées par un simple tour de suite.
-    if (!phraseAEffacer && !marqueAPoser) return;
+    if (!phraseAEffacer && !marqueAPoser && !pauseALever) return;
     const marquee = store.saveCard({
       ...carte,
       ...(phraseAEffacer ? { sansModification: undefined } : {}),
       scheduling: {
         ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
         ...(marqueAPoser ? { tourEnVolDepuis: Date.now() } : {}),
+        ...(pauseALever ? { suspendu: false, enPause: undefined, waitingReason: undefined } : {}),
       },
     });
     bus.emit({ type: 'card.upsert', card: marquee });
@@ -1117,6 +1184,7 @@ export function replacerCarteAuDemarrage(agent: Agent, demandeur: Demandeur = 'a
     scheduling: {
       ...(carte.scheduling ?? { asap: false, attempts: 0, restarts: 0 }),
       suspendu: false,
+      enPause: undefined,
       waitingReason: undefined,
       ...(enVol ? { tourEnVolDepuis: carte.scheduling?.tourEnVolDepuis ?? Date.now() } : {}),
     },
@@ -2268,6 +2336,14 @@ function additionnerUsage(
     costUsd: somme(avant.costUsd, dernier.costUsd),
     durationMs: somme(avant.durationMs, dernier.durationMs),
     turns: somme(avant.turns, dernier.turns),
+    aides:
+      avant.aides || dernier.aides
+        ? {
+            tokens: (avant.aides?.tokens ?? 0) + (dernier.aides?.tokens ?? 0),
+            sortie: (avant.aides?.sortie ?? 0) + (dernier.aides?.sortie ?? 0),
+            modeles: [...new Set([...(avant.aides?.modeles ?? []), ...(dernier.aides?.modeles ?? [])])],
+          }
+        : undefined,
   };
 }
 
@@ -2503,6 +2579,14 @@ async function startTurn(
     steps: new Map(memoryStep ? [[memoryStep.id, memoryStep]] : []),
     outilsDesEtapes: new Map(),
     todos: todosRepris,
+    // Une liste reprise d'un tour coupé compte : elle est déjà à l'écran.
+    listeObligatoire: listeObligatoirePourLeTour({
+      role: agent.role,
+      motif,
+      assistantGlobal: Boolean(agent.assistantGlobal),
+    })
+      ? { ...ETAT_INITIAL_DE_LA_LISTE, listeAnnoncee: todosRepris.length > 0 }
+      : undefined,
     text: '',
     morceauxDuTexte: [''],
     account: account.id,
@@ -2547,9 +2631,16 @@ async function startTurn(
    */
   const gardePath = path.join(CONFIG.selfPath, 'server', 'garde-demon.mjs');
   const verrouPath = path.join(CONFIG.selfPath, 'server', 'verrou-analyse.mjs');
+  const verrouListePath = path.join(CONFIG.selfPath, 'server', 'verrou-liste.mjs');
   const token = getInternalToken();
   const url = `http://127.0.0.1:${CONFIG.port}`;
-  writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath, tourId);
+  /*
+   * REA N'EST BRANCHÉ QUE SUR L'AGENT D'UN CLONAGE (cahier des charges à
+   * source) : ses outils ne coûtent rien aux autres agents (`server/src/rea.ts`).
+   */
+  const rea = estAgentDuClonage(agent.id) ? serveurMcpRea() : undefined;
+  const serveursEnPlus: Record<string, NonNullable<typeof rea>> = rea ? { [SERVEUR_MCP_REA]: rea } : {};
+  writeMcpConfig(mcpConfigPath, token, url, agent.id, bridgePath, tourId, serveursEnPlus);
 
   /*
    * L'AGENT DE CADRAGE NE CODE JAMAIS, PAS MÊME SUR BELUGA : sa carte n'a pas
@@ -2769,14 +2860,18 @@ async function startTurn(
     dossiersLisibles: [...dossiersDeDonneesOuverts(), ...copiesAnnexes.map((copie) => copie.dossier)],
     mcpConfigPath,
     mcpBridgePath: bridgePath,
+    mcpServeursEnPlus: rea ? serveursEnPlus : undefined,
     gardeDuDemonPath: gardePath,
     // LE VERROU D'ANALYSE EST VIVANT : tant que la mémoire n'est pas ouverte, il
     // est posé devant les outils de terrain et demande au démon, À L'APPEL, si
     // elle l'est devenue (`shared/src/cadrage.ts`, `server/verrou-analyse.mjs`).
     verrouAnalysePath: bride && !analyseDuCadrageFaite(agent.id) ? verrouPath : undefined,
+    // LA LISTE EST TENUE PAR L'OUTIL : sans elle, commandes et modifications
+    // sont refusées à l'appel (`shared/src/liste-obligatoire.ts`).
+    verrouListePath: runState.listeObligatoire ? verrouListePath : undefined,
     fullAccess,
     role: agent.role,
-    allowedTools: bride ? cadrageAllowList() : undefined,
+    allowedTools: bride ? [...cadrageAllowList(), ...(rea ? [`mcp__${SERVEUR_MCP_REA}`] : [])] : undefined,
     disallowedTools: bride ? cadrageDenyList() : assistantGlobal ? [...DISALLOWED_NATIVE_ASSISTANT] : undefined,
     sandboxLectureSeule: assistantGlobal || undefined,
     env,
@@ -2955,6 +3050,7 @@ async function startTurn(
             // aucune heure : on la rapproche de la précédente pour retenir le
             // temps passé sur chaque ligne.
             if (event.todos?.length) {
+              if (runState.listeObligatoire) runState.listeObligatoire.listeAnnoncee = true;
               const avant = runState.todos;
               runState.todos = mergeTodos(avant, event.todos, runState.startedAt);
               pushMessage(runState, { todos: runState.todos, streaming: true });
@@ -3322,6 +3418,8 @@ async function startTurn(
    * son gabarit (`texteRenduDuTour`). Un agent SANS carte n'a pas de journal où
    * verser ces phrases : il garde son texte entier.
    */
+  /* Un tour de cadrage qui a déplacé la carte n'écrit plus de texte (voir plus bas). */
+  let texteEcarte = false;
   let finalText = runState.cardIdJournal
     ? texteRenduDuTour(
         runState.morceauxDuTexte,
@@ -3693,6 +3791,9 @@ async function startTurn(
      * L'ISSUE DU TOUR EST ÉCRITE DANS TOUS LES CAS : c'est elle que le flux en
      * points lit, au lieu de deviner la fin du tour dans les traces.
      */
+    if (agent.cardId) {
+      finDeTourDeCadrage?.(agent.cardId, agent.id, !(failed || !!reprise || !!panneDefinitive || runState.stopping));
+    }
     if (carteDuTour && agent.cardId) {
       const rendueDansCeTour = carteDuTour.parcours?.comprehension?.tourId === runState.messageId;
       /*
@@ -3717,6 +3818,27 @@ async function startTurn(
         /* LE TOUR A PARLÉ : c'est une discussion, pas un oubli (30/09/2026). */
         texteRendu: runState.text.trim().length > 0,
       };
+      /*
+       * UN TOUR QUI A DÉPLACÉ LA CARTE N'ÉCRIT RIEN. Le projet d'accueil
+       * s'affiche en haut et le fil porte déjà la ligne du déplacement : la
+       * phrase de conclusion du modèle est écartée ICI, par le démon, au lieu
+       * de compter sur sa docilité (la consigne « n'écris rien » ne suffit
+       * pas). Les étapes du tour restent ; le jugement ci-dessus a déjà lu le
+       * texte, il n'en tire donc plus de « tour muet » (`carteDeplacee`).
+       */
+      const texteGarde = texteApresDeplacement({
+        texte: finalText,
+        carteDeplacee: jugement.carteDeplacee,
+        questionPosee,
+        echec: jugement.echec,
+        arretDemande: jugement.arretDemande,
+      });
+      if (texteGarde !== finalText) {
+        texteEcarte = true;
+        finalText = texteGarde;
+        runState.text = texteGarde;
+        runState.morceauxDuTexte = [];
+      }
       let relance: 'cadrage' | 'reponse' | 'incident' | undefined;
       if (comprehensionManquante(jugement)) {
         runState.steps.set(ETAPE_COMPREHENSION_RECLAMEE_ID, {
@@ -3897,7 +4019,7 @@ async function startTurn(
     pontEpuise,
   });
   pushMessage(runState, {
-    content: finalText || (failed ? '' : 'Terminé.'),
+    content: finalText || (failed || texteEcarte ? '' : 'Terminé.'),
     steps: stepsRefermees,
     todos: runState.todos,
     streaming: false,
@@ -3935,11 +4057,15 @@ async function startTurn(
    * « Rapport » n'a aucune raison de rougir. Un tour tombé APRÈS avoir écrit
    * son compte rendu garde ce compte rendu ; c'est la cause qui voyage à côté.
    */
+  /* UNE SUSPENSION À LA MAIN laisse une ligne NEUTRE du travail — ni rouge, ni
+     « Rapport » : la marque de pause est posée AVANT la coupe (`agent.suspend`). */
+  const suspendu = runState.stopping && !!agent.cardId && carteEnPause(store.getCard(agent.cardId)?.scheduling);
   const issue = jalonDeFinDeTour({
     failed,
     reprise: Boolean(reprise),
     moteurMuet,
     arretDemande: runState.stopping,
+    suspendu,
     texte: finalText,
     // Un gabarit « none » ne juge rien : sa validité serait un faux témoignage.
     rapportEntier: template !== 'none' && formCheck.ok,
@@ -3947,11 +4073,11 @@ async function startTurn(
   });
   journaliserDansLeTour(agent.id, {
     cle: `rapport:${runState.messageId}`,
-    phase: 'rapport',
+    phase: issue.phase,
     nature: 'jalon',
     libelle: issue.libelle,
     resultat: issue.resultat,
-    reussie: issue.reussie,
+    reussie: issue.reussie ?? undefined,
     dureeMs: Math.round(elapsedSeconds * 1000),
     donnees: {
       compte: account.label,
@@ -4078,6 +4204,7 @@ async function startTurn(
     quota5h: parts.quota5h,
     quotaSemaine: parts.quotaSemaine,
     seconds: elapsedSeconds,
+    aides: runState.usage?.aides,
   });
 
   const measurement: TurnMeasurement = {
@@ -4189,7 +4316,7 @@ async function startTurn(
     const carte = store.getCard(agent.cardId);
     if (carte) {
       try {
-        await refermerDossierDeCarte(project.path, dossier, nomDeBranche(carte.title, carte.id));
+        await refermerDossierDeCarte(project.path, dossier, brancheDeLaCarte(carte));
       } catch (err) {
         log.error('fermeture du dossier de la carte impossible', err);
       }
@@ -4351,13 +4478,15 @@ async function startTurn(
 
   if (onComplete) {
     try {
-      await onComplete(finalText, !failed, measurement);
+      await onComplete(finalText, !failed, measurement, { arretDemande: runState.stopping });
     } catch (err) {
       log.error('post-traitement du tour impossible', err);
     }
   }
 
-  if (failed && !reprise) {
+  /* UN ARRÊT DEMANDÉ À LA MAIN N'EST PAS UN ÉCHEC : « Suspendre » et « Arrêter »
+     sont des gestes, et seuls trois genres alertent (MEM-0490). */
+  if (failed && !reprise && !runState.stopping) {
     notify({
       motif: 'tache-echec',
       // Une panne du fournisseur ne se dit pas « en échec » : la tâche a été
@@ -4480,8 +4609,10 @@ type SocleDuLancement = Pick<
   | 'dossiersLisibles'
   | 'mcpConfigPath'
   | 'mcpBridgePath'
+  | 'mcpServeursEnPlus'
   | 'gardeDuDemonPath'
   | 'verrouAnalysePath'
+  | 'verrouListePath'
   | 'fullAccess'
   | 'role'
   | 'allowedTools'
@@ -4696,6 +4827,7 @@ async function rendreLePlanEntier(options: {
     ...options.lancement,
     // La relance ne rend qu'un texte : aucun outil de terrain, donc aucun verrou.
     verrouAnalysePath: undefined,
+    verrouListePath: undefined,
     allowedTools: undefined,
     prompt: options.consigne,
     model: options.agent.run.model ?? undefined,
@@ -4756,6 +4888,7 @@ async function resumeSemantique(agent: Agent, options: OptionsCompression): Prom
     // Un résumé sans outil : ni pont, ni verrou, ni liste blanche.
     mcpConfigPath: undefined,
     verrouAnalysePath: undefined,
+    verrouListePath: undefined,
     allowedTools: undefined,
     prompt:
       'COMPRESSION INTERNE — sans outil et sans question. Résume ce fil pour ton prochain démarrage en 1 200 mots maximum. ' +
@@ -5650,15 +5783,23 @@ export function annoncerDansLaConversation(agentId: string, texte: string): void
  * dépend du moteur. Claude Code parle « TaskCreate / TaskUpdate », Codex parle
  * « update_plan ». On nomme à chaque moteur SON outil, jamais celui de l'autre.
  */
+/*
+ * Sous Claude, TaskCreate / TaskUpdate peuvent arriver DIFFÉRÉS : seul leur nom
+ * est connu tant que ToolSearch ne les a pas chargés. Un agent qui ne les voyait
+ * pas dans sa liste d'outils passait la liste — le chemin est donc nommé.
+ */
+const OUTIL_LISTE_CLAUDE =
+  "l'outil « TaskCreate » puis « TaskUpdate » (une tâche par appel, mise à jour par son numéro ; " +
+  "s'ils ne sont pas encore chargés, charge-les avec ToolSearch « select:TaskCreate,TaskUpdate »)";
+
 const OUTIL_LISTE: Record<EngineId, string> = {
-  claude:
-    "l'outil « TaskCreate » puis « TaskUpdate » (une tâche par appel, mise à jour par son numéro)",
+  claude: OUTIL_LISTE_CLAUDE,
   codex: "l'outil « update_plan » du moteur",
   // Cursor n'expose aucun outil de liste par son API : l'agent annonce donc son
   // déroulé dans sa réponse, en clair, plutôt qu'un outil qu'il n'a pas.
   cursor: 'une liste écrite en tête de ta réponse, une ligne par action prévue',
   // MiMo tourne dans l'outil de Claude : mêmes outils de liste.
-  mimo: "l'outil « TaskCreate » puis « TaskUpdate » (une tâche par appel, mise à jour par son numéro)",
+  mimo: OUTIL_LISTE_CLAUDE,
 };
 
 /**
@@ -5688,7 +5829,8 @@ LE COFFRE-FORT (outil « coffre_fort ») EST LA CENTRALE DES IDENTIFIANTS, ET IL
 TU NE DIS JAMAIS « je n'ai pas accès », « je n'ai pas les droits », « il me faudrait la clé » NI « à toi de regarder » : l'accès t'a été donné, et annoncer une porte fermée sans avoir ouvert le coffre est FAUX. Tu ne renvoies pas non plus la balle — pas de « fournis-moi l'identifiant », pas de « débrouille-toi », tant que tu n'as pas cherché toi-même.
 Une PANNE se dit toujours, mais APRÈS avoir cherché : un identifiant absent du coffre, expiré ou refusé par la machine s'annonce en toutes lettres, en disant ce que tu as cherché et ce qui manque exactement.
 Toute clé NOUVELLE que tu découvres ou reçois pendant le travail (donnée dans la conversation, générée par toi, trouvée dans un fichier non versionné) s'ENREGISTRE aussitôt avec « enregistrer », jamais laissée seulement dans un message ou un fichier du dépôt.
-UNE FICHE PAR SECRET : chaque mot de passe, clé ou jeton a sa propre fiche, du bon type, nommée d'après ce qu'il ouvre et son environnement. Un fichier plein d'accès (.env, config.php…) ne se colle jamais en entier : il donne une fiche par secret, et le coffre refuse une fiche qui en regroupe plusieurs. « supprimer » archive six mois, il n'efface pas.`;
+UNE FICHE PAR SECRET : chaque mot de passe, clé ou jeton a sa propre fiche, du bon type, nommée d'après ce qu'il ouvre et son environnement. Un fichier plein d'accès (.env, config.php…) ne se colle jamais en entier : il donne une fiche par secret, et le coffre refuse une fiche qui en regroupe plusieurs. « supprimer » archive six mois, il n'efface pas.
+Le coffre se range en DOSSIERS (un seul niveau, un nom et un projet, jamais un secret) : « enregistrer » avec « dossier » range une fiche dans un dossier (créé au besoin), « dossiers » les liste, et supprimer un dossier archive ses fiches avec lui.`;
 
 const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de Beluga Build, pas de toi : applique-la telle quelle, dans cet ordre) :
 1. LIRE AVANT DE RÉPONDRE : le fichier d'instructions du moteur cité dans le briefing, puis la BASE DE CONNAISSANCES du projet. Son ACCUEIL est déjà dans ton contexte — la tête du projet, « À ne jamais supposer », les unités P0 et P1, et le changelog récent, qui dit ce qui a déjà été fait — : lis-le. Pour le reste, l'outil « memoire » : geste « chercher » avec les mots précis de ta tâche dans « demande » et son « contexte », qui rend des UNITÉS pondérées du projet puis du global, puis « lire » l'unité utile par son « id » (ou une fiche numérotée, ou le « changelog »). Les PISTES données au lancement sont déjà des identifiants : ouvre celles qui te servent. La recherche est locale et ne coûte aucun quota. Puis les fichiers réellement concernés — repérés par une recherche dans le projet, jamais devinés de mémoire.
@@ -5699,6 +5841,16 @@ const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de Beluga Build, pas d
 6. UNE QUESTION SE POSE AVEC L'OUTIL « ask_user », JAMAIS EN TEXTE SIMPLE : dès qu'un choix ne t'appartient pas — une option à retenir, une préférence, une information qui te manque —, tu appelles « ask_user » et tu attends la réponse. L'ATTENTE SE FAIT TOUTE SEULE : cet outil ne te rend la main qu'une fois l'utilisateur ayant répondu, et sa réponse arrive comme résultat de l'appel — tu n'as donc AUCUNE étape suivante à commencer en attendant, et tu reprends ton travail à partir de cette réponse. Une question écrite à la fin de ta réponse ne réveille personne : ton tour se termine, l'utilisateur ne voit aucune alerte, et la carte reste bloquée sans que personne ne sache qu'elle t'attend. Tu ne finis donc JAMAIS un tour sur une question posée en texte. Ce qui peut être tranché par ce que tu as lu se tranche : tu annonces ton choix en une ligne et tu continues.
 7. CE QUE TU APPRENDS DE DURABLE SE RANGE, IL NE S'EMPILE PAS : un FAIT (décision, piège, convention) s'écrit avec « remember », sous le thème qui convient ; un fait devenu faux se REMPLACE en passant le début de l'ancienne ligne dans « replaces », jamais en ajoutant une ligne à côté. Une RÈGLE durable s'écrit dans le fichier d'attente que le briefing nomme, JAMAIS dans le fichier d'instructions du moteur : le démon la range la nuit.`;
 
+/**
+ * CE QUI SUIT LA FIN D'UN TOUR DE CADRAGE, branché de l'extérieur (le
+ * lancement automatique, `ws.ts`) pour ne pas faire dépendre ce module de
+ * l'ordonnanceur. L'appelé attend lui-même que le tour soit refermé.
+ */
+let finDeTourDeCadrage: ((cardId: string, agentId: string, tourReussi: boolean) => void) | undefined;
+export function brancherFinDeTourDeCadrage(fn: (cardId: string, agentId: string, tourReussi: boolean) => void): void {
+  finDeTourDeCadrage = fn;
+}
+
 /** Le rappel envoyé aux tours SUIVANTS, quand le moteur ne recolle pas ses consignes tout seul. */
 export function rappelDeMethode(
   engine: EngineId = 'claude',
@@ -5708,7 +5860,8 @@ export function rappelDeMethode(
   return (
     `${consigneDeLangue(langue)}\n${RAPPEL_DE_VULGARISATION}\n` +
     'RAPPEL DE MÉTHODE (donné au début du fil, toujours valable) : ' +
-    `annonce ta liste de tâches avec ${outilListe} et coche-la au fur et à mesure ; ` +
+    `à CHAQUE tour où tu agis — message de suite compris —, ton premier geste de travail est d'annoncer ta liste de tâches avec ${outilListe}, ` +
+    'sans quoi tes modifications et tes commandes sont refusées ; coche-la au fur et à mesure ; ' +
     'lis avant de répondre (instructions du moteur, outil « memoire », fichiers concernés) ; ' +
     "n'affirme rien que tu n'aies vérifié ; rejoue les contrôles du projet et dis leur résultat ; " +
     'ne signale ni ne commente JAMAIS le stockage de mots de passe, clés ou identifiants dans le projet ' +
@@ -5784,6 +5937,23 @@ export const CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE =
   "Rien de durable — une faute, un réglage, un libellé — : aucune fiche, et ton compte rendu le dit en une ligne.";
 
 /**
+ * LES AIDES (sous-agents) NE SERVENT QU'À LIRE, ET RENDENT COURT.
+ *
+ * Une aide repart de zéro : des aides en parallèle accélèrent mais CONSOMMENT
+ * PLUS. Le seul gain vient d'une aide sur modèle léger qui cherche et lit pour
+ * l'agent, puis rend quelques lignes : la conversation du principal, relue à
+ * chaque appel, reste courte. Sous Claude, « Explore » est redéfinie sur ce
+ * modèle et les autres aides sont fermées (`engines/aides-claude.ts`). Le texte
+ * reste le MÊME pour tous les moteurs (déroulé identique, vérifié par test) :
+ * il ne nomme « Explore » que comme exemple. Posée dans le corps STABLE
+ * de la consigne : elle ne bouge pas d'un tour à l'autre (préfixe du cache).
+ * Sa part de consommation se relève par `scripts/mesure-sous-agents.mjs`.
+ */
+export const CONSIGNE_DES_AIDES =
+  "LES AIDES (sous-agents) SERVENT À LIRE, PAS À CONSTRUIRE : quand ton moteur t'en offre une (sous Claude : « Explore »), confie à l'aide de lecture les recherches larges dans le dépôt et les lectures longues, en lui demandant un résumé court avec chemins et lignes ; vérifie ce qui fonde une décision avant de t'y fier. " +
+  "Garde pour toi l'écriture, les commandes qui modifient et les décisions. Pas d'aides en parallèle pour construire, ni pour ce qu'une seule recherche ciblée trouve : chaque aide repart de zéro et coûte.";
+
+/**
  * Les consignes de rôle. EXPORTÉ pour être vérifié par un test : la règle « toute
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
@@ -5823,11 +5993,17 @@ function corpsDeConsigne(
   const common =
     'Tu travailles dans Beluga Build. ' +
     "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.\n\n" +
-    "DÉROULÉ VISIBLE (obligatoire dès que la demande tient en plus d'une action) :\n" +
-    `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée simplement.\n` +
+    "DÉROULÉ VISIBLE (obligatoire à CHAQUE tour où tu agis — au lancement comme à chaque message de suite) :\n" +
+    `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée simplement. C'est ton PREMIER geste de travail : quelques lectures pour comprendre peuvent la précéder, jamais une modification de fichier ni une suite de commandes.\n` +
     "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
+    "Seule exception : une réponse qui ne modifie rien et ne lance aucune commande. Sans liste, Beluga Build refuse ta modification ou ta commande et te demande de l'annoncer d'abord.\n" +
     "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.\n\n" +
     `${METHODE}\n\n` +
+    /* LES ATTENTES INUTILES (`shared/src/garde-attentes.ts`) : la forme juste
+       est dite à TOUS les moteurs — la consigne reste identique d'un moteur à
+       l'autre —, et sous Claude le garde refuse en plus ce qui passerait
+       (`server/garde-demon.mjs`). */
+    `${CONSIGNE_DES_ATTENTES}\n\n` +
     /* Vaut pour TOUS les rôles : celui qui monte le projet comme celui qui
        propose la carte qui le montera. Un projet monté sans adresse est un
        projet dont chaque déploiement finira sans rien à contrôler. */
@@ -5869,6 +6045,7 @@ TU ES L'AGENT DE PUBLICATION. Tu CONFIGURES la mise en production d'un projet : 
   return `${common}
 
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
+${CONSIGNE_DES_AIDES}
 Travaille sur la branche de la carte. Pendant la tâche, ce que tu manipules (pistes, hypothèses, points à revoir) peut aller au « brouillon » de la carte (outil « memoire », geste « brouillon ») : il n'est jamais servi comme mémoire et s'efface à la fermeture de la carte.
 À LA FIN, L'ÉTAPE DE PROMOTION : relis ton travail et PROPOSE à la base de connaissances zéro, une ou quelques unités durables — outil « memoire », geste « proposer » (ou « remember » pour un fait d'une ligne) —, en remplaçant (« remplace ») l'unité que ta tâche a rendue fausse. Ne se mémorise JAMAIS : ${CE_QUI_NE_SE_MEMORISE_JAMAIS.join(' ; ')}. Une proposition refusée te dit pourquoi : corrige-la ou renonce. Puis appelle l'outil « memoire », geste « changelog », qui écrit l'entrée du JOURNAL DES CHANGEMENTS, lue par quelqu'un qui ne programme pas (la branche s'ajoute toute seule) : ${CONSIGNES_REDACTION_CHANGELOG.map((c) => c.replace(/^Le TITRE/, '« titre »').replace(/^L’EXPLICATION/, '« explication »').replace(/^Le POIDS/, '« poids »')).join(' ')} Une entrée sans explication, ou dont le titre est un nom de branche, est refusée : réécris-la.
 ${CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE}

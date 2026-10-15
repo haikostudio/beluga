@@ -50,6 +50,11 @@ export interface CarteEnCours {
    */
   suspendu?: boolean;
   /**
+   * La carte est SUSPENDUE SUR PLACE (bouton « Suspendre », `carteEnPause`) :
+   * l'agent a gardé son contexte et repart au prochain message.
+   */
+  enPause?: boolean;
+  /**
    * Le dernier tour de SON agent s'est mal terminé — échec, ou arrêt à la main.
    * C'est le seul état où le balayage de l'ordonnanceur (`issueDeCarteOubliee`)
    * s'interdit de ranger la carte : elle doit rester là où on la relance.
@@ -234,6 +239,20 @@ export function travailRestant(carte: CarteEnCours, maintenant: number): Travail
    * touchera pas. Ce cas passe devant le rangement ET devant « plus personne » —
    * tous deux annoncent une suite automatique qui, ici, ne viendra jamais.
    */
+  /*
+   * SUSPENDUE SUR PLACE : rien ne la rangera, et c'est voulu. Elle ne dit pas
+   * « relancez-la » mais « écrivez-lui » — le prochain message reprend
+   * l'agent là où il en était.
+   */
+  if (carte.enPause) {
+    return {
+      nature: 'relance',
+      etape: 'Agent suspendu',
+      depuis: depuisQuand(carte.finDuDernierTour ?? carte.tourEnVolDepuis, maintenant),
+      attente: 'votre prochain message : l’agent reprendra avec tout son contexte',
+    };
+  }
+
   if (carte.suspendu || carte.dernierTourEnEchec || (carte.tachesNonFaites ?? 0) > 0) {
     return {
       nature: 'relance',

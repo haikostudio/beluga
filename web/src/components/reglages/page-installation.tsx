@@ -15,6 +15,8 @@ import {
 } from '@/components/installation/sections';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { Button } from '@/components/ui';
+import { relancerLaVisite } from '@/components/visite-guidee';
 
 /**
  * LES RÉGLAGES DE L'INSTALLATION — tout ce que l'assistant de premier démarrage
@@ -35,6 +37,16 @@ export function PageInstallation() {
           {t('{n} page(s) de la mise en route ont été remises à plus tard : elles se règlent ci-dessous.', { n: String(remises.length) })}
         </p>
       ) : null}
+      <Groupe titre={t('La visite guidée')}>
+        <div className="flex flex-wrap items-center gap-3" data-relancer-visite>
+          <p className="min-w-0 flex-1 text-[13.5px] leading-relaxed text-muted">
+            {t('Des bulles montrent où cliquer pour créer un projet, confier une demande, suivre le travail et publier. Elles ne remplissent rien à votre place.')}
+          </p>
+          <Button variant="subtle" size="sm" onClick={relancerLaVisite}>
+            {t('Revoir la visite guidée')}
+          </Button>
+        </div>
+      </Groupe>
       <Groupe titre={t('Le nom de domaine')}>
         <SectionDomaine etat={etat} relire={relire} />
       </Groupe>

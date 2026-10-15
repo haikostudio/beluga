@@ -19,3 +19,6 @@ __pycache__/
 /outils/laya/
 # L'ancien juge (Needle 3), retiré.
 /outils/needle3/
+# REA (analyse des produits à cloner) : ~230 Mo de modules et le JAR JADX,
+# posés sur la machine, jamais versionnés. Installation : scripts/installer-rea.mjs
+/outils/rea/

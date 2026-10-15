@@ -38,8 +38,8 @@ const CLE_REPERE_PREMIER_AFFICHAGE = 'beluga-theme-flash';
  * POURQUOI CE JOURNAL EXISTE.
  *
  * « L'interface a changé de thème toute seule » est une phrase impossible à
- * instruire après coup : rien ne dit laquelle des trois entrées — le projet
- * ouvert, le réglage général, le clair / sombre de l'ordinateur — a bougé, ni
+ * instruire après coup : rien ne dit laquelle des entrées — le réglage
+ * général, le clair / sombre de l'ordinateur — a bougé, ni
  * même si l'une a bougé. On note donc CHAQUE pose de thème qui en remplace un
  * autre, avec sa cause nommée. Le PREMIER affichage, lui, ne se note pas : il
  * ne remplace rien, et le journal se remplirait pour rien à chaque ouverture.
@@ -94,9 +94,9 @@ export function basculesDApparence(): readonly BasculeDApparence[] {
  * LE THÈME S'APPLIQUE EN UN SEUL ENDROIT.
  *
  * Il était posé dans un effet du bandeau des quotas, à côté de son interrupteur.
- * Avec cinq choix et TROIS sources qui peuvent décider — le projet ouvert, le
- * réglage général, le réglage clair / sombre de l'ordinateur —, deux copies de ce
- * geste finiraient par se contredire.
+ * Avec deux sources qui peuvent décider — le réglage général, le réglage
+ * clair / sombre de l'ordinateur —, deux copies de ce geste finiraient par se
+ * contredire.
  *
  * Trois marques sont posées ensemble, et jamais séparément :
  *  - `data-theme` : le nom du thème, qui choisit son bloc de jetons ;
@@ -192,7 +192,7 @@ export function useSystemeSombre(actif = true): boolean {
  * anciennes valeurs (« dark », « light », « systeme » et les sept anciens
  * thèmes) sont reprises par `reglageApparenceValide`.
  *
- * Il ne POSE rien : un projet peut le recouvrir. Seul `useThemeApplique` pose.
+ * Il ne POSE rien : seul `useThemeApplique` pose.
  */
 export function useThemeGeneral(): [ReglageApparence, (reglage: ReglageApparence) => void] {
   /*
@@ -215,33 +215,21 @@ export function useThemeGeneral(): [ReglageApparence, (reglage: ReglageApparence
 }
 
 /**
- * LES TROIS ENTRÉES DU THÈME, CHACUNE PROTÉGÉE DE SES PROPRES ABSENCES.
- *
- * Le thème du PROJET ouvert ne vaut que si la liste des projets est réellement
- * arrivée. Pendant une reconnexion, le magasin se réhydrate : la liste peut
- * repasser vide un instant, et lire alors « ce projet n'impose rien » ferait
- * rendre la main au réglage général, puis rebasculer. On garde donc la dernière
- * valeur connue tant que la liste n'est pas là — un projet qui n'impose rien
- * pour de vrai, lui, est bien lu comme tel.
+ * LES ENTRÉES DU THÈME : le réglage général, et le réglage clair / sombre de
+ * l'ordinateur quand l'automatique le demande. AUCUN PROJET N'IMPOSE PLUS SON
+ * APPARENCE : changer de projet ne change jamais l'écran.
  */
 function useEntreeDeTheme(): { entree: EntreeDeTheme; applique: ThemeApplique } {
-  const state = useApp();
   const [general] = useThemeGeneral();
-  const projetOuvert = state.projects.find((projet) => projet.id === state.activeProjectId);
-  const listeConnue = state.pret && state.projects.length > 0;
-  const dernierDuProjet = React.useRef<unknown>(undefined);
-  if (listeConnue) dernierDuProjet.current = projetOuvert?.theme;
-  const duProjet = listeConnue ? projetOuvert?.theme : dernierDuProjet.current;
 
   /*
    * L'écoute du système se décide SUR LE RÉGLAGE, donc avant de connaître la
    * clarté du système : un premier calcul sans elle suffit à savoir si elle a
    * seulement son mot à dire.
    */
-  const sansSysteme = themeAAppliquer({ duProjet, general: themeChoisiDepuisReglage(general) });
+  const sansSysteme = themeAAppliquer({ general: themeChoisiDepuisReglage(general) });
   const systemeSombre = useSystemeSombre(sansSysteme.ecouteLeSysteme);
   const entree: EntreeDeTheme = {
-    duProjet,
     general: themeChoisiDepuisReglage(general),
     systemeSombre: sansSysteme.ecouteLeSysteme ? systemeSombre : undefined,
   };
@@ -251,14 +239,13 @@ function useEntreeDeTheme(): { entree: EntreeDeTheme; applique: ThemeApplique } 
 /**
  * LE THÈME RÉELLEMENT EN VIGUEUR — et c'est lui qui le POSE sur la page.
  *
- * À appeler UNE SEULE FOIS, depuis la racine de l'application : le projet ouvert
- * décide avant le réglage général, donc changer de projet change l'apparence de
- * TOUTE l'interface — colonne de gauche, tableau, conversation, réglages,
- * fenêtres — et non d'un morceau d'écran.
+ * À appeler UNE SEULE FOIS, depuis la racine de l'application : le réglage
+ * général vaut pour TOUTE l'interface — colonne de gauche, tableau,
+ * conversation, réglages, fenêtres — et pour tous les projets.
  *
- * Rendu aussi aux écrans qui expliquent le choix (l'onglet « Apparence » doit
- * pouvoir dire « ce projet impose son thème, c'est lui que vous voyez »), mais
- * l'effet, lui, ne tourne que là où le crochet est appelé.
+ * Rendu aussi aux écrans qui parlent du choix (l'onglet « Apparence » dit si
+ * l'ordinateur décide), mais l'effet, lui, ne tourne que là où le crochet est
+ * appelé.
  */
 export function useThemeApplique(): ThemeApplique {
   const state = useApp();
@@ -268,9 +255,8 @@ export function useThemeApplique(): ThemeApplique {
   const posee = React.useRef<EntreeDeTheme | null>(null);
 
   /*
-   * TANT QUE LE SERVEUR N'A PAS RÉPONDU (`state.pret`), `general` ET
-   * `projetOuvert` ne sont que des VALEURS PAR DÉFAUT (prefs et projets encore
-   * vides) — jamais le vrai choix. Poser ce défaut écraserait la devinette déjà
+   * TANT QUE LE SERVEUR N'A PAS RÉPONDU (`state.pret`), `general` n'est
+   * qu'une VALEUR PAR DÉFAUT (prefs encore vides) — jamais le vrai choix. Poser ce défaut écraserait la devinette déjà
    * posée par le script de `index.html` (le REPÈRE local de premier affichage)
    * et produirait un second flash inutile : sombre par défaut, puis le vrai
    * thème. On laisse donc le repère en place jusqu'à la vraie réponse.

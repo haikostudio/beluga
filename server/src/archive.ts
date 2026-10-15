@@ -1,3 +1,4 @@
+import { brancheDeLaCarte } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
 import { isRunning } from './runtime.js';
@@ -5,6 +6,7 @@ import { appendHistory } from './memory.js';
 import { log } from './logger.js';
 import { fermerLesQuestionsSiCarteRangee } from './fermeture-questions.js';
 import { archiverLaBrancheDeCarte } from './dossier-de-carte.js';
+import { sommetDeLaBranche } from './github.js';
 import { archiverLesBranchesAnnexes } from './copies-des-depots.js';
 import { ajouterAuChangelog, marquerLaPublication, purgerLeBrouillon } from './connaissances.js';
 import { redigerLEntreeDeLaCarte } from './redaction-changelog.js';
@@ -42,7 +44,19 @@ export async function archiveCard(cardId: string): Promise<{ ok: boolean; error?
    *    neuf « archive/ » sur une carte rouverte puis réarchivée.
    */
   const branch = card.github?.branch;
-  const bilan = await archiverLaBrancheDeCarte(project.path, branch, project.branchesDePublication);
+  /* UNE BRANCHE PARTAGÉE (bouton de branche) reste tant qu'une autre carte non
+     archivée la porte encore : elle y travaille, ou attend son tour. */
+  const partagee =
+    !!branch &&
+    store
+      .listCards(card.projectId)
+      .some((c) => c.id !== card.id && c.column !== 'archived' && (c.github?.branch ?? brancheDeLaCarte(c)) === branch);
+  /* Le DERNIER enregistrement de la branche, lu AVANT qu'elle puisse être
+     supprimée : avec la base, il suffit à relire ce que la carte a changé. */
+  const sommet = branch ? (await sommetDeLaBranche(project.path, branch)) || card.github?.sommetSha : undefined;
+  const bilan = partagee
+    ? { geste: 'laisser' as const, branche: branch, detail: `« ${branch} » est encore portée par une autre carte : elle reste en place` }
+    : await archiverLaBrancheDeCarte(project.path, branch, project.branchesDePublication);
   if (branch) log.info(`archivage de « ${card.title} » : ${bilan.detail}`);
   // La même branche, dans chaque dépôt annexe du projet, par la même règle.
   if (branch && project.depots?.length) {
@@ -50,10 +64,22 @@ export async function archiveCard(cardId: string): Promise<{ ok: boolean; error?
       log.info(`archivage de « ${card.title} » (dépôt « ${nom} ») : ${annexe.detail}`);
     }
   }
-  const github =
-    card.github && bilan.branche !== card.github.branch
-      ? { ...card.github, branch: bilan.branche }
-      : card.github;
+  /*
+   * LE NOM DE LA BRANCHE NE S'EFFACE JAMAIS. Supprimée parce que fusionnée,
+   * elle garde son nom sur la carte, marqué « supprimée » : l'effacer faisait
+   * dire à l'onglet « GitHub » qu'une carte qui a travaillé « n'a jamais été
+   * lancée », et vidait ses fichiers au relevé suivant. Renommée, elle prend
+   * son nouveau nom.
+   */
+  const github = !card.github
+    ? card.github
+    : bilan.geste === 'supprimer'
+      ? { ...card.github, brancheSupprimee: true, ...(sommet ? { sommetSha: sommet } : {}) }
+      : bilan.branche && bilan.branche !== card.github.branch
+        ? { ...card.github, branch: bilan.branche, ...(sommet ? { sommetSha: sommet } : {}) }
+        : sommet && !card.github.sommetSha
+          ? { ...card.github, sommetSha: sommet }
+          : card.github;
 
   // 2. La carte part dans « Archivé ».
   const archived = store.saveCard({
@@ -108,8 +134,8 @@ export async function archiverLesCartesEnLigneRestees(): Promise<number> {
 }
 
 /**
- * ÉCRIRE LA LIVRAISON DÈS QU'ELLE EST RÉELLE. La publication l'appelle avant
- * la vitrine liée, puis l'archivage la rappelle après avoir rangé la carte.
+ * ÉCRIRE LA LIVRAISON DÈS QU'ELLE EST RÉELLE. La publication l'appelle dès
+ * la mise en ligne, puis l'archivage la rappelle après avoir rangé la carte.
  * `appendHistory` déduplique la ligne exacte : le journal est donc disponible
  * pendant le même cycle, sans doublon à la clôture.
  */

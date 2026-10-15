@@ -60,7 +60,7 @@ export function MenuEspace({
   useTiroirAdresse('comptes-espace', comptesOuverts, setComptesOuverts);
   return (
     <>
-      <MenuActions titre={t('Menu')} repere="espace-menu" icone={enPoints ? undefined : <Menu className="h-4 w-4" />}>
+      <MenuActions titre={t('Menu')} repere="espace-menu" taille="icon-barre" icone={enPoints ? undefined : <Menu className="h-4 w-4" />}>
         {(fermer) => (
           <>
             <GroupeTiroir titre={t('Ouvrir')}>

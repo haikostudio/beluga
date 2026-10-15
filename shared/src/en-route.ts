@@ -127,6 +127,8 @@ export interface AgentPourLaBande {
   tourVivantDepuis?: number;
   attendReponse?: boolean;
   depannagePublication?: unknown;
+  /** L'Assistant Beluga : stocké avec le rôle « deploy », il n'est PAS une mise en ligne. */
+  assistantGlobal?: boolean;
 }
 
 /**
@@ -152,6 +154,8 @@ export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]
   return agents
     .filter((agent) => {
       if (agent.cardId) return false;
+      // L'assistant n'a pas de carte et n'est jamais une carte Système.
+      if (agent.assistantGlobal) return false;
       // Le dépannage d'une publication a SA vignette (`depannagesDeLaBande`).
       if (agent.depannagePublication) return false;
       return agentSystemeActif(agent);
@@ -166,7 +170,7 @@ export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]
  */
 export function agentsTerminesDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], maintenant: number): T[] {
   return agents
-    .filter((agent) => !agent.depannagePublication && agentSystemeTermine(agent, maintenant))
+    .filter((agent) => !agent.assistantGlobal && !agent.depannagePublication && agentSystemeTermine(agent, maintenant))
     .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 

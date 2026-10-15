@@ -18,6 +18,7 @@ import { attachWebSocket } from './ws.js';
 import { bootstrapAccounts, prochaineTentativeQuota, refreshQuotas } from './accounts.js';
 import { chargerLesMoteursAjoutes, rattraperLesCartesDesMoteurs } from './moteurs-ajoutes.js';
 import { demarrerRelaisChat } from './engines/relais-chat.js';
+import { semerAuDemarrage } from './semis-competences.js';
 import {
   adopterLesCompetencesDuCoffre,
   preparerLeDepotDuPool,
@@ -30,6 +31,7 @@ import { startScheduler, startVeille, tick } from './scheduler.js';
 import { recoverAfterRestart, cleanupMcpConfigs } from './runtime.js';
 import { startDeploy } from './deploy.js';
 import { archiverLesCartesEnLigneRestees } from './archive.js';
+import { rattraperLesBranchesPerdues } from './rattrapage-branches-perdues.js';
 import { reprendreLesRattrapages } from './rattrapage-ecartee.js';
 import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
@@ -153,6 +155,8 @@ async function main(): Promise<void> {
   // le pool serait donc hors sauvegarde alors qu'il devient la mémoire commune
   // de tous les projets. Pousser reste un geste de l'utilisateur.
   preparerLeDepotDuPool();
+  // Une installation neuve reçoit les compétences publiées avec le code (`semis-competences.ts`).
+  semerAuDemarrage();
   // Le coffre personnel de l'utilisateur entre DANS le pool : quinze fiches y
   // vivaient sans qu'une seule, hors « compta », soit raccordée à quoi que ce
   // soit. Rien n'est copié ni déplacé — un lien, et la source reste la sienne.
@@ -371,6 +375,11 @@ async function main(): Promise<void> {
   setTimeout(
     () => void archiverLesCartesEnLigneRestees().catch((err) => log.warn('rangement des cartes en ligne restées', err)),
     30_000,
+  ).unref?.();
+  // Les cartes archivées qui avaient perdu le nom de leur branche le retrouvent (`rattrapage-branches-perdues.ts`).
+  setTimeout(
+    () => void rattraperLesBranchesPerdues().catch((err) => log.warn('rattrapage des branches perdues', err)),
+    45_000,
   ).unref?.();
   const rattrapageTimer = setInterval(() => void reprendreLesRattrapages(), 120_000);
   const janitorTimer = setInterval(

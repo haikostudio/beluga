@@ -21,6 +21,8 @@ export interface DonneesCreation {
   modele: { id: string; version: number; majLe: number } | null;
   /** Les modèles du projet (bibliothèque). */
   modeles: ResumeModele[];
+  /** Le modèle vidéo retenu pour une création « Vidéo » (service de création de l'utilisateur), sinon rien. */
+  modeleVideo?: { service: string; modele: string } | null;
   /** Les projets vers lesquels un modèle peut être copié. */
   projets: { id: string; name: string }[];
 }

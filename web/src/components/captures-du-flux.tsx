@@ -11,6 +11,7 @@ import {
   type RunStep,
 } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
 import { ZoneDefilement } from '@/components/ui';
 import { CommandesDesVues, RienDeNouveau } from '@/components/commandes-des-vues';
 import { client } from '@/lib/client';
@@ -290,7 +291,9 @@ export function BandeDesCaptures({
           <span className="whitespace-nowrap">{t('Ce que l’agent a vu')}</span>
           <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 transition-transform', repliee && 'rotate-180')} aria-hidden />
         </button>
-        {captures.length > 1 && !repliee ? (
+        {/* LE NOMBRE RESTE À DROITE MÊME REPLIÉ : la ligne seule dit combien
+            d'images l'agent a vues, sans avoir à déplier la galerie. */}
+        {captures.length > 1 ? (
           <CommandesDesVues
             nonVues={nonVues.length}
             filtre={filtre}
@@ -323,7 +326,7 @@ export function BandeDesCaptures({
               className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1`}
             >
               <img
-                src={g.source(c)}
+                src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`}
                 alt={c.libelle}
                 loading="lazy"
                 draggable={false}

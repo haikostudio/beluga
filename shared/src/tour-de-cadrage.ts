@@ -84,6 +84,30 @@ export function comprehensionManquante(tour: TourDeCadrageFini): boolean {
   return true;
 }
 
+/**
+ * UN TOUR QUI A DÉPLACÉ LA CARTE NE LAISSE AUCUN TEXTE.
+ *
+ * Le projet d'accueil s'affiche déjà en haut de l'écran et le fil porte la
+ * ligne « Carte déplacée de … vers … » posée par le système : la phrase de
+ * conclusion que le modèle écrit malgré la consigne « n'écris rien » ne dit
+ * rien de plus (carte 101a648e, 14/10/2026). La consigne n'est que le premier
+ * filet ; la règle est tenue ICI, par le démon, qui écarte ce texte.
+ *
+ * Le texte reste quand le déplacement a été REFUSÉ (le projet n'a pas changé),
+ * quand le tour est tombé ou arrêté, et quand il attend une réponse : une
+ * question posée dans ce texte n'a pas d'autre endroit où se lire.
+ */
+export function texteApresDeplacement(tour: {
+  texte: string;
+  carteDeplacee: boolean;
+  questionPosee?: boolean;
+  echec?: boolean;
+  arretDemande?: boolean;
+}): string {
+  if (!tour.carteDeplacee || tour.questionPosee || tour.echec || tour.arretDemande) return tour.texte;
+  return '';
+}
+
 /* ------------------------------------------------------------------ */
 /* 2. LA RELANCE, PUIS L'INCIDENT                                       */
 /* ------------------------------------------------------------------ */

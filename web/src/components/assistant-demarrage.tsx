@@ -23,7 +23,7 @@ import {
   useEtatDeLInstallation,
   type EtatDeLInstallation,
 } from '@/components/installation/sections';
-import { TerminalACote, VoletDuTerminal } from '@/components/installation/travail';
+import { BarreDuTerminal, TerminalACote } from '@/components/installation/travail';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -45,11 +45,11 @@ import { t } from '@/lib/langue';
  * téléphone, la liste laisse la place à « page 3 sur 9 », et la flèche de la
  * barre d'en-tête remonte d'un cran.
  *
- * À GAUCHE CE QU'ON RÈGLE, À DROITE CE QUI SE PASSE. L'assistant installe
- * lui-même les moteurs et les fonctions : sur ordinateur, un volet de terminal
- * occupe la droite de l'écran et montre le serveur au travail, sans que
- * personne ait à s'y connecter (`installation/travail.tsx`). Plus étroit, la
- * même sortie se déplie sous le bouton qui l'a lancée.
+ * CE QUI SE PASSE SUR LE SERVEUR, EN BAS. L'assistant installe lui-même les
+ * moteurs et les fonctions : une barre collée en bas de l'écran montre le
+ * serveur au travail, sans que personne ait à s'y connecter
+ * (`installation/travail.tsx`). Elle ne s'ouvre que pendant une installation
+ * (et sur un échec) ; le reste du temps, elle tient sur une ligne.
  *
  * OÙ L'ON EN EST VIT DANS LA BASE (`Settings.assistant`, règle pure
  * `shared/src/installation.ts`) : un rechargement, un autre appareil, et l'on
@@ -116,7 +116,6 @@ function pageDe(etape: EtapeDeLAssistant): Page {
 export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant }) {
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
-  const grandEcran = useGrandEcran();
   const premiere = prochaineEtape(assistant);
   const [vue, setVue] = React.useState<EtapeDeLAssistant>(premiere === 'fin' ? 'facultatif' : premiere);
   const [envoi, setEnvoi] = React.useState<'faite' | 'passee' | null>(null);
@@ -145,7 +144,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
   };
 
   return (
-    <TerminalACote.Provider value={grandEcran}>
+    <TerminalACote.Provider value>
     <div
       data-assistant-demarrage="1"
       data-etape={vue}
@@ -235,11 +234,10 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
           </div>
         </ZoneDefilement>
 
-        {/* CE QUI SE PASSE SUR LE SERVEUR, à droite, tant que l'écran est assez
-            large pour deux volets. Plus étroit, la même sortie se déplie sous
-            le bouton qui a lancé le travail. */}
-        {grandEcran ? <VoletDuTerminal className="mb-1 mr-3 w-[40%] max-w-[560px] shrink-0 sm:mr-5" /> : null}
       </div>
+
+      {/* CE QUI SE PASSE SUR LE SERVEUR : une barre en bas, ouverte seulement quand une installation travaille. */}
+      <BarreDuTerminal className="mx-3 mt-1 sm:mx-5" />
 
       <footer className="flex shrink-0 items-center gap-2 px-3 py-3 sm:px-5" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <span className="min-w-0 flex-1 text-[13px] text-faint">
@@ -259,20 +257,6 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
     </div>
     </TerminalACote.Provider>
   );
-}
-
-/** L'écran est-il assez large pour deux volets côte à côte ? */
-function useGrandEcran(): boolean {
-  const REQUETE = '(min-width: 1024px)';
-  const [large, setLarge] = React.useState(() => typeof window !== 'undefined' && window.matchMedia(REQUETE).matches);
-  React.useEffect(() => {
-    const requete = window.matchMedia(REQUETE);
-    const suivre = () => setLarge(requete.matches);
-    suivre();
-    requete.addEventListener('change', suivre);
-    return () => requete.removeEventListener('change', suivre);
-  }, []);
-  return large;
 }
 
 /**

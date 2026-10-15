@@ -107,6 +107,11 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         motsCles: ['création', 'créativité', 'orchestre', 'répartition', 'gpt', 'claude', 'cursor', 'avis', 'modèle'],
         libelles: ['Qui fait quoi', 'Avis complémentaires'],
       },
+      {
+        cle: 'services-creation',
+        titre: 'Services de création',
+        motsCles: ['studio', 'vidéo', 'clé', 'higgsfield', 'byteplus', 'seedance', 'freepik', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter', 'modèle', 'génération'],
+      },
     ],
   },
   {

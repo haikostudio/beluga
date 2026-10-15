@@ -12,7 +12,7 @@ import {
   type FicheMoteur,
   type MotifDeCompatibilite,
 } from '@beluga/shared';
-import { Badge, BulleInfo, Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
+import { Badge, BulleInfo, Button, ChampMotDePasse, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
 import { AjouterCle, BlocConnexion } from '@/components/connexion-compte';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { Chat } from '@/components/chat';
@@ -287,13 +287,13 @@ function LigneMoteurAjoute({ fiche }: { fiche: FicheMoteur }) {
       ) : null}
       {cleOuverte && cleAttendue ? (
         <div className="mt-1.5 flex flex-wrap items-center gap-1" data-essai-du-moteur={id}>
-          <input
-            type="password"
+          <ChampMotDePasse
             autoComplete="off"
             value={cle}
             onChange={(e) => setCle(e.target.value)}
             placeholder={t('Clé d’accès (laisser vide pour reprendre celle déjà connue)')}
-            className="h-7 min-w-0 flex-1 rounded-md border border-border bg-raised px-2 text-[12.5px] text-text"
+            cadre="min-w-0 flex-1"
+            className="h-7 rounded-md px-2 text-[12.5px]"
             data-champ-cle-moteur
           />
           <Button size="sm" disabled={essai} onClick={eprouver} data-reessayer-essai>

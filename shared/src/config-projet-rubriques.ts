@@ -2,7 +2,7 @@
  * LES RUBRIQUES DE LA CONFIGURATION D'UN PROJET.
  *
  * La configuration d'un projet était UNE colonne de 1150 lignes qu'il fallait
- * dérouler de bout en bout : le nom, le moteur, l'apparence, les dossiers, le
+ * dérouler de bout en bout : le nom, le moteur, les dossiers, le
  * déploiement, la mise en production, le client, puis l'archivage et la
  * suppression, tout à la suite. On la découpe comme les réglages généraux
  * (`reglages-arborescence.ts`) : un menu de rubriques à gauche, le contenu de
@@ -49,11 +49,6 @@ export const RUBRIQUES_CONFIG_PROJET: readonly RubriqueDeConfig[] = [
     cle: 'general',
     titre: 'L’essentiel',
     resume: 'Le nom du projet et le moteur sur lequel ses cartes partent.',
-  },
-  {
-    cle: 'apparence',
-    titre: 'Apparence',
-    resume: 'Clair ou sombre pour ce projet, ou le réglage général.',
   },
   {
     cle: 'dossiers',

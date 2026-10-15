@@ -57,3 +57,28 @@ export function useEtatAssistant() {
     basculer: () => retenir({ ...retenu, ouvert: !retenu.ouvert }),
   };
 }
+
+/*
+ * LE ROND VOISIN. La page Marketing pose son propre rond dans le coin bas
+ * droit : tant qu'elle est affichée, le robot se range à sa gauche
+ * (`droiteAvecVoisin`). Ailleurs, le coin est au robot.
+ */
+let rondVoisin = false;
+const abonnesDuVoisin = new Set<() => void>();
+
+export function poserLeRondVoisin(present: boolean): void {
+  if (rondVoisin === present) return;
+  rondVoisin = present;
+  for (const abonne of abonnesDuVoisin) abonne();
+}
+
+export function useRondVoisin(): boolean {
+  return React.useSyncExternalStore(
+    (abonne) => {
+      abonnesDuVoisin.add(abonne);
+      return () => abonnesDuVoisin.delete(abonne);
+    },
+    () => rondVoisin,
+    () => false,
+  );
+}

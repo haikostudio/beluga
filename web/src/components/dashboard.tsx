@@ -20,6 +20,7 @@ import { SilhouetteRubrique } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { usePref } from '@/lib/prefs';
+import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
@@ -63,7 +64,7 @@ const COMPOSANTS: Record<RubriqueDuResume, React.LazyExoticComponent<Rubrique>> 
 };
 
 /** Les rubriques, dans l'ordre de la colonne : l'activité des agents, puis les services. */
-function rubriques(): { groupe: string; entrees: { cle: RubriqueDuResume; Icone: LucideIcon; libelle: string; aide: string }[] }[] {
+function rubriques(studioOuvert: boolean): { groupe: string; entrees: { cle: RubriqueDuResume; Icone: LucideIcon; libelle: string; aide: string }[] }[] {
   return [
     {
       groupe: t('Activité'),
@@ -97,7 +98,9 @@ function rubriques(): { groupe: string; entrees: { cle: RubriqueDuResume; Icone:
           libelle: t('Surveillance'),
           aide: t('Les contrôles des sites surveillés, leurs pannes et leur temps de réponse.'),
         },
-        { cle: 'studio', Icone: Clapperboard, libelle: t('Studio'), aide: t("Les visuels et vidéos créés, leurs exports et ce qu'ils ont coûté.") },
+        ...(studioOuvert
+          ? [{ cle: 'studio' as const, Icone: Clapperboard, libelle: t('Studio'), aide: t("Les visuels et vidéos créés, leurs exports et ce qu'ils ont coûté.") }]
+          : []),
         {
           cle: 'coffre',
           Icone: Key,
@@ -121,15 +124,17 @@ function rubriques(): { groupe: string; entrees: { cle: RubriqueDuResume; Icone:
 
 export function Dashboard() {
   const [rubriqueGardee, setRubrique] = usePref<string>('resume.rubrique', 'ensemble');
-  const rubrique = rubriqueDuResume(rubriqueGardee);
+  const rubriqueDemandee = rubriqueDuResume(rubriqueGardee);
   const telephone = useTelephone();
   const [periode, setPeriode] = React.useState<{ echelle: number | null; debut: number; fin: number }>(() => {
     const { debut, fin } = bornesDeLEchelle(30, Date.now());
     return { echelle: 30, debut, fin };
   });
-  const groupes = rubriques();
+  /* Une rubrique Studio gardée en préférence retombe sur la première quand le Studio n'est pas ouvert à ce compte. */
+  const groupes = rubriques(useApp().studioOuvert);
   const toutes = groupes.flatMap((g) => g.entrees);
-  const ouverte = toutes.find((r) => r.cle === rubrique) ?? toutes[0]!;
+  const ouverte = toutes.find((r) => r.cle === rubriqueDemandee) ?? toutes[0]!;
+  const rubrique = ouverte.cle;
   const Composant = COMPOSANTS[rubrique];
 
   return (

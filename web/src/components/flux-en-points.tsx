@@ -57,7 +57,6 @@ import {
   recitDuPoint,
   tempsDuPassage,
   toursSansBulleParPoint,
-  resumeDeLEntree,
   travailEnSousPoints,
   VersionDuPassage,
   versionDuPassageDePlan,
@@ -338,14 +337,16 @@ function SousPointDuFlux({
 /* ------------------------------------------------------------------ */
 
 /**
- * LA LARGEUR D'UN MESSAGE, POUR TOUT CE QUI SE LIT DANS LE FIL (demande du
- * 12/10/2026). La bulle de l'utilisateur tient à 85 % de la colonne, et tout ce
- * que l'agent montre — le résumé de la demande, le bloc de travail, sa
- * compréhension, sa réponse — tient dans la MÊME largeur, collé à gauche : plus
- * de texte qui court sur toute la colonne alors que la question est étroite.
- * Une seule valeur, pour que les deux côtés ne dérivent pas.
+ * LES DEUX LARGEURS DU FIL (demande du 12/10/2026, élargie le 13/10/2026).
+ * La bulle de l'utilisateur tient à 85 % de la colonne, alignée à droite : ses
+ * messages sont courts. Tout ce que l'agent montre — le résumé de la demande, le
+ * bloc de travail, sa compréhension, sa réponse, le lien « Voir le prompt
+ * envoyé » — occupe 95 % de la colonne, collé à gauche : le texte long a besoin
+ * de place, surtout sur téléphone. Deux valeurs VOLONTAIREMENT distinctes ; le
+ * contrôle `verif-comprehension-en-points.mjs` mesure les deux.
  */
 const LARGEUR_DU_FIL = 'max-w-[85%]';
+const LARGEUR_DE_L_AGENT = 'max-w-[95%]';
 
 export interface OuvertureDemandee {
   /** L'ANCRE du passage à ouvrir — le DERNIER de son étape quand la barre l'appelle. */
@@ -550,11 +551,26 @@ export function FluxEnPoints({
    */
   const aViser = React.useMemo(() => blocDeFinAViser(passages), [passages]);
   const blocsVises = React.useRef<Set<string>>(new Set());
+  /*
+   * …MAIS PAS À L'OUVERTURE DE LA TÂCHE (demande du 14/10/2026) : en entrant
+   * dans une tâche, le fil se pose TOUT EN BAS, et l'en-tête se replie comme
+   * après un défilement (`repliALOuverture`). Le bloc déjà rendu au premier
+   * chargement du journal est donc compté comme vu, sans défiler ; seuls ceux
+   * qui arrivent ensuite, en direct, tirent le fil jusqu'à leur début.
+   */
+  const journalVuALOuverture = React.useRef(false);
   React.useEffect(() => {
     blocsVises.current = new Set();
+    journalVuALOuverture.current = false;
   }, [carte.id]);
   React.useEffect(() => {
-    if (!journalCharge || !aViser || blocsVises.current.has(aViser.cle)) return;
+    if (!journalCharge) return;
+    if (!journalVuALOuverture.current) {
+      journalVuALOuverture.current = true;
+      if (aViser) blocsVises.current.add(aViser.cle);
+      return;
+    }
+    if (!aViser || blocsVises.current.has(aViser.cle)) return;
     blocsVises.current.add(aViser.cle);
     if (onBlocRendu && !onBlocRendu()) return;
     const viser = () => {
@@ -608,31 +624,27 @@ export function FluxEnPoints({
             l'air. Plus de ligne verticale (`mesures.ligne` vaut `hidden`). */}
         <ol ref={racine} className="relative flex flex-col gap-6" data-flux-liste={flux.length}>
           <span className={cn('absolute bottom-6 top-6 w-px bg-faint/40', mesures.ligne)} aria-hidden />
-          {flux.map((element) =>
-            element.sorte === 'point' ? (
-              <PointDuFlux
-                key={element.cle}
-                point={element.point}
-                versionDuPlan={versionDuPassageDePlan(element.point, passages, versionsConnues)}
-                passages={passages}
-                carte={carte}
-                projectId={projectId}
-                configuration={configuration}
-                attente={element.point.ancre === ancreDeLAttente ? attente : null}
-                toursDuPrompt={toursDuPrompt.get(element.point.ancre)}
-                lancement={lancement}
-                ouvert={estOuvert(element.point)}
-                onBasculer={() => basculer(element.point)}
-                technique={!!techniques[element.point.etape]}
-                onBasculerTechnique={() => basculerTechnique(element.point.etape)}
-                onToggleEvolution={onToggleEvolution}
-                onToggleAll={onToggleAll}
-                onEcrireDansLeChamp={onEcrireDansLeChamp}
-              />
-            ) : (
-              <PointDeQuestion key={element.cle} etape={element.etape} entree={element.entree} />
-            ),
-          )}
+          {flux.map((element) => (
+            <PointDuFlux
+              key={element.cle}
+              point={element.point}
+              versionDuPlan={versionDuPassageDePlan(element.point, passages, versionsConnues)}
+              passages={passages}
+              carte={carte}
+              projectId={projectId}
+              configuration={configuration}
+              attente={element.point.ancre === ancreDeLAttente ? attente : null}
+              toursDuPrompt={toursDuPrompt.get(element.point.ancre)}
+              lancement={lancement}
+              ouvert={estOuvert(element.point)}
+              onBasculer={() => basculer(element.point)}
+              technique={!!techniques[element.point.etape]}
+              onBasculerTechnique={() => basculerTechnique(element.point.etape)}
+              onToggleEvolution={onToggleEvolution}
+              onToggleAll={onToggleAll}
+              onEcrireDansLeChamp={onEcrireDansLeChamp}
+            />
+          ))}
           {/* La carte de nuit n'a rien à déployer : elle s'arrête à ses propositions. */}
           {deploiement && deploiement.etat !== 'aucun' && !carte.suiviDesFilles?.length && !estCarteDuRendezVousDeNuit(carte) ? (
             <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} />
@@ -969,14 +981,14 @@ function PointDuFlux({
           passage « Demande » n'a de carte que s'il a laissé une trace : la
           synthèse ne paraissait donc plus nulle part. */}
       {sansIntitule && point.resume?.trim() && !aDansLaCarte ? (
-        <p className={cn('whitespace-pre-line text-[13.5px] leading-relaxed text-muted', LARGEUR_DU_FIL)} data-point-resume>
+        <p className={cn('whitespace-pre-line text-[13.5px] leading-relaxed text-muted', LARGEUR_DE_L_AGENT)} data-point-resume>
           {point.resume.trim()}
         </p>
       ) : null}
 
       {/* 3. CE QUI EST TOMBÉ SE VOIT TOUJOURS, hors de la carte. */}
       {point.erreurs.length ? (
-        <ol className={cn('flex flex-col gap-3', LARGEUR_DU_FIL)}>
+        <ol className={cn('flex flex-col gap-3', LARGEUR_DE_L_AGENT)}>
           {point.erreurs.map((erreur) => (
             <ErreurDansLePoint key={erreur.cle} erreur={erreur} carte={carte} />
           ))}
@@ -985,11 +997,11 @@ function PointDuFlux({
 
       {/* LE TEXTE ENVOYÉ AU MOTEUR par un tour lancé par un bouton : il n'a pas
           de bulle de demande, son lien se pose donc ici, avant le détail. */}
-      {toursDuPrompt?.length ? <LiensDesPromptsDuPoint cardId={carte.id} tours={toursDuPrompt} className={cn('w-full', LARGEUR_DU_FIL)} /> : null}
+      {toursDuPrompt?.length ? <LiensDesPromptsDuPoint cardId={carte.id} tours={toursDuPrompt} className={cn('w-full', LARGEUR_DE_L_AGENT)} /> : null}
 
       {/* 4. LA CARTE DU PASSAGE : une ligne, qu'on ouvre pour le détail. */}
       {aDansLaCarte || attente || point.mention || (point.etape === 'preparation' && point.etat === 'encours') ? (
-        <div className={cn('relative rounded-2xl bg-surface', LARGEUR_DU_FIL)} data-carte-du-passage={point.etape}>
+        <div className={cn('relative rounded-2xl bg-surface', LARGEUR_DE_L_AGENT)} data-carte-du-passage={point.etape}>
           <button
             type="button"
             onClick={onBasculer}
@@ -1363,7 +1375,7 @@ function MomentDePlan({
   if (!plans.length || versionDuPlan === null) return null;
   return (
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="plan-rendu">
-      <div data-bulle="agent" className={LARGEUR_DU_FIL}>
+      <div data-bulle="agent" className={LARGEUR_DE_L_AGENT}>
         <BlocDuPlan
           plans={plans}
           version={versionDuPlan === 'courante' ? undefined : versionDuPlan}
@@ -1557,7 +1569,7 @@ function Moment({
             </span>
           </div>
           {/* CE QUE L'AGENT A VRAIMENT REÇU, à un clic sous votre message. */}
-          <LienPromptDeLaDemande entree={entree} className={cn('w-full self-start', LARGEUR_DU_FIL)} />
+          <LienPromptDeLaDemande entree={entree} className={cn('w-full self-start', LARGEUR_DE_L_AGENT)} />
         </div>
       );
     case 'comprehension':
@@ -1643,7 +1655,7 @@ function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; nume
       data-comprehension-numero={numero}
       data-bloc-comprehension={entree.id}
     >
-      <div data-bulle="agent" className={LARGEUR_DU_FIL}>
+      <div data-bulle="agent" className={LARGEUR_DE_L_AGENT}>
         <div
           className="comprehension-unie comprehension-detachee space-y-3"
           data-comprehension-contenu
@@ -1812,7 +1824,7 @@ function MomentDeReponse({ entree }: { entree: EntreeJournal }) {
        sombre — seul ce que VOUS écrivez porte une bulle. `scroll-mt-12` : visée
        par son début, elle s'arrête sous le fondu du haut du fil et se lit nette. */
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="reponse" data-bloc-reponse={entree.id}>
-      <div data-bulle="agent" className={LARGEUR_DU_FIL}>
+      <div data-bulle="agent" className={LARGEUR_DE_L_AGENT}>
         <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text" />
       </div>
       <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
@@ -1942,41 +1954,6 @@ function ErreurDansLePoint({ erreur, carte }: { erreur: ErreurDuPoint; carte: Ca
       ) : null}
     </div>
     </SousPointDuFlux>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* La question ouverte : un point jaune                                  */
-/* ------------------------------------------------------------------ */
-
-/**
- * UNE QUESTION OUVERTE ARRÊTE L'AGENT : elle a son propre rond jaune, juste
- * après le point qui l'a posée. On y répond dans le panneau de décision, collé
- * au-dessus du champ ; le bouton y mène.
- */
-function PointDeQuestion({ etape, entree }: { etape: EtapeDuParcours; entree: EntreeJournal }) {
-  const vue = React.useMemo(() => vueDeLEntree(entree), [entree]);
-  const question = vue.sorte === 'question' ? vue.question : resumeDeLEntree(entree) ?? t('Question posée');
-  const description = vue.sorte === 'question' ? vue.description : undefined;
-  return (
-    <li className="relative flex flex-col gap-3" data-point-question={entree.id} data-point-question-etape={etape}>
-      <MarqueDEtape icone={MessageSquare} titre={t('L’agent a une question')} etat="question" repere="question" />
-      <div className="rounded-2xl bg-surface px-4 py-3.5">
-        <p className="text-[14.5px] font-medium leading-relaxed text-text">{question}</p>
-        {description ? <p className="mt-1 text-[14.5px] leading-relaxed text-muted">{description}</p> : null}
-        <div className="mt-3 flex justify-end">
-          <Button
-            variant="default"
-            size="sm"
-            data-point-question-repondre
-            onClick={() => document.querySelector('[data-panneau-decision]')?.scrollIntoView({ behavior: 'smooth', block: 'end' })}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            {t('Répondre')}
-          </Button>
-        </div>
-      </div>
-    </li>
   );
 }
 

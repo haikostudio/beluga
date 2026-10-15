@@ -18,10 +18,17 @@ import {
   Hash,
   type LucideIcon,
 } from 'lucide-react';
-import { MOTIF_MARKDOWN_EN_LIGNE, ligneDeSuggestion, paragraphBreakAfter, titreSansEmoji } from '@beluga/shared';
+import {
+  MOTIF_MARKDOWN_EN_LIGNE,
+  REPERE_SERVICES_CREATION,
+  ideeDejaEnvoyee,
+  ligneDeSuggestion,
+  paragraphBreakAfter,
+  titreSansEmoji,
+} from '@beluga/shared';
 import { cn } from './utils';
 import { t } from '@/lib/langue';
-import { useLignesDansLeChamp } from '@/lib/texte-du-champ';
+import { ContexteTextesEnvoyes, useIdeeEnvoyee, useLignesDansLeChamp } from '@/lib/texte-du-champ';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
@@ -167,21 +174,48 @@ function ligneDUneIdee(idee: string): string {
  * la ligne à la main la décoche ; la retrouver dans un brouillon rechargé la
  * coche. Un clic sur toute la ligne bascule.
  *
+ * UNE IDÉE ENVOYÉE RESTE COCHÉE. L'envoi vide la barre d'écriture : sans autre
+ * source, la case se décochait au moment même où l'idée partait, et rien ne
+ * disait plus qu'elle avait été retenue. La case lit donc AUSSI les messages
+ * réellement partis (`useIdeeEnvoyee`) : une idée dont la ligne figure dans l'un
+ * d'eux est cochée, et ne se manipule plus — elle est déjà envoyée.
+ *
+ * `figee` : la liste d'un plan dépassé. Rien n'y est cliquable ; on n'y lit que
+ * ce qui est parti.
+ *
  * Un vrai `button` au rôle de case à cocher : Tab l'atteint, Espace et Entrée
  * le basculent, et un lecteur d'écran annonce son état.
  */
-function IdeeACocher({ idee, cle, onBasculer }: { idee: string; cle: string; onBasculer: (texte: string) => void }) {
-  const cochee = useLignesDansLeChamp([ligneDUneIdee(idee)]);
+function IdeeACocher({
+  idee,
+  cle,
+  onBasculer,
+  figee,
+}: {
+  idee: string;
+  cle: string;
+  onBasculer?: (texte: string) => void;
+  figee?: boolean;
+}) {
+  const ligne = ligneDUneIdee(idee);
+  const dansLeChamp = useLignesDansLeChamp([ligne]);
+  const envoyee = useIdeeEnvoyee(ligne);
+  const cochee = envoyee || (!figee && dansLeChamp);
+  const inerte = envoyee || !!figee || !onBasculer;
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={cochee}
-      data-suggestion-cliquable
+      disabled={inerte}
+      data-suggestion-cliquable={inerte ? undefined : ''}
       data-idee-cochee={cochee ? 'oui' : 'non'}
-      onClick={() => onBasculer(texteEnLigne(idee))}
+      data-idee-envoyee={envoyee ? 'oui' : 'non'}
+      title={envoyee ? t('Idée déjà envoyée') : undefined}
+      onClick={() => onBasculer?.(texteEnLigne(idee))}
       className={cn(
-        'group flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
+        'group flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-faint',
+        inerte ? 'cursor-default' : 'hover:bg-raised',
         cochee ? 'text-text' : 'text-muted',
       )}
     >
@@ -192,7 +226,9 @@ function IdeeACocher({ idee, cle, onBasculer }: { idee: string; cle: string; onB
         aria-hidden
         className={cn(
           'mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] transition-colors',
-          cochee ? 'bg-accent text-accent-fg' : 'ring-[1.5px] ring-inset ring-muted group-hover:ring-text',
+          cochee
+            ? 'bg-accent text-accent-fg'
+            : cn('ring-[1.5px] ring-inset ring-muted', !inerte && 'group-hover:ring-text'),
         )}
       >
         {cochee ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
@@ -202,13 +238,20 @@ function IdeeACocher({ idee, cle, onBasculer }: { idee: string; cle: string; onB
   );
 }
 
-/** « Tout ajouter » tant qu'une idée manque dans le champ, « Tout retirer » quand elles y sont toutes. */
+/**
+ * « Tout ajouter » tant qu'une idée manque dans le champ, « Tout retirer » quand
+ * elles y sont toutes. Une idée déjà envoyée n'est ni à ajouter ni à retirer :
+ * elle sort du compte, et le bouton disparaît quand il n'en reste aucune.
+ */
 function BoutonToutCocher({ idees, onBasculer }: { idees: string[]; onBasculer: (textes: string[]) => void }) {
-  const toutes = useLignesDansLeChamp(idees.map(ligneDUneIdee));
+  const envoyes = React.useContext(ContexteTextesEnvoyes);
+  const restantes = idees.filter((idee) => !ideeDejaEnvoyee(envoyes, ligneDUneIdee(idee)));
+  const toutes = useLignesDansLeChamp(restantes.map(ligneDUneIdee));
+  if (!restantes.length) return null;
   return (
     <button
       type="button"
-      onClick={() => onBasculer(idees.map(texteEnLigne))}
+      onClick={() => onBasculer(restantes.map(texteEnLigne))}
       className="ml-auto rounded-md bg-raised px-2 py-0.5 text-[12px] font-normal text-muted transition-colors hover:text-text"
     >
       {toutes ? t('Tout retirer') : t('Tout ajouter')}
@@ -226,6 +269,12 @@ export interface MarkdownProps {
    */
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
+  /**
+   * LES IDÉES D'UN TEXTE DÉPASSÉ (un plan remplacé par une version suivante) :
+   * rien n'y est cliquable, mais celles qui sont déjà parties s'y lisent
+   * COCHÉES. Sans idée envoyée, la liste reste une liste ordinaire.
+   */
+  ideesFigees?: boolean;
   /**
    * UNE SECONDE SECTION CLIQUABLE, en plus des « Évolutions possibles ». Le
    * cadre d'un plan s'en sert pour ses « Améliorations apportées », devenues
@@ -258,13 +307,18 @@ export function Markdown({
   content,
   onToggleEvolution,
   onToggleAll,
+  ideesFigees,
   autreTitreCliquable,
   listesCliquables,
   streaming,
   enTexte,
   className,
 }: MarkdownProps) {
-  const blocks = React.useMemo(() => parse(content), [content]);
+  /* Les messages déjà partis : une idée dont la ligne y figure se lit cochée. */
+  const envoyes = React.useContext(ContexteTextesEnvoyes);
+  /* LE REPÈRE DE L'ENCADRÉ DES SERVICES DE CRÉATION (agent du Studio) ne se lit
+     pas : l'écran pose l'encadré au bout du fil, le texte ne garde que la phrase. */
+  const blocks = React.useMemo(() => parse(content.replaceAll(REPERE_SERVICES_CREATION, '')), [content]);
 
   /** Les listes de CETTE section se cochent-elles ? */
   const sectionCliquable = (titre: string) =>
@@ -290,7 +344,11 @@ export function Markdown({
   const renderBlock = (block: Block, index: number, dansEvolutions: boolean): React.ReactNode => {
     switch (block.kind) {
       case 'list':
-        if (dansEvolutions && onToggleEvolution) {
+        const aLireSeulement =
+          !onToggleEvolution &&
+          !!ideesFigees &&
+          block.items.some((item) => ideeDejaEnvoyee(envoyes, ligneDUneIdee(item)));
+        if (dansEvolutions && (onToggleEvolution || aLireSeulement)) {
           /* DES LIGNES À COCHER, PAS UNE LISTE À TIRETS : ni `ul` ni `li`, donc
              ni le tiret ni la boîte flex de `.prose-hd li`. Le retrait négatif
              cale la CASE sur le bord du texte voisin ; seul le fond du survol
@@ -298,7 +356,13 @@ export function Markdown({
           return (
             <div key={index} role="group" data-idees-a-cocher className="-mx-2 mb-4 flex flex-col gap-0.5">
               {block.items.map((item, itemIndex) => (
-                <IdeeACocher key={itemIndex} idee={item} cle={`${index}-${itemIndex}`} onBasculer={onToggleEvolution} />
+                <IdeeACocher
+                  key={itemIndex}
+                  idee={item}
+                  cle={`${index}-${itemIndex}`}
+                  onBasculer={onToggleEvolution}
+                  figee={!onToggleEvolution}
+                />
               ))}
             </div>
           );

@@ -54,7 +54,7 @@ export function TiroirProcedureProduction({
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
   return (
-    <Drawer adresse="procedure-production" open={open} onClose={onClose} plein={deroule || estTelephone()} hauteurFixe>
+    <Drawer adresse="procedure-production" open={open} onClose={onClose} plein={deroule || estTelephone()} hauteurFixe feuille>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-procedure-production={projectId}>
         {/* LE TITRE EST LE DERNIER CRAN DU FIL D'ARIANE (il y monte de lui-même),
             et SES GESTES MONTENT À DROITE DE LA BARRE D'EN-TÊTE (demande du

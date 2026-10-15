@@ -184,6 +184,12 @@ export interface AppState {
    */
   pret: boolean;
   /**
+   * LE STUDIO EST-IL OUVERT À CE COMPTE ? Dit par le démon dans `ready`
+   * (`shared/src/studio-reserve.ts`) : seul le super administrateur le voit.
+   * Faux tant que rien n'est arrivé, et sur toute autre installation.
+   */
+  studioOuvert: boolean;
+  /**
    * L'écran est dessiné d'après la COPIE du dernier état vu (`dernier-etat-local.ts`),
    * pas d'après le serveur : on regarde, on n'agit pas — les gestes restent gelés
    * jusqu'au vrai premier état.
@@ -433,6 +439,7 @@ const initialState: AppState = {
   connecting: true,
   canal: 'reconnexion',
   pret: false,
+  studioOuvert: false,
   copieLocale: false,
   cartesChargees: {},
   cartesTotaux: {},
@@ -1501,6 +1508,7 @@ class Client {
         this.set({
           moteursAjoutes: event.moteursAjoutes ?? [],
           pret: true,
+          studioOuvert: event.studioOuvert === true,
           copieLocale: false,
           version: event.version,
           settings: event.settings,
@@ -3129,9 +3137,9 @@ if (import.meta.env.MODE !== 'production') {
      * plutôt que de laisser deviner par un délai.
      */
     pret: () => client.lireEtat().pret,
-    /** Le projet ouvert, pour désigner celui qu'on veut habiller. */
+    /** Les projets connus, pour désigner celui qu'on veut ouvrir. */
     projets: () =>
-      client.lireEtat().projects.map((projet) => ({ id: projet.id, name: projet.name, theme: projet.theme })),
+      client.lireEtat().projects.map((projet) => ({ id: projet.id, name: projet.name })),
     ouvrirProjet: (projectId: string) => client.setActiveProject(projectId),
     /*
      * UN RÉGLAGE POSÉ COMME LE SERVEUR LE POSE, sans passer par le réseau : le
@@ -3193,6 +3201,7 @@ if (import.meta.env.MODE !== 'production') {
         type: 'ready',
         protocol: 1,
         version: etat.version,
+        studioOuvert: etat.studioOuvert,
         settings: etat.settings,
         prefs: options?.sansReglages ? {} : etat.prefs,
         projects: options?.sansProjets ? [] : etat.projects,

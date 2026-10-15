@@ -5,15 +5,18 @@ import {
   ArchiveRestore,
   Asterisk,
   Check,
+  ChevronRight,
   Copy,
   Database,
   Eye,
   EyeOff,
+  Folder,
   ImagePlus,
   Images,
   KeyRound,
   Loader2,
   Lock,
+  Pencil,
   Plus,
   Search,
   Terminal,
@@ -25,9 +28,11 @@ import {
   AccesCoffre,
   Attachment,
   ChampAcces,
+  DossierCoffre,
   IMAGES_ACCES_MAX,
   LIBELLE_TYPE_ACCES,
   NOM_ACCES_MAX,
+  NOM_DOSSIER_MAX,
   TYPES_ACCES,
   TypeAcces,
   apercuAcces,
@@ -36,6 +41,7 @@ import {
   filtrerAcces,
   libelleDansUnMenu,
   projetsEnArbre,
+  regrouperParDossier,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -69,6 +75,7 @@ import { ImageDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { formatRegional, t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
 
@@ -105,6 +112,9 @@ interface ReponseDuCoffre {
   liste?: AccesCoffre[];
   archives?: AccesCoffre[];
   pieces?: Attachment[];
+  /** Les dossiers actifs, puis les archivés (avec leurs fiches). */
+  dossiers?: DossierCoffre[];
+  dossiersArchives?: DossierCoffre[];
 }
 
 /** La date d'effacement d'une archive, dans la langue en vigueur. */
@@ -158,6 +168,13 @@ export function CoffreFort({
   const state = useApp();
   const [liste, setListe] = React.useState<AccesCoffre[]>([]);
   const [archives, setArchives] = React.useState<AccesCoffre[]>([]);
+  /* LES DOSSIERS : un seul niveau, repliés au départ. Ils ne sont jamais des
+     fiches — une autre liste, un autre état. */
+  const [dossiers, setDossiers] = React.useState<DossierCoffre[]>([]);
+  const [dossiersArchives, setDossiersArchives] = React.useState<DossierCoffre[]>([]);
+  const [ouverts, setOuverts] = React.useState<ReadonlySet<string>>(new Set());
+  /** Le dossier en cours d'édition : `null` = aucun, `{ dossier: null }` = un dossier neuf. */
+  const [edition, setEdition] = React.useState<{ dossier: DossierCoffre | null } | null>(null);
   /* Le tiroir des archives : une COUCHE de plus, pas une autre liste à la
      place de celle-ci. Sa recherche est la sienne — partager celle du fond
      ferait disparaître des lignes derrière, sans raison visible. */
@@ -199,6 +216,8 @@ export function CoffreFort({
         setListe(data.acces ?? []);
         setArchives(data.archives ?? []);
         setPieces(data.pieces ?? []);
+        setDossiers(data.dossiers ?? []);
+        setDossiersArchives(data.dossiersArchives ?? []);
       })
       .catch((err: any) => client.pushToast('error', err?.message ?? t('Coffre-fort illisible')))
       .finally(() => {
@@ -224,6 +243,8 @@ export function CoffreFort({
     ouvrir: (id) => {
       const active = liste.find((acces) => acces.id === id);
       if (active) {
+        // La fiche visée se montre : son dossier s'ouvre.
+        if (active.dossierId) setOuverts((avant) => new Set(avant).add(active.dossierId as string));
         setFiche(active);
         return true;
       }
@@ -235,15 +256,42 @@ export function CoffreFort({
     },
   });
 
-  const visibles = filtrerAcces(liste, recherche, nomProjet).filter((acces) => !typeRetenu || acces.type === typeRetenu);
+  const nomDossier = React.useCallback(
+    (id: string | null) => dossiers.find((d) => d.id === id)?.nom,
+    [dossiers],
+  );
+  const visibles = filtrerAcces(liste, recherche, nomProjet, nomDossier).filter(
+    (acces) => !typeRetenu || acces.type === typeRetenu,
+  );
+  /* Une recherche ou un filtre de type OUVRE les dossiers où quelque chose est
+     trouvé, et cache les dossiers vides : on voit la fiche avec son dossier. */
+  const filtre = Boolean(recherche.trim() || typeRetenu);
+  const groupes = regrouperParDossier(visibles, dossiers, { sansVides: filtre });
+  const bascule = (id: string) =>
+    setOuverts((avant) => {
+      const suite = new Set(avant);
+      if (!suite.delete(id)) suite.add(id);
+      return suite;
+    });
   /* Les types qui ont au moins un accès, et celui qui est retenu : un type
      vide n'est pas une rubrique à proposer. */
   const typesPresents = TYPES_ACCES.filter((type) => type === typeRetenu || liste.some((acces) => acces.type === type));
   const creerUnAcces = (type: TypeAcces) => setFiche(ficheVierge(type, state.activeProjectId ?? null));
-  const recevoir = (nouvelle: AccesCoffre[], nouvellesArchives?: AccesCoffre[], nouvellesPieces?: Attachment[]) => {
-    setListe(nouvelle);
-    if (nouvellesArchives) setArchives(nouvellesArchives);
-    if (nouvellesPieces) setPieces(nouvellesPieces);
+  const recevoir = (data: ReponseDuCoffre) => {
+    setListe(data.liste ?? data.acces ?? []);
+    if (data.archives) setArchives(data.archives);
+    if (data.pieces) setPieces(data.pieces);
+    if (data.dossiers) setDossiers(data.dossiers);
+    if (data.dossiersArchives) setDossiersArchives(data.dossiersArchives);
+  };
+  const restaurerUnDossier = async (dossier: DossierCoffre) => {
+    try {
+      const data = await client.call<ReponseDuCoffre>({ type: 'coffre.dossier.restaurer', id: dossier.id });
+      recevoir(data);
+      client.pushToast('success', t('Dossier restauré.'));
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Dossier non restauré'));
+    }
   };
 
   return (
@@ -256,6 +304,14 @@ export function CoffreFort({
               « Nouvel accès » le bouton du bas de l'écran — il y ouvre la même
               liste des types d'accès. */}
           <OptionsDePage>
+            <OptionDePage
+              variante="ghost"
+              icone={<Folder className="h-3 w-3" />}
+              onClick={() => setEdition({ dossier: null })}
+              data-coffre-nouveau-dossier
+            >
+              {t('Nouveau dossier')}
+            </OptionDePage>
             <OptionDePage
               variante="ghost"
               icone={<Archive className="h-3 w-3" />}
@@ -313,6 +369,12 @@ export function CoffreFort({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
+            <GesteDeCreationDeColonne
+              libelle={t('Nouveau dossier')}
+              onClick={() => setEdition({ dossier: null })}
+              data-coffre-nouveau-dossier
+              aria-label="Nouveau dossier"
+            />
             <RubriqueDeColonne
               icone={<KeyRound />}
               libelle={t('Tous les accès')}
@@ -321,6 +383,15 @@ export function CoffreFort({
               onClick={() => setTypeRetenu(null)}
               data-coffre-rubrique="tous"
             />
+            {dossiers.length ? (
+              <RubriqueDeColonne
+                icone={<Folder />}
+                libelle={t('Dossiers')}
+                compte={dossiers.length}
+                onClick={() => setOuverts((avant) => (avant.size >= dossiers.length ? new Set() : new Set(dossiers.map((d) => d.id))))}
+                data-coffre-rubrique="dossiers"
+              />
+            ) : null}
             {typesPresents.length ? <p className={CLASSE_SECTION_DE_SERVICE}>{t('Par type')}</p> : null}
             {typesPresents.map((type) => (
               <RubriqueDeColonne
@@ -351,7 +422,7 @@ export function CoffreFort({
             <Input
               value={recherche}
               onChange={(e) => setRecherche(e.target.value)}
-              placeholder={t('Chercher par nom, projet ou type…')}
+              placeholder={t('Chercher par nom, dossier, projet ou type…')}
               className="h-10 rounded-xl pl-10 text-[14px]"
               autoComplete="off"
               data-coffre-recherche
@@ -364,20 +435,61 @@ export function CoffreFort({
             /* Les accès à venir en silhouette, jamais une phrase d'attente :
                l'état vide ne se dit qu'une fois la liste réellement reçue. */
             <SilhouetteCoffre />
-          ) : !visibles.length ? (
-            <p className="px-1 py-3 text-[12.5px] text-faint">
-              {recherche || typeRetenu ? t('Aucun accès ne correspond.') : t('Aucun accès enregistré pour l’instant.')}
-            </p>
+          ) : !groupes.length ? (
+            recherche || typeRetenu ? (
+              <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun accès ne correspond.')}</p>
+            ) : (
+              <PasAPas
+                repere="coffre"
+                titre={t('Aucun accès enregistré pour l’instant.')}
+                explication={t('Le coffre-fort range vos mots de passe, clés et accès aux serveurs : vos agents s’en servent sans que vous ayez à les redonner.')}
+                etapes={[
+                  t('Ajoutez un accès : un site, un serveur, une clé d’API.'),
+                  t('Donnez-lui un nom clair : le site ou le serveur qu’il ouvre.'),
+                  t('Vos agents le trouvent seuls quand une tâche en a besoin.'),
+                ]}
+              />
+            )
           ) : (
             <div className={CLASSE_GROUPE_DE_LIGNES} data-coffre-liste="actifs">
-              {visibles.map((acces) => (
-                <LigneAcces
-                  key={acces.id}
-                  acces={acces}
-                  projet={nomProjet(acces.projectId)}
-                  onOuvrir={() => setFiche(acces)}
-                />
-              ))}
+              {groupes.map((groupe, rang) =>
+                groupe.dossier ? (
+                  <LigneDeDossier
+                    key={groupe.dossier.id}
+                    dossier={groupe.dossier}
+                    nombre={groupe.acces.length}
+                    ouvert={filtre || ouverts.has(groupe.dossier.id)}
+                    projet={nomProjet(groupe.dossier.projectId)}
+                    onBascule={() => bascule(groupe.dossier!.id)}
+                    onModifier={() => setEdition({ dossier: groupe.dossier })}
+                  >
+                    {groupe.acces.map((acces) => (
+                      <LigneAcces
+                        key={acces.id}
+                        acces={acces}
+                        projet={nomProjet(acces.projectId)}
+                        onOuvrir={() => setFiche(acces)}
+                      />
+                    ))}
+                  </LigneDeDossier>
+                ) : (
+                  <React.Fragment key="racine">
+                    {rang > 0 ? (
+                      <p className="px-3.5 pb-1 pt-3 text-[12px] text-faint" data-coffre-sans-dossier>
+                        {t('Sans dossier')}
+                      </p>
+                    ) : null}
+                    {groupe.acces.map((acces) => (
+                      <LigneAcces
+                        key={acces.id}
+                        acces={acces}
+                        projet={nomProjet(acces.projectId)}
+                        onOuvrir={() => setFiche(acces)}
+                      />
+                    ))}
+                  </React.Fragment>
+                ),
+              )}
             </div>
           )}
         </ZoneDefilement>
@@ -389,12 +501,23 @@ export function CoffreFort({
         open={archivesOuvertes}
         onClose={() => setArchivesOuvertes(false)}
         archives={archives}
+        dossiersArchives={dossiersArchives}
         nomProjet={nomProjet}
         onOuvrir={setFiche}
+        onRestaurerDossier={restaurerUnDossier}
       />
 
       {/* Le détail : empilé par-dessus la liste — ou par-dessus les archives. */}
-      <FicheAcces fiche={fiche} pieces={pieces} onClose={() => setFiche(null)} onListe={recevoir} />
+      <FicheAcces
+        fiche={fiche}
+        pieces={pieces}
+        dossiers={dossiers}
+        onClose={() => setFiche(null)}
+        onListe={recevoir}
+      />
+
+      {/* Un dossier : son nom et son projet, rien d'autre. */}
+      <FicheDossier edition={edition} onClose={() => setEdition(null)} onListe={recevoir} />
     </>
   );
 }
@@ -409,14 +532,19 @@ function TiroirArchives({
   open,
   onClose,
   archives,
+  dossiersArchives,
   nomProjet,
   onOuvrir,
+  onRestaurerDossier,
 }: {
   open: boolean;
   onClose: () => void;
   archives: AccesCoffre[];
+  /** Les dossiers retirés : leurs fiches reviennent avec eux. */
+  dossiersArchives: DossierCoffre[];
   nomProjet: (projectId: string | null) => string | undefined;
   onOuvrir: (acces: AccesCoffre) => void;
+  onRestaurerDossier: (dossier: DossierCoffre) => void;
 }) {
   const [recherche, setRecherche] = React.useState('');
   /* La recherche repart à blanc à chaque ouverture : un filtre oublié d'une
@@ -425,7 +553,8 @@ function TiroirArchives({
     if (!open) setRecherche('');
   }, [open]);
 
-  const visibles = filtrerAcces(archives, recherche, nomProjet);
+  const visibles = filtrerAcces(archives, recherche, nomProjet, (id) => dossiersArchives.find((d) => d.id === id)?.nom);
+  const groupes = regrouperParDossier(visibles, dossiersArchives, { sansVides: true });
 
   return (
     <Drawer open={open} onClose={onClose} empile>
@@ -433,7 +562,9 @@ function TiroirArchives({
         <Archive className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">{t('Archives du coffre-fort')}</DialogTitle>
         {archives.length ? <Badge tone="neutral">{archives.length}</Badge> : null}
-        <BulleInfo>{t('Une fiche retirée reste ici six mois, puis elle est effacée pour de bon.')}</BulleInfo>
+        <BulleInfo>
+          {t('Une fiche ou un dossier retiré reste ici six mois, puis il est effacé pour de bon.')}
+        </BulleInfo>
       </header>
 
       <div className="shrink-0 px-3 pb-2">
@@ -442,7 +573,7 @@ function TiroirArchives({
           <Input
             value={recherche}
             onChange={(e) => setRecherche(e.target.value)}
-            placeholder={t('Chercher par nom, projet ou type…')}
+            placeholder={t('Chercher par nom, dossier, projet ou type…')}
             className="h-8 pl-7 text-[13px]"
             autoComplete="off"
             data-coffre-recherche-archives
@@ -451,24 +582,254 @@ function TiroirArchives({
       </div>
 
       <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
-        {!visibles.length ? (
+        {!groupes.length ? (
           <p className="px-1 py-3 text-[12.5px] text-faint">
             {recherche ? t('Aucun accès ne correspond.') : t('Aucune fiche archivée.')}
           </p>
         ) : (
           <div className="flex flex-col gap-1" data-coffre-liste="archives">
-            {visibles.map((acces) => (
-              <LigneAcces
-                key={acces.id}
-                acces={acces}
-                projet={nomProjet(acces.projectId)}
-                onOuvrir={() => onOuvrir(acces)}
-              />
-            ))}
+            {groupes.map((groupe) =>
+              groupe.dossier ? (
+                <LigneDeDossier
+                  key={groupe.dossier.id}
+                  dossier={groupe.dossier}
+                  nombre={groupe.acces.length}
+                  ouvert
+                  projet={nomProjet(groupe.dossier.projectId)}
+                  onRestaurer={() => onRestaurerDossier(groupe.dossier!)}
+                >
+                  {groupe.acces.map((acces) => (
+                    <LigneAcces
+                      key={acces.id}
+                      acces={acces}
+                      projet={nomProjet(acces.projectId)}
+                      onOuvrir={() => onOuvrir(acces)}
+                    />
+                  ))}
+                </LigneDeDossier>
+              ) : (
+                groupe.acces.map((acces) => (
+                  <LigneAcces
+                    key={acces.id}
+                    acces={acces}
+                    projet={nomProjet(acces.projectId)}
+                    onOuvrir={() => onOuvrir(acces)}
+                  />
+                ))
+              ),
+            )}
           </div>
         )}
       </ZoneDefilement>
     </Drawer>
+  );
+}
+
+/**
+ * UNE LIGNE DE DOSSIER, repliable : le chevron, le nom, le nombre de fiches et
+ * le projet. Ses fiches se posent dessous, en retrait. Dans la liste des accès,
+ * le crayon l'édite ; dans les archives, le bouton le restaure AVEC ses fiches.
+ * Le texte replié reste dans un `span` : jamais de `line-clamp` dans un `button`.
+ */
+function LigneDeDossier({
+  dossier,
+  nombre,
+  ouvert,
+  projet,
+  onBascule,
+  onModifier,
+  onRestaurer,
+  children,
+}: {
+  dossier: DossierCoffre;
+  nombre: number;
+  ouvert: boolean;
+  projet?: string;
+  onBascule?: () => void;
+  onModifier?: () => void;
+  onRestaurer?: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div data-coffre-dossier={dossier.id} data-ouvert={ouvert ? 'oui' : 'non'}>
+      <div className="flex items-center gap-1 rounded-xl transition-colors hover:bg-raised">
+        <button
+          type="button"
+          onClick={onBascule}
+          aria-expanded={ouvert}
+          disabled={!onBascule}
+          data-coffre-dossier-bascule
+          className="flex min-w-0 flex-1 items-center gap-2 px-3.5 py-3 text-left"
+        >
+          <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} />
+          <Folder className="h-4 w-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1 truncate text-[14.5px] text-text" data-coffre-dossier-nom>
+            {dossier.nom}
+          </span>
+          <span className="max-w-[35%] shrink-0 truncate text-[12px] text-faint">{projet ?? t('Général')}</span>
+          <span className="shrink-0 text-[12px] tabular-nums text-faint" data-coffre-dossier-nombre>
+            {nombre}
+          </span>
+        </button>
+        {onModifier ? (
+          <button
+            type="button"
+            onClick={onModifier}
+            title={t('Modifier le dossier')}
+            aria-label="Modifier le dossier"
+            data-coffre-dossier-modifier
+            className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        {onRestaurer ? (
+          <button
+            type="button"
+            onClick={onRestaurer}
+            title={t('Restaurer le dossier')}
+            aria-label="Restaurer le dossier"
+            data-coffre-dossier-restaurer
+            className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+          >
+            <ArchiveRestore className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+      {ouvert && nombre > 0 ? <div className="flex flex-col gap-0.5 pl-6">{children}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * LE TIROIR D'UN DOSSIER : un nom et un projet, rien d'autre — il ne porte
+ * jamais un identifiant. Le retirer archive ses fiches avec lui, et le dit
+ * avant de le faire.
+ */
+function FicheDossier({
+  edition,
+  onClose,
+  onListe,
+}: {
+  edition: { dossier: DossierCoffre | null } | null;
+  onClose: () => void;
+  onListe: (data: ReponseDuCoffre) => void;
+}) {
+  const state = useApp();
+  const dossier = edition?.dossier ?? null;
+  const [nom, setNom] = React.useState('');
+  const [projectId, setProjectId] = React.useState<string | null>(null);
+  const [enCours, setEnCours] = React.useState(false);
+  const [aSupprimer, setASupprimer] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!edition) return;
+    setNom(dossier?.nom ?? '');
+    setProjectId(dossier ? dossier.projectId : (state.activeProjectId ?? null));
+    // Le tiroir se remplit à l'ouverture, et seulement là.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edition]);
+
+  const enregistrer = async () => {
+    setEnCours(true);
+    try {
+      const data = await client.call<ReponseDuCoffre>({
+        type: 'coffre.dossier.enregistrer',
+        dossier: { id: dossier?.id ?? '', nom, projectId },
+      });
+      onListe(data);
+      client.pushToast('success', t('Dossier enregistré.'));
+      onClose();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Dossier non enregistré'));
+    } finally {
+      setEnCours(false);
+    }
+  };
+
+  const supprimer = async () => {
+    if (!dossier) return;
+    try {
+      const data = await client.call<ReponseDuCoffre>({ type: 'coffre.dossier.supprimer', id: dossier.id });
+      onListe(data);
+      client.pushToast('success', t('Dossier archivé.'));
+      onClose();
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('Dossier non retiré'));
+    }
+  };
+
+  return (
+    <>
+      <Drawer open={edition !== null} onClose={onClose} empile>
+        <DialogTitle className="min-w-0 truncate px-3 pb-2">{dossier ? dossier.nom : t('Nouveau dossier')}</DialogTitle>
+        <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3 pt-4">
+          <FormulaireEnColonnes data-coffre-fiche-dossier>
+            <Champ libelle={t('Nom')}>
+              <Input
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+                maxLength={NOM_DOSSIER_MAX}
+                placeholder={t('Ex. Serveur OVH')}
+                className="h-8 text-[13px]"
+                autoComplete="off"
+                data-coffre-dossier-champ-nom
+              />
+            </Champ>
+            <Champ libelle={t('Projet')}>
+              <ListeDeroulante
+                valeur={projectId ?? ''}
+                titre={t('Projet')}
+                repere="coffre-dossier-projet"
+                data-coffre-dossier-projet
+                onChoisir={(valeur) => setProjectId(valeur || null)}
+                options={[
+                  { valeur: '', libelle: t('Général') },
+                  ...projetsEnArbre(state.projects).map((ligne) => ({
+                    valeur: ligne.projet.id,
+                    libelle: libelleDansUnMenu(ligne.projet.name, ligne),
+                    attributs: { 'data-membre-de': ligne.parentId },
+                  })),
+                ]}
+              />
+            </Champ>
+            <p className="text-[12px] leading-relaxed text-faint">
+              {t('Les fiches d’un dossier suivent son projet. Un dossier ne contient que des fiches.')}
+            </p>
+          </FormulaireEnColonnes>
+        </ZoneDefilement>
+        <DialogFooter className="justify-start px-3 pt-2">
+          <Button
+            variant="subtle"
+            size="sm"
+            onClick={enregistrer}
+            disabled={enCours || !nom.trim()}
+            data-coffre-dossier-enregistrer
+          >
+            {enCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            {t('Enregistrer')}
+          </Button>
+          {dossier ? (
+            <Button variant="ghost" size="sm" onClick={() => setASupprimer(true)} data-coffre-dossier-supprimer>
+              <Trash2 className="h-3 w-3" />
+              {t('Retirer')}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </Drawer>
+
+      <ConfirmDialog
+        open={aSupprimer}
+        onClose={() => setASupprimer(false)}
+        title={t('Retirer ce dossier ?')}
+        description={t(
+          'Le dossier et toutes ses fiches partent aux archives ensemble : ils se restaurent pendant six mois, puis ils sont effacés pour de bon.',
+        )}
+        confirmLabel={t('Retirer')}
+        danger
+        onConfirm={supprimer}
+      />
+    </>
   );
 }
 
@@ -528,18 +889,22 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
 function FicheAcces({
   fiche,
   pieces,
+  dossiers,
   onClose,
   onListe,
 }: {
   fiche: AccesCoffre | null;
   /** Les images déjà connues du coffre, pour les vignettes de la fiche ouverte. */
   pieces: Attachment[];
+  /** Les dossiers où l'on peut ranger la fiche. */
+  dossiers: DossierCoffre[];
   onClose: () => void;
-  onListe: (liste: AccesCoffre[], archives?: AccesCoffre[], pieces?: Attachment[]) => void;
+  onListe: (data: ReponseDuCoffre) => void;
 }) {
   const state = useApp();
   const [nom, setNom] = React.useState('');
   const [projectId, setProjectId] = React.useState<string | null>(null);
+  const [dossierId, setDossierId] = React.useState<string | null>(null);
   const [champs, setChamps] = React.useState<Record<string, string>>({});
   const [note, setNote] = React.useState('');
   const [images, setImages] = React.useState<Attachment[]>([]);
@@ -552,6 +917,7 @@ function FicheAcces({
     if (!fiche) return;
     setNom(fiche.nom);
     setProjectId(fiche.projectId);
+    setDossierId(fiche.dossierId ?? null);
     setChamps({ ...fiche.champs });
     setNote(fiche.note);
     // Une image dont le fichier a disparu n'a plus de vignette : elle sort de
@@ -571,9 +937,9 @@ function FicheAcces({
     try {
       const data = await client.call<ReponseDuCoffre>({
         type: 'coffre.enregistrer',
-        acces: { id: fiche.id, nom, type, projectId, champs, note, images: images.map((image) => image.id) },
+        acces: { id: fiche.id, nom, type, projectId, dossierId, champs, note, images: images.map((image) => image.id) },
       });
-      onListe(data.liste ?? [], data.archives, data.pieces);
+      onListe(data);
       client.pushToast('success', t('Accès enregistré.'));
       onClose();
     } catch (err: any) {
@@ -590,7 +956,7 @@ function FicheAcces({
         type: 'coffre.supprimer',
         id: fiche.id,
       });
-      onListe(data.liste ?? [], data.archives, data.pieces);
+      onListe(data);
       client.pushToast('success', t('Accès archivé.'));
       onClose();
     } catch (err: any) {
@@ -606,7 +972,7 @@ function FicheAcces({
         type: 'coffre.restaurer',
         id: fiche.id,
       });
-      onListe(data.liste ?? [], data.archives, data.pieces);
+      onListe(data);
       client.pushToast('success', t('Accès restauré.'));
       onClose();
     } catch (err: any) {
@@ -661,6 +1027,8 @@ function FicheAcces({
                 titre={t('Projet')}
                 repere="coffre-projet"
                 data-coffre-projet
+                /* Une fiche rangée dans un dossier suit le projet du dossier. */
+                desactivee={Boolean(dossierId) || archivee}
                 onChoisir={(valeur) => setProjectId(valeur || null)}
                 options={[
                   { valeur: '', libelle: t('Général') },
@@ -673,6 +1041,27 @@ function FicheAcces({
                 ]}
               />
             </Champ>
+
+            {dossiers.length || dossierId ? (
+              <Champ libelle={t('Dossier')}>
+                <ListeDeroulante
+                  valeur={dossierId ?? ''}
+                  titre={t('Dossier')}
+                  repere="coffre-dossier"
+                  data-coffre-dossier-choix
+                  desactivee={archivee}
+                  onChoisir={(valeur) => {
+                    setDossierId(valeur || null);
+                    const choisi = dossiers.find((d) => d.id === valeur);
+                    if (choisi) setProjectId(choisi.projectId);
+                  }}
+                  options={[
+                    { valeur: '', libelle: t('Aucun dossier') },
+                    ...dossiers.map((d) => ({ valeur: d.id, libelle: d.nom })),
+                  ]}
+                />
+              </Champ>
+            ) : null}
 
             {champsDuType(type).map((champ) => (
               <ChampValeur

@@ -107,12 +107,14 @@ export function AnneauContexte({ agent }: { agent: Agent | undefined }) {
           aria-label="Contexte du modèle" 
           onClick={() => setOuvert(true)}
           className={cn(
-            'flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[12.5px] tabular-nums hover:bg-raised',
+            /* Même case que les boutons-icônes du champ d'écriture : 28 px de
+               haut, 7 px autour d'un glyphe de 14 px (`CLASSE_RANGEE_DE_BOUTONS`). */
+            'flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-md px-[7px] text-[12.5px] tabular-nums hover:bg-raised',
             COULEUR_TEXTE[niveau],
           )}
         >
           <span className={COULEUR_TRAIT[niveau]}>
-            <CerclesContexte pourcentage={usage.percentage} />
+            <CerclesContexte pourcentage={usage.percentage} taille={14} />
           </span>
           <span className="hidden sm:inline">{usage.percentage} %</span>
         </button>

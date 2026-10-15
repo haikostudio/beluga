@@ -223,10 +223,18 @@
    * Chaque règle pose sa teinte dans `--fond-zone` AVANT de peindre avec : ce
    * qui vit DANS la zone peut reprendre son fond exact (`.fond-de-zone`, le
    * menu du bas du téléphone) sans le recopier.
+   *
+   * LE FONDU DES ZONES QUI DÉFILENT SUIT LA MÊME TEINTE (`--fond-zone-defilement`,
+   * lu par `ZoneDefilement`). Sans elle, il retombait sur `--bg`, le fond de la
+   * PAGE : dans la colonne de gauche, plus sombre que la page, le haut d'une
+   * liste défilée (les calques du Studio) portait une bande grise en sombre, et
+   * blanche en clair. Un conteneur plus profond (tiroir, panneau du Studio)
+   * repose la sienne et garde la main.
    */
   html.dark [data-zone='gauche'],
   html[data-theme='sombre'] [data-zone='gauche'] {
     --fond-zone: 0 0% 9.5%;
+    --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
   html.dark [data-zone='centre'],
@@ -234,16 +242,19 @@
   html.dark [data-zone='droite'],
   html[data-theme='sombre'] [data-zone='droite'] {
     --fond-zone: 0 0% 13%;
+    --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
 
   html:not(.dark) [data-zone='gauche'] {
     --fond-zone: 0 0% 97.5%;
+    --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
   html:not(.dark) [data-zone='centre'],
   html:not(.dark) [data-zone='droite'] {
     --fond-zone: 0 0% 100%;
+    --fond-zone-defilement: hsl(var(--fond-zone));
     background-color: hsl(var(--fond-zone));
   }
 
@@ -259,6 +270,10 @@
      jamais sur la page. */
   html {
     height: 100%;
+    /* Le « tirer vers le bas pour recharger » du navigateur se pose sur la
+       RACINE : sans cette ligne, un glisser qui déborde d'un cadre (l'aperçu du
+       site) pouvait recharger toute l'application. */
+    overscroll-behavior: none;
   }
 
   body {

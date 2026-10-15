@@ -103,6 +103,8 @@ export interface ContexteParcours {
   roleAgent?: string;
   /** Un tour tourne dans ce fil. */
   tourEnCours: boolean;
+  /** La carte est suspendue sur place (`carteEnPause`) : elle attend un message. */
+  enPause?: boolean;
   /**
    * L'ÉTAT SUR LEQUEL ON DÉCIDE EST-IL PÉRIMÉ ?
    *
@@ -198,9 +200,12 @@ export interface ContexteParcours {
  */
 export function tourNonAbouti(
   ctx: Pick<ContexteParcours, 'tachesNonFaites' | 'dernierTourEnEchec' | 'tourEnCours'> &
-    Partial<Pick<ContexteParcours, 'colonne' | 'roleAgent' | 'messages' | 'parcours' | 'tourEnVolDepuis'>>,
+    Partial<Pick<ContexteParcours, 'colonne' | 'roleAgent' | 'messages' | 'parcours' | 'tourEnVolDepuis' | 'enPause'>>,
 ): boolean {
   if (ctx.tourEnCours) return false;
+  /* UNE SUSPENSION À LA MAIN N'EST PAS UN TOUR MAL TERMINÉ : c'est un geste,
+     et la carte attend « Reprendre » — ni rouge, ni « des étapes n'ont pas été faites ». */
+  if (ctx.enPause) return false;
   if (ctx.colonne && !travailDExecutionLance({ ...ctx, colonne: ctx.colonne, messages: ctx.messages ?? [] })) {
     return false;
   }
@@ -427,6 +432,9 @@ function enPreparation(ctx: ContexteParcours): boolean {
 export function chapitreDuParcours(ctx: ContexteParcours): ChapitreDuParcours {
   if (ctx.colonne === 'running') {
     if (ctx.tourEnCours) return 'travail';
+    /* SUSPENDUE SUR PLACE, la carte est encore AU TRAVAIL : rien n'est rendu,
+       et le geste est « Reprendre » — jamais le « Déployer » d’une tâche finie. */
+    if (ctx.enPause) return 'travail';
     return enPreparation(ctx) ? 'preparation' : 'rapport';
   }
   /*
@@ -469,7 +477,10 @@ export const LIBELLES_GESTE: Record<Exclude<GesteDuParcours, 'aucun'>, string> =
      sur la carte, puis part (`BarreDAction`, `web/src/components/parcours-carte.tsx`). */
   'valider-et-lancer': 'Valider et lancer',
   lancer: BOUTON_LANCER_LA_TACHE,
-  arreter: 'Arrêter',
+  /* SUSPENDRE, PLUS ARRÊTER : l'agent garde son contexte, la carte reste en
+     « En cours » et repart au prochain message (`carteEnPause`). La clé
+     `arreter` reste : c'est le même bouton, au même endroit. */
+  arreter: 'Suspendre',
   terminer: 'Terminer la tâche',
   reprendre: 'Reprendre',
 };
@@ -516,7 +527,7 @@ export const RAISONS_DU_GESTE = {
    */
   comprehensionAttendue: 'Le lancement attend une vraie demande de travail, pas seulement une question.',
   planEnCours: 'Le plan est en cours de génération.',
-  rienNeTourne: 'Rien ne tourne : il n’y a rien à arrêter.',
+  rienNeTourne: 'Rien ne tourne : il n’y a rien à suspendre.',
   etatPerime: 'État inconnu : le serveur ne répond plus. Rien ne peut partir tant que le lien n’est pas rétabli.',
 } as const;
 
@@ -712,8 +723,8 @@ function gesteCalcule(ctx: ContexteParcours): EtatDuGeste {
      * LE LANCEMENT EST PARTI, LE MOTEUR N'A PAS ENCORE PARLÉ. « Terminer la
      * tâche » n'aurait aucun sens ici — il n'y a rien à terminer —, et c'est
      * pourtant ce que le chapitre « rapport » proposait. Le seul geste qui
-     * existe est d'ARRÊTER : il ramène la carte en « Planifié », exactement
-     * comme sur un tour au travail.
+     * existe est de SUSPENDRE : la carte reste en « En cours » et repart au
+     * prochain message, exactement comme sur un tour au travail.
      */
     return { geste: 'arreter', possible: true, chapitre };
   }
@@ -726,6 +737,13 @@ function gesteCalcule(ctx: ContexteParcours): EtatDuGeste {
       /* « Relancer / Ignorer / Arrêter » ou le choix d'un compte attendent :
          reprendre d'ici lancerait un second chemin à côté du premier. */
       if (decisions > 0) return eteint('reprendre', RAISONS_DU_GESTE.decisionOuverte);
+      return { geste: 'reprendre', possible: true, chapitre };
+    }
+    /* SUSPENDUE À LA MAIN : « Suspendre » devient « Reprendre », qui relance
+       le MÊME agent dans la MÊME conversation (`carteEnPause`). */
+    if (!ctx.tourEnCours && ctx.enPause) {
+      if (decisions > 0) return eteint('reprendre', RAISONS_DU_GESTE.decisionOuverte);
+      if (questions > 0) return eteint('reprendre', RAISONS_DU_GESTE.questionOuverte);
       return { geste: 'reprendre', possible: true, chapitre };
     }
     if (!ctx.tourEnCours) return eteint('arreter', RAISONS_DU_GESTE.rienNeTourne);

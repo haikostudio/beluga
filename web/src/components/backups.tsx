@@ -72,6 +72,7 @@ import {
   DialogTitle,
   TitreDePage,
   Drawer,
+  ChampMotDePasse,
   Input,
   Label,
   Switch,
@@ -89,6 +90,7 @@ import { Chat } from '@/components/chat';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { useTelephone } from '@/lib/telephone';
 import { cn } from '@/lib/utils';
 import { useElementAdresse } from '@/lib/adresse-element';
@@ -567,9 +569,16 @@ export function Backups({
                place finale — plus de phrase grise ni d'état vide prématuré. */
             <SilhouetteBackups fiches={telephone} />
           ) : !resumes.length ? (
-            <p className="px-1 py-3 text-[12.5px] text-faint">
-              {t('Aucun site à sauvegarder pour l’instant.')}
-            </p>
+            <PasAPas
+              repere="backups"
+              titre={t('Aucun site à sauvegarder pour l’instant.')}
+              explication={t('Les sauvegardes copient régulièrement la base et les fichiers de vos sites, pour pouvoir revenir en arrière.')}
+              etapes={[
+                t('Ajoutez un site : sa base de données et le dossier de ses fichiers.'),
+                t('Choisissez la fréquence des sauvegardes.'),
+                t('Faites un essai : la première copie dit si tout est bien relié.'),
+              ]}
+            />
           ) : !resumesAffiches.length ? (
             <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun site ne correspond à cette recherche.')}</p>
           ) : telephone ? (
@@ -1182,7 +1191,7 @@ function AssistantDeSite({
             </Champ>
           ) : null}
 
-          {refus ? <p className="text-[12px] text-warning">{t(refus)}</p> : null}
+          {refus ? <p className="text-[12px] text-danger">{t(refus)}</p> : null}
         </FormulaireEnColonnes>
       </ZoneDefilement>
 
@@ -1481,8 +1490,7 @@ function FicheSite({
                       />
                     </Champ>
                     <Champ libelle={t('Mot de passe')}>
-                      <Input
-                        type="password"
+                      <ChampMotDePasse
                         value={site.base.motDePasse}
                         onChange={(e) => majBase({ motDePasse: e.target.value })}
                         className="h-8 text-[13px]"
@@ -1548,8 +1556,7 @@ function FicheSite({
                       />
                     </Champ>
                     <Champ libelle={site.fichiers.moyen === 'ssh' ? t('Mot de passe (sinon la clé du serveur)') : t('Mot de passe')}>
-                      <Input
-                        type="password"
+                      <ChampMotDePasse
                         value={site.fichiers.motDePasse}
                         onChange={(e) => majFichiers({ motDePasse: e.target.value })}
                         className="h-8 text-[13px]"
@@ -1599,7 +1606,7 @@ function FicheSite({
             </Champ>
 
             {!jugement.ok ? (
-              <p className="text-[12px] leading-relaxed text-warning" data-backups-refus>
+              <p className="text-[12px] leading-relaxed text-danger" data-backups-refus>
                 {t(jugement.raison ?? '')}
               </p>
             ) : null}

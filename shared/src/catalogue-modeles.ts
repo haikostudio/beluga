@@ -15,21 +15,18 @@ import { EngineInfo, ModelInfo, RunConfig } from './models.js';
  * 2. Une liste de SECOURS se dit. Quand le catalogue n'a pas pu être lu, ce qui
  *    s'affiche n'est plus la liste du moteur : le menu doit l'annoncer au lieu
  *    de laisser croire à une liste complète.
- * 3. Les catalogues Claude et Cursor ne gardent que la version la plus RÉCENTE
- *    de chaque FAMILLE. Un vieux modèle qui traîne dans le menu se choisit par habitude —
- *    plus cher à l'usage, moins capable que la version actuelle — sans que
- *    personne ne l'ait vraiment voulu. Mais couper la liste ENTIÈRE aux trois
- *    plus récents, comme on le faisait, ne retirait pas des vieilleries : ça
- *    retirait des modèles ENTIERS. Sous Cursor, qui revend une dizaine de
- *    familles à la fois, le menu ne proposait plus que les trois variantes de
- *    GPT-5.6 — ni Composer, ni Grok, ni Opus, ni Sonnet (constaté le
- *    14/08/2026). Le tri par famille dit la même chose sans mentir sur l'offre.
- *    GPT fait exception : son menu reflète chaque IDENTIFIANT encore annoncé
- *    par Codex. Astra ou une ancienne version disponible ne doivent donc jamais
- *    disparaître à cause d'une ressemblance de nom.
+ * 3. Le menu montre TOUT le catalogue de chaque moteur, du plus récent au plus
+ *    ancien (demande de l'utilisateur, carte « Branches et choix des
+ *    modèles ») : dix modèles d'abord, puis « Afficher plus » et une recherche
+ *    (`web/src/components/run-selectors.tsx`). Le catalogue ne gardait que la
+ *    version la plus récente de chaque famille, et l'on ne pouvait plus choisir
+ *    une version précédente. Les DÉFAUTS, les paliers et la migration d'un
+ *    réglage retiré visent toujours la version la plus récente d'une famille —
+ *    la première rencontrée dans la liste triée. Seule la famille Fable reste
+ *    exclue partout (DEC-332).
  */
 
-/** Combien de versions, de la plus récente à la plus ancienne, restent par famille. */
+/** Combien de versions par famille garde `limiterAuxPlusRecents` (plus appliquée aux catalogues des moteurs). */
 export const MODELES_PAR_FAMILLE = 1;
 
 /**
@@ -90,9 +87,9 @@ export function dedoublonnerModeles(models: ModelInfo[]): ModelInfo[] {
 
 /**
  * LE MODÈLE ACTUEL D'UN RÉGLAGE MÉMORISÉ. Les moteurs se mettent à jour seuls
- * chaque nuit, et leur catalogue ne garde que la version la plus récente de
- * chaque famille : un réglage qui disait « claude-opus-5 » (défaut d'un projet,
- * dernier choix, carte planifiée) pointe alors vers une version RETIRÉE. On le
+ * chaque nuit, et un modèle peut disparaître de leur catalogue : un réglage qui
+ * disait « claude-opus-5 » (défaut d'un projet, dernier choix, carte
+ * planifiée) pointe alors vers une version RETIRÉE. On le
  * fait suivre à la version la plus récente de la MÊME famille (Opus 5 → Opus
  * 5.5), et seulement si la famille a disparu, au défaut du moteur.
  *
@@ -165,6 +162,20 @@ export function resoudreRun(engines: EngineInfo[], choix: ChoixCatalogue | undef
 }
 
 /**
+ * LE NIVEAU DE RÉFLEXION QUI PARTIRA, tel que la configuration de l'agent le
+ * montre — c'est la même résolution (`resoudreRun`), donc le bouton de
+ * lancement ne peut pas dire autre chose qu'elle. Rien quand la carte n'a pas
+ * encore de modèle (c'est alors son palier qui part) ou quand le modèle n'offre
+ * qu'un niveau : la configuration ne montre pas non plus de ligne « Réflexion ».
+ */
+export function niveauDeReflexionQuiPart(engines: EngineInfo[], run: ChoixCatalogue | undefined): string | undefined {
+  if (!run?.model) return undefined;
+  const { thinkingOptions, thinking } = resoudreRun(engines, run);
+  if (thinkingOptions.length < 2) return undefined;
+  return thinking?.label;
+}
+
+/**
  * La phrase à poser en tête du menu des modèles, ou `null` quand la liste vient
  * bien du moteur. Elle nomme la cause quand le moteur l'a donnée.
  */
@@ -174,4 +185,40 @@ export function messageDeRepli(engine: Pick<EngineInfo, 'installed' | 'live' | '
   return cause
     ? `Liste de secours : le catalogue du moteur n'a pas pu être lu (${cause}).`
     : "Liste de secours : le catalogue du moteur n'a pas pu être lu.";
+}
+
+/** Combien de modèles le menu montre avant « Afficher plus ». */
+export const MODELES_AFFICHES_D_ABORD = 10;
+
+const sansAccents = (texte: string) =>
+  (texte ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+
+/**
+ * CE QUE LE MENU DES MODÈLES MONTRE. La liste arrive triée du plus récent au
+ * plus ancien : les dix premiers d'abord, le reste derrière « Afficher plus ».
+ * Une recherche porte sur la liste ENTIÈRE (libellé et identifiant, sans
+ * accents ni casse). Le modèle CHOISI reste toujours visible, même au-delà des
+ * dix : on ne cache jamais ce qui est retenu.
+ */
+export function modelesAffiches<T extends Pick<ModelInfo, 'id' | 'label'>>(
+  models: readonly T[],
+  options: { recherche?: string; tout?: boolean; choisi?: string },
+  premiers = MODELES_AFFICHES_D_ABORD,
+): { visibles: T[]; caches: number } {
+  const mots = sansAccents(options.recherche ?? '').split(/\s+/).filter(Boolean);
+  if (mots.length) {
+    const visibles = models.filter((m) => {
+      const texte = sansAccents(`${m.label} ${m.id}`);
+      return mots.every((mot) => texte.includes(mot));
+    });
+    return { visibles, caches: 0 };
+  }
+  if (options.tout || models.length <= premiers) return { visibles: [...models], caches: 0 };
+  const visibles = models.slice(0, premiers);
+  const choisi = options.choisi ? models.find((m) => m.id === options.choisi) : undefined;
+  if (choisi && !visibles.includes(choisi)) visibles.push(choisi);
+  return { visibles, caches: models.length - visibles.length };
 }

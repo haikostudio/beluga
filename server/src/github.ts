@@ -6,6 +6,7 @@ import {
   avecLesLignes,
   deploiementsDeLaCarte,
   fichiersDepuisNameStatus,
+  fusionDeLaBranche,
   lignesDepuisNumstat,
   variablesGithub,
 } from '@beluga/shared';
@@ -220,6 +221,60 @@ export async function baseDeLaBranche(
   return undefined;
 }
 
+/** Le dernier enregistrement d'une branche, ou rien si elle n'existe pas (plus). */
+export async function sommetDeLaBranche(cwd: string, branche: string): Promise<string | undefined> {
+  return (await git(['rev-parse', '--verify', '--quiet', `${branche}^{commit}`], cwd)).trim() || undefined;
+}
+
+/**
+ * LA FUSION QUI A EMPORTÉ UNE BRANCHE DISPARUE, cherchée dans la branche de
+ * déploiement puis dans la principale. Le nom de la branche est porté par le
+ * message de fusion (`fusionDeLaBranche`, règle pure).
+ */
+export async function fusionDansLeDepot(
+  cwd: string,
+  branche: string,
+  accueils: string[],
+): Promise<{ fusion: string; avant: string; sommet: string } | undefined> {
+  for (const accueil of [...new Set(accueils.filter(Boolean))]) {
+    const sortie = await git(
+      ['log', '--merges', '--format=%H %P%x09%s', '-F', `--grep=Merge branch '${branche}'`, accueil],
+      cwd,
+    );
+    const trouvee = fusionDeLaBranche(sortie, branche);
+    if (trouvee) return trouvee;
+  }
+  return undefined;
+}
+
+/**
+ * CE QU'UNE BRANCHE SUPPRIMÉE A CHANGÉ. Le sommet est celui retenu à
+ * l'archivage, sinon le second parent de sa fusion ; la base est celle retenue
+ * au lancement, sinon le point commun entre l'accueil d'avant la fusion et le
+ * sommet. Rien de trouvé rend `undefined` : on garde alors le relevé connu.
+ */
+async function releveDUneBrancheDisparue(
+  cwd: string,
+  branche: string,
+  accueils: string[],
+  connu: { baseSha?: string; sommetSha?: string },
+): Promise<{ base: string; sommet: string } | undefined> {
+  const commitExiste = async (sha?: string) =>
+    !!sha && !!(await git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], cwd)).trim();
+  let sommet = (await commitExiste(connu.sommetSha)) ? connu.sommetSha : undefined;
+  let avant: string | undefined;
+  if (!sommet) {
+    const fusion = await fusionDansLeDepot(cwd, branche, accueils);
+    if (!fusion) return undefined;
+    sommet = fusion.sommet;
+    avant = fusion.avant;
+  }
+  let base = (await commitExiste(connu.baseSha)) ? connu.baseSha : undefined;
+  if (!base && avant) base = (await git(['merge-base', avant, sommet], cwd)).trim() || undefined;
+  if (!base || !sommet || base === sommet) return undefined;
+  return { base, sommet };
+}
+
 export async function refreshCard(cardId: string): Promise<GithubTracking | null> {
   const card = store.getCard(cardId);
   if (!card) return null;
@@ -235,6 +290,46 @@ export async function refreshCard(cardId: string): Promise<GithubTracking | null
     activity: [],
     fetchedAt: Date.now(),
   });
+
+  /*
+   * UNE BRANCHE QUI N'EXISTE PLUS — fusionnée puis supprimée à l'archivage.
+   * Ce qu'elle a changé se relit entre sa base et son sommet, retrouvés par sa
+   * fusion ; faute de quoi le relevé DÉJÀ connu reste tel quel, jamais vidé.
+   */
+  const existe = branch ? !!(await sommetDeLaBranche(project.path, branch)) : false;
+  if (branch && !existe) {
+    const principale = await branchePrincipale(project.path);
+    const deploiement = await brancheDeDeploiement(project.path, project.branchesDePublication);
+    const lu = await releveDUneBrancheDisparue(project.path, branch, [deploiement, principale], card.github ?? {});
+    if (!lu) {
+      const garde = GithubTracking.parse({ ...(card.github ?? {}), fetchedAt: Date.now() });
+      const updated = store.saveCard({ ...card, github: garde });
+      bus.emit({ type: 'card.upsert', card: updated });
+      return garde;
+    }
+    tracking.branchePrincipale = principale;
+    tracking.baseSha = lu.base;
+    tracking.sommetSha = lu.sommet;
+    tracking.brancheSupprimee = true;
+    tracking.fusionnee = true;
+    const logOut = await git(['log', '--format=%H|%s|%aI', `${lu.base}..${lu.sommet}`], project.path);
+    tracking.commits = logOut
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, message, date] = line.split('|');
+        return { sha: sha ?? '', message: message ?? '', date };
+      })
+      .slice(0, COMMITS_MONTRES_MAX);
+    tracking.creeLe = tracking.commits.length ? tracking.commits[tracking.commits.length - 1]?.date : undefined;
+    const diff = await git(['diff', '--name-status', lu.base, lu.sommet], project.path);
+    const numstat = await git(['diff', '--numstat', lu.base, lu.sommet], project.path);
+    tracking.fichiers = avecLesLignes(fichiersDepuisNameStatus(diff), lignesDepuisNumstat(numstat));
+    const updated = store.saveCard({ ...card, github: tracking });
+    bus.emit({ type: 'card.upsert', card: updated });
+    return tracking;
+  }
 
   if (branch) {
     /*

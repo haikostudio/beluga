@@ -288,6 +288,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
      * agent pose les questions (`shared/src/cahier-des-charges.ts`).
      */
     cahierDesCharges: z.boolean().optional(),
+    /**
+     * LA SOURCE À CLONER, telle que tapée : un lien ou le nom d'un produit
+     * (`shared/src/clonage.ts`). Remplie, elle coche le cahier des charges.
+     */
+    source: z.string().optional(),
   }),
   /**
    * Les dépôts du compte GitHub connecté au serveur, pour en choisir un dans la
@@ -453,6 +458,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * la carte orchestre plusieurs moteurs (`shared/src/mode-creation.ts`).
    */
   z.object({ type: z.literal('card.creation.souhaitee'), cardId: z.string(), actif: z.boolean() }),
+  /** L'interrupteur « lancement automatique » de la carte (`parcours.lancementAutomatique`). */
+  z.object({ type: z.literal('card.lancement.automatique'), cardId: z.string(), actif: z.boolean() }),
   /** Refermer l'incident du parcours d'une carte, sans rien relancer. */
   z.object({ type: z.literal('plan.fermerIncident'), cardId: z.string() }),
 
@@ -500,23 +507,14 @@ export const ClientCommand = z.discriminatedUnion('type', [
        carte » : sous une carte ordinaire déjà en ligne, le démon refuse le
        message sans lui (`TEXTE_ACCORD_NOUVELLE_CARTE`). */
     ouvrirNouvelleCarte: z.boolean().optional(),
-    /* Ce que les bulles de question de cet agent tenaient déjà à l'envoi, par
-       identifiant de question : si ce message répond à l'une d'elles, ses
-       choix cochés partent avec lui (`reponseParLaBarre`). */
-    saisiesDeQuestion: z
-      .record(
-        z.string(),
-        z.object({
-          libelles: z.array(z.string()),
-          texte: z.string().optional(),
-          images: z.array(z.string()).optional(),
-        }),
-      )
-      .optional(),
   }),
   /* `cardId` : l'arrêt part du tiroir de CETTE carte, et ne vaut que pour elle
      — le démon refuse un agent qui ne lui appartient pas. */
   z.object({ type: z.literal('agent.stop'), agentId: z.string(), cardId: z.string().optional() }),
+  /* SUSPENDRE : le bouton d'une carte (bande « en cours », barre d'écriture).
+     L'agent est coupé mais garde son contexte, la carte reste en « En cours »
+     et repart au prochain message ; la file revient dans le champ. */
+  z.object({ type: z.literal('agent.suspend'), agentId: z.string(), cardId: z.string().optional() }),
   z.object({ type: z.literal('agents.stop-all') }),
   z.object({
     type: z.literal('agent.config'),
@@ -811,6 +809,21 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * le demander à chaque ouverture, sans rien coûter.
    */
   z.object({ type: z.literal('github.deploiements'), cardId: z.string() }),
+  /**
+   * LE BOUTON DE BRANCHE du fil d'Ariane : lire les branches du dépôt pour une
+   * carte, puis renommer, créer ou reprendre (`server/src/gestion-de-branche.ts`).
+   * `travail` répond à la question « laisser / emporter » que pose le démon
+   * quand la carte a déjà du travail.
+   */
+  z.object({ type: z.literal('card.branches'), cardId: z.string() }),
+  z.object({
+    type: z.literal('card.branche'),
+    cardId: z.string(),
+    geste: z.enum(['renommer', 'creer', 'reprendre']),
+    nom: z.string().max(200),
+    depart: z.string().max(200).optional(),
+    travail: z.enum(['laisser', 'emporter']).optional(),
+  }),
   z.object({
     type: z.literal('github.merge'),
     cardId: z.string(),
@@ -858,8 +871,16 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('installation.nouveautes'), forcer: z.boolean().optional() }),
   z.object({ type: z.literal('installation.nouveautes.appliquer') }),
   z.object({ type: z.literal('installation.courriel-essai'), a: z.string().max(254) }),
+  /* La sortie directe (port 25) est-elle ouverte ? Sondée à l'ouverture de l'étape « Les courriels ». */
+  z.object({ type: z.literal('installation.courriel-sonde') }),
   z.object({ type: z.literal('installation.github'), jeton: z.string().max(400) }),
   z.object({ type: z.literal('installation.bibliotheque'), source: z.string().max(200) }),
+  /*
+   * EXPLORER LE POOL depuis la mise en route : la liste légère des fiches, puis
+   * le mode d'emploi d'UNE fiche, lu par son nom (jamais par un chemin).
+   */
+  z.object({ type: z.literal('installation.competences') }),
+  z.object({ type: z.literal('installation.competence'), nom: z.string().max(120) }),
   z.object({
     type: z.literal('installation.etape'),
     etape: z.enum(ETAPES_DE_L_ASSISTANT),
@@ -1000,6 +1021,10 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('coffre.enregistrer'), acces: z.any() }),
   z.object({ type: z.literal('coffre.supprimer'), id: z.string() }),
   z.object({ type: z.literal('coffre.restaurer'), id: z.string() }),
+  z.object({ type: z.literal('coffre.ranger'), id: z.string(), dossierId: z.string().nullable().optional() }),
+  z.object({ type: z.literal('coffre.dossier.enregistrer'), dossier: z.any() }),
+  z.object({ type: z.literal('coffre.dossier.supprimer'), id: z.string() }),
+  z.object({ type: z.literal('coffre.dossier.restaurer'), id: z.string() }),
   /**
    * LE JUGE RAPIDE (`shared/src/jugement-rapide.ts`). `etat` rend tout ce que
    * l'écran affiche : Laya est-il installé, quels usages sont allumés, les
@@ -1302,6 +1327,13 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('studio.depense.valider'), id: z.string() }),
   z.object({ type: z.literal('studio.depense.refuser'), id: z.string() }),
   z.object({ type: z.literal('studio.credit') }),
+  /* LES SERVICES DE CRÉATION de l'utilisateur (sept services vidéo, plus son OpenRouter) : une fiche du coffre par service. */
+  z.object({ type: z.literal('studio.services.lister') }),
+  z.object({ type: z.literal('studio.services.enregistrer'), service: z.string(), champs: z.record(z.string().max(4000)) }),
+  z.object({ type: z.literal('studio.services.tester'), service: z.string() }),
+  z.object({ type: z.literal('studio.services.retirer'), service: z.string() }),
+  /* Le modèle vidéo retenu pour une création (encadré du chat) : gardé, puis dit à l'agent. */
+  z.object({ type: z.literal('studio.modeleVideo.choisir'), creationId: z.string(), service: z.string(), modele: z.string() }),
   z.object({ type: z.literal('studio.assistant'), creationId: z.string(), demande: z.string() }),
   /* « Créer le visuel » depuis un contenu de l'atelier Marketing. */
   z.object({ type: z.literal('studio.depuisMarketing'), contenuId: z.string() }),
@@ -1667,6 +1699,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
     type: z.literal('ready'),
     protocol: z.number(),
     version: z.string(),
+    /**
+     * Le Studio est-il ouvert à CE compte ? Calculé par le démon à la connexion
+     * (`shared/src/studio-reserve.ts`) : absent ou faux, l'écran n'en montre
+     * aucune entrée.
+     */
+    studioOuvert: z.boolean().optional(),
     settings: Settings,
     prefs: z.record(z.any()).default({}),
     projects: z.array(Project),

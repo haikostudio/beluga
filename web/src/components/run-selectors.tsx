@@ -1,6 +1,15 @@
 import * as React from 'react';
-import { Check, ChevronDown, SlidersHorizontal } from 'lucide-react';
-import { AccountQuota, EngineInfo, RunConfig, messageDeRepli, nomCourtDuMoteur, resoudreRun } from '@beluga/shared';
+import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
+import {
+  AccountQuota,
+  EngineInfo,
+  MODELES_AFFICHES_D_ABORD,
+  RunConfig,
+  messageDeRepli,
+  modelesAffiches,
+  nomCourtDuMoteur,
+  resoudreRun,
+} from '@beluga/shared';
 import {
   Button,
   DropdownMenu,
@@ -289,25 +298,7 @@ function ListeDUnReglage({
       </ChoixDeReglage>
     ));
   } else if (reglage === 'modele') {
-    lignes = lu.models.map((m) => {
-      const note =
-        m.note ??
-        (m.releasedAt
-          ? new Date(m.releasedAt).toLocaleDateString(formatRegional(), { month: '2-digit', year: '2-digit' })
-          : undefined);
-      return (
-        <ChoixDeReglage
-          key={m.id}
-          actif={m.id === lu.model?.id}
-          modeleId={m.id}
-          onChoisir={(evenement) => onChoisir({ model: m.id }, evenement)}
-        >
-          {m.appetite ? <Appetite level={m.appetite} /> : null}
-          <span className="min-w-0 flex-1 truncate">{m.label}</span>
-          {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
-        </ChoixDeReglage>
-      );
-    });
+    lignes = lu.models.length ? [<ListeDesModeles key="§modeles" lu={lu} onChoisir={onChoisir} />] : [];
   } else if (reglage === 'reflexion') {
     lignes = lu.thinkingOptions.map((niveau) => (
       <ChoixDeReglage
@@ -348,6 +339,86 @@ function ListeDUnReglage({
       {lignes}
       {!lignes.length ? <p className="px-2 py-2 text-[13px] text-faint">{t('Rien à choisir pour ce réglage.')}</p> : null}
     </div>
+  );
+}
+
+/**
+ * LES MODÈLES DU MOTEUR, TOUS (carte « Branches et choix des modèles ») : une
+ * recherche en tête, les dix plus récents, puis « Afficher plus » pour le
+ * reste. Le modèle retenu reste visible même au-delà des dix
+ * (`modelesAffiches`). La recherche garde la frappe pour elle : sans
+ * `stopPropagation`, le menu prendrait chaque lettre pour un saut vers une
+ * ligne. 16 px sur téléphone, sinon Safari zoome au focus.
+ */
+function ListeDesModeles({
+  lu,
+  onChoisir,
+}: {
+  lu: ReglagesLus;
+  onChoisir: (patch: RunChoix, evenement: Event) => void;
+}) {
+  const [recherche, setRecherche] = React.useState('');
+  const [tout, setTout] = React.useState(false);
+  const { visibles, caches } = modelesAffiches(lu.models, { recherche, tout, choisi: lu.model?.id });
+  return (
+    <>
+      {lu.models.length > MODELES_AFFICHES_D_ABORD ? (
+        <div className="flex items-center gap-1.5 px-2 pb-1">
+          <Search className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+          <input
+            type="search"
+            value={recherche}
+            onChange={(e) => setRecherche(e.target.value)}
+            onKeyDown={(e) => {
+              if (!['Escape', 'ArrowDown', 'ArrowUp', 'Tab'].includes(e.key)) e.stopPropagation();
+            }}
+            placeholder={t('Rechercher un modèle')}
+            className="min-w-0 flex-1 bg-transparent py-1 text-[16px] text-text outline-none placeholder:text-faint sm:text-[13px]"
+            data-recherche-modeles
+            autoComplete="off"
+          />
+        </div>
+      ) : null}
+      {visibles.map((m) => {
+        const note =
+          m.note ??
+          (m.releasedAt
+            ? new Date(m.releasedAt).toLocaleDateString(formatRegional(), { month: '2-digit', year: '2-digit' })
+            : undefined);
+        return (
+          <ChoixDeReglage
+            key={m.id}
+            actif={m.id === lu.model?.id}
+            modeleId={m.id}
+            onChoisir={(evenement) => onChoisir({ model: m.id }, evenement)}
+          >
+            {m.appetite ? <Appetite level={m.appetite} /> : null}
+            <span className="min-w-0 flex-1 truncate">{m.label}</span>
+            {note ? <span className="shrink-0 text-[11px] text-faint">{note}</span> : null}
+          </ChoixDeReglage>
+        );
+      })}
+      {recherche && !visibles.length ? (
+        <p className="px-2 py-2 text-[13px] text-faint" data-aucun-modele>
+          {t('Aucun modèle ne correspond.')}
+        </p>
+      ) : null}
+      {caches > 0 ? (
+        <DropdownMenuItem
+          data-afficher-plus-modeles={caches}
+          onSelect={(evenement) => {
+            /* Le menu reste ouvert : on déplie la liste, on ne choisit rien. */
+            evenement.preventDefault();
+            setTout(true);
+          }}
+          className="gap-2 rounded-md px-2 py-1.5 text-[13px] text-faint data-[highlighted]:text-text"
+        >
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="flex-1">{t('Afficher plus')}</span>
+          <span className="shrink-0 text-[11px]">{caches}</span>
+        </DropdownMenuItem>
+      ) : null}
+    </>
   );
 }
 

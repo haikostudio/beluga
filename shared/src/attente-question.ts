@@ -19,7 +19,6 @@
  * `server/src/attente-question.ts`, le va-et-vient dans `server/mcp-bridge.mjs`.
  */
 
-import { texteDeReponse } from './images-reponse.js';
 
 /**
  * COMBIEN DE TEMPS UN AGENT ATTEND UNE RÉPONSE. Trente minutes : assez pour que
@@ -205,80 +204,5 @@ export function instantDuTemoin(maintenant: number, attendDepuis?: number): numb
   return attendDepuis === undefined ? maintenant : Math.min(maintenant, attendDepuis);
 }
 
-/** Ce que la barre d'écriture dit pendant que l'agent attend. */
+/** Ce que le témoin de travail dit pendant que l'agent attend sa réponse. */
 export const TEXTE_BARRE_EN_ATTENTE = 'L’agent attend votre réponse à sa question…';
-
-/* ------------------------------------------------------------------ */
-/* LA BARRE D'ÉCRITURE RÉPOND À LA QUESTION                             */
-/* ------------------------------------------------------------------ */
-
-/**
- * UN MESSAGE ÉCRIT PENDANT QU'UNE QUESTION ATTEND EST LA RÉPONSE À CETTE
- * QUESTION — pas une demande de plus.
- *
- * La bulle de la question portait son PROPRE champ de saisie, à côté de la
- * barre d'écriture de la conversation : deux endroits pour écrire la même
- * chose. Celui qui répondait dans la barre — le geste naturel, celui que le
- * texte de la barre invite d'ailleurs à faire — voyait sa phrase tomber dans la
- * FILE D'ATTENTE de l'agent, qui ne la lirait qu'après avoir fini. La question,
- * elle, restait ouverte pour toujours : son bouton « Annuler » ne partait
- * jamais, et le triangle orange non plus.
- *
- * La barre d'écriture devient donc la voie de réponse dès qu'une question
- * attend. Un texte vide ne répond rien.
- */
-export function texteRepondALaQuestion(entree: {
-  /** La question ouverte de cet agent, s'il y en a une. */
-  questionEnAttente?: string | null;
-  /** Ce qui a été écrit dans la barre. */
-  texte: string;
-  /**
-   * La question accepte-t-elle une réponse écrite ? Une question à choix PUR
-   * (aucun texte libre) attend un clic sur une option : ce qu'on écrit alors
-   * n'est pas sa réponse, c'est une demande de plus.
-   */
-  texteLibreAutorise?: boolean;
-}): string | null {
-  if (!entree.questionEnAttente) return null;
-  if (entree.texteLibreAutorise === false) return null;
-  return entree.texte.trim() ? entree.questionEnAttente : null;
-}
-
-/**
- * CE QUE LA BULLE D'UNE QUESTION TIENT DÉJÀ, avant tout envoi : les choix
- * cochés (par leur libellé), ce qui est écrit dans son champ, ses images.
- */
-export interface SaisieDeQuestion {
-  libelles: string[];
-  texte?: string;
-  images?: string[];
-}
-
-/**
- * LA RÉPONSE ÉCRITE DANS LA BARRE EMPORTE CE QUE LA BULLE TENAIT DÉJÀ.
- *
- * On coche un choix dans la bulle, puis on écrit sa précision dans la barre du
- * bas — le geste naturel. Seul le texte de la barre partait : le choix coché
- * était perdu, et la question se lisait ensuite sans rien de retenu. La
- * réponse prend donc la MÊME forme que celle du bouton « Répondre » :
- * « libellés — complément » (`texteDeReponse`), que l'affichage sait redécouper.
- *
- * Seuls les libellés RÉELLEMENT proposés par la question passent, dans l'ordre
- * où elle les a posés : ce qui vient de l'écran ne s'écrit pas tel quel.
- */
-export function reponseParLaBarre(entree: {
-  /** Ce qui a été écrit dans la barre. */
-  texte: string;
-  /** Les libellés que la question propose. */
-  options: readonly string[];
-  /** Ce que la bulle de cette question tenait au moment de l'envoi. */
-  saisie?: SaisieDeQuestion;
-}): string {
-  const coches = new Set(entree.saisie?.libelles ?? []);
-  const libelles = entree.options.filter((libelle) => coches.has(libelle));
-  const complement = [entree.saisie?.texte ?? '', entree.texte]
-    .map((morceau) => morceau.trim())
-    .filter(Boolean)
-    .join('\n');
-  return texteDeReponse(libelles, complement, 0);
-}

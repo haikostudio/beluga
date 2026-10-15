@@ -34,9 +34,12 @@ export function IconeDeGenre({ genre, className }: { genre: GenrePiece; classNam
 }
 
 /** L'adresse d'une pièce jointe : à lire sur place, ou à télécharger. */
-export function adresseDePiece(id: string, telechargement?: boolean): string {
-  return `/api/attachment?id=${encodeURIComponent(id)}${telechargement ? '&download=1' : ''}`;
+export function adresseDePiece(id: string, telechargement?: boolean, largeur?: number): string {
+  return `/api/attachment?id=${encodeURIComponent(id)}${telechargement ? '&download=1' : ''}${largeur ? `&w=${largeur}` : ''}`;
 }
+
+/** La largeur d'une vignette : assez pour un écran à fort pixel, jamais l'image entière. */
+export const LARGEUR_DE_VIGNETTE = 480;
 
 /**
  * L'IMAGE D'UNE PIÈCE JOINTE, AVEC SA SILHOUETTE D'ATTENTE — UN SEUL RENDU.
@@ -80,7 +83,7 @@ export function ImageDePiece({
         <span aria-hidden data-silhouette-image={id} className="absolute inset-0 animate-silhouette bg-faint/25" />
       )}
       <img
-        src={adresseDePiece(id)}
+        src={adresseDePiece(id, false, LARGEUR_DE_VIGNETTE)}
         alt={alt}
         loading="lazy"
         decoding="async"

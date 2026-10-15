@@ -382,6 +382,26 @@ export async function sonderLaSortie(
 }
 
 /**
+ * LA SONDE DE L'ÉCRAN, gardée dix minutes. L'étape « Les courriels » la demande
+ * dès qu'elle s'ouvre, pour dire AVANT tout essai que l'envoi direct est bloqué
+ * chez cet hébergeur — et revenir sur la page ne relance pas deux connexions de
+ * six secondes. Une sonde en cours est partagée par tous ceux qui la demandent.
+ */
+const DUREE_DE_LA_SONDE_GARDEE_MS = 10 * 60_000;
+let sondeGardee: { a: number; promesse: Promise<{ agent: boolean; port25: boolean }> } | null = null;
+
+export function sortieDirecteGardee(
+  sonder: () => Promise<{ agent: boolean; port25: boolean }> = sonderLaSortie,
+  maintenant = Date.now(),
+): Promise<{ agent: boolean; port25: boolean }> {
+  if (!sondeGardee || maintenant - sondeGardee.a > DUREE_DE_LA_SONDE_GARDEE_MS) {
+    const promesse = sonder().catch(() => ({ agent: agentDEnvoi() !== null, port25: false }));
+    sondeGardee = { a: maintenant, promesse };
+  }
+  return sondeGardee.promesse;
+}
+
+/**
  * UN VRAI COURRIEL, COURT, POUR SAVOIR. Il part par le mode retenu, et la
  * phrase rendue s'affiche telle quelle : le succès, ou la raison RÉELLE du
  * refus. En mode `serveur`, la sortie est sondée D'ABORD : un agent local

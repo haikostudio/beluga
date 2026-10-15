@@ -32,6 +32,11 @@ export interface TourFini {
   moteurMuet?: boolean;
   /** L'arrêt a-t-il été demandé à la main ? Le geste humain n'est pas une panne. */
   arretDemande?: boolean;
+  /**
+   * La carte est-elle SUSPENDUE SUR PLACE (`carteEnPause`) ? Un arrêt demandé
+   * par « Suspendre » : la carte reste en « En cours » et attend « Reprendre ».
+   */
+  suspendu?: boolean;
   /** Le texte rendu par le moteur, tel qu'il partira dans la bulle. */
   texte?: string;
   /** Le compte rendu est-il ENTIER selon le gabarit du rôle (`checkTemplate`) ? */
@@ -53,14 +58,31 @@ export const JALON_TOUR_NON_PARTI = 'Tour non parti';
 /** LE JALON D'UN TOUR COUPÉ À LA MAIN : un geste, pas une panne. */
 export const JALON_TOUR_ARRETE = 'Tour arrêté';
 
+/**
+ * LE JALON D'UNE SUSPENSION À LA MAIN (« Suspendre »). Ni une panne ni un
+ * compte rendu : une ligne NEUTRE du travail, « Tâche suspendue à la main à
+ * HH:MM » (`phraseDuBloc`), sans rouge, rangée sous la phase `execution` —
+ * rangée sous `rapport`, elle allumait l'étape « Rapport » avec la cause
+ * technique de la coupe (« code 143 »).
+ */
+export const JALON_TOUR_SUSPENDU = 'Tâche suspendue';
+
+/** Le texte gardé par le jalon de suspension : jamais la cause technique de la coupe. */
+export const TEXTE_TOUR_SUSPENDU = 'Tâche suspendue à la main.';
+
 /** Ce que la fin de tour écrit dans le journal de la carte. */
 export interface IssueDeTour {
   /** Le libellé du jalon. */
   libelle: string;
   /** Le texte à garder : le compte rendu s'il existe, la cause sinon. */
   resultat: string;
-  /** Le jalon compte-t-il comme une RÉUSSITE ? */
-  reussie: boolean;
+  /**
+   * Le jalon compte-t-il comme une RÉUSSITE ? `null` : ni l'un ni l'autre — une
+   * suspension ne se peint ni en vert ni en rouge.
+   */
+  reussie: boolean | null;
+  /** La phase du journal : `rapport` referme le tour, `execution` le laisse ouvert. */
+  phase: 'execution' | 'rapport';
   /**
    * Ce jalon peint-il l'étape « Rapport » en rouge ? Seul un vrai incident le
    * fait : ni une pause de quota, ni un arrêt demandé, ni un moteur non parti.
@@ -93,6 +115,8 @@ export function rapportDejaEcrit(tour: TourFini): boolean {
  * CE QUE LE TOUR LAISSE AU JOURNAL.
  *
  * L'ordre des cas est la règle elle-même :
+ *   0. une SUSPENSION à la main est une ligne neutre du travail, avant tout
+ *      le reste : le texte rendu jusque-là n'est pas un compte rendu ;
  *   1. un tour réussi rend sa réponse ;
  *   2. un tour tombé qui a DÉJÀ écrit son compte rendu rend ce compte rendu —
  *      la cause voyage à côté, elle ne le remplace plus ;
@@ -104,18 +128,22 @@ export function rapportDejaEcrit(tour: TourFini): boolean {
 export function jalonDeFinDeTour(tour: TourFini): IssueDeTour {
   const texte = (tour.texte ?? '').trim();
   const cause = (tour.cause ?? '').trim() || "Le moteur s'est arrêté avant la fin.";
-  if (!tour.failed) return { libelle: 'Réponse rendue', resultat: texte, reussie: true, incident: false };
+  if (tour.failed && tour.arretDemande && tour.suspendu) {
+    return { libelle: JALON_TOUR_SUSPENDU, resultat: TEXTE_TOUR_SUSPENDU, reussie: null, incident: false, phase: 'execution' };
+  }
+  const fin = { phase: 'rapport' as const };
+  if (!tour.failed) return { libelle: 'Réponse rendue', resultat: texte, reussie: true, incident: false, ...fin };
   if (rapportDejaEcrit(tour)) {
-    return { libelle: 'Réponse rendue', resultat: texte, reussie: true, incident: false, cause };
+    return { libelle: 'Réponse rendue', resultat: texte, reussie: true, incident: false, cause, ...fin };
   }
   if (tour.arretDemande) {
-    return { libelle: JALON_TOUR_ARRETE, resultat: texte || cause, reussie: false, incident: false, cause };
+    return { libelle: JALON_TOUR_ARRETE, resultat: texte || cause, reussie: false, incident: false, cause, ...fin };
   }
   if (tour.reprise) {
-    return { libelle: JALON_TOUR_EN_PAUSE, resultat: cause, reussie: false, incident: false, cause };
+    return { libelle: JALON_TOUR_EN_PAUSE, resultat: cause, reussie: false, incident: false, cause, ...fin };
   }
   if (tour.moteurMuet) {
-    return { libelle: JALON_TOUR_NON_PARTI, resultat: cause, reussie: false, incident: false, cause };
+    return { libelle: JALON_TOUR_NON_PARTI, resultat: cause, reussie: false, incident: false, cause, ...fin };
   }
-  return { libelle: 'Tour interrompu', resultat: cause, reussie: false, incident: true, cause };
+  return { libelle: 'Tour interrompu', resultat: cause, reussie: false, incident: true, cause, ...fin };
 }

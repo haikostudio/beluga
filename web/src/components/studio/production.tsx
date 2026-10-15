@@ -202,8 +202,9 @@ export function FenetreMiseEnProduction({
  * en porte l'avancement — fenêtre fermée comme ouverte : le pourcentage après
  * le libellé (« 1/4 · 37 % » pour les exports) et la barre fine au ras du bas
  * (le modèle du bouton « Tout déployer »). La voix passe d'abord : l'export
- * qui la suit attend qu'elle soit posée. En compact (téléphone), la barre
- * seule. Le tic ne vit que dans ce bouton, et seulement pendant la fabrication.
+ * qui la suit attend qu'elle soit posée. En compact (icône seule, le cas de
+ * tous les appelants depuis le 15/10/2026), la barre seule ; le nom et le
+ * pourcentage se lisent au survol (`title`). Le tic ne vit que dans ce bouton, et seulement pendant la fabrication.
  */
 /** `bloque` : l'agent de la création travaille, le bouton est grisé à 50 % et sans effet. */
 /** L'avancement de la production d'une création : la voix finale d'abord, sinon les exports. */

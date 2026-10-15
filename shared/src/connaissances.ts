@@ -1450,11 +1450,18 @@ export function typeDuFait(ligne: string): TypeUnite {
   return 'convention';
 }
 
+/** Débuts de suite qui ne se lisent pas seuls (« ils visent la PRODUCTION… ») : le résumé garde alors la ligne entière. */
+const DEBUT_DE_SUITE_FRAGMENTAIRE = /^(il|ils|elle|elles|on|ne|n'|ce|cela|ça|ceci|le|la|les|l'|un|une|des|d'|du|mais|et|ou|puis|donc|or|car|ni|sinon|alors|quand|si|que|qu'|qui|dont|où|en|y|se|s'|sans|avec|pour|par|sur|dans|chaque|tout|toute|tous|toutes|aucun|aucune)(\s|$|')/;
+
 /** « Titre : le fait » → titre et résumé. Sans deux-points, le début de la phrase fait le titre. */
 export function titreEtResumeDuFait(ligne: string): { titre: string; resume: string } {
   const net = ligne.replace(/\s+/g, ' ').trim();
   const m = /^(.{6,120}?)\s*:\s+(.{10,})$/.exec(net);
-  if (m) return { titre: m[1].trim(), resume: m[2].trim().length >= RESUME_UNITE_MIN ? m[2].trim() : net };
+  if (m) {
+    const suite = m[2].trim();
+    const seLitSeule = suite.length >= RESUME_UNITE_MIN && !DEBUT_DE_SUITE_FRAGMENTAIRE.test(suite);
+    return { titre: m[1].trim(), resume: seLitSeule ? suite : net };
+  }
   const mots = net.split(' ');
   return { titre: mots.slice(0, 10).join(' ').slice(0, TITRE_UNITE_MAX), resume: net };
 }

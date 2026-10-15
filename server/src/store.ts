@@ -1235,11 +1235,13 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
       `INSERT INTO cards (id, project_id, column_key, position, title, data, deployed_at, created_at, updated_at,
                           description, origin, agent_id, conversation_agent_id, analyse_demandee,
                           code_deja_enregistre, hors_tache, excluded_from_deploy, done_at, archived_at,
-                          rangee_tableau_de_bord_at, last_read_at, run_engine, run_model, run_thinking, run_mode, carte_mere_id)
+                          rangee_tableau_de_bord_at, last_read_at, run_engine, run_model, run_thinking, run_mode, carte_mere_id,
+                          branche_choisie, branche_de_depart)
        VALUES (@id, @project_id, @column_key, @position, @title, @data, @deployed_at, @created_at, @updated_at,
                @description, @origin, @agent_id, @conversation_agent_id, @analyse_demandee,
                @code_deja_enregistre, @hors_tache, @excluded_from_deploy, @done_at, @archived_at,
-               @rangee_tableau_de_bord_at, @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode, @carte_mere_id)
+               @rangee_tableau_de_bord_at, @last_read_at, @run_engine, @run_model, @run_thinking, @run_mode, @carte_mere_id,
+               @branche_choisie, @branche_de_depart)
        ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, column_key = excluded.column_key,
          position = excluded.position, title = excluded.title, data = excluded.data,
          deployed_at = excluded.deployed_at, updated_at = excluded.updated_at,
@@ -1251,7 +1253,8 @@ export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnr
          last_read_at = excluded.last_read_at,
          run_engine = excluded.run_engine, run_model = excluded.run_model,
          run_thinking = excluded.run_thinking, run_mode = excluded.run_mode,
-         carte_mere_id = excluded.carte_mere_id`,
+         carte_mere_id = excluded.carte_mere_id,
+         branche_choisie = excluded.branche_choisie, branche_de_depart = excluded.branche_de_depart`,
     ).run(colonnes);
     ecrireListe('card_labels', 'label', value.id, value.labels);
     ecrireListe('card_attachments', 'path', value.id, value.attachments);
@@ -2807,64 +2810,6 @@ export function getMessage(id: string): Message | null {
   return row ? Message.parse(JSON.parse(row.data)) : null;
 }
 
-/**
- * LE MESSAGE QUI PORTE CETTE QUESTION. Répondre à une question demande la bulle
- * où elle vit ; quand la réponse arrive par la BARRE D'ÉCRITURE, le navigateur
- * n'envoie que du texte et ne connaît pas cette bulle. On la retrouve donc ici,
- * par l'index partiel `a_questions`, sans relire tout le fil.
- */
-/**
- * LA QUESTION ENCORE OUVERTE SUR LE DERNIER MESSAGE DE CET AGENT.
- *
- * Un tour peut se refermer sur une question sans réponse : plus personne
- * n'attend dans le registre, mais la bulle, elle, garde ses boutons
- * « Répondre » et « Annuler ». Ce qu'on écrit alors dans la barre doit
- * toujours répondre à cette question — sinon elle reste ouverte pour
- * toujours, avec son triangle orange. On ne regarde QUE le dernier message :
- * une vieille question, plus bas dans le fil, n'a pas à avaler une demande
- * nouvelle.
- */
-export function questionOuverteDuDernierMessage(
-  agentId: string,
-): { messageId: string; questionId: string; texteLibre: boolean; options: string[] } | null {
-  const row = getDb()
-    .prepare(`SELECT data FROM messages WHERE agent_id = ? ${ORDRE_DES_MESSAGES_DESC} LIMIT 1`)
-    .get(agentId) as { data: string } | undefined;
-  if (!row) return null;
-  try {
-    const message = Message.parse(JSON.parse(row.data));
-    const question = message.questions.find((q) => !q.answer && !q.cancelled);
-    return question
-      ? {
-          messageId: message.id,
-          questionId: question.id,
-          texteLibre: question.allowFreeText,
-          options: question.options.map((option) => option.label),
-        }
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export function messageDeLaQuestion(agentId: string, questionId: string): Message | null {
-  const rows = getDb()
-    .prepare(
-      `SELECT data FROM messages WHERE agent_id = ? AND a_questions = 1
-       ORDER BY created_at DESC LIMIT 50`,
-    )
-    .all(agentId) as { data: string }[];
-  for (const row of rows) {
-    try {
-      const message = Message.parse(JSON.parse(row.data));
-      if (message.questions.some((q) => q.id === questionId)) return message;
-    } catch {
-      /* message illisible : on l'ignore */
-    }
-  }
-  return null;
-}
-
 export function saveMessage(message: Message): Message {
   const value = Message.parse(message);
   getDb()
@@ -3350,6 +3295,12 @@ export interface UsageRow {
   outputTokens?: number;
   /** Le modèle qui a porté le tour : sans lui, aucun coût ne peut être établi. */
   model?: string;
+  /**
+   * Ce qu'ont consommé les AIDES (sous-agents) du tour, à côté du principal.
+   * Jamais compté dans `tokens` ni dans le quota : la hausse de quota mesurée
+   * sur le compte les contient déjà, une seule fois.
+   */
+  aides?: { tokens: number; sortie: number; modeles: string[] };
 }
 
 export function recordUsage(row: UsageRow): void {
@@ -3361,8 +3312,8 @@ export function recordUsage(row: UsageRow): void {
     : null;
   getDb()
     .prepare(
-      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens, tokens_in, tokens_out, input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage (project_id, project_name, card_id, agent_id, account, engine, model, tokens, tokens_in, tokens_out, input_tokens, cached_tokens, output_tokens, quota_share, quota_5h, quota_semaine, seconds, aides_tokens, aides_sortie, aides_modeles, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       row.projectId ?? null,
@@ -3382,6 +3333,9 @@ export function recordUsage(row: UsageRow): void {
       row.quota5h ?? 0,
       row.quotaSemaine ?? 0,
       row.seconds ?? 0,
+      Math.round(row.aides?.tokens ?? 0),
+      Math.round(row.aides?.sortie ?? 0),
+      row.aides?.modeles.length ? row.aides.modeles.join(',') : null,
       now(),
     );
 }

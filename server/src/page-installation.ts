@@ -1,4 +1,5 @@
 import { codeEnGroupes, echapperHtml, formeDeCodeValide } from '@beluga/shared';
+import { STYLE_DU_CHAMP, champMotDePasseHtml, scriptDuChamp, type TextesDuChamp } from './champ-mot-de-passe-html.js';
 
 /**
  * LA PAGE D'INSTALLATION — la première chose qu'affiche une installation neuve.
@@ -42,6 +43,8 @@ interface Textes {
   confirmation: string;
   bouton: string;
   differents: string;
+  /** L'œil et le générateur des deux champs de mot de passe. */
+  champ: TextesDuChamp;
 }
 
 const TEXTES: Record<Langue, Textes> = {
@@ -61,6 +64,7 @@ const TEXTES: Record<Langue, Textes> = {
     confirmation: 'Mot de passe, une seconde fois',
     bouton: 'Créer mon compte',
     differents: 'Les deux mots de passe ne sont pas identiques.',
+    champ: { afficher: 'Afficher le mot de passe', masquer: 'Masquer le mot de passe', generer: 'Générer un mot de passe solide' },
   },
   en: {
     titre: 'Welcome to Beluga Build',
@@ -78,6 +82,7 @@ const TEXTES: Record<Langue, Textes> = {
     confirmation: 'Password, once more',
     bouton: 'Create my account',
     differents: 'The two passwords do not match.',
+    champ: { afficher: 'Show password', masquer: 'Hide password', generer: 'Generate a strong password' },
   },
   es: {
     titre: 'Bienvenido a Beluga Build',
@@ -95,6 +100,7 @@ const TEXTES: Record<Langue, Textes> = {
     confirmation: 'Contraseña, otra vez',
     bouton: 'Crear mi cuenta',
     differents: 'Las dos contraseñas no coinciden.',
+    champ: { afficher: 'Mostrar la contraseña', masquer: 'Ocultar la contraseña', generer: 'Generar una contraseña segura' },
   },
   de: {
     titre: 'Willkommen bei Beluga Build',
@@ -112,6 +118,7 @@ const TEXTES: Record<Langue, Textes> = {
     confirmation: 'Passwort, noch einmal',
     bouton: 'Mein Konto erstellen',
     differents: 'Die beiden Passwörter stimmen nicht überein.',
+    champ: { afficher: 'Passwort anzeigen', masquer: 'Passwort verbergen', generer: 'Sicheres Passwort erzeugen' },
   },
   zh: {
     titre: '欢迎使用 Beluga Build',
@@ -128,6 +135,7 @@ const TEXTES: Record<Langue, Textes> = {
     confirmation: '再次输入密码',
     bouton: '创建我的账户',
     differents: '两次输入的密码不一致。',
+    champ: { afficher: '显示密码', masquer: '隐藏密码', generer: '生成强密码' },
   },
 };
 
@@ -206,7 +214,7 @@ export function pageDInstallation(options: {
   .err { background:#2a1215; color:#fca5a5; padding:10px 12px; border-radius:8px; font-size:13px; line-height:1.5; }
   p.lien { color:#d4d4d8; }
   hr { width:100%; border:0; height:1px; background:#27272a; margin:2px 0; }
-</style>
+${STYLE_DU_CHAMP}</style>
 </head>
 <body>
 <form method="POST" action="/auth/installation" data-page-installation="1">
@@ -226,16 +234,17 @@ export function pageDInstallation(options: {
   </div>
   <div>
     <label for="p">${e(t.motDePasse)}</label>
-    <input id="p" name="password" type="password" autocomplete="new-password" minlength="12" required>
+    ${champMotDePasseHtml({ id: 'p', attributs: 'name="password" autocomplete="new-password" minlength="12" required', textes: t.champ, remplir: ['p', 'p2'] })}
     <small>${e(t.aideMotDePasse)}</small>
   </div>
   <div>
     <label for="p2">${e(t.confirmation)}</label>
-    <input id="p2" name="password2" type="password" autocomplete="new-password" minlength="12" required>
+    ${champMotDePasseHtml({ id: 'p2', attributs: 'name="password2" autocomplete="new-password" minlength="12" required', textes: t.champ })}
   </div>
   <button type="submit">${e(t.bouton)}</button>
 </form>
 ${duLien ? `<script>try{history.replaceState(null,'','/')}catch(e){}</script>` : ''}
+${scriptDuChamp(t.champ)}
 </body>
 </html>`;
 }

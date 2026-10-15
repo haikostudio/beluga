@@ -105,7 +105,7 @@ TITRE POSÉ : ${carte.title}
 ${demande ? `\nLA DEMANDE :\n${demande}\n` : ''}
 DÉROULE TON PROCESSUS HABITUEL DE CADRAGE, sans en sauter un temps : garde le titre s'il dit juste le besoin et affine-le sinon, écris la synthèse de cette demande (« resumeDemande »), ouvre la mémoire des sujets touchés, écris la carte (description et niveau), puis RENDS CE QUE TU AS COMPRIS avec « rendre_comprehension » — ET ARRÊTE-TOI LÀ. Rien ne se lance : c'est l'utilisateur qui décide.
 
-VÉRIFIE D'ABORD QUE CETTE DEMANDE RELÈVE BIEN DE CE PROJET. Si elle vise clairement un autre projet, déplace la carte avec « deplacer_vers_projet » et arrête ton tour : le cadrage reprend là-bas.${
+VÉRIFIE D'ABORD QUE CETTE DEMANDE RELÈVE BIEN DE CE PROJET. Si elle vise clairement un autre projet, déplace la carte avec « deplacer_vers_projet » et arrête ton tour sans rien écrire : le cadrage reprend là-bas.${
     options.sansTemoin ? `\n\n${CONSIGNE_DU_CADRAGE_SANS_TEMOIN}` : ''
   }`;
 }
@@ -199,6 +199,16 @@ export const REFUS_DEPLACEMENT_HORS_CADRAGE =
 export function phraseDeDeplacementParLeCadrage(depuis: string, vers: string, raison?: string): string {
   const pourquoi = String(raison ?? '').trim();
   return `Carte déplacée du projet « ${depuis} » vers « ${vers} » par l’agent de cadrage${pourquoi ? `, parce que ${pourquoi.replace(/^parce que\s+/i, '')}` : ''}.`;
+}
+
+/**
+ * CE QUE L'OUTIL `deplacer_vers_projet` RÉPOND À L'AGENT. Le projet d'accueil
+ * est déjà en haut de l'écran et le déplacement est déjà écrit dans le fil
+ * (`phraseDeDeplacementParLeCadrage`) : l'agent ne dit RIEN, il s'arrête.
+ * Lui demander une phrase de conclusion la posait en doublon dans la bulle.
+ */
+export function consigneDArretApresDeplacement(projetVise: string): string {
+  return `La carte est dans le projet « ${projetVise} ». ARRÊTE TON TOUR ICI : n'appelle plus aucun outil et n'écris RIEN, pas même une phrase — le projet s'affiche déjà en haut de l'écran et le déplacement est déjà tracé dans le fil. Le cadrage y reprend tout seul dès la fin de ce tour, avec la mémoire et le code de ce projet.`;
 }
 
 /**

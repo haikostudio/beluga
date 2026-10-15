@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { Camera, Check, ChevronRight, Circle, Loader2, X, MinusCircle } from 'lucide-react';
-import { EntreeJournal, RunStep } from '@beluga/shared';
+import { Bot, Camera, Check, ChevronRight, Circle, Loader2, X, MinusCircle } from 'lucide-react';
+import { EntreeJournal, RunStep, estUneAide } from '@beluga/shared';
 import { ContenuDeLEntree } from '@/components/contenu-journal';
 import { cn, duration } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -105,14 +105,23 @@ export function Steps({
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
       >
-        {enCours ? (
+        {enCours && derniere && estUneAide(derniere) ? (
+          <Bot className="h-3 w-3 shrink-0 animate-pulse text-teinte" />
+        ) : enCours ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-en-cours" />
         ) : failed ? (
           <X className="h-3 w-3 shrink-0 text-danger" />
         ) : (
           <Check className="h-3 w-3 shrink-0 text-termine" />
         )}
-        <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted">{summary}</span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 truncate text-[13.5px] text-muted',
+            enCours && derniere && estUneAide(derniere) && 'text-teinte',
+          )}
+        >
+          {summary}
+        </span>
         {/* Le compte des étapes reste visible même repliée. */}
         {enCours && steps.length > 1 ? (
           <span className="shrink-0 text-[12px] tabular-nums text-faint">{done}/{steps.length}</span>
@@ -124,6 +133,10 @@ export function Steps({
         <ul className="space-y-0.5 px-2 pb-2">
           {steps.map((step) => {
             const isOpen = expanded.has(step.id);
+            /* UNE AIDE (sous-agent) SE PEINT EN VIOLET : c'est du travail
+               d'agent délégué, souvent le plus long du tour — on le repère
+               d'un coup d'œil dans le déroulé. */
+            const aide = estUneAide(step);
             return (
               <li key={step.id}>
                 <button
@@ -142,7 +155,9 @@ export function Steps({
                   )}
                 >
                   <span className="mt-[3px] shrink-0">
-                    {step.state === 'running' ? (
+                    {aide && step.state !== 'failed' ? (
+                      <Bot className={cn('h-3 w-3 text-teinte', step.state === 'running' && 'animate-pulse')} />
+                    ) : step.state === 'running' ? (
                       <Loader2 className="h-3 w-3 animate-spin text-en-cours" />
                     ) : step.state === 'done' ? (
                       <Check className="h-3 w-3 text-termine" />
@@ -157,8 +172,15 @@ export function Steps({
                   <span
                     className={cn(
                       'flex-1 text-[13.5px] leading-snug',
-                      step.state === 'done' ? 'text-muted' : step.state === 'failed' ? 'text-danger' : 'text-text',
+                      step.state === 'failed'
+                        ? 'text-danger'
+                        : aide
+                          ? 'text-teinte'
+                          : step.state === 'done'
+                            ? 'text-muted'
+                            : 'text-text',
                     )}
+                    data-etape-aide={aide ? '' : undefined}
                   >
                     {step.label}
                   </span>

@@ -790,6 +790,11 @@ export interface ContexteDesPoints {
    */
   tourNonAbouti?: boolean;
   /**
+   * LA CARTE EST SUSPENDUE À LA MAIN (`carteEnPause`) : le point « Travail »
+   * reste neutre et dit qu'il se reprend — ni rouge, ni « L'agent travaille ».
+   */
+  enPause?: boolean;
+  /**
    * LE DERNIER TOUR DE L'AGENT EST TOMBÉ (échec, arrêt), et UNE DÉCISION DE
    * TOUR ATTEND (« Renvoyer ma demande / Ignorer / Arrêter », ou le choix d'un
    * compte — `decisionsEnAttente`). Ensemble, ils disent qu'un tour de CADRAGE
@@ -1176,12 +1181,14 @@ export function tourDeReponseSeule(
  * #f9af et #7430). La règle rend cette trace — la DERNIÈRE, c'est le texte
  * final du tour — pour qu'elle sorte du récit et se lise dans un cadre.
  *
- * LE CADRAGE EST UNE DISCUSSION (30/09/2026) : la réponse est le cœur de CHAQUE
- * tour, y compris celui qui a aussi mis la compréhension à jour. Elle sort donc
- * du récit dans les deux cas, et l'écran la pose AU-DESSUS du cadre de la
- * compréhension — on lit d'abord ce que l'agent répond, puis ce qu'il a
- * compris. Rien pour un passage hors « Compréhension », ni pour une réponse
- * vide.
+ * LA COMPRÉHENSION EST UNE RÉPONSE PAR DÉFINITION (14/10/2026). Un tour qui a
+ * rendu une compréhension n'affiche qu'elle : la réponse écrite, qui disait
+ * presque la même chose juste au-dessus, reste une trace du récit, sous la ligne
+ * « Réflexion » repliée — rien n'est perdu, mais on ne lit jamais deux réponses
+ * quasi semblables. La compréhension s'ouvre elle-même en répondant à la
+ * question posée. Seul un tour qui a RÉPONDU AU LIEU DE CADRER (une simple
+ * question) sort sa réponse du récit, et la lit en clair. Rien pour un passage
+ * hors « Compréhension », ni pour une réponse vide.
  */
 export function reponseDuPassage(
   passage: Pick<PassageNu, 'etape' | 'moments' | 'traces'>,
@@ -1189,7 +1196,9 @@ export function reponseDuPassage(
 ): EntreeJournal | undefined {
   if (passage.etape !== 'comprehension') return undefined;
   const aCompris = passage.moments.some((moment) => moment.sorte === 'comprehension');
-  if (!aCompris && !tourDeReponseSeule(passage, parcours)) return undefined;
+  /* UNE SEULE RÉPONSE PAR TOUR : la compréhension rendue EST la réponse. */
+  if (aCompris) return undefined;
+  if (!tourDeReponseSeule(passage, parcours)) return undefined;
   const reponses = passage.traces.filter((trace) => estReponseRendue(trace) && (trace.resultat ?? '').trim());
   return reponses[reponses.length - 1];
 }
@@ -1198,9 +1207,9 @@ export function reponseDuPassage(
 export type BlocDeFin = 'reponse' | 'comprehension' | 'plan';
 
 /**
- * LE BLOC DE FIN D'UN PASSAGE, s'il en porte un : la réponse du tour (posée
- * au-dessus de la compréhension quand il a aussi cadré), la compréhension d'un
- * tour cadré sans texte, ou la version de plan rendue. C'est lui qui
+ * LE BLOC DE FIN D'UN PASSAGE, s'il en porte un : la réponse d'un tour qui a
+ * seulement répondu, la compréhension d'un tour qui a cadré (elle EST la
+ * réponse, `reponseDuPassage`), ou la version de plan rendue. C'est lui qui
  * s'ouvre d'office, que l'écran vise par son DÉBUT, et devant lequel la
  * réflexion se replie.
  */
@@ -1376,6 +1385,7 @@ export function pointsDuParcours(
       }
       if (point.etape === 'travail' && courante === 'travail') {
         if (ctx.tourEnCours) etat = 'encours';
+        else if (ctx.enPause) etat = 'avenir';
         else if (COLONNES_AVANT_LE_TRAVAIL.includes(ctx.colonne)) etat = 'erreur';
         else etat = derniereErreur && derniereErreur.etape === 'travail' ? 'erreur' : 'encours';
       }
@@ -1415,6 +1425,8 @@ export function pointsDuParcours(
           : /* LE TOUR A RÉPONDU, IL N'A PAS COMPRIS : la phrase le dit. */
             point.etape === 'comprehension' && etat === 'fait' && dernier && tourDeReponseSeule(point, ctx.parcours)
             ? PHRASE_COMPREHENSION_REPONDUE
+            : point.etape === 'travail' && dernier && ctx.enPause && !ctx.tourEnCours
+              ? PHRASE_TRAVAIL_SUSPENDU
             : point.etape === 'comprehension' && etat === 'avenir' && dernier && ctx.cadrageEnAttente && !ctx.tourEnCours
               ? PHRASE_COMPREHENSION_EN_ATTENTE
               : PHRASES_DU_POINT[point.etape][etat];
@@ -1954,6 +1966,9 @@ function uneSeuleEtapeEnCours(points: PointDuParcours[]): PointDuParcours[] {
  * carte du tableau (`travailRestant`), jamais dans une phrase à trous que le
  * dictionnaire ne saurait pas ranger.
  */
+/** Ce que dit le point « Travail » d'une carte SUSPENDUE à la main : un geste, pas une panne. */
+export const PHRASE_TRAVAIL_SUSPENDU = 'Le travail est suspendu : il reprend d’un appui sur « Reprendre ».';
+
 export const TEXTE_TRAVAIL_NON_ABOUTI =
   'Des étapes n’ont pas été faites : le travail s’est arrêté avant la fin, il se reprend.';
 
@@ -2025,26 +2040,20 @@ function derniereErreurDuJournal(entrees: readonly EntreeJournal[]): { etape: Et
 /* Le flux et la barre                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Ce que le flux dessine : les points du parcours, et les questions ouvertes en points jaunes. */
-export type ElementDuFlux =
-  | { sorte: 'point'; cle: string; point: PointDuParcours }
-  | { sorte: 'question'; cle: string; etape: EtapeDuParcours; entree: EntreeJournal };
+/** Ce que le flux dessine : les points du parcours, et eux seuls. */
+export type ElementDuFlux = { sorte: 'point'; cle: string; point: PointDuParcours };
 
 /**
- * LE FLUX : chaque point, suivi des questions ENCORE OUVERTES qu'il a posées,
- * en points jaunes à part. Une question répondue reste dans son point, avec sa
+ * LE FLUX : chaque point, dans l'ordre. UNE QUESTION OUVERTE N'A PLUS DE POINT
+ * À PART (14/10/2026) : elle se lisait deux fois — dans le fil, avec un bouton
+ * « Répondre » qui ne faisait que descendre vers le panneau, puis dans le
+ * panneau « Une décision attend », collé au champ, où l'on répond vraiment.
+ * Elle n'a plus que cet endroit-là ; son point passe toujours en jaune
+ * (`etat: 'question'`). Une question répondue reste dans son point, avec sa
  * réponse : elle n'arrête plus personne.
  */
 export function fluxDuParcours(points: readonly PointDuParcours[]): ElementDuFlux[] {
-  const flux: ElementDuFlux[] = [];
-  for (const point of points) {
-    flux.push({ sorte: 'point', cle: point.ancre, point });
-    for (const question of point.questions) {
-      if (question.repondue) continue;
-      flux.push({ sorte: 'question', cle: `question-${question.entree.id}`, etape: point.etape, entree: question.entree });
-    }
-  }
-  return flux;
+  return points.map((point) => ({ sorte: 'point', cle: point.ancre, point }));
 }
 
 /** Un segment de la barre d'étapes : l'état de son point, rien de plus. */

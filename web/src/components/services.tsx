@@ -89,7 +89,9 @@ export function BoutonDesServices({
   const sitesEnPanne = compterEnPanne(state.surveillance);
   const messages = state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter;
   const alertes = messages + sitesEnPanne;
-  const serviceOuvert = CLES_DES_SERVICES.find((service) => service.cle === vue);
+  /* LE STUDIO N'A DE TUILE QUE POUR SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`). */
+  const services = CLES_DES_SERVICES.filter((service) => service.cle !== 'studio' || state.studioOuvert);
+  const serviceOuvert = services.find((service) => service.cle === vue);
   const surUnService = !!serviceOuvert;
   /* « Tableaux de bord » : la vue qui les nomme, ou un projet qu'aucun clic n'a encore ouvert. */
   const surLesTableauxDeBord = vue === 'en-route' || (vue === 'projet' && !state.activeProjectId);
@@ -137,7 +139,7 @@ export function BoutonDesServices({
           <span className="min-w-0 truncate">{t('Tableaux de bord')}</span>
         </DropdownMenuItem>
         <div className="grid grid-cols-2 gap-1">
-          {CLES_DES_SERVICES.map(({ cle, repere, Icone: IconeDuService, cleLibelle }) => (
+          {services.map(({ cle, repere, Icone: IconeDuService, cleLibelle }) => (
             <DropdownMenuItem
               key={cle}
               data-destination={cle}

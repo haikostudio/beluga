@@ -2,15 +2,24 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import {
   AccesCoffre,
+  DossierCoffre,
+  IMAGES_ACCES_MAX,
+  IMAGE_ACCES_OCTETS_MAX,
+  NOM_ACCES_MAX,
   PROJET_DU_COFFRE,
   TypeAcces,
   archivePurgeable,
+  imageDuCoffreAcceptee,
   imagesApresEnregistrement,
   jugerAcces,
+  jugerDossier,
+  mimeDuFichier,
+  normaliserRecherche,
   trierAcces,
   type Attachment,
 } from '@beluga/shared';
 import { getDb } from './db.js';
+import { fichierPermis, joindreUnFichier } from './joindre-fichier.js';
 import { log } from './logger.js';
 import { cheminDePieceJointe } from './pieces-jointes.js';
 import * as store from './store.js';
@@ -35,6 +44,16 @@ interface LigneAcces {
   modifie_le: number;
   archive_le?: number | null;
   images?: string | null;
+  dossier_id?: string | null;
+}
+
+interface LigneDossier {
+  id: string;
+  nom: string;
+  project_id: string | null;
+  cree_le: number;
+  modifie_le: number;
+  archive_le: number | null;
 }
 
 /** La liste d'images d'une ligne : un JSON abîmé vaut « aucune image ». */
@@ -67,7 +86,39 @@ function depuisLigne(ligne: LigneAcces): AccesCoffre {
     origine: 'coffre',
     archiveLe: ligne.archive_le ?? null,
     images: imagesDeLaLigne(ligne.images),
+    dossierId: ligne.dossier_id ?? null,
   };
+}
+
+function dossierDepuisLigne(ligne: LigneDossier): DossierCoffre {
+  return {
+    id: ligne.id,
+    nom: ligne.nom,
+    projectId: ligne.project_id,
+    creeLe: ligne.cree_le,
+    modifieLe: ligne.modifie_le,
+    archiveLe: ligne.archive_le ?? null,
+  };
+}
+
+/** Les dossiers ACTIFS, par ordre alphabétique. Jamais mêlés aux fiches : `listerAcces` ne les voit pas. */
+export function listerDossiers(): DossierCoffre[] {
+  const lignes = getDb()
+    .prepare('SELECT * FROM dossiers_coffre WHERE archive_le IS NULL ORDER BY nom COLLATE NOCASE ASC')
+    .all() as LigneDossier[];
+  return lignes.map(dossierDepuisLigne);
+}
+
+/** Les dossiers ARCHIVÉS (avec leurs fiches, archivées du même geste), le plus récemment retiré d'abord. */
+export function listerDossiersArchives(): DossierCoffre[] {
+  const lignes = getDb()
+    .prepare('SELECT * FROM dossiers_coffre WHERE archive_le IS NOT NULL ORDER BY archive_le DESC, nom ASC')
+    .all() as LigneDossier[];
+  return lignes.map(dossierDepuisLigne);
+}
+
+function ligneDeDossier(id: string): LigneDossier | undefined {
+  return getDb().prepare('SELECT * FROM dossiers_coffre WHERE id = ?').get(id) as LigneDossier | undefined;
 }
 
 /**
@@ -110,6 +161,17 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
 
   const champs = JSON.stringify(juge.champs);
 
+  /*
+   * LE DOSSIER : une fiche rangée dans un dossier SUIT le projet du dossier
+   * (c'est ce qui garde le dossier et ses fiches sous un même projet). Taire le
+   * dossier ne déplace rien ; `null` sort la fiche du dossier.
+   */
+  let dossierDemande: LigneDossier | undefined;
+  if (juge.dossierId) {
+    dossierDemande = ligneDeDossier(juge.dossierId);
+    if (!dossierDemande || dossierDemande.archive_le != null) return { ok: false, raison: 'Ce dossier n’existe pas.' };
+  }
+
   if (id) {
     const ligne = getDb().prepare('SELECT * FROM secrets WHERE id = ?').get(id) as LigneAcces | undefined;
     if (!ligne) return { ok: false, raison: 'Accès introuvable.' };
@@ -124,13 +186,17 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
     const refus = imagesRefusees(images);
     if (refus) return { ok: false, raison: refus };
     const imagesEcrites = JSON.stringify(images);
+    const dossierFinal =
+      juge.dossierId === undefined ? ligneDossierActif(ligne.dossier_id) : dossierDemande;
+    const projetFinal = dossierFinal ? dossierFinal.project_id : juge.projectId;
+    const dossierIdFinal = dossierFinal ? dossierFinal.id : null;
     getDb()
       .prepare(
-        'UPDATE secrets SET nom = ?, type = ?, project_id = ?, champs = ?, note = ?, images = ?, modifie_le = ? WHERE id = ?',
+        'UPDATE secrets SET nom = ?, type = ?, project_id = ?, champs = ?, note = ?, images = ?, dossier_id = ?, modifie_le = ? WHERE id = ?',
       )
-      .run(juge.nom, juge.type, juge.projectId, champs, juge.note, imagesEcrites, maintenant, id);
+      .run(juge.nom, juge.type, projetFinal, champs, juge.note, imagesEcrites, dossierIdFinal, maintenant, id);
     effacerLesImagesOrphelines(retirees);
-    return { ok: true, acces: depuisLigne({ ...ligne, nom: juge.nom, type: juge.type, project_id: juge.projectId, champs, note: juge.note, images: imagesEcrites, modifie_le: maintenant }) };
+    return { ok: true, acces: depuisLigne({ ...ligne, nom: juge.nom, type: juge.type, project_id: projetFinal, champs, note: juge.note, images: imagesEcrites, dossier_id: dossierIdFinal, modifie_le: maintenant }) };
   }
 
   const refus = imagesRefusees(juge.images ?? []);
@@ -146,14 +212,147 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
     cree_le: maintenant,
     modifie_le: maintenant,
     images: JSON.stringify(juge.images ?? []),
+    dossier_id: dossierDemande ? dossierDemande.id : null,
   };
+  if (dossierDemande) neuf.project_id = dossierDemande.project_id;
   getDb()
     .prepare(
-      'INSERT INTO secrets (id, nom, type, project_id, champs, note, images, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO secrets (id, nom, type, project_id, champs, note, images, dossier_id, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(neuf.id, neuf.nom, neuf.type, neuf.project_id, neuf.champs, neuf.note, neuf.images, neuf.cree_le, neuf.modifie_le);
+    .run(neuf.id, neuf.nom, neuf.type, neuf.project_id, neuf.champs, neuf.note, neuf.images, neuf.dossier_id, neuf.cree_le, neuf.modifie_le);
   log.info(`coffre-fort : accès « ${neuf.nom} » enregistré`);
   return { ok: true, acces: depuisLigne(neuf) };
+}
+
+/* ------------------------------------------------------------------ */
+/* LES DOSSIERS                                                        */
+/* ------------------------------------------------------------------ */
+
+/** Le dossier ACTIF qui porte cet identifiant, ou `undefined`. */
+function ligneDossierActif(id: string | null | undefined): LigneDossier | undefined {
+  if (!id) return undefined;
+  const ligne = ligneDeDossier(id);
+  return ligne && ligne.archive_le == null ? ligne : undefined;
+}
+
+export type EnregistrementDossier = { ok: true; dossier: DossierCoffre } | { ok: false; raison: string };
+
+/**
+ * Crée un dossier (sans `id`) ou le corrige (renommer, changer de projet). Un
+ * nom est unique parmi les dossiers actifs : c'est par lui qu'un agent range une
+ * fiche. Changer de projet déménage aussi les fiches du dossier — elles suivent
+ * toujours leur dossier.
+ */
+export function enregistrerDossier(brut: unknown, maintenant = Date.now()): EnregistrementDossier {
+  const juge = jugerDossier(brut);
+  if (!juge.ok) return { ok: false, raison: juge.raison };
+  const id = String((brut as any)?.id ?? '').trim();
+
+  if (juge.projectId) {
+    const existe = getDb().prepare('SELECT 1 FROM projects WHERE id = ?').get(juge.projectId);
+    if (!existe) return { ok: false, raison: 'Ce projet n’existe pas.' };
+  }
+  const nomNormalise = normaliserRecherche(juge.nom);
+  const doublon = listerDossiers().find((d) => d.id !== id && normaliserRecherche(d.nom) === nomNormalise);
+  if (doublon) return { ok: false, raison: `Un dossier « ${doublon.nom} » existe déjà.` };
+
+  if (id) {
+    const ligne = ligneDeDossier(id);
+    if (!ligne) return { ok: false, raison: 'Dossier introuvable.' };
+    if (ligne.archive_le != null) return { ok: false, raison: 'Ce dossier est archivé : restaurez-le avant de le corriger.' };
+    const base = getDb();
+    base.transaction(() => {
+      base
+        .prepare('UPDATE dossiers_coffre SET nom = ?, project_id = ?, modifie_le = ? WHERE id = ?')
+        .run(juge.nom, juge.projectId, maintenant, id);
+      if (ligne.project_id !== juge.projectId) {
+        base.prepare('UPDATE secrets SET project_id = ? WHERE dossier_id = ?').run(juge.projectId, id);
+      }
+    })();
+    return { ok: true, dossier: dossierDepuisLigne({ ...ligne, nom: juge.nom, project_id: juge.projectId, modifie_le: maintenant }) };
+  }
+
+  const neuf: LigneDossier = {
+    id: crypto.randomUUID(),
+    nom: juge.nom,
+    project_id: juge.projectId,
+    cree_le: maintenant,
+    modifie_le: maintenant,
+    archive_le: null,
+  };
+  getDb()
+    .prepare('INSERT INTO dossiers_coffre (id, nom, project_id, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?)')
+    .run(neuf.id, neuf.nom, neuf.project_id, neuf.cree_le, neuf.modifie_le);
+  log.info(`coffre-fort : dossier « ${neuf.nom} » créé`);
+  return { ok: true, dossier: dossierDepuisLigne(neuf) };
+}
+
+/**
+ * Range une fiche dans un dossier (`idDossier`) ou la ressort (`null`). La fiche
+ * prend le projet du dossier. Les fiches archivées ne se rangent pas.
+ */
+export function rangerAcces(
+  idFiche: string,
+  idDossier: string | null,
+  maintenant = Date.now(),
+): { ok: true; acces: AccesCoffre } | { ok: false; raison: string } {
+  const ligne = getDb().prepare('SELECT * FROM secrets WHERE id = ?').get(idFiche) as LigneAcces | undefined;
+  if (!ligne) return { ok: false, raison: 'Accès introuvable.' };
+  if (ligne.archive_le != null) return { ok: false, raison: 'Cet accès est archivé : restaurez-le avant de le ranger.' };
+  let projet = ligne.project_id;
+  if (idDossier) {
+    const dossier = ligneDossierActif(idDossier);
+    if (!dossier) return { ok: false, raison: 'Ce dossier n’existe pas.' };
+    projet = dossier.project_id;
+  }
+  getDb()
+    .prepare('UPDATE secrets SET dossier_id = ?, project_id = ?, modifie_le = ? WHERE id = ?')
+    .run(idDossier, projet, maintenant, idFiche);
+  return { ok: true, acces: depuisLigne({ ...ligne, dossier_id: idDossier, project_id: projet, modifie_le: maintenant }) };
+}
+
+/**
+ * RECLASSE une fiche active sans toucher à ses valeurs : son nom, son projet,
+ * son dossier. C'est le geste de la réorganisation du coffre — il ne repasse
+ * pas par le garde « une fiche par secret », qui jugerait de nouveau des
+ * champs que personne ne modifie. Un dossier donné impose son projet.
+ */
+export function reclasserAcces(
+  id: string,
+  changements: { nom?: string; projectId?: string | null; dossierId?: string | null },
+  maintenant = Date.now(),
+): { ok: true; acces: AccesCoffre } | { ok: false; raison: string } {
+  const ligne = getDb().prepare('SELECT * FROM secrets WHERE id = ?').get(id) as LigneAcces | undefined;
+  if (!ligne) return { ok: false, raison: 'Accès introuvable.' };
+  if (ligne.archive_le != null) return { ok: false, raison: 'Cet accès est archivé : restaurez-le avant de le reclasser.' };
+
+  let nom = ligne.nom;
+  if (changements.nom !== undefined) {
+    nom = String(changements.nom).trim();
+    if (!nom) return { ok: false, raison: 'Donnez un nom à cet accès.' };
+    if (nom.length > NOM_ACCES_MAX) return { ok: false, raison: `Le nom ne peut pas dépasser ${NOM_ACCES_MAX} signes.` };
+  }
+
+  let dossierId = ligne.dossier_id ?? null;
+  let projet = ligne.project_id;
+  if (changements.projectId !== undefined) {
+    projet = changements.projectId;
+    if (projet && !getDb().prepare('SELECT 1 FROM projects WHERE id = ?').get(projet))
+      return { ok: false, raison: 'Ce projet n’existe pas.' };
+  }
+  if (changements.dossierId !== undefined) {
+    dossierId = changements.dossierId;
+    if (dossierId && !ligneDossierActif(dossierId)) return { ok: false, raison: 'Ce dossier n’existe pas.' };
+  }
+  // Une fiche rangée suit toujours le projet de son dossier.
+  const dossier = ligneDossierActif(dossierId);
+  if (dossier) projet = dossier.project_id;
+  else dossierId = null;
+
+  getDb()
+    .prepare('UPDATE secrets SET nom = ?, project_id = ?, dossier_id = ?, modifie_le = ? WHERE id = ?')
+    .run(nom, projet, dossierId, maintenant, id);
+  return { ok: true, acces: depuisLigne({ ...ligne, nom, project_id: projet, dossier_id: dossierId, modifie_le: maintenant }) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -192,6 +391,84 @@ export function imagesDesAcces(acces: readonly AccesCoffre[]): (Attachment & { c
     }
   }
   return pieces;
+}
+
+/**
+ * LES IMAGES QU'UN AGENT DEMANDE POUR UNE FICHE, résolues en pièces du projet
+ * réservé du coffre. Chaque entrée est, dans cet ordre : l'identifiant (ou
+ * l'alias) d'une image que la fiche porte déjà, l'alias d'une pièce jointe
+ * d'une conversation (« 74ad » ou « #74ad »), ou le chemin d'un fichier dans
+ * les racines permises. Une pièce d'ailleurs est RECOPIÉE sous le projet
+ * réservé (jamais déplacée : la carte garde la sienne), et le dédoublonnage
+ * par empreinte du coffre fait qu'un même contenu ne compte qu'une fois.
+ *
+ * Tout est jugé AVANT la moindre copie : un refus ne laisse aucun fichier.
+ * Chaque refus dit sa vraie raison, jamais un manque de droit.
+ */
+export async function imagesDemandeesParUnAgent(opts: {
+  entrees: readonly unknown[];
+  /** Les images que la fiche porte déjà (vide pour une fiche neuve). */
+  dejaPortees: readonly string[];
+  racines: Array<string | undefined | null>;
+}): Promise<{ ok: true; ids: string[] } | { ok: false; raison: string }> {
+  const demandes = [...new Set(opts.entrees.map((e) => String(e ?? '').trim().replace(/^#/, '')).filter(Boolean))];
+  if (demandes.length > IMAGES_ACCES_MAX) {
+    return { ok: false, raison: `Une fiche porte ${IMAGES_ACCES_MAX} images au plus : ${demandes.length} demandées.` };
+  }
+  const portees = opts.dejaPortees.map((id) => store.getAttachment(id)).filter((p): p is Attachment => !!p);
+  const plan: Array<{ id: string } | { fichier: string; nom: string; demande: string }> = [];
+  for (const demande of demandes) {
+    const deLaFiche = portees.find((p) => p.id === demande || p.alias === demande);
+    if (deLaFiche) {
+      plan.push({ id: deLaFiche.id });
+      continue;
+    }
+    // Une image déjà rangée au coffre (vue dans « lister » sur une autre fiche) se redonne par son id.
+    const duCoffre = store.getAttachment(demande);
+    if (duCoffre?.projectId === PROJET_DU_COFFRE) {
+      plan.push({ id: duCoffre.id });
+      continue;
+    }
+    const source = store.attachmentsParAlias([demande])[0];
+    let fichier: string | null = null;
+    let nom = '';
+    if (source) {
+      const chemin = cheminDePieceJointe(source);
+      if (!fs.existsSync(chemin)) return { ok: false, raison: `Le fichier de la pièce jointe « ${demande} » n’est plus sur le disque.` };
+      fichier = chemin;
+      nom = source.name;
+    } else {
+      fichier = fichierPermis(demande, opts.racines);
+      if (fichier) nom = fichier.split('/').pop() ?? demande;
+    }
+    if (!fichier) {
+      return {
+        ok: false,
+        raison: `Aucune pièce jointe ni aucun fichier ne correspond à « ${demande} » : donne l’alias d’une pièce jointe (ex. 74ad), le chemin d’un fichier lisible, ou l’« id » d’une image déjà portée par la fiche.`,
+      };
+    }
+    if (!imageDuCoffreAcceptee(mimeDuFichier(fichier))) {
+      return { ok: false, raison: `« ${nom || demande} » n’est pas une image : le coffre ne garde que des images (capture, code QR, document scanné).` };
+    }
+    if (fs.statSync(fichier).size > IMAGE_ACCES_OCTETS_MAX) {
+      return { ok: false, raison: `« ${nom || demande} » pèse plus de ${Math.round(IMAGE_ACCES_OCTETS_MAX / 1024 / 1024)} Mo, le plafond d’une image du coffre.` };
+    }
+    plan.push({ fichier, nom, demande });
+  }
+  const ids: string[] = [];
+  for (const etape of plan) {
+    if ('id' in etape) {
+      ids.push(etape.id);
+      continue;
+    }
+    const jointure = await joindreUnFichier({ projectId: PROJET_DU_COFFRE, fichier: etape.fichier, nom: etape.nom });
+    if (!jointure.ok) {
+      effacerLesImagesOrphelines(ids);
+      return { ok: false, raison: `${jointure.refus} (${etape.demande})` };
+    }
+    ids.push(jointure.attachment.id);
+  }
+  return { ok: true, ids: [...new Set(ids)] };
 }
 
 /** Une AUTRE fiche du coffre (active ou archivée) cite-t-elle encore cette image ? */
@@ -278,12 +555,71 @@ export function supprimerAcces(id: string, maintenant = Date.now()): { ok: boole
   return { ok: true };
 }
 
-/** Remet une fiche archivée parmi les accès actifs. */
+/**
+ * Remet une fiche archivée parmi les accès actifs. Si son dossier est lui-même
+ * archivé (ou n'existe plus), elle revient à la racine : elle ne se perd pas
+ * dans un dossier que la liste ne montre pas.
+ */
 export function restaurerAcces(id: string): { ok: boolean; raison?: string } {
   const res = getDb().prepare('UPDATE secrets SET archive_le = NULL WHERE id = ? AND archive_le IS NOT NULL').run(id);
   if (!res.changes) return { ok: false, raison: 'Archive introuvable.' };
+  getDb()
+    .prepare(
+      `UPDATE secrets SET dossier_id = NULL
+        WHERE id = ? AND dossier_id IS NOT NULL
+          AND dossier_id NOT IN (SELECT id FROM dossiers_coffre WHERE archive_le IS NULL)`,
+    )
+    .run(id);
   log.info(`coffre-fort : accès ${id} restauré depuis les archives`);
   return { ok: true };
+}
+
+/**
+ * RETIRE un dossier ET ses fiches, d'un seul geste : tout reçoit le MÊME
+ * `archive_le`, c'est ce qui permet de les restaurer ensemble sans toucher à
+ * une fiche archivée à la main avant. Refusé si une surveillance lit encore une
+ * des fiches. Les images restent avec les fiches (effacées à la purge seulement).
+ */
+export function supprimerDossier(id: string, maintenant = Date.now()): { ok: boolean; raison?: string; fiches?: number } {
+  const dossier = ligneDeDossier(id);
+  if (!dossier) return { ok: false, raison: 'Dossier introuvable.' };
+  if (dossier.archive_le != null) return { ok: false, raison: 'Ce dossier est déjà archivé.' };
+  const fiches = getDb()
+    .prepare('SELECT id FROM secrets WHERE dossier_id = ? AND archive_le IS NULL')
+    .all(id) as { id: string }[];
+  for (const fiche of fiches) {
+    const sites = surveillancesQuiLisent(fiche.id);
+    if (sites.length)
+      return {
+        ok: false,
+        raison: `Une surveillance lit encore un accès de ce dossier (${sites.join(', ')}) : faites-la pointer vers une autre fiche avant de le retirer.`,
+      };
+  }
+  const base = getDb();
+  base.transaction(() => {
+    base.prepare('UPDATE dossiers_coffre SET archive_le = ? WHERE id = ?').run(maintenant, id);
+    base.prepare('UPDATE secrets SET archive_le = ? WHERE dossier_id = ? AND archive_le IS NULL').run(maintenant, id);
+  })();
+  log.info(`coffre-fort : dossier « ${dossier.nom} » archivé avec ${fiches.length} fiche(s)`);
+  return { ok: true, fiches: fiches.length };
+}
+
+/** Remet un dossier archivé ET les fiches archivées avec lui (même instant), pas les autres. */
+export function restaurerDossier(id: string): { ok: boolean; raison?: string; fiches?: number } {
+  const dossier = ligneDeDossier(id);
+  if (!dossier || dossier.archive_le == null) return { ok: false, raison: 'Archive introuvable.' };
+  const doublon = listerDossiers().find((d) => normaliserRecherche(d.nom) === normaliserRecherche(dossier.nom));
+  if (doublon) return { ok: false, raison: `Un dossier « ${doublon.nom} » existe déjà : renommez-le avant de restaurer celui-ci.` };
+  const base = getDb();
+  let fiches = 0;
+  base.transaction(() => {
+    base.prepare('UPDATE dossiers_coffre SET archive_le = NULL WHERE id = ?').run(id);
+    fiches = base
+      .prepare('UPDATE secrets SET archive_le = NULL WHERE dossier_id = ? AND archive_le = ?')
+      .run(id, dossier.archive_le).changes;
+  })();
+  log.info(`coffre-fort : dossier « ${dossier.nom} » restauré avec ${fiches} fiche(s)`);
+  return { ok: true, fiches };
 }
 
 /**
@@ -303,6 +639,15 @@ export function purgerArchives(maintenant = Date.now()): number {
       `coffre-fort : archive « ${acces.nom} » (${acces.id}) effacée, retirée le ${new Date(acces.archiveLe ?? 0).toISOString()}`,
     );
     effacees += 1;
+  }
+  // Un dossier archivé s'efface avec le dernier de ses jours : ses fiches
+  // viennent de partir (même instant). Une fiche archivée plus tôt, à la main,
+  // qui le citerait encore est simplement rendue à la racine.
+  for (const dossier of listerDossiersArchives()) {
+    if (!archivePurgeable(dossier, maintenant)) continue;
+    getDb().prepare('UPDATE secrets SET dossier_id = NULL WHERE dossier_id = ?').run(dossier.id);
+    getDb().prepare('DELETE FROM dossiers_coffre WHERE id = ? AND archive_le IS NOT NULL').run(dossier.id);
+    log.info(`coffre-fort : dossier archivé « ${dossier.nom} » (${dossier.id}) effacé`);
   }
   return effacees;
 }

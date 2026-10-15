@@ -4,7 +4,6 @@ import {
   adressesMimoAEssayer,
   dedoublonnerModeles,
   estUneAdresseMimo,
-  limiterAuxPlusRecents,
 } from '@beluga/shared';
 import { EngineAdapter, EngineHandle, EngineRunOptions } from './types.js';
 import { claudeAdapter } from './claude.js';
@@ -111,8 +110,7 @@ function versionMimo(id: string): number {
 }
 
 /**
- * Le catalogue, du plus récent au plus ancien, une version par famille
- * (`limiterAuxPlusRecents`). Aucun niveau de réflexion : l'option `--effort`
+ * Le catalogue ENTIER, du plus récent au plus ancien. Aucun niveau de réflexion : l'option `--effort`
  * de l'outil ne vaut que pour les modèles d'Anthropic.
  */
 export function catalogueMimoDepuisIds(ids: readonly string[]): ModelInfo[] {
@@ -126,7 +124,7 @@ export function catalogueMimoDepuisIds(ids: readonly string[]): ModelInfo[] {
         appetite: appetitMimo(id),
       }),
     );
-  return limiterAuxPlusRecents(dedoublonnerModeles(modeles));
+  return dedoublonnerModeles(modeles);
 }
 
 /** Le repli, quand Xiaomi ne répond pas ou qu'aucune clé n'est déclarée. */

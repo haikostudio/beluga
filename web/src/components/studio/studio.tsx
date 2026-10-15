@@ -60,11 +60,13 @@ import { useTelephone } from '@/lib/telephone';
 import { usePref } from '@/lib/prefs';
 import { ResizeHandle, ResizeHandleHorizontale, useResizable } from '@/components/resizer';
 import { formatRegional, t } from '@/lib/langue';
+import { PasAPas } from '@/components/pas-a-pas';
 import { cn } from '@/lib/utils';
 import { Apercu, ApercuEnDirect, type ApercuDirect, type BoiteDuCadre, type MessageDuCadre, type PoigneeApercu } from './apercu';
 import { AvancementDeCreation } from './avancement';
 import { EditeurElement } from './editeur-element';
 import { PanneauSources, PanneauStyles, StylesCites, demandeDAppliquer, type StyleDeLaGalerie } from './styles';
+import { EncadreServices } from './services';
 import { LigneDeTemps, nomDuSegment, type QuoiAjouter } from './ligne-de-temps';
 import { Calques, Inspecteur, ReglagesDeComposition } from './inspecteur';
 import { DepensesEnAttente, PanneauBibliotheque, choisirEtImporter } from './panneaux';
@@ -166,7 +168,7 @@ function OptionsDeLAtelierAuTelephone({
       <OptionDePage icone={<Library className="h-3.5 w-3.5" />} disabled={bloque} onClick={onBibliotheque} aria-label="Bibliothèque" data-studio-ouvrir-bibliotheque>
         {t('Bibliothèque')}
       </OptionDePage>
-      <BoutonMiseEnProduction compact={false} bloque={bloque} depenses={donnees.depenses} exports={donnees.exports} onClick={onProduction} />
+      <BoutonMiseEnProduction compact bloque={bloque} depenses={donnees.depenses} exports={donnees.exports} onClick={onProduction} />
     </OptionsDePage>
   );
 }
@@ -260,11 +262,17 @@ function ListeDesCreations({ onOuvrir }: { onOuvrir: (id: string) => void }) {
         {vue === null ? (
           <SilhouetteStudio />
         ) : !vue.creations.length ? (
-          <div className="flex flex-col gap-2 px-1 py-4 text-[13.5px] leading-relaxed" data-studio-vide>
-            <p className="text-text">{t('Aucune création pour l’instant.')}</p>
-            <p className="text-muted">
-              {t('Une création est un visuel ou une courte vidéo animée, faite de pièces séparées qu’on retouche à tout moment. L’agent du studio les dessine pour vous, puis vous l’exportez aux formats des réseaux.')}
-            </p>
+          <div data-studio-vide>
+            <PasAPas
+              repere="studio"
+              titre={t('Aucune création pour l’instant.')}
+              explication={t('Une création est un visuel ou une courte vidéo animée, faite de pièces séparées qu’on retouche à tout moment. L’agent du studio les dessine pour vous, puis vous l’exportez aux formats des réseaux.')}
+              etapes={[
+                t('Cliquez sur « Nouvelle création » et décrivez ce que vous voulez.'),
+                t('L’agent du studio la dessine ; retouchez chaque pièce à votre goût.'),
+                t('Exportez-la aux formats des réseaux.'),
+              ]}
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-6">
@@ -907,7 +915,47 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         {t('Style')}
       </Button>
       </>)}
-      <BoutonMiseEnProduction compact={false} bloque={agentTravaille} depenses={donnees.depenses} exports={donnees.exports} onClick={() => setProduction(true)} />
+      <BoutonMiseEnProduction compact bloque={agentTravaille} depenses={donnees.depenses} exports={donnees.exports} onClick={() => setProduction(true)} />
+    </>
+  );
+
+  /* LA LIGNE DE TEMPS : sur ordinateur, sa hauteur est celle que l'on a choisie (poignée au-dessus) ; repliée, il ne reste que sa barre.
+     La poignée est LE SEUL TRAIT entre l'aperçu et la ligne de temps : sa marge haute la pose à mi-chemin des deux.
+     SUR ORDINATEUR, ELLE VIT SOUS L'APERÇU, À SA LARGEUR (demande du 14/10/2026) : la conversation, à droite, prend alors
+     toute la hauteur de l'atelier, au lieu de s'arrêter au-dessus d'une ligne de temps qui traversait la page. Au
+     téléphone, rien ne change : elle suit la rangée de l'aperçu et prend ce qui reste. */
+  const ligneDeTemps = (
+    <>
+      {!telephone && timelineOuverte ? (
+        <ResizeHandleHorizontale
+          className="mt-1.5"
+          onPointerDown={(event) => hauteurTimeline.start(event, 'bottom')}
+          onDoubleClick={hauteurTimeline.reset}
+          data-studio-poignee="timeline"
+        />
+      ) : null}
+      <div
+        className={cn('flex min-h-0 flex-col pt-2', telephone ? 'flex-1' : 'shrink-0')}
+        style={!telephone && timelineOuverte ? { height: hauteurTimeline.size } : undefined}
+        data-studio-rangee-ligne-de-temps
+      >
+        {/* Sans `fond` imposé : le fondu suit le fond de la PAGE qui porte la ligne de temps (un gris de tiroir y laissait une bande). */}
+        <ZoneDefilement className="px-1 pb-2">
+          <LigneDeTemps
+            composition={composition}
+            adressesMedias={donnees.adressesMedias}
+            temps={temps}
+            selection={selection}
+            onAller={aller}
+            onChoisir={choisir}
+            onOperation={(op) => void operer(op).catch(() => undefined)}
+            onAjouter={ajouterSurLaPiste}
+            onOuvrirEditeur={(id) => ouvrirEditeur(id)}
+            ouverte={telephone || timelineOuverte}
+            onBasculer={telephone ? undefined : () => setTimelineOuverte(!timelineOuverte)}
+          />
+        </ZoneDefilement>
+      </div>
     </>
   );
 
@@ -999,11 +1047,11 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
       {/* AU TÉLÉPHONE, CETTE RANGÉE GARDE SA HAUTEUR (celle de l'aperçu) : en `flex-1`, elle partageait la place à parts
           égales avec la ligne de temps, se retrouvait plus basse que l'aperçu qu'elle contient, et la ligne de temps
           (durée, règle des secondes) remontait SUR le bas de l'image. La ligne de temps prend ce qui reste. */}
-      <div className={cn('flex min-h-0', telephone ? 'shrink-0 flex-col' : 'flex-1 flex-row gap-2 px-3')} data-studio-rangee-apercu>
+      <div className={cn('flex min-h-0', telephone ? 'shrink-0 flex-col' : 'flex-1 flex-row gap-2 px-3 pb-2')} data-studio-rangee-apercu>
         {/* L'APERÇU ET SES COMMANDES : le canevas commence en haut de la rangée, et porte les formats, le son et la lecture.
             SON FOND EST UN GRIS TRÈS CLAIR (`--surface`) : il se détache du fond de la page comme du cadre de la vidéo, qui
             garde le sien — sur le fond de la page, une vidéo blanche se perdait dans le blanc. */}
-        <div className={cn('flex min-h-0 min-w-0 flex-col', telephone ? 'h-[42vh] shrink-0' : 'flex-1')}>
+        <div className={cn('flex min-h-0 min-w-0 flex-col', telephone ? 'h-[42vh] shrink-0' : 'flex-1')} data-studio-colonne-apercu>
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md bg-surface" data-studio-cadre-apercu>
             <div className="flex shrink-0 items-center gap-1 px-1.5 pt-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" data-studio-formats>
@@ -1058,6 +1106,7 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
               {t('Un dessin a une erreur : {erreur}', { erreur: erreursDuCadre[0]! })}
             </p>
           ) : null}
+          {!telephone ? ligneDeTemps : null}
         </div>
 
         {/* LE VOLET DE CÔTÉ (ordinateur) */}
@@ -1080,39 +1129,8 @@ function Editeur({ creationId, onRetour, onOuvrir }: { creationId: string; onRet
         ) : null}
       </div>
 
-      {/* LA LIGNE DE TEMPS : sur ordinateur, sa hauteur est celle que l'on a choisie (poignée au-dessus) ; repliée, il ne reste que sa barre.
-          La poignée est LE SEUL TRAIT entre les panneaux et la ligne de temps : sa marge haute la pose à mi-chemin des deux,
-          au lieu de la coller sous les panneaux. */}
-      {!telephone && timelineOuverte ? (
-        <ResizeHandleHorizontale
-          className="mt-1.5"
-          onPointerDown={(event) => hauteurTimeline.start(event, 'bottom')}
-          onDoubleClick={hauteurTimeline.reset}
-          data-studio-poignee="timeline"
-        />
-      ) : null}
-      <div
-        className={cn('flex min-h-0 flex-col pt-2', telephone ? 'flex-1' : 'shrink-0')}
-        style={!telephone && timelineOuverte ? { height: hauteurTimeline.size } : undefined}
-        data-studio-rangee-ligne-de-temps
-      >
-        {/* Sans `fond` imposé : le fondu suit le fond de la PAGE qui porte la ligne de temps (un gris de tiroir y laissait une bande). */}
-        <ZoneDefilement className="px-1 pb-2">
-          <LigneDeTemps
-            composition={composition}
-            adressesMedias={donnees.adressesMedias}
-            temps={temps}
-            selection={selection}
-            onAller={aller}
-            onChoisir={choisir}
-            onOperation={(op) => void operer(op).catch(() => undefined)}
-            onAjouter={ajouterSurLaPiste}
-            onOuvrirEditeur={(id) => ouvrirEditeur(id)}
-            ouverte={telephone || timelineOuverte}
-            onBasculer={telephone ? undefined : () => setTimelineOuverte(!timelineOuverte)}
-          />
-        </ZoneDefilement>
-      </div>
+      {/* Au téléphone, la ligne de temps reste sous la rangée de l'aperçu ; sur ordinateur, elle vit DANS la colonne de l'aperçu. */}
+      {telephone ? ligneDeTemps : null}
 
       {/* TÉLÉPHONE : les volets en tiroirs pleins, sous le pouce */}
       {telephone ? (
@@ -1287,6 +1305,8 @@ function PanneauAgent({
               <AvancementDeCreation todos={todos} busy={busy} />
               {/* Les pistes de mise en scène de l'agent citent des styles : leurs vignettes, cliquables. */}
               <StylesCites texte={dernierTexte} onAppliquer={onAppliquerStyle} />
+              {/* « Vidéo » sans modèle retenu : l'agent écrit le repère, l'encadré propose les modèles ou mène aux paramètres. */}
+              <EncadreServices texte={dernierTexte} donnees={donnees} />
             </>
           )}
         />

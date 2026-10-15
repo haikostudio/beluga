@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Check, ChevronDown, FileText, GripVertical, Loader2, Paperclip, Pencil, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, ChevronDown, ClipboardList, FileText, GripVertical, Loader2, Paperclip, Pause, Pencil, Sparkles, Trash2, X } from 'lucide-react';
 import {
   Agent,
   COLONNES_AVANT_LE_TRAVAIL,
@@ -49,20 +49,30 @@ import {
   tagsEnEspacesOrdinaires,
   tagsMasques,
   texteApresInsertion,
+  brouillonApresSuspension,
   texteApresRetrait,
-  TEXTE_BARRE_EN_ATTENTE,
   carteEnPublication,
   messageOuvreUneNouvelleCarte,
   estAgentDeVolet,
-  reponseParLaBarre,
   tailleLisible,
   DELAI_AVANT_MESSAGE_DU_CANAL,
   EDITION_EN_FILE_RAFRAICHIE_MS,
 } from '@beluga/shared';
-import { saisiesDeLAgent } from '@/lib/saisie-de-question';
-import { useArretAgent } from '@/components/arret-agent';
+import { EVENEMENT_FILE_RENDUE, type DetailFileRendue, useArretAgent, useChampMonte } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
-import { Button, Textarea, Tooltip } from '@/components/ui';
+import {
+  Button,
+  CLASSE_MARGE_DU_LIBELLE_DU_CHAMP,
+  CLASSE_RANGEE_DE_BOUTONS,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Textarea,
+  Tooltip,
+} from '@/components/ui';
 import { IndicateurComprehension } from '@/components/indicateur-comprehension';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
@@ -70,7 +80,7 @@ import { AnneauContexte } from '@/components/anneau-contexte';
 import { BarreProgression } from '@/components/barre-progression';
 import { nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { indexAuPoint, montreLeMorceau, pointDeLIndex, reglagesDuChamp } from '@/lib/miroir-texte';
-import { estTelephone } from '@/lib/telephone';
+import { estTelephone, useTelephone } from '@/lib/telephone';
 import { readPref, usePref, writePref } from '@/lib/prefs';
 import { EnvoiAnnule, EnvoiInterrompu, attendreLeLien, envoyerFichier } from '@/lib/envoi-fichier';
 import { client } from '@/lib/client';
@@ -198,9 +208,15 @@ function BoutonInterrupteur({
       disabled={enVol}
       aria-pressed={actif}
       aria-busy={enVol || undefined}
+      aria-label={libelle}
       {...data}
       className={cn(
-        'relative shrink-0 touch-manipulation gap-1 px-1.5 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[""]',
+        // Même case que les boutons-icônes de la rangée (28 px de côté, marge
+        // de 7 px autour du glyphe) : le vide jusqu'au voisin est le même.
+        // ICÔNE SEULE (demande du 14/10/2026) : le nom se lit au survol, dans
+        // l'infobulle — deux glyphes bien distincts suffisent à les séparer.
+        'relative h-7 w-7 shrink-0 touch-manipulation px-0 after:absolute after:inset-x-0 after:-inset-y-1 after:content-[""]',
+        CLASSE_MARGE_DU_LIBELLE_DU_CHAMP,
         // Le survol GARDE la couleur de l'état : le `hover:text-text` du bouton
         // fantôme le blanchissait, et au doigt le survol reste collé après le
         // toucher — « Création » allumée paraissait blanche. Allumé, il est
@@ -213,7 +229,6 @@ function BoutonInterrupteur({
       <span aria-hidden className={cn('inline-flex shrink-0', enVol && 'animate-pulse')}>
         {icone}
       </span>
-      {libelle}
     </Button>
   );
 }
@@ -237,20 +252,24 @@ function InterrupteurDePlan({ cardId, agent }: { cardId?: string; agent?: Agent 
   if (!carte || agent?.role !== 'cadrage') return null;
   if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
   const actif = !!carte.parcours?.planSouhaite;
+  const automatique = actif && !!carte.parcours?.planAutomatique;
   return (
     <Tooltip
-      label={
-        actif
-          ? t('Le cadrage rendra aussi un plan complet à la fin de son tour.')
-          : t('Demander en plus un plan complet, rendu sous la compréhension.')
-      }
+      label={`${t('Cahier des charges')} — ${
+        automatique
+          ? t('Allumé tout seul : la demande est complexe. Le cadrage pose plus de questions puis rend un plan à sa taille.')
+          : actif
+            ? t('Le cadrage rendra aussi un plan complet à la fin de son tour.')
+            : t('Demander en plus un plan complet, rendu sous la compréhension.')
+      }`}
     >
       <BoutonInterrupteur
         actif={actif}
         enVol={enVol}
         data-interrupteur-plan={actif ? 'allume' : 'eteint'}
-        icone={<FileText className="h-3.5 w-3.5" />}
-        libelle={t('Plan')}
+        data-plan-automatique={automatique ? 'oui' : 'non'}
+        icone={<ClipboardList className="h-4 w-4" />}
+        libelle={t('Cahier des charges')}
         onClick={() => {
           setEnVol(true);
           void client
@@ -283,32 +302,96 @@ function InterrupteurDeCreation({ cardId, agent }: { cardId?: string; agent?: Ag
   const state = useApp();
   const carte = cardId ? state.cards[cardId] : undefined;
   const [enVol, setEnVol] = React.useState(false);
+  const [explication, setExplication] = React.useState(false);
+  const [dejaExplique, setDejaExplique] = usePref<boolean>('creation.expliquee', false);
   if (!carte || agent?.role !== 'cadrage') return null;
   if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
   const actif = !!carte.parcours?.creationSouhaitee;
+  const basculer = (valeur: boolean) => {
+    setEnVol(true);
+    void client
+      .call({ type: 'card.creation.souhaitee', cardId: carte.id, actif: valeur })
+      .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
+      .finally(() => setEnVol(false));
+  };
   return (
-    <Tooltip
-      label={
-        actif
-          ? t('Mode Création : l’agent fait travailler plusieurs modèles et assemble le meilleur rendu.')
-          : t('Faire travailler plusieurs modèles ensemble : texte, code, avis et évaluation.')
-      }
-    >
-      <BoutonInterrupteur
-        actif={actif}
-        enVol={enVol}
-        data-interrupteur-creation={actif ? 'allume' : 'eteint'}
-        icone={<Sparkles className="h-3.5 w-3.5" />}
-        libelle={t('Création')}
-        onClick={() => {
-          setEnVol(true);
-          void client
-            .call({ type: 'card.creation.souhaitee', cardId: carte.id, actif: !actif })
-            .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
-            .finally(() => setEnVol(false));
+    <>
+      <Tooltip
+        label={`${t('Création')} — ${
+          actif
+            ? t('Mode Création : l’agent fait travailler plusieurs modèles et assemble le meilleur rendu.')
+            : t('Faire travailler plusieurs modèles ensemble : texte, code, avis et évaluation.')
+        }`}
+      >
+        <BoutonInterrupteur
+          actif={actif}
+          enVol={enVol}
+          data-interrupteur-creation={actif ? 'allume' : 'eteint'}
+          icone={<Sparkles className="h-4 w-4" />}
+          libelle={t('Création')}
+          onClick={() => {
+            // LA PREMIÈRE FOIS, ON EXPLIQUE AVANT D'ALLUMER : le mode coûte
+            // plusieurs moteurs, il ne s'allume pas sur un clic d'essai.
+            if (!actif && !dejaExplique) setExplication(true);
+            else basculer(!actif);
+          }}
+        />
+      </Tooltip>
+      <FenetreDuModeCreation
+        ouverte={explication}
+        onAnnuler={() => setExplication(false)}
+        onActiver={() => {
+          setExplication(false);
+          setDejaExplique(true);
+          basculer(true);
         }}
       />
-    </Tooltip>
+    </>
+  );
+}
+
+/**
+ * LA FENÊTRE DU PREMIER ALLUMAGE DE « CRÉATION ». Elle ne paraît qu'une fois
+ * par utilisateur (préférence partagée entre appareils, `creation.expliquee`) :
+ * ce que fait le mode, ce qu'il coûte, et comment l'éteindre.
+ */
+function FenetreDuModeCreation({
+  ouverte,
+  onAnnuler,
+  onActiver,
+}: {
+  ouverte: boolean;
+  onAnnuler: () => void;
+  onActiver: () => void;
+}) {
+  return (
+    <Dialog open={ouverte} onOpenChange={(next) => !next && onAnnuler()}>
+      <DialogContent className="sm:w-[min(520px,100%)]" data-fenetre-mode-creation="">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-teinte" />
+            {t('Le mode Création')}
+          </DialogTitle>
+          <DialogDescription>
+            {t('L’agent de la carte devient chef d’orchestre : au lieu de tout faire seul, il fait travailler plusieurs modèles ensemble.')}
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-[14px] text-muted">
+          <li>{t('Il confie le texte, le code et les avis à d’autres moteurs du serveur.')}</li>
+          <li>{t('Leurs propositions sont départagées par un juge, puis il assemble le meilleur rendu.')}</li>
+          <li>{t('Utile pour un travail créatif ou délicat ; plus lent et plus coûteux qu’un agent seul.')}</li>
+          <li>{t('Le choix vaut pour cette carte seulement, et un nouveau clic l’éteint.')}</li>
+        </ul>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onAnnuler}>
+            {t('Annuler')}
+          </Button>
+          <Button onClick={onActiver} data-activer-mode-creation="">
+            {t('Activer le mode Création')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -927,6 +1010,31 @@ export function Composer({
    */
   const agentId = agent?.id;
   const cleBrouillon = agentId ? `draft.${agentId}` : 'draft.aucun';
+
+  /*
+   * LA FILE RENDUE PAR « SUSPENDRE » revient ICI, à la suite de ce qui est
+   * déjà écrit (`brouillonApresSuspension`) — rien n'est envoyé. Le champ se
+   * déclare monté : le geste sait alors qu'il ne doit PAS passer par le
+   * brouillon retenu, qui ignore encore la frappe des 600 dernières ms.
+   */
+  useChampMonte(agentId);
+  React.useEffect(() => {
+    if (!agentId) return;
+    const recevoir = (event: Event) => {
+      const detail = (event as CustomEvent<DetailFileRendue>).detail;
+      if (!detail || detail.agentId !== agentId) return;
+      setText((avant) => brouillonApresSuspension(avant, detail.textes));
+      const zone = textareaRef.current;
+      if (!zone) return;
+      window.requestAnimationFrame(() => {
+        zone.focus();
+        zone.setSelectionRange(zone.value.length, zone.value.length);
+        zone.scrollTop = zone.scrollHeight;
+      });
+    };
+    window.addEventListener(EVENEMENT_FILE_RENDUE, recevoir);
+    return () => window.removeEventListener(EVENEMENT_FILE_RENDUE, recevoir);
+  }, [agentId]);
   const [draft] = usePref<string>(cleBrouillon, '');
   const chargePour = React.useRef<string | undefined>(undefined);
   const premierPassage = React.useRef(true);
@@ -1199,12 +1307,34 @@ export function Composer({
     return () => window.clearTimeout(timer);
   }, [jointesDuBrouillon, agentId]);
 
+  /*
+   * SUR TÉLÉPHONE, UN CHAMP REMPLI QU'ON NE TOUCHE PAS SE REPLIE sur une ligne
+   * (demande du 14/10/2026) : un long brouillon prenait le tiers de l'écran
+   * pendant qu'on lisait la conversation. Il se rouvre à sa hauteur dès qu'on
+   * appuie dedans. Sur ordinateur, rien ne change.
+   */
+  const telephone = useTelephone();
+  const [champFocalise, setChampFocalise] = React.useState(false);
+  const champReplie = telephone && !champFocalise && text.trim().length > 0;
   React.useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
+    if (champReplie) {
+      /* UNE ligne exactement. La marge du bas tombe : le texte suivant s'y
+         dessinait, et le haut de la deuxième ligne dépassait sous la première. */
+      node.style.paddingBottom = '0px';
+      node.style.minHeight = '0px';
+      const style = window.getComputedStyle(node);
+      const ligne = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5 || 22;
+      node.style.height = `${Math.ceil(ligne + parseFloat(style.paddingTop || '0'))}px`;
+      node.scrollTop = 0;
+      return;
+    }
+    node.style.paddingBottom = '';
+    node.style.minHeight = '';
     node.style.height = 'auto';
     node.style.height = `${Math.min(node.scrollHeight, 180)}px`;
-  }, [text]);
+  }, [text, champReplie]);
 
   /* ------------------------------------------------------------------ */
   /* LES COMMANDES « / » DU MOTEUR SÉLECTIONNÉ                            */
@@ -1582,23 +1712,11 @@ export function Composer({
     setJointesEnregistrees([]);
     curseur.current = null;
     try {
-      /*
-       * CE MESSAGE RÉPOND PEUT-ÊTRE À UNE QUESTION OUVERTE : il emporte ce que
-       * sa bulle tenait déjà (choix cochés, texte, images), lu au moment
-       * d'envoyer. Le serveur sait à quelle question il répond et compose la
-       * réponse (`reponseParLaBarre`) ; une question écrite en texte ordinaire
-       * n'a pas d'identifiant d'outil, et sa réponse se compose donc ici, de la
-       * même façon.
-       */
-      const { parQuestion, enTexte } = saisiesDeLAgent(agent.id);
       const reponse = await client.call<{ nouvelleCarteId?: string } | undefined>({
         type: 'agent.prompt',
         agentId: agent.id,
-        text: enTexte
-          ? reponseParLaBarre({ texte: body, options: enTexte.libelles, saisie: enTexte })
-          : body,
-        attachments: [...new Set([...jointesEnvoyees.map((a) => a.id), ...(enTexte?.images ?? [])])],
-        ...(Object.keys(parQuestion).length ? { saisiesDeQuestion: parQuestion } : {}),
+        text: body,
+        attachments: jointesEnvoyees.map((a) => a.id),
         ...(ouvreUneNouvelleCarte && accord ? { ouvrirNouvelleCarte: true } : {}),
       });
       if (reponse?.nouvelleCarteId) {
@@ -1639,11 +1757,10 @@ export function Composer({
   };
 
   /*
-   * ARRÊTER SANS REMONTER EN HAUT DU FIL. La bande « en cours » garde son
-   * bouton, mais dans une longue conversation elle sort de l'écran : tant que
-   * l'agent travaille, la flèche d'envoi devient un carré d'arrêt, au même
-   * endroit et à la même taille. C'est le MÊME geste (`useArretAgent`) :
-   * même contrôle, même commande, même confirmation au-delà de cinq minutes.
+   * SUSPENDRE SANS REMONTER EN HAUT DU FIL. Tant que l'agent travaille, la
+   * flèche d'envoi devient le bouton « Suspendre » (icône pause), au même
+   * endroit et à la même taille. C'est le MÊME geste partout
+   * (`useArretAgent`) : même contrôle, même commande `agent.suspend`.
    */
   const arret = useArretAgent({ agent, cardId });
   const boutons = boutonsBarreEcriture({
@@ -2105,6 +2222,12 @@ export function Composer({
         <Textarea
           ref={textareaRef}
           value={texteDuChamp}
+          data-champ-replie={champReplie ? '' : undefined}
+          onFocus={() => setChampFocalise(true)}
+          /* Le repli attend la fin du geste : sans ce délai, le champ se
+             rétrécissait sous le doigt et le bouton d'envoi remontait avant le
+             clic, qui tombait à côté. */
+          onBlur={() => window.setTimeout(() => setChampFocalise(document.activeElement === textareaRef.current), 250)}
           onChange={(event) => {
             // CE QUI SORT DU CHAMP REDEVIENT UN VRAI TEXTE : les tags
             // retrouvent leur « [fichier: …] », et rien d'invisible ne reste
@@ -2245,13 +2368,12 @@ export function Composer({
                 ? t('Cette carte est en ligne — un message vous proposera d’ouvrir une nouvelle carte…')
               : /*
                  * UN AGENT ARRÊTÉ SUR SA QUESTION N'EST PAS « EN TRAIN DE
-                 * TRAVAILLER » : son appel d'outil attend la réponse, et il ne
-                 * fera rien d'autre avant de l'avoir. Dire « votre message
-                 * attendra son tour » à cet instant était le contraire de la
-                 * vérité (`shared/src/attente-question.ts`).
+                 * TRAVAILLER » : il attend la réponse, qui se donne DANS la
+                 * question. La barre ne répond jamais : ce qu'on y écrit
+                 * attend son tour, et le champ le dit.
                  */
                 agent?.attendReponse
-                ? TEXTE_BARRE_EN_ATTENTE
+                ? t('L’agent attend votre réponse à sa question — votre message attendra son tour…')
                 : busy
                   ? /* Le cadrage comprend, il ne travaille pas : le champ ne
                        l'annonce plus au travail (relance après rapport comprise). */
@@ -2286,7 +2408,7 @@ export function Composer({
             lui, et la NOTE DE COMPRÉHENSION en tête du groupe, tout à gauche.
             Les réglages (moteur, modèle, réflexion, compte, plan) se
             choisissent en haut, dans la configuration de l'agent — plus ici. */}
-        <div className="relative z-30 flex min-w-0 items-center gap-0.5 px-2 pb-2 sm:gap-1">
+        <div className={cn('relative z-30 min-w-0 px-2 pb-2', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="champ-gauche">
           <Tooltip label={t('Joindre un fichier')}>
             <Button
               variant="ghost"
@@ -2311,11 +2433,11 @@ export function Composer({
           <InterrupteurDeCreation cardId={cardId} agent={agent} />
 
           {onProposeTask && !edition && text.trim() ? (
-            <Button variant="ghost" size="sm" className="min-w-0 shrink" onClick={() => submit(true)}>
+            <Button variant="ghost" size="sm" className={cn('h-7 min-w-0 shrink', CLASSE_MARGE_DU_LIBELLE_DU_CHAMP)} onClick={() => submit(true)}>
               {t('En faire une tâche')}</Button>
           ) : null}
 
-          <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <div className={cn('ml-auto shrink-0', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="champ-droite">
             {/* LA NOTE DE COMPRÉHENSION, EN TROIS BARRES, EN TÊTE DU GROUPE DE
                 DROITE — avant le carré d'arrêt, donc à une place FIXE : les
                 boutons qui la suivent apparaissent et disparaissent au fil du
@@ -2326,17 +2448,18 @@ export function Composer({
                 jamais le lancement, et sans Laya installé il n'existe pas. */}
             <IndicateurComprehension carte={cardId ? state.cards[cardId] : undefined} />
 
-            {/* Puis le carré d'arrêt, le micro, et l'envoi tout au bord. */}
+            {/* Puis le bouton « Suspendre », le micro, et l'envoi tout au bord. */}
             {boutons.arret ? (
-              <Tooltip label={t('Arrêter l\'agent')}>
+              <Tooltip label={t('Suspendre l\'agent')}>
                 <Button
                   variant="arret"
                   size="icon"
-                  aria-label="Arrêter l'agent"
+                  aria-label="Suspendre l'agent"
+                  data-suspendre-agent
                   className="shrink-0"
                   onClick={arret.demander}
                 >
-                  <Square className="h-3 w-3 fill-current" />
+                  <Pause className="h-3 w-3 fill-current" />
                 </Button>
               </Tooltip>
             ) : null}
@@ -2348,7 +2471,10 @@ export function Composer({
                 variant="default"
                 size="icon"
                 data-composer-envoi
-                className="h-8 w-8 shrink-0 rounded-full"
+                /* Le rond d'envoi (32 px) est plus grand que les cases de 28 px :
+                   sa marge de gauche négative cale son CENTRE au même pas que
+                   les autres, sans bouger son bord droit. */
+                className="-ml-0.5 h-8 w-8 shrink-0 rounded-full"
                 title={
                   /* Le bouton éteint DIT pourquoi : un envoi refusé sans un mot
                      se lit comme une panne de l'application. */
@@ -2362,7 +2488,6 @@ export function Composer({
               </Button>
             ) : null}
           </div>
-          {arret.dialogue}
         </div>
         </div>
       </div>

@@ -248,7 +248,10 @@ export async function createProjectFolder(input: {
   const slug = slugEntier(input.folder?.trim() || input.name).slice(0, 50) || 'projet';
 
   const etapes: EtapeCreation[] = [];
-  const noter = (titre: string, fait: boolean, detail?: string) => etapes.push({ titre, fait, detail });
+  /* Une étape ratée porte sa PROPRE phrase : « Dépôt GitHub créé et poussé »
+     sous un triangle d'échec disait le contraire de ce qui s'était passé. */
+  const noter = (titre: string, fait: boolean, detail?: string, titreSiEchec?: string) =>
+    etapes.push({ titre: fait ? titre : (titreSiEchec ?? titre), fait, detail });
 
   const target = path.resolve(CONFIG.projectsRoot, slug);
   if (!target.startsWith(path.resolve(CONFIG.projectsRoot) + path.sep)) {
@@ -298,7 +301,7 @@ export async function createProjectFolder(input: {
       );
       noter('Dépôt git démarré sur la branche « main »', true);
     } catch (err: any) {
-      noter('Dépôt git démarré sur la branche « main »', false, messageErreur(err));
+      noter('Dépôt git démarré sur la branche « main »', false, messageErreur(err), 'Dépôt git non démarré');
     }
   }
 
@@ -313,12 +316,12 @@ export async function createProjectFolder(input: {
       await execFileAsync('git', ['remote', 'add', 'origin', remote], { cwd: target, timeout: 20000 });
       noter('Dépôt distant rattaché', true, remote);
     } catch (err: any) {
-      noter('Dépôt distant rattaché', false, messageErreur(err));
+      noter('Dépôt distant rattaché', false, messageErreur(err), 'Dépôt distant non rattaché');
     }
   } else if (avecGit && input.github !== false) {
     const resultat = await creerDepotGithub(target, slug, input.description, input.githubPublic === true);
     remote = resultat.remote ?? remote;
-    noter('Dépôt GitHub créé et poussé', resultat.ok, resultat.detail);
+    noter('Dépôt GitHub créé et poussé', resultat.ok, resultat.detail, 'Dépôt GitHub non créé');
   }
 
   /*
@@ -334,7 +337,7 @@ export async function createProjectFolder(input: {
   if (avecGit) {
     const posees = await assurerLesBranchesDeLaRegle(target);
     if (posees.branches.dev || posees.branches.production) branchesDePublication = posees.branches;
-    noter('Branches « dev » et « main » en place', posees.ok, posees.details.join(' ; '));
+    noter('Branches « dev » et « main » en place', posees.ok, posees.details.join(' ; '), 'Branches « dev » et « main » pas en place');
   }
 
   /*
