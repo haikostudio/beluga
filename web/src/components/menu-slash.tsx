@@ -53,9 +53,9 @@ export function MenuSlash({
       data-menu-slash
       className={cn(
         // Mêmes règles que le repère des tâches : pas de marge latérale (il vit
-        // dans le conteneur du champ), bord bas absent, et 24 px de
+        // dans le conteneur du champ), bord bas absent, et 12 px de
         // recouvrement — le rayon du champ, sous lequel il passe vraiment.
-        'relative z-0 -mb-6 flex shrink-0 flex-col rounded-t-[20px]',
+        'relative z-0 -mb-3 flex shrink-0 flex-col rounded-t-lg',
         'border border-b-0 border-border bg-bloc-etapes',
         'shadow-[inset_0_-6px_6px_-6px_rgba(0,0,0,0.35)]',
       )}
@@ -71,7 +71,7 @@ export function MenuSlash({
       </div>
 
       {commandes.length ? (
-        <ZoneDefilement classeEnveloppe="max-h-[min(35vh,240px)] flex-none" className="px-1.5 pb-8 pt-1">
+        <ZoneDefilement classeEnveloppe="max-h-[min(35vh,240px)] flex-none" className="px-1.5 pb-5 pt-1">
           <ul>
             {commandes.map((commande, rang) => (
               <li key={`${commande.origine}-${commande.nom}`}>
@@ -114,7 +114,7 @@ export function MenuSlash({
           </ul>
         </ZoneDefilement>
       ) : (
-        <p className="px-3 pb-8 pt-1 text-[12.5px] leading-snug text-faint">
+        <p className="px-3 pb-5 pt-1 text-[12.5px] leading-snug text-faint">
           {t('Aucune commande « / » pour ce moteur : continuez d’écrire normalement.')}
         </p>
       )}

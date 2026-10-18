@@ -35,6 +35,26 @@ export interface GroupeDeReglages {
 
 export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
   {
+    // Le profil de la personne connectée : le premier réglage qui la concerne elle.
+    cle: 'compte',
+    titre: 'Mon compte',
+    pages: [
+      {
+        cle: 'mon-compte',
+        titre: 'Mon compte',
+        motsCles: ['profil', 'mot de passe', 'identifiant', 'courriel', 'mail', 'pseudo', 'nom', 'connexion', 'adresse'],
+        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe'],
+      },
+      {
+        // Les accès ouverts à d'autres personnes : membre, lecteur ou client, chacun sur ses projets.
+        cle: 'sous-comptes',
+        titre: 'Sous-comptes',
+        motsCles: ['accès', 'équipe', 'collaborateur', 'membre', 'lecteur', 'client', 'droits', 'invitation', 'utilisateur', 'permission', 'rôle'],
+        libelles: ['Ouvrir un accès', 'Niveau'],
+      },
+    ],
+  },
+  {
     cle: 'apparence',
     titre: 'Apparence',
     pages: [
@@ -65,6 +85,18 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
     ],
   },
   {
+    cle: 'notifications',
+    titre: 'Notifications',
+    pages: [
+      {
+        cle: 'notifications',
+        titre: 'Notifications',
+        motsCles: ['notification', 'alerte', 'silence', 'prévenir', 'sonnerie', 'appareil', 'appareils', 'téléphone', 'iphone', 'push', 'activer', 'désactiver', 'connecté'],
+        libelles: ['Notifications sur cet appareil', 'Vos appareils connectés', 'Ce dont on vous prévient', 'Heures de silence'],
+      },
+    ],
+  },
+  {
     cle: 'agents',
     titre: 'Agents',
     pages: [
@@ -73,12 +105,6 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         titre: 'Agents en parallèle',
         motsCles: ['plafond', 'parallèle', 'heures creuses', 'tâche lourde', 'simultané'],
         libelles: ["Plafond d'agents", 'Heures creuses'],
-      },
-      {
-        cle: 'notifications',
-        titre: 'Ce dont on vous prévient',
-        motsCles: ['notification', 'alerte', 'silence', 'prévenir', 'sonnerie'],
-        libelles: ['Heures de silence'],
       },
       {
         cle: 'voix',
@@ -123,8 +149,16 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         // espace client. Les pages de l'assistant de premier démarrage, réunies.
         cle: 'installation',
         titre: 'Installation',
-        motsCles: ['installation', 'domaine', 'adresse', 'courriel', 'email', 'resend', 'github', 'espace client', 'compétences', 'dictée', 'mise en route', 'assistant'],
-        libelles: ['Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
+        motsCles: ['installation', 'domaine', 'adresse', 'courriel', 'email', 'resend', 'github', 'espace client', 'compétences', 'dictée', 'mise en route', 'assistant', 'mise à jour', 'mettre à jour', 'nouveautés', 'changelog', 'version', 'dépôt'],
+        libelles: ['Mettre à jour', 'Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
+      },
+      {
+        // Le compte GitHub du serveur : qui est relié, d'où vient le jeton, les
+        // projets récupérés, et la réinitialisation du jeton.
+        cle: 'github',
+        titre: 'GitHub',
+        motsCles: ['github', 'jeton', 'token', 'dépôt', 'repo', 'clé', 'gh', 'réinitialiser', 'compte'],
+        libelles: ['Réinitialiser le jeton'],
       },
       {
         // Redémarrage, terminal et arrêt général : ce qui agit sur la machine

@@ -28,7 +28,7 @@ import { relancerLaVisite } from '@/components/visite-guidee';
 export function PageInstallation() {
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
-  const remises = etapesRemisesAPlusTard(state.settings?.assistant as EtatDeLAssistant | undefined);
+  const remises = etapesRemisesAPlusTard(state.settings?.assistant as EtatDeLAssistant | undefined, state.offreHebergee);
 
   return (
     <div className="space-y-7" data-page-installation="reglages">
@@ -53,10 +53,16 @@ export function PageInstallation() {
       <Groupe titre={t('GitHub')}>
         <SectionGitHub etat={etat} relire={relire} />
       </Groupe>
-      <Groupe titre={t('Votre propre Beluga')}>
-        <SectionCopie etat={etat} relire={relire} />
-        <SectionNouveautes />
-      </Groupe>
+      {state.offreHebergee ? null : (
+        <>
+          <Groupe titre={t('Mises à jour')}>
+            <SectionNouveautes />
+          </Groupe>
+          <Groupe titre={t('Votre propre Beluga')}>
+            <SectionCopie etat={etat} relire={relire} />
+          </Groupe>
+        </>
+      )}
       <Groupe titre={t('La mémoire')}>
         <SectionMemoire etat={etat} relire={relire} />
       </Groupe>

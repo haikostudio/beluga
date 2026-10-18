@@ -4,7 +4,7 @@ import { Card, RAISON_CANAL_COUPE, TITRE_CARTE_DE_CADRAGE, gestesGeles } from '@
 import { CLASSE_LIBELLE_EN_BANDE } from '@/components/colonne-de-service';
 import { CLASSE_GESTE_DE_CREATION_DE_COLONNE } from '@/components/rubriques-de-colonne';
 import { client } from '@/lib/client';
-import { useCanal } from '@/lib/use-app';
+import { useApp, useCanal } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -56,6 +56,8 @@ export function useNouvelleTache(projectId: string) {
 export function BoutonNouvelleTache({ projectId }: { projectId: string }) {
   const { busy, ouvrir } = useNouvelleTache(projectId);
   const canal = useCanal();
+  // Un lecteur voit les projets sans rien créer : le geste ne lui est pas montré (le serveur le refuse aussi).
+  if (useApp().monRole === 'lecteur') return null;
   return (
     <button
       type="button"

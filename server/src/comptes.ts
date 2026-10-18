@@ -21,6 +21,7 @@ import {
   normaliserIdentifiant,
   nomDuCompte,
   porteeNettoyee,
+  roleLu,
   themeChoisiValide,
   type CompteUtilisateur,
   type RoleCompte,
@@ -66,7 +67,7 @@ function enCompte(ligne: LigneUtilisateur): CompteUtilisateur {
   return {
     id: ligne.id,
     identifiant: ligne.identifiant,
-    role: (ligne.role === 'admin' ? 'admin' : 'client') as RoleCompte,
+    role: roleLu(ligne.role),
     nomAffiche: ligne.nom_affiche ?? '',
     actif: ligne.actif === 1,
     creeLe: ligne.cree_le,
@@ -168,6 +169,21 @@ export function changerLaPortee(userId: string, projets: readonly string[], proj
   for (const projectId of gardes) {
     db.prepare('INSERT OR IGNORE INTO user_projects (user_id, project_id) VALUES (?, ?)').run(userId, projectId);
   }
+  return compteParId(userId)!;
+}
+
+/**
+ * CHANGER LE NIVEAU D'UN ACCÈS (membre, lecteur, client). Un administrateur ne
+ * change pas de niveau — ni vers le bas, ni par ici vers le haut : le dernier
+ * pourrait se retirer ses propres droits. Les sessions ouvertes tombent : la
+ * personne rentre avec son nouveau niveau, et l'écran qui s'ouvre est le bon.
+ */
+export function changerLeRole(userId: string, role: Exclude<RoleCompte, 'admin'>): CompteUtilisateur {
+  const compte = compteParId(userId);
+  if (!compte) throw new Error('Ce compte est introuvable.');
+  if (compte.role === 'admin') throw new Error('Le niveau d’un administrateur ne se change pas ici.');
+  getDb().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, userId);
+  fermerLesSessions(userId);
   return compteParId(userId)!;
 }
 

@@ -40,6 +40,10 @@ import {
   TurnMeasurement,
   ampleurDuTour,
   checkTemplate,
+  gabaritEnMessage,
+  cahierEnTexte,
+  messageTropLong,
+  consigneDeRaccourci,
   rapportAuPlancher,
   relanceDuRapport,
   tachesDeFondVivantes,
@@ -2031,8 +2035,9 @@ async function preparerLeTour(
         origine: 'projet',
         content:
           'DERNIÈRE COMPRÉHENSION RENDUE SUR CETTE CARTE — elle reste valable tant que la discussion ne change pas ' +
-          'le travail ; si ce tour la met à jour, la nouvelle la reprend EN ENTIER et y ajoute ce que les nouveaux ' +
-          `messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${hypotheses}`,
+          'le travail. Si ce tour la met à jour, son « texte » est le MESSAGE de ce tour (600 signes au plus) et ne ' +
+          'dit que ce qui change ; c\'est la « partieTechnique » qui se reprend EN ENTIER, avec ce que les nouveaux ' +
+          `messages apportent, sans rien en perdre :\n\n${precedente.texte.trim()}${partieTechniqueEnTexte(precedente.partieTechnique)}${cahierVivantEnTexte(precedente.cahierDesCharges)}${hypotheses}`,
       });
     }
     /*
@@ -3441,16 +3446,33 @@ async function startTurn(
    * le dit, sans nouvel essai.
    */
   let formCheck = checkTemplate(template, finalText, ampleur, { plancher });
-  let tachesDeFond: TacheDeFond[] = [];
-  let rapportRelance: 'rendu' | 'hors-format' | 'sans-reponse' | undefined;
-  const questionOuverte = plancher
-    ? (store.listMessages(agent.id).find((m) => m.id === runState.messageId)?.questions ?? []).some(
-        (q) => !q.answer && !q.cancelled,
+  /* UN MESSAGE DE MESSAGERIE (`gabaritEnMessage`) trop long se raccourcit, une
+     fois, quel que soit le rôle ; le tour d'exécution d'une carte attend aussi
+     ses tâches de fond encore vivantes avant son message de fin. */
+  const messagerie = gabaritEnMessage(template);
+  const tachesDeFond: TacheDeFond[] = plancher
+    ? tachesDeFondVivantes(
+        [...runState.steps.values()].map((etape) => ({
+          cle: etape.id,
+          outil: runState.outilsDesEtapes.get(etape.id)?.outil ?? '',
+          entree: runState.outilsDesEtapes.get(etape.id)?.entree,
+          resultat: etape.detail,
+          etat: etape.state,
+        })),
       )
-    : false;
+    : [];
+  let rapportRelance: 'rendu' | 'hors-format' | 'sans-reponse' | undefined;
+  const questionOuverte =
+    plancher || messagerie
+      ? (store.listMessages(agent.id).find((m) => m.id === runState.messageId)?.questions ?? []).some(
+          (q) => !q.answer && !q.cancelled,
+        )
+      : false;
   if (
     relanceDuRapport({
       plancher,
+      messagerie,
+      tachesVivantes: tachesDeFond.length,
       formeTenue: formCheck.ok,
       texte: finalText,
       echec: !result.ok || !!sawError || !!panneDefinitive,
@@ -3458,15 +3480,6 @@ async function startTurn(
       questionPosee: questionOuverte,
     })
   ) {
-    tachesDeFond = tachesDeFondVivantes(
-      [...runState.steps.values()].map((etape) => ({
-        cle: etape.id,
-        outil: runState.outilsDesEtapes.get(etape.id)?.outil ?? '',
-        entree: runState.outilsDesEtapes.get(etape.id)?.entree,
-        resultat: etape.detail,
-        etat: etape.state,
-      })),
-    );
     const plafondMs = tachesDeFond.length ? PLAFOND_RELANCE_AVEC_TACHES_MS : PLAFOND_APPEL_APRES_REPONSE_MS;
     const departRelance = Date.now();
     const detailRelance = tachesDeFond.length
@@ -3488,7 +3501,10 @@ async function startTurn(
       lancement,
       agent,
       sessionId: store.getSessionId(agent.id, cleSession),
-      consigne: consigneDeRelanceDuRapport({ manquantes: formCheck.missing, taches: tachesDeFond }),
+      consigne: messagerie
+        ? consigneDeRelanceDuRapport({ tropLong: formCheck.ok ? undefined : finalText, taches: tachesDeFond })
+        : consigneDeRelanceDuRapport({ taches: tachesDeFond }),
+      outilsOuverts: messagerie ? ['proposer_suites'] : [],
       outilsNatifsOuverts: tachesDeFond.length ? ['Bash', 'Read'] : [],
       plafondMs,
       runState,
@@ -3517,7 +3533,9 @@ async function startTurn(
     });
     log.info(`rapport relancé pour l'agent ${agent.id} : ${rapportRelance} (${tachesDeFond.length} tâche(s) de fond)`);
   }
-  if (!formCheck.ok && finalText && template !== 'none') {
+  /* Un message resté trop long après sa seule relance reste tel quel : la note
+     ne viserait que la forme, et le journal la porte déjà. */
+  if (!formCheck.ok && finalText && template !== 'none' && !messagerie) {
     const griefs: string[] = [];
     if (formCheck.missing.length) griefs.push(`sections manquantes (${formCheck.missing.join(', ')})`);
     if (formCheck.dense.length) griefs.push(`texte tassé, sans paragraphes (${formCheck.dense.join(', ')})`);
@@ -3839,6 +3857,37 @@ async function startTurn(
         runState.text = texteGarde;
         runState.morceauxDuTexte = [];
       }
+      /*
+       * UNE RÉPONSE LIBRE DU CADRAGE EST UN MESSAGE DE MESSAGERIE
+       * (`shared/src/message-court.ts`) : au-delà de 600 signes, elle est
+       * raccourcie UNE fois, dans la même session, sans outil. Un tour qui a
+       * rendu sa compréhension ou son plan n'affiche qu'eux : son texte n'est
+       * pas jugé.
+       */
+      if (
+        !rendueDansCeTour &&
+        !planRenduCeTour &&
+        !jugement.echec &&
+        !jugement.arretDemande &&
+        !questionPosee &&
+        !texteEcarte &&
+        messageTropLong(finalText)
+      ) {
+        const raccourci = await rendreLePlanEntier({
+          adapter,
+          lancement,
+          agent,
+          sessionId: store.getSessionId(agent.id, cleSession),
+          consigne: consigneDeRaccourci(finalText),
+          runState,
+        }).catch(() => '');
+        log.info(`réponse de cadrage raccourcie pour l'agent ${agent.id} : ${raccourci.trim() ? 'rendue' : 'sans réponse'}`);
+        if (raccourci.trim() && !runState.stopping) {
+          finalText = raccourci.trim();
+          runState.text = finalText;
+          runState.morceauxDuTexte = [finalText];
+        }
+      }
       let relance: 'cadrage' | 'reponse' | 'incident' | undefined;
       if (comprehensionManquante(jugement)) {
         runState.steps.set(ETAPE_COMPREHENSION_RECLAMEE_ID, {
@@ -4060,6 +4109,7 @@ async function startTurn(
   /* UNE SUSPENSION À LA MAIN laisse une ligne NEUTRE du travail — ni rouge, ni
      « Rapport » : la marque de pause est posée AVANT la coupe (`agent.suspend`). */
   const suspendu = runState.stopping && !!agent.cardId && carteEnPause(store.getCard(agent.cardId)?.scheduling);
+  const suitesDuTour = store.getMessage(runState.messageId)?.suites;
   const issue = jalonDeFinDeTour({
     failed,
     reprise: Boolean(reprise),
@@ -4068,7 +4118,9 @@ async function startTurn(
     suspendu,
     texte: finalText,
     // Un gabarit « none » ne juge rien : sa validité serait un faux témoignage.
-    rapportEntier: template !== 'none' && formCheck.ok,
+    /* Un message court tient sa forme dès trois mots : ce n'est pas la preuve
+       qu'un compte rendu a été écrit avant la panne (`rapportDejaEcrit`). */
+    rapportEntier: template !== 'none' && !messagerie && formCheck.ok,
     cause: causeErreurDeTour,
   });
   journaliserDansLeTour(agent.id, {
@@ -4090,6 +4142,9 @@ async function startTurn(
       // Ce que la relance du rapport a trouvé et obtenu, relisible après coup.
       ...(rapportRelance ? { relanceDuRapport: rapportRelance } : {}),
       ...(tachesDeFond.length ? { tachesDeFond: tachesDeFond.map(nomDeTacheDeFond) } : {}),
+      /* LES SUITES PROPOSÉES voyagent avec la réponse : le fil de la carte les
+         pose sous elle (`proposer_suites`, `Message.suites`). */
+      ...(suitesDuTour?.length ? { suites: suitesDuTour } : {}),
     },
   });
 
@@ -5159,7 +5214,10 @@ export function attachToCurrentMessage(
   }
   // Une carte présentée à valider attend une décision au même titre qu'une
   // question : elle allume donc le même signal dans la liste des projets.
-  if (patch.question || patch.proposal) {
+  // Une question NÉE RÉPONDUE (compétence retenue d'office au cadrage, DEC-322)
+  // n'attend personne : ni signal, ni notification.
+  const questionOuverte = patch.question && !patch.question.answer ? patch.question : undefined;
+  if (questionOuverte || patch.proposal) {
     bus.emit({ type: 'attention', ...store.signalAttention() });
   }
   if (patch.proposal) {
@@ -5174,13 +5232,13 @@ export function attachToCurrentMessage(
       agentId,
     });
   }
-  if (patch.question) {
+  if (questionOuverte) {
     notify({
       motif: 'decision-attendue',
       title: 'Une réponse est attendue',
-      body: patch.question.question.slice(0, 120),
-      reference: `${agentId}:question:${patch.question.question}`,
-      element: patch.question.question.slice(0, 120),
+      body: questionOuverte.question.slice(0, 120),
+      reference: `${agentId}:question:${questionOuverte.question}`,
+      element: questionOuverte.question.slice(0, 120),
       projectId: store.getAgent(agentId)?.projectId,
       cardId: store.getAgent(agentId)?.cardId,
       agentId,
@@ -6269,4 +6327,29 @@ export function cleanupMcpConfigs(): void {
   } catch {
     /* rien à nettoyer */
   }
+}
+
+/**
+ * LA PART TECHNIQUE PRÉCÉDENTE, EN TEXTE, POUR LE CADRAGE QUI LA REPREND. Elle
+ * n'est plus affichée nulle part (17/10/2026) : c'est en la recevant entière que
+ * le cadrage suivant la cumule au lieu de la réécrire de mémoire.
+ */
+function partieTechniqueEnTexte(partie: { taches?: { titre: string; description: string }[]; faits?: string[]; risques?: string } | undefined): string {
+  if (!partie) return '';
+  const lignes: string[] = ['', '', 'SA PART TECHNIQUE (« partieTechnique »), à reprendre EN ENTIER :'];
+  if (partie.taches?.length) lignes.push('Tâches :', ...partie.taches.map((t, i) => `${i + 1}. ${t.titre} — ${t.description}`));
+  if (partie.faits?.length) lignes.push('Faits :', ...partie.faits.map((f) => `- ${f}`));
+  if (partie.risques?.trim()) lignes.push(`Risques : ${partie.risques.trim()}`);
+  return lignes.join('\n');
+}
+
+/**
+ * LE CAHIER VIVANT DE LA CARTE, REDONNÉ AU CADRAGE : il n'y ajoute que les
+ * rubriques que ses échanges changent (`shared/src/cahier-vivant.ts`).
+ */
+function cahierVivantEnTexte(cahier: { titre: string; contenu: string }[] | undefined): string {
+  const texte = cahierEnTexte(cahier);
+  return texte
+    ? `\n\nSON CAHIER DES CHARGES VIVANT (« cahierDesCharges », ${cahier!.length} rubrique(s)) — ne redonne que les rubriques qui changent :\n${texte}`
+    : '';
 }

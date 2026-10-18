@@ -4,6 +4,11 @@ import path from 'node:path';
 import {
   FONCTIONS_INSTALLABLES,
   MOTEURS,
+  DOSSIER_DES_CLES_DKIM,
+  SELECTEUR_DKIM,
+  domaineDeLAdresse,
+  identiteDInstallation,
+  nomDeDomaineValide,
   sortieBornee,
   type FonctionInstallable,
   type TravailDInstallation,
@@ -110,8 +115,144 @@ export function recetteDuGenre(genre: string): RecetteDeTravail | null {
     case 'voix':
       // La voix s'appuie sur la dictée : les deux se posent dans cet ordre.
       return { etapes: [script('installer-transcription.mjs'), script('installer-voix.mjs')] };
+    case 'voix-reparer':
+      /*
+       * RELANCER LA CONFIGURATION DE LA VOIX. Une voix posée à la main dans un
+       * terminal (souvent sous un autre compte) peut être là sans parler : ses
+       * fichiers sont d'abord rendus au compte du service, l'environnement
+       * Python inutilisable est mis de côté et refait, les modèles manquants ou
+       * vides retéléchargés — puis la voix est ESSAYÉE, et l'essai dit pourquoi
+       * elle se tait encore s'il échoue.
+       */
+      return {
+        etapes: [
+          {
+            ...enAdministrateur(
+              'fichiers de la voix rendus au compte du service',
+              SCRIPT_PROPRIETAIRE_DE_LA_VOIX,
+              [os.userInfo().username, CONFIG.dataDir],
+            ),
+            facultative: true,
+          },
+          { ...script('installer-transcription.mjs'), titre: 'node scripts/installer-transcription.mjs --reparer', args: [...script('installer-transcription.mjs').args, '--reparer'] },
+          script('installer-voix.mjs'),
+        ],
+        apres: async ({ ecrire }) => {
+          const { speak } = await import('./voice.js');
+          ecrire('\nEssai de la voix… ');
+          const essai = await speak('La voix de Beluga Build est prête.');
+          if (!essai.ok) throw new Error(`La voix ne parle toujours pas : ${essai.error ?? 'raison inconnue'}.`);
+          ecrire('la voix parle.\n');
+        },
+      };
+    case 'gh':
+      return { etapes: [enAdministrateur("l'outil GitHub (dépôt officiel)", SCRIPT_GH, [])] };
+    case 'signature-des-courriels': {
+      const domaine = domaineDeLAdresse(identiteDInstallation().expediteurDesCourriels);
+      if (!nomDeDomaineValide(domaine)) {
+        // Rien à signer sans domaine : l'étape le dit dans le terminal, et le travail échoue.
+        return {
+          etapes: [
+            {
+              titre: 'signature des courriels',
+              programme: 'bash',
+              args: ['-c', 'echo "Réglez d’abord l’adresse d’expédition : la signature se fait pour son nom de domaine." >&2; exit 1'],
+            },
+          ],
+        };
+      }
+      return { etapes: [enAdministrateur(`signature des courriels pour ${domaine}`, SCRIPT_SIGNATURE, [domaine])] };
+    }
   }
 }
+
+/**
+ * UNE ÉTAPE QUI DEMANDE L'ADMINISTRATEUR : le script est écrit ICI, les valeurs
+ * passent en ARGUMENTS (`$1`…), jamais collées dans le texte du script.
+ * L'installateur accorde `sudo` sans mot de passe au compte du service.
+ */
+function enAdministrateur(titre: string, contenu: string, args: string[]): EtapeDeTravail {
+  const racine = typeof process.getuid === 'function' && process.getuid() === 0;
+  return racine
+    ? { titre, programme: 'bash', args: ['-c', contenu, 'beluga', ...args] }
+    : { titre, programme: 'sudo', args: ['-n', 'bash', '-c', contenu, 'beluga', ...args] };
+}
+
+/**
+ * Les fichiers de la voix (`venv`, `models`) rendus au compte du service : `$1`
+ * le compte, `$2` le dossier de données. Seuls ces deux dossiers sont visés,
+ * jamais leur parent.
+ */
+const SCRIPT_PROPRIETAIRE_DE_LA_VOIX = `for d in "$2/venv" "$2/models"; do [ -e "$d" ] && chown -R "$1" "$d"; done; echo "fichiers de la voix rendus à $1."`;
+
+/** L'outil GitHub, depuis son dépôt officiel — la même recette que `scripts/installer.sh`. */
+const SCRIPT_GH = `set -e
+export DEBIAN_FRONTEND=noninteractive
+if command -v gh >/dev/null 2>&1; then echo "outil GitHub déjà en place : $(gh --version | head -1)"; exit 0; fi
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg
+chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" >/etc/apt/sources.list.d/github-cli.list
+apt-get update -qq
+apt-get install -y -qq gh
+gh --version | head -1`;
+
+/**
+ * LA SIGNATURE DES COURRIELS (DKIM) pour le domaine passé en premier argument.
+ *
+ *  - LA CLÉ N'EST CRÉÉE QU'UNE FOIS : une clé déjà là est gardée — la
+ *    régénérer rendrait fausse celle qui est publiée dans le domaine, et les
+ *    courriels signés seraient refusés plus sûrement que sans signature ;
+ *  - le signataire écoute sur 127.0.0.1:8891, posé par un réglage propre de
+ *    son service (le service d'origine écoute sur un fichier que l'agent
+ *    d'envoi, enfermé dans son dossier, ne voit pas) ;
+ *  - l'agent d'envoi passe chaque courriel au signataire, et l'envoie quand
+ *    même si celui-ci ne répond pas (« milter_default_action = accept »).
+ */
+const SCRIPT_SIGNATURE = `set -e
+export DEBIAN_FRONTEND=noninteractive
+DOMAINE="$1"
+SELECTEUR=${JSON.stringify(SELECTEUR_DKIM)}
+command -v postconf >/dev/null 2>&1 || { echo "Aucun agent d'envoi (postfix) sur ce serveur : la signature n'a rien à signer." >&2; exit 3; }
+command -v opendkim >/dev/null 2>&1 || apt-get install -y -qq opendkim opendkim-tools
+DOSSIER=${JSON.stringify(DOSSIER_DES_CLES_DKIM)}/"$DOMAINE"
+mkdir -p "$DOSSIER"
+if [ -f "$DOSSIER/$SELECTEUR.private" ]; then
+  echo "clé de signature déjà en place pour $DOMAINE : gardée telle quelle."
+else
+  opendkim-genkey -b 2048 -d "$DOMAINE" -s "$SELECTEUR" -D "$DOSSIER"
+  echo "clé de signature créée pour $DOMAINE."
+fi
+chown -R opendkim:opendkim /etc/opendkim
+chmod 600 "$DOSSIER/$SELECTEUR.private"
+chmod 644 "$DOSSIER/$SELECTEUR.txt"
+touch /etc/opendkim/key.table /etc/opendkim/signing.table
+grep -q "^$SELECTEUR._domainkey.$DOMAINE " /etc/opendkim/key.table || echo "$SELECTEUR._domainkey.$DOMAINE $DOMAINE:$SELECTEUR:$DOSSIER/$SELECTEUR.private" >>/etc/opendkim/key.table
+grep -qF "*@$DOMAINE " /etc/opendkim/signing.table || echo "*@$DOMAINE $SELECTEUR._domainkey.$DOMAINE" >>/etc/opendkim/signing.table
+cat >/etc/opendkim.conf <<'CONF'
+# Posé par Beluga Build : la signature des courriels envoyés par ce serveur.
+Syslog yes
+UMask 007
+Mode s
+Canonicalization relaxed/simple
+OversignHeaders From
+KeyTable refile:/etc/opendkim/key.table
+SigningTable refile:/etc/opendkim/signing.table
+Socket inet:8891@127.0.0.1
+PidFile /run/opendkim/opendkim.pid
+UserID opendkim
+CONF
+mkdir -p /etc/systemd/system/opendkim.service.d
+cat >/etc/systemd/system/opendkim.service.d/beluga.conf <<'CONF'
+[Service]
+ExecStart=
+ExecStart=/usr/sbin/opendkim -P /run/opendkim/opendkim.pid -p inet:8891@127.0.0.1
+CONF
+systemctl daemon-reload
+systemctl enable opendkim >/dev/null 2>&1 || true
+systemctl restart opendkim
+postconf -e 'milter_default_action = accept' 'milter_protocol = 6' 'smtpd_milters = inet:127.0.0.1:8891' 'non_smtpd_milters = inet:127.0.0.1:8891'
+systemctl reload postfix || systemctl restart postfix
+echo "signature des courriels en place pour $DOMAINE (sélecteur $SELECTEUR)."`;
 
 function diffuser(travail: TravailDInstallation): void {
   // L'état part SANS la sortie : elle a déjà voyagé morceau par morceau, et se

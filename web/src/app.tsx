@@ -85,6 +85,7 @@ import {
   RUBRIQUE_CONFIG_PAR_DEFAUT,
   etapeDeLAgentDeConfiguration,
   voletDeLAgentDePublication,
+  hauteurDeLApplication,
 } from '@beluga/shared';
 import {
   EVENEMENT_AGENT_CONFIGURATION,
@@ -240,6 +241,23 @@ type OngletMobile = (typeof ONGLETS_MOBILES)[number];
 
 
 /** La clé du serveur arrive en base64 « url » : le navigateur la veut en octets. */
+/**
+ * UNE ZONE SÛRE EN PIXELS. `--zone-sure-haut` / `--zone-sure-bas` valent
+ * `env(safe-area-inset-…)` et ne se résolvent qu'une fois posées sur un
+ * élément : on lit donc le remplissage d'un témoin invisible.
+ */
+let temoinZoneSure: HTMLElement | null = null;
+function mesurerZoneSure(variable: '--zone-sure-haut' | '--zone-sure-bas'): number {
+  if (!temoinZoneSure) {
+    temoinZoneSure = document.createElement('div');
+    temoinZoneSure.setAttribute('aria-hidden', 'true');
+    temoinZoneSure.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none';
+    document.body.appendChild(temoinZoneSure);
+  }
+  temoinZoneSure.style.paddingTop = `var(${variable}, 0px)`;
+  return parseFloat(getComputedStyle(temoinZoneSure).paddingTop) || 0;
+}
+
 export function App() {
   const state = useApp();
   /*
@@ -498,10 +516,17 @@ export function App() {
     const racine = document.documentElement;
 
     const appliquer = () => {
-      const installee =
-        (window.navigator as any).standalone === true ||
-        window.matchMedia('(display-mode: standalone)').matches;
-      const hauteurEcran = installee ? window.screen?.height || 0 : 0;
+      const hauteurEcran = hauteurDeLApplication({
+        installee:
+          (window.navigator as any).standalone === true ||
+          window.matchMedia('(display-mode: standalone)').matches,
+        ecranLargeur: window.screen?.width || 0,
+        ecranHauteur: window.screen?.height || 0,
+        fenetreLargeur: window.innerWidth,
+        fenetreHauteur: window.innerHeight,
+        zoneSureHaut: mesurerZoneSure('--zone-sure-haut'),
+        zoneSureBas: mesurerZoneSure('--zone-sure-bas'),
+      });
       if (hauteurEcran) racine.style.setProperty('--hauteur-app', `${hauteurEcran}px`);
       else racine.style.removeProperty('--hauteur-app');
 
@@ -1552,7 +1577,7 @@ export function App() {
               {/* SUR ORDINATEUR, LA CLOCHE VIT DANS LE PIED DE LA COLONNE, à côté des
                   réglages (demande du 12/10/2026) ; sur téléphone, elle reste ici. */}
               {telephone ? <ClocheNotifications /> : null}
-              {telephone ? <BoutonAssistantEntete /> : null}
+              {telephone && state.monRole === 'admin' ? <BoutonAssistantEntete /> : null}
             </EnteteDeZone>
             <FournirLaCibleDesGestes value={cibleDesGestes}>
             <CibleDuBasDePage.Provider value={basDePage}>
@@ -1949,9 +1974,11 @@ export function App() {
             lieu de le retarder. */}
         {/* L'ASSISTANT GLOBAL, le robot en bas à droite de tous les écrans. Son
             filet est muet : s'il tombe, l'application continue sans lui. */}
-        <Filet zone="Assistant global" muet>
-          <AssistantGlobal />
-        </Filet>
+        {state.monRole === 'admin' ? (
+          <Filet zone="Assistant global" muet>
+            <AssistantGlobal />
+          </Filet>
+        ) : null}
         {/* La visite guidée du premier démarrage : une bulle à la fois, fermable. */}
         <Filet zone="Visite guidée" muet>
           <VisiteGuidee />
@@ -1998,7 +2025,7 @@ function BoutonNouvelleTacheDuBas({
   /* Lien coupé : la carte ne naîtrait pas. Le bouton s'éteint et dit pourquoi. */
   const gele = gestesGeles(state.canal);
   const ouvrir = async () => {
-    if (busy || !projectId) return;
+    if (busy || !projectId || state.monRole === 'lecteur') return;
     setBusy(true);
     try {
       await creerCarteAgent(projectId, onCree);
@@ -2015,7 +2042,7 @@ function BoutonNouvelleTacheDuBas({
       aria-label="Nouvelle tâche"
       aria-busy={busy}
       title={gele ? t(RAISON_CANAL_COUPE) : undefined}
-      disabled={busy || gele || !projectId}
+      disabled={busy || gele || !projectId || state.monRole === 'lecteur'}
       className="h-11 w-full justify-center gap-2 rounded-lg text-[14.5px]"
       onClick={() => void ouvrir()}
     >

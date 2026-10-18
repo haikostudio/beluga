@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Database,
   FolderTree,
+  Github,
   Globe,
   KeyRound,
   Camera,
@@ -19,6 +20,8 @@ import {
   Scale,
   Search,
   Sparkles,
+  UserPlus,
+  UserRound,
   Users,
   Volume2,
   Wallet,
@@ -61,6 +64,14 @@ const paresseux = (charge: () => Promise<Record<string, any>>, nom: string) =>
   React.lazy(() => charge().then((module) => ({ default: module[nom] })));
 
 const RENDU_DES_PAGES: Record<string, RenduDePage> = {
+  'sous-comptes': {
+    icone: UserPlus,
+    rendu: paresseux(() => import('@/components/reglages/page-sous-comptes'), 'PageSousComptes'),
+  },
+  'mon-compte': {
+    icone: UserRound,
+    rendu: paresseux(() => import('@/components/reglages/page-mon-compte'), 'PageMonCompte'),
+  },
   theme: {
     icone: Palette,
     rendu: paresseux(() => import('@/components/reglages/page-apparence'), 'SectionApparence'),
@@ -100,6 +111,10 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
   installation: {
     icone: Globe,
     rendu: paresseux(() => import('@/components/reglages/page-installation'), 'PageInstallation'),
+  },
+  github: {
+    icone: Github,
+    rendu: paresseux(() => import('@/components/reglages/page-github'), 'PageGithub'),
   },
   serveur: {
     icone: Power,
@@ -203,9 +218,14 @@ function CorpsDesReglages({
     () =>
       ARBORESCENCE_REGLAGES.map((groupe) => ({
         ...groupe,
-        pages: groupe.pages.filter((item) => item.cle !== 'services-creation' || state.studioOuvert),
-      })),
-    [state.studioOuvert],
+        // Un membre ou un lecteur n'a que « Mon compte » : les réglages de la machine sont à l'administrateur.
+        pages: groupe.pages.filter(
+          (item) =>
+            (state.monRole === 'admin' || item.cle === 'mon-compte') &&
+            (item.cle !== 'services-creation' || state.studioOuvert),
+        ),
+      })).filter((groupe) => groupe.pages.length > 0),
+    [state.studioOuvert, state.monRole],
   );
   const pages = React.useMemo(() => pagesDesReglages(groupes), [groupes]);
 
@@ -340,7 +360,7 @@ function CorpsDesReglages({
         <section
           data-page-reglages={pageOuverte?.cle}
           className={cn(
-            'flex min-h-0 w-full flex-1 flex-col',
+            'flex min-h-0 min-w-0 w-full flex-1 flex-col',
             !pageAuPremierPlan && 'hidden sm:flex',
           )}
         >

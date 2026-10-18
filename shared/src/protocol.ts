@@ -179,6 +179,12 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('project.archive'), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('project.open'), id: z.string() }),
   /**
+   * RELIRE LES TABLEAUX DÉJÀ EN MÉMOIRE AU RETOUR DU LIEN. `project.open` diffuse
+   * l'instantané à TOUS les écrans ; ici la réponse n'est que pour le demandeur
+   * (un `project.etat` par projet, dans `projets`), sans rien diffuser.
+   */
+  z.object({ type: z.literal('projects.relire'), ids: z.array(z.string()).min(1).max(20) }),
+  /**
    * LA TRANCHE SUIVANTE D'UNE COLONNE (`shared/src/tranches-de-cartes.ts`).
    * L'instantané d'un projet ne descend qu'un paquet par colonne avec le total
    * réel ; le tableau demande la suite quand le défilement approche du bas,
@@ -466,6 +472,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
   // Agents & conversations
   /** `tout` rouvre aussi les échanges d'avant le dernier nouveau départ. */
   z.object({ type: z.literal('agent.open'), id: z.string(), tout: z.boolean().optional() }),
+  /**
+   * « D'AUTRES IDÉES » : trois suites de plus pour une réponse, cherchées à part
+   * par le moteur de la carte, sans tour (`server/src/autres-idees.ts`). La
+   * réponse désignée par son message (conversation) ou son jalon (fil de la
+   * carte). L'accusé dit l'issue ; les suites arrivent par `message.upsert` et
+   * `journal.entree`.
+   */
+  z.object({
+    type: z.literal('suites.autres'),
+    messageId: z.string().max(80).optional(),
+    entreeId: z.string().max(80).optional(),
+  }),
   /**
    * Toute la conversation d'une carte : analyses, exécutions et relances.
    * L'ouvrir vaut lecture, SAUF `lire: false` : une conversation redemandée
@@ -869,11 +887,32 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('installation.installer'), genre: z.string().max(40) }),
   z.object({ type: z.literal('installation.copie'), nom: z.string().max(100).optional() }),
   z.object({ type: z.literal('installation.nouveautes'), forcer: z.boolean().optional() }),
-  z.object({ type: z.literal('installation.nouveautes.appliquer') }),
+  /**
+   * Récupérer les nouveautés du dépôt public. `lancer` : en plus de poser la tâche
+   * de mise à jour, l'agent part tout de suite (le geste de l'utilisateur) ; la
+   * mise en ligne, elle, reste son geste à lui.
+   */
+  z.object({ type: z.literal('installation.nouveautes.appliquer'), lancer: z.boolean().optional() }),
   z.object({ type: z.literal('installation.courriel-essai'), a: z.string().max(254) }),
   /* La sortie directe (port 25) est-elle ouverte ? Sondée à l'ouverture de l'étape « Les courriels ». */
   z.object({ type: z.literal('installation.courriel-sonde') }),
   z.object({ type: z.literal('installation.github'), jeton: z.string().max(400) }),
+  /*
+   * LA CONNEXION GITHUB PAR CODE : « lancer » rend le code à coller sur GitHub,
+   * « etat » la retrouve après un rechargement, « annuler » l'arrête. La fin
+   * arrive par l'événement `installation.github`.
+   */
+  z.object({ type: z.literal('installation.github-code'), action: z.enum(['lancer', 'etat', 'annuler']) }),
+  /* La page « GitHub » des réglages : ce qui est relié (lecture), et la réinitialisation du jeton. */
+  z.object({ type: z.literal('installation.github-detail') }),
+  z.object({ type: z.literal('installation.github-reinitialiser') }),
+  /*
+   * L'ENVOI DIRECT PAR CE SERVEUR : « lire » rend les contrôles (signature,
+   * réglages du domaine, nom inverse) et les enregistrements attendus ;
+   * « poser » crée ces enregistrements chez le fournisseur de noms quand
+   * Beluga Build le pilote.
+   */
+  z.object({ type: z.literal('installation.courriels-domaine'), action: z.enum(['lire', 'poser']) }),
   z.object({ type: z.literal('installation.bibliotheque'), source: z.string().max(200) }),
   /*
    * EXPLORER LE POOL depuis la mise en route : la liste légère des fiches, puis
@@ -1375,6 +1414,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('digest.speak'), projectId: z.string().optional() }),
   /** Les voix installées sur le serveur, pour en choisir une et l'écouter. */
   z.object({ type: z.literal('voice.list') }),
+  /* La voix parle-t-elle sur ce serveur ? Sinon, la pièce qui manque, en une phrase. */
+  z.object({ type: z.literal('voice.etat') }),
   /**
    * Une phrase DICTÉE, sans destinataire : l'assistant global lit la liste des
    * projets ouverts, dépose la demande dans le chef d'orchestre du bon projet
@@ -1587,6 +1628,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     type: z.literal('comptes.creer'),
     identifiant: z.string(),
     nomAffiche: z.string().optional(),
+    /** Le niveau de l'accès : membre, lecteur ou client (jamais administrateur). Client par défaut. */
+    role: z.enum(['membre', 'lecteur', 'client']).default('client'),
     projets: z.array(z.string()).default([]),
     /** L'adresse où écrire au client, posée dès la création. Vide = aucune. */
     courriel: z.string().optional(),
@@ -1594,6 +1637,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
     envoyerIdentifiants: z.boolean().optional(),
   }),
   z.object({ type: z.literal('comptes.portee'), id: z.string(), projets: z.array(z.string()) }),
+  /** Change le niveau d'un accès existant (jamais celui d'un administrateur, jamais vers administrateur). */
+  z.object({ type: z.literal('comptes.niveau'), id: z.string(), role: z.enum(['membre', 'lecteur', 'client']) }),
   z.object({ type: z.literal('comptes.renommer'), id: z.string(), nomAffiche: z.string() }),
   /** L'adresse où écrire à ce client. Vide = ne rien lui envoyer. */
   z.object({ type: z.literal('comptes.courriel'), id: z.string(), courriel: z.string() }),
@@ -1705,6 +1750,18 @@ export const ServerEvent = z.discriminatedUnion('type', [
      * aucune entrée.
      */
     studioOuvert: z.boolean().optional(),
+    /**
+     * Cette machine est-elle sur l'offre hébergée (`shared/src/offre-hebergee.ts`) ?
+     * Absent ou faux : sur son propre serveur. L'écran en retire l'étape « Votre
+     * propre Beluga » ; le démon, lui, n'inscrit jamais le projet de l'outil.
+     */
+    offreHebergee: z.boolean().optional(),
+    /**
+     * Le niveau du compte connecté (`admin`, `membre`, `lecteur`). Absent : un
+     * ancien serveur, donc administrateur. L'écran en tire ce qu'il montre ; le
+     * serveur, lui, ne s'y fie jamais.
+     */
+    role: z.enum(['admin', 'membre', 'lecteur']).optional(),
     settings: Settings,
     prefs: z.record(z.any()).default({}),
     projects: z.array(Project),
@@ -1958,6 +2015,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('settings'), settings: Settings }),
   /** Un travail d'installation lancé depuis l'écran : son état, puis sa sortie au fil de l'eau. */
   z.object({ type: z.literal('installation.travail'), travail: TravailDInstallation }),
+  /* La connexion GitHub par code a changé (réussie, refusée, expirée) : les écrans relisent l'état. */
+  z.object({ type: z.literal('installation.github'), connexion: z.record(z.any()) }),
   z.object({ type: z.literal('installation.sortie'), genre: z.string(), donnees: z.string() }),
   z.object({ type: z.literal('installation.nouveautes'), etat: EtatDesNouveautes }),
   z.object({

@@ -110,6 +110,12 @@ import {
   questionDepuisSupposition,
   FORME_DE_LA_COMPREHENSION,
   FORME_DES_RESUMES_DU_FIL,
+  PLAFOND_D_UN_MESSAGE,
+  CONSIGNE_DU_CAHIER_VIVANT,
+  fusionnerLeCahier,
+  lireLesSuites,
+  messageTropLong,
+  refusDeMessageTropLong,
   SIGNES_MINIMUM_EN_CLAIR,
   RUBRIQUES_MINIMUM_DU_CAHIER,
   lirePlanRendu,
@@ -788,9 +794,33 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'proposer_suites',
+    description:
+      "SUITES POSSIBLES DE TA RÉPONSE : deux ou trois pastilles posées SOUS ton message, que l'utilisateur coche d'un clic pour te les renvoyer. Chacune : un « titre » de quelques mots (60 signes au plus), formulé comme une demande qu'on pourrait t'envoyer, et une « description » d'une phrase (160 signes au plus) qui dit ce qu'elle apporterait. Elles ne s'écrivent PAS dans ton message. Un nouvel appel remplace les précédentes de ce tour.",
+    inputSchema: {
+      type: 'object',
+      required: ['suites'],
+      properties: {
+        suites: {
+          type: 'array',
+          minItems: 2,
+          maxItems: 3,
+          items: {
+            type: 'object',
+            required: ['titre', 'description'],
+            properties: {
+              titre: { type: 'string', description: 'La suite, en quelques mots : une demande actionnable' },
+              description: { type: 'string', description: 'Une phrase : ce que cette suite apporterait' },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
     name: 'rendre_comprehension',
     description:
-      "CADRAGE — OBLIGATOIRE EN FIN DE CHAQUE TOUR : rends ce que tu as COMPRIS de la demande, en DEUX REGISTRES. Le premier (« texte ») est un miroir tendu à l'utilisateur, en mots courants, jamais une solution. Le second (« partieTechnique ») est replié à l'écran et part à l'agent qui exécutera : c'est le SEUL dossier qu'il recevra quand aucun plan n'est demandé. Le démon écrit le tout sur la carte ; ne le recopie pas en texte.",
+      `CADRAGE — rends ce que tu as COMPRIS de la demande, en DEUX REGISTRES. Le premier (« texte ») est le MESSAGE affiché à l'utilisateur, ${PLAFOND_D_UN_MESSAGE} signes au plus, en mots courants : au premier rendu ce qui sera fait, ensuite seulement ce qui change. Le second (« partieTechnique ») n'est PAS affiché : il part à l'agent qui exécutera, c'est le SEUL dossier qu'il recevra quand aucun plan n'est demandé, et il se reprend EN ENTIER à chaque appel. Le démon écrit le tout sur la carte ; ne le recopie pas en texte.`,
     inputSchema: {
       type: 'object',
       required: ['texte', 'resumeDemande', 'resumeComprehension', 'partieTechnique'],
@@ -864,6 +894,18 @@ export const TOOL_DEFS: ToolDef[] = [
           items: { type: 'string' },
           description: 'Les sujets de mémoire ouverts pour comprendre.',
         },
+        cahierDesCharges: {
+          type: 'array',
+          description: CONSIGNE_DU_CAHIER_VIVANT,
+          items: {
+            type: 'object',
+            required: ['titre', 'contenu'],
+            properties: {
+              titre: { type: 'string', description: 'Le nom de la rubrique' },
+              contenu: { type: 'string', description: 'Son contenu ENTIER, en mots courants' },
+            },
+          },
+        },
         projetsTouches: {
           type: 'array',
           items: { type: 'string' },
@@ -874,7 +916,7 @@ export const TOOL_DEFS: ToolDef[] = [
           type: 'object',
           required: ['taches', 'faits', 'risques'],
           description:
-            "LE SECOND REGISTRE, JAMAIS AFFICHÉ D'EMBLÉE : replié sous une flèche « Détails techniques », il part tel quel à l'agent qui EXÉCUTERA la carte. C'est ici, et seulement ici, que le jargon est permis : fichiers, fonctions, commandes. Obligatoire — il remplace le plan, devenu facultatif.",
+            "LE SECOND REGISTRE, JAMAIS AFFICHÉ : il part tel quel à l'agent qui EXÉCUTERA la carte. C'est ici, et seulement ici, que le jargon et le détail sont permis : fichiers, fonctions, commandes, constats, choix et leurs raisons. CUMULATIF : reprends EN ENTIER celui de la compréhension précédente (redonné avec la carte) et ajoute-y ce que les échanges ont apporté, décisions de l'utilisateur comprises. Obligatoire — il remplace le plan, devenu facultatif.",
           properties: {
             taches: {
               type: 'array',
@@ -904,31 +946,17 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'rendre_plan',
     description:
-      "CADRAGE — SEULEMENT QUAND LA CONSIGNE TE LE DEMANDE : rends le PLAN COMPLET de la carte, toutes ses parties. Le démon le met en forme, l'enregistre en version n, et l'écran l'affiche ; n'écris pas le plan en texte. Un plan incomplet est refusé avec ce qui manque. Toutes les parties affichées sont lues par l'utilisateur, qui ne programme pas : mots courants, aucun nom de fichier, de fonction ni de technologie. Le détail technique va dans « notesTechniques ».",
+      "CADRAGE — SEULEMENT QUAND LA CONSIGNE TE LE DEMANDE : rends le PLAN COMPACT de la carte, façon Conductor — l'ouverture en clair, les tâches, les vérifications, les décisions ; le cahier des charges vivant de la carte est repris s'il n'est pas redonné. Le démon le met en forme, l'enregistre en version n, et l'écran l'affiche ; n'écris pas le plan en texte. Un plan incomplet est refusé avec ce qui manque. Tout ce qui s'affiche est lu par l'utilisateur, qui ne programme pas : mots courants, aucun nom de fichier, de fonction ni de technologie. Le détail technique va dans « notesTechniques ».",
     inputSchema: {
       type: 'object',
-      required: ['titre', 'enClair', 'cahierDesCharges', 'synthese', 'taches', 'decisions', 'faisabilite', 'chemin', 'consequences', 'ameliorations'],
+      required: ['titre', 'enClair', 'synthese', 'taches', 'decisions', 'verifications'],
       properties: {
         titre: { type: 'string', description: 'Le titre court du plan' },
         enClair: {
           type: 'string',
           minLength: SIGNES_MINIMUM_EN_CLAIR,
           description:
-            "L'OUVERTURE DU PLAN, affichée AVANT la liste des tâches : deux à quatre courts paragraphes adressés à l'utilisateur, qui ne programme pas, pour qu'il se représente le résultat — ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira. Deux phrases au moins, aucun nom de fichier ni de technologie.",
-        },
-        cahierDesCharges: {
-          type: 'array',
-          minItems: RUBRIQUES_MINIMUM_DU_CAHIER,
-          description:
-            "LE CAHIER DES CHARGES, affiché entre l'ouverture et la liste des tâches : des rubriques, dans l'ordre « Contexte et objectifs », « Pour qui », « Périmètre » (compris ET exclu), « Fonctionnalités attendues », « Règles et contraintes », « Critères de réussite » (plus une rubrique si le sujet l'exige). Chacune détaillée, en mots courants, lisible par qui n'a pas suivi les échanges.",
-          items: {
-            type: 'object',
-            required: ['titre', 'contenu'],
-            properties: {
-              titre: { type: 'string', description: 'Le nom de la rubrique' },
-              contenu: { type: 'string', description: 'Son contenu détaillé, en texte suivi ou en puces' },
-            },
-          },
+            "L'OUVERTURE DU PLAN, affichée en tête : deux à quatre phrases adressées à l'utilisateur, qui ne programme pas — ce que tu vas faire (« je vais… ») et ce qu'il constatera une fois fini. Aucun nom de fichier ni de technologie.",
         },
         synthese: {
           type: 'string',
@@ -939,49 +967,42 @@ export const TOOL_DEFS: ToolDef[] = [
           // Les minimums se DÉCLARENT : le moteur les voit avant d'appeler, au
           // lieu de les découvrir dans un refus.
           minItems: 2,
-          description: 'LA LISTE DES TÂCHES : tout ce qu\'il y a à réaliser, deux entrées au moins. Le premier bloc du plan.',
+          description: 'LA LISTE DES TÂCHES : deux à sept entrées, ce qu\'il y a à réaliser.',
           items: {
             type: 'object',
             required: ['titre', 'description'],
             properties: {
               titre: { type: 'string', description: 'Ce qu\'il y a à faire, en quelques mots' },
-              description: { type: 'string', description: 'La description détaillée de cette tâche, en texte suivi' },
+              description: { type: 'string', description: 'Une ou deux phrases : ce qui est fait et pourquoi' },
             },
           },
+        },
+        verifications: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string' },
+          description: 'Ce qu’on constatera pour dire que c’est fini, une ligne par point, dit simplement',
         },
         decisions: {
           type: 'array',
           minItems: 1,
           items: { type: 'string' },
           description:
-            "LES DÉCISIONS DES ITÉRATIONS, une ligne au moins : ce qui a été décidé, changé ou abandonné pendant les échanges, et à quel moment (version, message, réponse à une question). Une nouvelle version REPREND les lignes de la précédente et y ajoute les siennes ; un point retiré du plan y est noté abandonné.",
+            "LES DÉCISIONS DES ITÉRATIONS, une ligne au moins : ce qui a été décidé, changé ou abandonné pendant les échanges (« Question → réponse retenue »). Une nouvelle version REPREND les lignes de la précédente et y ajoute les siennes ; un point retiré du plan y est noté abandonné.",
         },
         resume: { type: 'string', description: 'Le plan en une phrase — sert à la description de la carte, plus au corps du plan' },
-        faisabilite: {
-          type: 'string',
-          description: "Ce que le projet fait aujourd'hui d'après la mémoire ouverte, ce que la demande veut de plus, l'écart, et ce dont tu n'es pas sûr (« je suppose »)",
-        },
-        chemin: {
+        cahierDesCharges: {
           type: 'array',
-          minItems: 2,
-          description: 'Les étapes numérotées, deux au moins',
+          description:
+            "FACULTATIF : le cahier des charges ENTIER, seulement pour le réécrire. Absent, le cahier vivant de la carte (rempli par tes compréhensions) est repris tel quel ; s'il a moins de quatre rubriques, le plan est refusé et tu dois le donner.",
           items: {
             type: 'object',
-            required: ['titre', 'detail'],
-            properties: { titre: { type: 'string' }, detail: { type: 'string' } },
+            required: ['titre', 'contenu'],
+            properties: {
+              titre: { type: 'string', description: 'Le nom de la rubrique' },
+              contenu: { type: 'string', description: 'Son contenu, en texte suivi ou en puces' },
+            },
           },
-        },
-        consequences: { type: 'string', description: 'Ce que ça change, ce que ça casse' },
-        ameliorations: {
-          type: 'array',
-          minItems: 3,
-          items: { type: 'string' },
-          description: 'Une ligne par demande actionnable, trois au moins',
-        },
-        verifications: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Comment on vérifiera que c’est fait, dit simplement (ce que chaque contrôle prouve)',
         },
         notesTechniques: {
           type: 'string',
@@ -2757,6 +2778,26 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       };
     }
 
+    case 'proposer_suites': {
+      /*
+       * LES SUITES SE POSENT SUR LE MESSAGE DU TOUR EN COURS (`Message.suites`),
+       * et voyagent avec la réponse rendue jusque dans le fil de la carte
+       * (`donnees.suites` du jalon de fin de tour, `runtime.ts`).
+       */
+      const lecture = lireLesSuites(args.suites);
+      if (!lecture.ok) return { ok: false, text: lecture.raison };
+      const runtimeDesSuites = await import('./runtime.js');
+      const messageId = runtimeDesSuites.liveRun(ctx.agentId)?.messageId;
+      const message = messageId ? store.getMessage(messageId) : null;
+      if (!message) return { ok: false, text: 'Aucun tour en cours : les suites se proposent pendant ta réponse.' };
+      const ecrit = store.saveMessage({ ...message, suites: lecture.suites });
+      bus.emit({ type: 'message.upsert', message: ecrit });
+      return {
+        ok: true,
+        text: `${lecture.suites.length} suites posées sous ton message. Ne les répète pas dans ton texte.`,
+      };
+    }
+
     case 'rendre_comprehension': {
       if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
       const runtimeDuCadrage = await import('./runtime.js');
@@ -2787,6 +2828,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       const lecture = lireComprehensionRendue(args, { questionsPosees });
       if (!lecture.ok) return { ok: false, text: lecture.raison };
       /*
+       * LE TEXTE AFFICHÉ EST UN MESSAGE DE MESSAGERIE (`shared/src/message-court.ts`) :
+       * au-delà de 600 signes visibles, rien n'est enregistré et l'agent
+       * réécrit — le détail va dans la part technique, qui n'est pas affichée.
+       * Hors d'un tour vivant, on ne refuse rien : l'agent bouclerait.
+       */
+      if (runtimeDuCadrage.liveRun(ctx.agentId) && messageTropLong(lecture.valeur.texte)) {
+        return { ok: false, text: refusDeMessageTropLong('texte', lecture.valeur.texte) };
+      }
+      /*
        * PLUS AUCUNE SUPPOSITION, NULLE PART, MÊME TECHNIQUE.
        * Toute ligne de « hypotheses » est refusée à chaque appel
        * (`renvoiAuxQuestions`) : elle se vérifie, s'écrit comme décidée, ou se
@@ -2811,8 +2861,13 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       if (refusDesTouches) return { ok: false, text: refusDesTouches };
       const runtime = runtimeDuCadrage;
       const tourId = tourDuCadrage;
+      /* LE CAHIER VIVANT SE REMPLIT AU FIL DES RÉPONSES : les rubriques de ce
+         tour se fusionnent dans celles de la compréhension précédente
+         (`shared/src/cahier-vivant.ts`). */
+      const cahierDesCharges = fusionnerLeCahier(carte.parcours?.comprehension?.cahierDesCharges, rendue.cahierDesCharges);
       const comprehension = ComprehensionDeCarte.parse({
         ...rendue,
+        ...(cahierDesCharges.length ? { cahierDesCharges } : { cahierDesCharges: undefined }),
         hypotheses: [],
         ...(questionsEnAttente.length ? { questionsEnAttente } : {}),
         at: Date.now(),
@@ -2849,6 +2904,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           /* LE SECOND REGISTRE VOYAGE AVEC SON JALON, comme les résumés : le
              volet « Détails techniques » de CE tour lit celui de CE tour. */
           ...(comprehension.partieTechnique ? { partieTechnique: comprehension.partieTechnique } : {}),
+          /* LE CAHIER VIVANT, tel qu'il est après CE tour, et les rubriques que
+             ce tour a touchées : l'écran le replie sous la compréhension. */
+          ...(comprehension.cahierDesCharges?.length
+            ? {
+                cahierDesCharges: comprehension.cahierDesCharges,
+                rubriquesTouchees: (rendue.cahierDesCharges ?? []).map((r) => r.titre),
+              }
+            : {}),
           // Les résumés voyagent avec LEUR jalon : chaque passage du fil lit celui de son tour.
           resumeDemande: comprehension.resumeDemande,
           resumeComprehension: comprehension.resumeComprehension,
@@ -2869,10 +2932,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
     case 'rendre_plan': {
       if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
-      const lecture = lirePlanRendu(args);
-      if (!lecture.ok) return { ok: false, text: lecture.raison };
       const carte = store.getCard(ctx.cardId);
       if (!carte || carte.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
+      /* LE PLAN COMPACT REPREND LE CAHIER VIVANT quand il ne redonne pas le sien. */
+      const lecture = lirePlanRendu(args, { cahierVivant: carte.parcours?.comprehension?.cahierDesCharges });
+      if (!lecture.ok) return { ok: false, text: lecture.raison };
       const runtime = await import('./runtime.js');
       const tourId = runtime.liveRun(ctx.agentId)?.messageId;
       const plans = carte.parcours?.plans ?? [];

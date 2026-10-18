@@ -221,3 +221,18 @@ export function tonDuSegmentDeSuivi(
       return segment.etape === courante && !etapeDArrivee(courante) ? 'fini' : 'valide';
   }
 }
+
+/**
+ * LA COULEUR DU BADGE DE STATUT d'une carte (coin haut droit des cartes du
+ * tableau d'un projet et de « Tableaux de bord »), demandée le 18/10/2026 :
+ * JAUNE tant que la carte est à la Compréhension, VIOLET au Travail. La couleur
+ * suit l'ÉTAPE de la carte, pas seulement un agent qui tourne ; seul le badge
+ * est coloré, jamais la carte. Toute autre étape garde l'aspect neutre (`null`).
+ */
+export type TonDuBadgeDEtape = 'comprehension' | 'travail';
+
+export function tonDuBadgeDEtape(etape: EtapeDeSuivi): TonDuBadgeDEtape | null {
+  if (etape === 'comprehension') return 'comprehension';
+  if (etape === 'travail') return 'travail';
+  return null;
+}

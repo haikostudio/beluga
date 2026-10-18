@@ -31,6 +31,29 @@ const VENV = path.join(DONNEES, 'venv');
 const PYTHON = path.join(VENV, 'bin', 'python');
 const PIP = path.join(VENV, 'bin', 'pip');
 
+/*
+ * 0. LA RÉPARATION (`--reparer`, bouton « Relancer la configuration » de la
+ * page Voix). Un environnement posé à la main — sous un autre compte, avec une
+ * autre version de Python — peut exister sans marcher : l'interpréteur ne
+ * démarre pas, les bibliothèques ne s'importent pas, ou le compte du service ne
+ * peut pas y écrire. Il est alors MIS DE CÔTÉ (jamais effacé) et refait à neuf.
+ */
+if (process.argv.includes('--reparer') && fs.existsSync(VENV)) {
+  let sain = true;
+  try {
+    execFileSync(PYTHON, ['-c', 'import piper, faster_whisper'], { stdio: 'ignore' });
+    fs.accessSync(VENV, fs.constants.W_OK);
+  } catch {
+    sain = false;
+  }
+  if (sain) console.log('Environnement Python sain : il est gardé.');
+  else {
+    const ancien = `${VENV}.ancien-${Date.now()}`;
+    fs.renameSync(VENV, ancien);
+    console.log(`Environnement Python inutilisable : mis de côté (${ancien}), il va être refait.`);
+  }
+}
+
 /* 1. L'environnement lui-même. */
 if (fs.existsSync(PYTHON)) {
   console.log('Environnement Python déjà en place.');

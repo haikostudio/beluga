@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { Check, Copy, Loader2, RefreshCw, RotateCw, Send } from 'lucide-react';
 import {
+  ADRESSE_DE_LA_CONNEXION_PAR_CODE,
+  ADRESSE_D_UN_JETON_CLASSIQUE,
   IDENTITE_VIERGE,
   NOM_DE_COPIE_PAR_DEFAUT,
   PREREGLAGES_SMTP,
@@ -9,6 +11,7 @@ import {
   hoteNu,
   nomDeDepotValide,
   nomDeDomaineValide,
+  type ConnexionGithubParCode,
   type EtatDesNouveautes,
   type GenreDeSecret,
   type IdentiteDInstallation,
@@ -520,53 +523,216 @@ function FournisseurDeNomsDesProjets({ etat, relire }: { etat: EtatDeLInstallati
 /* ------------------------------------------------------------------ */
 
 export function SectionGitHub({ etat, relire }: { etat: EtatDeLInstallation | null; relire: () => Promise<void> }) {
+  const github = etat?.github;
+  /*
+   * LA CONNEXION PAR CODE, MISE EN AVANT. Le démon lance l'outil GitHub, qui
+   * donne un code ; on le montre en grand, on ouvre la page de GitHub, et la
+   * fin arrive par l'événement `installation.github` : la page passe au vert
+   * toute seule. Une connexion déjà en cours (rechargement, autre appareil) se
+   * retrouve à l'ouverture.
+   */
+  const [connexion, setConnexion] = React.useState<ConnexionGithubParCode>({ etat: 'aucune' });
+  const [lancement, setLancement] = React.useState(false);
+  const [copie, setCopie] = React.useState(false);
+  React.useEffect(() => {
+    if (github?.connecte) return;
+    let vivant = true;
+    client
+      .call<{ connexion: ConnexionGithubParCode }>({ type: 'installation.github-code', action: 'etat' })
+      .then((rendu) => vivant && rendu.connexion.etat === 'attente' && setConnexion(rendu.connexion))
+      .catch(() => undefined);
+    const ecouter = (evenement: Event) => {
+      setConnexion((evenement as CustomEvent<ConnexionGithubParCode>).detail ?? { etat: 'aucune' });
+      void relire();
+    };
+    window.addEventListener('beluga:connexion-github', ecouter);
+    return () => {
+      vivant = false;
+      window.removeEventListener('beluga:connexion-github', ecouter);
+    };
+  }, [github?.connecte, relire]);
+
+  const seConnecter = async () => {
+    // L'onglet s'ouvre DANS le geste du clic : ouvert après la réponse du démon,
+    // une application installée le bloquerait. Il reçoit l'adresse ensuite.
+    const onglet = window.open('about:blank', '_blank');
+    setLancement(true);
+    setCopie(false);
+    try {
+      const rendu = await client.call<{ connexion: ConnexionGithubParCode }>({ type: 'installation.github-code', action: 'lancer' }, 40_000);
+      setConnexion(rendu.connexion);
+      if (rendu.connexion.etat === 'attente') {
+        if (onglet) onglet.location.href = rendu.connexion.adresse ?? ADRESSE_DE_LA_CONNEXION_PAR_CODE;
+      } else onglet?.close();
+    } catch (err: any) {
+      onglet?.close();
+      setConnexion({ etat: 'echouee', erreur: err?.message ?? t('La connexion à GitHub n’a pas pu démarrer.') });
+    } finally {
+      setLancement(false);
+    }
+  };
+  const copierLeCode = async () => {
+    if (!connexion.code) return;
+    try {
+      await navigator.clipboard.writeText(connexion.code);
+      setCopie(true);
+    } catch {
+      /* le code reste lisible et sélectionnable à l'écran */
+    }
+  };
+  const annuler = async () => {
+    await client.call({ type: 'installation.github-code', action: 'annuler' }).catch(() => undefined);
+    setConnexion({ etat: 'aucune' });
+  };
+
+  if (github?.connecte) {
+    return (
+      <div className="space-y-3" data-section-installation="github" data-github="relie">
+        <LigneDEtat fait>{t('GitHub est relié au compte {compte}.', { compte: github.compte ?? '' })}</LigneDEtat>
+      </div>
+    );
+  }
+  if (github && !github.installe) {
+    return (
+      <div className="space-y-3" data-section-installation="github" data-github="sans-outil">
+        <LigneDEtat fait={false}>{t('L’outil GitHub n’est pas installé sur ce serveur.')}</LigneDEtat>
+        <BoutonInstaller genre="gh" libelle={t('Installer l’outil GitHub')} apres={relire} />
+      </div>
+    );
+  }
+  const attente = connexion.etat === 'attente' && connexion.code;
+  return (
+    <div className="space-y-4" data-section-installation="github" data-github={attente ? 'attente' : 'a-relier'}>
+      {attente ? (
+        <div className="space-y-2.5 rounded-lg bg-raised px-3.5 py-3" data-code-github={connexion.code}>
+          <p className="text-[13.5px] leading-relaxed text-muted">
+            {t('Collez ce code sur la page de GitHub qui vient de s’ouvrir, puis acceptez :')}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="select-all font-mono text-[24px] font-semibold tracking-[0.12em] text-text" data-code-de-connexion>
+              {connexion.code}
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => void copierLeCode()} data-copier-code-github>
+              {copie ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copie ? t('Copié') : t('Copier')}
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="subtle"
+              size="sm"
+              data-ouvrir-github
+              onClick={() => window.open(connexion.adresse ?? ADRESSE_DE_LA_CONNEXION_PAR_CODE, '_blank', 'noopener')}
+            >
+              {t('Ouvrir la page de GitHub')}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => void annuler()} data-annuler-github>
+              {t('Annuler')}
+            </Button>
+          </div>
+          <p className="flex items-center gap-1.5 text-[13px] text-muted" data-attente-github>
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('En attente de votre accord sur GitHub…')}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Button variant="default" size="md" data-se-connecter-github disabled={lancement} onClick={() => void seConnecter()}>
+            {lancement ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            {lancement ? t('Préparation du code…') : t('Se connecter avec GitHub')}
+          </Button>
+          <p className="text-[13px] leading-relaxed text-muted">
+            {t('Beluga Build affiche un code et ouvre GitHub : vous le collez, vous acceptez, et c’est relié. Vos dépôts privés compris.')}
+          </p>
+          <LigneDEtat fait={false}>{t('GitHub n’est pas encore relié.')}</LigneDEtat>
+          <Refus texte={connexion.etat === 'echouee' || connexion.etat === 'expiree' ? (connexion.erreur ?? null) : null} />
+        </div>
+      )}
+      <JetonGithubALaMain relire={relire} />
+    </div>
+  );
+}
+
+/**
+ * LE JETON COLLÉ, DERRIÈRE UN LIEN DISCRET. Il reste possible, avec ce qu'il
+ * faut savoir pour le créer : un jeton CLASSIQUE, droits déjà cochés par le
+ * lien. Le jeton « à grain fin » que GitHub propose d'abord ne voit, par
+ * défaut, que les dépôts publics : le démon le refuse, et le dit ici.
+ */
+function JetonGithubALaMain({ relire }: { relire: () => Promise<void> }) {
+  const [ouvert, setOuvert] = React.useState(false);
   const [jeton, setJeton] = React.useState('');
   const [envoi, setEnvoi] = React.useState(false);
-  const [refus, setRefus] = React.useState<string | null>(null);
+  const [refus, setRefus] = React.useState<{ texte: string; lien?: string } | null>(null);
   const connecter = async () => {
     setEnvoi(true);
     setRefus(null);
     try {
-      const rendu = await client.call<{ github: { connecte: boolean; erreur?: string } }>({ type: 'installation.github', jeton });
-      if (rendu.github.connecte) setJeton('');
-      else setRefus(rendu.github.erreur ?? t('GitHub a refusé ce jeton.'));
+      const rendu = await client.call<{ github: { connecte: boolean; erreur?: string; lienDuJeton?: string } }>({
+        type: 'installation.github',
+        jeton,
+      });
+      if (rendu.github.erreur) setRefus({ texte: rendu.github.erreur, lien: rendu.github.lienDuJeton });
+      else if (rendu.github.connecte) setJeton('');
+      else setRefus({ texte: t('GitHub a refusé ce jeton.') });
       await relire();
     } catch (err: any) {
-      setRefus(err?.message ?? t('GitHub a refusé ce jeton.'));
+      setRefus({ texte: err?.message ?? t('GitHub a refusé ce jeton.') });
     } finally {
       setEnvoi(false);
     }
   };
-  const github = etat?.github;
+  if (!ouvert) {
+    return (
+      <button type="button" className="text-[13px] text-faint underline-offset-2 hover:text-muted hover:underline" data-jeton-github-lien onClick={() => setOuvert(true)}>
+        {t('Utiliser un jeton à la place')}
+      </button>
+    );
+  }
   return (
-    <div className="space-y-3" data-section-installation="github">
-      {github?.connecte ? (
-        <LigneDEtat fait>{t('GitHub est relié au compte {compte}.', { compte: github.compte ?? '' })}</LigneDEtat>
-      ) : github && !github.installe ? (
-        <LigneDEtat fait={false}>{t('L’outil GitHub n’est pas installé sur ce serveur.')}</LigneDEtat>
-      ) : (
-        <Champ
-          label={t('Jeton d’accès GitHub')}
-          aide={t('À créer sur github.com, dans Settings, Developer settings, Personal access tokens, avec les droits « repo » et « workflow ». Il reste sur ce serveur.')}
+    <div className="space-y-2.5" data-jeton-github-deplie>
+      <div className="space-y-1.5 text-[13px] leading-relaxed text-muted" data-explication-jeton>
+        <p>
+          {t('À quoi il sert : avec ce jeton, Beluga Build récupère vos dépôts, enregistre le travail de chaque tâche sur sa branche et crée des dépôts en votre nom. Il reste sur ce serveur.')}
+        </p>
+        <p>
+          {t('Comment le créer : ouvrez la page ci-dessous (droits « repo » et « workflow » déjà cochés), choisissez une durée, cliquez « Generate token », puis copiez le jeton qui commence par ghp_ et collez-le ici.')}
+        </p>
+        <p>
+          {t('Prenez bien un jeton classique : le jeton « Fine-grained » que GitHub propose d’abord ne voit, par défaut, que vos dépôts publics.')}
+        </p>
+        <a
+          href={ADRESSE_D_UN_JETON_CLASSIQUE}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block font-medium text-text underline underline-offset-2"
+          data-creer-jeton-classique
         >
-          <div className="flex items-center gap-1.5">
-            <ChampMotDePasse
-              data-jeton-github
-              value={jeton}
-              autoComplete="off"
-              placeholder="ghp_xxxxxxxxxxxx"
-              onChange={(event) => setJeton(event.target.value)}
-              cadre="flex-1"
-            />
-            <Button variant="subtle" size="md" data-relier-github disabled={!jeton.trim() || envoi} onClick={connecter}>
-              {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              {t('Relier GitHub')}
-            </Button>
-          </div>
-          <LigneDEtat fait={false}>{t('GitHub n’est pas encore relié.')}</LigneDEtat>
-          <Refus texte={refus} />
-        </Champ>
-      )}
+          {t('Créer un jeton classique sur GitHub')}
+        </a>
+      </div>
+      <Champ label={t('Jeton d’accès GitHub')}>
+        <div className="flex items-center gap-1.5">
+          <ChampMotDePasse
+            data-jeton-github
+            value={jeton}
+            autoComplete="off"
+            placeholder="ghp_xxxxxxxxxxxx"
+            onChange={(event) => setJeton(event.target.value)}
+            cadre="flex-1"
+          />
+          <Button variant="subtle" size="md" data-relier-github disabled={!jeton.trim() || envoi} onClick={connecter}>
+            {envoi ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            {envoi ? t('Vérification du jeton…') : t('Relier GitHub')}
+          </Button>
+        </div>
+        <Refus texte={refus?.texte ?? null} />
+        {refus?.lien ? (
+          <a href={refus.lien} target="_blank" rel="noopener noreferrer" className="text-[13px] font-medium text-text underline underline-offset-2" data-lien-jeton-refuse>
+            {t('Créer un jeton classique sur GitHub')}
+          </a>
+        ) : null}
+      </Champ>
     </div>
   );
 }
@@ -732,7 +898,179 @@ export function SectionCourriels({ etat, relire }: { etat: EtatDeLInstallation |
           <LigneDEtat fait={false}>{etat.courriels.extinction ? `${etat.courriels.extinction}.` : t('Aucun courriel ne part pour l’instant.')}</LigneDEtat>
         )
       ) : null}
+      {mode === 'serveur' && !blocage ? <ControlesDeLEnvoiDirect relire={relire} /> : null}
       <CourrielDEssai parDefaut={identite.adresseDuRecapitulatif} relire={relire} />
+    </div>
+  );
+}
+
+/** Ce que le démon rend des contrôles de l'envoi direct (`installation.courriels-domaine`). */
+interface ControlesDeLEnvoi {
+  domaine: string;
+  ip: string;
+  ptr: string | null;
+  points: { id: 'agent' | 'port25' | 'spf' | 'dkim' | 'dmarc' | 'ptr'; ok: boolean; manque: string }[];
+  aPoser: { genre: string; nom: string; nomComplet: string; valeur: string }[];
+  posables: boolean;
+  signature: boolean;
+}
+
+/** Le nom de chaque point de contrôle, dans la langue affichée. */
+function nomDuPoint(id: ControlesDeLEnvoi['points'][number]['id']): string {
+  switch (id) {
+    case 'agent':
+      return t('Agent d’envoi sur ce serveur');
+    case 'port25':
+      return t('Sortie des courriels ouverte (port 25)');
+    case 'spf':
+      return t('Le domaine autorise ce serveur (SPF)');
+    case 'dkim':
+      return t('Les courriels sont signés (DKIM)');
+    case 'dmarc':
+      return t('Règle du domaine pour les courriels douteux (DMARC)');
+    case 'ptr':
+      return t('Nom inverse de l’adresse du serveur (PTR)');
+  }
+}
+
+/**
+ * AVANT L'ESSAI, CE QUE LES BOÎTES DE RÉCEPTION VONT REGARDER. Un serveur qui
+ * envoie lui-même n'est accepté par Gmail et les autres que si son domaine
+ * l'autorise, s'il signe ses courriels et si son adresse a un nom inverse. La
+ * liste le dit point par point ; la signature s'installe d'un bouton, les
+ * réglages du domaine se posent d'un bouton quand Beluga Build gère ce domaine,
+ * et s'affichent à copier sinon.
+ */
+function ControlesDeLEnvoiDirect({ relire }: { relire: () => Promise<void> }) {
+  const [controles, setControles] = React.useState<ControlesDeLEnvoi | null>(null);
+  const [pose, setPose] = React.useState(false);
+  const [bilan, setBilan] = React.useState<{ faits: string[]; erreurs: string[] } | null>(null);
+  const lire = React.useCallback(async () => {
+    try {
+      setControles(await client.call<ControlesDeLEnvoi>({ type: 'installation.courriels-domaine', action: 'lire' }, 60_000));
+    } catch {
+      /* le démon ne répond pas : la liste reste en attente */
+    }
+  }, []);
+  React.useEffect(() => {
+    void lire();
+  }, [lire]);
+  const poser = async () => {
+    setPose(true);
+    setBilan(null);
+    try {
+      const rendu = await client.call<{ faits: string[]; erreurs: string[]; controles: ControlesDeLEnvoi }>(
+        { type: 'installation.courriels-domaine', action: 'poser' },
+        120_000,
+      );
+      setBilan({ faits: rendu.faits, erreurs: rendu.erreurs });
+      setControles(rendu.controles);
+    } catch (err: any) {
+      setBilan({ faits: [], erreurs: [err?.message ?? t('Les réglages du domaine n’ont pas pu être posés.')] });
+    } finally {
+      setPose(false);
+    }
+  };
+  if (!controles) {
+    return (
+      <p className="flex items-center gap-1.5 text-[13px] text-muted" data-controles-envoi-direct="lecture">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        {t('Vérification du domaine et de la signature…')}
+      </p>
+    );
+  }
+  const agent = controles.points.find((point) => point.id === 'agent')?.ok ?? false;
+  const sansSignature = agent && Boolean(controles.domaine) && !controles.signature;
+  const toutVert = controles.points.every((point) => point.ok);
+  return (
+    <Champ
+      label={t('Pour que vos courriels soient acceptés')}
+      aide={t('Gmail et les autres messageries refusent les courriels d’un serveur que son domaine n’autorise pas, qui ne les signe pas, ou dont l’adresse n’a pas de nom inverse.')}
+    >
+      <div className="space-y-3" data-controles-envoi-direct={toutVert ? 'vert' : 'a-corriger'}>
+        <div className="space-y-1">
+          {controles.points.map((point) => (
+            <div key={point.id} data-point-de-controle={point.id} data-ok={point.ok ? '1' : '0'}>
+              <LigneDEtat fait={point.ok}>
+                {nomDuPoint(point.id)}
+                {point.ok ? null : <span className="block text-muted">{point.manque}</span>}
+              </LigneDEtat>
+            </div>
+          ))}
+        </div>
+        {sansSignature ? (
+          <BoutonInstaller genre="signature-des-courriels" libelle={t('Installer la signature des courriels')} apres={async () => (await lire(), await relire())} />
+        ) : null}
+        {controles.aPoser.length ? (
+          <div className="space-y-2" data-enregistrements-a-poser>
+            <p className="text-[13px] leading-relaxed text-muted">
+              {controles.posables
+                ? t('Beluga Build gère les noms de ce domaine : il peut poser ces réglages lui-même.')
+                : t('Copiez ces réglages chez le fournisseur de votre nom de domaine, comme enregistrements de type TXT :')}
+            </p>
+            {controles.aPoser.map((enregistrement) => (
+              <EnregistrementACopier key={enregistrement.genre} {...enregistrement} />
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {controles.posables && (controles.aPoser.length || !toutVert) ? (
+            <Button variant="subtle" size="md" disabled={pose} onClick={() => void poser()} data-poser-reglages-domaine>
+              {pose ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              {pose ? t('Pose des réglages…') : t('Poser les réglages du domaine')}
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={() => void lire()} data-relire-controles>
+            <RefreshCw className="h-3 w-3" />
+            {t('Revérifier')}
+          </Button>
+        </div>
+        {bilan ? (
+          <div className="space-y-0.5 text-[13px] leading-relaxed" data-bilan-reglages-domaine>
+            {bilan.faits.map((fait) => (
+              <p key={fait} className="text-success">{fait}</p>
+            ))}
+            {bilan.erreurs.map((erreur) => (
+              <p key={erreur} className="text-danger">{erreur}</p>
+            ))}
+            {bilan.faits.length ? <p className="text-muted">{t('Un nouveau réglage met quelques minutes à se propager : revérifiez avant l’essai.')}</p> : null}
+          </div>
+        ) : null}
+      </div>
+    </Champ>
+  );
+}
+
+/** Le type DNS des trois réglages : un nom technique, le même dans toutes les langues. */
+const TYPE_D_ENREGISTREMENT = 'TXT';
+
+/** Un enregistrement TXT à poser : son nom et sa valeur, chacun copiable d'un clic. */
+function EnregistrementACopier({ genre, nomComplet, valeur }: { genre: string; nomComplet: string; valeur: string }) {
+  const [copie, setCopie] = React.useState<'nom' | 'valeur' | null>(null);
+  const copier = async (quoi: 'nom' | 'valeur') => {
+    try {
+      await navigator.clipboard.writeText(quoi === 'nom' ? nomComplet : valeur);
+      setCopie(quoi);
+    } catch {
+      /* le texte reste sélectionnable à l'écran */
+    }
+  };
+  return (
+    <div className="space-y-1 rounded-lg bg-raised px-3 py-2" data-enregistrement={genre}>
+      <div className="flex items-center gap-2">
+        <span className="w-12 shrink-0 text-[12px] font-medium uppercase text-faint">{genre}</span>
+        <span className="min-w-0 flex-1 select-all break-all font-mono text-[12.5px] text-text">{nomComplet}</span>
+        <Button variant="ghost" size="sm" title={t('Copier le nom')} onClick={() => void copier('nom')}>
+          {copie === 'nom' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </Button>
+      </div>
+      <div className="flex items-start gap-2">
+        <span className="w-12 shrink-0 text-[12px] text-faint">{TYPE_D_ENREGISTREMENT}</span>
+        <span className="min-w-0 flex-1 select-all break-all font-mono text-[12px] leading-relaxed text-muted">{valeur}</span>
+        <Button variant="ghost" size="sm" title={t('Copier la valeur')} onClick={() => void copier('valeur')}>
+          {copie === 'valeur' ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -740,19 +1078,21 @@ export function SectionCourriels({ etat, relire }: { etat: EtatDeLInstallation |
 /**
  * L'ESSAI RÉEL. Un vrai courriel part par la façon choisie, et l'écran dit ce
  * qui s'est RÉELLEMENT passé — y compris « votre hébergeur bloque cet envoi »,
- * qu'aucun réglage ne permet de deviner.
+ * qu'aucun réglage ne permet de deviner. Le démon SUIT le courriel jusqu'à la
+ * réponse de la boîte du destinataire : « arrivé », « refusé » avec la raison,
+ * « encore en route » ou « impossible à savoir » — jamais un succès supposé.
  */
 function CourrielDEssai({ parDefaut, relire }: { parDefaut: string; relire: () => Promise<void> }) {
   const [adresse, setAdresse] = React.useState('');
   const [envoi, setEnvoi] = React.useState(false);
-  const [bilan, setBilan] = React.useState<{ ok: boolean; texte: string } | null>(null);
+  const [bilan, setBilan] = React.useState<{ ok: boolean; texte: string; issue?: string } | null>(null);
   const destinataire = (adresse || parDefaut).trim();
   const envoyer = async () => {
     setEnvoi(true);
     setBilan(null);
     try {
       await relire();
-      setBilan(await client.call<{ ok: boolean; texte: string }>({ type: 'installation.courriel-essai', a: destinataire }, 90_000));
+      setBilan(await client.call<{ ok: boolean; texte: string; issue?: string }>({ type: 'installation.courriel-essai', a: destinataire }, 90_000));
     } catch (err: any) {
       setBilan({ ok: false, texte: err?.message ?? t('L’essai n’a pas pu partir.') });
     } finally {
@@ -777,8 +1117,20 @@ function CourrielDEssai({ parDefaut, relire }: { parDefaut: string; relire: () =
           {envoi ? t('Envoi en cours…') : t('Envoyer un courriel d’essai')}
         </Button>
       </div>
+      {envoi ? (
+        <p className="text-[13px] leading-relaxed text-muted" data-suivi-courriel-d-essai>
+          {t('Beluga Build suit le courriel jusqu’à la messagerie du destinataire : cela peut prendre jusqu’à une minute.')}
+        </p>
+      ) : null}
       {bilan ? (
-        <p data-bilan-courriel-d-essai={bilan.ok ? 'ok' : 'refus'} className={cn('text-[13px] leading-relaxed', bilan.ok ? 'text-success' : 'text-danger')}>
+        <p
+          data-bilan-courriel-d-essai={bilan.ok ? 'ok' : 'refus'}
+          data-issue={bilan.issue ?? (bilan.ok ? 'arrive' : 'refuse')}
+          className={cn(
+            'text-[13px] leading-relaxed',
+            bilan.ok ? 'text-success' : bilan.issue === 'attente' || bilan.issue === 'inconnu' ? 'text-text' : 'text-danger',
+          )}
+        >
           {bilan.texte}
         </p>
       ) : null}
@@ -1110,14 +1462,12 @@ export function SectionNouveautes() {
         <LigneDEtat fait>{t('Beluga Build est à jour.')}</LigneDEtat>
       )}
       <p className="text-[13px] leading-relaxed text-muted">
-        {nouveautes.copie
-          ? t('Cette installation est votre copie : les nouveautés sont rapprochées de vos modifications par un agent, dans une tâche que vous lancez et relisez.')
-          : t('Rien n’est appliqué sans vous : les nouveautés se récupèrent quand vous le demandez.')}
+        {t('Un agent lit le journal des changements du dépôt public et met les nouveautés en place, dans une tâche que vous suivez dans le projet Beluga Build. Rien n’est mis en ligne sans vous.')}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="subtle" size="md" data-recuperer-les-nouveautes disabled={envoi || travail?.etat === 'en-cours'} onClick={() => void recuperer()}>
           {envoi || travail?.etat === 'en-cours' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          {t('Récupérer les nouveautés')}
+          {t('Mettre à jour')}
         </Button>
         {travail?.etat === 'reussi' ? (
           <Button variant="default" size="md" data-redemarrer-apres-mise-a-jour onClick={redemarrage.ouvrir}>

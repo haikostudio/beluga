@@ -70,6 +70,9 @@ import {
   gesteDuDepot,
   carteDoitSecouer,
   friseDeSuivi,
+  etapeCouranteDeSuivi,
+  LIBELLE_ETAPE_DE_SUIVI,
+  tonDuBadgeDEtape,
   agentDeConfiguration,
   etatDeLaVignetteDInitialisation,
   procedureEnPlace,
@@ -82,6 +85,7 @@ import { VignetteInitialisationProduction } from '@/components/vignette-initiali
 import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
 import { GestesDePage } from '@/components/entete-de-zone';
 import { PointNonLu } from '@/components/point-non-lu';
+import { BadgeDEtape } from '@/components/badge-etape';
 import { RepereAttention } from '@/components/repere-attention';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { IconeMoteur } from '@/components/icone-moteur';
@@ -1318,7 +1322,9 @@ export function Board({
    * pages : seule la tenue du geste change. Plus rien ne se pose en bas de
    * l'écran du téléphone (demande du 11/10/2026).
    */
-  const panneauDeDeploiement = (column: ColumnKey, columnCards: Card[], enTete: boolean) => (
+  const panneauDeDeploiement = (column: ColumnKey, columnCards: Card[], enTete: boolean) =>
+    /* LA MISE EN LIGNE EST À L'ADMINISTRATEUR : un membre ou un lecteur n'en voit pas le geste (le serveur le refuse aussi). */
+    state.monRole !== 'admin' ? null : (
     <DeployPanel
       projectId={projectId}
       cards={columnCards}
@@ -1339,7 +1345,7 @@ export function Board({
      membres, chacun avec le sien, plus un bouton qui les lance tous
      (`bandeau-production-groupe.tsx`). Un projet ordinaire garde le sien. */
   const miseEnProduction = (enTete: boolean) =>
-    membresDuGroupe.length && projetOuvert ? (
+    state.monRole !== 'admin' ? null : membresDuGroupe.length && projetOuvert ? (
       <BandeauProductionGroupe groupe={projetOuvert} membres={membresDuGroupe} enTete={enTete} enMenu={!enTete} />
     ) : (
       <DeployPanel
@@ -2291,6 +2297,20 @@ export function CardTile({
     luA: card.lastReadAt,
   });
   const etape = etapeDeCarte({ colonne: card.column, doneAt: card.doneAt, parcours: card.parcours });
+  /* LE BADGE DE STATUT du tableau d'un projet (en haut à droite de la carte) :
+     la couleur suit l'ÉTAPE de la carte, calculée comme la frise de « Tableaux
+     de bord ». Sur ce dernier, le badge est posé par sa tête (`en-route.tsx`). */
+  const etapeBadge = etapeCouranteDeSuivi(
+    carteDeSuivi(card, {
+      agentActif: agentAuTravail || fillesAuTravail,
+      deploys: state.deploys,
+      colonne: colonneAffichee({
+        column: card.column,
+        agentAuTravail: !!agentActif && agentCompteCommeTravail(agentActif.role),
+      }),
+    }),
+  );
+  const tonBadge = enRoute ? null : tonDuBadgeDEtape(etapeBadge);
 
   return (
     <div
@@ -2482,7 +2502,20 @@ export function CardTile({
           {/* Le voyant est à DROITE, au bout de la ligne du titre. Le point gris
               du repos et la coche du travail rendu ont disparu : la pastille
               bleue et l'icône d'étape les remplacent. */}
-          {etat === 'travaille' ? (
+          {tonBadge ? (
+            /* LE BADGE DE STATUT, en haut à droite : jaune à la Compréhension,
+               violet au Travail (`tonDuBadgeDEtape`). Il prend la place du
+               voyant, sur la même ligne : la carte ne change pas de hauteur. */
+            <BadgeDEtape ton={tonBadge} enCours={etat === 'travaille'} className="mt-px">
+              {attendQuestion
+                ? t('Attend votre réponse')
+                : etat === 'travaille'
+                  ? agentActif?.role === 'cadrage'
+                    ? t('Cadrage en cours')
+                    : t('Au travail')
+                  : t(LIBELLE_ETAPE_DE_SUIVI[etapeBadge])}
+            </BadgeDEtape>
+          ) : etat === 'travaille' ? (
             <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-en-cours" />
           ) : etat === 'echec' || etat === 'attente' || etat === 'enligne' ? (
             <Dot tone={etat === 'echec' ? 'failed' : etat === 'attente' ? 'waiting' : 'done'} />

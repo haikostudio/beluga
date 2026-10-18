@@ -93,6 +93,8 @@ import {
   agentRetientLaPublication,
   raisonLancementEnPreparation,
   processusJoueAuDeploiement,
+  DEPOT_PUBLIC,
+  depotDeLAdresse,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -493,6 +495,25 @@ export async function brancheDeLEtape(project: Project, cible: CiblePublication)
 }
 
 /**
+ * LE DÉPÔT PUBLIC DE BELUGA SE LIT, IL NE SE POUSSE JAMAIS. Vrai quand le
+ * distant nommé pointe sur lui : un envoi y réclamerait le jeton de Haiko
+ * Studio. Un distant introuvable n'est pas le dépôt public.
+ */
+async function distantEstLeDepotPublic(cwd: string, distant: string): Promise<boolean> {
+  const url = await runGit(cwd, ['remote', 'get-url', distant], 20000);
+  return url.ok && depotDeLAdresse(url.sortie) === depotDeLAdresse(DEPOT_PUBLIC);
+}
+
+/** Les distants du dépôt vers lesquels un envoi est permis (le dépôt public n'en fait jamais partie). */
+async function distantsEnvoyables(cwd: string): Promise<string[]> {
+  const liste = await runGit(cwd, ['remote'], 20000);
+  const noms = liste.sortie.split('\n').map((n) => n.trim()).filter(Boolean);
+  const rendus: string[] = [];
+  for (const nom of noms) if (!(await distantEstLeDepotPublic(cwd, nom))) rendus.push(nom);
+  return rendus;
+}
+
+/**
  * Se poser SUR la branche de l'étape, quitte à la CRÉER.
  *
  * Trois passes, dans cet ordre : la branche est là (cas courant) ; elle n'existe
@@ -520,7 +541,9 @@ async function seposerSurLaBranche(cwd: string, branche: string): Promise<{ ok: 
   const principale = await mainBranchOf(cwd);
   const creee = await runCommand(cwd, `git checkout -B ${branche} ${principale}`);
   if (!creee.ok) return { ok: false, out: `${direct.out}\n${creee.out}` };
-  await runGit(cwd, ['push', '-u', 'origin', branche], 120000).catch(() => undefined);
+  if (!(await distantEstLeDepotPublic(cwd, 'origin'))) {
+    await runGit(cwd, ['push', '-u', 'origin', branche], 120000).catch(() => undefined);
+  }
   return creee;
 }
 
@@ -535,9 +558,18 @@ export async function envoyerSurLeDepot(
   cwd: string,
   lancer: (args: string[]) => Promise<{ ok: boolean; sortie: string; erreur: string; out: string; delaiDepasse?: boolean }>
     = (args) => runGit(cwd, args),
-): Promise<{ ok: boolean; sortie: string; commande: string; delaiDepasse?: boolean }> {
+): Promise<{ ok: boolean; sortie: string; commande: string; delaiDepasse?: boolean; lectureSeule?: boolean }> {
   const suivie = await runGit(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], 20000);
   const locale = await runGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], 20000);
+  const distantVise = suivie.ok ? suivie.sortie.trim().split('/')[0] : 'origin';
+  if (await distantEstLeDepotPublic(cwd, distantVise)) {
+    return {
+      ok: true,
+      lectureSeule: true,
+      commande: '(aucune commande lancée)',
+      sortie: 'Dépôt public : lecture seule, rien à envoyer.',
+    };
+  }
   const plan = planDEnvoi({
     suivie: { ok: suivie.ok, sortie: suivie.sortie },
     locale: { ok: locale.ok, sortie: locale.sortie },
@@ -1578,6 +1610,8 @@ async function deployer(
     const aDistant = (await runCommand(cwd, 'git remote', 20000)).out.trim().length > 0;
     if (!aDistant) {
       recitEnvoi.push(`${prefixe(d)}aucun dépôt distant : rien à envoyer`);
+    } else if ((await distantsEnvoyables(cwd)).length === 0) {
+      recitEnvoi.push(`${prefixe(d)}dépôt public : lecture seule, rien à envoyer`);
     } else {
       if (d.principal && project.depotSansDonneesSensibles) {
         const garde = await garderLEnvoi(
@@ -1595,7 +1629,9 @@ async function deployer(
           `${prefixe(d)}${envoi.delaiDepasse ? `L’envoi n’a pas rendu la main en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.envoi)}.\n` : ''}${envoi.sortie}`,
         );
       }
-      recitEnvoi.push(`${prefixe(d)}${envoi.commande} : envoyé`);
+      recitEnvoi.push(
+        envoi.lectureSeule ? `${prefixe(d)}dépôt public : lecture seule, rien à envoyer` : `${prefixe(d)}${envoi.commande} : envoyé`,
+      );
     }
     if (!d.principal) etatsDepots.push({ nom: d.nom, etat: 'reussi', targetCommit: tete });
   }

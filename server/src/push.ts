@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import webpush from 'web-push';
-import { construireFragment, identiteDInstallation } from '@beluga/shared';
+import { APPAREIL_INCONNU, construireFragment, identiteDInstallation, nomDAppareil } from '@beluga/shared';
+import type { AppareilNotifie } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
 
@@ -54,20 +56,64 @@ export function publicKey(): string | null {
  * au navigateur — il est LU DERRIÈRE LE COOKIE DE SESSION, comme partout
  * ailleurs : sinon n'importe qui s'abonnerait au nom d'un autre.
  */
-export function subscribe(subscription: unknown, userId?: string): boolean {
+export function subscribe(subscription: unknown, userId?: string, userAgent?: string): boolean {
   const record = subscription as { endpoint?: string };
   if (!record?.endpoint) return false;
+  const appareil = userAgent ? nomDAppareil(userAgent) : null;
   getDb()
     .prepare(
-      `INSERT INTO push_subs (endpoint, data, created_at, user_id) VALUES (?, ?, ?, ?)
-       ON CONFLICT(endpoint) DO UPDATE SET data = excluded.data, user_id = excluded.user_id`,
+      `INSERT INTO push_subs (endpoint, data, created_at, user_id, appareil) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(endpoint) DO UPDATE SET data = excluded.data, user_id = excluded.user_id,
+         appareil = COALESCE(excluded.appareil, push_subs.appareil)`,
     )
-    .run(record.endpoint, JSON.stringify(subscription), Date.now(), userId ?? null);
+    .run(record.endpoint, JSON.stringify(subscription), Date.now(), userId ?? null, appareil);
   return true;
 }
 
 export function unsubscribe(endpoint: string): void {
   getDb().prepare('DELETE FROM push_subs WHERE endpoint = ?').run(endpoint);
+}
+
+/**
+ * L'EMPREINTE D'UN ABONNEMENT : ce que la liste des appareils montre à la
+ * place de l'adresse d'abonnement. Cette adresse donne le droit d'écrire sur
+ * l'appareil — elle ne sort jamais du démon.
+ */
+export function empreinteDAbonnement(endpoint: string): string {
+  return createHash('sha256').update(endpoint).digest('hex').slice(0, 24);
+}
+
+/**
+ * LES APPAREILS D'UN COMPTE, et de lui seul (MEM-0768) : un abonnement
+ * appartient à la personne connectée au moment où il a été posé. `courant`
+ * est l'adresse d'abonnement de l'appareil qui regarde, pour le repérer.
+ */
+export function appareilsDuCompte(
+  userId: string,
+  courant?: string,
+): { appareils: AppareilNotifie[]; courantId: string | null } {
+  const lignes = getDb()
+    .prepare('SELECT endpoint, appareil, created_at FROM push_subs WHERE user_id = ? ORDER BY created_at DESC')
+    .all(userId) as { endpoint: string; appareil: string | null; created_at: number }[];
+  return {
+    appareils: lignes.map((ligne) => ({
+      id: empreinteDAbonnement(ligne.endpoint),
+      nom: ligne.appareil || APPAREIL_INCONNU,
+      ajouteLe: ligne.created_at,
+    })),
+    courantId: courant ? empreinteDAbonnement(courant) : null,
+  };
+}
+
+/** Retire un appareil — seulement s'il appartient à ce compte. Rend `true` s'il a été retiré. */
+export function retirerAppareilDuCompte(userId: string, id: string): boolean {
+  const lignes = getDb().prepare('SELECT endpoint FROM push_subs WHERE user_id = ?').all(userId) as {
+    endpoint: string;
+  }[];
+  const cible = lignes.find((ligne) => empreinteDAbonnement(ligne.endpoint) === id);
+  if (!cible) return false;
+  unsubscribe(cible.endpoint);
+  return true;
 }
 
 export interface PushPayload {

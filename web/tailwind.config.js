@@ -77,6 +77,15 @@ export default {
         // du texte du décroché (`text-teinte`). À poser avec parcimonie
         // (styles.css).
         teinte: 'hsl(var(--teinte))',
+        'teinte-fond': 'hsl(var(--teinte-fond))',
+        'teinte-trait': 'hsl(var(--teinte-trait))',
+        // Le JAUNE du badge de statut « Compréhension » (styles.css) : son seul
+        // usage, avec le fond et le trait de la même teinte.
+        comprehension: {
+          DEFAULT: 'hsl(var(--comprehension))',
+          fond: 'hsl(var(--comprehension-fond))',
+          trait: 'hsl(var(--comprehension-trait))',
+        },
         // L'aplat d'encre (bulle de l'utilisateur, bouton qui arrête) : noir
         // en clair, GRIS soutenu en sombre — jamais blanc (styles.css).
         encre: { DEFAULT: 'hsl(var(--encre))', fg: 'hsl(var(--encre-fg))' },

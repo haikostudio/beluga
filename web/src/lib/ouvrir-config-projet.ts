@@ -37,7 +37,12 @@ export function ouvrirRubriqueDeLEtape(projectId: string, cible: 'dev' | 'produc
 
 export const EVENEMENT_AGENT_CONFIGURATION = 'beluga:agent-configuration';
 
-export type DemandeDAgentDeConfiguration = { projectId: string; cible: 'dev' | 'production' };
+export type DemandeDAgentDeConfiguration = {
+  projectId: string;
+  cible: 'dev' | 'production';
+  /** Le clic sur « Initialiser » lance aussi le premier tour : pas de second clic dans le tiroir. */
+  lancer?: boolean;
+};
 
 /**
  * LE TIROIR DE L'AGENT DE CONFIGURATION D'UNE ÉTAPE, DEPUIS N'IMPORTE OÙ
@@ -47,8 +52,14 @@ export type DemandeDAgentDeConfiguration = { projectId: string; cible: 'dev' | '
  * l'aiguillage des agents (cloche, tableaux de bord) l'ouvrent seul, sans
  * fenêtre de réglages. Même mécanique d'événement que `ouvrirConfigProjet`.
  */
-export function ouvrirAgentDeConfiguration(projectId: string, cible: 'dev' | 'production'): void {
+export function ouvrirAgentDeConfiguration(
+  projectId: string,
+  cible: 'dev' | 'production',
+  options: { lancer?: boolean } = {},
+): void {
   window.dispatchEvent(
-    new CustomEvent<DemandeDAgentDeConfiguration>(EVENEMENT_AGENT_CONFIGURATION, { detail: { projectId, cible } }),
+    new CustomEvent<DemandeDAgentDeConfiguration>(EVENEMENT_AGENT_CONFIGURATION, {
+      detail: { projectId, cible, ...(options.lancer ? { lancer: true } : {}) },
+    }),
   );
 }

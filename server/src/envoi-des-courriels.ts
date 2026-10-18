@@ -30,14 +30,20 @@
  * Les secrets se lisent par un LECTEUR passé en argument (le coffre-fort par
  * défaut) : un essai juge ainsi chaque mode sans base ni coffre réel.
  */
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import nodemailer from 'nodemailer';
 import {
   adresseDeCourrielValide,
+  domaineDeLAdresse,
   expediteurDesCourriels,
+  issueDeLEssai,
+  remiseLueDansLeJournal,
+  type IssueDeLEssai,
+  type RemiseLue,
   identiteDInstallation,
   MODES_DE_COURRIEL,
   type AccesCoffre,
@@ -64,7 +70,6 @@ const DELAI_DE_SONDE_MS = 6_000;
  */
 const HOTES_DE_SONDE = ['gmail-smtp-in.l.google.com', 'mx.zoho.eu'] as const;
 
-const SUCCES_DE_L_ESSAI = 'Courriel remis au service d’envoi : regardez votre boîte, courrier indésirable compris.';
 const PORT_25_FERME =
   'Votre hébergeur bloque l’envoi direct de courriels (port 25 fermé) : choisissez un service de courriel ci-dessous.';
 const SANS_AGENT = 'Ce serveur n’a pas d’agent d’envoi';
@@ -223,26 +228,50 @@ export async function envoyerUnCourriel(
   html: string,
   lire: LecteurDeSecrets = listerAcces,
 ): Promise<string | null> {
+  return (await envoyerEnDetail(a, sujet, texte, html, lire)).erreur;
+}
+
+/** Ce qu'un envoi laisse derrière lui, pour qui veut le SUIVRE (le courriel d'essai). */
+interface EnvoiDetaille {
+  erreur: string | null;
+  mode?: ModeDeCourriel;
+  /** L'identifiant que Resend a donné au message. */
+  idResend?: string;
+  /** Le service SMTP qui l'a accepté. */
+  hote?: string;
+}
+
+async function envoyerEnDetail(
+  a: string,
+  sujet: string,
+  texte: string,
+  html: string,
+  lire: LecteurDeSecrets,
+  messageId?: string,
+): Promise<EnvoiDetaille> {
   try {
     const preparation = preparer(lire);
-    if (!preparation.pret) return preparation.raison;
+    if (!preparation.pret) return { erreur: preparation.raison };
     const expediteur = expediteurDesCourriels();
-    if (preparation.mode === 'resend') return await parResend(preparation.cle, expediteur, a, sujet, texte, html);
+    if (preparation.mode === 'resend') {
+      const rendu = await parResend(preparation.cle, expediteur, a, sujet, texte, html);
+      return { erreur: rendu.erreur, mode: 'resend', idResend: rendu.id };
+    }
     if (preparation.mode === 'smtp') {
       const transport = nodemailer.createTransport(
         reglagesSmtp(preparation.hote, preparation.port, preparation.identifiant, preparation.motDePasse),
       );
       try {
-        await transport.sendMail({ from: expediteur, to: a, subject: sujet, text: texte, html });
-        return null;
+        await transport.sendMail({ from: expediteur, to: a, subject: sujet, text: texte, html, ...(messageId ? { messageId } : {}) });
+        return { erreur: null, mode: 'smtp', hote: preparation.hote };
       } finally {
         transport.close();
       }
     }
-    const message = await composerLeMessage(expediteur, a, sujet, texte, html);
-    return await remettreALAgent(preparation.agent, identiteDInstallation().expediteurDesCourriels, message);
+    const message = await composerLeMessage(expediteur, a, sujet, texte, html, messageId);
+    return { erreur: await remettreALAgent(preparation.agent, identiteDInstallation().expediteurDesCourriels, message), mode: 'serveur' };
   } catch (err: any) {
-    return String(err?.message ?? '') || 'envoi impossible';
+    return { erreur: String(err?.message ?? '') || 'envoi impossible' };
   }
 }
 
@@ -253,14 +282,17 @@ async function parResend(
   sujet: string,
   texte: string,
   html: string,
-): Promise<string | null> {
+): Promise<{ erreur: string | null; id?: string }> {
   const reponse = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { authorization: `Bearer ${cle}`, 'content-type': 'application/json' },
     body: JSON.stringify({ from: expediteur, to: [a], subject: sujet, text: texte, html }),
   });
-  if (reponse.ok) return null;
-  return `${reponse.status} ${(await reponse.text()).slice(0, 300)}`;
+  if (reponse.ok) {
+    const corps = (await reponse.json().catch(() => ({}))) as { id?: string };
+    return { erreur: null, id: corps.id ? String(corps.id) : undefined };
+  }
+  return { erreur: `${reponse.status} ${(await reponse.text()).slice(0, 300)}` };
 }
 
 /**
@@ -297,9 +329,10 @@ export async function composerLeMessage(
   sujet: string,
   texte: string,
   html: string,
+  messageId?: string,
 ): Promise<Buffer> {
   const compositeur = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: 'unix' });
-  const rendu = await compositeur.sendMail({ from: de, to: a, subject: sujet, text: texte, html });
+  const rendu = await compositeur.sendMail({ from: de, to: a, subject: sujet, text: texte, html, ...(messageId ? { messageId } : {}) });
   return Buffer.isBuffer(rendu.message) ? rendu.message : Buffer.from(String(rendu.message));
 }
 
@@ -401,18 +434,100 @@ export function sortieDirecteGardee(
   return sondeGardee.promesse;
 }
 
+/* ------------------------------------------------------------------ */
+/* Le suivi d'un courriel d'essai                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * D'OÙ L'ESSAI LIT LA SUITE. Tout est remplaçable : un essai juge chaque issue
+ * sans journal ni réseau réels.
+ */
+export interface SuiviDeRemise {
+  /** Le journal de l'agent d'envoi depuis cet instant (ms) ; `null` s'il ne se lit pas. */
+  lireJournal: (depuis: number, messageId: string) => Promise<string | null>;
+  /** Le dernier événement que Resend donne pour ce message ; `null` s'il ne le dit pas. */
+  evenementResend: (cle: string, id: string) => Promise<string | null>;
+  attendre: (ms: number) => Promise<void>;
+  /** Combien de temps suivre, au plus. */
+  delaiMs: number;
+}
+
+function lireUneCommande(programme: string, args: string[]): Promise<string | null> {
+  return new Promise((rendre) => {
+    execFile(programme, args, { timeout: 15_000, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => rendre(err ? null : String(stdout)));
+  });
+}
+
+/**
+ * LE JOURNAL DE L'AGENT D'ENVOI. Trois sources, dans l'ordre, et la première
+ * qui CONNAÎT le message l'emporte : le journal système lu par le compte du
+ * démon, le même lu avec élévation (l'installateur accorde `sudo` au compte du
+ * service), puis le fichier classique `/var/log/mail.log`. Une source qui ne
+ * nomme pas le message ne compte pas : le journal d'un compte sans droit
+ * paraît vide, ce qui ne prouve rien.
+ */
+async function journalDeLAgent(depuis: number, messageId: string): Promise<string | null> {
+  const id = messageId.replace(/^<|>$/g, '');
+  const depuisJournal = `@${Math.floor(depuis / 1000) - 5}`;
+  const sources: Array<() => Promise<string | null>> = [
+    () => lireUneCommande('journalctl', ['--since', depuisJournal, '-o', 'cat', '--no-pager', '-q']),
+    () => lireUneCommande('sudo', ['-n', 'journalctl', '--since', depuisJournal, '-o', 'cat', '--no-pager', '-q']),
+    () => lireUneCommande('tail', ['-n', '3000', '/var/log/mail.log']),
+    () => lireUneCommande('sudo', ['-n', 'tail', '-n', '3000', '/var/log/mail.log']),
+  ];
+  for (const source of sources) {
+    const lu = await source().catch(() => null);
+    if (lu && lu.includes(id)) return lu;
+  }
+  return null;
+}
+
+async function evenementDeResend(cle: string, id: string): Promise<string | null> {
+  try {
+    const reponse = await fetch(`https://api.resend.com/emails/${encodeURIComponent(id)}`, {
+      headers: { authorization: `Bearer ${cle}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!reponse.ok) return null;
+    const corps = (await reponse.json().catch(() => ({}))) as { last_event?: string };
+    return corps.last_event ? String(corps.last_event) : null;
+  } catch {
+    return null;
+  }
+}
+
+const SUIVI_REEL: SuiviDeRemise = {
+  lireJournal: journalDeLAgent,
+  evenementResend: evenementDeResend,
+  attendre: (ms) => new Promise((rendre) => setTimeout(rendre, ms)),
+  delaiMs: 45_000,
+};
+
+/** L'entête `Message-ID` d'un essai : unique, et sur le domaine de l'expéditeur. */
+function identifiantDEssai(): string {
+  const domaine = domaineDeLAdresse(identiteDInstallation().expediteurDesCourriels) || 'beluga.local';
+  return `<essai-${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}@${domaine}>`;
+}
+
 /**
  * UN VRAI COURRIEL, COURT, POUR SAVOIR. Il part par le mode retenu, et la
- * phrase rendue s'affiche telle quelle : le succès, ou la raison RÉELLE du
- * refus. En mode `serveur`, la sortie est sondée D'ABORD : un agent local
- * accepte tout ce qu'on lui donne, il ne dirait donc jamais lui-même que le
- * port est fermé.
+ * phrase rendue s'affiche telle quelle. En mode `serveur`, la sortie est
+ * sondée D'ABORD : un agent local accepte tout ce qu'on lui donne.
+ *
+ * PUIS L'ESSAI SUIT LE MESSAGE — c'est tout son intérêt. L'agent local rend la
+ * main dès la MISE EN FILE : dire « remis » à cet instant, c'était annoncer un
+ * courriel que la boîte du destinataire refusait la seconde d'après. On lit
+ * donc la réponse de cette boîte (journal de l'agent, ou dernier événement de
+ * Resend) pendant quarante-cinq secondes au plus, et l'issue dit ce qui a été
+ * CONSTATÉ (`issueDeLEssai`) : arrivé, refusé avec sa raison, encore en route,
+ * ou impossible à savoir — jamais un succès supposé.
  */
 export async function envoyerUnCourrielDEssai(
   a: string,
   lire: LecteurDeSecrets = listerAcces,
   sonder: () => Promise<{ agent: boolean; port25: boolean }> = sonderLaSortie,
-): Promise<{ ok: boolean; texte: string }> {
+  suivi: SuiviDeRemise = SUIVI_REEL,
+): Promise<{ ok: boolean; texte: string; issue?: IssueDeLEssai['issue'] }> {
   try {
     const destinataire = String(a ?? '').trim();
     if (!adresseDeCourrielValide(destinataire)) return { ok: false, texte: 'Cette adresse de courriel n’est pas valide.' };
@@ -427,8 +542,37 @@ export async function envoyerUnCourrielDEssai(
 
     const sujet = 'Courriel d’essai de Beluga Build';
     const phrase = 'Ce message confirme que cette installation de Beluga Build sait envoyer des courriels.';
-    const echec = await envoyerUnCourriel(destinataire, sujet, `${phrase}\n`, `<p>${phrase}</p>`, lire);
-    return echec ? { ok: false, texte: `L’envoi a été refusé : ${echec}` } : { ok: true, texte: SUCCES_DE_L_ESSAI };
+    const messageId = identifiantDEssai();
+    const depuis = Date.now();
+    const envoi = await envoyerEnDetail(destinataire, sujet, `${phrase}\n`, `<p>${phrase}</p>`, lire, messageId);
+    if (envoi.erreur) return { ok: false, texte: `L’envoi a été refusé : ${envoi.erreur}` };
+
+    const fin = Date.now() + suivi.delaiMs;
+    let issue: IssueDeLEssai;
+    if (envoi.mode === 'smtp') {
+      issue = issueDeLEssai({ mode: 'smtp', destinataire, hote: envoi.hote ?? '' });
+    } else if (envoi.mode === 'resend') {
+      const cle = cleResendParmi(lire()) ?? '';
+      let evenement: string | null = null;
+      while (envoi.idResend) {
+        evenement = await suivi.evenementResend(cle, envoi.idResend);
+        if (evenement && !['sent', 'queued', 'scheduled', 'delivery_delayed'].includes(evenement)) break;
+        if (Date.now() >= fin) break;
+        await suivi.attendre(3000);
+      }
+      issue = issueDeLEssai({ mode: 'resend', destinataire, evenement });
+    } else {
+      let remise: RemiseLue | null = null;
+      for (;;) {
+        const journal = await suivi.lireJournal(depuis, messageId);
+        remise = journal === null ? null : remiseLueDansLeJournal(journal, messageId);
+        if (remise?.statut) break;
+        if (Date.now() >= fin) break;
+        await suivi.attendre(3000);
+      }
+      issue = issueDeLEssai({ mode: 'serveur', destinataire, remise });
+    }
+    return { ok: issue.ok, texte: issue.texte, issue: issue.issue };
   } catch (err: any) {
     return { ok: false, texte: `L’envoi a été refusé : ${String(err?.message ?? '') || 'envoi impossible'}` };
   }

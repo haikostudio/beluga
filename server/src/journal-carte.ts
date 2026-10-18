@@ -224,6 +224,37 @@ export function completerDonneesDuJournal(entreeId: string, ajout: Record<string
   }
 }
 
+/** Une entrée par son identifiant, ou `null` — jamais une exception. */
+export function entreeDuJournal(entreeId: string): EntreeJournal | null {
+  if (!entreeId) return null;
+  try {
+    const ligne = getDb().prepare('SELECT * FROM card_journal WHERE id = ?').get(entreeId) as Ligne | undefined;
+    return ligne ? versEntree(ligne) : null;
+  } catch (err: any) {
+    log.warn(`journal de carte : entrée illisible (${err?.message ?? err})`);
+    return null;
+  }
+}
+
+/**
+ * LES JALONS D'UN TOUR QUI PORTENT SES SUITES (`donnees.suites`, posées par
+ * `runtime.ts` en fin de tour). C'est leur copie que « D'autres idées » complète
+ * en même temps que `Message.suites`, pour que le fil de la carte et la
+ * conversation ne divergent jamais.
+ */
+export function jalonsPortantDesSuites(tourId: string): EntreeJournal[] {
+  if (!tourId) return [];
+  try {
+    const lignes = getDb()
+      .prepare(`SELECT * FROM card_journal WHERE tour_id = ? AND nature = 'jalon' AND donnees LIKE '%"suites"%' ORDER BY rang ASC`)
+      .all(tourId) as Ligne[];
+    return lignes.map(versEntree);
+  } catch (err: any) {
+    log.warn(`journal de carte : jalons du tour illisibles (${err?.message ?? err})`);
+    return [];
+  }
+}
+
 /** Les entrées d'une carte, dans l'ordre de leur rang. */
 export function entreesDuJournal(cardId: string): EntreeJournal[] {
   if (!cardId) return [];

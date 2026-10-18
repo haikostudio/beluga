@@ -54,6 +54,7 @@ import {
   redirectionDeLaPorte,
   routeApiAutorisee,
   peutVoirProjet,
+  estCollaborateur,
   REFUS_HORS_PORTEE,
   routeApiDuStudio,
   type CompteUtilisateur,
@@ -103,7 +104,7 @@ import {
 } from './runtime.js';
 import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
-import { publicKey, subscribe, unsubscribe } from './push.js';
+import { appareilsDuCompte, publicKey, retirerAppareilDuCompte, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils, pontAAbouti } from './pont.js';
 import { attendreUneTranche, poserLAttente, refusDeQuestionSimultanee } from './attente-question.js';
 import { enregistrerErreurInterface } from './erreurs-interface.js';
@@ -1269,7 +1270,24 @@ export function createHttpServer(): http.Server {
        */
       if (route === '/api/push/subscribe' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
-        return json(res, 200, { ok: subscribe(body, compte.id) });
+        return json(res, 200, { ok: subscribe(body, compte.id, String(req.headers['user-agent'] ?? '')) });
+      }
+
+      /*
+       * LES APPAREILS DE CE COMPTE, jamais ceux des autres. L'appareil qui
+       * regarde donne son adresse d'abonnement (en corps, pas dans l'adresse
+       * de la requête, que les journaux gardent) pour être repéré ; il ne la
+       * reçoit pas en retour — seulement des empreintes.
+       */
+      if (route === '/api/push/appareils' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
+        const courant = typeof body.endpoint === 'string' ? body.endpoint : undefined;
+        return json(res, 200, appareilsDuCompte(compte.id, courant));
+      }
+
+      if (route === '/api/push/appareils/retirer' && req.method === 'POST') {
+        const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}');
+        return json(res, 200, { ok: typeof body.id === 'string' && retirerAppareilDuCompte(compte.id, body.id) });
       }
 
       if (route === '/api/push/unsubscribe' && req.method === 'POST') {
@@ -1314,8 +1332,8 @@ export function createHttpServer(): http.Server {
           url.searchParams.get('coffre') === '1' || url.searchParams.get('project') === PROJET_DU_COFFRE;
         if (pourLeCoffre && compte.role !== 'admin') return json(res, 403, { error: REFUS_HORS_PORTEE });
         const projectId = pourLeCoffre ? PROJET_DU_COFFRE : (url.searchParams.get('project') ?? '');
-        // Un client ne dépose que dans un projet de sa portée.
-        if (compte.role === 'client' && !peutVoirProjet(compte, projectId)) {
+        // Un compte qui n'est pas administrateur ne dépose que dans un projet de sa portée.
+        if (compte.role !== 'admin' && !peutVoirProjet(compte, projectId)) {
           return json(res, 403, { error: REFUS_HORS_PORTEE });
         }
         const name = decodeURIComponent(String(req.headers['x-file-name'] ?? 'fichier'));
@@ -1402,6 +1420,10 @@ export function createHttpServer(): http.Server {
         if (compte.role === 'client' && !pieceLisiblePar(compte, id)) {
           return json(res, 403, { error: REFUS_HORS_PORTEE });
         }
+        // Un membre ou un lecteur lit les pièces des projets de sa portée, et d'eux seuls.
+        if (estCollaborateur(compte.role) && !peutVoirProjet(compte, attachment.projectId)) {
+          return json(res, 403, { error: REFUS_HORS_PORTEE });
+        }
         /*
          * UNE IMAGE DU COFFRE-FORT NE SORT QUE POUR L'ADMINISTRATEUR, quoi que
          * dise la règle ci-dessus : c'est une capture d'accès, un code QR, un
@@ -1481,6 +1503,7 @@ export function createHttpServer(): http.Server {
           lirePiece: (id: string) => store.getAttachment(id),
           peutLire: (piece: Attachment) =>
             (compte.role !== 'client' || pieceLisiblePar(compte, piece.id)) &&
+            (!estCollaborateur(compte.role) || peutVoirProjet(compte, piece.projectId)) &&
             (piece.projectId !== PROJET_DU_COFFRE || compte.role === 'admin'),
           cheminDe: cheminDePieceJointe,
           trouverCapture:
@@ -1625,6 +1648,10 @@ export function createHttpServer(): http.Server {
       }
 
       if (route === '/api/favicon') {
+        // L'icône d'un projet hors de sa portée ne sort pas pour un membre ou un lecteur.
+        if (estCollaborateur(compte.role) && !peutVoirProjet(compte, url.searchParams.get('project') ?? '')) {
+          return json(res, 403, { error: REFUS_HORS_PORTEE });
+        }
         const trouve = fichierFavicon(url.searchParams.get('project') ?? '');
         if (!trouve) return json(res, 404, { error: 'icône introuvable' });
         const largeur = largeurDemandee(url.searchParams.get('w'));

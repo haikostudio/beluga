@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { estTitreDesSuggestions, planEnTexteSimple } from '@beluga/shared';
+import { detacherLeCahier, estTitreDesSuggestions, planEnTexteSimple } from '@beluga/shared';
 import { Markdown } from '@/lib/markdown';
+import { CahierDesChargesDuPlan } from './cahier-des-charges-du-plan';
 
 /**
  * UN PLAN SE LIT COMME UNE RÉPONSE ORDINAIRE — PLUS COMME UN TABLEAU DE BORD.
@@ -58,12 +59,18 @@ export function PlanRapport({
     () => (streaming ? null : planEnTexteSimple(contenu)),
     [contenu, streaming],
   );
+  /* LE PLAN COMPACT (17/10/2026) : le cahier des charges sort du texte et
+     se pose en encadré ouvert sous le plan (`detacherLeCahier`). */
+  const { reste, rubriques } = React.useMemo(
+    () => (streaming ? { reste: contenu, rubriques: [] } : detacherLeCahier(texte ?? contenu)),
+    [texte, contenu, streaming],
+  );
 
   return (
     <div data-rapport-plan data-plan-en-texte="oui" className="plan-en-texte min-w-0">
       <Markdown
         enTexte
-        content={texte ?? contenu}
+        content={reste}
         onToggleEvolution={courant ? onToggleEvolution : undefined}
         onToggleAll={courant ? onToggleAll : undefined}
         /* UN PLAN DÉPASSÉ ne propose plus rien, mais garde COCHÉES les idées
@@ -72,6 +79,7 @@ export function PlanRapport({
         autreTitreCliquable={estTitreDesSuggestions}
         streaming={streaming}
       />
+      <CahierDesChargesDuPlan rubriques={rubriques} className="mt-3" />
     </div>
   );
 }

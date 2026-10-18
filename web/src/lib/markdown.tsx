@@ -16,12 +16,16 @@ import {
   Scale,
   FileText,
   Hash,
+  Sparkles,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react';
 import {
   MOTIF_MARKDOWN_EN_LIGNE,
   REPERE_SERVICES_CREATION,
+  SUITES_MAX_APRES_AJOUTS,
   ideeDejaEnvoyee,
+  type SuiteProposee,
   ligneDeSuggestion,
   paragraphBreakAfter,
   titreSansEmoji,
@@ -29,6 +33,7 @@ import {
 import { cn } from './utils';
 import { t } from '@/lib/langue';
 import { ContexteTextesEnvoyes, useIdeeEnvoyee, useLignesDansLeChamp } from '@/lib/texte-du-champ';
+import { client } from '@/lib/client';
 
 /**
  * Rendu Markdown maison : titres numérotés (l'application ajoute les icônes),
@@ -191,11 +196,14 @@ function IdeeACocher({
   cle,
   onBasculer,
   figee,
+  description,
 }: {
   idee: string;
   cle: string;
   onBasculer?: (texte: string) => void;
   figee?: boolean;
+  /** La phrase qui dit ce que la suite apporterait (`SuitesProposees`), sous son titre. */
+  description?: string;
 }) {
   const ligne = ligneDUneIdee(idee);
   const dansLeChamp = useLignesDansLeChamp([ligne]);
@@ -233,9 +241,110 @@ function IdeeACocher({
       >
         {cochee ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
       </span>
-      <span className="min-w-0 flex-1">{inline(idee, cle, true)}</span>
+      <span className="min-w-0 flex-1">
+        {inline(idee, cle, true)}
+        {description ? (
+          <span className="mt-0.5 block text-[13px] leading-snug text-faint" data-suite-description>
+            {description}
+          </span>
+        ) : null}
+      </span>
     </button>
   );
+}
+
+/**
+ * LES SUITES POSSIBLES D'UNE RÉPONSE, SOUS ELLE (17/10/2026).
+ *
+ * Le message de l'agent tient en 600 signes (`shared/src/message-court.ts`) :
+ * ses suites ne s'y écrivent plus, elles arrivent par l'outil
+ * « proposer_suites » (`Message.suites`, ou `donnees.suites` du jalon). Chacune
+ * se coche comme une idée d'avant — son titre s'écrit dans le champ — et porte
+ * dessous la phrase qui dit ce qu'elle apporterait.
+ *
+ * « D'AUTRES IDÉES » CHERCHE EN ARRIÈRE-PLAN (17/10/2026). Le bouton ne dépose
+ * plus de demande dans le champ : il demande au démon trois suites de plus
+ * (`suites.autres`, `server/src/autres-idees.ts`), cherchées à part par le
+ * moteur de la carte, sans tour. Il dit « Recherche… » dès le clic ; les suites
+ * arrivent par la diffusion (`message.upsert`, `journal.entree`) et se posent
+ * SOUS les existantes, cochables aussitôt. `cible` désigne la réponse : son
+ * message (conversation) ou son jalon (fil de la carte). Sans cible, ou figé,
+ * pas de bouton.
+ */
+export function SuitesProposees({
+  suites,
+  onBasculer,
+  figee,
+  cible,
+}: {
+  suites: readonly SuiteProposee[];
+  onBasculer?: (texte: string) => void;
+  figee?: boolean;
+  cible?: { messageId?: string; entreeId?: string };
+}) {
+  const [etat, setEtat] = React.useState<'repos' | 'recherche' | 'echec'>('repos');
+  const chercher = React.useCallback(() => {
+    if (!cible || etat === 'recherche') return;
+    setEtat('recherche');
+    client
+      .call<{ ok: boolean; enCours?: boolean }>({ type: 'suites.autres', ...cible }, 120000)
+      .then((reponse) => setEtat(reponse?.ok || reponse?.enCours ? 'repos' : 'echec'))
+      .catch(() => setEtat('echec'));
+  }, [cible, etat]);
+  if (!suites.length) return null;
+  const bouton = cible && !figee && suites.length < SUITES_MAX_APRES_AJOUTS;
+  return (
+    <div role="group" className="-mx-2 mt-3 flex flex-col gap-0.5" data-suites-proposees={suites.length}>
+      {suites.map((suite, index) => (
+        <IdeeACocher
+          key={`${index}:${suite.titre}`}
+          idee={suite.titre}
+          cle={`suite-${index}`}
+          description={suite.description}
+          onBasculer={onBasculer}
+          figee={figee}
+        />
+      ))}
+      {bouton ? (
+        <button
+          type="button"
+          onClick={chercher}
+          disabled={etat === 'recherche'}
+          aria-busy={etat === 'recherche'}
+          className={cn(
+            'ml-2 mt-1 inline-flex w-fit items-center gap-1.5 rounded-md bg-raised px-2 py-1 text-[12.5px] transition-colors',
+            etat === 'recherche' ? 'cursor-default text-accent' : 'text-muted hover:text-text',
+          )}
+          data-autres-idees={etat}
+        >
+          {etat === 'recherche' ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+          ) : (
+            <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          )}
+          {etat === 'recherche'
+            ? t('Recherche d’idées…')
+            : etat === 'echec'
+              ? t('Recherche impossible, réessayer')
+              : t('D’autres idées')}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Relit les suites portées par un jalon (`donnees.suites`) ; absentes sur les réponses d'avant. */
+export function suitesDuJalon(donnees: string | undefined | null): SuiteProposee[] {
+  if (!donnees) return [];
+  try {
+    const lu = JSON.parse(donnees) as { suites?: unknown };
+    if (!Array.isArray(lu.suites)) return [];
+    return lu.suites
+      .map((s) => ({ titre: String((s as any)?.titre ?? '').trim(), description: String((s as any)?.description ?? '').trim() }))
+      .filter((s) => s.titre);
+  } catch {
+    return [];
+  }
 }
 
 /**

@@ -15,7 +15,8 @@ import { CONFIG, DEMON_D_ESSAI } from './config.js';
 import { etatGitHub } from './installation-commandes.js';
 import type { EtapeDeTravail, RecetteDeTravail } from './installation-travaux.js';
 import { log } from './logger.js';
-import { ensureSelfProject } from './projects.js';
+import { inscrireLeProjetDeLOutil } from './projects.js';
+import { machineHebergee } from './offre-hebergee.js';
 import * as store from './store.js';
 import { createCard } from './tools.js';
 
@@ -25,10 +26,11 @@ const execFileAsync = promisify(execFile);
  * LA COPIE PERSONNELLE, ET LES NOUVEAUTÉS DU DÉPÔT PUBLIC.
  *
  * Beluga Build n'est pas un logiciel qu'on suit : c'est une base aboutie dont
- * chacun fait SON outil. Une installation neuve vient du dépôt public ; la page
- * « Votre propre Beluga » en fait un dépôt PRIVÉ de qui l'installe, et inscrit
- * le projet de l'application sur son tableau — c'est de là qu'il le modifie,
- * avec ses propres agents.
+ * chacun fait SON outil. Une installation neuve vient du dépôt public et le
+ * projet de l'application est sur le tableau dès le premier compte — c'est de là
+ * qu'on le modifie, avec ses propres agents. La page « Votre propre Beluga » en
+ * fait EN PLUS un dépôt PRIVÉ de qui l'installe (sauvegarde et nouveautés) ; elle
+ * est facultative, et n'existe pas sur l'offre hébergée.
  *
  * DEUX DISTANTS, DEUX RÔLES, une fois la copie faite :
  *  - `origin` est le dépôt de la personne : ses modifications y sont sauvegardées ;
@@ -113,6 +115,8 @@ async function reussit(args: string[]): Promise<boolean> {
 }
 
 async function relever(): Promise<EtatDesNouveautes> {
+  // Sur l'offre hébergée, l'outil est commun à tous : aucune nouveauté à suivre ni à appliquer.
+  if (machineHebergee()) return { suivi: false, disponibles: false, copie: false };
   const distant = await distantDesNouveautes();
   const copie = await estUneCopie();
   if (!distant) return { suivi: false, disponibles: false, copie };
@@ -165,7 +169,7 @@ export async function nouveautes(forcer = false): Promise<EtatDesNouveautes> {
 
 /** Le relevé quotidien. Rend de quoi l'arrêter. */
 export function surveillerLesNouveautes(): () => void {
-  if (DEMON_D_ESSAI || !estUnDepot()) return () => undefined;
+  if (DEMON_D_ESSAI || machineHebergee() || !estUnDepot()) return () => undefined;
   const premier = setTimeout(() => void nouveautes(true), 3 * 60 * 1000);
   const periodique = setInterval(() => void nouveautes(true), PERIODE_MS);
   premier.unref?.();
@@ -191,6 +195,7 @@ function etapeGit(...args: string[]): EtapeDeTravail {
  * dans une ligne de shell.
  */
 export async function recetteDeLaCopie(nomDemande: string | undefined): Promise<RecetteDeTravail | { erreur: string }> {
+  if (machineHebergee()) return { erreur: 'Cette fonction n’existe pas sur l’offre hébergée.' };
   const nom = (nomDemande ?? '').trim() || NOM_DE_COPIE_PAR_DEFAUT;
   if (!nomDeDepotValide(nom)) return { erreur: `« ${nom} » n'est pas un nom de dépôt possible (lettres, chiffres, tirets).` };
   const github = await etatGitHub();
@@ -254,11 +259,9 @@ export async function recetteDeLaCopie(nomDemande: string | undefined): Promise<
         await exiger(etapeGit('push', '--set-upstream', 'origin', 'HEAD'));
       }
 
-      // 4. Le projet de l'application arrive sur le tableau : c'est de là qu'on le personnalise.
-      const projet = await ensureSelfProject({ forcer: true });
-      store.ensureLocalGroup();
+      // 4. Le projet de l'application est sur le tableau (déjà là depuis le premier compte ; ceci le rattrape).
+      const projet = await inscrireLeProjetDeLOutil({ forcer: true });
       if (projet) {
-        bus.emit({ type: 'project.upsert', project: store.getProject(projet.id) ?? projet });
         ecrire(`Le projet « ${projet.name} » est sur votre tableau.\n`);
       }
       void nouveautes(true);
@@ -286,16 +289,39 @@ export type RecuperationDesNouveautes =
   | { ok: false; erreur: string };
 
 /**
+ * LA CONSIGNE DE LA TÂCHE DE MISE À JOUR. L'agent part du JOURNAL DES CHANGEMENTS
+ * du dépôt public — chaque enregistrement qu'il y reçoit dresse la liste des
+ * travaux repris depuis le précédent (`scripts/synchroniser-miroir-public.mjs`) —,
+ * dit en mots simples ce qui change, puis fusionne, construit et teste. Jamais de
+ * mise en ligne ni de redémarrage : c'est le geste de l'utilisateur.
+ */
+export function consigneDeMiseAJour(distant: string): string {
+  return [
+    `Le dépôt public de Beluga Build a avancé. Mets cette installation à jour avec ses nouveautés, à partir de leur journal des changements.`,
+    ``,
+    `1. Récupère le dépôt public : \`git fetch ${distant} ${BRANCHE_PUBLIQUE}\`.`,
+    `2. LIS LE JOURNAL DES CHANGEMENTS : chaque enregistrement du dépôt public dresse la liste des travaux repris depuis le précédent. Lis-les avec \`git log --no-merges --format='%B' HEAD..${distant}/${BRANCHE_PUBLIQUE}\` (sans historique commun, lis les derniers : \`git log -10 --format='%B' ${distant}/${BRANCHE_PUBLIQUE}\`). Ouvre ton compte rendu par ce qui change pour l'utilisateur, en mots simples, nouveauté par nouveauté.`,
+    `3. Fusionne \`${distant}/${BRANCHE_PUBLIQUE}\` dans la branche de cette carte. S'il n'y a aucun historique commun (installation posée depuis une archive, ou dépôt public reparti de zéro), fusionne avec \`--allow-unrelated-histories\`.`,
+    `4. En cas de heurt, garde les modifications propres à cette installation quand elles sont voulues, et dis lesquelles tu as tranchées.`,
+    `5. Mets les nouveautés en place : \`NODE_ENV=development npm install --include=dev\`, \`npm run build\`, puis rejoue les tests ; donne leur résultat.`,
+    ``,
+    `Ne mets rien en ligne et ne redémarre rien : la mise en ligne reste le geste de l'utilisateur, depuis la colonne « À déployer ».`,
+  ].join('\n');
+}
+
+/**
  * RÉCUPÈRE LES NOUVEAUTÉS, selon ce qu'est devenue l'installation.
  *
- *  - COPIE PERSONNELLE : une carte est posée dans le projet de l'application.
- *    Elle naît dans « Planifié » et ne part que lancée — rapprocher deux
- *    versions d'un outil qu'on a modifié est un travail d'agent, relu avant
- *    d'être mis en ligne.
+ *  - PROJET DE L'APPLICATION SUR LE TABLEAU (le cas de toute installation, depuis
+ *    le premier compte) : une carte est posée dans ce projet. Elle naît dans
+ *    « Planifié » ; le bouton « Mettre à jour » des réglages la LANCE aussitôt
+ *    (`lancer`, dans `ws.ts`) — rapprocher deux versions d'un outil qu'on a
+ *    modifié est un travail d'agent, relu avant d'être mis en ligne.
  *  - INSTALLATION JAMAIS MODIFIÉE : le code avance tout droit et se
  *    reconstruit ; il reste à redémarrer, ce que l'écran propose.
  */
 export async function recupererLesNouveautes(): Promise<RecuperationDesNouveautes> {
+  if (machineHebergee()) return { ok: false, erreur: 'Cette fonction n’existe pas sur l’offre hébergée.' };
   const distant = await distantDesNouveautes();
   if (!distant) return { ok: false, erreur: 'Cette installation ne suit pas le dépôt public de Beluga Build.' };
 
@@ -309,17 +335,10 @@ export async function recupererLesNouveautes(): Promise<RecuperationDesNouveaute
       title: TITRE_DE_LA_CARTE,
       origin: 'user',
       auteur: 'utilisateur',
-      description: [
-        `Le dépôt public de Beluga Build a avancé. Rapproche ses nouveautés de cette copie personnelle.`,
-        ``,
-        `- Récupère le dépôt public : \`git fetch ${distant} ${BRANCHE_PUBLIQUE}\`.`,
-        `- Fusionne \`${distant}/${BRANCHE_PUBLIQUE}\` dans la branche de cette carte. S'il n'y a aucun historique commun (installation posée depuis une archive, ou dépôt public reparti de zéro), fusionne avec \`--allow-unrelated-histories\`.`,
-        `- En cas de heurt, garde les modifications propres à cette copie quand elles sont voulues, et dis lesquelles tu as tranchées.`,
-        `- Construis et rejoue les tests ; donne leur résultat.`,
-        ``,
-        `Ne mets rien en ligne : la mise en ligne reste le geste de l'utilisateur.`,
-      ].join('\n'),
+      description: consigneDeMiseAJour(distant),
     });
+    // Sans cette annonce, la carte n'apparaissait qu'au prochain rechargement de l'écran.
+    bus.emit({ type: 'card.upsert', card: carte });
     return { ok: true, mode: 'carte', projectId: projet.id, cardId: carte.id };
   }
 

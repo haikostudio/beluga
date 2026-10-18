@@ -141,6 +141,35 @@ export function cleApercuOuvert(projectId: string, telephone: boolean): string {
   return `${CLE_APERCU_OUVERT}.${projectId}.${telephone ? 'telephone' : 'ordinateur'}`;
 }
 
+/**
+ * LA DERNIÈRE ADRESSE SAISIE DANS LA BARRE DE L'APERÇU SE RETIENT PAR PROJET.
+ * Le site est dans un cadre d'une autre origine : on ne lit ni son historique
+ * ni son adresse courante, donc seul le chemin SAISI est connu. Un chemin à
+ * l'accueil (« / ») ne se stocke pas.
+ */
+export const CLE_CHEMIN_D_APERCU = 'apercu.chemin';
+
+export function cleCheminDApercu(projectId: string): string {
+  return `${CLE_CHEMIN_D_APERCU}.${projectId}`;
+}
+
+/** La longueur au-delà de laquelle un chemin retenu est ignoré. */
+export const LONGUEUR_MAX_DU_CHEMIN = 500;
+
+/**
+ * Ce qu'on accepte de reprendre comme chemin : une chaîne qui commence par UN
+ * SEUL « / ». `adresseDeLApercu` fait `new URL(chemin, base)` : « //hôte » ou
+ * « https://… » changeraient d'hôte — le cadre sortirait du site de
+ * développement. Tout le reste retombe sur l'accueil.
+ */
+export function cheminRetenu(valeur: unknown): string {
+  if (typeof valeur !== 'string') return '/';
+  const chemin = valeur.trim();
+  if (!chemin.startsWith('/') || chemin.startsWith('//') || chemin.startsWith('/\\')) return '/';
+  if (chemin.length > LONGUEUR_MAX_DU_CHEMIN || /[\u0000-\u001f\u007f]/.test(chemin) || chemin.includes('\\')) return '/';
+  return chemin;
+}
+
 export function appareilParId(id: unknown): AppareilDApercu | undefined {
   return typeof id === 'string' ? APPAREILS_D_APERCU.find((a) => a.id === id) : undefined;
 }

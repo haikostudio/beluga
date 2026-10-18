@@ -53,6 +53,8 @@ export const REFUS_ACCES_GITHUB =
   "GitHub a refusé l'accès à ce dépôt. Le compte connecté au serveur n'a pas le droit de le lire.";
 export const REFUS_DEPOT_VIDE =
   "Ce dépôt est vide : il n'a pas encore le moindre enregistrement, il n'y a donc rien à récupérer.";
+export const REFUS_JETON_REFUSE_PAR_GITHUB =
+  "GitHub refuse le jeton du compte relié à ce serveur (expiré, révoqué ou remplacé) : réinitialisez-le dans Réglages, rubrique GitHub, puis reliez GitHub de nouveau.";
 export const REFUS_PAS_DE_COMPTE =
   "Aucun compte GitHub n'est connecté à ce serveur : collez plutôt le lien du dépôt, ou identifiez l'outil GitHub.";
 
@@ -197,4 +199,42 @@ export function filtrerDepots(depots: DepotDuCompte[], recherche: string | undef
     const texte = `${depot.slug} ${depot.nom} ${depot.proprietaire} ${depot.description ?? ''}`.toLowerCase();
     return mots.every((mot) => texte.includes(mot));
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* Les dépôts du compte, lus dans l'API                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CE QUE LE COMPTE PEUT OUVRIR, PAS SEULEMENT CE QU'IL POSSÈDE. La liste
+ * venait de `gh repo list`, qui ne rend que les dépôts POSSÉDÉS : ceux d'une
+ * organisation dont on est membre, et ceux où l'on est invité, manquaient
+ * (quatre sur cinquante-deux sur l'installation d'origine). Le démon lit donc
+ * `GET /user/repos?affiliation=owner,collaborator,organization_member`, et ce
+ * fichier traduit ses entrées. Un même dépôt n'apparaît qu'une fois ; le plus
+ * récemment remué vient en tête.
+ */
+export const ADRESSE_DES_DEPOTS_ACCESSIBLES =
+  'user/repos?affiliation=owner,collaborator,organization_member&sort=pushed&per_page=100';
+
+export function depotsDepuisLApi(brut: readonly any[], limite = Number.POSITIVE_INFINITY): DepotDuCompte[] {
+  const vus = new Set<string>();
+  const depots: DepotDuCompte[] = [];
+  for (const entree of brut ?? []) {
+    const slug = String(entree?.full_name ?? '').trim();
+    if (!slug || vus.has(slug)) continue;
+    vus.add(slug);
+    depots.push({
+      slug,
+      nom: String(entree.name ?? slug.split('/')[1] ?? ''),
+      proprietaire: String(entree.owner?.login ?? slug.split('/')[0] ?? ''),
+      description: entree.description ? String(entree.description) : undefined,
+      prive: entree.private === true,
+      // `size` vaut 0 sur un dépôt sans le moindre enregistrement.
+      vide: entree.size === 0,
+      majLe: entree.pushed_at ? String(entree.pushed_at) : entree.updated_at ? String(entree.updated_at) : undefined,
+    });
+  }
+  depots.sort((a, b) => (b.majLe ?? '').localeCompare(a.majLe ?? ''));
+  return depots.slice(0, limite);
 }

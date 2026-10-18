@@ -441,9 +441,6 @@ function CardPanelBody({
    * à l'événement précédent : un défilement lent replie aussi.
    */
   const emplacementBarre = React.useRef<HTMLDivElement>(null);
-  /* L'icône qui rouvre la configuration de l'agent s'y pose par un portail
-     (`Chat`) : un état, pas une référence, pour que la conversation la voie. */
-  const [emplacementReglages, setEmplacementReglages] = React.useState<HTMLDivElement | null>(null);
   const [barreVisible, setBarreVisible] = React.useState(true);
   /* LE VOLET D'APERÇU (`volet-apercu.tsx`) : le site de développement du
      projet à droite, la conversation réduite à gauche — sur téléphone, il prend
@@ -770,9 +767,6 @@ function CardPanelBody({
       >
         {/* Le « i » : l'état, les étiquettes, la date. */}
         <BulleInfo label={t('Détails de la carte')} dansBarre>{etiquettes}</BulleInfo>
-        {/* À gauche des gestes : le raccourci vers la configuration de l'agent,
-            posé par la conversation. */}
-        <div ref={setEmplacementReglages} data-emplacement-reglages className={cn('shrink-0 empty:hidden', CLASSE_RANGEE_DE_BOUTONS)} />
         {adresseDeDev && !voletDuCahier ? (
           <Tooltip label={apercu ? t('Fermer l’aperçu') : t('Aperçu du site de développement')}>
             <Button
@@ -957,7 +951,6 @@ function CardPanelBody({
             projectId={card.projectId}
             cardId={card.id}
             emplacementBarre={telephone ? emplacementBarre : undefined}
-            emplacementReglages={ongletActif === 'chat' ? emplacementReglages : null}
           />
         </TabsContent>
 

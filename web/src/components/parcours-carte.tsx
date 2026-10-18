@@ -27,6 +27,7 @@ import {
   GesteCarte,
   GesteDuParcours,
   LIBELLES_GESTE,
+  RAISONS_DU_GESTE,
   libelleDeValidation,
   Message,
   NIVEAU_DU_PLAN,
@@ -648,15 +649,12 @@ function iconeDuGeste(geste: GesteDuParcours) {
 function BoutonDeGeste({
   geste,
   principal,
-  colle,
   libelle,
   onAgir,
 }: {
   geste: EtatDuGeste;
   /** Le geste de gauche, celui qui prend la largeur restante. */
   principal: boolean;
-  /** Le bouton est SCINDÉ : son sous-bouton est collé à sa droite. */
-  colle?: boolean;
   /**
    * LE LIBELLÉ DE LA RÈGLE DE REPRISE, quand la carte n'a encore aucun agent :
    * « Reprendre » sur une carte coupée en vol, « Lancer maintenant » sur une
@@ -681,7 +679,7 @@ function BoutonDeGeste({
   const arretRouge = geste.geste === 'arreter';
 
   return (
-    <div className={cn('flex-1', colle ? 'min-w-0' : principal ? 'min-w-[150px]' : 'min-w-[130px]')}>
+    <div className={cn('flex-1', principal ? 'min-w-[150px]' : 'min-w-[130px]')}>
       <BoutonPrincipal raison={!geste.possible ? geste.raison : undefined}>
         <Button
           type="button"
@@ -693,7 +691,6 @@ function BoutonDeGeste({
           title={!geste.possible && geste.raison ? t(geste.raison) : undefined}
           className={cn(
             CLASSES_BOUTON_DU_FIL,
-            colle && 'rounded-r-none',
             vientDeSallumer && 'animate-appel',
             /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Suspendre »
                est un aplat rouge à écriture blanche (variante `arret`). */
@@ -897,16 +894,27 @@ function GestesDuChapitre({
       {(
         <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-stretch">
           {duChapitre.map((geste, index) => {
-            /* LE LANCEMENT EST UN BOUTON SCINDÉ : le corps part tout de suite,
-               le sous-bouton d'horloge ouvre le tiroir de programmation. Il n'y
+            /* LE LANCEMENT A SON BOUTON, ET SON GROUPE À DROITE : le bouton part
+               tout de suite ; l'horloge ouvre le tiroir de programmation. Il n'y
                a plus de bouton « Dès que possible » à côté — il est devenu un
                interrupteur DANS ce tiroir. « Valider et lancer » EST un
-               lancement : il garde donc la même horloge. */
+               lancement : il a donc la même horloge. */
+            /* PENDANT QUE L'AGENT DE CADRAGE TRAVAILLE, le grand bouton est
+               « Annuler » (la suspension du carré rouge, retiré du champ) : le
+               groupe « Auto » + horloge reste à sa droite, seul son corps
+               change. */
+            const annulerLeCadrage =
+              index === 0 && geste.geste === 'arreter' && (geste.chapitre === 'cadrage' || geste.chapitre === 'plan');
             const scinde =
               index === 0 &&
-              (geste.geste === 'lancer' || geste.geste === 'reprendre' || geste.geste === 'valider-et-lancer');
-            const libelle =
-              geste.geste === 'valider-et-lancer'
+              (geste.geste === 'lancer' ||
+                geste.geste === 'reprendre' ||
+                geste.geste === 'valider-et-lancer' ||
+                annulerLeCadrage);
+            const avecAuto = geste.geste === 'valider-et-lancer' || annulerLeCadrage;
+            const libelle = annulerLeCadrage
+              ? t('Annuler')
+              : geste.geste === 'valider-et-lancer'
                 ? /* LE MODÈLE ET SON NIVEAU SE LISENT SUR LE BOUTON : ceux de la
                      carte, modifiables jusqu'à ce clic ; à défaut, le palier du
                      cadrage. */
@@ -925,19 +933,27 @@ function GestesDuChapitre({
                       .join(' · ')
                   : undefined;
             return scinde ? (
-              <div key={geste.geste} className="flex min-w-[150px] flex-1 items-stretch" data-bouton-scinde={carte.id}>
-                <BoutonDeGeste geste={geste} principal colle libelle={libelle} onAgir={agir} />
-                {/* L'HORLOGE SUIT SON BOUTON. Programmer un départ, c'est lancer
-                    plus tard : quand le lancement est éteint, dater ce lancement
-                    n'a pas de sens non plus. */}
-                <SousBoutonProgrammation
-                  carte={carte}
-                  possible={geste.possible}
-                  {...(geste.raison ? { raison: geste.raison } : {})}
-                />
-                {/* LE LANCEMENT AUTOMATIQUE, à droite de « Valider et lancer » :
-                    il se règle PENDANT la réflexion, quand le bouton est éteint. */}
-                {geste.geste === 'valider-et-lancer' ? <InterrupteurLancementAutomatique carte={carte} /> : null}
+              <div key={geste.geste} className="flex min-w-[150px] flex-1 items-stretch gap-1.5" data-bouton-scinde={carte.id}>
+                <BoutonDeGeste geste={geste} principal libelle={libelle} onAgir={agir} />
+                {/* « AUTO » ET L'HORLOGE FORMENT UN GROUPE, à droite du bouton
+                    principal : tous deux disent QUAND la carte part (seule, ou à
+                    l'heure choisie), le bouton principal dit QUE ça part. Le
+                    lancement automatique se règle PENDANT la réflexion, quand le
+                    bouton est éteint. L'horloge suit son bouton : quand le
+                    lancement est éteint, le dater n'a pas de sens non plus. */}
+                <div className="flex shrink-0 items-stretch">
+                  {avecAuto ? <InterrupteurLancementAutomatique carte={carte} /> : null}
+                  <SousBoutonProgrammation
+                    carte={carte}
+                    groupe={avecAuto}
+                    possible={annulerLeCadrage ? false : geste.possible}
+                    {...(annulerLeCadrage
+                      ? { raison: RAISONS_DU_GESTE.tourEnCours }
+                      : geste.raison
+                        ? { raison: geste.raison }
+                        : {})}
+                  />
+                </div>
               </div>
             ) : (
               <BoutonDeGeste key={geste.geste} geste={geste} principal={index === 0} libelle={libelle} onAgir={agir} />
@@ -1072,6 +1088,13 @@ export async function validerEtLancer(carte: Card): Promise<unknown> {
 }
 
 /**
+ * LA PHRASE QUE PARTAGENT « AUTO » ET L'HORLOGE : chacun garde sa bulle d'état
+ * et la termine par elle, pour que le groupe se lise comme UN geste, sans bulle
+ * englobante qui contredirait les bulles propres.
+ */
+const phraseAutoEtHorloge = () => t('Auto et l’horloge servent tous deux à lancer la carte sans que vous soyez là.');
+
+/**
  * L'INTERRUPTEUR « LANCEMENT AUTOMATIQUE » (`shared/src/lancement-automatique.ts`).
  *
  * Sur la carte, éteint à la naissance. Allumé, le démon fait lui-même
@@ -1084,17 +1107,17 @@ function InterrupteurLancementAutomatique({ carte }: { carte: Card }) {
   const actif = !!carte.parcours?.lancementAutomatique;
   return (
     <Tooltip
-      label={
+      label={`${
         actif
           ? t('Lancement automatique allumé : la tâche partira seule dès la compréhension prête.')
           : t('Lancement automatique : lancer la tâche seule dès que la compréhension est prête.')
-      }
+      } ${phraseAutoEtHorloge()}`}
     >
       <button
         type="button"
         role="switch"
         aria-checked={actif}
-        aria-label={t('Lancement automatique')}
+        aria-label="Lancement automatique"
         aria-busy={enVol || undefined}
         disabled={enVol}
         data-lancement-automatique={actif ? 'allume' : 'eteint'}
@@ -1106,7 +1129,9 @@ function InterrupteurLancementAutomatique({ carte }: { carte: Card }) {
             .finally(() => setEnVol(false));
         }}
         className={cn(
-          'ml-1.5 flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
+          /* Première moitié du groupe « Auto » + horloge : le coin droit est
+             droit, l'horloge qui suit porte l'autre bout arrondi. */
+          'flex shrink-0 items-center justify-center gap-1.5 rounded-lg rounded-r-none px-2.5 py-2 text-[13px] font-medium',
           actif ? 'bg-raised text-teinte' : 'bg-raised text-faint hover:text-muted',
           enVol && 'cursor-wait',
         )}
@@ -1136,23 +1161,30 @@ function pourLeChamp(date: number): string {
 }
 
 /**
- * LE SOUS-BOUTON D'HORLOGE, COLLÉ À « LANCER LA TÂCHE ».
+ * LE BOUTON D'HORLOGE, À DROITE DU BOUTON DE LANCEMENT.
  *
  * « Dès que possible » vivait à côté du lancement, en bouton séparé : deux
  * boutons dont la relation n'était pas évidente, et AUCUN chemin pour dire
  * « pars demain à 6 h » depuis que la commande de date avait disparu du
- * protocole. Le lancement est donc UN geste avec deux façons de le dater : le
- * corps part tout de suite, le sous-bouton ouvre le tiroir de programmation.
+ * protocole. Le bouton principal part tout de suite ; l'horloge, en groupe avec
+ * « Auto » (qui dit « pars seule »), ouvre le tiroir de programmation.
  *
  * Une carte déjà datée le DIT ici même : l'heure retenue est écrite sur le
  * sous-bouton, et l'infobulle donne la phrase entière.
  */
 export function SousBoutonProgrammation({
   carte,
+  groupe = false,
   possible = true,
   raison,
 }: {
   carte: Card;
+  /**
+   * L'HORLOGE SUIT « AUTO » dans un groupe de deux boutons : elle en est la
+   * seconde moitié (jour d'un pixel, coins arrondis à l'extrémité seulement).
+   * Seule, elle garde ses quatre coins.
+   */
+  groupe?: boolean;
   /**
    * LE GESTE PRINCIPAL EST-IL POSSIBLE ? L'horloge restait cliquable sous un
    * « Lancer la tâche » éteint : on pouvait dater le départ d'une carte qui
@@ -1170,7 +1202,7 @@ export function SousBoutonProgrammation({
   return (
     <>
       <Tooltip
-        label={
+        label={`${
           !possible
             ? raison
               ? t(raison)
@@ -1180,7 +1212,7 @@ export function SousBoutonProgrammation({
               : asap
                 ? t('La carte partira d’elle-même dès qu’une place se libère — cliquez pour changer')
                 : t('Choisir la date et l’heure du lancement')
-        }
+        }${groupe ? ` ${phraseAutoEtHorloge()}` : ''}`}
       >
         <button
           type="button"
@@ -1192,11 +1224,13 @@ export function SousBoutonProgrammation({
           aria-label="Programmer le lancement"
           onClick={() => (possible ? setOuvert(true) : undefined)}
           className={cn(
-            /* Les deux moitiés du bouton scindé se séparent d'un JOUR d'un
-               pixel (`ml-px`), plus d'un filet. */
-            'ml-px flex shrink-0 items-center justify-center gap-1.5 rounded-lg rounded-l-none px-2.5 py-2 text-[13px] font-medium transition-opacity',
+            /* Les deux moitiés du groupe « Auto » + horloge se séparent d'un
+               JOUR d'un pixel (`ml-px`), plus d'un filet. Gris comme « Auto »,
+               violet (l'élément choisi) quand un départ est daté. */
+            'flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-[13px] font-medium',
+            groupe && 'ml-px rounded-l-none',
             possible
-              ? 'bg-accent text-accent-fg hover:opacity-90'
+              ? cn('bg-raised', programmee || asap ? 'text-teinte' : 'text-muted hover:text-text')
               : 'cursor-not-allowed bg-raised text-faint',
           )}
         >

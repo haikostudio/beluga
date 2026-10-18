@@ -310,8 +310,11 @@ export function formeDeCodeValide(saisie: string): boolean {
  * LES PAGES DE L'ASSISTANT, dans l'ordre. Le compte se crée AVANT, sur la page
  * d'installation servie par le démon : ici, tout le monde est déjà entré.
  *
- * SEUL « moteurs » EST OBLIGATOIRE — sans moteur, aucune carte ne part. Chaque
- * autre page se passe (« plus tard ») et se retrouve dans les réglages.
+ * DEUX PAGES SONT OBLIGATOIRES — « moteurs » (sans moteur, aucune carte ne
+ * part) et « projet » (sans GitHub relié, aucun projet ne se récupère ni ne se
+ * sauvegarde ; l'écran garde « Continuer » éteint tant que GitHub ne l'est
+ * pas, ajouter un projet reste libre). Chaque autre page se passe (« plus
+ * tard ») et se retrouve dans les réglages.
  *
  * « bienvenue » ne règle rien : elle dit ce qu'est Beluga Build avant de rien
  * demander. « copie » fait de l'installation la copie PERSONNELLE de qui
@@ -330,7 +333,15 @@ export const ETAPES_DE_L_ASSISTANT = [
 ] as const;
 export type EtapeDeLAssistant = (typeof ETAPES_DE_L_ASSISTANT)[number];
 
-export const ETAPES_OBLIGATOIRES: readonly EtapeDeLAssistant[] = ['moteurs'];
+/**
+ * LES PAGES QUE CETTE MACHINE MONTRE. Sur l'offre hébergée, la page « copie »
+ * n'existe pas : l'outil y est commun à tous et personne n'en fait sa copie.
+ */
+export function etapesDeLAssistant(hebergee = false): readonly EtapeDeLAssistant[] {
+  return hebergee ? ETAPES_DE_L_ASSISTANT.filter((etape) => etape !== 'copie') : ETAPES_DE_L_ASSISTANT;
+}
+
+export const ETAPES_OBLIGATOIRES: readonly EtapeDeLAssistant[] = ['moteurs', 'projet'];
 
 export const EtatDeLAssistant = z.object({
   /**
@@ -349,9 +360,9 @@ export function assistantDeDemarrageOuvert(etat: EtatDeLAssistant | undefined | 
 }
 
 /** La première page pas encore vue : c'est là qu'on rouvre l'assistant après un rechargement. */
-export function prochaineEtape(etat: EtatDeLAssistant | undefined | null): EtapeDeLAssistant | 'fin' {
+export function prochaineEtape(etat: EtatDeLAssistant | undefined | null, hebergee = false): EtapeDeLAssistant | 'fin' {
   const vues = etat?.etapes ?? {};
-  return ETAPES_DE_L_ASSISTANT.find((etape) => !vues[etape]) ?? 'fin';
+  return etapesDeLAssistant(hebergee).find((etape) => !vues[etape]) ?? 'fin';
 }
 
 /** Peut-on quitter cette page sans l'avoir faite ? */
@@ -364,18 +375,19 @@ export function apresEtape(
   etat: EtatDeLAssistant | undefined | null,
   etape: EtapeDeLAssistant,
   issue: 'faite' | 'passee',
+  hebergee = false,
 ): EtatDeLAssistant {
   const base = EtatDeLAssistant.parse(etat ?? { statut: 'a-faire' });
   if (issue === 'passee' && !etapePassable(etape)) return base;
   const etapes = { ...base.etapes, [etape]: issue };
-  const reste = ETAPES_DE_L_ASSISTANT.some((une) => !etapes[une]);
+  const reste = etapesDeLAssistant(hebergee).some((une) => !etapes[une]);
   return { statut: reste ? base.statut : 'termine', etapes };
 }
 
 /** Les pages passées pour plus tard : les réglages les rappellent. */
-export function etapesRemisesAPlusTard(etat: EtatDeLAssistant | undefined | null): EtapeDeLAssistant[] {
+export function etapesRemisesAPlusTard(etat: EtatDeLAssistant | undefined | null, hebergee = false): EtapeDeLAssistant[] {
   const vues = etat?.etapes ?? {};
-  return ETAPES_DE_L_ASSISTANT.filter((etape) => vues[etape] === 'passee');
+  return etapesDeLAssistant(hebergee).filter((etape) => vues[etape] === 'passee');
 }
 
 /* ------------------------------------------------------------------ */
@@ -417,7 +429,14 @@ export const BIBLIOTHEQUES_PROPOSEES: readonly { id: string; source: string; nom
  * dans le démon (`server/src/installation-travaux.ts`) — un texte venu de
  * l'écran ne s'exécute jamais.
  */
-export const FONCTIONS_INSTALLABLES = ['memoire', 'dictee', 'voix'] as const;
+/*
+ * `voix-reparer` : la voix refaite (fichiers rendus au compte du service,
+ * environnement Python inutilisable mis de côté et refait), puis essayée ;
+ * `gh` : l'outil GitHub, quand l'installateur n'a pas pu le poser ;
+ * `signature-des-courriels` : la signature DKIM des courriels envoyés par ce
+ * serveur, pour le domaine de l'adresse d'expédition.
+ */
+export const FONCTIONS_INSTALLABLES = ['memoire', 'dictee', 'voix', 'voix-reparer', 'gh', 'signature-des-courriels'] as const;
 export type FonctionInstallable = (typeof FONCTIONS_INSTALLABLES)[number];
 
 /** Un travail d'installation, tel que l'écran le suit. Un seul à la fois. */
@@ -465,6 +484,23 @@ export function nomDeDepotValide(nom: string): boolean {
 export function depotDeLAdresse(adresse: string): string {
   const trouve = /github\.com[:/]+([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(adresse.trim());
   return trouve ? `${trouve[1]}/${trouve[2]}`.toLowerCase() : '';
+}
+
+/** Ce qu'il faut faire d'un distant `origin` qui pointe sur le dépôt public. */
+export type PlanDeDetachement = 'rien' | 'renommer' | 'retirer';
+
+/**
+ * LE DÉPÔT PUBLIC SE LIT, IL NE SE POUSSE JAMAIS depuis un projet de l'outil.
+ * Une installation clonée depuis le dépôt public a `origin` dessus : la mise en
+ * ligne y enverrait le travail et réclamerait le jeton de Haiko Studio. On le
+ * range donc sous le nom `amont` (lecture des nouveautés) — ou on le retire
+ * quand `amont` existe déjà. Un `origin` qui n'est pas le dépôt public (celui
+ * de l'auteur, le dépôt privé d'une copie) n'est JAMAIS touché.
+ */
+export function planDeDetachement(distants: Record<string, string>): PlanDeDetachement {
+  const origine = distants.origin;
+  if (!origine || depotDeLAdresse(origine) !== depotDeLAdresse(DEPOT_PUBLIC)) return 'rien';
+  return distants[DISTANT_PUBLIC] ? 'retirer' : 'renommer';
 }
 
 export const EtatDesNouveautes = z.object({

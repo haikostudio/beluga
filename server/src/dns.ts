@@ -62,17 +62,23 @@ function exec(programme: string, args: string[], timeout: number): Promise<{ std
  * Réglage VIDE : c'est la présence d'un jeton Hetzner qui tranche, comme avant
  * ce réglage — il n'est lu que dans ce cas, et resservi sans seconde lecture.
  */
-async function piloteRetenu(): Promise<{ pilote: PiloteDeNoms | null; manque: string }> {
+export async function piloteRetenu(): Promise<{
+  pilote: PiloteDeNoms | null;
+  manque: string;
+  /** Le fournisseur retenu (« joker » : aucun) et ses secrets lus — le jeton Hetzner sert aussi au nom inverse. */
+  fournisseur?: string;
+  valeurs?: Partial<Record<string, string>>;
+}> {
   const regle = identiteDInstallation().fournisseurDeNoms;
   // « Sans jeton Hetzner, ce serait le joker » alors que le joker n'est pas
   // demandé : le réglage est vide (ou inconnu), et c'est le jeton qui décide.
   const sansReglage = regle !== 'joker' && fournisseurRetenu(regle, false) === 'joker';
   const hetzner = sansReglage ? await secretsDuFournisseur('hetzner') : null;
   const fournisseur = fournisseurRetenu(regle, hetzner !== null && !hetzner.manque);
-  if (fournisseur === 'joker') return { pilote: null, manque: '' };
+  if (fournisseur === 'joker') return { pilote: null, manque: '', fournisseur };
   const secrets = hetzner ?? (await secretsDuFournisseur(fournisseur));
-  if (secrets.manque) return { pilote: null, manque: secrets.manque };
-  return { pilote: piloteDeNoms(fournisseur, secrets.valeurs), manque: '' };
+  if (secrets.manque) return { pilote: null, manque: secrets.manque, fournisseur };
+  return { pilote: piloteDeNoms(fournisseur, secrets.valeurs), manque: '', fournisseur, valeurs: secrets.valeurs };
 }
 
 /**

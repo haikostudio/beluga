@@ -184,3 +184,22 @@ export function dateHeure(at: number): string {
 export function heureSeule(at: number): string {
   return new Date(at).toLocaleTimeString(formatRegional(), { hour: '2-digit', minute: '2-digit' });
 }
+
+/**
+ * L'HEURE SEULE AUJOURD'HUI, LA DATE AVEC ELLE SINON. Une vignette d'hier qui
+ * ne montrait que « 13:01 » passait pour une capture du jour (octobre 2026) :
+ * hors du jour, la date courte précède l'heure, au format de la langue choisie.
+ */
+export function heureOuDate(at: number, maintenant = Date.now()): string {
+  const jour = new Date(at);
+  const ajd = new Date(maintenant);
+  const memeJour =
+    jour.getFullYear() === ajd.getFullYear() && jour.getMonth() === ajd.getMonth() && jour.getDate() === ajd.getDate();
+  if (memeJour) return heureSeule(at);
+  const date = jour.toLocaleDateString(formatRegional(), {
+    day: '2-digit',
+    month: '2-digit',
+    ...(jour.getFullYear() === ajd.getFullYear() ? {} : { year: '2-digit' }),
+  });
+  return `${date} ${heureSeule(at)}`;
+}

@@ -11,6 +11,7 @@ import {
 import { LigneDeConfiguration } from '@/components/chat';
 import { RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
 import { client } from '@/lib/client';
+import { EVENEMENT_AGENT_FIGE, appliquerUnReglageDAgent } from '@/lib/reglage-d-agent';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -52,19 +53,23 @@ export function ReglagesAssistant({ agent, niveau: niveauInitial }: { agent: Age
       });
   };
 
-  /* Un seul champ part à la fois : le démon tranche la cascade (changer de
-     moteur redonne le modèle par défaut de ce moteur). */
+  /* Le geste est partagé avec le bouton de la barre d'écriture : un seul champ
+     part à la fois, et le démon tranche la cascade (`reglage-d-agent.ts`). */
   const choisir = async (patch: RunChoix) => {
-    const run: RunChoix = patch.engine
-      ? { engine: patch.engine }
-      : { model: patch.model, thinking: patch.thinking, account: patch.account };
-    try {
-      await client.call({ type: 'agent.config', agentId: agent.id, run });
-      if (!(run.account !== undefined && !run.model && !run.thinking)) setNiveau((n) => ({ ...n, mode: 'fige' }));
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('réglage impossible'));
-    }
+    // Le geste prévient la bande (événement ci-dessous) quand il fige le modèle.
+    await appliquerUnReglageDAgent(agent.id, patch);
   };
+
+  /* Un réglage fait ailleurs (le bouton de la barre d'écriture) a figé le
+     modèle : la bande le dit sans attendre un rechargement. */
+  React.useEffect(() => {
+    const figer = (event: Event) => {
+      const cible = (event as CustomEvent<{ agentId?: string }>).detail?.agentId;
+      if (cible === agent.id) setNiveau((n) => ({ ...n, mode: 'fige' }));
+    };
+    window.addEventListener(EVENEMENT_AGENT_FIGE, figer);
+    return () => window.removeEventListener(EVENEMENT_AGENT_FIGE, figer);
+  }, [agent.id]);
 
   /* Chaque ligne est le bouton de SON menu, ouvert droit sur la liste du réglage nommé. */
   const ligne = (reglage: ReglageDeRun, nom: string, valeur: string) => (

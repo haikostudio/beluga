@@ -133,6 +133,16 @@
        choix (liste déroulante, menu, onglets, menu d'une fenêtre) s'écrit en
        violet, « pour qu'on le distingue clairement ». */
     --teinte: 262 85% 78%;
+    /* LE BADGE DE STATUT D'UNE CARTE (demande du 18/10/2026) : JAUNE à la
+       Compréhension (`--comprehension`), VIOLET au Travail (`--teinte`), chacun
+       avec un léger fond et un trait de la même teinte. L'alpha vit DANS le
+       jeton : on n'écrit jamais `bg-comprehension-fond/50`. Le jaune ne sert
+       qu'à ce badge (`badge-etape.tsx`). */
+    --comprehension: 48 92% 62%;
+    --comprehension-fond: 48 92% 62% / 0.14;
+    --comprehension-trait: 48 92% 62% / 0.5;
+    --teinte-fond: 262 85% 78% / 0.14;
+    --teinte-trait: 262 85% 78% / 0.5;
     /* L'APLAT D'ENCRE — la bulle de l'utilisateur dans une discussion, et le
        bouton qui arrête. En clair il est NOIR, comme l'accent ; en sombre
        c'est un GRIS soutenu, jamais le blanc de l'accent : une bulle ou une
@@ -204,6 +214,11 @@
     --bloc-etapes: 0 0% 96.5%;
     --decroche: 0 0% 97%;
     --teinte: 262 68% 50%;
+    --comprehension: 40 95% 26%;
+    --comprehension-fond: 45 95% 48% / 0.16;
+    --comprehension-trait: 40 90% 36% / 0.55;
+    --teinte-fond: 262 68% 50% / 0.1;
+    --teinte-trait: 262 68% 50% / 0.5;
     --encre: 0 0% 5%;
     --encre-fg: 0 0% 100%;
     color-scheme: light;

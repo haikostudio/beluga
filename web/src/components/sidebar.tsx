@@ -2,6 +2,7 @@ import * as React from 'react';
 import {
   ArrowLeft,
   ArchiveRestore,
+  ArrowUpDown,
   Check,
   ChevronRight,
   Folder,
@@ -26,6 +27,10 @@ import {
 } from 'lucide-react';
 import {
   COULEURS_DE_GROUPE,
+  CLE_OUVERTURES_DE_PROJETS,
+  CLE_TRI_PAR_OUVERTURE,
+  ordonnerParDerniereOuverture,
+  ouverturesValides,
   Project,
   type VueCentrale,
   ProjectGroup,
@@ -197,6 +202,18 @@ export function Sidebar({
   /* LES PROJETS RÉUNIS DÉPLIÉS — repliés par défaut : un clic sur leur nom ou
      leur flèche ouvre le sous-groupe de leurs membres. */
   const [regroupementsOuverts, setRegroupementsOuverts] = usePref<string[]>('sidebar.regroupementsOuverts', []);
+  /*
+   * LE TRI PAR DERNIÈRE OUVERTURE est une BASCULE, éteinte par défaut (demande
+   * du 15/10/2026). Allumée, la colonne montre groupes et projets du plus
+   * récemment ouvert au plus ancien et le glisser-déposer est SUSPENDU ; éteinte,
+   * c'est l'ordre manuel, exactement. Le rang (`rank`) n'est JAMAIS écrit par
+   * ce mode : il ne change que par un geste de rangement, ordre manuel actif.
+   */
+  const [triParOuverture, setTriParOuverture] = usePref<boolean>(CLE_TRI_PAR_OUVERTURE, false);
+  const ouvertLe = React.useMemo(
+    () => ouverturesValides(state.prefs[CLE_OUVERTURES_DE_PROJETS]),
+    [state.prefs[CLE_OUVERTURES_DE_PROJETS]],
+  );
 
   /*
    * LA COLONNE ENTIÈRE SE RÉDUIT À UNE BANDE D'ICÔNES.
@@ -373,7 +390,7 @@ export function Sidebar({
     return glissementDeCarte.cibleAcceptee ? 'acceptee' : 'refusee';
   };
 
-  /** Projets hors groupe et groupes rangés ENSEMBLE, par rang. */
+  /** Projets hors groupe et groupes rangés ENSEMBLE, par rang — ou, la bascule allumée, par dernière ouverture. */
   const entries: Entry[] = React.useMemo(() => {
     const list: Entry[] = [];
     for (const project of actifs) {
@@ -389,8 +406,29 @@ export function Sidebar({
         members: actifs.filter((p) => p.groupId === group.id).sort((a, b) => (a.rank ?? 1000) - (b.rank ?? 1000)),
       });
     }
-    return list.sort((a, b) => a.rank - b.rank);
-  }, [actifs, groups]);
+    const parRang = list.sort((a, b) => a.rank - b.rank);
+    if (!triParOuverture) return parRang;
+    /* Un projet réuni vaut l'ouverture de ses membres, un groupe celle de ses
+       projets — l'espace de développement compte dans « Local », où il reste
+       fixé en tête, comme en ordre manuel. */
+    const idsDuProjet = (p: Project) => [p.id, ...membresDe(p.id).map((m) => m.id)];
+    const membresParOuverture = (membres: Project[]) =>
+      ordonnerParDerniereOuverture(membres, ouvertLe, (p) => ({ ids: idsDuProjet(p), rang: p.rank }));
+    return ordonnerParDerniereOuverture(
+      parRang.map((entry): Entry => (entry.kind === 'group' ? { ...entry, members: membresParOuverture(entry.members) } : entry)),
+      ouvertLe,
+      (entry) => ({
+        ids:
+          entry.kind === 'project'
+            ? idsDuProjet(entry.project)
+            : [
+                ...entry.members.flatMap(idsDuProjet),
+                ...(entry.id === groupeLocalId && espaceDev ? [espaceDev.id] : []),
+              ],
+        rang: entry.rank,
+      }),
+    );
+  }, [actifs, groups, triParOuverture, ouvertLe, groupeLocalId, espaceDev?.id]);
 
   React.useEffect(() => {
     if (!showArchived) return;
@@ -597,6 +635,7 @@ export function Sidebar({
         }}
         groupColor={place.groupColor}
         emboite={place.emboite}
+        sansPoignee={triParOuverture}
         {...extra}
       />
     );
@@ -671,17 +710,22 @@ export function Sidebar({
     'data-drag-kind': kind,
   });
 
-  const poigneeProps = (id: string, kind: 'project' | 'group', label: string) => ({
-    onPointerDown: (event: React.PointerEvent) => {
-      const ligne = (event.currentTarget as HTMLElement).closest('[data-drag-id]') as HTMLElement | null;
-      // Marge comprise : c'est l'espace que la ligne occupe vraiment.
-      if (ligne) setHauteurLigne(Math.round(ligne.getBoundingClientRect().height) + 2);
-      const root = ligne?.closest('[data-drop-root]') as HTMLElement | null;
-      // Rien n'est encore décalé : c'est le bon moment pour relever les places.
-      if (root) releverGeometrie(root);
-      start(event, { id, kind, label });
-    },
-  });
+  /* La bascule de tri allumée suspend le glisser-déposer : aucune poignée
+     n'attrape rien, et aucun rang n'est écrit. */
+  const poigneeProps = (id: string, kind: 'project' | 'group', label: string) =>
+    triParOuverture
+      ? {}
+      : {
+          onPointerDown: (event: React.PointerEvent) => {
+            const ligne = (event.currentTarget as HTMLElement).closest('[data-drag-id]') as HTMLElement | null;
+            // Marge comprise : c'est l'espace que la ligne occupe vraiment.
+            if (ligne) setHauteurLigne(Math.round(ligne.getBoundingClientRect().height) + 2);
+            const root = ligne?.closest('[data-drop-root]') as HTMLElement | null;
+            // Rien n'est encore décalé : c'est le bon moment pour relever les places.
+            if (root) releverGeometrie(root);
+            start(event, { id, kind, label });
+          },
+        };
 
   /** La classe d'une LIGNE de la colonne : du texte, une icône, un fond gris au survol — rien d'autre. */
   const classeLigne = (active: boolean) =>
@@ -745,9 +789,10 @@ export function Sidebar({
                colonne — à rang égal, elles gagnaient et coupaient le panneau au
                bord de la bande). Les menus et bulles qu'il ouvre sont en
                `z-[60]` ; une FENÊTRE modale ouverte (son voile porte
-               `data-voile-de-fenetre`) le renvoie en `z-40`, sous elle. */
+               `data-voile-de-fenetre`) ou une FEUILLE DU BAS (`data-voile-tiroir`)
+               le renvoie en `z-40`, sous elle. */
             (survolee
-              ? 'absolute inset-y-0 left-0 z-[55] w-[var(--largeur-projets)] shadow-2xl [body:has([data-voile-de-fenetre][data-state=open])_&]:z-40'
+              ? 'absolute inset-y-0 left-0 z-[55] w-[var(--largeur-projets)] shadow-2xl [body:has([data-voile-de-fenetre][data-state=open])_&]:z-40 [body:has([data-voile-tiroir][data-state=open])_&]:z-40'
               : 'w-[var(--largeur-bande)]'),
         )}
       >
@@ -948,6 +993,32 @@ export function Sidebar({
             <>
               <div className={cn('group/section mt-5 h-8 pl-2.5 pr-1', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons>
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-faint">{t('Projets')}</span>
+                {/* LA BASCULE DE TRI : « dernière ouverture » ou ordre manuel. Elle
+                    ne touche à aucun rang ; allumée, le glisser-déposer est
+                    suspendu (le bouton reste visible : c'est lui qui le rend). */}
+                <Tooltip
+                  label={
+                    triParOuverture
+                      ? t('Rangé par dernière ouverture — revenir à votre ordre')
+                      : t('Ranger par dernière ouverture')
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-label="Ranger par dernière ouverture"
+                    aria-pressed={triParOuverture}
+                    data-tri-par-ouverture={triParOuverture ? 'ouverture' : 'manuel'}
+                    onClick={() => setTriParOuverture(!triParOuverture)}
+                    className={cn(
+                      'flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-text',
+                      triParOuverture
+                        ? 'bg-raised text-teinte'
+                        : 'text-faint opacity-100 transition-opacity survol:opacity-0 group-hover/section:survol:opacity-100',
+                    )}
+                  >
+                    <ArrowUpDown className="h-3.5 w-3.5" />
+                  </button>
+                </Tooltip>
                 <Tooltip label={t('Nouveau groupe')}>
                   <button
                     type="button"
@@ -1107,7 +1178,11 @@ export function Sidebar({
                       <span
                         {...poigneeProps(entry.id, 'group', entry.group.name)}
                         title={t('Glisser pour ranger')}
-                        className={cn(outilDeGroupe, 'cursor-grab touch-none active:cursor-grabbing')}
+                        className={cn(
+                          outilDeGroupe,
+                          'cursor-grab touch-none active:cursor-grabbing',
+                          triParOuverture && 'hidden',
+                        )}
                       >
                         <GripVertical className="h-3.5 w-3.5" />
                       </span>

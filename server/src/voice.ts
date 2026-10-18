@@ -304,6 +304,20 @@ export function voiceChoisie(demandee?: string, reglee?: string | null): VoixRes
 export const EXTRAIT =
   'Bonjour. Il est quatorze heures trente. Deux tâches sont parties en ligne hier soir, et trois attendent votre feu vert.';
 
+/**
+ * POURQUOI LE SERVEUR NE PARLE PAS, en une phrase — vide quand il peut. Le
+ * message « voix absente du serveur » ne disait pas QUELLE pièce manquait :
+ * une voix posée à la main dans un autre dossier, ou sans son moteur, restait
+ * muette sans qu'on sache quoi réparer.
+ */
+export function raisonDeLaVoixMuette(): string {
+  if (voiceAvailable().speak) return '';
+  if (!listVoices().length) return `aucun modèle de voix dans ${VOICES}`;
+  if (!fs.existsSync(PYTHON) && !kokoroInstalle() && !cleGemini()) return `l'environnement Python de la voix manque (${VENV})`;
+  if (!piperInstalle() && !kokoroInstalle() && !cleGemini()) return `le moteur Piper n'est pas installé dans ${VENV}`;
+  return 'aucun moteur de voix utilisable';
+}
+
 export function voiceAvailable(): { transcribe: boolean; speak: boolean } {
   return {
     transcribe: fs.existsSync(PYTHON) && fs.existsSync(TRANSCRIBE_SCRIPT),
@@ -601,7 +615,7 @@ export async function speak(
   vitesse?: string,
 ): Promise<{ ok: boolean; file?: string; error?: string }> {
   const available = voiceAvailable();
-  if (!available.speak) return { ok: false, error: 'voix absente du serveur' };
+  if (!available.speak) return { ok: false, error: `voix absente du serveur : ${raisonDeLaVoixMuette()}` };
 
   const retenue = voiceChoisie(voix);
   const echelle = vitesseChoisie(vitesse);
@@ -648,7 +662,13 @@ export async function speak(
         return speak(text, DEFAULT_VOICE, vitesse);
       }
       log.warn('synthèse vocale impossible', err?.message);
-      return { ok: false, error: 'synthèse vocale impossible' };
+      // La première ligne utile de l'erreur voyage : c'est elle qui dit quoi réparer.
+      const detail = String(err?.stderr ?? err?.message ?? '')
+        .split('\n')
+        .map((ligne) => ligne.trim())
+        .filter(Boolean)
+        .slice(-1)[0];
+      return { ok: false, error: `synthèse vocale impossible${detail ? ` : ${detail.slice(0, 240)}` : ''}` };
     }
   })();
 

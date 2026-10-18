@@ -41,16 +41,6 @@ export function estTitreDesSuggestions(titre: string): boolean {
 }
 
 /**
- * LE REFUS, PRÉPARÉ SANS ÊTRE ENVOYÉ.
- *
- * « Refuser » ne relance rien tout seul (§ mode plan) : il pose cette phrase
- * dans le champ de saisie. Elle dit l'essentiel, et laisse la place à ce que
- * l'utilisateur veut ajouter — un refus muet ne fait que faire deviner le chef.
- */
-export const REFUS_A_COMPLETER =
-  'Je refuse ce plan : réfléchis à une autre approche.';
-
-/**
  * UNE IDÉE RETENUE S'ÉCRIT COMME UNE LIGNE DE LISTE : « - <l'idée> ».
  *
  * Déposée nue, elle se confondait avec la phrase qu'on était en train

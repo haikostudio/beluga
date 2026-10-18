@@ -18,6 +18,7 @@ import { CONFIG, DEMON_D_ESSAI, PREMIER_DEMARRAGE_REEL, ROOT } from './config.js
 import { creerCompte, nombreDAdministrateurs } from './comptes.js';
 import { getDb, getMeta, setMeta } from './db.js';
 import { log } from './logger.js';
+import { inscrireLeProjetDeLOutil } from './projects.js';
 import { getSettings, saveSettings } from './store.js';
 
 /**
@@ -221,6 +222,9 @@ export function creerLePremierCompte(demande: PremierCompte, ip: string): Result
     );
     getDb().prepare('DELETE FROM meta WHERE key = ?').run(CLE_DU_CODE);
     log.info(`premier compte créé par le code d'installation : ${cree.compte.identifiant}`);
+    // Le projet de l'outil arrive sur le tableau avec le premier compte : c'est de là qu'on modifie
+    // Beluga, GitHub relié ou non. Sans effet sur l'offre hébergée. Une panne ici ne défait pas le compte.
+    void inscrireLeProjetDeLOutil().catch((err) => log.warn("projet de l'outil non inscrit", err));
     return { ok: true, identifiant: cree.compte.identifiant };
   } catch (err: any) {
     // Un identifiant ou un mot de passe refusé n'est pas un essai de code raté.

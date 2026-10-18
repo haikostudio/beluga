@@ -34,6 +34,9 @@ import {
   SystemProcess,
   AnnonceRecue,
   CLE_PROJET_ACTIF,
+  CLE_OUVERTURES_DE_PROJETS,
+  noterOuverture,
+  ouverturesValides,
   DUREE_MESSAGE_MS,
   PLAFOND_ANNONCES,
   ajouterAnnonce,
@@ -189,6 +192,10 @@ export interface AppState {
    * Faux tant que rien n'est arrivé, et sur toute autre installation.
    */
   studioOuvert: boolean;
+  /** Machine sur l’offre hébergée : l’étape « Votre propre Beluga » n’existe pas. */
+  offreHebergee: boolean;
+  /** Le niveau du compte connecté : l'écran retire ce qui lui est fermé (le serveur le refuse de toute façon). */
+  monRole: 'admin' | 'membre' | 'lecteur';
   /**
    * L'écran est dessiné d'après la COPIE du dernier état vu (`dernier-etat-local.ts`),
    * pas d'après le serveur : on regarde, on n'agit pas — les gestes restent gelés
@@ -440,6 +447,8 @@ const initialState: AppState = {
   canal: 'reconnexion',
   pret: false,
   studioOuvert: false,
+  offreHebergee: false,
+  monRole: 'admin',
   copieLocale: false,
   cartesChargees: {},
   cartesTotaux: {},
@@ -502,6 +511,8 @@ const initialState: AppState = {
  * l'ordinateur, comme n'importe quelle notification poussée.
  */
 const CLE_ANNONCES = 'beluga.notifications';
+/** Le plafond d'une demande `cards.enRoute` côté démon (`shared/src/protocol.ts`). */
+const LIMITE_EN_ROUTE_PAR_DEMANDE = 200;
 
 /** Relit les annonces rangées au démarrage. Un contenu abîmé est ignoré, jamais fatal. */
 function relireAnnoncesRangees(): AnnonceRecue[] {
@@ -1495,9 +1506,15 @@ class Client {
         // redemandent leur état, et ce qui n'avait pas pu partir repart.
         redemanderLesVues();
         this.envoyerLesVuesEnAttente();
-        // Une colonne de « En route » restée sur son échec (demandée pendant la
-        // coupure) se redemande d'elle-même : on ne rouvre pas la page pour ça.
-        this.rechargerLesColonnesEnEchec();
+        /*
+         * UN RETOUR DE COUPURE OU DE VEILLE relit TOUTES les colonnes de « En
+         * route » déjà lues (et celles restées sur un échec), puis les tableaux
+         * des autres projets gardés en mémoire : les événements émis pendant la
+         * coupure sont perdus pour cet écran. Le projet affiché, lui, arrive
+         * avec `ready` (`project.etat`).
+         */
+        const reprise = this.dejaSynchronise;
+        this.rechargerLesColonnesChargees(reprise);
         const prefs = event.prefs ?? {};
         // On rouvre sur le dernier projet consulté, retenu en base. S'il a été
         // archivé ou supprimé, on retombe sans bruit sur le premier de la liste.
@@ -1509,6 +1526,8 @@ class Client {
           moteursAjoutes: event.moteursAjoutes ?? [],
           pret: true,
           studioOuvert: event.studioOuvert === true,
+          offreHebergee: event.offreHebergee === true,
+          monRole: event.role ?? 'admin',
           copieLocale: false,
           version: event.version,
           settings: event.settings,
@@ -1534,6 +1553,7 @@ class Client {
           ...(this.dejaSynchronise ? numerosApresReprise(this.state.studioVersions, this.state.marketingVersions, event.projects.map((p) => p.id)) : {}),
         });
         this.dejaSynchronise = true;
+        if (reprise) this.relireLesProjetsChargesEnMemoire(choix.id);
         this.programmerLaCopieLocale();
         // Le projet retenu à l'ouverture doit CHARGER ses cartes tout de suite :
         // sans cette demande, le tableau reste vide tant qu'on n'a pas cliqué
@@ -1651,26 +1671,7 @@ class Client {
         break;
 
       case 'project.etat':
-        this.tranchesEnVol.clear();
-        this.set((state) => ({
-          cards: {
-            ...Object.fromEntries(Object.entries(state.cards).filter(([, card]) => card.projectId !== event.projectId)),
-            ...Object.fromEntries(event.cards.map((card) => [card.id, card])),
-          },
-          agents: { ...state.agents, ...Object.fromEntries(event.agents.map((agent) => [agent.id, agent])) },
-          // Sans totaux (un démon d'avant les tranches) : ce qui est reçu est tout.
-          cartesTotaux: {
-            ...state.cartesTotaux,
-            [event.projectId]: event.totaux ?? premiereTranche(event.cards, Number.POSITIVE_INFINITY).totaux,
-          },
-          deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
-          productions: event.deploy ? productionsApres(state.productions, event.deploy, Date.now()) : state.productions,
-          memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
-          // Les cartes de ce projet sont là : le tableau peut cesser de montrer
-          // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
-          cartesChargees: { ...state.cartesChargees, [event.projectId]: true },
-        }));
-        this.programmerLaCopieLocale();
+        this.appliquerLEtatDuProjet(event);
         break;
 
       case 'card.upsert':
@@ -1962,6 +1963,12 @@ class Client {
 
       case 'installation.nouveautes':
         installationEnDirect.recevoirLesNouveautes(event.etat);
+        break;
+
+      // La connexion GitHub par code a abouti (ou non) : la page GitHub de
+      // l'assistant et des réglages l'écoute, et relit l'état d'elle-même.
+      case 'installation.github':
+        window.dispatchEvent(new CustomEvent('beluga:connexion-github', { detail: event.connexion }));
         break;
 
       case 'prefs':
@@ -2469,7 +2476,12 @@ class Client {
     });
   }
 
-  setActiveProject(id: string | null): void {
+  /**
+   * Ouvre un projet. `automatique` : le projet n'est pas CHOISI — repli quand
+   * celui qu'on regardait disparaît. Il ne compte alors pas comme une ouverture
+   * (la liste « Récents » et le rangement par dernière ouverture ne bougent pas).
+   */
+  setActiveProject(id: string | null, options: { automatique?: boolean } = {}): void {
     const quitte = this.state.activeProjectId;
     // Le projet qu'on quitte garde ses cartes un quart d'heure : un aller-retour
     // entre deux projets est un geste courant, il ne doit rien faire clignoter.
@@ -2480,7 +2492,24 @@ class Client {
       this.send({ type: 'project.open', id });
       this.send({ type: 'attachments.list', projectId: id });
       this.retenirProjetActif(id);
+      if (!options.automatique) this.noterLOuvertureDuProjet(id);
     }
+  }
+
+  /**
+   * LA DERNIÈRE OUVERTURE DE CHAQUE PROJET se retient en base
+   * (`projets.ouvertLe`, comme le reste des réglages d'affichage) : la liste
+   * déroulante et la colonne de gauche s'en servent pour se ranger, et la
+   * section « Récents » aussi. UN SEUL envoi par ouverture, et aucun quand le
+   * projet est déjà le plus récent. La restauration du projet au démarrage ne
+   * passe pas par ici : elle n'est pas un geste.
+   */
+  private noterLOuvertureDuProjet(id: string): void {
+    const avant = ouverturesValides(this.state.prefs[CLE_OUVERTURES_DE_PROJETS]);
+    const apres = noterOuverture(avant, id, Date.now());
+    if (apres === avant) return;
+    this.setPrefLocally(CLE_OUVERTURES_DE_PROJETS, apres);
+    this.send({ type: 'prefs.set', key: CLE_OUVERTURES_DE_PROJETS, value: apres });
   }
 
   /*
@@ -2559,21 +2588,89 @@ class Client {
   /** La clé de la dernière famille reçue du démon, par colonne : la suite se demande sous elle. */
   private curseursEnRoute: Partial<Record<OngletEnRoute, CurseurEnRoute>> = {};
   private enRouteEnVol: Record<OngletEnRoute, boolean> = { actif: false, terminer: false, archive: false };
+  /** Combien de familles la colonne a demandées jusqu'ici : un paquet de plus à chaque « suivantes ». */
+  private profondeurEnRoute: Record<OngletEnRoute, number> = {
+    actif: CARTES_EN_ROUTE_PAR_PAQUET,
+    terminer: CARTES_EN_ROUTE_PAR_PAQUET,
+    archive: CARTES_EN_ROUTE_PAR_PAQUET,
+  };
 
   /**
    * LE PREMIER PAQUET D'UNE COLONNE DE LA PAGE, redemandé à chaque ouverture :
    * ce qu'on avait gardé reste affiché pendant ce temps, sans silhouette ni saut.
    */
-  async chargerEnRoute(onglet: OngletEnRoute = 'actif'): Promise<void> {
+  async chargerEnRoute(onglet: OngletEnRoute = 'actif', options: { garderLaProfondeur?: boolean } = {}): Promise<void> {
     delete this.curseursEnRoute[onglet];
-    await this.demanderEnRoute(onglet, true);
+    // Au retour du lien, on redemande d'un bloc ce que la colonne montrait déjà
+    // (plafond du démon : 200 familles) au lieu de la ramener à son premier paquet.
+    const limite = options.garderLaProfondeur
+      ? Math.min(LIMITE_EN_ROUTE_PAR_DEMANDE, Math.max(CARTES_EN_ROUTE_PAR_PAQUET, this.profondeurEnRoute[onglet]))
+      : CARTES_EN_ROUTE_PAR_PAQUET;
+    await this.demanderEnRoute(onglet, true, limite);
   }
 
-  /** Au retour du lien : seules les colonnes restées sur un échec sont redemandées. */
-  private rechargerLesColonnesEnEchec(): void {
+  /**
+   * AU RETOUR DU LIEN, TOUTE COLONNE DÉJÀ LUE SE RELIT — pas seulement celles
+   * restées sur un échec. Un événement de carte émis pendant la coupure est
+   * perdu pour cet écran : sans cette relecture, la page « Tableaux de bord »
+   * gardait ce qu'elle avait lu à l'ouverture (demande du 16/10/2026 : « je
+   * reviens du téléphone sur l'ordinateur, il faut rafraîchir »). L'ancien
+   * contenu reste affiché pendant la lecture, et les paquets déjà dépliés sont
+   * redemandés d'un bloc : ni silhouette, ni saut. À la première connexion il
+   * n'y a rien à relire, sauf une colonne restée sur un échec.
+   */
+  private rechargerLesColonnesChargees(reprise: boolean): void {
     for (const onglet of ['actif', 'terminer', 'archive'] as const) {
-      if (this.state[CLE_ETAT_EN_ROUTE[onglet]]?.erreur) void this.chargerEnRoute(onglet);
+      const colonne = this.state[CLE_ETAT_EN_ROUTE[onglet]];
+      if (colonne && (colonne.erreur || reprise)) void this.chargerEnRoute(onglet, { garderLaProfondeur: true });
     }
+  }
+
+  /**
+   * LES TABLEAUX DES AUTRES PROJETS GARDÉS EN MÉMOIRE (déchargés après quinze
+   * minutes) se relisent au retour du lien, eux aussi : leurs cartes servent à
+   * la colonne de gauche (pastilles, triangle) et à la réouverture. Une seule
+   * demande, une réponse pour cet écran seul. Le projet affiché n'en fait pas
+   * partie : le démon renvoie le sien avec `ready`.
+   */
+  private relireLesProjetsChargesEnMemoire(projetAffiche: string | null): void {
+    const ids = Object.keys(this.state.cartesChargees).filter(
+      (id) => id !== projetAffiche && this.state.projects.some((projet) => projet.id === id),
+    );
+    if (!ids.length) return;
+    this.call<{ projets: Extract<ServerEvent, { type: 'project.etat' }>[] }>({ type: 'projects.relire', ids: ids.slice(0, 20) })
+      .then((reponse) => {
+        // Un projet quitté entre-temps puis déchargé ne revient pas à la vie.
+        for (const etat of reponse.projets) {
+          if (this.state.cartesChargees[etat.projectId]) this.appliquerLEtatDuProjet(etat, false);
+        }
+      })
+      .catch(() => {
+        /* Un démon d'avant cette commande : la réouverture relit comme avant. */
+      });
+  }
+
+  private appliquerLEtatDuProjet(event: Extract<ServerEvent, { type: 'project.etat' }>, vider = true): void {
+    if (vider) this.tranchesEnVol.clear();
+    this.set((state) => ({
+      cards: {
+        ...Object.fromEntries(Object.entries(state.cards).filter(([, card]) => card.projectId !== event.projectId)),
+        ...Object.fromEntries(event.cards.map((card) => [card.id, card])),
+      },
+      agents: { ...state.agents, ...Object.fromEntries(event.agents.map((agent) => [agent.id, agent])) },
+      // Sans totaux (un démon d'avant les tranches) : ce qui est reçu est tout.
+      cartesTotaux: {
+        ...state.cartesTotaux,
+        [event.projectId]: event.totaux ?? premiereTranche(event.cards, Number.POSITIVE_INFINITY).totaux,
+      },
+      deploys: event.deploy ? { ...state.deploys, [event.projectId]: event.deploy } : state.deploys,
+      productions: event.deploy ? productionsApres(state.productions, event.deploy, Date.now()) : state.productions,
+      memory: event.memory !== undefined ? { ...state.memory, [event.projectId]: event.memory } : state.memory,
+      // Les cartes de ce projet sont là : le tableau peut cesser de montrer
+      // ses silhouettes, et dire un vrai « aucune carte » s'il est vide.
+      cartesChargees: { ...state.cartesChargees, [event.projectId]: true },
+    }));
+    this.programmerLaCopieLocale();
   }
 
   /** Le paquet suivant de la colonne, sous la dernière famille reçue. Rien quand tout est là. */
@@ -2582,7 +2679,11 @@ class Client {
     await this.demanderEnRoute(onglet, false);
   }
 
-  private async demanderEnRoute(onglet: OngletEnRoute, depuisLeDebut: boolean): Promise<void> {
+  private async demanderEnRoute(
+    onglet: OngletEnRoute,
+    depuisLeDebut: boolean,
+    limite: number = CARTES_EN_ROUTE_PAR_PAQUET,
+  ): Promise<void> {
     if (this.enRouteEnVol[onglet]) return;
     this.enRouteEnVol[onglet] = true;
     const cle = CLE_ETAT_EN_ROUTE[onglet];
@@ -2599,8 +2700,9 @@ class Client {
         type: 'cards.enRoute',
         onglet,
         ...(curseur ? { apres: curseur } : {}),
-        limit: CARTES_EN_ROUTE_PAR_PAQUET,
+        limit: limite,
       });
+      this.profondeurEnRoute[onglet] = depuisLeDebut ? limite : this.profondeurEnRoute[onglet] + limite;
       const derniere = reponse.cards[reponse.cards.length - 1];
       if (derniere) this.curseursEnRoute[onglet] = reponse.curseur ?? curseurApres(derniere);
       this.set((state) => ({
@@ -2774,7 +2876,7 @@ class Client {
     if (encore) return;
     const choix = choisirProjetAOuvrir(this.state.projects, this.state.prefs[CLE_PROJET_ACTIF], null);
     if (choix.id === this.state.activeProjectId) return;
-    this.setActiveProject(choix.id);
+    this.setActiveProject(choix.id, { automatique: true });
   }
 
   private retenirProjetActif(id: string): void {
@@ -3202,6 +3304,8 @@ if (import.meta.env.MODE !== 'production') {
         protocol: 1,
         version: etat.version,
         studioOuvert: etat.studioOuvert,
+        offreHebergee: etat.offreHebergee,
+        role: etat.monRole,
         settings: etat.settings,
         prefs: options?.sansReglages ? {} : etat.prefs,
         projects: options?.sansProjets ? [] : etat.projects,

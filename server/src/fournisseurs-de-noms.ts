@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { FOURNISSEURS_DE_NOMS, type FournisseurDeNoms } from '@beluga/shared';
+import { FOURNISSEURS_DE_NOMS, texteDuTxt, txtEntreGuillemets, type FournisseurDeNoms } from '@beluga/shared';
 import { listerAcces } from './coffre-fort.js';
 
 const execFileAsync = promisify(execFile);
@@ -40,6 +40,32 @@ export interface PiloteDeNoms {
   existeA(zone: string, nom: string): Promise<boolean>;
   /** Retire le « A » de `<nom>.<zone>`. `null` : il n'y est plus (ou n'y était pas) ; sinon la raison. */
   supprimerA(zone: string, nom: string): Promise<string | null>;
+  /**
+   * Les TXT posés sous ce nom (`''` : la zone elle-même), guillemets retirés.
+   * Lève si la zone n'est pas joignable — l'appelant essaie alors la zone parente.
+   */
+  lireTXT(zone: string, nom: string): Promise<string[]>;
+  /**
+   * POSE EXACTEMENT CES TXT sous ce nom : ceux qui y sont déjà et restent voulus
+   * ne bougent pas, les autres sont créés ou retirés. L'appelant passe donc la
+   * liste ENTIÈRE (les TXT d'autres services compris). `null` : c'est fait.
+   */
+  ecrireTXT(zone: string, nom: string, valeurs: readonly string[]): Promise<string | null>;
+}
+
+/**
+ * LE TRI D'UNE ÉCRITURE DE TXT : ce qui reste, ce qui part, ce qui arrive.
+ * Partagé par les fournisseurs qui écrivent enregistrement par enregistrement.
+ */
+function triDesTxt<T extends { texte: string }>(existants: readonly T[], voulus: readonly string[]): { retirer: T[]; ajouter: string[] } {
+  const restants = [...voulus];
+  const retirer: T[] = [];
+  for (const existant of existants) {
+    const rang = restants.indexOf(existant.texte);
+    if (rang === -1) retirer.push(existant);
+    else restants.splice(rang, 1);
+  }
+  return { retirer, ajouter: restants };
 }
 
 /** Le nom de chaque fournisseur, tel qu'il se lit dans un message. */
@@ -406,6 +432,43 @@ function piloteHetzner(jeton: string, requete: typeof fetch): PiloteDeNoms {
       });
       return !res.ok && res.status !== 404 ? `le fournisseur a refusé (${res.status})` : null;
     },
+
+    async lireTXT(zone, nom) {
+      const z = await zoneChezHetzner(zone);
+      if ('erreur' in z) throw new Error(z.erreur);
+      const r = await appeler(requete, `${API_HETZNER}/${z.id}/rrsets/${encodeURIComponent(nom || '@')}/TXT`, {
+        headers: { authorization: `Bearer ${jeton}` },
+      });
+      if (r.statut === 404) return [];
+      if (!r.ok) throw new Error(`le fournisseur a refusé (${r.statut})`);
+      return ((r.json?.rrset?.records ?? []) as Array<{ value: string }>).map((e) => texteDuTxt(String(e.value)));
+    },
+
+    async ecrireTXT(zone, nom, valeurs) {
+      const z = await zoneChezHetzner(zone);
+      if ('erreur' in z) return z.erreur;
+      const nomHetzner = nom || '@';
+      const existe = await appeler(requete, `${API_HETZNER}/${z.id}/rrsets/${encodeURIComponent(nomHetzner)}/TXT`, {
+        headers: { authorization: `Bearer ${jeton}` },
+      });
+      const records = valeurs.map((valeur) => ({ value: txtEntreGuillemets(valeur) }));
+      const entetes = { authorization: `Bearer ${jeton}`, 'content-type': 'application/json' };
+      // Le jeu existe : `set_records` le REMPLACE d'un bloc ; sinon il se crée.
+      const r = existe.ok
+        ? await appeler(
+            requete,
+            `${API_HETZNER}/${z.id}/rrsets/${encodeURIComponent(nomHetzner)}/TXT/actions/set_records`,
+            { method: 'POST', headers: entetes, body: JSON.stringify({ records }) },
+            30000,
+          )
+        : await appeler(
+            requete,
+            `${API_HETZNER}/${z.id}/rrsets`,
+            { method: 'POST', headers: entetes, body: JSON.stringify({ name: nomHetzner, type: 'TXT', ttl: TTL, records }) },
+            30000,
+          );
+      return r.ok ? null : `le fournisseur a refusé (${r.statut})${r.json?.error?.message ? ` : ${String(r.json.error.message).slice(0, 200)}` : ''}`;
+    },
   };
 }
 
@@ -500,7 +563,52 @@ function piloteCloudflare(jeton: string, requete: typeof fetch): PiloteDeNoms {
       }
       return null;
     },
+
+    async lireTXT(zone, nom) {
+      const z = await idDeZone(zone);
+      if ('erreur' in z) throw new Error(z.erreur);
+      const lus = await txtsDe(z.id, nom ? `${nom}.${zone}` : zone);
+      if ('erreur' in lus) throw new Error(lus.erreur);
+      return lus.liste.map((e) => e.texte);
+    },
+
+    async ecrireTXT(zone, nom, valeurs) {
+      const z = await idDeZone(zone);
+      if ('erreur' in z) return z.erreur;
+      const nomEntier = nom ? `${nom}.${zone}` : zone;
+      const lus = await txtsDe(z.id, nomEntier);
+      if ('erreur' in lus) return lus.erreur;
+      const { retirer, ajouter } = triDesTxt(lus.liste, valeurs);
+      for (const valeur of ajouter) {
+        const r = await appeler(
+          requete,
+          `${API_CLOUDFLARE}/zones/${z.id}/dns_records`,
+          { method: 'POST', headers: entetes, body: JSON.stringify({ type: 'TXT', name: nomEntier, content: txtEntreGuillemets(valeur), ttl: TTL }) },
+          30000,
+        );
+        if (!r.ok || r.json?.success === false) return refus('cloudflare', r.statut, ditPar(r));
+      }
+      for (const e of retirer) {
+        const r = await appeler(requete, `${API_CLOUDFLARE}/zones/${z.id}/dns_records/${encodeURIComponent(e.id)}`, { method: 'DELETE', headers: entetes });
+        if (!r.ok && r.statut !== 404) return refus('cloudflare', r.statut, ditPar(r));
+      }
+      return null;
+    },
   };
+
+  /** Les TXT posés sous ce nom, guillemets retirés. */
+  async function txtsDe(id: string, nomEntier: string): Promise<{ liste: Array<{ id: string; texte: string }> } | { erreur: string }> {
+    const r = await appeler(requete, `${API_CLOUDFLARE}/zones/${id}/dns_records?type=TXT&name=${encodeURIComponent(nomEntier)}`, {
+      headers: entetes,
+    });
+    if (!r.ok || r.json?.success === false) return { erreur: refus('cloudflare', r.statut, ditPar(r)) };
+    const recus = (r.json?.result ?? []) as Array<{ id: string; type?: string; name?: string; content: string }>;
+    return {
+      liste: recus
+        .filter((e) => (e.type ?? 'TXT') === 'TXT' && (e.name ?? nomEntier).toLowerCase() === nomEntier.toLowerCase())
+        .map((e) => ({ id: e.id, texte: texteDuTxt(String(e.content)) })),
+    };
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -589,7 +697,53 @@ function piloteInfomaniak(jeton: string, requete: typeof fetch): PiloteDeNoms {
       }
       return null;
     },
+
+    async lireTXT(zone, nom) {
+      const lus = await txtsDe(zone, nom);
+      if ('erreur' in lus) throw new Error(lus.erreur);
+      return lus.liste.map((e) => e.texte);
+    },
+
+    /*
+     * La valeur part SANS guillemets : c'est la forme que rend la lecture. Ce
+     * point n'a pas pu être confirmé sur la documentation (voir plus haut) ;
+     * la relecture qui suit l'écriture, côté appelant, dit si le domaine porte
+     * bien la valeur attendue.
+     */
+    async ecrireTXT(zone, nom, valeurs) {
+      const lus = await txtsDe(zone, nom);
+      if ('erreur' in lus) return lus.erreur;
+      const { retirer, ajouter } = triDesTxt(lus.liste, valeurs);
+      for (const valeur of ajouter) {
+        const r = await appeler(
+          requete,
+          base(zone),
+          { method: 'POST', headers: entetes, body: JSON.stringify({ source: nom || '.', type: 'TXT', target: valeur, ttl: TTL }) },
+          30000,
+        );
+        if (refuse(r)) return refus('infomaniak', r.statut, ditPar(r));
+      }
+      for (const e of retirer) {
+        const r = await appeler(requete, `${base(zone)}/${encodeURIComponent(e.id)}`, { method: 'DELETE', headers: entetes });
+        if (refuse(r) && r.statut !== 404) return refus('infomaniak', r.statut, ditPar(r));
+      }
+      return null;
+    },
   };
+
+  /** Les TXT posés sous ce nom (`''` : la zone elle-même). */
+  async function txtsDe(zone: string, nom: string): Promise<{ liste: Array<{ id: string; texte: string }> } | { erreur: string }> {
+    const r = await appeler(requete, base(zone), { headers: entetes });
+    if (r.statut === 404) return { erreur: `zone ${zone} introuvable chez Infomaniak : le jeton doit pouvoir lire et écrire son DNS` };
+    if (refuse(r)) return { erreur: refus('infomaniak', r.statut, ditPar(r)) };
+    const recus = (Array.isArray(r.json?.data) ? r.json.data : []) as Array<{ id: number | string; type?: string; source?: string; target?: string }>;
+    const noms = nom ? [nom, `${nom}.${zone}`] : ['.', '', '@', zone];
+    return {
+      liste: recus
+        .filter((e) => e.type === 'TXT' && noms.includes(String(e.source ?? '')))
+        .map((e) => ({ id: String(e.id), texte: texteDuTxt(String(e.target ?? '')) })),
+    };
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -711,7 +865,43 @@ function piloteOvh(secrets: SecretsOvh, requete: typeof fetch): PiloteDeNoms {
       }
       return recharger(zone);
     },
+
+    async lireTXT(zone, nom) {
+      const lus = await txtsDe(zone, nom);
+      if ('erreur' in lus) throw new Error(lus.erreur);
+      return lus.liste.map((e) => e.texte);
+    },
+
+    async ecrireTXT(zone, nom, valeurs) {
+      const lus = await txtsDe(zone, nom);
+      if ('erreur' in lus) return lus.erreur;
+      const { retirer, ajouter } = triDesTxt(lus.liste, valeurs);
+      if (!retirer.length && !ajouter.length) return null;
+      for (const valeur of ajouter) {
+        const r = await appel('POST', `${zoneDe(zone)}/record`, { fieldType: 'TXT', subDomain: nom, target: valeur, ttl: TTL });
+        if (!r.ok) return refus('ovh', r.statut, ditPar(r));
+      }
+      for (const e of retirer) {
+        const r = await appel('DELETE', `${zoneDe(zone)}/record/${e.id}`);
+        if (!r.ok && r.statut !== 404) return refus('ovh', r.statut, ditPar(r));
+      }
+      return recharger(zone);
+    },
   };
+
+  /** Les TXT posés sous ce nom, lus un par un (OVH ne rend d'abord que leurs identifiants). */
+  async function txtsDe(zone: string, nom: string): Promise<{ liste: Array<{ id: number; texte: string }> } | { erreur: string }> {
+    const r = await appel('GET', `${zoneDe(zone)}/record?fieldType=TXT&subDomain=${encodeURIComponent(nom)}`);
+    if (r.statut === 404) return { erreur: `zone ${zone} introuvable chez OVH : les clés doivent avoir accès à /domain/zone/${zone}` };
+    if (!r.ok) return { erreur: refus('ovh', r.statut, ditPar(r)) };
+    const liste: Array<{ id: number; texte: string }> = [];
+    for (const id of Array.isArray(r.json) ? (r.json as number[]) : []) {
+      const lu = await appel('GET', `${zoneDe(zone)}/record/${id}`);
+      if (!lu.ok) return { erreur: refus('ovh', lu.statut, ditPar(lu)) };
+      liste.push({ id, texte: texteDuTxt(String(lu.json?.target ?? '')) });
+    }
+    return { liste };
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -732,6 +922,8 @@ function piloteGandi(jeton: string, requete: typeof fetch): PiloteDeNoms {
   const entetes = { authorization: `Bearer ${jeton}`, 'content-type': 'application/json' };
   const adresse = (zone: string, nom: string) =>
     `${API_GANDI}/domains/${encodeURIComponent(zone)}/records/${encodeURIComponent(nom)}/A`;
+  const adresseTxt = (zone: string, nom: string) =>
+    `${API_GANDI}/domains/${encodeURIComponent(zone)}/records/${encodeURIComponent(nom || '@')}/TXT`;
   const ditPar = (r: Reponse): string | undefined => r.json?.message;
 
   /** Les adresses où mène le nom ; `null` s'il n'a pas de « A ». */
@@ -766,6 +958,24 @@ function piloteGandi(jeton: string, requete: typeof fetch): PiloteDeNoms {
     async supprimerA(zone, nom) {
       const r = await appeler(requete, adresse(zone, nom), { method: 'DELETE', headers: entetes });
       return !r.ok && r.statut !== 404 ? refus('gandi', r.statut, ditPar(r)) : null;
+    },
+
+    async lireTXT(zone, nom) {
+      const r = await appeler(requete, adresseTxt(zone, nom), { headers: entetes });
+      if (r.statut === 404) return [];
+      if (!r.ok) throw new Error(refus('gandi', r.statut, ditPar(r)));
+      return (Array.isArray(r.json?.rrset_values) ? (r.json.rrset_values as string[]) : []).map((v) => texteDuTxt(String(v)));
+    },
+
+    /* `PUT` remplace le jeu entier : c'est justement ce qu'on veut, l'appelant passe la liste complète. */
+    async ecrireTXT(zone, nom, valeurs) {
+      const r = await appeler(
+        requete,
+        adresseTxt(zone, nom),
+        { method: 'PUT', headers: entetes, body: JSON.stringify({ rrset_values: valeurs.map(txtEntreGuillemets), rrset_ttl: TTL }) },
+        30000,
+      );
+      return r.ok ? null : refus('gandi', r.statut, ditPar(r));
     },
   };
 }

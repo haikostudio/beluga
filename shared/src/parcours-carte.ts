@@ -47,6 +47,7 @@ import {
 } from './plan-complet.js';
 import { blocDesDecisionsOuvertPar, blocDesTachesOuvertPar, blocEnClairOuvertPar, partieOuvertePar } from './plan-gabarit.js';
 import { carteRangee } from './question-en-texte.js';
+import { lireLesRubriques, type RubriqueDuCahier } from './cahier-vivant.js';
 import { travailDeLaCarteDejaLance } from './plan-conversation.js';
 import {
   cadrageRouvertApresRapport,
@@ -650,6 +651,13 @@ function gesteCalcule(ctx: ContexteParcours): EtatDuGeste {
       if (decisions > 0) return eteint('lancer', RAISONS_DU_GESTE.decisionOuverte);
       return { geste: 'lancer', possible: true, chapitre };
     }
+    /*
+     * UN AGENT DE CADRAGE TRAVAILLE : le grand bouton ne montre plus un
+     * « Valider et lancer » éteint — il prend le geste de SUSPENDRE (le même
+     * que le carré rouge du champ, que `sansArret` retire alors). Le libellé
+     * « Annuler » est posé par l'écran ; la fin du tour rend le lancement.
+     */
+    if (ctx.tourEnCours) return { geste: 'arreter', possible: true, chapitre };
     /* Une relance se cadre sur ce qui a été compris DEPUIS le rapport, pas
        sur la compréhension d'origine, qui a déjà servi au travail livré. */
     const relance = cadrageRouvertApresRapport({ column: ctx.colonne, parcours: ctx.parcours });
@@ -892,6 +900,8 @@ export interface ComprehensionRendue {
   texte: string;
   /** Le second registre. Absent quand le tour ne fait que RÉPONDRE à une question. */
   partieTechnique?: PartieTechniqueRendue;
+  /** Les rubriques du cahier vivant que ce tour a créées ou changées (`shared/src/cahier-vivant.ts`). */
+  cahierDesCharges?: RubriqueDuCahier[];
   /**
    * CE QUE L'AGENT ASSUME, faute d'avoir eu la réponse. Ce champ portait
    * autrefois « ce qui reste flou » : une rubrique où déposer ses doutes, donc
@@ -1122,11 +1132,15 @@ export function lireComprehensionRendue(
   /* Les projets touchés n'ont de sens que sur un projet réuni : l'appelant
      vérifie qu'ils nomment bien des membres (`projetsTouchesParLaCarte`). */
   const projetsTouches = listeDe(args?.projetsTouches);
+  /* LES RUBRIQUES DU CAHIER VIVANT touchées par ce tour : l'appelant les
+     fusionne dans celles de la carte (`fusionnerLeCahier`). */
+  const cahierDesCharges = lireLesRubriques(args?.cahierDesCharges);
   return {
     ok: true,
     valeur: {
       texte,
       partieTechnique: partieTechnique.valeur,
+      ...(cahierDesCharges.length ? { cahierDesCharges } : {}),
       hypotheses,
       suppositions,
       questions: questions.valeur,
@@ -1305,7 +1319,10 @@ function lirePartieTechnique(brut: unknown): LectureDOutil<PartieTechniqueRendue
  * chaque partie manquante est nommée, d'un coup, pour que la relance rende
  * tout à la fois.
  */
-export function lirePlanRendu(args: Record<string, unknown> | undefined): LectureDOutil<PlanRendu> {
+export function lirePlanRendu(
+  args: Record<string, unknown> | undefined,
+  contexte: { cahierVivant?: readonly RubriqueDuCahier[] } = {},
+): LectureDOutil<PlanRendu> {
   const titre = texteDe(args?.titre);
   const resume = texteDe(args?.resume);
   const synthese = texteDe(args?.synthese);
@@ -1335,11 +1352,11 @@ export function lirePlanRendu(args: Record<string, unknown> | undefined): Lectur
      pas, et un plan sans elles perdrait la trace de ce qui a été abandonné. */
   const decisions = listeDe(args?.decisions);
   const enClair = texteDe(args?.enClair);
-  const cahierDesCharges = Array.isArray(args?.cahierDesCharges)
-    ? (args!.cahierDesCharges as unknown[])
-        .map((rubrique) => ({ titre: texteDe((rubrique as any)?.titre), contenu: texteDe((rubrique as any)?.contenu) }))
-        .filter((rubrique) => rubrique.titre.length > 0 && rubrique.contenu.length > 0)
-    : [];
+  /* LE PLAN COMPACT REPREND LE CAHIER VIVANT de la carte quand il ne redonne
+     pas le sien (`shared/src/cahier-vivant.ts`) : les compréhensions l'ont
+     rempli au fil des réponses. */
+  const cahierRendu = lireLesRubriques(args?.cahierDesCharges);
+  const cahierDesCharges = cahierRendu.length ? cahierRendu : [...(contexte.cahierVivant ?? [])];
   /* Une rubrique dont le titre ouvrirait une autre partie du plan (« Chemin »,
      « Conséquences », « Liste des tâches »…) casserait son rangement à l'écran. */
   const rubriquesAmbigues = cahierDesCharges
@@ -1352,25 +1369,25 @@ export function lirePlanRendu(args: Record<string, unknown> | undefined): Lectur
   if (!titre) manques.push('« titre »');
   if (!ouvertureEnClairSuffisante(enClair))
     manques.push(
-      `« enClair » (l'ouverture du plan, adressée à l'utilisateur qui ne programme pas : deux à quatre courts paragraphes, ${SIGNES_MINIMUM_EN_CLAIR} signes et deux phrases au moins, qui disent ce qui sera fait, comment ça fonctionnera une fois en place et à quoi ça lui servira)`,
+      `« enClair » (l'ouverture du plan, adressée à l'utilisateur qui ne programme pas : deux à quatre phrases, ${SIGNES_MINIMUM_EN_CLAIR} signes au moins, qui disent ce que tu vas faire et ce qu'il constatera une fois fini)`,
     );
   if (cahierDesCharges.length < RUBRIQUES_MINIMUM_DU_CAHIER)
     manques.push(
-      `« cahierDesCharges » (le cahier des charges, ${RUBRIQUES_MINIMUM_DU_CAHIER} rubriques au moins, chacune avec « titre » et « contenu » : contexte et objectifs, pour qui, périmètre — ce qui est compris et ce qui ne l'est pas —, fonctionnalités attendues, règles et contraintes, critères de réussite)`,
+      `« cahierDesCharges » (le cahier vivant de la carte n'a que ${(contexte.cahierVivant ?? []).length} rubrique(s) : redonne le cahier ENTIER, ${RUBRIQUES_MINIMUM_DU_CAHIER} rubriques au moins, chacune avec « titre » et « contenu » : contexte et objectifs, pour qui, périmètre — ce qui est compris et ce qui ne l'est pas —, fonctionnalités attendues, règles et contraintes, critères de réussite)`,
     );
   if (rubriquesAmbigues.length)
     manques.push(`des titres de rubriques du cahier qui ne reprennent pas ceux des autres parties du plan (à renommer : ${rubriquesAmbigues.map((t) => `« ${t} »`).join(', ')})`);
   if (!synthese) manques.push(`« synthese » (${FORME_DES_RESUMES_DU_FIL} — ici, ce qui va être fait)`);
   if (taches.length < 2)
-    manques.push('« taches » (deux entrées au moins, chacune avec « titre » et « description » détaillée)');
+    manques.push('« taches » (deux entrées au moins, chacune avec « titre » et une « description » d’une ou deux phrases)');
   if (decisions.length < 1)
     manques.push('« decisions » (une ligne au moins : ce qui a été décidé, changé ou abandonné, et à quel moment des échanges)');
-  if (!faisabilite) manques.push('« faisabilite »');
-  if (chemin.length < 2) manques.push('« chemin » (deux étapes au moins, chacune avec « titre » et « detail »)');
-  if (!consequences) manques.push('« consequences »');
-  if (ameliorations.length < 1) manques.push('« ameliorations » (une ligne au moins)');
+  /* LE PLAN COMPACT (17/10/2026) : faisabilité, chemin, conséquences et
+     améliorations ne s'exigent plus — le chemin redisait les tâches, et les
+     suites passent par « proposer_suites ». Ce qu'on vérifiera, si. */
+  if (verifications.length < 1) manques.push('« verifications » (une ligne au moins : ce qu’on constatera pour dire que c’est fini)');
   if (manques.length) {
-    return { ok: false, raison: `Plan incomplet, rien n'a été enregistré. Il manque : ${manques.join(', ')}. Rappelle « rendre_plan » avec TOUTES les parties.` };
+    return { ok: false, raison: `Plan incomplet, rien n'a été enregistré. Il manque : ${manques.join(', ')}. Rappelle « rendre_plan » avec ces parties.` };
   }
   return {
     ok: true,
@@ -1418,55 +1435,54 @@ export function ouvertureEnClairSuffisante(texte: string): boolean {
  */
 export function rendrePlan(plan: PlanRendu): string {
   const [faisabilite, chemin, consequences, ameliorations] = PARTIES_DU_PLAN.map((partie) => partie.nom);
-  /* LE PREMIER BLOC : la liste des tâches. Le titre de chaque tâche en gras
-     sur sa ligne, sa description détaillée dessous — jamais une puce, qui la
-     ferait passer pour une idée cliquable comme celles des améliorations. */
+  /* LE PLAN COMPACT, FAÇON CONDUCTOR (décision du 17/10/2026) : l'ouverture en
+     clair, ce qui sera fait, comment on le vérifiera — puis, pour qui veut le
+     relire, les décisions et le cahier des charges, que l'écran replie. Le
+     titre de chaque tâche en gras sur sa ligne, sa description dessous —
+     jamais une puce, qui la ferait passer pour une idée cliquable. */
   const taches = (plan.taches ?? [])
     .map((tache) => `**${tache.titre}**${tache.description ? `\n${tache.description}` : ''}`)
     .join('\n\n');
-  /* LE DEUXIÈME BLOC : les décisions des itérations, en puces. Elles ne sont
-     pas cliquables — seules le sont celles des « Améliorations apportées ». */
+  const enClair = plan.enClair?.trim() ? [`## ${BLOC_EN_CLAIR.nom}`, plan.enClair.trim(), ''] : [];
+  const verifications = (plan.verifications ?? []).length
+    ? ['', `## ${TITRE_DES_VERIFICATIONS}`, plan.verifications.map((v) => `- ${v}`).join('\n')]
+    : [];
   const decisions = (plan.decisions ?? []).length
     ? ['', `## ${BLOC_DES_DECISIONS.nom}`, plan.decisions.map((d) => `- ${d}`).join('\n')]
     : [];
-  const etapes = plan.chemin
-    .map((etape, index) => `${index + 1}. **${etape.titre}**${etape.detail ? ` — ${etape.detail}` : ''}`)
-    .join('\n');
-  const verifications = plan.verifications.length
-    ? `\n\nVérifications prévues :\n${plan.verifications.map((v) => `- ${v}`).join('\n')}`
-    : '';
-  /* L'OUVERTURE « EN CLAIR » passe avant tout : on sait d'abord ce que le plan
-     va représenter, la liste des tâches vient ensuite. */
-  const enClair = plan.enClair?.trim() ? [`## ${BLOC_EN_CLAIR.nom}`, plan.enClair.trim(), ''] : [];
-  /* LE CAHIER DES CHARGES suit l'ouverture : une rubrique par « ### ». */
   const cahier = (plan.cahierDesCharges ?? []).length
-    ? [`## ${BLOC_DU_CAHIER.nom}`, plan.cahierDesCharges.map((r) => `### ${r.titre}\n${r.contenu}`).join('\n\n'), '']
+    ? ['', `## ${BLOC_DU_CAHIER.nom}`, plan.cahierDesCharges.map((r) => `### ${r.titre}\n${r.contenu}`).join('\n\n')]
     : [];
+  /* LES PARTIES DE L'ANCIEN GABARIT ne s'écrivent que si l'agent les a encore
+     données : plus aucune n'est exigée. */
+  const anciennes: string[] = [];
+  if (plan.faisabilite?.trim()) anciennes.push('', `## ${faisabilite}`, plan.faisabilite.trim());
+  if (plan.chemin?.length)
+    anciennes.push(
+      '',
+      `## ${chemin}`,
+      plan.chemin.map((etape, index) => `${index + 1}. **${etape.titre}**${etape.detail ? ` — ${etape.detail}` : ''}`).join('\n'),
+    );
+  if (plan.consequences?.trim()) anciennes.push('', `## ${consequences}`, plan.consequences.trim());
+  if (plan.ameliorations?.length) anciennes.push('', `## ${ameliorations}`, plan.ameliorations.map((a) => `- ${a}`).join('\n'));
   return [
     `# ${plan.titre}`,
     '',
     ...enClair,
-    ...cahier,
     `## ${BLOC_DES_TACHES.nom}`,
     taches,
+    ...verifications,
     ...decisions,
-    '',
-    `## ${faisabilite}`,
-    plan.faisabilite,
-    '',
-    `## ${chemin}`,
-    etapes,
-    '',
-    `## ${consequences}`,
-    `${plan.consequences}${verifications}`,
-    '',
-    `## ${ameliorations}`,
-    plan.ameliorations.map((a) => `- ${a}`).join('\n'),
+    ...cahier,
+    ...anciennes,
   ]
     .filter((ligne, index, lignes) => !(ligne === '' && lignes[index - 1] === ''))
     .join('\n')
     .trim();
 }
+
+/** Le titre du bloc des vérifications du plan compact. */
+export const TITRE_DES_VERIFICATIONS = 'Vérifications';
 
 /**
  * LA DESCRIPTION DE LA CARTE, TIRÉE DU PLAN : le résumé et le chemin, rien de
@@ -1474,7 +1490,9 @@ export function rendrePlan(plan: PlanRendu): string {
  * reçoit le plan entier par ailleurs.
  */
 export function descriptionDepuisLePlanRendu(plan: PlanRendu): string {
-  const chemin = plan.chemin.map((etape, index) => `${index + 1}. ${etape.titre}`).join('\n');
+  /* Le plan compact n'a plus de chemin : ses tâches en tiennent lieu. */
+  const etapes = plan.chemin?.length ? plan.chemin : plan.taches.map((tache) => ({ titre: tache.titre }));
+  const chemin = etapes.map((etape, index) => `${index + 1}. ${etape.titre}`).join('\n');
   return [plan.resume, chemin].filter((partie) => partie.trim().length > 0).join('\n\n');
 }
 
@@ -1649,7 +1667,19 @@ export const INCIDENT_PLAN_NON_RENDU =
  * que les trois consignes ne divergent pas.
  */
 export const CONSIGNE_DU_CAHIER_DU_PLAN =
-  `« cahierDesCharges » : LE CAHIER DES CHARGES de la demande, posé entre l'ouverture et la liste des tâches, en rubriques (${RUBRIQUES_MINIMUM_DU_CAHIER} au moins), chacune avec un « titre » et un « contenu » détaillé en mots courants — dans cet ordre : « Contexte et objectifs » (le problème, ce qu'on veut obtenir), « Pour qui » (qui s'en sert, dans quelle situation), « Périmètre » (ce qui est compris ET ce qui ne l'est pas), « Fonctionnalités attendues » (chaque fonction, chaque écran, chaque parcours, en phrases complètes), « Règles et contraintes » (règles de gestion, limites, données, cas particuliers), « Critères de réussite » (ce qu'on vérifiera pour dire que c'est fini). Une rubrique de plus quand le sujet l'exige (« Contenus et textes », « Données », « Hors ligne »…). Le cahier doit pouvoir être lu seul, par quelqu'un qui n'a pas suivi les échanges : chaque réponse de l'utilisateur y est reportée là où elle compte. `;
+  `« cahierDesCharges » : FACULTATIF dans le plan. Le cahier des charges VIVANT de la carte, rempli par tes compréhensions au fil des réponses, est repris tel quel quand tu ne le redonnes pas. Ne le redonne que pour le réécrire EN ENTIER (${RUBRIQUES_MINIMUM_DU_CAHIER} rubriques au moins, « titre » + « contenu » en mots courants : contexte et objectifs, pour qui, périmètre compris ET exclu, fonctionnalités attendues, règles et contraintes, critères de réussite) — s'il en a moins, le plan est refusé et tu dois le donner. `;
+
+/**
+ * LE PLAN COMPACT, FAÇON CONDUCTOR (décision du 17/10/2026). Le plan à neuf
+ * parties (ouverture, cahier, tâches, décisions, faisabilité, chemin,
+ * conséquences, améliorations, vérifications) se lisait comme un rapport : le
+ * chemin redisait les tâches, les améliorations doublaient les suites. Il tient
+ * désormais en trois blocs lus — l'ouverture, les tâches, les vérifications —,
+ * suivis des décisions et du cahier, que l'écran replie. La phrase commune aux
+ * trois consignes de plan.
+ */
+export const FORME_DU_PLAN_COMPACT =
+  `LE PLAN EST COMPACT, comme un plan de Conductor : « titre » ; « enClair », l'ouverture adressée à l'utilisateur qui ne programme pas — deux à quatre phrases (${SIGNES_MINIMUM_EN_CLAIR} signes au moins) qui disent ce que tu vas faire (« je vais… ») et ce qu'il constatera une fois fini ; « taches », deux à sept entrées, chacune un « titre » en quelques mots et une « description » d'une ou deux phrases ; « verifications », une ligne par chose qu'on constatera pour dire que c'est fini ; « decisions », une ligne par point décidé, changé ou abandonné pendant les échanges (« Question → réponse retenue »), une seule ligne qui le dit s'il n'y a rien eu à trancher ; « synthese », deux ou trois phrases affichées sous le point « Plan » du fil ; « resume », une phrase pour la description de la carte. Plus de faisabilité, de chemin, de conséquences ni d'améliorations. Tout ce qui s'affiche est en mots courants, sans nom de fichier, de fonction ni de technologie : le détail technique (fichiers, fonctions, commandes, pièges, contrôles) va dans « notesTechniques », que seul l'agent d'exécution reçoit. ${CONSIGNE_DU_CAHIER_DU_PLAN}`;
 
 /**
  * CE QUE LE DÉMON ENVOIE À L'AGENT DE CADRAGE SUR LE CLIC « GÉNÉRER LE PLAN ».
@@ -1657,7 +1687,7 @@ export const CONSIGNE_DU_CAHIER_DU_PLAN =
  * dans le fil — qui ne demande qu'une chose : le plan, par l'outil.
  */
 export function consigneDeRenduDuPlan(numero: number): string {
-  return `LE CADRAGE EST TERMINÉ : rends maintenant le PLAN COMPLET de cette demande, version ${numero}, en appelant l'outil « rendre_plan » avec TOUTES ses parties (titre, enClair, cahierDesCharges, synthese, taches, decisions, resume, faisabilite, chemin de deux étapes au moins avec titre et detail, consequences, ameliorations, verifications). « enClair » : L'OUVERTURE DU PLAN, AVANT la liste des tâches — deux à quatre courts paragraphes adressés à l'utilisateur, en mots courants, qui lui font se représenter le résultat : ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira au quotidien. Le ton attendu, par exemple : « Vous n'avez pas besoin de connaître le marketing… L'agent rédige, illustre, publie après votre accord… Vous, vous décidez. » ${CONSIGNE_DU_CAHIER_DU_PLAN}Liste des tâches : LE BLOC QUI SUIT, deux entrées au moins — tout ce qu'il y a à réaliser, chacune avec son « titre » en quelques mots et sa « description » DÉTAILLÉE en texte suivi (ce qui est fait et pourquoi). TOUT CE QUE LE PLAN AFFICHE EST LU PAR L'UTILISATEUR, QUI NE PROGRAMME PAS : tâches, décisions, faisabilité, chemin, conséquences, améliorations et vérifications s'écrivent en mots courants, sans nom de fichier, de fonction ni de technologie. Le détail technique utile à l'agent qui fera le travail (fichiers, fonctions, commandes, pièges) va dans « notesTechniques » : l'écran ne le montre pas, l'agent d'exécution le reçoit. C'est la liste des CHOSES À FAIRE ; le chemin, lui, dit l'ORDRE de mise en œuvre. Décisions (bloc « Décisions des itérations ») : une ligne par point décidé, changé ou abandonné pendant le cadrage, en disant à quel moment des échanges — s'il n'y a encore rien eu à trancher, une seule ligne qui le dit. Faisabilité : ce que le projet fait aujourd'hui d'après la mémoire ouverte, ce que la demande veut de plus, l'écart, et ce dont tu n'es pas sûr — dis « je suppose » quand tu supposes. Chemin : les étapes numérotées, chacune avec ce qu'elle change. Conséquences : ce que ça change, ce que ça casse. Améliorations : une ligne par demande actionnable, trois au moins. Synthèse : ce qui va être fait, en deux ou trois phrases simples et concises (plus seulement si nécessaire) — elle s'affiche sous le point « Plan » du fil, pour qu'on sache ce qui sera fait sans ouvrir le plan. Résumé : une phrase — elle ne s'affiche plus dans le plan, elle sert à la description de la carte. N'écris PAS le plan en texte dans ta réponse : l'outil le porte, l'écran l'affiche. Le tour s'arrête avec le plan : n'appelle PAS « rendre_comprehension » dans ce tour. Ne pose aucune question ici : écris le plan avec ce que tu sais, et marque tes suppositions. Ta réponse en texte tient en une phrase.`;
+  return `LE CADRAGE EST TERMINÉ : rends maintenant le PLAN de cette demande, version ${numero}, en appelant l'outil « rendre_plan ». ${FORME_DU_PLAN_COMPACT}N'écris PAS le plan en texte dans ta réponse : l'outil le porte, l'écran l'affiche. Le tour s'arrête avec le plan : n'appelle PAS « rendre_comprehension » dans ce tour. Ne pose aucune question ici : écris le plan avec ce que tu sais, et marque tes suppositions. Ta réponse en texte tient en une phrase.`;
 }
 
 /**
@@ -1675,16 +1705,12 @@ export function consigneDePlanDansLeMemeTour(numero: number): string {
     `1. LES QUESTIONS D'ABORD. Avant de rendre quoi que ce soit, relève ce qui change réellement le résultat et que ni la demande, ni le projet, ni la mémoire ne tranchent : public visé, parcours, règles de gestion, contenus, cas limites, ce qui est hors périmètre. ` +
     `Pose ces questions avec « ask_user », UNE À LA FOIS, chacune précise et utile, avec dans « description » ce que tu as constaté et ce que change chaque réponse, et des choix concrets dont un marqué « (recommandé) ». ` +
     `Ni question de forme, ni question dont la réponse se lit dans le projet : tranche ce qui est évident et dis-le dans le plan. Arrête-toi quand le cahier est sans trou — en général trois à huit questions${numero > 1 ? ", moins pour une nouvelle version : seulement ce que les derniers échanges laissent ouvert" : ''}. ` +
-    `2. PUIS, dans le même tour, « rendre_comprehension », part technique comprise. ` +
-    `3. ENFIN, sans attendre un autre message, le PLAN COMPLET version ${numero} par l'outil « rendre_plan ». ` +
+    `2. PUIS, dans le même tour, « rendre_comprehension », part technique comprise, avec dans « cahierDesCharges » les rubriques que tes questions ont remplies. ` +
+    `3. ENFIN, sans attendre un autre message, le PLAN version ${numero} par l'outil « rendre_plan ». ` +
     (numero > 1
       ? `Cette version est GLOBALE : pars du plan version ${numero - 1}, redonné en entier dans le bloc « Dernier plan rendu », et intègres-y tout ce qu'apportent les échanges depuis. Un point ne sort du plan que s'il est noté ABANDONNÉ dans « decisions ». `
       : '') +
-    `Le plan porte TOUTES ses parties (titre, enClair, cahierDesCharges, synthese, taches, decisions, resume, faisabilite, chemin, consequences, ameliorations, verifications), ` +
-    `et il s'ouvre sur « enClair », L'OUVERTURE DU PLAN, AVANT le cahier et la liste des tâches — deux à quatre courts paragraphes adressés à l'utilisateur, en mots courants, qui lui font se représenter le résultat : ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira au quotidien. ` +
-    CONSIGNE_DU_CAHIER_DU_PLAN +
-    `« decisions » reprend chaque réponse de l'utilisateur à tes questions (« Question → réponse retenue »). ` +
-    `Toutes les parties s'écrivent en mots courants pour quelqu'un qui ne programme pas ; le détail technique va dans « notesTechniques ». ` +
+    FORME_DU_PLAN_COMPACT +
     `Une fois la compréhension rendue, plus aucune question : écris le plan avec ce que tu sais, et marque DANS LE PLAN ce que tu supposes. Ta réponse en texte répond d'abord aux questions que le message pose, puis dit en une phrase que la compréhension et le plan sont rendus.`
   );
 }
@@ -1703,7 +1729,7 @@ export function consigneDePlanDansLeMemeTour(numero: number): string {
  * échanges, et ne laisse rien tomber sans le noter dans les décisions.
  */
 export function consigneDAffinageDuPlan(numero: number): string {
-  return `UNE NOUVELLE VERSION DU PLAN EST DEMANDÉE : rends la version ${numero} ENTIÈRE par l'outil « rendre_plan ». Elle est GLOBALE — jamais le plan de la seule dernière itération : pars du plan version ${numero - 1}, redonné en entier dans le bloc « Dernier plan rendu », et intègres-y tout ce qu'apportent la dernière compréhension et TOUS les échanges de cette carte depuis le premier message (demandes, précisions, réponses aux questions). Tout ce qui était établi reste dans le plan, même ce qui ne bouge pas : un point ne sort du plan que s'il est noté ABANDONNÉ dans « decisions ». Toutes les parties, cahier des charges (« cahierDesCharges », réécrit EN ENTIER avec ce qui a bougé) et liste des tâches comprises, et d'abord « enClair » : L'OUVERTURE DU PLAN, AVANT la liste des tâches — deux à quatre courts paragraphes adressés à l'utilisateur, en mots courants, qui lui font se représenter le résultat : ce que tu vas faire (« je vais… »), comment ça fonctionnera une fois en place, et à quoi ça lui servira au quotidien. Le ton attendu, par exemple : « Vous n'avez pas besoin de connaître le marketing… L'agent rédige, illustre, publie après votre accord… Vous, vous décidez. » Une nouvelle version RÉÉCRIT cette ouverture en entier, pour le plan tel qu'il est devenu. « decisions » (bloc « Décisions des itérations ») REPREND les lignes de la version ${numero - 1} et y AJOUTE ce qui a été décidé, changé ou abandonné depuis, chaque ligne disant quoi et à quel moment (version, message ou réponse). Ne réponds pas par un fragment ni par « voici ce qui change » : la version rendue remplace la précédente, l'écran montre les différences lui-même. Si un point change ce qui sera fait et que tu ne peux pas trancher, pose ta question avec « ask_user » AVANT de rendre le plan. Le tour s'arrête avec le plan : n'appelle PAS « rendre_comprehension » dans ce tour. Ta réponse en texte tient en une ou deux phrases.`;
+  return `UNE NOUVELLE VERSION DU PLAN EST DEMANDÉE : rends la version ${numero} ENTIÈRE par l'outil « rendre_plan ». Elle est GLOBALE — jamais le plan de la seule dernière itération : pars du plan version ${numero - 1}, redonné en entier dans le bloc « Dernier plan rendu », et intègres-y tout ce qu'apportent la dernière compréhension et TOUS les échanges de cette carte depuis le premier message. Tout ce qui était établi reste dans le plan : un point ne sort du plan que s'il est noté ABANDONNÉ dans « decisions », qui REPREND les lignes de la version ${numero - 1} et y AJOUTE ce qui a bougé depuis. ${FORME_DU_PLAN_COMPACT}Ne réponds pas par un fragment ni par « voici ce qui change » : la version rendue remplace la précédente, l'écran montre les différences lui-même. Si un point change ce qui sera fait et que tu ne peux pas trancher, pose ta question avec « ask_user » AVANT de rendre le plan. Le tour s'arrête avec le plan : n'appelle PAS « rendre_comprehension » dans ce tour. Ta réponse en texte tient en une ou deux phrases.`;
 }
 
 /**

@@ -60,6 +60,8 @@ import {
   type RenduDeFiche,
   type TypeUnite,
   type Unite,
+  estUneRedite,
+  racinesSignificatives,
 } from '@beluga/shared';
 import { CONFIG } from './config.js';
 import { getDb, getMeta, setMeta } from './db.js';
@@ -687,6 +689,10 @@ function detailCompleteParLaRegle(proche: Unite, regle: { resume: string; detail
   const phrases = (ligne: string): string[] => ligne.split(/(?<=[.!?…])\s+/).filter((x) => titreNormalise(x));
   const connues = new Set(`${proche.resume}\n${proche.detail}`.split('\n').flatMap(phrases).map(titreNormalise));
   const neuves: string[] = [];
+  // Une REFORMULATION n'a pas de phrase jumelle : si l'essentiel de ses mots est déjà dans la fiche
+  // (titre + résumé + détail), la ligne est une redite. Comparée à la fiche seule, jamais aux lignes
+  // gardées dans ce tour, pour ne pas dépendre de l'ordre.
+  const racinesConnues = racinesSignificatives(`${proche.titre}\n${proche.resume}\n${proche.detail}`);
   // Le résumé de nuit est le corps aplati, coupé à 599 signes + « … » : sa dernière phrase tronquée
   // n'a pas de jumeau connu et se collerait AVANT la phrase entière du détail. Un résumé qui n'est
   // que le début du détail n'apporte rien : on ne parcourt alors que le détail.
@@ -703,7 +709,7 @@ function detailCompleteParLaRegle(proche: Unite, regle: { resume: string; detail
       if (connues.has(cle)) return false;
       connues.add(cle);
       return true;
-    });
+    }).filter((x) => !estUneRedite(x, racinesConnues));
     if (gardees.length) neuves.push(gardees.join(' '));
   }
   while (neuves.length && neuves[neuves.length - 1] === '') neuves.pop();

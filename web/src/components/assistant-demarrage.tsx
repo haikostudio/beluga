@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { ArrowLeft, Check, FolderPlus, Loader2 } from 'lucide-react';
 import {
-  ETAPES_DE_L_ASSISTANT,
   auMoinsUnMoteurEnLigne,
   etapePassable,
+  etapesDeLAssistant,
   prochaineEtape,
   type EtapeDeLAssistant,
   type EtatDeLAssistant,
@@ -35,8 +35,9 @@ import { t } from '@/lib/langue';
  * Celui qui vient d'installer Beluga Build a créé son compte sur la page
  * d'installation (servie par le démon, ouverte par le lien d'installation). Il
  * arrive ici : neuf pages, dans l'ordre où elles servent. La première ne règle
- * rien — elle dit ce qu'est Beluga Build. UNE SEULE EST OBLIGATOIRE — les
- * moteurs, sans lesquels aucune tâche ne part. Chaque autre page se passe
+ * rien — elle dit ce qu'est Beluga Build. DEUX SONT OBLIGATOIRES — les
+ * moteurs, sans lesquels aucune tâche ne part, et GitHub, sans lequel aucun
+ * projet ne se récupère ni ne se sauvegarde. Chaque autre page se passe
  * (« Plus tard ») et se retrouve, à l'identique, dans Réglages, page
  * « Installation » : ce sont les mêmes composants (`installation/sections.tsx`).
  *
@@ -73,7 +74,7 @@ function pageDe(etape: EtapeDeLAssistant): Page {
     case 'copie':
       return {
         titre: t('Votre propre Beluga'),
-        intro: t('Faites de cette installation votre copie : un dépôt privé à votre nom, et le projet Beluga Build sur votre tableau. C’est de là que vous le personnalisez avec vos propres agents, et que vous récupérez, quand vous le voulez, les nouveautés de la version d’origine.'),
+        intro: t('Faites de cette installation votre copie : un dépôt privé à votre nom, pour sauvegarder vos modifications de Beluga Build et récupérer, quand vous le voulez, les nouveautés de la version d’origine. Le projet Beluga Build est déjà sur votre tableau.'),
       };
     case 'moteurs':
       return {
@@ -88,7 +89,7 @@ function pageDe(etape: EtapeDeLAssistant): Page {
     case 'projet':
       return {
         titre: t('GitHub et votre premier projet'),
-        intro: t('Beluga Build travaille dans des dépôts de code. Reliez GitHub, puis ajoutez un premier projet : un dépôt qui existe déjà, ou un projet neuf.'),
+        intro: t('Beluga Build travaille dans des dépôts de code. Reliez d’abord GitHub ; vous pourrez ensuite ajouter un premier projet : un dépôt qui existe déjà, ou un projet neuf.'),
       };
     case 'courriels':
       return {
@@ -116,14 +117,16 @@ function pageDe(etape: EtapeDeLAssistant): Page {
 export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant }) {
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
-  const premiere = prochaineEtape(assistant);
+  const etapes = etapesDeLAssistant(state.offreHebergee);
+  const premiere = prochaineEtape(assistant, state.offreHebergee);
   const [vue, setVue] = React.useState<EtapeDeLAssistant>(premiere === 'fin' ? 'facultatif' : premiere);
   const [envoi, setEnvoi] = React.useState<'faite' | 'passee' | null>(null);
 
-  const rang = ETAPES_DE_L_ASSISTANT.indexOf(vue);
+  const rang = etapes.indexOf(vue);
   const page = pageDe(vue);
   const moteurPret = auMoinsUnMoteurEnLigne(state.engines, state.quotas);
-  const peutContinuer = vue !== 'moteurs' || moteurPret;
+  const githubRelie = Boolean(etat?.github?.connecte);
+  const peutContinuer = vue === 'moteurs' ? moteurPret : vue === 'projet' ? githubRelie : true;
 
   /** Une page est atteignable dès qu'elle a été vue, ou que c'est la prochaine. */
   const atteignable = (etape: EtapeDeLAssistant) =>
@@ -133,7 +136,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
     setEnvoi(issue);
     try {
       await client.call({ type: 'installation.etape', etape: vue, issue });
-      const suivante = ETAPES_DE_L_ASSISTANT[rang + 1];
+      const suivante = etapes[rang + 1];
       if (suivante) setVue(suivante);
       else client.pushToast('success', t('Installation terminée. Tout se retrouve dans Réglages, page « Installation ».'));
     } catch {
@@ -159,7 +162,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
             size="icon"
             data-assistant-retour
             title={t('Page précédente')}
-            onClick={() => setVue(ETAPES_DE_L_ASSISTANT[rang - 1])}
+            onClick={() => setVue(etapes[rang - 1])}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
@@ -167,7 +170,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
         <span className="text-[14.5px] font-medium text-text">{t('Mise en route de Beluga Build')}</span>
         <span className="flex-1" />
         <span className="text-[13px] text-faint" data-assistant-avancement>
-          {t('Page {n} sur {total}', { n: String(rang + 1), total: String(ETAPES_DE_L_ASSISTANT.length) })}
+          {t('Page {n} sur {total}', { n: String(rang + 1), total: String(etapes.length) })}
         </span>
       </header>
 
@@ -175,7 +178,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
         {/* LA LISTE DES PAGES : où l'on en est, d'un coup d'œil. La page affichée
             porte la couleur de l'élément choisi ; une page faite, sa coche. */}
         <nav className="hidden w-60 shrink-0 flex-col gap-0.5 px-3 py-4 sm:flex" aria-label="pages-de-la-mise-en-route">
-          {ETAPES_DE_L_ASSISTANT.map((etape, index) => {
+          {etapes.map((etape, index) => {
             const issue = assistant.etapes[etape];
             const choisie = etape === vue;
             return (
@@ -206,7 +209,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
             <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{page.intro}</p>
             <div className="mt-5">
               {vue === 'bienvenue' ? (
-                <PageDeBienvenue etat={etat} relire={relire} />
+                <PageDeBienvenue etat={etat} relire={relire} hebergee={state.offreHebergee} />
               ) : vue === 'copie' ? (
                 <SectionCopie etat={etat} relire={relire} />
               ) : vue === 'moteurs' ? (
@@ -219,7 +222,8 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
               ) : vue === 'projet' ? (
                 <div className="space-y-6">
                   <SectionGitHub etat={etat} relire={relire} />
-                  <PremierProjet />
+                  {/* Le premier projet N'APPARAÎT qu'une fois GitHub relié : sans lui, rien à récupérer. */}
+                  {githubRelie ? <PremierProjet /> : null}
                 </div>
               ) : vue === 'courriels' ? (
                 <SectionCourriels etat={etat} relire={relire} />
@@ -242,6 +246,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
       <footer className="flex shrink-0 items-center gap-2 px-3 py-3 sm:px-5" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <span className="min-w-0 flex-1 text-[13px] text-faint">
           {vue === 'moteurs' && !moteurPret ? t('Il faut au moins un moteur prêt pour continuer.') : null}
+          {vue === 'projet' && !githubRelie ? t('Reliez GitHub pour continuer : c’est par lui que vos projets se récupèrent et se sauvegardent.') : null}
         </span>
         {etapePassable(vue) ? (
           <Button variant="ghost" size="md" data-assistant-plus-tard disabled={envoi !== null} onClick={() => void quitter('passee')}>
@@ -251,7 +256,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
         ) : null}
         <Button variant="default" size="md" data-assistant-continuer disabled={!peutContinuer || envoi !== null} onClick={() => void quitter('faite')}>
           {envoi === 'faite' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-          {rang === ETAPES_DE_L_ASSISTANT.length - 1 ? t('Terminer') : t('Continuer')}
+          {rang === etapes.length - 1 ? t('Terminer') : t('Continuer')}
         </Button>
       </footer>
     </div>
@@ -265,15 +270,17 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
  * se façonne, et il n'est pas un logiciel libre qu'on se contente de suivre.
  * Elle porte aussi l'état de la mémoire, posée par l'installation elle-même.
  */
-function PageDeBienvenue({ etat, relire }: { etat: EtatDeLInstallation | null; relire: () => Promise<void> }) {
+function PageDeBienvenue({ etat, relire, hebergee }: { etat: EtatDeLInstallation | null; relire: () => Promise<void>; hebergee: boolean }) {
   return (
     <div className="space-y-5" data-page-de-bienvenue>
       <Idee titre={t('Un outil qui grandit avec vous')}>
         {t('Beluga Build part vide, et il apprend. Chaque projet que vous développez enrichit sa mémoire — ce qu’il sait de vos projets — et ses compétences — les façons de faire qui ont marché. Plus vous vous en servez, plus ses agents travaillent juste.')}
       </Idee>
-      <Idee titre={t('Un outil que vous façonnez')}>
-        {t('Le code de Beluga Build est sur ce serveur, et il se modifie comme n’importe lequel de vos projets : depuis le projet « Beluga Build », vous demandez un changement à un agent, et c’est votre propre version qui évolue. Une page de cette mise en route crée cette copie à votre nom.')}
-      </Idee>
+      {hebergee ? null : (
+        <Idee titre={t('Un outil que vous façonnez')}>
+          {t('Le code de Beluga Build est sur ce serveur, et il se modifie comme n’importe lequel de vos projets : depuis le projet « Beluga Build » de votre tableau, vous demandez un changement à un agent, et c’est votre propre version qui évolue. Une page de cette mise en route peut en faire une copie à votre nom.')}
+        </Idee>
+      )}
       <Idee titre={t('Une base, pas un logiciel libre')}>
         {t('Beluga Build n’est pas un outil open source. C’est un outil mis à la disposition de tous, pour que chacun parte d’une base déjà aboutie et conçoive son propre outil de développement.')}
       </Idee>

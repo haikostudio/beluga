@@ -54,6 +54,7 @@ export type DecisionDAccord = 'direct' | 'accord';
 /** Les outils du démon servis à l'assistant, et à lui seul pour les cinq derniers. */
 export const OUTILS_DE_L_ASSISTANT = [
   'ask_user',
+  'proposer_suites',
   'attach_file',
   'board_list_cards',
   'board_create_card',

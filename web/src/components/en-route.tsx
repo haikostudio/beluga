@@ -51,6 +51,7 @@ import {
   activiteDeLaMere,
   etapeCouranteDeSuivi,
   LIBELLE_ETAPE_DE_SUIVI,
+  tonDuBadgeDEtape,
   estDeployee,
   cartesARangerDuTableauDeBord,
   cleDeFamille,
@@ -79,6 +80,7 @@ import { useMinute } from '@/lib/horloge';
 import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 import { cn, dateHeure, relativeTime } from '@/lib/utils';
+import { BadgeDEtape } from './badge-etape';
 import { Badge, Button, ConfirmDialog, Dot, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { CardTile, avalerLeRelachement } from '@/components/board';
@@ -1025,6 +1027,13 @@ function CarteEnRoute({
   const etapeDeSuivi = etapeCouranteDeSuivi(
     carteDeSuivi(card, { agentActif: !!agent, deploys: state.deploys, colonne: etape }),
   );
+  const ton = tonDuBadgeDEtape(etapeDeSuivi);
+  const texteRendue =
+    card.renduA == null
+      ? ''
+      : Date.now() - card.renduA < 60_000
+        ? t('Rendue à l’instant')
+        : t('Rendue il y a {v0}', { v0: relativeTime(card.renduA) });
   return (
     <div className="flex min-w-0 flex-col" data-carte-en-route={card.id} data-etape={etapeDeSuivi}>
       <CardTile
@@ -1051,21 +1060,26 @@ function CarteEnRoute({
               {/* UN AGENT ARRÊTÉ SUR SA QUESTION N'EST EN TRAVAIL POUR
                   PERSONNE : ni point qui bat, ni « en cours » — la carte
                   attend votre réponse (même règle que la vignette de
-                  dépannage plus bas). */}
+                  dépannage plus bas). Le BADGE prend la couleur de l'ÉTAPE
+                  (jaune à la Compréhension, violet au Travail) ; une étape
+                  sans couleur garde le texte nu d'avant. */}
               {agent?.attendReponse ? (
-                <span className="text-warning">{t('Attend votre réponse')}</span>
-              ) : !agent && fillesAuTravail ? (
-                <>
-                  <Dot tone="running" pulse />
-                  <span className="text-en-cours">{t('Au travail')}</span>
-                </>
-              ) : agent ? (
-                <>
-                  <Dot tone="running" pulse />
-                  <span className="text-en-cours">
-                    {agent.role === 'cadrage' ? t('Cadrage en cours') : t('Au travail')}
-                  </span>
-                </>
+                ton ? (
+                  <BadgeDEtape ton={ton}>{t('Attend votre réponse')}</BadgeDEtape>
+                ) : (
+                  <span className="text-warning">{t('Attend votre réponse')}</span>
+                )
+              ) : (!agent && fillesAuTravail) || agent ? (
+                ton ? (
+                  <BadgeDEtape ton={ton} enCours>
+                    {agent?.role === 'cadrage' ? t('Cadrage en cours') : t('Au travail')}
+                  </BadgeDEtape>
+                ) : (
+                  <>
+                    <Dot tone="running" pulse />
+                    <span className="text-en-cours">{agent?.role === 'cadrage' ? t('Cadrage en cours') : t('Au travail')}</span>
+                  </>
+                )
               ) : estDeployee(card) ? (
                 /* Mise en ligne, la carte reste dans « Terminer » jusqu'à ce que
                    l'utilisateur l'archive : le badge suit la date. */
@@ -1077,11 +1091,16 @@ function CarteEnRoute({
                   </span>
                 </Tooltip>
               ) : card.renduA ? (
-                <span className="text-faint" title={new Date(card.renduA).toLocaleString()}>
-                  {Date.now() - card.renduA < 60_000
-                    ? t('Rendue à l’instant')
-                    : t('Rendue il y a {v0}', { v0: relativeTime(card.renduA) })}
+                <span title={new Date(card.renduA).toLocaleString()}>
+                  {ton ? (
+                    <BadgeDEtape ton={ton}>{texteRendue}</BadgeDEtape>
+                  ) : (
+                    <span className="text-faint">{texteRendue}</span>
+                  )}
                 </span>
+              ) : ton ? (
+                /* Au repos mais à une étape colorée : le badge existe quand même. */
+                <BadgeDEtape ton={ton}>{t(LIBELLE_ETAPE_DE_SUIVI[etapeDeSuivi])}</BadgeDEtape>
               ) : null}
             </span>
           ),

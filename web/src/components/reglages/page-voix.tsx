@@ -17,6 +17,8 @@ import {
   Switch,
 } from '@/components/ui';
 import { CLE_VOIX_MUETTE, CLE_VOIX_VISIBLE } from '@/components/voix-assistant';
+import { LigneDEtat } from '@/components/installation/sections';
+import { BoutonInstaller } from '@/components/installation/travail';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { usePref } from '@/lib/prefs';
@@ -69,13 +71,25 @@ export function VoiceSection({ open }: { open: boolean }) {
     setCaptureRaccourci(false);
   };
 
+  /* La voix parle-t-elle sur ce serveur ? Sinon, la pièce qui manque. */
+  const [etatDeLaVoix, setEtatDeLaVoix] = React.useState<{ parle: boolean; raison: string } | null>(null);
+  const [raisonDuSilence, setRaisonDuSilence] = React.useState<string | null>(null);
+  const relireLaVoix = React.useCallback(async () => {
+    setRaisonDuSilence(null);
+    await Promise.all([
+      client
+        .call<{ voices: typeof voices }>({ type: 'voice.list' })
+        .then((data) => setVoices(data.voices ?? []))
+        .catch(() => setVoices([])),
+      client
+        .call<{ parle: boolean; raison: string }>({ type: 'voice.etat' })
+        .then(setEtatDeLaVoix)
+        .catch(() => undefined),
+    ]);
+  }, []);
   React.useEffect(() => {
-    if (!open) return;
-    client
-      .call<{ voices: typeof voices }>({ type: 'voice.list' })
-      .then((data) => setVoices(data.voices ?? []))
-      .catch(() => setVoices([]));
-  }, [open]);
+    if (open) void relireLaVoix();
+  }, [open, relireLaVoix]);
 
   // On ne laisse jamais un extrait continuer après la fermeture des réglages.
   React.useEffect(() => {
@@ -88,19 +102,45 @@ export function VoiceSection({ open }: { open: boolean }) {
   // Un seul lecteur pour tous les extraits : `cle` distingue ce qui joue (une
   // voix « voix:… », une vitesse « vitesse:… »). L'extrait de vitesse est dit
   // avec la voix RETENUE, pour n'entendre que le débit changer.
+  /*
+   * L'EXTRAIT EST D'ABORD DEMANDÉ, PUIS JOUÉ. Lu directement par le lecteur, un
+   * refus du serveur ne disait que « extrait impossible à jouer » : la raison
+   * (moteur absent, modèle manquant) se perdait. Elle s'affiche maintenant, et
+   * le bloc « La voix sur ce serveur » propose de relancer la configuration.
+   */
   const jouer = (cle: string, params: Record<string, string>) => {
     audioRef.current?.pause();
     const query = new URLSearchParams(params).toString();
-    const audio = new Audio(`/api/voice-sample?${query}`);
-    audioRef.current = audio;
     setPlaying(cle);
     const fini = () => setPlaying((courant) => (courant === cle ? null : courant));
-    audio.addEventListener('ended', fini);
-    audio.addEventListener('error', () => {
-      fini();
-      client.pushToast('error', t('Extrait impossible à jouer.'));
-    });
-    void audio.play().catch(fini);
+    void (async () => {
+      try {
+        const reponse = await fetch(`/api/voice-sample?${query}`, { credentials: 'same-origin' });
+        if (!reponse.ok) {
+          const corps = (await reponse.json().catch(() => ({}))) as { error?: string };
+          fini();
+          setRaisonDuSilence(corps.error ?? t('Extrait impossible à jouer.'));
+          client.pushToast('error', t('Extrait impossible à jouer.'));
+          return;
+        }
+        const adresse = URL.createObjectURL(await reponse.blob());
+        const audio = new Audio(adresse);
+        audioRef.current = audio;
+        const liberer = () => {
+          fini();
+          URL.revokeObjectURL(adresse);
+        };
+        audio.addEventListener('ended', liberer);
+        audio.addEventListener('error', () => {
+          liberer();
+          client.pushToast('error', t('Extrait impossible à jouer.'));
+        });
+        await audio.play().catch(liberer);
+      } catch {
+        fini();
+        client.pushToast('error', t('Extrait impossible à jouer.'));
+      }
+    })();
   };
 
   const ecouter = (id: string) => jouer(`voix:${id}`, { voice: id });
@@ -125,6 +165,24 @@ export function VoiceSection({ open }: { open: boolean }) {
           {t('L\'extrait est dit avec la voix de la ligne, sans rien changer à votre choix. Touchez le nom pour l\'adopter : c\'est cette voix qui lira le point du jour et le bouton haut-parleur.')}
         </BulleInfo>
       </h3>
+
+      <div className="mb-4 space-y-2 rounded-lg bg-raised px-3 py-2.5" data-voix-du-serveur={etatDeLaVoix ? (etatDeLaVoix.parle && !raisonDuSilence ? 'parle' : 'muette') : 'lecture'}>
+        <p className="text-[13.5px] font-medium text-text">{t('La voix sur ce serveur')}</p>
+        {etatDeLaVoix ? (
+          etatDeLaVoix.parle && !raisonDuSilence ? (
+            <LigneDEtat fait>{t('La voix est en place et parle.')}</LigneDEtat>
+          ) : (
+            <LigneDEtat fait={false}>
+              {t('La voix ne parle pas sur ce serveur.')}
+              <span className="block text-muted">{raisonDuSilence ?? etatDeLaVoix.raison}</span>
+            </LigneDEtat>
+          )
+        ) : null}
+        <p className="text-[12.5px] leading-relaxed text-muted">
+          {t('Installée à la main dans un terminal, sous un autre compte ou dans un autre dossier, la voix peut rester muette. La configuration la refait pour le compte du service, puis l’essaie.')}
+        </p>
+        <BoutonInstaller genre="voix-reparer" libelle={t('Relancer la configuration')} apres={relireLaVoix} />
+      </div>
 
       <div className="mb-3 space-y-2">
         <label className="flex items-center gap-2 text-[14px] text-muted">

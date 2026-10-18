@@ -82,3 +82,90 @@ export function nomDeCaptureRangee(nomDuFichier: string, titreDeCarte?: string |
   const prefixe = slug(titreDeCarte ?? '');
   return prefixe ? `${prefixe}-${nomDuFichier}` : nomDuFichier;
 }
+
+/**
+ * LES FICHIERS DU DÉPÔT QUE L'AGENT N'A PAS TOUCHÉS NE SONT PAS DES CAPTURES.
+ *
+ * La copie de travail d'une carte est créée APRÈS le début du tour : chaque
+ * fichier suivi par git y reçoit une date de modification fraîche, et le
+ * balayage rangeait comme captures toutes les icônes et anciennes captures du
+ * projet (55 images sur 56 pour une carte de ProjetE, octobre 2026). Une image
+ * SUIVIE au départ du tour et restée IDENTIQUE depuis n'a été ni prise ni
+ * modifiée par l'agent : elle sort de la bande. Une image qu'il a retouchée,
+ * ajoutée ou laissée hors du dépôt reste une capture.
+ *
+ * Règle pure : le démon lui donne la sortie de git (`server/src/captures-auto.ts`).
+ */
+export interface EtatDuDepot {
+  /** Les chemins suivis au départ du tour, relatifs à la racine du dépôt. */
+  suivis: ReadonlySet<string>;
+  /** Les chemins qui ont bougé depuis : modifiés, ajoutés, renommés, commités pendant le tour. */
+  modifies: ReadonlySet<string>;
+}
+
+/** Une liste de chemins séparés par NUL (`git ls-files -z`, `git diff --name-only -z`). */
+export function cheminsSeparesParNul(sortie: string): Set<string> {
+  return new Set((sortie ?? '').split('\0').filter((chemin) => chemin.length > 0));
+}
+
+/**
+ * LES CHEMINS QUI ONT BOUGÉ, LUS DANS `git status --porcelain -z`. Chaque entrée
+ * est « XY chemin » ; un renommage ou une copie ajoute l'ancien chemin en entrée
+ * suivante, compté lui aussi.
+ */
+export function cheminsDuStatutGit(sortie: string): Set<string> {
+  const rendu = new Set<string>();
+  const entrees = (sortie ?? '').split('\0');
+  for (let index = 0; index < entrees.length; index += 1) {
+    const entree = entrees[index];
+    if (entree.length < 4) continue;
+    const etat = entree.slice(0, 2);
+    rendu.add(entree.slice(3));
+    if ((etat.includes('R') || etat.includes('C')) && entrees[index + 1]) {
+      rendu.add(entrees[index + 1]);
+      index += 1;
+    }
+  }
+  return rendu;
+}
+
+/** `relatif` : le chemin de l'image depuis la racine du dépôt, séparé par « / ». */
+export function imageDuDepotInchangee(relatif: string, depot: EtatDuDepot): boolean {
+  const chemin = relatif.split('\\').join('/').replace(/^\.\//, '');
+  return depot.suivis.has(chemin) && !depot.modifies.has(chemin);
+}
+
+/**
+ * LE NETTOYAGE DES MESSAGES DÉJÀ POLLUÉS (une seule fois, rejouable sans
+ * dommage) : les pièces d'un message d'agent dont le CONTENU est celui d'une
+ * image du dépôt du projet, et qu'aucune étape n'a regardée. Une pièce reliée à
+ * une étape — par son identifiant (`capturePiece`) ou par le nom du fichier
+ * regardé — reste : l'agent l'a vue. Rien n'est effacé du disque ni des pièces
+ * jointes du projet : seule la liste du message change.
+ */
+export interface PieceAJuger {
+  id: string;
+  sha: string;
+  name: string;
+  mime: string;
+}
+
+export function piecesDuDepotARetirer(
+  message: { attachments?: readonly string[]; steps?: readonly { capture?: string; capturePiece?: string }[] },
+  pieces: ReadonlyMap<string, PieceAJuger>,
+  empreintesDuDepot: ReadonlySet<string>,
+): string[] {
+  const regardees = new Set<string>();
+  const nomsRegardes = new Set<string>();
+  for (const etape of message.steps ?? []) {
+    if (etape.capturePiece) regardees.add(etape.capturePiece);
+    const nom = etape.capture?.trim().split(/[\\/]/).pop();
+    if (nom) nomsRegardes.add(nom);
+  }
+  return (message.attachments ?? []).filter((id) => {
+    const piece = pieces.get(id);
+    if (!piece || !piece.mime.startsWith('image/')) return false;
+    if (regardees.has(id) || nomsRegardes.has(piece.name)) return false;
+    return empreintesDuDepot.has(piece.sha);
+  });
+}

@@ -42,7 +42,8 @@ fs.mkdirSync(DOSSIER, { recursive: true });
 for (const voix of VOIX) {
   for (const extension of ['onnx', 'onnx.json']) {
     const destination = path.join(DOSSIER, `${voix.nom}.${extension}`);
-    if (fs.existsSync(destination)) continue;
+    // Un fichier vide (téléchargement coupé, copie ratée) ne compte pas comme une voix.
+    if (fs.existsSync(destination) && fs.statSync(destination).size > 0) continue;
     process.stdout.write(`Téléchargement de ${voix.nom}.${extension}… `);
     try {
       await telecharger(`${SOURCE}/${voix.chemin}/${voix.nom}.${extension}`, destination);

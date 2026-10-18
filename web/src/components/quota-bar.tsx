@@ -471,6 +471,18 @@ export function MenuGeneral({
         <DropdownMenuTrigger asChild>{declencheur}</DropdownMenuTrigger>
         {/* Les sélecteurs `data-*` des contrôles ont suivi leur entrée. */}
         <DropdownMenuContent align={cote} className="min-w-[230px]">
+          {/* LES RÉGLAGES DU PROJET, TOUT EN HAUT : sur téléphone aussi, comme
+              dans le menu du grand écran. Éteints tant qu'aucun projet n'est ouvert. */}
+          <DropdownMenuItem
+            data-option-du-projet="reglages"
+            data-reglages-du-projet-ouvert
+            disabled={sansProjet}
+            onSelect={() => state.activeProjectId && ouvrirConfigProjet(state.activeProjectId)}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            {t('Réglages du projet')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {/* LES DEUX GESTES DE PUBLICATION, EN TÊTE (téléphone) : chacun dit
               ce qui attend ou son avancement, et OUVRE sa page — le déroulé
               du déploiement, la page de mise en production. C'est de là

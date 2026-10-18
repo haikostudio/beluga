@@ -81,7 +81,7 @@ export async function copierAuPressePapiers(texte: string | Promise<string>): Pr
 }
 
 /** Les projets connus en options de liste, rangés par nom, les sous-projets sous leur projet réuni. */
-function optionsDesProjets(projets: Project[]): OptionSelecteur[] {
+export function optionsDesProjets(projets: Project[]): OptionSelecteur[] {
   const parNom = [...projets].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   return projetsEnArbre(parNom).map((ligne) => ({
     valeur: ligne.projet.id,
@@ -94,7 +94,7 @@ function optionsDesProjets(projets: Project[]): OptionSelecteur[] {
  * LES PROJETS RETENUS, EN PASTILLES. Seuls ceux qui sont ouverts au client
  * s'affichent ; une croix retire le projet. Un projet disparu depuis est tu.
  */
-function PastillesDeProjets({
+export function PastillesDeProjets({
   ids,
   onRetirer,
   attributs,
@@ -189,6 +189,7 @@ export function FormulaireCompteClient({
         type: 'comptes.creer',
         identifiant,
         nomAffiche,
+        role: 'client',
         projets: projetImpose ? [projetImpose] : projets,
         courriel: courriel.trim() || undefined,
         envoyerIdentifiants: envoyer && avecAdresse,
@@ -292,7 +293,16 @@ export function FormulaireCompteClient({
  * courriel a été demandé, ce qu'il est devenu : parti, ou pas parti avec sa
  * cause. Un échec d'envoi ne se tait jamais.
  */
-export function MotDePasseMontre({ secret, onFermer }: { secret: SecretMontre; onFermer: () => void }) {
+export function MotDePasseMontre({
+  secret,
+  onFermer,
+  sansInvitation,
+}: {
+  secret: SecretMontre;
+  onFermer: () => void;
+  /** Le message d'invitation vise l'espace client : un membre ou un lecteur n'en a pas. */
+  sansInvitation?: boolean;
+}) {
   return (
     <div className="rounded-md border border-transparent bg-warning/10 p-3" data-mot-de-passe-montre>
       <div className="text-[13px] font-medium text-text">
@@ -320,6 +330,7 @@ export function MotDePasseMontre({ secret, onFermer }: { secret: SecretMontre; o
       </div>
       {/* LE MESSAGE TOUT PRÊT pour un SMS ou une messagerie, avec CE mot de
           passe : aucun nouveau n'est tiré. */}
+      {sansInvitation ? null : (
       <Button
         size="sm"
         variant="outline"
@@ -334,6 +345,7 @@ export function MotDePasseMontre({ secret, onFermer }: { secret: SecretMontre; o
         <MessageSquareText className="h-3.5 w-3.5" />
         {t('Copier l’invitation')}
       </Button>
+      )}
       {secret.courriel?.envoye ? (
         <p className="mt-2 text-xs text-success" data-courriel-identifiants="envoye">
           {t('Identifiants envoyés par courriel à {adresse}.', { adresse: secret.courriel.adresse ?? '' })}

@@ -64,7 +64,10 @@ export function useAgentDeConfiguration(projectId: string, cible: CiblePublicati
  * dans une page qui défile : dans le tiroir, le fil est seul à défiler.
  *
  * Rien ne part tout seul à la simple visite : sans agent, le tiroir s'ouvre
- * sur une phrase et un second bouton lance le premier tour, où l'agent étudie
+ * sur une phrase et un second bouton lance le premier tour — SAUF quand le
+ * clic est celui du bouton « Initialiser » (`lancer`) : ce clic est le geste, le
+ * premier tour part avec l'ouverture, sans second clic (16/10/2026). Le bouton
+ * du tiroir reste pour les autres entrées, où l'agent étudie
  * le projet puis pose ses questions (`ask_user`, affichée dans ce fil). Un
  * agent qui a déjà parlé ne se relance JAMAIS seul : on lui écrit par la
  * barre, et le serveur y joint ce qu'il doit savoir (`contexteDeConfiguration`).
@@ -90,7 +93,7 @@ export function BoutonAgentDeConfiguration({
       size="sm"
       disabled={!!voile}
       title={voile ?? undefined}
-      onClick={() => ouvrirAgentDeConfiguration(projectId, cible)}
+      onClick={() => ouvrirAgentDeConfiguration(projectId, cible, { lancer: etat === 'initialiser' })}
       data-agent-configuration={cible}
       data-ouvrir-agent-configuration={cible}
       data-etat-bouton-agent={etat}
@@ -114,7 +117,7 @@ export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAg
   React.useEffect(() => {
     const ouvrir = (event: Event) => {
       const detail = (event as CustomEvent<DemandeDAgentDeConfiguration>).detail;
-      if (detail?.projectId) setDemande({ projectId: detail.projectId, cible: detail.cible });
+      if (detail?.projectId) setDemande({ projectId: detail.projectId, cible: detail.cible, lancer: detail.lancer });
     };
     window.addEventListener(EVENEMENT_AGENT_CONFIGURATION, ouvrir);
     return () => window.removeEventListener(EVENEMENT_AGENT_CONFIGURATION, ouvrir);
@@ -134,6 +137,7 @@ export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAg
               key={`${demande.projectId}:${demande.cible}`}
               projectId={demande.projectId}
               cible={demande.cible}
+              lancerDesLOuverture={demande.lancer === true}
             />
           </div>
         </div>
@@ -142,7 +146,15 @@ export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAg
   );
 }
 
-function ConversationDeConfiguration({ projectId, cible }: { projectId: string; cible: CiblePublication }) {
+function ConversationDeConfiguration({
+  projectId,
+  cible,
+  lancerDesLOuverture,
+}: {
+  projectId: string;
+  cible: CiblePublication;
+  lancerDesLOuverture?: boolean;
+}) {
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
   const agentId = agentDeConfiguration(projet, cible);
@@ -173,6 +185,15 @@ function ConversationDeConfiguration({ projectId, cible }: { projectId: string; 
         setErreur(err instanceof Error ? err.message : String(err));
       });
   }, [projectId, cible]);
+
+  /* LE CLIC SUR « INITIALISER » EST LE GESTE : il ouvre le tiroir ET lance le premier tour, une seule fois.
+     Un agent déjà là ne se relance jamais seul, et un échec laisse « Réessayer » à l'utilisateur. */
+  const dejaLance = React.useRef(false);
+  React.useEffect(() => {
+    if (!lancerDesLOuverture || dejaLance.current || agentId || etat?.enCours) return;
+    dejaLance.current = true;
+    demarrer();
+  }, [lancerDesLOuverture, agentId, etat?.enCours, demarrer]);
 
   const raison = erreur ?? (etat && !etat.enCours ? etat.raison : undefined);
   const aucunMessage = agent ? (state.messages[agent.id]?.length ?? 0) === 0 : true;

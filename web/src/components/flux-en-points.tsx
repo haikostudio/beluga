@@ -72,7 +72,7 @@ import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
-import { Markdown } from '@/lib/markdown';
+import { Markdown, SuitesProposees, suitesDuJalon } from '@/lib/markdown';
 import { client } from '@/lib/client';
 import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
@@ -371,7 +371,6 @@ export function FluxEnPoints({
   lancement,
   onToggleEvolution,
   onToggleAll,
-  onEcrireDansLeChamp,
   configuration,
   deploiement,
   journalCharge = true,
@@ -429,8 +428,6 @@ export function FluxEnPoints({
   lancement?: EtapeDeLancement;
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
-  /** « Refuser », sur le bandeau d'un plan, écrit dans la barre d'écriture. */
-  onEcrireDansLeChamp?: (texte: string) => void;
   /**
    * CE QUI SE LIT DANS LE POINT « CONFIGURATION » : le bloc des réglages de
    * l'agent (`ReglagesAgent`, `chat.tsx`). Il vivait en bande fixe au-dessus
@@ -642,7 +639,6 @@ export function FluxEnPoints({
               onBasculerTechnique={() => basculerTechnique(element.point.etape)}
               onToggleEvolution={onToggleEvolution}
               onToggleAll={onToggleAll}
-              onEcrireDansLeChamp={onEcrireDansLeChamp}
             />
           ))}
           {/* La carte de nuit n'a rien à déployer : elle s'arrête à ses propositions. */}
@@ -739,7 +735,6 @@ function PointDuFlux({
   lancement,
   onToggleEvolution,
   onToggleAll,
-  onEcrireDansLeChamp,
   passages,
 }: {
   point: PointDuParcours;
@@ -763,7 +758,6 @@ function PointDuFlux({
   onBasculer: () => void;
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
-  onEcrireDansLeChamp?: (texte: string) => void;
   /** La version de plan que ce passage montre (`versionDuPassageDePlan`). */
   versionDuPlan: VersionDuPassage;
 }) {
@@ -841,7 +835,6 @@ function PointDuFlux({
               onToggleEvolution={onToggleEvolution}
               onToggleAll={onToggleAll}
               carte={carte}
-              onEcrireDansLeChamp={onEcrireDansLeChamp}
             />
           );
           return moment.sorte === 'rapport' && moment.dernier ? (
@@ -866,7 +859,6 @@ function PointDuFlux({
         projectId={projectId}
         onToggleEvolution={onToggleEvolution}
         onToggleAll={onToggleAll}
-        onEcrireDansLeChamp={onEcrireDansLeChamp}
       />
     </SousPointDuFlux>
     );
@@ -1155,7 +1147,7 @@ function PointDuFlux({
       {point.reponse ? (
         <ol className="flex flex-col gap-3">
           <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
-            <MomentDeReponse entree={point.reponse} />
+            <MomentDeReponse entree={point.reponse} onToggleEvolution={onToggleEvolution} />
           </SousPointDuFlux>
         </ol>
       ) : null}
@@ -1411,7 +1403,6 @@ function MomentsDuPoint({
   projectId,
   onToggleEvolution,
   onToggleAll,
-  onEcrireDansLeChamp,
 }: {
   point: PointDuParcours;
   carte: Card;
@@ -1420,7 +1411,6 @@ function MomentsDuPoint({
   projectId?: string;
   onToggleEvolution?: (text: string) => void;
   onToggleAll?: (items: string[]) => void;
-  onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   /*
    * LE POINT « PLAN » PORTE SA VERSION, PAS TOUTES. Chaque version rendue a
@@ -1464,7 +1454,6 @@ function MomentsDuPoint({
           onToggleEvolution={onToggleEvolution}
           onToggleAll={onToggleAll}
           carte={carte}
-          onEcrireDansLeChamp={onEcrireDansLeChamp}
         />
       ))}
     </>
@@ -1535,7 +1524,6 @@ function Moment({
   onToggleEvolution,
   onToggleAll,
   carte,
-  onEcrireDansLeChamp,
 }: {
   moment: MomentDuPoint;
   projectId?: string;
@@ -1543,8 +1531,6 @@ function Moment({
   onToggleAll?: (items: string[]) => void;
   /** La carte : ses suppositions validées se lisent sur sa compréhension en cours. */
   carte?: Card;
-  /** « Corriger » une supposition écrit dans la barre d'écriture, sans rien envoyer. */
-  onEcrireDansLeChamp?: (texte: string) => void;
 }) {
   const { entree } = moment;
   switch (moment.sorte) {
@@ -1620,29 +1606,20 @@ function Moment({
  * réponse. Plus d'en-tête, plus de panneau, plus de volet replié : le texte
  * entier est là, et chaque nouvelle version s'ajoute à la suite.
  *
- * Elle porte tout ce que le panneau montrait : le texte (en points « Comment » /
- * « Résultat » pour une compréhension d'avant les textes libres), les sujets de
- * mémoire ouverts, et le détail technique en une petite ligne repliée.
+ * Elle porte le texte seul (en points « Comment » / « Résultat » pour une
+ * compréhension d'avant les textes libres). PLUS AUCUN DÉTAIL À L'ÉCRAN
+ * (décision du 17/10/2026) : ni sujets de mémoire, ni « Détails techniques »
+ * repliés — la compréhension est un message de messagerie, et sa part
+ * technique ne sert plus qu'à l'agent d'exécution, qui la reçoit au lancement.
+ * Le cahier des charges vivant ne s'y colle pas non plus : il ne paraît que
+ * dans le plan (`CahierDesChargesDuPlan`, demande du 17/10/2026).
  */
 function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; numero: number }) {
-  const donnees = React.useMemo(() => {
-    /*
-     * PLUS AUCUNE SUPPOSITION À L'ÉCRAN (décision du 06/10/2026) : le bloc
-     * « Ce que l'agent suppose » et ses gestes « Valider » / « Corriger » ont
-     * disparu, même sur les compréhensions d'avant. Ce qu'un cadrage sans
-     * témoin ne peut trancher devient une QUESTION gardée sur la carte, posée
-     * au-dessus du champ (`QuestionsDeLaCarte`, `parcours-carte.tsx`).
-     */
-    const vide = { sujets: [] as string[], technique: null as PartieTechniqueLue | null };
-    if (!entree.donnees) return vide;
-    try {
-      const lu = JSON.parse(entree.donnees) as { sujets?: unknown; partieTechnique?: unknown };
-      const liste = (valeur: unknown) => (Array.isArray(valeur) ? valeur.map(String) : []);
-      return { sujets: liste(lu.sujets), technique: lirePartieTechnique(lu.partieTechnique) };
-    } catch {
-      return vide;
-    }
-  }, [entree.donnees]);
+  /*
+   * PLUS AUCUNE SUPPOSITION À L'ÉCRAN (décision du 06/10/2026) : ce qu'un
+   * cadrage sans témoin ne peut trancher devient une QUESTION gardée sur la
+   * carte, posée au-dessus du champ (`QuestionsDeLaCarte`, `parcours-carte.tsx`).
+   */
   const range = React.useMemo(() => rangerLaComprehension(entree.resultat ?? ''), [entree.resultat]);
 
   return (
@@ -1697,99 +1674,9 @@ function MomentDeComprehension({ entree, numero }: { entree: EntreeJournal; nume
                copie d'un trait. */
             <Markdown content={entree.resultat ?? ''} className="texte-du-fil [&_p]:mb-2.5" />
           )}
-          {donnees.sujets.length ? (
-            <p>{t('Sujets de mémoire ouverts : {v0}', { v0: donnees.sujets.join(', ') })}</p>
-          ) : null}
-          {donnees.technique ? <DetailsTechniques technique={donnees.technique} /> : null}
         </div>
       </div>
       <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
-    </div>
-  );
-}
-
-/** Le second registre d'une compréhension, tel que son jalon le porte. */
-type PartieTechniqueLue = {
-  taches: { titre: string; description: string }[];
-  faits: string[];
-  risques: string;
-};
-
-/** Relit le second registre d'un jalon. Absent sur les compréhensions d'avant. */
-function lirePartieTechnique(brut: unknown): PartieTechniqueLue | null {
-  if (!brut || typeof brut !== 'object') return null;
-  const source = brut as Record<string, unknown>;
-  const taches = Array.isArray(source.taches)
-    ? (source.taches as unknown[])
-        .map((tache) => {
-          const lue = (tache ?? {}) as Record<string, unknown>;
-          return { titre: String(lue.titre ?? ''), description: String(lue.description ?? '') };
-        })
-        .filter((tache) => tache.titre)
-    : [];
-  const faits = Array.isArray(source.faits) ? (source.faits as unknown[]).map(String).filter(Boolean) : [];
-  const risques = typeof source.risques === 'string' ? source.risques.trim() : '';
-  if (!taches.length && !faits.length && !risques) return null;
-  return { taches, faits, risques };
-}
-
-/**
- * LE SECOND REGISTRE DE LA COMPRÉHENSION, REPLIÉ PAR DÉFAUT.
- *
- * Le texte clair du point « Compréhension » s'adresse à qui ne programme pas ;
- * cette part-là s'adresse à l'agent qui EXÉCUTERA la carte — découpe du
- * travail, faits du projet à respecter, ce qui risque de casser. On ne la
- * cache pas, on la RANGE : la flèche dit d'un coup d'œil combien d'étapes et
- * combien de règles elle porte, sans qu'on ait à l'ouvrir. Une compréhension
- * d'avant ce changement n'en a pas : la flèche ne s'affiche alors pas du tout.
- */
-function DetailsTechniques({ technique }: { technique: PartieTechniqueLue }) {
-  const [ouvert, setOuvert] = React.useState(false);
-  return (
-    <div data-comprehension-technique={ouvert ? 'ouvert' : 'replie'}>
-      <button
-        type="button"
-        onClick={() => setOuvert(!ouvert)}
-        aria-expanded={ouvert}
-        className="flex w-full items-center gap-2 text-left"
-        data-comprehension-technique-bascule
-      >
-        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} aria-hidden />
-        <span className="font-semibold">{t('Détails techniques')}</span>
-        <span>
-          {t('{v0} étapes · {v1} règles', { v0: technique.taches.length, v1: technique.faits.length })}
-        </span>
-      </button>
-      {ouvert ? (
-        <div className="mt-1.5 space-y-2 border-l border-faint/30 pl-3" data-comprehension-technique-contenu>
-          {technique.taches.length ? (
-            <ol className="space-y-1.5" data-technique-taches>
-              {technique.taches.map((tache, index) => (
-                <li key={index}>
-                  <span className="font-medium">{tache.titre}</span>
-                  {tache.description ? <span> — {tache.description}</span> : null}
-                </li>
-              ))}
-            </ol>
-          ) : null}
-          {technique.faits.length ? (
-            <div data-technique-faits>
-              <p className="font-semibold">{t('Ce que le projet sait déjà')}</p>
-              <ul className="mt-1 list-disc space-y-1 pl-5">
-                {technique.faits.map((fait, index) => (
-                  <li key={index}>{fait}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          {technique.risques ? (
-            <div data-technique-risques>
-              <p className="font-semibold">{t('Ce qui peut casser')}</p>
-              <p className="mt-0.5">{technique.risques}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -1817,8 +1704,15 @@ function PartDuPointCompris({ libelle, texte }: { libelle: string; texte: string
  * trait. Le texte se lit ENTIER, jamais tronqué ni replié — donc pas de flèche :
  * c'est ce que la question attendait.
  */
-function MomentDeReponse({ entree }: { entree: EntreeJournal }) {
+function MomentDeReponse({
+  entree,
+  onToggleEvolution,
+}: {
+  entree: EntreeJournal;
+  onToggleEvolution?: (text: string) => void;
+}) {
   const texte = retirerLaStructureDeCadrage(entree.resultat ?? '').trim();
+  const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
   return (
     /* LA RÉPONSE DE L'AGENT : à GAUCHE, SANS AUCUN FOND, en clair comme en
        sombre — seul ce que VOUS écrivez porte une bulle. `scroll-mt-12` : visée
@@ -1826,6 +1720,7 @@ function MomentDeReponse({ entree }: { entree: EntreeJournal }) {
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="reponse" data-bloc-reponse={entree.id}>
       <div data-bulle="agent" className={LARGEUR_DE_L_AGENT}>
         <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text" />
+        <SuitesProposees suites={suites} onBasculer={onToggleEvolution} cible={{ entreeId: entree.id }} />
       </div>
       <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>
     </div>
@@ -1860,7 +1755,9 @@ function MomentDeRapport({
   const [choix, setChoix] = React.useState<{ cle: string; ouvert: boolean } | undefined>(undefined);
   const ouvert = dernier ? true : choix?.cle === cle ? choix.ouvert : false;
   const texte = entree.resultat ?? '';
+  const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
   const liste = texte.trim() ? (
+    <>
     <RapportEnFlux
       contenu={texte}
       /* ALIGNÉE À GAUCHE, sur l'axe des points de la carte ; le chat garde son
@@ -1869,6 +1766,9 @@ function MomentDeRapport({
       onToggleEvolution={onToggleEvolution}
       onToggleAll={onToggleAll}
     />
+    {/* LES SUITES POSSIBLES du message de fin (`proposer_suites`) ; figées sur un compte rendu dépassé. */}
+    <SuitesProposees suites={suites} onBasculer={onToggleEvolution} figee={!dernier} cible={{ entreeId: entree.id }} />
+    </>
   ) : (
     <p className={cn('text-[14.5px] leading-relaxed text-faint', dernier && 'pl-6')}>{t('texte non conservé')}</p>
   );

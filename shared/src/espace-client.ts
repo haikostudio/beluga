@@ -11,6 +11,7 @@
  * d'une fiche. Rien n'y touche la base : c'est testable seul.
  */
 
+import type { RoleCompte } from './comptes-clients.js';
 import { z } from 'zod';
 
 /* ------------------------------------------------------------------ */
@@ -389,8 +390,8 @@ export function jugerTitreDeDemande(titre: string): { ok: boolean; raison?: stri
  * qui ne peut pas appeler la règle. Les deux visent donc le MÊME rôle, et une
  * requête qui figerait « admin » se voit tout de suite.
  */
-export function roleDEnFace(monRole: 'admin' | 'client'): 'admin' | 'client' {
-  return monRole === 'admin' ? 'client' : 'admin';
+export function roleDEnFace(monRole: RoleCompte): 'admin' | 'client' {
+  return monRole === 'client' ? 'admin' : 'client';
 }
 
 /**
@@ -403,7 +404,7 @@ export function roleDEnFace(monRole: 'admin' | 'client'): 'admin' | 'client' {
  * rend deux chiffres différents selon qui regarde — c'est le seul résultat
  * juste.
  */
-export function nonLusDuFil(messages: readonly MessageFil[], monRole: 'admin' | 'client'): number {
+export function nonLusDuFil(messages: readonly MessageFil[], monRole: RoleCompte): number {
   const enFace = roleDEnFace(monRole);
   return messages.filter((m) => m.auteurRole === enFace && !m.luLe).length;
 }
@@ -477,7 +478,7 @@ export type ChampDeDemande = (typeof CHAMPS_DE_DEMANDE)[number];
  * `livraisonAnnoncee` n'est JAMAIS ouverte à un client : c'est un engagement de
  * Haiko, et un engagement que le destinataire peut réécrire n'en est pas un.
  */
-export function champsModifiables(role: 'admin' | 'client', estLAuteur: boolean): ChampDeDemande[] {
+export function champsModifiables(role: RoleCompte, estLAuteur: boolean): ChampDeDemande[] {
   if (role === 'admin') return [...CHAMPS_DE_DEMANDE];
   const communs: ChampDeDemande[] = ['importance', 'etiquettes', 'taches', 'echeance'];
   if (!estLAuteur) return communs;
@@ -487,7 +488,7 @@ export function champsModifiables(role: 'admin' | 'client', estLAuteur: boolean)
 /** Le patch nettoyé de ce que ce compte n'a pas le droit d'écrire. */
 export function patchAutorise<T extends Partial<Record<ChampDeDemande, unknown>>>(
   patch: T,
-  role: 'admin' | 'client',
+  role: RoleCompte,
   estLAuteur: boolean,
 ): Partial<T> {
   const permis = new Set<string>(champsModifiables(role, estLAuteur));

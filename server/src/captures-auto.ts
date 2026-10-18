@@ -26,11 +26,28 @@
  * (`joindreUnFichier`) et rejoint le message du tour, d'où la bande l'affiche en
  * direct. Tout se fait hors du flux d'événements du moteur : une erreur est
  * journalisée, jamais remontée.
+ *
+ * LES FICHIERS DU DÉPÔT RESTÉS TELS QUELS N'EN SONT PAS. La copie de travail
+ * d'une carte naît après le début du tour : toutes ses images suivies ont une
+ * date fraîche. Le texte des étapes et le balayage écartent donc une image
+ * suivie au départ du tour et inchangée depuis (`imageDuDepotInchangee`, lue sur
+ * git une fois par seconde au plus). La capture d'étape, elle, n'est jamais
+ * écartée : l'agent l'a vraiment regardée.
  */
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { cheminsDImages, estUneCopieDeConstruction, nomDeCaptureRangee, type Attachment } from '@beluga/shared';
+import {
+  cheminsDImages,
+  cheminsDuStatutGit,
+  cheminsSeparesParNul,
+  estUneCopieDeConstruction,
+  imageDuDepotInchangee,
+  nomDeCaptureRangee,
+  type Attachment,
+  type EtatDuDepot,
+} from '@beluga/shared';
 import { CONFIG, PATHS } from './config.js';
 import { joindreUnFichier } from './joindre-fichier.js';
 import { log } from './logger.js';
@@ -83,7 +100,21 @@ interface Etat {
   balayageEnCours: boolean;
   balayageDemande: boolean;
   dernierBalayage: number;
+  /** L'état git de chaque racine (dossier de travail, dépôt), lu au plus une fois par seconde. */
+  depots: Map<string, DepotDuTour | null>;
 }
+
+interface DepotDuTour extends EtatDuDepot {
+  /** La racine du dépôt git (`--show-toplevel`). */
+  racine: string;
+  /** Le commit au premier regard du tour : ce qui a été commité depuis compte comme modifié. */
+  base: string;
+  lu: number;
+}
+
+/** L'état du dépôt reste valable une seconde : le temps d'un balayage, pas plus. */
+const FRAICHEUR_DU_DEPOT_MS = 1000;
+const DELAI_GIT_MS = 5000;
 
 const etats = new WeakMap<object, Etat>();
 
@@ -98,6 +129,7 @@ function etatDuTour(cle: object): Etat {
       balayageEnCours: false,
       balayageDemande: false,
       dernierBalayage: 0,
+      depots: new Map(),
     };
     etats.set(cle, etat);
   }
@@ -143,6 +175,57 @@ export function imageDeCeTour(
   if (stat.mtimeMs < ctx.debutDuTour - TOLERANCE_MS) return null;
   // Même chemin récrit (boucle d'essai) = nouvelle capture : la date fait partie de la clé.
   return { full, cle: `${full}:${Math.round(stat.mtimeMs)}:${stat.size}` };
+}
+
+function git(dossier: string, args: string[]): string {
+  return execFileSync('git', ['-C', dossier, ...args], {
+    encoding: 'utf8',
+    timeout: DELAI_GIT_MS,
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+}
+
+/**
+ * L'ÉTAT GIT D'UNE RACINE, ou `null` quand ce n'est pas un dépôt (ou que git
+ * tombe) : sans dépôt, rien n'est écarté. Les fichiers suivis se lisent une
+ * fois par tour, sur le commit du premier regard ; ce qui a bougé se relit à
+ * chaque balayage.
+ */
+function depotDeLaRacine(etat: Etat, dossier: string): DepotDuTour | null {
+  const connu = etat.depots.get(dossier);
+  if (connu === null) return null;
+  if (connu && Date.now() - connu.lu < FRAICHEUR_DU_DEPOT_MS) return connu;
+  try {
+    const racine = connu?.racine ?? path.resolve(git(dossier, ['rev-parse', '--show-toplevel']).trim());
+    const base = connu?.base ?? git(racine, ['rev-parse', 'HEAD']).trim();
+    const suivis = connu?.suivis ?? cheminsSeparesParNul(git(racine, ['ls-tree', '-r', '-z', '--name-only', base]));
+    const modifies = cheminsDuStatutGit(git(racine, ['status', '--porcelain', '-z', '--untracked-files=no']));
+    for (const chemin of cheminsSeparesParNul(git(racine, ['diff', '--name-only', '-z', base, 'HEAD']))) modifies.add(chemin);
+    const lu: DepotDuTour = { racine, base, suivis, modifies, lu: Date.now() };
+    etat.depots.set(dossier, lu);
+    return lu;
+  } catch (err: any) {
+    if (!connu) log.info('captures-auto', `pas d'état git pour ${dossier} : ${String(err?.message ?? err).split('\n')[0]}`);
+    etat.depots.set(dossier, connu ?? null);
+    return connu ?? null;
+  }
+}
+
+/** L'image est-elle un fichier du dépôt que personne n'a touché pendant le tour ? */
+function fichierDuDepotInchange(full: string, etat: Etat, ctx: Pick<ContexteDeCaptures, 'workdir' | 'projectPath'>): boolean {
+  for (const dossier of [ctx.workdir, ctx.projectPath].filter(Boolean).map((d) => path.resolve(d as string))) {
+    if (!full.startsWith(dossier + path.sep)) continue;
+    const depot = depotDeLaRacine(etat, dossier);
+    if (!depot || !full.startsWith(depot.racine + path.sep)) continue;
+    return imageDuDepotInchangee(path.relative(depot.racine, full).split(path.sep).join('/'), depot);
+  }
+  return false;
+}
+
+/** Le filtre du texte et du balayage, pour un tour donné. */
+function filtreDuTour(etat: Etat, ctx: ContexteDeCaptures): (full: string) => boolean {
+  return (full) => !fichierDuDepotInchange(full, etat, ctx);
 }
 
 function resoudre(chemin: string, ctx: ContexteDeCaptures): string[] {
@@ -203,12 +286,16 @@ export function candidatDeLaCapture(chemin: string | undefined, ctx: ContexteDeC
 }
 
 /** Les images retrouvées dans le texte d'une étape (commande, détail, résultat). */
-export function candidatsDuTexte(textes: Array<string | undefined>, ctx: ContexteDeCaptures): Array<{ full: string; cle: string }> {
+export function candidatsDuTexte(
+  textes: Array<string | undefined>,
+  ctx: ContexteDeCaptures,
+  garder: (full: string) => boolean = () => true,
+): Array<{ full: string; cle: string }> {
   const trouves: Array<{ full: string; cle: string }> = [];
   for (const chemin of cheminsDImages(...textes.map((t) => t?.slice(0, 20_000)))) {
     for (const full of resoudre(chemin, ctx)) {
       const image = imageDeCeTour(full, ctx);
-      if (image) {
+      if (image && garder(image.full)) {
         trouves.push(image);
         break;
       }
@@ -217,7 +304,14 @@ export function candidatsDuTexte(textes: Array<string | undefined>, ctx: Context
   return trouves;
 }
 
-function balayer(dossier: string, ctx: ContexteDeCaptures, sortie: Array<{ full: string; cle: string }>, compte: { n: number }, profondeur = 0): void {
+function balayer(
+  dossier: string,
+  ctx: ContexteDeCaptures,
+  sortie: Array<{ full: string; cle: string }>,
+  compte: { n: number },
+  garder: (full: string) => boolean,
+  profondeur = 0,
+): void {
   if (profondeur > PROFONDEUR_MAX || compte.n > ENTREES_MAX) return;
   let entrees: fs.Dirent[];
   try {
@@ -229,20 +323,23 @@ function balayer(dossier: string, ctx: ContexteDeCaptures, sortie: Array<{ full:
     if (++compte.n > ENTREES_MAX) return;
     const full = path.join(dossier, entree.name);
     if (entree.isDirectory()) {
-      if (!DOSSIERS_IGNORES.has(entree.name)) balayer(full, ctx, sortie, compte, profondeur + 1);
+      if (!DOSSIERS_IGNORES.has(entree.name)) balayer(full, ctx, sortie, compte, garder, profondeur + 1);
     } else if (entree.isFile() && EXTENSIONS.has(path.extname(entree.name).toLowerCase())) {
       const image = imageDeCeTour(full, ctx);
-      if (image) sortie.push(image);
+      if (image && garder(image.full)) sortie.push(image);
     }
   }
 }
 
 /** Les images écrites pendant le tour dans le dossier de travail, anciennes d'abord. */
-export function imagesEcritesDansLeDossier(ctx: ContexteDeCaptures): Array<{ full: string; cle: string }> {
+export function imagesEcritesDansLeDossier(
+  ctx: ContexteDeCaptures,
+  garder: (full: string) => boolean = () => true,
+): Array<{ full: string; cle: string }> {
   const racine = ctx.workdir;
   if (!racine) return [];
   const sortie: Array<{ full: string; cle: string }> = [];
-  balayer(racine, ctx, sortie, { n: 0 });
+  balayer(racine, ctx, sortie, { n: 0 }, garder);
   return sortie.sort((a, b) => fs.statSync(a.full).mtimeMs - fs.statSync(b.full).mtimeMs);
 }
 
@@ -262,7 +359,7 @@ export function repererLesCaptures(
       if (!ctx.vivant()) return;
       const capture = candidatDeLaCapture(etape.capture, ctx);
       if (capture) await ranger(etat, ctx, [capture]);
-      await ranger(etat, ctx, candidatsDuTexte(etape.textes, ctx), 'rangeesDuTexte');
+      await ranger(etat, ctx, candidatsDuTexte(etape.textes, ctx, filtreDuTour(etat, ctx)), 'rangeesDuTexte');
       if (etape.balayer) await balayerEtRanger(etat, ctx);
     })
     .catch((err) => log.warn('captures-auto', `repérage interrompu : ${err?.message ?? err}`));
@@ -282,7 +379,7 @@ async function balayerEtRanger(etat: Etat, ctx: ContexteDeCaptures): Promise<voi
     do {
       etat.balayageDemande = false;
       etat.dernierBalayage = Date.now();
-      await ranger(etat, ctx, imagesEcritesDansLeDossier(ctx), 'rangeesDuBalayage');
+      await ranger(etat, ctx, imagesEcritesDansLeDossier(ctx, filtreDuTour(etat, ctx)), 'rangeesDuBalayage');
     } while (etat.balayageDemande && etat.rangeesDuBalayage < PLAFOND_DU_BALAYAGE && ctx.vivant());
   } finally {
     etat.balayageEnCours = false;

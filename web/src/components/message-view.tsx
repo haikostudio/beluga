@@ -52,7 +52,7 @@ import {
 } from '@beluga/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
-import { Markdown } from '@/lib/markdown';
+import { Markdown, SuitesProposees } from '@/lib/markdown';
 import { PlanRapport } from '@/components/plan-rapport';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { CarouselQuestions } from '@/components/carousel-questions';
@@ -202,7 +202,6 @@ export function MessageView({
   projectId,
   onToggleEvolution,
   onToggleAll,
-  onEcrireDansLeChamp,
   agentAuTravail = false,
   questionEnTexte = false,
   filAgentMasque = false,
@@ -217,10 +216,6 @@ export function MessageView({
   /** L'agent est-il encore au travail sur CE message ? Une étape « en cours »
    *  ne s'anime que là : partout ailleurs, c'est le reliquat d'un tour coupé. */
   agentAuTravail?: boolean;
-  /** Déposer un texte dans la barre d'écriture, SANS rien envoyer : c'est ainsi
-   *  qu'un refus et une suggestion d'optimisation reviennent à l'utilisateur,
-   *  qui les complète puis décide d'envoyer (`shared/src/suggestions-de-plan.ts`). */
-  onEcrireDansLeChamp?: (texte: string) => void;
   /** Ce message finit sur une question écrite en TEXTE ORDINAIRE, encore
    *  ouverte (`questionEnTexteLibre`, jugé par le fil qui connaît la carte). */
   questionEnTexte?: boolean;
@@ -375,6 +370,11 @@ export function MessageView({
           )
         ) : message.streaming && !etapes.length ? (
           <p className="text-[14.5px] text-faint">{t('L\'agent réfléchit…')}</p>
+        ) : null}
+
+        {/* LES SUITES POSSIBLES, sous la réponse (`proposer_suites`). */}
+        {message.suites?.length && !message.streaming ? (
+          <SuitesProposees suites={message.suites} onBasculer={onToggleEvolution} cible={{ messageId: message.id }} />
         ) : null}
 
         {/* Seules les propositions DÉCIDÉES restent ici : celles qui attendent

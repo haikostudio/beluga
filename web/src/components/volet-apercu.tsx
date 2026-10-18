@@ -3,6 +3,8 @@ import { ArrowUpRight, Loader2, Monitor, RotateCw, Smartphone, Tablet, X } from 
 import {
   CLE_APPAREIL_D_APERCU,
   CLE_FORMAT_D_APERCU,
+  cheminRetenu,
+  cleCheminDApercu,
   CLE_ORIENTATION_D_APERCU,
   cleAppareilDApercu,
   cleOrientationDApercu,
@@ -56,14 +58,21 @@ import { useTelephone } from '@/lib/telephone';
  * DROITE le choix du format (`formats-d-apercu.ts`) : trois icônes côte à côte
  * sur ordinateur, un seul bouton sur téléphone.
  *
- * LES APPAREILS D'ESSAI. Une icône n'impose plus une largeur : elle ouvre un
- * MENU À DEUX NIVEAUX — les familles (iPhone, Android…), puis leurs modèles avec
+ * LES APPAREILS D'ESSAI, EN DEUX TEMPS. Un clic sur l'icône d'un format le
+ * montre aussitôt en VERSION DE BASE (sa largeur standard, toute la hauteur :
+ * « Adapté à la place »). Un second clic sur l'icône déjà active ouvre un MENU
+ * À DEUX NIVEAUX — les familles (iPhone, Android…), puis leurs modèles avec
  * leur résolution —, et Portrait / Paysage à la suite. Rien n'est posé à côté
- * des icônes. Sur téléphone, le bouton unique ouvre le même menu : le format
- * d'abord, puis les modèles groupés par famille. Le cadre prend la largeur ET
- * la hauteur réelles de l'appareil, garde exactement ce rapport et se réduit en
- * entier s'il ne tient pas (`echelleDeLAppareil`). « Adapté à la place » garde
- * le comportement d'avant : la largeur nominale, toute la hauteur.
+ * des icônes. Sur téléphone, le bouton unique ouvre un menu : les trois formats
+ * (un choix l'affiche en version de base et referme), puis « Appareil » et
+ * l'orientation. Le cadre prend la largeur ET la hauteur réelles de l'appareil,
+ * garde exactement ce rapport et se réduit en entier s'il ne tient pas
+ * (`echelleDeLAppareil`). « Adapté à la place » : la largeur nominale, toute la
+ * hauteur.
+ *
+ * LA DERNIÈRE ADRESSE SAISIE se retient aussi par projet (`apercu.chemin.<projet>`) :
+ * le site est dans un cadre d'une autre origine, ses pages internes ne se
+ * lisent pas — seule l'adresse saisie dans la barre est connue.
  *
  * Le dernier appareil et la dernière orientation sont retenus PAR PROJET
  * (`apercu.appareil.<projet>`, `apercu.orientation.<projet>`), avec repli sur la
@@ -154,8 +163,23 @@ export function VoletApercu({
       return adresse;
     }
   }, [adresse]);
-  const [chemin, setChemin] = React.useState('/');
-  const [saisie, setSaisie] = React.useState('/');
+  /* LA DERNIÈRE ADRESSE SAISIE se retient PAR PROJET : c'est la seule page que
+     l'on connaisse — le site est dans un cadre d'une autre origine, ses pages
+     internes ne se lisent pas (voir plus haut). `cheminRetenu` écarte tout ce
+     qui ferait sortir le cadre du site de développement. */
+  const [cheminDuProjet, setCheminDuProjet] = usePref<unknown>(cleCheminDApercu(projectId), undefined);
+  const cheminDeDepart = cheminRetenu(cheminDuProjet);
+  const [chemin, setChemin] = React.useState(cheminDeDepart);
+  const [saisie, setSaisie] = React.useState(cheminDeDepart);
+  /* Un autre projet (ou la préférence qui n'arrive qu'après le premier rendu)
+     remet la barre sur SA dernière page. */
+  const projetDuChemin = React.useRef(projectId);
+  React.useEffect(() => {
+    if (projetDuChemin.current === projectId) return;
+    projetDuChemin.current = projectId;
+    setChemin(cheminDeDepart);
+    setSaisie(cheminDeDepart);
+  }, [projectId, cheminDeDepart]);
   const [tour, setTour] = React.useState(0);
   /* L'ancien choix de format n'est plus qu'LU : il donne un appareil de départ
      tant qu'aucun appareil n'a été choisi (`appareilDeDepart`). */
@@ -231,6 +255,10 @@ export function VoletApercu({
     setSaisie(propre);
     setChemin(propre);
     setTour((n) => n + 1);
+    /* L'accueil ne s'écrit que pour effacer une adresse déjà retenue ; une
+       adresse que la règle refuse revient à l'accueil. */
+    const retenu = cheminRetenu(propre);
+    if (retenu !== '/' || cheminDuProjet !== undefined) setCheminDuProjet(retenu);
   };
 
   return (
@@ -369,12 +397,20 @@ export function VoletApercu({
 }
 
 /**
- * UN FORMAT DE LA BASCULE, ET SON MENU. L'icône ne choisit rien toute seule :
- * elle ouvre la liste des familles du format, chacune dépliant ses modèles avec
- * leur résolution ; l'appareil choisi referme le menu. Les trois icônes
- * (ordinateur) montrent chacune le leur, le choisi en violet. Le bouton UNIQUE
- * (téléphone, `cyclique`) montre le format affiché et ouvre le même menu, un
- * niveau plus haut : le format d'abord, puis ses modèles groupés par famille.
+ * UN FORMAT DE LA BASCULE, ET SON MENU. DEUX TEMPS (demande du 15/10/2026) :
+ *
+ *  1. L'icône d'un format qui n'est pas affiché le MONTRE aussitôt, en
+ *     « version de base » — sa largeur standard, toute la hauteur
+ *     (`appareilAdapte`). Aucun menu ne s'ouvre : le menu Radix s'ouvrirait à
+ *     l'appui, donc l'appui (et le clavier) est intercepté avant lui.
+ *  2. Un second clic sur l'icône DÉJÀ ACTIVE ouvre le menu : les familles, puis
+ *     leurs modèles avec leur résolution, et Portrait / Paysage à la suite. Le
+ *     choisi s'écrit en violet, l'appareil choisi referme le menu.
+ *
+ * Le bouton UNIQUE du téléphone (`cyclique`) n'a pas d'icône « active » à
+ * recliquer : son menu donne d'abord les trois formats — choisir l'un l'affiche
+ * en version de base et referme —, puis une ligne « Appareil » (les modèles du
+ * format affiché) et l'orientation.
  */
 function BoutonDuFormat({
   format,
@@ -481,6 +517,22 @@ function BoutonDuFormat({
           aria-label={repere}
           aria-haspopup="menu"
           title={libelle}
+          /* PREMIER CLIC : la version de base, sans menu. `preventDefault` ici
+             coupe le gestionnaire d'appui de Radix (qui ouvre le menu) ; le
+             clavier suit la même règle. Une icône déjà active laisse faire
+             Radix : son menu s'ouvre. */
+          onPointerDown={(event) => {
+            if (cyclique || actif || event.button !== 0) return;
+            event.preventDefault();
+            choisir(appareilAdapte(format));
+          }}
+          onKeyDown={(event) => {
+            if (cyclique || actif) return;
+            if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
+              event.preventDefault();
+              choisir(appareilAdapte(format));
+            }
+          }}
           {...(cyclique ? {} : { role: 'radio', 'aria-checked': !!actif })}
           data-apercu-appareil={format}
           data-actif={actif ? '' : undefined}
@@ -492,27 +544,42 @@ function BoutonDuFormat({
       <DropdownMenuContent align="end" data-apercu-menu={cyclique ? 'unique' : format} className="sm:min-w-[220px]">
         {cyclique ? (
           <>
+            {/* LES TROIS FORMATS : un choix l'affiche en version de base et referme. */}
             {FORMATS_D_APERCU.map((f) => {
               const IconeDuFormat = ICONE_DU_FORMAT[f];
               return (
-                <SousMenuTiroir
+                <ActionTiroir
                   key={f}
                   icone={<IconeDuFormat className="h-4 w-4" />}
-                  titre={nomDuFormat(f)}
-                  valeur={f === appareilActif.format ? libelleDeLAppareil(appareilActif, orientation) : undefined}
+                  actif={f === appareilActif.format}
+                  onClick={() => choisir(appareilAdapte(f))}
+                  className="py-2.5 sm:py-2"
                   data-apercu-format-choix={f}
                 >
-                  {familles(f).map((famille) => (
-                    <GroupeTiroir key={famille} titre={nomDeLaFamille(famille)}>
-                      {modelesDeLaFamille(f, famille).map(ligneDeModele)}
-                    </GroupeTiroir>
-                  ))}
-                  {ligneDeModele(appareilAdapte(f))}
-                </SousMenuTiroir>
+                  {nomDuFormat(f)}
+                </ActionTiroir>
               );
             })}
             <DropdownMenuSeparator />
-            {lignesDOrientation}
+            {/* L'APPAREIL ET L'ORIENTATION, À PART : ceux du format affiché. */}
+            <SousMenuTiroir
+              titre={t('Appareil')}
+              valeur={libelleDeLAppareil(appareilActif, orientation)}
+              data-apercu-appareil-choix=""
+            >
+              {familles(appareilActif.format).map((famille) => (
+                <GroupeTiroir key={famille} titre={nomDeLaFamille(famille)}>
+                  {modelesDeLaFamille(appareilActif.format, famille).map(ligneDeModele)}
+                </GroupeTiroir>
+              ))}
+              {ligneDeModele(appareilAdapte(appareilActif.format))}
+            </SousMenuTiroir>
+            {appareilActif.format !== 'ordinateur' ? (
+              <>
+                <DropdownMenuSeparator />
+                {lignesDOrientation}
+              </>
+            ) : null}
           </>
         ) : (
           <>

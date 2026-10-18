@@ -147,6 +147,13 @@ export interface ComposerProps {
    */
   libelleDuChamp?: string;
   /**
+   * LE BOUTON DES RÉGLAGES DE L'AGENT, posé dans la rangée du bas : sur une
+   * carte, juste à droite du mode Création ; sur une conversation sans carte,
+   * juste à droite du trombone (ces deux interrupteurs n'y existent pas).
+   * Toujours visible, jamais lié au défilement du fil.
+   */
+  reglages?: React.ReactNode;
+  /**
    * L'ARRÊT VIT DÉJÀ DANS LA BARRE D'ACTION de la carte quand c'est le geste du
    * chapitre : le carré d'arrêt du champ le redirait juste en dessous.
    */
@@ -166,6 +173,12 @@ export interface ComposerProps {
   onEnvoiCommence?: (texte: string) => void;
   /** L'envoi a été REFUSÉ : l'écho local se retire, le texte revient au champ. */
   onEnvoiEchoue?: () => void;
+  /**
+   * Un message EN ATTENTE vient d'être modifié (`queue.update` accepté). La
+   * bulle « Demande » provisoire posée au clic d'envoi garde sinon l'ancien
+   * texte : l'écran la corrige (`chat.tsx`) en reconnaissant l'ancien texte.
+   */
+  onEnvoiModifie?: (avant: string, apres: string) => void;
 }
 
 const MARQUE_FICHIER = /\[fichier:\s*([^\]\n]+)\]/g;
@@ -402,6 +415,8 @@ function FenetreDuModeCreation({
  */
 interface EditionDeMessage {
   id: string;
+  /** Le texte du message à l'ouverture : il sert à retrouver sa bulle provisoire. */
+  texteAvant: string;
   /** Ce qui était en train d'être écrit : il revient à la fin, validée ou annulée. */
   texteMisDeCote: string;
   /** Les pièces du message, telles que le champ les montre et les retouche. */
@@ -427,9 +442,11 @@ export function Composer({
   barreTravail,
   boutonPrincipal,
   libelleDuChamp,
+  reglages,
   sansArret,
   onEnvoiCommence,
   onEnvoiEchoue,
+  onEnvoiModifie,
 }: ComposerProps) {
   const state = useApp();
   /* L'état du lien, lu à UN seul endroit (`useCanal`) : ce qui éteint le bouton
@@ -1518,6 +1535,7 @@ export function Composer({
     const connues = jointesDuMessage(item.attachments, piecesDuProjet ?? []);
     setEdition((courante) => ({
       id: item.id,
+      texteAvant: item.text,
       texteMisDeCote: courante?.texteMisDeCote ?? text,
       jointes: connues,
       dOrigine: item.attachments,
@@ -1595,8 +1613,9 @@ export function Composer({
       if (validationEnVol.current) return false;
       validationEnVol.current = true;
       const voulues = [...new Set([...edition.jointes.map((piece) => piece.id), ...edition.inconnues])];
+      const texteApres = tagsEnEspacesOrdinaires(text.trim());
       const rendu = await client.geste<{ ok?: boolean; attachments?: string[] }>(
-        { type: 'queue.update', id: edition.id, text: tagsEnEspacesOrdinaires(text.trim()), attachments: voulues },
+        { type: 'queue.update', id: edition.id, text: texteApres, attachments: voulues },
         t('Modifier'),
       );
       validationEnVol.current = false;
@@ -1606,6 +1625,7 @@ export function Composer({
         client.pushToast('warning', t('Ce message est déjà parti : la modification n’a pas pu s’appliquer.'));
         return false;
       }
+      onEnvoiModifie?.(edition.texteAvant, texteApres);
       const gardees = rendu.attachments ?? edition.dOrigine;
       const nonPrises = edition.jointes.filter((piece) => !gardees.includes(piece.id));
       if (nonPrises.length) {
@@ -2154,10 +2174,12 @@ export function Composer({
       )}
 
       <div className={cn('flex items-end gap-1.5', recorder.recording && 'hidden')}>
-        {/* LE CHAMP D'ÉCRITURE : une boîte aux coins très doux, sur un fond gris
-            pâle, comme dans ChatGPT — le texte en haut, ses boutons sur la
-            rangée du bas, l'envoi en rond plein tout à droite. */}
-        <div className="relative min-w-0 flex-1 rounded-[24px] bg-raised" data-champ-d-ecriture>
+        {/* LE CHAMP D'ÉCRITURE : une boîte sur un fond gris pâle, aux coins
+            de l'échelle commune (`rounded-lg`, 12 px, comme les boutons et le
+            bloc de configuration de l'agent) — le texte en haut, ses boutons
+            sur la rangée du bas, l'envoi en rond plein tout à droite. La barre
+            posée dessous (chat.tsx, `data-temoin-reflexion`) épouse ce rayon. */}
+        <div className="relative min-w-0 flex-1 rounded-lg bg-raised" data-champ-d-ecriture>
         {/* LE CALQUE NE COUVRE QUE LA PART VISIBLE DU CHAMP, ET SA DÉCOUPE NE
             BOUGE PAS. Deux blocs, et non un seul : une FENÊTRE posée exactement
             sur le champ, qui coupe ce qui dépasse, et DEDANS le texte, qui seul
@@ -2401,13 +2423,13 @@ export function Composer({
         />
 
         {/* TOUS LES BOUTONS VIVENT DANS LE CHAMP, SUR SA RANGÉE DU BAS. À
-            GAUCHE, LES DEUX ACTIONS QUI PRÉPARENT LE MESSAGE : joindre un
-            fichier, consulter le contexte — plus aucune colonne posée dehors,
-            à gauche du champ. À DROITE, ce qui l'envoie ou l'arrête : l'envoi
-            tout au bord, le MICRO juste à sa gauche, le carré d'arrêt avant
-            lui, et la NOTE DE COMPRÉHENSION en tête du groupe, tout à gauche.
-            Les réglages (moteur, modèle, réflexion, compte, plan) se
-            choisissent en haut, dans la configuration de l'agent — plus ici. */}
+            GAUCHE, CE QUI PRÉPARE LE MESSAGE : joindre un
+            fichier, puis les interrupteurs de la carte et le bouton des RÉGLAGES
+            de l'agent — plus aucune colonne posée dehors, à gauche du champ.
+            À DROITE, ce qui l'envoie ou l'arrête : l'envoi tout au bord, le
+            MICRO juste à sa gauche, le CONTEXTE avant lui, le carré d'arrêt
+            avant le contexte, et la NOTE DE COMPRÉHENSION en tête du groupe,
+            tout à gauche. */}
         <div className={cn('relative z-30 min-w-0 px-2 pb-2', CLASSE_RANGEE_DE_BOUTONS)} data-rangee-de-boutons="champ-gauche">
           <Tooltip label={t('Joindre un fichier')}>
             <Button
@@ -2422,15 +2444,15 @@ export function Composer({
             </Button>
           </Tooltip>
 
-          {/* LE CONTEXTE DU MODÈLE, EN ANNEAU. Rien ne s'affiche tant que le
-              moteur n'a rendu aucune mesure (voir anneau-contexte.tsx). */}
-          <AnneauContexte agent={agent} />
-
           {/* LES INTERRUPTEURS « PLAN » ET « CRÉATION » : ils ne paraissent
               que sur une carte en cadrage, avant le travail, où ils se
               choisissent. */}
           <InterrupteurDePlan cardId={cardId} agent={agent} />
           <InterrupteurDeCreation cardId={cardId} agent={agent} />
+
+          {/* LES RÉGLAGES DE L'AGENT, juste à leur droite — ou à droite du
+              trombone quand ni le plan ni la création ne sont proposés. */}
+          {reglages}
 
           {onProposeTask && !edition && text.trim() ? (
             <Button variant="ghost" size="sm" className={cn('h-7 min-w-0 shrink', CLASSE_MARGE_DU_LIBELLE_DU_CHAMP)} onClick={() => submit(true)}>
@@ -2448,7 +2470,10 @@ export function Composer({
                 jamais le lancement, et sans Laya installé il n'existe pas. */}
             <IndicateurComprehension carte={cardId ? state.cards[cardId] : undefined} />
 
-            {/* Puis le bouton « Suspendre », le micro, et l'envoi tout au bord. */}
+            {/* Puis le bouton « Suspendre », le CONTEXTE DU MODÈLE en anneau, le
+                micro, et l'envoi tout au bord. L'anneau ne montre rien tant que
+                le moteur n'a rendu aucune mesure (voir anneau-contexte.tsx) : la
+                rangée ne bouge donc pas à son arrivée. */}
             {boutons.arret ? (
               <Tooltip label={t('Suspendre l\'agent')}>
                 <Button
@@ -2463,6 +2488,8 @@ export function Composer({
                 </Button>
               </Tooltip>
             ) : null}
+
+            <AnneauContexte agent={agent ?? undefined} />
 
             <MicButton onStart={recorder.start} working={recorder.working} disabled={!agent || ecritureGelee} />
 

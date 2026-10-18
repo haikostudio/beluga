@@ -1,4 +1,5 @@
 import { ColumnKey } from './columns.js';
+import { FORME_D_UN_MESSAGE, PLAFOND_D_UN_MESSAGE, messageTropLong, signesVisibles } from './message-court.js';
 
 /**
  * Les gabarits de réponse (PLAN §9). Le démon enveloppe chaque instruction
@@ -50,6 +51,22 @@ const REPORT_SECTIONS = [
   'Coûts',
 ];
 
+/**
+ * LES GABARITS QUI SONT DES MESSAGES DE MESSAGERIE (décision du 17/10/2026).
+ * Le compte rendu de travail en six titres et la réponse libre en sections ne
+ * se demandent plus : toute réponse de discussion — en cours de travail, à la
+ * fin d'une carte, à l'assistant général — est un message de 600 signes au
+ * plus (`shared/src/message-court.ts`), et les suites possibles passent par
+ * l'outil « proposer_suites ». Les six titres restent seulement LISIBLES sur
+ * les anciens rapports (`rapport-gabarit.ts`). Le chiffrage d'une proposition
+ * (`pre_run`) et les journaux de publication gardent leur forme structurée.
+ */
+const GABARITS_EN_MESSAGE = new Set<TemplateKind>(['in_run', 'free']);
+
+export function gabaritEnMessage(kind: TemplateKind): boolean {
+  return GABARITS_EN_MESSAGE.has(kind);
+}
+
 export const TEMPLATES: Record<TemplateKind, ResponseTemplate> = {
   pre_run: {
     kind: 'pre_run',
@@ -70,10 +87,10 @@ export const TEMPLATES: Record<TemplateKind, ResponseTemplate> = {
   },
   in_run: {
     kind: 'in_run',
-    sections: REPORT_SECTIONS,
+    sections: [],
     exclusions: [
       "Interdit d'annoncer une mise en ligne : la publication est un geste séparé de l'utilisateur.",
-      "Interdit de créer ou de modifier une facture : la section « Coûts » informe, elle ne facture rien.",
+      "Interdit de créer ou de modifier une facture : le chiffrage informe, il ne facture rien.",
     ],
   },
   deploy: {
@@ -88,9 +105,9 @@ export const TEMPLATES: Record<TemplateKind, ResponseTemplate> = {
   },
   free: {
     kind: 'free',
-    sections: REPORT_SECTIONS,
+    sections: [],
     exclusions: [
-      "Interdit de créer ou de modifier une facture sans accord explicite : la section « Coûts » informe.",
+      "Interdit de créer ou de modifier une facture sans accord explicite.",
     ],
   },
   none: { kind: 'none', sections: [], exclusions: [] },
@@ -136,6 +153,8 @@ export function ampleurParDefaut(kind: TemplateKind, userText: string): Ampleur 
 /** Les titres réellement demandés pour ce gabarit à cette longueur. */
 export function sectionsPour(kind: TemplateKind, ampleur: Ampleur): string[] {
   const tpl = TEMPLATES[kind];
+  // Un message de messagerie n'a aucun titre à remplir, quelle que soit la longueur.
+  if (gabaritEnMessage(kind)) return [];
   if (!GABARITS_ADAPTABLES.has(kind) || ampleur === 'complete') return tpl.sections;
   return AMPLEURS[ampleur].sections;
 }
@@ -244,6 +263,7 @@ NE GONFLE PAS LE CHIFFRE « PAR SÉCURITÉ ». Un agent va vite : relire deux fi
 
 /** Le rappel de forme des tours suivants : quelques mots au lieu du bloc entier. */
 function rappelDeForme(kind: TemplateKind, ampleur: Ampleur): string {
+  if (gabaritEnMessage(kind)) return `RAPPEL DE FORME (les règles complètes sont déjà dans ce fil) : ${FORME_D_UN_MESSAGE}. ${CONSIGNE_DES_SUITES}`;
   const titres = sectionsPour(kind, ampleur);
   const forme = titres.length
     ? `titres numérotés « ${titres.join(' », « ')} »`
@@ -258,6 +278,28 @@ const RÈGLE_LONGUEUR = `LONGUEUR DE TA RÉPONSE — elle suit le travail RÉELL
 - Vraie tâche (plusieurs fichiers, décisions à expliquer) → tous les titres ci-dessus.
 Une section sans rien à dire ne s'écrit pas. Raccourcir ne veut jamais dire taire un changement, un échec ou une décision.`;
 
+/**
+ * LES SUITES POSSIBLES, HORS DU MESSAGE : deux ou trois pastilles décrites,
+ * posées sous la réponse par l'outil, jamais en liste dans le texte.
+ */
+export const CONSIGNE_DES_SUITES =
+  "Les suites possibles ne s'écrivent PAS dans le message : quand le travail ou la question en appelle, appelle l'outil « proposer_suites » avec deux ou trois suites, chacune un « titre » de quelques mots (une demande qu'on pourrait t'envoyer) et une « description » d'une phrase qui dit ce qu'elle apporterait.";
+
+/** La forme d'un message de messagerie, envoyée en entier au premier tour. */
+function enveloppeDuMessage(kind: TemplateKind, userText: string, context: string | undefined, chiffrage: boolean): string {
+  const tpl = TEMPLATES[kind];
+  const exclusions = tpl.exclusions.length ? `\nINTERDICTIONS :\n${tpl.exclusions.map((e) => `- ${e}`).join('\n')}\n` : '';
+  return `${context ? context + '\n\n---\n\n' : ''}DEMANDE :
+${userText}
+
+---
+FORME DE TA RÉPONSE FINALE (imposée) : ${FORME_D_UN_MESSAGE}.
+- À la fin d'un travail : ce qui a été fait, puis ce qu'on peut constater ; un échec, un point à vérifier ou une décision prise se dit en une phrase, jamais passé sous silence.
+- Pas de ligne d'en-tête, pas de coût, pas de récapitulatif : le détail technique va aux messages d'enregistrement, à la mémoire et au changelog.
+- ${CONSIGNE_DES_SUITES}
+${exclusions}${chiffrage ? CONSIGNE_CHIFFRAGE : ''}`;
+}
+
 /** L'enveloppe réellement ajoutée à l'instruction envoyée au moteur. */
 export function wrapPrompt(
   kind: TemplateKind,
@@ -270,6 +312,7 @@ export function wrapPrompt(
   }
   const tpl = TEMPLATES[kind];
   const ampleur = options.ampleur ?? ampleurParDefaut(kind, userText);
+  if (gabaritEnMessage(kind) && !options.rappel) return enveloppeDuMessage(kind, userText, context, !!options.chiffrage);
 
   if (options.rappel) {
     const tête = context ? `${context}\n\n---\n\n` : '';
@@ -428,6 +471,12 @@ export function checkTemplate(
   options: { plancher?: boolean } = {},
 ): { ok: boolean; missing: string[]; dense: string[] } {
   if (kind === 'none') return { ok: true, missing: [], dense: [] };
+  /* UN MESSAGE DE MESSAGERIE n'a qu'une forme à tenir : sa longueur. */
+  if (gabaritEnMessage(kind)) {
+    return messageTropLong(text)
+      ? { ok: false, missing: [`message trop long (${signesVisibles(text)} signes, plafond ${PLAFOND_D_UN_MESSAGE})`], dense: [] }
+      : { ok: true, missing: [], dense: [] };
+  }
   // Une réponse courte n'a plus à servir six sections vides : les titres exigés
   // suivent la longueur réellement rendue — sauf sous le PLANCHER d'un rapport
   // de carte, qui ne tombe jamais à « brève » (`rapportAuPlancher`).

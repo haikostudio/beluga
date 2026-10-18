@@ -4,13 +4,16 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
+  ADRESSE_DES_DEPOTS_ACCESSIBLES,
   DepotDuCompte,
   DepotVise,
   REFUS_ACCES_GITHUB,
   REFUS_DEPOT_INTROUVABLE,
   REFUS_DEPOT_VIDE,
+  REFUS_JETON_REFUSE_PAR_GITHUB,
   REFUS_PAS_DE_COMPTE,
   adresseDeClone,
+  depotsDepuisLApi,
   dossierPourDepot,
   refusAvantMontage,
   refusDossierOccupe,
@@ -21,7 +24,7 @@ import { EtapeCreation, etapeAdressePublique, portDuNouveauProjet, registerProje
 import { assurerLesBranchesDeLaRegle } from './branche-de-deploiement.js';
 import * as store from './store.js';
 import { reglageDeDeploiementConstate } from './services-du-projet.js';
-import { jetonGithub } from './github.js';
+import { jetonGithub, oublierLeJetonGithub } from './github.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -65,43 +68,35 @@ export interface ListeDeDepots {
  * n'est cloné. Sans compte identifié, on le DIT — l'autre chemin (le lien collé)
  * reste alors le seul ouvert.
  */
-export async function depotsDuCompte(limite = 200): Promise<ListeDeDepots> {
+export async function depotsDuCompte(limite = 500): Promise<ListeDeDepots> {
   if (!(await jetonGithub())) return { depots: [], erreur: REFUS_PAS_DE_COMPTE };
 
   const qui = await gh(['api', 'user', '--jq', '.login']);
   const compte = qui.ok ? qui.out.trim() || undefined : undefined;
 
-  const resultat = await gh([
-    'repo',
-    'list',
-    '--limit',
-    String(limite),
-    '--json',
-    'nameWithOwner,name,owner,description,isPrivate,isEmpty,updatedAt',
-  ]);
+  /*
+   * Tout ce que le compte peut ouvrir — ses dépôts, ceux de ses organisations,
+   * ceux où il est invité — et pas seulement ce qu'il possède (voir
+   * `depotsDepuisLApi`). `--paginate` enchaîne les pages ; `--jq '.[]'` écrit
+   * un dépôt par ligne, ce qui se lit pareil quel que soit le nombre de pages.
+   */
+  const resultat = await gh(['api', ADRESSE_DES_DEPOTS_ACCESSIBLES, '--paginate', '--jq', '.[]']);
   if (!resultat.ok) {
     return { depots: [], compte, erreur: messageGithub(resultat.err) };
   }
 
-  let brut: any[] = [];
-  try {
-    brut = JSON.parse(resultat.out || '[]');
-  } catch {
-    return { depots: [], compte, erreur: "la réponse de GitHub n'a pas pu être lue" };
+  const brut: any[] = [];
+  for (const ligne of resultat.out.split('\n')) {
+    if (!ligne.trim()) continue;
+    try {
+      brut.push(JSON.parse(ligne));
+    } catch {
+      return { depots: [], compte, erreur: "la réponse de GitHub n'a pas pu être lue" };
+    }
   }
 
-  const depots: DepotDuCompte[] = brut.map((entree) => ({
-    slug: String(entree.nameWithOwner ?? ''),
-    nom: String(entree.name ?? ''),
-    proprietaire: String(entree.owner?.login ?? entree.nameWithOwner?.split('/')[0] ?? ''),
-    description: entree.description ? String(entree.description) : undefined,
-    prive: entree.isPrivate === true,
-    vide: entree.isEmpty === true,
-    majLe: entree.updatedAt ? String(entree.updatedAt) : undefined,
-  }));
-
   // Le plus récemment remué d'abord : c'est celui qu'on cherche neuf fois sur dix.
-  depots.sort((a, b) => (b.majLe ?? '').localeCompare(a.majLe ?? ''));
+  const depots = depotsDepuisLApi(brut, limite);
   return { depots, compte };
 }
 
@@ -139,7 +134,10 @@ function messageGithub(sortie: string): string {
   const texte = (sortie ?? '').toString();
   if (/could not resolve to a Repository|not found|404/i.test(texte)) return REFUS_DEPOT_INTROUVABLE;
   if (/403|permission|forbidden|access denied|saml/i.test(texte)) return REFUS_ACCES_GITHUB;
-  if (/gh auth login|authentication|not logged/i.test(texte)) return REFUS_PAS_DE_COMPTE;
+  // Un compte EST relié, mais GitHub refuse son jeton (expiré, révoqué, remplacé) :
+  // ce n'est pas « aucun compte », et le dire ainsi envoyait chercher au mauvais endroit.
+  if (/authentication failed|invalid username or token|bad credentials|401/i.test(texte)) return REFUS_JETON_REFUSE_PAR_GITHUB;
+  if (/gh auth login|not logged|authentication required/i.test(texte)) return REFUS_PAS_DE_COMPTE;
   if (/command not found|ENOENT/i.test(texte)) return "L'outil GitHub n'est pas installé sur ce serveur.";
   const court = texte.trim().split('\n').slice(-2).join(' ').slice(0, 220);
   return court || "GitHub n'a rien répondu.";
@@ -166,8 +164,11 @@ export async function clonerLeDepot(depot: DepotVise, cible: string): Promise<vo
   /*
    * On clone avec le jeton du serveur DANS L'ENVIRONNEMENT, jamais dans
    * l'adresse : une adresse porteuse de jeton finirait écrite en clair dans le
-   * fichier de configuration du dépôt.
+   * fichier de configuration du dépôt. Le jeton est RELU chez `gh` au moment du
+   * clone : celui gardé en mémoire pouvait être l'ancien, et un dépôt privé que
+   * la liste venait de montrer se voyait refusé.
    */
+  oublierLeJetonGithub();
   const jeton = await jetonGithub();
   try {
     await execFileAsync('git', ['clone', adresseDeClone(depot), cible], {

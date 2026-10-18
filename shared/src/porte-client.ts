@@ -1,3 +1,4 @@
+import type { RoleCompte } from './comptes-clients.js';
 import { hoteEspaceClient } from './installation.js';
 
 /**
@@ -60,7 +61,7 @@ export function porteDeLHote(host: string | undefined | null, hoteClient = hoteE
  */
 export function redirectionDeLaPorte(
   porte: PorteServie,
-  role: 'admin' | 'client' | null,
+  role: RoleCompte | null,
   hoteClient = hoteEspaceClient(),
 ): string | null {
   if (!role) return null;
@@ -77,7 +78,7 @@ export function redirectionDeLaPorte(
  * l'espace client ; ailleurs, un compte CLIENT reçoit quand même son espace —
  * c'est ce qui fait marcher une installation qui n'a qu'une seule adresse.
  */
-export function porteDuCompte(porte: PorteServie, role: 'admin' | 'client' | null): PorteServie {
+export function porteDuCompte(porte: PorteServie, role: RoleCompte | null): PorteServie {
   return porte === 'client' || role === 'client' ? 'client' : 'admin';
 }
 

@@ -873,6 +873,13 @@ export const ComprehensionDeCarte = z.object({
    * fille dans chacun, et dans aucun autre (`shared/src/regroupements.ts`).
    */
   projetsTouches: z.array(z.string()).optional(),
+  /**
+   * LE CAHIER DES CHARGES VIVANT (17/10/2026) : les rubriques cumulées de
+   * toutes les compréhensions de la carte, fusionnées par titre
+   * (`fusionnerLeCahier`, `shared/src/cahier-vivant.ts`). Le plan compact le
+   * reprend quand il ne redonne pas le sien. Absent sur les cartes d'avant.
+   */
+  cahierDesCharges: z.array(z.object({ titre: z.string(), contenu: z.string() })).optional(),
   at: z.number(),
   /** Le tour (message porteur) qui l'a rendue. */
   tourId: z.string().optional(),
@@ -1951,6 +1958,13 @@ export const Message = z.object({
    */
   texteLibreAnnulee: z.boolean().default(false),
   downloads: z.array(DownloadOffer).default([]),
+  /**
+   * LES SUITES POSSIBLES, POSÉES PAR L'OUTIL « proposer_suites » (17/10/2026) :
+   * deux ou trois pastilles sous la réponse, chacune avec une phrase qui dit ce
+   * qu'elle apporterait. Elles remplacent la liste « Évolutions possibles » du
+   * compte rendu, devenu un message court (`shared/src/suites-proposees.ts`).
+   */
+  suites: z.array(z.object({ titre: z.string(), description: z.string().default('') })).optional(),
   attachments: z.array(z.string()).default([]),
   /** Vrai tant que l'agent écrit encore ce message. */
   streaming: z.boolean().default(false),

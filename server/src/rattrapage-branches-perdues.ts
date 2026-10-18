@@ -2,6 +2,7 @@ import { brancheDeLaCarte, brancheRetrouvee, fusionsParBranche } from '@beluga/s
 import type { Card } from '@beluga/shared';
 import * as store from './store.js';
 import { log } from './logger.js';
+import { bus } from './bus.js';
 import { branchePrincipale, sortieGit } from './git.js';
 import { brancheDeDeploiement } from './branche-de-deploiement.js';
 
@@ -43,7 +44,7 @@ export async function rattraperLesBranchesPerdues(): Promise<number> {
         if (!fraiche || !carteSansSaBranche(fraiche)) continue;
         const trouvee = brancheRetrouvee(fusions, brancheDeLaCarte(fraiche), fraiche.id);
         if (!trouvee) continue;
-        store.saveCard({
+        const reparee = store.saveCard({
           ...fraiche,
           github: {
             ...fraiche.github!,
@@ -53,6 +54,7 @@ export async function rattraperLesBranchesPerdues(): Promise<number> {
             fusionnee: true,
           },
         });
+        bus.emit({ type: 'card.upsert', card: reparee });
         reparees += 1;
       }
     } catch (err) {

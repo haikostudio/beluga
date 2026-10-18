@@ -4024,6 +4024,21 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_secrets_dossier ON secrets(dossier_id);
     `,
   },
+  {
+    id: 126,
+    name: 'appareils-des-notifications',
+    siTable: 'push_subs',
+    /*
+     * LE NOM DE L'APPAREIL, gardé à l'abonnement. La liste des appareils des
+     * réglages montre « iPhone · Safari », jamais l'adresse d'abonnement. La
+     * colonne est facultative : un abonnement déjà en base n'est PAS retiré
+     * (contrairement à la migration 53) — il s'affiche « Appareil inconnu »
+     * jusqu'à ce que son navigateur se réabonne.
+     */
+    sql: `
+      ALTER TABLE push_subs ADD COLUMN appareil TEXT;
+    `,
+  },
 ];
 
 export function openDb(): DB {

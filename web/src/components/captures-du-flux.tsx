@@ -19,7 +19,7 @@ import { useImagesVues } from '@/lib/use-images-vues';
 import { useApp } from '@/lib/use-app';
 import { usePref } from '@/lib/prefs';
 import { t } from '@/lib/langue';
-import { cn, heureSeule } from '@/lib/utils';
+import { cn, heureOuDate } from '@/lib/utils';
 
 /**
  * CE QUE L'AGENT A VU, EN PIED DE FLUX.
@@ -35,8 +35,8 @@ import { cn, heureSeule } from '@/lib/utils';
  * effacé) se retire d'elle-même plutôt que de laisser un cadre cassé.
  *
  * CHAQUE VIGNETTE DIT QUAND ET SI ON L'A DÉJÀ OUVERTE : en bas à droite, l'heure
- * où l'agent a regardé l'image (l'heure seule — la date se lit dans la
- * visionneuse), précédée d'un œil une fois l'image affichée en grand. « Vue »
+ * où l'agent a regardé l'image (l'heure seule le jour même, la date courte devant
+ * elle sinon — `heureOuDate`), précédée d'un œil une fois l'image affichée en grand. « Vue »
  * veut dire OUVERTE ou FEUILLETÉE dans la visionneuse, jamais « passée à
  * l'écran » ; c'est retenu par compte, au serveur, donc d'un appareil à l'autre.
  *
@@ -342,7 +342,7 @@ export function BandeDesCaptures({
                   data-capture-etiquette
                 >
                   {vue ? <Eye className="h-3 w-3 shrink-0" aria-hidden data-capture-vue /> : null}
-                  {c.quand ? <span data-capture-heure={c.quand}>{heureSeule(c.quand)}</span> : null}
+                  {c.quand ? <span data-capture-heure={c.quand}>{heureOuDate(c.quand)}</span> : null}
                 </span>
               ) : null}
             </button>

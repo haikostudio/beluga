@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   BranchesDePublication,
+  DISTANT_PUBLIC,
   EngineId,
   ProcedureDeDeploiement,
   Project,
@@ -14,6 +15,7 @@ import {
   choisirPortLibre,
   jugerAdresseDemandee,
   normaliserPort,
+  planDeDetachement,
   portsDansVhostCaddy,
   portsEnEcouteDansSs,
   refusPortDejaAttribue,
@@ -21,8 +23,11 @@ import {
   slugEntier,
 } from '@beluga/shared';
 import * as store from './store.js';
+import { bus } from './bus.js';
 import { reglageDeDeploiementConstate } from './services-du-projet.js';
 import { CONFIG, PREMIER_DEMARRAGE_REEL } from './config.js';
+import { nombreDAdministrateurs } from './comptes.js';
+import { machineHebergee } from './offre-hebergee.js';
 import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
 import { DnsResult, publishSubdomain } from './dns.js';
@@ -49,6 +54,36 @@ async function gitInfo(dir: string): Promise<{ remote?: string; branch?: string 
     return { branch: branch.trim(), remote };
   } catch {
     return null;
+  }
+}
+
+/**
+ * DÉTACHE UN DÉPÔT DU DÉPÔT PUBLIC DE BELUGA : s'il y est relié par `origin`, ce
+ * distant passe sous le nom `amont` (lecture des nouveautés) ou disparaît si
+ * `amont` existe déjà. Rien ne part plus jamais de là vers Haiko Studio. Sans
+ * effet — et sans erreur — dans tout autre cas. Rend vrai quand il a agi.
+ */
+export async function detacherDuDepotPublic(dir: string): Promise<boolean> {
+  const connus: Record<string, string> = {};
+  try {
+    const { stdout } = await execFileAsync('git', ['remote', '-v'], { cwd: dir, timeout: 8000 });
+    for (const ligne of stdout.split('\n')) {
+      const [nom, adresse] = ligne.split(/\s+/);
+      if (nom && adresse && !connus[nom]) connus[nom] = adresse;
+    }
+  } catch {
+    return false;
+  }
+  const plan = planDeDetachement(connus);
+  if (plan === 'rien') return false;
+  const args = plan === 'renommer' ? ['remote', 'rename', 'origin', DISTANT_PUBLIC] : ['remote', 'remove', 'origin'];
+  try {
+    await execFileAsync('git', args, { cwd: dir, timeout: 8000 });
+    log.info(`${dir} : dépôt public détaché (${plan})`);
+    return true;
+  } catch (e) {
+    log.warn(`${dir} : détachement du dépôt public impossible : ${(e as Error).message}`);
+    return false;
   }
 }
 
@@ -510,22 +545,31 @@ export async function adoptServerProjects(): Promise<number> {
 /**
  * Le projet Beluga Build lui-même. Là où il est déjà inscrit, il le reste.
  *
- * UNE INSTALLATION NEUVE PART AVEC UN TABLEAU VIDE : le projet de l'application
- * n'y est plus inscrit d'office — celui qui installe Beluga Build veut piloter
- * SES projets, pas le code de l'outil. Il reste inscrit d'office sur un serveur
- * d'essai (les contrôles s'en servent), et sur demande
- * (`BELUGA_INSCRIRE_BELUGA=1`) pour qui développe Beluga Build lui-même.
+ * IL EST SUR LE TABLEAU DÈS QU'UN ADMINISTRATEUR EXISTE : celui qui installe
+ * Beluga sur son propre serveur doit pouvoir modifier l'outil, avec ou sans
+ * GitHub (la copie privée et les nouveautés sont une option, pas un passage
+ * obligé). Une installation neuve n'a pas encore de compte : elle n'inscrit
+ * rien tant que le premier n'est pas créé, qui l'inscrit à son tour
+ * (`inscrireLeProjetDeLOutil`). Un serveur d'essai l'inscrit d'office, comme
+ * avant (les contrôles s'en servent).
+ *
+ * SUR L'OFFRE HÉBERGÉE (`machineHebergee`), IL N'EST JAMAIS INSCRIT, même sur
+ * demande : l'outil y est commun à tous les abonnés.
  */
 export async function ensureSelfProject(options: { forcer?: boolean } = {}): Promise<Project | null> {
+  if (machineHebergee()) return null;
   const selfPath = path.resolve(CONFIG.selfPath);
   const existing = store.getProjectByPath(selfPath);
   if (existing) {
     if (!existing.isSelf) return store.saveProject({ ...existing, isSelf: true });
     return existing;
   }
-  // `forcer` : la page « Votre propre Beluga » de l'assistant le demande — c'est
-  // par elle, et par elle seule, que le projet arrive sur une installation neuve.
-  if (!options.forcer && PREMIER_DEMARRAGE_REEL && process.env.BELUGA_INSCRIRE_BELUGA !== '1') return null;
+  // Une installation neuve sans compte attend son propriétaire : rien n'est inscrit.
+  // `forcer` : la page « Votre propre Beluga » de l'assistant le demande.
+  if (!options.forcer && PREMIER_DEMARRAGE_REEL && process.env.BELUGA_INSCRIRE_BELUGA !== '1' && nombreDAdministrateurs() === 0) {
+    return null;
+  }
+  await detacherDuDepotPublic(selfPath);
   const info = await gitInfo(selfPath);
   return registerProject({
     name: 'Beluga Build',
@@ -533,6 +577,47 @@ export async function ensureSelfProject(options: { forcer?: boolean } = {}): Pro
     gitRemote: info?.remote,
     defaultEngine: 'claude',
   });
+}
+
+/**
+ * Inscrit le projet de l'outil ET l'annonce aux écrans ouverts : appelé juste
+ * après la création du premier compte, et par l'étape optionnelle « Votre propre
+ * Beluga ». Idempotent. Rend `null` sur l'offre hébergée.
+ */
+export async function inscrireLeProjetDeLOutil(options: { forcer?: boolean } = {}): Promise<Project | null> {
+  const projet = await ensureSelfProject(options);
+  if (!projet) return null;
+  store.ensureLocalGroup();
+  bus.emit({ type: 'project.upsert', project: store.getProject(projet.id) ?? projet });
+  return projet;
+}
+
+/**
+ * SUR L'OFFRE HÉBERGÉE, UN PROJET DE L'OUTIL DÉJÀ INSCRIT SE RANGE : il passe en
+ * « archivé », donc hors de la vue de chacun. La ligne et le dépôt ne sont pas
+ * touchés — on le retrouve en quittant l'offre hébergée.
+ */
+export function rangerLeProjetDeLOutilSiHebergee(): void {
+  if (!machineHebergee()) return;
+  const existing = store.getProjectByPath(path.resolve(CONFIG.selfPath));
+  if (existing && !existing.archived) {
+    store.saveProject({ ...existing, archived: true });
+    log.info("offre hébergée : le projet de l'outil est rangé");
+  }
+}
+
+/**
+ * Répare les installations DÉJÀ inscrites : le projet de l'outil ne garde aucun
+ * lien d'envoi vers le dépôt public. Idempotent ; ne touche pas la machine de
+ * l'auteur (son `origin` n'est pas le dépôt public).
+ */
+export async function detacherLeProjetDuDepotPublic(): Promise<void> {
+  const projet = store.listProjects(true).find((p) => p.isSelf);
+  if (!projet) return;
+  const agi = await detacherDuDepotPublic(projet.path);
+  if (!agi) return;
+  const info = await gitInfo(projet.path);
+  store.saveProject({ ...projet, gitRemote: info?.remote });
 }
 
 /** Rafraîchit la branche courante de chaque projet. */

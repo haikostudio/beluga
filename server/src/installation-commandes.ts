@@ -1,11 +1,21 @@
-import { execFile, spawn } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import dns from 'node:dns';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
+  ADRESSE_D_UN_JETON_CLASSIQUE,
   BIBLIOTHEQUES_PROPOSEES,
+  DROITS_GITHUB_DEMANDES,
+  DUREE_DU_CODE_GITHUB_MS,
+  REFUS_JETON_SANS_DEPOTS_PRIVES,
+  REFUS_JETON_SANS_WORKFLOW,
+  codeDeConnexionLu,
+  droitsDeLEntete,
+  refusDuJetonGithub,
+  type ConnexionGithubParCode,
+  type LectureDuJetonGithub,
   FICHIER_REGISTRE_BIBLIOTHEQUES,
   adresseEstProvisoire,
   apresEtape,
@@ -20,12 +30,16 @@ import {
   type Settings,
 } from '@beluga/shared';
 import { importerUneBibliotheque } from './bibliotheques-competences.js';
+import { bus } from './bus.js';
+import { oublierLeJetonGithub } from './github.js';
 import { enregistrerAcces, listerAcces } from './coffre-fort.js';
 import { CONFIG, PATHS } from './config.js';
 import { serverIp } from './dns.js';
 import { modeRetenu, raisonDeLExtinction } from './envoi-des-courriels.js';
 import { SECRETS_DES_FOURNISSEURS } from './fournisseurs-de-noms.js';
+import { machineHebergee } from './offre-hebergee.js';
 import { log } from './logger.js';
+import * as store from './store.js';
 import { getSettings, saveSettings } from './store.js';
 import { vectoriseurDisponible } from './vectoriseur.js';
 import { voiceAvailable } from './voice.js';
@@ -245,17 +259,80 @@ export async function etatGitHub(): Promise<EtatGitHub> {
 }
 
 /**
- * RELIE GITHUB PAR UN JETON D'ACCÈS. Le jeton entre par l'entrée standard de
- * l'outil, jamais par sa ligne de commande (visible de tout le serveur), puis
- * git est réglé pour s'en servir : un dépôt privé se clone ensuite sans rien
- * demander.
+ * L'ENVIRONNEMENT D'UN APPEL À L'OUTIL GITHUB QUI DOIT ÉCRIRE SA CONNEXION. Un
+ * jeton posé dans l'environnement du démon (`GH_TOKEN`, `GITHUB_TOKEN`) passe
+ * avant tout le reste : l'outil refuse alors de se connecter (« The value of
+ * the GH_TOKEN environment variable is being used »). On les retire donc de ce
+ * seul appel — vérifié le 18/10/2026 avec gh 2.98.0.
  */
-export async function connecterGitHub(jeton: string): Promise<EtatGitHub & { erreur?: string }> {
+function environnementSansJeton(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, GH_PROMPT_DISABLED: '1', GH_BROWSER: 'true', BROWSER: 'true' };
+  delete env.GH_TOKEN;
+  delete env.GITHUB_TOKEN;
+  return env;
+}
+
+/** Ce que GitHub dit du jeton, lu AVANT de l'enregistrer : le jeton voyage dans l'entête, jamais dans une commande. */
+async function lireLeJeton(jeton: string, requete: typeof fetch = fetch): Promise<LectureDuJetonGithub> {
+  const entetes = { authorization: `Bearer ${jeton}`, accept: 'application/vnd.github+json', 'user-agent': 'Beluga Build' };
+  let reponse: Response;
+  try {
+    reponse = await requete('https://api.github.com/user', { headers: entetes, signal: AbortSignal.timeout(15000) });
+  } catch {
+    return { reconnu: false, joignable: false, droits: null };
+  }
+  if (reponse.status >= 500) return { reconnu: false, joignable: false, droits: null };
+  if (!reponse.ok) return { reconnu: false, droits: null };
+  const utilisateur = (await reponse.json().catch(() => ({}))) as { owned_private_repos?: number; total_private_repos?: number };
+  const droits = droitsDeLEntete(reponse.headers.get('x-oauth-scopes'));
+  const lecture: LectureDuJetonGithub = {
+    reconnu: true,
+    droits,
+    privesPossedes:
+      typeof utilisateur.owned_private_repos === 'number'
+        ? utilisateur.owned_private_repos
+        : typeof utilisateur.total_private_repos === 'number'
+          ? utilisateur.total_private_repos
+          : undefined,
+  };
+  // Un jeton classique dit ses droits : la sonde ne sert qu'aux jetons à grain fin.
+  if (droits === null) {
+    try {
+      const sonde = await requete('https://api.github.com/user/repos?visibility=private&per_page=1', {
+        headers: entetes,
+        signal: AbortSignal.timeout(15000),
+      });
+      const liste = sonde.ok ? ((await sonde.json().catch(() => [])) as unknown[]) : [];
+      lecture.privesVisibles = Array.isArray(liste) ? liste.length : 0;
+    } catch {
+      return { reconnu: false, joignable: false, droits: null };
+    }
+  }
+  return lecture;
+}
+
+/**
+ * RELIE GITHUB PAR UN JETON D'ACCÈS. Le jeton est d'abord LU auprès de GitHub :
+ * un jeton qui ne verrait pas les dépôts privés est refusé sans rien
+ * enregistrer (`refusDuJetonGithub`). Puis il entre par l'entrée standard de
+ * l'outil, jamais par sa ligne de commande (visible de tout le serveur), et git
+ * est réglé pour s'en servir : un dépôt privé se clone ensuite sans rien demander.
+ */
+export async function connecterGitHub(
+  jeton: string,
+  requete: typeof fetch = fetch,
+): Promise<EtatGitHub & { erreur?: string; lienDuJeton?: string }> {
   const propre = jeton.trim();
   if (!propre) return { ...(await etatGitHub()), erreur: 'Le jeton est vide.' };
+  const refus = refusDuJetonGithub(await lireLeJeton(propre, requete));
+  if (refus) {
+    const mauvaisDroits = refus === REFUS_JETON_SANS_DEPOTS_PRIVES || refus === REFUS_JETON_SANS_WORKFLOW;
+    return { ...(await etatGitHub()), erreur: refus, ...(mauvaisDroits ? { lienDuJeton: ADRESSE_D_UN_JETON_CLASSIQUE } : {}) };
+  }
   const erreur = await new Promise<string | null>((resolve) => {
     const enfant = spawn('gh', ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--with-token'], {
       stdio: ['pipe', 'ignore', 'pipe'],
+      env: environnementSansJeton(),
     });
     let sortie = '';
     enfant.stderr.on('data', (d) => (sortie += String(d)));
@@ -265,7 +342,250 @@ export async function connecterGitHub(jeton: string): Promise<EtatGitHub & { err
   });
   if (erreur) return { ...(await etatGitHub()), erreur };
   await execFileAsync('gh', ['auth', 'setup-git'], { timeout: 20000 }).catch(() => undefined);
+  oublierLeJetonGithub();
   return etatGitHub();
+}
+
+/* ------------------------------------------------------------------ */
+/* GitHub : la page des réglages                                        */
+/* ------------------------------------------------------------------ */
+
+/** Un compte GitHub connu de l'outil, tel que la page des réglages le montre. */
+export interface CompteGithubConnu {
+  login: string;
+  actif: boolean;
+  /** D'où vient son jeton : « environnement du service » ou le fichier de l'outil. */
+  source: 'environnement' | 'outil';
+  /** Les droits du jeton (vide : inconnus, jeton à grain fin ou d'application). */
+  droits: string[];
+  /** Le jeton est-il encore accepté par GitHub ? */
+  valide: boolean;
+}
+
+export interface DetailGithub extends EtatGitHub {
+  version?: string;
+  comptes: CompteGithubConnu[];
+  /** Le dossier où l'outil garde sa connexion, pour qui veut la voir sans l'écran. */
+  dossierDeConfiguration: string;
+  /** Le compte système du service : c'est sous lui que l'outil se règle en ligne de commande. */
+  compteDuService: string;
+  /** Les projets de la colonne de gauche récupérés depuis GitHub. */
+  projets: { id: string; nom: string; depot: string; dossier: string }[];
+}
+
+/**
+ * TOUT CE QUE LA PAGE « GITHUB » DES RÉGLAGES MONTRE : le compte relié, d'où
+ * vient son jeton et ses droits, l'outil, et les projets récupérés depuis
+ * GitHub. Lecture seule.
+ */
+export async function detailGithub(): Promise<DetailGithub> {
+  const etat = await etatGitHub();
+  const dossierDeConfiguration = process.env.GH_CONFIG_DIR || path.join(os.homedir(), '.config', 'gh');
+  const projets = store
+    .listProjects(false)
+    .filter((projet) => /github\.com[/:]/i.test(projet.gitRemote ?? ''))
+    .map((projet) => ({
+      id: projet.id,
+      nom: projet.name,
+      depot: (projet.gitRemote ?? '').replace(/^.*github\.com[/:]/i, '').replace(/\.git$/, ''),
+      dossier: projet.path,
+    }));
+  const base: DetailGithub = { ...etat, comptes: [], dossierDeConfiguration, compteDuService: compteDuService(), projets };
+  if (!etat.installe) return base;
+  try {
+    const { stdout } = await execFileAsync('gh', ['--version'], { timeout: 10000 });
+    base.version = stdout.split('\n')[0]?.replace(/^gh version\s*/, '').trim();
+  } catch {
+    /* la version reste inconnue */
+  }
+  try {
+    // L'état se lit même quand un jeton est refusé : la sortie est alors sur le code 1.
+    const sortie = await execFileAsync('gh', ['auth', 'status', '--json', 'hosts'], { timeout: 20000 }).then(
+      (r) => r.stdout,
+      (err: any) => String(err?.stdout ?? ''),
+    );
+    const lu = JSON.parse(sortie || '{}') as { hosts?: Record<string, Array<Record<string, any>>> };
+    base.comptes = (lu.hosts?.['github.com'] ?? []).map((compte) => ({
+      login: String(compte.login ?? ''),
+      actif: compte.active === true,
+      source: /TOKEN/.test(String(compte.tokenSource ?? '')) ? 'environnement' : 'outil',
+      droits: String(compte.scopes ?? '')
+        .split(',')
+        .map((droit) => droit.trim())
+        .filter(Boolean),
+      valide: compte.state === 'success',
+    }));
+  } catch {
+    /* outil trop ancien pour `--json` : l'état simple suffit */
+  }
+  return base;
+}
+
+/**
+ * RÉINITIALISE LA CONNEXION GITHUB : chaque compte rangé par l'outil est
+ * déconnecté, et la valeur gardée en mémoire oubliée. On relie ensuite GitHub
+ * de nouveau, par code ou par jeton. Un jeton posé dans l'ENVIRONNEMENT du
+ * service ne s'efface pas d'ici : on le dit, avec l'endroit où il vit.
+ */
+export async function reinitialiserGithub(): Promise<{ ok: boolean; texte: string; detail: DetailGithub }> {
+  annulerLaConnexionParCode();
+  const avant = await detailGithub();
+  const comptesRanges = avant.comptes.filter((compte) => compte.source === 'outil');
+  const refus: string[] = [];
+  for (const compte of comptesRanges) {
+    try {
+      await execFileAsync('gh', ['auth', 'logout', '--hostname', 'github.com', '--user', compte.login], {
+        timeout: 20000,
+        env: environnementSansJeton(),
+      });
+    } catch (err: any) {
+      refus.push(`${compte.login} : ${String(err?.stderr ?? err?.message ?? err).trim().slice(0, 160)}`);
+    }
+  }
+  oublierLeJetonGithub();
+  const detail = await detailGithub();
+  diffuserLaConnexion();
+  log.info(`installation : connexion GitHub réinitialisée (${comptesRanges.length} compte(s) déconnecté(s))`);
+  if (refus.length) return { ok: false, texte: `La déconnexion a été refusée pour ${refus.join(' ; ')}.`, detail };
+  if (detail.comptes.some((compte) => compte.source === 'environnement')) {
+    return {
+      ok: false,
+      texte:
+        'Le jeton rangé par l’outil GitHub est retiré, mais un autre jeton est posé dans l’environnement du service (variable GH_TOKEN ou GITHUB_TOKEN) : retirez-le de la configuration du service, puis redémarrez-le.',
+      detail,
+    };
+  }
+  return { ok: true, texte: comptesRanges.length ? 'Le jeton est retiré : reliez GitHub de nouveau ci-dessus.' : 'Aucun jeton n’était rangé sur ce serveur.', detail };
+}
+
+/* ------------------------------------------------------------------ */
+/* GitHub : la connexion par code                                       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LA CONNEXION PAR CODE, SANS JETON À COLLER. Le démon lance l'outil GitHub en
+ * tâche de fond ; l'outil écrit un code à usage unique, puis interroge GitHub
+ * jusqu'à ce que quelqu'un l'accepte sur https://github.com/login/device.
+ *
+ *  - UNE SEULE À LA FOIS : un second clic pendant l'attente rend le MÊME code ;
+ *  - BORNÉE : le code meurt au bout de quinze minutes, l'enfant aussi — il ne
+ *    sonde jamais GitHub à l'infini ;
+ *  - LA FIN SE DIT : à la sortie de l'outil, git est réglé (`auth setup-git`)
+ *    et l'événement `installation.github` prévient tous les écrans, qui
+ *    relisent l'état et passent au vert d'eux-mêmes.
+ */
+let connexionParCode: (ConnexionGithubParCode & { enfant?: ChildProcess }) | null = null;
+
+function diffuserLaConnexion(): void {
+  bus.emit({ type: 'installation.github', connexion: connexionGithubParCode() });
+}
+
+/** Où en est la connexion par code — sans l'enfant, qui ne voyage pas. */
+export function connexionGithubParCode(): ConnexionGithubParCode {
+  if (!connexionParCode) return { etat: 'aucune' };
+  const { enfant: _enfant, ...visible } = connexionParCode;
+  return visible;
+}
+
+/** Arrête l'attente en cours (nouvel essai, abandon) : l'enfant ne reste jamais seul derrière. */
+export function annulerLaConnexionParCode(): ConnexionGithubParCode {
+  if (connexionParCode?.etat === 'attente') {
+    connexionParCode.enfant?.kill('SIGTERM');
+    connexionParCode = null;
+  }
+  return connexionGithubParCode();
+}
+
+/**
+ * LANCE LA CONNEXION PAR CODE et rend le code dès que l'outil l'a écrit (au
+ * plus vingt secondes). `programme` se remplace dans un essai.
+ */
+export async function lancerLaConnexionParCode(programme = 'gh'): Promise<ConnexionGithubParCode> {
+  if (connexionParCode?.etat === 'attente' && (connexionParCode.expireA ?? 0) > Date.now()) return connexionGithubParCode();
+  annulerLaConnexionParCode();
+
+  let enfant: ChildProcess;
+  try {
+    enfant = spawn(
+      programme,
+      ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--scopes', DROITS_GITHUB_DEMANDES.join(',')],
+      { stdio: ['ignore', 'pipe', 'pipe'], env: environnementSansJeton() },
+    );
+  } catch (err: any) {
+    return { etat: 'echouee', erreur: String(err?.message ?? err) };
+  }
+  const courante: ConnexionGithubParCode & { enfant?: ChildProcess } = { etat: 'attente', enfant };
+  connexionParCode = courante;
+
+  let sortie = '';
+  const premierCode = new Promise<void>((resolve) => {
+    const lire = (morceau: Buffer) => {
+      sortie += String(morceau);
+      if (courante.code) return;
+      const lu = codeDeConnexionLu(sortie);
+      if (!lu) return;
+      courante.code = lu.code;
+      courante.adresse = lu.adresse;
+      courante.expireA = Date.now() + DUREE_DU_CODE_GITHUB_MS;
+      resolve();
+    };
+    enfant.stdout?.on('data', lire);
+    enfant.stderr?.on('data', lire);
+    setTimeout(resolve, 20_000);
+  });
+
+  const garde = setTimeout(() => {
+    if (connexionParCode !== courante || courante.etat !== 'attente') return;
+    enfant.kill('SIGTERM');
+    courante.etat = 'expiree';
+    courante.erreur = 'Le code a expiré avant d’être accepté sur GitHub : recommencez.';
+    delete courante.enfant;
+    diffuserLaConnexion();
+  }, DUREE_DU_CODE_GITHUB_MS + 30_000);
+
+  enfant.on('error', (err) => {
+    clearTimeout(garde);
+    if (connexionParCode !== courante) return;
+    courante.etat = 'echouee';
+    courante.erreur = /ENOENT/.test(err.message) ? 'L’outil GitHub n’est pas installé sur ce serveur.' : err.message;
+    delete courante.enfant;
+    diffuserLaConnexion();
+  });
+  enfant.on('close', (code) => {
+    clearTimeout(garde);
+    if (connexionParCode !== courante || courante.etat !== 'attente') return;
+    delete courante.enfant;
+    void (async () => {
+      if (code === 0) {
+        await execFileAsync('gh', ['auth', 'setup-git'], { timeout: 20000 }).catch(() => undefined);
+        oublierLeJetonGithub();
+        const etat = await etatGitHub();
+        courante.etat = etat.connecte ? 'reussie' : 'echouee';
+        courante.compte = etat.compte;
+        if (!etat.connecte) courante.erreur = 'GitHub a accepté, mais le serveur ne voit toujours pas le compte : recommencez.';
+        log.info(`installation : GitHub relié par code${etat.compte ? ` au compte ${etat.compte}` : ''}`);
+      } else {
+        courante.etat = 'echouee';
+        const derniere = sortie.trim().split('\n').filter(Boolean).slice(-1)[0] ?? '';
+        courante.erreur = /expired|timed out/i.test(sortie)
+          ? 'Le code a expiré avant d’être accepté sur GitHub : recommencez.'
+          : /denied|cancel/i.test(sortie)
+            ? 'La connexion a été refusée sur GitHub.'
+            : `La connexion n’a pas abouti${derniere ? ` : ${derniere.slice(0, 200)}` : '.'}`;
+      }
+      diffuserLaConnexion();
+    })();
+  });
+
+  await premierCode;
+  if (courante.etat === 'attente' && !courante.code) {
+    enfant.kill('SIGTERM');
+    courante.etat = 'echouee';
+    const derniere = sortie.trim().split('\n').filter(Boolean).slice(-2).join(' ').slice(0, 240);
+    courante.erreur = `L’outil GitHub n’a pas donné de code${derniere ? ` : ${derniere}` : '.'}`;
+    delete courante.enfant;
+  }
+  return connexionGithubParCode();
 }
 
 /* ------------------------------------------------------------------ */
@@ -370,5 +690,5 @@ export async function importerUneBibliothequeProposee(source: string): Promise<{
 
 /** Une page de l'assistant est quittée : faite, ou remise à plus tard. */
 export function noterUneEtape(etape: EtapeDeLAssistant, issue: 'faite' | 'passee'): Settings {
-  return saveSettings({ assistant: apresEtape(getSettings().assistant, etape, issue) });
+  return saveSettings({ assistant: apresEtape(getSettings().assistant, etape, issue, machineHebergee()) });
 }

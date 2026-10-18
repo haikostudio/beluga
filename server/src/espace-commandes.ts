@@ -57,6 +57,7 @@ import {
   changerLApparence,
   changerLIdentifiant,
   changerLaPortee,
+  changerLeRole,
   changerLeCourriel,
   compteParId,
   creerCompte,
@@ -312,6 +313,8 @@ function prevenirLesAutres(
   const signature = !auteur || auteur.role === 'admin' ? nomCourtDeLInstallation() : nomDuCompte(auteur);
   for (const cible of listerComptes()) {
     if (cible.id === auteur?.id || !cible.actif) continue;
+    // Les collaborateurs (membre, lecteur) travaillent dans l'application : ni cloche client, ni alerte de Haiko.
+    if (cible.role !== 'client' && cible.role !== 'admin') continue;
     if (cible.role === 'client' && !peutVoirProjet(cible, e.projectId)) continue;
     if (cible.role === 'admin' && seulementClients) continue;
     let url = cible.role === 'admin' ? adresseChezHaiko(auteur, e) : undefined;
@@ -1154,7 +1157,7 @@ export async function commandeDeLEspaceClient(
       if (!verdictCourriel.ok) throw new Error(verdictCourriel.raison);
       const projetsConnus = store.listProjects(true).map((p) => p.id);
       const cree = creerCompte(
-        { identifiant: cmd.identifiant, role: 'client', nomAffiche: cmd.nomAffiche, projets: cmd.projets },
+        { identifiant: cmd.identifiant, role: cmd.role, nomAffiche: cmd.nomAffiche, projets: cmd.projets },
         projetsConnus,
       );
       const compteCree = cmd.courriel?.trim() ? changerLeCourriel(cree.compte.id, cmd.courriel) : cree.compte;
@@ -1180,6 +1183,12 @@ export async function commandeDeLEspaceClient(
     case 'comptes.portee': {
       const projetsConnus = store.listProjects(true).map((p) => p.id);
       const compteMaj = changerLaPortee(cmd.id, cmd.projets, projetsConnus);
+      bus.emit({ type: 'comptes', comptes: listerComptes() });
+      return { compte: compteMaj };
+    }
+
+    case 'comptes.niveau': {
+      const compteMaj = changerLeRole(cmd.id, cmd.role);
       bus.emit({ type: 'comptes', comptes: listerComptes() });
       return { compte: compteMaj };
     }

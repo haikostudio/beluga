@@ -53,15 +53,31 @@ async function gh(args: string[], cwd: string): Promise<{ ok: boolean; out: stri
  * dans l'interface, aucun chemin en dur, et un changement d'identification est
  * repris tout seul. La réponse est gardée une heure — le relever à chaque tour
  * ajouterait un lancement de processus pour une valeur qui ne bouge pas.
+ *
+ * MAIS UN JETON QUI CHANGE SE REPREND TOUT DE SUITE. Relier GitHub depuis
+ * l'écran (code ou jeton) et le réinitialiser oublient la valeur gardée
+ * (`oublierLeJetonGithub`) : sans cela, l'ANCIEN jeton restait servi une heure
+ * — la liste des dépôts (lue par `gh`) montrait les dépôts privés, et leur
+ * récupération, faite avec le jeton gardé, se voyait refusée. Une ABSENCE de
+ * jeton, elle, n'est gardée que trente secondes : GitHub qu'on vient de relier
+ * ne doit pas passer pour absent pendant une heure.
  */
 const DUREE_CACHE_JETON_MS = 60 * 60 * 1000;
+const DUREE_CACHE_SANS_JETON_MS = 30 * 1000;
 let jetonEnCache: { valeur?: string; at: number } | undefined;
+
+/** Le jeton a changé (relié, remplacé, retiré) : la prochaine demande le relit chez `gh`. */
+export function oublierLeJetonGithub(): void {
+  jetonEnCache = undefined;
+}
 
 /** Le jeton GitHub du serveur, ou rien si l'outil n'est pas identifié. */
 export async function jetonGithub(): Promise<string | undefined> {
   const depuisEnv = (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim();
   if (depuisEnv) return depuisEnv;
-  if (jetonEnCache && Date.now() - jetonEnCache.at < DUREE_CACHE_JETON_MS) return jetonEnCache.valeur;
+  if (jetonEnCache && Date.now() - jetonEnCache.at < (jetonEnCache.valeur ? DUREE_CACHE_JETON_MS : DUREE_CACHE_SANS_JETON_MS)) {
+    return jetonEnCache.valeur;
+  }
   try {
     const { stdout } = await execFileAsync('gh', ['auth', 'token'], { timeout: 10000 });
     const valeur = stdout.trim() || undefined;

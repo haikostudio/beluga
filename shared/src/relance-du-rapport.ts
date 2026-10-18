@@ -13,13 +13,22 @@
  *    lancées en tâche de fond dont aucun résultat final n'a été lu, et qu'aucun
  *    arrêt n'a coupées ;
  *  - `relanceDuRapport` dit si le tour mérite UNE relance, et avec quelle
- *    consigne. Jamais deux : une relance qui rate garde la note « Réponse hors
- *    format », sans nouvel essai.
+ *    consigne. Jamais deux : une relance qui rate laisse le message tel
+ *    quel, sans nouvel essai.
+ *
+ * DEPUIS LE 17/10/2026, LE COMPTE RENDU EST UN MESSAGE DE MESSAGERIE
+ * (`shared/src/message-court.ts`) : plus de titres à exiger. La relance vise
+ * deux cas : un message trop long, qui se RACCOURCIT, et un tour d'exécution
+ * qui rend la main avec des tâches de fond encore vivantes, qui ATTEND leur
+ * résultat avant d'écrire son message de fin. Elle vaut pour tout tour en forme
+ * de message (travail, assistant général), pas seulement pour les cartes.
  *
  * Se rejoue seule : `server/src/test/relance-du-rapport.test.ts`.
  * Contrôle navigateur bout-en-bout, avec un faux moteur qui parle le format de
  * Claude Code : `node scripts/verif-relance-du-rapport.mjs`.
  */
+
+import { FORME_D_UN_MESSAGE, consigneDeRaccourci } from './message-court.js';
 
 /** Une étape d'outil, telle que le démon la garde pendant le tour. */
 export interface EtapeDOutil {
@@ -109,10 +118,14 @@ export function tachesDeFondVivantes(etapes: readonly EtapeDOutil[]): TacheDeFon
 
 /** Ce que la fin de tour sait au moment de décider. */
 export interface FinDeTourAJuger {
-  /** Le tour est-il sous le plancher du rapport (`rapportAuPlancher`) ? */
+  /** Le tour est-il le tour d'exécution d'une carte (`rapportAuPlancher`) ? */
   plancher: boolean;
   /** Le contrôle de forme est-il tenu ? */
   formeTenue: boolean;
+  /** Le tour répond-il en message de messagerie (`gabaritEnMessage`) ? Un message trop long se raccourcit. */
+  messagerie?: boolean;
+  /** Les tâches de fond encore vivantes d'un tour d'exécution : il les attend avant son message de fin. */
+  tachesVivantes?: number;
   /** Le tour a-t-il rendu un texte ? */
   texte: string;
   /** Le tour est-il tombé — panne, quota, erreur vue en route ? */
@@ -124,19 +137,19 @@ export interface FinDeTourAJuger {
 }
 
 /**
- * FAUT-IL RELANCER LE RAPPORT ? Seulement un tour d'exécution de carte, fini
- * sans panne ni arrêt, qui a rendu un texte hors gabarit. Un tour arrêté à la
- * main, coupé par un quota ou tombé ne se relance JAMAIS : sa propre route
- * (reprise, décision) existe déjà.
+ * FAUT-IL RELANCER LE RAPPORT ? Un tour fini sans panne, sans arrêt ni question
+ * ouverte, qui a rendu un texte : relancé UNE fois si sa forme n'est pas tenue
+ * (message trop long, ou gabarit structuré d'un tour d'exécution), ou si c'est
+ * le tour d'exécution d'une carte et qu'il laisse des tâches de fond vivantes.
+ * Un tour arrêté à la main, coupé par un quota ou tombé ne se relance JAMAIS :
+ * sa propre route (reprise, décision) existe déjà.
  */
 export function relanceDuRapport(tour: FinDeTourAJuger): boolean {
-  if (!tour.plancher || tour.formeTenue) return false;
   if (tour.echec || tour.arrete || tour.questionPosee) return false;
-  return tour.texte.trim().length > 0;
+  if (!tour.texte.trim().length) return false;
+  if (!tour.formeTenue) return tour.plancher || !!tour.messagerie;
+  return tour.plancher && (tour.tachesVivantes ?? 0) > 0;
 }
-
-/** Les titres du compte rendu, rappelés dans la consigne de relance. */
-const TITRES_DU_RAPPORT = ['Analyse', 'Ce qui est fait', 'Conséquences', 'Impact', 'Évolutions possibles', 'Coûts'];
 
 /** La ligne qui nomme une tâche de fond, dans la consigne et dans le journal. */
 export function nomDeTacheDeFond(tache: TacheDeFond): string {
@@ -144,30 +157,30 @@ export function nomDeTacheDeFond(tache: TacheDeFond): string {
 }
 
 /**
- * LA CONSIGNE DE LA RELANCE. Elle dit ce qui manque, nomme les tâches de fond
- * encore vivantes, demande d'attendre leur résultat, puis de rendre le compte
- * rendu ENTIER — c'est ce texte-là qui fermera la carte.
+ * LA CONSIGNE DE LA RELANCE. Elle nomme les tâches de fond encore vivantes et
+ * demande d'attendre leur résultat, puis de rendre le message final — raccourci
+ * s'il dépassait le plafond. C'est ce texte-là qui fermera la carte.
  */
-export function consigneDeRelanceDuRapport(input: { manquantes: readonly string[]; taches: readonly TacheDeFond[] }): string {
-  const lignes: string[] = [
-    'TON TOUR S’EST TERMINÉ SUR UN MESSAGE QUI N’EST PAS LE COMPTE RENDU DE LA CARTE.',
-    input.manquantes.length
-      ? `Sections absentes : ${input.manquantes.join(', ')}.`
-      : 'Le texte rendu ne tient pas la forme imposée.',
-  ];
+export function consigneDeRelanceDuRapport(input: {
+  /** Le message rendu, quand il est trop long : la consigne demande de le raccourcir. */
+  tropLong?: string;
+  taches: readonly TacheDeFond[];
+}): string {
+  const lignes: string[] = [];
+  if (input.tropLong) lignes.push(consigneDeRaccourci(input.tropLong));
   if (input.taches.length) {
     lignes.push(
-      '',
-      'Ces commandes lancées en tâche de fond n’ont pas rendu de résultat final lu dans ce tour :',
+      ...(lignes.length ? [''] : []),
+      'TON TOUR S’EST TERMINÉ AVANT LA FIN DE CES COMMANDES, LANCÉES EN TÂCHE DE FOND, DONT AUCUN RÉSULTAT FINAL N’A ÉTÉ LU :',
       ...input.taches.map((tache) => `- ${nomDeTacheDeFond(tache)}`),
       '',
-      'Attends leur résultat (lis leur sortie jusqu’à la fin), puis cite chacune dans « Ce qui est fait » : la commande et son résultat, même en échec.',
+      'Attends leur résultat (lis leur sortie jusqu’à la fin), puis dis dans ton message ce qu’elles ont donné, même en échec.',
     );
   }
   lignes.push(
     '',
-    `Rends MAINTENANT le compte rendu final, avec exactement ces titres numérotés : « ${TITRES_DU_RAPPORT.join(' », « ')} ».`,
+    `Rends MAINTENANT ton message final, en ${FORME_D_UN_MESSAGE}.`,
     'Ne refais pas le travail, ne pose pas de question : ce texte ferme la carte.',
   );
-  return lignes.join('\n');
+  return lignes.join('\n').trim();
 }

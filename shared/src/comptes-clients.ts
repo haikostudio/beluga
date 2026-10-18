@@ -12,8 +12,56 @@ import { minusculesSansAccents } from './mots.js';
  * n'y touche la base ni le disque : c'est ce qui les rend testables seules.
  */
 
-/** Les deux rôles. Il n'y en a pas de troisième, et il n'y a pas de défaut. */
-export type RoleCompte = 'admin' | 'client';
+/**
+ * Les quatre niveaux d'un compte. Il n'y a pas de défaut.
+ *  - `admin` : tout, sur tous les projets ;
+ *  - `membre` : travaille dans l'application, sur les projets cochés, sans mise
+ *    en ligne, sans comptes, sans coffre-fort, sans réglages généraux ;
+ *  - `lecteur` : voit les projets cochés, ne modifie rien ;
+ *  - `client` : l'espace client, et lui seul.
+ */
+export type RoleCompte = 'admin' | 'membre' | 'lecteur' | 'client';
+
+/** Les niveaux qu'un administrateur peut donner en créant un accès (jamais « admin »). */
+export const ROLES_CREABLES: readonly Exclude<RoleCompte, 'admin'>[] = ['membre', 'lecteur', 'client'];
+
+/** Ce niveau travaille dans l'application principale sans être administrateur ? */
+export function estCollaborateur(role: string | null | undefined): role is 'membre' | 'lecteur' {
+  return role === 'membre' || role === 'lecteur';
+}
+
+/** Lit un rôle rangé en base : tout ce qui n'est pas reconnu retombe sur le niveau le plus étroit. */
+export function roleLu(brut: string | null | undefined): RoleCompte {
+  return brut === 'admin' || brut === 'membre' || brut === 'lecteur' ? brut : 'client';
+}
+
+/** Le nom d'un niveau, en français : clé du dictionnaire, passée à `t()` à l'affichage. */
+export function libelleDuRole(role: RoleCompte): string {
+  switch (role) {
+    case 'admin':
+      return 'Administrateur';
+    case 'membre':
+      return 'Membre';
+    case 'lecteur':
+      return 'Lecteur';
+    default:
+      return 'Client';
+  }
+}
+
+/** Ce que permet un niveau, en une phrase : clé du dictionnaire. */
+export function aideDuRole(role: RoleCompte): string {
+  switch (role) {
+    case 'admin':
+      return 'Tout voir et tout faire, comptes et mises en ligne compris.';
+    case 'membre':
+      return 'Travaille dans les projets cochés : cartes, conversations, agents. Ni mise en ligne, ni comptes, ni coffre-fort, ni réglages.';
+    case 'lecteur':
+      return 'Voit les projets cochés sans rien modifier.';
+    default:
+      return 'N’a que l’espace client : ses demandes sur les projets cochés.';
+  }
+}
 
 export interface CompteUtilisateur {
   id: string;

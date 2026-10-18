@@ -85,6 +85,8 @@ import {
   commandeDuStudio,
   evenementDuStudio,
   commandeAutorisee,
+  estCollaborateur,
+  peutVoirProjet,
   evenementAutorise,
   type CompteUtilisateur,
   fusionDesProcedures,
@@ -97,12 +99,20 @@ import { compteEstSuperAdministrateur } from './super-admin.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { agirSurLaBranche, branchesDeLaCarte } from './gestion-de-branche.js';
 import * as store from './store.js';
+import { machineHebergee } from './offre-hebergee.js';
+import { evenementPourCollaborateur, refusDeLaCommande, reponsePourLeCollaborateur } from './vue-collaborateur.js';
 import { etatDeLaCopie, nouveautes, recetteDeLaCopie, recupererLesNouveautes } from './installation-copie.js';
 import { lancerUnTravail, recetteDuGenre, travailDInstallation } from './installation-travaux.js';
 import { envoyerUnCourrielDEssai, sortieDirecteGardee } from './envoi-des-courriels.js';
+import { controlesDeLEnvoiDirect, poserLesReglagesDuDomaine } from './courriels-du-domaine.js';
 import {
+  annulerLaConnexionParCode,
   connecterGitHub,
+  connexionGithubParCode,
+  detailGithub,
   etatDeLInstallation,
+  reinitialiserGithub,
+  lancerLaConnexionParCode,
   importerUneBibliothequeProposee,
   noterUneEtape,
   poserUneAdresse,
@@ -364,7 +374,7 @@ import { depotsDuCompte, monterDepuisGithub } from './depots-github.js';
 import * as github from './github.js';
 import { runBackup, listBackups, verifyBackup } from './backup.js';
 import { etatDesCategories, exporterDonnees, importerDonnees, lireDepot } from './export-donnees.js';
-import { digestText, listVoices } from './voice.js';
+import { digestText, listVoices, raisonDeLaVoixMuette } from './voice.js';
 import { notify } from './notify.js';
 import { attacherLaVoieDuTerminal } from './ws-terminal.js';
 import { log } from './logger.js';
@@ -442,9 +452,12 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     const perimetre = { projet: null as string | null, agents: new Set<string>(), cartes: new Set<string>() };
     /* LE DROIT AU STUDIO SE CALCULE UNE FOIS, À LA CONNEXION, POUR CE COMPTE (`shared/src/studio-reserve.ts`). */
     const studioOuvert = compteEstSuperAdministrateur(compte);
-    const send = (event: ServerEvent) => {
+    const send = (brut: ServerEvent) => {
       if (ws.readyState !== WebSocket.OPEN) return;
-      if (!evenementAutorise(compte.role, event.type)) return;
+      if (!evenementAutorise(compte.role, brut.type)) return;
+      /* UN MEMBRE OU UN LECTEUR NE REÇOIT QUE SES PROJETS : l'événement est jugé, parfois réécrit, sinon retiré. */
+      const event = estCollaborateur(compte.role) ? evenementPourCollaborateur(brut, compte) : brut;
+      if (!event) return;
       if (compte.role === 'client' && !evenementPourCeClient(event, compte)) return;
       if (compte.role !== 'client' && !detailPourCetEcran(event, perimetre)) return;
       // LE STUDIO NE PARLE QU'À SON SUPER ADMINISTRATEUR : ni signal, ni image de son navigateur d'essai.
@@ -539,7 +552,8 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     } catch (err) {
       log.warn('compteurs de la Messagerie illisibles', err);
     }
-    const projets = store.listProjects();
+    // Un collaborateur n'ouvre jamais, au départ, un projet qui n'est pas dans sa portée.
+    const projets = store.listProjects().filter((projet) => peutVoirProjet(compte, projet.id));
     const prefs = store.readPreferences();
     // Le même choix que fera le navigateur : ses cartes partent donc SANS
     // attendre qu'il les demande — un aller-retour de moins avant le tableau.
@@ -552,6 +566,8 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       protocol: PROTOCOL_VERSION,
       version: CONFIG.version,
       studioOuvert,
+      offreHebergee: machineHebergee(),
+      role: compte.role === 'membre' || compte.role === 'lecteur' ? compte.role : 'admin',
       settings: store.getSettings(),
       prefs,
       projects: projets,
@@ -595,9 +611,12 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       }
       try {
         if (!commandeAutorisee(compte.role, envelope.cmd.type)) throw new Error(REFUS_HORS_PORTEE);
+        // Un membre ou un lecteur : le projet visé doit être dans sa portée (`vue-collaborateur.ts`).
+        const refus = refusDeLaCommande(compte, envelope.cmd);
+        if (refus) throw new Error(refus);
         // AVANT la commande : sa réponse passe déjà par le périmètre mis à jour.
         elargirLePerimetre(perimetre, envelope.cmd);
-        const data = await handleCommand(envelope.cmd, compte);
+        const data = reponsePourLeCollaborateur(compte, envelope.cmd, await handleCommand(envelope.cmd, compte));
         if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
       } catch (err: any) {
         log.warn(`commande ${envelope.cmd.type}${contexteDeCommande(envelope.cmd)} refusée :`, err?.message ?? err);
@@ -1239,6 +1258,17 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     /*
+     * RELIRE PLUSIEURS TABLEAUX D'UN COUP, pour le seul écran qui revient d'une
+     * veille : un projet disparu entre-temps est simplement absent de la réponse.
+     */
+    case 'projects.relire': {
+      const projets = cmd.ids
+        .filter((id) => store.getProject(id))
+        .map((id) => evenementPourLEcran(instantaneDuProjet(id)));
+      return { projets };
+    }
+
+    /*
      * LA TRANCHE SUIVANTE D'UNE COLONNE, avec les agents qui portent ces
      * cartes. Réponse directe à qui l'a demandée : aucun autre écran n'a fait
      * défiler cette colonne-là.
@@ -1872,6 +1902,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     /* -------- Agents -------- */
+
+    case 'suites.autres': {
+      if (!cmd.messageId && !cmd.entreeId) throw new Error('réponse non désignée');
+      const { chercherDAutresIdees } = await import('./autres-idees.js');
+      return chercherDAutresIdees({ messageId: cmd.messageId, entreeId: cmd.entreeId });
+    }
 
     case 'agent.open': {
       const agent = store.getAgent(cmd.id);
@@ -3220,7 +3256,13 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       if (recuperation.mode === 'carte') {
         const carte = store.getCard(recuperation.cardId);
         if (carte) bus.emit({ type: 'card.upsert', card: carte });
-        return recuperation;
+        /* « Mettre à jour » LANCE L'AGENT tout de suite : c'est le geste de l'utilisateur. Un agent déjà au
+           travail sur cette tâche n'est pas relancé ; la mise en ligne reste un geste à part. */
+        if (cmd.lancer && carte?.column === 'planned') {
+          const lancement = await startCard(carte.id);
+          return { ...recuperation, lance: lancement.ok, erreurLancement: lancement.ok ? undefined : lancement.error };
+        }
+        return { ...recuperation, lance: carte?.column === 'running' };
       }
       const lancement = lancerUnTravail('mise-a-jour', recuperation.recette);
       return lancement.ok ? { ok: true, mode: 'simple', travail: lancement.travail } : lancement;
@@ -3251,6 +3293,28 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     case 'installation.github':
       return { github: await connecterGitHub(cmd.jeton) };
+
+    case 'installation.github-code':
+      return {
+        connexion:
+          cmd.action === 'lancer'
+            ? await lancerLaConnexionParCode()
+            : cmd.action === 'annuler'
+              ? annulerLaConnexionParCode()
+              : connexionGithubParCode(),
+      };
+
+    case 'installation.github-detail':
+      return { detail: await detailGithub() };
+
+    case 'installation.github-reinitialiser': {
+      const rendu = await reinitialiserGithub();
+      // Les agents qui partent ensuite ne reçoivent plus l'ancien jeton.
+      return rendu;
+    }
+
+    case 'installation.courriels-domaine':
+      return cmd.action === 'poser' ? await poserLesReglagesDuDomaine() : await controlesDeLEnvoiDirect();
 
     case 'installation.bibliotheque':
       return importerUneBibliothequeProposee(cmd.source);
@@ -4140,6 +4204,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
 
     case 'voice.list':
       return { voices: listVoices() };
+
+    case 'voice.etat': {
+      const raison = raisonDeLaVoixMuette();
+      return { parle: !raison, raison };
+    }
 
     /*
      * UNE PHRASE DICTÉE, SANS DESTINATAIRE. L'assistant global la route vers le

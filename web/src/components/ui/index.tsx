@@ -1680,7 +1680,8 @@ function FeuilleDeTiroir({
 
 /**
  * LA FEUILLE DU BAS, À LA DEMANDE (`Drawer feuille`) : voile, feuille qui monte
- * du bas, poignée qu'on tire vers le bas pour refermer. C'est l'ancien tiroir,
+ * du bas, poignée qu'on tire vers le bas pour refermer. Le voile recouvre toute
+ * l'application et un clic dessus referme la feuille (jamais deux à la fois). C'est l'ancien tiroir,
  * rétabli pour DEUX surfaces seulement — « Déploiement » et « Mise en
  * production » (demande du 15/10/2026 : « des drawers, pas des pages
  * entières »). Tout le reste de l'application garde sa page de zone.
@@ -1734,27 +1735,41 @@ function FeuilleDuBas({
   const hauteurPleine = 'calc(100dvh - max(10px, var(--zone-sure-haut, 0px)) - var(--clavier, 0px))';
   return (
     <DialogPrimitive.Portal>
-      {/* LE VOILE NE CAPTE RIEN : la feuille n'est pas modale (`modal={false}`),
-          un clic dans la colonne des projets la referme ET y mène, comme pour
-          une page. Le voile n'est que l'assombrissement du fond. */}
+      {/* LE VOILE EST UNE VRAIE SURFACE (demande du 15/10/2026 : « le backdrop ne
+          recouvre pas l'application, je peux encore cliquer sur des boutons »).
+          Il couvre tout l'écran — colonne de gauche et barre du haut comprises —
+          et rien de ce qui est dessous ne réagit tant que la feuille est
+          ouverte. Un clic dessus referme CETTE feuille, et seulement elle : il
+          ne mène nulle part (cliquer un projet de la colonne n'y emmène plus en
+          même temps). La fermeture se fait au CLIC, pas à l'appui : le clic est
+          consommé par le voile lui-même, il ne retombe pas sur le bouton
+          dessous. Le voile reste monté pendant l'animation de sortie
+          (`Portal` de Radix), donc il absorbe aussi le clic fantôme d'un
+          toucher. `onInteractOutside` ignore le voile (voir plus bas) : deux
+          feuilles empilées ne se ferment pas ensemble. */}
       <div
         data-voile-tiroir
         data-state={open ? 'open' : 'closed'}
         aria-hidden
-        className="pointer-events-none fixed inset-0 z-50 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out"
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        className="fixed inset-0 z-50 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out"
       />
       <DialogPrimitive.Content
         onInteractOutside={(event) => {
           /* Ni le focus qui passe ailleurs, ni un menu, une fenêtre ou une
-             info-bulle posés par-dessus ne referment la feuille ; un clic dans
-             le fond (colonne, tableau), si. Le bouton qui replie la colonne et
-             son pied n'y mènent nulle part. */
+             info-bulle posés par-dessus ne referment la feuille. Le VOILE non
+             plus, d'ici : c'est lui qui ferme sa propre feuille au clic
+             (`onClick` plus haut) — sans quoi le voile d'une feuille posée
+             par-dessus fermerait aussi celle du dessous. */
           const cible = event.target as Element | null;
           const origine = (event.detail as { originalEvent?: Event } | undefined)?.originalEvent;
           if (
             origine?.type === 'focusin' ||
             cible?.closest?.(
-              '[role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-replier-colonne], [data-pied-colonne], [data-fenetre-centree]',
+              '[data-voile-tiroir], [role="dialog"], [role="menu"], [role="listbox"], [data-radix-popper-content-wrapper], [data-replier-colonne], [data-pied-colonne], [data-fenetre-centree]',
             )
           )
             event.preventDefault();

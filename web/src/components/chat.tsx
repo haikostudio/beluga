@@ -84,6 +84,7 @@ import {
 } from '@/components/ui';
 import { IndicateurActivite } from '@/components/indicateur-activite';
 import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
+import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { MessageView } from '@/components/message-view';
 import { Composer } from '@/components/composer';
 import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
@@ -122,7 +123,6 @@ export function Chat({
   nouveauDepart,
   creuxReserveAilleurs,
   emplacementBarre,
-  emplacementReglages,
   reponsesProposees,
   libelleDuChamp,
   avancementDansLeFil,
@@ -143,11 +143,6 @@ export function Chat({
   creuxReserveAilleurs?: boolean;
   /** Sur téléphone : l'emplacement, sous le titre du tiroir, où la barre d'étapes se pose. */
   emplacementBarre?: React.RefObject<HTMLDivElement | null>;
-  /**
-   * L'emplacement, dans l'entête de la carte (à gauche des trois points), où
-   * se pose l'icône qui rouvre la configuration quand son bloc a quitté l'écran.
-   */
-  emplacementReglages?: HTMLElement | null;
   /**
    * DES RÉPONSES TOUTES FAITES, POSÉES JUSTE AU-DESSUS DE LA BARRE D'ÉCRITURE.
    *
@@ -304,29 +299,12 @@ export function Chat({
   const galerieDesCaptures = useGalerieDesCaptures(etapesDesCaptures, idsDesPieces, projectId);
   /*
    * LA CONFIGURATION S'OUVRE EN MENU, SOUS LE BOUTON QU'ON A CLIQUÉ : le bloc
-   * du point « Configuration » a le sien, l'icône de l'entête aussi — deux
-   * boutons, un même contenu (`MenuDesReglagesDeLaCarte`). L'icône ne paraît
-   * que lorsque le bloc n'est plus à l'écran — défilé hors de vue, ou point
-   * replié. Son ouverture est tenue ICI : tant que son menu est ouvert, l'icône
-   * reste, même si le fil ramène le bloc à l'écran — un menu ne perd pas son
-   * bouton en cours de route.
+   * du point « Configuration » a le sien, et le bouton de la barre d'écriture
+   * (`reglages` du `Composer`) aussi — deux boutons, un même contenu
+   * (`MenuDesReglagesDeLaCarte`). Le bouton de la barre d'écriture est
+   * TOUJOURS là : il ne dépend plus du défilement du fil (demande du
+   * 15/10/2026), donc plus rien à suivre ici.
    */
-  const [reglagesOuverts, setReglagesOuverts] = React.useState(false);
-  const [blocReglages, setBlocReglages] = React.useState<HTMLElement | null>(null);
-  const [blocReglagesVisible, setBlocReglagesVisible] = React.useState(true);
-  React.useEffect(() => setReglagesOuverts(false), [cardId]);
-  React.useEffect(() => {
-    if (!blocReglages) {
-      setBlocReglagesVisible(false);
-      return;
-    }
-    if (typeof IntersectionObserver === 'undefined') return;
-    const suivi = new IntersectionObserver(([entree]) => setBlocReglagesVisible(!!entree?.isIntersecting), {
-      threshold: 0,
-    });
-    suivi.observe(blocReglages);
-    return () => suivi.disconnect();
-  }, [blocReglages]);
   /*
    * LA CONVERSATION DE CADRAGE D'UNE CARTE. Tant que la carte dort en
    * « Planifié » et que c'est un agent de CADRAGE qui parle, le geste qui
@@ -1041,7 +1019,6 @@ export function Chat({
           projectId={projectId}
           onToggleEvolution={toggleEvolution}
           onToggleAll={toggleAll}
-          onEcrireDansLeChamp={ecrireDansLeChamp}
           /* Seul le DERNIER message peut porter une étape qui tourne pour de
              vrai : ailleurs, une étape restée « en cours » est le reliquat d'un
              tour coupé, et ne doit rien animer. */
@@ -1118,6 +1095,35 @@ export function Chat({
       /* Le libellé du champ suit le chapitre : « Expliquez… », « Affinez le
          plan… », « Écrire à l'agent… ». */
       libelleDuChamp={carte ? t(LIBELLES_DU_CHAMP[geste.chapitre]) : libelleDuChamp}
+      /* LES RÉGLAGES DE L'AGENT, dans la rangée du bas — toujours visibles. Une
+         carte : son menu de configuration (modifiable jusqu'à la validation,
+         puis lu) ; une conversation sans carte : le menu moteur, modèle,
+         réflexion, compte de l'agent. */
+      reglages={
+        carte && cardId ? (
+          reglagesCarte.vu && reglagesCarte.libelles ? (
+            <MenuDesReglagesDeLaCarte
+              card={carte}
+              vu={reglagesCarte.vu}
+              libelles={reglagesCarte.libelles}
+              declencheur={
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="shrink-0"
+                  title={t('Configuration de l’agent')}
+                  aria-label="Configuration de l’agent"
+                  data-raccourci-reglages={reglagesCarte.vu.modifiable ? 'modifiable' : 'lecture'}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                </Button>
+              }
+            />
+          ) : undefined
+        ) : agent ? (
+          <BoutonReglagesAgent agent={agent} />
+        ) : undefined
+      }
       /* L'arrêt vit dans la barre d'action quand c'est le geste du chapitre :
          un second carré d'arrêt dans le champ le redirait. */
       sansArret={!!carte && geste.geste === 'arreter'}
@@ -1164,6 +1170,9 @@ export function Chat({
       /* RIEN NE FIGE À L'ENVOI : le parcours s'ouvre au clic (`envoiLocal`). */
       onEnvoiCommence={(texte) => setEnvoiLocal({ texte, at: Date.now() })}
       onEnvoiEchoue={() => setEnvoiLocal(null)}
+      onEnvoiModifie={(avant, apres) =>
+        setEnvoiLocal((echo) => (echo && echo.texte.trim() === avant.trim() ? { ...echo, texte: apres } : echo))
+      }
     />
   );
 
@@ -1194,41 +1203,6 @@ export function Chat({
     return (
       <div className="flex h-full min-h-0 flex-col">
         {header}
-
-        {/* LE RACCOURCI VERS LA CONFIGURATION, dans l'entête de la carte, à
-            gauche des trois points : il ne paraît que quand le bloc du point
-            « Configuration » a quitté l'écran, et ouvre LE MÊME menu, sous
-            lui. Son nom se lit par `title` : une infobulle posée autour du
-            bouton d'un menu lui disputerait le bouton. */}
-        {emplacementReglages &&
-        !configurationOuverte &&
-        reglagesCarte.vu &&
-        reglagesCarte.libelles &&
-        (!blocReglagesVisible || reglagesOuverts)
-          ? createPortal(
-              <MenuDesReglagesDeLaCarte
-                card={carte}
-                vu={reglagesCarte.vu}
-                libelles={reglagesCarte.libelles}
-                cote="end"
-                ouvert={reglagesOuverts}
-                onOuvert={setReglagesOuverts}
-                declencheur={
-                  <Button
-                    size="icon-barre"
-                    variant="ghost"
-                    className="shrink-0"
-                    title={t('Configuration de l’agent')}
-                    aria-label="Configuration de l’agent"
-                    data-raccourci-reglages={reglagesCarte.vu.modifiable ? 'modifiable' : 'lecture'}
-                  >
-                    <SlidersHorizontal className="h-4 w-4" />
-                  </Button>
-                }
-              />,
-              emplacementReglages,
-            )
-          : null}
 
         {configurationOuverte && reglagesCarte.libelles ? (
           <ZoneDefilement className="flex flex-col px-3 py-3">
@@ -1273,7 +1247,6 @@ export function Chat({
                       card={carte}
                       vu={reglagesCarte.vu}
                       libelles={reglagesCarte.libelles}
-                      ancre={setBlocReglages}
                     />
                   ) : null
                 }
@@ -1296,7 +1269,6 @@ export function Chat({
                 lancement={etapeDePreparation ?? undefined}
                 onToggleEvolution={toggleEvolution}
                 onToggleAll={toggleAll}
-                onEcrireDansLeChamp={ecrireDansLeChamp}
               />
               </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
@@ -1724,11 +1696,12 @@ function TravailEnCours({
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
-        // IL PASSE VRAIMENT SOUS LE CHAMP : 24 px de recouvrement, le rayon du
-        // champ (`rounded-[24px]`). À 8 px, son bord bas s'arrêtait dans la
-        // courbe et ses deux coins dépassaient autour des arrondis ; ici il
-        // descend jusqu'aux flancs droits du champ, qui le recouvre.
-        'relative z-0 -mb-6 flex shrink-0 flex-col rounded-t-[20px]',
+        // IL PASSE VRAIMENT SOUS LE CHAMP : 12 px de recouvrement, le rayon du
+        // champ (`rounded-lg`). Plus court que le rayon, son bord bas
+        // s'arrêtait dans la courbe et ses deux coins dépassaient autour des
+        // arrondis ; ici il descend jusqu'aux flancs droits du champ, qui le
+        // recouvre. Son propre haut prend le même rayon.
+        'relative z-0 -mb-3 flex shrink-0 flex-col rounded-t-lg',
         // UN GRIS UN PEU PLUS CLAIR QUE LE CHAMP (`--decroche`), SOLIDE du
         // haut jusqu'en bas (entête et liste dépliée comprises) : il se pose
         // entre le fond de la page et celui du champ. C'est son TEXTE qui le
@@ -1740,13 +1713,13 @@ function TravailEnCours({
       <div
         className={cn(
           'flex items-center gap-2 px-3 pt-1.5',
-          // pb-8 (32px) compense le recouvrement de -mb-6 (24px) posé sur le
+          // pb-5 (20px) compense le recouvrement de -mb-3 (12px) posé sur le
           // conteneur : il reste 8px d'air visible sous le texte avant que la
           // zone de saisie ne le recouvre, proche des 6px du pt-1.5 au-dessus
           // — cette marge ne vaut que pour la DERNIÈRE ligne visible : une
           // fois la liste dépliée sous elle, c'est elle qui la porte à la
           // place.
-          todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-8',
+          todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-5',
         )}
       >
         {/* « CETTE CARTE TRAVAILLE » : le même point que les entêtes de
@@ -1775,7 +1748,7 @@ function TravailEnCours({
       </div>
 
       {todosDisponibles && listeOuverte ? (
-        <div className="pb-8">
+        <div className="pb-5">
           <CorpsListeTaches todos={todos} streaming={busy} maintenant={Date.now()} />
         </div>
       ) : null}
@@ -1886,13 +1859,10 @@ function ReglagesAgent({
   card,
   vu,
   libelles,
-  ancre,
 }: {
   card: Card;
   vu: ReglagesCarte;
   libelles: { moteur: string; modele: string; reflexion: string };
-  /** Le bloc lui-même, suivi pour savoir s'il est encore à l'écran. */
-  ancre?: (noeud: HTMLElement | null) => void;
 }) {
   /* Le cadenas dit toujours POURQUOI — et ne paraît que quand c'est figé. */
   const raison = vu.raison ? t(vu.raison) : '';
@@ -1911,7 +1881,6 @@ function ReglagesAgent({
            jamais dans un `button`. */
         <button
           type="button"
-          ref={ancre}
           data-reglages-figes={vu.modifiable ? undefined : ''}
           data-reglages-agent={vu.modifiable ? 'modifiable' : 'fige'}
           className="flex w-full flex-col gap-0.5 rounded-md bg-raised px-2.5 py-2 text-left transition-colors hover:bg-border"
@@ -1948,9 +1917,9 @@ function ReglagesAgent({
 /**
  * LE MENU DE LA CONFIGURATION D'UNE CARTE, ANCRÉ AU BOUTON QU'ON LUI CONFIE.
  *
- * Deux boutons l'ouvrent — le bloc du fil (`ReglagesAgent`) et l'icône de
- * l'entête, quand ce bloc a quitté l'écran : chacun a SON menu, posé sous lui,
- * et tous deux montrent le même contenu.
+ * Deux boutons l'ouvrent — le bloc du fil (`ReglagesAgent`, menu sous lui) et
+ * l'icône de la barre d'écriture (toujours là, menu au-dessus d'elle) : chacun
+ * a SON menu, et tous deux montrent le même contenu.
  *
  *  - MODIFIABLE (`data-tiroir-reglages="modifiable"`) : les entrées des
  *    réglages de l'agent, qui déplient chacune leur liste en sous-menu et
@@ -1964,8 +1933,6 @@ function MenuDesReglagesDeLaCarte({
   libelles,
   declencheur,
   cote = 'start',
-  ouvert: ouvertImpose,
-  onOuvert,
 }: {
   card: Card;
   vu: ReglagesCarte;
@@ -1974,14 +1941,9 @@ function MenuDesReglagesDeLaCarte({
   declencheur: React.ReactElement;
   /** Le bord du bouton sur lequel le menu s'aligne. */
   cote?: 'start' | 'end';
-  /** L'ouverture, quand celui qui appelle a besoin de la connaître (l'icône de l'entête). */
-  ouvert?: boolean;
-  onOuvert?: (ouvert: boolean) => void;
 }) {
   const state = useApp();
-  const [ouvertIci, setOuvertIci] = React.useState(false);
-  const ouvert = ouvertImpose ?? ouvertIci;
-  const setOuvert = onOuvert ?? setOuvertIci;
+  const [ouvert, setOuvert] = React.useState(false);
   const titre = titreDesReglages(vu);
 
   return (
@@ -1991,6 +1953,7 @@ function MenuDesReglagesDeLaCarte({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align={cote}
+        side={cote === 'end' ? 'bottom' : 'top'}
         collisionPadding={8}
         className="min-w-[250px] sm:max-h-[min(480px,var(--radix-dropdown-menu-content-available-height))] sm:max-w-[min(340px,calc(100vw-16px))]"
       >

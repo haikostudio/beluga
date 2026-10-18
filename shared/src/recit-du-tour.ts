@@ -270,6 +270,9 @@ const OUTILS_DE_PLOMBERIE = [
      leur contenu s'affiche déjà en grand, dans le même passage. */
   'rendre_plan',
   'rendre_comprehension',
+  /* Les suites proposées s'affichent en pastilles sous la réponse : la ligne
+     de l'appel les redirait. */
+  'proposer_suites',
 ] as const;
 
 /** Cette entrée appelle-t-elle l'outil nommé, sous l'une de ses écritures ? */

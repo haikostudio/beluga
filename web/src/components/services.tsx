@@ -90,12 +90,18 @@ export function BoutonDesServices({
   const messages = state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter;
   const alertes = messages + sitesEnPanne;
   /* LE STUDIO N'A DE TUILE QUE POUR SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`). */
-  const services = CLES_DES_SERVICES.filter((service) => service.cle !== 'studio' || state.studioOuvert);
+  /* LES SERVICES SONT À L'ADMINISTRATEUR : un membre ou un lecteur n'a que ses projets. */
+  const services = CLES_DES_SERVICES.filter(
+    (service) => state.monRole === 'admin' && (service.cle !== 'studio' || state.studioOuvert),
+  );
   const serviceOuvert = services.find((service) => service.cle === vue);
   const surUnService = !!serviceOuvert;
   /* « Tableaux de bord » : la vue qui les nomme, ou un projet qu'aucun clic n'a encore ouvert. */
   const surLesTableauxDeBord = vue === 'en-route' || (vue === 'projet' && !state.activeProjectId);
   const Icone = serviceOuvert?.Icone ?? LayoutGrid;
+
+  // Ni services ni « Tableaux de bord » (toutes les cartes de tous les projets) pour un membre ou un lecteur.
+  if (state.monRole !== 'admin') return null;
 
   return (
     <DropdownMenu open={ouvert} onOpenChange={setOuvert}>

@@ -33,7 +33,7 @@ import { startDeploy } from './deploy.js';
 import { archiverLesCartesEnLigneRestees } from './archive.js';
 import { rattraperLesBranchesPerdues } from './rattrapage-branches-perdues.js';
 import { reprendreLesRattrapages } from './rattrapage-ecartee.js';
-import { ensureSelfProject, refreshGitInfo, adoptServerProjects } from './projects.js';
+import { ensureSelfProject, rangerLeProjetDeLOutilSiHebergee, detacherLeProjetDuDepotPublic, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
 import { purgerCopiesDeProjetsSupprimes } from './copie-de-projet-supprime.js';
 import { planifierLesBackups } from './backups.js';
@@ -170,6 +170,10 @@ async function main(): Promise<void> {
   // L'avancement d'une carte liée à une demande prévient les clients de celle-ci.
   brancherLAvancementDesCartes();
   await ensureSelfProject();
+  // Sur l'offre hébergée, un projet de l'outil déjà inscrit se range (rien n'est supprimé).
+  rangerLeProjetDeLOutilSiHebergee();
+  // Le dépôt public se lit, il ne reçoit jamais d'envoi depuis ce projet.
+  await detacherLeProjetDuDepotPublic();
   // Les moteurs ajoutés avant les cartes d'ajout reçoivent la leur (projet Beluga Build).
   await rattraperLesCartesDesMoteurs();
   // Beluga vit dans son groupe « Local », créé ou repris ici (`shared/src/groupe-local.ts`).
