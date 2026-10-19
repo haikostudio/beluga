@@ -307,12 +307,17 @@ export interface ChoixDeCompte {
 /**
  * Les comptes proposés pour poursuivre : jamais celui qui vient de tomber,
  * jamais un compte coupé à la main. Les disponibles passent devant, puis ceux
- * du moteur du tour, puis le moins consommé.
+ * du moteur du tour, puis l'ORDRE RÉGLÉ PAR L'UTILISATEUR : le moteur le plus
+ * haut dans sa liste (`ordreDesMoteurs`), puis le compte le plus haut dans
+ * celle de son moteur (`priority`) — le moins consommé ne départage que deux
+ * comptes de même rang.
  *
  * LE CHOIX À LA MAIN PEUT CHANGER DE MOTEUR (`tousMoteurs`). Avec un seul
  * compte Claude à sa limite, la liste du même moteur était vide et la carte
  * restait bloquée sans issue (constaté le 13/09/2026). La relève AUTOMATIQUE,
- * elle, ne change jamais de moteur (`compteDeRepriseAutomatique`).
+ * elle, ne change jamais de moteur (`compteDeRepriseAutomatique`) : passer à un
+ * autre moteur reste un clic, et le premier choix disponible de cette liste est
+ * celui que l'écran recommande.
  *
  * Les comptes indisponibles restent dans la liste, marqués comme tels : c'est
  * ce qui permet de dire « aucun compte libre pour l'instant » en nommant ceux
@@ -322,12 +327,27 @@ export function comptesDeReprise(
   engine: string,
   compteEpuise: string,
   comptes: readonly CompteConnu[],
-  options: { tousMoteurs?: boolean } = {},
+  options: { tousMoteurs?: boolean; ordreDesMoteurs?: readonly string[] } = {},
 ): ChoixDeCompte[] {
+  const rangDuMoteur = (id: string) => {
+    const rang = (options.ordreDesMoteurs ?? []).indexOf(id);
+    return rang === -1 ? Number.MAX_SAFE_INTEGER : rang;
+  };
   return comptes
     .filter(
       (compte) => (options.tousMoteurs || compte.engine === engine) && compte.id !== compteEpuise && !compte.coupe,
     )
+    .sort((a, b) => {
+      if (a.disponible !== b.disponible) return a.disponible ? -1 : 1;
+      if ((a.engine === engine) !== (b.engine === engine)) return a.engine === engine ? -1 : 1;
+      const moteur = rangDuMoteur(a.engine) - rangDuMoteur(b.engine);
+      if (moteur) return moteur;
+      const rang = (a.priority ?? 100) - (b.priority ?? 100);
+      if (rang) return rang;
+      const conso = (a.consommePct ?? 0) - (b.consommePct ?? 0);
+      if (conso) return conso;
+      return a.label.localeCompare(b.label);
+    })
     .map((compte) => ({
       id: compte.id,
       label: compte.label,
@@ -335,14 +355,7 @@ export function comptesDeReprise(
       disponible: compte.disponible,
       consommePct: compte.consommePct,
       resetsAt: compte.resetsAt,
-    }))
-    .sort((a, b) => {
-      if (a.disponible !== b.disponible) return a.disponible ? -1 : 1;
-      if ((a.engine === engine) !== (b.engine === engine)) return a.engine === engine ? -1 : 1;
-      const conso = (a.consommePct ?? 0) - (b.consommePct ?? 0);
-      if (conso) return conso;
-      return a.label.localeCompare(b.label);
-    });
+    }));
 }
 
 /** Un choix est-il possible tout de suite ? */

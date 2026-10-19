@@ -33,6 +33,9 @@ export const VUES_CENTRALES = [
   /* Le service Statistiques : le suivi des visites de chaque projet mesuré
      et des sites autonomes (`shared/src/statistiques.ts`). */
   'statistiques',
+  /* Les MÉDIAS fabriqués par les cartes en mode « Réalisation », projet par
+     projet, rangés par carte (`server/src/realisation.ts`). */
+  'medias',
 ] as const;
 
 export type VueCentrale = (typeof VUES_CENTRALES)[number];

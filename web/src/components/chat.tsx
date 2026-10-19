@@ -27,7 +27,12 @@ import {
   attenteDeLaDemande,
   barreDeSuivi,
   barreDuCahier,
+  barreDeLaRealisation,
   estVoletDuCahier,
+  estVoletDeRealisation,
+  barreDEcritureDuVoletDeRealisation,
+  etapeCouranteDeLaRealisation,
+  realisationDeLaCarte,
   etapeCouranteDuCahier,
   colonneAffichee,
   agentCompteCommeTravail,
@@ -92,6 +97,7 @@ import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/co
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { BarreDEtapes } from '@/components/barre-etapes';
 import { BandeauCahierDesCharges } from '@/components/cahier-des-charges';
+import { BandeauDeRealisation } from '@/components/realisation-volet';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
@@ -636,13 +642,27 @@ export function Chat({
   /* LE VOLET DU CAHIER DES CHARGES a ses trois étapes à lui (`barreDuCahier`),
      et ni barre d'écriture ni bouton de lancement : on y répond dans le
      panneau de décision (`estVoletDuCahier`). */
-  const voletDuCahier = estVoletDuCahier(carte);
+  /* LE VOLET DE RÉALISATION (caméra) suit le même modèle : ses trois étapes
+     (`barreDeLaRealisation`), son bandeau à la place de la barre d'écriture
+     (`estVoletDeRealisation`, `shared/src/mode-realisation.ts`). */
+  const voletDeRealisation = estVoletDeRealisation(carte);
+  const voletDuCahier = estVoletDuCahier(carte) || voletDeRealisation;
+  /* Cahier de réalisation TERMINÉ : la barre d'écriture revient (le bandeau
+     passe alors par son bouton principal, une seule fois) pour demander une
+     amélioration. Avant, on répond dans le panneau de décision. */
+  const barreRendueAuVolet = barreDEcritureDuVoletDeRealisation(carte);
   const cahier = carte?.cahierDesCharges;
+  const realisation = voletDeRealisation ? realisationDeLaCarte(carte) : null;
   const segments = React.useMemo(
-    () => (cahier ? barreDuCahier(cahier) : barreDeSuivi(points, suivi)),
-    [cahier, points, suivi],
+    () =>
+      cahier ? barreDuCahier(cahier) : realisation ? barreDeLaRealisation(realisation) : barreDeSuivi(points, suivi),
+    [cahier, realisation, points, suivi],
   );
-  const etapeCourante = cahier ? etapeCouranteDuCahier(cahier) : segmentActifDeSuivi(suivi);
+  const etapeCourante = cahier
+    ? etapeCouranteDuCahier(cahier)
+    : realisation
+      ? etapeCouranteDeLaRealisation(realisation)
+      : segmentActifDeSuivi(suivi);
   const deploiement = React.useMemo(
     () => ({ etat: etatDuDeploiement(suivi), deployeeA: suivi.deployeeA }),
     [suivi],
@@ -708,7 +728,7 @@ export function Chat({
     !chargement && !envoiLocal && messages.length === 0 && reglagesCarte.vu?.modifiable === true &&
     /* Le cahier des charges démarre SEUL à sa naissance : rien à configurer,
        son volet montre d'emblée ses étapes et son bandeau. */
-    !estVoletDuCahier(carte);
+    !voletDuCahier;
   /*
    * LA TIMELINE DE CADRAGE N'A PLUS D'ÉCRAN. Elle dessinait les six étapes du
    * cadrage par-dessus le fil des messages d'une carte — et ce fil n'existe
@@ -1298,13 +1318,14 @@ export function Chat({
           questionEnTexte={!!questionEnTexte}
         />
 
-        {voletDuCahier ? (
+        {voletDuCahier && !barreRendueAuVolet ? (
           <div
             className="shrink-0 px-2.5 pt-2"
             style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
-            data-volet-cahier={carte.id}
+            data-volet-cahier={voletDeRealisation ? undefined : carte.id}
+            data-volet-realisation={voletDeRealisation ? carte.id : undefined}
           >
-            <BandeauCahierDesCharges carte={carte} />
+            {voletDeRealisation ? <BandeauDeRealisation carte={carte} /> : <BandeauCahierDesCharges carte={carte} />}
           </div>
         ) : (
           barreDEcriture

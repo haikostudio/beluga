@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
 import { Loader2, Plus } from 'lucide-react';
 import { Card, RAISON_CANAL_COUPE, TITRE_CARTE_DE_CADRAGE, gestesGeles } from '@beluga/shared';
 import { CLASSE_LIBELLE_EN_BANDE } from '@/components/colonne-de-service';
@@ -56,8 +57,8 @@ export function useNouvelleTache(projectId: string) {
 export function BoutonNouvelleTache({ projectId }: { projectId: string }) {
   const { busy, ouvrir } = useNouvelleTache(projectId);
   const canal = useCanal();
-  // Un lecteur voit les projets sans rien créer : le geste ne lui est pas montré (le serveur le refuse aussi).
-  if (useApp().monRole === 'lecteur') return null;
+  // Qui ne fait que VOIR ce projet ne crée rien : le geste ne lui est pas montré (le serveur le refuse aussi).
+  if (!aLeNiveauSurLeProjet(useApp(), projectId, 'travailler')) return null;
   return (
     <button
       type="button"

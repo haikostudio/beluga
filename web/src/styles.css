@@ -143,6 +143,9 @@
     --comprehension-trait: 48 92% 62% / 0.5;
     --teinte-fond: 262 85% 78% / 0.14;
     --teinte-trait: 262 85% 78% / 0.5;
+    /* LE VIOLET PLEIN, sous un texte BLANC : les boutons d'action de
+       l'assistant de démarrage, et eux seuls (demande du 18/10/2026). */
+    --teinte-plein: 262 60% 56%;
     /* L'APLAT D'ENCRE — la bulle de l'utilisateur dans une discussion, et le
        bouton qui arrête. En clair il est NOIR, comme l'accent ; en sombre
        c'est un GRIS soutenu, jamais le blanc de l'accent : une bulle ou une
@@ -170,8 +173,35 @@
    * couleur. Une seconde règle `:root` lui ferait croire à une palette vide.
    */
   html {
-    --zone-sure-haut: env(safe-area-inset-top, 0px);
+    --marge-flou-ios: 0px;
+    --zone-sure-haut-systeme: env(safe-area-inset-top, 0px);
+    --zone-sure-haut: calc(var(--zone-sure-haut-systeme) + var(--marge-flou-ios));
     --zone-sure-bas: env(safe-area-inset-bottom, 0px);
+  }
+
+  /**
+   * MARGE SOUS LE FLOU D'iOS 26/27 : 20 PX, COMME HAIKOMAIL (19/10/2026).
+   * Installée en `black-translucent` (`web/index.html`), l'application passe
+   * sous l'heure et iOS y pose un flou « scroll edge effect » d'environ
+   * 38-40 pt, qu'aucune CSS n'éteint et que l'émulation Chrome ne montre pas.
+   * On ne le combat pas : le FOND monte jusqu'en haut (le flou reste invisible
+   * sur une surface unie) et le CONTENU démarre 20 px plus bas, en UN seul
+   * chiffre via `--zone-sure-haut` — entêtes, tiroirs et assistant suivent.
+   * La hauteur d'application lit `--zone-sure-haut-systeme`, sans la marge.
+   *
+   * Historique : 20 px (de743942) jugé sans effet — sans doute avant
+   * réinstallation de l'icône ; 40 px (7ecbe3b4) = bande vide, refusée ; barre
+   * « default » (7e483cc5) = bande grise opaque ou flou intermittents sur
+   * iOS 27, abandonnée. ProjetE : 28 px trop loin, 7 px effleure l'entête.
+   * Changer cette marge n'impose pas de réinstaller l'icône, changer le style
+   * de barre oui. Limitée à iOS installé en portrait : rien ne bouge ailleurs.
+   */
+  @supports (-webkit-touch-callout: none) {
+    @media (display-mode: standalone) and (orientation: portrait) {
+      html {
+        --marge-flou-ios: 20px;
+      }
+    }
   }
 
   html:not(.dark) {
@@ -219,6 +249,7 @@
     --comprehension-trait: 40 90% 36% / 0.55;
     --teinte-fond: 262 68% 50% / 0.1;
     --teinte-trait: 262 68% 50% / 0.5;
+    --teinte-plein: 262 68% 50%;
     --encre: 0 0% 5%;
     --encre-fg: 0 0% 100%;
     color-scheme: light;
@@ -430,8 +461,23 @@
     background-color: hsl(var(--encre-fg) / 0.14);
     color: hsl(var(--encre-fg));
   }
+  /* LES BOUTONS D'ACTION DE L'ASSISTANT DE DÉMARRAGE (« Continuer »,
+     « Relier GitHub »…) : violet plein, écriture blanche — dans cet assistant
+     SEULEMENT (demande du 18/10/2026). Partout ailleurs, l'accent reste. */
+  [data-assistant-demarrage] button[class~="bg-accent"] {
+    background-color: hsl(var(--teinte-plein));
+    color: hsl(0 0% 100%);
+  }
   .bulle-utilisateur .prose-hd li::before {
     color: hsl(var(--encre-fg) / 0.6);
+  }
+  /* Un tableau ou un titre collé (texte venu d'un assistant) suit l'aplat. */
+  .bulle-utilisateur .prose-hd :is(th, td) {
+    color: hsl(var(--encre-fg));
+    border-color: hsl(var(--encre-fg) / 0.2);
+  }
+  .bulle-utilisateur .prose-hd :is(h1, h2, h3) {
+    border-color: hsl(var(--encre-fg) / 0.2);
   }
 
   /* LA BULLE VISÉE PAR UN CLIC SUR UNE ALERTE. Le fil vient de défiler jusqu'à

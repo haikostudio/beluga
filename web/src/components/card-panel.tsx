@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte';
 import {
   AlertTriangle,
   Archive,
@@ -9,8 +10,6 @@ import {
   MessageSquare,
   MessagesSquare,
   Github,
-  Play,
-  CloudUpload,
   CircleDot,
   EllipsisVertical,
   Paperclip,
@@ -793,32 +792,7 @@ function CardPanelBody({
         {/* LES DEUX GESTES DE MISE EN LIGNE DU PROJET, comme sur la maquette :
             le déploiement (sur ce serveur) en contour, la mise en production en
             aplat. Ils ouvrent les MÊMES pages que le tableau. */}
-        {voletDuCahier || telephone ? null : (
-          <>
-            <Button
-              variant="outline"
-              size="md"
-              className="h-9 gap-2 rounded-lg px-3.5"
-              data-geste-deploiement
-              onClick={() => client.demanderDeploiement({ projectId: card.projectId })}
-            >
-              <Play className="h-3.5 w-3.5" />
-              {t('Déploiement')}
-            </Button>
-            {/* ICÔNE SEULE (demande du 15/10/2026) : le nom est dit au survol. */}
-            <Button
-              variant="default"
-              size="icon-barre"
-              className="shrink-0 rounded-lg"
-              aria-label="Mise en production"
-              title={t('Mise en production')}
-              data-geste-production
-              onClick={() => client.demanderProduction({ projectId: card.projectId })}
-            >
-              <CloudUpload className="h-4 w-4" />
-            </Button>
-          </>
-        )}
+        {voletDuCahier || telephone ? null : <GestesDePublicationDeCarte projectId={card.projectId} />}
       </EnteteDeZone>
       {/* Le titre, pour les lecteurs d'écran : la page est une fenêtre Radix. */}
       <DialogTitle className="sr-only">{card.title}</DialogTitle>

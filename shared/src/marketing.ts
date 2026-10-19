@@ -1,4 +1,5 @@
 import { slugEntier } from './slugs.js';
+import type { CibleSociale } from './reseaux-sociaux.js';
 /**
  * L'ATELIER MARKETING — les règles pures, sans base ni réseau.
  *
@@ -368,7 +369,15 @@ export interface ContenuMarketing {
   id: string;
   projectId: string;
   genre: GenreContenu;
+  /** Le canal PRINCIPAL : le premier de `canaux`, gardé pour le calendrier et l'agent. */
   canal: CanalContenu;
+  /**
+   * TOUS LES CANAUX du contenu (18/10/2026) : un même post peut partir sur
+   * Instagram, Facebook et LinkedIn. Un contenu d'avant n'en a qu'un, son `canal`.
+   */
+  canaux: CanalContenu[];
+  /** Les COMPTES reliés où il part, chacun avec son propre état (`shared/src/reseaux-sociaux.ts`). */
+  cibles?: CibleSociale[];
   titre: string;
   texte: string;
   /** Le jour prévu, AAAA-MM-JJ, et l'heure prévue facultative (HH:MM). */
@@ -596,8 +605,11 @@ export function transitionPermise(entree: {
   if (parQui === 'agent' && !ETAPES_DE_L_AGENT.includes(de)) {
     return `Ce contenu est déjà « ${LIBELLE_ETAPE[de]} » : l’agent n’y touche plus.`;
   }
-  // « Publié » et « En échec » depuis « Programmé » sont posés par la publication elle-même.
-  if (parQui === 'systeme') return de === 'programme' && (vers === 'publie' || vers === 'echec') ? null : 'Passage réservé à l’utilisateur.';
+  /* « Publié » et « En échec » sont posés par la publication elle-même — qui ne
+     part que d'un geste de l'utilisateur : « Programmé » (à l'heure prévue) ou
+     « Publier maintenant » depuis « Prêt », « Programmé » ou « En échec ». */
+  if (parQui === 'systeme')
+    return (de === 'programme' || de === 'pret' || de === 'echec') && (vers === 'publie' || vers === 'echec') ? null : 'Passage réservé à l’utilisateur.';
   if (!PASSAGES[de].includes(vers)) return `On ne passe pas de « ${LIBELLE_ETAPE[de]} » à « ${LIBELLE_ETAPE[vers]} ».`;
   if (vers === 'programme' && !jourValide(entree.datePrevue)) return 'Un contenu programmé a besoin d’une date.';
   return null;
@@ -612,8 +624,9 @@ export function transitionPermise(entree: {
  *  - Brouillons : ce qu'on écrit encore (l'utilisateur ou l'agent) ;
  *  - À valider : ce qui est écrit et attend une relecture ;
  *  - Programmés : relu, avec ou sans date de publication (« Prêt » sans date,
- *    « Programmé » avec date et heure) — un repère de calendrier, rien ne part
- *    tout seul ;
+ *    « Programmé » avec date et heure). Un contenu programmé qui vise des
+ *    COMPTES RELIÉS part tout seul à l'heure prévue ; sans compte coché, il
+ *    reste un repère de calendrier ;
  *  - Publiés : marqués comme publiés par l'utilisateur.
  */
 export type ColonneContenu = 'brouillons' | 'a_valider' | 'programmes' | 'publies';

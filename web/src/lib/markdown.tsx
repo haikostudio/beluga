@@ -293,8 +293,11 @@ export function SuitesProposees({
   }, [cible, etat]);
   if (!suites.length) return null;
   const bouton = cible && !figee && suites.length < SUITES_MAX_APRES_AJOUTS;
+  /* LA TAILLE DU TEXTE DE LA RÉPONSE (14,5 px, MEM-3218), posée ici : les suites
+     vivent HORS du texte de la réponse (`.texte-du-fil`) et prenaient sinon la
+     taille du corps de la page, un cran au-dessus (capture #fa53f, 18/10/2026). */
   return (
-    <div role="group" className="-mx-2 mt-3 flex flex-col gap-0.5" data-suites-proposees={suites.length}>
+    <div role="group" className="-mx-2 mt-3 flex flex-col gap-0.5 text-[14.5px] leading-relaxed" data-suites-proposees={suites.length}>
       {suites.map((suite, index) => (
         <IdeeACocher
           key={`${index}:${suite.titre}`}

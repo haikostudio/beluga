@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
 import { Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList } from 'lucide-react';
 import {
   serviceDeLaCarte,
@@ -1323,8 +1324,9 @@ export function Board({
    * l'écran du téléphone (demande du 11/10/2026).
    */
   const panneauDeDeploiement = (column: ColumnKey, columnCards: Card[], enTete: boolean) =>
-    /* LA MISE EN LIGNE EST À L'ADMINISTRATEUR : un membre ou un lecteur n'en voit pas le geste (le serveur le refuse aussi). */
-    state.monRole !== 'admin' ? null : (
+    /* LA MISE EN LIGNE SE DONNE PROJET PAR PROJET (« Déployer » dans la grille
+       d'un accès tiers) : sans ce droit, le geste ne se dessine pas (le serveur le refuse aussi). */
+    !aLeNiveauSurLeProjet(state, projectId, 'deployer') ? null : (
     <DeployPanel
       projectId={projectId}
       cards={columnCards}
@@ -1345,7 +1347,7 @@ export function Board({
      membres, chacun avec le sien, plus un bouton qui les lance tous
      (`bandeau-production-groupe.tsx`). Un projet ordinaire garde le sien. */
   const miseEnProduction = (enTete: boolean) =>
-    state.monRole !== 'admin' ? null : membresDuGroupe.length && projetOuvert ? (
+    !aLeNiveauSurLeProjet(state, projectId, 'deployer') ? null : membresDuGroupe.length && projetOuvert ? (
       <BandeauProductionGroupe groupe={projetOuvert} membres={membresDuGroupe} enTete={enTete} enMenu={!enTete} />
     ) : (
       <DeployPanel

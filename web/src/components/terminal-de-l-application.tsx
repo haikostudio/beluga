@@ -9,10 +9,11 @@ const TerminalServeur = React.lazy(() =>
 );
 
 /**
- * LE TERMINAL DU SERVEUR, PORTÉ PAR LA RACINE. Son entrée vit dans les réglages
- * (page « Serveur et agents ») ; lui est une page de la zone principale, et il
- * garde son mot dans l'adresse (« terminal ») : un lien collé ou un
- * rechargement le rouvre, que les réglages soient ouverts ou non.
+ * LE TERMINAL DU SERVEUR, PORTÉ PAR LA RACINE. Ses entrées : le bouton du
+ * tableau de bord (en haut à droite) et la page « Serveur et agents » des
+ * réglages. Lui est un VOLET ancré en bas de l'application, et il garde son
+ * mot dans l'adresse (« terminal ») : un lien collé ou un rechargement le
+ * rouvre, que les réglages soient ouverts ou non.
  *
  * `onOuverture` laisse la racine refermer ce qui le couvrirait — la fenêtre
  * des réglages, d'où part la demande.

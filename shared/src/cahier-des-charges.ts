@@ -26,6 +26,7 @@
 
 import { z } from 'zod';
 import { echapperHtml as echapper } from './demande-copiable.js';
+import { REGLE_DES_PISTES } from './pistes-de-question.js';
 import type { EtapeDeSuivi } from './frise-de-suivi.js';
 import type { SegmentDeSuivi } from './parcours-en-points.js';
 import { DOSSIER_DE_LA_SOURCE, LIBELLES_GENRES_DE_SOURCE, RAPPORT_D_ANALYSE, SourceDuClonage, majDeLaSource } from './clonage.js';
@@ -283,7 +284,7 @@ export function consigneDuCahier(cheminCompetence: string, cheminDuProjet: strin
 
 TON MODE D'EMPLOI est la compétence commune « ${COMPETENCE_DU_CAHIER} » : lis-la ENTIÈRE dès ton premier tour (${cheminCompetence}, avec ses annexes dans le même dossier) et suis son questionnaire, phase par phase : ${phasesDuCahier(aUneSource).map((p) => LIBELLES_PHASES_DU_CAHIER[p]).join(' → ')}.
 
-UNE QUESTION À LA FOIS, AVEC « ask_user » : chacune a ses choix, sa « description » (ce que change la réponse, en mots courants) et la réponse que tu CONSEILLES, en tête et marquée « (recommandé) ». Saute ce que les réponses précédentes rendent sans objet. Une précision de produit ne se suppose jamais ; une manière de construire se décide et s'écrit comme décidée.
+UNE QUESTION À LA FOIS, AVEC « ask_user » : chacune a ses choix, sa « description » (ce que change la réponse, en mots courants) et la réponse que tu CONSEILLES, en tête et marquée « (recommandé) ». Saute ce que les réponses précédentes rendent sans objet. ${REGLE_DES_PISTES} Une précision de produit ne se suppose jamais ; une manière de construire se décide et s'écrit comme décidée.
 
 APRÈS CHAQUE RÉPONSE, AVANT LA QUESTION SUIVANTE, appelle « cahier_des_charges » avec le document ENTIER mis à jour et l'avancement : « faites » (questions tranchées), « total » (questions prévues, ajusté en chemin), « phase », « restants » (ce qui reste à voir, en quelques mots chacun). Le document suit le gabarit de la compétence ; une partie pas encore tranchée porte « ${MARQUE_A_VOIR} ». L'outil l'écrit dans ${DOCUMENT_DU_CAHIER} du projet, et l'utilisateur le lit depuis la carte pendant qu'il s'écrit. C'est AUSSI ce qui permet de reprendre après une pause : rien ne doit vivre seulement dans la conversation.
 

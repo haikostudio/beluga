@@ -141,6 +141,15 @@ export function appliquerLeTheme(theme: ThemeId, cause?: MotifDeBascule): ThemeI
   racine.style.colorScheme = sombre ? 'dark' : 'light';
   const bandeau = document.querySelector('meta[name="theme-color"]');
   if (bandeau) bandeau.setAttribute('content', couleurDeBandeau(theme));
+  /* `color-scheme` aussi en balise : en barre « black-translucent », iOS en tire
+     la couleur de l'heure (posée d'abord par le script de `web/index.html`). */
+  let schema = document.querySelector('meta[name="color-scheme"]');
+  if (!schema) {
+    schema = document.createElement('meta');
+    schema.setAttribute('name', 'color-scheme');
+    document.head.appendChild(schema);
+  }
+  schema.setAttribute('content', sombre ? 'dark' : 'light');
   try {
     window.localStorage.setItem(CLE_REPERE_PREMIER_AFFICHAGE, theme);
   } catch {

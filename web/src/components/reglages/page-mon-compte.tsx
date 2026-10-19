@@ -1,5 +1,7 @@
 import { FormulaireProfil } from '@/espace/formulaire-profil';
 import { Groupe } from '@/components/reglages/communs';
+import { AccesTiers } from '@/components/reglages/acces-tiers';
+import { useApp } from '@/lib/use-app';
 import { client } from '@/lib/client';
 import { t } from '@/lib/langue';
 
@@ -12,11 +14,16 @@ import { t } from '@/lib/langue';
 const envoyerParLeCanalPrincipal = (cmd: any) => client.call(cmd);
 
 export function PageMonCompte() {
+  const state = useApp();
   return (
-    <Groupe titre={t('Mon compte')}>
-      <div className="-mx-3" data-page-mon-compte>
-        <FormulaireProfil envoyer={envoyerParLeCanalPrincipal} remplirLaHauteur={false} />
-      </div>
-    </Groupe>
+    <>
+      <Groupe titre={t('Mon compte')}>
+        <div className="-mx-3" data-page-mon-compte>
+          <FormulaireProfil envoyer={envoyerParLeCanalPrincipal} remplirLaHauteur={false} />
+        </div>
+      </Groupe>
+      {/* LES ACCÈS TIERS À BELUGA (ex-« Sous-comptes ») : l'administrateur seul les ouvre. */}
+      {state.monRole === 'admin' ? <AccesTiers /> : null}
+    </>
   );
 }

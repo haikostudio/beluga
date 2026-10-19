@@ -34,12 +34,16 @@ import {
   titreDeLAgentMarketing,
   estSiteAutonome,
   jourLocalDe,
+  FICHES_RESEAUX,
+  demandeDeCreationDeCompte,
+  estReseauSocial,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent, rangerCarteDAgent } from './carte-d-agent-demon.js';
-import { assurerEspace, listerEspaces, marquerAgentMarketing, productionSuspendue, projetsAReorganiser, rythmeDuProjet } from './marketing.js';
+import { assurerEspace, listerEspaces, lireEspace as lireEspaceMarketing, marquerAgentMarketing, productionSuspendue, projetsAReorganiser, rythmeDuProjet } from './marketing.js';
+import { adresseDeRetour, ecrireApplication, lireApplication } from './publication-sociale.js';
 import { log } from './logger.js';
 
 export interface DepartMarketing {
@@ -185,4 +189,54 @@ export async function lancerLaReorganisationDuJour(maintenant = Date.now()): Pro
 /** La phrase du geste « suite », avec le rythme réel du projet. */
 export function demandeDeLaSuite(projectId: string): string {
   return demandeDuGeste('suite', rythmeDuProjet(projectId));
+}
+
+/**
+ * « CRÉER » UN COMPTE SUR UN RÉSEAU (onglet Comptes) : un agent à part, sur sa
+ * propre carte marketing, ouvre le compte du projet, crée l'application
+ * développeur si elle manque, remplit les dossiers de validation et rend ses
+ * identifiants à l'atelier (outil « marketing », action « application »). Il
+ * demande à l'utilisateur, par ses questions, ce que lui seul peut fournir.
+ * Une seconde demande sur le même réseau, pendant qu'un agent y travaille,
+ * rouvre sa carte au lieu d'en ouvrir une autre.
+ */
+export async function lancerCreationDeCompte(entree: { projectId: string; reseau: unknown }): Promise<DepartMarketing> {
+  const projet = store.getProject(entree.projectId);
+  if (!projet) throw new Error('projet introuvable');
+  if (!estReseauSocial(entree.reseau)) throw new Error('réseau inconnu');
+  const reseau = entree.reseau;
+  const fiche = FICHES_RESEAUX[reseau];
+  const app = lireApplication(fiche.application);
+  if (app.etat === 'en_creation' && app.cardId) {
+    const carte = store.getCard(app.cardId);
+    const agent = carte ? store.listAgents().find((a) => a.cardId === carte.id && a.role !== 'cadrage') : undefined;
+    if (carte && agent && carte.column !== 'archived') return { agentId: agent.id, projectId: carte.projectId, cardId: carte.id };
+  }
+  assurerEspace(projet.id);
+  const r = await reglages();
+  const { card, agentId } = ouvrirCarteDAgent({
+    projectId: projet.id,
+    titre: `Ouvrir ${fiche.libelle} — ${projet.name}`.slice(0, 80),
+    description: `Un agent ouvre le compte ${fiche.libelle} du projet, crée l’application développeur si elle manque et remplit les dossiers de validation. Il vous demandera les codes reçus par SMS et ce que vous seul pouvez fournir. Rien n’est publié sans vous.`,
+    labels: [LABEL_MARKETING],
+    role: 'task',
+    run: { engine: 'claude', model: r.model, thinking: r.thinking as any },
+  });
+  if (app.etat === 'absente' || app.etat === 'en_creation') ecrireApplication({ application: fiche.application, etat: 'en_creation', cardId: card.id });
+  void sendPrompt(
+    agentId,
+    demandeDeCreationDeCompte({
+      reseau,
+      nomProjet: projet.name,
+      adresseRetour: adresseDeRetour(),
+      adresseProduit: lireEspaceMarketing(projet.id)?.configuration.adresse ?? projet.vitrineLiee?.adresseProduction ?? null,
+      application: app,
+    }),
+    { template: 'none', motif: 'configuration-marketing' },
+  ).catch((err) => {
+    log.error('marketing : l’agent de création de compte n’a pas démarré', err);
+    direLaPanneSurLaCarte(card.id, agentId, err?.message ?? String(err));
+  });
+  log.info(`marketing : agent de création ${reseau} ouvert pour « ${projet.name} »`);
+  return { agentId, projectId: projet.id, cardId: card.id };
 }

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { niveauDeMonService } from '@/lib/mes-droits';
 import {
   Activity,
   Bell,
@@ -20,7 +21,6 @@ import {
   Scale,
   Search,
   Sparkles,
-  UserPlus,
   UserRound,
   Users,
   Volume2,
@@ -63,11 +63,10 @@ interface RenduDePage {
 const paresseux = (charge: () => Promise<Record<string, any>>, nom: string) =>
   React.lazy(() => charge().then((module) => ({ default: module[nom] })));
 
+/** Les groupes de réglages qu'ouvre le service « Réglages de Beluga » d'un accès tiers. */
+const GROUPES_DES_REGLAGES = ['apparence', 'projets', 'notifications', 'agents'];
+
 const RENDU_DES_PAGES: Record<string, RenduDePage> = {
-  'sous-comptes': {
-    icone: UserPlus,
-    rendu: paresseux(() => import('@/components/reglages/page-sous-comptes'), 'PageSousComptes'),
-  },
   'mon-compte': {
     icone: UserRound,
     rendu: paresseux(() => import('@/components/reglages/page-mon-compte'), 'PageMonCompte'),
@@ -218,14 +217,19 @@ function CorpsDesReglages({
     () =>
       ARBORESCENCE_REGLAGES.map((groupe) => ({
         ...groupe,
-        // Un membre ou un lecteur n'a que « Mon compte » : les réglages de la machine sont à l'administrateur.
+        // Un accès tiers a « Mon compte », plus ce que sa grille ouvre : les
+        // réglages de Beluga (« Réglages ») et les comptes des moteurs
+        // (« Moteurs »). Machine, données et développeurs restent à l'administrateur.
         pages: groupe.pages.filter(
           (item) =>
-            (state.monRole === 'admin' || item.cle === 'mon-compte') &&
+            (state.monRole === 'admin' ||
+              item.cle === 'mon-compte' ||
+              (GROUPES_DES_REGLAGES.includes(groupe.cle) && niveauDeMonService(state, 'reglages') !== 'aucun') ||
+              (groupe.cle === 'moteurs' && niveauDeMonService(state, 'moteurs') !== 'aucun')) &&
             (item.cle !== 'services-creation' || state.studioOuvert),
         ),
       })).filter((groupe) => groupe.pages.length > 0),
-    [state.studioOuvert, state.monRole],
+    [state.studioOuvert, state.monRole, state.mesDroits],
   );
   const pages = React.useMemo(() => pagesDesReglages(groupes), [groupes]);
 

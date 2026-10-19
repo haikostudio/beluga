@@ -1,4 +1,5 @@
 import { minusculesSansAccents } from './mots.js';
+import type { DroitsDAcces } from './droits-d-acces.js';
 /**
  * LES COMPTES : UN RÔLE, UNE PORTÉE.
  *
@@ -88,6 +89,12 @@ export interface CompteUtilisateur {
    * que personne n'a choisi — l'écran suit alors le réglage du système.
    */
   apparence?: string;
+  /**
+   * LA GRILLE DES DROITS d'un accès tiers (membre, lecteur) : projet par
+   * projet, service par service (`droits-d-acces.ts`). Absente sur un accès
+   * créé avant elle : `droitsDuCompte` la déduit du niveau et des projets.
+   */
+  droits?: DroitsDAcces;
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Folder,
+  FolderPlus,
   ImagePlus,
   Images,
   KeyRound,
@@ -41,7 +42,12 @@ import {
   filtrerAcces,
   libelleDansUnMenu,
   projetsEnArbre,
+  construireArbreDeDossiers,
+  cheminDuDossier,
+  descendantsDuDossier,
   regrouperParDossier,
+  SEPARATEUR_AFFICHAGE,
+  type NoeudDeDossier,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -174,7 +180,7 @@ export function CoffreFort({
   const [dossiersArchives, setDossiersArchives] = React.useState<DossierCoffre[]>([]);
   const [ouverts, setOuverts] = React.useState<ReadonlySet<string>>(new Set());
   /** Le dossier en cours d'édition : `null` = aucun, `{ dossier: null }` = un dossier neuf. */
-  const [edition, setEdition] = React.useState<{ dossier: DossierCoffre | null } | null>(null);
+  const [edition, setEdition] = React.useState<{ dossier: DossierCoffre | null; parentId?: string | null } | null>(null);
   /* Le tiroir des archives : une COUCHE de plus, pas une autre liste à la
      place de celle-ci. Sa recherche est la sienne — partager celle du fond
      ferait disparaître des lignes derrière, sans raison visible. */
@@ -244,7 +250,11 @@ export function CoffreFort({
       const active = liste.find((acces) => acces.id === id);
       if (active) {
         // La fiche visée se montre : son dossier s'ouvre.
-        if (active.dossierId) setOuverts((avant) => new Set(avant).add(active.dossierId as string));
+        // …et toute la chaîne de ses parents, sinon elle resterait cachée dans un dossier replié.
+        if (active.dossierId) {
+          const chaine = chaineDeParents(dossiers, active.dossierId);
+          setOuverts((avant) => new Set([...avant, ...chaine]));
+        }
         setFiche(active);
         return true;
       }
@@ -256,8 +266,10 @@ export function CoffreFort({
     },
   });
 
+  /* Un dossier se cherche par son CHEMIN complet : « Clients/Acme/Prod » trouve
+     ses fiches par n'importe lequel de ces mots. */
   const nomDossier = React.useCallback(
-    (id: string | null) => dossiers.find((d) => d.id === id)?.nom,
+    (id: string | null) => (id ? cheminDuDossier(dossiers, id).join(' ') || undefined : undefined),
     [dossiers],
   );
   const visibles = filtrerAcces(liste, recherche, nomProjet, nomDossier).filter(
@@ -266,7 +278,8 @@ export function CoffreFort({
   /* Une recherche ou un filtre de type OUVRE les dossiers où quelque chose est
      trouvé, et cache les dossiers vides : on voit la fiche avec son dossier. */
   const filtre = Boolean(recherche.trim() || typeRetenu);
-  const groupes = regrouperParDossier(visibles, dossiers, { sansVides: filtre });
+  const arbre = construireArbreDeDossiers(visibles, dossiers, { sansVides: filtre });
+  const rienAMontrer = !arbre.racines.length && !arbre.acces.length;
   const bascule = (id: string) =>
     setOuverts((avant) => {
       const suite = new Set(avant);
@@ -435,7 +448,7 @@ export function CoffreFort({
             /* Les accès à venir en silhouette, jamais une phrase d'attente :
                l'état vide ne se dit qu'une fois la liste réellement reçue. */
             <SilhouetteCoffre />
-          ) : !groupes.length ? (
+          ) : rienAMontrer ? (
             recherche || typeRetenu ? (
               <p className="px-1 py-3 text-[12.5px] text-faint">{t('Aucun accès ne correspond.')}</p>
             ) : (
@@ -452,44 +465,40 @@ export function CoffreFort({
             )
           ) : (
             <div className={CLASSE_GROUPE_DE_LIGNES} data-coffre-liste="actifs">
-              {groupes.map((groupe, rang) =>
-                groupe.dossier ? (
-                  <LigneDeDossier
-                    key={groupe.dossier.id}
-                    dossier={groupe.dossier}
-                    nombre={groupe.acces.length}
-                    ouvert={filtre || ouverts.has(groupe.dossier.id)}
-                    projet={nomProjet(groupe.dossier.projectId)}
-                    onBascule={() => bascule(groupe.dossier!.id)}
-                    onModifier={() => setEdition({ dossier: groupe.dossier })}
-                  >
-                    {groupe.acces.map((acces) => (
-                      <LigneAcces
-                        key={acces.id}
-                        acces={acces}
-                        projet={nomProjet(acces.projectId)}
-                        onOuvrir={() => setFiche(acces)}
-                      />
-                    ))}
-                  </LigneDeDossier>
-                ) : (
-                  <React.Fragment key="racine">
-                    {rang > 0 ? (
-                      <p className="px-3.5 pb-1 pt-3 text-[12px] text-faint" data-coffre-sans-dossier>
-                        {t('Sans dossier')}
-                      </p>
-                    ) : null}
-                    {groupe.acces.map((acces) => (
-                      <LigneAcces
-                        key={acces.id}
-                        acces={acces}
-                        projet={nomProjet(acces.projectId)}
-                        onOuvrir={() => setFiche(acces)}
-                      />
-                    ))}
-                  </React.Fragment>
-                ),
-              )}
+              {arbre.racines.map((noeud) => (
+                <BrancheDeDossier
+                  key={noeud.dossier.id}
+                  noeud={noeud}
+                  filtre={filtre}
+                  ouverts={ouverts}
+                  nomProjet={nomProjet}
+                  onBascule={bascule}
+                  onModifier={(dossier) => setEdition({ dossier })}
+                  onSousDossier={(dossier) => {
+                    // Le parent s'ouvre : le sous-dossier neuf s'y montrera dès sa création.
+                    setOuverts((avant) => new Set(avant).add(dossier.id));
+                    setEdition({ dossier: null, parentId: dossier.id });
+                  }}
+                  onOuvrir={setFiche}
+                />
+              ))}
+              {arbre.acces.length ? (
+                <>
+                  {arbre.racines.length ? (
+                    <p className="px-3.5 pb-1 pt-3 text-[12px] text-faint" data-coffre-sans-dossier>
+                      {t('Sans dossier')}
+                    </p>
+                  ) : null}
+                  {arbre.acces.map((acces) => (
+                    <LigneAcces
+                      key={acces.id}
+                      acces={acces}
+                      projet={nomProjet(acces.projectId)}
+                      onOuvrir={() => setFiche(acces)}
+                    />
+                  ))}
+                </>
+              ) : null}
             </div>
           )}
         </ZoneDefilement>
@@ -517,7 +526,7 @@ export function CoffreFort({
       />
 
       {/* Un dossier : son nom et son projet, rien d'autre. */}
-      <FicheDossier edition={edition} onClose={() => setEdition(null)} onListe={recevoir} />
+      <FicheDossier edition={edition} dossiers={dossiers} onClose={() => setEdition(null)} onListe={recevoir} />
     </>
   );
 }
@@ -553,7 +562,9 @@ function TiroirArchives({
     if (!open) setRecherche('');
   }, [open]);
 
-  const visibles = filtrerAcces(archives, recherche, nomProjet, (id) => dossiersArchives.find((d) => d.id === id)?.nom);
+  const visibles = filtrerAcces(archives, recherche, nomProjet, (id) =>
+    id ? cheminDuDossier(dossiersArchives, id).join(' ') || undefined : undefined,
+  );
   const groupes = regrouperParDossier(visibles, dossiersArchives, { sansVides: true });
 
   return (
@@ -593,6 +604,7 @@ function TiroirArchives({
                 <LigneDeDossier
                   key={groupe.dossier.id}
                   dossier={groupe.dossier}
+                  libelle={groupe.chemin}
                   nombre={groupe.acces.length}
                   ouvert
                   projet={nomProjet(groupe.dossier.projectId)}
@@ -625,6 +637,74 @@ function TiroirArchives({
   );
 }
 
+/** Les identifiants de ce dossier et de tous ses parents, pour ouvrir toute la chaîne d'un coup. */
+function chaineDeParents(dossiers: readonly DossierCoffre[], id: string): string[] {
+  const parId = new Map(dossiers.map((d) => [d.id, d]));
+  const chaine: string[] = [];
+  let courant = parId.get(id);
+  while (courant && !chaine.includes(courant.id)) {
+    chaine.push(courant.id);
+    courant = courant.parentId ? parId.get(courant.parentId) : undefined;
+  }
+  return chaine;
+}
+
+/**
+ * UNE BRANCHE DE L'ARBRE : un dossier, puis ses sous-dossiers (la même branche,
+ * un cran plus loin), puis ses fiches. Chaque dossier se replie seul ; le retrait
+ * vient de `LigneDeDossier`, qui décale ses enfants d'un cran à chaque niveau.
+ */
+function BrancheDeDossier({
+  noeud,
+  filtre,
+  ouverts,
+  nomProjet,
+  onBascule,
+  onModifier,
+  onSousDossier,
+  onOuvrir,
+}: {
+  noeud: NoeudDeDossier;
+  filtre: boolean;
+  ouverts: Set<string>;
+  nomProjet: (projectId: string | null) => string | undefined;
+  onBascule: (id: string) => void;
+  onModifier: (dossier: DossierCoffre) => void;
+  onSousDossier: (dossier: DossierCoffre) => void;
+  onOuvrir: (acces: AccesCoffre) => void;
+}) {
+  const { dossier } = noeud;
+  return (
+    <LigneDeDossier
+      dossier={dossier}
+      nombre={noeud.total}
+      sousDossiers={noeud.enfants.length > 0}
+      ouvert={filtre || ouverts.has(dossier.id)}
+      projet={nomProjet(dossier.projectId)}
+      onBascule={() => onBascule(dossier.id)}
+      onModifier={() => onModifier(dossier)}
+      onSousDossier={() => onSousDossier(dossier)}
+    >
+      {noeud.enfants.map((enfant) => (
+        <BrancheDeDossier
+          key={enfant.dossier.id}
+          noeud={enfant}
+          filtre={filtre}
+          ouverts={ouverts}
+          nomProjet={nomProjet}
+          onBascule={onBascule}
+          onModifier={onModifier}
+          onSousDossier={onSousDossier}
+          onOuvrir={onOuvrir}
+        />
+      ))}
+      {noeud.acces.map((acces) => (
+        <LigneAcces key={acces.id} acces={acces} projet={nomProjet(acces.projectId)} onOuvrir={() => onOuvrir(acces)} />
+      ))}
+    </LigneDeDossier>
+  );
+}
+
 /**
  * UNE LIGNE DE DOSSIER, repliable : le chevron, le nom, le nombre de fiches et
  * le projet. Ses fiches se posent dessous, en retrait. Dans la liste des accès,
@@ -633,20 +713,28 @@ function TiroirArchives({
  */
 function LigneDeDossier({
   dossier,
+  libelle,
   nombre,
+  sousDossiers,
   ouvert,
   projet,
   onBascule,
   onModifier,
+  onSousDossier,
   onRestaurer,
   children,
 }: {
   dossier: DossierCoffre;
+  /** Ce qui s'affiche à la place du nom seul : le chemin complet, dans les archives. */
+  libelle?: string;
   nombre: number;
+  /** Le dossier contient des sous-dossiers (même vides) : il y a donc quelque chose à déplier. */
+  sousDossiers?: boolean;
   ouvert: boolean;
   projet?: string;
   onBascule?: () => void;
   onModifier?: () => void;
+  onSousDossier?: () => void;
   onRestaurer?: () => void;
   children?: React.ReactNode;
 }) {
@@ -664,13 +752,25 @@ function LigneDeDossier({
           <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} />
           <Folder className="h-4 w-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1 truncate text-[14.5px] text-text" data-coffre-dossier-nom>
-            {dossier.nom}
+            {libelle || dossier.nom}
           </span>
           <span className="max-w-[35%] shrink-0 truncate text-[12px] text-faint">{projet ?? t('Général')}</span>
           <span className="shrink-0 text-[12px] tabular-nums text-faint" data-coffre-dossier-nombre>
             {nombre}
           </span>
         </button>
+        {onSousDossier ? (
+          <button
+            type="button"
+            onClick={onSousDossier}
+            title={t('Nouveau sous-dossier')}
+            aria-label="Nouveau sous-dossier"
+            data-coffre-dossier-sous-dossier
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
         {onModifier ? (
           <button
             type="button"
@@ -696,7 +796,7 @@ function LigneDeDossier({
           </button>
         ) : null}
       </div>
-      {ouvert && nombre > 0 ? <div className="flex flex-col gap-0.5 pl-6">{children}</div> : null}
+      {ouvert && (nombre > 0 || sousDossiers) ? <div className="flex flex-col gap-0.5 pl-6">{children}</div> : null}
     </div>
   );
 }
@@ -708,10 +808,13 @@ function LigneDeDossier({
  */
 function FicheDossier({
   edition,
+  dossiers,
   onClose,
   onListe,
 }: {
-  edition: { dossier: DossierCoffre | null } | null;
+  edition: { dossier: DossierCoffre | null; parentId?: string | null } | null;
+  /** Les dossiers actifs : de quoi choisir le parent. */
+  dossiers: DossierCoffre[];
   onClose: () => void;
   onListe: (data: ReponseDuCoffre) => void;
 }) {
@@ -719,13 +822,30 @@ function FicheDossier({
   const dossier = edition?.dossier ?? null;
   const [nom, setNom] = React.useState('');
   const [projectId, setProjectId] = React.useState<string | null>(null);
+  const [parentId, setParentId] = React.useState<string | null>(null);
   const [enCours, setEnCours] = React.useState(false);
   const [aSupprimer, setASupprimer] = React.useState(false);
+
+  /* Le parent peut être n'importe quel dossier SAUF lui-même et ce qu'il contient :
+     le serveur refuse de toute façon une boucle, mais on ne la propose pas. */
+  const parentsPossibles = React.useMemo(() => {
+    const exclus = new Set<string>(
+      dossier ? [dossier.id, ...descendantsDuDossier(dossiers, dossier.id).map((d) => d.id)] : [],
+    );
+    return dossiers
+      .filter((d) => !exclus.has(d.id))
+      .map((d) => ({ id: d.id, chemin: cheminDuDossier(dossiers, d.id).join(SEPARATEUR_AFFICHAGE) }))
+      .sort((a, b) => a.chemin.localeCompare(b.chemin));
+  }, [dossiers, dossier]);
+  const parent = parentId ? dossiers.find((d) => d.id === parentId) : undefined;
 
   React.useEffect(() => {
     if (!edition) return;
     setNom(dossier?.nom ?? '');
-    setProjectId(dossier ? dossier.projectId : (state.activeProjectId ?? null));
+    const parentDepart = dossier ? (dossier.parentId ?? null) : (edition.parentId ?? null);
+    setParentId(parentDepart);
+    const dossierParent = parentDepart ? dossiers.find((d) => d.id === parentDepart) : undefined;
+    setProjectId(dossierParent ? dossierParent.projectId : dossier ? dossier.projectId : (state.activeProjectId ?? null));
     // Le tiroir se remplit à l'ouverture, et seulement là.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [edition]);
@@ -735,7 +855,7 @@ function FicheDossier({
     try {
       const data = await client.call<ReponseDuCoffre>({
         type: 'coffre.dossier.enregistrer',
-        dossier: { id: dossier?.id ?? '', nom, projectId },
+        dossier: { id: dossier?.id ?? '', nom, projectId: parent ? parent.projectId : projectId, parentId },
       });
       onListe(data);
       client.pushToast('success', t('Dossier enregistré.'));
@@ -762,7 +882,9 @@ function FicheDossier({
   return (
     <>
       <Drawer open={edition !== null} onClose={onClose} empile>
-        <DialogTitle className="min-w-0 truncate px-3 pb-2">{dossier ? dossier.nom : t('Nouveau dossier')}</DialogTitle>
+        <DialogTitle className="min-w-0 truncate px-3 pb-2">
+          {dossier ? dossier.nom : parent ? t('Nouveau sous-dossier') : t('Nouveau dossier')}
+        </DialogTitle>
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3 pt-4">
           <FormulaireEnColonnes data-coffre-fiche-dossier>
             <Champ libelle={t('Nom')}>
@@ -776,12 +898,31 @@ function FicheDossier({
                 data-coffre-dossier-champ-nom
               />
             </Champ>
+            <Champ libelle={t('Dossier parent')}>
+              <ListeDeroulante
+                valeur={parentId ?? ''}
+                titre={t('Dossier parent')}
+                repere="coffre-dossier-parent"
+                data-coffre-dossier-parent
+                onChoisir={(valeur) => {
+                  setParentId(valeur || null);
+                  const choisi = dossiers.find((d) => d.id === valeur);
+                  if (choisi) setProjectId(choisi.projectId);
+                }}
+                options={[
+                  { valeur: '', libelle: t('Racine du coffre') },
+                  ...parentsPossibles.map((p) => ({ valeur: p.id, libelle: p.chemin })),
+                ]}
+              />
+            </Champ>
             <Champ libelle={t('Projet')}>
               <ListeDeroulante
                 valeur={projectId ?? ''}
                 titre={t('Projet')}
                 repere="coffre-dossier-projet"
                 data-coffre-dossier-projet
+                /* Un sous-dossier prend le projet de son parent. */
+                desactivee={Boolean(parent)}
                 onChoisir={(valeur) => setProjectId(valeur || null)}
                 options={[
                   { valeur: '', libelle: t('Général') },
@@ -794,7 +935,7 @@ function FicheDossier({
               />
             </Champ>
             <p className="text-[12px] leading-relaxed text-faint">
-              {t('Les fiches d’un dossier suivent son projet. Un dossier ne contient que des fiches.')}
+              {t('Les fiches et les sous-dossiers d’un dossier suivent son projet.')}
             </p>
           </FormulaireEnColonnes>
         </ZoneDefilement>
@@ -823,7 +964,7 @@ function FicheDossier({
         onClose={() => setASupprimer(false)}
         title={t('Retirer ce dossier ?')}
         description={t(
-          'Le dossier et toutes ses fiches partent aux archives ensemble : ils se restaurent pendant six mois, puis ils sont effacés pour de bon.',
+          'Le dossier, ses sous-dossiers et toutes leurs fiches partent aux archives ensemble : ils se restaurent pendant six mois, puis ils sont effacés pour de bon.',
         )}
         confirmLabel={t('Retirer')}
         danger
@@ -1006,6 +1147,12 @@ function FicheAcces({
         >
           {titreDeLaFiche}
         </p>
+        {/* Où la fiche est rangée : le chemin complet de son dossier, sous son nom. */}
+        {fiche?.dossierId && cheminDuDossier(dossiers, fiche.dossierId).length ? (
+          <p className="-mt-3 shrink-0 truncate px-3 pb-4 text-[12.5px] text-faint" data-coffre-fiche-chemin>
+            {cheminDuDossier(dossiers, fiche.dossierId).join(SEPARATEUR_AFFICHAGE)}
+          </p>
+        ) : null}
 
         <ZoneDefilement fond="hsl(var(--surface))" className="px-3 pb-3">
           <FormulaireEnColonnes data-coffre-fiche>
@@ -1057,7 +1204,9 @@ function FicheAcces({
                   }}
                   options={[
                     { valeur: '', libelle: t('Aucun dossier') },
-                    ...dossiers.map((d) => ({ valeur: d.id, libelle: d.nom })),
+                    ...dossiers
+                      .map((d) => ({ valeur: d.id, libelle: cheminDuDossier(dossiers, d.id).join(SEPARATEUR_AFFICHAGE) }))
+                      .sort((a, b) => a.libelle.localeCompare(b.libelle)),
                   ]}
                 />
               </Champ>

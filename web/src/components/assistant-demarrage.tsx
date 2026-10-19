@@ -61,6 +61,8 @@ import { t } from '@/lib/langue';
 interface Page {
   titre: string;
   intro: string;
+  /** CE QUE CETTE PAGE RÈGLE, en une phrase directe, posée en tête d'écran. */
+  but: string;
 }
 
 /** Le titre et l'introduction d'une page, dans la langue affichée. */
@@ -70,46 +72,55 @@ function pageDe(etape: EtapeDeLAssistant): Page {
       return {
         titre: t('Bienvenue dans Beluga Build'),
         intro: t('Avant de régler quoi que ce soit, voici ce que vous venez d’installer.'),
+        but: t('Rien à régler ici : trois minutes pour comprendre comment Beluga Build travaille.'),
       };
     case 'copie':
       return {
         titre: t('Votre propre Beluga'),
         intro: t('Faites de cette installation votre copie : un dépôt privé à votre nom, pour sauvegarder vos modifications de Beluga Build et récupérer, quand vous le voulez, les nouveautés de la version d’origine. Le projet Beluga Build est déjà sur votre tableau.'),
+        but: t('Vous créez votre dépôt privé : vos changements de Beluga Build y sont sauvegardés.'),
       };
     case 'moteurs':
       return {
         titre: t('Les moteurs'),
         intro: t('Beluga Build fait travailler des assistants installés sur ce serveur. Il en faut au moins un pour lancer une tâche : choisissez celui que vous préférez, les autres pourront venir plus tard.'),
+        but: t('Vous branchez l’assistant qui fera le travail. Sans lui, aucune tâche ne peut partir.'),
       };
     case 'domaine':
       return {
         titre: t('Le nom de domaine'),
         intro: t('L’adresse à laquelle vous ouvrez Beluga Build, et le nom sous lequel vos projets recevront la leur.'),
+        but: t('Vous choisissez l’adresse de Beluga Build et celle de vos futurs projets.'),
       };
     case 'projet':
       return {
         titre: t('GitHub et votre premier projet'),
         intro: t('Beluga Build travaille dans des dépôts de code. Reliez d’abord GitHub ; vous pourrez ensuite ajouter un premier projet : un dépôt qui existe déjà, ou un projet neuf.'),
+        but: t('Vous reliez GitHub, puis vous ajoutez le premier projet sur lequel travailler.'),
       };
     case 'courriels':
       return {
         titre: t('Les courriels'),
         intro: t('Beluga Build peut écrire à vos clients et vous envoyer un point chaque matin. Rien ne part tant que ces réglages sont vides.'),
+        but: t('Vous réglez l’envoi des courriels. Sans ce réglage, rien ne part.'),
       };
     case 'espace-client':
       return {
         titre: t('L’espace client'),
         intro: t('Vos clients peuvent déposer leurs demandes et suivre leur avancement dans un espace à eux.'),
+        but: t('Vous ouvrez, si vous le voulez, un espace où vos clients déposent leurs demandes.'),
       };
     case 'competences':
       return {
         titre: t('Les compétences'),
         intro: t('Une compétence est un mode d’emploi que les assistants suivent. Votre installation part sans aucune : cochez les bibliothèques publiques qui vous intéressent, vos propres compétences s’écriront ensuite au fil du travail.'),
+        but: t('Vous choisissez les modes d’emploi que vos assistants sauront suivre dès le départ.'),
       };
     case 'facultatif':
       return {
         titre: t('Les fonctions en plus'),
         intro: t('Rien de ce qui suit n’est nécessaire pour travailler. Chaque fonction s’ajoute quand vous en avez besoin.'),
+        but: t('Un tour des fonctions en plus : aucune n’est nécessaire pour commencer.'),
       };
   }
 }
@@ -169,10 +180,29 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
         ) : null}
         <span className="text-[14.5px] font-medium text-text">{t('Mise en route de Beluga Build')}</span>
         <span className="flex-1" />
-        <span className="text-[13px] text-faint" data-assistant-avancement>
+        <span className="sr-only" data-assistant-avancement>
           {t('Page {n} sur {total}', { n: String(rang + 1), total: String(etapes.length) })}
         </span>
       </header>
+
+      {/* LA TÊTE DE L'ÉTAPE, TOUJOURS EN HAUT, HORS DU DÉFILEMENT : où l'on en
+          est, le titre, et ce que cette page règle en une phrase — l'intro
+          détaillée reste au début du contenu. */}
+      <div className="flex shrink-0" data-assistant-tete>
+        {/* Le même retrait que la liste des pages : la tête s'aligne sur le contenu. */}
+        <div className="hidden w-60 shrink-0 sm:block" />
+        <div className="min-w-0 flex-1 px-4 pb-3 pt-1 sm:px-8">
+        <div className="mx-auto w-full max-w-xl">
+          <p className="text-[12px] uppercase tracking-wide text-faint">
+            {t('Étape {n} sur {total}', { n: String(rang + 1), total: String(etapes.length) })}
+            {' · '}
+            {etapePassable(vue) ? t('facultative') : t('nécessaire')}
+          </p>
+          <h1 className="mt-1 text-[20px] font-semibold tracking-tight text-text">{page.titre}</h1>
+          <p className="mt-1 text-[14.5px] leading-relaxed text-text" data-assistant-but>{page.but}</p>
+        </div>
+        </div>
+      </div>
 
       <div className="flex min-h-0 flex-1">
         {/* LA LISTE DES PAGES : où l'on en est, d'un coup d'œil. La page affichée
@@ -205,8 +235,7 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
 
         <ZoneDefilement className="min-h-0 flex-1 px-4 py-4 sm:px-8 sm:py-6" fond="hsl(var(--bg))">
           <div className="mx-auto w-full max-w-xl pb-6">
-            <h1 className="text-[20px] font-semibold tracking-tight text-text">{page.titre}</h1>
-            <p className="mt-1.5 text-[14px] leading-relaxed text-muted">{page.intro}</p>
+            <p className="text-[14px] leading-relaxed text-muted">{page.intro}</p>
             <div className="mt-5">
               {vue === 'bienvenue' ? (
                 <PageDeBienvenue etat={etat} relire={relire} hebergee={state.offreHebergee} />
@@ -240,9 +269,6 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
 
       </div>
 
-      {/* CE QUI SE PASSE SUR LE SERVEUR : une barre en bas, ouverte seulement quand une installation travaille. */}
-      <BarreDuTerminal className="mx-3 mt-1 sm:mx-5" />
-
       <footer className="flex shrink-0 items-center gap-2 px-3 py-3 sm:px-5" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
         <span className="min-w-0 flex-1 text-[13px] text-faint">
           {vue === 'moteurs' && !moteurPret ? t('Il faut au moins un moteur prêt pour continuer.') : null}
@@ -259,6 +285,11 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
           {rang === etapes.length - 1 ? t('Terminer') : t('Continuer')}
         </Button>
       </footer>
+
+      {/* CE QUI SE PASSE SUR LE SERVEUR : un terminal qui s'ouvre SOUS
+          l'interface, tout en bas, comme à l'arrière-plan. En s'ouvrant il
+          REMONTE l'écran : les boutons restent au-dessus de lui, jamais dessous. */}
+      <BarreDuTerminal />
     </div>
     </TerminalACote.Provider>
   );

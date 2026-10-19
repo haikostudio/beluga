@@ -75,6 +75,16 @@ import {
   type CarteFusionneeDuLot,
   type EtatDeTache,
   ajouterAuJournal,
+  MAX_REPARATIONS_PAR_ETAPE,
+  PROGRESSION_PENDANT_LA_REPARATION,
+  blocageApresLesEssais,
+  blocageSansMoteur,
+  decisionDeReparation,
+  demandeDEncadre,
+  demandeDeReparation,
+  raisonCourteDeLEchec,
+  recitDeLEssai,
+  type BlocageDEtape,
   type EtatDuMoment,
   type GenreDEvenement,
   type EvenementDEtape,
@@ -114,8 +124,8 @@ import { remonterLeDossierDuProjet } from './remontage.js';
 import { fusionnerVersLaProduction } from './fusion-vers-production.js';
 import { garderLEnvoi } from './garde-contenu.js';
 import { portServi, serviceDuProjet } from './services-du-projet.js';
-import { depannerSeulApresLaChute } from './depannage-publication.js';
 import { estAgentAttitre } from './agent-attitre.js';
+import { tourDeReparation, type IssueDeReparation } from './reparation-publication.js';
 
 export { portServi, serviceDuProjet };
 
@@ -1075,7 +1085,7 @@ function setStep(run: DeployRun, key: DeployStepKey, state: 'running' | 'done' |
         ? `Étape terminée.${logText.trim() ? ` ${premiereLigne(logText)}` : ''}`
         : state === 'skipped'
           ? `Étape sautée${logText.trim() ? ` : ${premiereLigne(logText)}` : ''}.`
-          : `Étape tombée${logText.trim() ? ` : ${premiereLigne(logText)}` : ''}.`;
+          : `Étape tombée${logText.trim() ? ` : ${raisonCourteDeLEchec(logText)}` : ''}.`;
   const etat: EtatDuMoment | undefined =
     state === 'done' ? 'fait' : state === 'failed' ? 'echec' : state === 'skipped' ? 'saute' : undefined;
   const fil = journalDuRun(run);
@@ -1105,6 +1115,170 @@ function marquerLaTache(run: DeployRun, cardId: string, etat: EtatDeTache, detai
 
 /** Une panne qui arrête la publication : l'étape est marquée, la raison remonte telle quelle. */
 class ArretDeLaPublication extends Error {}
+
+/**
+ * UNE ÉTAPE QUI VIENT DE TOMBER — pas encore la publication. Le déroulé la
+ * confie d'abord à la réparation silencieuse (`jouerAvecReparation`) ; elle ne
+ * devient un `ArretDeLaPublication` qu'à l'abandon. `sansReparation` : la panne
+ * a déjà eu ses agents (toutes les tâches du lot en conflit), elle tombe telle
+ * quelle, avec son encadré.
+ */
+class EchecDEtape extends Error {
+  constructor(
+    readonly cle: DeployStepKey,
+    readonly texte: string,
+    readonly options: { sansReparation?: boolean; blocage?: BlocageDEtape } = {},
+  ) {
+    super(raisonCourteDeLEchec(texte));
+  }
+}
+
+/** L'accès au `current` d'un déroulé, depuis une règle qui ne vit pas dans sa fonction. */
+type AccesAuRun = { lire: () => DeployRun; ecrire: (run: DeployRun) => void };
+
+function avecEtape(run: DeployRun, cle: DeployStepKey, change: (step: DeployRun['steps'][number]) => DeployRun['steps'][number]): DeployRun {
+  return emit({ ...run, steps: run.steps.map((step) => (step.key === cle ? change(step) : step)) });
+}
+
+/** Un moment « Dépannage » dans le fil technique de l'étape, avec le lien vers la conversation de l'agent. */
+function noterLaReparation(run: DeployRun, cle: DeployStepKey, texte: string, agentId?: string): DeployRun {
+  const fil = journalDuRun(run);
+  fil.set(cle, ajouterAuJournal(fil.get(cle), { at: Date.now(), genre: 'depannage', texte, ...(agentId ? { agentId } : {}) }));
+  return emit(run);
+}
+
+/** L'ABANDON : l'étape tombe, porte son encadré, et la publication s'arrête — alors seulement on prévient. */
+function tomber(acces: AccesAuRun, cle: DeployStepKey, texte: string, blocage?: BlocageDEtape): never {
+  let run = setStep(acces.lire(), cle, 'failed', texte);
+  run = avecEtape(run, cle, (step) => ({
+    ...step,
+    ...(blocage ? { blocage } : {}),
+    reparation: step.reparation ? { ...step.reparation, enCours: undefined } : undefined,
+  }));
+  acces.ecrire(run);
+  throw new ArretDeLaPublication(blocage?.explication ?? raisonCourteDeLEchec(texte));
+}
+
+/** Le titre de l'agent de réparation, lisible dans sa conversation. */
+function titreDeLaReparation(cible: CiblePublication | undefined, etape: string): string {
+  return `${cible === 'production' ? 'Réparation de la mise en production' : 'Réparation du déploiement'} — ${etape}`;
+}
+
+/**
+ * UNE ÉTAPE QUI TOMBE EST RÉPARÉE EN SILENCE, PUIS REJOUÉE — DANS LA MÊME PUBLICATION.
+ *
+ * `jouer` est l'étape entière, rejouable : elle se repose « en cours » et refait
+ * tout ce qu'elle fait. Quand elle lève `EchecDEtape`, l'étape RESTE en cours
+ * (aucune croix, aucune alerte, aucune notification), un agent reçoit la panne,
+ * et l'étape repart dès la fin de son tour. Trois essais (`MAX_REPARATIONS_PAR_ETAPE`) ;
+ * après le troisième, l'agent RÉDIGE l'encadré d'abandon, et seulement alors
+ * l'étape passe en échec. Hors du champ, comme avant : l'arrêt demandé et la
+ * machine saturée (`decisionDeReparation`).
+ */
+async function jouerAvecReparation(
+  acces: AccesAuRun,
+  project: Project,
+  cle: DeployStepKey,
+  signal: AbortSignal,
+  jouer: () => Promise<void>,
+): Promise<void> {
+  for (;;) {
+    try {
+      await jouer();
+      const fin = acces.lire().steps.find((step) => step.key === cle);
+      if (fin?.reparation?.enCours) acces.ecrire(avecEtape(acces.lire(), cle, (step) => ({ ...step, reparation: { ...step.reparation!, enCours: undefined } })));
+      return;
+    } catch (err) {
+      if (!(err instanceof EchecDEtape)) throw err;
+      if (signal.aborted) throw new ArretDeLaPublication('arrêt demandé');
+      if (err.options.sansReparation) tomber(acces, err.cle, err.texte, err.options.blocage);
+      const libelle = STEP_LABELS[err.cle];
+      const avant = acces.lire().steps.find((step) => step.key === err.cle)?.reparation;
+      const essais = avant?.essais ?? 0;
+      const decision = decisionDeReparation({ essais, motif: err.texte, cle: err.cle });
+      if (decision === 'hors-champ') tomber(acces, err.cle, err.texte);
+      if (decision === 'abandon') tomber(acces, err.cle, err.texte, await redigerLEncadre(acces, project, err, avant?.agentId, essais, signal));
+
+      const essai = essais + 1;
+      acces.ecrire(
+        avecEtape(acces.lire(), err.cle, (step) => ({
+          ...step,
+          state: 'running',
+          endedAt: undefined,
+          progress: PROGRESSION_PENDANT_LA_REPARATION,
+          reparation: { essais: essai, agentId: avant?.agentId, enCours: true },
+        })),
+      );
+      const issue: IssueDeReparation = await tourDeReparation({
+        projectId: project.id,
+        runId: acces.lire().id,
+        cible: acces.lire().cible ?? 'dev',
+        etape: err.cle,
+        titre: titreDeLaReparation(acces.lire().cible, libelle),
+        demande: demandeDeReparation({
+          projet: project.name,
+          dossier: project.path,
+          cible: acces.lire().cible,
+          etape: libelle,
+          essai,
+          journal: dernieresLignes(err.texte, 3000),
+        }),
+        agentId: avant?.agentId,
+        signal,
+      });
+      if (issue.issue === 'arret') throw new ArretDeLaPublication('arrêt demandé');
+      if (issue.agentId) {
+        acces.ecrire(
+          avecEtape(acces.lire(), err.cle, (step) => ({ ...step, reparation: { essais: essai, agentId: issue.agentId, enCours: true } })),
+        );
+      }
+      acces.ecrire(noterLaReparation(acces.lire(), err.cle, recitDeLEssai({ essai }), issue.agentId));
+      if (issue.issue === 'sans-moteur') {
+        tomber(
+          acces,
+          err.cle,
+          err.texte,
+          essais ? blocageApresLesEssais({ etape: libelle, essais, raison: err.message, agentId: issue.agentId }) : blocageSansMoteur(libelle, err.message),
+        );
+      }
+      if (issue.issue === 'abandon') {
+        tomber(acces, err.cle, err.texte, { explication: issue.explication, marcheASuivre: issue.marcheASuivre, agentId: issue.agentId, essais: essai });
+      }
+      log.info(`publication ${acces.lire().id} : « ${libelle} » réparée en silence (essai ${essai}), l’étape est rejouée`);
+      // reparee, tentee, delai : l'étape est rejouée, elle dira elle-même si elle passe.
+    }
+  }
+}
+
+/** APRÈS LE DERNIER ESSAI : l'agent ne répare plus, il rédige l'encadré. Faute de mieux, un texte par défaut. */
+async function redigerLEncadre(
+  acces: AccesAuRun,
+  project: Project,
+  err: EchecDEtape,
+  agentId: string | undefined,
+  essais: number,
+  signal: AbortSignal,
+): Promise<BlocageDEtape> {
+  const libelle = STEP_LABELS[err.cle];
+  const parDefaut = blocageApresLesEssais({ etape: libelle, essais, raison: err.message, agentId });
+  if (!agentId) return parDefaut;
+  const issue = await tourDeReparation(
+    {
+      projectId: project.id,
+      runId: acces.lire().id,
+      cible: acces.lire().cible ?? 'dev',
+      etape: err.cle,
+      titre: titreDeLaReparation(acces.lire().cible, libelle),
+      demande: demandeDEncadre({ etape: libelle, journal: dernieresLignes(err.texte, 3000) }),
+      agentId,
+      signal,
+    },
+    { plafondMs: 5 * 60_000 },
+  );
+  if (issue.issue === 'arret') throw new ArretDeLaPublication('arrêt demandé');
+  if (issue.issue === 'abandon') return { explication: issue.explication, marcheASuivre: issue.marcheASuivre, agentId, essais };
+  return parDefaut;
+}
 
 /* ------------------------------------------------------------------ */
 /* Les dépôts d'un projet                                              */
@@ -1253,7 +1427,7 @@ async function adresseRepond(url: string): Promise<{ ok: boolean; detail: string
 
 export async function startDeploy(
   projectId: string,
-  options: { cible?: CiblePublication; selectedCardIds?: string[]; depot?: string; reprises?: number; depannagesAuto?: number } = {},
+  options: { cible?: CiblePublication; selectedCardIds?: string[]; depot?: string; reprises?: number } = {},
 ): Promise<{ ok: boolean; error?: string; run?: DeployRun }> {
   const project = store.getProject(projectId);
   if (!project) return { ok: false, error: 'projet introuvable' };
@@ -1305,7 +1479,6 @@ export async function startDeploy(
     taches: cards.map((c) => ({ cardId: c.id, titre: c.title, branche: c.github?.branch, etat: 'attente' as const })),
     cible: etape.cible,
     reprises: options.reprises ?? 0,
-    depannagesAuto: options.depannagesAuto ?? 0,
     url: etape.cible === 'dev' ? project.devUrl : undefined,
     startedAt: Date.now(),
     queued: false,
@@ -1359,7 +1532,8 @@ export async function startDeploy(
         avertissement: nonRangees.length ? `Carte(s) non rangée(s) après la mise en ligne : ${nonRangees.join(', ')}.` : undefined,
       });
 
-      /* LA CARTE ÉCARTÉE SE RÉPARE APRÈS, JAMAIS PENDANT (DEC-255) : un
+      /* LA CARTE ÉCARTÉE — son heurt a résisté à trois réparations PENDANT le
+         déroulé (`reglerLeHeurtSurPlace`) — A ENCORE SON FILET APRÈS (DEC-255) : un
          rattrapage est ÉCRIT sur sa tâche — il survit au redémarrage — et ne
          part qu'une fois ce redémarrage passé (DEC-166). Une fois par carte et
          par publication (`shared/src/rattrapage-ecartee.ts`). */
@@ -1407,12 +1581,10 @@ export async function startDeploy(
           element: `Publication en échec — ${raison}`,
           projectId,
         });
-        /* LE DÉPANNEUR PART SEUL, mais APRÈS le `finally` (différé) : il ne retient
-           ni `active`, ni la file, ni le redémarrage en attente. Seule la chute
-           d'une vraie casse le déclenche (jamais un arrêt, une coupure, une
-           saturation — la règle pure tranche). */
-        const tombee = current.id;
-        setTimeout(() => void depannerSeulApresLaChute(tombee), 2000);
+        /* PLUS DE DÉPANNEUR APRÈS LA CHUTE : l'étape a déjà eu ses trois
+           réparations silencieuses DANS le déroulé (`jouerAvecReparation`), et
+           son encadré dit ce qui reste à faire. « Résoudre le problème » reste
+           offert à la main. */
       }
     } finally {
       journaux.delete(current.id);
@@ -1445,13 +1617,16 @@ async function deployer(
   const depots = depotsAPublier(project);
   const multi = depots.length > 1;
   const prefixe = (d: DepotAPublier) => (multi ? `[${d.nom}] ` : '');
+  /* Une étape qui tombe ne s'arrête plus là : elle part à la réparation
+     silencieuse, puis se rejoue (`jouerAvecReparation`). */
   const arreter = (key: DeployStepKey, texte: string): never => {
-    current = setStep(current, key, 'failed', texte);
-    throw new ArretDeLaPublication(premiereLigne(texte));
+    throw new EchecDEtape(key, texte);
   };
   const verifierArret = () => {
     if (signal.aborted) throw new ArretDeLaPublication('arrêt demandé');
   };
+  const acces: AccesAuRun = { lire: () => current, ecrire: (run) => (current = run) };
+  const avecReparation = (cle: DeployStepKey, jouer: () => Promise<void>) => jouerAvecReparation(acces, project, cle, signal, jouer);
 
   /* Dépôts réellement git : un projet sans dépôt n'a rien à fusionner. */
   const gits: DepotAPublier[] = [];
@@ -1459,184 +1634,298 @@ async function deployer(
   const brancheParDepot = new Map<string, string>();
 
   /* ---------- 1. Fusion ---------- */
-  current = setStep(current, 'merge', 'running');
   const recitFusion: string[] = [];
-  for (const d of gits) {
-    const cwd = d.projet.path;
-    const branche = (await brancheDeLEtape(d.projet, 'dev')).branche;
-    brancheParDepot.set(d.nom, branche);
+  /* Le dernier abandon rédigé par un agent de heurt : l'encadré, si tout le lot tombe. */
+  let dernierAbandon: BlocageDEtape | undefined;
 
-    /* Le dossier est PARTAGÉ : un travail laissé non enregistré est enregistré
-       sur sa propre branche avant de bouger, jamais perdu ni écrasé. */
-    const statut = await runCommand(cwd, 'git status --porcelain', DELAIS_DU_DEPLOIEMENT_MS.enregistrement, Infinity, signal);
-    if (!statut.ok) arreter('merge', `${prefixe(d)}L’état du dépôt n’a pas pu être lu : ${dernieresLignes(statut.out)}`);
-    if (statut.out.trim()) {
-      const courante = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD', 20000)).out.trim() || 'branche courante';
-      await ajouterCeQuiABouge(cwd, statut.out);
-      const enregistre = await runCommand(
-        cwd,
-        `git commit -m "Travaux en cours enregistrés avant publication" -m "Branche ${courante}"`,
-        DELAIS_DU_DEPLOIEMENT_MS.enregistrement,
-      );
-      recitFusion.push(`${prefixe(d)}${courante} : travaux en cours ${enregistre.ok ? 'enregistrés' : 'NON enregistrés'}`);
-    }
+  /** Le dossier est-il resté en pleine fusion ? */
+  const enPleineFusion = async (cwd: string) => (await runCommand(cwd, 'git rev-parse -q --verify MERGE_HEAD', 20000)).ok;
 
-    const pose = await seposerSurLaBranche(cwd, branche);
-    if (!pose.ok) arreter('merge', `${prefixe(d)}Impossible de se poser sur « ${branche} » : ${dernieresLignes(pose.out)}`);
+  /** Revenir à l'état d'avant la fusion ratée : fusion annulée, et un commit bâclé défait. */
+  const remettreAvantLaFusion = async (cwd: string, avant: string) => {
+    if (await enPleineFusion(cwd)) await runCommand(cwd, 'git merge --abort', 30000);
+    const tete = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim();
+    if (avant && tete && tete !== avant) await runCommand(cwd, `git reset --hard ${avant}`, 30000);
+  };
 
-    /* Ce que chaque carte fusionnée a apporté : c'est ce qui permet, quand la
-       suivante heurte, de nommer CONTRE QUI (MEM-1064, `cartesHeurtees`). */
-    const fusionnees: CarteFusionneeDuLot[] = [];
-    /* UNE BRANCHE PARTAGÉE NE SE FUSIONNE QU'UNE FOIS (bouton de branche : des
-       cartes reprennent la même, l'une après l'autre). Les cartes qui la
-       portent partent ENSEMBLE : la suivante suit le sort de la première. */
-    const sortDesBranches = new Map<string, { titre: string; ecartee?: string }>();
-    for (const card of cards) {
+  /**
+   * LE HEURT EST-IL RÉGLÉ ? La fusion est conclue, la branche est bien dans
+   * l'historique, et aucun marqueur de conflit ne reste dans les fichiers en
+   * heurt — jamais une résolution fausse validée en silence.
+   */
+  const heurtRegle = async (cwd: string, branch: string, fichiers: string[]) => {
+    if (await enPleineFusion(cwd)) return false;
+    if (!(await runCommand(cwd, `git merge-base --is-ancestor ${branch} HEAD`, 20000)).ok) return false;
+    if (!fichiers.length) return true;
+    const nommes = fichiers.map((f) => `'${f.replace(/'/g, `'\\''`)}'`).join(' ');
+    const marqueurs = await runCommand(cwd, `git grep -n -I -E '^(<<<<<<<|>>>>>>>)( |$)' HEAD -- ${nommes}`, 20000);
+    return !marqueurs.out.trim();
+  };
+
+  /**
+   * UN HEURT DE FUSION RÉGLÉ SUR PLACE : le dossier reste en pleine fusion, un
+   * agent la résout et l'enregistre, on vérifie — jusqu'à trois essais. Pendant
+   * ce temps, la tâche reste « en fusion » à l'écran : aucun conflit affiché.
+   */
+  const reglerLeHeurtSurPlace = async (heurt: {
+    cwd: string;
+    card: Card;
+    branch: string;
+    brancheDAccueil: string;
+    fichiers: string[];
+    avant: string;
+  }): Promise<{ ok: boolean; abandon?: BlocageDEtape }> => {
+    const { cwd, card, branch, fichiers } = heurt;
+    let agentId: string | undefined;
+    for (let essai = 1; essai <= MAX_REPARATIONS_PAR_ETAPE; essai++) {
       verifierArret();
-      const branch = card.github?.branch;
-      if (!branch || ecartees.has(card.id)) continue;
-      const deja = sortDesBranches.get(branch);
-      if (deja) {
-        if (deja.ecartee) {
-          ecartees.add(card.id);
-          current = marquerLaTache(current, card.id, 'ecartee', deja.ecartee);
-          recitFusion.push(`${prefixe(d)}${branch} : partagée avec « ${deja.titre} », écartée avec elle.`);
-          noterLEcartementSurLaCarte(card, deja.ecartee);
-        } else {
-          current = marquerLaTache(current, card.id, 'fusionnee');
-          recitFusion.push(`${prefixe(d)}${branch} : déjà fusionnée avec « ${deja.titre} »`);
-        }
-        continue;
+      if (!(await enPleineFusion(cwd))) {
+        // L'agent précédent a annulé, ou bâclé : on repart de la fusion elle-même.
+        await remettreAvantLaFusion(cwd, heurt.avant);
+        const reprise = await runCommand(cwd, `git merge --no-edit ${branch}`, DELAIS_DU_DEPLOIEMENT_MS.fusion, 3000, signal);
+        if (reprise.ok) return { ok: true };
       }
-      const existe = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
-      if (!existe.ok || !existe.out.trim()) {
-        if (d.principal) current = marquerLaTache(current, card.id, 'absente');
-        continue;
+      current = progresser(current, 'merge', PROGRESSION_PENDANT_LA_REPARATION);
+      const issue = await tourDeReparation({
+        projectId: project.id,
+        runId: current.id,
+        cible: 'dev',
+        etape: 'merge',
+        titre: titreDeLaReparation('dev', card.title),
+        demande: demandeDeReparation({
+          projet: project.name,
+          dossier: cwd,
+          cible: 'dev',
+          etape: STEP_LABELS.merge,
+          essai,
+          journal: '',
+          heurt: { branche: branch, brancheDAccueil: heurt.brancheDAccueil, titre: card.title, fichiers },
+        }),
+        agentId,
+        signal,
+      });
+      if (issue.agentId) agentId = issue.agentId;
+      current = noterLaReparation(current, 'merge', recitDeLEssai({ essai, heurt: card.title }), agentId);
+      if (issue.issue === 'arret') throw new ArretDeLaPublication('arrêt demandé');
+      if (issue.issue === 'sans-moteur') return { ok: false, abandon: blocageSansMoteur(STEP_LABELS.merge) };
+      if (await heurtRegle(cwd, branch, fichiers)) return { ok: true };
+      if (issue.issue === 'abandon') {
+        return { ok: false, abandon: { explication: issue.explication, marcheASuivre: issue.marcheASuivre, agentId, essais: essai } };
       }
-      sortDesBranches.set(branch, { titre: card.title });
-      current = progresser(current, 'merge', `${prefixe(d)}Fusion de ${branch}…`);
-      current = marquerLaTache(current, card.id, 'fusion');
-      noter(current, 'merge', `$ git merge --no-edit ${branch}`, 'commande');
-      const avant = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim();
-      const fusion = await runCommand(cwd, `git merge --no-edit ${branch}`, DELAIS_DU_DEPLOIEMENT_MS.fusion, 3000, signal);
-      const retenirLApport = async () => {
-        const apport = avant ? await runCommand(cwd, `git diff --name-only ${avant} HEAD`, 20000) : null;
-        fusionnees.push({
-          cardId: card.id,
-          titre: card.title,
-          branche: branch,
-          commit: existe.out.trim() || undefined,
-          fichiers: apport?.ok ? apport.out.split('\n').map((f) => f.trim()).filter(Boolean) : [],
-        });
-      };
-      if (fusion.ok) {
-        recitFusion.push(`${prefixe(d)}${branch} : fusionnée`);
-        current = marquerLaTache(current, card.id, 'fusionnee');
-        await retenirLApport();
-        continue;
-      }
-      /* Un heurt purement DOCUMENTAIRE se recolle mécaniquement (MEM-1152) ;
-         tout autre heurt ÉCARTE la carte, nommée, sans appeler personne. */
-      const enConflit = await fichiersEnConflitDuDossier(cwd);
-      const recollage = fusion.delaiDepasse ? null : await recollerLesDocumentsEnConflit(cwd, enConflit);
-      if (recollage?.fusionnee) {
-        recitFusion.push(`${prefixe(d)}${branch} : ${recollage.recit}`);
-        current = marquerLaTache(current, card.id, 'recollee', enConflit.join(', '));
-        await retenirLApport();
-        continue;
-      }
-      await runCommand(cwd, 'git merge --abort', 30000);
-      /* LA PHRASE NOMMÉE (MEM-1064) : les fichiers, et chaque carte du lot déjà
-         passée qui les a touchés — ou, faute de carte, la branche d'accueil. */
-      const contre = cartesHeurtees(enConflit, fusionnees);
-      const raison = fusion.delaiDepasse
-        ? `la fusion n’a pas rendu la main en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.fusion)}`
-        : mentionDeLEcartement({ branche: branch, brancheDAccueil: branche, fichiers: enConflit, contre });
-      ecartees.add(card.id);
-      sortDesBranches.set(branch, { titre: card.title, ecartee: raison });
-      recitFusion.push(
-        `${prefixe(d)}${fusion.delaiDepasse ? `${branch} : ÉCARTÉE — ${raison}.` : raison} La carte reste dans « À déployer ».`,
-      );
-      current = marquerLaTache(current, card.id, 'ecartee', raison);
-      if (current.taches?.length) {
-        current = emit({
-          ...current,
-          taches: current.taches.map((t) =>
-            t.cardId === card.id ? { ...t, ecart: { fichiers: enConflit, brancheDAccueil: branche, contre } } : t,
-          ),
-        });
-      }
-      noterLEcartementSurLaCarte(card, raison);
     }
-  }
-  if (cards.length && ecartees.size === cards.length) {
-    arreter('merge', `${recitFusion.join('\n')}\n\nToutes les cartes du lot sont en conflit : rien n’a pu être fusionné.`);
-  }
-  current = setStep(
-    current,
-    'merge',
-    gits.length ? 'done' : 'skipped',
-    gits.length ? recitFusion.join('\n') || 'Aucune branche à fusionner.' : 'Projet sans dépôt git.',
-  );
+    return { ok: false, abandon: agentId ? blocageApresLesEssais({ etape: STEP_LABELS.merge, essais: MAX_REPARATIONS_PAR_ETAPE, agentId }) : undefined };
+  };
+
+  await avecReparation('merge', async () => {
+    recitFusion.length = 0;
+    current = setStep(current, 'merge', 'running');
+    for (const d of gits) {
+      const cwd = d.projet.path;
+      const branche = (await brancheDeLEtape(d.projet, 'dev')).branche;
+      brancheParDepot.set(d.nom, branche);
+
+      /* Le dossier est PARTAGÉ : un travail laissé non enregistré est enregistré
+         sur sa propre branche avant de bouger, jamais perdu ni écrasé. */
+      const statut = await runCommand(cwd, 'git status --porcelain', DELAIS_DU_DEPLOIEMENT_MS.enregistrement, Infinity, signal);
+      if (!statut.ok) arreter('merge', `${prefixe(d)}L’état du dépôt n’a pas pu être lu : ${dernieresLignes(statut.out)}`);
+      if (statut.out.trim()) {
+        const courante = (await runCommand(cwd, 'git rev-parse --abbrev-ref HEAD', 20000)).out.trim() || 'branche courante';
+        await ajouterCeQuiABouge(cwd, statut.out);
+        const enregistre = await runCommand(
+          cwd,
+          `git commit -m "Travaux en cours enregistrés avant publication" -m "Branche ${courante}"`,
+          DELAIS_DU_DEPLOIEMENT_MS.enregistrement,
+        );
+        recitFusion.push(`${prefixe(d)}${courante} : travaux en cours ${enregistre.ok ? 'enregistrés' : 'NON enregistrés'}`);
+      }
+
+      const pose = await seposerSurLaBranche(cwd, branche);
+      if (!pose.ok) arreter('merge', `${prefixe(d)}Impossible de se poser sur « ${branche} » : ${dernieresLignes(pose.out)}`);
+
+      /* Ce que chaque carte fusionnée a apporté : c'est ce qui permet, quand la
+         suivante heurte, de nommer CONTRE QUI (MEM-1064, `cartesHeurtees`). */
+      const fusionnees: CarteFusionneeDuLot[] = [];
+      /* UNE BRANCHE PARTAGÉE NE SE FUSIONNE QU'UNE FOIS (bouton de branche : des
+         cartes reprennent la même, l'une après l'autre). Les cartes qui la
+         portent partent ENSEMBLE : la suivante suit le sort de la première. */
+      const sortDesBranches = new Map<string, { titre: string; ecartee?: string }>();
+      for (const card of cards) {
+        verifierArret();
+        const branch = card.github?.branch;
+        if (!branch || ecartees.has(card.id)) continue;
+        const deja = sortDesBranches.get(branch);
+        if (deja) {
+          if (deja.ecartee) {
+            ecartees.add(card.id);
+            current = marquerLaTache(current, card.id, 'ecartee', deja.ecartee);
+            recitFusion.push(`${prefixe(d)}${branch} : partagée avec « ${deja.titre} », écartée avec elle.`);
+            noterLEcartementSurLaCarte(card, deja.ecartee);
+          } else {
+            current = marquerLaTache(current, card.id, 'fusionnee');
+            recitFusion.push(`${prefixe(d)}${branch} : déjà fusionnée avec « ${deja.titre} »`);
+          }
+          continue;
+        }
+        const existe = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
+        if (!existe.ok || !existe.out.trim()) {
+          if (d.principal) current = marquerLaTache(current, card.id, 'absente');
+          continue;
+        }
+        sortDesBranches.set(branch, { titre: card.title });
+        current = progresser(current, 'merge', `${prefixe(d)}Fusion de ${branch}…`);
+        current = marquerLaTache(current, card.id, 'fusion');
+        noter(current, 'merge', `$ git merge --no-edit ${branch}`, 'commande');
+        const avant = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim();
+        const fusion = await runCommand(cwd, `git merge --no-edit ${branch}`, DELAIS_DU_DEPLOIEMENT_MS.fusion, 3000, signal);
+        const retenirLApport = async () => {
+          const apport = avant ? await runCommand(cwd, `git diff --name-only ${avant} HEAD`, 20000) : null;
+          fusionnees.push({
+            cardId: card.id,
+            titre: card.title,
+            branche: branch,
+            commit: existe.out.trim() || undefined,
+            fichiers: apport?.ok ? apport.out.split('\n').map((f) => f.trim()).filter(Boolean) : [],
+          });
+        };
+        if (fusion.ok) {
+          recitFusion.push(`${prefixe(d)}${branch} : fusionnée`);
+          current = marquerLaTache(current, card.id, 'fusionnee');
+          await retenirLApport();
+          continue;
+        }
+        /* Un heurt purement DOCUMENTAIRE se recolle mécaniquement, sans agent,
+           EN PREMIER (MEM-1152). Tout autre heurt se RÈGLE SUR PLACE par un
+           agent, en silence, et la tâche part avec les autres (décision du
+           2026-10-18) ; seulement après trois essais ratés, elle est ÉCARTÉE,
+           nommée — le rattrapage d'après-coup reste le filet (DEC-255). */
+        const enConflit = await fichiersEnConflitDuDossier(cwd);
+        const recollage = fusion.delaiDepasse ? null : await recollerLesDocumentsEnConflit(cwd, enConflit);
+        if (recollage?.fusionnee) {
+          recitFusion.push(`${prefixe(d)}${branch} : ${recollage.recit}`);
+          current = marquerLaTache(current, card.id, 'recollee', enConflit.join(', '));
+          await retenirLApport();
+          continue;
+        }
+        if (!fusion.delaiDepasse) {
+          const reglage = await reglerLeHeurtSurPlace({ cwd, card, branch, brancheDAccueil: branche, fichiers: enConflit, avant });
+          if (reglage.ok) {
+            recitFusion.push(`${prefixe(d)}${branch} : heurt sur ${enConflit.join(', ') || 'des fichiers'} réglé pendant le déploiement`);
+            current = marquerLaTache(current, card.id, 'fusionnee', `heurt réglé sur ${enConflit.join(', ')}`);
+            await retenirLApport();
+            continue;
+          }
+          if (reglage.abandon) dernierAbandon = reglage.abandon;
+        }
+        await remettreAvantLaFusion(cwd, avant);
+        /* LA PHRASE NOMMÉE (MEM-1064) : les fichiers, et chaque carte du lot déjà
+           passée qui les a touchés — ou, faute de carte, la branche d'accueil. */
+        const contre = cartesHeurtees(enConflit, fusionnees);
+        const raison = fusion.delaiDepasse
+          ? `la fusion n’a pas rendu la main en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.fusion)}`
+          : mentionDeLEcartement({ branche: branch, brancheDAccueil: branche, fichiers: enConflit, contre });
+        ecartees.add(card.id);
+        sortDesBranches.set(branch, { titre: card.title, ecartee: raison });
+        recitFusion.push(
+          `${prefixe(d)}${fusion.delaiDepasse ? `${branch} : ÉCARTÉE — ${raison}.` : raison} La carte reste dans « À déployer ».`,
+        );
+        current = marquerLaTache(current, card.id, 'ecartee', raison);
+        if (current.taches?.length) {
+          current = emit({
+            ...current,
+            taches: current.taches.map((t) =>
+              t.cardId === card.id ? { ...t, ecart: { fichiers: enConflit, brancheDAccueil: branche, contre } } : t,
+            ),
+          });
+        }
+        noterLEcartementSurLaCarte(card, raison);
+      }
+    }
+    if (cards.length && ecartees.size === cards.length) {
+      /* Chaque heurt a DÉJÀ eu ses trois agents : l'étape tombe telle quelle, avec son encadré. */
+      throw new EchecDEtape(
+        'merge',
+        `${recitFusion.join('\n')}\n\nToutes les cartes du lot sont en conflit : rien n’a pu être fusionné.`,
+        {
+          sansReparation: true,
+          blocage: dernierAbandon ?? {
+            explication:
+              'Chaque tâche du lot heurte ce qui est déjà en place, et les heurts n’ont pas pu être réglés automatiquement : rien n’a été fusionné.',
+            marcheASuivre:
+              'Ouvrez une des tâches restées dans « À déployer » et demandez à son agent d’intégrer la dernière version, puis cliquez « Relancer ».',
+          },
+        },
+      );
+    }
+    current = setStep(
+      current,
+      'merge',
+      gits.length ? 'done' : 'skipped',
+      gits.length ? recitFusion.join('\n') || 'Aucune branche à fusionner.' : 'Projet sans dépôt git.',
+    );
+  });
   verifierArret();
 
   /* ---------- 2. Enregistrement ---------- */
-  current = setStep(current, 'commit', 'running');
-  const recitCommit: string[] = [];
-  for (const d of gits) {
-    const cwd = d.projet.path;
-    const statut = await runCommand(cwd, 'git status --porcelain', DELAIS_DU_DEPLOIEMENT_MS.enregistrement, Infinity, signal);
-    if (!statut.ok) arreter('commit', `${prefixe(d)}L’état du dépôt n’a pas pu être lu : ${dernieresLignes(statut.out)}`);
-    if (!statut.out.trim()) continue;
-    await ajouterCeQuiABouge(cwd, statut.out);
-    /* L'INDEX RÉEL fait foi, jamais `git status` seul. */
-    const indexe = await runCommand(cwd, 'git diff --cached --name-only', 30000);
-    if (!indexe.out.trim()) continue;
-    const commit = await runCommand(cwd, `git commit -m "Publication : ${cards.length} tâche(s)" -m "Beluga Build"`, DELAIS_DU_DEPLOIEMENT_MS.enregistrement);
-    if (!commit.ok) arreter('commit', `${prefixe(d)}L’enregistrement a échoué : ${dernieresLignes(commit.out)}`);
-    recitCommit.push(`${prefixe(d)}${premiereLigne(commit.out)}`);
-  }
-  current = setStep(current, 'commit', recitCommit.length ? 'done' : 'skipped', recitCommit.join('\n') || 'Rien à enregistrer.');
+  await avecReparation('commit', async () => {
+    current = setStep(current, 'commit', 'running');
+    const recitCommit: string[] = [];
+    for (const d of gits) {
+      const cwd = d.projet.path;
+      const statut = await runCommand(cwd, 'git status --porcelain', DELAIS_DU_DEPLOIEMENT_MS.enregistrement, Infinity, signal);
+      if (!statut.ok) arreter('commit', `${prefixe(d)}L’état du dépôt n’a pas pu être lu : ${dernieresLignes(statut.out)}`);
+      if (!statut.out.trim()) continue;
+      await ajouterCeQuiABouge(cwd, statut.out);
+      /* L'INDEX RÉEL fait foi, jamais `git status` seul. */
+      const indexe = await runCommand(cwd, 'git diff --cached --name-only', 30000);
+      if (!indexe.out.trim()) continue;
+      const commit = await runCommand(cwd, `git commit -m "Publication : ${cards.length} tâche(s)" -m "Beluga Build"`, DELAIS_DU_DEPLOIEMENT_MS.enregistrement);
+      if (!commit.ok) arreter('commit', `${prefixe(d)}L’enregistrement a échoué : ${dernieresLignes(commit.out)}`);
+      recitCommit.push(`${prefixe(d)}${premiereLigne(commit.out)}`);
+    }
+    current = setStep(current, 'commit', recitCommit.length ? 'done' : 'skipped', recitCommit.join('\n') || 'Rien à enregistrer.');
+  });
   verifierArret();
 
   /* ---------- 3. Envoi ---------- */
-  current = setStep(current, 'push', 'running');
-  const recitEnvoi: string[] = [];
-  const etatsDepots: NonNullable<DeployRun['depots']> = [];
-  for (const d of gits) {
-    const cwd = d.projet.path;
-    const tete = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim().slice(0, 40);
-    if (d.principal) current = emit({ ...current, targetCommit: tete });
-    const aDistant = (await runCommand(cwd, 'git remote', 20000)).out.trim().length > 0;
-    if (!aDistant) {
-      recitEnvoi.push(`${prefixe(d)}aucun dépôt distant : rien à envoyer`);
-    } else if ((await distantsEnvoyables(cwd)).length === 0) {
-      recitEnvoi.push(`${prefixe(d)}dépôt public : lecture seule, rien à envoyer`);
-    } else {
-      if (d.principal && project.depotSansDonneesSensibles) {
-        const garde = await garderLEnvoi(
-          cwd,
-          brancheParDepot.get(d.nom) ?? 'dev',
-          cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
+  await avecReparation('push', async () => {
+    current = setStep(current, 'push', 'running');
+    const recitEnvoi: string[] = [];
+    const etatsDepots: NonNullable<DeployRun['depots']> = [];
+    for (const d of gits) {
+      const cwd = d.projet.path;
+      const tete = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim().slice(0, 40);
+      if (d.principal) current = emit({ ...current, targetCommit: tete });
+      const aDistant = (await runCommand(cwd, 'git remote', 20000)).out.trim().length > 0;
+      if (!aDistant) {
+        recitEnvoi.push(`${prefixe(d)}aucun dépôt distant : rien à envoyer`);
+      } else if ((await distantsEnvoyables(cwd)).length === 0) {
+        recitEnvoi.push(`${prefixe(d)}dépôt public : lecture seule, rien à envoyer`);
+      } else {
+        if (d.principal && project.depotSansDonneesSensibles) {
+          const garde = await garderLEnvoi(
+            cwd,
+            brancheParDepot.get(d.nom) ?? 'dev',
+            cards.map((card) => ({ titre: card.title, branche: card.github?.branch })),
+          );
+          if (!garde.ok) arreter('push', garde.recit);
+        }
+        current = progresser(current, 'push', `${prefixe(d)}Envoi de « ${brancheParDepot.get(d.nom)} »…`);
+        const envoi = await envoyerSurLeDepot(cwd, (args) => runGit(cwd, args, DELAIS_DU_DEPLOIEMENT_MS.envoi));
+        if (!envoi.ok) {
+          arreter(
+            'push',
+            `${prefixe(d)}${envoi.delaiDepasse ? `L’envoi n’a pas rendu la main en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.envoi)}.\n` : ''}${envoi.sortie}`,
+          );
+        }
+        recitEnvoi.push(
+          envoi.lectureSeule ? `${prefixe(d)}dépôt public : lecture seule, rien à envoyer` : `${prefixe(d)}${envoi.commande} : envoyé`,
         );
-        if (!garde.ok) arreter('push', garde.recit);
       }
-      current = progresser(current, 'push', `${prefixe(d)}Envoi de « ${brancheParDepot.get(d.nom)} »…`);
-      const envoi = await envoyerSurLeDepot(cwd, (args) => runGit(cwd, args, DELAIS_DU_DEPLOIEMENT_MS.envoi));
-      if (!envoi.ok) {
-        arreter(
-          'push',
-          `${prefixe(d)}${envoi.delaiDepasse ? `L’envoi n’a pas rendu la main en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.envoi)}.\n` : ''}${envoi.sortie}`,
-        );
-      }
-      recitEnvoi.push(
-        envoi.lectureSeule ? `${prefixe(d)}dépôt public : lecture seule, rien à envoyer` : `${prefixe(d)}${envoi.commande} : envoyé`,
-      );
+      if (!d.principal) etatsDepots.push({ nom: d.nom, etat: 'reussi', targetCommit: tete });
     }
-    if (!d.principal) etatsDepots.push({ nom: d.nom, etat: 'reussi', targetCommit: tete });
-  }
-  if (etatsDepots.length) current = emit({ ...current, depots: etatsDepots });
-  current = setStep(current, 'push', gits.length ? 'done' : 'skipped', recitEnvoi.join('\n') || 'Projet sans dépôt git.');
+    if (etatsDepots.length) current = emit({ ...current, depots: etatsDepots });
+    current = setStep(current, 'push', gits.length ? 'done' : 'skipped', recitEnvoi.join('\n') || 'Projet sans dépôt git.');
+  });
   verifierArret();
 
   /* ---------- 4 à 6. Mise à jour, mise en ligne, redémarrage ---------- */
@@ -1662,22 +1951,26 @@ async function deployer(
       current = setStep(current, 'restart', 'skipped', 'Rien à relancer.');
     } else {
       const cwd = project.path;
-      current = setStep(current, 'build', 'running');
-      current = progresser(current, 'build', 'Outils de construction et module natif…');
-      const outils = await poserLesOutilsDeConstruction(cwd);
-      current = progresser(current, 'build', '$ npm run build');
-      const build = await runCommand(cwd, 'npm run build', DELAIS_DU_DEPLOIEMENT_MS.miseAJour, 4000, signal);
-      if (!build.ok) arreter('build', `${outils}La construction a échoué${build.delaiDepasse ? ' (délai dépassé)' : ''} :\n${dernieresLignes(build.out, 2500)}`);
-      current = setStep(current, 'build', 'done', `${outils}Construit en ${secondes(build.dureeMs ?? 0)}.`);
+      await avecReparation('build', async () => {
+        current = setStep(current, 'build', 'running');
+        current = progresser(current, 'build', 'Outils de construction et module natif…');
+        const outils = await poserLesOutilsDeConstruction(cwd);
+        current = progresser(current, 'build', '$ npm run build');
+        const build = await runCommand(cwd, 'npm run build', DELAIS_DU_DEPLOIEMENT_MS.miseAJour, 4000, signal);
+        if (!build.ok) arreter('build', `${outils}La construction a échoué${build.delaiDepasse ? ' (délai dépassé)' : ''} :\n${dernieresLignes(build.out, 2500)}`);
+        current = setStep(current, 'build', 'done', `${outils}Construit en ${secondes(build.dureeMs ?? 0)}.`);
+      });
 
-      current = setStep(current, 'publish', 'running');
-      let installe = '';
-      try {
-        installe = installerApplication();
-      } catch (err) {
-        arreter('publish', `L’installation dans le dossier servi a échoué : ${raisonDe(err)}`);
-      }
-      current = setStep(current, 'publish', 'done', installe);
+      await avecReparation('publish', async () => {
+        current = setStep(current, 'publish', 'running');
+        let installe = '';
+        try {
+          installe = installerApplication();
+        } catch (err) {
+          arreter('publish', `L’installation dans le dossier servi a échoué : ${raisonDe(err)}`);
+        }
+        current = setStep(current, 'publish', 'done', installe);
+      });
 
       /* Le démon porte TOUS les agents : il ne redémarre jamais sous l'un
          d'eux, ni sous une autre publication (DEC-166). La demande est
@@ -1707,56 +2000,60 @@ async function deployer(
        annexes gardent leurs propres réglages. */
     const processusEcrit = processusJoueAuDeploiement(project);
     const parLeProcessus = (d: DepotAPublier) => d.principal && !!processusEcrit;
-    current = setStep(current, 'build', 'running');
-    for (const d of depots) {
-      if (parLeProcessus(d) && processusEcrit) {
-        if (inchange(d)) {
-          miseAJour.push(`${prefixe(d)}rien n’a changé depuis la dernière mise en ligne : le processus du projet n’est pas rejoué.`);
+    await avecReparation('build', async () => {
+      miseAJour.length = 0;
+      aJoue = false;
+      current = setStep(current, 'build', 'running');
+      for (const d of depots) {
+        if (parLeProcessus(d) && processusEcrit) {
+          if (inchange(d)) {
+            miseAJour.push(`${prefixe(d)}rien n’a changé depuis la dernière mise en ligne : le processus du projet n’est pas rejoué.`);
+            continue;
+          }
+          for (const [rang, etape] of processusEcrit.etapes.entries()) {
+            verifierArret();
+            const entete = `${prefixe(d)}${rang + 1}/${processusEcrit.etapes.length} · ${etape.libelle}`;
+            current = progresser(current, 'build', entete);
+            current = noter(current, 'build', `$ ${etape.commande}`, 'commande');
+            const sortie = await runCommand(d.projet.path, etape.commande, etape.delaiS * 1000, 4000, signal);
+            miseAJour.push(
+              `${entete} — ${sortie.ok ? `terminée en ${secondes(sortie.dureeMs ?? 0)}` : 'ÉCHEC'}\n$ ${etape.commande}\n${dernieresLignes(sortie.out, sortie.ok ? 400 : 2500)}`,
+            );
+            if (!sortie.ok) {
+              arreter(
+                'build',
+                `L’étape ${rang + 1} « ${etape.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${etape.delaiS} s` : 'a échoué'} : le processus s’arrête là.\n\n${miseAJour.join('\n\n')}`,
+              );
+            }
+          }
+          aJoue = true;
           continue;
         }
-        for (const [rang, etape] of processusEcrit.etapes.entries()) {
-          verifierArret();
-          const entete = `${prefixe(d)}${rang + 1}/${processusEcrit.etapes.length} · ${etape.libelle}`;
-          current = progresser(current, 'build', entete);
-          current = noter(current, 'build', `$ ${etape.commande}`, 'commande');
-          const sortie = await runCommand(d.projet.path, etape.commande, etape.delaiS * 1000, 4000, signal);
-          miseAJour.push(
-            `${entete} — ${sortie.ok ? `terminée en ${secondes(sortie.dureeMs ?? 0)}` : 'ÉCHEC'}\n$ ${etape.commande}\n${dernieresLignes(sortie.out, sortie.ok ? 400 : 2500)}`,
+        const commande = commandeDeMiseAJour(d.projet.deploiement);
+        if (!commande) continue;
+        if (inchange(d)) {
+          miseAJour.push(`${prefixe(d)}rien n’a changé depuis la dernière mise en ligne : « ${commande} » n’est pas relancée.`);
+          continue;
+        }
+        verifierArret();
+        current = progresser(current, 'build', `${prefixe(d)}$ ${commande}`);
+        const sortie = await runCommand(d.projet.path, commande, DELAIS_DU_DEPLOIEMENT_MS.miseAJour, 4000, signal);
+        if (!sortie.ok) {
+          arreter(
+            'build',
+            `${prefixe(d)}« ${commande} » a échoué${sortie.delaiDepasse ? ` : pas de réponse en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.miseAJour)}` : ''}.\n${dernieresLignes(sortie.out, 2500)}`,
           );
-          if (!sortie.ok) {
-            arreter(
-              'build',
-              `L’étape ${rang + 1} « ${etape.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${etape.delaiS} s` : 'a échoué'} : le processus s’arrête là.\n\n${miseAJour.join('\n\n')}`,
-            );
-          }
         }
         aJoue = true;
-        continue;
+        miseAJour.push(`${prefixe(d)}« ${commande} » terminée en ${secondes(sortie.dureeMs ?? 0)}.\n${dernieresLignes(sortie.out, 600)}`);
       }
-      const commande = commandeDeMiseAJour(d.projet.deploiement);
-      if (!commande) continue;
-      if (inchange(d)) {
-        miseAJour.push(`${prefixe(d)}rien n’a changé depuis la dernière mise en ligne : « ${commande} » n’est pas relancée.`);
-        continue;
-      }
-      verifierArret();
-      current = progresser(current, 'build', `${prefixe(d)}$ ${commande}`);
-      const sortie = await runCommand(d.projet.path, commande, DELAIS_DU_DEPLOIEMENT_MS.miseAJour, 4000, signal);
-      if (!sortie.ok) {
-        arreter(
-          'build',
-          `${prefixe(d)}« ${commande} » a échoué${sortie.delaiDepasse ? ` : pas de réponse en ${secondes(DELAIS_DU_DEPLOIEMENT_MS.miseAJour)}` : ''}.\n${dernieresLignes(sortie.out, 2500)}`,
-        );
-      }
-      aJoue = true;
-      miseAJour.push(`${prefixe(d)}« ${commande} » terminée en ${secondes(sortie.dureeMs ?? 0)}.\n${dernieresLignes(sortie.out, 600)}`);
-    }
-    current = setStep(
-      current,
-      'build',
-      aJoue ? 'done' : 'skipped',
-      miseAJour.join('\n\n') || 'Aucune commande de mise à jour réglée pour ce projet.',
-    );
+      current = setStep(
+        current,
+        'build',
+        aJoue ? 'done' : 'skipped',
+        miseAJour.join('\n\n') || 'Aucune commande de mise à jour réglée pour ce projet.',
+      );
+    });
     current = setStep(
       current,
       'publish',
@@ -1764,85 +2061,114 @@ async function deployer(
       'Le code est en place dans le dossier du projet.',
     );
 
-    current = setStep(current, 'restart', 'running');
-    for (const d of depots) {
-      /* Le processus écrit porte lui-même ses redémarrages. */
-      if (parLeProcessus(d)) continue;
-      const services = servicesARelancer(d.projet.deploiement);
-      if (!services.length) continue;
-      if (inchange(d)) {
-        relances.push(`${prefixe(d)}rien n’a changé : ${services.join(', ')} ${services.length > 1 ? 'ne sont pas relancés' : 'n’est pas relancé'}.`);
-        continue;
-      }
-      /* Le port du projet ne se contrôle qu'après le DERNIER service : les
-         autres (une API, un worker) n'écoutent pas forcément dessus. */
-      const relancesIci: string[] = [];
-      for (const [rang, service] of services.entries()) {
-        verifierArret();
-        if (await eteintVolontairement(service, signal)) {
-          relances.push(`${prefixe(d)}${service} est éteint volontairement (désactivé) : il n’est pas rallumé.`);
+    await avecReparation('restart', async () => {
+      relances.length = 0;
+      aRelance = false;
+      current = setStep(current, 'restart', 'running');
+      for (const d of depots) {
+        /* Le processus écrit porte lui-même ses redémarrages. */
+        if (parLeProcessus(d)) continue;
+        const services = servicesARelancer(d.projet.deploiement);
+        if (!services.length) continue;
+        if (inchange(d)) {
+          relances.push(`${prefixe(d)}rien n’a changé : ${services.join(', ')} ${services.length > 1 ? 'ne sont pas relancés' : 'n’est pas relancé'}.`);
           continue;
         }
-        current = progresser(current, 'restart', `${prefixe(d)}Redémarrage de ${service}…`);
-        const port = rang === services.length - 1 ? d.projet.port : undefined;
-        const bilan = await relancerLeService(service, port, signal, (texte) => {
-          current = progresser(current, 'restart', `${prefixe(d)}${texte}`);
-        });
-        if (!bilan.ok) arreter('restart', `${prefixe(d)}${bilan.recit}`);
-        aRelance = true;
-        relancesIci.push(service);
-        relances.push(`${prefixe(d)}${bilan.recit}`);
-      }
-      /* LE SITE SERT-IL LE NOUVEAU CODE ? Un service relancé sur une
-         construction d'AVANT le code déployé montre l'ancienne version : c'est
-         un échec, dit comme tel, avec ce qu'il faut régler. La référence est
-         la date du commit visé (une relance sans nouvelle fusion sert un site
-         construit avant le clic, mais à jour) ; une construction encore
-         vieille est ré-examinée un temps BORNÉ, le service la refaisant
-         peut-être en ce moment. */
-      const tete = d.principal ? current.targetCommit : current.depots?.find((x) => x.nom === d.nom)?.targetCommit;
-      const dateDuCode = (await dateDuCommit(d.projet.path, tete)) ?? current.startedAt ?? Date.now();
-      for (const service of relancesIci) {
-        const examiner = async () =>
-          constructionPerimee({ constructions: await constructionsDuService(service, d.projet.path), dateDuCode });
-        let perimee = await examiner();
-        const echeance = Date.now() + DELAIS_DU_DEPLOIEMENT_MS.reconstruction;
-        while (perimee && Date.now() < echeance) {
+        /* Le port du projet ne se contrôle qu'après le DERNIER service : les
+           autres (une API, un worker) n'écoutent pas forcément dessus. */
+        const relancesIci: string[] = [];
+        for (const [rang, service] of services.entries()) {
           verifierArret();
-          current = progresser(
-            current,
-            'restart',
-            `${prefixe(d)}${service} sert encore une construction antérieure au code déployé : attente de sa reconstruction…`,
-          );
-          await pause(5000);
-          verifierArret();
-          perimee = await examiner();
+          if (await eteintVolontairement(service, signal)) {
+            relances.push(`${prefixe(d)}${service} est éteint volontairement (désactivé) : il n’est pas rallumé.`);
+            continue;
+          }
+          current = progresser(current, 'restart', `${prefixe(d)}Redémarrage de ${service}…`);
+          const port = rang === services.length - 1 ? d.projet.port : undefined;
+          const bilan = await relancerLeService(service, port, signal, (texte) => {
+            current = progresser(current, 'restart', `${prefixe(d)}${texte}`);
+          });
+          if (!bilan.ok) arreter('restart', `${prefixe(d)}${bilan.recit}`);
+          aRelance = true;
+          relancesIci.push(service);
+          relances.push(`${prefixe(d)}${bilan.recit}`);
         }
-        if (perimee) arreter('restart', `${prefixe(d)}${relances.join('\n')}\n\n${prefixe(d)}${perimee}`);
+        /* LE SITE SERT-IL LE NOUVEAU CODE ? Un service relancé sur une
+           construction d'AVANT le code déployé montre l'ancienne version : c'est
+           un échec, dit comme tel, avec ce qu'il faut régler. La référence est
+           la date du commit visé (une relance sans nouvelle fusion sert un site
+           construit avant le clic, mais à jour) ; une construction encore
+           vieille est ré-examinée un temps BORNÉ, le service la refaisant
+           peut-être en ce moment. */
+        const tete = d.principal ? current.targetCommit : current.depots?.find((x) => x.nom === d.nom)?.targetCommit;
+        const dateDuCode = (await dateDuCommit(d.projet.path, tete)) ?? current.startedAt ?? Date.now();
+        for (const service of relancesIci) {
+          const examiner = async () =>
+            constructionPerimee({ constructions: await constructionsDuService(service, d.projet.path), dateDuCode });
+          let perimee = await examiner();
+          const echeance = Date.now() + DELAIS_DU_DEPLOIEMENT_MS.reconstruction;
+          while (perimee && Date.now() < echeance) {
+            verifierArret();
+            current = progresser(
+              current,
+              'restart',
+              `${prefixe(d)}${service} sert encore une construction antérieure au code déployé : attente de sa reconstruction…`,
+            );
+            await pause(5000);
+            verifierArret();
+            perimee = await examiner();
+          }
+          if (perimee) arreter('restart', `${prefixe(d)}${relances.join('\n')}\n\n${prefixe(d)}${perimee}`);
+        }
       }
-    }
-    const rienDeRegle =
-      !processusEcrit &&
-      depots.every((d) => !commandeDeMiseAJour(d.projet.deploiement) && !servicesARelancer(d.projet.deploiement).length);
-    current = setStep(
-      current,
-      'restart',
-      aRelance ? 'done' : 'skipped',
-      relances.join('\n') ||
-        (processusEcrit
-          ? 'Le processus du projet porte lui-même ses redémarrages.'
-          : rienDeRegle
-            ? RECIT_SANS_MISE_A_JOUR
-            : 'Aucun service réglé pour ce projet : rien à relancer.'),
-    );
+      /* LE RÉSULTAT, pas le processus : l'adresse du projet répond-elle ?
+         Muette, c'est une panne de l'étape — réparée, puis l'étape rejouée. */
+      if (project.devUrl?.trim()) {
+        const controle = await adresseRepond(project.devUrl.trim());
+        current = noter(current, 'restart', controle.detail, 'issue', controle.ok ? 'fait' : 'echec');
+        if (!controle.ok) arreter('restart', `${relances.join('\n')}${relances.length ? '\n\n' : ''}${controle.detail}`);
+      }
+      const rienDeRegle =
+        !processusEcrit &&
+        depots.every((d) => !commandeDeMiseAJour(d.projet.deploiement) && !servicesARelancer(d.projet.deploiement).length);
+      current = setStep(
+        current,
+        'restart',
+        aRelance ? 'done' : 'skipped',
+        relances.join('\n') ||
+          (processusEcrit
+            ? 'Le processus du projet porte lui-même ses redémarrages.'
+            : rienDeRegle
+              ? RECIT_SANS_MISE_A_JOUR
+              : 'Aucun service réglé pour ce projet : rien à relancer.'),
+      );
+    });
   }
 
-  /* LE RÉSULTAT, pas le processus : l'adresse du projet répond-elle ? */
-  if (project.devUrl?.trim() && !project.isSelf) {
-    const controle = await adresseRepond(project.devUrl.trim());
-    current = noter(current, 'restart', controle.detail, 'issue', controle.ok ? 'fait' : 'echec');
-    if (!controle.ok) throw new ArretDeLaPublication(controle.detail);
+  /* UNE RÉPARATION D'APRÈS L'ENVOI a pu enregistrer un correctif : il part sur
+     le dépôt avec le reste, au lieu d'attendre la prochaine publication. Un
+     dépôt gardé (`depotSansDonneesSensibles`) n'est jamais renvoyé sans sa garde. */
+  const repareApresLEnvoi = (['build', 'publish', 'restart'] as const).some(
+    (cle) => current.steps.find((step) => step.key === cle)?.reparation?.essais,
+  );
+  if (repareApresLEnvoi && !project.depotSansDonneesSensibles) {
+    for (const d of gits) {
+      const cwd = d.projet.path;
+      const tete = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim().slice(0, 40);
+      const envoye = d.principal ? current.targetCommit : current.depots?.find((x) => x.nom === d.nom)?.targetCommit;
+      if (!tete || tete === envoye || !(await distantsEnvoyables(cwd)).length) continue;
+      const envoi = await envoyerSurLeDepot(cwd, (args) => runGit(cwd, args, DELAIS_DU_DEPLOIEMENT_MS.envoi));
+      current = noter(
+        current,
+        'push',
+        envoi.ok
+          ? `${prefixe(d)}Correctif de la réparation envoyé (${tete.slice(0, 7)}).`
+          : `${prefixe(d)}Correctif de la réparation non envoyé : ${dernieresLignes(envoi.sortie, 300)}`,
+      );
+      if (envoi.ok && d.principal) current = emit({ ...current, targetCommit: tete });
+    }
   }
+
   return { run: current, redemarrageDemande };
 }
 
@@ -1855,6 +2181,9 @@ async function mettreEnProduction(depart: DeployRun, project: Project, signal: A
   const cwd = project.path;
   const processus = project.miseEnProduction?.processus;
   if (!processus?.etapes?.length) throw new ArretDeLaPublication('Aucun processus de mise en production.');
+  /* LA MÊME RÈGLE QU'AU DÉPLOIEMENT (décision du 2026-10-18) : une étape qui
+     tombe est réparée en silence, puis rejouée ; l'encadré seulement à l'abandon. */
+  const acces: AccesAuRun = { lire: () => current, ecrire: (run) => (current = run) };
 
   /* 1. La branche de travail rejoint la branche de production — avance
         rapide, sinon commit à deux parents, JAMAIS d'envoi forcé (MEM-1275). */
@@ -1865,14 +2194,13 @@ async function mettreEnProduction(depart: DeployRun, project: Project, signal: A
     if (dev === production) {
       current = setStep(current, 'merge', 'skipped', `Le déploiement et la production partagent la branche « ${production} ».`);
     } else {
-      current = setStep(current, 'merge', 'running');
-      current = progresser(current, 'merge', `Fusion de « ${dev} » dans « ${production} » et envoi…`);
-      const fusion = await fusionnerVersLaProduction(cwd, dev, production);
-      if (!fusion.ok) {
-        current = setStep(current, 'merge', 'failed', fusion.recit);
-        throw new ArretDeLaPublication(premiereLigne(fusion.recit));
-      }
-      current = setStep(current, 'merge', fusion.geste === 'deja-a-jour' ? 'skipped' : 'done', fusion.recit);
+      await jouerAvecReparation(acces, project, 'merge', signal, async () => {
+        current = setStep(current, 'merge', 'running');
+        current = progresser(current, 'merge', `Fusion de « ${dev} » dans « ${production} » et envoi…`);
+        const fusion = await fusionnerVersLaProduction(cwd, dev, production);
+        if (!fusion.ok) throw new EchecDEtape('merge', fusion.recit);
+        current = setStep(current, 'merge', fusion.geste === 'deja-a-jour' ? 'skipped' : 'done', fusion.recit);
+      });
     }
     const tete = await runCommand(cwd, `git rev-parse --verify --quiet ${production}`, 20000);
     current = emit({ ...current, targetCommit: tete.out.trim().slice(0, 40) || undefined });
@@ -1886,23 +2214,25 @@ async function mettreEnProduction(depart: DeployRun, project: Project, signal: A
   current = setStep(current, 'build', 'skipped', 'Le processus du projet dit lui-même ce qu’il construit.');
 
   /* 2. Le processus écrit à l'initialisation, TEL QUEL, sans agent. */
-  current = setStep(current, 'publish', 'running');
-  const joue: string[] = [];
-  for (const [rang, etape] of processus.etapes.entries()) {
-    if (signal.aborted) throw new ArretDeLaPublication('arrêt demandé');
-    const entete = `${rang + 1}/${processus.etapes.length} · ${etape.libelle}`;
-    current = progresser(current, 'publish', entete);
-    current = noter(current, 'publish', `$ ${etape.commande}`, 'commande');
-    const sortie = await runCommand(cwd, etape.commande, etape.delaiS * 1000, 4000, signal);
-    joue.push(`${entete} — ${sortie.ok ? `terminée en ${secondes(sortie.dureeMs ?? 0)}` : 'ÉCHEC'}\n$ ${etape.commande}\n${dernieresLignes(sortie.out, sortie.ok ? 400 : 2500)}`);
-    if (!sortie.ok) {
-      current = setStep(current, 'publish', 'failed', joue.join('\n\n'));
-      throw new ArretDeLaPublication(
-        `L’étape ${rang + 1} « ${etape.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${etape.delaiS} s` : 'a échoué'} : le processus s’arrête là.`,
-      );
+  await jouerAvecReparation(acces, project, 'publish', signal, async () => {
+    current = setStep(current, 'publish', 'running');
+    const joue: string[] = [];
+    for (const [rang, etape] of processus.etapes.entries()) {
+      if (signal.aborted) throw new ArretDeLaPublication('arrêt demandé');
+      const entete = `${rang + 1}/${processus.etapes.length} · ${etape.libelle}`;
+      current = progresser(current, 'publish', entete);
+      current = noter(current, 'publish', `$ ${etape.commande}`, 'commande');
+      const sortie = await runCommand(cwd, etape.commande, etape.delaiS * 1000, 4000, signal);
+      joue.push(`${entete} — ${sortie.ok ? `terminée en ${secondes(sortie.dureeMs ?? 0)}` : 'ÉCHEC'}\n$ ${etape.commande}\n${dernieresLignes(sortie.out, sortie.ok ? 400 : 2500)}`);
+      if (!sortie.ok) {
+        throw new EchecDEtape(
+          'publish',
+          `${joue.join('\n\n')}\n\nL’étape ${rang + 1} « ${etape.libelle} » ${sortie.delaiDepasse ? `n’a pas rendu la main en ${etape.delaiS} s` : 'a échoué'} : le processus s’arrête là.`,
+        );
+      }
     }
-  }
-  current = setStep(current, 'publish', 'done', joue.join('\n\n'));
+    current = setStep(current, 'publish', 'done', joue.join('\n\n'));
+  });
   current = setStep(current, 'restart', 'skipped', 'Le processus du projet porte lui-même ses redémarrages.');
   return current;
 }
@@ -1955,14 +2285,9 @@ export function stopDeploy(runId: string): boolean {
   return true;
 }
 
-/** Relancer, c'est refaire LA MÊME publication, à la même étape. */
-export async function retryDeploy(
-  runId: string,
-  /* `enChaine` : la relance vient du dépanneur — le compte des essais automatiques suit. */
-  options: { enChaine?: boolean } = {},
-): Promise<{ ok: boolean; error?: string }> {
+/** Relancer, c'est refaire LA MÊME publication : ses étapes, et trois essais de réparation neufs pour chacune. */
+export async function retryDeploy(runId: string): Promise<{ ok: boolean; error?: string }> {
   const run = store.getDeploy(runId);
   if (!run) return { ok: false, error: 'publication introuvable' };
-  const depannagesAuto = options.enChaine && run.depannage?.automatique ? (run.depannagesAuto ?? 0) + 1 : 0;
-  return startDeploy(run.projectId, { cible: run.cible, depannagesAuto });
+  return startDeploy(run.projectId, { cible: run.cible });
 }

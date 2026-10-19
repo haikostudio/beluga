@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  AtSign,
   Bot,
   CalendarDays,
   Check,
@@ -18,6 +19,7 @@ import {
   EllipsisVertical,
   FileText,
   Filter,
+  Inbox,
   Info,
   Link2,
   Loader2,
@@ -85,6 +87,7 @@ import {
   colonneDeContenu,
   depotContenu,
   type ColonneContenu,
+  type CompteSocial,
   estTelephoneBas,
   estTelephoneChat,
   type ChatFlottant,
@@ -138,6 +141,7 @@ import { poserLeRondVoisin } from '@/lib/assistant-global';
 import { cn } from '@/lib/utils';
 import { usePointerDrag, type DropTarget } from '@/lib/dnd';
 import { CourbeParJour, MiniCourbe, Repartition, copier, dateCourte } from '@/components/graphiques-statistiques';
+import { OngletComptes, OngletMessages, OuPublier, type VueDesReseaux } from '@/components/marketing-reseaux';
 
 /**
  * L'ATELIER MARKETING — la liste des projets, puis l'espace d'UN projet.
@@ -238,6 +242,8 @@ interface EspaceComplet {
   carteSuivi?: Card | null;
   /** Les visuels exportés par le Studio, rattachés à chaque contenu (le plus récent d'abord). */
   visuels?: Record<string, VisuelDuContenu[]>;
+  /** Les comptes reliés du projet, les applications des réseaux et les messages non lus. */
+  reseaux?: VueDesReseaux;
 }
 
 interface VisuelDuContenu {
@@ -341,7 +347,7 @@ function VoletInfo({
 }
 
 /** LE POINT « i » : une petite icône qui ouvre le volet d'explication. */
-function PointInfo({ titre, children }: { titre: string; children: React.ReactNode }) {
+export function PointInfo({ titre, children }: { titre: string; children: React.ReactNode }) {
   const [ouvert, setOuvert] = React.useState(false);
   return (
     <>
@@ -435,7 +441,7 @@ function ActionsEntete({ actions = [], info }: { actions?: ActionDEntete[]; info
  * LE CORPS D'UN ONGLET : ce qui défile, puis le PIED qui garde l'action
  * principale sous le pouce, en pleine largeur sur téléphone.
  */
-function CorpsOnglet({
+export function CorpsOnglet({
   children,
   pied,
   refDefilement,
@@ -1507,15 +1513,15 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
 
 /* L'onglet « Statistiques » est devenu un service à part (27/09/2026) : un
    onglet mémorisé ou demandé qui porterait encore ce nom retombe sur le défaut. */
-type Onglet = 'positionnement' | 'contenus' | 'calendrier' | 'canaux';
-const ONGLETS: readonly Onglet[] = ['positionnement', 'contenus', 'calendrier', 'canaux'];
+type Onglet = 'positionnement' | 'contenus' | 'calendrier' | 'canaux' | 'comptes' | 'messages';
+const ONGLETS: readonly Onglet[] = ['positionnement', 'contenus', 'calendrier', 'canaux', 'comptes', 'messages'];
 /** La rubrique d'arrivée d'un projet, quand rien d'autre n'est demandé. */
 const ONGLET_PAR_DEFAUT: Onglet = 'calendrier';
 /** Les rubriques qui sont des plans de travail : elles prennent toute la largeur de la zone principale. */
 const ONGLETS_EN_PLEINE_LARGEUR: readonly Onglet[] = ['calendrier', 'contenus'];
 
 /**
- * LES QUATRE RUBRIQUES D'UN PROJET, dans l'ordre où elles se lisent — les
+ * LES RUBRIQUES D'UN PROJET, dans l'ordre où elles se lisent — les
  * lignes de la colonne de gauche sur ordinateur, les onglets de la page sur
  * téléphone : une seule liste pour les deux.
  */
@@ -1524,6 +1530,9 @@ function rubriquesDuProjet(): { cle: Onglet; Icone: React.ComponentType<{ classN
     { cle: 'calendrier', Icone: CalendarDays, libelle: t('Calendrier') },
     { cle: 'contenus', Icone: Columns3, libelle: t('Contenus') },
     { cle: 'canaux', Icone: Share2, libelle: t('Canaux') },
+    /* LA PUBLICATION OFFICIELLE (18/10/2026) : les comptes reliés du projet, puis leurs commentaires et messages. */
+    { cle: 'comptes', Icone: AtSign, libelle: t('Comptes') },
+    { cle: 'messages', Icone: Inbox, libelle: t('Messages') },
     { cle: 'positionnement', Icone: Target, libelle: t('Positionnement') },
   ];
 }
@@ -1693,6 +1702,8 @@ function EspaceDuProjet({
   // si le projet a déjà son agent, et un voile éphémère clignoterait.
   const voile = !!donnees && agent.etat === 'initialiser';
   const rubriques = rubriquesDuProjet();
+  /* Le compteur de l'onglet Messages : pas une alerte de plus (« trois genres alertent »), un chiffre. */
+  const nonLus = donnees?.reseaux?.messagesNonLus ?? 0;
   /* Ce qui rend le contenu hors d'atteinte sous le voile, où qu'il soit monté. */
   const horsDAtteinte = { 'aria-hidden': voile || undefined, ...(voile ? { inert: '' } : {}) };
 
@@ -1728,6 +1739,8 @@ function EspaceDuProjet({
       );
     }
     if (cle === 'canaux') return <OngletCanaux projectId={projectId} donnees={d} onAgent={ouvrirChat} />;
+    if (cle === 'comptes') return <OngletComptes projectId={projectId} reseaux={d.reseaux} cartes={d.cartes ?? []} onOuvrirCarte={onOuvrirCarte} />;
+    if (cle === 'messages') return <OngletMessages projectId={projectId} version={version} comptes={d.reseaux?.comptes ?? []} />;
     return <OngletPositionnement projectId={projectId} fiche={d.espace?.fiche ?? {}} />;
   };
 
@@ -1788,6 +1801,11 @@ function EspaceDuProjet({
                 >
                   <Icone className="h-4 w-4 shrink-0 text-muted" />
                   <span className="min-w-0 flex-1 truncate">{libelle}</span>
+                  {cle === 'messages' && nonLus ? (
+                    <span className="shrink-0 text-[11.5px] text-muted" data-marketing-non-lus={nonLus}>
+                      {nonLus}
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </nav>
@@ -1814,6 +1832,7 @@ function EspaceDuProjet({
                   {rubriques.map(({ cle, libelle }) => (
                     <TabsTrigger key={cle} value={cle} data-marketing-onglet={cle}>
                       {libelle}
+                      {cle === 'messages' && nonLus ? <span className="ml-1 text-muted" data-marketing-non-lus={nonLus}>{nonLus}</span> : null}
                     </TabsTrigger>
                   ))}
                 </TabsList>
@@ -1847,7 +1866,13 @@ function EspaceDuProjet({
       )}
 
       {donnees ? <ChatFlottantMarketing donnees={donnees} projectId={projectId} suivi={agent} chat={chat} onChat={setChatBrut} /> : null}
-      <TiroirContenu contenu={contenu} adresseLiens={donnees?.adresseLiens ?? ''} visuels={contenu ? donnees?.visuels?.[contenu.id] ?? [] : []} onClose={() => setContenuOuvert(null)} />
+      <TiroirContenu
+        contenu={contenu}
+        adresseLiens={donnees?.adresseLiens ?? ''}
+        visuels={contenu ? donnees?.visuels?.[contenu.id] ?? [] : []}
+        comptes={donnees?.reseaux?.comptes ?? []}
+        onClose={() => setContenuOuvert(null)}
+      />
       <TiroirNouveauContenu ouvert={creation} projectId={projectId} onClose={() => setCreation(false)} onCree={setContenuOuvert} />
       <VoletAction action={action} onClose={() => setActionOuverte(null)} />
     </>
@@ -2447,8 +2472,9 @@ function OngletPositionnement({ projectId, fiche }: { projectId: string; fiche: 
  * À valider, Programmés, Publiés — DISJOINTES, chacune avec sa phrase qui dit
  * à quoi elle sert et QUI agit. Les contenus s'y déplacent au glisser, mais
  * seulement dans les sens que `depotContenu` permet (règle pure, partagée).
- * « Programmé » n'est qu'un REPÈRE de calendrier : rien ne part tout seul,
- * publier reste un geste humain. Les annonces tirées d'une livraison
+ * « Programmé » part tout seul à l'heure prévue sur les comptes reliés cochés
+ * (18/10/2026) ; sans compte coché, il reste un repère de calendrier. Dans les
+ * deux cas, c'est l'utilisateur qui a programmé. Les annonces tirées d'une livraison
  * (`origine === 'nouveaute'`) attendent dans « À valider » avec une étiquette ;
  * « Abandonné » ne se montre plus.
  */
@@ -2456,8 +2482,8 @@ function colonnesContenus(): { cle: ColonneContenu; libelle: string; phrase: str
   return [
     { cle: 'brouillons', libelle: t('Brouillons'), phrase: t('En cours d’écriture, par l’agent ou par vous.') },
     { cle: 'a_valider', libelle: t('À valider'), phrase: t('Écrits : c’est à vous de les relire.') },
-    { cle: 'programmes', libelle: t('Programmés'), phrase: t('Relus et datés. Un simple repère : rien ne part tout seul, vous publiez vous-même.') },
-    { cle: 'publies', libelle: t('Publiés'), phrase: t('Publiés par vous. Ils ne bougent plus.') },
+    { cle: 'programmes', libelle: t('Programmés'), phrase: t('Relus et datés. Ils partent seuls à l’heure prévue sur les comptes cochés.') },
+    { cle: 'publies', libelle: t('Publiés'), phrase: t('Publiés sur les réseaux ou par vous. Ils ne bougent plus.') },
   ];
 }
 
@@ -3464,7 +3490,7 @@ function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donn
             <p>{t('Mieux vaut peu de canaux bien tenus que tous à la fois. L’agent dit lesquels conviennent à votre produit et par quoi commencer ; vous choisissez.')}</p>
             <p>
               {t(
-                'La publication directe par le navigateur du serveur arrive dans une prochaine étape. En attendant, copiez le texte d’un contenu prêt, publiez-le, puis marquez-le comme publié : son lien de suivi continue de compter les visites.',
+                'Reliez vos comptes dans l’onglet Comptes : l’atelier publie alors lui-même sur Instagram, Facebook, LinkedIn, Threads, YouTube, TikTok, X, Pinterest et la fiche Google. Le lien de suivi de chaque contenu compte ses visites.',
               )}
             </p>
           </PointInfo>
@@ -3666,11 +3692,14 @@ function TiroirContenu({
   contenu,
   adresseLiens,
   visuels = [],
+  comptes = [],
   onClose,
 }: {
   contenu: ContenuMarketing | null;
   adresseLiens: string;
   visuels?: VisuelDuContenu[];
+  /** Les comptes reliés du projet : on y coche ceux où ce contenu part. */
+  comptes?: CompteSocial[];
   onClose: () => void;
 }) {
   const [titre, setTitre] = React.useState('');
@@ -3760,7 +3789,7 @@ function TiroirContenu({
                 <>
                   <p>{t('Relisez et corrigez le texte, donnez-lui une date, puis faites-le avancer : valider, programmer, marquer comme publié.')}</p>
                   <p>{t('Mettez ce lien dans le post à la place de l’adresse du site : chaque visite et chaque vente qu’il amène sont comptées pour ce contenu.')}</p>
-                  <p>{t('Programmé : il vous sera rappelé dans le calendrier. Publiez-le à la date prévue, puis marquez-le comme publié.')}</p>
+                  <p>{t('Programmé : il part tout seul à l’heure prévue sur les comptes cochés dans « Où publier ». Sans compte coché, il reste un rappel du calendrier : publiez-le vous-même, puis marquez-le comme publié.')}</p>
                 </>
               ),
             }}
@@ -3834,6 +3863,8 @@ function TiroirContenu({
                 {t('Créer le visuel')}
               </Button>
             )}
+            {/* OÙ PUBLIER : les comptes reliés cochés, chacun avec son état ; « Publier maintenant » en dessous. */}
+            <OuPublier contenu={contenu} comptes={comptes} media={{ image: visuels.some((v) => v.genre === 'image'), video: visuels.some((v) => v.genre === 'video') }} />
             {secondaires.length ? (
               <div className="flex flex-wrap items-center gap-1" data-marketing-gestes>
                 {secondaires.map((g) => boutonGeste(g, false))}

@@ -82,7 +82,7 @@ export type EvenementDEtape = {
   etat?: EtatDuMoment;
   /**
    * L'agent de dépannage qui a écrit ce moment, s'il y en a un — jamais posé
-   * sur l'`Agent` lui-même (voir `resoudreConflit`), seulement ICI, pour que
+   * sur l'`Agent` lui-même (voir `jouerAvecReparation`), seulement ICI, pour que
    * le tiroir puisse ouvrir sa conversation sans le confondre avec l'agent de
    * la carte.
    */

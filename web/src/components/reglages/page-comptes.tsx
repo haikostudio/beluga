@@ -1,6 +1,8 @@
 import * as React from 'react';
 import {
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   Loader2,
   LogIn,
   Pencil,
@@ -10,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   AccountQuota,
+  ClientCommand,
   ConnexionCompte,
   EngineId,
   EtatCompteCursor,
@@ -20,6 +23,8 @@ import {
   usageCursorEnClair,
   tempsRestant,
   descriptionMoteur,
+  deplacerUnCran,
+  groupesDeComptes,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -60,19 +65,89 @@ export function SectionComptes() {
   const derniere = (accountId?: string) =>
     [...state.connexions].reverse().find((c) => c.accountId === accountId);
 
+  /*
+   * DEUX ORDRES SE RÈGLENT ICI, par des flèches : celui des moteurs (le premier
+   * qui a de la place reçoit une carte dont le moteur n'est pas choisi) et
+   * celui des comptes de chaque moteur (le plus haut reçoit le travail). La
+   * flèche cliquée tourne, les autres se figent, jusqu'à la réponse du démon.
+   */
+  const [deplace, setDeplace] = React.useState<string | null>(null);
+  const groupes = groupesDeComptes(state.quotas, settings?.ordreDesMoteurs);
+  const moteursRangeables = groupes.filter((groupe) => groupe.reglable).map((groupe) => groupe.engine);
+
+  const envoyerOrdre = async (cle: string, commande: ClientCommand) => {
+    setDeplace(cle);
+    try {
+      const rendu = await client.geste<{ ok?: boolean; erreur?: string }>(commande, t('Réglage de l\'ordre'));
+      if (rendu && rendu.ok === false) client.pushToast('error', rendu.erreur ?? t('Réglage de l\'ordre'));
+    } finally {
+      setDeplace(null);
+    }
+  };
+
   return (
     <section>
       <div className="mb-2 flex items-center gap-1.5">
-        <h3 className="flex items-center gap-1 flex-1 text-[13.5px] font-medium text-text">{t('Comptes et quotas')}<BulleInfo cote="start">{t('L\'ordre de priorité suit la valeur déclarée pour chaque compte : le compte prioritaire passe toujours en premier, la relève ne sert qu\'en cas d\'épuisement.')}</BulleInfo></h3>
+        <h3 className="flex items-center gap-1 flex-1 text-[13.5px] font-medium text-text">{t('Comptes et quotas')}<BulleInfo cote="start">{t('Vous réglez l\'ordre avec les flèches. Pour les moteurs : le premier qui a de la place reçoit une carte dont le moteur n\'est pas choisi. Pour les comptes d\'un moteur : le plus haut reçoit le travail, le suivant ne sert que s\'il est épuisé. Un moteur facturé au crédit n\'est jamais choisi tout seul.')}</BulleInfo></h3>
         <Button variant="ghost" size="icon-sm" aria-label="Relire les quotas" data-relire-quotas onClick={() => void client.geste({ type: 'quota.refresh' }, t('Relecture des quotas'))}>
           <RefreshCw className="h-3 w-3" />
         </Button>
       </div>
 
-      <div className="space-y-1">
-        {state.quotas.map((quota) => (
-          <LigneCompte key={quota.id} quota={quota} connexion={derniere(quota.id)} />
-        ))}
+      <div className="space-y-2">
+        {groupes.map((groupe) => {
+          const vrais = groupe.comptes.filter((quota) => !quota.suivi);
+          const ordonnables = vrais.length > 1 && vrais.length === groupe.comptes.length;
+          const rangMoteur = moteursRangeables.indexOf(groupe.engine);
+          return (
+            <div key={groupe.engine} className="space-y-1" data-groupe-moteur={groupe.engine}>
+              {groupes.length > 1 ? (
+                <div className="flex items-center gap-1.5 px-1">
+                  <IconeMoteur engine={groupe.engine} className="h-3.5 w-3.5" />
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-muted">
+                    {descriptionMoteur(groupe.engine)?.nomCourt ?? groupe.engine}
+                    {!groupe.reglable ? <span className="font-normal text-faint"> · {t('jamais choisi tout seul')}</span> : null}
+                  </span>
+                  {groupe.reglable && moteursRangeables.length > 1 ? (
+                    <FlechesOrdre
+                      id={`moteur-${groupe.engine}`}
+                      rang={rangMoteur + 1}
+                      premier={rangMoteur === 0}
+                      dernier={rangMoteur === moteursRangeables.length - 1}
+                      enCours={deplace}
+                      onDeplacer={(sens) => {
+                        const ids = deplacerUnCran(moteursRangeables, groupe.engine, sens);
+                        if (ids) void envoyerOrdre(`moteur-${groupe.engine}:${sens}`, { type: 'engine.reorder', ids });
+                      }}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {groupe.comptes.map((quota, index) => (
+                <LigneCompte
+                  key={quota.id}
+                  quota={quota}
+                  connexion={derniere(quota.id)}
+                  ordre={
+                    ordonnables ? (
+                      <FlechesOrdre
+                        id={quota.id}
+                        rang={index + 1}
+                        premier={index === 0}
+                        dernier={index === groupe.comptes.length - 1}
+                        enCours={deplace}
+                        onDeplacer={(sens) => {
+                          const ids = deplacerUnCran(groupe.comptes.map((c) => c.id), quota.id, sens);
+                          if (ids) void envoyerOrdre(`${quota.id}:${sens}`, { type: 'account.reorder', engine: groupe.engine, ids });
+                        }}
+                      />
+                    ) : undefined
+                  }
+                />
+              ))}
+            </div>
+          );
+        })}
       </div>
 
       <AjouterUnMoteur />
@@ -94,12 +169,60 @@ export function SectionComptes() {
 }
 
 /**
+ * LES FLÈCHES D'UN RANG : sa place dans la liste (1 = servi d'abord), puis
+ * « Monter » et « Descendre ». La flèche cliquée tourne pendant la requête, les
+ * autres se figent : deux déplacements ne partent jamais sur une liste que le
+ * premier n'a pas fini de réécrire.
+ */
+function FlechesOrdre({
+  id,
+  rang,
+  premier,
+  dernier,
+  enCours,
+  onDeplacer,
+}: {
+  id: string;
+  rang: number;
+  premier: boolean;
+  dernier: boolean;
+  enCours: string | null;
+  onDeplacer: (sens: -1 | 1) => void;
+}) {
+  const fleche = (sens: -1 | 1, libelle: string, Icone: typeof ChevronUp, butee: boolean) => (
+    <Tooltip label={libelle}>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={libelle}
+        data-ordre-fleche={sens === -1 ? 'monter' : 'descendre'}
+        disabled={butee || enCours !== null}
+        onClick={() => onDeplacer(sens)}
+      >
+        {enCours === `${id}:${sens}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Icone className="h-3 w-3" />}
+      </Button>
+    </Tooltip>
+  );
+  return (
+    <span className="flex shrink-0 items-center gap-0.5" data-ordre={id}>
+      <Tooltip label={t('Place dans l\'ordre')}>
+        <span className="min-w-[1.25rem] text-center text-[12.5px] tabular-nums text-faint" data-ordre-rang>
+          {rang}
+        </span>
+      </Tooltip>
+      {fleche(-1, t('Monter'), ChevronUp, premier)}
+      {fleche(1, t('Descendre'), ChevronDown, dernier)}
+    </span>
+  );
+}
+
+/**
  * Une ligne de compte dans l'onglet « Comptes » : son nom, ses quotas, ses
  * badges d'état, et le crayon qui ouvre un champ pour le RENOMMER. On ne touche
  * qu'au nom affiché ; un nom vide est refusé par le serveur et la ligne garde
  * son ancien nom.
  */
-export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexion?: ConnexionCompte }) {
+export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; connexion?: ConnexionCompte; ordre?: React.ReactNode }) {
   const [edite, setEdite] = React.useState(false);
   const [nom, setNom] = React.useState(quota.label);
   const [envoi, setEnvoi] = React.useState(false);
@@ -262,6 +385,7 @@ export function LigneCompte({ quota, connexion }: { quota: AccountQuota; connexi
         </div>
         {!edite && lignePleine ? (
           <div className="flex min-w-0 flex-wrap items-center gap-1" data-actions-compte={quota.id}>
+            {ordre}
             {quota.active ? <Badge tone="success">{t('actif')}</Badge> : null}
             {compteEpuise(quota) ? <Badge tone="danger">{t('épuisé')}</Badge> : null}
             {quota.jumeaux?.length ? <Badge tone="warning">{t('même abonnement')}</Badge> : null}

@@ -5,6 +5,7 @@ import { MetriquesSessionLlm } from './metriques-session.js';
 import { ReglageCreation, SuggestionCreation } from './mode-creation.js';
 import { CompetenceProposee } from './proposition-competence.js';
 import { CahierDesCharges } from './cahier-des-charges.js';
+import { EtatDeRealisation } from './mode-realisation.js';
 import { aLaFormeDUnMoteur, type IdDeMoteur } from './registre-moteurs.js';
 import { EtatDeLAssistant, IdentiteDInstallation } from './installation.js';
 
@@ -1014,6 +1015,22 @@ export const ParcoursDeCarte = z.object({
    */
   creationSuggestions: z.array(SuggestionCreation).optional(),
   /**
+   * L'INTERRUPTEUR « RÉALISATION » (caméra) DE LA BARRE D'ÉCRITURE, voisin de
+   * « Création » et rangé de la même façon : sur la carte, éteint à la
+   * naissance. Allumé, le cadrage mène un questionnaire de réalisation (image
+   * ou vidéo d'abord) et l'agent de tâche reçoit l'outil « realiser », qui
+   * fabrique les médias sous budget (`shared/src/mode-realisation.ts`).
+   */
+  realisationSouhaitee: z.boolean().optional(),
+  /**
+   * LE BUDGET ET LE SEUIL ACCEPTÉS PENDANT LA FABRICATION (« realiser »
+   * action « fixer_budget », après un « Accepter » de l'utilisateur). Ils
+   * priment sur ceux du cahier des charges : c'est la décision la plus récente.
+   */
+  realisationBudget: z.object({ budget: z.number(), seuil: z.number(), at: z.number() }).optional(),
+  /** La DEMANDE de budget en attente de réponse : la question qui la porte et les montants proposés. */
+  realisationBudgetDemande: z.object({ questionId: z.string(), budget: z.number(), seuil: z.number(), at: z.number() }).optional(),
+  /**
    * LES COMPÉTENCES QUE BELUGA BUILD A PROPOSÉES AU CADRAGE, avec ce que
    * l'utilisateur en a décidé (`shared/src/proposition-competence.ts`). Seules
    * celles à l'état « utilisee » partent avec l'agent d'exécution — en entier.
@@ -1269,6 +1286,13 @@ export const Card = z.object({
    */
   cahierDesCharges: CahierDesCharges.optional(),
   /**
+   * LE QUESTIONNAIRE DE RÉALISATION (caméra) : genre choisi, avancement, phase,
+   * points restants et pause — le même état explicite que le cahier des
+   * charges, pour reprendre exactement où on s'était arrêté
+   * (`shared/src/mode-realisation.ts`). Absent : la caméra n'a jamais été allumée.
+   */
+  realisation: EtatDeRealisation.optional(),
+  /**
    * CE QUE LE JUGE RAPIDE A DIT DE CETTE CARTE — et rien de plus : aucun de ces
    * verdicts ne supprime, ne refuse ni ne lance quoi que ce soit. Absent tant
    * qu'aucune clé n'est rangée au coffre (`shared/src/jugement-rapide.ts`).
@@ -1456,6 +1480,27 @@ export const Agent = z.object({
    */
   depannagePublication: z.object({ runId: z.string(), cible: z.enum(['dev', 'production']) }).optional(),
   /**
+   * L'AGENT DE RÉPARATION SILENCIEUSE d'une étape de publication en cours
+   * (`server/src/reparation-publication.ts`) : il répare, rend son verdict par
+   * l'outil `rendre_reparation`, et la publication rejoue l'étape. `verdict`
+   * est effacé avant chaque essai. Il n'a ni vignette ni carte Système.
+   */
+  reparationPublication: z
+    .object({
+      runId: z.string(),
+      etape: z.string(),
+      cible: z.enum(['dev', 'production']),
+      verdict: z
+        .object({
+          issue: z.enum(['reparee', 'abandon']),
+          explication: z.string(),
+          marcheASuivre: z.string().optional(),
+          at: z.number(),
+        })
+        .optional(),
+    })
+    .optional(),
+  /**
    * L'AGENT « AJOUTER UN MOTEUR » des réglages des comptes : lui seul reçoit
    * l'outil `moteurs` (déclarer, éprouver, activer un fournisseur).
    */
@@ -1466,8 +1511,6 @@ export const Agent = z.object({
    * édition de fichier, et chacun de ses gestes passe par la porte d'accord.
    */
   assistantGlobal: z.boolean().optional(),
-  /** Le dernier niveau servi à l'assistant global (léger, standard, approfondi) — pour l'affichage. */
-  niveauServi: z.enum(['leger', 'standard', 'approfondi']).optional(),
   /** Mesure courante du contexte ; absente tant que le moteur n'en a pas donné une vraie. */
   contextUsage: AgentContextUsage.optional(),
   /** Remplissage du contexte du modèle, distinct des quotas du compte. */
@@ -2377,6 +2420,32 @@ export const DeployRun = z.object({
          */
         reparations: z.array(z.string()).optional(),
         /**
+         * LA RÉPARATION SILENCIEUSE DE CETTE ÉTAPE (`shared/src/reparation-publication.ts`) :
+         * combien d'essais d'agent elle a déjà coûtés, et l'agent qui les mène.
+         * Tant qu'elle dure, l'étape reste « en cours » — aucune croix, aucune
+         * alerte. Optionnel : une étape passée du premier coup n'en a pas.
+         */
+        reparation: z
+          .object({
+            essais: z.number(),
+            agentId: z.string().optional(),
+            enCours: z.boolean().optional(),
+          })
+          .optional(),
+        /**
+         * L'ENCADRÉ D'ABANDON : posé seulement quand l'agent n'a pas pu relever
+         * l'étape (trois essais, ou aucun compte libre). Ce qui bloque, en mots
+         * simples, et la marche à suivre — rédigés par l'agent quand il a pu.
+         */
+        blocage: z
+          .object({
+            explication: z.string(),
+            marcheASuivre: z.string().optional(),
+            agentId: z.string().optional(),
+            essais: z.number().optional(),
+          })
+          .optional(),
+        /**
          * Cette étape a DÉPASSÉ sa durée attendue et n'a pas encore rendu la
          * main (`shared/src/duree-des-etapes.ts`). Vrai seulement PENDANT
          * l'étape : une étape terminée affiche sa durée, qui dit déjà tout.
@@ -2640,6 +2709,13 @@ export const Settings = z.object({
    * zéro. Se coupe d'un geste si le mécanisme faisait plus de mal que de bien.
    */
   primeClaudeWindow: z.boolean().default(true),
+  /**
+   * L'ORDRE DES MOTEURS réglé par l'utilisateur (« Comptes et quotas ») : le
+   * premier qui a encore de la place reçoit une carte dont personne n'a choisi
+   * le moteur. Vide = l'ordre du registre. Les moteurs payés au crédit n'y
+   * comptent jamais (`ordreDeMoteursComplet`).
+   */
+  ordreDesMoteurs: z.array(z.string()).default([]),
   /**
    * Le dernier réglage choisi pour un chef d'orchestre : les chefs d'orchestre
    * créés ensuite le reprennent, au lieu de retomber sur le modèle épinglé.

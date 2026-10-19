@@ -85,18 +85,19 @@ export const REFUS_SANS_LISTE =
   "reste libre. Ce refus est une étape de méthode, pas une panne : n'en parle pas dans ta réponse.";
 
 /**
- * L'agent de ce tour est-il tenu de lister ? Seul l'agent de TÂCHE reçoit le
- * déroulé visible dans sa consigne : un dépannage de publication est prié de
- * NE PAS lister, les assistants (Studio, Marketing, surveillance, sauvegardes)
- * ont leur propre consigne, le cadrage ne modifie rien.
+ * L'agent de ce tour est-il tenu de lister ? L'agent de TÂCHE et l'assistant
+ * Beluga (un agent ordinaire en accès complet depuis le 18/10/2026) reçoivent
+ * le déroulé visible dans leur consigne : un dépannage de publication est prié
+ * de NE PAS lister, les assistants de service (Studio, Marketing, surveillance,
+ * sauvegardes) ont leur propre consigne, le cadrage ne modifie rien.
  */
 export function listeObligatoirePourLeTour(contexte: {
   role: string;
   motif?: string | null;
   assistantGlobal?: boolean;
 }): boolean {
+  if (contexte.assistantGlobal) return true;
   if (contexte.role !== 'task') return false;
-  if (contexte.assistantGlobal) return false;
   return !contexte.motif;
 }
 

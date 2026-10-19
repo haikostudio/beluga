@@ -269,6 +269,42 @@ export function renameAccount(id: string, label: string): AccountRecord | null {
   return updated;
 }
 
+/**
+ * LE RANG D'UN COMPTE QUI ARRIVE : tout en bas de la liste de son moteur. Les
+ * rangs sont réécrits en 10, 20, 30… à chaque réglage de l'ordre ; un compte
+ * neuf prend donc le plus grand rang du moteur + 10, au lieu d'un 50 fixe qui
+ * pouvait le glisser au milieu d'un ordre déjà réglé.
+ */
+export function prioriteEnBas(engine: string): number {
+  const rangs = listAllAccountRecords()
+    .filter((a) => a.engine === engine)
+    .map((a) => a.priority);
+  return (rangs.length ? Math.max(...rangs) : 0) + 10;
+}
+
+/**
+ * RÉGLER L'ORDRE DES COMPTES D'UN MOTEUR. `ids` donne l'ordre voulu, du premier
+ * au dernier ; chaque compte reçoit le rang 10, 20, 30… dans cet ordre, ce qui
+ * renumérote aussi les anciennes valeurs par défaut. Le lot doit contenir
+ * EXACTEMENT les comptes déclarés du moteur (coupés compris) : une liste
+ * périmée — un compte ajouté ou retiré depuis un autre onglet — est refusée,
+ * jamais appliquée à moitié. Les autres moteurs ne sont pas touchés.
+ */
+export function ordonnerComptes(engine: string, ids: readonly string[]): { ok: true } | { ok: false; erreur: string } {
+  const deMoteur = listAllAccountRecords().filter((a) => a.engine === engine);
+  const attendus = new Set(deMoteur.map((a) => a.id));
+  const recus = new Set(ids);
+  if (recus.size !== ids.length || recus.size !== attendus.size || ids.some((id) => !attendus.has(id))) {
+    return { ok: false, erreur: 'La liste des comptes a changé : relisez-la puis recommencez.' };
+  }
+  ids.forEach((id, index) => {
+    const compte = deMoteur.find((a) => a.id === id)!;
+    const rang = (index + 1) * 10;
+    if (compte.priority !== rang) saveAccountRecord({ ...compte, priority: rang });
+  });
+  return { ok: true };
+}
+
 export function saveAccountRecord(account: AccountRecord): void {
   getDb()
     .prepare(
@@ -1004,18 +1040,19 @@ export async function declarerCleCursor(
   for (let suffixe = 2; connus.has(id); suffixe += 1) id = `${base}-${suffixe}`;
 
   const configDir = path.join(PATHS.accounts, id);
+  const rangDuNouveau = prioriteEnBas('cursor');
   try {
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
       path.join(configDir, 'meta.json'),
-      JSON.stringify({ engine: 'cursor', label: nom, priority: 50 }, null, 2),
+      JSON.stringify({ engine: 'cursor', label: nom, priority: rangDuNouveau }, null, 2),
     );
     fs.writeFileSync(path.join(configDir, 'api-key'), `${secret}\n`, { mode: 0o600 });
   } catch (err: any) {
     return { ok: false, erreur: err?.message ?? 'le compte n\'a pas pu être écrit sur le serveur' };
   }
 
-  const account: AccountRecord = { id, engine: 'cursor', label: nom, priority: 50, configDir };
+  const account: AccountRecord = { id, engine: 'cursor', label: nom, priority: rangDuNouveau, configDir };
   saveAccountRecord(account);
   return { ok: true, account };
 }
@@ -1291,14 +1328,15 @@ export async function declarerCleDeMoteur(
   let id = base;
   for (let suffixe = 2; connus.has(id); suffixe += 1) id = `${base}-${suffixe}`;
   const configDir = path.join(PATHS.accounts, id);
+  const rangDuNouveau = prioriteEnBas(engine);
   try {
     fs.mkdirSync(configDir, { recursive: true });
-    fs.writeFileSync(path.join(configDir, 'meta.json'), JSON.stringify({ engine, label: nom, priority: 50 }, null, 2));
+    fs.writeFileSync(path.join(configDir, 'meta.json'), JSON.stringify({ engine, label: nom, priority: rangDuNouveau }, null, 2));
     fs.writeFileSync(path.join(configDir, 'api-key'), `${secret}\n`, { mode: 0o600 });
   } catch (err: any) {
     return { ok: false, erreur: err?.message ?? "le compte n'a pas pu être écrit sur le serveur" };
   }
-  const account: AccountRecord = { id, engine, label: nom, priority: 50, configDir };
+  const account: AccountRecord = { id, engine, label: nom, priority: rangDuNouveau, configDir };
   saveAccountRecord(account);
   return { ok: true, account };
 }

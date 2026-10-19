@@ -13,12 +13,10 @@ import {
   type Agent,
   type ChatAssistant,
   type FenetreChat,
-  type ReglageNiveauAssistant,
 } from '@beluga/shared';
 import { Chat } from '@/components/chat';
-import { ReglagesAssistant } from '@/components/reglages-assistant';
 import { SilhouetteConversation } from '@/components/silhouettes';
-import { BulleInfo, Button, CLASSE_POINT_DE_BOUTON, Switch, Tooltip } from '@/components/ui';
+import { Button, CLASSE_POINT_DE_BOUTON, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
 import { poserAgentDeLAssistant, useEtatAssistant, useRondVoisin } from '@/lib/assistant-global';
 import { usePointerDrag, type DragItem } from '@/lib/dnd';
@@ -51,12 +49,11 @@ const SANS_CIBLE = () => null;
  * d'état de l'iPhone) et par le clavier, comme les tiroirs (`--zone-sure-haut`,
  * `--clavier`) : la fenêtre ne passe plus jamais sous la barre d'état.
  *
- * Le chat est la conversation ordinaire (`Chat`) : même barre d'écriture que
- * les tâches. Juste dessous, l'interrupteur « Validation automatique », son
- * explication rangée derrière un « i » en bout de ligne : allumé, l'assistant
- * ajoute et modifie seul ; les suppressions, les envois aux clients et les
- * écritures sur un serveur demandent TOUJOURS l'accord — la règle est tenue
- * par le démon, pas par cet écran.
+ * Le chat est la conversation ordinaire (`Chat`) d'un agent ordinaire (18/10/2026) :
+ * même barre d'écriture que les tâches, même choix du modèle (le bouton de
+ * réglages de la barre). Plus d'interrupteur ni de bande de niveau : seuls les
+ * suppressions et les envois aux clients attendent l'accord, tenu par le
+ * démon, pas par cet écran.
  */
 export function AssistantGlobal() {
   const state = useApp();
@@ -79,21 +76,16 @@ export function AssistantGlobal() {
 
   /* -------- L'agent : chargé à la première ouverture seulement -------- */
   const [agentId, setAgentId] = React.useState<string | null>(null);
-  const [validationAuto, setValidationAuto] = React.useState(false);
-  const [niveau, setNiveau] = React.useState<ReglageNiveauAssistant | undefined>(undefined);
   const [erreur, setErreur] = React.useState<string | null>(null);
-  const [reglage, setReglage] = React.useState(false);
   const charger = React.useCallback((neuf: boolean) => {
     setErreur(null);
     void client
-      .call<{ agent: Agent; validationAuto: boolean; niveau?: ReglageNiveauAssistant }>({ type: 'assistant.agent', neuf })
+      .call<{ agent: Agent }>({ type: 'assistant.agent', neuf })
       .then(async (r) => {
         await client.chargerAgent(r.agent.id);
         setAgentId(r.agent.id);
         // Le bouton de l'entête (téléphone) lit l'agent dans le magasin partagé.
         poserAgentDeLAssistant(r.agent.id);
-        setValidationAuto(r.validationAuto);
-        setNiveau(r.niveau);
       })
       .catch((err: unknown) => setErreur(err instanceof Error ? err.message : String(err)));
   }, []);
@@ -103,19 +95,6 @@ export function AssistantGlobal() {
 
   const agent = agentDuMagasin;
   const vide = agent ? (state.messages[agent.id]?.length ?? 0) === 0 : true;
-
-  const basculerValidation = (auto: boolean) => {
-    setReglage(true);
-    setValidationAuto(auto);
-    void client
-      .call<{ validationAuto: boolean }>({ type: 'assistant.validation', auto })
-      .then((r) => setValidationAuto(r.validationAuto))
-      .catch((err: any) => {
-        setValidationAuto(!auto);
-        client.pushToast('error', err?.message ?? t('Réglage refusé'));
-      })
-      .finally(() => setReglage(false));
-  };
 
   /* -------- Le glisser : robot (horizontal) et poignée (taille) -------- */
   const depart = React.useRef<{ x: number; y: number; etat: ChatAssistant } | null>(null);
@@ -260,8 +239,6 @@ export function AssistantGlobal() {
             />
           ) : null}
 
-          {agent ? <ReglagesAssistant agent={agent} niveau={niveau} /> : null}
-
           <div className="flex min-h-0 flex-1 flex-col" data-assistant-conversation={agent ? 'oui' : 'chargement'}>
             {erreur ? (
               <div className="flex flex-col items-start gap-2 px-4 py-3">
@@ -279,7 +256,7 @@ export function AssistantGlobal() {
               <>
                 {vide ? (
                   <p className="px-4 pt-3 text-[13px] leading-snug text-muted" data-assistant-accueil>
-                    {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, marketing, surveillance, backups, notes. L’assistant peut aussi ajouter, modifier ou supprimer : chaque changement attend votre accord ici même.')}
+                    {t('Posez une question sur n’importe quel projet ou service — cartes, mémoire, coffre-fort, messagerie, marketing, surveillance, backups, notes. L’assistant agit comme un agent : seules les suppressions et les envois aux clients attendent votre accord ici même.')}
                   </p>
                 ) : null}
                 <Chat agent={agent} projectId={agent.projectId} nouveauDepart creuxReserveAilleurs libelleDuChamp={t('Écrire à l’assistant')} />
@@ -287,24 +264,6 @@ export function AssistantGlobal() {
             )}
           </div>
 
-          {/* L'INTERRUPTEUR, JUSTE SOUS LE CHAMP D'ÉCRITURE, sur UNE ligne. Son
-              explication vit derrière le « i » en bout de ligne : HORS du
-              <label>, pour qu'un appui sur le « i » ne bascule jamais
-              l'interrupteur. */}
-          <div
-            className="flex shrink-0 items-center gap-2 px-3 pb-2.5 pt-1.5 text-[12.5px] leading-snug"
-            data-assistant-validation={validationAuto ? 'auto' : 'manuelle'}
-          >
-            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
-              <Switch checked={validationAuto} onCheckedChange={basculerValidation} attente={reglage} disabled={!agent} />
-              <span className="min-w-0 truncate text-text">{t('Validation automatique')}</span>
-            </label>
-            <BulleInfo label={t('Validation automatique')}>
-              {validationAuto
-                ? t('L’assistant ajoute et modifie sans demander. Suppressions, envois aux clients et bases des serveurs attendent toujours votre accord.')
-                : t('Chaque changement attend votre accord dans le fil.')}
-            </BulleInfo>
-          </div>
         </section>
       ) : null}
     </>,

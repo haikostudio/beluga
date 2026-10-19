@@ -8,7 +8,12 @@ import {
   NOM_ACCES_MAX,
   PROJET_DU_COFFRE,
   TypeAcces,
+  SEPARATEUR_CHEMIN,
   archivePurgeable,
+  cheminDuDossier,
+  cheminTexte,
+  creeUnCycle,
+  descendantsDuDossier,
   imageDuCoffreAcceptee,
   imagesApresEnregistrement,
   jugerAcces,
@@ -51,6 +56,7 @@ interface LigneDossier {
   id: string;
   nom: string;
   project_id: string | null;
+  parent_id?: string | null;
   cree_le: number;
   modifie_le: number;
   archive_le: number | null;
@@ -94,11 +100,39 @@ function dossierDepuisLigne(ligne: LigneDossier): DossierCoffre {
   return {
     id: ligne.id,
     nom: ligne.nom,
+    parentId: ligne.parent_id ?? null,
     projectId: ligne.project_id,
     creeLe: ligne.cree_le,
     modifieLe: ligne.modifie_le,
     archiveLe: ligne.archive_le ?? null,
   };
+}
+
+/** TOUS les dossiers, actifs et archivés : de quoi remonter la chaîne des parents d'un chemin. */
+function tousLesDossiers(): DossierCoffre[] {
+  const lignes = getDb().prepare('SELECT * FROM dossiers_coffre').all() as LigneDossier[];
+  return lignes.map(dossierDepuisLigne);
+}
+
+/** Les fiches avec le CHEMIN de leur dossier (calculé, jamais stocké). */
+function avecChemins(acces: AccesCoffre[]): AccesCoffre[] {
+  if (!acces.some((a) => a.dossierId)) return acces;
+  const tous = tousLesDossiers();
+  return acces.map((a) => {
+    const chemin = a.dossierId ? cheminTexte(tous, a.dossierId) : '';
+    return { ...a, dossierChemin: chemin || null };
+  });
+}
+
+/** Le chemin complet (« Clients/Acme/Prod ») d'un dossier, actif ou archivé. */
+export function cheminDeDossier(id: string | null | undefined): string {
+  return id ? cheminTexte(tousLesDossiers(), id) : '';
+}
+
+/** Les chemins de TOUS les dossiers, par identifiant — pour afficher ou chercher sans relire la base à chaque fiche. */
+export function cheminsDesDossiers(): Map<string, string> {
+  const tous = tousLesDossiers();
+  return new Map(tous.map((d) => [d.id, cheminTexte(tous, d.id)]));
 }
 
 /** Les dossiers ACTIFS, par ordre alphabétique. Jamais mêlés aux fiches : `listerAcces` ne les voit pas. */
@@ -128,7 +162,7 @@ function ligneDeDossier(id: string): LigneDossier | undefined {
  */
 export function listerAcces(): AccesCoffre[] {
   const lignes = getDb().prepare('SELECT * FROM secrets WHERE archive_le IS NULL').all() as LigneAcces[];
-  return trierAcces(lignes.map(depuisLigne));
+  return avecChemins(trierAcces(lignes.map(depuisLigne)));
 }
 
 /** Les fiches archivées, la plus récemment retirée d'abord. */
@@ -136,7 +170,7 @@ export function listerArchives(): AccesCoffre[] {
   const lignes = getDb()
     .prepare('SELECT * FROM secrets WHERE archive_le IS NOT NULL ORDER BY archive_le DESC, nom ASC')
     .all() as LigneAcces[];
-  return lignes.map(depuisLigne);
+  return avecChemins(lignes.map(depuisLigne));
 }
 
 export type EnregistrementAcces = { ok: true; acces: AccesCoffre } | { ok: false; raison: string };
@@ -237,11 +271,37 @@ function ligneDossierActif(id: string | null | undefined): LigneDossier | undefi
 
 export type EnregistrementDossier = { ok: true; dossier: DossierCoffre } | { ok: false; raison: string };
 
+/** Les dossiers (actifs) dont le parent est celui-ci ; `null` = ceux de la racine. */
+function freresActifs(parentId: string | null): DossierCoffre[] {
+  return listerDossiers().filter((d) => (d.parentId ?? null) === parentId);
+}
+
 /**
- * Crée un dossier (sans `id`) ou le corrige (renommer, changer de projet). Un
- * nom est unique parmi les dossiers actifs : c'est par lui qu'un agent range une
- * fiche. Changer de projet déménage aussi les fiches du dossier — elles suivent
- * toujours leur dossier.
+ * Une fiche `base-de-donnees` porte la protection de production de son projet
+ * (`productionsProtegees`) : déménager un dossier ne la fait JAMAIS changer de
+ * projet en douce. Rend la phrase de refus, ou rien.
+ */
+function baseDeDonneesQuiBougerait(idsDossiers: readonly string[], projet: string | null): string | undefined {
+  if (!idsDossiers.length) return undefined;
+  const marques = idsDossiers.map(() => '?').join(', ');
+  const lignes = getDb()
+    .prepare(
+      `SELECT nom, project_id FROM secrets WHERE archive_le IS NULL AND type = 'base-de-donnees' AND dossier_id IN (${marques})`,
+    )
+    .all(...idsDossiers) as { nom: string; project_id: string | null }[];
+  const touchee = lignes.find((l) => (l.project_id ?? null) !== (projet ?? null));
+  return touchee
+    ? `La fiche « ${touchee.nom} » est une base de données : elle porte la protection de production de son projet et ne change pas de projet par un dossier. Sortez-la de ce dossier d’abord.`
+    : undefined;
+}
+
+/**
+ * Crée un dossier (sans `id`) ou le corrige (renommer, changer de projet, changer
+ * de parent). Un nom est unique parmi ses FRÈRES (les dossiers du même parent) :
+ * deux dossiers « Prod » peuvent vivre sous deux parents différents. Un
+ * sous-dossier prend toujours le projet de son parent ; changer le projet d'un
+ * dossier, ou le déplacer sous un autre parent, déménage aussi ses fiches ET
+ * tout ce qu'il contient, dans la même transaction.
  */
 export function enregistrerDossier(brut: unknown, maintenant = Date.now()): EnregistrementDossier {
   const juge = jugerDossier(brut);
@@ -252,39 +312,114 @@ export function enregistrerDossier(brut: unknown, maintenant = Date.now()): Enre
     const existe = getDb().prepare('SELECT 1 FROM projects WHERE id = ?').get(juge.projectId);
     if (!existe) return { ok: false, raison: 'Ce projet n’existe pas.' };
   }
-  const nomNormalise = normaliserRecherche(juge.nom);
-  const doublon = listerDossiers().find((d) => d.id !== id && normaliserRecherche(d.nom) === nomNormalise);
-  if (doublon) return { ok: false, raison: `Un dossier « ${doublon.nom} » existe déjà.` };
 
+  const ligne = id ? ligneDeDossier(id) : undefined;
   if (id) {
-    const ligne = ligneDeDossier(id);
     if (!ligne) return { ok: false, raison: 'Dossier introuvable.' };
     if (ligne.archive_le != null) return { ok: false, raison: 'Ce dossier est archivé : restaurez-le avant de le corriger.' };
+  }
+
+  // Le parent : absent = on ne bouge pas ; un parent doit exister, être actif et ne pas créer de boucle.
+  const parentFinal = juge.parentId === undefined ? (ligne?.parent_id ?? null) : juge.parentId;
+  let parent: LigneDossier | undefined;
+  if (parentFinal) {
+    parent = ligneDossierActif(parentFinal);
+    if (!parent) return { ok: false, raison: 'Le dossier parent n’existe pas.' };
+    if (id && creeUnCycle(tousLesDossiers(), id, parentFinal))
+      return { ok: false, raison: 'Un dossier ne peut pas être rangé dans lui-même ni dans l’un de ses sous-dossiers.' };
+  }
+
+  const nomNormalise = normaliserRecherche(juge.nom);
+  const doublon = freresActifs(parentFinal).find((d) => d.id !== id && normaliserRecherche(d.nom) === nomNormalise);
+  if (doublon) {
+    return {
+      ok: false,
+      raison: parentFinal
+        ? `Un dossier « ${doublon.nom} » existe déjà dans « ${cheminDeDossier(parentFinal)} ».`
+        : `Un dossier « ${doublon.nom} » existe déjà à la racine du coffre.`,
+    };
+  }
+
+  // Le projet : celui du parent s'il y en a un ; sinon celui demandé, ou celui d'avant si l'appelant n'en dit rien.
+  const projetFinal = parent
+    ? parent.project_id
+    : juge.projectIdDit || !ligne
+      ? juge.projectId
+      : ligne.project_id;
+
+  if (ligne) {
     const base = getDb();
+    const projetChange = (ligne.project_id ?? null) !== (projetFinal ?? null);
+    const tous = tousLesDossiers();
+    const arbre = [id, ...descendantsDuDossier(tous, id).map((d) => d.id)];
+    if (projetChange) {
+      const refus = baseDeDonneesQuiBougerait(arbre, projetFinal);
+      if (refus) return { ok: false, raison: refus };
+    }
     base.transaction(() => {
       base
-        .prepare('UPDATE dossiers_coffre SET nom = ?, project_id = ?, modifie_le = ? WHERE id = ?')
-        .run(juge.nom, juge.projectId, maintenant, id);
-      if (ligne.project_id !== juge.projectId) {
-        base.prepare('UPDATE secrets SET project_id = ? WHERE dossier_id = ?').run(juge.projectId, id);
+        .prepare('UPDATE dossiers_coffre SET nom = ?, project_id = ?, parent_id = ?, modifie_le = ? WHERE id = ?')
+        .run(juge.nom, projetFinal, parentFinal, maintenant, id);
+      if (projetChange) {
+        const marques = arbre.map(() => '?').join(', ');
+        base.prepare(`UPDATE dossiers_coffre SET project_id = ? WHERE id IN (${marques})`).run(projetFinal, ...arbre);
+        base.prepare(`UPDATE secrets SET project_id = ? WHERE dossier_id IN (${marques})`).run(projetFinal, ...arbre);
       }
     })();
-    return { ok: true, dossier: dossierDepuisLigne({ ...ligne, nom: juge.nom, project_id: juge.projectId, modifie_le: maintenant }) };
+    return {
+      ok: true,
+      dossier: dossierDepuisLigne({ ...ligne, nom: juge.nom, project_id: projetFinal, parent_id: parentFinal, modifie_le: maintenant }),
+    };
   }
 
   const neuf: LigneDossier = {
     id: crypto.randomUUID(),
     nom: juge.nom,
-    project_id: juge.projectId,
+    project_id: projetFinal,
+    parent_id: parentFinal,
     cree_le: maintenant,
     modifie_le: maintenant,
     archive_le: null,
   };
   getDb()
-    .prepare('INSERT INTO dossiers_coffre (id, nom, project_id, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?)')
-    .run(neuf.id, neuf.nom, neuf.project_id, neuf.cree_le, neuf.modifie_le);
+    .prepare('INSERT INTO dossiers_coffre (id, nom, project_id, parent_id, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(neuf.id, neuf.nom, neuf.project_id, neuf.parent_id, neuf.cree_le, neuf.modifie_le);
   log.info(`coffre-fort : dossier « ${neuf.nom} » créé`);
   return { ok: true, dossier: dossierDepuisLigne(neuf) };
+}
+
+/**
+ * Retrouve ou CRÉE un chemin de dossiers (« Clients/Acme/Prod »), niveau par
+ * niveau. Un niveau qui existe déjà est réutilisé ; les autres naissent sous le
+ * précédent, au projet de la racine (`projectId` ne sert qu'à la racine créée).
+ * Rend le dossier du bout du chemin et si au moins un niveau a été créé.
+ */
+export function assurerCheminDeDossiers(
+  chemin: string,
+  projectId: string | null,
+  maintenant = Date.now(),
+): { ok: true; dossier: DossierCoffre; cree: boolean } | { ok: false; raison: string } {
+  const noms = chemin
+    .split(SEPARATEUR_CHEMIN)
+    .map((n) => n.trim())
+    .filter(Boolean);
+  if (!noms.length) return { ok: false, raison: 'Le chemin du dossier est vide.' };
+  let parent: DossierCoffre | null = null;
+  let cree = false;
+  for (const nom of noms) {
+    const existant: DossierCoffre | undefined = freresActifs(parent ? parent.id : null).find(
+      (d) => normaliserRecherche(d.nom) === normaliserRecherche(nom),
+    );
+    if (existant) {
+      parent = existant;
+      continue;
+    }
+    const r = enregistrerDossier({ nom, projectId, parentId: parent ? parent.id : null }, maintenant);
+    if (!r.ok) return { ok: false, raison: r.raison };
+    parent = r.dossier;
+    cree = true;
+  }
+  return { ok: true, dossier: parent!, cree };
 }
 
 /**
@@ -575,18 +710,22 @@ export function restaurerAcces(id: string): { ok: boolean; raison?: string } {
 }
 
 /**
- * RETIRE un dossier ET ses fiches, d'un seul geste : tout reçoit le MÊME
- * `archive_le`, c'est ce qui permet de les restaurer ensemble sans toucher à
- * une fiche archivée à la main avant. Refusé si une surveillance lit encore une
- * des fiches. Les images restent avec les fiches (effacées à la purge seulement).
+ * RETIRE un dossier, ses fiches ET tout ce qu'il contient (sous-dossiers à tous
+ * les niveaux), d'un seul geste : tout reçoit le MÊME `archive_le`, c'est ce qui
+ * permet de tout restaurer ensemble sans toucher à ce qui était archivé à la main
+ * avant. Refusé si une surveillance lit encore UNE fiche de l'arbre. Les images
+ * restent avec les fiches (effacées à la purge seulement).
  */
-export function supprimerDossier(id: string, maintenant = Date.now()): { ok: boolean; raison?: string; fiches?: number } {
+export function supprimerDossier(id: string, maintenant = Date.now()): { ok: boolean; raison?: string; fiches?: number; dossiers?: number } {
   const dossier = ligneDeDossier(id);
   if (!dossier) return { ok: false, raison: 'Dossier introuvable.' };
   if (dossier.archive_le != null) return { ok: false, raison: 'Ce dossier est déjà archivé.' };
+  const actifs = listerDossiers();
+  const arbre = [id, ...descendantsDuDossier(actifs, id).map((d) => d.id)];
+  const marques = arbre.map(() => '?').join(', ');
   const fiches = getDb()
-    .prepare('SELECT id FROM secrets WHERE dossier_id = ? AND archive_le IS NULL')
-    .all(id) as { id: string }[];
+    .prepare(`SELECT id FROM secrets WHERE dossier_id IN (${marques}) AND archive_le IS NULL`)
+    .all(...arbre) as { id: string }[];
   for (const fiche of fiches) {
     const sites = surveillancesQuiLisent(fiche.id);
     if (sites.length)
@@ -597,29 +736,64 @@ export function supprimerDossier(id: string, maintenant = Date.now()): { ok: boo
   }
   const base = getDb();
   base.transaction(() => {
-    base.prepare('UPDATE dossiers_coffre SET archive_le = ? WHERE id = ?').run(maintenant, id);
-    base.prepare('UPDATE secrets SET archive_le = ? WHERE dossier_id = ? AND archive_le IS NULL').run(maintenant, id);
+    base.prepare(`UPDATE dossiers_coffre SET archive_le = ? WHERE id IN (${marques}) AND archive_le IS NULL`).run(maintenant, ...arbre);
+    base.prepare(`UPDATE secrets SET archive_le = ? WHERE dossier_id IN (${marques}) AND archive_le IS NULL`).run(maintenant, ...arbre);
   })();
-  log.info(`coffre-fort : dossier « ${dossier.nom} » archivé avec ${fiches.length} fiche(s)`);
-  return { ok: true, fiches: fiches.length };
+  log.info(`coffre-fort : dossier « ${dossier.nom} » archivé avec ${arbre.length - 1} sous-dossier(s) et ${fiches.length} fiche(s)`);
+  return { ok: true, fiches: fiches.length, dossiers: arbre.length - 1 };
 }
 
-/** Remet un dossier archivé ET les fiches archivées avec lui (même instant), pas les autres. */
-export function restaurerDossier(id: string): { ok: boolean; raison?: string; fiches?: number } {
+/**
+ * Remet un dossier archivé, ses sous-dossiers et leurs fiches archivés AVEC LUI
+ * (même instant), pas ce qui avait été archivé à part. Si son parent est lui-même
+ * archivé (à un autre instant) ou n'existe plus, le dossier remonte à la racine —
+ * comme une fiche restaurée seule. Refusé si un frère porte déjà le même nom.
+ */
+export function restaurerDossier(id: string): { ok: boolean; raison?: string; fiches?: number; dossiers?: number } {
   const dossier = ligneDeDossier(id);
   if (!dossier || dossier.archive_le == null) return { ok: false, raison: 'Archive introuvable.' };
-  const doublon = listerDossiers().find((d) => normaliserRecherche(d.nom) === normaliserRecherche(dossier.nom));
-  if (doublon) return { ok: false, raison: `Un dossier « ${doublon.nom} » existe déjà : renommez-le avant de restaurer celui-ci.` };
+  const instant = dossier.archive_le;
+  const tous = tousLesDossiers();
+  const parentActif = dossier.parent_id ? ligneDossierActif(dossier.parent_id) : undefined;
+  const parentFinal = parentActif ? parentActif.id : null;
+
+  // Ce qui revient avec lui : ses descendants retirés au même instant, en ne descendant que par des
+  // dossiers eux-mêmes du lot (un enfant archivé à part, sous un parent du lot, reste archivé).
+  const dansLot = new Set<string>([dossier.id]);
+  for (const d of descendantsDuDossier(tous, id)) {
+    if (d.archiveLe === instant && d.parentId && dansLot.has(d.parentId)) dansLot.add(d.id);
+  }
+  const ids = [...dansLot];
+
+  // Chaque dossier qui revient doit trouver sa place libre parmi ses frères actifs.
+  const actifs = listerDossiers();
+  for (const idLot of ids) {
+    const d = tous.find((x) => x.id === idLot)!;
+    const parentDeD = idLot === id ? parentFinal : d.parentId ?? null;
+    const doublon = actifs.find(
+      (a) => (a.parentId ?? null) === parentDeD && normaliserRecherche(a.nom) === normaliserRecherche(d.nom),
+    );
+    if (doublon)
+      return {
+        ok: false,
+        raison: `Un dossier « ${doublon.nom} » existe déjà ${parentDeD ? `dans « ${cheminDeDossier(parentDeD)} »` : 'à la racine'} : renommez-le avant de restaurer « ${d.nom} ».`,
+      };
+  }
+
   const base = getDb();
   let fiches = 0;
+  const marques = ids.map(() => '?').join(', ');
   base.transaction(() => {
-    base.prepare('UPDATE dossiers_coffre SET archive_le = NULL WHERE id = ?').run(id);
+    base.prepare(`UPDATE dossiers_coffre SET archive_le = NULL WHERE id IN (${marques})`).run(...ids);
+    if ((dossier.parent_id ?? null) !== parentFinal) {
+      base.prepare('UPDATE dossiers_coffre SET parent_id = ? WHERE id = ?').run(parentFinal, id);
+    }
     fiches = base
-      .prepare('UPDATE secrets SET archive_le = NULL WHERE dossier_id = ? AND archive_le = ?')
-      .run(id, dossier.archive_le).changes;
+      .prepare(`UPDATE secrets SET archive_le = NULL WHERE dossier_id IN (${marques}) AND archive_le = ?`)
+      .run(...ids, instant).changes;
   })();
-  log.info(`coffre-fort : dossier « ${dossier.nom} » restauré avec ${fiches} fiche(s)`);
-  return { ok: true, fiches };
+  log.info(`coffre-fort : dossier « ${dossier.nom} » restauré avec ${ids.length - 1} sous-dossier(s) et ${fiches} fiche(s)`);
+  return { ok: true, fiches, dossiers: ids.length - 1 };
 }
 
 /**
@@ -643,9 +817,14 @@ export function purgerArchives(maintenant = Date.now()): number {
   // Un dossier archivé s'efface avec le dernier de ses jours : ses fiches
   // viennent de partir (même instant). Une fiche archivée plus tôt, à la main,
   // qui le citerait encore est simplement rendue à la racine.
-  for (const dossier of listerDossiersArchives()) {
+  // Les plus profonds d'abord : un sous-dossier part avant le dossier qui le contient.
+  const tous = tousLesDossiers();
+  const profondeur = (d: DossierCoffre) => cheminDuDossier(tous, d.id).length;
+  for (const dossier of listerDossiersArchives().sort((a, b) => profondeur(b) - profondeur(a))) {
     if (!archivePurgeable(dossier, maintenant)) continue;
     getDb().prepare('UPDATE secrets SET dossier_id = NULL WHERE dossier_id = ?').run(dossier.id);
+    // Un sous-dossier qui reste (retiré plus tard) remonte à la racine plutôt que de pendre dans le vide.
+    getDb().prepare('UPDATE dossiers_coffre SET parent_id = NULL WHERE parent_id = ?').run(dossier.id);
     getDb().prepare('DELETE FROM dossiers_coffre WHERE id = ? AND archive_le IS NOT NULL').run(dossier.id);
     log.info(`coffre-fort : dossier archivé « ${dossier.nom} » (${dossier.id}) effacé`);
   }

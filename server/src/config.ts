@@ -207,6 +207,19 @@ export const PATHS = {
     process.env.BELUGA_DATA?.trim() && process.env.BELUGA_PIECES_JOINTES_EN_ESSAI !== '1'
       ? ''
       : (process.env.BELUGA_PIECES_JOINTES?.trim() ?? ''),
+  /**
+   * LES MÉDIAS FABRIQUÉS PAR LE MODE « RÉALISATION » (`server/src/realisation.ts`),
+   * rangés `<racine>/<projet>/<branche de la carte>/`. Jamais sur le disque du
+   * serveur quand un disque de stockage existe : `BELUGA_MEDIAS` d'abord, sinon
+   * le voisin du dossier des pièces jointes (`/mnt/…/beluga-medias` chez Haiko).
+   * Un bac à sable (`BELUGA_DATA` posé à la main) range dans SON dossier de
+   * données, sauf `BELUGA_MEDIAS` explicite (disque factice d'un essai).
+   */
+  medias:
+    process.env.BELUGA_MEDIAS?.trim() ||
+    (!process.env.BELUGA_DATA?.trim() && process.env.BELUGA_PIECES_JOINTES?.trim()
+      ? path.join(path.dirname(process.env.BELUGA_PIECES_JOINTES.trim().replace(/\/+$/, '')), 'beluga-medias')
+      : path.join(CONFIG.dataDir, 'medias')),
   archives: path.join(CONFIG.dataDir, 'archives'),
   logs: path.join(CONFIG.dataDir, 'logs'),
   audio: path.join(CONFIG.dataDir, 'audio'),

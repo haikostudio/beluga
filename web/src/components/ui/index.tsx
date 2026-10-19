@@ -2035,7 +2035,7 @@ export function SidePanel({
             // La hauteur mesurée en direct : l'unité dvh seule laisse une bande
             // vide en bas sur téléphone.
             height: 'var(--hauteur-app, 100dvh)',
-            paddingTop: 'env(safe-area-inset-top)',
+            paddingTop: 'var(--zone-sure-haut, 0px)',
             paddingBottom: 'env(safe-area-inset-bottom)',
             transform: decalage ? `translateX(${decalage}px)` : undefined,
             transition: depart.current === null ? 'transform 180ms ease-out' : undefined,

@@ -30,6 +30,7 @@ import {
   choixDeQuestionEnTexte,
   choixPossible,
   comptesDeReprise,
+  ordreDeMoteursComplet,
   planDeCadrageRendu,
   heureExacte,
   propositionsDuFil,
@@ -49,6 +50,7 @@ import {
   estLeMessageDeSynthese,
   retirerLaStructureDeCadrage,
   phraseDeLErreurDeTour,
+  nettoyerTexteColle,
 } from '@beluga/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
@@ -285,7 +287,7 @@ export function MessageView({
               {/* LES TAGS SE LISENT PAR LEUR IDENTIFIANT COURT, comme dans la
                   barre d'écriture ; le texte enregistré (et copié) ne change pas. */}
               <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[14.5px] leading-relaxed text-text">
-                {texteAvecEtiquettes(message.content, jointes, tagsDuTexte(message.content))}
+                {texteAvecEtiquettes(nettoyerTexteColle(message.content), jointes, tagsDuTexte(message.content))}
               </p>
               {message.attachments.length ? (
                 <PiecesJointes ids={message.attachments} projectId={projectId} />
@@ -903,7 +905,7 @@ export function QuestionEnTexteCard({
  * cas « aucun compte libre pour l'instant ».
  */
 export function RepriseDeCompteCard({ message }: { message: Message }) {
-  const { quotas, engines, agents } = useApp();
+  const { quotas, engines, agents, settings } = useApp();
   const [busy, setBusy] = React.useState(false);
   const reprise = message.repriseCompte!;
   /*
@@ -928,14 +930,16 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
           // relevé : le moteur l'a refusé (`limiteConnue`, posée par le démon).
           disponible: quota.available !== false && !quota.disabled && !quota.limiteConnue,
           coupe: quota.disabled,
+          priority: quota.priority,
           consommePct: Math.max(quota.session?.usedPct ?? 0, quota.weekly?.usedPct ?? 0),
           resetsAt: [quota.session?.resetsAt, quota.weekly?.resetsAt]
             .filter((v): v is number => typeof v === 'number' && v > 0)
             .sort((a, b) => a - b)[0],
         })),
-        { tousMoteurs: true },
+        // L'ordre des moteurs réglé dans « Comptes et quotas » classe les autres moteurs proposés.
+        { tousMoteurs: true, ordreDesMoteurs: ordreDeMoteursComplet(settings?.ordreDesMoteurs) },
       ),
-    [quotas, reprise.engine, reprise.compteEpuise],
+    [quotas, reprise.engine, reprise.compteEpuise, settings?.ordreDesMoteurs],
   );
   const choix = tousLesChoix.filter((compte) => compte.engine === moteur);
   const possible = choixPossible(choix);

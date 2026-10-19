@@ -55,6 +55,8 @@ import {
   phraseDuBloc,
   rangerLaComprehension,
   recitDuPoint,
+  segmenterLeRecit,
+  entreesDeLaSorte,
   tempsDuPassage,
   toursSansBulleParPoint,
   travailEnSousPoints,
@@ -2082,7 +2084,17 @@ function BlocsRacontes({
   );
   const [reflexionOuverte, setReflexionOuverte] = React.useState(false);
   const retrait = useRetraitDuTexte();
-  const actions = React.useMemo(() => (repliable ? recitDuPoint(entrees).blocs.length : 0), [repliable, entrees]);
+  /* LA DISCUSSION SE LIT DANS LE FIL, JAMAIS DERRIÈRE « RÉFLEXIONS » : les
+     questions répondues et les notes de l'agent se posent comme des mots d'une
+     conversation, dans l'ordre où ils sont arrivés. Seules les actions
+     (lectures, commandes, outils) se replient et se plafonnent. Le point
+     « Travail » garde sa propre lecture, par liste de tâches. */
+  const decoupe = point.etape !== 'travail';
+  const segments = React.useMemo(() => (decoupe ? segmenterLeRecit(entrees) : []), [decoupe, entrees]);
+  const entreesDActions = React.useMemo(() => (decoupe ? entreesDeLaSorte(entrees, 'actions') : entrees), [decoupe, entrees]);
+  const aDeLaDiscussion = segments.some((segment) => segment.sorte === 'discussion');
+  const actions = React.useMemo(() => (repliable ? recitDuPoint(entreesDActions).blocs.length : 0), [repliable, entreesDActions]);
+  const dernierSegmentDActions = segments.map((segment) => segment.sorte).lastIndexOf('actions');
 
   /* « RÉFLEXIONS » EST UN TITRE DE POINT, PAS UN LIEN GRIS. Le repli s'écrivait
      en 12,5 px `--faint`, chevron en tête : posé juste au-dessus du titre de la
@@ -2094,32 +2106,41 @@ function BlocsRacontes({
      sa propre liste, en sous-points, au lieu de flotter à côté de lui.
      IL RESTE REPLIÉ D'OFFICE : `data-reflexion-bascule`, `aria-expanded` et
      `data-reflexion-repliee` sont le point d'appui des contrôles (MEM-0582). */
-  if (repliable && actions > 0) {
+  if (repliable && (actions > 0 || aDeLaDiscussion)) {
     return (
-      <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reflexion} attrs={{ 'data-reflexion-repliee': reflexionOuverte ? 'ouverte' : 'repliee' }}>
-        <button
-          type="button"
-          onClick={() => setReflexionOuverte((avant) => !avant)}
-          aria-expanded={reflexionOuverte}
-          data-reflexion-bascule
-          className="flex w-full items-center gap-2 text-left"
-        >
-          <span className="text-[14.5px] font-semibold leading-relaxed text-text">{t('Réflexions')}</span>
-          <span className="text-[12.5px] text-faint" data-reflexion-actions={actions}>
-            {actions > 1 ? t('{v0} actions', { v0: actions }) : t('1 action')}
-          </span>
-          <span className="flex-1" />
-          <ChevronRight
-            className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', reflexionOuverte && 'rotate-90')}
-            aria-hidden
-          />
-        </button>
-        {reflexionOuverte ? (
-          <ol className="mt-1" data-reflexion-contenu>
-            <RecitDuPassage entrees={entrees} projectId={projectId} total />
-          </ol>
+      <>
+        {actions > 0 ? (
+          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reflexion} attrs={{ 'data-reflexion-repliee': reflexionOuverte ? 'ouverte' : 'repliee' }}>
+            <button
+              type="button"
+              onClick={() => setReflexionOuverte((avant) => !avant)}
+              aria-expanded={reflexionOuverte}
+              data-reflexion-bascule
+              className="flex w-full items-center gap-2 text-left"
+            >
+              <span className="text-[14.5px] font-semibold leading-relaxed text-text">{t('Réflexions')}</span>
+              <span className="text-[12.5px] text-faint" data-reflexion-actions={actions}>
+                {actions > 1 ? t('{v0} actions', { v0: actions }) : t('1 action')}
+              </span>
+              <span className="flex-1" />
+              <ChevronRight
+                className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', reflexionOuverte && 'rotate-90')}
+                aria-hidden
+              />
+            </button>
+            {reflexionOuverte ? (
+              <ol className="mt-1" data-reflexion-contenu>
+                <RecitDuPassage entrees={entreesDActions} projectId={projectId} total />
+              </ol>
+            ) : null}
+          </SousPointDuFlux>
         ) : null}
-      </SousPointDuFlux>
+        {segments
+          .filter((segment) => segment.sorte === 'discussion')
+          .map((segment) => (
+            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} />
+          ))}
+      </>
     );
   }
 
@@ -2141,7 +2162,50 @@ function BlocsRacontes({
     return <TravailEnSousPoints entrees={entrees} projectId={projectId} />;
   }
 
+  /* PENDANT LE TRAVAIL, LE FIL SE LIT DANS L'ORDRE : une suite d'actions, puis
+     le mot de la discussion qui l'a suivie. Le temps total se rappelle une
+     seule fois, sous la dernière suite d'actions, et compte tout le passage. */
+  if (aDeLaDiscussion) {
+    return (
+      <>
+        {segments.map((segment, rang) =>
+          segment.sorte === 'discussion' ? (
+            <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} />
+          ) : (
+            <RecitDuPassage
+              key={segment.entrees[0]?.id}
+              entrees={segment.entrees}
+              projectId={projectId}
+              total={rang === dernierSegmentDActions}
+              dureeSur={entrees}
+            />
+          ),
+        )}
+      </>
+    );
+  }
+
   return <RecitDuPassage entrees={entrees} projectId={projectId} total />;
+}
+
+/**
+ * LES MOTS D'UNE DISCUSSION : une question avec sa réponse, une note de
+ * l'agent. Chacun se pose dans le fil comme un point à part entière, jamais
+ * derrière « Réflexions » ni sous « voir les N précédentes » : c'est ce qu'on
+ * vient lire. Une question sans réponse n'est pas ici, elle attend dans le
+ * panneau de décision.
+ */
+function MotsDeLaDiscussion({ entrees, projectId }: { entrees: EntreeJournal[]; projectId?: string }) {
+  const recit = React.useMemo(() => recitDuPoint(entrees, { montres: Number.MAX_SAFE_INTEGER }), [entrees]);
+  return (
+    <>
+      {recit.blocs.map((bloc) => (
+        <SousPointDuFlux key={bloc.cle} icone={ICONE_DU_GENRE[bloc.genre]} attrs={{ 'data-discussion-bloc': bloc.genre }}>
+          <UnBlocRaconte bloc={bloc} projectId={projectId} />
+        </SousPointDuFlux>
+      ))}
+    </>
+  );
 }
 
 /**
@@ -2157,6 +2221,7 @@ function RecitDuPassage({
   entrees,
   projectId,
   total = false,
+  dureeSur,
 }: {
   entrees: EntreeJournal[];
   projectId?: string;
@@ -2166,6 +2231,8 @@ function RecitDuPassage({
    * un total par sous-point se lirait comme dix totaux différents.
    */
   total?: boolean;
+  /** Le total se compte sur ces entrées-là (tout le passage) quand la suite n'en montre qu'une part. */
+  dureeSur?: EntreeJournal[];
 }) {
   const [tout, setTout] = React.useState(false);
   const retrait = useRetraitDuTexte();
@@ -2176,6 +2243,7 @@ function RecitDuPassage({
   /* Les DERNIERS : `bloc.cle` reste la clé, donc un carton déplié ne se
      referme pas quand la fenêtre glisse d'une action. */
   const montres = tout || caches <= 0 ? recit.blocs : recit.blocs.slice(caches);
+  const dureeTotale = dureeSur ? tempsDuPassage(dureeSur)?.dureeMs : recit.dureeMs;
   if (!recit.blocs.length) return null;
 
   return (
@@ -2229,13 +2297,13 @@ function RecitDuPassage({
           caché derrière un repli, il n'aurait servi qu'à ceux qui
           n'en avaient plus besoin. Il compte tous les gestes du passage, y
           compris ceux qui attendent derrière ce repli. */}
-      {total && recit.dureeMs !== undefined ? (
+      {total && dureeTotale !== undefined ? (
         <li className={cn(retrait, 'pb-1')}>
           <span
             className="text-[12.5px] leading-snug text-faint tabular-nums"
-            data-duree-totale-pied={recit.dureeMs}
+            data-duree-totale-pied={dureeTotale}
           >
-            {t('Total : {v0}', { v0: dureeFine(recit.dureeMs / 1000) })}
+            {t('Total : {v0}', { v0: dureeFine(dureeTotale / 1000) })}
           </span>
         </li>
       ) : null}

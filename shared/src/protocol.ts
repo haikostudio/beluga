@@ -464,6 +464,20 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * la carte orchestre plusieurs moteurs (`shared/src/mode-creation.ts`).
    */
   z.object({ type: z.literal('card.creation.souhaitee'), cardId: z.string(), actif: z.boolean() }),
+  /**
+   * L'interrupteur « Réalisation » (caméra) de la barre d'écriture
+   * (`parcours.realisationSouhaitee`). L'allumer allume aussi le cahier des
+   * charges (`planSouhaite`) : un média se cadre toujours en entier.
+   */
+  z.object({ type: z.literal('card.realisation.souhaitee'), cardId: z.string(), actif: z.boolean() }),
+  /**
+   * LA RÉPONSE À « IMAGE OU VIDÉO ? », posée par l'écran dès l'allumage
+   * (`Card.realisation.genre`). Elle démarre seule le questionnaire.
+   */
+  /** Pause, reprise et lecture du document de réalisation — les jumelles du cahier des charges. */
+  z.object({ type: z.literal('card.realisationPause'), id: z.string() }),
+  z.object({ type: z.literal('card.realisationReprendre'), id: z.string() }),
+  z.object({ type: z.literal('card.realisationDocument'), id: z.string() }),
   /** L'interrupteur « lancement automatique » de la carte (`parcours.lancementAutomatique`). */
   z.object({ type: z.literal('card.lancement.automatique'), cardId: z.string(), actif: z.boolean() }),
   /** Refermer l'incident du parcours d'une carte, sans rien relancer. */
@@ -554,6 +568,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
     attachments: z.array(z.string()).optional(),
   }),
   z.object({ type: z.literal('queue.remove'), id: z.string() }),
+  /* « Envoyer maintenant » : la demande passe en tête de file, le tour en cours
+     est coupé, et elle part aussitôt sur la même session. */
+  z.object({ type: z.literal('queue.send-now'), id: z.string() }),
   /* Une demande en attente s'ouvre (`actif`) ou se referme dans la barre
      d'écriture : tant qu'elle est ouverte, la file ne la fait pas partir. */
   z.object({ type: z.literal('queue.edition'), id: z.string(), actif: z.boolean() }),
@@ -961,22 +978,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('moteurs.agent'), neuf: z.boolean().optional() }),
   /**
    * L'ASSISTANT GLOBAL du robot en bas à droite (`shared/src/assistant-global.ts`) :
-   * sa conversation, gardée par le serveur, et l'état de l'interrupteur
-   * « validation automatique ». `neuf` repart d'une conversation vierge.
+   * sa conversation, gardée par le serveur. `neuf` repart d'une conversation vierge.
    */
   z.object({ type: z.literal('assistant.agent'), neuf: z.boolean().optional() }),
-  /** L'interrupteur « validation automatique » de l'assistant global. */
-  z.object({ type: z.literal('assistant.validation'), auto: z.boolean() }),
-  /**
-   * Le NIVEAU de l'assistant global : « auto » (le juge range chaque message sous
-   * `plafond`) ou « fige » (le modèle posé à la main ne bouge plus). Sans
-   * champ, la commande rend le réglage tel qu'il est.
-   */
-  z.object({
-    type: z.literal('assistant.niveau'),
-    mode: z.enum(['auto', 'fige']).optional(),
-    plafond: z.enum(['leger', 'standard', 'approfondi']).optional(),
-  }),
   /** Retirer un moteur ajouté : ses comptes partent, ses cartes retombent sur le moteur par défaut. */
   z.object({ type: z.literal('moteurs.retirer'), id: z.string() }),
   /** « Réessayer l'essai » d'un moteur ajouté : la clé collée (facultative), éprouvée puis activée si verte. */
@@ -1016,6 +1020,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * un nom vide est refusé et le compte garde son ancien nom.
    */
   z.object({ type: z.literal('account.rename'), id: z.string(), label: z.string() }),
+  /**
+   * RÉGLER L'ORDRE DES COMPTES d'un moteur, du premier (servi d'abord) au
+   * dernier. `ids` doit nommer exactement les comptes déclarés du moteur : une
+   * liste périmée est refusée.
+   */
+  z.object({ type: z.literal('account.reorder'), engine: z.string(), ids: z.array(z.string()) }),
+  /**
+   * RÉGLER L'ORDRE DES MOTEURS (Claude, Codex…) : le premier qui a de la place
+   * reçoit une carte dont personne n'a choisi le moteur. Les moteurs payés au
+   * crédit n'entrent jamais dans ce choix automatique.
+   */
+  z.object({ type: z.literal('engine.reorder'), ids: z.array(z.string()) }),
   /**
    * RÉGLER LE FORFAIT MENSUEL d'un compte MiMo : plafond, renouvellement et
    * consommé relevé dans la console Xiaomi (en jetons). Un champ absent ne
@@ -1190,6 +1206,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('surveillance.wordpress'), id: z.string() }),
   z.object({ type: z.literal('surveillance.wordpress.accepter'), id: z.string() }),
+  /* Le bouton sous la liste des soucis : une carte dans le projet du site, qui
+     porte tout ce qui a été détecté (`shared/src/correction-wordpress.ts`). */
+  z.object({ type: z.literal('surveillance.wordpress.corriger'), id: z.string() }),
   /**
    * L'ATELIER MARKETING (`shared/src/marketing.ts`, `server/src/marketing.ts`).
    * La liste des projets et leur avancement ; l'espace complet d'UN projet,
@@ -1205,6 +1224,18 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * Chaque changement se rediffuse par l'événement `marketing`.
    */
   z.object({ type: z.literal('statistiques.lister') }),
+  /**
+   * LA PAGE « MÉDIAS » : les projets qui ont des médias fabriqués (mode
+   * « Réalisation »), puis ceux d'un projet, rangés par carte et paginés par
+   * carte (`avant` : la date de la dernière carte reçue).
+   */
+  z.object({ type: z.literal('medias.projets') }),
+  z.object({
+    type: z.literal('medias.lister'),
+    projectId: z.string(),
+    genre: z.enum(['image', 'video', 'son']).optional(),
+    avant: z.number().optional(),
+  }),
   z.object({ type: z.literal('statistiques.detail'), id: z.string(), jours: z.number().optional(), debut: z.number().optional(), fin: z.number().optional() }),
   z.object({ type: z.literal('statistiques.visiteur'), id: z.string(), visiteur: z.string() }),
   z.object({ type: z.literal('statistiques.creerSite'), nom: z.string(), adresse: z.string(), mode: z.enum(['anonyme', 'visiteur']).optional() }),
@@ -1237,6 +1268,7 @@ export const ClientCommand = z.discriminatedUnion('type', [
     projectId: z.string(),
     genre: z.string(),
     canal: z.string(),
+    canaux: z.array(z.string()).optional(),
     titre: z.string(),
     texte: z.string(),
     datePrevue: z.string().optional(),
@@ -1247,11 +1279,35 @@ export const ClientCommand = z.discriminatedUnion('type', [
     titre: z.string().optional(),
     texte: z.string().optional(),
     canal: z.string().optional(),
+    canaux: z.array(z.string()).optional(),
     datePrevue: z.string().nullish(),
     heurePrevue: z.string().nullish(),
     lienCible: z.string().nullish(),
   }),
   z.object({ type: z.literal('marketing.contenu.etape'), id: z.string(), etape: z.string() }),
+  /**
+   * LA PUBLICATION OFFICIELLE SUR LES RÉSEAUX (`shared/src/reseaux-sociaux.ts`) :
+   * les comptes cochés d'un contenu, « Publier maintenant », relier / retirer /
+   * créer un compte, l'application développeur d'un réseau, et la boîte des
+   * commentaires et messages. Une réponse ne part QUE par `marketing.message.repondre`.
+   */
+  z.object({ type: z.literal('marketing.contenu.cibles'), id: z.string(), comptes: z.array(z.string()) }),
+  z.object({ type: z.literal('marketing.contenu.publier'), id: z.string() }),
+  z.object({ type: z.literal('marketing.compte.relier'), projectId: z.string(), reseau: z.string() }),
+  z.object({ type: z.literal('marketing.compte.retirer'), projectId: z.string(), id: z.string() }),
+  z.object({ type: z.literal('marketing.compte.creer'), projectId: z.string(), reseau: z.string() }),
+  z.object({
+    type: z.literal('marketing.application.ecrire'),
+    reseau: z.string(),
+    clientId: z.string().optional(),
+    secret: z.string().optional(),
+    etat: z.enum(['absente', 'en_creation', 'en_validation', 'validee']).optional(),
+    note: z.string().optional(),
+  }),
+  z.object({ type: z.literal('marketing.messages'), projectId: z.string() }),
+  z.object({ type: z.literal('marketing.messages.relever'), projectId: z.string() }),
+  z.object({ type: z.literal('marketing.messages.lus'), projectId: z.string(), ids: z.array(z.string()) }),
+  z.object({ type: z.literal('marketing.message.repondre'), id: z.string(), texte: z.string() }),
   z.object({ type: z.literal('marketing.contenu.supprimer'), id: z.string() }),
   z.object({ type: z.literal('marketing.action.faite'), id: z.string(), fait: z.boolean() }),
   z.object({ type: z.literal('marketing.action.modifier'), projectId: z.string(), id: z.string(), datePrevue: z.string() }),
@@ -1635,7 +1691,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
     courriel: z.string().optional(),
     /** Case cochée : ses identifiants lui partent par courriel. Jamais par défaut. */
     envoyerIdentifiants: z.boolean().optional(),
+    /** LA GRILLE d'un accès tiers (`droits-d-acces.ts`) : elle fixe son niveau et ses projets. */
+    droits: z.any().optional(),
   }),
+  /** Pose la grille des droits d'un accès tiers : projet par projet, service par service. */
+  z.object({ type: z.literal('comptes.droits'), id: z.string(), droits: z.any() }),
   z.object({ type: z.literal('comptes.portee'), id: z.string(), projets: z.array(z.string()) }),
   /** Change le niveau d'un accès existant (jamais celui d'un administrateur, jamais vers administrateur). */
   z.object({ type: z.literal('comptes.niveau'), id: z.string(), role: z.enum(['membre', 'lecteur', 'client']) }),
@@ -1762,6 +1822,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
      * serveur, lui, ne s'y fie jamais.
      */
     role: z.enum(['admin', 'membre', 'lecteur']).optional(),
+    /** LA GRILLE d'un accès tiers (`droits-d-acces.ts`) : ce que son écran peut montrer. Absente pour l'administrateur. */
+    droits: z.any().optional(),
     settings: Settings,
     prefs: z.record(z.any()).default({}),
     projects: z.array(Project),

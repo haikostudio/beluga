@@ -542,8 +542,38 @@ function DetailDeLEtape({
         </p>
       ) : null}
 
-      {/* CE QUI A BLOQUÉ : le motif de l'échec, dans son encadré rouge. */}
-      {etape.etat === 'failed' && brute?.log ? (
+      {/* L'ENCADRÉ D'ABANDON : l'étape n'a pas pu être réparée en silence.
+          Ce qui bloque et la marche à suivre, rédigés par l'agent pour
+          quelqu'un qui ne programme pas (`shared/src/reparation-publication.ts`),
+          puis sa conversation à un clic. Le journal brut reste dans le fil. */}
+      {etape.etat === 'failed' && brute?.blocage ? (
+        <EncadreEtape sorte="blocage" titre={t('Ce qui bloque')} ton="echec">
+          <div className="space-y-2 text-[12.5px] leading-snug" data-blocage-etape={etape.cle}>
+            <p className="whitespace-pre-wrap break-words text-muted texte-copiable" data-blocage-explication>
+              {brute.blocage.explication}
+            </p>
+            {brute.blocage.marcheASuivre ? (
+              <div>
+                <p className="font-medium text-muted">{t('Marche à suivre')}</p>
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-faint texte-copiable" data-blocage-marche>
+                  {brute.blocage.marcheASuivre}
+                </p>
+              </div>
+            ) : null}
+            {brute.blocage.agentId && onOuvrirAgent ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onOuvrirAgent(brute.blocage!.agentId!)}
+                data-blocage-agent={brute.blocage.agentId}
+              >
+                <MessagesSquare className="h-3.5 w-3.5" />
+                {t('Discuter avec l’agent')}
+              </Button>
+            ) : null}
+          </div>
+        </EncadreEtape>
+      ) : etape.etat === 'failed' && brute?.log ? (
         <EncadreEtape sorte="echec" titre={t('Ce qui a bloqué')} ton="echec">
           <p className="whitespace-pre-wrap break-words text-[11.5px] leading-snug text-faint texte-copiable">
             {motifLisible(brute.log)}

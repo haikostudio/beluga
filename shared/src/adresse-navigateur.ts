@@ -82,6 +82,8 @@ type EcranDeBase =
   | { vue: 'studio'; creationId?: string }
   /* Le service Statistiques, ouvert sur UN site mesuré : « #statistiques/<espace> ». */
   | { vue: 'statistiques'; siteId?: string }
+  /* Les médias fabriqués, ouverts sur UN projet : « #medias/<projet> ». */
+  | { vue: 'medias'; projectId?: string }
   /*
    * L'ESPACE CLIENT, OUVERT SUR UNE FICHE. C'est l'adresse que portent les
    * courriels envoyés à Haiko : un clic doit tomber sur le bon client ET la
@@ -153,6 +155,7 @@ const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
   marketing: 'marketing',
   studio: 'studio',
   statistiques: 'statistiques',
+  medias: 'medias',
 };
 
 /** Et le chemin inverse, calculé une fois plutôt que réécrit à la main. */
@@ -246,6 +249,8 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       return ecran.creationId ? `studio/${encodeURIComponent(ecran.creationId)}` : 'studio';
     case 'statistiques':
       return ecran.siteId ? `statistiques/${encodeURIComponent(ecran.siteId)}` : 'statistiques';
+    case 'medias':
+      return ecran.projectId ? `medias/${encodeURIComponent(ecran.projectId)}` : 'medias';
     case 'espace': {
       if (!ecran.clientId) return 'espace';
       const base = `espace/${encodeURIComponent(ecran.clientId)}`;
@@ -388,6 +393,10 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const siteId = decodeSegment(morceaux[1] ?? '');
     return siteId ? { vue: 'statistiques', siteId } : { vue: 'statistiques' };
   }
+  if (tete === 'medias') {
+    const projectId = decodeSegment(morceaux[1] ?? '');
+    return projectId ? { vue: 'medias', projectId } : { vue: 'medias' };
+  }
   if (tete === 'espace') {
     const clientId = decodeSegment(morceaux[1] ?? '');
     const demandeId = morceaux[2] === 'demande' ? decodeSegment(morceaux[3] ?? '') : '';
@@ -483,6 +492,7 @@ function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
   if (a.vue === 'marketing' && b.vue === 'marketing') return (a.projectId ?? '') === (b.projectId ?? '');
   if (a.vue === 'studio' && b.vue === 'studio') return (a.creationId ?? '') === (b.creationId ?? '');
   if (a.vue === 'statistiques' && b.vue === 'statistiques') return (a.siteId ?? '') === (b.siteId ?? '');
+  if (a.vue === 'medias' && b.vue === 'medias') return (a.projectId ?? '') === (b.projectId ?? '');
   /*
    * DEUX ADRESSES D'ESPACE MÈNENT AU MÊME ÉCRAN. La fiche ouverte est un
    * détail d'affichage à l'intérieur de cet écran, pas une destination à part :
@@ -621,6 +631,7 @@ export type ElementVise = {
   marketing?: string | null;
   studio?: string | null;
   statistiques?: string | null;
+  medias?: string | null;
 };
 
 /**
@@ -640,6 +651,7 @@ export function elementViseDeLEcran(ecran: EcranNavigateur): ElementVise {
     marketing: ecran.vue === 'marketing' ? ecran.projectId ?? null : null,
     studio: ecran.vue === 'studio' ? ecran.creationId ?? null : null,
     statistiques: ecran.vue === 'statistiques' ? ecran.siteId ?? null : null,
+    medias: ecran.vue === 'medias' ? ecran.projectId ?? null : null,
   };
 }
 
@@ -704,6 +716,8 @@ export function ecranDeLaVue(etat: {
       return { vue: 'studio', ...(element.studio ? { creationId: element.studio } : {}) };
     case 'statistiques':
       return { vue: 'statistiques', ...(element.statistiques ? { siteId: element.statistiques } : {}) };
+    case 'medias':
+      return { vue: 'medias', ...(element.medias ? { projectId: element.medias } : {}) };
     case 'espace-client':
       return {
         vue: 'espace',

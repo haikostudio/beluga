@@ -21,8 +21,8 @@ export function BandeauConnexionLente() {
       className="pointer-events-none fixed inset-x-0 z-[46] flex justify-center px-3"
       style={{
         top: sousUnBandeau
-          ? 'calc(max(0.5rem, env(safe-area-inset-top)) + 3rem)'
-          : 'max(0.5rem, env(safe-area-inset-top))',
+          ? 'calc(max(0.5rem, var(--zone-sure-haut, 0px)) + 3rem)'
+          : 'max(0.5rem, var(--zone-sure-haut, 0px))',
       }}
     >
       <div

@@ -2168,7 +2168,13 @@ export function barreDeSuivi(points: readonly PointDuParcours[], carte: CarteDeS
       return { etape, etat };
     }
     if (etape === 'archivee') return { etape, etat: range ? 'fait' : 'avenir' };
-    return { etape, etat: etatDuGroupe(points, etapesDuFluxSous(etape)) };
+    const etat = etatDuGroupe(points, etapesDuFluxSous(etape));
+    /* UNE ÉTAPE POSTÉRIEURE ATTEINTE CLÔT LES PRÉCÉDENTES : une carte posée dans
+       « À déployer » ou rangée n'a plus aucun tour de travail vivant. Un passage
+       resté ouvert (vide, jamais refermé) ne peut donc plus dire « en cours ».
+       Une vraie question ou une vraie erreur gardent leur état. */
+    if (deploiement !== 'aucun' && etat === 'encours') return { etape, etat: 'fait' as const };
+    return { etape, etat };
   });
 }
 

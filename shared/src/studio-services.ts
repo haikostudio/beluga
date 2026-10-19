@@ -160,7 +160,7 @@ export function modeleVideoDeService(service: unknown, modele: unknown): ModeleV
  * LE NOM DE LA FICHE DU COFFRE-FORT d'un service : une fiche par service, à
  * ce nom exact. C'est lui qui retrouve la clé ; on ne le renomme donc jamais.
  */
-export function nomDeFicheDuService(service: ServiceDeCreation): string {
+export function nomDeFicheDuService(service: Pick<ServiceDeCreation, 'nom'>): string {
   return `Studio — ${service.nom}`;
 }
 

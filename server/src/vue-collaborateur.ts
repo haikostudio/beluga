@@ -20,14 +20,21 @@
 import {
   REFUS_HORS_PORTEE,
   Settings,
-  commandeAutorisee,
+  commandeOuverteAuCompte,
+  droitsDuCompte,
   evenementAutorise,
+  evenementOuvertParUnService,
+  niveauDuService,
+  niveauRequisPourLaCommande,
+  niveauSuffit,
   peutVoirProjet,
-  viseurDeCommande,
+  viseurPourLeCompte,
   type ClientCommand,
   type CompteUtilisateur,
   type ServerEvent,
 } from '@beluga/shared';
+import { compteParId } from './comptes.js';
+import { listerAcces, listerArchives } from './coffre-fort.js';
 import { getDb } from './db.js';
 import * as store from './store.js';
 
@@ -97,13 +104,18 @@ export function projetsVisesParLaCommande(viseur: string, cmd: Record<string, un
  * LE REFUS D'UNE COMMANDE, ou `null` quand elle passe. Même phrase pour une
  * commande fermée, un projet hors portée et un élément qui n'existe pas.
  */
-export function refusDeLaCommande(compte: CompteUtilisateur, commande: ClientCommand): string | null {
+export function refusDeLaCommande(compteDuCanal: CompteUtilisateur, commande: ClientCommand): string | null {
+  if (compteDuCanal.role === 'admin') return null;
+  /* LA GRILLE SE RELIT À CHAQUE GESTE : un droit retiré par l'administrateur
+     ferme la porte tout de suite, sans attendre une reconnexion. */
+  const compte = compteParId(compteDuCanal.id) ?? compteDuCanal;
   if (compte.role === 'admin') return null;
-  if (!commandeAutorisee(compte.role, commande.type)) return REFUS_HORS_PORTEE;
+  if (!commandeOuverteAuCompte(compte, commande.type)) return REFUS_HORS_PORTEE;
   // Mon compte n'a pas de descripteur : aucune de ses commandes ne nomme un autre compte.
   if (commande.type.startsWith('espace.moi')) return null;
-  const viseur = viseurDeCommande(compte.role, commande.type);
+  const viseur = viseurPourLeCompte(compte, commande.type);
   if (viseur === undefined) return REFUS_HORS_PORTEE;
+  if (commande.type.startsWith('coffre.')) return refusDansLeCoffre(compte, commande as Commande);
   const cmd = commande as Commande;
   // Une carte ne change pas de projet par un simple « patch » : le déplacement a sa propre commande.
   if (commande.type === 'card.update') {
@@ -112,12 +124,73 @@ export function refusDeLaCommande(compte: CompteUtilisateur, commande: ClientCom
   }
   const projets = projetsVisesParLaCommande(viseur, cmd);
   if (!projets) return REFUS_HORS_PORTEE;
-  return projets.every((id) => peutVoirProjet(compte, id)) ? null : REFUS_HORS_PORTEE;
+  /* LE NIVEAU, PROJET PAR PROJET : voir, travailler ou déployer. */
+  const droits = droitsDuCompte(compte);
+  const requis = niveauRequisPourLaCommande(commande.type);
+  return projets.every((id) => peutVoirProjet(compte, id) && niveauSuffit(droits.projets[id], requis))
+    ? null
+    : REFUS_HORS_PORTEE;
+}
+
+/** Le projet d'une fiche du coffre (active ou archivée), `undefined` si elle n'existe pas. */
+function projetDeLaFiche(id: unknown): string | null | undefined {
+  if (typeof id !== 'string') return undefined;
+  const fiche = [...listerAcces(), ...listerArchives()].find((f) => f.id === id);
+  return fiche ? fiche.projectId : undefined;
+}
+
+/**
+ * LE COFFRE D'UN TIERS NE TOUCHE QUE LES FICHES DE SES PROJETS. Une fiche sans
+ * projet (les accès de Beluga lui-même) ou d'un projet fermé n'existe pas pour
+ * lui ; la lecture est triée dans la réponse (`reponsePourLeCollaborateur`).
+ */
+function refusDansLeCoffre(compte: CompteUtilisateur, cmd: Commande): string | null {
+  const ouvert = (projet: string | null | undefined) => !!projet && peutVoirProjet(compte, projet);
+  switch (cmd.type) {
+    case 'coffre.lister':
+      return null;
+    case 'coffre.enregistrer': {
+      const acces = (cmd.acces ?? {}) as { id?: unknown; projectId?: unknown };
+      if (!ouvert(typeof acces.projectId === 'string' ? acces.projectId : null)) return REFUS_HORS_PORTEE;
+      // Modifier une fiche existante : elle doit déjà être d'un projet ouvert.
+      if (typeof acces.id === 'string' && acces.id && projetDeLaFiche(acces.id) !== undefined && !ouvert(projetDeLaFiche(acces.id))) {
+        return REFUS_HORS_PORTEE;
+      }
+      return null;
+    }
+    case 'coffre.supprimer':
+    case 'coffre.restaurer':
+    case 'coffre.ranger':
+      return ouvert(projetDeLaFiche(cmd.id)) ? null : REFUS_HORS_PORTEE;
+    default:
+      return REFUS_HORS_PORTEE;
+  }
 }
 
 /** La réponse d'une commande, ramenée à la portée du compte quand elle liste plusieurs projets. */
 export function reponsePourLeCollaborateur(compte: CompteUtilisateur, commande: ClientCommand, data: unknown): unknown {
   if (compte.role === 'admin') return data;
+  /* LE COFFRE, RAMENÉ AUX FICHES DES PROJETS OUVERTS — à chaque réponse, car
+     chacune rend l'état entier du coffre. */
+  if (commande.type.startsWith('coffre.') && data && typeof data === 'object') {
+    const garder = (liste: unknown) =>
+      Array.isArray(liste)
+        ? liste.filter((fiche) => {
+            const projet = (fiche as { projectId?: string | null }).projectId;
+            return !!projet && peutVoirProjet(compte, projet);
+          })
+        : liste;
+    const o = data as Record<string, unknown>;
+    const filtre: Record<string, unknown> = { ...o };
+    for (const cle of ['acces', 'liste', 'archives']) if (cle in o) filtre[cle] = garder(o[cle]);
+    const images = new Set<string>();
+    for (const cle of ['acces', 'liste', 'archives']) {
+      const liste = filtre[cle];
+      if (Array.isArray(liste)) for (const fiche of liste) for (const id of (fiche as { images?: string[] }).images ?? []) images.add(id);
+    }
+    if (Array.isArray(o.pieces)) filtre.pieces = o.pieces.filter((piece) => images.has((piece as { id: string }).id));
+    return filtre;
+  }
   if (commande.type === 'project.list' && data && typeof data === 'object') {
     const liste = (data as { projects?: unknown }).projects;
     if (Array.isArray(liste)) {
@@ -184,7 +257,10 @@ function projetsDeLEvenement(event: ServerEvent): string[] | null | undefined {
  * Refus par défaut : un événement dont on ne sait pas dire le projet ne part pas.
  */
 export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUtilisateur): ServerEvent | null {
+  // Un service ouvert par la grille laisse passer SES événements globaux (réglages, quotas).
+  if (evenementOuvertParUnService(compte, event.type)) return event;
   if (!evenementAutorise(compte.role, event.type)) return null;
+  const droits = droitsDuCompte(compte);
   switch (event.type) {
     case 'pong':
     case 'ack':
@@ -192,15 +268,19 @@ export function evenementPourCollaborateur(event: ServerEvent, compte: CompteUti
       return event;
     case 'ready': {
       const projets = event.projects.filter((projet) => peutVoirProjet(compte, projet.id));
+      const reglages = niveauDuService(droits, 'reglages') !== 'aucun';
+      const moteurs = niveauDuService(droits, 'moteurs') !== 'aucun';
       return {
         ...event,
         studioOuvert: false,
-        // Aucun réglage général, aucune préférence d'un autre, aucun compte moteur ni ligne de quota.
-        settings: Settings.parse({}),
+        // Aucun réglage général, aucune préférence d'un autre, aucun compte moteur ni ligne de quota —
+        // sauf les services que sa grille lui ouvre.
+        settings: reglages ? event.settings : Settings.parse({}),
         prefs: {},
         projects: projets,
-        quotas: [],
-        moteursAjoutes: undefined,
+        quotas: moteurs ? event.quotas : [],
+        moteursAjoutes: moteurs ? event.moteursAjoutes : undefined,
+        droits,
         agents: event.agents.filter((agent) => peutVoirProjet(compte, agent.projectId)),
         productions: event.productions?.filter((run) => peutVoirProjet(compte, run.projectId)),
         openedProjectId:

@@ -14,7 +14,17 @@
  * publication.
  */
 
-import type { RoleCompte } from './comptes-clients.js';
+import type { CompteUtilisateur, RoleCompte } from './comptes-clients.js';
+import {
+  COMMANDES_DEPLOIEMENT,
+  EVENEMENTS_DES_SERVICES,
+  SERVICES_OUVRABLES,
+  droitsDuCompte,
+  niveauDeServiceSuffit,
+  niveauDuService,
+  serviceDeLaCommande,
+  type NiveauProjet,
+} from './droits-d-acces.js';
 
 /**
  * LES SEULES COMMANDES OUVERTES À UN COMPTE CLIENT. Toutes bornées, côté
@@ -112,6 +122,7 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'card.branches': 'carte:cardId',
   'card.cahierDocument': 'carte:id',
   'project.cahierDocument': 'projet:projectId',
+  'card.realisationDocument': 'carte:id',
 };
 
 /** Ce que le MEMBRE fait en plus : piloter les cartes, les agents et les conversations des projets cochés. */
@@ -136,6 +147,9 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'card.comprehension.validate': 'carte:cardId',
   'card.plan.souhaite': 'carte:cardId',
   'card.creation.souhaitee': 'carte:cardId',
+  'card.realisation.souhaitee': 'carte:cardId',
+  'card.realisationPause': 'carte:id',
+  'card.realisationReprendre': 'carte:id',
   'card.lancement.automatique': 'carte:cardId',
   'plan.fermerIncident': 'carte:cardId',
   'card.redaction.relancer': 'carte:cardId',
@@ -146,6 +160,7 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'agent.config': 'agent:agentId',
   'queue.update': 'file:id',
   'queue.remove': 'file:id',
+  'queue.send-now': 'file:id',
   'queue.edition': 'file:id',
   'question.answer': 'message:messageId',
   'question.cancel': 'message:messageId',
@@ -332,4 +347,54 @@ export function refusDePortee(
   if (role === 'admin') return null;
   if (!projectId) return REFUS_HORS_PORTEE;
   return projetsDuCompte.includes(projectId) ? null : REFUS_HORS_PORTEE;
+}
+
+/* ------------------------------------------------------------------ */
+/* LA GRILLE DES DROITS D'UN ACCÈS TIERS (`droits-d-acces.ts`)          */
+/* ------------------------------------------------------------------ */
+
+type CompteJuge = Pick<CompteUtilisateur, 'role' | 'projets' | 'droits'>;
+
+/**
+ * CETTE COMMANDE EST-ELLE OUVERTE À CE COMPTE ? La porte d'entrée : le niveau
+ * de base (`commandeAutorisee`), plus ce que la grille ouvre — la mise en
+ * ligne si un projet au moins est à « déployer », et les commandes de chaque
+ * service ouvert. Le projet visé se vérifie ENSUITE (`niveauRequisPourLaCommande`).
+ */
+export function commandeOuverteAuCompte(compte: CompteJuge, type: string): boolean {
+  if (commandeAutorisee(compte.role, type)) {
+    // Un lecteur dont la grille ouvre un projet en travail : le serveur le rangera membre ; en attendant, la grille fait foi.
+    return true;
+  }
+  if (compte.role !== 'membre' && compte.role !== 'lecteur') return false;
+  const droits = droitsDuCompte(compte);
+  if (Object.hasOwn(COMMANDES_TRAVAIL, type)) return Object.values(droits.projets).some((n) => n !== 'voir');
+  if (Object.hasOwn(COMMANDES_DEPLOIEMENT, type)) return Object.values(droits.projets).includes('deployer');
+  const service = serviceDeLaCommande(type);
+  return !!service && niveauDeServiceSuffit(niveauDuService(droits, service.service), service.requis);
+}
+
+/** Ce que vise la commande pour ce compte : celui du niveau, celui de la mise en ligne, ou « aucun » pour un service. */
+export function viseurPourLeCompte(compte: CompteJuge, type: string): ViseurDeCommande | undefined {
+  if (Object.hasOwn(COMMANDES_LECTURE, type)) return COMMANDES_LECTURE[type];
+  if (Object.hasOwn(COMMANDES_TRAVAIL, type)) return COMMANDES_TRAVAIL[type];
+  if (Object.hasOwn(COMMANDES_DEPLOIEMENT, type)) return COMMANDES_DEPLOIEMENT[type];
+  if (serviceDeLaCommande(type)) return 'aucun';
+  return viseurDeCommande(compte.role, type);
+}
+
+/** Le niveau qu'exige la commande sur CHAQUE projet qu'elle vise. */
+export function niveauRequisPourLaCommande(type: string): NiveauProjet {
+  if (Object.hasOwn(COMMANDES_DEPLOIEMENT, type)) return 'deployer';
+  if (Object.hasOwn(COMMANDES_TRAVAIL, type)) return 'travailler';
+  return 'voir';
+}
+
+/** Cet événement global peut-il partir vers ce tiers, d'après les services que sa grille ouvre ? */
+export function evenementOuvertParUnService(compte: CompteJuge, type: string): boolean {
+  if (compte.role !== 'membre' && compte.role !== 'lecteur') return false;
+  const droits = droitsDuCompte(compte);
+  return SERVICES_OUVRABLES.some(
+    (service) => niveauDuService(droits, service) !== 'aucun' && EVENEMENTS_DES_SERVICES[service].includes(type),
+  );
 }

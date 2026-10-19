@@ -1,6 +1,7 @@
 {
   "name": "beluga",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "version": "1.0.0",
   "description": "Beluga Build — pilotage de projets par agents IA",
   "type": "module",

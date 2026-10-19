@@ -65,6 +65,7 @@ import { PlanificateurEcheancesQuotas } from './quota-echeances.js';
 import { surveillerRepriseDeCompte } from './reprise-compte.js';
 import { demarrerSurveillance, fermerNavigateur } from './surveillance.js';
 import { demarrerMarketing } from './marketing.js';
+import { demarrerPublicationSociale } from './publication-sociale.js';
 import { rattraperLesPortsDesProjets } from './port-des-projets.js';
 import { rattraperLesAdressesDeControle } from './rattrapage-adresses.js';
 import { convertirLesSuppositionsDesCartes } from './questions-de-carte.js';
@@ -352,6 +353,13 @@ async function main(): Promise<void> {
    */
   const marketingTimer = demarrerMarketing();
   /*
+   * LA PUBLICATION OFFICIELLE SUR LES RÉSEAUX : les contenus programmés qui
+   * visent des comptes reliés partent à l'heure prévue, les accès se
+   * renouvellent, les commentaires et messages se relèvent
+   * (`server/src/publication-sociale.ts`).
+   */
+  const publicationSocialeTimer = demarrerPublicationSociale();
+  /*
    * LE STUDIO : un export resté « en cours » a été coupé par l'arrêt du démon.
    * Il le DIT au démarrage, au lieu de rester affiché comme s'il tournait.
    */
@@ -525,6 +533,7 @@ async function main(): Promise<void> {
     suivreReprises();
     clearInterval(surveillanceTimer);
     clearInterval(marketingTimer);
+    if (publicationSocialeTimer) clearInterval(publicationSocialeTimer);
     void fermerNavigateur();
     clearInterval(backupTimer);
     clearInterval(digestTimer);

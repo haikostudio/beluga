@@ -47,6 +47,7 @@ import {
 } from './plan-complet.js';
 import { blocDesDecisionsOuvertPar, blocDesTachesOuvertPar, blocEnClairOuvertPar, partieOuvertePar } from './plan-gabarit.js';
 import { carteRangee } from './question-en-texte.js';
+import { REGLE_DES_PISTES } from './pistes-de-question.js';
 import { lireLesRubriques, type RubriqueDuCahier } from './cahier-vivant.js';
 import { travailDeLaCarteDejaLance } from './plan-conversation.js';
 import {
@@ -1704,6 +1705,7 @@ export function consigneDePlanDansLeMemeTour(numero: number): string {
     `L'INTERRUPTEUR « PLAN » EST ALLUMÉ SUR CETTE CARTE : tu travailles comme pour l'ÉDITION D'UN CAHIER DES CHARGES. ` +
     `1. LES QUESTIONS D'ABORD. Avant de rendre quoi que ce soit, relève ce qui change réellement le résultat et que ni la demande, ni le projet, ni la mémoire ne tranchent : public visé, parcours, règles de gestion, contenus, cas limites, ce qui est hors périmètre. ` +
     `Pose ces questions avec « ask_user », UNE À LA FOIS, chacune précise et utile, avec dans « description » ce que tu as constaté et ce que change chaque réponse, et des choix concrets dont un marqué « (recommandé) ». ` +
+    REGLE_DES_PISTES + ' ' +
     `Ni question de forme, ni question dont la réponse se lit dans le projet : tranche ce qui est évident et dis-le dans le plan. Arrête-toi quand le cahier est sans trou — en général trois à huit questions${numero > 1 ? ", moins pour une nouvelle version : seulement ce que les derniers échanges laissent ouvert" : ''}. ` +
     `2. PUIS, dans le même tour, « rendre_comprehension », part technique comprise, avec dans « cahierDesCharges » les rubriques que tes questions ont remplies. ` +
     `3. ENFIN, sans attendre un autre message, le PLAN version ${numero} par l'outil « rendre_plan ». ` +

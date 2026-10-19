@@ -236,6 +236,7 @@ export const MOTIFS_PAR_OUTIL: Record<string, { un: string; plusieurs?: string; 
   backup_recette: { un: 'Je prends un aperçu du site.' },
   backup_essai: { un: 'Je prends un aperçu d’un essai.' },
   relancer_publication: { un: 'Je relance la publication.' },
+  rendre_reparation: { un: 'Je rends le verdict de ma réparation.' },
   surveillance_essai: { un: 'J’essaie le contrôle du site.', plusieurs: 'J’essaie le contrôle du site {v0} fois.' },
   surveillance_recette: { un: 'J’enregistre la surveillance.' },
 

@@ -113,7 +113,6 @@ import {
   CONSIGNE_DE_VULGARISATION,
   CONSIGNE_DES_DATES,
   CONSIGNE_ASSISTANT_GLOBAL,
-  DISALLOWED_NATIVE_ASSISTANT,
   RAPPEL_DE_VULGARISATION,
   consigneDeLangue,
   LANGUE_DORIGINE,
@@ -264,6 +263,7 @@ import {
 } from './copies-des-depots.js';
 import { sortieGit } from './git.js';
 import { consigneDeCreationDeLaCarte } from './mode-creation.js';
+import { consigneDeRealisationDeLaCarte } from './realisation.js';
 import { lancerAvecRelances } from './relance-moteur.js';
 
 export interface LiveRun {
@@ -1324,6 +1324,8 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    * change pas d'un tour à l'autre dans une même session.
    */
   if (!options.motif && agent.depannagePublication) options = { ...options, motif: 'depannage-manuel' };
+  // L'agent de réparation silencieuse garde de même sa consigne ciblée (`server/src/reparation-publication.ts`).
+  if (!options.motif && agent.reparationPublication) options = { ...options, motif: 'depannage' };
   /*
    * L'AGENT MARKETING GARDE SA CONSIGNE ET SON OUTIL d'un tour à l'autre : une
    * phrase tapée plus tard dans l'écran Marketing n'a pas de motif, et la
@@ -1500,14 +1502,6 @@ async function preparerLeTour(
    * message par message, sous le plafond réglé (`appliquerLeNiveauDeLAssistant`).
    * Une demande silencieuse du démon, elle, garde le modèle en place.
    */
-  if (agent.assistantGlobal && !options.silent) {
-    const [{ appliquerLeNiveauDeLAssistant }, { jugerLeNiveauDeLAssistant }, { catalogueMoteurs }] = await Promise.all([
-      import('./assistant-global.js'),
-      import('./jugement-rapide.js'),
-      import('./catalogue-moteurs.js'),
-    ]);
-    agent = await appliquerLeNiveauDeLAssistant(agent, text, jugerLeNiveauDeLAssistant, await catalogueMoteurs());
-  }
   const agentId = agent.id;
   const project = store.getProject(agent.projectId);
   if (!project) throw new Error('projet introuvable');
@@ -1987,6 +1981,19 @@ async function preparerLeTour(
    * DEMANDE, jamais dans la consigne système, qui ne change pas d'un tour à
    * l'autre d'une même session. Le cadrage comme l'exécution la reçoivent.
    */
+  /*
+   * LE MODE « RÉALISATION » (caméra), RELU À CHAQUE TOUR comme « Création » :
+   * le questionnaire au cadrage, la méthode du réalisateur et l'état du budget
+   * à l'exécution (`server/src/realisation.ts`).
+   */
+  if (card?.parcours?.realisationSouhaitee) {
+    try {
+      const consigneRealisation = consigneDeRealisationDeLaCarte(card, agent.role);
+      if (consigneRealisation) contextParts.push({ label: 'Mode Réalisation', kind: 'extra', origine: 'plateforme', content: consigneRealisation });
+    } catch (err) {
+      log.warn('consigne du mode Réalisation indisponible', String((err as Error)?.message ?? err));
+    }
+  }
   if (card?.parcours?.creationSouhaitee) {
     const consigneCreation = await consigneDeCreationDeLaCarte(card).catch((err) => {
       log.warn('consigne du mode Création indisponible', String((err as Error)?.message ?? err));
@@ -2655,12 +2662,12 @@ async function startTurn(
    */
   const bride = agent.role === 'cadrage';
   /*
-   * L'ASSISTANT GLOBAL N'A NI COMMANDE NI ÉDITEUR (`shared/src/assistant-global.ts`) :
-   * ses outils natifs d'écriture et de commande sont retirés, et il n'a pas
-   * l'accès complet — sous Codex, son bac à sable reste en lecture seule.
+   * L'ASSISTANT GLOBAL EST UN AGENT ORDINAIRE AVEC TOUS LES DROITS (demande du
+   * 18/10/2026, `shared/src/assistant-global.ts`) : accès complet, commandes et
+   * fichiers compris. Seule sa consigne reçoit, en plus, ses outils propres.
    */
   const assistantGlobal = Boolean(agent.assistantGlobal);
-  const fullAccess = !bride && !assistantGlobal;
+  const fullAccess = !bride;
 
   /*
    * LA FRONTIÈRE DE L'AGENT BRIDÉ. Il a tous les droits sauf modifier le code
@@ -2700,7 +2707,7 @@ async function startTurn(
    */
   const roleMoteur = agent.role === 'analysis' && agent.cardId && agent.workdir ? 'task' : agent.role;
   let systemPrompt = assistantGlobal
-    ? `${consigneDeLangue(langueDesAgents())}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`
+    ? consigneDeLAssistantGlobal(project.isSelf, agent.run.engine, langueDesAgents())
     : rolePrompt(
     roleMoteur,
     project.isSelf,
@@ -2877,8 +2884,7 @@ async function startTurn(
     fullAccess,
     role: agent.role,
     allowedTools: bride ? [...cadrageAllowList(), ...(rea ? [`mcp__${SERVEUR_MCP_REA}`] : [])] : undefined,
-    disallowedTools: bride ? cadrageDenyList() : assistantGlobal ? [...DISALLOWED_NATIVE_ASSISTANT] : undefined,
-    sandboxLectureSeule: assistantGlobal || undefined,
+    disallowedTools: bride ? cadrageDenyList() : undefined,
     env,
   };
 
@@ -5944,10 +5950,11 @@ export function rappelDeMethode(
  */
 const CONSIGNE_DEPANNAGE = `Tu travailles dans Beluga Build. Réponds très court.
 
-TU ES UN AGENT DE DÉPANNAGE appelé PENDANT une publication déjà en cours. Une seule chose bloque, elle t'est nommée dans la demande : tu la répares, tu t'arrêtes. Tu n'ouvres pas le projet en grand, tu ne cherches pas de travail à côté, tu n'annonces pas de liste de tâches.
-Fais EXACTEMENT les gestes demandés, dans l'ordre donné, et rien d'autre. Ce qui n'est pas dans la demande n'est pas de ton ressort.
-NE PUBLIE RIEN et NE REDÉMARRE RIEN : la publication reprend toute seule dès que ton tour est fini.
-NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Si tu n'arrives pas à réparer, dis-le en une phrase avec ce qui bloque encore — un échec tu, c'est une publication qui repart sur du faux.
+TU ES UN AGENT DE RÉPARATION appelé PENDANT une publication déjà en cours, en silence : l'utilisateur ne voit rien tant que tu répares. Une seule chose bloque, elle t'est nommée dans la demande : tu la répares, tu t'arrêtes. Tu n'ouvres pas le projet en grand, tu ne cherches pas de travail à côté, tu n'annonces pas de liste de tâches.
+Fais EXACTEMENT les gestes demandés, dans l'ordre donné, et rien d'autre. Ce qui n'est pas dans la demande n'est pas de ton ressort. Une saturation de la machine (fork, EAGAIN, ENOMEM, « Resource temporarily unavailable ») n'est PAS une erreur de code : ne corrige rien.
+NE PUBLIE RIEN et NE REDÉMARRE RIEN — ni le serveur Beluga Build, ni un service, ni une mise en production : l'étape est REJOUÉE toute seule dès que ton tour est fini. « git add » NOMMÉ fichier par fichier, jamais « git add -A » ; tu ne changes pas de branche.
+TERMINE TOUJOURS par l'outil « rendre_reparation » : « reparee » si tu as réparé, « abandon » si le problème te dépasse (un accès introuvable, un choix de l'utilisateur, une panne extérieure). Son « explication » et sa « marche_a_suivre » sont lues TELLES QUELLES par quelqu'un qui ne programme pas : des mots simples, aucun nom de fichier ni de commande sans l'expliquer. Tu ne poses pas de question : ce qui demande un choix de l'utilisateur est un abandon, avec la marche à suivre.
+NE RIEN INVENTER : un fichier, une commande ou un comportement ne se cite qu'après l'avoir vu. Un échec tu, c'est une publication qui repart sur du faux.
 SILENCE SUR LES IDENTIFIANTS STOCKÉS : les mots de passe, clés, jetons et fichiers d'identifiants gardés dans le projet sont un choix ASSUMÉ par l'utilisateur. Tu ne le signales pas, ne le commentes pas et ne recommandes rien à ce sujet.
 S'IL TE FAUT UN ACCÈS, CHERCHE-LE D'ABORD DANS LE COFFRE-FORT (outil « coffre_fort », action « lister ») : il t'est ouvert en lecture et en écriture. Ne dis JAMAIS « je n'ai pas accès » ni « donne-moi la clé » sans l'avoir listé. Une PANNE se dit toujours, mais après avoir cherché : un identifiant absent du coffre, expiré ou refusé qui bloque ton travail s'annonce en toutes lettres.`;
 
@@ -6016,6 +6023,37 @@ export const CONSIGNE_DES_AIDES =
  * demande de programmation passe par une carte » se perdrait à la première
  * réécriture du texte si rien ne la retenait.
  */
+/**
+ * LE TRONC COMMUN DE LA CONSIGNE d'un agent qui agit : publication, liste de
+ * tâches, méthode, attentes, création de projet, périmètre. Partagé par
+ * l'agent de tâche, l'analyse, la publication et l'assistant Beluga.
+ */
+function deroulerCommun(isSelf: boolean, engine: EngineId): string {
+  const outilListe = OUTIL_LISTE[engine] ?? OUTIL_LISTE.claude;
+  return (
+    'Tu travailles dans Beluga Build. ' +
+    "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.\n\n" +
+    "DÉROULÉ VISIBLE (obligatoire à CHAQUE tour où tu agis — au lancement comme à chaque message de suite) :\n" +
+    `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée simplement. C'est ton PREMIER geste de travail : quelques lectures pour comprendre peuvent la précéder, jamais une modification de fichier ni une suite de commandes.\n` +
+    "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
+    "Seule exception : une réponse qui ne modifie rien et ne lance aucune commande. Sans liste, Beluga Build refuse ta modification ou ta commande et te demande de l'annoncer d'abord.\n" +
+    "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.\n\n" +
+    `${METHODE}\n\n` +
+    /* LES ATTENTES INUTILES (`shared/src/garde-attentes.ts`) : la forme juste
+       est dite à TOUS les moteurs — la consigne reste identique d'un moteur à
+       l'autre —, et sous Claude le garde refuse en plus ce qui passerait
+       (`server/garde-demon.mjs`). */
+    `${CONSIGNE_DES_ATTENTES}\n\n` +
+    /* Vaut pour TOUS les rôles : celui qui monte le projet comme celui qui
+       propose la carte qui le montera. Un projet monté sans adresse est un
+       projet dont chaque déploiement finira sans rien à contrôler. */
+    `${consigneCreationProjet()}\n\n` +
+    /* LE PÉRIMÈTRE suit le projet : celui de l'application voit tout mais
+       propose une carte par projet, tout autre projet reste chez lui. Tranché
+       sur `isSelf`, jamais sur un nom (`shared/src/perimetre-des-agents.ts`). */
+    consigneDePerimetre(isSelf));
+}
+
 function corpsDeConsigne(
   role: AgentRole,
   isSelf: boolean,
@@ -6047,29 +6085,7 @@ function corpsDeConsigne(
   // pas le modèle. Seul le NOM de l'outil de liste change d'un moteur à l'autre.
   // On n'annonce donc à chaque moteur QUE son propre outil — lui présenter le
   // menu des deux reviendrait à lui laisser le choix, ce qu'on veut éviter.
-  const outilListe = OUTIL_LISTE[engine] ?? OUTIL_LISTE.claude;
-  const common =
-    'Tu travailles dans Beluga Build. ' +
-    "Tu ne publies JAMAIS de ta propre initiative : la mise en ligne est un geste de l'utilisateur.\n\n" +
-    "DÉROULÉ VISIBLE (obligatoire à CHAQUE tour où tu agis — au lancement comme à chaque message de suite) :\n" +
-    `1. AVANT d'agir, annonce ta liste de tâches avec ${outilListe} : une ligne par action prévue, formulée simplement. C'est ton PREMIER geste de travail : quelques lectures pour comprendre peuvent la précéder, jamais une modification de fichier ni une suite de commandes.\n` +
-    "2. Passe la ligne en cours à « en cours », et coche-la dès qu'elle est terminée, AVANT d'attaquer la suivante. Une seule ligne en cours à la fois.\n" +
-    "Seule exception : une réponse qui ne modifie rien et ne lance aucune commande. Sans liste, Beluga Build refuse ta modification ou ta commande et te demande de l'annoncer d'abord.\n" +
-    "Cette liste s'affiche dans la conversation et se coche sous les yeux de l'utilisateur : c'est ainsi qu'il suit ton avancement. Ne la recopie pas en texte, elle est déjà à l'écran.\n\n" +
-    `${METHODE}\n\n` +
-    /* LES ATTENTES INUTILES (`shared/src/garde-attentes.ts`) : la forme juste
-       est dite à TOUS les moteurs — la consigne reste identique d'un moteur à
-       l'autre —, et sous Claude le garde refuse en plus ce qui passerait
-       (`server/garde-demon.mjs`). */
-    `${CONSIGNE_DES_ATTENTES}\n\n` +
-    /* Vaut pour TOUS les rôles : celui qui monte le projet comme celui qui
-       propose la carte qui le montera. Un projet monté sans adresse est un
-       projet dont chaque déploiement finira sans rien à contrôler. */
-    `${consigneCreationProjet()}\n\n` +
-    /* LE PÉRIMÈTRE suit le projet : celui de l'application voit tout mais
-       propose une carte par projet, tout autre projet reste chez lui. Tranché
-       sur `isSelf`, jamais sur un nom (`shared/src/perimetre-des-agents.ts`). */
-    consigneDePerimetre(isSelf);
+  const common = deroulerCommun(isSelf, engine);
 
   /*
    * L'AGENT DE CADRAGE reçoit une consigne COURTE, la sienne, et rien du
@@ -6132,6 +6148,15 @@ export function rolePrompt(
   return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${corpsDeConsigne(role, isSelf, engine, niveau, motif)}`;
 }
 
+
+/**
+ * LA CONSIGNE DE L'ASSISTANT BELUGA : celle d'un agent ordinaire — langue,
+ * vulgarisation, dates, tronc commun — puis son rôle et ses outils propres
+ * (`CONSIGNE_ASSISTANT_GLOBAL`), à la place du rôle d'un agent de carte.
+ */
+export function consigneDeLAssistantGlobal(isSelf: boolean, engine: EngineId = 'claude', langue: LangueId = LANGUE_DORIGINE): string {
+  return `${consigneDeLangue(langue)}\n${CONSIGNE_DE_VULGARISATION}\n${CONSIGNE_DES_DATES}\n\n${deroulerCommun(isSelf, engine)}\n\n${CONSIGNE_ASSISTANT_GLOBAL}`;
+}
 
 /* ------------------------------------------------------------------ */
 /* Reprise après redémarrage (PLAN §12)                                */

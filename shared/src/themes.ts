@@ -128,8 +128,30 @@ export function estThemeSombre(valeur: unknown): boolean {
   return themeParId(valeur).clarte === 'sombre';
 }
 
+/**
+ * LA COULEUR DU BANDEAU DU TÉLÉPHONE (`theme-color`), EN HEXADÉCIMAL : le fond de
+ * page de la palette. Le catalogue l'écrit en `hsl(…)` à espaces, une syntaxe que
+ * tous les navigateurs mobiles ne lisent pas dans `theme-color` ; l'hexadécimal,
+ * si (recette ProjetE : fond normalisé avant d'être posé).
+ */
 export function couleurDeBandeau(valeur: unknown): string {
-  return themeParId(valeur).apercu[0];
+  return hslEnHexadecimal(themeParId(valeur).apercu[0]);
+}
+
+/** `hsl(0 0% 13%)` → `#212121`. Une valeur qui n'est pas un hsl est rendue telle quelle. */
+export function hslEnHexadecimal(couleur: string): string {
+  const m = /^hsla?\(\s*([\d.]+)(?:deg)?[\s,]+([\d.]+)%[\s,]+([\d.]+)%/i.exec(couleur.trim());
+  if (!m) return couleur;
+  const h = Number(m[1]) % 360;
+  const s = Number(m[2]) / 100;
+  const l = Number(m[3]) / 100;
+  const a = s * Math.min(l, 1 - l);
+  const canal = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const v = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(v * 255).toString(16).padStart(2, '0');
+  };
+  return `#${canal(0)}${canal(8)}${canal(4)}`;
 }
 
 /* ------------------------------------------------------------------ */

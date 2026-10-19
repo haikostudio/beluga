@@ -5,22 +5,26 @@
  * Il répond aux questions sur TOUT Beluga (projets, cartes, mémoire, coffre,
  * messagerie de l'espace client, marketing, statistiques, surveillance,
  * sauvegardes, notes, facturation, bases des serveurs) et il y AGIT : ajouter,
- * modifier, supprimer. Il ne touche JAMAIS au code ni aux branches : aucun
- * outil d'édition de fichier, aucune commande (`DISALLOWED_NATIVE_ASSISTANT`).
+ * modifier, supprimer.
  *
- * LA VALIDATION EST TENUE PAR LE DÉMON, PAS PAR LA CONSIGNE (demande du
- * 02.10.2026). Chaque appel d'outil est CLASSÉ (`genreDeLAppel`) puis jugé
- * (`decisionDAccord`) AVANT d'être exécuté. Un geste qui demande l'accord
- * s'arrête sur une question « Autoriser / Refuser » posée dans le fil, et
- * n'est exécuté qu'après le clic. Le modèle ne peut pas contourner la règle :
- * il n'a aucun autre chemin vers les données.
+ * UN AGENT ORDINAIRE, AVEC TOUS LES DROITS (demande du 18/10/2026). Il reçoit
+ * les outils, la consigne et les règles de message d'un agent ordinaire, le
+ * modèle se règle dans la barre d'écriture comme partout, et il a l'accès
+ * complet à la machine (commandes, fichiers). Plus d'interrupteur
+ * « validation automatique », plus de niveau choisi tout seul.
  *
- *  - lecture            → toujours direct ;
- *  - écriture           → accord, SAUF interrupteur « validation automatique » ;
+ * L'ACCORD NE RESTE QUE POUR CE QUI NE SE REPREND PAS, et il est tenu par le
+ * démon, pas par la consigne. Chaque appel d'outil Beluga est CLASSÉ
+ * (`genreDeLAppel`) puis jugé (`decisionDAccord`) AVANT d'être exécuté :
+ *
+ *  - lecture            → direct ;
+ *  - écriture           → direct ;
  *  - suppression        → accord TOUJOURS ;
  *  - envoi au client    → accord TOUJOURS (ce qui part chez un client, ou le
  *                          prévient, ne se reprend pas) ;
- *  - écriture serveur   → accord TOUJOURS (base de données d'un serveur).
+ *  - écriture serveur   → accord TOUJOURS : une requête qui EFFACE des données
+ *                          d'une base de serveur (`requeteDestructive`). Les
+ *                          autres écritures sur un serveur sont des écritures.
  *
  * UN OUTIL OU UN GESTE INCONNU EST UNE SUPPRESSION : la classification ne
  * laisse jamais passer en silence ce qu'elle ne connaît pas.
@@ -30,6 +34,7 @@
 
 import { CONSIGNE_PERIMETRE_ASSISTANT } from './perimetre-des-agents.js';
 import { REGLE_DEMANDE_DE_CLONAGE } from './clonage.js';
+import { nomAfficheDOutil } from './noms-outils.js';
 import {
   HAUTEUR_CHAT_MIN,
   LARGEUR_CHAT_MAX,
@@ -39,19 +44,15 @@ import {
   type ChatFlottant,
   type FenetreChat,
 } from './chat-flottant.js';
-import {
-  NIVEAU_PAR_DEFAUT,
-  niveauDemande,
-  plafonnerLeNiveau,
-  reglagesDuNiveau,
-  type NiveauAgent,
-} from './niveau-agent.js';
-import type { MoteurCatalogue } from './reglages-proposition.js';
 
 export type GenreDeGeste = 'lecture' | 'ecriture' | 'suppression' | 'envoi-client' | 'ecriture-serveur';
 export type DecisionDAccord = 'direct' | 'accord';
 
-/** Les outils du démon servis à l'assistant, et à lui seul pour les cinq derniers. */
+/**
+ * Les outils du démon que l'assistant reçoit EN PLUS de ceux d'un agent
+ * ordinaire (`marketing` n'est servi d'ordinaire qu'à l'agent Marketing), et
+ * ses six outils propres.
+ */
 export const OUTILS_DE_L_ASSISTANT = [
   'ask_user',
   'proposer_suites',
@@ -90,33 +91,6 @@ export const OUTILS_PROPRES_A_L_ASSISTANT: ReadonlySet<string> = new Set([
   'assistant_base_serveur',
 ]);
 
-/**
- * LES OUTILS NATIFS DU MOTEUR FERMÉS À L'ASSISTANT : tout ce qui écrit un
- * fichier, lance une commande ou délègue à un sous-agent. Il garde la lecture
- * (`Read`, `Grep`, `Glob`) et la recherche en ligne.
- */
-export const DISALLOWED_NATIVE_ASSISTANT = [
-  'Bash',
-  'BashOutput',
-  'KillShell',
-  'Edit',
-  'MultiEdit',
-  'Write',
-  'NotebookEdit',
-  'Task',
-  'Agent',
-  'Workflow',
-  'Skill',
-  'CronCreate',
-  'CronDelete',
-  'RemoteTrigger',
-  'EnterWorktree',
-  'ExitWorktree',
-  'EnterPlanMode',
-  'ExitPlanMode',
-  'AskUserQuestion',
-] as const;
-
 
 function texte(valeur: unknown): string {
   return typeof valeur === 'string' ? valeur.trim() : '';
@@ -127,14 +101,24 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
   const action = texte(args.action);
   switch (outil) {
     case 'ask_user':
+    case 'proposer_suites':
     case 'attach_file':
     case 'board_list_cards':
     case 'assistant_resume':
     case 'surveillance_essai':
+    case 'deleguer':
+    case 'evaluer':
+    case 'suggerer_modele':
       return 'lecture';
     case 'board_create_card':
     case 'board_update_card':
     case 'board_move_card':
+    case 'propose_task':
+    case 'write_document':
+    case 'make_archive':
+    case 'remember':
+    case 'realiser':
+    case 'relancer_publication':
     case 'surveillance_recette':
     case 'backup_recette':
     case 'backup_essai':
@@ -194,17 +178,27 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
       if (action === 'lancer') return 'ecriture';
       return 'suppression';
     case 'assistant_base_serveur':
-      return texte(args.mode) === 'lecture' ? 'lecture' : 'ecriture-serveur';
+      if (texte(args.mode) === 'lecture') return 'lecture';
+      return requeteDestructive(args.requete) ? 'ecriture-serveur' : 'ecriture';
     default:
       return 'suppression';
   }
 }
 
-/** Faut-il l'accord de l'utilisateur avant d'exécuter ce geste ? */
-export function decisionDAccord(genre: GenreDeGeste, validationAuto: boolean): DecisionDAccord {
-  if (genre === 'lecture') return 'direct';
-  if (genre === 'ecriture') return validationAuto ? 'direct' : 'accord';
-  return 'accord';
+/**
+ * UNE REQUÊTE QUI EFFACE DES DONNÉES : DELETE, DROP (table, colonne…), TRUNCATE.
+ * Une requête absente ou illisible compte comme destructive — on ne laisse pas
+ * passer en silence ce qu'on ne sait pas lire.
+ */
+export function requeteDestructive(requete: unknown): boolean {
+  const sql = texte(requete);
+  if (!sql) return true;
+  return /\b(delete|drop|truncate)\b/i.test(sql);
+}
+
+/** Faut-il l'accord de l'utilisateur avant d'exécuter ce geste ? Seulement pour ce qui ne se reprend pas. */
+export function decisionDAccord(genre: GenreDeGeste): DecisionDAccord {
+  return genre === 'lecture' || genre === 'ecriture' ? 'direct' : 'accord';
 }
 
 export const REPONSE_AUTORISER_ASSISTANT = 'Autoriser';
@@ -233,24 +227,103 @@ export function questionDAccord(genre: GenreDeGeste): string {
 
 /** Ce qui ne s'affiche jamais en clair dans l'aperçu d'un geste. */
 const CHAMPS_SECRETS = /mot.?de.?passe|password|secret|cle$|^cle|jeton|token/i;
+const MASQUE = '••••••';
+/** Un texte (un message à un client, une description) se lit en entier jusque-là. */
+const MAX_TEXTE = 4000;
+/** Une valeur structurée (liste, objet) rendue sur une ligne. */
+const MAX_LIGNE = 900;
+const MAX_APERCU = 6000;
+/** Les champs qui NOMMENT un élément : c'est eux qu'une puce montre d'abord. */
+const CHAMPS_TITRE = ['titre', 'title', 'nom', 'name', 'label', 'libelle'];
+const CHAMPS_DETAIL = ['description', 'detail', 'texte', 'resume'];
+
+const couper = (texte: string, max: number) => (texte.length > max ? `${texte.slice(0, max)}…` : texte);
+const vide = (valeur: unknown) =>
+  valeur === undefined || valeur === null || valeur === '' || (Array.isArray(valeur) && valeur.length === 0);
+const scalaire = (valeur: unknown) => typeof valeur !== 'object' || valeur === null;
+
+function scalaireLisible(valeur: unknown): string {
+  if (typeof valeur === 'boolean') return valeur ? 'oui' : 'non';
+  return String(valeur);
+}
+
+/** Une ligne de puce pour un élément de liste : « titre — description », sinon ses valeurs simples. */
+function puceDUnObjet(objet: Record<string, unknown>): string {
+  const lire = (cles: string[]) =>
+    cles.map((c) => objet[c]).find((v): v is string | number => (typeof v === 'string' && v.trim() !== '') || typeof v === 'number');
+  const titre = lire(CHAMPS_TITRE);
+  const detail = lire(CHAMPS_DETAIL);
+  if (titre !== undefined) return detail !== undefined ? `${titre} — ${detail}` : String(titre);
+  return Object.entries(objet)
+    .filter(([cle, v]) => !vide(v) && scalaire(v) && !CHAMPS_SECRETS.test(cle))
+    .map(([, v]) => scalaireLisible(v))
+    .join(' — ');
+}
 
 /**
- * L'APERÇU EXACT DU GESTE, pour la question d'accord : l'outil, puis chaque
- * paramètre sur sa ligne. Un message à un client s'y lit EN ENTIER — c'est
- * lui qu'on autorise. Les valeurs secrètes sont masquées.
+ * UNE VALEUR, EN LIGNES LISIBLES — jamais en JSON (MEM-2737). Un texte reste
+ * tel quel, un oui/non s'écrit en mots, une liste de valeurs simples se joint
+ * par des virgules, une liste d'éléments se lit en puces « titre — description »,
+ * un objet en lignes « clé : valeur » décalées. Une clé secrète, à n'importe
+ * quelle profondeur, est masquée.
+ */
+export function valeurLisible(valeur: unknown, profondeur = 0): string[] {
+  if (vide(valeur)) return [];
+  if (typeof valeur === 'string') return [couper(valeur, MAX_TEXTE)];
+  if (scalaire(valeur)) return [scalaireLisible(valeur)];
+  if (Array.isArray(valeur)) {
+    const elements = valeur.filter((v) => !vide(v));
+    if (elements.every(scalaire)) return [couper(elements.map(scalaireLisible).join(', '), MAX_LIGNE)];
+    return elements.map((element) => {
+      if (scalaire(element)) return `• ${scalaireLisible(element)}`;
+      if (Array.isArray(element)) return `• ${valeurLisible(element, profondeur + 1).join(' ; ')}`;
+      return `• ${couper(puceDUnObjet(element as Record<string, unknown>), MAX_LIGNE)}`;
+    });
+  }
+  const lignes: string[] = [];
+  for (const [cle, sous] of Object.entries(valeur as Record<string, unknown>)) {
+    if (vide(sous)) continue;
+    lignes.push(...ligneDeChamp(cle, sous, profondeur + 1));
+  }
+  return lignes;
+}
+
+/** « clé : valeur » sur une ligne, ou « clé : » suivi des lignes de la valeur, décalées. */
+function ligneDeChamp(cle: string, valeur: unknown, profondeur = 0): string[] {
+  if (CHAMPS_SECRETS.test(cle)) return [`${cle} : ${MASQUE}`];
+  const lignes = valeurLisible(valeur, profondeur);
+  if (!lignes.length) return [];
+  if (lignes.length === 1 && (scalaire(valeur) || (Array.isArray(valeur) && !lignes[0].startsWith('• ')))) return [`${cle} : ${lignes[0]}`];
+  return [`${cle} :`, ...lignes.map((l) => `  ${l}`)];
+}
+
+/**
+ * L'APERÇU DU GESTE, pour la question d'accord, EN TEXTE EXPLICITE : la phrase
+ * de l'assistant, le nom français du geste, puis chaque paramètre en clair.
+ * Ni accolade, ni crochet, ni nom technique d'outil (capture #7db7 du
+ * 18/10/2026). Un message à un client s'y lit EN ENTIER — c'est lui qu'on
+ * autorise. Les valeurs secrètes sont masquées, même dans un objet imbriqué.
  */
 export function apercuDuGeste(outil: string, args: Record<string, unknown>, explication?: string): string {
   const lignes: string[] = [];
   if (explication?.trim()) lignes.push(explication.trim(), '');
-  lignes.push(`Outil : ${outil}`);
+  lignes.push(`Geste : ${nomAfficheDOutil(outil)}`);
   for (const [cle, valeur] of Object.entries(args)) {
-    if (cle === 'pourquoi' || valeur === undefined || valeur === null || valeur === '') continue;
-    let rendu = typeof valeur === 'string' ? valeur : JSON.stringify(valeur);
-    if (CHAMPS_SECRETS.test(cle)) rendu = '••••••';
-    if (rendu.length > 900) rendu = `${rendu.slice(0, 900)}…`;
-    lignes.push(`${cle} : ${rendu}`);
+    if (cle === 'pourquoi') continue;
+    lignes.push(...ligneDeChamp(cle, valeur));
   }
-  return lignes.join('\n').slice(0, 1200);
+  /* La borne de sécurité coupe ENTRE deux lignes, jamais au milieu d'une puce. */
+  const gardees: string[] = [];
+  let longueur = 0;
+  for (const ligne of lignes) {
+    if (longueur + ligne.length + 1 > MAX_APERCU) {
+      gardees.push('…');
+      break;
+    }
+    gardees.push(ligne);
+    longueur += ligne.length + 1;
+  }
+  return gardees.join('\n');
 }
 
 export function texteDeRefus(reponse: string): string {
@@ -375,62 +448,6 @@ export function chatDeLAssistant(etat: ChatAssistant, fenetre: FenetreChat, marg
 }
 
 /* ------------------------------------------------------------------ */
-/* Le niveau de l'assistant : automatique sous un plafond, ou figé       */
-/* ------------------------------------------------------------------ */
-
-/**
- * L'ASSISTANT N'EST PLUS SUR LE MODÈLE LE PLUS PUISSANT PAR DÉFAUT (demande du
- * 02.10.2026 : une simple consultation du marketing partait sur Opus). En mode
- * « auto », le juge rapide (usage `niveau-assistant`) range chaque message en
- * léger / standard / approfondi, plafonné ; sans verdict, le niveau est
- * « standard ». En mode « figé », l'utilisateur a posé un modèle à la main : rien
- * ne le réécrit (DEC-213).
- */
-export const PLAFOND_ASSISTANT_PAR_DEFAUT: NiveauAgent = 'standard';
-
-export type ModeNiveauAssistant = 'auto' | 'fige';
-
-export interface ReglageNiveauAssistant {
-  mode: ModeNiveauAssistant;
-  plafond: NiveauAgent;
-}
-
-export const REGLAGE_NIVEAU_ASSISTANT_DEFAUT: ReglageNiveauAssistant = {
-  mode: 'auto',
-  plafond: PLAFOND_ASSISTANT_PAR_DEFAUT,
-};
-
-/** Le réglage stocké, relu sans jamais échouer : une valeur inconnue retombe sur le défaut. */
-export function reglageNiveauAssistant(plafond: unknown, fige: unknown): ReglageNiveauAssistant {
-  return {
-    mode: fige === true || fige === '1' ? 'fige' : 'auto',
-    plafond: niveauDemande(plafond) ?? PLAFOND_ASSISTANT_PAR_DEFAUT,
-  };
-}
-
-/** Le niveau d'un tour : le verdict du juge (ou « standard » sans lui), sous le plafond. */
-export function niveauDuTourDeLAssistant(verdict: NiveauAgent | undefined, plafond: NiveauAgent): NiveauAgent {
-  return plafonnerLeNiveau(verdict ?? NIVEAU_PAR_DEFAUT, plafond);
-}
-
-/**
- * Ce qu'il faut écrire sur l'agent avant un tour, ou `undefined` si rien ne
- * change : un modèle ne se réécrit que pour un vrai changement de niveau, car
- * changer de modèle ouvre un fil moteur neuf et perd le cache du contexte.
- */
-export function reglagesDuTourDeLAssistant(
-  moteur: MoteurCatalogue | undefined,
-  niveau: NiveauAgent,
-  actuel: { model?: string; thinking?: string },
-): { model: string; thinking: string } | undefined {
-  if (!moteur) return undefined;
-  const voulu = reglagesDuNiveau(moteur, niveau);
-  if (!voulu.model) return undefined;
-  if (voulu.model === actuel.model && voulu.thinking === actuel.thinking) return undefined;
-  return { model: voulu.model, thinking: voulu.thinking };
-}
-
-/* ------------------------------------------------------------------ */
 /* La consigne                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -445,16 +462,18 @@ const MENTION_FACTURATION = [
 ].join('');
 
 /**
- * LA CONSIGNE DE L'ASSISTANT, stable d'un tour à l'autre (elle est le préfixe
- * du cache). Elle décrit le rôle ; la frontière, elle, est tenue par le démon.
+ * CE QUE L'ASSISTANT REÇOIT EN PLUS DE LA CONSIGNE D'UN AGENT ORDINAIRE
+ * (`server/src/runtime.ts`), stable d'un tour à l'autre (elle est le préfixe du
+ * cache). Elle décrit son rôle et ses outils propres ; l'accord, lui, est tenu
+ * par le démon.
  */
-export const CONSIGNE_ASSISTANT_GLOBAL = `Tu es l'ASSISTANT de Beluga Build, ouvert depuis le robot en bas à droite de l'application (sur téléphone, depuis un bouton du haut de l'écran). L'utilisateur te parle depuis n'importe quel écran : réponds-lui directement, en français simple, comme un collègue.
+export const CONSIGNE_ASSISTANT_GLOBAL = `TU ES L'ASSISTANT DE BELUGA BUILD, ouvert depuis le robot en bas à droite de l'application (sur téléphone, depuis un bouton du haut de l'écran). L'utilisateur te parle depuis n'importe quel écran : réponds-lui directement, comme un collègue. Tu n'as ni carte ni branche.
 
-TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil accepte un paramètre « projet » (nom ou identifiant) pour viser un projet précis ; sans lui, il vise le projet de l'application, « Beluga ». Ce que tu peux faire :
-- le RÉSUMÉ de tous les projets, les cartes et leur avancement : assistant_resume, board_list_cards, board_create_card, board_update_card, board_move_card, board_delete_card ;
-- les PROJETS et leurs groupes : project_manage, group_manage ;
-- la MÉMOIRE et les compétences : memoire, competences ;
-- le COFFRE-FORT : coffre_fort (tu peux ressortir un accès en clair quand on te le demande, et JOINDRE ou RETIRER les photos d'une fiche : « enregistrer » avec « images », l'alias de la pièce jointe de la conversation — tu ne réponds jamais que tu n'en as pas le droit ; tu RANGES les fiches en dossiers : « enregistrer » avec « dossier », « dossiers », « dossier_enregistrer », « dossier_supprimer » et « dossier_restaurer ») ;
+TU AS L'ACCÈS COMPLET : tu lis, tu écris, tu lances des commandes et tu administres cette machine sans demander la permission au coup par coup. Une modification du PROGRAMME d'un projet (son code, ses branches) se propose en carte (board_create_card) : la carte a sa propre branche et son propre dossier, et son travail passe par « À déployer ». Tu ne modifies jamais toi-même le dépôt d'un projet en place, ni celui que sert Beluga, et tu ne redémarres jamais Beluga.
+
+TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil Beluga accepte un paramètre « projet » (nom ou identifiant) pour viser un projet précis ; sans lui, il vise le projet de l'application, « Beluga ». En plus des outils de tout agent :
+- le RÉSUMÉ de tous les projets, les cartes et leur avancement : assistant_resume ;
+- le COFFRE-FORT : coffre_fort (tu peux ressortir un accès en clair quand on te le demande, et JOINDRE ou RETIRER les photos d'une fiche : « enregistrer » avec « images », l'alias de la pièce jointe de la conversation — tu ne réponds jamais que tu n'en as pas le droit ; tu RANGES les fiches en dossiers et sous-dossiers (chemin « Clients/Acme/Prod ») : « enregistrer » avec « dossier », « dossiers », « dossier_enregistrer », « dossier_supprimer » et « dossier_restaurer ») ;
 - la MESSAGERIE de l'espace client : assistant_messagerie (ce qui attend une réponse, lire une demande, répondre, créer, archiver) ;
 - le MARKETING et son calendrier : marketing ; les STATISTIQUES : statistiques ;
 - la SURVEILLANCE : assistant_surveillances, surveillance_essai, surveillance_recette ;
@@ -462,12 +481,8 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil accepte un p
 - les NOTES : assistant_notes ;${MENTION_FACTURATION}
 - les BASES DE DONNÉES des serveurs : assistant_base_serveur (mode « lecture » pour consulter, « ecriture » pour modifier).
 
-TU NE TOUCHES JAMAIS AU CODE NI AUX BRANCHES : tu n'as ni commande, ni éditeur de fichier. Un changement de programme se propose en carte (board_create_card), confiée ensuite à un agent de tâche.
-
 ${REGLE_DEMANDE_DE_CLONAGE}
 
 ${CONSIGNE_PERIMETRE_ASSISTANT}
 
-LA VALIDATION EST AUTOMATIQUE ET TENUE PAR BELUGA : quand un geste demande l'accord de l'utilisateur, ton appel d'outil affiche lui-même « Autoriser / Refuser » et attend son clic. Appelle donc l'outil DIRECTEMENT, sans demander la permission avant, et ajoute « pourquoi » (une phrase) pour qu'il sache ce qu'il autorise. Un refus te revient en résultat : n'insiste pas.
-
-Réponds court. Quand tu as fait un geste, dis ce qui a changé en une phrase.`;
+SEULS CE QUI EFFACE ET CE QUI PART CHEZ UN CLIENT ATTENDENT L'ACCORD, et c'est Beluga qui le tient : une suppression, un envoi dans l'espace client ou une requête qui efface des données d'un serveur affiche lui-même « Autoriser / Refuser » et attend le clic. Appelle donc l'outil DIRECTEMENT, sans demander la permission avant, et ajoute « pourquoi » (une phrase) pour qu'il sache ce qu'il autorise. Tout le reste part sans question. Un refus te revient en résultat : n'insiste pas.`;

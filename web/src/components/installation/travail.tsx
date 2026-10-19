@@ -139,7 +139,7 @@ export function SortieDuTravail() {
 const REPLI_APRES_REUSSITE_MS = 2500;
 
 /**
- * LA BARRE DU TERMINAL DE L'ASSISTANT, collée en bas de l'écran.
+ * LA BARRE DU TERMINAL DE L'ASSISTANT, collée TOUT en bas de l'écran, sous les boutons.
  *
  * Repliée, elle tient sur une ligne : ce qui tourne, ou la dernière issue. Elle
  * S'OUVRE TOUTE SEULE au départ d'une installation, se REPLIE quelques
@@ -167,14 +167,21 @@ export function BarreDuTerminal({ className }: { className?: string }) {
     <section
       data-terminal-d-installation="en-bas"
       data-ouvert={ouverte ? 'oui' : 'non'}
-      className={cn('flex shrink-0 flex-col rounded-xl bg-surface', className)}
+      /* UN TERMINAL À L'ARRIÈRE-PLAN : collé au bas de l'écran, sur toute la
+         largeur, sous une OMBRE PORTÉE vers le haut — l'interface semble posée
+         par-dessus, et remonte quand il s'ouvre (demande du 18/10/2026). */
+      className={cn(
+        'flex shrink-0 flex-col bg-surface shadow-[inset_0_10px_14px_-8px_hsl(var(--voile)/0.45)]',
+        className,
+      )}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <button
         type="button"
         data-basculer-terminal
         aria-expanded={ouverte}
         onClick={() => setOuverte((avant) => !avant)}
-        className="flex h-10 w-full shrink-0 items-center gap-2 rounded-xl px-3 text-left text-[13px] text-muted transition-colors hover:text-text"
+        className="flex h-10 w-full shrink-0 items-center gap-2 px-3 pt-1 text-left text-[13px] text-muted transition-colors hover:text-text sm:px-5"
       >
         <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{t('Ce qui se passe sur le serveur')}</span>

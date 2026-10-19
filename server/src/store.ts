@@ -2998,6 +2998,29 @@ export function marquerEditionEnFile(id: string, actif: boolean): string | null 
   return row.agent_id;
 }
 
+/**
+ * « ENVOYER MAINTENANT » : la demande passe en TÊTE de file, sans toucher au
+ * rang des autres, et n'est plus retenue par une modification en cours — sinon
+ * `dequeuePrompt` la laisserait attendre. Rend l'agent qui la porte, ou `null`
+ * si elle est déjà partie (le geste est alors sans effet : un second clic ne
+ * recoupe rien).
+ */
+export function agentDeLaDemandeEnFile(id: string): string | null {
+  const row = getDb().prepare('SELECT agent_id FROM queue WHERE id = ?').get(id) as { agent_id: string } | undefined;
+  return row?.agent_id ?? null;
+}
+
+export function remonterEnTete(id: string): string | null {
+  const row = getDb().prepare('SELECT agent_id, data FROM queue WHERE id = ?').get(id) as { agent_id: string; data: string } | undefined;
+  if (!row) return null;
+  const avant = QueuedPrompt.parse(JSON.parse(row.data));
+  const premiere = listQueue(row.agent_id)[0];
+  const position = premiere && premiere.id !== id ? premiere.position - 1 : avant.position;
+  const item = QueuedPrompt.parse({ ...avant, position, enEditionDepuis: undefined });
+  getDb().prepare('UPDATE queue SET position = ?, data = ? WHERE id = ?').run(position, JSON.stringify(item), id);
+  return row.agent_id;
+}
+
 export function removeQueued(id: string): string | null {
   const row = getDb().prepare('SELECT agent_id FROM queue WHERE id = ?').get(id) as { agent_id: string } | undefined;
   if (!row) return null;

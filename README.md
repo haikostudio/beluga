@@ -9,12 +9,12 @@ conversation de cadrage**, à moindre coût, avant qu'un clic ne confie le trava
 complet** qui analyse et exécute lui-même, et un **démon** qui fait réellement tourner tout ça sur le
 serveur.
 
-> **Une base à faire vôtre, pas un logiciel libre.** Beluga Build n'est pas un outil open source :
-> c'est un outil mis à la disposition de tous, pour que chacun parte d'une base déjà aboutie et
-> conçoive **son propre outil de développement**. Il part vide et **grandit avec vos projets** — sa
-> mémoire et ses compétences s'enrichissent à chaque tâche menée à bien — et il se modifie comme
-> n'importe lequel de vos projets : l'assistant de démarrage crée **votre copie privée** sur votre
-> GitHub et pose le projet « Beluga Build » sur votre tableau.
+> **Une base à faire vôtre, pour un usage non commercial.** Beluga Build est distribué sous
+> [licence PolyForm Noncommercial 1.0.0](LICENSE.md) : chacun peut l'installer, s'en servir, le
+> modifier et en garder sa propre copie, tant que l'usage n'est pas commercial. Il part vide et
+> **grandit avec vos projets** — sa mémoire et ses compétences s'enrichissent à chaque tâche menée à
+> bien — et il se modifie comme n'importe lequel de vos projets : l'assistant de démarrage crée
+> **votre copie privée** sur votre GitHub et pose le projet « Beluga Build » sur votre tableau.
 
 ## Ce qui fait tourner le tout
 
@@ -216,3 +216,16 @@ sauvegarde indépendante du disque.
 Ce dépôt ne contient que le programme. Il ne porte ni identifiant, ni clé, ni adresse d'une
 installation existante, ni compétence, ni mémoire de projet : tout cela se crée chez vous, dans
 `data/`, au fil de l'assistant de démarrage puis de votre travail.
+
+## Licence
+
+Beluga Build est distribué sous [licence PolyForm Noncommercial 1.0.0](LICENSE.md), détenue par
+Haiko Studio.
+
+- **Permis, sans rien demander** : installer, utiliser, modifier et garder sa propre copie de
+  Beluga Build pour tout usage non commercial — usage personnel, associations, écoles, recherche,
+  organismes publics.
+- **Soumis à accord** : tout usage commercial (le revendre, s'en servir pour un service payant ou
+  pour le travail d'une entreprise). Pour un usage commercial, écrivez à salut@haiko.studio.
+
+Ce résumé n'est qu'une aide à la lecture : seul le texte anglais de la licence fait foi.

@@ -46,6 +46,9 @@ import {
   type EvenementEspace,
   type MotifNotification,
   nomCourtDeLInstallation,
+  droitsLus,
+  projetsDesDroits,
+  roleDesDroits,
 } from '@beluga/shared';
 import * as cloche from './espace-notifications.js';
 import { mintDownload } from './auth.js';
@@ -58,6 +61,7 @@ import {
   changerLIdentifiant,
   changerLaPortee,
   changerLeRole,
+  changerLesDroits,
   changerLeCourriel,
   compteParId,
   creerCompte,
@@ -1156,11 +1160,17 @@ export async function commandeDeLEspaceClient(
       const verdictCourriel = jugerCourriel(cmd.courriel ?? '');
       if (!verdictCourriel.ok) throw new Error(verdictCourriel.raison);
       const projetsConnus = store.listProjects(true).map((p) => p.id);
+      /* UN ACCÈS TIERS NAÎT AVEC SA GRILLE : son niveau et ses projets en
+         découlent (`droits-d-acces.ts`). Un compte client n'en a pas. */
+      const grille = cmd.droits && cmd.role !== 'client' ? droitsLus(cmd.droits, projetsConnus) : null;
       const cree = creerCompte(
-        { identifiant: cmd.identifiant, role: cmd.role, nomAffiche: cmd.nomAffiche, projets: cmd.projets },
+        grille
+          ? { identifiant: cmd.identifiant, role: roleDesDroits(grille), nomAffiche: cmd.nomAffiche, projets: projetsDesDroits(grille) }
+          : { identifiant: cmd.identifiant, role: cmd.role, nomAffiche: cmd.nomAffiche, projets: cmd.projets },
         projetsConnus,
       );
-      const compteCree = cmd.courriel?.trim() ? changerLeCourriel(cree.compte.id, cmd.courriel) : cree.compte;
+      if (grille) changerLesDroits(cree.compte.id, grille, projetsConnus);
+      const compteCree = cmd.courriel?.trim() ? changerLeCourriel(cree.compte.id, cmd.courriel) : (compteParId(cree.compte.id) ?? cree.compte);
       bus.emit({ type: 'comptes', comptes: listerComptes() });
       /*
        * LE COURRIEL D'IDENTIFIANTS NE PART QUE SUR CASE COCHÉE. Un envoi raté ne
@@ -1183,6 +1193,13 @@ export async function commandeDeLEspaceClient(
     case 'comptes.portee': {
       const projetsConnus = store.listProjects(true).map((p) => p.id);
       const compteMaj = changerLaPortee(cmd.id, cmd.projets, projetsConnus);
+      bus.emit({ type: 'comptes', comptes: listerComptes() });
+      return { compte: compteMaj };
+    }
+
+    case 'comptes.droits': {
+      const projetsConnus = store.listProjects(true).map((p) => p.id);
+      const compteMaj = changerLesDroits(cmd.id, cmd.droits, projetsConnus);
       bus.emit({ type: 'comptes', comptes: listerComptes() });
       return { compte: compteMaj };
     }

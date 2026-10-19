@@ -2,6 +2,12 @@ import fs from 'node:fs';
 import {
   type EtatDuTravail,
   type IdServiceCreation,
+  type IdServiceEnPlus,
+  type IdServiceGeneration,
+  IDS_SERVICES_EN_PLUS,
+  SERVICES_DE_GENERATION,
+  requeteDeTestEnPlus,
+  serviceDeGeneration,
   type ModeleVideoDeService,
   type RatioClip,
   type ServiceDeCreation,
@@ -37,7 +43,7 @@ import { log } from './logger.js';
  * Le test d'une clé est une lecture gratuite (liste, compte, travail inexistant).
  */
 
-const cleDuTest = (id: IdServiceCreation) => `studio.service.test.${id}`;
+const cleDuTest = (id: IdServiceGeneration) => `studio.service.test.${id}`;
 
 interface TestDeService {
   ok: boolean;
@@ -45,20 +51,34 @@ interface TestDeService {
   le: number;
 }
 
-function ficheDuService(service: ServiceDeCreation) {
+/*
+ * LES SERVICES EN PLUS DU MODE « RÉALISATION » (HeyGen, ElevenLabs,
+ * `shared/src/services-de-generation.ts`) se branchent par la MÊME rubrique et
+ * le même coffre, une fiche par service. Le Studio ne les voit pas : ses
+ * listes de modèles vidéo restent celles de `SERVICES_CREATION`.
+ */
+type ServiceBranchable = Omit<ServiceDeCreation, 'id'> & { id: IdServiceGeneration };
+const estEnPlus = (id: IdServiceGeneration): id is IdServiceEnPlus => (IDS_SERVICES_EN_PLUS as readonly string[]).includes(id);
+
+function ficheDuService(service: ServiceBranchable) {
   const nom = nomDeFicheDuService(service);
   return listerAcces().find((a) => a.nom === nom && a.type === 'cle-api' && typeof a.champs?.cle === 'string' && a.champs.cle.trim());
 }
 
 /** La clé branchée d'un service, ou rien. Elle ne sort JAMAIS vers l'écran. */
-export function cleDuService(id: IdServiceCreation): string | undefined {
-  const service = serviceDeCreation(id);
+export function cleDuService(id: IdServiceGeneration): string | undefined {
+  const service = serviceDeGeneration(id);
   if (!service) return undefined;
   try {
     return ficheDuService(service)?.champs.cle.trim();
   } catch {
     return undefined;
   }
+}
+
+/** Tous les services branchés, ceux du mode Réalisation compris (HeyGen, ElevenLabs). */
+export function servicesDeGenerationBranches(): IdServiceGeneration[] {
+  return SERVICES_DE_GENERATION.filter((s) => !!cleDuService(s.id)).map((s) => s.id);
 }
 
 /** Les services dont une clé est branchée. */
@@ -71,7 +91,7 @@ export function servicesVideoBranches(): IdServiceCreation[] {
   return servicesBranches().filter((id) => (serviceDeCreation(id)?.modeles.length ?? 0) > 0);
 }
 
-function dernierTest(id: IdServiceCreation): TestDeService | null {
+function dernierTest(id: IdServiceGeneration): TestDeService | null {
   try {
     const brut = getMeta(cleDuTest(id));
     return brut ? (JSON.parse(brut) as TestDeService) : null;
@@ -82,7 +102,7 @@ function dernierTest(id: IdServiceCreation): TestDeService | null {
 
 /** Ce que la rubrique « Services de création » affiche : jamais la clé, seulement ses quatre derniers signes. */
 export function etatDesServices() {
-  return SERVICES_CREATION.map((s) => {
+  return SERVICES_DE_GENERATION.map((s) => {
     const cle = cleDuService(s.id);
     const test = cle ? dernierTest(s.id) : null;
     return {
@@ -116,10 +136,11 @@ async function appeler(requete: { methode: string; adresse: string; entetes: Rec
   return { statut: r.status, corps };
 }
 
-async function testerUneCle(id: IdServiceCreation, cle: string): Promise<TestDeService> {
+async function testerUneCle(id: IdServiceGeneration, cle: string): Promise<TestDeService> {
   try {
-    const { statut } = await appeler(requeteDeTest(id, cle), 15_000);
-    return { ...verdictDuTest(id, statut), le: Date.now() };
+    const { statut } = await appeler(estEnPlus(id) ? requeteDeTestEnPlus(id, cle) : requeteDeTest(id, cle), 15_000);
+    // Les services en plus suivent la règle commune (aucune exception façon Higgsfield).
+    return { ...verdictDuTest(estEnPlus(id) ? 'openrouter' : id, statut), le: Date.now() };
   } catch (err: any) {
     return { ok: false, raison: `le service ne répond pas (${String(err?.message ?? err).slice(0, 120)})`, le: Date.now() };
   }
@@ -131,9 +152,9 @@ async function testerUneCle(id: IdServiceCreation, cle: string): Promise<TestDeS
  * elle, laisse la clé rangée et le dit.
  */
 export async function enregistrerService(id: string, champs: Record<string, unknown>): Promise<{ ok: true; test: TestDeService } | { ok: false; raison: string }> {
-  const service = serviceDeCreation(id);
+  const service = serviceDeGeneration(id);
   if (!service) return { ok: false, raison: 'service inconnu' };
-  const cle = cleAssemblee(service, champs);
+  const cle = cleAssemblee(service as ServiceDeCreation, champs);
   if (!cle) return { ok: false, raison: service.champs.length > 1 ? 'il faut l’identifiant ET le secret de la clé' : 'la clé est vide' };
   const test = await testerUneCle(service.id, cle);
   if (!test.ok && /refuse cette clé/.test(test.raison ?? '')) return { ok: false, raison: test.raison! };
@@ -144,7 +165,9 @@ export async function enregistrerService(id: string, champs: Record<string, unkn
     type: 'cle-api',
     projectId: null,
     champs: { service: service.nom, cle, adresse: service.adresseCle },
-    note: 'Branchée depuis les paramètres, rubrique « Services de création » : le Studio s’en sert pour fabriquer les extraits (ou, pour OpenRouter, la voix finale et la musique).',
+    note: estEnPlus(service.id)
+      ? 'Branchée depuis les paramètres, rubrique « Services de création » : le mode Réalisation des cartes s’en sert pour fabriquer les médias.'
+      : 'Branchée depuis les paramètres, rubrique « Services de création » : le Studio s’en sert pour fabriquer les extraits (ou, pour OpenRouter, la voix finale et la musique), et le mode Réalisation des cartes pour fabriquer les médias.',
   });
   if (!r.ok) return { ok: false, raison: r.raison };
   setMeta(cleDuTest(service.id), JSON.stringify(test));
@@ -153,7 +176,7 @@ export async function enregistrerService(id: string, champs: Record<string, unkn
 }
 
 export async function testerService(id: string): Promise<TestDeService> {
-  const service = serviceDeCreation(id);
+  const service = serviceDeGeneration(id);
   if (!service) throw new Error('service inconnu');
   const cle = cleDuService(service.id);
   if (!cle) throw new Error('aucune clé branchée pour ce service');
@@ -164,7 +187,7 @@ export async function testerService(id: string): Promise<TestDeService> {
 
 /** Retirer un service : sa fiche est ARCHIVÉE six mois (le coffre n'efface pas), plus rien ne s'en sert. */
 export function retirerService(id: string): { ok: boolean; raison?: string } {
-  const service = serviceDeCreation(id);
+  const service = serviceDeGeneration(id);
   if (!service) return { ok: false, raison: 'service inconnu' };
   const fiche = ficheDuService(service);
   if (!fiche) return { ok: true };

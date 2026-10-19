@@ -91,14 +91,9 @@ export const LIBELLES_GENRES_DE_SOURCE: Record<GenreDeSource, string> = {
   autre: 'Autre',
 };
 
-/** Les genres que REA analyse vraiment ; les autres passent par les captures et les pages publiques. */
-export const GENRES_ANALYSES_PAR_REA: readonly GenreDeSource[] = ['site', 'saas', 'bureau', 'android'];
-
 export const MODES_DE_CLONAGE = ['clone', 'inspiration'] as const;
-export type ModeDeClonage = (typeof MODES_DE_CLONAGE)[number];
 
 export const ETATS_DE_L_ANALYSE = ['a-faire', 'en-cours', 'terminee', 'echouee'] as const;
-export type EtatDeLAnalyse = (typeof ETATS_DE_L_ANALYSE)[number];
 
 /** Le dossier du projet où la source fournie est recopiée (sous `docs/inspiration`). */
 export const DOSSIER_DE_LA_SOURCE = 'docs/inspiration/source';

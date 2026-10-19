@@ -122,26 +122,34 @@ export interface AccesCoffre {
    */
   images?: string[];
   /**
-   * LE DOSSIER où la fiche est rangée (un seul niveau). Absent ou `null` = à la
-   * racine du coffre. Un dossier ne porte aucun secret : il ne sert qu'à ranger.
+   * LE DOSSIER où la fiche est rangée. Absent ou `null` = à la racine du coffre.
+   * Un dossier ne porte aucun secret : il ne sert qu'à ranger.
    */
   dossierId?: string | null;
+  /**
+   * LE CHEMIN COMPLET de ce dossier (« Clients/Acme/Prod »), calculé à chaque
+   * lecture depuis les parents — jamais stocké. C'est ce qu'un agent lit pour
+   * trier les fiches. Absent = la fiche est à la racine.
+   */
+  dossierChemin?: string | null;
 }
 
 /**
  * UN DOSSIER DU COFFRE : un nom et un projet, rien d'autre. Il vit dans sa propre
  * table — jamais parmi les fiches — pour que ni un agent, ni une surveillance, ni
- * un relais ne puisse le prendre pour un secret. Un seul niveau : un dossier ne
- * contient que des fiches, jamais un autre dossier.
+ * un relais ne puisse le prendre pour un secret. Un dossier peut en contenir
+ * d'autres, sur autant de niveaux qu'on veut : `parentId` le relie au sien.
  */
 export interface DossierCoffre {
   id: string;
   nom: string;
-  /** Le projet du dossier ; vide = Beluga Build lui-même. Ses fiches le suivent. */
+  /** Le dossier qui le contient ; absent ou `null` = à la racine du coffre. */
+  parentId?: string | null;
+  /** Le projet du dossier ; vide = Beluga Build lui-même. Ses fiches et ses sous-dossiers le suivent. */
   projectId: string | null;
   creeLe: number;
   modifieLe: number;
-  /** L'instant où le dossier (et ses fiches) ont été retirés ; `null` = actif. */
+  /** L'instant où le dossier (et ses fiches, et tout ce qu'il contient) ont été retirés ; `null` = actif. */
   archiveLe?: number | null;
 }
 
@@ -289,30 +297,204 @@ export function jugerAcces(brut: unknown): JugementAcces {
 /* ------------------------------------------------------------------ */
 
 export type JugementDossier =
-  | { ok: true; nom: string; projectId: string | null }
+  | {
+      ok: true;
+      nom: string;
+      projectId: string | null;
+      /** `undefined` = l'appelant ne dit rien du projet : un dossier corrigé garde le sien. */
+      projectIdDit: boolean;
+      /** Absent = l'appelant ne dit rien du parent : le dossier reste où il est. `null` = la racine. */
+      parentId?: string | null;
+    }
   | { ok: false; raison: string };
 
-/** Ce qui arrive pour un dossier : un nom, un projet — rien de plus n'est gardé. */
+/** Ce qui sépare les niveaux dans un chemin que l'on écrit (« Clients/Acme/Prod »). */
+export const SEPARATEUR_CHEMIN = '/';
+/** Ce qui sépare les niveaux dans un chemin que l'on LIT à l'écran. */
+export const SEPARATEUR_AFFICHAGE = ' › ';
+
+/** Ce qui arrive pour un dossier : un nom, un projet, un parent — rien de plus n'est gardé. */
 export function jugerDossier(brut: unknown): JugementDossier {
   const o = (brut ?? {}) as Record<string, unknown>;
   const nom = String(o.nom ?? '').trim();
   if (!nom) return { ok: false, raison: 'Donnez un nom à ce dossier.' };
   if (nom.length > NOM_DOSSIER_MAX)
     return { ok: false, raison: `Le nom d’un dossier ne peut pas dépasser ${NOM_DOSSIER_MAX} signes.` };
+  if (nom.includes(SEPARATEUR_CHEMIN))
+    return { ok: false, raison: `Le nom d’un dossier ne peut pas contenir « ${SEPARATEUR_CHEMIN} » : c’est ce qui sépare les niveaux d’un chemin.` };
   const projetBrut = o.projectId;
   const projectId = typeof projetBrut === 'string' && projetBrut.trim() ? projetBrut.trim() : null;
-  return { ok: true, nom, projectId };
+  let parentId: string | null | undefined;
+  if (o.parentId !== undefined) {
+    parentId = typeof o.parentId === 'string' && o.parentId.trim() ? o.parentId.trim() : null;
+  }
+  return {
+    ok: true,
+    nom,
+    projectId,
+    projectIdDit: o.projectId !== undefined,
+    ...(parentId !== undefined ? { parentId } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* L'ARBRE DES DOSSIERS                                                */
+/* ------------------------------------------------------------------ */
+
+type DossierPlat = Pick<DossierCoffre, 'id' | 'nom' | 'parentId'>;
+
+/**
+ * Les NOMS des dossiers de la racine jusqu'à celui-ci, dans l'ordre. Vide si le
+ * dossier est inconnu. Un parent introuvable arrête la remontée (le dossier est
+ * alors traité comme s'il était à la racine), et une boucle ne tourne jamais.
+ */
+export function cheminDuDossier(dossiers: readonly DossierPlat[], id: string | null | undefined): string[] {
+  if (!id) return [];
+  const parId = new Map(dossiers.map((d) => [d.id, d]));
+  const noms: string[] = [];
+  const vus = new Set<string>();
+  let courant = parId.get(id);
+  while (courant && !vus.has(courant.id)) {
+    vus.add(courant.id);
+    noms.unshift(courant.nom);
+    courant = courant.parentId ? parId.get(courant.parentId) : undefined;
+  }
+  return noms;
+}
+
+/** Le chemin sous forme de texte : « Clients/Acme/Prod » pour écrire, `SEPARATEUR_AFFICHAGE` pour lire. */
+export function cheminTexte(
+  dossiers: readonly DossierPlat[],
+  id: string | null | undefined,
+  separateur: string = SEPARATEUR_CHEMIN,
+): string {
+  return cheminDuDossier(dossiers, id).join(separateur);
+}
+
+/** Tout ce que le dossier contient, à tous les niveaux (lui-même n'en fait pas partie). */
+export function descendantsDuDossier<T extends DossierPlat>(dossiers: readonly T[], id: string): T[] {
+  const enfantsDe = new Map<string, T[]>();
+  for (const d of dossiers) {
+    if (!d.parentId) continue;
+    const liste = enfantsDe.get(d.parentId) ?? [];
+    liste.push(d);
+    enfantsDe.set(d.parentId, liste);
+  }
+  const trouves: T[] = [];
+  const vus = new Set<string>([id]);
+  const pile = [...(enfantsDe.get(id) ?? [])];
+  while (pile.length) {
+    const d = pile.pop()!;
+    if (vus.has(d.id)) continue;
+    vus.add(d.id);
+    trouves.push(d);
+    pile.push(...(enfantsDe.get(d.id) ?? []));
+  }
+  return trouves;
+}
+
+/**
+ * Mettre `id` sous `nouveauParentId` ferait-il tourner l'arbre en rond ? Vrai si
+ * le futur parent EST le dossier ou l'un de ses descendants.
+ */
+export function creeUnCycle(
+  dossiers: readonly DossierPlat[],
+  id: string,
+  nouveauParentId: string | null | undefined,
+): boolean {
+  if (!nouveauParentId) return false;
+  if (nouveauParentId === id) return true;
+  return descendantsDuDossier(dossiers, id).some((d) => d.id === nouveauParentId);
+}
+
+/** Un nœud de l'arbre d'affichage : un dossier, ses fiches, ses sous-dossiers. */
+export interface NoeudDeDossier {
+  dossier: DossierCoffre;
+  /** Le chemin complet, en texte à lire. */
+  chemin: string;
+  profondeur: number;
+  /** Les fiches rangées DIRECTEMENT dans ce dossier. */
+  acces: AccesCoffre[];
+  enfants: NoeudDeDossier[];
+  /** Les fiches de ce dossier ET de tout ce qu'il contient. */
+  total: number;
+}
+
+export interface ArbreDeDossiers {
+  /** Les dossiers de la racine. */
+  racines: NoeudDeDossier[];
+  /** Les fiches restées à la racine du coffre. */
+  acces: AccesCoffre[];
+}
+
+/**
+ * Range les fiches dans l'arbre des dossiers : à chaque niveau, les sous-dossiers
+ * par ordre alphabétique. Une fiche qui cite un dossier inconnu retombe à la
+ * racine plutôt que de disparaître ; un dossier dont le parent est inconnu aussi.
+ * `sansVides` écarte les branches où il n'y a aucune fiche.
+ */
+export function construireArbreDeDossiers(
+  liste: readonly AccesCoffre[],
+  dossiers: readonly DossierCoffre[],
+  options: { sansVides?: boolean } = {},
+): ArbreDeDossiers {
+  const connus = new Map(dossiers.map((d) => [d.id, d]));
+  const fichesDe = new Map<string, AccesCoffre[]>();
+  const racineFiches: AccesCoffre[] = [];
+  for (const fiche of liste) {
+    const id = fiche.dossierId ?? null;
+    if (id && connus.has(id)) {
+      const groupe = fichesDe.get(id) ?? [];
+      groupe.push(fiche);
+      fichesDe.set(id, groupe);
+    } else racineFiches.push(fiche);
+  }
+  const enfantsDe = new Map<string | null, DossierCoffre[]>();
+  for (const d of dossiers) {
+    const parent = d.parentId && connus.has(d.parentId) && d.parentId !== d.id ? d.parentId : null;
+    const groupe = enfantsDe.get(parent) ?? [];
+    groupe.push(d);
+    enfantsDe.set(parent, groupe);
+  }
+  const vus = new Set<string>();
+  const construire = (d: DossierCoffre, profondeur: number): NoeudDeDossier | null => {
+    if (vus.has(d.id)) return null; // une boucle abîmée en base ne fait pas tourner l'écran
+    vus.add(d.id);
+    const enfants = (enfantsDe.get(d.id) ?? [])
+      .sort((a, b) => a.nom.localeCompare(b.nom))
+      .map((e) => construire(e, profondeur + 1))
+      .filter((n): n is NoeudDeDossier => !!n)
+      .filter((n) => !options.sansVides || n.total > 0);
+    const acces = fichesDe.get(d.id) ?? [];
+    return {
+      dossier: d,
+      chemin: cheminTexte(dossiers, d.id, SEPARATEUR_AFFICHAGE),
+      profondeur,
+      acces,
+      enfants,
+      total: acces.length + enfants.reduce((n, e) => n + e.total, 0),
+    };
+  };
+  const racines = (enfantsDe.get(null) ?? [])
+    .sort((a, b) => a.nom.localeCompare(b.nom))
+    .map((d) => construire(d, 0))
+    .filter((n): n is NoeudDeDossier => !!n)
+    .filter((n) => !options.sansVides || n.total > 0);
+  return { racines, acces: racineFiches };
 }
 
 /** Un groupe d'affichage : un dossier et ses fiches, ou (`dossier: null`) les fiches à la racine. */
 export interface GroupeDeDossier {
   dossier: DossierCoffre | null;
+  /** Le chemin complet du dossier, en texte à lire ; vide pour la racine. */
+  chemin: string;
   acces: AccesCoffre[];
 }
 
 /**
- * Range des fiches par dossier : les dossiers d'abord, par ordre alphabétique
- * (même vides, sauf si `sansVides`), puis les fiches restées à la racine. Une
+ * Range des fiches par dossier, À PLAT, chaque groupe portant le chemin de son
+ * dossier : les dossiers d'abord, par ordre alphabétique de chemin (même vides,
+ * sauf si `sansVides`), puis les fiches restées à la racine. Une
  * fiche qui cite un dossier inconnu retombe à la racine plutôt que de disparaître.
  */
 export function regrouperParDossier(
@@ -331,25 +513,65 @@ export function regrouperParDossier(
       parDossier.set(id, groupe);
     } else racine.push(fiche);
   }
-  const groupes: GroupeDeDossier[] = [...dossiers]
-    .sort((a, b) => a.nom.localeCompare(b.nom))
-    .map((dossier) => ({ dossier, acces: parDossier.get(dossier.id) ?? [] }))
+  const groupes: GroupeDeDossier[] = dossiers
+    .map((dossier) => ({
+      dossier,
+      chemin: cheminTexte(dossiers, dossier.id, SEPARATEUR_AFFICHAGE),
+      acces: parDossier.get(dossier.id) ?? [],
+    }))
+    .sort((a, b) => a.chemin.localeCompare(b.chemin))
     .filter((g) => !options.sansVides || g.acces.length > 0);
-  if (racine.length) groupes.push({ dossier: null, acces: racine });
+  if (racine.length) groupes.push({ dossier: null, chemin: '', acces: racine });
   return groupes;
 }
 
-/** Retrouve un dossier par son identifiant ou, à défaut, par son nom (casse et accents ignorés). */
-export function trouverDossier<T extends Pick<DossierCoffre, 'id' | 'nom'>>(
+export type RechercheDeDossier<T> =
+  | { ok: true; dossier: T }
+  | { ok: false; raison: string; candidats: string[] };
+
+/**
+ * Retrouve un dossier par son identifiant, par son CHEMIN (« Clients/Acme/Prod »,
+ * casse et accents ignorés) ou, à défaut, par son nom simple. Un nom simple que
+ * portent plusieurs dossiers n'est JAMAIS tranché au hasard : le refus liste les
+ * chemins possibles. `tous` = l'ensemble où remonter les parents (par défaut,
+ * `dossiers` lui-même).
+ */
+export function chercherDossier<T extends DossierPlat>(
   dossiers: readonly T[],
   cle: string,
-): T | undefined {
+  tous: readonly DossierPlat[] = dossiers,
+): RechercheDeDossier<T> {
   const brut = (cle ?? '').trim();
-  if (!brut) return undefined;
+  const introuvable = { ok: false as const, raison: `Aucun dossier ne correspond à « ${brut} ».`, candidats: [] };
+  if (!brut) return introuvable;
   const parId = dossiers.find((d) => d.id === brut);
-  if (parId) return parId;
-  const nom = normaliserRecherche(brut);
-  return dossiers.find((d) => normaliserRecherche(d.nom) === nom);
+  if (parId) return { ok: true, dossier: parId };
+
+  const chemin = (d: T) => cheminTexte(tous, d.id);
+  const visees = brut.split(SEPARATEUR_CHEMIN).map((m) => normaliserRecherche(m)).filter(Boolean);
+  const normalise = (d: T) => cheminDuDossier(tous, d.id).map((m) => normaliserRecherche(m));
+
+  // Un chemin complet, ou un nom simple dont le chemin est lui-même.
+  const exacts = dossiers.filter((d) => {
+    const c = normalise(d);
+    return c.length === visees.length && c.every((m, i) => m === visees[i]);
+  });
+  if (exacts.length === 1) return { ok: true, dossier: exacts[0]! };
+  if (exacts.length > 1)
+    return { ok: false, raison: `Plusieurs dossiers répondent à « ${brut} ».`, candidats: exacts.map(chemin) };
+
+  // Un nom simple : le dernier niveau d'un dossier, où qu'il soit dans l'arbre.
+  if (visees.length === 1) {
+    const parNom = dossiers.filter((d) => normaliserRecherche(d.nom) === visees[0]);
+    if (parNom.length === 1) return { ok: true, dossier: parNom[0]! };
+    if (parNom.length > 1)
+      return {
+        ok: false,
+        raison: `Le nom « ${brut} » est porté par plusieurs dossiers : donnez le chemin complet.`,
+        candidats: parNom.map(chemin),
+      };
+  }
+  return introuvable;
 }
 
 /* ------------------------------------------------------------------ */

@@ -4,18 +4,22 @@
  * UN SEUL AGENT, GARDÉ D'UNE OUVERTURE À L'AUTRE (`meta` de la base), comme
  * l'agent « Ajouter un moteur » : sa conversation se retrouve fenêtre refermée,
  * page rechargée, démon redémarré. « Repartir de zéro » vide son contexte comme
- * pour tout agent. Il n'a NI carte NI branche : il ne livre pas de code. Son
- * dossier de travail est HORS de tout dépôt.
+ * pour tout agent. Il n'a NI carte NI branche : un changement de programme se
+ * propose en carte. Son dossier de travail est HORS de tout dépôt, mais il a
+ * l'accès complet à la machine, comme un agent de tâche (18/10/2026).
  *
- * SES OUTILS : ceux du démon qu'il lui faut (`OUTILS_DE_L_ASSISTANT`), plus six
- * qui n'existent que pour lui (résumé, notes, messagerie de l'espace client,
- * surveillances, sauvegardes, bases des serveurs). Chacun accepte « projet »
- * pour viser n'importe quel projet.
+ * SES OUTILS : ceux d'un agent ordinaire, plus ceux du démon qu'il lui faut
+ * (`OUTILS_DE_L_ASSISTANT`, dont le marketing) et six qui n'existent que pour
+ * lui (résumé, notes, messagerie de l'espace client, surveillances,
+ * sauvegardes, bases des serveurs). Chacun accepte « projet » pour viser
+ * n'importe quel projet. Son modèle se règle dans la barre d'écriture, comme
+ * pour tout agent.
  *
  * LA PORTE D'ACCORD est posée dans le pont (`server/src/http.ts`) : chaque
- * appel est classé puis, s'il le faut, suspendu sur « Autoriser / Refuser »
- * jusqu'au clic. Ce module fournit les morceaux : préparation de l'appel,
- * exécution, et la suite qui n'exécute qu'après l'accord.
+ * appel est classé puis, pour une suppression ou un envoi au client, suspendu
+ * sur « Autoriser / Refuser » jusqu'au clic. Ce module fournit les morceaux :
+ * préparation de l'appel, exécution, et la suite qui n'exécute qu'après
+ * l'accord.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -35,12 +39,6 @@ import {
   apercuDuGeste,
   decisionDAccord,
   genreDeLAppel,
-  niveauDuTourDeLAssistant,
-  reglageNiveauAssistant,
-  reglagesDuTourDeLAssistant,
-  type MoteurCatalogue,
-  type NiveauAgent,
-  type ReglageNiveauAssistant,
   questionDAccord,
   texteDeRefus,
   trouverLeProjetVise,
@@ -50,7 +48,7 @@ import { getMeta, setMeta } from './db.js';
 import { bus } from './bus.js';
 import { CONFIG } from './config.js';
 import * as store from './store.js';
-import { TOOL_DEFS, callTool, type ToolContext, type ToolDef, type ToolResult } from './tools.js';
+import { TOOL_DEFS, callTool, outilServiA, toolsFor, type ToolContext, type ToolDef, type ToolResult } from './tools.js';
 import { enregistrerNote, listerNotes, supprimerNote } from './notes.js';
 import * as espace from './espace-client.js';
 import { commandeDeLEspaceClient } from './espace-commandes.js';
@@ -73,87 +71,13 @@ import { listerAcces } from './coffre-fort.js';
 import { log } from './logger.js';
 
 const CLE_AGENT = 'assistant.agent';
-const CLE_VALIDATION = 'assistant.validationAuto';
-const CLE_PLAFOND = 'assistant.plafond';
-const CLE_FIGE = 'assistant.modeFige';
 
 /* ------------------------------------------------------------------ */
-/* L'agent et son interrupteur                                          */
+/* L'agent                                                              */
 /* ------------------------------------------------------------------ */
 
 export function estAssistantGlobal(agent: Pick<Agent, 'assistantGlobal'> | null | undefined): boolean {
   return Boolean(agent?.assistantGlobal);
-}
-
-/** L'interrupteur « validation automatique », éteint par défaut. */
-export function validationAutomatique(): boolean {
-  return getMeta(CLE_VALIDATION) === '1';
-}
-
-export function reglerValidationAutomatique(auto: boolean): boolean {
-  setMeta(CLE_VALIDATION, auto ? '1' : '0');
-  return auto;
-}
-
-/** Le niveau de l'assistant : automatique sous un plafond (« standard » par défaut), ou figé. */
-export function reglageDuNiveau(): ReglageNiveauAssistant {
-  return reglageNiveauAssistant(getMeta(CLE_PLAFOND), getMeta(CLE_FIGE) === '1');
-}
-
-export function reglerLeNiveau(patch: { mode?: 'auto' | 'fige'; plafond?: NiveauAgent }): ReglageNiveauAssistant {
-  if (patch.plafond) setMeta(CLE_PLAFOND, patch.plafond);
-  if (patch.mode) setMeta(CLE_FIGE, patch.mode === 'fige' ? '1' : '0');
-  return reglageDuNiveau();
-}
-
-/**
- * LE MODÈLE DE CE TOUR, choisi AVANT la clé de session. Figé : rien, le modèle
- * de l'agent fait foi (DEC-213). Auto : le juge rapide (repli « standard », donc
- * aussi quand l'usage est éteint), sous le plafond, traduit en modèle RÉEL du
- * moteur de l'agent. L'agent n'est réécrit que pour un vrai changement : un
- * autre modèle ouvre un fil moteur neuf. Ne lève jamais.
- */
-export async function appliquerLeNiveauDeLAssistant(
-  agent: Agent,
-  texte: string,
-  juger: (texte: string) => Promise<NiveauAgent | undefined>,
-  moteurs: MoteurCatalogue[],
-): Promise<Agent> {
-  try {
-    const reglage = reglageDuNiveau();
-    if (reglage.mode === 'fige') return agent;
-    const niveau = niveauDuTourDeLAssistant(await juger(texte), reglage.plafond);
-    const moteur = moteurs.find((m) => m?.id === agent.run.engine);
-    const voulu = reglagesDuTourDeLAssistant(moteur, niveau, agent.run);
-    const dernier = store.getAgent(agent.id) ?? agent;
-    if (!voulu) return dernier.niveauServi === niveau ? dernier : sauver({ ...dernier, niveauServi: niveau });
-    return sauver({
-      ...dernier,
-      run: { ...dernier.run, ...voulu },
-      niveauServi: niveau,
-      // Un autre modèle ouvre un autre fil : l'ancienne mesure ne le décrit plus.
-      contextUsage: undefined,
-    });
-  } catch (err) {
-    log.warn(`niveau de l'assistant : ${(err as Error).message}`);
-    return agent;
-  }
-}
-
-/**
- * L'agent ouvert sans modèle (création, ou assistant d'avant ce réglage) porte
- * d'emblée celui du niveau « standard » sous le plafond, au lieu du modèle par
- * défaut du moteur : l'écran le montre avant même le premier message.
- */
-export async function poserLeModeleDeDepart(agent: Agent, moteurs: MoteurCatalogue[]): Promise<Agent> {
-  if (agent.run.model || reglageDuNiveau().mode === 'fige') return agent;
-  return appliquerLeNiveauDeLAssistant(agent, '', async () => undefined, moteurs);
-}
-
-function sauver(agent: Agent): Agent {
-  const enregistre = store.saveAgent(agent);
-  bus.emit({ type: 'agent.upsert', agent: enregistre });
-  return enregistre;
 }
 
 /** Le projet qui porte l'agent : Beluga Build lui-même ; à défaut, le premier projet. */
@@ -183,7 +107,7 @@ export function agentAssistantGlobal(neuf = false): Agent | null {
       role: 'deploy',
       title: TITRE_ASSISTANT_GLOBAL,
       workdir: atelier(),
-      run: { engine: 'claude', thinking: 'none' },
+      run: { engine: 'claude' },
       status: 'idle',
       createdAt: store.now(),
       updatedAt: store.now(),
@@ -303,15 +227,20 @@ function avecProjetEtPourquoi(def: ToolDef): ToolDef {
   return { ...def, inputSchema: { ...def.inputSchema, properties: proprietes } };
 }
 
-/** Les outils servis à l'assistant, et à lui seul. */
-export function outilsDeLAssistant(): ToolDef[] {
+/**
+ * LES OUTILS DE L'ASSISTANT : ceux d'un agent ordinaire du même rôle, plus ceux
+ * du démon qu'il lui faut en propre (le marketing) et ses six outils à lui.
+ */
+export function outilsDeLAssistant(agentId: string, options: { creation?: boolean; realisation?: boolean } = {}): ToolDef[] {
   const voulus = new Set<string>(OUTILS_DE_L_ASSISTANT);
-  const communs = TOOL_DEFS.filter((t) => voulus.has(t.name) && !OUTILS_PROPRES_A_L_ASSISTANT.has(t.name));
-  return [...communs, ...OUTILS_PROPRES].map(avecProjetEtPourquoi);
+  const ordinaires = toolsFor('deploy', options).filter((t) => outilServiA(t.name, agentId));
+  const vus = new Set(ordinaires.map((t) => t.name));
+  const enPlus = TOOL_DEFS.filter((t) => voulus.has(t.name) && !vus.has(t.name) && !OUTILS_PROPRES_A_L_ASSISTANT.has(t.name));
+  return [...ordinaires, ...enPlus, ...OUTILS_PROPRES].map(avecProjetEtPourquoi);
 }
 
-export function outilServiALAssistant(nom: string): boolean {
-  return (OUTILS_DE_L_ASSISTANT as readonly string[]).includes(nom);
+export function outilServiALAssistant(nom: string, agentId: string, options: { creation?: boolean; realisation?: boolean } = {}): boolean {
+  return outilsDeLAssistant(agentId, options).some((t) => t.name === nom);
 }
 
 /* ------------------------------------------------------------------ */
@@ -392,9 +321,9 @@ export function questionDeLAccord(nom: string, args: Record<string, any>, genre:
   });
 }
 
-/** Le geste attend-il l'accord, vu l'interrupteur actuel ? */
+/** Le geste attend-il l'accord ? Seulement une suppression, un envoi au client ou un effacement sur un serveur. */
 export function demandeLAccord(genre: GenreDeGeste): boolean {
-  return decisionDAccord(genre, validationAutomatique()) === 'accord';
+  return decisionDAccord(genre) === 'accord';
 }
 
 /** La suite d'une question d'accord : exécuter sur « Autoriser », rendre le refus sinon. */

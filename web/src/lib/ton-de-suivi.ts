@@ -1,4 +1,4 @@
-import { Archive, CircleCheck, ClipboardList, FolderPlus, Hammer, LayoutList, Lightbulb, MessageSquare, Rocket, ScanSearch, type LucideIcon } from 'lucide-react';
+import { Archive, CircleCheck, Clapperboard, ClipboardList, Film, FolderPlus, Hammer, ListChecks, LayoutList, Lightbulb, MessageSquare, Rocket, ScanSearch, type LucideIcon } from 'lucide-react';
 import type { EtapeDeSuivi, TonDeSuivi } from '@beluga/shared';
 
 /**
@@ -27,6 +27,10 @@ export const ICONE_DE_L_ETAPE: Record<EtapeDeSuivi, LucideIcon> = {
   creation: FolderPlus,
   cahier: ClipboardList,
   termine: CircleCheck,
+  /* Les trois étapes propres au volet de réalisation (caméra). */
+  genre: Clapperboard,
+  questionnaire: ListChecks,
+  fabrication: Film,
 };
 
 /**

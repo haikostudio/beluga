@@ -45,6 +45,9 @@ export function effortParDefaut(input: { role: AgentRole; motif?: MotifDAppel })
   if (input.motif === 'studio') return 'high';
   // « Résoudre le problème » cherche une cause INCONNUE : du jugement, pas un geste dicté.
   if (input.motif === 'depannage-manuel') return 'medium';
+  // La réparation silencieuse d'une étape et le heurt de fusion réglé sur place : une panne
+  // nommée, mais dont la cause reste à comprendre (décision du 2026-10-18).
+  if (input.motif === 'depannage' || input.motif === 'conflit') return 'medium';
   if (input.motif && MOTIFS_DE_DEPANNAGE.includes(input.motif)) return 'low';
   if (input.role === 'deploy') return 'medium';
   // Un agent d'analyse PORTEUR d'une carte est un chiffrage commandé : son cran

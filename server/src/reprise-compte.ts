@@ -1,4 +1,5 @@
 import {
+  ordreDeMoteursComplet,
   Agent,
   ChoixDeCompte,
   CompteConnu,
@@ -90,7 +91,10 @@ export function comptesConnus(): CompteConnu[] {
 
 /** Les comptes proposés À LA MAIN pour poursuivre un tour tombé sur ce compte-là, tous moteurs confondus. */
 export function choixDeReprise(engine: string, compteEpuise: string): ChoixDeCompte[] {
-  return comptesDeReprise(engine, compteEpuise, comptesConnus(), { tousMoteurs: true });
+  return comptesDeReprise(engine, compteEpuise, comptesConnus(), {
+    tousMoteurs: true,
+    ordreDesMoteurs: ordreDeMoteursComplet(store.getSettings().ordreDesMoteurs),
+  });
 }
 
 const NOM_DU_MOTEUR: Record<string, string> = { claude: 'Claude', codex: 'Codex', cursor: 'Cursor' };

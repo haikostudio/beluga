@@ -93,6 +93,7 @@ import {
 } from '@beluga/shared';
 import { proposerAuCadrage } from './proposition-competences.js';
 import { creationAllumeePourLAgent } from './mode-creation.js';
+import { realisationAllumeePourLAgent } from './realisation.js';
 import { cleParSecret, noterUsageDeCle } from './cles-api.js';
 import { relayerCatalogueLlm, relayerDemandeLlm } from './relais-llm.js';
 import {
@@ -141,6 +142,22 @@ function clientIp(req: http.IncomingMessage): string {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim();
   return req.socket.remoteAddress ?? 'inconnu';
+}
+
+/**
+ * LA PAGE AFFICHÉE AU RETOUR D'UN RÉSEAU : le compte est relié (ou pourquoi il
+ * ne l'est pas), puis l'onglet se referme seul — l'atelier, resté ouvert à
+ * côté, s'est déjà mis à jour.
+ */
+function pageDeRetourDeConnexion(r: { ok: boolean; raison?: string; comptes?: { nom: string }[] }): string {
+  const echapper = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+  const titre = r.ok ? 'Compte relié' : 'Connexion impossible';
+  const phrase = r.ok
+    ? `${(r.comptes ?? []).map((c) => echapper(c.nom)).join(', ')} : l’atelier marketing peut publier. Vous pouvez fermer cet onglet.`
+    : echapper(r.raison ?? 'La connexion n’a pas abouti.');
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${titre}</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;background:#111;color:#eee;display:grid;place-items:center;min-height:100vh;margin:0}main{max-width:420px;padding:24px}h1{font-size:18px;color:${r.ok ? '#a78bfa' : '#f87171'}}</style></head>
+<body><main data-retour-reseau="${r.ok ? 'ok' : 'echec'}"><h1>${titre}</h1><p>${phrase}</p></main>${r.ok ? '<script>setTimeout(function(){window.close()},2500)</script>' : ''}</body></html>`;
 }
 
 async function readBody(req: http.IncomingMessage, limit = 60 * 1024 * 1024): Promise<Buffer> {
@@ -584,6 +601,34 @@ export function createHttpServer(): http.Server {
         return res.end();
       }
 
+      /*
+       * LA PUBLICATION OFFICIELLE SUR LES RÉSEAUX (`server/src/publication-sociale.ts`).
+       *  - `/m/oauth/retour` : le réseau y renvoie l'utilisateur après son
+       *    accord. Public par nature (le réseau ne porte pas la session) : seul
+       *    un ÉTAT tiré par Beluga quelques minutes plus tôt est accepté, et la
+       *    page ne montre que le résultat ;
+       *  - `/m/media/<pièce>/<échéance>/<signature>` : le visuel d'un contenu,
+       *    que certains réseaux viennent chercher eux-mêmes. Signé, temporaire,
+       *    un seul fichier par adresse.
+       */
+      if (route === '/m/oauth/retour') {
+        const { terminerConnexion } = await import('./publication-sociale.js');
+        const r = await terminerConnexion(url.searchParams);
+        res.writeHead(r.ok ? 200 : 400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        return res.end(pageDeRetourDeConnexion(r));
+      }
+      if (route.startsWith('/m/media/')) {
+        const { mediaDeLAdressePublique } = await import('./publication-sociale.js');
+        const media = mediaDeLAdressePublique(route);
+        if (!media) {
+          res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          return res.end('Visuel introuvable ou lien échu.');
+        }
+        res.writeHead(200, { 'content-type': media.mime, 'content-length': String(media.taille), 'cache-control': 'private, max-age=3600' });
+        if (req.method === 'HEAD') return res.end();
+        return fs.createReadStream(media.chemin).pipe(res);
+      }
+
       if (route === '/auth/logout') {
         logout(sessionToken(req));
         res.writeHead(302, {
@@ -809,10 +854,10 @@ export function createHttpServer(): http.Server {
           return json(res, 200, { ok: true });
         }
         if (route === '/internal/tools') {
-          // L'ASSISTANT GLOBAL A SA PROPRE LISTE, sans aucun outil de code (`assistant-global.ts`).
+          // L'ASSISTANT GLOBAL : les outils d'un agent ordinaire, plus les siens (`assistant-global.ts`).
           const tools = estAssistantGlobal(agent)
-            ? outilsDeLAssistant()
-            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId) }).filter((tool) =>
+            ? outilsDeLAssistant(agentId, { creation: creationAllumeePourLAgent(agentId), realisation: realisationAllumeePourLAgent(agentId) })
+            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId), realisation: realisationAllumeePourLAgent(agentId) }).filter((tool) =>
                 outilServiA(tool.name, agentId),
               );
           pontAServiLesOutils(agentId, tools.length);
@@ -901,8 +946,11 @@ export function createHttpServer(): http.Server {
           const body = JSON.parse((await readBody(req, 4 * 1024 * 1024)).toString('utf8') || '{}');
           const assistant = estAssistantGlobal(agent);
           const allowed = assistant
-            ? outilServiALAssistant(String(body.name))
-            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId) }).some(
+            ? outilServiALAssistant(String(body.name), agentId, {
+                creation: creationAllumeePourLAgent(agentId),
+                realisation: realisationAllumeePourLAgent(agentId),
+              })
+            : toolsFor(agent.role, { creation: creationAllumeePourLAgent(agentId), realisation: realisationAllumeePourLAgent(agentId) }).some(
                 (tool) => tool.name === body.name && outilServiA(tool.name, agentId),
               );
           if (!allowed) {
@@ -943,8 +991,8 @@ export function createHttpServer(): http.Server {
            * LA PORTE D'ACCORD DE L'ASSISTANT GLOBAL, TENUE ICI ET NULLE PART
            * AILLEURS (demande du 02.10.2026). L'appel est classé
            * (`genreDeLAppel`) ; s'il faut l'accord — suppression, envoi au
-           * client, écriture sur un serveur, ou modification interrupteur
-           * éteint —, RIEN n'est exécuté : une question « Autoriser /
+           * client, effacement sur un serveur (18/10/2026 : plus aucune
+           * autre écriture) —, RIEN n'est exécuté : une question « Autoriser /
            * Refuser » est posée dans le fil, le moteur reste arrêté sur son
            * appel, et le geste ne part qu'au clic (`suiteDeLAccord`). La
            * consigne du modèle ne joue aucun rôle dans cette garde.
@@ -1575,6 +1623,33 @@ export function createHttpServer(): http.Server {
         });
         if (r === undefined) return json(res, 500, { error: 'Export du cahier des charges impossible.' });
         if (!r) return json(res, 404, { error: 'Ce projet n’a pas de cahier des charges.' });
+        res.writeHead(200, {
+          'content-type': r.type,
+          'content-length': r.contenu.length,
+          'cache-control': 'private, no-store',
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
+        });
+        return res.end(r.contenu);
+      }
+
+      /*
+       * LE CAHIER DE RÉALISATION D'UNE CARTE (caméra), À EMPORTER : même
+       * mise en page que le cahier des charges. Sans document : 404.
+       */
+      if (route === '/api/cartes/realisation') {
+        const format = url.searchParams.get('format') === 'md' ? 'md' : 'pdf';
+        const carte = store.getCard(String(url.searchParams.get('carte') ?? ''));
+        if (!carte) return json(res, 404, { error: 'Carte introuvable.' });
+        if (estCollaborateur(compte.role) && !peutVoirProjet(compte, carte.projectId)) {
+          return json(res, 403, { error: REFUS_HORS_PORTEE });
+        }
+        const { exporterLaRealisation } = await import('./realisation-questionnaire.js');
+        const r = await exporterLaRealisation(carte.id, format).catch((err) => {
+          log.error('export du cahier de réalisation impossible', err);
+          return undefined;
+        });
+        if (r === undefined) return json(res, 500, { error: 'Export du cahier de réalisation impossible.' });
+        if (!r) return json(res, 404, { error: 'Cette carte n’a pas encore de cahier de réalisation.' });
         res.writeHead(200, {
           'content-type': r.type,
           'content-length': r.contenu.length,

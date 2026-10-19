@@ -70,7 +70,7 @@ export function BandeauMiseAJour({ onOuvrirLInstallation }: { onOuvrirLInstallat
          les fenêtres (`z-50`) : une mise à jour se récupère même sans moteur
          prêt, et un bandeau visible mais recouvert ne se cliquerait pas. */
       className="pointer-events-none fixed inset-x-0 z-[46] flex justify-center px-3"
-      style={{ top: 'max(0.5rem, env(safe-area-inset-top))' }}
+      style={{ top: 'max(0.5rem, var(--zone-sure-haut, 0px))' }}
     >
       <div
         data-bandeau-mise-a-jour

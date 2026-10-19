@@ -1,12 +1,11 @@
 import * as React from 'react';
-import { Check, ChevronDown, Loader2, TerminalSquare, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, Loader2, Maximize2, Minimize2, TerminalSquare, TriangleAlert, X } from 'lucide-react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import {
+  Button,
   ConfirmDialog,
-  Drawer,
-  DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -21,6 +20,7 @@ import {
 } from '@beluga/shared';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
+import { cn } from '@/lib/utils';
 
 /**
  * LE TERMINAL DU SERVEUR, DANS L'APPLICATION.
@@ -36,6 +36,11 @@ import { t } from '@/lib/langue';
  * commande depuis un autre écran attaché à la même session. La flèche du haut
  * remonte le vrai historique de bash, la molette remonte le défilement de tmux :
  * deux choses que tout le monde connaît déjà.
+ *
+ * UN VOLET ANCRÉ EN BAS DE L'APPLICATION, pas un tiroir : il monte du bas comme
+ * s'il venait de derrière la page, ne voile rien (la page reste utilisable
+ * au-dessus), s'agrandit, se redimensionne à la poignée et se ferme. Fermer
+ * DÉTACHE seulement : la session tmux, elle, continue.
  *
  * CE MORCEAU NE SE TÉLÉCHARGE QU'À L'OUVERTURE (`PanneauALaDemande`) :
  * l'afficheur de terminal pèse à lui seul plus que plusieurs écrans de
@@ -57,14 +62,17 @@ function couleursDuTheme(): Record<string, string> {
   };
 }
 
+/** Le volet ne descend pas sous cette hauteur, et laisse cette marge en haut. */
+const HAUTEUR_MINI_DU_VOLET = 200;
+const MARGE_HAUTE_DU_VOLET = 56;
+
 export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () => void }) {
   /*
-   * LA BOÎTE EST TENUE EN ÉTAT, PAS EN RÉFÉRENCE, et c'est ce qui fait toute la
-   * différence ici. Le tiroir est monté par Radix à travers un portail : au
-   * premier passage de l'effet, la boîte n'existe PAS ENCORE, et une référence
-   * serait restée vide sans que rien ne rappelle l'effet — le tiroir s'ouvrait
-   * sur un rectangle noir, indéfiniment « Attache… ». En état, l'arrivée de la
-   * boîte relance l'effet, et le terminal se pose dedans.
+   * LA BOÎTE EST TENUE EN ÉTAT, PAS EN RÉFÉRENCE : au premier passage de
+   * l'effet, la boîte peut ne pas exister encore (le volet ne se monte que
+   * lorsqu'il est ouvert), et une référence serait restée vide sans que rien
+   * ne rappelle l'effet — un rectangle noir, indéfiniment « Attache… ». En
+   * état, l'arrivée de la boîte relance l'effet, et le terminal se pose dedans.
    */
   const [hote, setHote] = React.useState<HTMLDivElement | null>(null);
   const [etat, setEtat] = React.useState<'ouverture' | 'pret' | 'panne'>('ouverture');
@@ -85,6 +93,61 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
   const [aConfirmer, setAConfirmer] = React.useState<{ id: string; label: string } | null>(null);
   const [bascule, setBascule] = React.useState(false);
   const voieRef = React.useRef<WebSocket | null>(null);
+
+  /*
+   * LA HAUTEUR DU VOLET. `grand` le monte presque jusqu'en haut ; `libre` est
+   * la hauteur tirée à la poignée (en pixels, bornée à chaque lecture). Sans
+   * l'un ni l'autre, la hauteur usuelle. La hauteur de l'écran est celle de
+   * l'application (`--hauteur-app`) : sur téléphone installé, l'écran réel.
+   */
+  const [grand, setGrand] = React.useState(false);
+  const [libre, setLibre] = React.useState<number | null>(null);
+  const [sortant, setSortant] = React.useState(false);
+  const volet = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (open) setSortant(false);
+  }, [open]);
+
+  /** Fermer joue la descente du volet, puis détache : la session continue. */
+  const fermer = () => {
+    setSortant(true);
+    window.setTimeout(onClose, 190);
+  };
+
+  /**
+   * TIRER LA POIGNÉE. Un geste de redimensionnement, sans cible de dépôt : il
+   * suit le pointeur (capturé par la poignée, souris comme doigt) et pose la
+   * hauteur de l'écran moins la position du pointeur.
+   */
+  const tirerLaPoignee = (evenement: React.PointerEvent<HTMLDivElement>) => {
+    evenement.preventDefault();
+    const poignee = evenement.currentTarget;
+    try {
+      poignee.setPointerCapture(evenement.pointerId);
+    } catch {
+      /* rien */
+    }
+    const deplacer = (e: PointerEvent) => {
+      const bas = volet.current?.getBoundingClientRect().bottom ?? window.innerHeight;
+      const plafond = bas - MARGE_HAUTE_DU_VOLET;
+      setGrand(false);
+      setLibre(Math.max(HAUTEUR_MINI_DU_VOLET, Math.min(plafond, bas - e.clientY)));
+    };
+    const lacher = () => {
+      poignee.removeEventListener('pointermove', deplacer);
+      poignee.removeEventListener('pointerup', lacher);
+      poignee.removeEventListener('pointercancel', lacher);
+    };
+    poignee.addEventListener('pointermove', deplacer);
+    poignee.addEventListener('pointerup', lacher);
+    poignee.addEventListener('pointercancel', lacher);
+  };
+
+  const basculerGrand = () => {
+    setLibre(null);
+    setGrand((precedent) => !precedent);
+  };
 
   React.useEffect(() => {
     if (!open || !hote) return;
@@ -204,11 +267,45 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
     setCycle((precedent) => precedent + 1);
   };
 
+  if (!open) return null;
+
   return (
-    <Drawer open={open} onClose={onClose} className="max-w-[1400px]">
+    <div
+      ref={volet}
+      data-terminal-volet
+      data-terminal-volet-taille={grand ? 'grand' : libre !== null ? 'libre' : 'normal'}
+      style={{
+        height:
+          libre !== null
+            ? `min(${libre}px, calc(var(--hauteur-app, 100dvh) - ${MARGE_HAUTE_DU_VOLET}px))`
+            : grand
+              ? `calc(var(--hauteur-app, 100dvh) - ${MARGE_HAUTE_DU_VOLET}px)`
+              : 'min(46dvh, calc(var(--hauteur-app, 100dvh) - 120px))',
+        paddingBottom: 'var(--zone-sure-bas, 0px)',
+      }}
+      className={cn(
+        'fixed inset-x-0 bottom-0 z-[45] flex min-h-[200px] flex-col rounded-t-xl bg-surface shadow-[0_-8px_30px_rgba(0,0,0,0.25)]',
+        sortant ? 'animate-slide-sheet-out' : 'animate-slide-sheet',
+      )}
+    >
+      {/* LA POIGNÉE : tirer règle la hauteur, double clic agrandit ou réduit. */}
+      <div
+        data-terminal-poignee
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label={t('Régler la hauteur du terminal')}
+        onPointerDown={tirerLaPoignee}
+        onDoubleClick={basculerGrand}
+        className="flex h-3.5 shrink-0 cursor-ns-resize touch-none items-center justify-center"
+      >
+        <span className="h-1 w-10 rounded-full bg-faint/50" />
+      </div>
+
       <header className="flex shrink-0 items-center gap-2 px-3 pb-2">
         <TerminalSquare className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <DialogTitle className="min-w-0 flex-1 truncate">{t('Terminal du serveur')}</DialogTitle>
+        {/* Sur téléphone, la place va aux boutons : le titre et le nom de la
+            session s'effacent, l'icône et le compte suffisent. */}
+        <h2 className="min-w-0 flex-1 truncate text-[14px] font-medium text-text max-sm:hidden">{t('Terminal du serveur')}</h2>
         {/* LE COMPTE QUI DÉPENSE, À CÔTÉ DU NOM DE LA SESSION. Sans lui, le
             `claude` tapé ici consommait un abonnement qu'aucun écran ne montre. */}
         <DropdownMenu>
@@ -216,11 +313,11 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
             <button
               type="button"
               data-terminal-compte
-              className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12.5px] text-faint hover:bg-raised disabled:opacity-60"
+              className="flex min-w-0 shrink items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[12.5px] text-faint hover:bg-raised disabled:opacity-60"
               disabled={bascule || !comptesClaude.length}
             >
               {bascule ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              <span className="max-w-[220px] truncate">
+              <span className="max-w-[220px] truncate max-sm:max-w-[120px]">
                 {compte
                   ? t('Compte : {v0}', { v0: compte.plan ? `${compte.label} · ${compte.plan}` : compte.label })
                   : t('Aucun compte Claude')}
@@ -245,7 +342,7 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <span className="shrink-0 text-[12.5px] text-faint">
+        <span className="shrink-0 text-[12.5px] text-faint max-sm:hidden">
           {etat === 'pret' ? t('session partagée « {v0} »', { v0: SESSION_TERMINAL }) : null}
           {etat === 'ouverture' ? (
             <span className="flex items-center gap-1.5">
@@ -254,6 +351,30 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
             </span>
           ) : null}
         </span>
+
+        <span className="min-w-0 flex-1 sm:hidden" />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          data-terminal-agrandir
+          title={grand ? t('Réduire') : t('Agrandir')}
+          aria-label={grand ? t('Réduire') : t('Agrandir')}
+          onClick={basculerGrand}
+        >
+          {grand ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          data-terminal-fermer
+          title={t('Fermer')}
+          aria-label={t('Fermer')}
+          onClick={fermer}
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </header>
 
       {/* L'ABSENCE DE COMPTE SE DIT, elle ne se devine pas à un libellé vide. */}
@@ -270,13 +391,10 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
         </p>
       ) : null}
 
-      {/* Le fond suit le thème ; la hauteur est fixe pour que la fenêtre ne
-          grandisse pas à chaque ligne écrite dans le terminal. */}
-      <div
-        data-terminal-serveur
-        ref={setHote}
-        className="mx-3 mb-3 h-[62dvh] min-h-[240px] overflow-hidden rounded-md border border-border bg-surface p-2"
-      />
+      {/* Le fond suit le thème ; la boîte prend la hauteur que le volet lui
+          laisse (le volet a une hauteur posée, il ne grandit pas à chaque
+          ligne écrite). `ResizeObserver` renvoie la taille à la session. */}
+      <div data-terminal-serveur ref={setHote} className="mx-3 mb-3 min-h-0 flex-1 overflow-hidden rounded-md bg-surface p-2" />
 
       <ConfirmDialog
         open={!!aConfirmer}
@@ -289,6 +407,6 @@ export function TerminalServeur({ open, onClose }: { open: boolean; onClose: () 
         onConfirm={() => aConfirmer && changerDeCompte(aConfirmer.id)}
         onClose={() => setAConfirmer(null)}
       />
-    </Drawer>
+    </div>
   );
 }

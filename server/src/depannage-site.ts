@@ -22,15 +22,19 @@
  */
 
 import {
+  LABEL_CORRECTION_SITE,
   LABEL_PANNE_SITE,
   type ProjetEtSesAdresses,
   type SiteSurveille,
   decisionDeDepannage,
   demandeDePanne,
+  demandeDeCorrectionWordpress,
+  descriptionDeCarteDeCorrection,
   descriptionDeCarteDePanne,
   echecsDeSuiteDuSite,
   noteDeNouvelleChute,
   projetDevineDuSite,
+  titreDeCarteDeCorrection,
   titreDeCarteDePanne,
 } from '@beluga/shared';
 import * as store from './store.js';
@@ -272,6 +276,80 @@ export async function ouvrirLeDepannage(
     .catch((err) => {
       log.error(`dépannage : l’enquête sur « ${site.nom} » a échoué`, err);
     });
+
+  return { cardId: card.id, agentId: cadrage.id, projectId: accueil.projet.id, reprise: false };
+}
+
+/* ------------------------------------------------------------------ */
+/* La carte de correction, ouverte par le bouton sous les soucis        */
+/* ------------------------------------------------------------------ */
+
+export interface CorrectionLancee extends DepannageLance {
+  /** Vrai quand une carte de correction encore ouverte a été reprise au lieu d'en ouvrir une autre. */
+  reprise: boolean;
+}
+
+/**
+ * OUVRIR LA CORRECTION DE CE QUE LA SURVEILLANCE WORDPRESS A DÉTECTÉ. Un geste
+ * de l'utilisateur (le bouton sous la liste des soucis), jamais la tournée.
+ *
+ * La carte naît dans le projet du site, dans « Demande », avec son cadrage ; le
+ * premier tour reçoit TOUT ce qui a été détecté (`demandeDeCorrectionWordpress`),
+ * puis le plan est demandé et ATTEND la validation — comme pour une panne :
+ * rien n'est corrigé ni mis en ligne sans l'utilisateur. Un second clic ne
+ * double pas la carte : celle qui est encore ouverte est reprise, et reçoit la
+ * liste à jour.
+ */
+export async function ouvrirLaCorrectionDuSite(siteId: string): Promise<CorrectionLancee> {
+  const site = lireSurveillance(siteId);
+  if (!site) throw new Error('surveillance introuvable');
+  const soucis = site.wpResume?.soucis ?? [];
+  if (!soucis.length) throw new Error('Rien à corriger : le contrôle WordPress n’a relevé aucun souci.');
+  const accueil = projetDAccueil(site);
+  if (!accueil) throw new Error('Aucun projet ouvert : la carte n’a nulle part où vivre.');
+
+  const titre = titreDeCarteDeCorrection(site.nom);
+  const demande = demandeDeCorrectionWordpress({
+    site,
+    soucis,
+    projet: { nom: accueil.projet.name, chemin: accueil.projet.path, rattache: accueil.rattache, devine: accueil.devine },
+  });
+
+  const ancienne = store
+    .listCards(accueil.projet.id)
+    .find(
+      (c) =>
+        !c.archivedAt &&
+        c.title === titre &&
+        (c.labels ?? []).includes(LABEL_CORRECTION_SITE) &&
+        (COLONNES_NON_RANGEES as readonly string[]).includes(c.column),
+    );
+  if (ancienne) {
+    const agent = store.getLastAgentByCard(ancienne.id);
+    if (agent) noterDansLeFil(agent.id, `Nouvelle demande de correction : voici la liste à jour.\n\n${demande}`);
+    return { cardId: ancienne.id, agentId: agent?.id ?? '', projectId: ancienne.projectId, reprise: true };
+  }
+
+  const { createCard } = await import('./tools.js');
+  const card = createCard(accueil.projet.id, {
+    title: titre,
+    description: descriptionDeCarteDeCorrection(site, soucis),
+    labels: [LABEL_CORRECTION_SITE],
+    origin: 'user',
+    auteur: 'depannage',
+    cadrage: true,
+  });
+  bus.emit({ type: 'card.upsert', card });
+  const cadrage = await ouvrirLeCadrage(card.id);
+  if (!cadrage) throw new Error('Aucun agent de cadrage pour cette carte.');
+  log.info(`correction : carte « ${titre} » ouverte dans ${accueil.projet.name} (${soucis.length} soucis)`);
+
+  void sendPrompt(cadrage.id, demande, { template: 'none', silent: true })
+    .then(async () => {
+      const { demanderLePlan } = await import('./ws.js');
+      await demanderLePlan(card.id);
+    })
+    .catch((err) => log.error(`correction : l’étude de « ${site.nom} » a échoué`, err));
 
   return { cardId: card.id, agentId: cadrage.id, projectId: accueil.projet.id, reprise: false };
 }

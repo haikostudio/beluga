@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Circle, Loader2, Paperclip, X } from 'lucide-react';
+import { Check, Circle, Loader2, Paperclip, RefreshCw, X } from 'lucide-react';
 import { Attachment, reponsePrete, texteDeReponse } from '@beluga/shared';
 import { Button, Textarea } from '@/components/ui';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
@@ -286,6 +286,26 @@ export function BulleQuestion({
     }
   };
 
+  /*
+   * « PLUS DE CHOIX » : aucun choix proposé ne convient. Le geste RÉPOND à la
+   * question (l'agent arrêté sur `ask_user` reprend la main) par une consigne
+   * qui lui demande d'autres possibilités et de reposer la question.
+   */
+  const [autresChoix, setAutresChoix] = React.useState(false);
+  const demanderPlusDeChoix = async () => {
+    const deja = question.options.map((o) => `« ${o.label} »`).join(', ');
+    setAutresChoix(true);
+    try {
+      await onRepondre(
+        `Aucun de ces choix ne me convient (${deja}). Propose-moi d'autres possibilités, différentes de celles-ci, et repose la question avec ask_user.`,
+        [],
+      );
+      ecrireLeBrouillon(BROUILLON_VIDE);
+    } finally {
+      setAutresChoix(false);
+    }
+  };
+
   const basculer = (id: string) =>
     setChoisis((current) =>
       question.kind === 'multiple'
@@ -455,6 +475,19 @@ export function BulleQuestion({
             );
           })}
           </div>
+          {reponsePossible ? (
+            <button
+              type="button"
+              onClick={() => void demanderPlusDeChoix()}
+              disabled={autresChoix || envoi}
+              data-plus-de-choix
+              title={t('Aucun choix ne convient : demander d’autres possibilités à l’agent')}
+              className="mt-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-muted transition-colors hover:bg-text/5 hover:text-text disabled:opacity-60"
+            >
+              {autresChoix ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              {t('Plus de choix')}
+            </button>
+          ) : null}
         </div>
       ) : null}
 

@@ -8,7 +8,10 @@ import { t } from '@/lib/langue';
 /**
  * LES SERVICES DE CRÉATION — les comptes de l'utilisateur que le Studio peut
  * utiliser (demande du 14/10/2026) : sept services de génération vidéo, plus
- * son propre compte OpenRouter pour la voix finale et la musique.
+ * son propre compte OpenRouter pour la voix finale et la musique. Depuis le
+ * 18/10/2026, HeyGen et ElevenLabs s'y ajoutent pour le mode « Réalisation »
+ * des cartes (`shared/src/services-de-generation.ts`), qui sert aussi des
+ * autres.
  *
  * Une ligne par service : son état (branché, non branché, clé refusée et
  * pourquoi), le lien où créer la clé, le champ (deux pour Higgsfield), « Tester »
@@ -52,6 +55,8 @@ const DESCRIPTIONS: Record<string, () => string> = {
   fal: () => t('Veo, Kling et Seedance au prix publié par fal.ai.'),
   replicate: () => t('Veo, Kling et Seedance hébergés par Replicate.'),
   openrouter: () => t('Votre propre compte pour la voix finale et la musique, à la place de celui de Beluga Build.'),
+  heygen: () => t('Présentateurs humains réalistes qui disent votre texte, et courtes vidéos générées.'),
+  elevenlabs: () => t('Voix off dans toutes les langues, bruitages et musique.'),
 };
 
 /* Le libellé d'un champ vient du catalogue partagé : on le traduit ici. */
@@ -202,7 +207,7 @@ function LigneDeService({ service, onChange }: { service: ServiceAffiche; onChan
         open={aRetirer}
         onClose={() => setARetirer(false)}
         title={t('Retirer {service} ?', { service: service.nom })}
-        description={t('Le Studio ne s’en servira plus. La clé est archivée six mois dans le coffre-fort, puis effacée.')}
+        description={t('Plus aucun agent ne s’en servira. La clé est archivée six mois dans le coffre-fort, puis effacée.')}
         confirmLabel={t('Retirer')}
         danger
         onConfirm={() => {
@@ -219,7 +224,8 @@ export function PageServicesCreation() {
   return (
     <div className="flex flex-col gap-3" data-page-services-creation>
       <p className="text-[13px] leading-relaxed text-muted">
-        {t('Branchez vos propres comptes : l’agent du Studio s’en sert pour fabriquer les extraits d’une vidéo, et votre compte OpenRouter remplace celui de Beluga Build pour la voix et la musique. Chaque extrait passe d’abord par un devis que vous validez d’un clic.')}
+        {t('Branchez vos propres comptes : l’agent du Studio s’en sert pour fabriquer les extraits d’une vidéo, et votre compte OpenRouter remplace celui de Beluga Build pour la voix et la musique. Chaque extrait passe d’abord par un devis que vous validez d’un clic.')}{' '}
+        {t('Les cartes en mode Réalisation s’en servent aussi pour fabriquer images, vidéos, voix et sons, en annonçant modèle et prix avant chaque génération.')}
       </p>
       {services === null ? (
         <p className="flex items-center gap-2 text-[13px] text-faint">

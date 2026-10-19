@@ -4039,6 +4039,161 @@ export const MIGRATIONS: {
       ALTER TABLE push_subs ADD COLUMN appareil TEXT;
     `,
   },
+  {
+    id: 127,
+    name: 'droits-des-acces-tiers',
+    siTable: 'users',
+    /*
+     * LA GRILLE DES DROITS D'UN ACCÈS TIERS (`shared/src/droits-d-acces.ts`) :
+     * projet par projet (voir / travailler / déployer) et service par service
+     * (aucun / voir / modifier), en JSON. NULL sur un accès d'avant la grille :
+     * `droitsDuCompte` la déduit de son niveau et de ses projets.
+     */
+    sql: `
+      ALTER TABLE users ADD COLUMN droits TEXT;
+    `,
+  },
+  {
+    /* 128 : la migration 127 est déjà en ligne (droits des accès tiers). */
+    id: 128,
+    name: 'medias-de-realisation',
+    /*
+     * LES MÉDIAS DU MODE « RÉALISATION » (`server/src/realisation.ts`) : une
+     * ligne par DEVIS, qui devient génération puis média. Le devis garde le
+     * prix annoncé et la question d'accord ; la génération, son état, son
+     * fichier (sur le disque de stockage) et la pièce jointe qui le montre
+     * dans le fil. La dépense d'une carte se lit ici, jamais recopiée.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS medias_realisation (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        card_id TEXT NOT NULL,
+        agent_id TEXT,
+        branche TEXT,
+        plan TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        capacite TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        service TEXT NOT NULL,
+        modele TEXT NOT NULL,
+        modele_nom TEXT NOT NULL,
+        demande TEXT NOT NULL,
+        raison TEXT NOT NULL DEFAULT '',
+        prix REAL,
+        source_prix TEXT NOT NULL,
+        cout_reel REAL,
+        etat TEXT NOT NULL,
+        question_id TEXT,
+        echec TEXT,
+        fichier TEXT,
+        taille INTEGER,
+        attachment_id TEXT,
+        cree_le INTEGER NOT NULL,
+        modifie_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_medias_realisation_carte ON medias_realisation(card_id, cree_le);
+      CREATE INDEX IF NOT EXISTS idx_medias_realisation_projet ON medias_realisation(project_id, etat, cree_le);
+    `,
+  },
+  {
+    id: 129,
+    name: 'publication-officielle-reseaux',
+    /*
+     * LA PUBLICATION OFFICIELLE SUR LES RÉSEAUX (`shared/src/reseaux-sociaux.ts`,
+     * `server/src/publication-sociale.ts`).
+     *
+     *  - `marketing_contenus.canaux` : TOUS les canaux d'un contenu (JSON) ; un
+     *    contenu d'avant reçoit la liste de son seul `canal` ;
+     *  - `marketing_applications` : l'application développeur de chaque réseau,
+     *    au niveau de l'installation — son état, son identifiant public et la
+     *    RÉFÉRENCE de la fiche du coffre qui garde son secret ;
+     *  - `marketing_comptes` : les comptes reliés PAR PROJET — la table ne garde
+     *    que les références des fiches du coffre où vivent les jetons ;
+     *  - `marketing_publications` : l'état d'un contenu SUR CHAQUE COMPTE visé
+     *    (clé contenu + compte : jamais deux envois du même contenu au même compte) ;
+     *  - `marketing_messages` : commentaires et messages privés relevés, et nos
+     *    réponses, dédoublonnés par leur identifiant chez le réseau.
+     */
+    sql: `
+      ALTER TABLE marketing_contenus ADD COLUMN canaux TEXT;
+      UPDATE marketing_contenus SET canaux = json_array(canal) WHERE canaux IS NULL;
+      CREATE TABLE IF NOT EXISTS marketing_applications (
+        application TEXT PRIMARY KEY,
+        etat TEXT NOT NULL DEFAULT 'absente',
+        client_id TEXT,
+        secret_ref TEXT,
+        note TEXT,
+        card_id TEXT,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS marketing_comptes (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        reseau TEXT NOT NULL,
+        distant_id TEXT NOT NULL,
+        nom TEXT NOT NULL,
+        avatar TEXT,
+        etat TEXT NOT NULL DEFAULT 'relie',
+        jeton_ref TEXT,
+        rafraichissement_ref TEXT,
+        expire_le INTEGER,
+        details TEXT NOT NULL DEFAULT '{}',
+        erreur TEXT,
+        cree_le INTEGER NOT NULL,
+        maj_le INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_marketing_comptes_distant ON marketing_comptes(project_id, reseau, distant_id);
+      CREATE TABLE IF NOT EXISTS marketing_publications (
+        contenu_id TEXT NOT NULL,
+        compte_id TEXT NOT NULL,
+        reseau TEXT NOT NULL,
+        etat TEXT NOT NULL DEFAULT 'en_attente',
+        distant_id TEXT,
+        url TEXT,
+        raison TEXT,
+        tente_le INTEGER,
+        publie_le INTEGER,
+        PRIMARY KEY (contenu_id, compte_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_marketing_publications_compte ON marketing_publications(compte_id, etat);
+      CREATE TABLE IF NOT EXISTS marketing_messages (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        compte_id TEXT NOT NULL,
+        reseau TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        distant_id TEXT NOT NULL,
+        fil TEXT NOT NULL,
+        auteur TEXT NOT NULL DEFAULT '',
+        auteur_id TEXT,
+        texte TEXT NOT NULL DEFAULT '',
+        instant INTEGER NOT NULL,
+        sortant INTEGER NOT NULL DEFAULT 0,
+        lu INTEGER NOT NULL DEFAULT 0,
+        contenu_id TEXT,
+        brouillon TEXT,
+        url TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_marketing_messages_distant ON marketing_messages(compte_id, distant_id);
+      CREATE INDEX IF NOT EXISTS idx_marketing_messages_projet ON marketing_messages(project_id, instant);
+    `,
+  },
+  {
+    id: 130,
+    name: 'coffre-fort-dossiers-imbriques',
+    siTable: 'dossiers_coffre',
+    /*
+     * DES DOSSIERS DANS DES DOSSIERS, sur autant de niveaux qu'on veut : le
+     * dossier garde son PARENT (`parent_id`). NULL = à la racine du coffre, ce
+     * que sont tous les dossiers d'avant — aucune donnée à reprendre. Le chemin
+     * d'un dossier n'est jamais stocké : il se calcule depuis les parents.
+     */
+    sql: `
+      ALTER TABLE dossiers_coffre ADD COLUMN parent_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_dossiers_coffre_parent ON dossiers_coffre(parent_id);
+    `,
+  },
 ];
 
 export function openDb(): DB {

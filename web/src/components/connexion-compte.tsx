@@ -88,6 +88,18 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
         </p>
       ) : null}
 
+      {/* CODEX, MODE « APPAREIL » : si OpenAI refuse le code, le refus s'affiche
+          dans le navigateur de l'utilisateur et le serveur ne le voit jamais.
+          L'aide dit donc d'avance quel réglage de ChatGPT le débloque. */}
+      {connexion.code && !connexion.attendLeCode ? (
+        <p className="text-[12.5px] leading-relaxed text-faint" data-connexion-aide-codex="1">
+          {t('Si OpenAI refuse le code, activez « Autoriser la connexion par code d’appareil pour Codex » dans la sécurité de votre compte ChatGPT, puis cliquez sur Abandonner et reconnectez le compte.')}{' '}
+          <a href="https://chatgpt.com/#settings/Security" target="_blank" rel="noreferrer" className="text-accent underline">
+            {t('Ouvrir la sécurité de ChatGPT')}
+          </a>
+        </p>
+      ) : null}
+
       {connexion.attendLeCode ? (
         <div className="flex items-center gap-1.5">
           <Input
@@ -124,8 +136,11 @@ export function BlocConnexion({ connexion }: { connexion: ConnexionCompte }) {
       {/* ABANDONNER ENGAGE : la connexion continue côté serveur si la demande
           n'arrive pas. Elle passe donc par la demande qui attend réponse. */}
       <Button
-        variant="ghost"
+        /* Aplat d'encre (noir en clair, clair en sombre) : en `ghost`, le bouton
+           n'était qu'un texte gris sans fond, invisible dans le tiroir. */
+        variant="creation"
         size="sm"
+        data-connexion-abandonner
         onClick={() => void client.geste({ type: 'account.cancel', id: connexion.id }, t('Abandonner'))}
       >
         {t('Abandonner')}</Button>

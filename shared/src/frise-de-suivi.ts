@@ -39,10 +39,17 @@ export const ETAPES_DE_SUIVI_DE_LA_NUIT = ['demande', 'examen', 'propositions'] 
  * carte de construction (`barreDuCahier`, `cahier-des-charges.ts`).
  */
 export const ETAPES_DE_SUIVI_DU_CAHIER = ['creation', 'cahier', 'termine'] as const;
+/**
+ * LE VOLET DE RÉALISATION (caméra) A LES SIENNES, sur le même modèle : le choix
+ * « image ou vidéo ? », le questionnaire, puis la fabrication
+ * (`barreDeLaRealisation`, `mode-realisation.ts`).
+ */
+export const ETAPES_DE_SUIVI_DE_LA_REALISATION = ['genre', 'questionnaire', 'fabrication'] as const;
 export type EtapeDeSuivi =
   | (typeof ETAPES_DE_SUIVI)[number]
   | (typeof ETAPES_DE_SUIVI_DE_LA_NUIT)[number]
-  | (typeof ETAPES_DE_SUIVI_DU_CAHIER)[number];
+  | (typeof ETAPES_DE_SUIVI_DU_CAHIER)[number]
+  | (typeof ETAPES_DE_SUIVI_DE_LA_REALISATION)[number];
 
 /** Le nom affiché au survol de chaque rond (traduit comme le reste). */
 export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
@@ -56,6 +63,9 @@ export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
   creation: 'Création du projet',
   cahier: 'Définition du cahier des charges',
   termine: 'Terminé',
+  genre: 'Types de média',
+  questionnaire: 'Questionnaire de réalisation',
+  fabrication: 'Fabrication',
 };
 
 /** Les ronds de CETTE carte : ceux d'une tâche, ou les trois de la nuit. */

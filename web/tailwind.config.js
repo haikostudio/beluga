@@ -79,6 +79,8 @@ export default {
         teinte: 'hsl(var(--teinte))',
         'teinte-fond': 'hsl(var(--teinte-fond))',
         'teinte-trait': 'hsl(var(--teinte-trait))',
+        // Le violet PLEIN sous un texte blanc : boutons de l'assistant de démarrage.
+        'teinte-plein': 'hsl(var(--teinte-plein))',
         // Le JAUNE du badge de statut « Compréhension » (styles.css) : son seul
         // usage, avec le fond et le trait de la même teinte.
         comprehension: {

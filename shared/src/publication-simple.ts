@@ -51,6 +51,11 @@ export const DELAIS_DU_DEPLOIEMENT_MS = {
   reconstruction: 5 * 60_000,
   /** Le contrôle de l'adresse du projet. */
   adresse: 20_000,
+  /**
+   * UN TOUR D'AGENT DE RÉPARATION SILENCIEUSE (`server/src/reparation-publication.ts`) :
+   * au-delà, l'agent est arrêté et l'essai compte comme raté.
+   */
+  reparation: 20 * 60_000,
 } as const;
 
 /** Les réglages du déploiement d'un projet : deux choix, rien d'autre. */

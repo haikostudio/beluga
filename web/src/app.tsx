@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
 import { appliquerTiroirs, oublierLAttenteSiEcranChange, usePileDeTiroirs, useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import { LayoutGrid, Loader2, Plus } from 'lucide-react';
 import { BandeauMiseAJour } from '@/components/bandeau-mise-a-jour';
@@ -36,6 +37,7 @@ import {
   SilhouetteMarketing,
   SilhouetteStudio,
   SilhouetteStatistiques,
+  SilhouetteMedias,
   SilhouetteTableau,
   SilhouetteEnRoute,
   SilhouetteResume,
@@ -119,6 +121,7 @@ const chargerSurveillance = () => import('@/components/surveillance');
 const chargerMarketing = () => import('@/components/marketing');
 const chargerStudio = () => import('@/components/studio/studio');
 const chargerStatistiques = () => import('@/components/statistiques');
+const chargerMedias = () => import('@/components/medias-page');
 /*
  * LA PAGE « EN ROUTE » : ouverte par le bouton des agents, et montrée quand
  * aucun projet n'est ouvert. Un morceau à part comme les autres destinations.
@@ -165,6 +168,7 @@ const Surveillance = React.lazy(() =>
 const Marketing = React.lazy(() => chargerMarketing().then((m) => ({ default: m.Marketing })));
 const Studio = React.lazy(() => chargerStudio().then((m) => ({ default: m.Studio })));
 const Statistiques = React.lazy(() => chargerStatistiques().then((m) => ({ default: m.Statistiques })));
+const MediasPage = React.lazy(() => chargerMedias().then((m) => ({ default: m.MediasPage })));
 const EnRoute = React.lazy(() => chargerEnRoute().then((m) => ({ default: m.EnRoute })));
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
 const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
@@ -216,6 +220,7 @@ const VUES_A_MENU: readonly VueCentrale[] = [
   'backups',
   'surveillance',
   'studio',
+  'medias',
 ];
 
 const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, string> = {
@@ -229,6 +234,7 @@ const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, str
   marketing: 'Marketing',
   studio: 'Studio',
   notes: 'Notes',
+  medias: 'Médias',
 };
 
 /**
@@ -247,7 +253,7 @@ type OngletMobile = (typeof ONGLETS_MOBILES)[number];
  * élément : on lit donc le remplissage d'un témoin invisible.
  */
 let temoinZoneSure: HTMLElement | null = null;
-function mesurerZoneSure(variable: '--zone-sure-haut' | '--zone-sure-bas'): number {
+function mesurerZoneSure(variable: '--zone-sure-haut-systeme' | '--zone-sure-bas'): number {
   if (!temoinZoneSure) {
     temoinZoneSure = document.createElement('div');
     temoinZoneSure.setAttribute('aria-hidden', 'true');
@@ -384,6 +390,8 @@ export function App() {
    * service est démonté en quittant, son élément ouvert n'a pas à survivre.
    */
   const [elementVise, setElementVise] = React.useState<ElementVise>({});
+  /* Stable : la page « Médias » ouvre seule un projet quand elle le peut. */
+  const onViseMedias = React.useCallback((projectId: string | null) => setElementVise((v) => ({ ...v, medias: projectId })), []);
   /* L'onglet affiché dans la carte ouverte. « chat » est le défaut et ne
      s'écrit pas dans l'adresse (`ONGLET_DE_CARTE_PAR_DEFAUT`). */
   const [ongletCarte, setOngletCarte] = React.useState<string | null>(null);
@@ -524,7 +532,7 @@ export function App() {
         ecranHauteur: window.screen?.height || 0,
         fenetreLargeur: window.innerWidth,
         fenetreHauteur: window.innerHeight,
-        zoneSureHaut: mesurerZoneSure('--zone-sure-haut'),
+        zoneSureHaut: mesurerZoneSure('--zone-sure-haut-systeme'),
         zoneSureBas: mesurerZoneSure('--zone-sure-bas'),
       });
       if (hauteurEcran) racine.style.setProperty('--hauteur-app', `${hauteurEcran}px`);
@@ -687,7 +695,7 @@ export function App() {
           configurationId: projetDeLAgent?.miseEnProduction?.agentId,
           derniere: etat.deploys[agent.projectId],
         });
-        const fil = avecFil || !!agent.depannagePublication ? agentId : undefined;
+        const fil = avecFil || !!agent.depannagePublication || !!agent.reparationPublication ? agentId : undefined;
         if (volet === 'configuration') ouvrirRubriqueDeLEtape(agent.projectId, 'production');
         else if (volet === 'dev') client.demanderDeploiement({ projectId: agent.projectId, agentId: fil });
         else client.demanderProduction({ projectId: agent.projectId, agentId: fil });
@@ -1703,6 +1711,19 @@ export function App() {
                   />
                 </PanneauALaDemande>
               </Filet>
+            ) : vueCentrale === 'medias' ? (
+              <Filet zone="Médias">
+                <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteMedias /></AttenteEcran>}>
+                  <MediasPage
+                    open
+                    enPage
+                    onClose={() => ouvrirVue('projet')}
+                    vise={elementVise.medias ?? null}
+                    onVise={onViseMedias}
+                    onOuvrirCarte={ouvrirCarteDepuisUnService}
+                  />
+                </PanneauALaDemande>
+              </Filet>
             ) : vueCentrale === 'en-route' ? (
               pageEnRoute
             ) : dashboardOpen ? (
@@ -2025,7 +2046,7 @@ function BoutonNouvelleTacheDuBas({
   /* Lien coupé : la carte ne naîtrait pas. Le bouton s'éteint et dit pourquoi. */
   const gele = gestesGeles(state.canal);
   const ouvrir = async () => {
-    if (busy || !projectId || state.monRole === 'lecteur') return;
+    if (busy || !projectId || !aLeNiveauSurLeProjet(state, projectId, 'travailler')) return;
     setBusy(true);
     try {
       await creerCarteAgent(projectId, onCree);
@@ -2042,7 +2063,7 @@ function BoutonNouvelleTacheDuBas({
       aria-label="Nouvelle tâche"
       aria-busy={busy}
       title={gele ? t(RAISON_CANAL_COUPE) : undefined}
-      disabled={busy || gele || !projectId || state.monRole === 'lecteur'}
+      disabled={busy || gele || !projectId || !aLeNiveauSurLeProjet(state, projectId, 'travailler')}
       className="h-11 w-full justify-center gap-2 rounded-lg text-[14.5px]"
       onClick={() => void ouvrir()}
     >

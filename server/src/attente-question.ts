@@ -81,7 +81,7 @@ export function agentEnAttente(agentId: string): boolean {
 }
 
 /** Les outils dont le résultat est une QUESTION posée à l'utilisateur. */
-const OUTILS_QUI_QUESTIONNENT = new Set(['ask_user', 'suggerer_modele']);
+const OUTILS_QUI_QUESTIONNENT = new Set(['ask_user', 'suggerer_modele', 'realiser']);
 
 /**
  * UNE SEULE QUESTION À LA FOIS, PAR AGENT. Rend le texte de refus quand l'outil

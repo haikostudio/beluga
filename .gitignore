@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 dist/
 data/
 # Un socle de données isolé pour un essai (serveur de test lancé avec un

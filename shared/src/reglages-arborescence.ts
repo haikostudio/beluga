@@ -42,15 +42,14 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
       {
         cle: 'mon-compte',
         titre: 'Mon compte',
-        motsCles: ['profil', 'mot de passe', 'identifiant', 'courriel', 'mail', 'pseudo', 'nom', 'connexion', 'adresse'],
-        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe'],
-      },
-      {
-        // Les accès ouverts à d'autres personnes : membre, lecteur ou client, chacun sur ses projets.
-        cle: 'sous-comptes',
-        titre: 'Sous-comptes',
-        motsCles: ['accès', 'équipe', 'collaborateur', 'membre', 'lecteur', 'client', 'droits', 'invitation', 'utilisateur', 'permission', 'rôle'],
-        libelles: ['Ouvrir un accès', 'Niveau'],
+        // …ET LES ACCÈS TIERS À BELUGA (l'ancien onglet « Sous-comptes ») : une
+        // grille de droits par projet et par service. Les comptes clients se
+        // créent depuis la messagerie, jamais ici.
+        motsCles: [
+          'profil', 'mot de passe', 'identifiant', 'courriel', 'mail', 'pseudo', 'nom', 'connexion', 'adresse',
+          'accès', 'sous-comptes', 'équipe', 'collaborateur', 'droits', 'invitation', 'utilisateur', 'permission',
+        ],
+        libelles: ['Nom affiché', 'Adresse de courriel', 'Identifiant de connexion', 'Changer mon mot de passe', 'Accès à Beluga', 'Ouvrir un accès'],
       },
     ],
   },

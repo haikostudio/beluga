@@ -1,24 +1,19 @@
 /**
  * QUEL MOTEUR REÇOIT UNE CARTE QUE PERSONNE N'A RÉGLÉE À LA MAIN.
  *
- * Avant cette règle, une carte posée sans clic (rendez-vous de nuit) héritait
- * toujours du moteur PAR DÉFAUT du projet — en pratique, toujours le même,
- * quel que soit le genre de la trouvaille. Le tri par Laya
- * (`server/src/jugement-rapide.ts`) classe le texte de la carte en deux genres ; cette
- * règle, pure et sans disque, traduit ce genre en moteur RÉELLEMENT
- * disponible :
- *
- *   - programmation avancée → Claude d'abord, GPT en repli ;
- *   - administratif         → GPT d'abord, Claude en repli ;
- *   - indéterminé (Laya absent, silencieux ou peu sûr de lui) → Claude
- *     d'abord, comme le réglage par défaut d'avant cette carte.
+ * C'EST L'UTILISATEUR QUI RANGE LES MOTEURS (réglages « Comptes et quotas »,
+ * `Settings.ordreDesMoteurs`) : le premier moteur de sa liste qui a encore du
+ * quota reçoit la carte, le suivant prend le relais s'il n'en a plus. Avant, un
+ * ordre figé dépendait du GENRE de la carte (Claude d'abord pour la
+ * programmation, GPT d'abord pour l'administratif, tranché par Laya) : le genre
+ * ne décide plus du moteur, il reste dans la signature pour les appelants.
  *
  * JAMAIS DE REPLI PAYANT PAR BASCULE AUTOMATIQUE (DEC-156, même règle que la
  * publication) : un moteur facturé au crédit, pas à la fenêtre (Cursor, MiMo,
  * les moteurs ajoutés), ne se choisit pas sans qu'on l'ait demandé — cela
- * dépenserait de l'argent au nom de personne. La SOURCE de cette règle est le
- * registre (`secoursAutomatique`, lu par `moteursDeSecours()`) ; la liste
- * ci-dessous ne donne que l'ORDRE de préférence.
+ * dépenserait de l'argent au nom de personne, même rangé en tête de la liste.
+ * La SOURCE de cette règle est le registre (`secoursAutomatique`, lu par
+ * `moteursDeSecours()`).
  *
  * Le PLAFOND du modèle le plus cher, lui, ne vit pas ici : il continue de
  * passer par `niveauPlancherAutomatique`/`runPlancherAutomatique`
@@ -42,15 +37,16 @@ export type GenreCarte = (typeof GENRES_CARTE)[number];
 export const SEUIL_CONFIANCE_TRI = 0.6;
 
 /**
- * L'ordre de préférence du genre. Tout moteur absent de `moteursDeSecours()`
- * en est écarté au moment du choix : le second sert de repli si le premier n'a
- * plus de quota, sans qu'un troisième moteur de bascule soit nécessaire.
+ * L'ORDRE DES MOTEURS À SUIVRE : celui de l'utilisateur, restreint aux moteurs
+ * de secours du registre, complété par ceux qu'il n'a pas rangés (dans l'ordre
+ * du registre). Un moteur de secours installé plus tard n'est donc jamais
+ * inatteignable, et un moteur payé au crédit n'y entre jamais.
  */
-const PREFERENCE_PAR_GENRE: Record<GenreCarte, IdMoteur[]> = {
-  programmation_avancee: ['claude', 'codex'],
-  administratif: ['codex', 'claude'],
-  indetermine: ['claude', 'codex'],
-};
+export function ordreDeMoteursComplet(voulu: readonly string[] = []): IdMoteur[] {
+  const secours = moteursDeSecours() as IdMoteur[];
+  const gardes = [...new Set(voulu)].filter((id): id is IdMoteur => (secours as string[]).includes(id));
+  return [...gardes, ...secours.filter((id) => !gardes.includes(id))];
+}
 
 function aDuQuota(catalogue: MoteurCatalogue[], id: IdMoteur): boolean {
   const moteur = catalogue.find((m) => m.id === id);
@@ -64,21 +60,22 @@ export interface ChoixDeMoteurAutomatique {
 }
 
 /**
- * Le moteur à poser sur une carte automatique, selon son genre et la place
- * réellement restante de chaque moteur.
+ * Le moteur à poser sur une carte automatique, selon l'ordre réglé par
+ * l'utilisateur et la place réellement restante de chaque moteur.
  *
- * Le premier moteur de la préférence du genre qui a encore du quota gagne ;
- * sinon le second (l'un des deux a forcément du quota dans le cas courant).
- * Si aucun des deux n'en a, le premier de la préférence est rendu quand même :
- * la proposition portera l'avertissement « aucun compte disponible » déjà posé
- * par `reglagesDeLaProposition`, plutôt que d'échouer à choisir un moteur.
+ * Le premier moteur de l'ordre qui a encore du quota gagne ; si aucun n'en a,
+ * le premier de l'ordre est rendu quand même : la proposition portera
+ * l'avertissement « aucun compte disponible » déjà posé par
+ * `reglagesDeLaProposition`, plutôt que d'échouer à choisir un moteur.
  */
-export function moteurDuTriAutomatique(genre: GenreCarte, catalogue: MoteurCatalogue[]): ChoixDeMoteurAutomatique {
-  const preference = PREFERENCE_PAR_GENRE[genre];
-  const secours = moteursDeSecours();
-  const permis = preference.filter((id) => secours.includes(id));
-  // Registre sans aucun moteur de secours parmi eux : le premier de la liste, comme avant.
-  const ordre = permis.length > 0 ? permis : preference.slice(0, 1);
-  const choisi = ordre.find((id) => aDuQuota(catalogue, id)) ?? ordre[0];
-  return { engine: choisi, bascule: choisi !== ordre[0] };
+export function moteurDuTriAutomatique(
+  _genre: GenreCarte,
+  catalogue: MoteurCatalogue[],
+  ordreDesMoteurs?: readonly string[],
+): ChoixDeMoteurAutomatique {
+  const ordre = ordreDeMoteursComplet(ordreDesMoteurs);
+  // Registre sans aucun moteur de secours : le premier de la liste, comme avant.
+  const liste = ordre.length > 0 ? ordre : (['claude'] as IdMoteur[]);
+  const choisi = liste.find((id) => aDuQuota(catalogue, id)) ?? liste[0];
+  return { engine: choisi, bascule: choisi !== liste[0] };
 }

@@ -38,7 +38,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
-import { PastilleDeFichier, VignetteDImage } from '@/components/pastille-de-fichier';
+import { PastilleDeFichier, VignetteDImage, adresseDePiece } from '@/components/pastille-de-fichier';
 import { LecteurVideo, type ApercuDeVideo } from '@/components/lecteur-video';
 import { client } from '@/lib/client';
 import { useTelechargement } from '@/lib/telechargement';
@@ -850,6 +850,22 @@ export function AttachmentThumb({
     return (
       <figure className={cn('w-full max-w-[480px]', className)} data-video-fil={item.id}>
         <LecteurVideo id={item.id} nom={item.name} apercu={apercu} />
+        <figcaption className="mt-1 min-w-0 truncate text-[12px] text-faint" title={item.name}>
+          {etiquetteDePiece(item)} · {bytes(item.size)}
+        </figcaption>
+      </figure>
+    );
+  }
+
+  /*
+   * UN SON SE LIT DANS LE FIL AUSSI (mode « Réalisation » : voix off,
+   * bruitages, musique). Le lecteur du navigateur, sans rien précharger
+   * d'autre que l'entête ; dans la barre d'écriture, il reste une pastille.
+   */
+  if (!compact && item.mime.startsWith('audio/')) {
+    return (
+      <figure className={cn('w-full max-w-[480px]', className)} data-audio-fil={item.id}>
+        <audio controls preload="metadata" src={adresseDePiece(item.id)} className="w-full" />
         <figcaption className="mt-1 min-w-0 truncate text-[12px] text-faint" title={item.name}>
           {etiquetteDePiece(item)} · {bytes(item.size)}
         </figcaption>

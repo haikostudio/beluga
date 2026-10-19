@@ -91,6 +91,8 @@ import {
   numerosApresReprise,
   bilanDeLot,
   definirIdentiteDInstallation,
+  droitsLus,
+  type DroitsDAcces,
 } from '@beluga/shared';
 import {
   clesADemander,
@@ -196,6 +198,8 @@ export interface AppState {
   offreHebergee: boolean;
   /** Le niveau du compte connecté : l'écran retire ce qui lui est fermé (le serveur le refuse de toute façon). */
   monRole: 'admin' | 'membre' | 'lecteur';
+  /** LA GRILLE d'un accès tiers (`droits-d-acces.ts`) : ce que son écran peut montrer. Absente pour l'administrateur. */
+  mesDroits?: DroitsDAcces;
   /**
    * L'écran est dessiné d'après la COPIE du dernier état vu (`dernier-etat-local.ts`),
    * pas d'après le serveur : on regarde, on n'agit pas — les gestes restent gelés
@@ -1528,6 +1532,7 @@ class Client {
           studioOuvert: event.studioOuvert === true,
           offreHebergee: event.offreHebergee === true,
           monRole: event.role ?? 'admin',
+          mesDroits: event.droits ? droitsLus(event.droits) : undefined,
           copieLocale: false,
           version: event.version,
           settings: event.settings,

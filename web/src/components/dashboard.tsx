@@ -10,6 +10,7 @@ import {
   ListChecks,
   Megaphone,
   NotebookPen,
+  TerminalSquare,
   UsersRound,
   type LucideIcon,
 } from 'lucide-react';
@@ -17,9 +18,10 @@ import { bornesDeLaPeriode, bornesDeLEchelle, rubriqueDuResume, type RubriqueDuR
 import { ZoneDefilement } from '@/components/ui';
 import { SelecteurPeriode } from '@/components/selecteur-periode';
 import { SilhouetteRubrique } from '@/components/silhouettes';
-import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
+import { CranDuFil, GestesDePage, OptionDePage, OptionsDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { usePref } from '@/lib/prefs';
+import { ouvrirLeTerminal } from '@/lib/ouvrir-terminal';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { useTelephone } from '@/lib/telephone';
@@ -162,6 +164,22 @@ export function Dashboard() {
           />
         </div>
       </GestesDePage>
+
+      {/* LE TERMINAL DU SERVEUR, à droite de la période : un clic ouvre le volet
+          du bas. Sur téléphone, c'est une ligne du menu à trois points. */}
+      <OptionsDePage>
+        <OptionDePage
+          compact
+          variante="ghost"
+          icone={<TerminalSquare className="h-4 w-4" />}
+          title={t('Terminal du serveur')}
+          aria-label={t('Terminal du serveur')}
+          onClick={ouvrirLeTerminal}
+          data-terminal-bouton-tableau
+        >
+          {t('Terminal du serveur')}
+        </OptionDePage>
+      </OptionsDePage>
 
       {/* LE FIL D'ARIANE DIT LA RUBRIQUE OUVERTE — « Services › Résumé ›
           Consommation » ; « Résumé » y ramène à la vue d'ensemble. */}

@@ -685,3 +685,94 @@ export function recitDuPoint(
     ...(quand?.dureeMs !== undefined ? { dureeMs: quand.dureeMs } : {}),
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* La discussion se lit dans le fil, les actions derrière « Réflexions » */
+/* ------------------------------------------------------------------ */
+
+/** Une question déjà répondue (sa réponse, écrite à la main comprise, est dans le journal). */
+function estUneQuestionRepondue(entree: EntreeJournal): boolean {
+  if (estDePlomberie(entree)) return false;
+  const recit = recitDeLEntree(entree);
+  return recit.genre === 'question' && !!recit.question?.reponse;
+}
+
+/**
+ * Une NOTE de l'agent : sa phrase de passage (« Plus que deux points, puis je
+ * cadre »). Un plan, une réponse rendue ou un incident se lisent ailleurs.
+ */
+function estUneNoteDAgent(entree: EntreeJournal): boolean {
+  if (estDePlomberie(entree)) return false;
+  const recit = recitDeLEntree(entree);
+  return recit.genre === 'note' && genreDAction(entree) === 'note' && !!recit.ditParLAgent;
+}
+
+/**
+ * QUELLES ENTRÉES SONT UN MOT DE LA DISCUSSION ? Une QUESTION déjà répondue
+ * (avec sa réponse, écrite à la main comprise), et la NOTE de l'agent qui la
+ * touche : celle qui suit une question répondue (« Budget noté ») ou qui en
+ * annonce une (« Plus que deux points, puis je cadre »). Ce sont les choses
+ * qu'on vient lire : elles ne passent ni derrière « Réflexions » ni sous « voir
+ * les N précédentes ».
+ *
+ * Les phrases de passage entre deux lectures (« Je vérifie le fichier… »)
+ * restent des actions : posées dans le fil, elles repousseraient la réponse
+ * hors de l'écran (capture #47ac).
+ *
+ * Une question SANS réponse n'en est pas : elle attend dans le panneau de
+ * décision, la poser aussi dans le fil la montrerait deux fois.
+ */
+function motsDeLaDiscussion(entrees: readonly EntreeJournal[]): boolean[] {
+  const utiles = entrees.map((entree, rang) => ({ entree, rang })).filter(({ entree }) => !estDePlomberie(entree));
+  const dedans = entrees.map(() => false);
+  for (let position = 0; position < utiles.length; position += 1) {
+    const { entree, rang } = utiles[position]!;
+    if (estUneQuestionRepondue(entree)) {
+      dedans[rang] = true;
+      continue;
+    }
+    if (!estUneNoteDAgent(entree)) continue;
+    /* La voisine non-note la plus proche, avant et après. */
+    let avant = position - 1;
+    while (avant >= 0 && estUneNoteDAgent(utiles[avant]!.entree)) avant -= 1;
+    let apres = position + 1;
+    while (apres < utiles.length && estUneNoteDAgent(utiles[apres]!.entree)) apres += 1;
+    const touche = (voisine: number) => {
+      if (voisine < 0 || voisine >= utiles.length) return false;
+      const e = utiles[voisine]!.entree;
+      return estUneQuestionRepondue(e) || recitDeLEntree(e).genre === 'question';
+    };
+    if (touche(avant) || touche(apres)) dedans[rang] = true;
+  }
+  return dedans;
+}
+
+/** Une suite d'entrées de même nature, dans l'ordre du journal. */
+export interface SegmentDuRecit {
+  sorte: 'discussion' | 'actions';
+  entrees: EntreeJournal[];
+}
+
+/**
+ * LE PASSAGE, COUPÉ EN SUITES : les mots de la discussion d'un côté, les
+ * actions (lectures, commandes, outils) de l'autre, dans l'ordre où ils sont
+ * arrivés. Deux suites voisines de même nature n'en font qu'une. La plomberie
+ * reste avec les actions, où `recitDuPoint` l'écarte.
+ */
+export function segmenterLeRecit(entrees: readonly EntreeJournal[]): SegmentDuRecit[] {
+  const dedans = motsDeLaDiscussion(entrees);
+  const segments: SegmentDuRecit[] = [];
+  entrees.forEach((entree, rang) => {
+    const sorte = dedans[rang] ? 'discussion' : 'actions';
+    const dernier = segments[segments.length - 1];
+    if (dernier && dernier.sorte === sorte) dernier.entrees.push(entree);
+    else segments.push({ sorte, entrees: [entree] });
+  });
+  return segments;
+}
+
+/** Les entrées d'un côté seulement : tout ce qui est discussion, ou tout ce qui est action. */
+export function entreesDeLaSorte(entrees: readonly EntreeJournal[], sorte: SegmentDuRecit['sorte']): EntreeJournal[] {
+  const dedans = motsDeLaDiscussion(entrees);
+  return entrees.filter((_, rang) => (dedans[rang] ? 'discussion' : 'actions') === sorte);
+}

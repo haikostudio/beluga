@@ -54,11 +54,24 @@ const LIBELLES: Record<string, string> = {
   backup_recette: 'Aperçu du site',
   backup_essai: 'Aperçu d’un essai',
   relancer_publication: 'Relance de la publication',
+  rendre_reparation: 'Verdict de la réparation',
   surveillance_essai: 'Essai d’une surveillance',
   surveillance_recette: 'Enregistrement d’une surveillance',
   deleguer: 'Consultation d’un autre modèle',
   evaluer: 'Évaluation par le juge local',
   suggerer_modele: 'Suggestion d’un autre modèle',
+  proposer_suites: 'Suites proposées',
+  realiser: 'Réalisation audiovisuelle',
+  marketing: 'Marketing',
+  statistiques: 'Statistiques des visites',
+
+  /* Les outils propres à l'assistant Beluga */
+  assistant_resume: 'Résumé de Beluga',
+  assistant_notes: 'Notes',
+  assistant_messagerie: 'Messagerie de l’espace client',
+  assistant_surveillances: 'Surveillance des sites',
+  assistant_backups: 'Backups des sites',
+  assistant_base_serveur: 'Base de données d’un serveur',
 
   /* Les outils du moteur */
   toolsearch: 'Recherche d’un outil',

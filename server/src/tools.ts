@@ -7,6 +7,7 @@ import {
   GENRES_DE_SOURCE,
   MODES_DE_CLONAGE,
   PHASES_DU_CAHIER,
+  PHASES_DE_REALISATION,
   colonneApresComprehensionDeRelance,
   LABEL_BIBLIOTHEQUE,
   jugerRecetteSource,
@@ -87,7 +88,7 @@ import {
   champsDuType,
   filtrerAcces,
   jugerAcces,
-  trouverDossier,
+  chercherDossier,
   analyseDeCadrageFaite,
   ecritureDeCarteAutoriseeAuCadrage,
   REFUS_AVANT_ANALYSE,
@@ -122,6 +123,9 @@ import {
   numeroDuProchainPlan,
   rendrePlan,
   IDS_MOTEURS,
+  REGLE_DES_PISTES,
+  cahierDeRealisationManquant,
+  REFUS_COMPREHENSION_SANS_CAHIER,
 } from '@beluga/shared';
 import {
   listerAcces,
@@ -133,6 +137,9 @@ import {
   imagesDesAcces,
   listerDossiers,
   listerDossiersArchives,
+  assurerCheminDeDossiers,
+  cheminDeDossier,
+  cheminsDesDossiers,
   restaurerAcces,
   restaurerDossier,
   supprimerAcces,
@@ -209,7 +216,15 @@ import {
   rythmeDuProjet,
 } from './marketing.js';
 import { estAgentStudio, mediasDuContenuMarketing } from './studio.js';
+import {
+  compterMessagesNonLus,
+  ecrireApplication as ecrireApplicationSociale,
+  listerComptes as listerComptesSociaux,
+  listerMessages as listerMessagesSociaux,
+  proposerReponse as proposerReponseSociale,
+} from './publication-sociale.js';
 import { ecrireLeCahier, estAgentDuCahier, ouvrirLeCahierDesCharges } from './cahier-des-charges.js';
+import { ecrireLaRealisation, estAgentDuQuestionnaireDeRealisation, lireLeDocumentDeRealisation } from './realisation-questionnaire.js';
 import type { ServeurMcp } from './rea.js';
 import {
   DEFINITION_OUTIL_STUDIO,
@@ -243,6 +258,7 @@ import {
   recetteEffective,
   recetteProposee,
   CLES_CANAUX,
+  RESEAUX_SOCIAUX,
   type IssueDArchive,
 } from '@beluga/shared';
 import { log } from './logger.js';
@@ -273,7 +289,8 @@ import { creneauPourUneCarte } from './heure-de-lancement.js';
 import { supprimerLaCarte } from './suppression-carte.js';
 import { refusDesProjetsTouches } from './regroupements.js';
 import { deleguer, evaluer, suggererModele } from './mode-creation.js';
-import { chercherUnDoublon, classerLeGenreDeLaCarte, garderLesPertinents, proposerUnNiveau } from './jugement-rapide.js';
+import { realiser } from './realisation.js';
+import { chercherUnDoublon, garderLesPertinents, proposerUnNiveau } from './jugement-rapide.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -753,7 +770,8 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'ask_user',
     description:
-      "Pose une question à l'utilisateur et ATTEND sa réponse avant de continuer. À utiliser dès qu'un choix t'appartient pas : options possibles, préférence, information manquante.",
+      "Pose une question à l'utilisateur et ATTEND sa réponse avant de continuer. À utiliser dès qu'un choix t'appartient pas : options possibles, préférence, information manquante. " +
+      REGLE_DES_PISTES,
     inputSchema: {
       type: 'object',
       required: ['question'],
@@ -1038,6 +1056,28 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'cahier_de_realisation',
+    description:
+      "CAHIER DE RÉALISATION (mode caméra) — APRÈS CHAQUE RÉPONSE de l'utilisateur, AVANT la question suivante : enregistre le document ENTIER (Markdown, une rubrique « ## » par partie du questionnaire, rubriques pas encore tranchées marquées « à voir ») et l'avancement. Le démon l'écrit dans docs/realisation/ du projet et met à jour la carte, que l'utilisateur lit pendant qu'elle s'écrit. C'est ce qui permet de reprendre après une pause. « termine » = vrai quand tout est tranché, budget et seuil compris : l'outil REFUSE de terminer tant qu'une rubrique manque, reste « à voir » ou que le budget et le seuil ne sont pas écrits en dollars.",
+    inputSchema: {
+      type: 'object',
+      required: ['document', 'faites', 'phase'],
+      properties: {
+        document: { type: 'string', description: 'Le cahier de réalisation ENTIER, en Markdown : il remplace le fichier' },
+        medias: {
+          type: 'array',
+          items: { type: 'string', enum: ['image', 'video', 'musique', 'voix', 'bruitages'] },
+          description: 'Les types de média voulus, réponse à « Quels types de média voulez-vous ? » : OBLIGATOIRE au premier appel, ensuite seulement si la liste change',
+        },
+        faites: { type: 'number', description: 'Questions déjà tranchées, les types de média compris' },
+        total: { type: 'number', description: 'Questions prévues en tout, ajusté en chemin' },
+        phase: { type: 'string', enum: [...PHASES_DE_REALISATION], description: 'La rubrique en cours' },
+        restants: { type: 'array', items: { type: 'string' }, description: 'Ce qui reste à voir, quelques mots chacun' },
+        termine: { type: 'boolean', description: 'Vrai quand toutes les questions sont tranchées' },
+      },
+    },
+  },
+  {
     name: 'memoire',
     description:
       "La BASE DE CONNAISSANCES, cherchée EN LOCAL sans aucun quota : des UNITÉS typées (decision, convention, component, operation…), chacune avec son identifiant (MEM-0042, DEC-007), son importance (P0 vital → P3), sa source et ses liens, rangées dans des fiches numérotées (00_project … 12_lessons ; au Global 00_principles … 06_lessons), plus le CHANGELOG du projet, qui dit ce qui a déjà été fait. " +
@@ -1197,14 +1237,19 @@ export const TOOL_DEFS: ToolDef[] = [
       "(« [] » vide la fiche). Sans « images », corriger une fiche GARDE ses photos. Si une photo est refusée " +
       "(introuvable, pas une image, trop lourde, plus de 12), la réponse dit la raison réelle : cite-la. Tu ne " +
       "réponds JAMAIS que tu n'as pas le droit de joindre une image : tu as l'outil, utilise-le. " +
-      "LES DOSSIERS RANGENT LES FICHES (un seul niveau, jamais un dossier dans un dossier ; un dossier n'a qu'un nom " +
-      "et un projet, aucun secret). « lister » dit le « dossier » de chaque fiche et la recherche porte sur son nom. " +
-      "« enregistrer » avec « dossier » (nom ou « id ») range la fiche dedans — le dossier est CRÉÉ s'il n'existe pas, " +
-      "et la fiche prend son projet ; « dossier » vide (\"\") la ressort de son dossier ; sans « dossier », rien ne " +
-      "bouge. « dossiers » liste les dossiers (et ceux archivés) avec leur nombre de fiches ; « dossier_enregistrer » " +
-      "crée un dossier (« nom ») ou renomme celui que « dossier » désigne ; « dossier_supprimer » archive le dossier " +
-      "ET toutes ses fiches ensemble, et « dossier_restaurer » les remet ensemble. Les fiches gardent leur règle : " +
-      "UNE FICHE PAR SECRET, le dossier ne porte jamais un identifiant.",
+      "LES DOSSIERS RANGENT LES FICHES, ET SE CONTIENNENT les uns les autres sur autant de niveaux que tu veux (un " +
+      "dossier n'a qu'un nom, un parent et un projet, aucun secret). Un dossier se désigne par son « id » ou par son " +
+      "CHEMIN (« Clients/Acme/Prod », le séparateur est « / ») ; un nom simple ne marche que s'il est unique, sinon la " +
+      "réponse liste les chemins possibles. « lister » dit le CHEMIN du dossier de chaque fiche (c'est ce qui te permet " +
+      "de les trier) et la recherche porte sur ce chemin. « enregistrer » avec « dossier » (chemin, nom ou « id ») " +
+      "range la fiche dedans — les niveaux qui n'existent pas sont CRÉÉS un à un, et la fiche prend le projet du " +
+      "dossier ; « dossier » vide (\"\") la ressort de son dossier ; sans « dossier », rien ne bouge. « dossiers » liste " +
+      "tous les dossiers par chemin (et ceux archivés) avec leur nombre de fiches, directes puis dans tout le " +
+      "sous-arbre ; « dossier_enregistrer » crée un dossier (« nom », et « parent » pour le poser dans un autre), " +
+      "renomme celui que « dossier » désigne, ou le DÉPLACE avec « parent » (vide = la racine) — un sous-dossier prend " +
+      "toujours le projet de son parent ; « dossier_supprimer » archive le dossier, ses sous-dossiers ET toutes leurs " +
+      "fiches ensemble, et « dossier_restaurer » les remet ensemble. Les fiches gardent leur règle : UNE FICHE PAR " +
+      "SECRET, le dossier ne porte jamais un identifiant.",
     inputSchema: {
       type: 'object',
       required: ['action'],
@@ -1218,7 +1263,12 @@ export const TOOL_DEFS: ToolDef[] = [
         dossier: {
           type: 'string',
           description:
-            "Un dossier, par son nom ou son « id ». Pour « enregistrer » : le dossier où ranger la fiche (créé s'il n'existe pas ; \"\" = la sortir de son dossier ; absent = ne rien changer). Pour « dossier_enregistrer » : le dossier à renommer. Pour « dossier_supprimer » et « dossier_restaurer » : le dossier visé.",
+            "Un dossier, par son chemin (« Clients/Acme/Prod »), son nom s'il est unique, ou son « id ». Pour « enregistrer » : le dossier où ranger la fiche (les niveaux manquants sont créés ; \"\" = la sortir de son dossier ; absent = ne rien changer). Pour « dossier_enregistrer » : le dossier à renommer ou déplacer. Pour « dossier_supprimer » et « dossier_restaurer » : le dossier visé.",
+        },
+        parent: {
+          type: 'string',
+          description:
+            "Le dossier PARENT, par son chemin ou son « id » (pour « dossier_enregistrer ») : pour créer « nom » dedans, ou pour y déplacer le dossier désigné par « dossier ». \"\" = la racine du coffre ; absent = ne rien changer.",
         },
         id: { type: 'string', description: "L'identifiant d'une fiche déjà rangée, pour la corriger (pour « enregistrer »), la retirer (pour « supprimer ») ou la remettre en service (pour « restaurer »)" },
         nom: { type: 'string', description: "Le nom de la fiche (pour « enregistrer »)" },
@@ -1266,6 +1316,20 @@ export const TOOL_DEFS: ToolDef[] = [
   // LE STUDIO : servi au seul agent attitré d'une création (`estAgentStudio`).
   DEFINITION_OUTIL_STUDIO as ToolDef,
   {
+    name: 'rendre_reparation',
+    description:
+      "REND LE VERDICT DE TA RÉPARATION — réservé à l'agent de réparation d'une publication en cours. « issue » : « reparee » (l'étape sera rejouée dès la fin de ton tour) ou « abandon » (le problème te dépasse : l'utilisateur verra ton encadré sur l'étape). « explication » : ce qui bloquait, en une ou deux phrases simples pour quelqu'un qui ne programme pas. « marche_a_suivre » (obligatoire pour un abandon) : ce que l'utilisateur doit faire, concrètement.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issue: { type: 'string', enum: ['reparee', 'abandon'] },
+        explication: { type: 'string' },
+        marche_a_suivre: { type: 'string' },
+      },
+      required: ['issue', 'explication'],
+    },
+  },
+  {
     name: 'relancer_publication',
     description:
       "RELANCE LA PUBLICATION TOMBÉE QUE TU DÉPANNES — réservé à l'agent ouvert par « Résoudre le problème ». Appelle-le UNE fois, après ta réparation : la même publication repartira, à la même étape, dès la fin de ton tour. Aucun autre geste de publication ne t'est permis.",
@@ -1274,11 +1338,17 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'marketing',
     description:
-      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés). Tu ne valides, ne programmes, ne publies et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
+      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['lire', 'configurer', 'fiche', 'canaux', 'action', 'contenu', 'poser_suivi', 'rapport'] },
+        action: { type: 'string', enum: ['lire', 'configurer', 'fiche', 'canaux', 'action', 'contenu', 'poser_suivi', 'rapport', 'messages', 'reponse', 'application'] },
+        canaux: { type: 'array', items: { type: 'string', enum: [...CLES_CANAUX, 'autre'] }, description: 'Pour « contenu » : TOUS les canaux du contenu (le premier devient le principal)' },
+        messageId: { type: 'string', description: 'Pour « reponse » : le message auquel tu proposes une réponse' },
+        reseau: { type: 'string', enum: [...RESEAUX_SOCIAUX], description: 'Pour « application »' },
+        clientId: { type: 'string', description: 'Pour « application » : l’identifiant public de l’application développeur' },
+        secret: { type: 'string', description: 'Pour « application » : le secret de l’application (rangé au coffre)' },
+        note: { type: 'string', description: 'Pour « application » : ce qui reste à faire, en une ou deux phrases' },
         rapport: { type: 'string', description: 'Pour « rapport » : le rapport entier, en Markdown' },
         configuration: { type: 'object', description: 'Pour « configurer »' },
         fiche: { type: 'object', description: 'Pour « fiche »' },
@@ -1306,7 +1376,7 @@ export const TOOL_DEFS: ToolDef[] = [
         titre: { type: 'string' },
         texte: { type: 'string' },
         datePrevue: { type: 'string', description: 'AAAA-MM-JJ' },
-        etape: { type: 'string', enum: ['brouillon', 'a_valider', 'abandonne', 'archive'], description: 'abandonne (ou archive) : seulement pour retirer une de tes propositions encore en brouillon ou à valider' },
+        etape: { type: 'string', enum: ['brouillon', 'a_valider', 'abandonne', 'archive', 'en_validation', 'validee'], description: 'abandonne (ou archive) : seulement pour retirer une de tes propositions encore en brouillon ou à valider' },
         nouveaute: { type: 'string', description: 'La référence d’une nouveauté en réserve (donnée par « lire ») que ce nouveau contenu annonce' },
         varianteDe: { type: 'string', description: 'L’identifiant de la version A, pour écrire sa version B' },
         lienCible: { type: 'string', description: 'La page vers laquelle le lien de suivi du contenu mène (par défaut : l’adresse du produit)' },
@@ -1613,6 +1683,39 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  /*
+   * L'OUTIL DU MODE « RÉALISATION » (bouton caméra). Servi à l'agent de TÂCHE
+   * d'une carte où la caméra est allumée, jamais au cadrage : la fabrication
+   * dépense de l'argent, elle part au lancement (`server/src/realisation.ts`).
+   */
+  {
+    name: 'realiser',
+    description:
+      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget du cahier des charges. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (AVANT CHAQUE génération : modèle, prix, raison — puis écris l'annonce dans ta réponse), « generer » (lance un devis ; au-delà du seuil ou sans prix publié, pose la question d'accord et ATTEND : rappelle alors « generer » avec le même devis), « suivre » (attend le résultat, qui paraît dans le fil), « lister » (médias produits et total dépensé), « ajouter » (range un fichier monté par toi, ex. ffmpeg), « fixer_budget » (pose la question du budget et du seuil ; après « Accepter », rappelle avec les mêmes montants).",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['modeles', 'voix', 'devis', 'generer', 'suivre', 'lister', 'ajouter', 'fixer_budget'] },
+        capacite: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar'], description: '« modeles » : filtrer par capacité' },
+        service: { type: 'string', description: '« devis » : le service (fal, runway, heygen, elevenlabs, openrouter…) ; « voix » : heygen ou elevenlabs' },
+        modele: { type: 'string', description: '« devis » : l’identifiant du modèle lu dans « modeles »' },
+        plan: { type: 'string', description: '« devis » / « ajouter » : le nom du plan ou du média (« Plan 3 — arrivée du héros ») ; refaire un plan garde le même nom' },
+        consigne: { type: 'string', description: '« devis » : la demande COMPLÈTE au modèle (sujet, action observable, cadrage, mouvement, lumière, style) ; pour une voix, le texte à dire' },
+        raison: { type: 'string', description: '« devis » / « fixer_budget » : pourquoi, en une phrase' },
+        format: { type: 'string', enum: ['16:9', '9:16', '1:1', '4:5'] },
+        duree: { type: 'number', description: 'Secondes (vidéo, son, musique)' },
+        son: { type: 'boolean', description: 'Vidéo : fabriquer le son avec l’image quand le modèle le sait' },
+        voix: { type: 'string', description: 'Identifiant de voix (action « voix »)' },
+        avatar: { type: 'string', description: 'Identifiant de présentateur HeyGen (action « voix », service heygen)' },
+        devis: { type: 'string', description: '« generer » : l’identifiant rendu par « devis »' },
+        id: { type: 'string', description: '« suivre » : l’identifiant de la génération' },
+        chemin: { type: 'string', description: '« ajouter » : chemin absolu du fichier à ranger' },
+        budget: { type: 'number', description: '« fixer_budget » : budget total en dollars' },
+        seuil: { type: 'number', description: '« fixer_budget » : seuil d’accord par génération en dollars' },
+      },
+    },
+  },
   {
     name: 'evaluer',
     description:
@@ -1752,6 +1855,7 @@ function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
 export const TASK_ONLY_TOOLS = new Set([
   'remember',
   'relancer_publication',
+  'rendre_reparation',
   'backup_recette',
   'backup_essai',
   'surveillance_essai',
@@ -1776,9 +1880,13 @@ export function outilServiA(nom: string, agentId: string): boolean {
   if (nom === 'studio') return estAgentStudio(agentId);
   // Le cahier des charges : le seul cadrage d'une carte née de la case « Démarrer par un cahier des charges ».
   if (nom === 'cahier_des_charges') return estAgentDuCahier(agentId);
+  // Le cahier de réalisation : le seul cadrage d'une carte dont la caméra est allumée.
+  if (nom === 'cahier_de_realisation') return estAgentDuQuestionnaireDeRealisation(agentId);
   // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
   if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
+  // Le verdict d'une réparation silencieuse : le seul agent qui la mène (`server/src/reparation-publication.ts`).
+  if (nom === 'rendre_reparation') return Boolean(store.getAgent(agentId)?.reparationPublication);
   return true;
 }
 
@@ -1804,13 +1912,26 @@ export const CADRAGE_BLOCKED_TOOLS = new Set([
  * déjà lancé — et lui offrir ces outils ferait réécrire le parcours d'une
  * carte en plein travail.
  */
-export const CADRAGE_ONLY_TOOLS = new Set(['rendre_comprehension', 'rendre_plan', 'deplacer_vers_projet', 'cahier_des_charges']);
+export const CADRAGE_ONLY_TOOLS = new Set([
+  'rendre_comprehension',
+  'rendre_plan',
+  'deplacer_vers_projet',
+  'cahier_des_charges',
+  'cahier_de_realisation',
+]);
 
 /** Les outils du mode « Création » : servis seulement quand la carte l'a allumé. */
 export const CREATION_TOOLS = new Set(['deleguer', 'evaluer', 'suggerer_modele']);
 
-export function toolsFor(role: ToolContext['role'], options: { creation?: boolean } = {}): ToolDef[] {
-  const servis = options.creation ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CREATION_TOOLS.has(t.name));
+/** L'outil du mode « Réalisation » : servi seulement à l'agent de TÂCHE d'une carte où la caméra est allumée. */
+export const REALISATION_TOOLS = new Set(['realiser']);
+
+export function toolsFor(role: ToolContext['role'], options: { creation?: boolean; realisation?: boolean } = {}): ToolDef[] {
+  const servis = TOOL_DEFS.filter(
+    (t) =>
+      (options.creation || !CREATION_TOOLS.has(t.name)) &&
+      ((options.realisation && role !== 'cadrage') || !REALISATION_TOOLS.has(t.name)),
+  );
   if (role === 'cadrage') return servis.filter((t) => !CADRAGE_BLOCKED_TOOLS.has(t.name));
   return servis.filter((t) => !CADRAGE_ONLY_TOOLS.has(t.name));
 }
@@ -1876,9 +1997,8 @@ export interface ToolContext {
  * (chef d'orchestre, rendez-vous de nuit) : personne n'a discuté avec cet
  * agent, donc le moteur hérité de sa conversation n'est jamais un choix
  * humain — juste le moteur par défaut du projet, toujours le même. Dans ce
- * cas, et SEULEMENT dans ce cas, le moteur suit le genre lu par Laya
- * (`classerLeGenreDeLaCarte`) plutôt que la conversation : Claude pour la
- * programmation avancée, GPT pour l'administratif, un repli sur quota qui
+ * cas, et SEULEMENT dans ce cas, le moteur suit l'ORDRE DES MOTEURS réglé par
+ * l'utilisateur plutôt que la conversation, avec un repli sur quota qui
  * n'atteint jamais Cursor tout seul (`moteurDuTriAutomatique`, DEC-156).
  */
 async function reglagesProposes(
@@ -1890,8 +2010,9 @@ async function reglagesProposes(
     const catalogue = await catalogueMoteurs();
     let base = souhait;
     if (automatique) {
-      const genre = await classerLeGenreDeLaCarte(automatique.titre, automatique.description, { projectId: automatique.projectId });
-      base = { engine: moteurDuTriAutomatique(genre, catalogue).engine };
+      // L'ordre des moteurs est celui de l'utilisateur : le genre de la carte
+      // (Laya) ne décide plus du moteur, on ne le demande donc plus.
+      base = { engine: moteurDuTriAutomatique('indetermine', catalogue, store.getSettings().ordreDesMoteurs).engine };
     }
     // LE MODÈLE DE LA CONVERSATION PASSE TOUJOURS (hors tri automatique
     // ci-dessus). On le retirait ici pour laisser le palier choisir à sa
@@ -2672,6 +2793,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
      */
     case 'deleguer':
       return deleguer(ctx, args);
+    /* LE MODE « RÉALISATION » : la mécanique vit dans `server/src/realisation.ts`.
+       Une question d'accord suit le chemin d'« ask_user » et ARRÊTE l'agent. */
+    case 'realiser':
+      return realiser(ctx, args);
     case 'evaluer':
       return evaluer(ctx, args);
     case 'suggerer_modele': {
@@ -2813,6 +2938,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         : 0;
       const carte = store.getCard(ctx.cardId);
       if (!carte || carte.projectId !== ctx.projectId) return { ok: false, text: 'Carte introuvable.' };
+      /* CADRAGE AUDIOVISUEL : pas de « c'est prêt » tant que le cahier n'est pas écrit. */
+      if (cahierDeRealisationManquant(carte, !!lireLeDocumentDeRealisation(carte))) {
+        return { ok: false, text: REFUS_COMPREHENSION_SANS_CAHIER };
+      }
       /*
        * UN TOUR QUI A RENDU SON PLAN EST CLOS. Une compréhension écrite après
        * le plan, dans le même tour, passait à l'écran pour une reprise du
@@ -2928,6 +3057,11 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'cahier_des_charges': {
       if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
       return ecrireLeCahier(ctx.agentId, args);
+    }
+
+    case 'cahier_de_realisation': {
+      if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
+      return ecrireLaRealisation(ctx.agentId, args);
     }
 
     case 'rendre_plan': {
@@ -3364,6 +3498,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
       return { ok: false, text: 'Action inconnue : lister, declarer, eprouver ou activer.' };
     }
 
+    case 'rendre_reparation': {
+      const { rendreLaReparation } = await import('./reparation-publication.js');
+      const issue = rendreLaReparation(ctx.agentId, args);
+      return { ok: issue.ok, text: issue.texte };
+    }
+
     case 'relancer_publication': {
       // Chargé à l'appel : le module passe par le runtime, qui charge ce fichier-ci.
       const { demanderLaRelance } = await import('./depannage-publication.js');
@@ -3702,8 +3842,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        */
       const nomDuProjet = (id: string | null) => (id ? store.getProject(id)?.name : undefined);
       // Les dossiers actifs ET archivés : une fiche archivée peut citer un dossier archivé.
-      const dossiersConnus = () => [...listerDossiers(), ...listerDossiersArchives()];
-      const nomDuDossier = (id: string | null) => (id ? dossiersConnus().find((d) => d.id === id)?.nom : undefined);
+      // On dit toujours le CHEMIN complet (« Clients/Acme/Prod »), jamais le seul dernier niveau.
+      const chemins = cheminsDesDossiers();
+      const nomDuDossier = (id: string | null) => (id ? chemins.get(id) || undefined : undefined);
+      // Dit pourquoi un dossier n'a pas été retrouvé : introuvable, ou ambigu (avec les chemins possibles).
+      const refusDossier = (r: { raison: string; candidats: string[] }, cle: string) =>
+        r.candidats.length ? `${r.raison} Chemins possibles : ${r.candidats.join(' ; ')}.` : `Aucun dossier actif ne s'appelle « ${cle} » : « dossiers » les liste.`;
 
       if (action === 'lister' || action === 'archives') {
         const archives = action === 'archives';
@@ -3791,16 +3935,20 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
               if (images) effacerLesImagesOrphelines(images);
               return { ok: false, text: `Enregistrement impossible : ${jugee.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
             }
-            const trouve = trouverDossier(listerDossiers(), cle);
-            if (trouve) dossierId = trouve.id;
-            else {
-              const cree = enregistrerDossier({ nom: cle, projectId: ctx.projectId });
+            const trouve = chercherDossier(listerDossiers(), cle, [...listerDossiers(), ...listerDossiersArchives()]);
+            if (trouve.ok) dossierId = trouve.dossier.id;
+            else if (trouve.candidats.length) {
+              if (images) effacerLesImagesOrphelines(images);
+              return { ok: false, text: `Dossier impossible : ${refusDossier(trouve, cle)} Donne le chemin complet et rappelle l'outil.` };
+            } else {
+              // Absent : le chemin entier naît, niveau par niveau (un nom simple = un dossier à la racine).
+              const cree = assurerCheminDeDossiers(cle, ctx.projectId);
               if (!cree.ok) {
                 if (images) effacerLesImagesOrphelines(images);
                 return { ok: false, text: `Dossier impossible : ${cree.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
               }
               dossierId = cree.dossier.id;
-              dossierCree = true;
+              dossierCree = cree.cree;
             }
           }
         }
@@ -3825,7 +3973,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           ? `du projet « ${nomDuProjet(resultat.acces.projectId) ?? resultat.acces.projectId} »`
           : 'partagé de Beluga Build';
         const rangee = resultat.acces.dossierId
-          ? ` Rangé dans le dossier « ${nomDuDossier(resultat.acces.dossierId) ?? resultat.acces.dossierId} »${dossierCree ? ' (créé)' : ''}.`
+          ? ` Rangé dans le dossier « ${cheminDeDossier(resultat.acces.dossierId) || resultat.acces.dossierId} »${dossierCree ? ' (créé)' : ''}.`
           : dossierId === null
             ? ' Sorti de son dossier.'
             : '';
@@ -3862,59 +4010,100 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
 
       if (action === 'dossiers') {
         const fiches = listerAcces();
-        const ligne = (d: { id: string; nom: string; projectId: string | null }, archive: boolean) => {
-          const n = fiches.filter((a) => a.dossierId === d.id).length;
-          const portee = d.projectId ? `projet ${nomDuProjet(d.projectId) ?? d.projectId}` : 'partagé Beluga Build';
-          return `- [${d.id}] ${d.nom} (${portee}${archive ? ', archivé avec ses fiches' : ` · ${n} fiche${n > 1 ? 's' : ''}`})`;
-        };
         const actifs = listerDossiers();
         const archives = listerDossiersArchives();
+        const ligne = (d: { id: string; projectId: string | null }, archive: boolean) => {
+          const portee = d.projectId ? `projet ${nomDuProjet(d.projectId) ?? d.projectId}` : 'partagé Beluga Build';
+          const chemin = chemins.get(d.id) ?? d.id;
+          if (archive) return `- [${d.id}] ${chemin} (${portee}, archivé avec son contenu)`;
+          // Directes = rangées dans ce dossier ; sous-arbre = ce dossier et tout ce qu'il contient.
+          const prefixe = `${chemin}/`;
+          const directes = fiches.filter((a) => a.dossierId === d.id).length;
+          const sousArbre = fiches.filter((a) => a.dossierChemin === chemin || (a.dossierChemin ?? '').startsWith(prefixe)).length;
+          const detail = sousArbre === directes ? `${directes} fiche${directes > 1 ? 's' : ''}` : `${directes} fiche${directes > 1 ? 's' : ''} ici, ${sousArbre} dans tout le sous-arbre`;
+          return `- [${d.id}] ${chemin} (${portee} · ${detail})`;
+        };
+        const parChemin = (a: { id: string }, b: { id: string }) => (chemins.get(a.id) ?? '').localeCompare(chemins.get(b.id) ?? '');
         if (!actifs.length && !archives.length) return { ok: true, text: 'Aucun dossier dans le coffre-fort.' };
         return {
           ok: true,
-          text: [...actifs.map((d) => ligne(d, false)), ...(archives.length ? ['Archivés :', ...archives.map((d) => ligne(d, true))] : [])].join('\n'),
+          text: [
+            ...[...actifs].sort(parChemin).map((d) => ligne(d, false)),
+            ...(archives.length ? ['Archivés :', ...[...archives].sort(parChemin).map((d) => ligne(d, true))] : []),
+          ].join('\n'),
         };
       }
 
       if (action === 'dossier_enregistrer') {
         const cle = typeof args.dossier === 'string' ? args.dossier.trim() : typeof args.id === 'string' ? args.id.trim() : '';
         const nom = typeof args.nom === 'string' ? args.nom : '';
+        const tousLesDossiers = [...listerDossiers(), ...listerDossiersArchives()];
+        // `parent` : absent = on ne dit rien ; "" = la racine ; sinon le dossier parent (chemin ou id).
+        let parentId: string | null | undefined;
+        if (typeof args.parent === 'string') {
+          const cleParent = args.parent.trim();
+          if (!cleParent) parentId = null;
+          else {
+            const trouve = chercherDossier(listerDossiers(), cleParent, tousLesDossiers);
+            if (!trouve.ok) return { ok: false, text: `Dossier parent impossible : ${refusDossier(trouve, cleParent)}` };
+            parentId = trouve.dossier.id;
+          }
+        }
         let resultat;
         if (cle) {
-          const existant = trouverDossier(listerDossiers(), cle);
-          if (!existant) return { ok: false, text: `Aucun dossier actif ne s'appelle « ${cle} » : « dossiers » les liste.` };
-          resultat = enregistrerDossier({ id: existant.id, nom: nom || existant.nom, projectId: existant.projectId });
+          const trouve = chercherDossier(listerDossiers(), cle, tousLesDossiers);
+          if (!trouve.ok) return { ok: false, text: refusDossier(trouve, cle) };
+          const existant = trouve.dossier;
+          resultat = enregistrerDossier({
+            id: existant.id,
+            nom: nom || existant.nom,
+            projectId: existant.projectId,
+            ...(parentId !== undefined ? { parentId } : {}),
+          });
         } else {
-          resultat = enregistrerDossier({ nom, projectId: ctx.projectId });
+          resultat = enregistrerDossier({ nom, projectId: ctx.projectId, ...(parentId !== undefined ? { parentId } : {}) });
         }
         if (!resultat.ok) return { ok: false, text: `Dossier impossible : ${resultat.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
         const ou = resultat.dossier.projectId
           ? `du projet « ${nomDuProjet(resultat.dossier.projectId) ?? resultat.dossier.projectId} »`
           : 'partagé de Beluga Build';
-        return { ok: true, text: `Dossier « ${resultat.dossier.nom} » ${cle ? 'corrigé' : 'créé'} ${ou} — id ${resultat.dossier.id}.` };
+        const chemin = cheminsDesDossiers().get(resultat.dossier.id) ?? resultat.dossier.nom;
+        return { ok: true, text: `Dossier « ${chemin} » ${cle ? 'corrigé' : 'créé'} ${ou} — id ${resultat.dossier.id}.` };
       }
 
       if (action === 'dossier_supprimer') {
         const cle = typeof args.dossier === 'string' ? args.dossier.trim() : typeof args.id === 'string' ? args.id.trim() : '';
-        if (!cle) return { ok: false, text: "Donne le « dossier » à supprimer (son nom ou son « id »)." };
-        const existant = trouverDossier(listerDossiers(), cle);
-        if (!existant) return { ok: false, text: `Aucun dossier actif ne s'appelle « ${cle} » : « dossiers » les liste.` };
+        if (!cle) return { ok: false, text: "Donne le « dossier » à supprimer (son chemin, son nom ou son « id »)." };
+        const trouve = chercherDossier(listerDossiers(), cle, [...listerDossiers(), ...listerDossiersArchives()]);
+        if (!trouve.ok) return { ok: false, text: refusDossier(trouve, cle) };
+        const existant = trouve.dossier;
+        const chemin = chemins.get(existant.id) ?? existant.nom;
         const resultat = supprimerDossier(existant.id);
         if (!resultat.ok) return { ok: false, text: `Suppression refusée : ${resultat.raison}` };
+        const sous = resultat.dossiers ? `, ses ${resultat.dossiers} sous-dossier(s)` : '';
         return {
           ok: true,
-          text: `Dossier « ${existant.nom} » archivé avec ses ${resultat.fiches ?? 0} fiche(s) : ils quittent le coffre actif et seront effacés pour de bon dans six mois, sauf restauration (« dossier_restaurer »).`,
+          text: `Dossier « ${chemin} » archivé${sous} et ses ${resultat.fiches ?? 0} fiche(s) : ils quittent le coffre actif et seront effacés pour de bon dans six mois, sauf restauration (« dossier_restaurer »).`,
         };
       }
 
       if (action === 'dossier_restaurer') {
         const cle = typeof args.dossier === 'string' ? args.dossier.trim() : typeof args.id === 'string' ? args.id.trim() : '';
-        if (!cle) return { ok: false, text: "Donne le « dossier » à restaurer (son nom ou son « id »)." };
-        const archive = trouverDossier(listerDossiersArchives(), cle);
-        if (!archive) return { ok: false, text: `Aucun dossier archivé ne s'appelle « ${cle} » : « dossiers » liste les archivés.` };
+        if (!cle) return { ok: false, text: "Donne le « dossier » à restaurer (son chemin, son nom ou son « id »)." };
+        const trouve = chercherDossier(listerDossiersArchives(), cle, [...listerDossiers(), ...listerDossiersArchives()]);
+        if (!trouve.ok)
+          return {
+            ok: false,
+            text: trouve.candidats.length
+              ? `${trouve.raison} Chemins possibles : ${trouve.candidats.join(' ; ')}.`
+              : `Aucun dossier archivé ne s'appelle « ${cle} » : « dossiers » liste les archivés.`,
+          };
+        const archive = trouve.dossier;
+        const chemin = chemins.get(archive.id) ?? archive.nom;
         const resultat = restaurerDossier(archive.id);
         if (!resultat.ok) return { ok: false, text: `Restauration refusée : ${resultat.raison}` };
-        return { ok: true, text: `Dossier « ${archive.nom} » restauré avec ses ${resultat.fiches ?? 0} fiche(s).` };
+        const sous = resultat.dossiers ? `, ses ${resultat.dossiers} sous-dossier(s)` : '';
+        return { ok: true, text: `Dossier « ${chemin} » restauré${sous} avec ses ${resultat.fiches ?? 0} fiche(s).` };
       }
 
       return {
@@ -4221,6 +4410,7 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
       const r = resultatsDuProjet(project.id, 30);
       const parContenu = new Map(r.parContenu.map((l) => [l.contenuId, l]));
       const nouveautes = nouveautesEnReserve(project.id);
+      const comptesSociaux = listerComptesSociaux(project.id);
       return {
         ok: true,
         text: [
@@ -4230,12 +4420,13 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
           `AVIS SUR LES CANAUX : ${espace.configuration.recommandations.length ? espace.configuration.recommandations.map((r) => `${r.canal} ${r.pertinence}`).join(', ') : 'aucun pour l’instant'} · CHOISIS : ${espace.configuration.canaux.join(', ') || 'aucun'}`,
           `PLAN D'ACTION (${actions.length}) :`,
           ...actions.slice(0, 40).map((a) => `- [${a.id}] ${a.datePrevue ?? 'sans date'}${a.canal ? ` · ${a.canal}` : ''} · « ${a.titre} »${a.faitLe ? ' · FAIT' : ''}`),
+          `COMPTES RELIÉS : ${comptesSociaux.length ? comptesSociaux.map((x) => `${x.reseau} « ${x.nom} » (${x.etat})`).join(', ') : 'aucun — l’utilisateur les relie dans l’onglet Comptes'} · MESSAGES NON LUS : ${compterMessagesNonLus(project.id)} (action « messages » pour les lire)`,
           `CONTENUS (${contenus.length}) :`,
           ...contenus.slice(0, 40).map((c) => {
             const l = parContenu.get(c.id);
             // Les visuels exportés par le Studio pour ce contenu, en lecture seule.
             const visuels = mediasDuContenuMarketing(c.id);
-            return `- [${c.id}] ${c.etape} · ${c.genre} · ${c.canal}${c.datePrevue ? ` · ${c.datePrevue}` : ''} · « ${c.titre} »${c.varianteDe ? ` (version B de ${c.varianteDe})` : ''}${
+            return `- [${c.id}] ${c.etape} · ${c.genre} · ${c.canaux.join('+')}${c.datePrevue ? ` · ${c.datePrevue}` : ''} · « ${c.titre} »${c.varianteDe ? ` (version B de ${c.varianteDe})` : ''}${
               l ? ` — ${l.visites} clic(s), ${l.objectifs} objectif(s), ${l.ventes} vente(s), ${centimes(l.montantCentimes)}` : ''
             }${visuels.length ? ` · visuel(s) du Studio : ${visuels.map((v) => `${v.genre} ${v.format}`).join(', ')}` : ''}`;
           }),
@@ -4296,6 +4487,7 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
         projectId: project.id,
         genre: args.genre,
         canal: args.canal,
+        canaux: args.canaux,
         titre: args.titre,
         texte: args.texte,
         datePrevue: args.datePrevue,
@@ -4321,8 +4513,36 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
       if (!r.ok) return { ok: false, text: r.raison };
       return { ok: true, text: 'Rapport enregistré. Rends-le ENTIER comme réponse finale : l’utilisateur le lit dans ta conversation et te répond dessous.' };
     }
+    case 'messages': {
+      const messages = listerMessagesSociaux(project.id).slice(0, 60);
+      if (!messages.length) return { ok: true, text: 'Aucun commentaire ni message relevé sur les comptes reliés.' };
+      return {
+        ok: true,
+        text: [
+          'COMMENTAIRES ET MESSAGES (non lus d’abord). Pour proposer une réponse : action « reponse » avec messageId et texte — l’utilisateur l’enverra lui-même.',
+          ...messages.map(
+            (m) =>
+              `- [${m.id}] ${m.reseau} · ${m.genre}${m.sortant ? ' · NOTRE RÉPONSE' : m.lu ? '' : ' · NON LU'} · ${new Date(m.instant).toISOString().slice(0, 16)} · ${m.auteur || 'anonyme'} : « ${m.texte.slice(0, 300)} »${m.brouillon ? ` · réponse proposée : « ${m.brouillon.slice(0, 200)} »` : ''}`,
+          ),
+        ].join('\n'),
+      };
+    }
+    case 'reponse': {
+      const r = proposerReponseSociale(String(args.messageId ?? ''), args.texte, project.id);
+      return r.ok ? { ok: true, text: 'Réponse proposée : elle attend sous le message, l’utilisateur l’enverra s’il la garde.' } : { ok: false, text: r.raison };
+    }
+    case 'application': {
+      const etat = args.etat === 'validee' || args.etat === 'en_validation' ? args.etat : undefined;
+      const r = ecrireApplicationSociale({ reseau: args.reseau, clientId: args.clientId, secret: args.secret, etat, note: args.note });
+      if (!r.ok) return { ok: false, text: r.raison };
+      const a = r.application;
+      return {
+        ok: true,
+        text: `Application ${a.application} enregistrée : état ${a.etat}, identifiant ${a.clientId ?? 'manquant'}, secret ${a.aUnSecret ? 'au coffre' : 'manquant'}. L’utilisateur peut ${a.clientId && a.aUnSecret ? 'désormais relier ses comptes (bouton « Relier » de l’onglet Comptes)' : 'relier ses comptes dès que l’identifiant et le secret sont là'}.`,
+      };
+    }
     default:
-      return { ok: false, text: `Action inconnue : « ${action} ». Choisis lire, configurer, fiche, canaux, action, contenu, poser_suivi ou rapport.` };
+      return { ok: false, text: `Action inconnue : « ${action} ». Choisis lire, configurer, fiche, canaux, action, contenu, poser_suivi, rapport, messages, reponse ou application.` };
   }
 }
 

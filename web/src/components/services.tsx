@@ -1,8 +1,10 @@
 import * as React from 'react';
+import { niveauDeMonService } from '@/lib/mes-droits';
 import {
   Activity,
   BarChart3,
   Clapperboard,
+  Film,
   HardDriveDownload,
   Key,
   LayoutDashboard,
@@ -36,6 +38,7 @@ const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Key; cleL
   { cle: 'surveillance', repere: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance' },
   { cle: 'marketing', repere: 'marketing', Icone: Megaphone, cleLibelle: 'Marketing' },
   { cle: 'studio', repere: 'studio', Icone: Clapperboard, cleLibelle: 'Studio' },
+  { cle: 'medias', repere: 'medias', Icone: Film, cleLibelle: 'Médias' },
   { cle: 'notes', repere: 'notes', Icone: NotebookPen, cleLibelle: 'Notes' },
 ];
 
@@ -62,7 +65,7 @@ function PastillePanne({ nombre }: { nombre: number }) {
  *
  * Il ouvre d'abord une ligne « Tableaux de bord » sur toute la largeur, puis
  * une grille : une tuile par service — Résumé, Statistiques,
- * Coffre-fort, Mémoire, Messagerie, Backup, Surveillance, Marketing, Studio,
+ * Coffre-fort, Mémoire, Messagerie, Backup, Surveillance, Marketing, Studio, Médias,
  * Notes. Choisir une tuile REMPLACE le contenu de la zone principale. Celle du
  * service affiché est marquée. Sur téléphone, la grille s'ouvre au bas de
  * l'écran, comme tout menu.
@@ -90,9 +93,12 @@ export function BoutonDesServices({
   const messages = state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter;
   const alertes = messages + sitesEnPanne;
   /* LE STUDIO N'A DE TUILE QUE POUR SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`). */
-  /* LES SERVICES SONT À L'ADMINISTRATEUR : un membre ou un lecteur n'a que ses projets. */
-  const services = CLES_DES_SERVICES.filter(
-    (service) => state.monRole === 'admin' && (service.cle !== 'studio' || state.studioOuvert),
+  /* LES SERVICES SONT À L'ADMINISTRATEUR : un accès tiers n'a que ses projets,
+     plus le coffre-fort si sa grille le lui ouvre. */
+  const services = CLES_DES_SERVICES.filter((service) =>
+    state.monRole === 'admin'
+      ? service.cle !== 'studio' || state.studioOuvert
+      : service.cle === 'coffre' && niveauDeMonService(state, 'coffre') !== 'aucun',
   );
   const serviceOuvert = services.find((service) => service.cle === vue);
   const surUnService = !!serviceOuvert;
@@ -100,8 +106,8 @@ export function BoutonDesServices({
   const surLesTableauxDeBord = vue === 'en-route' || (vue === 'projet' && !state.activeProjectId);
   const Icone = serviceOuvert?.Icone ?? LayoutGrid;
 
-  // Ni services ni « Tableaux de bord » (toutes les cartes de tous les projets) pour un membre ou un lecteur.
-  if (state.monRole !== 'admin') return null;
+  // Ni « Tableaux de bord » (toutes les cartes de tous les projets) pour un accès tiers, et aucun menu s'il n'a aucun service.
+  if (state.monRole !== 'admin' && !services.length) return null;
 
   return (
     <DropdownMenu open={ouvert} onOpenChange={setOuvert}>
@@ -127,6 +133,7 @@ export function BoutonDesServices({
             réunit ce qui est en route dans tous les projets n'est pas un service
             comme les autres tuiles, mais le lieu d'où l'on part — d'où une
             ligne à elle, au-dessus de la grille. */}
+        {state.monRole === 'admin' ? (
         <DropdownMenuItem
           data-destination="en-route"
           data-ouvrir-en-route
@@ -144,6 +151,7 @@ export function BoutonDesServices({
           <LayoutGrid className="h-4 w-4 shrink-0" />
           <span className="min-w-0 truncate">{t('Tableaux de bord')}</span>
         </DropdownMenuItem>
+        ) : null}
         <div className="grid grid-cols-2 gap-1">
           {services.map(({ cle, repere, Icone: IconeDuService, cleLibelle }) => (
             <DropdownMenuItem

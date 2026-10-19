@@ -23,7 +23,11 @@ import {
   porteeNettoyee,
   roleLu,
   themeChoisiValide,
+  droitsLus,
+  projetsDesDroits,
+  roleDesDroits,
   type CompteUtilisateur,
+  type DroitsDAcces,
   type RoleCompte,
 } from '@beluga/shared';
 import { getDb } from './db.js';
@@ -41,6 +45,7 @@ interface LigneUtilisateur {
   derniere_entree: number | null;
   courriel: string | null;
   apparence: string | null;
+  droits?: string | null;
 }
 
 export function empreinte(motDePasse: string, sel: Buffer): string {
@@ -75,7 +80,39 @@ function enCompte(ligne: LigneUtilisateur): CompteUtilisateur {
     projets: ligne.role === 'admin' ? [] : projetsDuCompte(ligne.id),
     courriel: ligne.courriel ?? undefined,
     apparence: ligne.apparence ?? undefined,
+    ...(ligne.droits && (ligne.role === 'membre' || ligne.role === 'lecteur') ? { droits: droitsDeLaLigne(ligne.droits) } : {}),
   };
+}
+
+function droitsDeLaLigne(brut: string): DroitsDAcces {
+  try {
+    return droitsLus(JSON.parse(brut));
+  } catch {
+    return droitsLus(null);
+  }
+}
+
+/**
+ * POSER LA GRILLE D'UN ACCÈS TIERS : elle fixe ses projets ouverts (la portée)
+ * et son niveau de base (`roleDesDroits`). Les sessions ouvertes tombent si le
+ * niveau change, pour que l'écran qui s'ouvre soit le bon.
+ */
+export function changerLesDroits(userId: string, brut: unknown, projetsConnus: readonly string[]): CompteUtilisateur {
+  const compte = compteParId(userId);
+  if (!compte) throw new Error('Ce compte est introuvable.');
+  if (compte.role !== 'membre' && compte.role !== 'lecteur') {
+    throw new Error('Cette grille ne concerne que les accès tiers à Beluga.');
+  }
+  const droits = droitsLus(brut, projetsConnus);
+  const role = roleDesDroits(droits);
+  const db = getDb();
+  db.prepare('UPDATE users SET droits = ?, role = ? WHERE id = ?').run(JSON.stringify(droits), role, userId);
+  db.prepare('DELETE FROM user_projects WHERE user_id = ?').run(userId);
+  for (const projectId of projetsDesDroits(droits)) {
+    db.prepare('INSERT OR IGNORE INTO user_projects (user_id, project_id) VALUES (?, ?)').run(userId, projectId);
+  }
+  if (role !== compte.role) fermerLesSessions(userId);
+  return compteParId(userId)!;
 }
 
 export function listerComptes(): CompteUtilisateur[] {

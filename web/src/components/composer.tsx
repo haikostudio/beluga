@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUp, Check, ChevronDown, ClipboardList, FileText, GripVertical, Loader2, Paperclip, Pause, Pencil, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, ChevronDown, ClipboardList, FileText, GripVertical, Loader2, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
 import {
   Agent,
   COLONNES_AVANT_LE_TRAVAIL,
@@ -57,6 +57,8 @@ import {
   tailleLisible,
   DELAI_AVANT_MESSAGE_DU_CANAL,
   EDITION_EN_FILE_RAFRAICHIE_MS,
+  nettoyerTexteColle,
+  texteColleADesDebris,
 } from '@beluga/shared';
 import { EVENEMENT_FILE_RENDUE, type DetailFileRendue, useArretAgent, useChampMonte } from '@/components/arret-agent';
 import { AttachmentPreview } from '@/components/attachment-preview';
@@ -364,6 +366,50 @@ function InterrupteurDeCreation({ cardId, agent }: { cardId?: string; agent?: Ag
 }
 
 /**
+ * L'INTERRUPTEUR « RÉALISATION » (caméra), TROISIÈME DE LA RANGÉE.
+ *
+ * Allumé, la carte devient un projet audiovisuel : le cadrage pose d'abord
+ * « image ou vidéo ? » puis un questionnaire de réalisation, et l'agent de
+ * tâche reçoit l'outil « realiser » qui fabrique les médias sous budget, en
+ * annonçant modèle et prix avant chaque génération
+ * (`shared/src/mode-realisation.ts`). L'allumer allume aussi le cahier des
+ * charges. Même rangement que « Création » : sur la carte, choisi avant le
+ * travail, et toujours valable à l'exécution.
+ */
+function InterrupteurDeRealisation({ cardId, agent }: { cardId?: string; agent?: Agent | null }) {
+  const state = useApp();
+  const carte = cardId ? state.cards[cardId] : undefined;
+  const [enVol, setEnVol] = React.useState(false);
+  if (!carte || agent?.role !== 'cadrage') return null;
+  if (!COLONNES_AVANT_LE_TRAVAIL.includes(carte.column) && !carte.parcours?.cadrageRouvertA) return null;
+  const actif = !!carte.parcours?.realisationSouhaitee;
+  return (
+    <Tooltip
+      label={`${t('Réalisation')} — ${
+        actif
+          ? t('Mode réalisation : le cadrage bâtit le cahier de l’image ou de la vidéo, puis l’agent la fabrique sous votre budget.')
+          : t('Faire réaliser une image ou une vidéo : questionnaire de réalisation, puis fabrication avec modèle et prix annoncés.')
+      }`}
+    >
+      <BoutonInterrupteur
+        actif={actif}
+        enVol={enVol}
+        data-interrupteur-realisation={actif ? 'allume' : 'eteint'}
+        icone={<Video className="h-4 w-4" />}
+        libelle={t('Réalisation')}
+        onClick={() => {
+          setEnVol(true);
+          void client
+            .call({ type: 'card.realisation.souhaitee', cardId: carte.id, actif: !actif })
+            .catch((err: any) => client.pushToast('error', err?.message ?? t('Geste refusé'), carte.id))
+            .finally(() => setEnVol(false));
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+/**
  * LA FENÊTRE DU PREMIER ALLUMAGE DE « CRÉATION ». Elle ne paraît qu'une fois
  * par utilisateur (préférence partagée entre appareils, `creation.expliquee`) :
  * ce que fait le mode, ce qu'il coûte, et comment l'éteindre.
@@ -614,6 +660,36 @@ export function Composer({
     const fin = Math.min(garde.fin, zone.value.length);
     if (zone.selectionStart !== debut || zone.selectionEnd !== fin) zone.setSelectionRange(debut, fin);
   }, [text, texteDuChamp]);
+
+  /**
+   * LE CURSEUR ARRIVE DANS LE CHAMP QUAND UN AGENT S'OUVRE (nouvel agent, carte
+   * existante, changement d'agent dans le même composant). Un court délai le
+   * laisse passer après le focus que le tiroir ou la fenêtre reprend en se
+   * fermant. Grand écran seulement : sur téléphone, le clavier cacherait le fil.
+   * Jamais volé à un champ déjà actif, ni posé sur un champ gelé ; le texte et
+   * la sélection du brouillon ne sont pas touchés.
+   */
+  const agentOuvert = agent?.id;
+  React.useEffect(() => {
+    if (!agentOuvert || !window.matchMedia('(min-width: 640px)').matches) return;
+    const minuterie = window.setTimeout(() => {
+      const zone = textareaRef.current;
+      if (!zone || zone.readOnly || zone.disabled || ecritureGeleeRef.current) return;
+      const actif = document.activeElement;
+      if (
+        actif &&
+        actif !== zone &&
+        (actif instanceof HTMLInputElement ||
+          actif instanceof HTMLTextAreaElement ||
+          actif instanceof HTMLSelectElement ||
+          (actif as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+      zone.focus({ preventScroll: true });
+    }, 60);
+    return () => window.clearTimeout(minuterie);
+  }, [agentOuvert]);
 
   /**
    * UNE RÉÉCRITURE VENUE D'AILLEURS NE DÉPLACE PAS LE CURSEUR. Quand un autre
@@ -1963,8 +2039,8 @@ export function Composer({
           ))}
           <p className="px-1 text-[12px] text-faint">
             {queue.length === 1
-              ? t('Votre message part dès que l\'agent a fini.')
-              : t('{v0} messages en attente : ils partiront l\'un après l\'autre.', { v0: queue.length })}
+              ? t('Votre message part dès que l\'agent a fini, ou tout de suite avec la flèche.')
+              : t('{v0} messages en attente : ils partiront l\'un après l\'autre, ou tout de suite avec la flèche.', { v0: queue.length })}
           </p>
         </div>
       ) : null}
@@ -2323,7 +2399,7 @@ export function Composer({
                * réinjecter le TEXTE en plus des fichiers, sinon seules les
                * images arrivaient et la phrase copiée disparaissait.
                */
-              const texteColle = event.clipboardData.getData('text/plain');
+              const texteColle = nettoyerTexteColle(event.clipboardData.getData('text/plain'));
               if (texteColle) {
                 const zone = textareaRef.current;
                 const debut = zone ? zone.selectionStart : text.length;
@@ -2356,14 +2432,18 @@ export function Composer({
             /* Ce que la liste du projet n'a pas retrouvé se demande au serveur,
                une fois le texte collé (ici ou par le collage du navigateur). */
             void rattacherLesTagsColles(texteDuPressePapiers, jointes);
-            if (!jointes.length) return;
+            /* UN TEXTE COPIÉ D'UN ASSISTANT (ChatGPT…) ARRIVE AVEC SES DÉBRIS :
+               entités HTML, vignettes de sources, marqueurs `utm_`. On colle sa
+               version nettoyée (`nettoyerTexteColle`), jamais les débris. */
+            const debris = texteColleADesDebris(texteDuPressePapiers);
+            if (!jointes.length && !debris) return;
 
             /* Un tag [fichier: …] copié, ou un message historique copié avec
                son bouton, recrée ses pièces jointes : les fichiers D'ORIGINE
                reparaissent au-dessus du champ, comme s'ils venaient d'être
                ajoutés à la main. */
             event.preventDefault();
-            const texteColle = event.clipboardData.getData('text/plain');
+            const texteColle = nettoyerTexteColle(event.clipboardData.getData('text/plain'));
             const zone = textareaRef.current;
             const debut = zone ? zone.selectionStart : text.length;
             const fin = zone ? zone.selectionEnd : text.length;
@@ -2373,7 +2453,7 @@ export function Composer({
             // du composeur (effet sur `text`) plutôt qu'à la main.
             curseur.current = position;
             curseurAPoser.current = position;
-            setAttachments((current) => ajouterJointesCollees(current, jointes));
+            if (jointes.length) setAttachments((current) => ajouterJointesCollees(current, jointes));
           }}
           disabled={enPublication && !edition}
           /* PENDANT UNE COUPURE LE CHAMP SE VERROUILLE, sans rien effacer : en
@@ -2444,11 +2524,12 @@ export function Composer({
             </Button>
           </Tooltip>
 
-          {/* LES INTERRUPTEURS « PLAN » ET « CRÉATION » : ils ne paraissent
+          {/* LES INTERRUPTEURS « PLAN », « CRÉATION » ET « RÉALISATION » : ils ne paraissent
               que sur une carte en cadrage, avant le travail, où ils se
               choisissent. */}
           <InterrupteurDePlan cardId={cardId} agent={agent} />
           <InterrupteurDeCreation cardId={cardId} agent={agent} />
+          <InterrupteurDeRealisation cardId={cardId} agent={agent} />
 
           {/* LES RÉGLAGES DE L'AGENT, juste à leur droite — ou à droite du
               trombone quand ni le plan ni la création ne sont proposés. */}
@@ -2498,10 +2579,9 @@ export function Composer({
                 variant="default"
                 size="icon"
                 data-composer-envoi
-                /* Le rond d'envoi (32 px) est plus grand que les cases de 28 px :
-                   sa marge de gauche négative cale son CENTRE au même pas que
-                   les autres, sans bouger son bord droit. */
-                className="-ml-0.5 h-8 w-8 shrink-0 rounded-full"
+                /* Un carré arrondi de la taille du micro (28 px, `rounded-md`),
+                   plein foncé : l'envoi reste le seul bouton marqué. */
+                className="shrink-0 rounded-md"
                 title={
                   /* Le bouton éteint DIT pourquoi : un envoi refusé sans un mot
                      se lit comme une panne de l'application. */
@@ -2511,7 +2591,7 @@ export function Composer({
                 disabled={edition ? !text.trim() : canal.gele || enPublication || !agent || !text.trim()}
                 onClick={() => submit()}
               >
-                {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
+                {edition ? <Check className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
               </Button>
             ) : null}
           </div>
@@ -2623,6 +2703,17 @@ function QueuedItem({
   // Les retours à la ligne deviennent des espaces : sinon la ligne unique
   // afficherait un texte coupé au premier saut plutôt qu'à sa largeur.
   const apercu = item.text.replace(/\s+/g, ' ').trim();
+  /* Le clic se lit tout de suite : la roue tourne jusqu'à la réponse du serveur. */
+  const [envoiEnCours, setEnvoiEnCours] = React.useState(false);
+  const envoyerMaintenant = async () => {
+    if (envoiEnCours) return;
+    setEnvoiEnCours(true);
+    try {
+      await client.geste({ type: 'queue.send-now', id: item.id }, t('Envoyer maintenant'));
+    } finally {
+      setEnvoiEnCours(false);
+    }
+  };
   return (
     <div
       className={cn(
@@ -2642,6 +2733,17 @@ function QueuedItem({
       </button>
       <button type="button" title={t('Modifier')} onClick={onEdit} className="shrink-0 text-faint hover:text-text">
         <Pencil className="h-3 w-3" />
+      </button>
+      <button
+        type="button"
+        title={t('Envoyer maintenant')}
+        aria-label={t('Envoyer maintenant')}
+        aria-busy={envoiEnCours}
+        disabled={envoiEnCours}
+        onClick={() => void envoyerMaintenant()}
+        className="shrink-0 text-faint hover:text-accent disabled:cursor-wait"
+      >
+        {envoiEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowUp className="h-3 w-3" />}
       </button>
       <button
         type="button"

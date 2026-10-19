@@ -6,6 +6,7 @@ import { brancherRemonteeErreurs } from './lib/erreurs';
 import { rechargerUneFois } from './lib/rechargement';
 import './styles.css';
 import { t } from '@/lib/langue';
+import { brancherOuvertureDesMesures, mesuresDemandees } from './lib/ouverture-des-mesures';
 
 /*
  * DEUX VISAGES, DEUX MORCEAUX : L'UN NE TÉLÉCHARGE JAMAIS L'AUTRE.
@@ -36,8 +37,11 @@ try {
 
 const porteAnnoncee = document.querySelector(`meta[name="${REPERE_DE_PORTE}"]`)?.getAttribute('content');
 
+/* L'écran caché des mesures de l'iPhone prend la place des deux visages (`?mesures=1`). */
 const Racine = React.lazy(() =>
-  porteAnnoncee === 'client' || porteDeLHote(location.hostname) === 'client'
+  mesuresDemandees()
+    ? import('./components/mesures-ecran').then((m) => ({ default: m.MesuresEcran }))
+    : porteAnnoncee === 'client' || porteDeLHote(location.hostname) === 'client'
     ? import('./espace/porte-client').then((m) => ({ default: m.PorteClient }))
     : import('./app').then((m) => ({ default: m.App })),
 );
@@ -50,6 +54,7 @@ const Infobulles = React.lazy(() => import('./components/ui').then((m) => ({ def
  * elle aussi remonter. Sur un téléphone, c'est la seule trace qu'on aura.
  */
 brancherRemonteeErreurs();
+brancherOuvertureDesMesures();
 
 /*
  * UN MORCEAU DE CODE QUI N'EXISTE PLUS SE RECHARGE, IL NE LAISSE PAS L'ÉCRAN VIDE.

@@ -127,6 +127,8 @@ export interface AgentPourLaBande {
   tourVivantDepuis?: number;
   attendReponse?: boolean;
   depannagePublication?: unknown;
+  /** La réparation silencieuse d'une étape de publication : jamais de vignette, elle se lit dans le fil de l'étape. */
+  reparationPublication?: unknown;
   /** L'Assistant Beluga : stocké avec le rôle « deploy », il n'est PAS une mise en ligne. */
   assistantGlobal?: boolean;
 }
@@ -158,6 +160,7 @@ export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]
       if (agent.assistantGlobal) return false;
       // Le dépannage d'une publication a SA vignette (`depannagesDeLaBande`).
       if (agent.depannagePublication) return false;
+      if (agent.reparationPublication) return false;
       return agentSystemeActif(agent);
     })
     .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
@@ -170,7 +173,9 @@ export function agentsDeLaBande<T extends AgentPourLaBande>(agents: readonly T[]
  */
 export function agentsTerminesDeLaBande<T extends AgentPourLaBande>(agents: readonly T[], maintenant: number): T[] {
   return agents
-    .filter((agent) => !agent.assistantGlobal && !agent.depannagePublication && agentSystemeTermine(agent, maintenant))
+    .filter(
+      (agent) => !agent.assistantGlobal && !agent.depannagePublication && !agent.reparationPublication && agentSystemeTermine(agent, maintenant),
+    )
     .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
 }
 

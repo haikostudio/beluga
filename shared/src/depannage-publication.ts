@@ -16,7 +16,6 @@
  */
 
 import { agentSystemeTermine } from './cartes-systeme.js';
-import { natureDePublication } from './mise-en-ligne.js';
 
 /** Ce que la règle lit d'une publication. */
 export interface PublicationPourLeDepannage {
@@ -26,8 +25,6 @@ export interface PublicationPourLeDepannage {
   depannage?: { agentId: string; at: number; relanceDemandee?: number; automatique?: boolean };
   error?: string;
   steps?: readonly { key: string; state: string }[];
-  /** Les dépanneurs automatiques déjà passés sur la chaîne de relances. */
-  depannagesAuto?: number;
 }
 
 /** Ce que la règle lit d'un agent. */
@@ -52,38 +49,6 @@ export function publicationADepanner(
 ): boolean {
   if (!run || !derniere || derniere.id !== run.id) return false;
   return run.state === 'failed' || run.state === 'stopped';
-}
-
-/**
- * Combien de dépanneurs AUTOMATIQUES d'affilée, au plus, sur une chaîne de
- * relances : au-delà, l'humain reprend la main (le bouton reste offert).
- */
-export const MAX_DEPANNAGES_AUTOMATIQUES = 2;
-
-/**
- * LE DÉPANNEUR SE LANCE-T-IL TOUT SEUL À LA CHUTE DE LA PUBLICATION ?
- *
- * Oui seulement pour une publication CASSÉE (`natureDePublication`) : un arrêt
- * demandé, une coupure de redémarrage ou une machine saturée n'appellent jamais
- * d'agent (appeler un agent sur une saturation l'a DOUBLÉE le 08.09.2026). Il faut
- * aussi que ce soit la dernière du projet, qu'aucun dépanneur ne soit déjà lié,
- * et que la chaîne de relances n'ait pas épuisé son plafond.
- */
-export function depannageAutomatiqueAPoser(
-  run: PublicationPourLeDepannage | null | undefined,
-  derniere: { id: string } | null | undefined,
-): boolean {
-  if (!run || !publicationADepanner(run, derniere)) return false;
-  if (run.depannage) return false;
-  const etapeTombee = run.steps?.find((step) => step.state === 'failed')?.key;
-  const nature = natureDePublication({ etat: run.state as 'failed' | 'stopped', etapeTombee, motif: run.error });
-  if (nature !== 'cassee') return false;
-  return (run.depannagesAuto ?? 0) < MAX_DEPANNAGES_AUTOMATIQUES;
-}
-
-/** Le plafond de la chaîne est-il atteint sur une publication cassée ? (pour le DIRE) */
-export function depannageAutomatiqueEpuise(run: PublicationPourLeDepannage | null | undefined): boolean {
-  return !!run && (run.depannagesAuto ?? 0) >= MAX_DEPANNAGES_AUTOMATIQUES;
 }
 
 /**
@@ -140,7 +105,12 @@ export function depannagesTerminesDeLaBande<T extends AgentPourLeDepannage>(agen
 export type VoletDeLAgent = 'configuration' | 'dev' | 'production';
 
 export function voletDeLAgentDePublication(input: {
-  agent: { id: string; depannagePublication?: { cible: 'dev' | 'production' } };
+  agent: {
+    id: string;
+    depannagePublication?: { cible: 'dev' | 'production' };
+    /** L'agent de réparation silencieuse d'une étape : le volet de SA cible, comme le dépanneur. */
+    reparationPublication?: { cible: 'dev' | 'production' };
+  };
   /** L'agent de configuration retenu sur le projet (`miseEnProduction.agentId`). */
   configurationId?: string;
   /** La dernière publication du projet connue de l'écran. */
@@ -148,6 +118,7 @@ export function voletDeLAgentDePublication(input: {
 }): VoletDeLAgent {
   const { agent, configurationId, derniere } = input;
   if (agent.depannagePublication) return agent.depannagePublication.cible;
+  if (agent.reparationPublication) return agent.reparationPublication.cible;
   if (configurationId && configurationId === agent.id) return 'configuration';
   if (derniere?.agentId === agent.id) return derniere.cible ?? 'dev';
   return 'production';

@@ -1017,3 +1017,28 @@ export function SilhouetteResume() {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Les médias : des groupes de vignettes, une carte par groupe          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LA PAGE « MÉDIAS » (mode Réalisation) : le titre d'une carte, puis une
+ * rangée de vignettes carrées, au gabarit des vraies (`medias-page.tsx`).
+ */
+export function SilhouetteMedias({ groupes = 2 }: { groupes?: number }) {
+  return (
+    <Bloc zone="medias" className="flex flex-col gap-6">
+      {Array.from({ length: groupes }, (_, index) => (
+        <div key={index} className="flex flex-col gap-2">
+          <Barre className={cn('h-4', LARGEURS[index % LARGEURS.length], 'max-w-[320px]')} />
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Barre key={i} className="aspect-square w-full rounded-xl" />
+            ))}
+          </div>
+        </div>
+      ))}
+    </Bloc>
+  );
+}

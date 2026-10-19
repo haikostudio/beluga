@@ -26,6 +26,7 @@ import { BarreProgression } from '@/components/barre-progression';
 import { Silhouette } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
+import { BoutonCopierDocument } from '@/components/bouton-copier-document';
 import { Markdown } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -158,10 +159,11 @@ export function TiroirDuCahier({
 
   const parties = texte ? partiesDuCahier(texte) : [];
   return (
-    <Drawer adresse="cahier-des-charges" open={open} onClose={onClose} empile plein>
+    <Drawer adresse="cahier-des-charges" open={open} onClose={onClose} empile plein feuille>
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-5" data-tiroir-cahier={projectId}>
         <div className="flex items-center gap-2">
           <DialogTitle className="min-w-0 flex-1">{t('Cahier des charges')}</DialogTitle>
+          {texte ? <BoutonCopierDocument texte={texte} repere="data-cahier-copier" /> : null}
           {texte ? <MenuExportDuCahier projectId={projectId} /> : null}
         </div>
         <ZoneDefilement className="min-h-0 flex-1">

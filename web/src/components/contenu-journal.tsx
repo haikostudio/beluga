@@ -29,6 +29,7 @@ import {
   texteAvecEtiquettes,
   titreDeLaSorte,
   vueDeLEntree,
+  nettoyerTexteColle,
 } from '@beluga/shared';
 import { PiecesJointes } from '@/components/bulle-question';
 import {
@@ -585,7 +586,10 @@ function VueDemande({
   const connues = useApp().attachments[projectId ?? ''] ?? [];
   const texte = React.useMemo(() => {
     const jointes = connues.filter((piece) => vue.pieces.includes(piece.id));
-    return texteAvecEtiquettes(vue.texte, jointes, tagsDuTexte(vue.texte));
+    /* UNE DEMANDE COLLÉE D'UN ASSISTANT se lit sans ses débris (entités HTML,
+       vignettes de sources), même envoyée avant le nettoyage du collage. */
+    const propre = nettoyerTexteColle(vue.texte);
+    return texteAvecEtiquettes(propre, jointes, tagsDuTexte(propre));
   }, [connues, vue.pieces, vue.texte]);
   return (
     <EncadreEtape
@@ -593,7 +597,10 @@ function VueDemande({
       titre={t('Demande envoyée')}
       aDroite={t('{v0} pièce{v1} jointe{v1}', { v0: vue.pieces.length, v1: vue.pieces.length > 1 ? 's' : '' })}
     >
-      <VueTexte texte={texte} />
+      {/* VOTRE DEMANDE N'EST PAS UN RAPPORT : ses titres restent des titres nus,
+          sans sommaire ni cadres de couleur, qui sortaient blancs et vides dans
+          la bulle sombre de la demande. */}
+      <Markdown content={texte} className="text-[13.5px]" enTexte />
       <div data-contenu-pieces={vue.pieces.length}>
         <PiecesJointes ids={vue.pieces} projectId={projectId} />
       </div>

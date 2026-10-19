@@ -10,9 +10,9 @@
  * RESTANTE — donc le travail alternait sans cesse entre les deux comptes d'un
  * même utilisateur, ce qu'aucun des deux ne voulait.
  *
- * La règle compare maintenant d'abord la PRIORITÉ réglée à la main sur chaque
- * compte : le compte de plus petit rang (« 1er ») reçoit tout le travail tant
- * qu'il a de la place, et le suivant ne sert qu'une fois le premier à sa
+ * La règle compare maintenant d'abord la PRIORITÉ de chaque compte, réglée par
+ * l'utilisateur avec les flèches de « Comptes et quotas » (`ordonnerComptes`) :
+ * le compte de plus petit rang (« 1er ») reçoit tout le travail tant qu'il a de la place, et le suivant ne sert qu'une fois le premier à sa
  * limite. La place restante ne sert plus qu'à départager deux comptes du MÊME
  * rang — elle ne fait plus la loi entre deux comptes rangés différemment,
  * quelle que soit la taille de leur plan respectif.
@@ -122,15 +122,13 @@ export function compteQuiRecoitLeTravail<T extends CompteAClasser>(comptes: read
 }
 
 /**
- * Ce qui s'écrit au journal quand le travail change de compte : son rang dans
- * l'ordre réglé, et s'il s'agit du premier compte de cet ordre ou d'une
- * relève. `comptes` est le lot parmi lequel le choix a été fait — sans lui, on
- * suppose que `compte` était seul en lice.
+ * Ce qui s'écrit au journal quand le travail change de compte : sa place dans
+ * l'ORDRE RÉGLÉ PAR L'UTILISATEUR (« n° 1 de votre liste »), puis la place qui
+ * lui reste. `comptes` est le lot parmi lequel le choix a été fait — sans lui,
+ * on suppose que `compte` était seul en lice.
  */
 export function raisonDuChoix<T extends CompteAClasser>(compte: T, comptes: readonly T[] = [compte]): string {
   const reste = Math.round(placeRestante(compte) * 100) / 100;
-  const rang = compte.priority ?? 100;
-  const meilleurRang = Math.min(...comptes.map((c) => c.priority ?? 100));
-  const role = rang <= meilleurRang ? 'premier compte' : 'relève';
-  return `rang ${rang} — ${role} — ${reste} fenêtre(s) de place restante`;
+  const place = classerComptesPourLeTravail(comptes).findIndex((c) => c.id === compte.id) + 1;
+  return `n° ${place || 1} de votre liste — ${reste} fenêtre(s) de place restante`;
 }

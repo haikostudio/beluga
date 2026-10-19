@@ -48,6 +48,7 @@ import {
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
 import { mediasDuContenuMarketing } from './studio.js';
+import { ciblesDuProjet, oublierCiblesDuContenu, vueDesComptes } from './publication-sociale.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
 import * as store from './store.js';
@@ -297,6 +298,7 @@ interface LigneContenu {
   project_id: string;
   genre: string;
   canal: string;
+  canaux: string | null;
   titre: string;
   texte: string;
   date_prevue: string | null;
@@ -313,12 +315,26 @@ interface LigneContenu {
   maj_le: number;
 }
 
+/** Les canaux d'une ligne : le JSON de la colonne, sinon le seul canal (contenu d'avant la migration 128). */
+function canauxDeLaLigne(l: Pick<LigneContenu, 'canal' | 'canaux'>): string[] {
+  const lus = json<unknown>(l.canaux, null);
+  const liste = Array.isArray(lus) ? lus.filter((c): c is string => typeof c === 'string' && (CANAUX_CONTENU as readonly string[]).includes(c)) : [];
+  return liste.length ? [...new Set(liste)] : [l.canal];
+}
+
+/** Une liste de canaux reçue : seuls ceux du catalogue passent, sans doublon ; vide si rien ne vaut. */
+export function canauxRecus(valeur: unknown): string[] {
+  if (!Array.isArray(valeur)) return [];
+  return [...new Set(valeur.map(String).filter((c) => (CANAUX_CONTENU as readonly string[]).includes(c)))];
+}
+
 function depuisLigneContenu(l: LigneContenu): ContenuMarketing {
   return {
     id: l.id,
     projectId: l.project_id,
     genre: l.genre as ContenuMarketing['genre'],
     canal: l.canal as ContenuMarketing['canal'],
+    canaux: canauxDeLaLigne(l),
     titre: l.titre,
     texte: l.texte,
     datePrevue: l.date_prevue ?? undefined,
@@ -361,6 +377,8 @@ export function creerContenu(entree: {
   projectId: string;
   genre: unknown;
   canal: unknown;
+  /** Plusieurs canaux d'un coup ; le premier devient le canal principal. */
+  canaux?: unknown;
   titre: unknown;
   texte: unknown;
   datePrevue?: unknown;
@@ -374,7 +392,9 @@ export function creerContenu(entree: {
   const maintenant = entree.maintenant ?? Date.now();
   if (!store.getProject(entree.projectId)) return { ok: false, raison: 'Projet introuvable.' };
   const genre = (GENRES_CONTENU as readonly string[]).includes(String(entree.genre)) ? String(entree.genre) : 'post';
-  const canal = (CANAUX_CONTENU as readonly string[]).includes(String(entree.canal)) ? String(entree.canal) : 'autre';
+  const liste = canauxRecus(entree.canaux);
+  const canal = liste[0] ?? ((CANAUX_CONTENU as readonly string[]).includes(String(entree.canal)) ? String(entree.canal) : 'autre');
+  const canaux = liste.length ? liste : [canal];
   const titre = texteContenu(entree.titre, 160);
   const texte = texteContenu(entree.texte, 8000);
   if (!titre) return { ok: false, raison: 'Un contenu a besoin d’un titre.' };
@@ -397,10 +417,10 @@ export function creerContenu(entree: {
   const lienCible = origineDe(entree.lienCible) ? String(entree.lienCible).trim().slice(0, 500) : (espace.configuration.adresse ?? null);
   getDb()
     .prepare(
-      `INSERT INTO marketing_contenus (id, project_id, genre, canal, titre, texte, date_prevue, etape, origine, variante_de, lien_code, lien_cible, source_ref, cree_le, maj_le)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO marketing_contenus (id, project_id, genre, canal, canaux, titre, texte, date_prevue, etape, origine, variante_de, lien_code, lien_cible, source_ref, cree_le, maj_le)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(id, entree.projectId, genre, canal, titre, texte, datePrevue, etape, entree.origine, varianteDe, lienCode, lienCible, entree.sourceRef ?? null, maintenant, maintenant);
+    .run(id, entree.projectId, genre, canal, JSON.stringify(canaux), titre, texte, datePrevue, etape, entree.origine, varianteDe, lienCode, lienCible, entree.sourceRef ?? null, maintenant, maintenant);
   diffuser(entree.projectId);
   return { ok: true, contenu: lireContenu(id)! };
 }
@@ -412,7 +432,7 @@ export function creerContenu(entree: {
  */
 export function modifierContenu(
   id: string,
-  patch: { titre?: unknown; texte?: unknown; canal?: unknown; datePrevue?: unknown; heurePrevue?: unknown; lienCible?: unknown },
+  patch: { titre?: unknown; texte?: unknown; canal?: unknown; canaux?: unknown; datePrevue?: unknown; heurePrevue?: unknown; lienCible?: unknown },
   parQui: 'humain' | 'agent',
   projectId?: string,
 ): ResultatContenu {
@@ -424,15 +444,26 @@ export function modifierContenu(
   if (c.etape === 'publie') return { ok: false, raison: 'Un contenu publié ne se modifie plus.' };
   const titre = patch.titre !== undefined ? texteContenu(patch.titre, 160) || c.titre : c.titre;
   const texte = patch.texte !== undefined ? texteContenu(patch.texte, 8000) || c.texte : c.texte;
-  const canal = (CANAUX_CONTENU as readonly string[]).includes(String(patch.canal)) ? String(patch.canal) : c.canal;
+  /* LES CANAUX : une liste reçue remplace l'ancienne (le premier devient le
+     canal principal) ; un seul `canal` reçu remplace le principal et garde les autres. */
+  const listeRecue = canauxRecus(patch.canaux);
+  let canal = c.canal;
+  let canaux = c.canaux;
+  if (listeRecue.length) {
+    canal = listeRecue[0];
+    canaux = listeRecue;
+  } else if ((CANAUX_CONTENU as readonly string[]).includes(String(patch.canal))) {
+    canal = String(patch.canal);
+    canaux = [canal, ...c.canaux.filter((x) => x !== canal && x !== c.canal)];
+  }
   const datePrevue = patch.datePrevue === null || patch.datePrevue === '' ? null : jourValide(patch.datePrevue) ? patch.datePrevue : (c.datePrevue ?? null);
   const heurePrevue = patch.heurePrevue === null || patch.heurePrevue === '' ? null : heureValide(patch.heurePrevue) ? patch.heurePrevue : (c.heurePrevue ?? null);
   if (c.etape === 'programme' && !datePrevue) return { ok: false, raison: 'Un contenu programmé garde sa date.' };
   const lienCible =
     patch.lienCible === null || patch.lienCible === '' ? null : origineDe(patch.lienCible) ? String(patch.lienCible).trim().slice(0, 500) : (c.lienCible ?? null);
   getDb()
-    .prepare('UPDATE marketing_contenus SET titre = ?, texte = ?, canal = ?, date_prevue = ?, heure_prevue = ?, lien_cible = ?, maj_le = ? WHERE id = ?')
-    .run(titre, texte, canal, datePrevue, heurePrevue, lienCible, Date.now(), id);
+    .prepare('UPDATE marketing_contenus SET titre = ?, texte = ?, canal = ?, canaux = ?, date_prevue = ?, heure_prevue = ?, lien_cible = ?, maj_le = ? WHERE id = ?')
+    .run(titre, texte, canal, JSON.stringify(canaux), datePrevue, heurePrevue, lienCible, Date.now(), id);
   diffuser(c.projectId);
   return { ok: true, contenu: lireContenu(id)! };
 }
@@ -453,6 +484,7 @@ export function supprimerContenu(id: string): { ok: boolean; raison?: string } {
   const c = lireContenu(id);
   if (!c) return { ok: false, raison: 'contenu introuvable' };
   if (c.etape === 'publie') return { ok: false, raison: 'Un contenu publié reste dans l’historique : abandonnez plutôt les suivants.' };
+  oublierCiblesDuContenu(id);
   getDb().prepare('DELETE FROM marketing_contenus WHERE id = ?').run(id);
   diffuser(c.projectId);
   return { ok: true };
@@ -1098,7 +1130,9 @@ export function espaceComplet(projectId: string, jours = 30) {
   const projet = store.getProject(projectId);
   if (!projet) throw new Error('projet introuvable');
   const espace = lireEspace(projectId);
-  const contenus = espace ? listerContenus(projectId) : [];
+  // Chaque contenu porte l'état de son envoi SUR CHAQUE COMPTE visé (`publication-sociale.ts`).
+  const cibles = espace ? ciblesDuProjet(projectId) : new Map();
+  const contenus = espace ? listerContenus(projectId).map((c) => ({ ...c, cibles: cibles.get(c.id) ?? [] })) : [];
   const actions = espace ? listerActions(projectId) : [];
   const guide = guideDuProjet({ espace, ...(espace ? compteursDuGuide(projectId) : { contenusPublies: 0, contenusEnAttente: 0, ventes: 0 }) });
   const adresse = adresseDeBeluga();
@@ -1114,6 +1148,8 @@ export function espaceComplet(projectId: string, jours = 30) {
     confidentialite: phraseDeConfidentialite(espace?.configuration.langue, projet.name, espace?.modeSuivi),
     adresseLiens: `${adresse}/m/l/`,
     cartes: cartesDeLAgent(projectId),
+    /* LES COMPTES RELIÉS du projet, l'état des applications développeur et les messages non lus. */
+    reseaux: vueDesComptes(projectId),
     /* Ce que porte la page servie, et la carte d'installation (onglet Statistiques). */
     diagnosticSuivi: espace ? diagnosticDeLEspace(projectId) : null,
     carteSuivi: espace ? carteDuSuivi(projectId) : null,

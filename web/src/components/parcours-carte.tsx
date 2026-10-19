@@ -61,6 +61,7 @@ import {
   prochaineQuestionDeCarte,
   COLONNES_AVANT_LE_TRAVAIL,
   estVoletDuCahier,
+  estVoletDeRealisation,
   carteEnPause,
   MESSAGE_DE_REPRISE,
 } from '@beluga/shared';
@@ -78,6 +79,7 @@ import { BandeauPropositions } from '@/components/propositions';
 import { useArretAgent } from '@/components/arret-agent';
 import { BoutonEtapeSuivante, useAvancerEtapes } from '@/components/etape-suivante';
 import { BandeauCahierDesCharges } from '@/components/cahier-des-charges';
+import { BandeauDeRealisation } from '@/components/realisation-volet';
 import { client } from '@/lib/client';
 import { EVENEMENT_OUVRIR_DECISIONS, ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { useApp } from '@/lib/use-app';
@@ -747,6 +749,13 @@ export function BarreDAction(props: {
      ni « Valider et lancer », ni arrêt — son bandeau (avancement, lecture,
      pause) les remplace. Son volet ne pose d'ailleurs pas de barre
      d'écriture (`estVoletDuCahier`, `chat.tsx`). */
+  if (estVoletDeRealisation(props.carte)) {
+    return (
+      <div data-barre-realisation>
+        <BandeauDeRealisation carte={props.carte} />
+      </div>
+    );
+  }
   if (!estVoletDuCahier(props.carte)) return <GestesDuChapitre {...props} />;
   return (
     <div data-barre-cahier>

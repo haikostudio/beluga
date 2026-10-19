@@ -85,7 +85,7 @@ export function PileDeMessages({
     <div
       data-bloc="toasts"
       className="pointer-events-none fixed inset-x-0 z-[100] flex flex-col items-center gap-1.5 px-2"
-      style={{ top: 'calc(44px + env(safe-area-inset-top) + 0.5rem)' }}
+      style={{ top: 'calc(44px + var(--zone-sure-haut, 0px) + 0.5rem)' }}
       onMouseEnter={surLaPile}
       onMouseLeave={horsDeLaPile}
       onTouchStart={surLaPile}

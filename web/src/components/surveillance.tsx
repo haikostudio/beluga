@@ -1,6 +1,6 @@
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Eye, Loader2, Plus, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ExternalLink, Eye, Loader2, Plus, RefreshCw, Send, Trash2, Wrench } from 'lucide-react';
 import {
   type Agent,
   type CaseDeFrise,
@@ -794,6 +794,7 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
   const resume = site.wpResume;
   const [constats, setConstats] = React.useState<ConstatWordpress[] | null>(null);
   const [acceptation, setAcceptation] = React.useState(false);
+  const [correction, setCorrection] = React.useState(false);
   const [deplie, setDeplie] = React.useState(() => alerteGraveWordpress(resume?.soucis ?? []));
 
   React.useEffect(() => {
@@ -821,6 +822,20 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
       client.pushToast('error', err?.message ?? t('État non accepté'));
     } finally {
       setAcceptation(false);
+    }
+  };
+
+  /* UN BOUTON QUI PART EN REQUÊTE LE DIT DÈS LE CLIC : roue, puis la carte s'ouvre. */
+  const corriger = async () => {
+    if (correction) return;
+    setCorrection(true);
+    try {
+      const carte = await client.call<{ cardId: string; projectId: string }>({ type: 'surveillance.wordpress.corriger', id: site.id });
+      if (carte?.cardId) client.allerVersDecision({ projectId: carte.projectId, cardId: carte.cardId });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('La carte de correction n’a pas pu s’ouvrir'));
+    } finally {
+      setCorrection(false);
     }
   };
 
@@ -925,6 +940,16 @@ function EtatWordpress({ site }: { site: SiteSurveille }) {
                   </ul>
                 </details>
               ) : null}
+            </div>
+          ) : null}
+          {soucis.length ? (
+            <div className="flex justify-end pt-0.5">
+              <Tooltip label={t('Ouvre une carte avec tout ce qui a été détecté, et un agent prépare la correction : rien n’est corrigé sans votre accord.')}>
+                <Button size="sm" variant="subtle" disabled={correction} aria-busy={correction} onClick={() => void corriger()} data-surveillance-corriger>
+                  {correction ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+                  {t('Corriger avec un agent')}
+                </Button>
+              </Tooltip>
             </div>
           ) : null}
         </Panneau>
