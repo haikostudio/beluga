@@ -41,6 +41,7 @@ import {
 } from '@beluga/shared';
 import { log } from './logger.js';
 import { branchePrincipale, existeLaBranche as existeIci, git } from './git.js';
+import { distantEstLeDepotPublic } from './depot-public.js';
 
 /**
  * Les branches que ce dépôt connaît, locales ET distantes, sans le préfixe du
@@ -128,7 +129,7 @@ export async function assurerLaBranche(
   // Poussée seulement s'il y a un distant : un dépôt purement local ne doit pas
   // faire échouer le montage pour un `git push` sans destination.
   const distant = await git(racine, ['remote'], 20000);
-  if (distant.ok && distant.out.trim()) {
+  if (distant.ok && distant.out.trim() && !(await distantEstLeDepotPublic(racine, 'origin'))) {
     await git(racine, ['push', '-u', 'origin', nom], 120000);
   }
   return { branche: nom, creee: true, detail: `branche « ${nom} » créée d'après « ${principale} »` };

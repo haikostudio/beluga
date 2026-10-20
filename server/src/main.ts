@@ -33,6 +33,8 @@ import { startDeploy } from './deploy.js';
 import { archiverLesCartesEnLigneRestees } from './archive.js';
 import { rattraperLesBranchesPerdues } from './rattrapage-branches-perdues.js';
 import { reprendreLesRattrapages } from './rattrapage-ecartee.js';
+import { poserLesVerrousDeLaMachine, verrouillerLesDistants } from './depot-public.js';
+import { signalerLInstallation, surveillerLesTelechargements } from './relais-installations.js';
 import { ensureSelfProject, rangerLeProjetDeLOutilSiHebergee, detacherLeProjetDuDepotPublic, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
 import { purgerCopiesDeProjetsSupprimes } from './copie-de-projet-supprime.js';
@@ -57,6 +59,8 @@ import { planifierLaMemoireDeNuit } from './memoire-de-nuit.js';
 import { planifierLeMenage } from './menage.js';
 import { planifierLeMiroirDesProjets } from './miroir-des-projets.js';
 import { planifierPurgeDesArchives } from './coffre-fort.js';
+import { remettreLeCoffreEnOrdreAuDemarrage } from './coffre-structuration.js';
+import { veillerSurLesTitresHumains } from './titres-humains.js';
 import { arreterLeVectoriseur } from './vectoriseur.js';
 import { planifierCompactage } from './compactage.js';
 import { planifierMiseAJourDesMoteurs } from './mise-a-jour-moteurs.js';
@@ -170,6 +174,13 @@ async function main(): Promise<void> {
   initPush();
   // L'avancement d'une carte liée à une demande prévient les clients de celle-ci.
   brancherLAvancementDesCartes();
+  /*
+   * LE DÉPÔT PUBLIC NE REÇOIT RIEN D'ICI, DÈS LE PREMIER DÉMARRAGE — avant même
+   * le premier compte, quand le projet de l'outil n'est pas encore inscrit
+   * (`server/src/depot-public.ts`). Sans effet sur la machine de l'auteur.
+   */
+  poserLesVerrousDeLaMachine();
+  await verrouillerLesDistants(CONFIG.selfPath);
   await ensureSelfProject();
   // Sur l'offre hébergée, un projet de l'outil déjà inscrit se range (rien n'est supprimé).
   rangerLeProjetDeLOutilSiHebergee();
@@ -183,6 +194,9 @@ async function main(): Promise<void> {
   await refreshGitInfo();
   // Le dépôt public a-t-il du nouveau ? Regardé une fois par jour, jamais appliqué seul.
   surveillerLesNouveautes();
+  // Le signe de vie quotidien vers l'équipe Beluga, et, chez elle, le relevé des téléchargements.
+  signalerLInstallation();
+  surveillerLesTelechargements();
 
   // Les projets dont l'icône manque encore — jamais récupérée, ou fichier
   // disparu depuis : on la va chercher sans attendre un prochain changement
@@ -468,6 +482,10 @@ async function main(): Promise<void> {
   const miroirTimer = planifierLeMiroirDesProjets();
   // Les fiches du coffre retirées depuis plus de six mois s'effacent (`server/src/coffre-fort.ts`).
   const archivesTimers = planifierPurgeDesArchives();
+  // La remise en ordre des fiches (chaque valeur dans sa case), UNE fois, après une copie sur le disque de stockage.
+  remettreLeCoffreEnOrdreAuDemarrage();
+  // Les unités de mémoire sans titre clair en reçoivent un, par lots, en tâche de fond (`server/src/titres-humains.ts`).
+  const arreterLesTitresHumains = veillerSurLesTitresHumains();
   const faviconTimer = planifierRevisionFavicons();
   /*
    * L'OUTIL DE CHAQUE MOTEUR (Claude, Codex, Cursor) SE TIENT À JOUR TOUT
@@ -550,6 +568,7 @@ async function main(): Promise<void> {
     clearInterval(miroirTimer);
     for (const minuteur of memoireTimers) clearTimeout(minuteur);
     for (const minuteur of archivesTimers) clearTimeout(minuteur);
+    arreterLesTitresHumains();
     arreterLeVectoriseur();
     arreterLaya();
     clearInterval(faviconTimer);

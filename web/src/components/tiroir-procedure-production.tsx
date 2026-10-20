@@ -1,11 +1,10 @@
 import * as React from 'react';
-import { Rocket, Settings2 } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { explicationDuProcessus, pourquoiCeProcessus, type ProcessusDeProduction } from '@beluga/shared';
-import { BulleInfo, Button, DialogTitle, Drawer } from '@/components/ui';
+import { BulleInfo, Button, Drawer, EnteteDeFeuille } from '@/components/ui';
 import { InterrupteurMiseEnProduction } from '@/components/interrupteur-mise-en-production';
-import { GestesDePage } from '@/components/entete-de-zone';
+import { CLASSE_HAUTEUR_DES_VOLETS } from '@/components/volet-publication';
 import { useApp } from '@/lib/use-app';
-import { estTelephone } from '@/lib/telephone';
 import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { t } from '@/lib/langue';
 
@@ -28,9 +27,9 @@ export function TiroirProcedureProduction({
   titre,
   actions,
   configuration,
-  deroule,
   groupe = false,
   avant,
+  info,
 }: {
   projectId: string;
   open: boolean;
@@ -40,62 +39,64 @@ export function TiroirProcedureProduction({
   actions?: React.ReactNode;
   /** Le contenu du tiroir : l'explication et le bouton, ou le déroulé. */
   configuration: React.ReactNode;
-  /** Un déroulé est affiché : il prend la hauteur pleine, sans zone qui défile autour. */
-  deroule?: boolean;
   /**
    * LE TIROIR D'UN REGROUPEMENT : il liste ses projets membres et ne règle
    * rien lui-même — ni interrupteur, ni réglages, qui restent ceux de chaque
    * projet.
    */
   groupe?: boolean;
-  /** Ce qui remplace la fusée de l'entête (le retour vers la liste des membres). */
+  /** Ce qui se pose à gauche de l'entête (le retour vers la liste des membres). */
   avant?: React.ReactNode;
+  /** L'explication du titre, derrière le « i » posé à côté de lui. */
+  info?: string;
 }) {
   const state = useApp();
   const projet = state.projects.find((p) => p.id === projectId);
   return (
-    <Drawer adresse="procedure-production" open={open} onClose={onClose} plein={deroule || estTelephone()} hauteurFixe feuille>
+    <Drawer adresse="procedure-production" open={open} onClose={onClose} feuille className={CLASSE_HAUTEUR_DES_VOLETS}>
       <div className="flex min-h-0 flex-1 flex-col" data-tiroir-procedure-production={projectId}>
-        {/* LE TITRE EST LE DERNIER CRAN DU FIL D'ARIANE (il y monte de lui-même),
-            et SES GESTES MONTENT À DROITE DE LA BARRE D'EN-TÊTE (demande du
-            11/10/2026) : la fusée et l'interrupteur de mise en production, les
-            réglages, le bouton « ! ». Plus de rangée de boutons en tête de la
-            page ; sur téléphone, où la barre n'a pas la place, `GestesDePage`
-            les garde en tête du contenu. */}
-        <DialogTitle className="min-w-0 truncate px-4">{titre ?? t('Mise en production')}</DialogTitle>
-        <GestesDePage className="px-4">
-          <div className="flex shrink-0 items-center gap-2" data-entete-tiroir-production>
-            {avant ?? <Rocket className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />}
-            {groupe ? null : (
-              <>
-                {/* L'INTERRUPTEUR DE MISE EN PRODUCTION : éteint par défaut, il
-                    grise le bouton du pied et le serveur refuse. */}
-                <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
-                {/* LES RÉGLAGES, À DROITE DE L'INTERRUPTEUR : la rubrique où l'agent
-                    de configuration écrit le processus, et où il se discute. Le
-                    tiroir se referme d'abord — deux fenêtres modales ne s'empilent
-                    pas. */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-muted"
-                  onClick={() => {
-                    onClose();
-                    ouvrirRubriqueDeLEtape(projectId, 'production');
-                  }}
-                  aria-label="Réglages de la mise en production"
-                  title={t('Réglages de la mise en production')}
-                  data-reglages-tiroir-production
-                >
-                  <Settings2 className="h-4 w-4" />
-                </Button>
-              </>
-            )}
-            {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
-          </div>
-        </GestesDePage>
+        {/* L'EN-TÊTE COMMUN DES FEUILLES (`EnteteDeFeuille`) : le titre au centre
+            exact, le « i » collé à lui ; à gauche rien (sauf le retour vers
+            les membres d'un regroupement), à droite l'interrupteur de mise en
+            production, les réglages et le « ! » — sur la MÊME ligne que le
+            titre, plus de rangée de boutons qui laisse une bande vide dessous. */}
+        <EnteteDeFeuille
+          titre={titre ?? t('Mise en production')}
+          info={info}
+          gauche={avant}
+          data-entete-tiroir-production
+          droite={
+            <>
+              {groupe ? null : (
+                <>
+                  {/* L'INTERRUPTEUR DE MISE EN PRODUCTION : éteint par défaut, il
+                      grise le bouton du pied et le serveur refuse. */}
+                  <InterrupteurMiseEnProduction projectId={projectId} actif={projet?.miseEnProductionActive === true} />
+                  {/* LES RÉGLAGES, À DROITE DE L'INTERRUPTEUR : la rubrique où
+                      l'agent de configuration écrit le processus. Le tiroir RESTE
+                      ouvert, comme celui du déploiement : la fenêtre des réglages
+                      (z-50) passe par-dessus (z-40). */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 text-muted"
+                    onClick={() => {
+                      ouvrirRubriqueDeLEtape(projectId, 'production');
+                    }}
+                    aria-label="Réglages de la mise en production"
+                    title={t('Réglages de la mise en production')}
+                    data-reglages-tiroir-production
+                  >
+                    <Settings2 className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+              {actions ? <div className="flex shrink-0 items-center gap-0.5">{actions}</div> : null}
+            </>
+          }
+        />
 
-        <div className="flex min-h-0 flex-1 flex-col pt-2" data-contenu-tiroir-production>
+        <div className="flex min-h-0 flex-1 flex-col" data-contenu-tiroir-production>
           {configuration}
         </div>
       </div>

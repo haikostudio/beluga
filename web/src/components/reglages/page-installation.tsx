@@ -13,6 +13,7 @@ import {
   SectionNouveautes,
   useEtatDeLInstallation,
 } from '@/components/installation/sections';
+import { SectionContacterLEquipe, SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
 import { useApp } from '@/lib/use-app';
 import { t } from '@/lib/langue';
 import { Button } from '@/components/ui';
@@ -28,6 +29,7 @@ import { relancerLaVisite } from '@/components/visite-guidee';
 export function PageInstallation() {
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
+  const relais = useEtatDuRelais();
   const remises = etapesRemisesAPlusTard(state.settings?.assistant as EtatDeLAssistant | undefined, state.offreHebergee);
 
   return (
@@ -78,6 +80,21 @@ export function PageInstallation() {
       <Groupe titre={t('Les fonctions en plus')}>
         <SectionFacultatif etat={etat} relire={relire} />
       </Groupe>
+      {/* L'ÉQUIPE BELUGA : seulement sur une installation qui la joint. L'offre
+          hébergée garde le signe de vie, mais ses utilisateurs écrivent par leur
+          espace client, pas par un ticket open source. */}
+      {relais?.joint ? (
+        <>
+          <Groupe titre={t('Ce que l’équipe Beluga reçoit')}>
+            <SectionPartage />
+          </Groupe>
+          {relais.hebergee ? null : (
+            <Groupe titre={t('Contacter l’équipe Beluga')}>
+              <SectionContacterLEquipe />
+            </Groupe>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

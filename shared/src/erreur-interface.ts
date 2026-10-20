@@ -12,8 +12,12 @@
  * fausse de plusieurs heures, et un journal mal daté ne sert à rien.
  */
 
-/** D'où vient l'erreur. Trois chemins, pas un de plus. */
-export const SOURCES_ERREUR = ['affichage', 'fenetre', 'promesse'] as const;
+/**
+ * D'où vient l'erreur. Trois chemins de panne, et `canal` : un geste qui n'est
+ * jamais parti faute de lien. Ce n'est pas une exception, mais c'est la seule
+ * trace qui dise POURQUOI le lien était coupé chez quelqu'un qu'on ne voit pas.
+ */
+export const SOURCES_ERREUR = ['affichage', 'fenetre', 'promesse', 'canal'] as const;
 export type SourceErreur = (typeof SOURCES_ERREUR)[number];
 
 /** Ce que la page envoie. Rien du projet : ni message, ni pièce jointe. */
@@ -173,5 +177,50 @@ export function appareilEnClair(appareil?: string): string {
 export function origineEnClair(source: SourceErreur): string {
   if (source === 'affichage') return "Affichage interrompu";
   if (source === 'promesse') return 'Traitement en arrière-plan';
+  if (source === 'canal') return 'Geste parti sans lien';
   return 'Erreur de la page';
+}
+
+/** Ce que le client sait de son lien au moment où un geste n'a pas pu partir. */
+export interface EtatDuLienAuGeste {
+  /** La commande refusée (son seul type : jamais son contenu). */
+  commande: string;
+  /** `readyState` du socket, ou null s'il n'y en a aucun (veille, avant la première ouverture). */
+  etatDuSocket: number | null;
+  coupeDepuis?: number | null;
+  derniereFermeture?: { motif: string; code?: number; raison?: string; a: number } | null;
+  derniereCommande?: { type: string; a: number } | null;
+  dernierEvenementA?: number | null;
+  enVeille: boolean;
+  pageCachee: boolean;
+  enLigne?: boolean;
+}
+
+const ETATS_DU_SOCKET = ['en ouverture', 'ouvert', 'en fermeture', 'fermé'];
+
+function ilYA(a: number | null | undefined, maintenant: number): string {
+  return a ? `il y a ${Math.max(0, Math.round((maintenant - a) / 100) / 10)} s` : 'jamais';
+}
+
+/**
+ * LE RAPPORT D'UN GESTE NON PARTI : de quoi conclure, après coup, ce qui avait
+ * fermé le lien (code de fermeture, abandon par le battement, veille, réseau)
+ * et depuis quand. Rien du projet : le TYPE de la commande, jamais son contenu.
+ * Le message porte le type, pour qu'un même geste raté ne parte qu'une fois.
+ */
+export function rapportDuGesteNonParti(etat: EtatDuLienAuGeste, maintenant: number): RapportErreur {
+  const fermeture = etat.derniereFermeture;
+  const lignes = [
+    `canal : ${etat.etatDuSocket == null ? 'aucun' : (ETATS_DU_SOCKET[etat.etatDuSocket] ?? String(etat.etatDuSocket))}`,
+    `coupé depuis : ${ilYA(etat.coupeDepuis, maintenant)}`,
+    `dernière fermeture : ${
+      fermeture
+        ? `${fermeture.motif}${fermeture.code != null ? ` (code ${fermeture.code}${fermeture.raison ? `, ${fermeture.raison}` : ''})` : ''} ${ilYA(fermeture.a, maintenant)}`
+        : 'aucune'
+    }`,
+    `dernière commande envoyée : ${etat.derniereCommande ? `${etat.derniereCommande.type} ${ilYA(etat.derniereCommande.a, maintenant)}` : 'aucune'}`,
+    `dernier message reçu : ${ilYA(etat.dernierEvenementA, maintenant)}`,
+    `veille : ${etat.enVeille ? 'oui' : 'non'} · page cachée : ${etat.pageCachee ? 'oui' : 'non'} · réseau : ${etat.enLigne === false ? 'hors ligne' : 'en ligne'}`,
+  ];
+  return { source: 'canal', message: `geste non parti : ${etat.commande}`, pile: lignes.join('\n') };
 }

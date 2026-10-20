@@ -275,11 +275,12 @@ export function OuJEnSuis({
             {eteinte ? eteinte.phrase : phraseDEtat(etat, { joue: !!joue, essaiReussi, changes })}
           </span>
         </p>
-        <div className="ml-auto flex shrink-0 items-center">
-          <BoutonAgentDeConfiguration projectId={projet.id} cible={cible} voile={eteinte?.voile ?? null} />
-        </div>
       </div>
       {eteinte ? null : <ReperesDAvancement reperes={reperes} attend={etat === 'question'} />}
+      {/* LE BOUTON DE L'AGENT, EN DESSOUS ET SUR TOUTE LA LARGEUR, dans la couleur
+          du travail de l'agent (demande du 19/10/2026 : il ne se perd plus en
+          haut à droite, à côté de la phrase d'état). */}
+      <BoutonAgentDeConfiguration projectId={projet.id} cible={cible} voile={eteinte?.voile ?? null} />
     </section>
   );
 }

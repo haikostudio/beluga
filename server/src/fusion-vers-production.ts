@@ -21,6 +21,7 @@ import {
   recitVersProduction,
   type GesteVersProduction,
 } from '@beluga/shared';
+import { REFUS_D_ENVOI_AU_DEPOT_PUBLIC, distantEstLeDepotPublic } from './depot-public.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -100,6 +101,10 @@ export async function fusionnerVersLaProduction(cwd: string, source: string, cib
   }
 
   const notes: string[] = [];
+  /* Le dépôt public de Beluga se lit, il ne reçoit jamais d'envoi (`depot-public.ts`). */
+  if (aDistant && M !== T && (await distantEstLeDepotPublic(cwd, 'origin'))) {
+    return panne(REFUS_D_ENVOI_AU_DEPOT_PUBLIC);
+  }
   if (aDistant && M !== T) {
     const envoi = await lancer(cwd, ['push', 'origin', `${M}:refs/heads/${cible}`], 300000);
     if (!envoi.ok) {

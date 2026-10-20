@@ -15,10 +15,17 @@ import { EngineId } from './models.js';
  * - Claude ouvre une page et attend qu'on lui RECOPIE un code par son entrée
  *   standard (« Paste code here »).
  * - Codex, lui, montre une adresse ET un code à saisir SUR la page, puis attend
- *   tout seul que l'échange aboutisse. C'est le mode « device » : sans lui, le
- *   moteur ouvrirait une page qui renvoie vers le serveur lui-même, injoignable
- *   depuis le navigateur de l'utilisateur.
+ *   tout seul que l'échange aboutisse. C'est le mode « device » (voie
+ *   « appareil »), la voie par défaut.
+ * - OpenAI REFUSE parfois ce mode (« device code login is not enabled »). Codex
+ *   a alors une SECONDE voie, « navigateur » : la page d'OpenAI renvoie vers
+ *   `http://localhost:1455/auth/callback?code=…&state=…`, c'est-à-dire vers
+ *   l'appareil de l'utilisateur, où rien n'écoute — la page d'erreur qu'il voit
+ *   porte pourtant tout ce qu'il faut. Il en colle l'adresse dans Beluga, et le
+ *   SERVEUR la rejoue sur son propre port 1455, où Codex attend.
  */
+
+export type VoieConnexion = 'appareil' | 'navigateur';
 
 export interface CommandeDeConnexion {
   /** L'outil en ligne de commande à lancer. */
@@ -30,11 +37,11 @@ export interface CommandeDeConnexion {
   codeARecopier: boolean;
 }
 
-export function commandeDeConnexion(engine: EngineId): CommandeDeConnexion {
+export function commandeDeConnexion(engine: EngineId, voie: VoieConnexion = 'appareil'): CommandeDeConnexion {
   if (engine === 'codex') {
     return {
       commande: 'codex',
-      args: ['login', '--device-auth'],
+      args: voie === 'navigateur' ? ['login'] : ['login', '--device-auth'],
       variableDossier: 'CODEX_HOME',
       codeARecopier: false,
     };
@@ -70,6 +77,11 @@ export interface InviteConnexion {
   code?: string;
   /** Le moteur réclame-t-il qu'on lui renvoie un code (Claude) ? */
   attendLeCode: boolean;
+  /**
+   * Le `state` de l'adresse d'autorisation (voie navigateur) : le seul moyen de
+   * reconnaître le retour de CETTE tentative. Il reste côté serveur.
+   */
+  state?: string;
 }
 
 /** Un code à usage unique : des blocs de lettres et de chiffres séparés par un tiret. */
@@ -83,7 +95,14 @@ const CODE = /\b([A-Z0-9]{4,8}-[A-Z0-9]{4,8})\b/;
 export function lireInvite(sortie: string): InviteConnexion {
   const texte = nettoyerSortie(sortie);
 
-  const lien = texte.match(/https?:\/\/[^\s'"<>]+/)?.[0]?.replace(/[.,;:)\]]+$/, '');
+  /*
+   * LA PREMIÈRE ADRESSE N'EST PAS FORCÉMENT LA BONNE. En voie navigateur, Codex
+   * écrit d'abord « Starting local login server on http://localhost:1455. » :
+   * c'est son propre port, injoignable depuis l'appareil de l'utilisateur. On
+   * retient la première adresse qui ne vise PAS la machine elle-même.
+   */
+  const adresses = [...texte.matchAll(/https?:\/\/[^\s'"<>]+/g)].map((m) => m[0].replace(/[.,;:)\]]+$/, ''));
+  const lien = adresses.find((a) => !estAdresseLocale(a)) ?? adresses[0];
 
   // Le code ne se cherche qu'APRÈS l'adresse : sinon un morceau de l'adresse
   // elle-même (jeton, empreinte) passerait pour un code à recopier.
@@ -94,7 +113,175 @@ export function lireInvite(sortie: string): InviteConnexion {
     lien,
     code,
     attendLeCode: /paste code here|colle[rz]? (?:le|ce) code/i.test(texte),
+    state: lien ? stateDeLAdresse(lien) : undefined,
   };
+}
+
+function estAdresseLocale(adresse: string): boolean {
+  return /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(adresse);
+}
+
+function stateDeLAdresse(adresse: string): string | undefined {
+  try {
+    return new URL(adresse).searchParams.get('state') || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * OPENAI A-T-IL REFUSÉ LE CODE D'APPAREIL ? Le refus se lit dans la sortie de
+ * Codex (pendant la tentative ou à sa fin) ; l'écran bascule alors d'office sur
+ * la voie navigateur. L'invite « Use `codex login --device-auth` instead » de la
+ * voie navigateur n'est PAS un refus.
+ */
+export function refusCodeAppareil(sortie: string): boolean {
+  const texte = nettoyerSortie(sortie);
+  return /device code login is not enabled|enable device code (?:authorization|login|auth)|activez la connexion par code d.appareil|failed to request device code|device code request failed with status 4\d\d/i.test(
+    texte,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* L'adresse de retour collée (voie navigateur)                        */
+/* ------------------------------------------------------------------ */
+
+export type RaisonAdresseRefusee =
+  | 'pas-une-adresse'
+  | 'mauvais-chemin'
+  | 'sans-code'
+  | 'sans-state'
+  | 'ancienne-tentative'
+  | 'erreur-openai';
+
+export type AdresseDeRetour =
+  | { ok: true; chemin: string }
+  | { ok: false; raison: RaisonAdresseRefusee; detail?: string };
+
+/**
+ * L'ADRESSE DE LA PAGE D'ERREUR, telle que l'utilisateur la colle : avec des
+ * espaces, sans « http:// », sur `localhost` ou `127.0.0.1`. Elle n'est rejouée
+ * que si son `state` est celui de la tentative EN COURS : une adresse d'une
+ * ancienne tentative ferait échouer Codex (« state mismatch ») et l'arrêterait.
+ * Rend le seul chemin à rejouer sur le port local, jamais l'hôte collé.
+ */
+export function validerAdresseDeRetour(collee: string, stateAttendu: string | undefined): AdresseDeRetour {
+  const brute = (collee ?? '').replace(/\s+/g, '');
+  // Ni chemin ni paramètres : un mot, pas une adresse.
+  if (!brute || !/[/?]/.test(brute.replace(/^[a-z][a-z0-9+.-]*:\/\//i, ''))) return { ok: false, raison: 'pas-une-adresse' };
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(brute) ? brute : `http://${brute}`);
+  } catch {
+    return { ok: false, raison: 'pas-une-adresse' };
+  }
+  const erreur = url.searchParams.get('error');
+  if (erreur) {
+    const detail = url.searchParams.get('error_description') || erreur;
+    return { ok: false, raison: 'erreur-openai', detail };
+  }
+  if (url.pathname.replace(/\/+$/, '') !== '/auth/callback') return { ok: false, raison: 'mauvais-chemin' };
+  const code = url.searchParams.get('code');
+  if (!code) return { ok: false, raison: 'sans-code' };
+  const state = url.searchParams.get('state');
+  if (!state) return { ok: false, raison: 'sans-state' };
+  if (!stateAttendu || state !== stateAttendu) return { ok: false, raison: 'ancienne-tentative' };
+  return { ok: true, chemin: `/auth/callback${url.search}` };
+}
+
+/** Ce que l'écran dit d'une adresse refusée, en français simple. */
+export function messageAdresseRefusee(raison: RaisonAdresseRefusee, detail?: string): string {
+  switch (raison) {
+    case 'pas-une-adresse':
+      return "Ce texte n'est pas une adresse. Copiez l'adresse complète de la page d'erreur, dans la barre du navigateur.";
+    case 'mauvais-chemin':
+      return "Ce n'est pas l'adresse attendue : elle doit commencer par localhost:1455/auth/callback.";
+    case 'sans-code':
+      return "L'adresse est incomplète : il y manque le code rendu par OpenAI. Copiez-la en entier.";
+    case 'sans-state':
+      return "L'adresse est incomplète : il y manque sa fin. Copiez-la en entier.";
+    case 'ancienne-tentative':
+      return "Cette adresse vient d'une connexion précédente. Cliquez à nouveau sur « Se connecter à OpenAI », puis collez la nouvelle adresse.";
+    case 'erreur-openai':
+      return `OpenAI a refusé la connexion${detail ? ` : ${detail}` : '.'}`;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* L'essai réel après connexion                                        */
+/* ------------------------------------------------------------------ */
+
+/** Le modèle du réglage du compte est-il refusé par un compte ChatGPT ? */
+export function modeleRefuse(sortie: string): boolean {
+  return /model is not supported when using codex with a chatgpt account|model[^\n]{0,80}(?:is not supported|does not exist|not found)/i.test(
+    nettoyerSortie(sortie),
+  );
+}
+
+/**
+ * LE MODÈLE DE REMPLACEMENT, pris dans la liste que Codex garde lui-même
+ * (`models_cache.json` du coffre) : le premier modèle PROPOSÉ (`visibility:
+ * 'list'`) — Codex les range du plus récent au plus ancien. Rien d'inventé : sans
+ * liste lisible, aucun remplacement.
+ */
+export function modeleDeRemplacement(cache: unknown, refuse?: string): string | undefined {
+  const modeles = (cache as { models?: unknown })?.models;
+  if (!Array.isArray(modeles)) return undefined;
+  for (const m of modeles) {
+    const slug = (m as { slug?: unknown })?.slug;
+    const visibilite = (m as { visibility?: unknown })?.visibility;
+    if (typeof slug === 'string' && slug && visibilite === 'list' && slug !== refuse) return slug;
+  }
+  return undefined;
+}
+
+/** Le modèle réglé dans un `config.toml` (la ligne `model = "…"` de tête). */
+export function modeleDeConfig(toml: string): string | undefined {
+  for (const ligne of (toml ?? '').split('\n')) {
+    if (/^\s*\[/.test(ligne)) return undefined; // une table commence : plus de réglage de tête
+    const m = ligne.match(/^\s*model\s*=\s*"([^"]*)"/);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+/**
+ * Remplace la SEULE ligne `model = "…"` de tête d'un `config.toml`, sans rien
+ * toucher d'autre ; l'ajoute en tête si elle manque.
+ */
+export function remplacerModeleDeConfig(toml: string, modele: string): string {
+  const lignes = (toml ?? '').split('\n');
+  for (let i = 0; i < lignes.length; i += 1) {
+    if (/^\s*\[/.test(lignes[i])) break;
+    if (/^\s*model\s*=/.test(lignes[i])) {
+      lignes[i] = `model = "${modele}"`;
+      return lignes.join('\n');
+    }
+  }
+  return `model = "${modele}"\n${toml ?? ''}`;
+}
+
+/**
+ * L'issue de l'essai réel (`codex exec … "Réponds uniquement: OK"`), en
+ * français. Seul un essai qui RÉPOND dit « opérationnel » : ni la présence des
+ * identifiants, ni `codex login status` ne le prouvent.
+ */
+export function issueDuControle(fin: { code: number | null; sortie: string; delaiDepasse?: boolean }): {
+  ok: boolean;
+  message: string;
+} {
+  const texte = nettoyerSortie(fin.sortie ?? '');
+  if (fin.delaiDepasse) return { ok: false, message: "Le moteur n'a pas répondu à l'essai dans le temps imparti." };
+  if (fin.code === 0) return { ok: true, message: 'Connecté et opérationnel.' };
+  if (modeleRefuse(texte)) return { ok: false, message: 'Le modèle réglé pour ce compte est refusé par OpenAI.' };
+  if (/\b401\b|unauthorized|sign in again|log out and sign in|not logged in|refresh token/i.test(texte)) {
+    return { ok: false, message: 'OpenAI refuse la session de ce compte : reconnectez-le.' };
+  }
+  if (/\b429\b|usage limit|rate limit|quota/i.test(texte)) {
+    return { ok: false, message: 'Le compte est connecté, mais son quota est atteint pour le moment.' };
+  }
+  const detail = dernierePhrase(texte);
+  return { ok: false, message: detail ? `L'essai du moteur a échoué : ${detail}` : "L'essai du moteur a échoué." };
 }
 
 /* ------------------------------------------------------------------ */
@@ -212,7 +399,7 @@ export function etatDeConnexion(lecture: LectureCompte): EtatCompteConnexion {
   // La lecture du quota échoue alors sur le FICHIER ABSENT (« ENOENT »), pas sur
   // un jeton vide — sans ce cas, l'écran restait muet sur un compte à connecter.
   if (/enoent|no such file|no credentials/.test(erreur)) {
-    return { etat: 'absente', libelle: 'jamais connecté', doitReconnecter: true };
+    return { etat: 'absente', libelle: 'non connecté', doitReconnecter: true };
   }
 
   /*
@@ -232,7 +419,7 @@ export function etatDeConnexion(lecture: LectureCompte): EtatCompteConnexion {
   }
 
   if (/non connect|aucun jeton/.test(erreur)) {
-    return { etat: 'absente', libelle: 'jamais connecté', doitReconnecter: true };
+    return { etat: 'absente', libelle: 'non connecté', doitReconnecter: true };
   }
   if (/\b(401|403)\b|refus/.test(erreur)) {
     return { etat: 'refusee', libelle: 'connexion refusée', doitReconnecter: true };
@@ -279,6 +466,18 @@ export const ConnexionCompte = z.object({
    * rien d'autre (champ optionnel : un navigateur ancien l'ignore).
    */
   codeEnvoyeA: z.number().optional(),
+  /** La voie de cette tentative (Codex) : code d'appareil ou navigateur. */
+  voie: z.enum(['appareil', 'navigateur']).optional(),
+  /** Quand la tentative sera abandonnée : l'écran affiche le temps restant. */
+  expireA: z.number().optional(),
+  /** Voie navigateur : l'écran attend l'adresse de la page d'erreur. */
+  attendAdresseDeRetour: z.boolean().optional(),
+  /** OpenAI a refusé le code d'appareil : l'écran bascule sur la voie navigateur. */
+  proposerNavigateur: z.boolean().optional(),
+  /** L'adresse collée est partie au moteur : chargement jusqu'à l'issue. */
+  adresseEnvoyeeA: z.number().optional(),
+  /** L'essai réel après connexion, et ce qu'il a dit. */
+  controle: z.enum(['en-cours', 'operationnel', 'echec']).optional(),
 });
 export type ConnexionCompte = z.infer<typeof ConnexionCompte>;
 

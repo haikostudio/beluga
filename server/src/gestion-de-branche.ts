@@ -49,6 +49,7 @@ import { brancheDeDeploiement } from './branche-de-deploiement.js';
 import { dossierDeCarte, racinesDesCopiesDuProjet } from './copies-de-cartes.js';
 import { branchePrincipale, copieQuiTientLaBranche, git } from './git.js';
 import { refermerSansFile, sousLaFileDuDepot } from './dossier-de-carte.js';
+import { distantEstLeDepotPublic } from './depot-public.js';
 
 const agentActif = (card: Pick<Card, 'agentId'>) => !!card.agentId && isRunning(card.agentId);
 
@@ -350,7 +351,7 @@ async function renommer(
     if (await existe(racine, ancienne)) {
       const r = await git(racine, ['branch', '-m', ancienne, nouveau], 30000);
       if (!r.ok) return { ok: false, message: `git a refusé le renommage : ${r.out.slice(-160)}` };
-      if (await existe(racine, `origin/${ancienne}`)) {
+      if ((await existe(racine, `origin/${ancienne}`)) && !(await distantEstLeDepotPublic(racine, 'origin'))) {
         const pousse = await git(racine, ['push', '-u', 'origin', nouveau], 120000);
         const retire = pousse.ok ? await git(racine, ['push', 'origin', '--delete', ancienne], 120000) : pousse;
         distant = pousse.ok && retire.ok ? ' (GitHub aussi)' : ' (GitHub garde l’ancien nom : la mise à jour distante a échoué)';

@@ -153,6 +153,20 @@
        11/10/2026). */
     --encre: 0 0% 22%;
     --encre-fg: 0 0% 93%;
+    /* LES TEINTES DU GRAPHE DE LA MÉMOIRE (décision du 2026-10-20) : une
+       exception VOULUE à « une seule couleur », limitée au graphe
+       (`memoire-graphe.tsx`). Six familles de catégories en teintes VIVES,
+       espacées sur le cercle des couleurs pour se distinguer d'un coup d'œil
+       (bleu, cyan, vert, ambre, rouge, rose), et un violet pour les
+       compétences. Vives à la demande de l'utilisateur (2026-10-20) : les
+       teintes douces d'origine se confondaient. */
+    --graphe-1: 212 92% 64%;
+    --graphe-2: 182 82% 48%;
+    --graphe-3: 135 68% 52%;
+    --graphe-4: 38 96% 56%;
+    --graphe-5: 4 88% 63%;
+    --graphe-6: 322 86% 66%;
+    --graphe-competence: 266 92% 74%;
     color-scheme: dark;
   }
 
@@ -180,26 +194,30 @@
   }
 
   /**
-   * MARGE SOUS LE FLOU D'iOS 26/27 : 20 PX, COMME HAIKOMAIL (19/10/2026).
+   * MARGE SOUS LE FLOU D'iOS 26/27 : 0 PX (19/10/2026, carte 6e66a45c).
    * Installée en `black-translucent` (`web/index.html`), l'application passe
    * sous l'heure et iOS y pose un flou « scroll edge effect » d'environ
-   * 38-40 pt, qu'aucune CSS n'éteint et que l'émulation Chrome ne montre pas.
-   * On ne le combat pas : le FOND monte jusqu'en haut (le flou reste invisible
-   * sur une surface unie) et le CONTENU démarre 20 px plus bas, en UN seul
-   * chiffre via `--zone-sure-haut` — entêtes, tiroirs et assistant suivent.
-   * La hauteur d'application lit `--zone-sure-haut-systeme`, sans la marge.
+   * 38-40 pt, que l'émulation Chrome ne montre pas. Il est désormais ÉTEINT
+   * par une bande FIXE et OPAQUE du fond de la zone, posée au bord du haut
+   * (`bande-sous-l-heure.tsx`) : WebKit échantillonne un élément fixe collé
+   * au bord et renonce alors au flou — c'est pourquoi la page Notifications,
+   * page fixe opaque, n'en avait jamais. Le contenu démarre donc juste sous
+   * l'heure (décision de l'utilisateur : « collé à la zone de l'heure »).
+   * La variable reste le SEUL réglage : si le flou revenait sur l'iPhone,
+   * remettre ici quelques pixels. La hauteur d'application lit
+   * `--zone-sure-haut-systeme`, sans la marge.
    *
-   * Historique : 20 px (de743942) jugé sans effet — sans doute avant
-   * réinstallation de l'icône ; 40 px (7ecbe3b4) = bande vide, refusée ; barre
-   * « default » (7e483cc5) = bande grise opaque ou flou intermittents sur
-   * iOS 27, abandonnée. ProjetE : 28 px trop loin, 7 px effleure l'entête.
+   * Historique : 20 px (de743942) jugé sans effet ; 20 px puis 15 px
+   * (19/10/2026) pour fuir le flou ; 40 px (7ecbe3b4) = bande vide, refusée ;
+   * barre « default » (7e483cc5) = bande grise opaque ou flou intermittents
+   * sur iOS 27, abandonnée ; 0 px avec la bande fixe (19/10/2026).
    * Changer cette marge n'impose pas de réinstaller l'icône, changer le style
    * de barre oui. Limitée à iOS installé en portrait : rien ne bouge ailleurs.
    */
   @supports (-webkit-touch-callout: none) {
     @media (display-mode: standalone) and (orientation: portrait) {
       html {
-        --marge-flou-ios: 20px;
+        --marge-flou-ios: 0px;
       }
     }
   }
@@ -252,6 +270,13 @@
     --teinte-plein: 262 68% 50%;
     --encre: 0 0% 5%;
     --encre-fg: 0 0% 100%;
+    --graphe-1: 214 88% 48%;
+    --graphe-2: 184 92% 32%;
+    --graphe-3: 138 72% 33%;
+    --graphe-4: 32 96% 44%;
+    --graphe-5: 2 80% 50%;
+    --graphe-6: 324 78% 47%;
+    --graphe-competence: 266 76% 56%;
     color-scheme: light;
   }
 
@@ -465,6 +490,13 @@
      « Relier GitHub »…) : violet plein, écriture blanche — dans cet assistant
      SEULEMENT (demande du 18/10/2026). Partout ailleurs, l'accent reste. */
   [data-assistant-demarrage] button[class~="bg-accent"] {
+    background-color: hsl(var(--teinte-plein));
+    color: hsl(0 0% 100%);
+  }
+  /* LE BOUTON DE L'AGENT DE CONFIGURATION (réglages du projet, « Déploiement » et
+     « Mise en production ») : violet plein, écriture blanche, dans tous ses
+     états — il mène au travail de l'agent (demande du 19/10/2026). */
+  button[data-bouton-agent-plein] {
     background-color: hsl(var(--teinte-plein));
     color: hsl(0 0% 100%);
   }
@@ -884,7 +916,82 @@
    le point de l'indicateur, eux, RESTENT — le signal ne disparaît jamais, seul
    son mouvement s'efface. Ici, l'état « ça travaille » se lit toujours
    ailleurs : le pourcentage en tête de colonne, les cartes et leur roue. */
+/* LE TERMINAL DU SERVEUR EST DERRIÈRE L'APPLICATION (`terminal-serveur.tsx`) :
+   ouvert, TOUTE l'application (`data-app-racine`, colonne de gauche comprise)
+   remonte de la hauteur du volet, comme une feuille soulevée, et son bord bas
+   porte une ombre sur le haut du terminal. Fermé, aucune transformation ne
+   reste posée : elle ferait de la racine le repère de tous ses éléments
+   `fixed`. */
+[data-app-racine] {
+  position: relative;
+  z-index: 1;
+  transition:
+    transform 190ms ease-out,
+    box-shadow 190ms ease-out;
+}
+html[data-terminal-ouvert] [data-app-racine] {
+  transform: translateY(calc(-1 * var(--hauteur-terminal, 0px)));
+  box-shadow: 0 18px 36px -8px rgb(0 0 0 / 0.6);
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+}
+html[data-terminal-ouvert],
+html[data-terminal-ouvert] body {
+  background: #0a0a0a;
+}
 @media (prefers-reduced-motion: reduce) {
+  [data-app-racine] {
+    transition: none;
+  }
+}
+/* LE TERMINAL EST NOIR DANS LES DOUZE PALETTES : ses jetons sont redonnés ici,
+   pour son entête, ses boutons et son menu de comptes. */
+.terminal-noir {
+  --bg: 0 0% 4%;
+  --surface: 0 0% 4%;
+  --raised: 0 0% 14%;
+  --border: 0 0% 18%;
+  --text: 0 0% 92%;
+  --muted: 0 0% 72%;
+  --faint: 0 0% 56%;
+  --accent: 0 0% 96%;
+  --accent-fg: 0 0% 9%;
+  color-scheme: dark;
+}
+
+/* LE BLOC D'UN MÉDIA EN FABRICATION (`medias-en-fabrication.tsx`) : une lumière
+   douce, teintée du violet du travail de l'agent, passe lentement de haut en
+   bas — un scanner au ralenti, sans flou ni reflet de verre. Figée en veille
+   (règle `html.en-veille` plus bas) et quand l'appareil demande moins
+   d'animations : le bloc reste, avec son temps qui avance. */
+.media-en-fabrication::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 45%;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    hsl(var(--teinte) / 0.07) 45%,
+    hsl(var(--teinte) / 0.16) 50%,
+    hsl(var(--teinte) / 0.07) 55%,
+    transparent 100%
+  );
+  animation: balayage-du-media 3.6s ease-in-out infinite;
+}
+@keyframes balayage-du-media {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(230%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-en-fabrication::after,
   .animate-secousse,
   .animate-pulse-soft,
   .animate-scintille,

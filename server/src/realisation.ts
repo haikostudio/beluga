@@ -74,6 +74,7 @@ import { PATHS } from './config.js';
 import { log } from './logger.js';
 import { cleDuService, fabriquerClipChezLeService, plafondDuClip, servicesDeGenerationBranches } from './studio-services.js';
 import { joindreUnFichier } from './joindre-fichier.js';
+import { annoncerUnMedia, terminerUnMedia } from './medias-en-fabrication.js';
 import { cheminAbsoluDuDocument, lireLeDocumentDeRealisation } from './realisation-questionnaire.js';
 
 /* ------------------------------------------------------------------ */
@@ -530,13 +531,30 @@ async function ranger(m: MediaDeRealisation, data: Buffer, type: string, coutRee
 }
 
 function lancer(m: MediaDeRealisation, attente: (ms: number) => Promise<void>): void {
+  /* LE BLOC D'ATTENTE DU FIL (`medias-en-fabrication.ts`) : il paraît au départ,
+     montre l'aperçu à la fin. Le démon le suit lui-même : la fabrication peut
+     durer au-delà du tour de l'agent. */
+  annoncerUnMedia({
+    id: m.id,
+    projectId: m.projectId,
+    cardId: m.cardId,
+    agentId: m.agentId,
+    sujet: m.plan,
+    outil: `${m.modeleNom} · ${serviceDeGeneration(m.service as IdServiceGeneration)?.nom ?? m.service}`,
+    prix: m.prix,
+    format: m.demande.format,
+    genre: m.genre,
+    suivi: 'service',
+  });
   const travail = (async () => {
     try {
       const { data, type, coutReel } = await fabriquer(m, attente);
-      await ranger(m, data, type, coutReel);
+      const fini = await ranger(m, data, type, coutReel);
+      terminerUnMedia(m.id, { attachmentId: fini.attachmentId, ...(coutReel !== undefined ? { prix: coutReel } : {}) });
       log.info(`réalisation : « ${m.plan} » fabriqué (${m.modeleNom})`);
     } catch (err) {
       const raison = String((err as Error)?.message ?? err).slice(0, 400);
+      terminerUnMedia(m.id, { echec: raison });
       maj(m, { etat: 'echec', echec: raison });
       log.warn(`réalisation : « ${m.plan} » en échec : ${raison}`);
     } finally {

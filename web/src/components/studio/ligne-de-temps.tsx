@@ -726,6 +726,7 @@ export function LigneDeTemps({
                       <button
                         type="button"
                         aria-label={`Ajouter sur la piste « ${p.nom} »`}
+                        title={t('Ajouter sur la piste « {v0} »', { v0: p.nom })}
                         className="absolute top-1/2 z-10 flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-accent text-accent-fg shadow"
                         style={{ left: (menu?.pisteId === p.id ? menu.t : (survol?.t ?? 0)) * zoom }}
                         data-studio-plus={p.id}

@@ -920,6 +920,9 @@ async function fetchCodexQuota(account: AccountRecord): Promise<AccountQuota> {
   };
   try {
     const authFile = path.join(account.configDir, 'auth.json');
+    // Un coffre sans identifiants (dossier vide, déplacé, jamais connecté) se
+    // dit « non connecté », pas par l'erreur brute du système de fichiers.
+    if (!fs.existsSync(authFile)) return { ...base, error: 'compte non connecté (aucune connexion dans son dossier)', available: false };
     const raw = JSON.parse(fs.readFileSync(authFile, 'utf8'));
     const token = raw?.tokens?.access_token ?? raw?.OPENAI_API_KEY;
     if (!token) return { ...base, error: 'compte non connecté', available: false };
@@ -2180,6 +2183,7 @@ export function expirationDuCompte(account: AccountRecord): number | undefined {
  */
 function attacherEtatConnexion(list: AccountQuota[]): void {
   const comptes = new Map(listAccountRecords().map((a) => [a.id, a]));
+  let aReprendre: string[] | undefined;
   for (const quota of list) {
     const compte = comptes.get(quota.id);
     const coffre = compte ? lireCoffreDuCompte(compte) : {};
@@ -2189,7 +2193,72 @@ function attacherEtatConnexion(list: AccountQuota[]): void {
       renouvellementExpireA: coffre.renouvellementExpireA,
       coffreVide: coffre.coffreVide,
     });
+    // Un compte Codex sans connexion : une autre, ailleurs sur la machine, se
+    // propose à la reprise — jamais reprise en silence.
+    if (quota.engine === 'codex' && quota.connexion.etat === 'absente') {
+      aReprendre ??= coffresCodexAReprendre();
+      if (aReprendre.length) quota.connexionsAReprendre = aReprendre.map((dossier) => ({ dossier }));
+    }
   }
+}
+
+/** Un `auth.json` qui porte de quoi se connecter (jeton ou clé), lu sans le garder. */
+export function authCodexConnecte(fichier: string): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(fichier, 'utf8'));
+    return Boolean(raw?.tokens?.refresh_token || raw?.tokens?.access_token || raw?.OPENAI_API_KEY);
+  } catch {
+    return false;
+  }
+}
+
+function cheminReel(chemin: string): string {
+  try {
+    return fs.realpathSync(chemin);
+  } catch {
+    return path.resolve(chemin);
+  }
+}
+
+/**
+ * LES AUTRES CONNEXIONS CODEX DE LA MACHINE : un dossier `.codex` (de root, de
+ * chaque utilisateur, du dossier personnel du démon) qui détient un `auth.json`
+ * connecté et n'est le coffre d'AUCUN compte déclaré. C'est le cas d'une
+ * connexion partie dans `/root/.codex` au lieu du coffre du compte.
+ *
+ * `BELUGA_CODEX_COFFRES_A_REPRENDRE` (dossiers séparés par « : ») remplace la
+ * liste fouillée : les contrôles ne regardent ainsi jamais les vrais dossiers.
+ */
+export function coffresCodexAReprendre(): string[] {
+  const impose = process.env.BELUGA_CODEX_COFFRES_A_REPRENDRE;
+  const candidats = new Set<string>();
+  if (impose !== undefined) {
+    for (const d of impose.split(':')) if (d.trim()) candidats.add(d.trim());
+  } else {
+    candidats.add('/root/.codex');
+    candidats.add(path.join(os.homedir(), '.codex'));
+    if (CONFIG.homeDir) candidats.add(path.join(CONFIG.homeDir, '.codex'));
+    try {
+      for (const u of fs.readdirSync('/home')) candidats.add(path.join('/home', u, '.codex'));
+    } catch {
+      /* pas de /home lisible */
+    }
+  }
+  const comptes = listAllAccountRecords().filter((a) => a.engine === 'codex');
+  const coffres = new Set(comptes.map((a) => cheminReel(a.configDir)));
+  const identifiants = new Set(comptes.map((a) => cheminReel(path.join(a.configDir, 'auth.json'))));
+  const vus = new Set<string>();
+  const trouves: string[] = [];
+  for (const dossier of candidats) {
+    const reel = cheminReel(dossier);
+    if (vus.has(reel) || coffres.has(reel)) continue;
+    vus.add(reel);
+    const fichier = path.join(dossier, 'auth.json');
+    // Un fichier qui est DÉJÀ celui d'un compte (lien du coffre) n'est pas « ailleurs ».
+    if (identifiants.has(cheminReel(fichier))) continue;
+    if (authCodexConnecte(fichier)) trouves.push(dossier);
+  }
+  return trouves;
 }
 
 /**

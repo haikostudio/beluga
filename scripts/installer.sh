@@ -235,6 +235,16 @@ elif [ -z "$(ls -A "$DOSSIER" 2>/dev/null)" ]; then
 else
   arret "$DOSSIER existe, n'est pas vide et n'est pas une installation de Beluga Build."
 fi
+# LE DÉPÔT PUBLIC SE LIT, IL NE REÇOIT JAMAIS RIEN D'ICI : tout distant qui le
+# désigne garde sa lecture (les nouveautés) mais perd son adresse d'envoi. Le
+# démon repose ce verrou à chaque démarrage (`server/src/depot-public.ts`).
+if [ "$A_BLANC" = 0 ] && [ -d "$DOSSIER/.git" ]; then
+  for distant in $(sous_compte git -C "$DOSSIER" remote); do
+    if sous_compte git -C "$DOSSIER" remote get-url "$distant" | grep -qiE 'github\.com[:/]+haikostudio/beluga(\.git)?/?$'; then
+      sous_compte git -C "$DOSSIER" remote set-url --push "$distant" envoi-interdit://depot-public-de-beluga
+    fi
+  done
+fi
 
 if [ "$A_BLANC" = 0 ]; then
   [ -f "$DOSSIER/package.json" ] || arret "le code attendu n'est pas dans $DOSSIER (package.json introuvable)."

@@ -10,7 +10,7 @@ import {
   type CiblePublication,
   type EtatProcedure,
 } from '@beluga/shared';
-import { Button, DialogTitle, Drawer } from '@/components/ui';
+import { Button, Drawer, EnteteDeFeuille } from '@/components/ui';
 import { Chat } from '@/components/chat';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
 import { SilhouetteConversation } from '@/components/silhouettes';
@@ -49,8 +49,8 @@ export function useAgentDeConfiguration(projectId: string, cible: CiblePublicati
  * fois pour toute l'application (refonte du 30/09/2026).
  *
  * LE BOUTON est le seul du bloc « où j'en suis » des rubriques « Déploiement »
- * et « Mise en production », à côté de la phrase d'état (11/10/2026 ; il vivait
- * en haut à droite du titre). Son libellé suit
+ * et « Mise en production » : SOUS la phrase d'état et les repères, sur toute
+ * la largeur, en violet plein (19/10/2026 ; il vivait en haut à droite). Son libellé suit
  * l'état (`etatDuBoutonDeConfiguration`) : « Initialiser » tant qu'aucun
  * processus n'est écrit, « Agent au travail… » avec une roue pendant un tour,
  * « Répondre à l'agent » quand il attend sa réponse, « Reconfigurer » ensuite.
@@ -89,8 +89,8 @@ export function BoutonAgentDeConfiguration({
   });
   return (
     <Button
-      variant={etat === 'initialiser' ? 'default' : 'subtle'}
-      size="sm"
+      variant="default"
+      size="pied"
       disabled={!!voile}
       title={voile ?? undefined}
       onClick={() => ouvrirAgentDeConfiguration(projectId, cible, { lancer: etat === 'initialiser' })}
@@ -98,10 +98,12 @@ export function BoutonAgentDeConfiguration({
       data-ouvrir-agent-configuration={cible}
       data-etat-bouton-agent={etat}
       data-voile-configuration={voile ? 'oui' : 'non'}
-      className="shrink-0"
+      /* Violet plein, écriture blanche (`styles.css`) : le geste qui mène à l'agent se distingue du reste. */
+      data-bouton-agent-plein
+      className="shrink-0 justify-center"
     >
       {etat === 'travail' ? (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-en-cours" />
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
       ) : (
         <Sparkles className="h-3.5 w-3.5 shrink-0" />
       )}
@@ -126,12 +128,10 @@ export function TiroirAgentDeConfiguration({ initiale }: { initiale?: DemandeDAg
     <Drawer adresse="agent-de-configuration" open={!!demande} onClose={() => setDemande(null)} empile plein={estTelephone()} hauteurFixe feuille>
       {demande ? (
         <div className="flex min-h-0 flex-1 flex-col" data-tiroir-agent-configuration={demande.cible}>
-          <header className="flex shrink-0 items-center gap-2 px-4 pb-[13px]">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted" />
-            <DialogTitle className="min-w-0 flex-1 truncate">
-              {demande.cible === 'dev' ? t('Agent de configuration du déploiement') : t('Agent de configuration de la mise en production')}
-            </DialogTitle>
-          </header>
+          <EnteteDeFeuille
+            titre={demande.cible === 'dev' ? t('Agent de configuration du déploiement') : t('Agent de configuration de la mise en production')}
+            gauche={<Sparkles className="ml-1 h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />}
+          />
           <div className="flex min-h-0 flex-1 flex-col" data-contenu-agent-configuration>
             <ConversationDeConfiguration
               key={`${demande.projectId}:${demande.cible}`}

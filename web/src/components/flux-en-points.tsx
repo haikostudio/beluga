@@ -49,6 +49,7 @@ import {
   reflexionRepliee,
   retirerLaStructureDeCadrage,
   genreDAction,
+  nomClairDeLaLigne,
   nomDeLaLigne,
   poidsLisible,
   SousPointDuTravail,
@@ -76,6 +77,7 @@ import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
 import { Markdown, SuitesProposees, suitesDuJalon } from '@/lib/markdown';
 import { client } from '@/lib/client';
+import { useTitresClairs } from '@/lib/titres-memoire';
 import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
@@ -1994,8 +1996,11 @@ function CompetencesDuPoint({
 
 function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: EtapeDuParcours }) {
   const [ouvert, setOuvert] = React.useState(false);
+  // Le titre clair de chaque unité ouverte, puis son code : un seul appel pour tout le point.
+  const titresClairs = useTitresClairs(lignes.filter((l) => l.genre === 'unite').map((l) => l.sujet));
   if (!lignes.length) return null;
-  const noms = lignes.map(nomDeLaLigne);
+  const nom = (ligne: LigneDuCarnet) => nomClairDeLaLigne(ligne, titresClairs[ligne.sujet]);
+  const noms = lignes.map(nom);
   const phrase =
     etape === 'demande'
       ? t('La demande a ouvert d’office {v0}', { v0: noms.join(', ') })
@@ -2030,7 +2035,7 @@ function MemoireDuPoint({ lignes, etape }: { lignes: LigneDuCarnet[]; etape: Eta
         <ul className="space-y-1 px-3 pb-2.5" data-point-memoire-contenu>
           {lignes.map((ligne) => (
             <li key={ligne.id} className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]" data-point-memoire-ligne={ligne.cle}>
-              <span className="min-w-0 break-words [overflow-wrap:anywhere] text-text">{nomDeLaLigne(ligne)}</span>
+              <span className="min-w-0 break-words [overflow-wrap:anywhere] text-text">{nom(ligne)}</span>
               <span className="text-[12.5px] text-faint">
                 {[portee(ligne), poidsLisible(ligne.poids), ligne.enContexte ? '' : t('plus dans le contexte')].filter(Boolean).join(' · ')}
               </span>
@@ -2186,6 +2191,47 @@ function BlocsRacontes({
   }
 
   return <RecitDuPassage entrees={entrees} projectId={projectId} total />;
+}
+
+/**
+ * LE TRAVAIL D'UN TOUR D'AGENT SANS CARTE, DESSINÉ COMME CELUI D'UNE CARTE
+ * (demande du 19/10/2026 : « tous les agents, partout, comme les agents de
+ * tâche »). Les étapes et la liste de tâches du message sont relues comme un
+ * journal (`entreesDuTourSansCarte`, `shared/src/fil-sans-carte.ts`), puis
+ * dessinées par les MÊMES pièces que le point « Travail » d'une carte : la
+ * liste de tâches en sous-points quand l'agent en a annoncé une, sinon le récit
+ * des actions entrecoupé des mots de la discussion (questions et réponses),
+ * avec le temps total dessous. Les points portent leurs icônes et leur trait,
+ * comme dans la carte ouverte d'un passage.
+ */
+export function TravailDUnTourSansCarte({ entrees, projectId }: { entrees: EntreeJournal[]; projectId?: string }) {
+  const aDesPoints = entrees.some((entree) => entree.nature === 'point');
+  const segments = React.useMemo(() => (aDesPoints ? [] : segmenterLeRecit(entrees)), [aDesPoints, entrees]);
+  const dernierSegmentDActions = segments.map((segment) => segment.sorte).lastIndexOf('actions');
+  if (!entrees.length) return null;
+  return (
+    <PointsDeLaCarte.Provider value>
+      <ol className="flex flex-col gap-3 pb-2" data-fil-sans-carte={entrees.length}>
+        {aDesPoints ? (
+          <TravailEnSousPoints entrees={entrees} projectId={projectId} />
+        ) : (
+          segments.map((segment, rang) =>
+            segment.sorte === 'discussion' ? (
+              <MotsDeLaDiscussion key={segment.entrees[0]?.id} entrees={segment.entrees} projectId={projectId} />
+            ) : (
+              <RecitDuPassage
+                key={segment.entrees[0]?.id}
+                entrees={segment.entrees}
+                projectId={projectId}
+                total={rang === dernierSegmentDActions}
+                dureeSur={entrees}
+              />
+            ),
+          )
+        )}
+      </ol>
+    </PointsDeLaCarte.Provider>
+  );
 }
 
 /**

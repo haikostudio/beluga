@@ -189,12 +189,22 @@ function capitale(mot: string): string {
 }
 
 /**
- * Le nom lisible d'une ligne. Mémoire en classeurs : « DEC-078 · Le fil en cinq
- * points », « Fiche 05_decisions », « Changelog ». Ancien arbre :
- * « Interface › Parcours », « Cartes ».
+ * Le nom lisible d'une ligne. Mémoire en classeurs : « Le fil en cinq points
+ * (DEC-078) » — le TITRE d'abord, le code entre parenthèses (décision de
+ * l'utilisateur, carte 79083bc5) ; `titreClair`, quand l'écran le connaît,
+ * prend la place du titre technique —, « Fiche 05_decisions », « Changelog ».
+ * Ancien arbre : « Interface › Parcours », « Cartes ».
  */
 export function nomDeLaLigne(ligne: Pick<LigneDuCarnet, 'sujet' | 'branche' | 'genre'> & { titre?: string }): string {
-  if (ligne.genre === 'unite') return ligne.titre ? `${ligne.sujet} · ${ligne.titre}` : ligne.sujet;
+  return nomClairDeLaLigne(ligne);
+}
+
+/** Le même nom, avec le titre clair d'une unité quand l'écran le connaît. */
+export function nomClairDeLaLigne(ligne: Pick<LigneDuCarnet, 'sujet' | 'branche' | 'genre'> & { titre?: string }, titreClair?: string): string {
+  if (ligne.genre === 'unite') {
+    const titre = titreClair?.trim() || ligne.titre;
+    return titre ? `${titre} (${ligne.sujet})` : ligne.sujet;
+  }
   if (ligne.genre === 'fiche') return `Fiche ${ligne.sujet}`;
   if (ligne.genre === 'changelog') return 'Changelog';
   const sujet = capitale(ligne.sujet || ligne.genre || 'mémoire');

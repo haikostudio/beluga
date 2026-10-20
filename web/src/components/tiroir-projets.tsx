@@ -116,7 +116,7 @@ export function TiroirProjets({
         </div>
         {/* Une hauteur plancher : la feuille ne rétrécit pas d'un bond à chaque
             lettre tapée dans la recherche. */}
-        <ZoneDefilement className="min-h-0 px-2 pb-3">
+        <ZoneDefilement className="min-h-0 px-4 pb-3">
           {tableauxVisibles || projets.length ? (
             <ul className="flex flex-col gap-0.5">
               {tableauxVisibles ? (

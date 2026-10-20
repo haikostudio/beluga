@@ -25,6 +25,7 @@ import {
 } from '@/components/installation/sections';
 import { BarreDuTerminal, TerminalACote } from '@/components/installation/travail';
 import { client } from '@/lib/client';
+import { SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -128,6 +129,7 @@ function pageDe(etape: EtapeDeLAssistant): Page {
 export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant }) {
   const state = useApp();
   const { etat, relire } = useEtatDeLInstallation();
+  const relais = useEtatDuRelais();
   const etapes = etapesDeLAssistant(state.offreHebergee);
   const premiere = prochaineEtape(assistant, state.offreHebergee);
   const [vue, setVue] = React.useState<EtapeDeLAssistant>(premiere === 'fin' ? 'facultatif' : premiere);
@@ -261,7 +263,17 @@ export function AssistantDemarrage({ assistant }: { assistant: EtatDeLAssistant 
               ) : vue === 'competences' ? (
                 <SectionCompetences etat={etat} relire={relire} />
               ) : (
-                <SectionFacultatif etat={etat} relire={relire} />
+                <>
+                  <SectionFacultatif etat={etat} relire={relire} />
+                  {/* L'ACCORD DU PARTAGE DE L'ADRESSE se demande ici, à l'installation
+                      (décision du 20/10/2026) ; il se change ensuite dans les réglages. */}
+                  {relais?.joint ? (
+                    <div className="mt-6 space-y-2" data-assistant-partage>
+                      <p className="text-[14px] font-medium text-text">{t('Ce que l’équipe Beluga reçoit')}</p>
+                      <SectionPartage />
+                    </div>
+                  ) : null}
+                </>
               )}
             </div>
           </div>

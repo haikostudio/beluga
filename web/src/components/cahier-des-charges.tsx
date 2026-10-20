@@ -12,7 +12,7 @@ import {
 } from '@beluga/shared';
 import {
   Button,
-  DialogTitle,
+  EnteteDeFeuille,
   Drawer,
   DropdownMenu,
   DropdownMenuContent,
@@ -160,13 +160,20 @@ export function TiroirDuCahier({
   const parties = texte ? partiesDuCahier(texte) : [];
   return (
     <Drawer adresse="cahier-des-charges" open={open} onClose={onClose} empile plein feuille>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-5" data-tiroir-cahier={projectId}>
-        <div className="flex items-center gap-2">
-          <DialogTitle className="min-w-0 flex-1">{t('Cahier des charges')}</DialogTitle>
-          {texte ? <BoutonCopierDocument texte={texte} repere="data-cahier-copier" /> : null}
-          {texte ? <MenuExportDuCahier projectId={projectId} /> : null}
-        </div>
-        <ZoneDefilement className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 pb-5" data-tiroir-cahier={projectId}>
+        <EnteteDeFeuille
+          titre={t('Cahier des charges')}
+          className="pb-0"
+          droite={
+            texte ? (
+              <>
+                <BoutonCopierDocument texte={texte} repere="data-cahier-copier" />
+                <MenuExportDuCahier projectId={projectId} />
+              </>
+            ) : null
+          }
+        />
+        <ZoneDefilement className="min-h-0 flex-1 px-4">
           {texte === undefined ? (
             <div aria-busy className="flex flex-col gap-2" data-silhouette>
               <Silhouette className="h-5 w-1/2" />

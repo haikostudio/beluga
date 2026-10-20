@@ -233,6 +233,34 @@ export function ApercuDesCaptures({ galerie: g }: { galerie: GalerieDesCaptures 
   );
 }
 
+/**
+ * UNE VIGNETTE QUI NE DISPARAÎT PAS AU PREMIER RATÉ. Une image encore en
+ * écriture, un réseau qui hoquette ou un démon qui redémarre faisaient tomber le
+ * chargement une fois — et la vignette sortait de la bande pour toute la vie de
+ * l'écran : on croyait que l'agent n'avait rien vu. Elle se redemande donc
+ * deux fois, de plus en plus tard et sans le cache, avant d'être dite perdue.
+ */
+const ESSAIS_D_UNE_VIGNETTE = 3;
+function VignetteQuiReessaie({ src, alt, onPerdue }: { src: string; alt: string; onPerdue: () => void }) {
+  const [essai, setEssai] = React.useState(0);
+  const minuteur = React.useRef<number | undefined>(undefined);
+  React.useEffect(() => () => window.clearTimeout(minuteur.current), []);
+  return (
+    <img
+      src={essai ? `${src}&essai=${essai}` : src}
+      alt={alt}
+      loading="lazy"
+      draggable={false}
+      data-vignette-essai={essai}
+      onError={() => {
+        if (essai + 1 >= ESSAIS_D_UNE_VIGNETTE) return onPerdue();
+        minuteur.current = window.setTimeout(() => setEssai((n) => n + 1), 1500 * (essai + 1));
+      }}
+      className="max-h-full max-w-full rounded object-contain"
+    />
+  );
+}
+
 /** La bande seule ; l'aperçu se pose à part (`ApercuDesCaptures`), une fois pour toute la carte. */
 export function BandeDesCaptures({
   galerie: g,
@@ -325,13 +353,10 @@ export function BandeDesCaptures({
               title={infobulle}
               className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1`}
             >
-              <img
+              <VignetteQuiReessaie
                 src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`}
                 alt={c.libelle}
-                loading="lazy"
-                draggable={false}
-                onError={() => g.perdre(c)}
-                className="max-h-full max-w-full rounded object-contain"
+                onPerdue={() => g.perdre(c)}
               />
               {/* L'ÉTIQUETTE DU COIN : l'œil si l'image a déjà été ouverte, puis
                   son heure. Sur son propre fond de thème, donc lisible sur une

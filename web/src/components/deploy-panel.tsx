@@ -78,6 +78,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  EnteteDeFeuille,
   Drawer,
   DropdownMenu,
   DropdownMenuContent,
@@ -105,12 +106,15 @@ const DUREE_FONDU_ANNEAU_MS = 700;
  * l'œil — même fond, mêmes coins, aucun espace : le libellé arrondit la gauche
  * (`rounded-r-none`), le chevron la droite —, mais DEUX `button` : le libellé
  * lance, le chevron ouvre le déroulé, chacun avec son nom pour un lecteur
- * d'écran. Entre les deux, un fin trait vertical, tiré dans la couleur du
- * texte du bouton et très atténué : il se lit sur l'aplat plein comme sur le
- * fond discret, sans poser une couleur de plus. Ce n'est pas une bordure.
+ * d'écran. Entre les deux, une COUPURE d'un pixel sur toute la hauteur : le
+ * conteneur `data-bouton-reuni` porte `gap-px` et le fond de la barre y
+ * transparaît. Ce n'est ni une bordure ni un trait posé sur le bouton. Éteint,
+ * le chevron s'atténue comme le libellé (`opacity-40`, même mécanisme), pour
+ * que les deux parties gardent exactement la même teinte.
  */
-const CLASSE_CHEVRON_REUNI =
-  'relative w-7 shrink-0 rounded-l-none px-0 before:pointer-events-none before:absolute before:inset-y-1.5 before:left-0 before:w-px before:bg-current before:opacity-25 before:content-[\'\']';
+const CLASSE_CHEVRON_REUNI = 'w-7 shrink-0 rounded-l-none px-0';
+/** Chevron d'un lancement éteint : la MÊME atténuation que `disabled:opacity-40` du libellé. */
+const CLASSE_CHEVRON_PALI = 'opacity-40 hover:opacity-100';
 
 /** L'étape d'une publication, nommée comme dans la règle pure. */
 function libelleEtape(cible: DeployRun['cible']): string {
@@ -264,11 +268,7 @@ export function DeployPanel({
     <Drawer adresse="fil-agent-publication" open={!!filAgent} onClose={() => setFilAgent(null)} empile plein feuille>
       {filAgent ? (
         <div className="flex min-h-0 flex-1 flex-col" data-fil-agent-production={filAgent}>
-          <div className="shrink-0 px-4 pb-2">
-            <DialogTitle className="truncate text-[15.5px] font-semibold text-text">
-              {state.agents[filAgent]?.title ?? t('Mise en production')}
-            </DialogTitle>
-          </div>
+          <EnteteDeFeuille titre={state.agents[filAgent]?.title ?? t('Mise en production')} />
           <Chat agent={state.agents[filAgent] ?? null} projectId={projectId} />
         </div>
       ) : null}
@@ -1145,9 +1145,8 @@ export function DeployPanel({
       >
         {/* UN SEUL BOUTON À L'ŒIL, DEUX ZONES DE CLIC (`CLASSE_CHEVRON_REUNI`) :
             le libellé lance, le chevron — DANS le bouton, à son bord droit —
-            ouvre le déroulé. Aucun espace entre les deux, un fin trait vertical
-            les sépare. */}
-        <div className={cn('flex min-w-0 items-stretch', !enTete && 'flex-1')} data-bouton-reuni>
+            ouvre le déroulé. Une coupure d'un pixel (`gap-px`) les sépare. */}
+        <div className={cn('flex min-w-0 items-stretch gap-px', !enTete && 'flex-1')} data-bouton-reuni>
         <Button
           /* PLUS DE CONTOUR. Le variant `outline` dessinait un cadre dans une
              barre qu'on veut invisible ; `subtle` garde un fond lisible (donc
@@ -1246,14 +1245,14 @@ export function DeployPanel({
         <Button
           /* LE MÊME FOND QUE LE LIBELLÉ, à chaque état : plein quand un lot
              attend, discret sinon. Éteint, le libellé pâlit en entier
-             (`disabled:opacity-40`) ; le chevron, lui, reste un geste ouvert :
-             seul son FOND pâlit d'autant, pour que le bloc garde une seule
-             teinte, et son dessin reste lisible. */
+             (`disabled:opacity-40`) ; le chevron reste un geste ouvert et
+             pâlit du MÊME facteur (`CLASSE_CHEVRON_PALI`), pour que le bloc
+             garde une seule teinte. */
           variant={lancementPlein ? 'default' : 'subtle'}
           size="sm"
           className={cn(
             CLASSE_CHEVRON_REUNI,
-            lancementPali && (lancementPlein ? 'bg-accent/40 hover:opacity-100' : 'bg-raised/40 hover:bg-raised'),
+            lancementPali && CLASSE_CHEVRON_PALI,
           )}
           data-chevron-process
           aria-expanded={processOuvert}
@@ -1408,7 +1407,7 @@ export function DeployPanel({
     <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
       {/* La TÊTE : le bouton d'action à gauche, le chevron du déroulé à droite.
           Pendant une publication, le bouton dit l'étape traitée. */}
-      <div className="relative flex items-stretch" data-bouton-reuni>
+      <div className="flex items-stretch gap-px" data-bouton-reuni>
         <Button
           variant={publicationEnCours ? 'outline' : aPublier || etape.sansLot ? 'default' : 'outline'}
           size="sm"
@@ -1455,14 +1454,14 @@ export function DeployPanel({
         {/* Le chevron n'ouvre plus un panneau posé sur les cartes : il ouvre le
             TIROIR de la publication, où chaque étape porte son fil. Il vit DANS
             le bouton, à son bord droit (`CLASSE_CHEVRON_REUNI`) : même fond,
-            aucun espace, un fin trait entre les deux zones de clic. */}
+            une coupure d'un pixel entre les deux zones de clic. */}
         <Button
           variant={lancementPlein ? 'default' : 'outline'}
           size="sm"
           className={cn(
             CLASSE_CHEVRON_REUNI,
             'border-0',
-            lancementPali && lancementPlein && 'bg-accent/40 hover:opacity-100',
+            lancementPali && CLASSE_CHEVRON_PALI,
           )}
           data-chevron-process
           aria-expanded={processOuvert}
@@ -1918,8 +1917,8 @@ export function BandeauProduction({
         open={ouvert}
         onClose={() => onOuvert(false)}
         titre={titre}
+        info={deroule ? t('La version déjà déployée part chez le client — aucune carte n’est embarquée.') : undefined}
         actions={actions}
-        deroule={!!deroule}
         groupe={groupe}
         avant={avant}
         configuration={

@@ -86,7 +86,6 @@ import {
   publicationADepanner,
   questionsOuvertesDuFil,
   reponsesToutesFaites,
-  resumeDuFil,
   titreDeLaPublication,
   type GenreDEvenement,
   type EtatDuMoment,
@@ -104,8 +103,7 @@ import {
   heureEtDureeEtape,
   motifLisible,
 } from '@/components/tiroir-deploiement';
-import { BulleInfo, Button, DialogTitle, Drawer, ZoneDefilement } from '@/components/ui';
-import { GestesDePage } from '@/components/entete-de-zone';
+import { BulleInfo, Button, Drawer, EnteteDeFeuille, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { MESURES_DU_FLUX, TON_DE_L_ETAT, type MesuresDuFlux } from '@/components/mesures-du-flux';
 import { useApp } from '@/lib/use-app';
@@ -465,19 +463,12 @@ function DetailDeLEtape({
    */
   const raconte = leVoletSeRaconte(run);
   const fil = raconte && brute ? filDeLEtape(brute) : [];
-  const resume = raconte ? resumeDuFil(brute?.journal) : null;
 
   return (
     <div className="space-y-3" data-detail-etape={etape.cle} data-detail-etat={etape.etat}>
-      {/* L'ÉTAT ET LA DURÉE SE LISENT DÉJÀ SUR LE TITRE DU POINT : le détail
-          ne garde que ce que le titre ne dit pas — le compte
-          de ce que l'étape a raconté. */}
-      {resume ? (
-        <p className="flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-faint">
-          {resume ? <span data-fil-compte={etape.cle}>{resume}</span> : null}
-        </p>
-      ) : null}
-
+      {/* PLUS DE COMPTE « N moments » EN TÊTE DU DÉTAIL (allègement du
+          19/10/2026) : l'état et la durée sont sur le titre du point, le fil
+          dessous se compte de lui-même. */}
       {/* CE QUE L'ÉTAPE FAIT, EN TOUTES LETTRES — une fois qu'elle est passée. */}
       {raconte ? (
         <p className="text-[13px] leading-relaxed text-muted texte-copiable" data-description-etape={etape.cle}>
@@ -607,7 +598,10 @@ export function CorpsDuVolet({
   ouvrirSur = 'parcours',
   agentAOuvrir,
   lancement,
+  gestes,
 }: {
+  /** Les gestes de la feuille, à droite du titre, sur sa ligne (`EnteteDeFeuille`). */
+  gestes?: React.ReactNode;
   /** L'étape dont ce volet déroule les propres étapes. */
   cible: CiblePublication;
   /** La publication à raconter. Absente : le parcours entier, « à venir ». */
@@ -749,26 +743,24 @@ export function CorpsDuVolet({
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col" data-volet-publication={etape.cible} data-fil-publication={run?.id}>
-        <div className={cn('shrink-0 pb-2', sansTitre ? 'px-3' : 'px-4')}>
-          {/* Le compte des tâches embarquées reste lisible ; la phrase qui
-              explique le volet passe derrière le « i » du titre. */}
-          <div className={cn('flex items-center gap-1', sansTitre ? 'pt-1' : null)}>
-            {sansTitre ? null : (
-              <DialogTitle className="text-[15.5px] font-semibold text-text">
-                {run ? titreDeLaPublication(etape.titreCourt, run.startedAt) : t(etape.libelle)}
-              </DialogTitle>
-            )}
-            {sousTitre || !(run && !etape.sansLot) ? (
-              <BulleInfo cote="start">{sousTitre ?? t('Le parcours complet, étape par étape.')}</BulleInfo>
-            ) : null}
+        {/* L'EN-TÊTE COMMUN DES FEUILLES : titre au centre exact, « i » collé à
+            lui, gestes à droite sur la même ligne, compte des tâches dessous.
+            Posé dans la feuille de mise en production (`sansTitre`), le volet
+            n'a pas d'en-tête : celui de la feuille porte déjà titre et « i ». */}
+        {sansTitre ? null : (
+          <EnteteDeFeuille
+            titre={run ? titreDeLaPublication(etape.titreCourt, run.startedAt) : t(etape.libelle)}
+            info={sousTitre ?? t('Le parcours complet, étape par étape.')}
+            droite={gestes}
+            sousTitre={run && !etape.sansLot ? t('{v0} tâche(s) embarquée(s)', { v0: run.cardIds.length }) : undefined}
+            data-entete-volet-publication={etape.cible}
+          />
+        )}
+        {avancement ? (
+          <div className="shrink-0 px-4 pb-2">
+            <AvancementDuFluxEnTete avancement={avancement} />
           </div>
-          {run && !etape.sansLot ? (
-            <p className="mt-0.5 text-[12.5px] text-faint">
-              {t('{v0} tâche(s) embarquée(s)', { v0: run.cardIds.length })}
-            </p>
-          ) : null}
-          {avancement ? <AvancementDuFluxEnTete avancement={avancement} /> : null}
-        </div>
+        ) : null}
 
         {/* LE PARCOURS, EN FLUX À POINTS, PLEINE LARGEUR — comme le fil d'un
             agent. Le détail de l'étape dépliée est rendu par son point, sous
@@ -815,7 +807,7 @@ export function CorpsDuVolet({
             tout en bas, le bouton qui LANCE. */}
         {tachesDuLot || lancement || controls || conducteur || boutonDepannage ? (
           <div
-            className="flex shrink-0 flex-col gap-1.5 border-t border-faint/20 px-2 pt-2"
+            className="flex shrink-0 flex-col gap-1.5 px-2 pt-2"
             style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}
             data-fenetre-pied
           >
@@ -889,14 +881,7 @@ export function CorpsDuVolet({
       <Drawer open={filOuvert && !!conducteur} onClose={() => setFilOuvert(false)} empile plein feuille>
         {conducteur ? (
           <div className="flex min-h-0 flex-1 flex-col" data-volet-conversation>
-            <div className="shrink-0 px-4 pb-2">
-              <div className="flex items-center gap-1">
-                <DialogTitle className="text-[15.5px] font-semibold text-text">
-                  {t('En parler avec celui qui publie')}
-                </DialogTitle>
-                <BulleInfo cote="start">{t('questions et gestes proposés en route')}</BulleInfo>
-              </div>
-            </div>
+            <EnteteDeFeuille titre={t('En parler avec celui qui publie')} info={t('questions et gestes proposés en route')} />
             <Chat
               agent={conducteur}
               projectId={run?.projectId ?? ''}
@@ -912,17 +897,15 @@ export function CorpsDuVolet({
       <Drawer adresse="agent-de-depannage" open={!!agentOuvert} onClose={() => setAgentOuvert(null)} empile feuille>
         {agentOuvert ? (
           <div className="flex min-h-0 flex-1 flex-col" data-tiroir-depannage>
-            <div className="shrink-0 px-4 pb-2">
-              <div className="flex items-center gap-1">
-                <DialogTitle className="text-[15.5px] font-semibold text-text">
-                  {agentOuvert === depanneurId ? t('Résoudre le problème') : t('Agent de dépannage')}
-                </DialogTitle>
-                <BulleInfo cote="start">
-                  {agentOuvert === depanneurId
-                    ? t('L’agent cherche la cause, répare, puis relance lui-même la publication.')
-                    : t('Le conflit de fusion se résout ici, en direct.')}
-                </BulleInfo>
-              </div>
+            <EnteteDeFeuille
+              titre={agentOuvert === depanneurId ? t('Résoudre le problème') : t('Agent de dépannage')}
+              info={
+                agentOuvert === depanneurId
+                  ? t('L’agent cherche la cause, répare, puis relance lui-même la publication.')
+                  : t('Le conflit de fusion se résout ici, en direct.')
+              }
+            />
+            <div className="shrink-0 px-4 pb-2 empty:hidden">
               {state.agents[agentOuvert] ? (
                 <ReglageEnLecture
                   engines={state.engines}
@@ -939,6 +922,13 @@ export function CorpsDuVolet({
     </>
   );
 }
+
+/**
+ * LA HAUTEUR DE REPOS DES DEUX VOLETS DE MISE EN LIGNE : la feuille du déploiement
+ * et celle de la mise en production s'ouvrent à la même hauteur, quel que soit
+ * leur contenu. Elles grandissent au-delà (plafond du tiroir : 92 % de l'écran).
+ */
+export const CLASSE_HAUTEUR_DES_VOLETS = 'min-h-[min(40rem,92dvh)]';
 
 /**
  * LE VOLET DANS SON TIROIR — la porte ouverte par le bouton de déploiement, et
@@ -987,10 +977,11 @@ export function VoletDePublication({
       onClose={onClose}
       empile={empile}
       feuille
+      className={CLASSE_HAUTEUR_DES_VOLETS}
       adresse={cible === 'production' ? 'mise-en-production' : 'deploiement'}
     >
-      {gestes ? <GestesDePage className="px-3">{gestes}</GestesDePage> : null}
       <CorpsDuVolet
+        gestes={gestes}
         cible={cible}
         run={run}
         sousTitre={sousTitre}

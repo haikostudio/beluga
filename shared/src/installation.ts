@@ -63,6 +63,12 @@ export const IdentiteDInstallation = z.object({
    * mène déjà au serveur. Vide : Hetzner si un jeton est connu, sinon `joker`.
    */
   fournisseurDeNoms: z.string().default(''),
+  /**
+   * L'ADRESSE DE L'ADMINISTRATEUR PART-ELLE AVEC LE SIGNE DE VIE QUOTIDIEN ?
+   * (`shared/src/relais-installations.ts`) « oui », « non », ou vide tant que
+   * personne n'a répondu — vide vaut un refus : rien ne part sans accord.
+   */
+  partageDuCourriel: z.string().default(''),
 });
 export type IdentiteDInstallation = z.infer<typeof IdentiteDInstallation>;
 
@@ -106,6 +112,7 @@ export function nettoyerIdentite(valeurs: Partial<IdentiteDInstallation>): Ident
     smtpHote: hoteNu(propre.smtpHote),
     smtpPort: /^\d{1,5}$/.test(propre.smtpPort) ? propre.smtpPort : '',
     fournisseurDeNoms: (FOURNISSEURS_DE_NOMS as readonly string[]).includes(propre.fournisseurDeNoms) ? propre.fournisseurDeNoms : '',
+    partageDuCourriel: propre.partageDuCourriel === 'oui' || propre.partageDuCourriel === 'non' ? propre.partageDuCourriel : '',
   };
 }
 

@@ -354,7 +354,7 @@ function ChampDAdresse({
  * implique, ce qu'une liste déroulante cacherait. La ligne choisie porte la
  * couleur de l'élément choisi.
  */
-function ChoixEnLignes<Valeur extends string>({
+export function ChoixEnLignes<Valeur extends string>({
   repere,
   valeur,
   choix,

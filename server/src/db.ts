@@ -4194,6 +4194,80 @@ export const MIGRATIONS: {
       CREATE INDEX IF NOT EXISTS idx_dossiers_coffre_parent ON dossiers_coffre(parent_id);
     `,
   },
+  {
+    id: 131,
+    name: 'titre-humain-des-connaissances',
+    siTable: 'connaissances',
+    /*
+     * LE TITRE CLAIR D'UNE UNITÉ (`shared/src/titres-humains.ts`) : en mots
+     * courants, pour la personne qui lit la mémoire à l'écran. NULL = pas encore
+     * écrit ; la tâche de fond (`server/src/titres-humains.ts`) le remplit par
+     * lots. Le titre technique (`titre`, `titre_norme`, index plein texte) ne
+     * change pas : les déclencheurs de l'index ne regardent pas cette colonne.
+     */
+    sql: `
+      ALTER TABLE connaissances ADD COLUMN titre_humain TEXT;
+    `,
+  },
+  {
+    id: 132,
+    name: 'coffre-fort-cases-en-plus',
+    siTable: 'secrets',
+    /*
+     * LES CASES EN PLUS D'UNE FICHE DU COFFRE : ce qu'aucun modèle de type ne
+     * prévoit, nommé par celui qui le remplit (`ChampLibre`,
+     * `shared/src/coffre-fort.ts`). Liste JSON de { libelle, valeur, secret },
+     * comme `images` ; '[]' = aucune case, ce que sont toutes les fiches d'avant.
+     */
+    sql: `
+      ALTER TABLE secrets ADD COLUMN champs_libres TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
+  {
+    id: 133,
+    name: 'relais-des-installations',
+    /*
+     * LE RELAIS DES INSTALLATIONS (`server/src/relais-installations.ts`), côté
+     * machine qui REÇOIT. Aucune adresse de machine n'est gardée : le pays
+     * seul, déduit à la réception.
+     *  - `relais_installations` : une ligne par copie de Beluga Build qui s'est
+     *    signalée, son secret HACHÉ, sa version, si elle est payante, l'adresse
+     *    de son administrateur s'il l'a acceptée ;
+     *  - `relais_jours` : un jour par signe de vie, pour la fréquence d'usage ;
+     *  - `relais_tickets` : la demande de l'espace client née de chaque ticket ;
+     *  - `relais_telechargements` : les relevés quotidiens de GitHub.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS relais_installations (
+        id TEXT PRIMARY KEY,
+        secret_hache TEXT NOT NULL,
+        premiere_vue INTEGER NOT NULL,
+        derniere_vue INTEGER NOT NULL,
+        version TEXT NOT NULL DEFAULT '',
+        payant INTEGER NOT NULL DEFAULT 0,
+        pays TEXT,
+        courriel TEXT
+      );
+      CREATE TABLE IF NOT EXISTS relais_jours (
+        installation TEXT NOT NULL,
+        jour TEXT NOT NULL,
+        PRIMARY KEY (installation, jour)
+      );
+      CREATE TABLE IF NOT EXISTS relais_tickets (
+        demande_id TEXT PRIMARY KEY,
+        installation TEXT NOT NULL,
+        cree_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_relais_tickets_installation ON relais_tickets(installation, cree_le);
+      CREATE TABLE IF NOT EXISTS relais_telechargements (
+        jour TEXT PRIMARY KEY,
+        clones INTEGER NOT NULL DEFAULT 0,
+        clones_uniques INTEGER NOT NULL DEFAULT 0,
+        vues INTEGER NOT NULL DEFAULT 0,
+        vues_uniques INTEGER NOT NULL DEFAULT 0
+      );
+    `,
+  },
 ];
 
 export function openDb(): DB {

@@ -15,7 +15,7 @@ import {
 } from '@beluga/shared';
 import {
   Button,
-  DialogTitle,
+  EnteteDeFeuille,
   Drawer,
   DropdownMenu,
   DropdownMenuContent,
@@ -204,13 +204,20 @@ function TiroirDeRealisation({ carte, open, onClose }: { carte: Card; open: bool
   const parties = texte ? partiesDuCahier(texte) : [];
   return (
     <Drawer adresse="cahier-de-realisation" open={open} onClose={onClose} empile plein feuille>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-5" data-tiroir-realisation={carte.id}>
-        <div className="flex items-center gap-2">
-          <DialogTitle className="min-w-0 flex-1">{t('Cahier de réalisation')}</DialogTitle>
-          {texte ? <BoutonCopierDocument texte={texte} repere="data-realisation-copier" /> : null}
-          {texte ? <MenuExportDeRealisation carte={carte} /> : null}
-        </div>
-        <ZoneDefilement className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 pb-5" data-tiroir-realisation={carte.id}>
+        <EnteteDeFeuille
+          titre={t('Cahier de réalisation')}
+          className="pb-0"
+          droite={
+            texte ? (
+              <>
+                <BoutonCopierDocument texte={texte} repere="data-realisation-copier" />
+                <MenuExportDeRealisation carte={carte} />
+              </>
+            ) : null
+          }
+        />
+        <ZoneDefilement className="min-h-0 flex-1 px-4">
           {texte === undefined ? (
             <div aria-busy className="flex flex-col gap-2" data-silhouette>
               <Silhouette className="h-5 w-1/2" />

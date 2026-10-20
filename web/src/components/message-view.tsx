@@ -28,6 +28,7 @@ import {
   htmlDeLaDemandeCopiable,
   reconnaitreErreur,
   choixDeQuestionEnTexte,
+  entreesDuTourSansCarte,
   choixPossible,
   comptesDeReprise,
   ordreDeMoteursComplet,
@@ -35,8 +36,6 @@ import {
   heureExacte,
   propositionsDuFil,
   reponsePrete,
-  repartitionDuTemps,
-  REPARTITION_DUREE_MINIMALE_MS,
   emballerJointes,
   jointesDuMessage,
   texteAvecTagsDesJointes,
@@ -62,6 +61,8 @@ import { BulleQuestion, PiecesJointes, cleDeBrouillonDeReponse } from '@/compone
 import { EncadresDeCompetences } from '@/components/encadre-competence';
 import { Steps } from '@/components/steps';
 import { CapturesDuFlux } from '@/components/captures-du-flux';
+import { TravailDUnTourSansCarte } from '@/components/flux-en-points';
+import { ContextePiecesDesBlocs } from '@/components/medias-en-fabrication';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
 import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { LienPromptEnvoye } from '@/components/prompt-envoye-complet';
@@ -228,6 +229,8 @@ export function MessageView({
 }) {
   const isUser = message.role === 'user';
   const state = useApp();
+  /* Les pièces déjà montrées par un bloc de média en fabrication (`medias-en-fabrication.tsx`). */
+  const piecesDesBlocs = React.useContext(ContextePiecesDesBlocs);
 
   /* LE BLOC DE DONNÉES D'UN ANCIEN CADRAGE NE SE LIT PAS COMME DU TEXTE : il
      est retiré partout où le message s'affiche (`structure-cadrage.ts`, le
@@ -326,13 +329,17 @@ export function MessageView({
   // de tâche, en bulles de recherche (`BullesDuPromptEnvoye`, plus haut). Les
   // anciens messages qui portent encore l'étape s'affichent donc sans elle.
   const etapes = message.steps.filter((step) => step.id !== MEMORY_STEP_ID);
+  const entreesDuTour = entreesDuTourSansCarte(message, (step) => step.id !== MEMORY_STEP_ID);
+  const enCoursDuTour = message.streaming ? etapes.filter((step) => step.state === 'running') : [];
 
   /* Les cartes proposées ENCORE EN ATTENTE ne vivent plus ici : elles sont
      dans le bandeau fixe, au-dessus de la barre d'écriture. Le fil garde
      celles qui ont déjà été validées ou refusées. */
   const decidees = propositionsDuFil(message.proposals);
   /* Les compétences proposées par le démon vivent dans leurs encadrés, pas dans le feuilletage des questions. */
-  const questionsDeLAgent = message.questions.filter((question) => !question.competence);
+  /* Une question RÉPONDUE se lit déjà dans le fil du tour, avec sa réponse : seule
+     celle qui attend garde sa carte. */
+  const questionsDeLAgent = message.questions.filter((question) => !question.competence && !question.answer && !question.cancelled);
 
   // Les réponses de l'agent occupent l'essentiel de la largeur.
   return (
@@ -343,7 +350,14 @@ export function MessageView({
       {message.sentContext ? <LienPromptEnvoye contexte={message.sentContext} /> : null}
       {message.sentContext && !filAgentMasque ? <BullesDuPromptEnvoye contexte={message.sentContext} /> : null}
       <div className="group w-[min(92%,860px)] min-w-0 max-w-full">
-        <Steps steps={etapes} streaming={message.streaming} projectId={projectId} agentAuTravail={agentAuTravail} />
+        {/* LE TRAVAIL DU TOUR SE LIT COMME SUR UNE CARTE (demande du 19/10/2026) :
+            liste de tâches en sous-points, actions racontées, questions et
+            réponses en mots de la discussion, temps total (`TravailDUnTourSansCarte`).
+            Seule l'action EN COURS garde sa ligne vivante, le temps qu'elle se referme. */}
+        <TravailDUnTourSansCarte entrees={entreesDuTour} projectId={projectId} />
+        {enCoursDuTour.length ? (
+          <Steps steps={enCoursDuTour} streaming={message.streaming} projectId={projectId} agentAuTravail={agentAuTravail} />
+        ) : null}
 
         {contenuSansStructure ? (
           /* UN PLAN ÉCRIT EN CLAIR SE LIT COMME UN RAPPORT : le gabarit à
@@ -453,7 +467,7 @@ export function MessageView({
             jointes, en bande de vignettes tout en bas de sa réponse. */}
         <CapturesDuFlux
           steps={etapes}
-          idsJointes={message.attachments}
+          idsJointes={piecesDesBlocs.size ? message.attachments.filter((id) => !piecesDesBlocs.has(id)) : message.attachments}
           projectId={projectId}
         />
 
@@ -484,49 +498,8 @@ export function MessageView({
           texte={message.content}
           cle={message.id}
         />
-        {!message.streaming ? <RepartitionDuTour steps={etapes} dureeMs={message.durationMs} /> : null}
       </div>
     </>
-  );
-}
-
-/**
- * OÙ EST PASSÉ LE TEMPS DE CE TOUR (`shared/src/repartition-du-temps.ts`).
- *
- * Sous une réponse qui a vraiment duré : une barre fine, puis les parts en
- * clair (« Réflexion 45 % · Commandes 30 % · Aides 15 % ») et l'étape qui a
- * pesé le plus, quand une seule a pris le gros du temps — c'est elle qui dit
- * POURQUOI une tâche a été longue. Monochrome, sauf les AIDES : leur travail se
- * peint en violet (`--teinte`), comme dans le déroulé.
- */
-function RepartitionDuTour({ steps, dureeMs }: { steps: Message['steps']; dureeMs?: number }) {
-  const repartition = React.useMemo(() => repartitionDuTemps(steps, dureeMs), [steps, dureeMs]);
-  if (!repartition || repartition.totalMs < REPARTITION_DUREE_MINIMALE_MS || repartition.parts.length < 2) return null;
-  const teinteDe = (genre: string, index: number) =>
-    genre === 'aides' ? 'bg-teinte' : index % 2 === 0 ? 'bg-muted' : 'bg-faint';
-  return (
-    <div className="mt-1 max-w-[420px] text-[12.5px] text-faint" data-repartition-du-temps="">
-      <div className="flex h-1 w-full gap-px overflow-hidden rounded-full" aria-hidden>
-        {repartition.parts.map((part, index) => (
-          <span key={part.genre} className={teinteDe(part.genre, index)} style={{ width: `${part.pourcent}%` }} />
-        ))}
-      </div>
-      <div className="mt-0.5 flex flex-wrap gap-x-2">
-        {repartition.parts.map((part) => (
-          <span key={part.genre} className={cn(part.genre === 'aides' && 'text-teinte')} title={duration(part.ms / 1000)}>
-            {t(part.libelle)} {part.pourcent} %
-          </span>
-        ))}
-      </div>
-      {repartition.plusLongue ? (
-        <div className={cn('truncate', repartition.plusLongue.genre === 'aides' && 'text-teinte')}>
-          {t('Le plus long : {etape} ({duree})', {
-            etape: repartition.plusLongue.libelle,
-            duree: duration(repartition.plusLongue.ms / 1000),
-          })}
-        </div>
-      ) : null}
-    </div>
   );
 }
 

@@ -1,3 +1,4 @@
+import { titreHumainPropre } from './titres-humains.js';
 /**
  * LA BASE DE CONNAISSANCES — les règles pures, sans base ni disque.
  *
@@ -122,7 +123,10 @@ export interface Unite {
   portee: string;
   type: TypeUnite;
   sujets: string[];
+  /** Le titre TECHNIQUE, écrit par et pour les agents : dédoublonnage, recherche, contexte des moteurs. */
   titre: string;
+  /** Le titre CLAIR, en mots courants, que l'écran montre en premier (`shared/src/titres-humains.ts`). */
+  titreHumain?: string;
   resume: string;
   detail: string;
   raisonnement: string;
@@ -394,6 +398,8 @@ export interface PropositionUnite {
   type?: string;
   importance?: string;
   titre?: string;
+  /** Facultatif : le titre clair pour la personne ; absent, un petit modèle l'écrit en tâche de fond. */
+  titreHumain?: string;
   resume?: string;
   detail?: string;
   raisonnement?: string;
@@ -414,6 +420,8 @@ export interface PropositionPropre {
   type: TypeUnite;
   importance: Importance;
   titre: string;
+  /** `''` : pas de titre clair acceptable fourni. */
+  titreHumain: string;
   resume: string;
   detail: string;
   raisonnement: string;
@@ -526,6 +534,7 @@ export function jugerProposition(p: PropositionUnite, options: { quatreQuestions
             type: 'lesson',
             importance: 'P3',
             titre: '',
+            titreHumain: '',
             resume: '',
             detail: '',
             raisonnement: String(p.raisonnement ?? p.raison ?? '').trim(),
@@ -573,6 +582,8 @@ export function jugerProposition(p: PropositionUnite, options: { quatreQuestions
       type,
       importance: importance!,
       titre,
+      // Un titre clair mal tourné n'empêche pas l'unité d'entrer : il est écarté, et la tâche de fond en écrit un.
+      titreHumain: titreHumainPropre(p.titreHumain),
       resume,
       detail: type === 'decision' || type === 'domain' || type === 'component' ? detailAuGabarit(type, detail, resume) : detail,
       raisonnement,

@@ -31,7 +31,7 @@
  * télécharge pas.
  */
 import * as React from 'react';
-import { ChevronDown, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from 'lucide-react';
+import { ChevronDown, CreditCard, Globe, LayoutGrid, Settings, UserPlus, UserRound, UsersRound, X } from 'lucide-react';
 import { BulleInfo, Button, DialogTitle, Drawer, Pastille, SelecteurTiroir, ZoneDefilement } from '@/components/ui';
 import { CLASSE_SECTION_DE_SERVICE, ColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne, RubriqueDeColonne } from '@/components/rubriques-de-colonne';
@@ -61,7 +61,9 @@ import {
   bornesDeLEchelle,
   joursDeLaPeriode,
   nomCourtDeLInstallation,
+  filtrerParPaiement,
   type FicheClientTableau,
+  type FiltreDePaiement,
 } from '@beluga/shared';
 
 interface ClientVu {
@@ -75,6 +77,20 @@ interface ClientVu {
   /** Les deux compteurs de la Messagerie, calculés au serveur pour CE client. */
   compteurs: { nonLu: number; aTraiter: number };
   demandes: DemandeAffichee[];
+  /** Le compte des tickets des installations open source : un support qui ne paie pas. */
+  openSource?: boolean;
+}
+
+/**
+ * PAYANTS ET OPEN SOURCE SE SÉPARENT (décision de l'utilisateur du 20/10/2026) :
+ * les vrais clients paient ; les tickets des installations open source arrivent
+ * sous un compte à part (`shared/src/relais-installations.ts`).
+ */
+function garderSelonLePaiement<T extends { openSource?: boolean }>(liste: readonly T[], filtre: FiltreDePaiement): T[] {
+  return filtrerParPaiement(
+    liste.map((x) => ({ ...x, payant: !x.openSource })),
+    filtre,
+  );
 }
 
 export function EspaceHaiko({
@@ -212,6 +228,8 @@ export function EspaceHaiko({
     { jours: PERIODE_PAR_DEFAUT_JOURS },
   );
   const echelle = choixPeriode.jours ?? null;
+  /** Le filtre payants / open source, gardé comme la période. */
+  const [paiement, setPaiement] = usePref<FiltreDePaiement>('messagerie.paiement', 'tous');
 
   const relireLesChiffres = React.useCallback(() => {
     /* Une échelle se recalcule À CHAQUE APPEL : « les 30 derniers jours » lus
@@ -499,6 +517,10 @@ export function EspaceHaiko({
     </Drawer>
   );
 
+  const aDesTicketsOpenSource = clients.some((c) => c.openSource);
+  const filtreActif: FiltreDePaiement = aDesTicketsOpenSource ? paiement : 'tous';
+  const clientsAffiches = garderSelonLePaiement(clients, filtreActif);
+
   /** LA COLONNE DU SERVICE (demande du 12/10/2026) : le geste qui ajoute, détaché ; la vue d'ensemble,
    *  un client par ligne, les comptes. Sur téléphone la colonne n'existe pas : le sélecteur de client
    *  et ses gestes restent dans la page. */
@@ -523,16 +545,42 @@ export function EspaceHaiko({
               onClick={revenirALAccueil}
               data-colonne-messagerie-accueil
             />
+            {aDesTicketsOpenSource ? (
+              <>
+                <p className={CLASSE_SECTION_DE_SERVICE}>{t('Support')}</p>
+                <RubriqueDeColonne
+                  icone={<UsersRound />}
+                  libelle={t('Tous')}
+                  actif={paiement === 'tous'}
+                  onClick={() => setPaiement('tous')}
+                  data-filtre-paiement="tous"
+                />
+                <RubriqueDeColonne
+                  icone={<CreditCard />}
+                  libelle={t('Clients payants')}
+                  actif={paiement === 'payants'}
+                  onClick={() => setPaiement('payants')}
+                  data-filtre-paiement="payants"
+                />
+                <RubriqueDeColonne
+                  icone={<Globe />}
+                  libelle={t('Open source')}
+                  actif={paiement === 'open-source'}
+                  onClick={() => setPaiement('open-source')}
+                  data-filtre-paiement="open-source"
+                />
+              </>
+            ) : null}
             <p className={CLASSE_SECTION_DE_SERVICE}>{t('Clients')}</p>
-            {clients.map((c) => (
+            {clientsAffiches.map((c) => (
               <RubriqueDeColonne
                 key={c.id}
-                icone={<UserRound />}
-                libelle={`${c.nomAffiche}${c.actif ? '' : ` ${t('(suspendu)')}`}`}
+                icone={c.openSource ? <Globe /> : <UserRound />}
+                libelle={c.openSource ? t('Open source') : `${c.nomAffiche}${c.actif ? '' : ` ${t('(suspendu)')}`}`}
                 /* LE CLIENT SE LIT ICI, PLUS DANS LA PAGE (demande du 12/10/2026) : le
                    projet sous le nom lève le doute entre deux noms proches, et les
                    deux pastilles disent qui attend quoi. */
-                detail={c.projets.map((p) => p.nom).join(' · ') || t('Aucun projet')}
+                detail={c.openSource ? t('Tickets des installations') : c.projets.map((p) => p.nom).join(' · ') || t('Aucun projet')}
                 fin={<PastillesMessagerie compteurs={c.compteurs} />}
                 actif={choisi === c.id}
                 onClick={() => ouvrirClient(c.id)}
@@ -587,13 +635,27 @@ export function EspaceHaiko({
       <div className="flex h-full min-h-0 flex-col" data-espace-haiko data-vue-accueil>
         {colonneDeMessagerie}
         <AccueilMessagerie
-          fiches={fiches}
+          fiches={fiches ? garderSelonLePaiement(fiches, filtreActif) : fiches}
           periode={periode}
           echelle={echelle}
           onEchelle={(jours) => setChoixPeriode({ jours })}
           onPeriodeLibre={(debut, fin) => setChoixPeriode({ debut, fin })}
           onOuvrirClient={ouvrirClient}
           action={
+            <>
+            {aDesTicketsOpenSource ? (
+              /* Sur téléphone, sans colonne : le même filtre, d'un bouton qui passe au suivant. */
+              <OptionDePage
+                compact
+                icone={filtreActif === 'open-source' ? <Globe className="h-4 w-4" /> : filtreActif === 'payants' ? <CreditCard className="h-4 w-4" /> : <UsersRound className="h-4 w-4" />}
+                onClick={() => setPaiement(filtreActif === 'tous' ? 'payants' : filtreActif === 'payants' ? 'open-source' : 'tous')}
+                title={t('Filtrer : tous, clients payants ou open source')}
+                aria-label="Filtrer payants ou open source"
+                data-filtre-paiement-bouton={filtreActif}
+              >
+                {filtreActif === 'open-source' ? t('Open source') : filtreActif === 'payants' ? t('Clients payants') : t('Tous')}
+              </OptionDePage>
+            ) : null}
             <OptionDePage
               compact
               taille="icon-sm"
@@ -605,6 +667,7 @@ export function EspaceHaiko({
             >
               {t('Gérer les comptes')}
             </OptionDePage>
+            </>
           }
         />
         {tiroirDeCreation}

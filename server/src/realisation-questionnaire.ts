@@ -66,6 +66,20 @@ export function basculerLaRealisation(cardId: string, actif: boolean): Card {
   return ecrite;
 }
 
+/**
+ * LE PREMIER MESSAGE PARTI EN MODE RÉALISATION. Appelé quand un tour de
+ * cadrage emporte la consigne du mode : la date posée ouvre le volet
+ * (`estVoletDeRealisation`). Une seule fois par carte ; l'écran se met à jour
+ * par `card.upsert`.
+ */
+export function noterLaDemandeDeRealisation(cardId: string, at = Date.now()): Card | null {
+  const card = store.getCard(cardId);
+  if (!card?.parcours?.realisationSouhaitee || card.realisation?.demandeA) return null;
+  const ecrite = store.saveCard({ ...card, realisation: { ...realisationDeLaCarte(card), demandeA: at } });
+  bus.emit({ type: 'card.upsert', card: ecrite });
+  return ecrite;
+}
+
 /** Le document de la carte, lu sur le disque du projet — absent : `null`. */
 export function lireLeDocumentDeRealisation(carte: Card): { chemin: string; texte: string } | null {
   const projet = store.getProject(carte.projectId);

@@ -264,6 +264,8 @@ import {
 import { sortieGit } from './git.js';
 import { consigneDeCreationDeLaCarte } from './mode-creation.js';
 import { consigneDeRealisationDeLaCarte } from './realisation.js';
+import { noterLaDemandeDeRealisation } from './realisation-questionnaire.js';
+import { fermerLesBlocsDeLAgent } from './medias-en-fabrication.js';
 import { lancerAvecRelances } from './relance-moteur.js';
 
 export interface LiveRun {
@@ -711,6 +713,8 @@ function marquerLeTourVivant(agentId: string, depuis: number): void {
 /** Le tour est refermé : le témoin s'éteint, quel que soit le chemin pris. */
 function retirerLeTourVivant(agentId: string): void {
   live.delete(agentId);
+  /* Un bloc de média annoncé par l'agent et jamais fermé ne reste pas « en cours » pour toujours. */
+  fermerLesBlocsDeLAgent(agentId);
   const frais = store.getAgent(agentId);
   if (!frais || frais.tourVivantDepuis === undefined) return;
   const maj = store.saveAgent({ ...frais, tourVivantDepuis: undefined });
@@ -1990,6 +1994,9 @@ async function preparerLeTour(
     try {
       const consigneRealisation = consigneDeRealisationDeLaCarte(card, agent.role);
       if (consigneRealisation) contextParts.push({ label: 'Mode Réalisation', kind: 'extra', origine: 'plateforme', content: consigneRealisation });
+      /* LE PREMIER MESSAGE PARTI EN MODE RÉALISATION ouvre le volet : allumer
+         le bouton, lui, n'a rien changé à l'écran. */
+      if (consigneRealisation && agent.role === 'cadrage') noterLaDemandeDeRealisation(card.id);
     } catch (err) {
       log.warn('consigne du mode Réalisation indisponible', String((err as Error)?.message ?? err));
     }
@@ -5894,6 +5901,7 @@ TU NE DIS JAMAIS « je n'ai pas accès », « je n'ai pas les droits », « il m
 Une PANNE se dit toujours, mais APRÈS avoir cherché : un identifiant absent du coffre, expiré ou refusé par la machine s'annonce en toutes lettres, en disant ce que tu as cherché et ce qui manque exactement.
 Toute clé NOUVELLE que tu découvres ou reçois pendant le travail (donnée dans la conversation, générée par toi, trouvée dans un fichier non versionné) s'ENREGISTRE aussitôt avec « enregistrer », jamais laissée seulement dans un message ou un fichier du dépôt.
 UNE FICHE PAR SECRET : chaque mot de passe, clé ou jeton a sa propre fiche, du bon type, nommée d'après ce qu'il ouvre et son environnement. Un fichier plein d'accès (.env, config.php…) ne se colle jamais en entier : il donne une fiche par secret, et le coffre refuse une fiche qui en regroupe plusieurs. « supprimer » archive six mois, il n'efface pas.
+CHAQUE VALEUR DANS SA CASE : choisis le type selon l'usage (compte en ligne, clé d'API, jeton, SSH, base de données, compte bancaire, carte de paiement, pièce d'identité…) et range chaque valeur dans la case faite pour elle — identifiant, Team ID, Key ID, IBAN, double authentification ; ce qu'aucune case ne prévoit va dans une case en plus nommée (« champsLibres »). La NOTE ne sert qu'à dire à quoi sert l'accès : le coffre refuse une note qui porte une valeur ayant sa case. S'il manque le secret principal, enregistre quand même et dis ce qui manque : la fiche est marquée « à compléter ».
 Le coffre se range en DOSSIERS (un seul niveau, un nom et un projet, jamais un secret) : « enregistrer » avec « dossier » range une fiche dans un dossier (créé au besoin), « dossiers » les liste, et supprimer un dossier archive ses fiches avec lui.`;
 
 const METHODE = `MÉTHODE DE TRAVAIL IMPOSÉE (elle vient de Beluga Build, pas de toi : applique-la telle quelle, dans cet ordre) :

@@ -9,7 +9,8 @@
  *    reprise, lecture du document. La barre d'écriture n'y existe que tant
  *    qu'aucun type de média n'est choisi et une fois le cahier terminé
  *    (`barreDEcritureDuVoletDeRealisation`) ;
- *  - ALLUMER NE LANCE RIEN : le bouton pose seulement le mode. L'utilisateur
+ *  - ALLUMER NE LANCE RIEN ET N'OUVRE PAS LE VOLET : le bouton pose seulement
+ *    le mode, le volet attend le premier message parti (`demandeA`). L'utilisateur
  *    écrit sa demande comme d'habitude, et la PREMIÈRE QUESTION du cadrage, dans
  *    la discussion, est « quels types de média ? » en choix multiple (image,
  *    vidéo, musique, voix off, bruitages). La réponse revient par l'outil
@@ -143,6 +144,12 @@ export const EtatDeRealisation = z.object({
   enPauseA: z.number().optional(),
   /** Toutes les questions sont tranchées : la fabrication peut être lancée. */
   termineA: z.number().optional(),
+  /**
+   * LE PREMIER MESSAGE PARTI EN MODE RÉALISATION. Posée par le démon quand un
+   * tour de cadrage emporte la consigne du mode : c'est elle, et non
+   * l'interrupteur, qui ouvre le volet (`estVoletDeRealisation`).
+   */
+  demandeA: z.number().optional(),
 });
 export type EtatDeRealisation = z.infer<typeof EtatDeRealisation>;
 
@@ -173,18 +180,32 @@ export function libelleDesTypesDeMedia(types: readonly TypeDeMediaDeRealisation[
 
 /**
  * LE VOLET DE RÉALISATION : la caméra allumée sur une carte qui n'est pas encore
- * au travail. UN SEUL PRÉDICAT pour tous les écrans. Une fois la fabrication
- * lancée, la carte redevient une carte ordinaire (l'agent de tâche y parle).
- * Le cahier des charges d'un nouveau projet garde son propre volet.
+ * au travail, ET UNE DEMANDE DÉJÀ PARTIE dans ce mode. UN SEUL PRÉDICAT pour
+ * tous les écrans. Allumer le bouton ne fait QUE poser le mode (décision de
+ * l'utilisateur du 19/10/2026) : la conversation reste ordinaire, avec sa barre
+ * d'écriture, jusqu'au premier envoi — c'est ce message qui lance l'analyse et
+ * ouvre le volet. Une carte dont le questionnaire a déjà commencé (types
+ * choisis, cahier terminé) garde son volet même sans `demandeA` (cartes
+ * d'avant). Une fois la fabrication lancée, la carte redevient une carte
+ * ordinaire (l'agent de tâche y parle). Le cahier des charges d'un nouveau
+ * projet garde son propre volet.
  */
 export function estVoletDeRealisation(
   carte:
-    | { parcours?: { realisationSouhaitee?: boolean } | null; column?: string; cahierDesCharges?: unknown; archivedAt?: number | null }
+    | {
+        parcours?: { realisationSouhaitee?: boolean } | null;
+        column?: string;
+        cahierDesCharges?: unknown;
+        archivedAt?: number | null;
+        realisation?: Partial<Pick<EtatDeRealisation, 'demandeA' | 'medias' | 'genre' | 'termineA'>> | null;
+      }
     | null
     | undefined,
 ): boolean {
   if (!carte?.parcours?.realisationSouhaitee || carte.cahierDesCharges || carte.archivedAt) return false;
-  return (COLONNES_AVANT_LE_TRAVAIL as readonly string[]).includes(String(carte.column ?? ''));
+  if (!(COLONNES_AVANT_LE_TRAVAIL as readonly string[]).includes(String(carte.column ?? ''))) return false;
+  const r = carte.realisation;
+  return !!(r?.demandeA || r?.termineA || typesDeMediaDeLaRealisation(r).length);
 }
 
 /**
@@ -326,6 +347,8 @@ export function lireAvancementDeRealisation(
       majA: maintenant,
       enPauseA: undefined,
       termineA: termine ? avant.termineA ?? maintenant : undefined,
+      /* La date du premier envoi ne se perd pas à la réécriture : c'est elle qui tient le volet ouvert. */
+      ...(avant.demandeA ? { demandeA: avant.demandeA } : {}),
     },
   };
 }

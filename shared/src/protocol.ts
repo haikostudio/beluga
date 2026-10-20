@@ -16,6 +16,7 @@ import { FicheMoteurZ } from './moteurs-ajoutes.js';
 import { EntreeJournal } from './journal-carte.js';
 import { LigneDuCarnet } from './carnet-memoire.js';
 import { RUBRIQUES_DU_RESUME } from './resume.js';
+import { MediaEnFabrication } from './media-en-fabrication.js';
 import { MAX_CLES_DE_CAPTURES, MAX_SIGNES_DE_CLE_DE_CAPTURE } from './captures-du-flux.js';
 import {
   Agent,
@@ -1002,7 +1003,21 @@ export const ClientCommand = z.discriminatedUnion('type', [
     engine: EngineId,
     accountId: z.string().optional(),
     label: z.string().optional(),
+    /** Codex : « appareil » (défaut, code à saisir) ou « navigateur » (adresse de retour collée). */
+    voie: z.enum(['appareil', 'navigateur']).optional(),
   }),
+  /** Faire repartir une connexion Codex en cours sur l'autre voie (« Se connecter autrement »). */
+  z.object({ type: z.literal('account.voie'), id: z.string(), voie: z.enum(['appareil', 'navigateur']) }),
+  /**
+   * Voie navigateur : l'adresse de la page d'erreur `localhost:1455/auth/callback?…`
+   * collée par l'utilisateur, que le serveur rejoue sur son propre port.
+   */
+  z.object({ type: z.literal('account.adresseDeRetour'), id: z.string(), adresse: z.string() }),
+  /**
+   * Reprendre une connexion Codex trouvée dans un autre dossier de la machine :
+   * ses identifiants sont DÉPLACÉS dans le coffre du compte, jamais recopiés.
+   */
+  z.object({ type: z.literal('compte.reprendreConnexion'), accountId: z.string(), source: z.string() }),
   /** Le code recopié depuis la page d'authentification, renvoyé au moteur. */
   z.object({ type: z.literal('account.code'), id: z.string(), code: z.string() }),
   /** Abandonner une connexion en cours. */
@@ -1099,8 +1114,19 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('memoire.fiches'), portee: z.string() }),
   z.object({ type: z.literal('memoire.fiche'), portee: z.string(), ficheId: z.string(), depreciees: z.boolean().optional() }),
   z.object({ type: z.literal('memoire.unite'), id: z.string() }),
+  z.object({ type: z.literal('memoire.titres'), ids: z.array(z.string()).max(500) }),
   /** Chercher des unités : dans une portée, ou dans toutes à la fois (sans `portee`). */
   z.object({ type: z.literal('memoire.chercher'), recherche: z.string(), portee: z.string().optional() }),
+  /**
+   * LE GRAPHE DE L'ÉCRAN MÉMOIRE (`shared/src/graphe-memoire.ts`) : toutes les
+   * unités actives, légères, et les portées. `signature` : celle que l'écran
+   * détient déjà — inchangée, le démon ne renvoie rien d'autre.
+   */
+  z.object({ type: z.literal('memoire.graphe'), signature: z.string().optional() }),
+  /** Les voisins par le sens d'une unité, et le modèle commun d'une compétence qui le précise : les fils de la sélection. */
+  z.object({ type: z.literal('memoire.voisins'), id: z.string() }),
+  /** Chercher EXACTEMENT comme l'outil de l'agent : dans un projet (et le Global), ou partout (sans projet). */
+  z.object({ type: z.literal('memoire.chercherCommeLAgent'), recherche: z.string().max(2000), projectId: z.string().nullable().optional() }),
   z.object({ type: z.literal('memoire.changelog'), projectId: z.string() }),
   /** Corriger à la main le titre, l'explication et le poids d'une entrée : plus aucune rédaction automatique ne la réécrit. */
   z.object({
@@ -2090,6 +2116,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   /** Des images viennent d'être ouvertes en grand par CE compte, sur un autre de ses appareils. */
   z.object({ type: z.literal('captures.vues'), pour: z.string(), cles: z.array(z.string()) }),
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),
+  /** LES MÉDIAS EN FABRICATION, liste entière (`shared/src/media-en-fabrication.ts`) : le bloc d'attente du fil. */
+  z.object({ type: z.literal('medias.fabrication'), items: z.array(MediaEnFabrication) }),
   z.object({ type: z.literal('files'), projectId: z.string(), path: z.string(), nodes: z.array(FileNode) }),
   z.object({
     type: z.literal('toast'),

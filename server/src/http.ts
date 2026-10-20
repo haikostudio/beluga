@@ -62,6 +62,7 @@ import {
 import { demandeDUneePiece, filDUnePiece } from './espace-client.js';
 import { deposerArchive, examinerArchive } from './export-donnees.js';
 import { cheminDePieceJointe, dossierDEcriture, dossiersDeLecture } from './pieces-jointes.js';
+import { racinesDesCopiesDuProjet } from './copies-de-cartes.js';
 import { largeurDemandee, miniatureDe } from './miniatures.js';
 import { recevoirAuFilDeLEau } from './envoi-piece-jointe.js';
 import { pipeline } from 'node:stream/promises';
@@ -589,6 +590,41 @@ export function createHttpServer(): http.Server {
         }
         res.writeHead(recu.ok ? 204 : recu.statut, entetes);
         return res.end();
+      }
+      /*
+       * LE RELAIS DES INSTALLATIONS (`server/src/relais-installations.ts`) : les
+       * copies de Beluga Build s'y signalent et y déposent leurs tickets. Public
+       * par nature, mais OUVERT SEULEMENT sur la machine qui reçoit — partout
+       * ailleurs, ces adresses n'existent pas. L'adresse de l'appelant ne sert
+       * qu'au plafond d'appels et au pays, puis elle est oubliée.
+       */
+      if (route.startsWith('/relais/')) {
+        const relais = await import('./relais-installations.js');
+        if (!relais.relaisRecepteurIci()) {
+          res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+          return res.end('Introuvable.');
+        }
+        if (req.method !== 'POST') {
+          res.writeHead(405, { allow: 'POST' });
+          return res.end();
+        }
+        let corps = '';
+        try {
+          corps = (await readBody(req, 16384)).toString('utf8');
+        } catch {
+          return json(res, 413, { erreur: 'Trop long.' });
+        }
+        const ip = clientIp(req);
+        const contexte = { ip, userAgent: String(req.headers['user-agent'] ?? ''), pays: paysDeLaRequete(ip, req.headers['cf-ipcountry']) };
+        const rendu =
+          route === '/relais/signe-de-vie'
+            ? relais.recevoirUnSigneDeVie(corps, contexte)
+            : route === '/relais/ticket'
+              ? relais.recevoirUnTicket(corps, contexte)
+              : route === '/relais/reponses'
+                ? relais.rendreLesReponses(corps, contexte)
+                : { statut: 404, corps: { erreur: 'Introuvable.' } };
+        return json(res, rendu.statut, rendu.corps);
       }
       if (route.startsWith('/m/l/')) {
         const code = route.slice('/m/l/'.length).replace(/[^A-Za-z0-9_-]/g, '');
@@ -1659,6 +1695,38 @@ export function createHttpServer(): http.Server {
         return res.end(r.contenu);
       }
 
+      /*
+       * LE RELAIS, VU DE L'ÉCRAN (administrateurs seulement : ces routes ne sont
+       * ouvertes à personne d'autre dans `droits-commandes.ts`). L'état et les
+       * tickets de CETTE installation ; sur la machine qui reçoit, les chiffres
+       * de l'écran « Installations ».
+       */
+      if (route === '/api/relais/etat') {
+        const { etatDuRelaisIci } = await import('./relais-installations.js');
+        return json(res, 200, etatDuRelaisIci());
+      }
+      if (route === '/api/relais/ticket' && req.method === 'POST') {
+        const { envoyerUnTicket } = await import('./relais-installations.js');
+        let lu: { titre?: unknown; message?: unknown } = {};
+        try {
+          lu = JSON.parse((await readBody(req, 16384)).toString('utf8') || '{}');
+        } catch {
+          return json(res, 400, { ok: false, raison: 'Demande illisible.' });
+        }
+        const r = await envoyerUnTicket(String(lu.titre ?? ''), String(lu.message ?? ''));
+        return json(res, r.ok ? 200 : 502, r);
+      }
+      if (route === '/api/relais/mes-tickets') {
+        const { lireMesTickets } = await import('./relais-installations.js');
+        return json(res, 200, await lireMesTickets());
+      }
+      if (route === '/api/relais/installations') {
+        const { installationsRecues, relaisRecepteurIci } = await import('./relais-installations.js');
+        if (!relaisRecepteurIci()) return json(res, 404, { error: 'Cette machine ne reçoit pas les installations.' });
+        const filtre = url.searchParams.get('filtre');
+        return json(res, 200, installationsRecues(filtre === 'payants' || filtre === 'open-source' ? filtre : 'tous'));
+      }
+
       /* L'extrait d'une voix finale du Studio : fabriqué une fois (quota gratuit), gardé, puis servi. */
       if (route === '/api/studio/extrait') {
         const { fichierDExtrait } = await import('./studio-generation.js');
@@ -1752,7 +1820,15 @@ export function createHttpServer(): http.Server {
       if (route === '/api/capture') {
         const project = store.getProject(url.searchParams.get('project') ?? '');
         if (!project) return json(res, 404, { error: 'projet introuvable' });
-        const racines = [project.path, CONFIG.dataDir, os.tmpdir()];
+        /*
+         * LES RACINES OÙ UN AGENT REGARDE RÉELLEMENT SES IMAGES : le projet, les
+         * données, le dossier temporaire — et aussi les PIÈCES JOINTES (disque
+         * de stockage compris : l'agent y lit les captures que l'utilisateur lui
+         * joint) et les COPIES DE TRAVAIL des cartes, qui peuvent vivre hors du
+         * projet. Sans elles, la vignette tombait en 404 et la bande « Ce que
+         * l'agent a vu » la retirait : on croyait qu'il n'y avait rien.
+         */
+        const racines = [project.path, CONFIG.dataDir, os.tmpdir(), ...dossiersDeLecture(), ...racinesDesCopiesDuProjet(project.path)];
         const trouve = imageDEtape(url.searchParams.get('path') ?? '', racines);
         if (!trouve) return json(res, 404, { error: 'capture introuvable' });
         res.writeHead(200, { 'content-type': trouve.mime, 'cache-control': 'private, max-age=3600' });

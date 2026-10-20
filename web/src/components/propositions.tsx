@@ -318,6 +318,7 @@ function VignetteProposition({
           <button
             type="button"
             aria-pressed={selectionnee}
+            title={selectionnee ? t('Retirer de la fusion') : t('Ajouter à la fusion')}
             aria-label={selectionnee ? t('Retirer « {v0} » de la fusion', { v0: proposal.title }) : t('Ajouter « {v0} » à la fusion', { v0: proposal.title })}
             onClick={onSelection}
             className={cn(

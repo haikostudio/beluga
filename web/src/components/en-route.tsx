@@ -30,7 +30,7 @@
  * silhouette (`lib/gabarit-tableau.ts`).
  */
 import * as React from 'react';
-import { Archive, Bot, CheckCircle2, Layers, Loader2, Microscope, Rocket, Square, UploadCloud, Waypoints, Wrench } from 'lucide-react';
+import { Archive, Bot, CheckCircle2, Layers, Loader2, Microscope, Rocket, Square, TerminalSquare, UploadCloud, Waypoints, Wrench } from 'lucide-react';
 import {
   agentCompteCommeTravail,
   agentAuTravailALEcran,
@@ -74,6 +74,8 @@ import {
   serviceVisible,
 } from '@beluga/shared';
 import { CLE_ETAT_EN_ROUTE, client } from '@/lib/client';
+import { ouvrirLeTerminal } from '@/lib/ouvrir-terminal';
+import { OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { useApp } from '@/lib/use-app';
 import { useMinute } from '@/lib/horloge';
@@ -655,6 +657,22 @@ export function EnRoute({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-page-en-route>
+      {/* LE TERMINAL DU SERVEUR, EN HAUT À DROITE DES TABLEAUX DE BORD (et plus
+          sur la page « Résumé ») : un clic fait remonter l'application et le
+          révèle derrière elle. Sur téléphone, une ligne du menu à trois points. */}
+      <OptionsDePage>
+        <OptionDePage
+          compact
+          variante="ghost"
+          icone={<TerminalSquare className="h-4 w-4" />}
+          title={t('Terminal du serveur')}
+          aria-label="Terminal du serveur"
+          onClick={ouvrirLeTerminal}
+          data-terminal-bouton-tableau
+        >
+          {t('Terminal du serveur')}
+        </OptionDePage>
+      </OptionsDePage>
       {/* Une confirmation courte avant le rangement : elle dit COMBIEN de cartes
           partent, et rappelle que les projets n'en sont pas touchés. */}
       <ConfirmDialog

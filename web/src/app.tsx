@@ -9,7 +9,9 @@ import { BoutonPremierProjet, PasAPas } from '@/components/pas-a-pas';
 import { VisiteGuidee } from '@/components/visite-guidee';
 import { BoutonOptionsDuProjet, MenuGeneral, useEtatDeLiaison } from '@/components/quota-bar';
 import { TerminalDeLApplication } from '@/components/terminal-de-l-application';
+import { QuestionDuPartage } from '@/components/question-du-partage';
 import { ClocheNotifications } from '@/components/notifications';
+import { BandeSousLHeure } from '@/components/bande-sous-l-heure';
 import { BoutonDesServices } from '@/components/services';
 import { useTelephone } from '@/lib/telephone';
 import { Sidebar } from '@/components/sidebar';
@@ -1460,6 +1462,8 @@ export function App() {
          * clavier, et seulement quand il est réellement ouvert.
          */
         className="flex h-full flex-col overflow-hidden bg-bg"
+        /* LA RACINE QUI REMONTE QUAND LE TERMINAL S'OUVRE derrière elle (`styles.css`). */
+        data-app-racine
         style={{ paddingBottom: 'var(--clavier, 0px)' }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) {
@@ -1528,6 +1532,11 @@ export function App() {
             onWheel={defilerDepuisLesMarges}
             className={cn('flex min-h-0 min-w-0 flex-1 flex-col', mobileView !== 'board' && 'hidden sm:flex')}
           >
+            {/* LA BANDE SOUS L'HEURE, DU FOND EXACT DE LA ZONE : un élément fixe et
+                opaque au bord du haut, qui fait renoncer iOS à son flou
+                (`bande-sous-l-heure.tsx`). La colonne des projets du téléphone
+                s'ouvre déjà en panneau fixe jusqu'en haut : elle n'en a pas besoin. */}
+            <BandeSousLHeure className="left-0 right-0 sm:left-[var(--zone-principale-gauche,0px)]" />
             {/* LA BARRE D'EN-TÊTE, LA MÊME SUR CHAQUE PAGE : le fil d'Ariane à
                 gauche, puis la cloche et les options de la page derrière
                 trois points. Elle remplace le bandeau qui courait sur toute la
@@ -1964,6 +1973,9 @@ export function App() {
         {/* LE DÉPÔT PUBLIC DE BELUGA BUILD A DU NOUVEAU : un bandeau en haut, au
             centre. Il ne montre rien sur une installation qui ne le suit pas,
             et se tait pendant la mise en route. */}
+        {/* L'ACCORD DU PARTAGE DE L'ADRESSE, demandé une fois aux installations
+            déjà en place (`question-du-partage.tsx`). */}
+        {demarrageOuvert ? null : <QuestionDuPartage />}
         {demarrageOuvert ? null : (
           <Filet zone="Bandeau de mise à jour" muet>
             <BandeauMiseAJour

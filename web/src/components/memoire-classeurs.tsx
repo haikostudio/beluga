@@ -18,9 +18,11 @@ import {
   History,
   Info,
   Lightbulb,
+  List,
   Loader2,
   MessageSquare,
   MoreVertical,
+  Network,
   Pencil,
   Scale,
   Search,
@@ -42,12 +44,18 @@ import {
   detailSansSectionsVides,
   ficheDeLUnite,
   fichesDeLaPortee,
+  grouperLesUnitesParTheme,
   motsDeRecherche,
   poidsDeLEntree,
   sansAccents,
   sectionsDuDetail,
+  titreAffiche,
   titreDeLEntree,
+  trierParDateDeCreation,
+  uniteCorrespond,
+  uniteReprise,
   type EntreeDuChangelog,
+  type ThemeDeCategorie,
   type PoidsChangelog,
   type Unite,
 } from '@beluga/shared';
@@ -69,6 +77,7 @@ import {
 import { SilhouetteCoffre } from '@/components/silhouettes';
 import { CranDuFil, GestesDePage, SuiteDuFil } from '@/components/entete-de-zone';
 import { ColonneDeService } from '@/components/colonne-de-service';
+import { PageDuGraphe, dateDeLElement, type CibleDeLaListe } from '@/components/memoire-graphe';
 import { useTelephone } from '@/lib/telephone';
 import { Markdown } from '@/lib/markdown';
 import { client } from '@/lib/client';
@@ -137,6 +146,20 @@ type CibleMemoire = { porteeId?: string | null; ficheId?: string | null; uniteId
 /** Les trois pages du téléphone, une par zone de l'ordinateur. */
 type PageTelephone = 'portees' | 'fiches' | 'fiche';
 
+/**
+ * DEUX VUES (décision de l'utilisateur, 2026-10-20) : le GRAPHE à l'ouverture,
+ * sur ordinateur comme sur téléphone, et la LISTE derrière un bouton. Une
+ * adresse qui désigne une fiche ou une unité (un lien venu du fil d'un agent)
+ * ouvre la liste, sur cette unité.
+ */
+type VueDeLaMemoire = 'graphe' | 'liste';
+
+/** Les titres de la page ouverte dans une catégorie, pour le fil d'Ariane : le thème, puis l'élément. */
+interface LibellesDeLaPage {
+  theme?: string;
+  unite?: string;
+}
+
 export function MemoireClasseurs({
   open,
   onClose,
@@ -152,10 +175,16 @@ export function MemoireClasseurs({
   /** …et, en sens inverse, ce qui est réellement affiché. */
   onVise?: (cible: CibleMemoire) => void;
 }) {
+  const [vue, setVue] = React.useState<VueDeLaMemoire>(() => (cible?.ficheId || cible?.uniteId ? 'liste' : 'graphe'));
+  /* LE FOCUS DU GRAPHE : la portée mise en avant (« global », un projet), ou la vue d'ensemble. */
+  const [focus, setFocus] = React.useState<string | null>(() => (!cible?.ficheId && !cible?.uniteId ? cible?.porteeId ?? null : null));
   const [portees, setPortees] = React.useState<Portee[]>([]);
   const [porteeId, setPorteeId] = React.useState('global');
   const [etat, setEtat] = React.useState<EtatDesFiches | null>(null);
   const [ouverte, setOuverte] = React.useState<string | null>(null);
+  /* DANS UNE CATÉGORIE, DEUX CRANS DE PLUS : le thème ouvert, puis l'élément lu en page (`vise`). */
+  const [themeOuvert, setThemeOuvert] = React.useState<string | null>(null);
+  const [libelles, setLibelles] = React.useState<LibellesDeLaPage>({});
   const [depreciees, setDepreciees] = React.useState(false);
   const [recherche, setRecherche] = React.useState('');
   const [partout, setPartout] = React.useState(false);
@@ -164,11 +193,11 @@ export function MemoireClasseurs({
   /*
    * SUR TÉLÉPHONE : TROIS PAGES SUCCESSIVES, une par zone de l'ordinateur —
    * les portées, puis les sujets de la portée choisie, puis le sujet ouvert.
-   * L'écran s'ouvre sur les portées, sauf quand l'adresse désigne une unité :
+   * La liste s'ouvre sur les portées, sauf quand l'adresse désigne une unité :
    * on arrive alors directement sur son sujet. La recherche se déplie sur la ligne.
    */
   const telephone = useTelephone();
-  const [pageTel, setPageTel] = React.useState<PageTelephone>(() => (cible?.uniteId ? 'fiche' : 'portees'));
+  const [pageTel, setPageTel] = React.useState<PageTelephone>(() => (cible?.uniteId || cible?.ficheId ? 'fiche' : 'portees'));
   const [rechercheOuverte, setRechercheOuverte] = React.useState(false);
   const erreur =(err: any) => client.pushToast('error', err?.message ?? t('Mémoire illisible'));
 
@@ -196,10 +225,10 @@ export function MemoireClasseurs({
   }, [porteeId]);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || vue !== 'liste') return;
     setEtat(null);
     void relireFiches();
-  }, [open, relireFiches]);
+  }, [open, vue, relireFiches]);
 
   // La recherche part après une courte pause de frappe : une requête par mot, pas par lettre.
   React.useEffect(() => {
@@ -231,11 +260,15 @@ export function MemoireClasseurs({
       .catch(erreur);
   };
 
+  /* Ce que l'écran affiche réellement, en termes d'adresse : le focus du graphe, ou le classeur, la fiche et l'unité de la liste. */
+  const affiche: { porteeId: string; ficheId: string | null; uniteId: string | null } =
+    vue === 'graphe' ? { porteeId: focus ?? 'global', ficheId: null, uniteId: null } : { porteeId, ficheId: ouverte, uniteId: vise };
+
   /*
    * L'ADRESSE DE LA MÉMOIRE SUIT TROIS CRANS : le classeur, la fiche, l'unité.
    * Les trois remontent ensemble — changer de classeur change la fiche
    * affichée, les écrire séparément ferait passer l'adresse par un état qui
-   * n'a jamais existé à l'écran.
+   * n'a jamais existé à l'écran. Dans le graphe, seul le focus remonte.
    */
   const remonter = React.useRef(onVise);
   remonter.current = onVise;
@@ -252,19 +285,19 @@ export function MemoireClasseurs({
     const attend =
       abandonnee.current !== signature &&
       derniereRemontee.current !== signature &&
-      ((cible?.porteeId && cible.porteeId !== porteeId) ||
-        (cible?.ficheId && cible.ficheId !== ouverte) ||
-        (cible?.uniteId && cible.uniteId !== vise));
+      ((cible?.porteeId && cible.porteeId !== affiche.porteeId) ||
+        (cible?.ficheId && cible.ficheId !== affiche.ficheId) ||
+        (cible?.uniteId && cible.uniteId !== affiche.uniteId));
     if (attend) return;
-    derniereRemontee.current = `${porteeId}|${ouverte ?? ''}|${vise ?? ''}`;
-    remonter.current?.({ porteeId, ficheId: ouverte, uniteId: vise });
-  }, [porteeId, ouverte, vise, cible?.porteeId, cible?.ficheId, cible?.uniteId]);
+    derniereRemontee.current = `${affiche.porteeId}|${affiche.ficheId ?? ''}|${affiche.uniteId ?? ''}`;
+    remonter.current?.(affiche);
+  }, [affiche.porteeId, affiche.ficheId, affiche.uniteId, cible?.porteeId, cible?.ficheId, cible?.uniteId]);
 
   /*
-   * EN SENS INVERSE : ce qu'un lien désigne se repose ici. Le classeur d'abord
-   * — il commande la liste des fiches —, la fiche ensuite, une fois cette
-   * liste arrivée. L'unité, elle, ne se vérifie pas : elle vit DANS la fiche,
-   * qui la mettra en avant si elle s'y trouve encore.
+   * EN SENS INVERSE : ce qu'un lien désigne se repose ici. Une fiche ou une
+   * unité ouvre la LISTE ; une portée seule, dans le graphe, devient son focus.
+   * Dans la liste, le classeur d'abord — il commande la liste des fiches —, la
+   * fiche ensuite, une fois cette liste arrivée ; l'unité s'ouvre en page.
    *
    * Seule une adresse qui CHANGE, et qui n'est pas l'écho de ce que l'écran
    * vient de remonter, ouvre une poursuite ; la poursuite se referme dès que
@@ -281,13 +314,45 @@ export function MemoireClasseurs({
       poursuite.current = designe && signature !== derniereRemontee.current ? signature : null;
     }
     if (poursuite.current !== signature) return;
+    /* Une unité désignée SANS sa fiche (« #memoire/unite/DEC-024 ») : le démon dit où elle vit. */
+    if (cible.uniteId && !cible.ficheId) {
+      poursuite.current = null;
+      client
+        .call<{ unite: Unite; fiche: string }>({ type: 'memoire.unite', id: cible.uniteId })
+        .then(({ unite, fiche }) => {
+          setPorteeId(unite.portee);
+          setDepreciees(unite.statut === 'deprecated');
+          setOuverte(fiche);
+          setThemeOuvert(null);
+          setVise(unite.id);
+          setPageTel('fiche');
+          setVue('liste');
+        })
+        .catch(() => {
+          abandonnee.current = signature;
+          client.pushToast('warning', t('Cet élément de mémoire est introuvable.'));
+        });
+      return;
+    }
+    if (!cible.ficheId && !cible.uniteId && vue === 'graphe') {
+      poursuite.current = null;
+      setFocus(cible.porteeId ?? null);
+      return;
+    }
+    if (vue !== 'liste') {
+      setVue('liste');
+      return;
+    }
     if (cible.porteeId && cible.porteeId !== porteeId) {
       setPorteeId(cible.porteeId);
       return;
     }
     if (!etat || etat.portee !== porteeId) return;
     poursuite.current = null;
-    if (cible.uniteId && cible.uniteId !== vise) setVise(cible.uniteId);
+    if (cible.uniteId && cible.uniteId !== vise) {
+      setThemeOuvert(null);
+      setVise(cible.uniteId);
+    }
     if (!cible.ficheId || cible.ficheId === ouverte) return;
     const connue = cible.ficheId === CHANGELOG || etat.fiches.some((f) => f.id === cible.ficheId);
     if (!connue) {
@@ -297,16 +362,57 @@ export function MemoireClasseurs({
     }
     setOuverte(cible.ficheId);
     /* Sur ordinateur, la colonne de gauche descend avec l'adresse : elle montre les sujets du classeur visé. */
-    if (!telephone) setPageTel('fiche');
-  }, [open, cible?.porteeId, cible?.ficheId, cible?.uniteId, porteeId, etat, ouverte, vise]);
+    setPageTel('fiche');
+  }, [open, cible?.porteeId, cible?.ficheId, cible?.uniteId, porteeId, etat, ouverte, vise, vue]);
+
+  /** Ouvrir une fiche (une catégorie) : on repart de sa liste de thèmes. */
+  const ouvrirFiche = (ficheId: string) => {
+    setOuverte(ficheId);
+    setThemeOuvert(null);
+    setVise(null);
+  };
 
   const ouvrirTrouvee = (u: Unite, fiche: string) => {
     if (u.portee !== porteeId) setPorteeId(u.portee);
     setDepreciees(u.statut === 'deprecated');
     setOuverte(fiche);
+    setThemeOuvert(null);
     setVise(u.id);
     setRecherche('');
     setPageTel('fiche');
+  };
+
+  /** « Ouvrir dans la liste », depuis la fiche flottante du graphe. */
+  const ouvrirDepuisLeGraphe = (c: CibleDeLaListe) => {
+    setRecherche('');
+    setDepreciees(false);
+    setPorteeId(c.porteeId);
+    setOuverte(c.ficheId ?? null);
+    setThemeOuvert(c.theme ?? null);
+    setVise(c.uniteId ?? null);
+    setPageTel(c.ficheId ? 'fiche' : 'fiches');
+    setVue('liste');
+  };
+
+  /** Revenir au graphe : la portée lue dans la liste en devient le focus. */
+  const versLeGraphe = () => {
+    if (pageTel !== 'portees') setFocus(porteeId);
+    setRecherche('');
+    setRechercheOuverte(false);
+    setVue('graphe');
+  };
+
+  /** Le cran d'en dessous, dans la page d'une catégorie : l'élément ramène au thème (ou à la catégorie), le thème à la catégorie. */
+  const remonterDansLaFiche = (): boolean => {
+    if (vise) {
+      setVise(null);
+      return true;
+    }
+    if (themeOuvert) {
+      setThemeOuvert(null);
+      return true;
+    }
+    return false;
   };
 
   const portee = portees.find((p) => p.id === porteeId);
@@ -314,9 +420,8 @@ export function MemoireClasseurs({
   const etatCourant = etat?.portee === porteeId ? etat : null;
   const nomDePortee = portee ? (portee.id === 'global' ? t('Global') : portee.nom) : '';
   const ficheCourante = etatCourant?.fiches.find((f) => f.id === ouverte);
-  const nomDuSujet =
-    ouverte === CHANGELOG ? t('Changelog') : ficheCourante ? `${ficheCourante.id.slice(0, 2)} ${t(ficheCourante.titre)}` : '';
-  const compteDuSujet = ouverte === CHANGELOG ? etatCourant?.changelog : ficheCourante?.unites;
+  const nomDuSujet = ouverte === CHANGELOG ? t('Changelog') : ficheCourante ? t(ficheCourante.titre) : '';
+  const nomDuFocus = focus == null ? '' : focus === 'global' ? t('Global') : portees.find((p) => p.id === focus)?.nom ?? '';
 
   /* Les listes sont les MÊMES sur ordinateur et dans les pages du téléphone : seul leur cadre change. */
   const listeDesPortees = (apresChoix?: () => void) => (
@@ -329,6 +434,8 @@ export function MemoireClasseurs({
           onClick={() => {
             setPorteeId(p.id);
             setOuverte(null);
+            setThemeOuvert(null);
+            setVise(null);
             apresChoix?.();
           }}
           className={cn(
@@ -346,6 +453,32 @@ export function MemoireClasseurs({
     </div>
   );
 
+  /* DANS LE GRAPHE, LA COLONNE CHOISIT LE FOCUS : la vue d'ensemble, puis le Global et chaque projet. */
+  const listeDesFocus = (
+    <div className="flex flex-col gap-0.5" data-memoire-portees data-memoire-focus-liste>
+      {[{ id: '', nom: t('Vue d’ensemble') }, ...portees.map((p) => ({ id: p.id, nom: p.id === 'global' ? t('Global') : p.nom }))].map((p) => {
+        const choisi = (focus ?? '') === p.id;
+        return (
+          <button
+            key={p.id || 'ensemble'}
+            type="button"
+            data-memoire-focus={p.id}
+            {...(p.id ? { 'data-memoire-portee': p.id } : { 'data-memoire-vue-ensemble': '' })}
+            aria-current={choisi ? 'true' : undefined}
+            onClick={() => setFocus(p.id || null)}
+            className={cn(
+              'flex w-full items-center gap-1.5 rounded-lg px-2.5 py-2 text-left text-[14px] text-text transition-colors hover:bg-raised',
+              !p.id && 'mb-1.5',
+              choisi && 'bg-ligne-active text-teinte',
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate">{p.nom}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   const listeDesFiches = (apresChoix?: () => void) =>
     !etatCourant ? (
       <SilhouetteCoffre lignes={6} />
@@ -356,7 +489,7 @@ export function MemoireClasseurs({
             key={f.id}
             type="button"
             onClick={() => {
-              setOuverte(f.id);
+              ouvrirFiche(f.id);
               apresChoix?.();
             }}
             data-memoire-fiche={f.id}
@@ -369,7 +502,6 @@ export function MemoireClasseurs({
               f.id === ouverte && (telephone ? 'bg-raised' : 'bg-ligne-active'),
             )}
           >
-            <span className={cn('shrink-0 font-mono text-[11.5px] text-faint', !telephone && 'sr-only')}>{f.id.slice(0, 2)}</span>
             <span className={cn('min-w-0 flex-1 truncate text-[14px]', f.id === ouverte ? 'text-teinte' : f.unites ? 'text-text' : 'text-faint')}>{t(f.titre)}</span>
             <span className="shrink-0 text-[11.5px] text-faint">{f.unites}</span>
           </button>
@@ -378,7 +510,7 @@ export function MemoireClasseurs({
           <button
             type="button"
             onClick={() => {
-              setOuverte(CHANGELOG);
+              ouvrirFiche(CHANGELOG);
               apresChoix?.();
             }}
             data-memoire-fiche={CHANGELOG}
@@ -406,7 +538,9 @@ export function MemoireClasseurs({
 
   const detail =
     ouverte == null || !etatCourant ? (
-      <p className="px-3 py-3 text-[12.5px] text-faint">{t('Choisissez une fiche.')}</p>
+      <div className="px-3 py-3">
+        <SilhouetteCoffre lignes={6} />
+      </div>
     ) : ouverte === CHANGELOG ? (
       <ChangelogDuProjet key={porteeId} projectId={porteeId} />
     ) : (
@@ -415,7 +549,15 @@ export function MemoireClasseurs({
         portee={porteeId}
         ficheId={ouverte}
         depreciees={depreciees}
-        vise={vise}
+        theme={themeOuvert}
+        uniteId={vise}
+        onTheme={(theme) => {
+          setThemeOuvert(theme);
+          setVise(null);
+        }}
+        onUnite={setVise}
+        onThemeDeLUnite={setThemeOuvert}
+        onLibelles={setLibelles}
         onChange={() => {
           void relireFiches();
           void relirePortees();
@@ -438,11 +580,59 @@ export function MemoireClasseurs({
     </div>
   );
 
+  const dansLaFiche = pageTel === 'fiche' && ouverte && ouverte !== CHANGELOG;
+  /** Où mène la flèche de retour du téléphone : un cran au-dessus. */
+  const cranAuDessus: string = vise ? (themeOuvert ? 'theme' : 'categorie') : themeOuvert && dansLaFiche ? 'categorie' : pageTel === 'fiche' ? 'fiches' : 'portees';
+
+  /* ------------------------------------------------------------ */
+  /* LE GRAPHE                                                     */
+  /* ------------------------------------------------------------ */
+  if (vue === 'graphe') {
+    return (
+      /* LE GRAPHE PREND TOUTE LA ZONE : pas la colonne de lecture centrée d'une page. */
+      <Drawer open={open} onClose={onClose} enPage={enPage} className="max-w-none px-0 pt-0 sm:px-0 sm:pt-0">
+        <DialogTitle className="sr-only">{t('Mémoire')}</DialogTitle>
+        {nomDuFocus && !telephone ? (
+          <SuiteDuFil onRacine={() => setFocus(null)}>
+            <CranDuFil data-memoire-titre="" data-focus-du-fil="">
+              {nomDuFocus}
+            </CranDuFil>
+          </SuiteDuFil>
+        ) : null}
+        <GestesDePage>
+          {telephone ? (
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted" aria-label="Liste" title={t('Liste')} onClick={() => setVue('liste')} data-memoire-vers-liste>
+              <List className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={() => setVue('liste')} data-memoire-vers-liste>
+              <List className="h-3.5 w-3.5" />
+              {t('Liste')}
+            </Button>
+          )}
+        </GestesDePage>
+        {telephone ? null : (
+          <ColonneDeService>
+            <ZoneDefilement hauteur={16} className="pb-4 pt-1" data-memoire-zone="portees">
+              {listeDesFocus}
+            </ZoneDefilement>
+          </ColonneDeService>
+        )}
+        <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-vue="graphe" data-memoire-disposition={telephone ? 'telephone' : 'ordinateur'}>
+          <PageDuGraphe focus={focus} onFocus={setFocus} telephone={telephone} onOuvrirDansLaListe={ouvrirDepuisLeGraphe} />
+        </div>
+      </Drawer>
+    );
+  }
+
+  /* ------------------------------------------------------------ */
+  /* LA LISTE                                                      */
+  /* ------------------------------------------------------------ */
   return (
     <Drawer open={open} onClose={onClose} enPage={enPage}>
       <DialogTitle className="sr-only">{t('Mémoire')}</DialogTitle>
-      {/* LE FIL D'ARIANE DIT LE CLASSEUR PUIS LE SUJET OUVERTS — « Services ›
-          Mémoire › Beluga › Publication » ; chaque cran y ramène.
+      {/* LE FIL D'ARIANE DIT LE CLASSEUR, LA CATÉGORIE, LE THÈME PUIS L'ÉLÉMENT —
+          « Mémoire › Beluga › Décisions › Publication » ; chaque cran y ramène.
           SUR TÉLÉPHONE, LA PAGE N'A PLUS DE BARRE À ELLE (demande du 11/10/2026 :
           « éviter les doubles header avec le titre à double ») : le nom de la
           page affichée est le dernier cran de la barre d'en-tête, la flèche de
@@ -461,21 +651,43 @@ export function MemoireClasseurs({
         <SuiteDuFil
           onRacine={() => setPageTel('portees')}
           retour={{
-            action: () => setPageTel(pageTel === 'fiche' ? 'fiches' : 'portees'),
-            reperes: { 'data-memoire-retour': pageTel === 'fiche' ? 'fiches' : 'portees' },
+            action: () => {
+              if (dansLaFiche && remonterDansLaFiche()) return;
+              setPageTel(pageTel === 'fiche' ? 'fiches' : 'portees');
+            },
+            reperes: { 'data-memoire-retour': cranAuDessus },
           }}
         >
           <CranDuFil
             dernier={pageTel !== 'fiche' || !nomDuSujet}
-            onClick={() => setPageTel('fiches')}
+            onClick={() => {
+              setThemeOuvert(null);
+              setVise(null);
+              setPageTel('fiches');
+            }}
             data-portee-du-fil=""
             {...(pageTel !== 'fiche' || !nomDuSujet ? { 'data-memoire-titre': '' } : {})}
           >
             {nomDePortee}
           </CranDuFil>
           {pageTel === 'fiche' && nomDuSujet ? (
-            <CranDuFil data-sujet-du-fil="" data-memoire-titre="">
+            <CranDuFil
+              dernier={!(dansLaFiche && (themeOuvert || vise))}
+              onClick={dansLaFiche && (themeOuvert || vise) ? () => ouvrirFiche(ouverte!) : undefined}
+              data-sujet-du-fil=""
+              {...(!(dansLaFiche && (themeOuvert || vise)) ? { 'data-memoire-titre': '' } : {})}
+            >
               {nomDuSujet}
+            </CranDuFil>
+          ) : null}
+          {dansLaFiche && themeOuvert && libelles.theme ? (
+            <CranDuFil dernier={!vise} onClick={vise ? () => setVise(null) : undefined} data-theme-du-fil="" {...(!vise ? { 'data-memoire-titre': '' } : {})}>
+              {libelles.theme}
+            </CranDuFil>
+          ) : null}
+          {dansLaFiche && vise && libelles.unite ? (
+            <CranDuFil data-unite-du-fil="" data-memoire-titre="">
+              {libelles.unite}
             </CranDuFil>
           ) : null}
         </SuiteDuFil>
@@ -483,7 +695,7 @@ export function MemoireClasseurs({
       {telephone ? (
         /* DEUX ICÔNES DANS LA BARRE, pas une de plus : la loupe (ou la croix qui
            referme la recherche), puis le menu à trois points, qui range tout le
-           reste. */
+           reste — le retour au graphe compris. */
         <GestesDePage>
           {rechercheOuverte ? (
             <Button
@@ -520,6 +732,11 @@ export function MemoireClasseurs({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={versLeGraphe} data-memoire-vers-graphe>
+                <Network className="h-3.5 w-3.5" />
+                {t('Graphe')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {/* Les deux bascules gardent le menu ouvert : on voit la coche changer. */}
               <DropdownMenuItem
                 data-memoire-partout
@@ -555,6 +772,10 @@ export function MemoireClasseurs({
       ) : (
         <>
           <GestesDePage>
+            <Button variant="ghost" size="sm" onClick={versLeGraphe} data-memoire-vers-graphe>
+              <Network className="h-3.5 w-3.5" />
+              {t('Graphe')}
+            </Button>
             <Button variant="ghost" size="sm" onClick={exporter} data-memoire-exporter>
               <Download className="h-3.5 w-3.5" />
               {t('Exporter')}
@@ -592,12 +813,12 @@ export function MemoireClasseurs({
       {telephone ? (
         /*
          * LE TÉLÉPHONE EN TROIS PAGES : une seule zone à la fois, en plein
-         * écran — les portées, les sujets de la portée, puis le sujet ouvert.
-         * Toucher une ligne avance d'une page ; la flèche de l'entête recule.
-         * Les résultats d'une recherche prennent la page, et en toucher un
-         * ouvre directement son sujet.
+         * écran — les portées, les sujets de la portée, puis le sujet ouvert
+         * (ses thèmes, un thème, un élément). Toucher une ligne avance d'une
+         * page ; la flèche de l'entête recule d'un cran. Les résultats d'une
+         * recherche prennent la page, et en toucher un ouvre son élément.
          */
-        <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-disposition="telephone">
+        <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-vue="liste" data-memoire-disposition="telephone">
           {trouvees ? (
             <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiches" data-memoire-page="trouvees">
               <ZoneDefilement fond="hsl(var(--bg))" className={MARGE_DES_LISTES_AU_TELEPHONE}>
@@ -635,7 +856,7 @@ export function MemoireClasseurs({
         </div>
       ) : (
         /* SUR ORDINATEUR, la zone principale ne montre que le sujet ouvert. */
-        <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-disposition="ordinateur">
+        <div className="flex min-h-0 flex-1 flex-col" data-memoire-zones data-memoire-vue="liste" data-memoire-disposition="ordinateur">
           <section className={cn(ZONE, 'flex-1 bg-bg')} data-memoire-zone="fiche">
             {detail}
           </section>
@@ -682,7 +903,7 @@ function ListeDesTrouvees({
             {partout ? <Badge tone="neutral">{u.portee === 'global' ? t('Global') : portees.find((p) => p.id === u.portee)?.nom ?? u.portee}</Badge> : null}
           </span>
           <span className="w-full text-[13px] leading-snug text-text">
-            <Surligne texte={u.titre} demande={demande} />
+            <Surligne texte={titreAffiche(u)} demande={demande} />
           </span>
         </button>
       ))}
@@ -739,7 +960,8 @@ function importanceLisible(importance: Unite['importance']): { libelle: string; 
   }
 }
 
-const IMPORTANCES: readonly Unite['importance'][] = ['P0', 'P1', 'P2', 'P3'];
+/** Combien d'unités un thème déplié monte d'un coup : une catégorie de 600 unités ne fige pas l'écran. */
+const PAQUET_DUN_THEME = 30;
 
 interface StyleDeSection {
   libelle: string;
@@ -787,24 +1009,61 @@ function styleDeSection(titre: string): StyleDeSection {
   }
 }
 
+/** Combien d'éléments les dernières nouveautés d'une catégorie montrent, en tête de sa page. */
+const DERNIERS_AJOUTS = 4;
+
+type DonneesDeLaFiche = { fiche: { id: string; titre: string }; unites: Unite[]; jamaisSupposer?: Unite[] };
+
+/**
+ * UNE CATÉGORIE, EN TROIS PAGES (refonte demandée le 2026-10-20 : « aérée, le
+ * titre parlant et le code entre parenthèses, triée par date de création ») :
+ *
+ *  - la CATÉGORIE : ce qui y entre, ses derniers ajouts, puis ses thèmes — les
+ *    plus récemment nourris d'abord, chacun avec son nombre et la date de son
+ *    dernier ajout ; la recherche en tête aplatit tout en une liste filtrée ;
+ *  - le THÈME : ses éléments, les plus récents d'abord ;
+ *  - l'ÉLÉMENT : sa page de lecture, avec ses gestes (confirmer, déprécier).
+ *
+ * Chaque ligne dit « titre clair (MEM-1234) », une phrase et la date. Aucun
+ * cadre ni trait : la hiérarchie passe par les fonds et l'air.
+ */
 function FicheOuverte({
   portee,
   ficheId,
   depreciees,
-  vise,
+  theme,
+  uniteId,
+  onTheme,
+  onUnite,
+  onThemeDeLUnite,
+  onLibelles,
   onChange,
 }: {
   portee: string;
   ficheId: string;
   depreciees: boolean;
-  vise: string | null;
+  /** Le thème ouvert en page, ou `null` : la page de la catégorie. */
+  theme: string | null;
+  /** L'élément lu en page, ou `null`. */
+  uniteId: string | null;
+  onTheme: (theme: string) => void;
+  onUnite: (id: string) => void;
+  /** Un élément ouvert sans son thème (un lien, une recherche) : la page dit à quel thème il appartient. */
+  onThemeDeLUnite: (theme: string) => void;
+  onLibelles: (libelles: LibellesDeLaPage) => void;
   onChange: () => void;
 }) {
-  const [donnees, setDonnees] = React.useState<{ fiche: { id: string; titre: string }; unites: Unite[]; jamaisSupposer?: Unite[] } | null>(null);
+  const [donnees, setDonnees] = React.useState<DonneesDeLaFiche | null>(null);
+  /*
+   * LA RECHERCHE EN TÊTE DE LA CATÉGORIE (demande de l'utilisateur, carte
+   * 79083bc5) : dès qu'elle porte du texte, les thèmes laissent place aux seuls
+   * éléments qui correspondent, les plus récents d'abord.
+   */
+  const [filtre, setFiltre] = React.useState('');
   const relire = React.useCallback(
     () =>
       client
-        .call<{ fiche: { id: string; titre: string }; unites: Unite[]; jamaisSupposer?: Unite[] }>({ type: 'memoire.fiche', portee, ficheId, depreciees })
+        .call<DonneesDeLaFiche>({ type: 'memoire.fiche', portee, ficheId, depreciees })
         .then(setDonnees)
         .catch((err: any) => client.pushToast('error', err?.message ?? t('Mémoire illisible'))),
     [portee, ficheId, depreciees],
@@ -812,6 +1071,23 @@ function FicheOuverte({
   React.useEffect(() => {
     void relire();
   }, [relire]);
+  // LES THÈMES, LES PLUS RÉCEMMENT NOURRIS D'ABORD : le premier sujet de chaque unité, sujets en double fusionnés.
+  const themes = React.useMemo(() => (donnees ? grouperLesUnitesParTheme(donnees.unites, { tri: 'date' }) : []), [donnees]);
+  const themeOuvert = theme ? themes.find((th) => th.theme === theme) ?? null : null;
+  const unite = uniteId ? donnees?.unites.find((u) => u.id === uniteId) ?? null : null;
+  // Un élément ouvert sans son thème : on le retrouve, pour le fil d'Ariane et le retour.
+  React.useEffect(() => {
+    if (!unite || theme) return;
+    const sien = themes.find((th) => th.unites.some((u) => u.id === unite.id));
+    if (sien) onThemeDeLUnite(sien.theme);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unite, theme, themes]);
+  const libelleDuTheme = themeOuvert ? t(themeOuvert.libelle) : undefined;
+  const titreDeLUnite = unite ? titreAffiche(unite) : undefined;
+  React.useEffect(() => {
+    onLibelles({ theme: libelleDuTheme, unite: titreDeLUnite });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libelleDuTheme, titreDeLUnite]);
 
   if (!donnees) {
     return (
@@ -820,23 +1096,46 @@ function FicheOuverte({
       </div>
     );
   }
+  const apresUnGeste = () => {
+    void relire();
+    onChange();
+  };
+
+  /* ---- L'ÉLÉMENT, EN PAGE DE LECTURE ---- */
+  if (unite) {
+    return (
+      <ZoneDefilement fond="hsl(var(--bg))" className="px-3 pb-8 sm:px-6" key={unite.id}>
+        <LectureDUnite unite={unite} chemin={[t(donnees.fiche.titre), libelleDuTheme].filter(Boolean).join(' · ')} onChange={apresUnGeste} />
+      </ZoneDefilement>
+    );
+  }
+
+  /* ---- UN THÈME : ses éléments, les plus récents d'abord ---- */
+  if (themeOuvert) {
+    return (
+      <>
+        <EnteteDePageDeMemoire titre={t(themeOuvert.libelle)} compte={themeOuvert.unites.length} reperes={{ 'data-memoire-theme-ouvert': themeOuvert.theme }}>
+          <p className="text-[13px] text-muted">{t('Les plus récents d’abord.')}</p>
+        </EnteteDePageDeMemoire>
+        <ZoneDefilement fond="hsl(var(--bg))" className="px-1.5 pb-6 sm:px-3.5">
+          <ListeDUnites unites={themeOuvert.unites} onUnite={onUnite} reperes={{ 'data-memoire-unites': '', 'data-memoire-recherche-active': 'non' }} />
+        </ZoneDefilement>
+      </>
+    );
+  }
+
+  /* ---- LA CATÉGORIE : ses derniers ajouts, puis ses thèmes ---- */
   const tete = ficheId.startsWith('00_');
   const jamais = donnees.jamaisSupposer ?? [];
   const definitions = definitionsDeLaFiche(portee, ficheId);
-  // LES PLUS VITALES D'ABORD, regroupées sous leur importance dite en mots.
-  const groupes = IMPORTANCES.map((importance) => ({ importance, unites: donnees.unites.filter((u) => u.importance === importance).sort((a, b) => a.id.localeCompare(b.id)) })).filter(
-    (g) => g.unites.length,
-  );
+  const cherche = filtre.trim().length > 0;
+  const trouvees = cherche ? trierParDateDeCreation(donnees.unites.filter((u) => uniteCorrespond(u, filtre))) : [];
+  const recents = themes.length > 1 && donnees.unites.length > DERNIERS_AJOUTS * 2 ? trierParDateDeCreation(donnees.unites).slice(0, DERNIERS_AJOUTS) : [];
   return (
     <>
-      <div className="flex shrink-0 flex-col gap-1 px-3 py-2.5" data-memoire-fiche-ouverte={ficheId}>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[12px] text-faint">{ficheId.slice(0, 2)}</span>
-          <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-text">{t(donnees.fiche.titre)}</span>
-          <span className="text-[11.5px] text-faint">{donnees.unites.length}</span>
-        </div>
+      <EnteteDePageDeMemoire titre={t(donnees.fiche.titre)} compte={donnees.unites.length} reperes={{ 'data-memoire-fiche-ouverte': ficheId }}>
         {definitions.length ? (
-          <div className="flex flex-col gap-0.5 text-[12.5px] leading-snug text-muted" data-memoire-definition>
+          <div className="flex flex-col gap-0.5 text-[13px] leading-relaxed text-muted" data-memoire-definition>
             {definitions.map((d) => (
               <p key={d.type}>
                 {definitions.length > 1 ? <span className="font-medium text-text">{t(LIBELLE_TYPE[d.type])} — </span> : null}
@@ -845,35 +1144,63 @@ function FicheOuverte({
             ))}
           </div>
         ) : null}
-      </div>
-      <ZoneDefilement fond="hsl(var(--bg))" className="px-3 pb-4">
-        <div className="flex flex-col gap-4" data-memoire-unites>
-          {!donnees.unites.length ? <p className="py-3 text-[12.5px] text-faint">{t('Aucune unité ici pour l’instant.')}</p> : null}
-          {groupes.map((g) => {
-            const lisible = importanceLisible(g.importance);
-            return (
-              <section key={g.importance} className="flex flex-col gap-2" data-memoire-importance={g.importance}>
-                <h3 className="flex items-center gap-2">
-                  <span className={cn('rounded-full px-2.5 py-0.5 text-[12px] font-semibold', lisible.ton)}>{lisible.libelle}</span>
-                  <span className="text-[11.5px] text-faint">{g.unites.length}</span>
-                </h3>
-                {g.unites.map((u) => (
-                  <CarteDUnite
-                    key={u.id}
-                    unite={u}
-                    vise={vise === u.id}
-                    onChange={() => {
-                      void relire();
-                      onChange();
-                    }}
-                  />
-                ))}
-              </section>
-            );
-          })}
+        {donnees.unites.length ? (
+          <div className="relative mt-2 min-w-0 max-w-[520px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              value={filtre}
+              onChange={(e) => setFiltre(e.target.value)}
+              placeholder={t('Chercher dans cette catégorie…')}
+              className="h-9 rounded-lg pl-9 pr-9 text-[14px]"
+              autoComplete="off"
+              data-memoire-filtre
+            />
+            {filtre ? (
+              <button
+                type="button"
+                onClick={() => setFiltre('')}
+                aria-label="Effacer la recherche"
+                title={t('Effacer la recherche')}
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-faint hover:bg-raised hover:text-muted"
+                data-memoire-filtre-effacer
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {cherche ? (
+          <p className="px-0.5 text-[12.5px] text-faint" data-memoire-filtre-compte={trouvees.length}>
+            {trouvees.length ? t('{n} élément(s) trouvé(s)', { n: trouvees.length }) : t('Aucun élément ne correspond.')}
+          </p>
+        ) : null}
+      </EnteteDePageDeMemoire>
+      <ZoneDefilement fond="hsl(var(--bg))" className="px-1.5 pb-6 sm:px-3.5">
+        <div className="flex flex-col gap-6" data-memoire-unites data-memoire-recherche-active={cherche ? 'oui' : 'non'}>
+          {!donnees.unites.length ? <p className="px-1.5 py-3 text-[13px] text-faint">{t('Aucune unité ici pour l’instant.')}</p> : null}
+          {cherche ? (
+            <ListeDUnites unites={trouvees} onUnite={onUnite} demande={filtre} />
+          ) : (
+            <>
+              {recents.length ? (
+                <section className="flex flex-col gap-1" data-memoire-derniers-ajouts>
+                  <h3 className="px-3 text-[12.5px] font-medium text-faint">{t('Derniers ajouts')}</h3>
+                  <ListeDUnites unites={recents} onUnite={onUnite} />
+                </section>
+              ) : null}
+              {themes.length ? (
+                <section className="flex flex-col gap-1" data-memoire-themes>
+                  {recents.length ? <h3 className="px-3 text-[12.5px] font-medium text-faint">{t('Thèmes')}</h3> : null}
+                  {themes.map((th) => (
+                    <LigneDeTheme key={th.theme} theme={th} onOuvrir={() => onTheme(th.theme)} />
+                  ))}
+                </section>
+              ) : null}
+            </>
+          )}
           {/* « À NE JAMAIS SUPPOSER » PASSE EN DESSOUS : c'est un rappel pour les agents, secondaire pour qui lit. */}
-          {tete && jamais.length && !depreciees ? (
-            <section className="mt-2 flex flex-col gap-1.5 rounded-lg bg-bloc px-3 py-2.5" data-memoire-jamais>
+          {tete && jamais.length && !depreciees && !cherche ? (
+            <section className="mx-1.5 flex flex-col gap-1.5 rounded-xl bg-bloc px-4 py-3" data-memoire-jamais>
               <h3 className="flex items-center gap-1.5 text-[12.5px] font-medium text-muted">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
                 {t('À ne jamais supposer')}
@@ -884,7 +1211,7 @@ function FicheOuverte({
                 {jamais.map((u) => (
                   <li key={u.id} className="flex min-w-0 gap-2 text-[12.5px] leading-snug text-muted">
                     <span aria-hidden className="mt-[0.55em] h-1 w-1 shrink-0 rounded-full bg-faint" />
-                    <span className="min-w-0 break-words">{u.titre}</span>
+                    <span className="min-w-0 break-words">{titreAffiche(u)}</span>
                   </li>
                 ))}
               </ul>
@@ -896,27 +1223,153 @@ function FicheOuverte({
   );
 }
 
+/** La tête d'une page de la liste : son titre, son nombre, et ce qui la précise. */
+function EnteteDePageDeMemoire({
+  titre,
+  compte,
+  reperes,
+  children,
+}: {
+  titre: string;
+  compte: number;
+  reperes: Record<`data-${string}`, string>;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex shrink-0 flex-col gap-1.5 px-3 pb-3 pt-4 sm:px-5" {...reperes}>
+      <div className="flex items-baseline gap-2.5">
+        <h2 className="min-w-0 break-words text-[18px] font-semibold leading-tight text-text">{titre}</h2>
+        <span className="shrink-0 text-[13px] text-faint tabular-nums">{compte}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** La date d'une unité, courte, pour une ligne : « 14 oct. 2026 ». */
+function dateCourte(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Un thème d'une catégorie : son nom, son nombre, la date de son dernier ajout. */
+function LigneDeTheme({ theme, onOuvrir }: { theme: ThemeDeCategorie<Unite>; onOuvrir: () => void }) {
+  const vital = importanceLisible('P0');
+  return (
+    <button
+      type="button"
+      onClick={onOuvrir}
+      className="flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-raised"
+      data-memoire-theme={theme.theme}
+      data-memoire-theme-ouvrir
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="break-words text-[14.5px] font-medium text-text">{t(theme.libelle)}</span>
+        {theme.dernierAjout ? (
+          <span className="text-[12.5px] text-faint" data-memoire-theme-date={theme.dernierAjout}>
+            {t('Dernier ajout le {date}', { date: dateCourte(theme.dernierAjout) })}
+          </span>
+        ) : null}
+      </span>
+      {theme.vitales ? (
+        <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold', vital.ton)} title={t('Éléments vitaux')}>
+          {theme.vitales}
+        </span>
+      ) : null}
+      <span className="shrink-0 text-[13px] text-muted tabular-nums" data-memoire-theme-compte={theme.unites.length}>
+        {theme.unites.length}
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-faint" />
+    </button>
+  );
+}
+
+/** Une liste d'unités en lignes aérées, montées par paquets : un thème de 600 unités ne fige pas l'écran. */
+function ListeDUnites({
+  unites,
+  onUnite,
+  demande,
+  reperes,
+}: {
+  unites: readonly Unite[];
+  onUnite: (id: string) => void;
+  demande?: string;
+  reperes?: Record<`data-${string}`, string>;
+}) {
+  const [montees, setMontees] = React.useState(PAQUET_DUN_THEME);
+  const reste = unites.length - montees;
+  return (
+    <div className="flex flex-col gap-0.5" {...reperes}>
+      {unites.slice(0, montees).map((u) => (
+        <LigneDUnite key={u.id} unite={u} onOuvrir={() => onUnite(u.id)} demande={demande} />
+      ))}
+      {reste > 0 ? (
+        <Button variant="ghost" size="sm" className="ml-1.5 self-start" onClick={() => setMontees((n) => n + PAQUET_DUN_THEME)} data-memoire-theme-plus>
+          {t('Afficher {n} de plus', { n: Math.min(reste, PAQUET_DUN_THEME) })}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 /**
- * UNE FICHE SE LIT D'ABORD REPLIÉE : son titre, sa phrase et son importance.
- * Dépliée, son détail devient de petits blocs illustrés (rôle, comportement,
- * contrôles… ; contexte, décision, conséquences), le raisonnement un encart
- * « Pourquoi c'est important », et tout le technique (fichiers, identifiant,
- * confiance, source, version) un volet discret. Le détail replié reste dans la
- * page : la recherche du navigateur et les contrôles le lisent. L'attribut
- * `hidden` seul ne suffit pas — une classe `flex` le rend visible —, d'où la
- * classe `hidden` posée avec lui.
+ * UNE LIGNE D'UNITÉ : « titre clair (MEM-1234) », une phrase, la date. Le
+ * résumé replié sur deux lignes interdit le `button` (un texte replié ne s'y
+ * pose jamais) : la ligne est une zone cliquable au clavier comme à la souris.
  */
-function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean; onChange: () => void }) {
-  const [ouverte, setOuverte] = React.useState(vise);
+function LigneDUnite({ unite: u, onOuvrir, demande }: { unite: Unite; onOuvrir: () => void; demande?: string }) {
+  const vitale = u.importance === 'P0';
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOuvrir}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOuvrir();
+        }
+      }}
+      className="flex w-full min-w-0 cursor-pointer flex-col gap-1 rounded-xl px-3 py-3 text-left outline-none transition-colors hover:bg-raised focus-visible:bg-raised"
+      data-memoire-unite={u.id}
+      data-memoire-ligne={u.id}
+      data-memoire-cree-le={u.creeLe}
+    >
+      <div className="flex min-w-0 items-baseline gap-3">
+        <span className="min-w-0 flex-1 break-words text-[14.5px] font-medium leading-snug text-text" data-memoire-titre-clair={u.titreHumain ? 'oui' : 'non'}>
+          {demande ? <Surligne texte={titreAffiche(u)} demande={demande} /> : titreAffiche(u)}{' '}
+          <span className="whitespace-nowrap font-mono text-[12px] font-normal text-faint" data-memoire-code>
+            ({u.id})
+          </span>
+        </span>
+        <span className="shrink-0 text-[12px] text-faint" title={uniteReprise(u) ? t('Reprise d’un ancien rangement : sa date est celle de la reprise.') : undefined}>
+          {dateCourte(u.creeLe)}
+        </span>
+      </div>
+      <p className="line-clamp-2 text-[13px] leading-relaxed text-muted">{u.resume}</p>
+      {vitale || u.statut === 'deprecated' ? (
+        <p className="flex flex-wrap items-center gap-x-2 text-[11.5px]">
+          {vitale ? <span className={cn('rounded-full px-2 py-0.5 font-semibold', importanceLisible('P0').ton)}>{t('Vital')}</span> : null}
+          {u.statut === 'deprecated' ? <span className="text-faint">{t('dépréciée')}</span> : null}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * UN ÉLÉMENT, LU EN PAGE : son chemin (catégorie · thème), son titre clair
+ * suivi de son code, sa date, sa phrase ; puis son détail en petits blocs
+ * illustrés (rôle, comportement, contrôles… ; contexte, décision,
+ * conséquences), le raisonnement en encart « Pourquoi c'est important », et
+ * tout le technique (fichiers, titre des agents, confiance, source, version)
+ * dans un volet discret. Confirmer et déprécier passent par la même porte
+ * d'écriture que les agents. L'attribut `hidden` seul ne suffit pas — une
+ * classe `flex` le rend visible —, d'où la classe `hidden` posée avec lui.
+ */
+function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: string; onChange: () => void }) {
   const [technique, setTechnique] = React.useState(false);
   const [versions, setVersions] = React.useState<Version[] | null>(null);
   const [enCours, setEnCours] = React.useState(false);
-  const ref = React.useRef<HTMLElement>(null);
-  React.useEffect(() => {
-    if (!vise) return;
-    setOuverte(true);
-    ref.current?.scrollIntoView({ block: 'center' });
-  }, [vise]);
   const erreur = (err: any) => client.pushToast('error', err?.message ?? t('Mémoire illisible'));
   const aRelire = u.statut === 'active' && !u.relue && u.confiance < 0.6;
 
@@ -928,6 +1381,7 @@ function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean
   const blocs = sections.filter((s): s is { titre: string; texte: string } => s.titre !== null && Boolean(s.texte)).map((s) => ({ ...s, style: styleDeSection(s.titre) }));
   const visibles = blocs.filter((b) => !b.style.technique);
   const techniques = blocs.filter((b) => b.style.technique);
+  const importance = importanceLisible(u.importance);
 
   const geste = (type: 'memoire.confirmer' | 'memoire.deprecier', message: string) => {
     setEnCours(true);
@@ -943,7 +1397,6 @@ function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean
 
   const basculerHistorique = () => {
     if (versions) return setVersions(null);
-    setOuverte(true);
     client
       .call<{ versions: Version[] }>({ type: 'memoire.unite', id: u.id })
       .then((data) => setVersions(data.versions ?? []))
@@ -951,87 +1404,75 @@ function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean
   };
 
   return (
-    <article
-      ref={ref}
-      className={cn('flex flex-col rounded-lg bg-surface text-[13.5px]', vise && 'bg-accent/10')}
-      data-memoire-unite={u.id}
-      data-ouverte={ouverte ? 'oui' : 'non'}
-    >
-      <div className="flex items-start gap-1.5 px-3 pt-2.5">
-        <button
-          type="button"
-          onClick={() => setOuverte((v) => !v)}
-          aria-expanded={ouverte}
-          className="flex min-w-0 flex-1 items-start gap-1.5 text-left"
-          data-memoire-deplier
-        >
-          <ChevronRight className={cn('mt-[3px] h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouverte && 'rotate-90')} />
-          <span className="min-w-0 break-words text-[14px] font-semibold leading-snug text-text">{u.titre}</span>
-        </button>
-        {/* L'importance est dite par le groupe où la fiche est rangée : la carte ne la redit pas. */}
-        {aRelire ? (
-          <Button size="sm" variant="ghost" className="h-6" onClick={() => geste('memoire.confirmer', t('Unité confirmée'))} disabled={enCours} data-memoire-confirmer>
-            <CheckCircle2 className="h-3 w-3" />
-            {t('Confirmer')}
-          </Button>
-        ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-6 w-6 shrink-0 p-0" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-unite-menu>
-              <MoreVertical className="h-3.5 w-3.5" />
+    <article className="mx-auto flex w-full max-w-[780px] flex-col gap-4 pt-4 text-[14px]" data-memoire-unite={u.id} data-memoire-lecture={u.id} data-ouverte="oui">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start gap-2">
+          <p className="min-w-0 flex-1 truncate pt-1 text-[12.5px] text-faint">{chemin}</p>
+          {aRelire ? (
+            <Button size="sm" variant="subtle" className="h-7" onClick={() => geste('memoire.confirmer', t('Unité confirmée'))} disabled={enCours} data-memoire-confirmer>
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {t('Confirmer')}
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={basculerHistorique} data-memoire-historique-bouton>
-              <History className="h-3.5 w-3.5" />
-              {t('Historique')}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => {
-                setOuverte(true);
-                setTechnique((v) => !v);
-              }}
-              data-memoire-technique-menu
-            >
-              <Info className="h-3.5 w-3.5" />
-              {t('Détails techniques')}
-            </DropdownMenuItem>
-            {u.statut === 'active' ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => geste('memoire.deprecier', t('Unité dépréciée'))} disabled={enCours} data-memoire-deprecier>
-                  <XCircle className="h-3.5 w-3.5" />
-                  {t('Déprécier')}
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-unite-menu>
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={basculerHistorique} data-memoire-historique-bouton>
+                <History className="h-3.5 w-3.5" />
+                {t('Historique')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setTechnique((v) => !v)} data-memoire-technique-menu>
+                <Info className="h-3.5 w-3.5" />
+                {t('Détails techniques')}
+              </DropdownMenuItem>
+              {u.statut === 'active' ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => geste('memoire.deprecier', t('Unité dépréciée'))} disabled={enCours} data-memoire-deprecier>
+                    <XCircle className="h-3.5 w-3.5" />
+                    {t('Déprécier')}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        {/* LE TITRE CLAIR D'ABORD (écrit pour la personne), son code entre parenthèses ; le titre des agents passe dans les détails techniques. */}
+        <h2 className="break-words text-[21px] font-semibold leading-snug text-text" data-memoire-titre-clair={u.titreHumain ? 'oui' : 'non'} data-memoire-deplier>
+          {titreAffiche(u)} <span className="whitespace-nowrap font-mono text-[14px] font-normal text-faint">({u.id})</span>
+        </h2>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-faint">
+          {/* L'importance, dite en mots. */}
+          <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold', importance.ton)} title={u.importance} data-memoire-importance={u.importance}>
+            {importance.libelle}
+          </span>
+          <span data-memoire-date>{dateDeLElement(u.creeLe, uniteReprise(u))}</span>
+          {aRelire ? <span className="text-warning">{t('À relire')}</span> : null}
+          {u.statut === 'deprecated' ? <span>{t('dépréciée')}</span> : null}
+          {u.supersededBy ? <span>{t('Remplacée par {id}', { id: u.supersededBy })}</span> : null}
+        </p>
+        <p className="text-[15px] leading-relaxed text-muted" data-memoire-resume>
+          {u.resume}
+        </p>
       </div>
-      <div className="flex flex-col gap-1 px-3 pb-2.5 pl-8">
-        <p className="leading-relaxed text-muted">{u.resume}</p>
-        {aRelire || u.statut === 'deprecated' || u.supersededBy ? (
-          <p className="flex flex-wrap gap-x-2 text-[11.5px]">
-            {aRelire ? <span className="text-warning">{t('À relire')}</span> : null}
-            {u.statut === 'deprecated' ? <span className="text-faint">{t('dépréciée')}</span> : null}
-            {u.supersededBy ? <span className="text-faint">{t('Remplacée par {id}', { id: u.supersededBy })}</span> : null}
-          </p>
-        ) : null}
-      </div>
-      <div hidden={!ouverte} className={cn('flex flex-col gap-2.5 px-3 pb-3 sm:pl-8', !ouverte && 'hidden')} data-memoire-unite-detail>
+      <div className="flex flex-col gap-3" data-memoire-unite-detail>
         {intro ? <Markdown content={intro.replace(/^### /gm, '#### ')} /> : null}
         {visibles.length ? (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" data-memoire-blocs>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2" data-memoire-blocs>
             {visibles.map((b) => {
               const { Icone } = b.style;
               return (
-                <section key={b.titre} className={cn('flex min-w-0 flex-col gap-1 rounded-lg px-3 py-2', b.style.fond, visibles.length % 2 === 1 && b === visibles.at(-1) && 'sm:col-span-2')} data-memoire-bloc={b.titre}>
-                  <span className={cn('flex items-center gap-1.5 text-[12px] font-semibold', b.style.icone)}>
+                <section key={b.titre} className={cn('flex min-w-0 flex-col gap-1.5 rounded-xl px-4 py-3', b.style.fond, visibles.length % 2 === 1 && b === visibles.at(-1) && 'sm:col-span-2')} data-memoire-bloc={b.titre}>
+                  <span className={cn('flex items-center gap-1.5 text-[12.5px] font-semibold', b.style.icone)}>
                     <Icone className="h-3.5 w-3.5 shrink-0" />
                     {b.style.libelle}
                   </span>
-                  {/* Le Markdown pose ses paragraphes en 14 px : dans un petit bloc, ils reprennent la taille de la fiche. */}
-                  <div className="min-w-0 text-[13px] text-text [&_div]:text-[13px] [&_span]:text-[13px]">
+                  {/* Le Markdown pose ses paragraphes en 14 px : dans un petit bloc, ils reprennent une taille de lecture. */}
+                  <div className="min-w-0 text-[13.5px] text-text [&_div]:text-[13.5px] [&_span]:text-[13.5px]">
                     <Markdown content={b.texte.replace(/^### /gm, '#### ')} />
                   </div>
                 </section>
@@ -1040,10 +1481,10 @@ function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean
           </div>
         ) : null}
         {u.raisonnement ? (
-          <aside className="flex gap-2 rounded-lg bg-warning/10 px-3 py-2" data-memoire-pourquoi>
-            <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-            <div className="flex min-w-0 flex-col gap-0.5 text-[13px] [&_div]:text-[13px] [&_span]:text-[13px]">
-              <span className="text-[12px] font-semibold text-warning">{t('Pourquoi c’est important')}</span>
+          <aside className="flex gap-2.5 rounded-xl bg-warning/10 px-4 py-3" data-memoire-pourquoi>
+            <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <div className="flex min-w-0 flex-col gap-1 text-[13.5px] [&_div]:text-[13.5px] [&_span]:text-[13.5px]">
+              <span className="text-[12.5px] font-semibold text-warning">{t('Pourquoi c’est important')}</span>
               <Markdown content={u.raisonnement} />
             </div>
           </aside>
@@ -1052,19 +1493,24 @@ function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean
           type="button"
           onClick={() => setTechnique((v) => !v)}
           aria-expanded={technique}
-          className="flex items-center gap-1 self-start text-[11.5px] text-faint transition-colors hover:text-muted"
+          className="flex items-center gap-1 self-start text-[12px] text-faint transition-colors hover:text-muted"
           data-memoire-technique-bascule
         >
           <ChevronRight className={cn('h-3 w-3 transition-transform', technique && 'rotate-90')} />
           {t('Détails techniques')}
         </button>
-        <div hidden={!technique} className={cn('flex flex-col gap-1.5 rounded-md bg-bloc px-2.5 py-2 text-[11.5px] text-faint', !technique && 'hidden')} data-memoire-technique>
+        <div hidden={!technique} className={cn('flex flex-col gap-1.5 rounded-lg bg-bloc px-3 py-2.5 text-[12px] text-faint', !technique && 'hidden')} data-memoire-technique>
           {techniques.map((b) => (
             <div key={b.titre} className="flex min-w-0 flex-col gap-0.5 text-[12px]">
               <span className="font-medium text-muted">{b.style.libelle}</span>
               <Markdown content={b.texte} />
             </div>
           ))}
+          {u.titreHumain ? (
+            <p className="break-words" data-memoire-titre-agents>
+              {t('Titre pour les agents : {titre}', { titre: u.titre })}
+            </p>
+          ) : null}
           <p className="break-words">
             {[
               u.id,
@@ -1082,7 +1528,7 @@ function CarteDUnite({ unite: u, vise, onChange }: { unite: Unite; vise: boolean
           </p>
         </div>
         {versions ? (
-          <div className="flex flex-col gap-0.5 rounded bg-bloc px-2 py-1 text-[12px] text-faint" data-memoire-historique>
+          <div className="flex flex-col gap-0.5 rounded-lg bg-bloc px-3 py-2 text-[12px] text-faint" data-memoire-historique>
             {!versions.length ? (
               <span>{t('Aucune version précédente.')}</span>
             ) : (

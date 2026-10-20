@@ -2159,6 +2159,7 @@ export function Composer({
               {file.mime.startsWith('image/') ? (
                 <button
                   type="button"
+                  title={etiquetteDePiece(file)}
                   onClick={() => setApercu(file)}
                   className="h-5 w-5 shrink-0 overflow-hidden rounded bg-raised"
                 >
@@ -2169,7 +2170,7 @@ export function Composer({
                   />
                 </button>
               ) : (
-                <button type="button" onClick={() => setApercu(file)} className="shrink-0 text-faint">
+                <button type="button" title={etiquetteDePiece(file)} onClick={() => setApercu(file)} className="shrink-0 text-faint">
                   {file.mime === 'application/pdf' ? <FileText className="h-3 w-3" /> : <Paperclip className="h-3 w-3" />}
                 </button>
               )}

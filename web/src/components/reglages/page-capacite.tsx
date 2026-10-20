@@ -196,6 +196,8 @@ export function SectionSysteme() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  title={process.running ? t('Arrêter ce processus') : t('Démarrer ce processus')}
+                  aria-label={process.running ? 'Arrêter ce processus' : 'Démarrer ce processus'}
                   onClick={() => setAConfirmer(process)}
                   disabled={busy === process.id}
                 >

@@ -186,6 +186,11 @@ export interface FicheClientTableau {
   derniereActivite?: number;
   /** Une case par JOUR de la période, de la PLUS ANCIENNE à la plus récente. */
   interactions: number[];
+  /**
+   * LE COMPTE DES TICKETS DES INSTALLATIONS OPEN SOURCE (`relais-installations.ts`) :
+   * un support qui ne paie pas. Les vrais clients, eux, paient.
+   */
+  openSource?: boolean;
 }
 
 /** Un client « attend quelque chose » dès qu'il a du non-lu ou une demande à traiter. */

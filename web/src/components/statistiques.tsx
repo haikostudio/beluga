@@ -1,6 +1,6 @@
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
-import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Globe, Route, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
+import { ArrowDown, ArrowDownRight, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, ArrowUpRight, BarChart3, Check, Copy, Download, Globe, Route, Hourglass, Loader2, Minus, Play, Plus, RotateCcw, Search, Stethoscope, Trash2, Wrench, X } from 'lucide-react';
 import {
   type AnalyseDesParcours,
   type Card,
@@ -147,6 +147,11 @@ interface ChoixDePeriode {
 
 const UN_JOUR = 86_400_000;
 
+/** L'écran des installations ne se télécharge qu'à son ouverture. */
+const InstallationsDeBeluga = React.lazy(() =>
+  import('@/components/installations-beluga').then((m) => ({ default: m.InstallationsDeBeluga })),
+);
+
 export function Statistiques({
   open,
   onClose,
@@ -175,6 +180,22 @@ export function Statistiques({
      le geste reste dans la page. */
   const dansLaColonne = useColonneDeService();
   const [groupe, setGroupe] = React.useState<GroupeDeLaListe>('tous');
+  /*
+   * LES INSTALLATIONS DE BELUGA BUILD (décision du 20/10/2026) : une rubrique de
+   * plus, seulement sur la machine qui reçoit leurs signes de vie.
+   */
+  const [recepteur, setRecepteur] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return;
+    let vivant = true;
+    fetch('/api/relais/etat')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((etat: { recepteur?: boolean } | null) => vivant && setRecepteur(Boolean(etat?.recepteur)))
+      .catch(() => undefined);
+    return () => {
+      vivant = false;
+    };
+  }, [open]);
   /** Un site tout juste créé s'ouvre sur l'assistant, directement au code à poser. */
   const [assistantVoulu, setAssistantVoulu] = React.useState(false);
 
@@ -251,6 +272,15 @@ export function Statistiques({
                   onClick={() => setGroupe('autonomes')}
                   data-stats-groupe-rubrique="autonomes"
                 />
+                {recepteur ? (
+                  <RubriqueDeColonne
+                    icone={<Download />}
+                    libelle={t('Installations de Beluga')}
+                    actif={groupe === 'installations'}
+                    onClick={() => setGroupe('installations')}
+                    data-stats-groupe-rubrique="installations"
+                  />
+                ) : null}
               </nav>
             </ColonneDeService>
           ) : (
@@ -261,7 +291,22 @@ export function Statistiques({
               </BoutonPrincipal>
             </GestePrincipal>
           )}
-          <div className="shrink-0 pb-3">
+          {/* SUR TÉLÉPHONE, SANS COLONNE : la même rubrique, d'un bouton qui bascule. */}
+          {recepteur && !dansLaColonne ? (
+            <OptionsDePage>
+              <OptionDePage
+                compact
+                icone={<Download className="h-4 w-4" />}
+                onClick={() => setGroupe(groupe === 'installations' ? 'tous' : 'installations')}
+                title={t('Installations de Beluga')}
+                aria-label="Installations de Beluga"
+                data-stats-installations-bouton
+              >
+                {groupe === 'installations' ? t('Tous les sites') : t('Installations de Beluga')}
+              </OptionDePage>
+            </OptionsDePage>
+          ) : null}
+          <div className={cn('shrink-0 pb-3', groupe === 'installations' && 'hidden')}>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
               <Input
@@ -288,7 +333,15 @@ export function Statistiques({
             </div>
           </div>
           <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
-            {liste === null ? <SilhouetteStatistiques /> : <ListeDesSites sites={liste.sites} recherche={recherche} groupe={groupe} onOuvrir={(id) => ouvrir(id)} />}
+            {groupe === 'installations' ? (
+              <React.Suspense fallback={<SilhouetteStatistiques />}>
+                <InstallationsDeBeluga />
+              </React.Suspense>
+            ) : liste === null ? (
+              <SilhouetteStatistiques />
+            ) : (
+              <ListeDesSites sites={liste.sites} recherche={recherche} groupe={groupe} onOuvrir={(id) => ouvrir(id)} />
+            )}
           </ZoneDefilement>
         </>
       )}
@@ -324,7 +377,7 @@ function IconeDuSite({ site }: { site: Pick<LigneSite, 'id' | 'nom' | 'autonome'
  * et une phrase le dit quand rien ne correspond.
  */
 /** Le groupe de la liste que la colonne de gauche retient ; `tous` : les trois. */
-type GroupeDeLaListe = 'tous' | 'actifs' | 'inactifs' | 'autonomes';
+type GroupeDeLaListe = 'tous' | 'actifs' | 'inactifs' | 'autonomes' | 'installations';
 
 function ListeDesSites({
   sites,

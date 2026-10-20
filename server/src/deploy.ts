@@ -103,10 +103,10 @@ import {
   agentRetientLaPublication,
   raisonLancementEnPreparation,
   processusJoueAuDeploiement,
-  DEPOT_PUBLIC,
-  depotDeLAdresse,
 } from '@beluga/shared';
 import * as store from './store.js';
+// LE DÉPÔT PUBLIC DE BELUGA SE LIT, IL NE SE POUSSE JAMAIS (lecture OU envoi vers lui).
+import { distantEstLeDepotPublic } from './depot-public.js';
 import { bus } from './bus.js';
 import { lancementsEnRouteDuProjet } from './lancements-en-route.js';
 import { CONFIG } from './config.js';
@@ -502,16 +502,6 @@ export async function brancheDeLEtape(project: Project, cible: CiblePublication)
     principale: await mainBranchOf(cwd),
     branchesConnues: await branchesConnues(cwd),
   });
-}
-
-/**
- * LE DÉPÔT PUBLIC DE BELUGA SE LIT, IL NE SE POUSSE JAMAIS. Vrai quand le
- * distant nommé pointe sur lui : un envoi y réclamerait le jeton de Haiko
- * Studio. Un distant introuvable n'est pas le dépôt public.
- */
-async function distantEstLeDepotPublic(cwd: string, distant: string): Promise<boolean> {
-  const url = await runGit(cwd, ['remote', 'get-url', distant], 20000);
-  return url.ok && depotDeLAdresse(url.sortie) === depotDeLAdresse(DEPOT_PUBLIC);
 }
 
 /** Les distants du dépôt vers lesquels un envoi est permis (le dépôt public n'en fait jamais partie). */

@@ -55,6 +55,7 @@ import {
   type Importance,
   type LigneDuCarnet,
   type PropositionPropre,
+  titreHumainPropre,
   type FicheNumerotee,
   type PropositionUnite,
   type RenduDeFiche,
@@ -100,6 +101,7 @@ interface LigneUnite {
   sujets: string;
   titre: string;
   titre_norme: string;
+  titre_humain: string | null;
   resume: string;
   detail: string;
   raisonnement: string;
@@ -133,6 +135,7 @@ function versUnite(l: LigneUnite): Unite {
     type: l.type as TypeUnite,
     sujets: json<string[]>(l.sujets, []),
     titre: l.titre,
+    ...(l.titre_humain ? { titreHumain: l.titre_humain } : {}),
     resume: l.resume,
     detail: l.detail,
     raisonnement: l.raisonnement,
@@ -432,9 +435,9 @@ export function proposerUnite(portee: string, proposition: PropositionUnite, con
   const id = formaterIdentifiant(p.type, numeroSuivant(p.type));
   db.transaction(() => {
     db.prepare(
-      `INSERT INTO connaissances (id, portee, type, sujets, titre, titre_norme, resume, detail, raisonnement, statut, importance, confiance,
+      `INSERT INTO connaissances (id, portee, type, sujets, titre, titre_norme, titre_humain, resume, detail, raisonnement, statut, importance, confiance,
                                   source, liens, supersedes, superseded_by, jamais_supposer, relue, version, auteur, cree_le, modifie_le)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL, ?, 0, 1, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL, ?, 0, 1, ?, ?, ?)`,
     ).run(
       id,
       portee,
@@ -442,6 +445,7 @@ export function proposerUnite(portee: string, proposition: PropositionUnite, con
       JSON.stringify(p.sujets),
       p.titre,
       titreNormalise(p.titre),
+      p.titreHumain || null,
       p.resume,
       p.detail,
       p.raisonnement,
@@ -476,12 +480,13 @@ function mettreAJour(cible: Unite, p: PropositionPropre, source: Unite['source']
   db.transaction(() => {
     garderLaVersion(cible, contexte.auteur, contexte.motif ?? motif);
     db.prepare(
-      `UPDATE connaissances SET titre = ?, titre_norme = ?, resume = ?, detail = ?, raisonnement = ?, importance = ?, confiance = ?,
+      `UPDATE connaissances SET titre = ?, titre_norme = ?, titre_humain = ?, resume = ?, detail = ?, raisonnement = ?, importance = ?, confiance = ?,
               sujets = ?, liens = ?, source = ?, jamais_supposer = ?, statut = 'active', relue = 0, version = version + 1, auteur = ?, modifie_le = ?
         WHERE id = ?`,
     ).run(
       titre,
       titreNormalise(titre),
+      titreHumainApres(cible, p, titre),
       p.resume || cible.resume,
       p.detail || cible.detail,
       p.raisonnement || cible.raisonnement,
@@ -550,9 +555,9 @@ function reclasser(cible: Unite, p: PropositionPropre, source: Unite['source'], 
     db.transaction(() => {
       garderLaVersion(cible, contexte.auteur, motif);
       db.prepare(
-        `UPDATE connaissances SET type = ?, titre = ?, titre_norme = ?, resume = ?, detail = ?, raisonnement = ?, importance = ?, sujets = ?, liens = ?,
+        `UPDATE connaissances SET type = ?, titre = ?, titre_norme = ?, titre_humain = ?, resume = ?, detail = ?, raisonnement = ?, importance = ?, sujets = ?, liens = ?,
                 source = ?, jamais_supposer = ?, version = version + 1, auteur = ?, modifie_le = ? WHERE id = ?`,
-      ).run(p.type, titre, titreNormalise(titre), resume, detail, raisonnement, importance, sujets, liens, JSON.stringify(source), jamais, contexte.auteur, maintenant, cible.id);
+      ).run(p.type, titre, titreNormalise(titre), titreHumainApres(cible, p, titre), resume, detail, raisonnement, importance, sujets, liens, JSON.stringify(source), jamais, contexte.auteur, maintenant, cible.id);
     })();
     apresEcriture(cible.portee);
     return { ok: true, geste: 'mis-a-jour', unite: lireUnite(cible.id)! };
@@ -561,9 +566,9 @@ function reclasser(cible: Unite, p: PropositionPropre, source: Unite['source'], 
   const id = formaterIdentifiant(p.type, numeroSuivant(p.type));
   db.transaction(() => {
     db.prepare(
-      `INSERT INTO connaissances (id, portee, type, sujets, titre, titre_norme, resume, detail, raisonnement, statut, importance, confiance,
+      `INSERT INTO connaissances (id, portee, type, sujets, titre, titre_norme, titre_humain, resume, detail, raisonnement, statut, importance, confiance,
                                   source, liens, supersedes, superseded_by, jamais_supposer, relue, version, auteur, cree_le, modifie_le)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL, ?, ?, 1, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, NULL, ?, ?, 1, ?, ?, ?)`,
     ).run(
       id,
       cible.portee,
@@ -571,6 +576,7 @@ function reclasser(cible: Unite, p: PropositionPropre, source: Unite['source'], 
       sujets,
       titre,
       titreNormalise(titre),
+      titreHumainApres(cible, p, titre),
       resume,
       detail,
       raisonnement,
@@ -686,7 +692,9 @@ async function procheDuMemeSujet(portee: string, sujet: string, p: { titre: stri
  */
 function detailCompleteParLaRegle(proche: Unite, regle: { resume: string; detail: string }): string {
   // Dédoublonnage par PHRASE : le rangement pose le corps d'une règle sur une seule ligne.
-  const phrases = (ligne: string): string[] => ligne.split(/(?<=[.!?…])\s+/).filter((x) => titreNormalise(x));
+  // Jamais de coupure AVANT un guillemet ou une parenthèse fermante (« … ? » … »), sinon la seconde
+  // moitié, sans jumelle connue, serait collée seule dans la fiche. La coupure se fait après eux.
+  const phrases = (ligne: string): string[] => ligne.split(/(?<=[.!?…](?:\s?[»”"’)])*)\s+(?![»”"’)])/).filter((x) => titreNormalise(x));
   const connues = new Set(`${proche.resume}\n${proche.detail}`.split('\n').flatMap(phrases).map(titreNormalise));
   const neuves: string[] = [];
   // Une REFORMULATION n'a pas de phrase jumelle : si l'essentiel de ses mots est déjà dans la fiche
@@ -829,6 +837,72 @@ function apresEcriture(portee: string): void {
   cacheDesVecteurs = null;
   planifierLeRendu(portee);
   planifierLesVecteurs();
+  for (const ecouteur of ecouteursDEcriture) ecouteur();
+}
+
+/* ------------------------------------------------------------------ */
+/* Le titre clair                                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Le titre clair après une mise à jour : celui que l'agent donne ; sinon celui
+ * d'avant, TANT QUE le titre technique n'a pas changé — un titre technique
+ * réécrit rend l'ancien titre clair suspect, il repart à la tâche de fond.
+ */
+function titreHumainApres(cible: Unite, p: PropositionPropre, titre: string): string | null {
+  if (p.titreHumain) return p.titreHumain;
+  return titre === cible.titre ? (cible.titreHumain ?? null) : null;
+}
+
+const ecouteursDEcriture = new Set<() => void>();
+
+/** Prévient après chaque écriture de la porte (la tâche de fond des titres clairs s'y réveille). */
+export function quandUneUniteEstEcrite(ecouteur: () => void): () => void {
+  ecouteursDEcriture.add(ecouteur);
+  return () => ecouteursDEcriture.delete(ecouteur);
+}
+
+/** Les unités actives sans titre clair, les plus importantes d'abord. */
+export function unitesSansTitreHumain(limite: number, exclues: ReadonlySet<string> = new Set()): Unite[] {
+  const lignes = getDb()
+    .prepare(
+      `SELECT * FROM connaissances WHERE statut = 'active' AND (titre_humain IS NULL OR titre_humain = '')
+        ORDER BY importance, num LIMIT ?`,
+    )
+    .all(limite + exclues.size) as LigneUnite[];
+  return lignes.map(versUnite).filter((u) => !exclues.has(u.id)).slice(0, limite);
+}
+
+export function compterSansTitreHumain(): number {
+  return (
+    getDb().prepare("SELECT COUNT(*) AS n FROM connaissances WHERE statut = 'active' AND (titre_humain IS NULL OR titre_humain = '')").get() as { n: number }
+  ).n;
+}
+
+/**
+ * POSE LE TITRE CLAIR D'UNE UNITÉ — la même porte, en mode annotation : le
+ * titre est passé au crible (`titreHumainPropre`), il n'écrase jamais un titre
+ * déjà posé, et il ne crée PAS de version (le contenu que lisent les agents ne
+ * change pas, ni les fichiers rendus). Rend vrai s'il a été posé.
+ */
+export function poserTitreHumain(id: string, brut: string): boolean {
+  const titre = titreHumainPropre(brut);
+  if (!titre) return false;
+  const r = getDb()
+    .prepare("UPDATE connaissances SET titre_humain = ? WHERE id = ? AND (titre_humain IS NULL OR titre_humain = '')")
+    .run(titre, id);
+  return r.changes > 0;
+}
+
+/** Les titres clairs de quelques unités, pour l'écran (le fil d'un agent) : id → titre clair. */
+export function titresHumainsDe(ids: readonly string[]): Record<string, string> {
+  const propres = [...new Set(ids.map((i) => String(i).trim().toUpperCase()).filter(Boolean))].slice(0, 500);
+  if (!propres.length) return {};
+  const marques = propres.map(() => '?').join(', ');
+  const lignes = getDb()
+    .prepare(`SELECT id, titre_humain FROM connaissances WHERE id IN (${marques}) AND titre_humain IS NOT NULL AND titre_humain <> ''`)
+    .all(...propres) as { id: string; titre_humain: string }[];
+  return Object.fromEntries(lignes.map((l) => [l.id, l.titre_humain]));
 }
 
 /* ------------------------------------------------------------------ */
@@ -1165,6 +1239,91 @@ export async function proximitesParLeSens(
     log.warn(`base de connaissances : proximité par le sens indisponible (${(err as Error).message})`);
   }
   return proximites;
+}
+
+/**
+ * LES VOISINS PAR LE SENS D'UNE UNITÉ — les fils fins que le graphe de l'écran
+ * Mémoire trace depuis l'élément choisi. Aucune unité ne porte de lien explicite
+ * (la colonne `liens` est vide partout) : la proximité se CALCULE, par le
+ * cosinus entre les vecteurs déjà rangés en base, sans rien vectoriser de neuf.
+ * Seules les unités actives, au-dessus du même plancher que la recherche.
+ */
+export function voisinsParLeSens(id: string, combien = 5): { id: string; cosinus: number }[] {
+  const memoire = vecteursDesUnites();
+  const source = memoire.find((v) => v.id === id);
+  if (!source) return [];
+  return memoire
+    .filter((v) => v.statut === 'active' && v.id !== id)
+    .map((v) => ({ id: v.id, cosinus: cosinus(source.vecteur, v.vecteur) }))
+    .filter((v) => v.cosinus >= PLANCHER_COSINUS_SENS)
+    .sort((a, b) => b.cosinus - a.cosinus)
+    .slice(0, combien)
+    .map((v) => ({ id: v.id, cosinus: Math.round(v.cosinus * 1000) / 1000 }));
+}
+
+/** Les unités de compétence actives, par le nom de leur fiche : l'unité du modèle commun d'une nuance. */
+export function uniteDeLaCompetence(nom: string): string | null {
+  const l = getDb()
+    .prepare(`SELECT id FROM connaissances WHERE statut = 'active' AND json_extract(source, '$.genre') = 'competence' AND json_extract(source, '$.ref') = ?`)
+    .get(nom) as { id: string } | undefined;
+  return l?.id ?? null;
+}
+
+/**
+ * CE QUE LE GRAPHE DE L'ÉCRAN DESSINE : toutes les unités actives ET les unités
+ * dépréciées depuis, réduites aux colonnes utiles (ni détail ni raisonnement),
+ * et la SIGNATURE de la base. Les dépréciées portent leur DATE DE RETRAIT : la
+ * remontée dans le temps de l'écran montre « la vraie photo du moment »
+ * (décision de l'utilisateur, 2026-10-20), une unité retirée depuis reparaît aux
+ * dates où elle existait. La date de retrait est celle de la DERNIÈRE version
+ * archivée (`connaissance_versions.at`, posée au moment même de la
+ * dépréciation, de la fusion ou du remplacement) — `modifie_le` seulement à
+ * défaut, il peut avoir bougé après. Tant que la signature ne bouge pas,
+ * l'écran garde ce qu'il a déjà reçu.
+ */
+export function unitesDuGraphe(): {
+  unites: (Pick<Unite, 'id' | 'portee' | 'type' | 'source' | 'sujets' | 'titre' | 'titreHumain' | 'importance' | 'creeLe'> & { retireLe?: number })[];
+} {
+  const lignes = getDb()
+    .prepare(
+      `SELECT c.id, c.portee, c.type, c.sujets, c.titre, c.titre_humain, c.importance, c.cree_le, c.source, c.statut,
+              CASE WHEN c.statut = 'active' THEN NULL
+                   ELSE COALESCE((SELECT MAX(v.at) FROM connaissance_versions v WHERE v.unite_id = c.id), c.modifie_le) END AS retire_le
+         FROM connaissances c WHERE c.statut IN ('active', 'deprecated') ORDER BY c.num`,
+    )
+    .all() as (Pick<LigneUnite, 'id' | 'portee' | 'type' | 'sujets' | 'titre' | 'titre_humain' | 'importance' | 'cree_le' | 'source' | 'statut'> & {
+    retire_le: number | null;
+  })[];
+  return {
+    unites: lignes.map((l) => ({
+      id: l.id,
+      portee: l.portee,
+      type: l.type as TypeUnite,
+      sujets: json<string[]>(l.sujets, []),
+      titre: l.titre,
+      ...(l.titre_humain ? { titreHumain: l.titre_humain } : {}),
+      importance: l.importance as Importance,
+      creeLe: l.cree_le,
+      source: json(l.source, { genre: 'carte', ref: '' }),
+      // Une dépréciée sans date sûre est retirée dès sa naissance : jamais montrée à tort aujourd'hui.
+      ...(l.statut === 'active' ? {} : { retireLe: Math.max(l.retire_le ?? l.cree_le, l.cree_le) }),
+    })),
+  };
+}
+
+/**
+ * La signature de la base telle que le graphe la voit : nombre d'unités
+ * actives, nombre de dépréciées et dernière modification de l'une ou l'autre —
+ * une dépréciation change donc la signature, même quand elle ne fait que
+ * retirer.
+ */
+export function signatureDuGraphe(): string {
+  const l = getDb()
+    .prepare(
+      `SELECT SUM(statut = 'active') AS n, SUM(statut = 'deprecated') AS d, MAX(modifie_le) AS m FROM connaissances WHERE statut IN ('active', 'deprecated')`,
+    )
+    .get() as { n: number | null; d: number | null; m: number | null };
+  return `${l.n ?? 0}:${l.d ?? 0}:${l.m ?? 0}`;
 }
 
 /* Les vecteurs des unités. */

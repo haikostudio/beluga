@@ -124,6 +124,7 @@ import {
 import { apercuDeSuppression, supprimerDefinitivementLeProjet } from './suppression-projet.js';
 import { resumeDeRubrique, titresDesCartes } from './resume.js';
 import { bus } from './bus.js';
+import { mediasEnFabrication } from './medias-en-fabrication.js';
 import { deplacerLaCarteVersProjet } from './deplacement-vers-projet.js';
 import { projetDAccueilDeLaProposition } from './proposition-de-site.js';
 import { ajouterAuJournal, journalDeLaCarte, phaseDeLaCarte } from './journal-carte.js';
@@ -156,7 +157,7 @@ import {
   setAccountDisabled,
 } from './accounts.js';
 import { creditCursor, etatDuCompteCursor } from './engines/cursor.js';
-import { annulerConnexion, connexionsEnCours, demarrerConnexion, envoyerCode } from './connexion-compte.js';
+import { annulerConnexion, basculerVoie, connexionsEnCours, demarrerConnexion, envoyerCode, recevoirAdresseDeRetour, reprendreConnexion } from './connexion-compte.js';
 import { reprendreSurCompte } from './reprise-compte.js';
 import { repondreErreurDeTour } from './erreur-de-tour.js';
 import { supprimerLaCarteSiVide } from './carte-vide.js';
@@ -338,16 +339,22 @@ import {
   lierLesCartes,
   importerLesLots,
   lireUnite,
+  titresHumainsDe,
   listerLesPortees,
   markdownDeLaPortee,
   nomDeLaPortee,
   oublierLesLectures,
   proposerUnite,
   refusRecents,
+  signatureDuGraphe,
+  uniteDeLaCompetence,
   unitesDeLaFiche,
   unitesDeLaPortee,
+  unitesDuGraphe,
   versionsDeLUnite,
+  voisinsParLeSens,
 } from './connaissances.js';
+import { chercherCommeLAgent } from './recherche-comme-l-agent.js';
 import { generationEnCours, lancerLaGeneration } from './generation-connaissances.js';
 import {
   BoiteDesAccuses,
@@ -355,9 +362,12 @@ import {
   carteEnPublication,
   DOCUMENT_DU_CAHIER,
   documentDeRealisation,
+  elementsDuGraphe,
+  nomDeCompetenceDeLUnite,
   TEXTE_CARTE_EN_PUBLICATION,
   ordreDeMoteursComplet,
 } from '@beluga/shared';
+import { createHash } from 'node:crypto';
 import { PORTEE_GLOBALE, ficheDeLUnite, fichesDeLaPortee } from '@beluga/shared';
 import { estFinie, peutEtreRangee } from '@beluga/shared';
 import { detailPourCetEcran, elargirLePerimetre } from './perimetre-ecran.js';
@@ -371,7 +381,7 @@ import {
   bilanDesTraces,
   usageAllume,
 } from '@beluga/shared';
-import { competencesAExplorer, dossierDesCompetences, modeDEmploiDeLaFiche } from './competences.js';
+import { competencesAExplorer, dossierDesCompetences, lirePool, modeDEmploiDeLaFiche } from './competences.js';
 import { nomsSemes } from './semis-competences.js';
 import { relevesDesCommandes } from './commandes-slash.js';
 import { scanProjects, registerProject, createProjectFolder } from './projects.js';
@@ -593,6 +603,8 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     });
 
     if (projetOuvert) send(instantaneDuProjet(projetOuvert));
+    /* Les médias en fabrication : leurs blocs d'attente reparaissent au rechargement. */
+    send({ type: 'medias.fabrication', items: mediasEnFabrication() });
 
     // Ce qui manquait au premier envoi arrive dès qu'il est prêt, par les
     // événements que l'interface écoute déjà. Une panne ici n'a jamais empêché
@@ -3510,7 +3522,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'account.connect':
       // Le lancement rend tout de suite la tentative ; l'adresse, le code et
       // l'issue arrivent ensuite par l'abonnement.
-      return { connexion: demarrerConnexion({ engine: cmd.engine, accountId: cmd.accountId, label: cmd.label }) };
+      return { connexion: await demarrerConnexion({ engine: cmd.engine, accountId: cmd.accountId, label: cmd.label, voie: cmd.voie }) };
+
+    case 'account.voie':
+      return { connexion: await basculerVoie(cmd.id, cmd.voie) };
+
+    case 'account.adresseDeRetour':
+      return recevoirAdresseDeRetour(cmd.id, cmd.adresse);
+
+    case 'compte.reprendreConnexion':
+      return reprendreConnexion(cmd.accountId, cmd.source);
 
     case 'account.code':
       return envoyerCode(cmd.id, cmd.code);
@@ -3758,11 +3779,52 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { unite, versions: versionsDeLUnite(unite.id), fiche: ficheDeLUnite(unite).id };
     }
 
+    // Les titres clairs de quelques unités, d'un seul appel : le fil d'un agent les montre devant le code.
+    case 'memoire.titres':
+      return { titres: titresHumainsDe(cmd.ids) };
+
     case 'memoire.chercher': {
       const recherche = cmd.recherche.trim();
       if (!recherche) return { trouvees: [] };
       const trouvees = await chercherUnitesMelees(recherche, cmd.portee ? { portees: [cmd.portee], limite: 40 } : { tous: true, limite: 40 });
       return { trouvees };
+    }
+
+    /*
+     * LE GRAPHE DE LA MÉMOIRE. La signature dit la base (nombre d'unités actives,
+     * dernière modification) ET les projets dessinés : l'écran qui détient déjà
+     * la même ne reçoit rien de plus, et garde sa mise en place.
+     */
+    case 'memoire.graphe': {
+      const projets = store.listProjects().filter((p) => !p.archived);
+      const signature = `${signatureDuGraphe()}:${createHash('sha1')
+        .update(projets.map((p) => `${p.id}=${p.name}`).sort().join('|'))
+        .digest('hex')
+        .slice(0, 10)}`;
+      if (cmd.signature === signature) return { signature, inchange: true };
+      const portees = listerLesPortees(projets).map((p) => ({ id: p.id, nom: p.nom, unites: p.unites }));
+      return { signature, portees, elements: elementsDuGraphe(unitesDuGraphe().unites, projets) };
+    }
+
+    case 'memoire.voisins': {
+      const unite = lireUnite(cmd.id);
+      if (!unite) throw new Error('unité introuvable');
+      const voisins = voisinsParLeSens(unite.id, 5);
+      // Une NUANCE propre à un projet précise une compétence commune : le fil vers son modèle.
+      const nom = nomDeCompetenceDeLUnite(unite);
+      const etend = nom ? lirePool().fiches.find((f) => f.nom === nom)?.etend : undefined;
+      const modele = etend ? uniteDeLaCompetence(etend) : null;
+      return { voisins, modele };
+    }
+
+    case 'memoire.chercherCommeLAgent': {
+      const recherche = cmd.recherche.trim();
+      if (!recherche) return { trouvees: [], recues: [] };
+      const { trouvees, recues } = await chercherCommeLAgent(recherche, { projectId: cmd.projectId ?? null, limite: 40 });
+      return {
+        trouvees: trouvees.map((t, rang) => ({ id: t.unite.id, score: Math.round(t.score * 1000) / 1000, rang })),
+        recues: recues.map((t) => t.unite.id),
+      };
     }
 
     case 'memoire.changelog': {

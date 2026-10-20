@@ -38,6 +38,13 @@ let ouverts: string[] = [];
 let enAttente: string[] = [];
 /** L'écran sous lequel l'attente a été posée. */
 let ecranDAttente: EcranNavigateur | null = null;
+/**
+ * L'écran d'attente a-t-il déjà été AFFICHÉ ? Au chargement, l'application
+ * écrit un ou deux écrans de passage (l'accueil, le projet retenu) avant
+ * d'arriver à celui de l'adresse : ils ne font pas tomber l'attente. Seul un
+ * changement d'écran APRÈS y être arrivé la fait tomber.
+ */
+let ecranAtteint = false;
 /** La pile telle que l'adresse l'écrit — recalculée à chaque changement. */
 let pile: string[] = [];
 const abonnes = new Set<() => void>();
@@ -77,19 +84,25 @@ export function appliquerTiroirs(ecran: EcranNavigateur): void {
   ouverts = ouverts.filter((nom) => voulus.includes(nom));
   enAttente = voulus.filter((nom) => !ouverts.includes(nom));
   ecranDAttente = { ...ecran, tiroirs: undefined };
+  ecranAtteint = false;
   instantane = { version: instantane.version + 1, voulus };
   pile = [];
   recalculer();
   notifier();
 }
 
-/** L'écran sous lequel l'attente a été posée a changé : plus rien à attendre. */
+/** L'écran sous lequel l'attente a été posée a changé (après y être arrivé) : plus rien à attendre. */
 export function oublierLAttenteSiEcranChange(
   ecran: EcranNavigateur,
   memeEcran: (a: EcranNavigateur, b: EcranNavigateur) => boolean,
 ): void {
   if (!enAttente.length || !ecranDAttente) return;
-  if (memeEcran(ecranDAttente, { ...ecran, tiroirs: undefined })) return;
+  if (memeEcran(ecranDAttente, { ...ecran, tiroirs: undefined })) {
+    ecranAtteint = true;
+    return;
+  }
+  /* Un écran de passage du chargement, avant d'avoir atteint le bon. */
+  if (!ecranAtteint) return;
   enAttente = [];
   ecranDAttente = null;
   recalculer();

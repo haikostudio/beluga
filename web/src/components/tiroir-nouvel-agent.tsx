@@ -149,7 +149,7 @@ export function TiroirNouvelAgent({
           />
         </div>
       ) : null}
-      <ZoneDefilement fond="hsl(var(--surface))" className="px-2 pb-3">
+      <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-3">
         {listeFiltree.length ? (
           <ul data-tiroir-nouvel-agent className="flex flex-col gap-0.5">
             {lignes.map(({ projet, parentId, premier, dernier }) => (

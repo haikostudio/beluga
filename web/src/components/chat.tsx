@@ -91,6 +91,7 @@ import { IndicateurActivite } from '@/components/indicateur-activite';
 import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
 import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { MessageView } from '@/components/message-view';
+import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
 import { Composer } from '@/components/composer';
 import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
@@ -219,6 +220,17 @@ export function Chat({
      cochée après l'envoi (`useIdeeEnvoyee`). La liste ne change que lorsqu'un
      message part, jamais à chaque signe de la réponse qui s'écrit. */
   const textesEnvoyes = useTextesEnvoyes(messages);
+  /*
+   * LES MÉDIAS EN FABRICATION DE CETTE CONVERSATION (`medias-en-fabrication.tsx`) :
+   * leurs blocs se posent au bas du fil, ceux partis depuis la dernière demande
+   * et ceux encore en cours. Les pièces qu'ils montrent ne se redisent pas.
+   */
+  const derniereDemandeA = React.useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) if (messages[i]!.role === 'user') return messages[i]!.createdAt;
+    return 0;
+  }, [messages]);
+  const ouDesBlocs = React.useMemo(() => (cardId ? { cardId } : { agentId: agent?.id ?? null }), [cardId, agent?.id]);
+  const blocsDeMedias = useBlocsDeLaConversation(ouDesBlocs, derniereDemandeA);
   /*
    * LE FIL EST-IL SEULEMENT EN TRAIN D'ARRIVER ? Une liste vide se lit de deux
    * façons opposées : « rien à dire » ou « pas encore reçu ». On les sépare sur
@@ -1292,6 +1304,7 @@ export function Chat({
               />
               </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
+              <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} className="px-4 pb-3 pt-1" />
               <div ref={bottomRef} />
             </ZoneDefilement>
 
@@ -1402,9 +1415,11 @@ export function Chat({
           )}
         >
           {messages.length ? (
-            messages.map((message, index) => (
-              <React.Fragment key={message.id}>{rendreMessage(index)}</React.Fragment>
-            ))
+            <ContextePiecesDesBlocs.Provider value={blocsDeMedias.pieces}>
+              {messages.map((message, index) => (
+                <React.Fragment key={message.id}>{rendreMessage(index)}</React.Fragment>
+              ))}
+            </ContextePiecesDesBlocs.Provider>
           ) : chargement && cardId && state.conversationsEnEchec[cardId] ? (
             /* LA SILHOUETTE A UNE FIN : la demande est restée sans réponse
                après ses essais (`shared/src/chargement-conversation.ts`). On
@@ -1440,6 +1455,7 @@ export function Chat({
                 dernierTexte: [...messages].reverse().find((message) => message.role === 'assistant' && typeof message.content === 'string' && message.content.trim())?.content ?? '',
               })
             : null}
+          <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} />
           <div ref={bottomRef} />
         </div>
       </ZoneDefilement>

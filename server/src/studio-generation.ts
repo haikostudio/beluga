@@ -51,6 +51,7 @@ import { getMeta, setMeta } from './db.js';
 import { listerAcces } from './coffre-fort.js';
 import { cleDuService, fabriquerClipChezLeService, modeleVideoRetenu, plafondDuClip } from './studio-services.js';
 import { joindreUnFichier } from './joindre-fichier.js';
+import { annoncerUnMedia, terminerUnMedia } from './medias-en-fabrication.js';
 import { resoudre } from './voice.js';
 import { dansLaFileLourde } from './studio-file.js';
 import { refaireLExportApresLaVoix } from './studio-rendu.js';
@@ -964,6 +965,20 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
   }
   const creation = lireCreation(depense.creationId);
   if (!creation) return;
+  /* LE BLOC D'ATTENTE DANS LE FIL DU STUDIO (`medias-en-fabrication.ts`) : il
+     paraît au départ de la génération, montre l'aperçu à la fin. */
+  const d0 = depense.details as Record<string, unknown>;
+  const bloc = annoncerUnMedia({
+    id: `studio-${depense.id}`,
+    projectId: creation.projectId,
+    agentId: creation.agentId ?? null,
+    sujet: `${depense.genre === 'image' ? 'Image' : depense.genre === 'clip' ? 'Clip' : 'Musique'} — ${String(d0.consigne ?? depense.raison ?? '').slice(0, 90)}`,
+    outil: depense.genre === 'image' ? 'Codex' : String(d0.modeleService ?? depense.modele),
+    prix: depense.plafond,
+    format: String(d0.ratio ?? d0.format ?? (depense.genre === 'image' ? '1:1' : '16:9')),
+    genre: depense.genre === 'image' ? 'image' : depense.genre === 'clip' ? 'video' : 'son',
+    suivi: 'service',
+  });
   try {
     let fichier: string;
     let mime: string;
@@ -983,7 +998,8 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
         ({ fichier, mime, cout } = await clipParOpenRouter(depense));
       }
       // TOUT EXTRAIT EST TÉLÉCHARGÉ, SÉPARÉ EN IMAGE ET SON, PUIS POSÉ sur la ligne de temps (demande du 14/10/2026).
-      await poserLeClipSepare(depense, creation, fichier, cout);
+      const pieceDuClip = await poserLeClipSepare(depense, creation, fichier, cout);
+      terminerUnMedia(bloc.id, { attachmentId: pieceDuClip });
       fs.rmSync(fichier, { force: true });
       solderDepense(depenseId, d.service && depense.plafond === null ? {} : { montantReel: cout });
       return;
@@ -1008,8 +1024,10 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
       licence: depense.genre === 'image' ? 'Générée par Codex pour ce projet' : `Générée par ${depense.modele} pour ce projet`,
       cout,
     });
+    terminerUnMedia(bloc.id, { attachmentId: jointe.attachment.id, prix: cout });
     solderDepense(depenseId, { montantReel: cout });
   } catch (err: any) {
+    terminerUnMedia(bloc.id, { echec: String(err?.message ?? err).slice(0, 300) });
     solderDepense(depenseId, { erreur: String(err?.message ?? err).slice(0, 300) });
   }
 }
@@ -1041,7 +1059,7 @@ function finDesVisuels(c: Composition): number {
  * instant (`poserLExtrait`). La composition est relue À CET INSTANT : un geste
  * fait pendant la fabrication n'est pas écrasé.
  */
-async function poserLeClipSepare(depense: DepenseStudio, creation: { id: string; projectId: string; agentId?: string | null }, fichier: string, cout: number): Promise<void> {
+async function poserLeClipSepare(depense: DepenseStudio, creation: { id: string; projectId: string; agentId?: string | null }, fichier: string, cout: number): Promise<string | undefined> {
   const d = depense.details as any;
   const { video, audio } = await dansLaFileLourde(() => separerImageEtSon(fichier));
   const consigne = String(d.consigne ?? '').slice(0, 50);
@@ -1069,8 +1087,9 @@ async function poserLeClipSepare(depense: DepenseStudio, creation: { id: string;
   };
   const image = await ranger(video, 'video');
   const son = audio ? await ranger(audio, 'audio') : null;
+  const piece = image.media.attachmentId;
   const actuelle = compositionCourante(creation.id);
-  if (!actuelle) return;
+  if (!actuelle) return piece;
   const duree = Math.max(0.5, Math.round((image.duree ?? Number(d.duree) ?? 4) * 100) / 100);
   const r = poserLExtrait(
     actuelle,
@@ -1086,11 +1105,12 @@ async function poserLeClipSepare(depense: DepenseStudio, creation: { id: string;
   );
   if (!r.ok) {
     log.warn(`studio : clip rangé en bibliothèque mais pas posé (${r.raison})`);
-    return;
+    return piece;
   }
   const propre = nettoyerLesDessins(actuelle, r.composition);
-  if (!propre.ok) return;
+  if (!propre.ok) return piece;
   enregistrerVersion(creation.id, propre.composition, r.resume, 'systeme');
+  return piece;
 }
 
 function cheminDuJoint(attachmentId: string): string {

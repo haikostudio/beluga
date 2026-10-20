@@ -103,6 +103,7 @@ export function genreDeLAppel(outil: string, args: Record<string, unknown> = {})
     case 'ask_user':
     case 'proposer_suites':
     case 'attach_file':
+    case 'media_en_cours':
     case 'board_list_cards':
     case 'assistant_resume':
     case 'surveillance_essai':

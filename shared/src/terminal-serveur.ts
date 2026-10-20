@@ -73,6 +73,8 @@ export type MessageVersTerminal =
 export interface CompteAffiche {
   id: string;
   label: string;
+  /** Le moteur du compte (« claude », « codex ») : c'est lui qui part dans le terminal au changement. */
+  engine?: string;
   /** Le palier lisible (« Max x20 »), quand il est connu. */
   plan?: string;
 }
@@ -302,7 +304,7 @@ export function argumentsAttache(session: string, colonnes: number, lignes: numb
  */
 export interface CompteDuTerminal {
   id: string;
-  /** Le moteur du compte : seul « claude » sait quoi faire d'un `CLAUDE_CONFIG_DIR`. */
+  /** Le moteur du compte : « claude » lit `CLAUDE_CONFIG_DIR`, « codex » lit `CODEX_HOME`. */
   engine: string;
   label: string;
   /** Le plan lu sur le coffre, ou le palier lu chez le fournisseur : « Max x20 », « Pro »… */
@@ -326,9 +328,24 @@ export interface ChoixDuTerminal {
   avertissement?: string;
 }
 
-/** Un compte Claude vivant, seul candidat possible. */
+/**
+ * LES MOTEURS QU'ON PEUT FAIRE TOURNER DANS LE TERMINAL (décision du
+ * 19/10/2026) : Claude ET Codex. Leur coffre passe par la variable que leur
+ * outil lit (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`), et CHOISIR un compte LANCE ce
+ * moteur dans la session recréée (`commandeDuMoteurDuTerminal`).
+ */
+export const MOTEURS_DU_TERMINAL = ['claude', 'codex'] as const;
+/** Les variables du coffre d'un compte, posées sur la session à sa création. */
+export const VARIABLES_DU_COFFRE_DU_TERMINAL = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME'] as const;
+
+/** Un compte Claude ou Codex vivant : les seuls qu'on peut choisir. */
 function candidat(compte: CompteDuTerminal): boolean {
-  return compte.engine === 'claude' && !compte.disabled;
+  return (MOTEURS_DU_TERMINAL as readonly string[]).includes(compte.engine) && !compte.disabled;
+}
+
+/** La commande qui lance le moteur d'un compte, tapée dans la session neuve ; `null` pour un moteur inconnu. */
+export function commandeDuMoteurDuTerminal(engine: string | undefined): string | null {
+  return engine && (MOTEURS_DU_TERMINAL as readonly string[]).includes(engine) ? engine : null;
 }
 
 /** Le palier est-il celui d'un Max x20 ? On lit le plan tel qu'il est écrit. */
@@ -354,7 +371,8 @@ export function choisirLeCompteDuTerminal(
     const voulu = vivants.find((compte) => compte.id === demande);
     if (voulu) return { compte: voulu, raison: 'demande' };
   }
-  const maxX20 = vivants.find((compte) => estMaxX20(compte.plan));
+  /* Sans choix à la main, la règle d'avant tient : le Claude au palier Max x20. */
+  const maxX20 = vivants.find((compte) => compte.engine === 'claude' && estMaxX20(compte.plan));
   if (maxX20) {
     return {
       compte: maxX20,
@@ -366,7 +384,7 @@ export function choisirLeCompteDuTerminal(
   }
   return {
     raison: 'aucun',
-    avertissement: vivants.length
+    avertissement: vivants.some((compte) => compte.engine === 'claude')
       ? `aucun compte Claude au palier ${PALIER_TERMINAL} : le terminal garde le coffre du serveur`
       : 'aucun compte Claude actif : le terminal garde le coffre du serveur',
   };

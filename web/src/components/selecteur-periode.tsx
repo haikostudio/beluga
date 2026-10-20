@@ -82,6 +82,7 @@ export function SelecteurPeriode({
                   type="button"
                   className="flex h-8 max-w-[11rem] items-center gap-1.5 rounded-lg bg-raised px-2.5 text-[13px] text-text transition-colors hover:bg-border"
                   aria-label="Période"
+                  title={t('Période')}
                   data-periode-compacte
                 >
                   <CalendarRange className="h-3.5 w-3.5 shrink-0 text-muted" />
@@ -218,8 +219,8 @@ export function SelecteurPeriode({
 const CLASSE_DU_MENU_DES_CALENDRIERS =
   'z-50 w-[420px] rounded-lg border border-border bg-raised p-2.5 shadow-xl animate-fade-in max-sm:!w-full max-sm:!max-w-none max-sm:rounded-b-none max-sm:px-4 max-sm:pb-6 max-sm:pt-3';
 
-/** Les deux mois côte à côte, et la plage en cours de choix. */
-function DeuxCalendriers({
+/** Les deux mois côte à côte, et la plage en cours de choix — repris tel quel par la remontée dans le temps de la mémoire. */
+export function DeuxCalendriers({
   debut,
   fin,
   min,
@@ -377,7 +378,7 @@ function Mois({
 }
 
 /** « 21 → 28 sept. », ou « 30 août → 5 sept. », dans la langue en vigueur. */
-function libelleDePlage(debut: number, fin: number): string {
+export function libelleDePlage(debut: number, fin: number): string {
   const format = formatRegional();
   const d = new Date(debut);
   const f = new Date(fin);

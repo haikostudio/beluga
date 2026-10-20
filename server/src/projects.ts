@@ -27,6 +27,7 @@ import { bus } from './bus.js';
 import { reglageDeDeploiementConstate } from './services-du-projet.js';
 import { CONFIG, PREMIER_DEMARRAGE_REEL } from './config.js';
 import { nombreDAdministrateurs } from './comptes.js';
+import { verrouillerLesDistants } from './depot-public.js';
 import { machineHebergee } from './offre-hebergee.js';
 import { log } from './logger.js';
 import { creerFichierInstructions } from './memory.js';
@@ -75,11 +76,15 @@ export async function detacherDuDepotPublic(dir: string): Promise<boolean> {
     return false;
   }
   const plan = planDeDetachement(connus);
-  if (plan === 'rien') return false;
+  if (plan === 'rien') {
+    // Un distant public déjà renommé (« amont ») garde quand même son verrou d'envoi.
+    return (await verrouillerLesDistants(dir)).length > 0;
+  }
   const args = plan === 'renommer' ? ['remote', 'rename', 'origin', DISTANT_PUBLIC] : ['remote', 'remove', 'origin'];
   try {
     await execFileAsync('git', args, { cwd: dir, timeout: 8000 });
     log.info(`${dir} : dépôt public détaché (${plan})`);
+    await verrouillerLesDistants(dir);
     return true;
   } catch (e) {
     log.warn(`${dir} : détachement du dépôt public impossible : ${(e as Error).message}`);

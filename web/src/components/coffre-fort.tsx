@@ -4,17 +4,25 @@ import {
   Archive,
   ArchiveRestore,
   Asterisk,
+  BookUser,
+  Car,
   Check,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Copy,
+  CreditCard,
   Database,
+  EllipsisVertical,
   Eye,
   EyeOff,
   Folder,
   FolderPlus,
   ImagePlus,
+  IdCard,
   Images,
   KeyRound,
+  Landmark,
   Loader2,
   Lock,
   Pencil,
@@ -28,8 +36,11 @@ import {
 import {
   AccesCoffre,
   Attachment,
+  CHAMPS_LIBRES_MAX,
   ChampAcces,
+  ChampLibre,
   DossierCoffre,
+  LIBELLE_CHAMP_LIBRE_MAX,
   IMAGES_ACCES_MAX,
   LIBELLE_TYPE_ACCES,
   NOM_ACCES_MAX,
@@ -37,6 +48,7 @@ import {
   TYPES_ACCES,
   TypeAcces,
   apercuAcces,
+  champsACompleter,
   champsDuType,
   echeanceArchive,
   filtrerAcces,
@@ -142,6 +154,7 @@ function ficheVierge(type: TypeAcces, projectId: string | null): AccesCoffre {
     modifieLe: 0,
     origine: 'coffre',
     images: [],
+    champsLibres: [],
   };
 }
 
@@ -152,6 +165,11 @@ const ICONE_DU_TYPE: Readonly<Record<TypeAcces, React.ReactNode>> = {
   ssh: <Terminal />,
   jeton: <Ticket />,
   'base-de-donnees': <Database />,
+  'compte-bancaire': <Landmark />,
+  'carte-paiement': <CreditCard />,
+  'carte-identite': <IdCard />,
+  passeport: <BookUser />,
+  'permis-conduire': <Car />,
   autre: <Asterisk />,
 };
 
@@ -190,6 +208,12 @@ export function CoffreFort({
   /* VRAI DÈS LE PREMIER RENDU : l'effet qui lit le coffre ne tourne qu'APRÈS,
      et l'écran annonçait « aucun accès enregistré » le temps d'une image. */
   const [chargement, setChargement] = React.useState(true);
+  /* UNE LECTURE RATÉE N'EST PAS UN COFFRE VIDE. `echec` porte la raison d'une
+     lecture refusée tant qu'AUCUNE n'a réussi ; `recu` dit qu'une liste est
+     là — elle n'est alors plus jamais vidée ni remplacée par un message. */
+  const [echec, setEchec] = React.useState<string | null>(null);
+  const recu = React.useRef(false);
+  const [essai, setEssai] = React.useState(0);
   const [fiche, setFiche] = React.useState<AccesCoffre | null>(null);
   /* LA COLONNE DE GAUCHE EST CELLE DU COFFRE-FORT (demande du 12/10/2026 :
      « chaque sidebar de chaque service doit être spécifique au service »). Sur
@@ -207,32 +231,53 @@ export function CoffreFort({
     [state.projects],
   );
 
-  // La liste se relit à CHAQUE ouverture : un accès posé depuis un autre onglet
-  // ou par un agent doit être là, sans recharger la page.
+  /*
+   * La liste se relit à CHAQUE ouverture : un accès posé depuis un autre onglet
+   * ou par un agent doit être là, sans recharger la page.
+   *
+   * …ET SEULEMENT LIEN OUVERT, PUIS À CHAQUE RETOUR DU LIEN (carte « Coffre-fort
+   * qui plante dans un dossier ») : l'écran se monte souvent avant le canal —
+   * rechargement, retour de veille, reconnexion — et la lecture partait dans
+   * le vide (« non connecté »), sans jamais être refaite : le coffre restait
+   * affiché VIDE. Une seule lecture par ouverture du lien, annulée au démontage.
+   * Une relecture ne repasse pas en chargement quand une liste est déjà là :
+   * la fiche visée par l'adresse et les dossiers dépliés restent en place.
+   */
+  const connecte = state.connected;
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || !connecte) return;
     let vivant = true;
-    setChargement(true);
+    if (!recu.current) setChargement(true);
     client
       .call<ReponseDuCoffre>({
         type: 'coffre.lister',
       })
       .then((data) => {
         if (!vivant) return;
+        recu.current = true;
+        setEchec(null);
         setListe(data.acces ?? []);
         setArchives(data.archives ?? []);
         setPieces(data.pieces ?? []);
         setDossiers(data.dossiers ?? []);
         setDossiersArchives(data.dossiersArchives ?? []);
       })
-      .catch((err: any) => client.pushToast('error', err?.message ?? t('Coffre-fort illisible')))
+      .catch((err: any) => {
+        if (!vivant) return;
+        /* Le lien est retombé entre-temps : son retour relance cette lecture,
+           et la coupure se dit déjà par le message du canal. */
+        if (err?.canalFerme) return;
+        const raison = err?.message || t('Coffre-fort illisible');
+        if (recu.current) client.pushToast('error', raison);
+        else setEchec(raison);
+      })
       .finally(() => {
         if (vivant) setChargement(false);
       });
     return () => {
       vivant = false;
     };
-  }, [open]);
+  }, [open, connecte, essai]);
 
   /*
    * L'ADRESSE ET LA FICHE OUVERTE SE SUIVENT. Une fiche ARCHIVÉE reste
@@ -286,6 +331,17 @@ export function CoffreFort({
       if (!suite.delete(id)) suite.add(id);
       return suite;
     });
+  /* TOUTE UNE BRANCHE D'UN CLIC (l'icône à droite du nom d'un dossier) : le
+     dossier et tous ses sous-dossiers s'ouvrent, ou se referment ensemble. */
+  const toutBasculer = (ids: readonly string[], ouvrir: boolean) =>
+    setOuverts((avant) => {
+      const suite = new Set(avant);
+      for (const id of ids) {
+        if (ouvrir) suite.add(id);
+        else suite.delete(id);
+      }
+      return suite;
+    });
   /* Les types qui ont au moins un accès, et celui qui est retenu : un type
      vide n'est pas une rubrique à proposer. */
   const typesPresents = TYPES_ACCES.filter((type) => type === typeRetenu || liste.some((acces) => acces.type === type));
@@ -310,7 +366,28 @@ export function CoffreFort({
   return (
     <>
       <Drawer open={open} onClose={onClose} enPage={enPage}>
-        <TitreDePage>{t('Coffre-fort')}</TitreDePage>
+        {dansLaColonne ? (
+          /* SUR ORDINATEUR, « NOUVEAU DOSSIER » SE POSE À DROITE DU TITRE (demande
+             du 20/10/2026) : la colonne ne garde que « Nouvel accès » comme geste
+             qui crée. Sur téléphone, le titre ne se dessine pas et le geste reste
+             dans le menu à trois points. */
+          <div className="flex min-w-0 shrink-0 items-start gap-3">
+            <TitreDePage className="min-w-0 flex-1">{t('Coffre-fort')}</TitreDePage>
+            <Button
+              variant="subtle"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setEdition({ dossier: null })}
+              data-coffre-nouveau-dossier
+              aria-label="Nouveau dossier"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+              {t('Nouveau dossier')}
+            </Button>
+          </div>
+        ) : (
+          <TitreDePage>{t('Coffre-fort')}</TitreDePage>
+        )}
         {dansLaColonne ? null : (
           <>
           {/* SUR TÉLÉPHONE : « Archives » est une ligne du menu à trois points,
@@ -382,12 +459,6 @@ export function CoffreFort({
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-            <GesteDeCreationDeColonne
-              libelle={t('Nouveau dossier')}
-              onClick={() => setEdition({ dossier: null })}
-              data-coffre-nouveau-dossier
-              aria-label="Nouveau dossier"
-            />
             <RubriqueDeColonne
               icone={<KeyRound />}
               libelle={t('Tous les accès')}
@@ -396,15 +467,6 @@ export function CoffreFort({
               onClick={() => setTypeRetenu(null)}
               data-coffre-rubrique="tous"
             />
-            {dossiers.length ? (
-              <RubriqueDeColonne
-                icone={<Folder />}
-                libelle={t('Dossiers')}
-                compte={dossiers.length}
-                onClick={() => setOuverts((avant) => (avant.size >= dossiers.length ? new Set() : new Set(dossiers.map((d) => d.id))))}
-                data-coffre-rubrique="dossiers"
-              />
-            ) : null}
             {typesPresents.length ? <p className={CLASSE_SECTION_DE_SERVICE}>{t('Par type')}</p> : null}
             {typesPresents.map((type) => (
               <RubriqueDeColonne
@@ -444,9 +506,20 @@ export function CoffreFort({
         </div>
 
         <ZoneDefilement fond="hsl(var(--bg))" className="pb-6">
-          {chargement && !liste.length ? (
+          {!recu.current && echec && !chargement ? (
+            /* Une lecture REFUSÉE se dit comme telle, avec de quoi réessayer :
+               jamais « aucun accès enregistré » sur un coffre qu'on n'a pas lu. */
+            <div className="flex flex-col items-center gap-2 px-1 py-8 text-center" data-coffre-illisible>
+              <p className="text-[14px] font-medium text-text">{t('Le coffre-fort n’a pas pu être lu.')}</p>
+              <p className="max-w-[420px] text-[12.5px] text-faint">{echec}</p>
+              <Button variant="ghost" size="sm" onClick={() => setEssai((n) => n + 1)} data-coffre-relire>
+                {t('Réessayer')}
+              </Button>
+            </div>
+          ) : !recu.current ? (
             /* Les accès à venir en silhouette, jamais une phrase d'attente :
-               l'état vide ne se dit qu'une fois la liste réellement reçue. */
+               l'état vide ne se dit qu'une fois la liste réellement reçue —
+               lien coupé compris, la lecture repart seule à son retour. */
             <SilhouetteCoffre />
           ) : rienAMontrer ? (
             recherche || typeRetenu ? (
@@ -473,6 +546,7 @@ export function CoffreFort({
                   ouverts={ouverts}
                   nomProjet={nomProjet}
                   onBascule={bascule}
+                  onToutBasculer={toutBasculer}
                   onModifier={(dossier) => setEdition({ dossier })}
                   onSousDossier={(dossier) => {
                     // Le parent s'ouvre : le sous-dossier neuf s'y montrera dès sa création.
@@ -607,7 +681,6 @@ function TiroirArchives({
                   libelle={groupe.chemin}
                   nombre={groupe.acces.length}
                   ouvert
-                  projet={nomProjet(groupe.dossier.projectId)}
                   onRestaurer={() => onRestaurerDossier(groupe.dossier!)}
                 >
                   {groupe.acces.map((acces) => (
@@ -654,12 +727,17 @@ function chaineDeParents(dossiers: readonly DossierCoffre[], id: string): string
  * un cran plus loin), puis ses fiches. Chaque dossier se replie seul ; le retrait
  * vient de `LigneDeDossier`, qui décale ses enfants d'un cran à chaque niveau.
  */
+function idsDeLaBranche(noeud: NoeudDeDossier): string[] {
+  return [noeud.dossier.id, ...noeud.enfants.flatMap(idsDeLaBranche)];
+}
+
 function BrancheDeDossier({
   noeud,
   filtre,
   ouverts,
   nomProjet,
   onBascule,
+  onToutBasculer,
   onModifier,
   onSousDossier,
   onOuvrir,
@@ -669,19 +747,25 @@ function BrancheDeDossier({
   ouverts: Set<string>;
   nomProjet: (projectId: string | null) => string | undefined;
   onBascule: (id: string) => void;
+  onToutBasculer: (ids: readonly string[], ouvrir: boolean) => void;
   onModifier: (dossier: DossierCoffre) => void;
   onSousDossier: (dossier: DossierCoffre) => void;
   onOuvrir: (acces: AccesCoffre) => void;
 }) {
   const { dossier } = noeud;
+  /* L'icône « tout ouvrir / tout fermer » ne sert qu'à un dossier qui a des
+     sous-dossiers, et jamais pendant une recherche : tout y est déjà ouvert. */
+  const branche = !filtre && noeud.enfants.length > 0 ? idsDeLaBranche(noeud) : null;
+  const toutOuvert = branche ? branche.every((id) => ouverts.has(id)) : false;
   return (
     <LigneDeDossier
       dossier={dossier}
       nombre={noeud.total}
       sousDossiers={noeud.enfants.length > 0}
       ouvert={filtre || ouverts.has(dossier.id)}
-      projet={nomProjet(dossier.projectId)}
       onBascule={() => onBascule(dossier.id)}
+      toutOuvert={toutOuvert}
+      onToutBasculer={branche ? () => onToutBasculer(branche, !toutOuvert) : undefined}
       onModifier={() => onModifier(dossier)}
       onSousDossier={() => onSousDossier(dossier)}
     >
@@ -693,6 +777,7 @@ function BrancheDeDossier({
           ouverts={ouverts}
           nomProjet={nomProjet}
           onBascule={onBascule}
+          onToutBasculer={onToutBasculer}
           onModifier={onModifier}
           onSousDossier={onSousDossier}
           onOuvrir={onOuvrir}
@@ -706,9 +791,10 @@ function BrancheDeDossier({
 }
 
 /**
- * UNE LIGNE DE DOSSIER, repliable : le chevron, le nom, le nombre de fiches et
- * le projet. Ses fiches se posent dessous, en retrait. Dans la liste des accès,
- * le crayon l'édite ; dans les archives, le bouton le restaure AVEC ses fiches.
+ * UNE LIGNE DE DOSSIER, repliable : le chevron, le nom et, collé à lui, le
+ * nombre de fiches. Ses fiches se posent dessous, en retrait. Dans la liste des
+ * accès, le menu à trois points crée un sous-dossier ou l'édite ; dans les
+ * archives, le bouton le restaure AVEC ses fiches.
  * Le texte replié reste dans un `span` : jamais de `line-clamp` dans un `button`.
  */
 function LigneDeDossier({
@@ -717,8 +803,9 @@ function LigneDeDossier({
   nombre,
   sousDossiers,
   ouvert,
-  projet,
   onBascule,
+  toutOuvert,
+  onToutBasculer,
   onModifier,
   onSousDossier,
   onRestaurer,
@@ -731,8 +818,11 @@ function LigneDeDossier({
   /** Le dossier contient des sous-dossiers (même vides) : il y a donc quelque chose à déplier. */
   sousDossiers?: boolean;
   ouvert: boolean;
-  projet?: string;
   onBascule?: () => void;
+  /** Toute la branche (le dossier et ses sous-dossiers) est ouverte. */
+  toutOuvert?: boolean;
+  /** Ouvre ou ferme toute la branche ; absent : pas d'icône (archives, recherche, dossier sans sous-dossier). */
+  onToutBasculer?: () => void;
   onModifier?: () => void;
   onSousDossier?: () => void;
   onRestaurer?: () => void;
@@ -741,47 +831,80 @@ function LigneDeDossier({
   return (
     <div data-coffre-dossier={dossier.id} data-ouvert={ouvert ? 'oui' : 'non'}>
       <div className="flex items-center gap-1 rounded-xl transition-colors hover:bg-raised">
+        {/* LE NOMBRE D'ACCÈS SUIT LE NOM, et l'icône « tout ouvrir / tout
+            fermer » les suit : la ligne se coupe donc en deux boutons de
+            bascule — le nom et son nombre, puis le reste de la ligne — pour ne
+            jamais poser un bouton dans un autre. Le second n'est qu'une surface
+            de clic : hors du parcours au clavier. Quand la place manque
+            (téléphone), le nom se coupe et le nombre ne cède jamais. Le projet
+            n'est pas redit : la racine de l'arbre le porte déjà. */}
         <button
           type="button"
           onClick={onBascule}
           aria-expanded={ouvert}
           disabled={!onBascule}
           data-coffre-dossier-bascule
-          className="flex min-w-0 flex-1 items-center gap-2 px-3.5 py-3 text-left"
+          className={cn('flex min-w-0 items-center gap-2 py-3 pl-3.5 text-left', onToutBasculer ? 'pr-1' : 'pr-2')}
         >
           <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')} />
           <Folder className="h-4 w-4 shrink-0 text-muted" />
-          <span className="min-w-0 flex-1 truncate text-[14.5px] text-text" data-coffre-dossier-nom>
+          <span className="min-w-0 truncate text-[14.5px] text-text" data-coffre-dossier-nom>
             {libelle || dossier.nom}
           </span>
-          <span className="max-w-[35%] shrink-0 truncate text-[12px] text-faint">{projet ?? t('Général')}</span>
           <span className="shrink-0 text-[12px] tabular-nums text-faint" data-coffre-dossier-nombre>
             {nombre}
           </span>
         </button>
-        {onSousDossier ? (
+        {onToutBasculer ? (
           <button
             type="button"
-            onClick={onSousDossier}
-            title={t('Nouveau sous-dossier')}
-            aria-label="Nouveau sous-dossier"
-            data-coffre-dossier-sous-dossier
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+            onClick={onToutBasculer}
+            title={toutOuvert ? t('Tout replier') : t('Tout déplier')}
+            aria-label={toutOuvert ? 'Tout replier' : 'Tout déplier'}
+            data-coffre-dossier-tout={toutOuvert ? 'ouvert' : 'ferme'}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
           >
-            <FolderPlus className="h-3.5 w-3.5" />
+            {toutOuvert ? <ChevronsDownUp className="h-3.5 w-3.5" /> : <ChevronsUpDown className="h-3.5 w-3.5" />}
           </button>
         ) : null}
-        {onModifier ? (
-          <button
-            type="button"
-            onClick={onModifier}
-            title={t('Modifier le dossier')}
-            aria-label="Modifier le dossier"
-            data-coffre-dossier-modifier
-            className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </button>
+        <button
+          type="button"
+          onClick={onBascule}
+          disabled={!onBascule}
+          tabIndex={-1}
+          aria-hidden
+          className="min-w-0 flex-1 self-stretch"
+        />
+        {/* LES GESTES DE LA LIGNE vivent derrière un seul bouton à trois points,
+            frère des bascules : l'ouvrir ne replie ni ne déplie le dossier. */}
+        {onSousDossier || onModifier ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title={t('Actions du dossier')}
+                aria-label="Actions du dossier"
+                data-coffre-dossier-actions
+                className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-faint transition-colors hover:text-text"
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onCloseAutoFocus={(event) => event.preventDefault()}>
+              {onSousDossier ? (
+                <DropdownMenuItem onSelect={onSousDossier} data-coffre-dossier-sous-dossier>
+                  <FolderPlus className="h-3.5 w-3.5" />
+                  {t('Nouveau sous-dossier')}
+                </DropdownMenuItem>
+              ) : null}
+              {onModifier ? (
+                <DropdownMenuItem onSelect={onModifier} data-coffre-dossier-modifier>
+                  <Pencil className="h-3.5 w-3.5" />
+                  {t('Modifier le dossier')}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
         {onRestaurer ? (
           <button
@@ -996,7 +1119,13 @@ function LigneAcces({ acces, projet, onOuvrir }: { acces: AccesCoffre; projet?: 
             {acces.images.length}
           </span>
         ) : null}
-        <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[acces.type])}</Badge>
+        {/* À COMPLÉTER : le secret qui rend la fiche utilisable manque. Calculé, jamais stocké. */}
+        {!acces.archiveLe && champsACompleter(acces).length ? (
+          <Badge tone="attention" data-coffre-a-completer>
+            {t('À compléter')}
+          </Badge>
+        ) : null}
+        <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[acces.type] ?? LIBELLE_TYPE_ACCES.autre)}</Badge>
       </span>
       <span className="flex w-full min-w-0 items-center gap-1.5 text-[12px] text-faint">
         {/* LE PROJET GARDE SON NOM : c'est l'aperçu, plus long, qui se replie.
@@ -1048,6 +1177,7 @@ function FicheAcces({
   const [dossierId, setDossierId] = React.useState<string | null>(null);
   const [champs, setChamps] = React.useState<Record<string, string>>({});
   const [note, setNote] = React.useState('');
+  const [champsLibres, setChampsLibres] = React.useState<ChampLibre[]>([]);
   const [images, setImages] = React.useState<Attachment[]>([]);
   const [enCours, setEnCours] = React.useState(false);
   const [aSupprimer, setASupprimer] = React.useState(false);
@@ -1061,6 +1191,7 @@ function FicheAcces({
     setDossierId(fiche.dossierId ?? null);
     setChamps({ ...fiche.champs });
     setNote(fiche.note);
+    setChampsLibres((fiche.champsLibres ?? []).map((c) => ({ ...c })));
     // Une image dont le fichier a disparu n'a plus de vignette : elle sort de
     // la liste, et l'enregistrement suivant ne la cite plus.
     setImages((fiche.images ?? []).map((id) => pieces.find((p) => p.id === id)).filter((p): p is Attachment => !!p));
@@ -1069,6 +1200,8 @@ function FicheAcces({
 
   const type = fiche?.type ?? 'autre';
   const archivee = Boolean(fiche?.archiveLe);
+  /** Les cases principales encore vides, d'après ce qui est TAPÉ : la mention tombe dès qu'on remplit. */
+  const aCompleter = champsACompleter({ type, champs });
   /** Le nom ENREGISTRÉ de la fiche — celui du fil d'Ariane et du grand titre. */
   const titreDeLaFiche = fiche?.id ? fiche.nom || t('Accès') : t('Nouvel accès');
 
@@ -1078,7 +1211,17 @@ function FicheAcces({
     try {
       const data = await client.call<ReponseDuCoffre>({
         type: 'coffre.enregistrer',
-        acces: { id: fiche.id, nom, type, projectId, dossierId, champs, note, images: images.map((image) => image.id) },
+        acces: {
+          id: fiche.id,
+          nom,
+          type,
+          projectId,
+          dossierId,
+          champs,
+          note,
+          champsLibres,
+          images: images.map((image) => image.id),
+        },
       });
       onListe(data);
       client.pushToast('success', t('Accès enregistré.'));
@@ -1131,7 +1274,12 @@ function FicheAcces({
             d'en-tête de la page. */}
         <DialogTitle className="min-w-0 truncate px-3 pb-2">{titreDeLaFiche}</DialogTitle>
         <GestesDePage className="px-3">
-          <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[type])}</Badge>
+          {aCompleter.length && !archivee ? (
+            <Badge tone="attention" data-coffre-fiche-a-completer>
+              {t('À compléter')}
+            </Badge>
+          ) : null}
+          <Badge tone="neutral">{t(LIBELLE_TYPE_ACCES[type] ?? LIBELLE_TYPE_ACCES.autre)}</Badge>
         </GestesDePage>
 
         {/* ET IL SE LIT EN GRAND, EN TÊTE DE LA PAGE — le dessin d'un titre de
@@ -1221,12 +1369,22 @@ function FicheAcces({
               />
             ))}
 
+            <CasesEnPlus cases={champsLibres} onChange={setChampsLibres} figee={archivee} />
+
+            {aCompleter.length && !archivee ? (
+              <p className="text-[12px] leading-relaxed text-faint" data-coffre-message-a-completer>
+                {t('À compléter : {cases}. La fiche est gardée telle quelle en attendant.', {
+                  cases: aCompleter.map((c) => t(c.libelle)).join(` ${t('ou')} `),
+                })}
+              </p>
+            ) : null}
+
             <Champ libelle={t('Note')}>
               <Textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
-                placeholder={t('À quoi sert cet accès, où il s’utilise…')}
+                placeholder={t('À quoi sert cet accès (aucune valeur ici : chaque valeur a sa case)')}
                 className="text-[13px]"
                 data-coffre-note
               />
@@ -1450,6 +1608,90 @@ function Champ({ libelle, children }: { libelle: string; children: React.ReactNo
 }
 
 /**
+ * LES CASES EN PLUS : ce qu'aucune case du modèle ne prévoit, nommé par celui
+ * qui le remplit. Chaque case a son nom, sa valeur, et peut être SECRÈTE
+ * (masquée, hors recherche). Une case sans valeur n'est pas gardée.
+ */
+function CasesEnPlus({
+  cases,
+  onChange,
+  figee,
+}: {
+  cases: ChampLibre[];
+  onChange: React.Dispatch<React.SetStateAction<ChampLibre[]>>;
+  figee: boolean;
+}) {
+  const changer = (index: number, partiel: Partial<ChampLibre>) =>
+    onChange((avant) => avant.map((c, i) => (i === index ? { ...c, ...partiel } : c)));
+  if (figee && !cases.length) return null;
+  return (
+    <div className="flex flex-col gap-2" data-coffre-cases-en-plus={cases.length}>
+      {cases.length ? <span className="text-[12.5px] font-medium text-muted">{t('Cases en plus')}</span> : null}
+      {cases.map((c, index) => (
+        <div key={index} className="flex flex-col gap-1" data-coffre-case-en-plus={index}>
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={c.libelle}
+              onChange={(e) => changer(index, { libelle: e.target.value })}
+              maxLength={LIBELLE_CHAMP_LIBRE_MAX}
+              placeholder={t('Nom de la case')}
+              className="h-7 flex-1 text-[12px]"
+              autoComplete="off"
+              disabled={figee}
+              data-coffre-case-libelle
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              aria-pressed={c.secret === true}
+              aria-label="Valeur secrète"
+              title={c.secret ? t('Valeur secrète : masquée, hors recherche') : t('Rendre la valeur secrète')}
+              onClick={() => changer(index, { secret: !c.secret })}
+              disabled={figee}
+              data-coffre-case-secrete={c.secret ? 'oui' : 'non'}
+            >
+              <Lock className={cn('h-3.5 w-3.5', !c.secret && 'opacity-40')} />
+            </Button>
+            {!figee ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label="Retirer la case"
+                title={t('Retirer la case')}
+                onClick={() => onChange((avant) => avant.filter((_, i) => i !== index))}
+                data-coffre-case-retirer
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
+          </div>
+          <ChampValeur
+            champ={{ cle: `libre-${index}`, libelle: '', secret: c.secret === true }}
+            valeur={c.valeur}
+            onChange={(valeur) => changer(index, { valeur })}
+            sansLibelle
+          />
+        </div>
+      ))}
+      {!figee && cases.length < CHAMPS_LIBRES_MAX ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="self-start"
+          onClick={() => onChange((avant) => [...avant, { libelle: '', valeur: '' }])}
+          data-coffre-ajouter-case
+        >
+          <Plus className="h-3 w-3" />
+          {t('Ajouter une case')}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * Un champ de la fiche. Secret, il est masqué par défaut : un œil le dévoile,
  * un bouton le copie sans qu'il ait jamais à s'afficher.
  */
@@ -1457,10 +1699,13 @@ function ChampValeur({
   champ,
   valeur,
   onChange,
+  sansLibelle,
 }: {
   champ: ChampAcces;
   valeur: string;
   onChange: (valeur: string) => void;
+  /** Une case en plus porte son nom au-dessus, dans son propre champ. */
+  sansLibelle?: boolean;
 }) {
   const [visible, setVisible] = React.useState(false);
   const masque = champ.secret === true && !visible;
@@ -1470,8 +1715,7 @@ function ChampValeur({
     client.pushToast('success', t('Copié'));
   };
 
-  return (
-    <Champ libelle={t(champ.libelle)}>
+  const saisie = (
       <div className="flex items-start gap-1.5">
         {champ.multiligne && !masque ? (
           <Textarea
@@ -1520,6 +1764,6 @@ function ChampValeur({
           </Button>
         ) : null}
       </div>
-    </Champ>
   );
+  return sansLibelle ? saisie : <Champ libelle={t(champ.libelle)}>{saisie}</Champ>;
 }

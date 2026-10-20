@@ -351,7 +351,7 @@ function ComptesAReconnecter({ moteur }: { moteur: MoteurDeLAssistant }) {
           <div key={compte.id} className="rounded-md border border-border bg-bg px-2 py-1.5">
             <div className="flex items-center gap-1.5">
               <span className="flex-1 truncate text-[13px] text-text">{compte.label}</span>
-              <span className="text-[12px] text-warning">{compte.connexion?.libelle}</span>
+              <span className="text-[12px] text-warning">{t(compte.connexion?.libelle ?? '')}</span>
               {enCours ? null : (
                 <Button
                   variant="outline"

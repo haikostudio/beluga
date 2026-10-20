@@ -22,22 +22,36 @@ import { minusculesSansAccents } from './mots.js';
 
 /** Les types d'accès proposés à la création. L'ordre est celui du menu. */
 export const TYPES_ACCES = [
-  'cle-api',
   'mot-de-passe',
-  'ssh',
+  'cle-api',
   'jeton',
+  'ssh',
   'base-de-donnees',
+  'compte-bancaire',
+  'carte-paiement',
+  'carte-identite',
+  'passeport',
+  'permis-conduire',
   'autre',
 ] as const;
 export type TypeAcces = (typeof TYPES_ACCES)[number];
 
-/** Le nom affiché d'un type, en français — l'interface le traduit. */
+/**
+ * Le nom affiché d'un type, en français — l'interface le traduit. La CLÉ
+ * technique ne change jamais (« mot-de-passe » reste « mot-de-passe ») : seul le
+ * libellé suit l'usage, « Compte en ligne » disant mieux ce qu'on range là.
+ */
 export const LIBELLE_TYPE_ACCES: Readonly<Record<TypeAcces, string>> = {
+  'mot-de-passe': 'Compte en ligne',
   'cle-api': 'Clé d’API',
-  'mot-de-passe': 'Mot de passe',
-  ssh: 'Accès SSH',
   jeton: 'Jeton',
+  ssh: 'Accès SSH',
   'base-de-donnees': 'Base de données',
+  'compte-bancaire': 'Compte bancaire',
+  'carte-paiement': 'Carte de paiement',
+  'carte-identite': 'Carte d’identité',
+  passeport: 'Passeport',
+  'permis-conduire': 'Permis de conduire',
   autre: 'Autre',
 };
 
@@ -53,43 +67,133 @@ export interface ChampAcces {
   multiligne?: boolean;
   /** Exemple affiché en filigrane. */
   exemple?: string;
+  /**
+   * LE SECRET QUI REND LA FICHE UTILISABLE. Une fiche dont AUCUN champ
+   * principal n'est rempli est « à compléter » (`champsACompleter`) : elle est
+   * acceptée, jamais refusée, et le dit. Plusieurs principaux = l'un OU l'autre
+   * suffit (une clé privée ou un mot de passe pour un accès SSH).
+   */
+  principal?: boolean;
 }
 
-/**
- * Les champs de chaque type. Un type ne porte que ce qui le concerne : demander
- * un port à une clé d'API n'apprend rien à personne.
+/*
+ * LES CHAMPS DE CHAQUE TYPE — un modèle par usage. Tout ce qui a sa case y va :
+ * la note ne sert qu'à dire À QUOI sert l'accès (`valeurDeLaNoteAvecSaCase`
+ * refuse une note qui porte une valeur dont la case existe). Un type ne porte
+ * que ce qui le concerne : demander un port à une clé d'API n'apprend rien.
+ * Ajouter un champ est permis ; renommer une CLÉ ne l'est jamais.
  */
+const ADRESSE: ChampAcces = { cle: 'adresse', libelle: 'Adresse', exemple: 'https://exemple.com/connexion' };
+const EXPIRATION: ChampAcces = { cle: 'expiration', libelle: 'Expiration', exemple: '2028-10-16' };
+const MOT_DE_PASSE: ChampAcces = { cle: 'motDePasse', libelle: 'Mot de passe', secret: true };
+
+/** Les champs communs aux pièces d'identité. */
+function champsDePiece(numero: string): ChampAcces[] {
+  return [
+    { cle: 'nom', libelle: 'Nom complet', exemple: 'Prénom Nom' },
+    { cle: 'naissance', libelle: 'Date de naissance', exemple: '01.12.1984' },
+    { cle: 'numero', libelle: numero, secret: true, principal: true },
+    { cle: 'delivrance', libelle: 'Délivrance', exemple: '22.06.2023, Lausanne' },
+    { cle: 'expiration', libelle: 'Expiration', exemple: '21.06.2033' },
+    { cle: 'autorite', libelle: 'Pays ou autorité', exemple: 'Suisse' },
+  ];
+}
+
 export const CHAMPS_PAR_TYPE: Readonly<Record<TypeAcces, readonly ChampAcces[]>> = {
+  'mot-de-passe': [
+    ADRESSE,
+    { cle: 'identifiant', libelle: 'Identifiant', exemple: 'adresse e-mail ou nom d’utilisateur' },
+    { ...MOT_DE_PASSE, principal: true },
+    { cle: 'connexion', libelle: 'Connexion sans mot de passe', exemple: '« Continuer avec Google », code par e-mail…', principal: true },
+    { cle: 'doubleAuth', libelle: 'Double authentification', exemple: 'Code par SMS au +41…, application…' },
+    { cle: 'compte', libelle: 'Numéro de compte ou d’équipe', exemple: 'Team ID, n° client…' },
+  ],
   'cle-api': [
     { cle: 'service', libelle: 'Service', exemple: 'OpenAI, Stripe…' },
-    { cle: 'cle', libelle: 'Clé', secret: true, multiligne: true },
-    { cle: 'adresse', libelle: 'Adresse', exemple: 'https://api.exemple.com' },
+    { cle: 'identifiantCle', libelle: 'Identifiant de la clé', exemple: 'Key ID, identifiant client…' },
+    { cle: 'emetteur', libelle: 'Émetteur', exemple: 'Issuer ID' },
+    { cle: 'equipe', libelle: 'Équipe ou compte', exemple: 'Team ID, compte acct_…, projet' },
+    { cle: 'cle', libelle: 'Clé', secret: true, multiligne: true, principal: true },
+    { ...ADRESSE, exemple: 'https://api.exemple.com' },
+    EXPIRATION,
   ],
-  'mot-de-passe': [
-    { cle: 'adresse', libelle: 'Adresse', exemple: 'https://exemple.com/connexion' },
-    { cle: 'identifiant', libelle: 'Identifiant' },
-    { cle: 'motDePasse', libelle: 'Mot de passe', secret: true },
+  jeton: [
+    { cle: 'service', libelle: 'Service', exemple: 'GitHub, Vercel…' },
+    { ...ADRESSE, exemple: 'https://exemple.com/webhook' },
+    { cle: 'portee', libelle: 'Portée', exemple: 'lecture seule, dépôt X…' },
+    { cle: 'jeton', libelle: 'Jeton', secret: true, multiligne: true, principal: true },
+    EXPIRATION,
   ],
   ssh: [
     { cle: 'hote', libelle: 'Machine', exemple: '203.0.113.10' },
     { cle: 'port', libelle: 'Port', exemple: '22' },
     { cle: 'utilisateur', libelle: 'Utilisateur', exemple: 'root' },
-    { cle: 'cle', libelle: 'Clé privée', secret: true, multiligne: true },
-    { cle: 'motDePasse', libelle: 'Mot de passe', secret: true },
-  ],
-  jeton: [
-    { cle: 'service', libelle: 'Service', exemple: 'GitHub, Vercel…' },
-    { cle: 'jeton', libelle: 'Jeton', secret: true, multiligne: true },
+    { cle: 'cle', libelle: 'Clé privée', secret: true, multiligne: true, principal: true },
+    { cle: 'clePublique', libelle: 'Clé publique', multiligne: true, exemple: 'ssh-ed25519 AAAA…' },
+    { cle: 'phrasePasse', libelle: 'Phrase de passe de la clé', secret: true },
+    { ...MOT_DE_PASSE, principal: true },
   ],
   'base-de-donnees': [
+    { cle: 'moteur', libelle: 'Moteur', exemple: 'PostgreSQL, MySQL…' },
     { cle: 'hote', libelle: 'Machine', exemple: 'localhost' },
     { cle: 'port', libelle: 'Port', exemple: '5432' },
     { cle: 'base', libelle: 'Base' },
     { cle: 'utilisateur', libelle: 'Utilisateur' },
-    { cle: 'motDePasse', libelle: 'Mot de passe', secret: true },
+    { ...MOT_DE_PASSE, principal: true },
   ],
-  autre: [{ cle: 'valeur', libelle: 'Contenu', secret: true, multiligne: true }],
+  'compte-bancaire': [
+    { cle: 'titulaire', libelle: 'Titulaire' },
+    { cle: 'banque', libelle: 'Banque' },
+    { cle: 'iban', libelle: 'IBAN', secret: true, principal: true, exemple: 'CH00 0000 0000 0000 0000 0' },
+    { cle: 'bic', libelle: 'BIC', exemple: 'POFICHBEXXX' },
+    { ...ADRESSE, libelle: 'Banque en ligne', exemple: 'https://banque.exemple.com' },
+    { cle: 'identifiant', libelle: 'Identifiant de connexion' },
+    MOT_DE_PASSE,
+  ],
+  'carte-paiement': [
+    { cle: 'titulaire', libelle: 'Titulaire' },
+    { cle: 'banque', libelle: 'Banque ou réseau', exemple: 'Yuh, Mastercard' },
+    { cle: 'numero', libelle: 'Numéro de la carte', secret: true, principal: true },
+    { cle: 'expiration', libelle: 'Expiration', exemple: '07/2028' },
+    { cle: 'cryptogramme', libelle: 'Cryptogramme', secret: true },
+    { cle: 'code', libelle: 'Code PIN', secret: true },
+  ],
+  'carte-identite': champsDePiece('Numéro de la carte'),
+  passeport: champsDePiece('Numéro du passeport'),
+  'permis-conduire': [
+    ...champsDePiece('Numéro du permis'),
+    { cle: 'categories', libelle: 'Catégories', exemple: 'B, A1' },
+  ],
+  autre: [{ cle: 'valeur', libelle: 'Contenu', secret: true, multiligne: true, principal: true }],
 };
+
+/**
+ * UNE CASE EN PLUS, NOMMÉE PAR CELUI QUI LA REMPLIT : ce qu'aucun modèle ne
+ * prévoit (« Code client », « Empreinte du certificat »…) a sa case à lui
+ * plutôt qu'une phrase dans la note. Une case secrète se masque et n'entre
+ * pas dans la recherche, comme un champ secret du modèle.
+ */
+export interface ChampLibre {
+  libelle: string;
+  valeur: string;
+  secret?: boolean;
+}
+
+/** Combien de cases en plus une fiche peut porter, et la longueur de leur nom. */
+export const CHAMPS_LIBRES_MAX = 20;
+export const LIBELLE_CHAMP_LIBRE_MAX = 60;
+
+/**
+ * Les cases de chaque type en une ligne compacte, pour l'outil des agents :
+ * « mot-de-passe → adresse/identifiant/motDePasse*… ; … » (* = le secret
+ * principal). Tirée de `CHAMPS_PAR_TYPE` : une seule source, jamais une liste
+ * recopiée à la main qui oublierait un type.
+ */
+export function resumeDesCasesParType(): string {
+  return TYPES_ACCES.map(
+    (type) => `${type} → ${CHAMPS_PAR_TYPE[type].map((c) => `${c.cle}${c.principal ? '*' : ''}`).join('/')}`,
+  ).join(' ; ');
+}
 
 /** D'où vient une fiche : toujours du coffre lui-même depuis le retrait des
  *  anciens accès VPS, qui étaient le seul reflet d'un réglage. */
@@ -132,6 +236,8 @@ export interface AccesCoffre {
    * trier les fiches. Absent = la fiche est à la racine.
    */
   dossierChemin?: string | null;
+  /** LES CASES EN PLUS, dans l'ordre où elles ont été posées. Absent = aucune. */
+  champsLibres?: ChampLibre[];
 }
 
 /**
@@ -228,8 +334,36 @@ export type JugementAcces =
        * `null` = la sortir de son dossier ; une chaîne = l'y ranger.
        */
       dossierId?: string | null;
+      /** Absent = l'appelant n'a rien dit des cases en plus : la fiche garde les siennes. */
+      champsLibres?: ChampLibre[];
     }
   | { ok: false; raison: string };
+
+/**
+ * Les cases en plus telles qu'elles arrivent. `undefined` quand l'appelant n'en
+ * DIT RIEN (un agent qui corrige un mot de passe) : la fiche garde alors les
+ * siennes — même règle que les images. Une case sans valeur est retirée ; une
+ * case sans nom, un nom ou une valeur démesurés, ou trop de cases, sont refusés.
+ */
+export function jugerChampsLibres(brut: unknown): { ok: true; champsLibres?: ChampLibre[] } | { ok: false; raison: string } {
+  if (brut === undefined || brut === null) return { ok: true };
+  if (!Array.isArray(brut)) return { ok: false, raison: 'Les cases en plus sont une liste de { libelle, valeur, secret }.' };
+  const champsLibres: ChampLibre[] = [];
+  for (const element of brut) {
+    const o = (element ?? {}) as Record<string, unknown>;
+    const libelle = String(o.libelle ?? '').trim();
+    const valeur = String(o.valeur ?? '');
+    if (!valeur.trim()) continue;
+    if (!libelle) return { ok: false, raison: 'Chaque case en plus a besoin d’un nom.' };
+    if (libelle.length > LIBELLE_CHAMP_LIBRE_MAX)
+      return { ok: false, raison: `Le nom d’une case ne peut pas dépasser ${LIBELLE_CHAMP_LIBRE_MAX} signes.` };
+    if (valeur.length > VALEUR_CHAMP_MAX) return { ok: false, raison: `La case « ${libelle} » est trop longue.` };
+    champsLibres.push({ libelle, valeur, ...(o.secret === true ? { secret: true } : {}) });
+  }
+  if (champsLibres.length > CHAMPS_LIBRES_MAX)
+    return { ok: false, raison: `Une fiche porte ${CHAMPS_LIBRES_MAX} cases en plus au plus.` };
+  return { ok: true, champsLibres };
+}
 
 /**
  * Ce qui arrive du navigateur n'est pas cru sur parole : un nom vide, un type
@@ -267,8 +401,27 @@ export function jugerAcces(brut: unknown): JugementAcces {
     if (valeur) champs[champ.cle] = valeur;
   }
 
-  const regroupement = regroupementDeSecrets(nom, champs, note);
+  const libres = jugerChampsLibres(o.champsLibres);
+  if (!libres.ok) return libres;
+
+  /*
+   * Les cases en plus passent par le MÊME garde-fou que les champs du modèle :
+   * une case = un champ. Sans cela, un fichier de configuration entier se
+   * glisserait dans des cases nommées « DB_PASSWORD », « API_KEY »…
+   */
+  const pourLeGardeFou: Record<string, string> = { ...champs };
+  // Le nom d'une case compte comme une étiquette (« API_KEY » → secret) quand la valeur ne se dit pas elle-même.
+  (libres.champsLibres ?? []).forEach(
+    (c, i) => (pourLeGardeFou[`libre${i}`] = compterSecrets(c.valeur) ? c.valeur : `${c.libelle}: ${c.valeur}`),
+  );
+  const regroupement = regroupementDeSecrets(nom, pourLeGardeFou, note);
   if (regroupement) return { ok: false, raison: regroupement };
+
+  // Taire les cases en plus les garde : la note se juge alors contre celles que la fiche porte déjà.
+  const libresDeLaFiche =
+    libres.champsLibres ?? (Array.isArray(o.champsLibresActuels) ? (o.champsLibresActuels as ChampLibre[]) : []);
+  const dansLaNote = valeurDeLaNoteAvecSaCase(type, note, champs, libresDeLaFiche);
+  if (dansLaNote) return { ok: false, raison: raisonNoteAvecSaCase(dansLaNote) };
 
   // Les images ne passent JAMAIS par le garde-fou « une fiche par secret » :
   // ce sont des identifiants de fichiers, pas un texte où compter des secrets.
@@ -289,7 +442,132 @@ export function jugerAcces(brut: unknown): JugementAcces {
     note,
     ...(images ? { images } : {}),
     ...(dossierId !== undefined ? { dossierId } : {}),
+    ...(libres.champsLibres ? { champsLibres: libres.champsLibres } : {}),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* LA NOTE N'EST PAS UN CHAMP                                          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * LA NOTE DIT À QUOI SERT L'ACCÈS, ELLE NE PORTE PAS SES VALEURS (20/10/2026).
+ * La fiche « Compte développeur Apple » avait ses trois champs vides et tout
+ * dans la note — Team ID, appareil de la double authentification — et les clés
+ * Apple entassaient Key ID, Issuer ID et Team ID dans « Service ». Une valeur
+ * qui a SA case dans le type de la fiche est donc refusée dans la note, avec le
+ * nom de la case où la mettre. Les motifs sont ÉTROITS : une étiquette
+ * explicite suivie d'une valeur d'un seul bloc (« Team ID X6ZLFDBZ7M »,
+ * « APNS_KEY_ID=T3HPQK4TRF », « Identifiant : jean »), un IBAN, un numéro de
+ * carte valide. Une note qui RACONTE (« le code arrive sur l'iPad ») passe.
+ * Une valeur déjà rangée dans sa case peut être redite : ce n'est plus une
+ * valeur perdue dans la note.
+ */
+
+/** Une valeur trouvée dans la note alors que sa case existe. */
+export interface ValeurDansLaNote {
+  /** Ce qui a été lu, tel quel (« Team ID X6ZLFDBZ7M »). */
+  extrait: string;
+  valeur: string;
+  /** La case du type où elle va. */
+  champ: ChampAcces;
+}
+
+/** Une valeur d'un seul bloc : pas une phrase, pas un exemple factice. */
+const BLOC = String.raw`([A-Za-z0-9][A-Za-z0-9._@+\-]{2,})`;
+
+interface MotifDeNote {
+  /** Les cases candidates, dans l'ordre : la première que le type porte reçoit la valeur. */
+  cases: readonly string[];
+  motif: RegExp;
+}
+
+const MOTIFS_DE_NOTE: readonly MotifDeNote[] = [
+  { cases: ['equipe', 'compte'], motif: new RegExp(String.raw`\b(?:team[ _-]?id|[A-Z]+_TEAM_ID)\s*[:=]?\s*` + BLOC, 'gi') },
+  { cases: ['identifiantCle'], motif: new RegExp(String.raw`\b(?:key[ _-]?id|[A-Z]+_KEY_ID)\s*[:=]?\s*` + BLOC, 'gi') },
+  { cases: ['emetteur'], motif: new RegExp(String.raw`\b(?:issuer[ _-]?id|[A-Z]+_ISSUER_ID)\s*[:=]?\s*` + BLOC, 'gi') },
+  {
+    cases: ['identifiantCle'],
+    motif: new RegExp(String.raw`\b(?:identifiant client|client[ _]id|[A-Z]+_CLIENT_ID)\s*[:=]\s*` + BLOC, 'gi'),
+  },
+  { cases: ['identifiant'], motif: new RegExp(String.raw`\b(?:identifiant(?: de connexion)?|login|nom d['’]utilisateur)\s*[:=]\s*` + BLOC, 'gi') },
+  { cases: ['utilisateur'], motif: new RegExp(String.raw`\b(?:utilisateur|user(?:name)?)\s*[:=]\s*` + BLOC, 'gi') },
+  { cases: ['bic'], motif: new RegExp(String.raw`\b(?:BIC|SWIFT)\s*[:=]?\s*([A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b`, 'g') },
+  { cases: ['iban'], motif: /\b([A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,3})?)\b/g },
+];
+
+/** Le contrôle de Luhn : ce qui distingue un numéro de carte d'une suite de chiffres. */
+function numeroDeCarteValide(chiffres: string): boolean {
+  if (chiffres.length < 13 || chiffres.length > 19) return false;
+  let somme = 0;
+  for (let i = 0; i < chiffres.length; i += 1) {
+    let n = Number(chiffres[chiffres.length - 1 - i]);
+    if (i % 2 === 1) {
+      n *= 2;
+      if (n > 9) n -= 9;
+    }
+    somme += n;
+  }
+  return somme % 10 === 0;
+}
+
+const sansEspaces = (v: string) => v.replace(/\s+/g, '').toLowerCase();
+
+/**
+ * La première valeur de la note qui a SA case dans le type, sinon `null`. Une
+ * valeur déjà rangée dans cette case (`champs`) n'est pas reprochée.
+ */
+export function valeurDeLaNoteAvecSaCase(
+  type: TypeAcces,
+  note: string,
+  champs: Record<string, string> = {},
+  champsLibres: readonly ChampLibre[] = [],
+): ValeurDansLaNote | null {
+  const texte = note ?? '';
+  if (!texte.trim()) return null;
+  const parCle = new Map(champsDuType(type).map((c) => [c.cle, c]));
+  const dejaRangee = (cle: string, valeur: string) =>
+    [champs[cle] ?? '', ...champsLibres.map((c) => c.valeur)].some((v) => sansEspaces(v).includes(sansEspaces(valeur)));
+  for (const { cases, motif } of MOTIFS_DE_NOTE) {
+    const cle = cases.find((c) => parCle.has(c));
+    if (!cle) continue;
+    for (const m of texte.matchAll(motif)) {
+      const valeur = m[1]!.replace(/[.,;:)]+$/, '');
+      if (cle === 'iban' && !/\d{4}/.test(valeur.replace(/\s/g, '').slice(4))) continue;
+      if (dejaRangee(cle, valeur)) continue;
+      return { extrait: m[0].trim(), valeur, champ: parCle.get(cle)! };
+    }
+  }
+  const numero = parCle.get('numero');
+  if (numero && type === 'carte-paiement') {
+    for (const m of texte.matchAll(/\b\d(?:[ -]?\d){12,18}\b/g)) {
+      const chiffres = m[0].replace(/\D/g, '');
+      if (numeroDeCarteValide(chiffres) && !dejaRangee('numero', chiffres)) return { extrait: m[0], valeur: chiffres, champ: numero };
+    }
+  }
+  return null;
+}
+
+/** La phrase de refus : elle NOMME la case où mettre la valeur. */
+export function raisonNoteAvecSaCase(trouvee: ValeurDansLaNote): string {
+  return `La note n’est pas un champ : « ${trouvee.extrait} » va dans la case « ${trouvee.champ.libelle} ». Gardez la note pour dire à quoi sert l’accès.`;
+}
+
+/* ------------------------------------------------------------------ */
+/* À COMPLÉTER                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Les champs PRINCIPAUX d'une fiche qui n'en a aucun de rempli — le secret qui
+ * la rendrait utilisable. Vide = la fiche est complète. Calculé à chaque
+ * lecture, JAMAIS stocké : remplir le champ suffit à faire tomber la mention.
+ * Une fiche sans son secret est acceptée (décision du 20/10/2026) : elle le dit.
+ */
+export function champsACompleter(acces: Pick<AccesCoffre, 'type' | 'champs'>): ChampAcces[] {
+  const principaux = champsDuType(acces.type).filter((c) => c.principal);
+  if (!principaux.length) return [];
+  const rempli = principaux.some((c) => (acces.champs?.[c.cle] ?? '').trim());
+  return rempli ? [] : principaux;
 }
 
 /* ------------------------------------------------------------------ */
@@ -720,6 +998,10 @@ export function texteCherchable(acces: AccesCoffre, nomProjet?: string, nomDossi
     const valeur = acces.champs[champ.cle];
     if (valeur) morceaux.push(valeur);
   }
+  for (const libre of acces.champsLibres ?? []) {
+    morceaux.push(libre.libelle);
+    if (!libre.secret) morceaux.push(libre.valeur);
+  }
   return normaliserRecherche(morceaux.join(' '));
 }
 
@@ -755,6 +1037,13 @@ export function apercuAcces(acces: AccesCoffre): string {
       return c.hote ? `${c.base ? `${c.base} · ` : ''}${c.hote}${c.port ? `:${c.port}` : ''}` : (c.base ?? '');
     case 'mot-de-passe':
       return [c.identifiant, c.adresse].filter(Boolean).join(' · ');
+    case 'compte-bancaire':
+    case 'carte-paiement':
+      return [c.banque, c.titulaire].filter(Boolean).join(' · ');
+    case 'carte-identite':
+    case 'passeport':
+    case 'permis-conduire':
+      return [c.nom, c.expiration ? `expire ${c.expiration}` : ''].filter(Boolean).join(' · ');
     default:
       return c.service ?? c.adresse ?? '';
   }

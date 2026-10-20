@@ -11,6 +11,7 @@
  *  - un client ne touche QUE ses propres demandes, dans les projets de sa portée.
  */
 import fs from 'node:fs';
+import { estLeCompteDesTickets } from '@beluga/shared';
 import {
   REFUS_HORS_PORTEE,
   TITRES_COLONNES_DEMANDE,
@@ -933,15 +934,21 @@ export async function commandeDeLEspaceClient(
             espace.nonLusDesDemandes(client.projets, compte.id),
             fil.nonLus,
           );
+          const openSource = estLeCompteDesTickets(client.identifiant);
           return {
             ...compteVisible(client),
             actif: client.actif,
             derniereEntree: client.derniereEntree,
             fil,
             compteurs,
+            openSource,
             // Ce que le client VOIT, à l'identique : toutes les demandes de ses
             // projets. Montrer autre chose ici, c'est se tromper sur son écran.
-            demandes: client.projets.flatMap((projectId) => espace.demandesAffichees(projectId, compte.id)),
+            // Le compte des tickets open source n'est l'écran de personne : il
+            // ne montre que les tickets qu'il porte.
+            demandes: client.projets
+              .flatMap((projectId) => espace.demandesAffichees(projectId, compte.id))
+              .filter((d) => !openSource || d.auteurId === client.id),
           };
         }),
       };
@@ -971,7 +978,9 @@ export async function commandeDeLEspaceClient(
         .filter((c) => c.role === 'client')
         .map((client) => {
           const fil = fils.get(client.id) ?? { filId: client.id, nonLus: 0 };
-          const demandes = client.projets.flatMap((projectId) => espace.demandesAffichees(projectId, compte.id));
+          const demandes = client.projets
+            .flatMap((projectId) => espace.demandesAffichees(projectId, compte.id))
+            .filter((d) => !estLeCompteDesTickets(client.identifiant) || d.auteurId === client.id);
           const compteurs = compteursDeLaMessagerie(
             compte.id,
             espace.demandesPourLesCompteurs(client.projets, compte.id),
@@ -1020,6 +1029,7 @@ export async function commandeDeLEspaceClient(
               fil.dernier ?? 0,
             ) || undefined,
             interactions: joursDInteractions(echanges, periode.debut, periode.fin),
+            openSource: estLeCompteDesTickets(client.identifiant),
           };
         });
       return { fiches: fichesRangees(fiches), debut: periode.debut, fin: periode.fin, jours: periode.jours };

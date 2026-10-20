@@ -30,6 +30,7 @@ import { bus } from './bus.js';
 import { log } from './logger.js';
 import { notify } from './notify.js';
 import { sortieGit } from './git.js';
+import { distantEstLeDepotPublic } from './depot-public.js';
 
 export interface RepereDepot {
   branche: string;
@@ -309,8 +310,9 @@ export async function isoleChaqueGroupe(
 
   // Envoi au dépôt : les branches survivent à une remise à zéro du dossier. Un
   // échec (pas de dépôt distant, réseau coupé) ne remet rien en cause.
+  const versLePublic = await distantEstLeDepotPublic(projectPath, 'origin');
   for (const faite of faites) {
-    await git(projectPath, ['push', '-u', 'origin', faite.branche], 120000);
+    if (!versLePublic) await git(projectPath, ['push', '-u', 'origin', faite.branche], 120000);
     log.info(`travail hors tâche isolé sur la branche ${faite.branche}`);
   }
   return faites.map(({ commits, branche, empileeSur }) => ({ commits, branche, empileeSur }));

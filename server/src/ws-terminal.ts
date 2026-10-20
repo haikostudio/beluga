@@ -14,6 +14,7 @@ import {
   attacherUnClient,
   compteDuTerminal,
   garantirLaSession,
+  lancerLeMoteurALaRecreation,
   retenirLeCompteDuTerminal,
   tuerLaSession,
 } from './terminal.js';
@@ -66,7 +67,7 @@ export function attacherLaVoieDuTerminal(): WebSocketServer {
      */
     let choix = compteDuTerminal();
     const afficher = (): CompteAffiche | undefined =>
-      choix.compte ? { id: choix.compte.id, label: choix.compte.label, plan: choix.compte.plan } : undefined;
+      choix.compte ? { id: choix.compte.id, label: choix.compte.label, plan: choix.compte.plan, engine: choix.compte.engine } : undefined;
 
     const session = garantirLaSession(colonnes, lignes, choix);
     if (!session.ok) {
@@ -133,6 +134,8 @@ export function attacherLaVoieDuTerminal(): WebSocketServer {
           // on ne garde pas un réglage qui ne veut plus rien dire.
           retenirLeCompteDuTerminal(undefined);
         }
+        /* Le compte retenu LANCE son moteur dans la session neuve. */
+        lancerLeMoteurALaRecreation(choix.compte?.id === lecture.message.id ? choix.compte.engine : undefined);
         tuerLaSession();
         envoyer({ type: 'compte-change', compte: afficher(), avertissement: choix.avertissement });
         // L'écran se rattache de lui-même : la session repartira avec le coffre

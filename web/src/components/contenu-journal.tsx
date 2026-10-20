@@ -44,6 +44,7 @@ import {
 } from '@/components/encadre-etape';
 import { Silhouette } from '@/components/silhouettes';
 import { client } from '@/lib/client';
+import { useTitresClairs } from '@/lib/titres-memoire';
 import { Markdown } from '@/lib/markdown';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -227,7 +228,7 @@ type FicheDUnite = { unite: Unite } | { erreur: true } | null;
  * répond plus —, le volet retombe sur le résumé déjà connu. Pas de message
  * alarmant : l'information utile est là, seul son détail manque.
  */
-function VoletDeReference({ reference }: { reference: RefMemoire }) {
+function VoletDeReference({ reference, titreClair }: { reference: RefMemoire; titreClair?: string }) {
   const [ouvert, setOuvert] = React.useState(false);
   const [fiche, setFiche] = React.useState<FicheDUnite>(null);
   const [enCours, setEnCours] = React.useState(false);
@@ -264,8 +265,9 @@ function VoletDeReference({ reference }: { reference: RefMemoire }) {
           className={cn('mt-[3px] h-3.5 w-3.5 shrink-0 text-faint transition-transform', ouvert && 'rotate-90')}
           aria-hidden
         />
-        <span className="min-w-0 flex-1 break-words text-[13px] font-medium leading-snug text-text">
-          {reference.titre}
+        {/* LE TITRE CLAIR D'ABORD, LE CODE ENTRE PARENTHÈSES (décision de l'utilisateur, carte 79083bc5). */}
+        <span className="min-w-0 flex-1 break-words text-[13px] font-medium leading-snug text-text" data-memoire-reference-titre={titreClair ? 'clair' : 'agents'}>
+          {titreClair || reference.titre} <span className="font-normal text-faint">({reference.id})</span>
         </span>
         <span className="shrink-0 pt-[2px] text-[11.5px] text-faint">
           {[nature ? t(nature) : '', reference.importance ?? '', reference.portee === 'global' ? t('commune') : '']
@@ -322,6 +324,7 @@ function VoletDeReference({ reference }: { reference: RefMemoire }) {
  * les replier en volets n'apporterait rien.
  */
 function VueMemoire({ vue }: { vue: Extract<VueDEntree, { sorte: 'memoire' }> }) {
+  const titresClairs = useTitresClairs(vue.mode === 'recherche' ? vue.references.map((r) => r.id) : []);
   return (
     <EncadreEtape
       sorte="memoire"
@@ -339,7 +342,7 @@ function VueMemoire({ vue }: { vue: Extract<VueDEntree, { sorte: 'memoire' }> })
       {vue.mode === 'recherche' ? (
         <ul className="space-y-1" data-memoire-references={vue.references.length}>
           {vue.references.map((reference) => (
-            <VoletDeReference key={reference.id} reference={reference} />
+            <VoletDeReference key={reference.id} reference={reference} titreClair={titresClairs[reference.id]} />
           ))}
         </ul>
       ) : vue.mode === 'vide' ? (

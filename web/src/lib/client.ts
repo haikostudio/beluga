@@ -2,6 +2,7 @@ import {
   AccountQuota,
   Agent,
   Attachment,
+  type MediaEnFabrication,
   CapacityEtat,
   Card,
   ColumnKey,
@@ -93,6 +94,7 @@ import {
   definirIdentiteDInstallation,
   droitsLus,
   type DroitsDAcces,
+  rapportDuGesteNonParti,
 } from '@beluga/shared';
 import {
   clesADemander,
@@ -106,6 +108,7 @@ import {
 import { installationEnDirect } from '@/lib/travail-installation';
 import { t } from '@/lib/langue';
 import { rechargerUneFois } from '@/lib/rechargement';
+import { signalerErreur } from '@/lib/erreurs';
 import { estEnVeille, pageCachee, surLaVeille, surLaVisibilite } from '@/lib/veille';
 
 /**
@@ -402,6 +405,8 @@ export interface AppState {
   /** Échanges mis de côté par un « repartir de zéro », par agent. */
   precedents: Record<string, number>;
   attachments: Record<string, Attachment[]>;
+  /** Les médias en fabrication, tous projets : les blocs d'attente du fil (`shared/src/media-en-fabrication.ts`). */
+  mediasEnFabrication: MediaEnFabrication[];
   files: Record<string, FileNode[]>;
   memory: Record<string, string>;
   /**
@@ -498,6 +503,7 @@ const initialState: AppState = {
   queues: {},
   precedents: {},
   attachments: {},
+  mediasEnFabrication: [],
   files: {},
   memory: {},
   slash: {},
@@ -570,6 +576,14 @@ class Client {
    * sur `ready`, l'état complet renvoyé par le serveur à chaque connexion.
    */
   private dernierEvenementA: number | null = null;
+  /*
+   * DE QUOI DIRE, APRÈS COUP, POURQUOI LE LIEN ÉTAIT COUPÉ : la dernière
+   * fermeture (code du navigateur, ou motif quand c'est nous qui avons
+   * refermé) et la dernière commande partie. Lues seulement par la trace d'un
+   * geste non parti (`rapportDuGesteNonParti`), jamais affichées.
+   */
+  private derniereFermeture: { motif: string; code?: number; raison?: string; a: number } | null = null;
+  private derniereCommande: { type: string; a: number } | null = null;
   private resynchronise = false;
   /** Un premier état complet est déjà arrivé : le prochain `ready` est une RECONNEXION. */
   private dejaSynchronise = false;
@@ -1055,6 +1069,7 @@ class Client {
     const socket = this.socket;
     this.socket = null;
     if (socket) {
+      this.derniereFermeture = { motif: 'mise en veille', a: Date.now() };
       // Détaché AVANT d'être fermé : cette fermeture n'est pas une coupure, et
       // ne doit lancer ni reconnexion ni message.
       socket.onopen = null;
@@ -1180,7 +1195,7 @@ class Client {
         if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
         const reste = delaiRestantAvantAbandonDeLOuverture(ouvertDepuis, Date.now());
         if (reste > 0) surveillerLOuverture(reste);
-        else this.abandonnerLeCanal(socket);
+        else this.abandonnerLeCanal(socket, 'ouverture trop longue');
       }, attente);
     surveillerLOuverture(DELAI_OUVERTURE_DU_CANAL);
 
@@ -1203,7 +1218,15 @@ class Client {
       this.reclamerLesReponsesPerdues();
     };
 
-    socket.onclose = () => this.apresFermetureDuCanal();
+    socket.onclose = (evenement) => {
+      this.derniereFermeture = {
+        motif: 'fermé par le navigateur ou le serveur',
+        code: evenement.code,
+        raison: evenement.reason || undefined,
+        a: Date.now(),
+      };
+      this.apresFermetureDuCanal();
+    };
 
     socket.onerror = () => socket.close();
 
@@ -1238,9 +1261,10 @@ class Client {
    * vide. On détache donc le vieux socket et on enchaîne tout de suite sur la
    * reconnexion, exactement comme si `onclose` était arrivé.
    */
-  private abandonnerLeCanal(socket: WebSocket): void {
+  private abandonnerLeCanal(socket: WebSocket, motif: string): void {
     // Déjà fermé : son `onclose` est passé, la reconnexion est déjà prévue.
     const dejaFerme = socket.readyState === WebSocket.CLOSED;
+    if (!dejaFerme) this.derniereFermeture = { motif: `abandonné : ${motif}`, a: Date.now() };
     socket.onclose = null;
     socket.onmessage = null;
     socket.onerror = null;
@@ -1367,7 +1391,7 @@ class Client {
       // nous-mêmes est le seul moyen de repartir sur un socket vivant (§ le
       // canal zombie, plus haut). On rouvre tout de suite, sans attendre le
       // repli — c'est le geste de quelqu'un qui voit que le réseau est revenu.
-      this.abandonnerLeCanal(socket);
+      this.abandonnerLeCanal(socket, 'reconnexion demandée');
       if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
@@ -1462,7 +1486,8 @@ class Client {
           // fin d'un tour) n'atteindrait jamais ce client. Mais pas au premier
           // silence : se reconnecter redemande tout au serveur déjà à la peine.
           const silence = Date.now() - (this.dernierEvenementA ?? envoyeA);
-          if (canalAAbandonner({ battementsManques: manques, silence })) this.abandonnerLeCanal(socket);
+          if (canalAAbandonner({ battementsManques: manques, silence }))
+            this.abandonnerLeCanal(socket, `battement sans réponse (${manques} manqué(s), ${Math.round(silence / 1000)} s de silence)`);
         },
       );
     }, 20000);
@@ -1992,6 +2017,10 @@ class Client {
         this.set((state) => ({ attachments: { ...state.attachments, [event.projectId]: event.items } }));
         break;
 
+      case 'medias.fabrication':
+        this.set({ mediasEnFabrication: event.items });
+        break;
+
       case 'captures.vues':
         // Un autre appareil de ce compte vient d'ouvrir ces images en grand.
         retenirLesVues(event.cles);
@@ -2392,6 +2421,34 @@ class Client {
     this.reconnecterMaintenant();
   }
 
+  /**
+   * UN GESTE QUI N'EST PAS PARTI LAISSE SA TRACE au journal des erreurs
+   * d'interface : l'état du lien, sa dernière fermeture et son motif. C'est ce
+   * qui manquait pour expliquer un « non connecté » vu chez l'utilisateur et
+   * jamais reproduit (carte « Coffre-fort qui plante dans un dossier »). En
+   * veille, le canal est fermé par nous : rien à dire. La remontée borne
+   * elle-même le nombre d'envois par page.
+   */
+  private tracerLeGesteNonParti(cmd: ClientCommand): void {
+    if (estEnVeille() || cmd.type === 'ping') return;
+    signalerErreur(
+      rapportDuGesteNonParti(
+        {
+          commande: cmd.type,
+          etatDuSocket: this.socket ? this.socket.readyState : null,
+          coupeDepuis: this.coupeDepuis,
+          derniereFermeture: this.derniereFermeture,
+          derniereCommande: this.derniereCommande,
+          dernierEvenementA: this.dernierEvenementA,
+          enVeille: estEnVeille(),
+          pageCachee: pageCachee(),
+          enLigne: typeof navigator !== 'undefined' ? navigator.onLine : undefined,
+        },
+        Date.now(),
+      ),
+    );
+  }
+
   call<T = any>(cmd: ClientCommand, timeoutMs = 120000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (this.socket?.readyState !== WebSocket.OPEN) {
@@ -2401,12 +2458,14 @@ class Client {
            langue changée. */
         const erreur = new Error(t('non connecté'));
         (erreur as Error & { canalFerme?: boolean }).canalFerme = true;
+        this.tracerLeGesteNonParti(cmd);
         reject(erreur);
         return;
       }
       const id = Math.random().toString(36).slice(2);
       this.pending.set(id, { resolve, reject });
       this.noterLePerimetre(cmd);
+      this.derniereCommande = { type: cmd.type, a: Date.now() };
       this.socket.send(JSON.stringify({ id, cmd }));
       window.setTimeout(() => {
         if (this.pending.has(id)) {

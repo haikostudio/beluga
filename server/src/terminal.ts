@@ -11,6 +11,8 @@ import {
   argumentsSessionExiste,
   argumentsSuiviDeTaille,
   choisirLeCompteDuTerminal,
+  commandeDuMoteurDuTerminal,
+  VARIABLES_DU_COFFRE_DU_TERMINAL,
   type ChoixDuTerminal,
 } from '@beluga/shared';
 import { applyAccountEnv, listAccountRecords } from './accounts.js';
@@ -102,6 +104,13 @@ function environnementDuTerminal(choix: ChoixDuTerminal): NodeJS.ProcessEnv {
  * TUE LA SESSION PARTAGÉE. Le seul appelant est le changement de compte : une
  * session vivante garde l'environnement de sa création, donc l'ancien coffre.
  */
+let moteurALancer: string | null = null;
+
+/** Le moteur à lancer dans la PROCHAINE session créée : celui du compte qu'on vient de choisir. */
+export function lancerLeMoteurALaRecreation(engine: string | undefined): void {
+  moteurALancer = commandeDuMoteurDuTerminal(engine);
+}
+
 export function tuerLaSession(): void {
   if (!tmuxDisponible()) return;
   if (!tmux(argumentsSessionExiste(SESSION_TERMINAL)).ok) return;
@@ -138,16 +147,33 @@ export function garantirLaSession(
    * du serveur, pas de celui du démon qui la demande.
    */
   const env = environnementDuTerminal(choix);
+  /* Le coffre du compte : `CLAUDE_CONFIG_DIR` pour Claude, `CODEX_HOME` pour Codex. */
   const surLaSession: Record<string, string> = {};
-  if (env.CLAUDE_CONFIG_DIR) surLaSession.CLAUDE_CONFIG_DIR = env.CLAUDE_CONFIG_DIR;
+  for (const nom of VARIABLES_DU_COFFRE_DU_TERMINAL) {
+    const valeur = env[nom];
+    if (valeur) surLaSession[nom] = valeur;
+  }
+  /* LE GARDE DE `gh` (`depot-public.ts`) vit en tête du chemin des programmes du
+     démon : la session le reçoit aussi, sinon `gh` y écrirait sur le dépôt public. */
+  if (env.PATH?.split(':')[0]?.endsWith('/garde-gh')) surLaSession.PATH = env.PATH;
   const creation = tmux(argumentsCreationSession(SESSION_TERMINAL, colonnes, lignes, surLaSession), env);
   if (!creation.ok) return { ok: false, creee: false, erreur: creation.sortie || 'création de la session refusée' };
   tmux(argumentsSuiviDeTaille(SESSION_TERMINAL));
   // …et pour les fenêtres ouvertes ENSUITE, qui repartiraient sinon sur
   // l'environnement du démon et donc sur un autre coffre que le shell d'à côté.
-  if (env.CLAUDE_CONFIG_DIR) {
-    tmux(argumentsEnvironnementSession(SESSION_TERMINAL, 'CLAUDE_CONFIG_DIR', env.CLAUDE_CONFIG_DIR));
+  for (const [nom, valeur] of Object.entries(surLaSession)) {
+    tmux(argumentsEnvironnementSession(SESSION_TERMINAL, nom, valeur));
   }
+  /*
+   * CHOISIR UN COMPTE LANCE SON MOTEUR (décision du 19/10/2026) : la session
+   * neuve, recréée par le changement de compte, reçoit `claude` ou `codex`
+   * comme si on l'avait tapé. Les touches attendent dans le tampon du shell,
+   * qui les lit dès qu'il est prêt. Une seule fois : un simple rattachement ne
+   * relance rien.
+   */
+  const moteur = moteurALancer;
+  moteurALancer = null;
+  if (moteur) tmux(['send-keys', '-t', SESSION_TERMINAL, moteur, 'Enter']);
   log.info(
     `terminal : session tmux « ${SESSION_TERMINAL} » créée (${colonnes}×${lignes})` +
       (choix.compte ? ` sur le compte ${choix.compte.label}` : ' sans compte de l’application'),

@@ -2263,6 +2263,12 @@ export const AccountQuota = z.object({
       doitReconnecter: z.boolean(),
     })
     .optional(),
+  /**
+   * Codex : d'autres dossiers de la machine qui détiennent une connexion, pour
+   * un compte dont le coffre n'en a pas. L'écran propose de la REPRENDRE d'un
+   * clic (elle est déplacée, jamais recopiée).
+   */
+  connexionsAReprendre: z.array(z.object({ dossier: z.string() })).optional(),
 });
 export type AccountQuota = z.infer<typeof AccountQuota>;
 

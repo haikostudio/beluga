@@ -8,9 +8,7 @@ import {
   journalDesNotifications,
   lieuAtteignable,
 } from '@beluga/shared';
-import { Button, CLASSE_POINT_DE_BOUTON, DialogTitle, Drawer, EmptyState, Pastille, ZoneDefilement } from '@/components/ui';
-import { GestesDePage } from '@/components/entete-de-zone';
-import { useTelephone } from '@/lib/telephone';
+import { Button, CLASSE_POINT_DE_BOUTON, Drawer, EmptyState, EnteteDeFeuille, Pastille, ZoneDefilement } from '@/components/ui';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn, relativeTime } from '@/lib/utils';
@@ -138,9 +136,9 @@ function bordureDeLigne(ligne: LigneNotification): string {
 }
 
 /**
- * Le tiroir : la liste complète, dans un vrai tiroir latéral comme partout
- * ailleurs dans l'application — plus un menu déroulant qui se referme au
- * moindre écart de souris et qu'on ne peut pas faire défiler au doigt.
+ * Le tiroir : la liste complète, dans une feuille qui monte du bas — plus un
+ * menu déroulant qui se referme au moindre écart de souris et qu'on ne peut
+ * pas faire défiler au doigt.
  */
 function TiroirNotifications({
   open,
@@ -166,36 +164,33 @@ function TiroirNotifications({
     client.allerVersDecision(ligne.lieu);
   };
 
-  const telephone = useTelephone();
-  const toutEffacer = (
-    <Button variant="ghost" size="sm" className="shrink-0" onClick={() => client.viderAnnonces()} data-vider-notifications>
-      <CheckCheck className="h-3 w-3" />
-      {t('Tout effacer')}
-    </Button>
-  );
-
   return (
-    <Drawer open={open} onClose={onClose} className="max-h-[80dvh]">
-      {/* LE NOM DE LA PAGE EST DANS SA BARRE D'EN-TÊTE, à côté de la flèche de
-          retour. « Tout effacer » monte à sa droite sur ordinateur
-          (`GestesDePage`) ; sur téléphone, où la barre n'a pas la place, il
-          partage la ligne du résumé au lieu d'en prendre une à lui. Une rangée
-          pour le nom, une autre pour le bouton, sous une barre qui ne portait
-          que la flèche : trois lignes là où une suffit. */}
-      <DialogTitle className="px-3">{t('Notifications')}</DialogTitle>
-      {lignes.length && !telephone ? <GestesDePage className="px-3 pb-1">{toutEffacer}</GestesDePage> : null}
+    /* UNE FEUILLE QUI MONTE DU BAS (demande du 19/10/2026), comme Déploiement :
+       l'en-tête commun des feuilles (`EnteteDeFeuille`) porte le titre au centre
+       et « Tout effacer » à DROITE, sur la même ligne, sur téléphone comme sur
+       ordinateur. Elle se referme en la tirant vers le bas ou d'un clic sur le
+       voile. Son adresse (« notifications ») est tenue par la cloche. */
+    <Drawer open={open} onClose={onClose} feuille>
+      <EnteteDeFeuille
+        titre={t('Notifications')}
+        gauche={<Bell className="ml-1 h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />}
+        data-entete-notifications
+        droite={
+          lignes.length ? (
+            <Button variant="ghost" size="sm" className="shrink-0" onClick={() => client.viderAnnonces()} data-vider-notifications>
+              <CheckCheck className="h-3 w-3" />
+              {t('Tout effacer')}
+            </Button>
+          ) : null
+        }
+      />
 
-      {aRegler || (telephone && lignes.length) ? (
-        <div className="flex shrink-0 items-center gap-2 px-3 py-1">
-          <p className="min-w-0 flex-1 text-[12.5px] text-warning" data-resume-notifications={aRegler ? '' : undefined}>
-            {aRegler
-              ? aRegler > 1
-                ? t('{compte} décisions attendues de votre part', { compte: aRegler })
-                : t('Une décision attendue de votre part')
-              : null}
-          </p>
-          {telephone && lignes.length ? toutEffacer : null}
-        </div>
+      {aRegler ? (
+        <p className="shrink-0 px-4 pb-1 text-[12.5px] text-warning" data-resume-notifications="">
+          {aRegler > 1
+            ? t('{compte} décisions attendues de votre part', { compte: aRegler })
+            : t('Une décision attendue de votre part')}
+        </p>
       ) : null}
 
       <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-2 pb-3">

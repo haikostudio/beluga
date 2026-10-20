@@ -35,7 +35,7 @@ import {
   Switch,
   Tooltip,
 } from '@/components/ui';
-import { BlocConnexion, RemplacerCle } from '@/components/connexion-compte';
+import { BlocConnexion, RemplacerCle, RepriseDeConnexion } from '@/components/connexion-compte';
 import { LigneChiffresCursor, UsageCursor } from '@/components/quota-badge';
 import { IconeMoteur } from '@/components/icone-moteur';
 import { AjouterUnMoteur } from '@/components/reglages/ajout-de-moteur';
@@ -391,7 +391,7 @@ export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; 
             {quota.jumeaux?.length ? <Badge tone="warning">{t('même abonnement')}</Badge> : null}
             {/* L'état de la connexion ne se dit QUE lorsqu'il pose problème :
                 un compte qui marche n'a pas besoin d'un badge de plus. */}
-            {quota.connexion?.doitReconnecter ? <Badge tone="warning">{quota.connexion.libelle}</Badge> : null}
+            {quota.connexion?.doitReconnecter ? <Badge tone="warning" data-etat-connexion={quota.connexion.etat}>{t(quota.connexion.libelle)}</Badge> : null}
             {/* RECONNECTER EST OUVERT SUR TOUS LES COMPTES, pas seulement sur
                 ceux qui sont en panne : c'est le seul geste qui sépare deux
                 coffres branchés au même abonnement. Mis en avant sur un compte
@@ -505,6 +505,12 @@ export function LigneCompte({ quota, connexion, ordre }: { quota: AccountQuota; 
                 v0: quota.jumeaux.map((autre) => autre.label).join(', '),
               })}
         </p>
+      ) : null}
+      {/* UN COMPTE SANS CONNEXION DANS SON DOSSIER, quand une autre existe
+          ailleurs sur la machine : la reprendre est un clic, jamais un geste
+          fait en silence. */}
+      {quota.connexionsAReprendre?.length && phase === 'aucune' && lignePleine ? (
+        <RepriseDeConnexion accountId={quota.id} dossiers={quota.connexionsAReprendre.map((c) => c.dossier)} />
       ) : null}
       {connexion && phase !== 'aucune' ? <BlocConnexion connexion={connexion} /> : null}
     </div>

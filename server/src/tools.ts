@@ -85,7 +85,9 @@ import {
   TYPES_ACCES,
   LIBELLE_TYPE_ACCES,
   echeanceArchive,
+  champsACompleter,
   champsDuType,
+  resumeDesCasesParType,
   filtrerAcces,
   jugerAcces,
   chercherDossier,
@@ -152,6 +154,7 @@ import { bus } from './bus.js';
 import { completerDonneesDuJournal, dernierJalonDeDemande } from './journal-carte.js';
 import { CONFIG, PATHS } from './config.js';
 import { fichierPermis, joindreUnFichier, racinesDeLAgent } from './joindre-fichier.js';
+import { annoncerUnMedia, blocOuvertDeLAgent, terminerUnMedia } from './medias-en-fabrication.js';
 import { mintDownload } from './auth.js';
 import {
   LECTURE_FICHE_MAX,
@@ -290,7 +293,8 @@ import { supprimerLaCarte } from './suppression-carte.js';
 import { refusDesProjetsTouches } from './regroupements.js';
 import { deleguer, evaluer, suggererModele } from './mode-creation.js';
 import { realiser } from './realisation.js';
-import { chercherUnDoublon, garderLesPertinents, proposerUnNiveau } from './jugement-rapide.js';
+import { chercherUnDoublon, proposerUnNiveau } from './jugement-rapide.js';
+import { UNITES_RECUES_PAR_L_AGENT, garderLesUnitesPertinentes } from './recherche-comme-l-agent.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -768,6 +772,29 @@ export const TOOL_DEFS: ToolDef[] = [
     },
   },
   {
+    name: 'media_en_cours',
+    description:
+      "Annonce dans le fil une image, une vidéo ou un son que TU fabriques (Gemini, Codex, script…) : « debut » AVANT de lancer " +
+      "la fabrication pose un bloc d'attente (sujet, temps, outil, prix) ; « fin » avec le chemin du fichier remplace le bloc par " +
+      "l'aperçu (inutile d'appeler attach_file en plus) ; « echec » dit pourquoi. Un bloc laissé ouvert passe en échec à la fin du tour. " +
+      "Inutile pour l'outil « realiser » et le Studio, qui l'annoncent eux-mêmes.",
+    inputSchema: {
+      type: 'object',
+      required: ['action'],
+      properties: {
+        action: { type: 'string', enum: ['debut', 'fin', 'echec'] },
+        sujet: { type: 'string', description: 'debut : ce qu’on fabrique, en mots courants' },
+        outil: { type: 'string', description: 'debut : modèle et service (« Imagen 4 · Gemini »)' },
+        genre: { type: 'string', enum: ['image', 'video', 'son'], description: 'debut' },
+        format: { type: 'string', description: 'debut : « 16:9 », « 9:16 », « 1:1 », « 4:5 »…' },
+        prix: { type: 'number', description: 'debut : prix annoncé en dollars (absent si inconnu)' },
+        id: { type: 'string', description: 'fin / echec : l’identifiant rendu par « debut » (défaut : ton dernier bloc ouvert)' },
+        path: { type: 'string', description: 'fin : le fichier produit (relatif à ton dossier, ou absolu)' },
+        raison: { type: 'string', description: 'echec : pourquoi, en une phrase' },
+      },
+    },
+  },
+  {
     name: 'ask_user',
     description:
       "Pose une question à l'utilisateur et ATTEND sa réponse avant de continuer. À utiliser dès qu'un choix t'appartient pas : options possibles, préférence, information manquante. " +
@@ -1083,7 +1110,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "La BASE DE CONNAISSANCES, cherchée EN LOCAL sans aucun quota : des UNITÉS typées (decision, convention, component, operation…), chacune avec son identifiant (MEM-0042, DEC-007), son importance (P0 vital → P3), sa source et ses liens, rangées dans des fiches numérotées (00_project … 12_lessons ; au Global 00_principles … 06_lessons), plus le CHANGELOG du projet, qui dit ce qui a déjà été fait. " +
       "Cinq gestes. « chercher » (« demande » : des mots précis ; « contexte » : ce que tu fais ; « type » facultatif) rend les unités du projet puis du global, pondérées par pertinence, importance, type, fraîcheur et liens. " +
       "« lire » rend une unité entière par son « id », une fiche numérotée par « fiche » (« 05 », « decisions »… ; « classeur » global au besoin), ou le changelog (« fiche » : « changelog »). Ce qui est déjà lu dans la session n'est pas renvoyé. " +
-      "« proposer » soumet une unité à la PORTE D'ÉCRITURE : « action » create (défaut), update ou deprecate (avec « id »), « type », « importance », « titre », « resume », « detail », « raisonnement » (obligatoire pour une décision), « sujets », « remplace » (l'id de l'unité active devenue fausse), « jamais_supposer », « classeur ». Un « update » qui donne un AUTRE type RECLASSE l'unité (historique gardé ; vers ou depuis « decision », elle change d'identifiant et l'ancienne est dépréciée). " +
+      "« proposer » soumet une unité à la PORTE D'ÉCRITURE : « action » create (défaut), update ou deprecate (avec « id »), « type », « importance », « titre », « titre_humain » (facultatif, le titre clair pour la personne), « resume », « detail », « raisonnement » (obligatoire pour une décision), « sujets », « remplace » (l'id de l'unité active devenue fausse), « jamais_supposer », « classeur ». Un « update » qui donne un AUTRE type RECLASSE l'unité (historique gardé ; vers ou depuis « decision », elle change d'identifiant et l'ancienne est dépréciée). " +
       "LES TYPES — ce qui entre, et ce qui n'y entre pas : " +
       TYPES_UNITE.map((t) => `${t} = ${DEFINITION_TYPE[t]}`).join(' ') +
       " Le moteur choisit la fiche et l'identifiant, fusionne un doublon, et REFUSE avec sa raison un journal, un raisonnement, une commande triviale, une hypothèse ou le récit d'une tâche. " +
@@ -1109,6 +1136,11 @@ export const TOOL_DEFS: ToolDef[] = [
         sujets: { type: 'string', description: 'Pour « proposer » : les sujets, séparés par des virgules (publication, interface…)' },
         remplace: { type: 'string', description: 'Pour « proposer » : l’id de l’unité active que celle-ci rend fausse' },
         jamais_supposer: { type: 'boolean', description: 'Pour « proposer » : ce qu’un nouvel agent supposerait à tort' },
+        titre_humain: {
+          type: 'string',
+          description:
+            'Pour « proposer », facultatif : un second titre pour la PERSONNE qui lit la mémoire à l’écran — 4 à 9 mots en français courant, ce que ça fait pour l’utilisateur, aucun nom de fichier, de fonction ni de technologie. Ton « titre » technique reste celui des agents.',
+        },
         texte: { type: 'string', description: 'La note de « brouillon »' },
         classeur: { type: 'string', enum: ['projet', 'global'], description: 'La portée de « lire » et de « proposer » : le projet (défaut) ou le global' },
       },
@@ -1217,10 +1249,13 @@ export const TOOL_DEFS: ToolDef[] = [
       "de recevoir pendant le travail (une clé donnée dans la conversation, générée par toi, ou trouvée dans un " +
       "fichier non versionné) — une fiche NEUVE se rattache au projet en cours, une fiche CORRIGÉE reste rangée où " +
       "elle est ; redonne l'« id » d'une fiche " +
-      "trouvée par « lister » pour la corriger au lieu d'en créer une seconde. Chaque type a ses champs propres " +
-      "(cle-api → service/cle/adresse, mot-de-passe → adresse/identifiant/motDePasse, ssh → hote/port/utilisateur/" +
-      "cle/motDePasse, jeton → service/jeton, base-de-donnees → hote/port/base/utilisateur/motDePasse, autre → " +
-      "valeur) ; ne passe que ceux qui s'appliquent. UNE FICHE PAR SECRET : chaque mot de passe, clé ou jeton a SA " +
+      "trouvée par « lister » pour la corriger au lieu d'en créer une seconde. CHAQUE VALEUR VA DANS SA CASE, " +
+      `le type choisi selon l'usage (${resumeDesCasesParType()} ; * = le secret principal) : ` +
+      "un Team ID, un Key ID, un identifiant de connexion ou un IBAN ont leur case, et le coffre REFUSE une note qui " +
+      "les porte en nommant la case. Ce qu'aucune case ne prévoit va dans « champsLibres » (une case nommée par valeur). " +
+      "La NOTE ne sert qu'à dire à quoi sert l'accès. Il manque le secret principal ? Enregistre quand même : la fiche est " +
+      "marquée « à compléter » et la réponse dit ce qui manque. Ne passe que les champs qui s'appliquent. " +
+      "UNE FICHE PAR SECRET : chaque mot de passe, clé ou jeton a SA " +
       "fiche, du bon type, avec un nom qui dit à quoi il sert et dans quel environnement ; un fichier de configuration " +
       "(.env, config.php…) ne se colle JAMAIS en entier — un fichier plein d'accès donne une fiche par secret, et le " +
       "coffre refuse une fiche qui en regroupe plusieurs. « supprimer » retire une fiche périmée (donne son « id ») : " +
@@ -1277,7 +1312,17 @@ export const TOOL_DEFS: ToolDef[] = [
           type: 'object',
           description: "Les valeurs, par champ du type choisi (pour « enregistrer »), ex. { \"hote\": \"…\", \"utilisateur\": \"…\", \"cle\": \"…\" }",
         },
-        note: { type: 'string', description: 'Une note libre (pour « enregistrer »)' },
+        note: { type: 'string', description: 'À quoi sert l’accès, en une phrase ou deux — jamais une valeur qui a sa case (pour « enregistrer »)' },
+        champsLibres: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { libelle: { type: 'string' }, valeur: { type: 'string' }, secret: { type: 'boolean' } },
+          },
+          description:
+            "Les cases en plus (pour « enregistrer ») : ce qu'aucune case du type ne prévoit, une case nommée par valeur. " +
+            'Absent = la fiche garde les siennes ; une liste, même vide, les REMPLACE.',
+        },
         images: {
           type: 'array',
           items: { type: 'string' },
@@ -2787,6 +2832,46 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     }
 
     /*
+     * LE BLOC D'UN MÉDIA EN FABRICATION (`server/src/medias-en-fabrication.ts`) :
+     * annoncé par l'agent, refermé par lui — ou en échec à la fin de son tour.
+     * La fin range le fichier par `joindreUnFichier`, comme « attach_file ».
+     */
+    case 'media_en_cours': {
+      const action = String(args.action ?? '');
+      if (action === 'debut') {
+        const genre = ['image', 'video', 'son'].includes(String(args.genre)) ? (String(args.genre) as 'image' | 'video' | 'son') : 'image';
+        const m = annoncerUnMedia({
+          projectId: project.id,
+          cardId: ctx.cardId ?? null,
+          agentId: ctx.agentId,
+          sujet: String(args.sujet ?? ''),
+          outil: String(args.outil ?? ''),
+          ...(typeof args.prix === 'number' && Number.isFinite(args.prix) ? { prix: args.prix } : {}),
+          ...(typeof args.format === 'string' ? { format: args.format } : {}),
+          genre,
+        });
+        return { ok: true, text: `Bloc « ${m.id} » posé dans le fil. À la fin : « media_en_cours » action « fin » avec « id » et « path ».` };
+      }
+      const bloc = blocOuvertDeLAgent(ctx.agentId, typeof args.id === 'string' && args.id ? args.id : undefined);
+      if (!bloc) return { ok: false, text: 'Aucun bloc ouvert à ce nom : commence par l’action « debut ».' };
+      if (action === 'echec') {
+        terminerUnMedia(bloc.id, { echec: String(args.raison ?? '').trim() || 'fabrication échouée' });
+        return { ok: true, text: 'Échec dit dans le fil.' };
+      }
+      if (action !== 'fin') return { ok: false, text: 'Action inconnue : « debut », « fin » ou « echec ».' };
+      const demande = String(args.path ?? '').trim();
+      const full = demande ? fichierPermis(demande, racinesDeLAgent(ctx.agentId, project)) : null;
+      if (!full) return { ok: false, text: `Fichier introuvable : ${demande || '(aucun chemin)'} — le bloc reste ouvert.` };
+      const jointure = await joindreUnFichier({ projectId: project.id, agentId: ctx.agentId, cardId: ctx.cardId, fichier: full, deLAgent: true });
+      if (!jointure.ok) {
+        terminerUnMedia(bloc.id, { echec: jointure.refus });
+        return { ok: false, text: `${jointure.refus} (${demande})` };
+      }
+      terminerUnMedia(bloc.id, { attachmentId: jointure.attachment.id });
+      return { ok: true, text: `Aperçu posé dans le fil : ${jointure.attachment.name}.`, attachment: jointure.attachment };
+    }
+
+    /*
      * LE MODE « CRÉATION » : la mécanique vit dans `server/src/mode-creation.ts`.
      * La suggestion de modèle rend une QUESTION, et suit donc exactement le
      * chemin d'« ask_user » : l'appel reste ouvert jusqu'à la réponse.
@@ -3305,25 +3390,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
         const brutes = await chercherUnitesMelees(contexte ? `${mots} ${contexte}` : mots, {
           projectId: project.id,
           types: type && (TYPES_UNITE as readonly string[]).includes(type) ? [type as TypeUnite] : undefined,
-          limite: 8,
+          limite: UNITES_RECUES_PAR_L_AGENT,
         });
         /*
-         * LA MÉMOIRE TRIÉE POUR LA DEMANDE. La recherche mêlée (mots + sens)
-         * remonte aussi des unités voisines par le vocabulaire mais sans rapport
-         * avec le travail : Laya écarte celles qu'il juge franchement hors sujet.
-         * Une règle P0 ou « À ne jamais supposer » passe toujours ; sans avis
-         * (Laya absent, endormi, usage éteint), tout passe.
+         * LA MÉMOIRE TRIÉE POUR LA DEMANDE, par Laya — le MÊME geste que la
+         * recherche du graphe de l'écran Mémoire (`server/src/recherche-comme-l-agent.ts`),
+         * pour que l'écran allume exactement ce que l'agent reçoit.
          */
-        const trouvees = await garderLesPertinents(
-          contexte ? `${mots}\n${contexte}` : mots,
-          brutes,
-          {
-            cle: (t) => t.unite.id,
-            texte: (t) => `${t.unite.titre} — ${t.unite.resume}`,
-            intouchable: (t) => t.unite.importance === 'P0' || t.unite.jamaisSupposer,
-          },
-          { usage: 'pertinence-memoire', cardId: ctx.cardId, projectId: project.id },
-        );
+        const trouvees = await garderLesUnitesPertinentes(contexte ? `${mots}\n${contexte}` : mots, brutes, { cardId: ctx.cardId, projectId: project.id });
         const rendu = rendreUnitesTrouvees(mots, trouvees, lus);
         consigner(mots, trouvees.length ? rendu : '');
         return { ok: true, text: rendu };
@@ -3384,6 +3458,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
             type: texte(args.type),
             importance: texte(args.importance),
             titre: texte(args.titre),
+            titreHumain: texte(args.titre_humain) ?? texte(args.titreHumain),
             resume: texte(args.resume) ?? texte(args.texte),
             detail: texte(args.detail),
             raisonnement: texte(args.raisonnement),
@@ -3859,10 +3934,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           return { ok: true, text: recherche ? `Aucun accès ne correspond à « ${recherche} ».` : 'Le coffre-fort est vide.' };
         }
         const lignes = filtres.map((a) => {
-          const valeurs = champsDuType(a.type)
-            .map((c) => (a.champs[c.cle] ? `${c.libelle} : ${a.champs[c.cle]}` : null))
+          const valeurs = [
+            ...champsDuType(a.type).map((c) => (a.champs[c.cle] ? `${c.libelle} : ${a.champs[c.cle]}` : null)),
+            ...(a.champsLibres ?? []).map((c) => `${c.libelle} : ${c.valeur}`),
+          ]
             .filter(Boolean)
             .join(' · ');
+          const manque = champsACompleter(a);
+          const aCompleter = manque.length ? ` · à compléter : ${manque.map((c) => c.libelle).join(' ou ')}` : '';
           const portee = a.projectId
             ? ` · projet ${nomDuProjet(a.projectId) ?? a.projectId}`
             : ' · partagé Beluga Build';
@@ -3879,7 +3958,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           const images = imagesDesAcces([a])
             .map((piece) => `\n  image : ${piece.chemin} (${piece.name}) — id ${piece.id}`)
             .join('');
-          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type]}${portee}${dossierDit}${archive})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
+          return `- [${a.id}] ${a.nom} (${LIBELLE_TYPE_ACCES[a.type] ?? a.type}${portee}${dossierDit}${archive}${aCompleter})${a.note ? ` — ${a.note}` : ''}\n  ${valeurs}${images}`;
         });
         return { ok: true, text: lignes.join('\n') };
       }
@@ -3930,7 +4009,16 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           const cle = String(args.dossier).trim();
           if (!cle) dossierId = null;
           else {
-            const jugee = jugerAcces({ id, nom: args.nom, type: args.type, projectId, champs: args.champs, note: args.note });
+            const jugee = jugerAcces({
+              id,
+              nom: args.nom,
+              type: args.type,
+              projectId,
+              champs: args.champs,
+              note: args.note,
+              champsLibres: args.champsLibres,
+              champsLibresActuels: id ? listerAcces().find((a) => a.id === id)?.champsLibres : undefined,
+            });
             if (!jugee.ok) {
               if (images) effacerLesImagesOrphelines(images);
               return { ok: false, text: `Enregistrement impossible : ${jugee.raison.replace(/\.$/, '')}. Corrige et rappelle l'outil.` };
@@ -3961,6 +4049,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           note: args.note,
           images,
           ...(dossierId !== undefined ? { dossierId } : {}),
+          ...(args.champsLibres !== undefined && args.champsLibres !== null ? { champsLibres: args.champsLibres } : {}),
         });
         // « Accès refusé » disait une porte fermée pour un simple champ manquant
         // — exactement ce qu'un agent ne doit jamais croire ni répéter.
@@ -3977,12 +4066,15 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           : dossierId === null
             ? ' Sorti de son dossier.'
             : '';
+        // Une fiche sans son secret est acceptée : la réponse dit ce qui manque, pour qu'on le demande ou le retrouve.
+        const manque = champsACompleter(resultat.acces);
         return {
           ok: true,
           text:
             `Accès « ${resultat.acces.nom} » (${LIBELLE_TYPE_ACCES[resultat.acces.type]}) ${id ? 'corrigé' : 'enregistré'} dans le coffre-fort ${ou}.` +
             (images ? ` Images portées : ${resultat.acces.images?.length ?? 0}.` : '') +
-            rangee,
+            rangee +
+            (manque.length ? ` À compléter : ${manque.map((c) => c.libelle).join(' ou ')} (la fiche est marquée ainsi tant que la case est vide).` : ''),
         };
       }
 

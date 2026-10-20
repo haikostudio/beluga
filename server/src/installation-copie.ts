@@ -13,6 +13,7 @@ import {
 import { bus } from './bus.js';
 import { CONFIG, DEMON_D_ESSAI } from './config.js';
 import { etatGitHub } from './installation-commandes.js';
+import { REFUS_D_ENVOI_AU_DEPOT_PUBLIC, distantEstLeDepotPublic, verrouillerLesDistants } from './depot-public.js';
 import type { EtapeDeTravail, RecetteDeTravail } from './installation-travaux.js';
 import { log } from './logger.js';
 import { inscrireLeProjetDeLOutil } from './projects.js';
@@ -237,6 +238,9 @@ export async function recetteDeLaCopie(nomDemande: string | undefined): Promise<
         else if (!connus.origin) await exiger(etapeGit('remote', 'add', DISTANT_PUBLIC, DEPOT_PUBLIC));
       }
 
+      // …et il ne reçoit jamais rien d'ici : son adresse d'envoi est verrouillée.
+      await verrouillerLesDistants(DEPOT());
+
       // 3. Le dépôt privé de la personne, créé s'il n'existe pas, puis la sauvegarde.
       connus = await distants();
       if (connus.origin) {
@@ -256,8 +260,11 @@ export async function recetteDeLaCopie(nomDemande: string | undefined): Promise<
             cwd: DEPOT(),
           });
         }
+        if (await distantEstLeDepotPublic(DEPOT(), 'origin')) throw new Error(REFUS_D_ENVOI_AU_DEPOT_PUBLIC);
         await exiger(etapeGit('push', '--set-upstream', 'origin', 'HEAD'));
       }
+      // `gh` prend désormais le dépôt de la personne pour dépôt par défaut.
+      await verrouillerLesDistants(DEPOT());
 
       // 4. Le projet de l'application est sur le tableau (déjà là depuis le premier compte ; ceci le rattrape).
       const projet = await inscrireLeProjetDeLOutil({ forcer: true });

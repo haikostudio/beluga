@@ -2058,6 +2058,60 @@ export function SidePanel({
   );
 }
 
+/**
+ * L'EN-TÊTE COMMUN DES FEUILLES DU BAS (demande du 19/10/2026 : « homogénéise
+ * les drawers »). Trois colonnes, les deux côtés de largeur ÉGALE : le titre
+ * est donc TOUJOURS au centre exact de la feuille, qu'il y ait zéro, un ou
+ * trois boutons d'un côté. À gauche ce qui situe (retour, icône du sujet), à
+ * droite ce qui agit (interrupteur, réglages). Le « i » se pose juste après le
+ * titre, hors du calcul du centre : c'est le TEXTE du titre qui est centré.
+ * Le titre est le `DialogTitle` de la feuille, lu à voix haute.
+ */
+export function EnteteDeFeuille({
+  titre,
+  info,
+  gauche,
+  droite,
+  sousTitre,
+  className,
+  ...attributs
+}: {
+  titre: React.ReactNode;
+  /** L'explication du titre, derrière un « i » posé à sa droite. */
+  info?: React.ReactNode;
+  gauche?: React.ReactNode;
+  droite?: React.ReactNode;
+  /** Une ligne discrète sous le titre, centrée avec lui. */
+  sousTitre?: React.ReactNode;
+  className?: string;
+} & Record<`data-${string}`, string | number | boolean | undefined>) {
+  return (
+    <header className={cn('shrink-0 px-3 pb-2', className)} data-entete-feuille {...attributs}>
+      <div className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+        <div className="flex min-w-0 items-center justify-start gap-1" data-entete-gauche>
+          {gauche}
+        </div>
+        <div className="relative flex min-w-0 max-w-[min(70vw,560px)] items-center justify-center" data-entete-titre>
+          <DialogTitle className="min-w-0 truncate text-center text-[15.5px] font-semibold text-text">{titre}</DialogTitle>
+          {info ? (
+            <span className="absolute left-full top-1/2 ml-0.5 flex -translate-y-1/2 items-center" data-entete-info>
+              <BulleInfo cote="start">{info}</BulleInfo>
+            </span>
+          ) : null}
+        </div>
+        <div className="flex min-w-0 items-center justify-end gap-1" data-entete-droite>
+          {droite}
+        </div>
+      </div>
+      {sousTitre ? (
+        <p className="mt-0.5 truncate text-center text-[12.5px] text-faint" data-entete-sous-titre>
+          {sousTitre}
+        </p>
+      ) : null}
+    </header>
+  );
+}
+
 export function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
   /* DANS UNE PAGE, LE TITRE EST LE DERNIER CRAN DU FIL D'ARIANE : le premier
      titre écrit monte dans la barre d'en-tête de la page, au lieu de refaire un
@@ -2134,8 +2188,10 @@ export function DialogDescription({
  */
 export const DELAI_INFOBULLE_MS = 120;
 
+/* CONTRASTÉE : l'encre du thème devient le fond de la bulle et le fond du thème
+   son texte — noire sur une interface claire, blanche sur une interface sombre. */
 const CLASSES_INFOBULLE =
-  'pointer-events-none z-[100] max-w-[280px] select-none whitespace-pre-line rounded-md border border-border bg-raised px-2 py-1.5 text-[13px] leading-snug text-text shadow-xl';
+  'pointer-events-none z-[100] max-w-[280px] select-none whitespace-pre-line rounded-md bg-text px-2 py-1.5 text-[13px] leading-snug text-surface shadow-xl';
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {
   return (

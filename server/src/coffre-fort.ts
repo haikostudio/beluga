@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import {
   AccesCoffre,
+  ChampLibre,
   DossierCoffre,
   IMAGES_ACCES_MAX,
   IMAGE_ACCES_OCTETS_MAX,
@@ -50,6 +51,7 @@ interface LigneAcces {
   archive_le?: number | null;
   images?: string | null;
   dossier_id?: string | null;
+  champs_libres?: string | null;
 }
 
 interface LigneDossier {
@@ -67,6 +69,19 @@ function imagesDeLaLigne(brut: string | null | undefined): string[] {
   try {
     const lu = JSON.parse(brut ?? '[]');
     return Array.isArray(lu) ? lu.filter((v): v is string => typeof v === 'string' && v.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Les cases en plus d'une ligne : un JSON abîmé vaut « aucune case ». */
+function champsLibresDeLaLigne(brut: string | null | undefined): ChampLibre[] {
+  try {
+    const lu = JSON.parse(brut ?? '[]');
+    if (!Array.isArray(lu)) return [];
+    return lu
+      .filter((c) => c && typeof c.libelle === 'string' && typeof c.valeur === 'string')
+      .map((c) => ({ libelle: c.libelle, valeur: c.valeur, ...(c.secret === true ? { secret: true } : {}) }));
   } catch {
     return [];
   }
@@ -93,6 +108,7 @@ function depuisLigne(ligne: LigneAcces): AccesCoffre {
     archiveLe: ligne.archive_le ?? null,
     images: imagesDeLaLigne(ligne.images),
     dossierId: ligne.dossier_id ?? null,
+    champsLibres: champsLibresDeLaLigne(ligne.champs_libres),
   };
 }
 
@@ -181,10 +197,15 @@ export type EnregistrementAcces = { ok: true; acces: AccesCoffre } | { ok: false
  * que de recopier ce qu'elle croyait avoir envoyé.
  */
 export function enregistrerAcces(brut: unknown, maintenant = Date.now()): EnregistrementAcces {
-  const juge = jugerAcces(brut);
-  if (!juge.ok) return { ok: false, raison: juge.raison };
-
   const id = String((brut as any)?.id ?? '').trim();
+  /*
+   * Une correction qui TAIT les cases en plus les garde : la note se juge alors
+   * contre celles que la fiche porte déjà (une valeur rangée dans une case en
+   * plus peut être redite dans la note).
+   */
+  const actuelle = id ? (getDb().prepare('SELECT champs_libres FROM secrets WHERE id = ?').get(id) as { champs_libres: string } | undefined) : undefined;
+  const juge = jugerAcces({ ...(brut as object), champsLibresActuels: champsLibresDeLaLigne(actuelle?.champs_libres) });
+  if (!juge.ok) return { ok: false, raison: juge.raison };
 
   // Un projet inconnu ne se range pas : la contrainte de la base refuserait la
   // ligne avec un message illisible.
@@ -224,13 +245,15 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
       juge.dossierId === undefined ? ligneDossierActif(ligne.dossier_id) : dossierDemande;
     const projetFinal = dossierFinal ? dossierFinal.project_id : juge.projectId;
     const dossierIdFinal = dossierFinal ? dossierFinal.id : null;
+    // Les cases en plus suivent la règle des images : les taire les garde.
+    const libresEcrites = juge.champsLibres ? JSON.stringify(juge.champsLibres) : (ligne.champs_libres ?? '[]');
     getDb()
       .prepare(
-        'UPDATE secrets SET nom = ?, type = ?, project_id = ?, champs = ?, note = ?, images = ?, dossier_id = ?, modifie_le = ? WHERE id = ?',
+        'UPDATE secrets SET nom = ?, type = ?, project_id = ?, champs = ?, note = ?, images = ?, dossier_id = ?, champs_libres = ?, modifie_le = ? WHERE id = ?',
       )
-      .run(juge.nom, juge.type, projetFinal, champs, juge.note, imagesEcrites, dossierIdFinal, maintenant, id);
+      .run(juge.nom, juge.type, projetFinal, champs, juge.note, imagesEcrites, dossierIdFinal, libresEcrites, maintenant, id);
     effacerLesImagesOrphelines(retirees);
-    return { ok: true, acces: depuisLigne({ ...ligne, nom: juge.nom, type: juge.type, project_id: projetFinal, champs, note: juge.note, images: imagesEcrites, dossier_id: dossierIdFinal, modifie_le: maintenant }) };
+    return { ok: true, acces: depuisLigne({ ...ligne, nom: juge.nom, type: juge.type, project_id: projetFinal, champs, note: juge.note, images: imagesEcrites, dossier_id: dossierIdFinal, champs_libres: libresEcrites, modifie_le: maintenant }) };
   }
 
   const refus = imagesRefusees(juge.images ?? []);
@@ -247,13 +270,14 @@ export function enregistrerAcces(brut: unknown, maintenant = Date.now()): Enregi
     modifie_le: maintenant,
     images: JSON.stringify(juge.images ?? []),
     dossier_id: dossierDemande ? dossierDemande.id : null,
+    champs_libres: JSON.stringify(juge.champsLibres ?? []),
   };
   if (dossierDemande) neuf.project_id = dossierDemande.project_id;
   getDb()
     .prepare(
-      'INSERT INTO secrets (id, nom, type, project_id, champs, note, images, dossier_id, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO secrets (id, nom, type, project_id, champs, note, images, dossier_id, champs_libres, cree_le, modifie_le) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
-    .run(neuf.id, neuf.nom, neuf.type, neuf.project_id, neuf.champs, neuf.note, neuf.images, neuf.dossier_id, neuf.cree_le, neuf.modifie_le);
+    .run(neuf.id, neuf.nom, neuf.type, neuf.project_id, neuf.champs, neuf.note, neuf.images, neuf.dossier_id, neuf.champs_libres, neuf.cree_le, neuf.modifie_le);
   log.info(`coffre-fort : accès « ${neuf.nom} » enregistré`);
   return { ok: true, acces: depuisLigne(neuf) };
 }

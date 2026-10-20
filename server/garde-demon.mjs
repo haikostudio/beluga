@@ -14,6 +14,7 @@
  * LAISSE PASSER. Un garde qui se trompe en bloquant arrêterait tout le travail
  * des agents ; le pire qu'il puisse faire, c'est de rester muet.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -57,6 +58,24 @@ async function main() {
     // Code 2 : le moteur n'exécute pas la commande et rend ce texte à l'agent.
     process.stderr.write(regle.refusDuGarde(verdict) + '\n');
     process.exit(2);
+  }
+
+  /*
+   * LE DÉPÔT PUBLIC NE REÇOIT RIEN D'UNE INSTALLATION (`shared/src/depot-public.ts`) :
+   * `git push`, `gh pr create`, `gh issue create`, `gh api` en écriture qui le
+   * visent sont refusés. Seule la machine de l'auteur — celle qui porte le
+   * dossier `prive/`, jamais publié — y échappe : c'est d'elle que part le miroir.
+   */
+  if (typeof regle.commandeEnvoieAuDepotPublic === 'function') {
+    const force = process.env.BELUGA_MACHINE_AUTEUR;
+    const auteur = force === '1' || (force !== '0' && fs.existsSync(path.join(ICI, '..', 'prive', 'valeurs-sensibles.json')));
+    if (!auteur) {
+      const envoi = regle.commandeEnvoieAuDepotPublic(commande);
+      if (envoi?.refusee) {
+        process.stderr.write(regle.refusDEnvoi(envoi) + '\n');
+        process.exit(2);
+      }
+    }
   }
 
   /*

@@ -104,6 +104,7 @@ export function PageModeCreation({ settings, update }: ProprietesReglages) {
                 variant="ghost"
                 size="sm"
                 aria-label={`retirer-avis-${index}`}
+                title={t('Retirer cet avis')}
                 onClick={() => enregistrer({ ...reglage, avis: reglage.avis.filter((_, i) => i !== index) })}
               >
                 <X className="h-3.5 w-3.5" />
