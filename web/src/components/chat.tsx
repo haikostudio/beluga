@@ -10,7 +10,6 @@ import {
   MessageSquare,
   RotateCcw,
   RotateCw,
-  SlidersHorizontal,
 } from 'lucide-react';
 import {
   Agent,
@@ -74,6 +73,8 @@ import {
   idDuMessageDeSynthese,
   estUneAide,
   carteEnPause,
+  repartirLesMediasLivres,
+  type MediaLivre,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -92,13 +93,14 @@ import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type R
 import { BoutonReglagesAgent } from '@/components/bouton-reglages-agent';
 import { MessageView } from '@/components/message-view';
 import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation } from '@/components/medias-en-fabrication';
+import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
 import { Composer } from '@/components/composer';
 import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
 import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { BarreDEtapes } from '@/components/barre-etapes';
-import { BandeauCahierDesCharges } from '@/components/cahier-des-charges';
-import { BandeauDeRealisation } from '@/components/realisation-volet';
+import { LectureDuCahierDesCharges } from '@/components/cahier-des-charges';
+import { LectureDuCahierDeRealisation } from '@/components/realisation-volet';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
@@ -120,6 +122,7 @@ import { useMinute } from '@/lib/horloge';
 import { t, formatRegional } from '@/lib/langue';
 import { useSeconde } from '@/lib/horloge';
 import { useIntervalleVisible } from '@/lib/veille';
+import { BandeauDeVeille } from '@/components/veille-de-carte';
 
 export function Chat({
   agent,
@@ -232,6 +235,14 @@ export function Chat({
   const ouDesBlocs = React.useMemo(() => (cardId ? { cardId } : { agentId: agent?.id ?? null }), [cardId, agent?.id]);
   const blocsDeMedias = useBlocsDeLaConversation(ouDesBlocs, derniereDemandeA);
   /*
+   * LES MÉDIAS LIVRÉS (décision du 20/10/2026) : sur une carte, le flux les pose
+   * sous la réponse de chaque tour ; dans la conversation d'un agent sans carte,
+   * sous le DERNIER message de l'agent de chaque tour (celui qui précède la
+   * demande suivante). Un média déjà rendu ainsi ne se redit pas dans le bloc de
+   * fabrication, une fois le tour fini.
+   */
+  const mediasLivresDuFil = useMediasLivres(ouDesBlocs);
+  /*
    * LE FIL EST-IL SEULEMENT EN TRAIN D'ARRIVER ? Une liste vide se lit de deux
    * façons opposées : « rien à dire » ou « pas encore reçu ». On les sépare sur
    * l'ABSENCE de l'entrée (jamais sur sa longueur) : le serveur envoie les
@@ -275,6 +286,22 @@ export function Chat({
     messageEnEcritureA: messages.find((m) => m.streaming)?.createdAt,
     reponseRendueA,
   });
+  const mediasParMessage = React.useMemo(() => {
+    if (cardId || !mediasLivresDuFil.length) return new Map<string, MediaLivre[]>();
+    const finsDeTour: { cle: string; at: number }[] = [];
+    messages.forEach((message, index) => {
+      if (message.role !== 'assistant') return;
+      const suivant = messages[index + 1];
+      /* Le tour court jusqu'à la demande suivante : un message écrit tôt puis
+         complété garde les médias livrés pendant qu'il s'écrivait. */
+      if (suivant ? suivant.role === 'user' : !busy) finsDeTour.push({ cle: message.id, at: suivant ? suivant.createdAt : Number.MAX_SAFE_INTEGER });
+    });
+    return repartirLesMediasLivres(mediasLivresDuFil, finsDeTour);
+  }, [cardId, mediasLivresDuFil, messages, busy]);
+  const piecesLivrees = React.useMemo(
+    () => (busy ? new Set<string>() : new Set(mediasLivresDuFil.map((m) => m.attachmentId))),
+    [busy, mediasLivresDuFil],
+  );
 
   /*
    * ET CE FILET SE DÉCLENCHE TOUT SEUL, SANS NOUVEL ÉVÉNEMENT. Il repose sur
@@ -662,7 +689,10 @@ export function Chat({
   /* Cahier de réalisation TERMINÉ : la barre d'écriture revient (le bandeau
      passe alors par son bouton principal, une seule fois) pour demander une
      amélioration. Avant, on répond dans le panneau de décision. */
-  const barreRendueAuVolet = barreDEcritureDuVoletDeRealisation(carte);
+  /* Un cahier des charges EN PAUSE rend aussi la barre : sans bouton de
+     reprise, on reprend en écrivant (`leverLaPauseSurMessage`). */
+  const barreRendueAuVolet =
+    barreDEcritureDuVoletDeRealisation(carte) || (estVoletDuCahier(carte) && !!carte?.cahierDesCharges?.enPauseA);
   const cahier = carte?.cahierDesCharges;
   const realisation = voletDeRealisation ? realisationDeLaCarte(carte) : null;
   const segments = React.useMemo(
@@ -1109,6 +1139,23 @@ export function Chat({
    * la demande, la réponse à une question, le bouton de lancement. La recopier
    * aurait laissé l'une des deux dériver.
    */
+  /* LES RÉGLAGES DE L'AGENT D'UNE CARTE, autour d'un déclencheur donné : une
+     icône posée tout au bout à droite de la rangée d'action, quel que soit le
+     geste affiché. Jamais dans la barre d'écriture d'une carte. */
+  /* LA MISE EN LIGNE EST FAITE : la rangée d'action s'efface quand elle n'a
+     plus de bouton, et le résumé de l'agent se lit sous « Déploiement ». */
+  const miseEnLigneFaite = deploiement.etat === 'en_ligne' || deploiement.etat === 'archivee';
+  const menuReglagesCarte =
+    carte && cardId && reglagesCarte.vu && reglagesCarte.libelles
+      ? (declencheur: React.ReactElement) => (
+          <MenuDesReglagesDeLaCarte
+            card={carte}
+            vu={reglagesCarte.vu!}
+            libelles={reglagesCarte.libelles!}
+            declencheur={declencheur}
+          />
+        )
+      : undefined;
   const barreDEcriture = (
     <Composer
       agent={agent}
@@ -1117,45 +1164,28 @@ export function Chat({
          une conversation sans carte n'a pas de parcours. */
       boutonPrincipal={
         carte && cardId ? (
-          <BarreDAction
-            carte={carte}
-            agent={agent}
-            gestes={gestes}
-          />
+          <>
+            {/* LA VEILLE DE LA CARTE : ce qu'on attend, et ses deux gestes (`veille-de-carte.tsx`). */}
+            {carte.veille ? <BandeauDeVeille carte={carte} /> : null}
+            <BarreDAction
+              carte={carte}
+              agent={agent}
+              gestes={gestes}
+              menuReglages={menuReglagesCarte}
+              reglagesModifiables={reglagesCarte.vu?.modifiable === true}
+              resumeSousLeDeploiement={miseEnLigneFaite}
+            />
+          </>
         ) : undefined
       }
       /* Le libellé du champ suit le chapitre : « Expliquez… », « Affinez le
          plan… », « Écrire à l'agent… ». */
       libelleDuChamp={carte ? t(LIBELLES_DU_CHAMP[geste.chapitre]) : libelleDuChamp}
-      /* LES RÉGLAGES DE L'AGENT, dans la rangée du bas — toujours visibles. Une
-         carte : son menu de configuration (modifiable jusqu'à la validation,
-         puis lu) ; une conversation sans carte : le menu moteur, modèle,
-         réflexion, compte de l'agent. */
-      reglages={
-        carte && cardId ? (
-          reglagesCarte.vu && reglagesCarte.libelles ? (
-            <MenuDesReglagesDeLaCarte
-              card={carte}
-              vu={reglagesCarte.vu}
-              libelles={reglagesCarte.libelles}
-              declencheur={
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="shrink-0"
-                  title={t('Configuration de l’agent')}
-                  aria-label="Configuration de l’agent"
-                  data-raccourci-reglages={reglagesCarte.vu.modifiable ? 'modifiable' : 'lecture'}
-                >
-                  <SlidersHorizontal className="h-3.5 w-3.5" />
-                </Button>
-              }
-            />
-          ) : undefined
-        ) : agent ? (
-          <BoutonReglagesAgent agent={agent} />
-        ) : undefined
-      }
+      /* LES RÉGLAGES DE L'AGENT, dans la rangée du bas : pour une conversation
+         sans carte seulement (moteur, modèle, réflexion, compte). Ceux d'une
+         carte sont la moitié collée du bouton principal de la rangée d'action
+         (`GestesDuChapitre`). */
+      reglages={!carte && agent ? <BoutonReglagesAgent agent={agent} /> : undefined}
       /* L'arrêt vit dans la barre d'action quand c'est le geste du chapitre :
          un second carré d'arrêt dans le champ le redirait. */
       sansArret={!!carte && geste.geste === 'arreter'}
@@ -1288,6 +1318,11 @@ export function Chat({
                 ouverture={ouverture}
                 onEtapeVisible={surPointVisible}
                 deploiement={deploiement}
+                resumeDeLAgent={
+                  miseEnLigneFaite && reglagesCarte.vu && reglagesCarte.libelles ? (
+                    <ResumeDeLAgent card={carte} vu={reglagesCarte.vu} libelles={reglagesCarte.libelles} />
+                  ) : null
+                }
                 /* LE BLOC RENDU SE VISE PAR SON DÉBUT : on coupe le suivi du
                    bas, sinon le fil y redescendrait au message suivant. */
                 onBlocRendu={() => {
@@ -1304,7 +1339,11 @@ export function Chat({
               />
               </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
-              <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} className="px-4 pb-3 pt-1" />
+              <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} exclure={piecesLivrees} className="px-4 pb-3 pt-1" />
+              {/* LA LECTURE DU CAHIER EST TOUJOURS LA DERNIÈRE LIGNE DU FIL,
+                  sous le plan et les médias en fabrication. */}
+              {voletDeRealisation ? <LectureDuCahierDeRealisation carte={carte} /> : null}
+              {cahier ? <LectureDuCahierDesCharges carte={carte} /> : null}
               <div ref={bottomRef} />
             </ZoneDefilement>
 
@@ -1338,7 +1377,15 @@ export function Chat({
             data-volet-cahier={voletDeRealisation ? undefined : carte.id}
             data-volet-realisation={voletDeRealisation ? carte.id : undefined}
           >
-            {voletDeRealisation ? <BandeauDeRealisation carte={carte} /> : <BandeauCahierDesCharges carte={carte} />}
+            {/* PLUS DE BANDEAU : la seule rangée d'action — « Lancer la
+                fabrication » et ses réglages, ou les réglages seuls du cahier. */}
+            <BarreDAction
+              carte={carte}
+              agent={agent}
+              gestes={gestes}
+              menuReglages={menuReglagesCarte}
+              reglagesModifiables={reglagesCarte.vu?.modifiable === true}
+            />
           </div>
         ) : (
           barreDEcriture
@@ -1417,7 +1464,12 @@ export function Chat({
           {messages.length ? (
             <ContextePiecesDesBlocs.Provider value={blocsDeMedias.pieces}>
               {messages.map((message, index) => (
-                <React.Fragment key={message.id}>{rendreMessage(index)}</React.Fragment>
+                <React.Fragment key={message.id}>
+                  {rendreMessage(index)}
+                  {mediasParMessage.get(message.id)?.length ? (
+                    <MediasLivres medias={mediasParMessage.get(message.id)!} className="mb-3 max-w-[min(100%,46rem)]" />
+                  ) : null}
+                </React.Fragment>
               ))}
             </ContextePiecesDesBlocs.Provider>
           ) : chargement && cardId && state.conversationsEnEchec[cardId] ? (
@@ -1455,7 +1507,7 @@ export function Chat({
                 dernierTexte: [...messages].reverse().find((message) => message.role === 'assistant' && typeof message.content === 'string' && message.content.trim())?.content ?? '',
               })
             : null}
-          <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} />
+          <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} exclure={piecesLivrees} />
           <div ref={bottomRef} />
         </div>
       </ZoneDefilement>
@@ -1952,11 +2004,52 @@ function ReglagesAgent({
 }
 
 /**
+ * QUI A TRAITÉ LA DEMANDE — UNE LIGNE SOUS LE POINT « DÉPLOIEMENT ». Une carte
+ * mise en ligne n'a plus de bouton, donc plus d'icône des réglages : ce résumé
+ * la remplace. Il lit ce qui a RÉELLEMENT servi (`useReglagesCarte`, agent
+ * d'exécution), jamais le dernier choix de la barre d'écriture. Un clic ouvre
+ * le même menu, en lecture.
+ */
+function ResumeDeLAgent({
+  card,
+  vu,
+  libelles,
+}: {
+  card: Card;
+  vu: ReglagesCarte;
+  libelles: { moteur: string; modele: string; reflexion: string };
+}) {
+  const valeurs = [libelles.moteur, libelles.modele, libelles.reflexion, vu.compte].filter(
+    (valeur): valeur is string => !!valeur && valeur !== '—',
+  );
+  return (
+    <MenuDesReglagesDeLaCarte
+      card={card}
+      vu={vu}
+      libelles={libelles}
+      declencheur={
+        <button
+          type="button"
+          data-resume-agent
+          title={titreDesReglages(vu)}
+          className="flex max-w-full items-center gap-1.5 rounded-md bg-raised px-2.5 py-1.5 text-center text-[12.5px] text-muted transition-colors hover:bg-border"
+        >
+          <Cpu className="h-3 w-3 shrink-0 text-faint" aria-hidden />
+          <span className="min-w-0 break-words">
+            {t('Traité par {v0}', { v0: valeurs.join(' · ') })}
+          </span>
+        </button>
+      }
+    />
+  );
+}
+
+/**
  * LE MENU DE LA CONFIGURATION D'UNE CARTE, ANCRÉ AU BOUTON QU'ON LUI CONFIE.
  *
- * Deux boutons l'ouvrent — le bloc du fil (`ReglagesAgent`, menu sous lui) et
- * l'icône de la barre d'écriture (toujours là, menu au-dessus d'elle) : chacun
- * a SON menu, et tous deux montrent le même contenu.
+ * Plusieurs boutons l'ouvrent — le bloc du fil (`ReglagesAgent`, menu sous lui),
+ * l'icône au bout de la rangée d'action et le résumé sous « Déploiement » : chacun
+ * a SON menu, et tous montrent le même contenu.
  *
  *  - MODIFIABLE (`data-tiroir-reglages="modifiable"`) : les entrées des
  *    réglages de l'agent, qui déplient chacune leur liste en sous-menu et

@@ -929,6 +929,13 @@ export const ParcoursDeCarte = z.object({
    */
   cadrageRouvertA: z.number().optional(),
   /**
+   * UNE QUESTION A ÉTÉ POSÉE SUR LA CARTE « À DÉPLOYER », ET LE CADRAGE N'A FAIT
+   * QUE RÉPONDRE : la carte est revenue au lot, mais son étape « Travail »
+   * reste ouverte jusqu'au clic « Terminer la tâche », qui efface ce repère
+   * (`iterationAFermer`, `shared/src/relance-apres-rapport.ts`).
+   */
+  iterationOuverteA: z.number().optional(),
+  /**
    * Un tour n'a pas tenu sa promesse : l'incident se lit, et se referme d'un
    * clic. `etape` dit LEQUEL des deux rendez-vous a été manqué — la
    * compréhension ou le plan — pour que le point rouge tombe au bon endroit de
@@ -1181,6 +1188,24 @@ export const Card = z.object({
   /** Photographie du dernier tour LLM, figée avant le passage en déploiement. */
   llmSessionMetrics: MetriquesSessionLlm.optional(),
   scheduling: SchedulingState.optional(),
+  /**
+   * LA VEILLE DE LA CARTE, résumée pour l'écran (`ResumeDeVeille`,
+   * `shared/src/veille-de-carte.ts`) : ce qu'on attend, jusqu'à quand, le
+   * dernier contrôle et le prochain. La table `veilles_de_carte` fait foi ; ce
+   * résumé est réécrit à chaque passage et retiré quand la veille se termine.
+   */
+  veille: z
+    .object({
+      id: z.string(),
+      etat: z.enum(['en_cours', 'levee', 'expiree', 'abandonnee']),
+      raison: z.string(),
+      echeance: z.number(),
+      prochainControleA: z.number().optional(),
+      dernierControle: z
+        .object({ a: z.number(), issue: z.enum(['levee', 'pas-encore', 'panne']), detail: z.string().optional() })
+        .optional(),
+    })
+    .optional(),
   agentId: z.string().optional(),
   billing: BillingLine.optional(),
   github: GithubTracking.optional(),
@@ -1231,6 +1256,13 @@ export const Card = z.object({
   conversationAgentId: z.string().optional(),
   /** Carte fabriquée pour du travail enregistré sans tâche. */
   horsTache: z.boolean().default(false),
+  /**
+   * LA TÂCHE « RÉCUPÉRER LES NOUVEAUTÉS » posée par le bouton « Mettre à jour »
+   * (`server/src/installation-copie.ts`). Rendue sans blocage, elle est publiée
+   * SEULE par le démon (`shared/src/publication-de-la-mise-a-jour.ts`). Reste
+   * dans le bloc libre de la carte, sans colonne.
+   */
+  miseAJourBeluga: z.boolean().optional(),
   /**
    * LA CARTE MÈRE dont celle-ci est la part pour SON projet, quand elle est née
    * du lancement d'une carte d'un projet réuni (`shared/src/regroupements.ts`).
@@ -1701,6 +1733,12 @@ export const AgentQuestion = z.object({
    * aussi sur la carte.
    */
   competence: z.object({ nom: z.string(), titre: z.string() }).optional(),
+  /**
+   * CETTE QUESTION EST L'ÉCHÉANCE D'UNE VEILLE (`server/src/veille-de-carte.ts`),
+   * posée par le démon et non par l'agent : sa réponse (prolonger, relancer,
+   * abandonner) est tranchée par le démon, jamais rendue au moteur telle quelle.
+   */
+  veille: z.string().optional(),
 });
 export type AgentQuestion = z.infer<typeof AgentQuestion>;
 

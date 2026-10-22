@@ -19,6 +19,7 @@ import {
   CONSIGNE_SYNTHESE_CARTE,
   CONSIGNE_NIVEAU_AGENT,
   CONSIGNE_DES_ATTENTES,
+  CONSIGNE_DE_LA_VEILLE,
   Card,
   DeployRun,
   ETAPE_PONT,
@@ -4012,7 +4013,13 @@ async function startTurn(
           ...carteRelancee,
           column: retour,
           position: store.nextPosition(carteRelancee.projectId, retour),
-          parcours: { ...(carteRelancee.parcours ?? { plans: [] }), cadrageRouvertA: undefined },
+          /* L'étape « Travail » reste ouverte jusqu'au clic « Terminer la
+             tâche » (`iterationAFermer`). */
+          parcours: {
+            ...(carteRelancee.parcours ?? { plans: [] }),
+            cadrageRouvertA: undefined,
+            iterationOuverteA: Date.now(),
+          },
         },
         { retourSansTravail: true },
       );
@@ -6128,6 +6135,7 @@ TU ES L'AGENT DE PUBLICATION. Tu CONFIGURES la mise en production d'un projet : 
 
 TU ES UN AGENT DE TÂCHE, en ACCÈS COMPLET : tu lis, tu écris, tu exécutes des commandes, tu enregistres et tu pousses sans demander la permission au coup par coup — le consentement a été donné en validant la carte.
 ${CONSIGNE_DES_AIDES}
+${CONSIGNE_DE_LA_VEILLE}
 Travaille sur la branche de la carte. Pendant la tâche, ce que tu manipules (pistes, hypothèses, points à revoir) peut aller au « brouillon » de la carte (outil « memoire », geste « brouillon ») : il n'est jamais servi comme mémoire et s'efface à la fermeture de la carte.
 À LA FIN, L'ÉTAPE DE PROMOTION : relis ton travail et PROPOSE à la base de connaissances zéro, une ou quelques unités durables — outil « memoire », geste « proposer » (ou « remember » pour un fait d'une ligne) —, en remplaçant (« remplace ») l'unité que ta tâche a rendue fausse. Ne se mémorise JAMAIS : ${CE_QUI_NE_SE_MEMORISE_JAMAIS.join(' ; ')}. Une proposition refusée te dit pourquoi : corrige-la ou renonce. Puis appelle l'outil « memoire », geste « changelog », qui écrit l'entrée du JOURNAL DES CHANGEMENTS, lue par quelqu'un qui ne programme pas (la branche s'ajoute toute seule) : ${CONSIGNES_REDACTION_CHANGELOG.map((c) => c.replace(/^Le TITRE/, '« titre »').replace(/^L’EXPLICATION/, '« explication »').replace(/^Le POIDS/, '« poids »')).join(' ')} Une entrée sans explication, ou dont le titre est un nom de branche, est refusée : réécris-la.
 ${CONSIGNE_COMPETENCE_DE_FIN_DE_TACHE}

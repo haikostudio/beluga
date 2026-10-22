@@ -131,12 +131,6 @@ export function etatDuCahier(cahier: Pick<CahierDesCharges, 'enPauseA' | 'termin
   return 'en-cours';
 }
 
-/** La part faite, de 0 à 100. Un total inconnu ne promet rien : 0. */
-export function pourcentageDuCahier(cahier: Pick<CahierDesCharges, 'faites' | 'total' | 'termineA'>): number {
-  if (cahier.termineA) return 100;
-  if (!cahier.total) return 0;
-  return Math.max(0, Math.min(100, Math.round((cahier.faites / cahier.total) * 100)));
-}
 
 /**
  * CE QUE L'OUTIL REÇOIT, LU ET BORNÉ. Un avancement incohérent (plus de

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Check, Copy, Loader2, RefreshCw, RotateCw, Send } from 'lucide-react';
+import { Check, Copy, Loader2, RefreshCw, Send } from 'lucide-react';
 import {
   ADRESSE_DE_LA_CONNEXION_PAR_CODE,
   ADRESSE_D_UN_JETON_CLASSIQUE,
@@ -20,11 +20,9 @@ import {
 import { Button, ChampMotDePasse, Input, Switch } from '@/components/ui';
 import { Champ } from '@/components/card-panel';
 import { ExplorateurDeCompetences } from '@/components/installation/explorateur-competences';
-import { BoutonInstaller, SortieDuTravail, useTravailDuGenre } from '@/components/installation/travail';
-import { useRedemarrage } from '@/components/redemarrage';
+import { BoutonInstaller, useTravailDuGenre } from '@/components/installation/travail';
 import { client } from '@/lib/client';
-import { recupererLesNouveautes } from '@/lib/nouveautes';
-import { installationEnDirect, useNouveautes } from '@/lib/travail-installation';
+import { installationEnDirect } from '@/lib/travail-installation';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -1418,67 +1416,3 @@ export function SectionCopie({ etat, relire }: { etat: EtatDeLInstallation | nul
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Les nouveautés du dépôt public                                       */
-/* ------------------------------------------------------------------ */
-
-/**
- * LE BOUTON « RÉCUPÉRER LES NOUVEAUTÉS » des réglages. Il ne paraît que sur une
- * installation qui SUIT le dépôt public : ailleurs, il n'y a rien à récupérer,
- * donc rien à montrer.
- */
-export function SectionNouveautes() {
-  const nouveautes = useNouveautes();
-  const { travail } = useTravailDuGenre('mise-a-jour');
-  const redemarrage = useRedemarrage();
-  const [envoi, setEnvoi] = React.useState(false);
-  if (!nouveautes?.suivi) return null;
-
-  const recuperer = async () => {
-    setEnvoi(true);
-    try {
-      // Le dépôt public est relu d'abord : le bouton sert aussi à vérifier.
-      const relu = await client.call<{ etat: EtatDesNouveautes }>({ type: 'installation.nouveautes', forcer: true }, 120_000);
-      installationEnDirect.recevoirLesNouveautes(relu.etat);
-      if (relu.etat.erreur) client.pushToast('warning', relu.etat.erreur);
-      else if (!relu.etat.disponibles) client.pushToast('success', t('Beluga Build est à jour.'));
-      else await recupererLesNouveautes();
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('Les nouveautés n’ont pas pu être récupérées.'));
-    } finally {
-      setEnvoi(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2" data-section-installation="nouveautes" data-nouveautes={nouveautes.disponibles ? 'disponibles' : 'a-jour'}>
-      {nouveautes.disponibles ? (
-        <LigneDEtat fait={false}>
-          {nouveautes.nombre
-            ? t('{n} nouveauté(s) de Beluga Build sont disponibles.', { n: String(nouveautes.nombre) })
-            : t('Des nouveautés de Beluga Build sont disponibles.')}
-        </LigneDEtat>
-      ) : (
-        <LigneDEtat fait>{t('Beluga Build est à jour.')}</LigneDEtat>
-      )}
-      <p className="text-[13px] leading-relaxed text-muted">
-        {t('Un agent lit le journal des changements du dépôt public et met les nouveautés en place, dans une tâche que vous suivez dans le projet Beluga Build. Rien n’est mis en ligne sans vous.')}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="subtle" size="md" data-recuperer-les-nouveautes disabled={envoi || travail?.etat === 'en-cours'} onClick={() => void recuperer()}>
-          {envoi || travail?.etat === 'en-cours' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          {t('Mettre à jour')}
-        </Button>
-        {travail?.etat === 'reussi' ? (
-          <Button variant="default" size="md" data-redemarrer-apres-mise-a-jour onClick={redemarrage.ouvrir}>
-            <RotateCw className="h-3.5 w-3.5" />
-            {t('Redémarrer pour appliquer')}
-          </Button>
-        ) : null}
-      </div>
-      {travail?.etat === 'echoue' ? <Refus texte={travail.erreur ?? t('L’installation a échoué.')} /> : null}
-      {travail ? <SortieDuTravail /> : null}
-      {redemarrage.dialogue}
-    </div>
-  );
-}

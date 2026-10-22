@@ -238,6 +238,41 @@ export function argumentsSuiviDeTaille(session: string): string[] {
 }
 
 /**
+ * LES PROGRAMMES DE LA SESSION ONT LE DROIT D'ÉCRIRE LE PRESSE-PAPIERS. Avec
+ * `external` (le réglage par défaut), tmux relaie au terminal extérieur ses
+ * propres copies mais ignore la séquence OSC 52 d'un programme. Claude Code, lui,
+ * copie sa sélection par cette séquence ou par `tmux load-buffer -w` : avec `on`,
+ * les deux chemins arrivent jusqu'au navigateur. Option du SERVEUR tmux : la
+ * poser ne touche à aucune session, et la reposer ne coûte rien.
+ */
+export function argumentsPressePapiers(): string[] {
+  return ['set-option', '-s', 'set-clipboard', 'on'];
+}
+
+/**
+ * LE TEXTE D'UNE SÉQUENCE OSC 52 (« Pc;Pd », Pd en base64), tel qu'un programme
+ * l'envoie pour écrire le presse-papiers. Rend `null` pour une DEMANDE DE
+ * LECTURE (« ? ») — jamais servie : ce serait livrer le presse-papiers de
+ * l'ordinateur à la session — et pour tout ce qui n'est pas du base64 lisible.
+ * Une chaîne vide (« effacer ») ne copie rien non plus.
+ */
+export function texteDuPressePapiers(donnees: string): string | null {
+  const separation = donnees.indexOf(';');
+  if (separation < 0) return null;
+  const charge = donnees.slice(separation + 1).trim();
+  if (!charge || charge === '?') return null;
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(charge)) return null;
+  try {
+    const binaire = atob(charge.replace(/\s+/g, ''));
+    const octets = Uint8Array.from(binaire, (c) => c.charCodeAt(0));
+    const texte = new TextDecoder('utf-8', { fatal: true }).decode(octets);
+    return texte || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * LA NOUVELLE TAILLE, TELLE QU'ELLE PART AU RELAIS. Une ligne « colonnes×lignes »
  * sur son quatrième tuyau : le relais refait la taille du terminal, tmux reçoit
  * son SIGWINCH et redessine, sans qu'on ait à couper puis rouvrir l'attache.

@@ -82,6 +82,7 @@ import {
   oublierLancementEnRoute,
 } from './lancements-en-route.js';
 import { passageDuDeploiementAutomatique } from './deploiement-automatique.js';
+import { passageDeLaPublicationDeLaMiseAJour } from './publication-de-la-mise-a-jour.js';
 import { balayerLesPublicationsSansPorteur, publicationEnCours } from './deploy.js';
 import { lancerLaCarteMere } from './regroupements.js';
 import { appliquerRedemarrageEnAttente } from './demon.js';
@@ -1261,7 +1262,7 @@ async function lancerLaCarte(cardId: string): Promise<{ ok: boolean; error?: str
       ? {
           doneAt: undefined,
           sansModification: undefined,
-          parcours: { ...(card.parcours ?? { plans: [] }), cadrageRouvertA: undefined },
+          parcours: { ...(card.parcours ?? { plans: [] }), cadrageRouvertA: undefined, iterationOuverteA: undefined },
         }
       : {}),
     // Pour un projet à plusieurs dépôts, la base de chaque annexe s'ajoute à côté.
@@ -1549,6 +1550,9 @@ export function passageDeVeille(): void {
     log.error('balayage des publications sans porteur', err);
   }
   void passageDuDeploiementAutomatique().catch((err) => log.error('déploiement automatique', err));
+  /* LA TÂCHE DE MISE À JOUR DE BELUGA part seule, sans le reste du lot et sans
+     dépendre de l'interrupteur ci-dessus (`publication-de-la-mise-a-jour.ts`). */
+  void passageDeLaPublicationDeLaMiseAJour().catch((err) => log.error('publication de la mise à jour', err));
   /*
    * ET LE REDÉMARRAGE RETENU EST REJOUÉ ICI, à chaque passage.
    *

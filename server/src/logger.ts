@@ -14,10 +14,29 @@ function write(level: string, args: unknown[]): void {
   else console.log(out);
 }
 
+/**
+ * QUI ÉCOUTE LES ERREURS DU JOURNAL : le rapport d'usage anonyme
+ * (`server/src/usage-installation.ts`) en fait des pannes regroupées. Un
+ * écouteur qui tombe ne casse jamais le journal.
+ */
+const ecouteursDErreur: ((args: unknown[]) => void)[] = [];
+export function surErreurDuJournal(ecouteur: (args: unknown[]) => void): void {
+  ecouteursDErreur.push(ecouteur);
+}
+
 export const log = {
   info: (...args: unknown[]) => write('INFO', args),
   warn: (...args: unknown[]) => write('WARN', args),
-  error: (...args: unknown[]) => write('ERROR', args),
+  error: (...args: unknown[]) => {
+    write('ERROR', args);
+    for (const ecouteur of ecouteursDErreur) {
+      try {
+        ecouteur(args);
+      } catch {
+        /* l'écouteur ne doit jamais faire tomber le journal */
+      }
+    }
+  },
   debug: (...args: unknown[]) => {
     if (process.env.BELUGA_DEBUG) write('DEBUG', args);
   },

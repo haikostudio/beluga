@@ -1,6 +1,7 @@
 import * as React from 'react';
-import { AtSign, CheckCircle2, Circle, Copy, ExternalLink, KeyRound, Link2, Plus, RotateCw, Send, Sparkles, Trash2 } from 'lucide-react';
+import { AtSign, CheckCircle2, ChevronRight, Circle, Loader2, MessageCircleQuestion, Copy, ExternalLink, KeyRound, Link2, Plus, RotateCw, Send, Sparkles, Trash2 } from 'lucide-react';
 import {
+  type Agent,
   type ApplicationDeveloppeur,
   type Card,
   type CibleSociale,
@@ -11,6 +12,7 @@ import {
   type ReseauSocial,
   FICHES_RESEAUX,
   RESEAUX_SOCIAUX,
+  agentTientSonTour,
   ciblesAEnvoyer,
   demandeDePropositionDeReponse,
   raisonMediaManquant,
@@ -21,11 +23,12 @@ import { client } from '@/lib/client';
 import { formatRegional, t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 import { copier } from '@/components/graphiques-statistiques';
-import { CorpsOnglet, PointInfo } from '@/components/marketing';
+import { CorpsOnglet, PastillePertinence, PointInfo, etatDeCarte } from '@/components/marketing';
+import { useApp } from '@/lib/use-app';
 
 /**
- * LA PUBLICATION OFFICIELLE DANS L'ATELIER — les onglets « Comptes » et
- * « Messages », et le bloc « Où publier » de la fiche d'un contenu
+ * LA PUBLICATION OFFICIELLE DANS L'ATELIER — les comptes (en tête de la
+ * rubrique « Canaux »), l'onglet « Messages », et le bloc « Où publier » de la fiche d'un contenu
  * (`shared/src/reseaux-sociaux.ts`, `server/src/publication-sociale.ts`).
  *
  *  - COMPTES : un réseau par ligne. « Relier » ouvre le réseau dans un nouvel
@@ -76,10 +79,54 @@ function capacites(reseau: ReseauSocial): string {
 /* L'onglet « Comptes »                                                 */
 /* ------------------------------------------------------------------ */
 
-export function OngletComptes({ projectId, reseaux, cartes = [], onOuvrirCarte }: { projectId: string; reseaux: VueDesReseaux | undefined; cartes?: Card[]; onOuvrirCarte?: (card: Card) => void }) {
+/** Ce que la rubrique Canaux dit d'un réseau : choisi ou non, et l'avis de l'agent. */
+export interface CanalDuReseau {
+  choisi: boolean;
+  pertinence?: string;
+}
+
+/**
+ * LES COMPTES, EN TÊTE DE LA RUBRIQUE « CANAUX » (demande du 20/10/2026 :
+ * l'onglet Comptes a fusionné dans Canaux, sous ce nom). Un réseau par ligne,
+ * ceux qui ont un compte RELIÉ d'abord ; le nom du réseau ouvre la fiche de
+ * son canal (avis de l'agent, parcours), qui n'est donc plus redite plus bas.
+ */
+export function OngletComptes({
+  projectId,
+  reseaux,
+  cartes = [],
+  onOuvrirCarte,
+  canaux,
+  onOuvrirCanal,
+}: {
+  projectId: string;
+  reseaux: VueDesReseaux | undefined;
+  cartes?: Card[];
+  onOuvrirCarte?: (card: Card) => void;
+  /** L'état de chaque canal-réseau, pour la coche et l'avis posés sur sa ligne. */
+  canaux?: Partial<Record<ReseauSocial, CanalDuReseau>>;
+  onOuvrirCanal?: (reseau: ReseauSocial) => void;
+}) {
   const [aRetirer, setARetirer] = React.useState<CompteSocial | null>(null);
   const [identifiants, setIdentifiants] = React.useState<ReseauSocial | null>(null);
+  /* « CRÉER » LE DIT DÈS LE CLIC : « Lancement… » pendant l'appel, puis la
+     carte rendue par le démon, avant même que l'espace relu ne la porte. */
+  const [lancement, setLancement] = React.useState<ReseauSocial | null>(null);
+  const [lancees, setLancees] = React.useState<Partial<Record<ReseauSocial, string>>>({});
+  const state = useApp();
+  /** La carte de création est-elle finie (ni planifiée, ni en cours, ni son agent au travail) ? Inconnue : pas encore. */
+  const creationFinie = (cardId: string) => {
+    const carte = cartes.find((c) => c.id === cardId) ?? state.cards[cardId];
+    if (!carte) return false;
+    const agent = agentDeLaCarte(carte, state.agents);
+    return !agent?.attendReponse && !(agent && agentTientSonTour(agent)) && carte.column !== 'running' && carte.column !== 'planned';
+  };
   if (!reseaux) return null;
+  const rang = (reseau: ReseauSocial) => {
+    const siens = reseaux.comptes.filter((c) => c.reseau === reseau);
+    return siens.some((c) => c.etat === 'relie') ? 0 : siens.length ? 1 : canaux?.[reseau]?.choisi ? 2 : 3;
+  };
+  const ordre = [...RESEAUX_SOCIAUX].sort((a, b) => rang(a) - rang(b));
 
   const relier = async (reseau: ReseauSocial) => {
     // L'onglet s'ouvre DANS le clic (sinon le navigateur le bloque), puis reçoit l'adresse du réseau.
@@ -96,20 +143,21 @@ export function OngletComptes({ projectId, reseaux, cartes = [], onOuvrirCarte }
   };
 
   const creer = async (reseau: ReseauSocial) => {
+    setLancement(reseau);
     try {
       const r = await client.call<{ cardId: string }>({ type: 'marketing.compte.creer', projectId, reseau });
+      setLancees((avant) => ({ ...avant, [reseau]: r.cardId }));
       client.pushToast('success', t('L’agent est lancé : il vous posera ses questions ici.'));
-      const carte = cartes.find((c) => c.id === r.cardId);
-      if (carte) onOuvrirCarte?.(carte);
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('L’agent n’a pas pu partir'));
-      throw err;
+    } finally {
+      setLancement(null);
     }
   };
 
   return (
-    <CorpsOnglet>
-      <div className="flex flex-col gap-4" data-marketing-comptes={reseaux.comptes.length}>
+    <>
+      <div className="flex flex-col gap-3" data-marketing-comptes={reseaux.comptes.length}>
         <div className="flex items-center gap-2">
           <span className="flex-1 text-[13px] text-muted">{t('Reliez les comptes de ce projet : l’atelier y publie lui-même, à l’heure prévue.')}</span>
           <PointInfo titre={t('Les comptes')}>
@@ -124,32 +172,37 @@ export function OngletComptes({ projectId, reseaux, cartes = [], onOuvrirCarte }
           </PointInfo>
         </div>
         <ul className="flex flex-col gap-2">
-          {RESEAUX_SOCIAUX.map((reseau) => {
+          {ordre.map((reseau) => {
             const fiche = FICHES_RESEAUX[reseau];
             const app = reseaux.applications.find((a) => a.application === fiche.application);
             const comptes = reseaux.comptes.filter((c) => c.reseau === reseau);
             const peutRelier = !raisonReliureImpossible(app);
-            const carteAgent = app?.cardId ? cartes.find((c) => c.id === app.cardId) : undefined;
+            const carteDeCreation = lancees[reseau] ?? app?.cardId;
             return (
               <li key={reseau} className="flex flex-col gap-2 rounded-md bg-bloc px-3 py-2.5" data-marketing-reseau={reseau} data-application={app?.etat ?? 'absente'} data-comptes={comptes.length}>
                 <div className="flex items-start gap-2.5">
-                  <AtSign className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-[13.5px] font-medium text-text">{libelleReseau(reseau)}</span>
-                    <span className="text-[12px] text-faint">{capacites(reseau)}</span>
-                  </div>
+                  {canaux?.[reseau]?.choisi ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-termine" /> : <AtSign className="mt-0.5 h-4 w-4 shrink-0 text-muted" />}
+                  {onOuvrirCanal ? (
+                    <button type="button" onClick={() => onOuvrirCanal(reseau)} className="flex min-w-0 flex-1 flex-col text-left" data-marketing-canal={reseau} data-choisi={canaux?.[reseau]?.choisi ? 'oui' : 'non'}>
+                      <span className="flex min-w-0 items-center gap-1.5 text-[13.5px] font-medium text-text">
+                        <span className="min-w-0 truncate">{libelleReseau(reseau)}</span>
+                        {canaux?.[reseau]?.pertinence ? <PastillePertinence pertinence={canaux[reseau]!.pertinence!} /> : null}
+                        <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" />
+                      </span>
+                      <span className="text-[12px] text-faint">{capacites(reseau)}</span>
+                    </button>
+                  ) : (
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-[13.5px] font-medium text-text">{libelleReseau(reseau)}</span>
+                      <span className="text-[12px] text-faint">{capacites(reseau)}</span>
+                    </div>
+                  )}
                   <Button size="icon" variant="ghost" aria-label="Identifiants de l’application" title={t('Identifiants de l’application')} onClick={() => setIdentifiants(reseau)} data-marketing-identifiants={reseau}>
                     <KeyRound className="h-3.5 w-3.5" />
                   </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted">
-                  {carteAgent && onOuvrirCarte ? (
-                    <button type="button" className="underline-offset-2 hover:underline" onClick={() => onOuvrirCarte(carteAgent)} data-marketing-agent-creation={reseau}>
-                      {libelleEtatApplication(app)}
-                    </button>
-                  ) : (
-                    <span>{libelleEtatApplication(app)}</span>
-                  )}
+                  <span>{libelleEtatApplication(app)}</span>
                   {app?.note ? <span className="text-faint">· {app.note}</span> : null}
                 </div>
                 <p className="text-[12px] leading-snug text-faint">{t(fiche.note)}</p>
@@ -175,10 +228,16 @@ export function OngletComptes({ projectId, reseaux, cartes = [], onOuvrirCarte }
                     <Link2 className="h-3.5 w-3.5" />
                     {comptes.length ? t('Relier un autre compte') : t('Relier')}
                   </Button>
-                  {!comptes.length ? (
-                    <Button size="sm" variant="ghost" onClick={() => creer(reseau)} data-marketing-creer-compte={reseau}>
-                      <Plus className="h-3.5 w-3.5" />
-                      {t('Créer')}
+                  {/* LE STATUT DE LA CARTE À LA PLACE DE « CRÉER » (demande du 20/10/2026) :
+                      une fois lancée, la création se suit ici, et un clic ouvre sa carte. Finie
+                      sans compte, « Créer » revient à côté pour la relancer. */}
+                  {!comptes.length && carteDeCreation ? (
+                    <StatutDeCreation reseau={reseau} cardId={carteDeCreation} cartes={cartes} onOuvrirCarte={onOuvrirCarte} />
+                  ) : null}
+                  {!comptes.length && (!carteDeCreation || creationFinie(carteDeCreation)) ? (
+                    <Button size="sm" variant="ghost" disabled={lancement === reseau} onClick={() => void creer(reseau)} data-marketing-creer-compte={reseau}>
+                      {lancement === reseau ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                      {lancement === reseau ? t('Lancement…') : t('Créer')}
                     </Button>
                   ) : null}
                 </div>
@@ -201,7 +260,53 @@ export function OngletComptes({ projectId, reseaux, cartes = [], onOuvrirCarte }
         onClose={() => setARetirer(null)}
       />
       <FenetreIdentifiants reseau={identifiants} application={identifiants ? reseaux.applications.find((a) => a.application === FICHES_RESEAUX[identifiants].application) : undefined} onClose={() => setIdentifiants(null)} />
-    </CorpsOnglet>
+    </>
+  );
+}
+
+/** L'agent d'une carte : le sien, sinon celui qui tient son tour pour elle. */
+function agentDeLaCarte(carte: Card, agents: Record<string, Agent>): Agent | undefined {
+  return (carte.agentId ? agents[carte.agentId] : undefined) ?? Object.values(agents).find((a) => a.cardId === carte.id && agentTientSonTour(a));
+}
+
+/**
+ * LE STATUT D'UNE CRÉATION DE COMPTE : le même témoin que sur le tableau
+ * (`etatDeCarte`) — question en attente, l'agent travaille, en cours,
+ * planifié, terminé —, et un clic ouvre la carte. Une carte rangée n'est plus
+ * dans les cartes de l'atelier : elle est redemandée au démon, jamais
+ * remplacée par un « Créer » trompeur.
+ */
+function StatutDeCreation({ reseau, cardId, cartes, onOuvrirCarte }: { reseau: ReseauSocial; cardId: string; cartes: Card[]; onOuvrirCarte?: (card: Card) => void }) {
+  const state = useApp();
+  const carte = cartes.find((c) => c.id === cardId) ?? state.cards[cardId];
+  const connue = !!carte;
+  React.useEffect(() => {
+    if (!connue) void client.chargerCarte(cardId);
+  }, [cardId, connue]);
+  if (!carte) {
+    return (
+      <span className="flex items-center gap-1.5 px-2 text-[12px] text-faint" data-marketing-statut-creation={reseau} data-etat="lecture">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {t('Lancement…')}
+      </span>
+    );
+  }
+  const agent = agentDeLaCarte(carte, state.agents);
+  const etat = etatDeCarte(carte, agent);
+  const question = !!agent?.attendReponse;
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      className={etat.classe}
+      onClick={() => onOuvrirCarte?.(carte)}
+      title={t('Ouvrir la tâche')}
+      data-marketing-statut-creation={reseau}
+      data-etat={question ? 'question' : etat.tourne ? 'travail' : carte.column}
+    >
+      {etat.tourne ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : question ? <MessageCircleQuestion className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+      {etat.libelle}
+    </Button>
   );
 }
 

@@ -62,7 +62,7 @@ export const COLONNE_DE_LA_RELANCE: ColumnKey = 'planned';
 
 interface CarteRelancable {
   column: ColumnKey | string;
-  parcours?: { cadrageRouvertA?: number } | null;
+  parcours?: { cadrageRouvertA?: number; iterationOuverteA?: number } | null;
 }
 
 interface ParcoursDeRelance {
@@ -202,6 +202,26 @@ export function colonneApresReponseSansCadrage(carte: {
      ni cadré ni dit « réponse seule ». La carte reste là où l'incident se lit. */
   if (parcours?.incident && parcours.incident.at >= depuis) return null;
   return 'to_deploy';
+}
+
+/**
+ * L'ITÉRATION D'UNE SIMPLE QUESTION ATTEND-ELLE SA FERMETURE ?
+ *
+ * Une question posée sur une carte « À déployer », à laquelle le cadrage n'a
+ * fait que répondre, la rend au lot (`colonneApresReponseSansCadrage`) avec le
+ * repère `parcours.iterationOuverteA`. Tant qu'il tient, l'étape « Travail »
+ * du haut reste ouverte et le pied de la carte montre « Terminer la tâche » à
+ * la place de « Déployer » ; le clic (`card.finish`) efface le repère, et
+ * « Déployer » revient. La carte reste dans le lot pendant ce temps.
+ *
+ * Une carte sans repère — toutes celles d'avant, et toute carte prête sans
+ * question — est fermée : elle garde « Déployer ».
+ */
+export function iterationAFermer(carte: {
+  column: ColumnKey | string;
+  parcours?: { cadrageRouvertA?: number; iterationOuverteA?: number } | null;
+}): boolean {
+  return carte.column === 'to_deploy' && !cadrageRouvertApresRapport(carte) && !!carte.parcours?.iterationOuverteA;
 }
 
 /**

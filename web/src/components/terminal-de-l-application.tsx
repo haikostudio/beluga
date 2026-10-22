@@ -1,18 +1,16 @@
 import * as React from 'react';
 import { PanneauALaDemande } from '@/lib/panneau-a-la-demande';
-import { EVENEMENT_OUVRIR_TERMINAL } from '@/lib/ouvrir-terminal';
+import { EVENEMENT_OUVRIR_TERMINAL, publierEtatDuTerminal, type EtatDuTerminal } from '@/lib/ouvrir-terminal';
 import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
-import { PastilleDuTerminal } from '@/components/pastille-terminal';
+import { useTelephone } from '@/lib/telephone';
+import { RondDuTerminal } from '@/components/pastille-terminal';
 
 /** L'afficheur de terminal est lourd : il part dans son propre morceau. */
 const TerminalServeur = React.lazy(() =>
   import('@/components/terminal-serveur').then((m) => ({ default: m.TerminalServeur })),
 );
 
-/** Fermé, ouvert, ou réduit en pastille : dans ce dernier cas il reste attaché. */
-type EtatDuTerminal = 'ferme' | 'ouvert' | 'reduit';
-
-/** Le terminal réduit se retrouve après un rechargement : sa pastille revient et se rattache. */
+/** Le terminal réduit se retrouve après un rechargement : il se rattache, et son rond tourne s'il travaille. */
 const CLE_TERMINAL_REDUIT = 'beluga-terminal-reduit';
 
 function etatInitial(): EtatDuTerminal {
@@ -24,23 +22,29 @@ function etatInitial(): EtatDuTerminal {
 }
 
 /**
- * LE TERMINAL DU SERVEUR, PORTÉ PAR LA RACINE. Ses entrées : le bouton du
- * tableau de bord (en haut à droite) et la page « Serveur et agents » des
- * réglages. Lui est un VOLET ancré en bas de l'application, et il garde son
+ * LE TERMINAL DU SERVEUR, PORTÉ PAR LA RACINE. Ses entrées : sur ordinateur,
+ * le ROND posé à gauche du robot de l'assistant, toujours affiché ; sur
+ * téléphone, un bouton du pied du menu principal ; partout, la page « Serveur »
+ * des réglages. Lui est un VOLET ancré en bas de l'application, et il garde son
  * mot dans l'adresse (« terminal ») : un lien collé ou un rechargement le
  * rouvre, que les réglages soient ouverts ou non.
  *
- * RÉDUIT (décision de l'utilisateur du 20/10/2026), il laisse une PASTILLE en
- * bas à droite, sur toutes les pages, qui tourne tant que quelque chose
- * travaille dedans. L'afficheur reste monté et attaché : rouvrir — par la
- * pastille ou par les entrées habituelles — le montre tel qu'il était,
- * historique compris. Seule la croix le retire ; la session tmux, elle,
- * continue dans tous les cas.
+ * RÉDUIT (décision de l'utilisateur du 20/10/2026), l'afficheur reste monté et
+ * attaché, et le rond (ou le bouton du pied) TOURNE tant que quelque chose
+ * travaille dedans. Rouvrir le montre tel qu'il était, historique compris.
+ * Seule la croix le retire ; la session tmux, elle, continue dans tous les cas.
  *
  * `onOuverture` laisse la racine refermer ce qui le couvrirait — la fenêtre
  * des réglages, d'où part la demande.
  */
-export function TerminalDeLApplication({ onOuverture }: { onOuverture: () => void }) {
+export function TerminalDeLApplication({
+  onOuverture,
+  admin,
+}: {
+  onOuverture: () => void;
+  /** Le terminal est un accès à la machine : son rond n'est posé que pour l'administrateur. */
+  admin: boolean;
+}) {
   const [etat, setEtat] = React.useState<EtatDuTerminal>(etatInitial);
   const [actif, setActif] = React.useState(false);
   const ouvert = etat === 'ouvert';
@@ -57,10 +61,14 @@ export function TerminalDeLApplication({ onOuverture }: { onOuverture: () => voi
       if (etat === 'reduit') window.localStorage.setItem(CLE_TERMINAL_REDUIT, '1');
       else window.localStorage.removeItem(CLE_TERMINAL_REDUIT);
     } catch {
-      /* stockage indisponible : la pastille ne survivra pas au rechargement */
+      /* stockage indisponible : la réduction ne survivra pas au rechargement */
     }
     if (etat !== 'reduit') setActif(false);
   }, [etat]);
+
+  // Le bouton du pied du menu (téléphone) lit l'état hors de la racine.
+  React.useEffect(() => publierEtatDuTerminal({ etat, actif }), [etat, actif]);
+  const telephone = useTelephone();
 
   React.useEffect(() => {
     const ouvrir = () => {
@@ -83,10 +91,15 @@ export function TerminalDeLApplication({ onOuverture }: { onOuverture: () => voi
           onActivite={setActif}
         />
       </PanneauALaDemande>
-      {etat === 'reduit' ? (
-        <PastilleDuTerminal
+      {!telephone && admin ? (
+        <RondDuTerminal
+          etat={etat}
           actif={actif}
-          onOuvrir={() => {
+          onBasculer={() => {
+            if (etat === 'ouvert') {
+              setEtat('reduit');
+              return;
+            }
             onOuverture();
             setEtat('ouvert');
           }}

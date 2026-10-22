@@ -1042,3 +1042,22 @@ export function SilhouetteMedias({ groupes = 2 }: { groupes?: number }) {
     </Bloc>
   );
 }
+
+/**
+ * LES TÂCHES RÉCURRENTES : la liste des veilles — la raison, puis la carte et
+ * les horaires. Mêmes hauteurs que les vraies lignes (`taches-recurrentes.tsx`).
+ */
+export function SilhouetteTachesRecurrentes({ lignes = 4 }: { lignes?: number }) {
+  return (
+    <Bloc zone="taches-recurrentes" className="flex flex-col gap-1">
+      {Array.from({ length: lignes }, (_, index) => (
+        <LigneEnSilhouette key={index} className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <Barre className={cn('h-3.5 max-w-[360px]', LARGEURS[index % LARGEURS.length])} />
+            <Barre className="h-3 w-[260px] max-w-full" />
+          </div>
+        </LigneEnSilhouette>
+      ))}
+    </Bloc>
+  );
+}

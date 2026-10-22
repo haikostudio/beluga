@@ -1,6 +1,6 @@
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import { CalendarClock, ChevronDown, Crosshair, Layers, List, Loader2, Minus, Plus, Search, X } from 'lucide-react';
+import { CalendarClock, ChevronDown, Crosshair, GripHorizontal, Layers, List, Loader2, Minus, Plus, Search, X } from 'lucide-react';
 import {
   FAMILLES_DU_GRAPHE,
   PORTEE_GLOBALE,
@@ -31,6 +31,7 @@ import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMe
 import { DeuxCalendriers, libelleDePlage } from '@/components/selecteur-periode';
 import { client } from '@/lib/client';
 import { formatRegional, t } from '@/lib/langue';
+import { usePref } from '@/lib/prefs';
 import { cn } from '@/lib/utils';
 
 /**
@@ -205,6 +206,22 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 const MINI_LARGEUR = 180;
 const MINI_HAUTEUR = 130;
 const MINI_MARGE = 8;
+/** La place de la mini-carte par défaut : le coin bas droit, au-dessus des boutons flottants du coin. */
+const MINI_DROITE = 12;
+const MINI_BAS = 84;
+/** La marge gardée sous l'en-tête de recherche, et le pas des flèches du clavier sur la poignée. */
+const MINI_HAUT_LIBRE = 64;
+const MINI_PAS_CLAVIER = 16;
+/** La préférence de COMPTE qui retient la place de la mini-carte (retraits droite / bas, en pixels). */
+const CLE_PLACE_MINICARTE = 'memoire.minicarte';
+type PlaceDeLaMinicarte = { droite: number; bas: number };
+
+/** Une place tenue dans la zone du graphe : jamais hors champ, jamais sous la recherche. */
+export function placeBornee(place: PlaceDeLaMinicarte, largeur: number, hauteur: number): PlaceDeLaMinicarte {
+  const droiteMax = Math.max(MINI_MARGE, largeur - MINI_LARGEUR - MINI_MARGE);
+  const basMax = Math.max(MINI_MARGE, hauteur - MINI_HAUTEUR - MINI_HAUT_LIBRE);
+  return { droite: clamp(place.droite, MINI_MARGE, droiteMax), bas: clamp(place.bas, MINI_MARGE, basMax) };
+}
 
 /** La présence d'un nœud ESTOMPÉ (né avant le début de la période) : là, mais en arrière-plan. */
 const PRESENCE_ESTOMPEE = 0.22;
@@ -293,8 +310,8 @@ export const ToileDuGraphe = React.forwardRef<
     bulle: (noeud: NoeudDuGraphe) => React.ReactNode;
     /** Ce qui couvre la toile, en pixels — la recherche en haut, la fiche à droite (en bas sur téléphone) : le cadrage vise ce qui reste visible. */
     couvert?: () => { haut: number; droite: number; bas: number };
-    /** La mini-carte du coin bas droit (ordinateur seulement), et son retrait depuis le bord droit en pixels. */
-    minicarte?: { droite: number } | null;
+    /** La mini-carte (ordinateur seulement) : coin bas droit par défaut, déplaçable par sa poignée. */
+    minicarte?: boolean;
     /** Le niveau de chaque nœud à la période regardée (`niveauxALaDate`) : 0 caché, 1 estompé, 2 plein. */
     niveaux: Uint8Array;
     /** Combien d'éléments se voient à cette période. */
@@ -304,6 +321,80 @@ export const ToileDuGraphe = React.forwardRef<
   const cadre = React.useRef<HTMLDivElement>(null);
   const toile = React.useRef<HTMLCanvasElement>(null);
   const mini = React.useRef<HTMLCanvasElement>(null);
+  /*
+   * LA PLACE DE LA MINI-CARTE (décision du 20/10/2026) : le coin bas droit par
+   * défaut, et elle NE BOUGE PLUS quand une fiche s'ouvre — la fiche passe
+   * par-dessus. La poignée la déplace ; la place est retenue sur le COMPTE,
+   * écrite au relâcher, et bornée à chaque rendu dans la zone du graphe.
+   */
+  const [placeRetenue, retenirLaPlace] = usePref<PlaceDeLaMinicarte | null>(CLE_PLACE_MINICARTE, null);
+  const [placeEnCours, setPlaceEnCours] = React.useState<PlaceDeLaMinicarte | null>(null);
+  const [tailleDuCadre, setTailleDuCadre] = React.useState({ largeur: 0, hauteur: 0 });
+  React.useEffect(() => {
+    const zone = cadre.current;
+    if (!zone || !minicarte) return;
+    const mesurer = () => setTailleDuCadre({ largeur: zone.clientWidth, hauteur: zone.clientHeight });
+    mesurer();
+    const observateur = new ResizeObserver(mesurer);
+    observateur.observe(zone);
+    return () => observateur.disconnect();
+  }, [minicarte]);
+  const placeDeLaMinicarte = placeBornee(
+    placeEnCours ?? placeRetenue ?? { droite: MINI_DROITE, bas: MINI_BAS },
+    tailleDuCadre.largeur || Number.MAX_SAFE_INTEGER,
+    tailleDuCadre.hauteur || Number.MAX_SAFE_INTEGER,
+  );
+  const deplacerLaMinicarte = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const poignee = e.currentTarget;
+    try {
+      poignee.setPointerCapture(e.pointerId);
+    } catch {
+      /* rien */
+    }
+    const depart = { x: e.clientX, y: e.clientY, ...placeDeLaMinicarte };
+    let derniere: PlaceDeLaMinicarte = { droite: depart.droite, bas: depart.bas };
+    const suivre = (ev: PointerEvent) => {
+      const zone = cadre.current;
+      derniere = placeBornee(
+        { droite: depart.droite - (ev.clientX - depart.x), bas: depart.bas - (ev.clientY - depart.y) },
+        zone?.clientWidth ?? Number.MAX_SAFE_INTEGER,
+        zone?.clientHeight ?? Number.MAX_SAFE_INTEGER,
+      );
+      setPlaceEnCours(derniere);
+    };
+    const lacher = () => {
+      poignee.removeEventListener('pointermove', suivre);
+      poignee.removeEventListener('pointerup', lacher);
+      poignee.removeEventListener('pointercancel', lacher);
+      if (derniere.droite !== depart.droite || derniere.bas !== depart.bas) retenirLaPlace(derniere);
+      setPlaceEnCours(null);
+    };
+    poignee.addEventListener('pointermove', suivre);
+    poignee.addEventListener('pointerup', lacher);
+    poignee.addEventListener('pointercancel', lacher);
+  };
+  const deplacerAuClavier = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const pas: Record<string, [number, number]> = {
+      ArrowLeft: [MINI_PAS_CLAVIER, 0],
+      ArrowRight: [-MINI_PAS_CLAVIER, 0],
+      ArrowUp: [0, MINI_PAS_CLAVIER],
+      ArrowDown: [0, -MINI_PAS_CLAVIER],
+    };
+    const d = pas[e.key];
+    if (!d) return;
+    e.preventDefault();
+    e.stopPropagation();
+    retenirLaPlace(
+      placeBornee(
+        { droite: placeDeLaMinicarte.droite + d[0], bas: placeDeLaMinicarte.bas + d[1] },
+        tailleDuCadre.largeur || Number.MAX_SAFE_INTEGER,
+        tailleDuCadre.hauteur || Number.MAX_SAFE_INTEGER,
+      ),
+    );
+  };
   const bulleRef = React.useRef<HTMLDivElement>(null);
   const [survole, setSurvole] = React.useState<number | null>(null);
   const [pret, setPret] = React.useState(false);
@@ -1026,23 +1117,47 @@ export const ToileDuGraphe = React.forwardRef<
         {noeudSurvole ? bulle(noeudSurvole) : null}
       </div>
       {minicarte ? (
-        <canvas
-          ref={mini}
-          className="absolute bottom-[84px] z-10 cursor-crosshair rounded-xl bg-surface shadow-sm"
-          style={{ right: minicarte.droite, width: MINI_LARGEUR, height: MINI_HAUTEUR }}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            e.currentTarget.setPointerCapture?.(e.pointerId);
-            allerSurLaMinicarte(e);
-          }}
-          onPointerMove={(e) => {
-            if (e.currentTarget.hasPointerCapture?.(e.pointerId)) allerSurLaMinicarte(e);
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-          aria-label="Mini-carte du graphe"
-          role="img"
-          data-graphe-minicarte
-        />
+        <div
+          className="group/minicarte absolute z-10 rounded-xl bg-surface shadow-sm"
+          style={{ right: placeDeLaMinicarte.droite, bottom: placeDeLaMinicarte.bas, width: MINI_LARGEUR, height: MINI_HAUTEUR }}
+          data-graphe-minicarte-cadre
+          data-graphe-minicarte-place={placeRetenue ? 'retenue' : 'coin'}
+        >
+          <canvas
+            ref={mini}
+            className="block cursor-crosshair rounded-xl"
+            style={{ width: MINI_LARGEUR, height: MINI_HAUTEUR }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+              allerSurLaMinicarte(e);
+            }}
+            onPointerMove={(e) => {
+              if (e.currentTarget.hasPointerCapture?.(e.pointerId)) allerSurLaMinicarte(e);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            aria-label="Mini-carte du graphe"
+            role="img"
+            data-graphe-minicarte
+          />
+          {/* LA POIGNÉE : glisser déplace la mini-carte, le double-clic la renvoie
+              dans le coin. Glisser DANS la carte, lui, continue d'y amener la vue. */}
+          <button
+            type="button"
+            className="absolute left-1/2 top-0 flex h-4 w-10 -translate-x-1/2 -translate-y-1/2 cursor-grab touch-none items-center justify-center rounded-full bg-raised text-faint opacity-0 shadow-sm transition-opacity hover:text-text focus-visible:opacity-100 active:cursor-grabbing group-hover/minicarte:opacity-100"
+            onPointerDown={deplacerLaMinicarte}
+            onKeyDown={deplacerAuClavier}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              retenirLaPlace(null);
+            }}
+            title={t('Glisser pour déplacer · double-clic pour la remettre dans le coin')}
+            aria-label="Déplacer la mini-carte"
+            data-graphe-minicarte-poignee
+          >
+            <GripHorizontal className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
       ) : null}
     </div>
   );
@@ -1285,7 +1400,7 @@ export function PageDuGraphe({
           droite: !telephone && selectionRef.current ? 384 : 0,
           bas: telephone && selectionRef.current ? (document.querySelector('[data-graphe-fiche]')?.getBoundingClientRect().height ?? 0) + 16 : 0,
         })}
-        minicarte={telephone ? null : { droite: noeudChoisi ? 384 : 12 }}
+        minicarte={!telephone}
         bulle={(noeud) =>
           noeud.genre === 'element' ? (
             <>

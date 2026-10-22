@@ -63,7 +63,7 @@ export function SectionPartage() {
           {
             id: 'non',
             nom: t('Rester anonyme'),
-            detail: t('Seuls le numéro, la version et le pays partent.'),
+            detail: t('Votre adresse ne part pas.'),
           },
         ]}
         onChoisir={(id) => enregistrer({ partageDuCourriel: id })}

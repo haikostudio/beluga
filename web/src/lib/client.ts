@@ -1,3 +1,4 @@
+import { noterUneCoupure } from './mesure-d-usage';
 import {
   AccountQuota,
   Agent,
@@ -73,7 +74,7 @@ import {
   suiteDuChargementRate,
   PROTOCOL_VERSION,
   doitRechargerPourLeProtocole,
-  estCarteMarketing,
+  carteMarketingCachee,
   poserLesMoteursAjoutes,
   type FicheMoteur,
   separerLesSuivis,
@@ -407,6 +408,8 @@ export interface AppState {
   attachments: Record<string, Attachment[]>;
   /** Les médias en fabrication, tous projets : les blocs d'attente du fil (`shared/src/media-en-fabrication.ts`). */
   mediasEnFabrication: MediaEnFabrication[];
+  /** Les veilles qui courent, et l'heure du dernier changement (`veilles.compte`) : la page « Tâches récurrentes » relit sur ce signal. */
+  veilles: { actives: number; a: number };
   files: Record<string, FileNode[]>;
   memory: Record<string, string>;
   /**
@@ -504,6 +507,7 @@ const initialState: AppState = {
   precedents: {},
   attachments: {},
   mediasEnFabrication: [],
+  veilles: { actives: 0, a: 0 },
   files: {},
   memory: {},
   slash: {},
@@ -544,6 +548,15 @@ type Listener = () => void;
 /** Le participe passé que la règle pure `bilanDeLot` accorde (« 3 cartes archivées ») : un mot de la règle, pas un texte d'écran. */
 const CLE_PARTICIPE_ARCHIVAGE = 'archivée';
 const CLE_PARTICIPE_RESSORTIE = 'ressortie';
+
+/**
+ * LA COLONNE OÙ LE TABLEAU COMPTE CETTE CARTE — aucune pour une carte de
+ * l'atelier Marketing rangée (`carteMarketingCachee`) : le démon ne la compte
+ * pas, l'écran non plus.
+ */
+function colonneComptee(carte: Card | undefined): Card['column'] | undefined {
+  return carte && !carteMarketingCachee(carte) ? carte.column : undefined;
+}
 
 class Client {
   private socket: WebSocket | null = null;
@@ -1297,6 +1310,7 @@ class Client {
   }
 
   private apresFermetureDuCanal(): void {
+    noterUneCoupure();
     this.arreterLeBattement();
     // L'HEURE de la coupure, posée une seule fois : c'est sa DURÉE qui
     // distingue une reconnexion ordinaire d'une vraie panne.
@@ -1707,11 +1721,15 @@ class Client {
       case 'card.upsert':
         this.set((state) => ({
           cards: { ...state.cards, [event.card.id]: event.card },
-          // Une carte de l'agent marketing n'est pas comptée au tableau : le
-          // démon l'écarte de ses totaux (`SANS_MARKETING`), l'écran aussi.
-          cartesTotaux: estCarteMarketing(event.card)
-            ? state.cartesTotaux
-            : this.totauxApresCarte(state, event.card.projectId, state.cards[event.card.id]?.column, event.card.column),
+          // Une carte de l'agent marketing rangée n'est pas comptée au tableau :
+          // le démon l'écarte de ses totaux (`SANS_MARKETING`), l'écran aussi.
+          // En travail, elle compte — et elle sort du compte en se rangeant.
+          cartesTotaux: this.totauxApresCarte(
+            state,
+            event.card.projectId,
+            colonneComptee(state.cards[event.card.id]),
+            colonneComptee(event.card),
+          ),
           ...this.pageApresCarte(state, event.card),
         }));
         break;
@@ -1761,9 +1779,7 @@ class Client {
           delete cards[event.id];
           return {
             cards,
-            cartesTotaux: estCarteMarketing(disparue)
-              ? state.cartesTotaux
-              : this.totauxApresCarte(state, event.projectId, disparue?.column, undefined),
+            cartesTotaux: this.totauxApresCarte(state, event.projectId, colonneComptee(disparue), undefined),
             enRoute: this.enRouteSansCarte(state.enRoute, event.id),
             enRouteTerminer: this.enRouteSansCarte(state.enRouteTerminer, event.id),
             enRouteArchive: this.enRouteSansCarte(state.enRouteArchive, event.id),
@@ -2019,6 +2035,10 @@ class Client {
 
       case 'medias.fabrication':
         this.set({ mediasEnFabrication: event.items });
+        break;
+
+      case 'veilles.compte':
+        this.set({ veilles: { actives: event.actives, a: event.a } });
         break;
 
       case 'captures.vues':
@@ -2864,7 +2884,7 @@ class Client {
   compteDeColonne(projectId: string, column: ColumnKey): { recues: number; total: number } {
     let recues = 0;
     for (const carte of Object.values(this.state.cards)) {
-      if (carte.projectId === projectId && carte.column === column && !estCarteMarketing(carte)) recues += 1;
+      if (carte.projectId === projectId && carte.column === column && !carteMarketingCachee(carte)) recues += 1;
     }
     const total = Math.max(recues, this.state.cartesTotaux[projectId]?.[column] ?? 0);
     return { recues, total };

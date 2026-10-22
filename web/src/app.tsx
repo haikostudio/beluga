@@ -10,6 +10,7 @@ import { VisiteGuidee } from '@/components/visite-guidee';
 import { BoutonOptionsDuProjet, MenuGeneral, useEtatDeLiaison } from '@/components/quota-bar';
 import { TerminalDeLApplication } from '@/components/terminal-de-l-application';
 import { QuestionDuPartage } from '@/components/question-du-partage';
+import { demarrerLaMesureDeLEcran } from '@/lib/mesure-d-usage';
 import { ClocheNotifications } from '@/components/notifications';
 import { BandeSousLHeure } from '@/components/bande-sous-l-heure';
 import { BoutonDesServices } from '@/components/services';
@@ -40,6 +41,7 @@ import {
   SilhouetteStudio,
   SilhouetteStatistiques,
   SilhouetteMedias,
+  SilhouetteTachesRecurrentes,
   SilhouetteTableau,
   SilhouetteEnRoute,
   SilhouetteResume,
@@ -124,6 +126,7 @@ const chargerMarketing = () => import('@/components/marketing');
 const chargerStudio = () => import('@/components/studio/studio');
 const chargerStatistiques = () => import('@/components/statistiques');
 const chargerMedias = () => import('@/components/medias-page');
+const chargerTachesRecurrentes = () => import('@/components/taches-recurrentes');
 /*
  * LA PAGE « EN ROUTE » : ouverte par le bouton des agents, et montrée quand
  * aucun projet n'est ouvert. Un morceau à part comme les autres destinations.
@@ -171,6 +174,7 @@ const Marketing = React.lazy(() => chargerMarketing().then((m) => ({ default: m.
 const Studio = React.lazy(() => chargerStudio().then((m) => ({ default: m.Studio })));
 const Statistiques = React.lazy(() => chargerStatistiques().then((m) => ({ default: m.Statistiques })));
 const MediasPage = React.lazy(() => chargerMedias().then((m) => ({ default: m.MediasPage })));
+const TachesRecurrentes = React.lazy(() => chargerTachesRecurrentes().then((m) => ({ default: m.TachesRecurrentes })));
 const EnRoute = React.lazy(() => chargerEnRoute().then((m) => ({ default: m.EnRoute })));
 const CardPanel = React.lazy(() => chargerTiroirCarte().then((m) => ({ default: m.CardPanel })));
 const SettingsView = React.lazy(() => chargerReglages().then((m) => ({ default: m.SettingsView })));
@@ -223,6 +227,7 @@ const VUES_A_MENU: readonly VueCentrale[] = [
   'surveillance',
   'studio',
   'medias',
+  'taches-recurrentes',
 ];
 
 const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, string> = {
@@ -237,6 +242,7 @@ const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, str
   studio: 'Studio',
   notes: 'Notes',
   medias: 'Médias',
+  'taches-recurrentes': 'Tâches récurrentes',
 };
 
 /**
@@ -324,6 +330,8 @@ export function App() {
   const stateRef = React.useRef(state);
   stateRef.current = state;
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  /* LE RAPPORT D'USAGE ANONYME : ce que l'écran mesure de lui-même (`lib/mesure-d-usage.ts`). */
+  React.useEffect(() => demarrerLaMesureDeLEcran(), []);
   const fermerLesReglages = React.useCallback(() => setSettingsOpen(false), []);
   /* LA SOUS-PAGE DES RÉGLAGES vit dans l'adresse, comme la carte ouverte : les
      réglages sont un menu de pages, un lien doit pouvoir en désigner une. */
@@ -394,6 +402,12 @@ export function App() {
   const [elementVise, setElementVise] = React.useState<ElementVise>({});
   /* Stable : la page « Médias » ouvre seule un projet quand elle le peut. */
   const onViseMedias = React.useCallback((projectId: string | null) => setElementVise((v) => ({ ...v, medias: projectId })), []);
+  /* Stable aussi : « Tâches récurrentes » ouvre seule un projet, puis la veille choisie. */
+  const onViseRecurrentes = React.useCallback(
+    (projet: string | null, veilleId?: string | null) =>
+      setElementVise((v) => ({ ...v, recurrentes: projet, recurrenteVeille: projet ? veilleId ?? null : null })),
+    [],
+  );
   /* L'onglet affiché dans la carte ouverte. « chat » est le défaut et ne
      s'écrit pas dans l'adresse (`ONGLET_DE_CARTE_PAR_DEFAUT`). */
   const [ongletCarte, setOngletCarte] = React.useState<string | null>(null);
@@ -435,7 +449,12 @@ export function App() {
   // Largeur de la colonne des projets, retenue d'une session à l'autre. La clé
   // a changé avec la refonte : la colonne porte désormais des groupes encadrés
   // et ses onglets, l'ancienne largeur (196 px) ne lui convenait plus.
-  const gauche = useResizable('colonne-projets', { initial: 288, min: 232, max: 440 });
+  const colonneProjets = useResizable('colonne-projets', { initial: 288, min: 232, max: 440 });
+  /* LA COLONNE D'UN SERVICE (Mémoire, Statistiques, Messagerie, Coffre-fort…)
+     a SA largeur retenue, plus large par défaut (demande du 20/10/2026 : les
+     titres de la Mémoire en liste y étaient coupés). La liste des projets, la
+     colonne d'un projet et celle d'une tâche gardent la leur. */
+  const colonneServices = useResizable('colonne-services', { initial: 340, min: 232, max: 480 });
   /* LE CHANGEMENT DE PROJET (recherche comprise) : un seul tiroir, ouvert par
      la loupe de la colonne, par le titre de la zone principale et par celui du
      bandeau du téléphone. Il a son adresse. */
@@ -1355,6 +1374,8 @@ export function App() {
   /* CE QUI ATTEND AILLEURS se dit sur la flèche de retour de la colonne : la
      liste des projets, qui portait ces alertes, n'est plus sous les yeux. */
   const pointDeRetour = !liaison.enLigne || liaison.ailleurs ? { classe: liaison.classe, texte: liaison.texte } : null;
+  /* La poignée et la colonne suivent la largeur du lieu affiché. */
+  const gauche = !carteDeLaColonne && !colonneDeProjet && serviceAMenu ? colonneServices : colonneProjets;
   const lieuDeLaColonne = carteDeLaColonne
     ? {
         /* UNE CARTE TOUTE NEUVE N'A PAS ENCORE DE TITRE À ELLE : son mot par
@@ -1733,6 +1754,19 @@ export function App() {
                   />
                 </PanneauALaDemande>
               </Filet>
+            ) : vueCentrale === 'taches-recurrentes' ? (
+              <Filet zone="Tâches récurrentes">
+                <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteTachesRecurrentes /></AttenteEcran>}>
+                  <TachesRecurrentes
+                    open
+                    enPage
+                    onClose={() => ouvrirVue('projet')}
+                    vise={elementVise.recurrentes ?? null}
+                    veilleVisee={elementVise.recurrenteVeille ?? null}
+                    onVise={onViseRecurrentes}
+                  />
+                </PanneauALaDemande>
+              </Filet>
             ) : vueCentrale === 'en-route' ? (
               pageEnRoute
             ) : dashboardOpen ? (
@@ -1914,9 +1948,10 @@ export function App() {
             />
           </PanneauALaDemande>
         </Filet>
-        {/* LE TERMINAL DU SERVEUR : demandé depuis les réglages, il s'ouvre en
-            page de la zone principale, la fenêtre des réglages refermée. */}
-        <TerminalDeLApplication onOuverture={fermerLesReglages} />
+        {/* LE TERMINAL DU SERVEUR : son rond (ordinateur), le pied du menu
+            (téléphone) ou les réglages l'ouvrent, la fenêtre des réglages
+            refermée. */}
+        <TerminalDeLApplication onOuverture={fermerLesReglages} admin={state.monRole === 'admin'} />
         <Filet zone="Réglages" onReprendre={() => setSettingsOpen(false)}>
           <PanneauALaDemande monte={settingsOpen}>
             <SettingsView
@@ -1979,8 +2014,8 @@ export function App() {
         {demarrageOuvert ? null : (
           <Filet zone="Bandeau de mise à jour" muet>
             <BandeauMiseAJour
-              onOuvrirLInstallation={() => {
-                setSettingsPage('installation');
+              onOuvrirLaPage={() => {
+                setSettingsPage('mise-a-jour');
                 setSettingsOpen(true);
               }}
             />

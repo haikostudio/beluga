@@ -107,7 +107,7 @@ function ecrireIdentite(identite: IdentiteAuRelais): void {
 }
 
 let versionConnue: string | null = null;
-async function versionDeLInstallation(): Promise<string> {
+export async function versionDeLInstallation(): Promise<string> {
   if (versionConnue !== null) return versionConnue;
   try {
     const { stdout } = await execFileAsync('git', ['-C', CONFIG.selfPath, 'log', '-1', '--format=%cs %h'], { timeout: 8000 });
@@ -123,7 +123,7 @@ function courrielDeLAdministrateur(): string | undefined {
   return listerComptes().find((c) => c.role === 'admin' && c.actif && c.courriel)?.courriel;
 }
 
-async function appeler<T>(route: string, corps: unknown): Promise<{ ok: true; reponse: T } | { ok: false; raison: string }> {
+export async function appelerLeRelais<T>(route: string, corps: unknown): Promise<{ ok: true; reponse: T } | { ok: false; raison: string }> {
   const base = adresseDuRelaisIci();
   if (!base) return { ok: false, raison: 'Cette installation ne joint pas l’équipe Beluga.' };
   try {
@@ -160,13 +160,19 @@ export async function envoyerLeSigneDeVie(): Promise<{ ok: boolean; raison?: str
     payant: machineHebergee(),
     courriel: courrielAPartager(reglages.partageDuCourriel, courrielDeLAdministrateur()),
   });
-  const r = await appeler<{ secret?: string }>(ROUTES_DU_RELAIS.signeDeVie, signe);
+  const r = await appelerLeRelais<{ secret?: string }>(ROUTES_DU_RELAIS.signeDeVie, signe);
   if (!r.ok) {
     ecrireIdentite({ ...identite, erreur: r.raison });
     return { ok: false, raison: r.raison };
   }
   ecrireIdentite({ id: identite.id, secret: r.reponse.secret ?? identite.secret, dernierSigne: Date.now() });
   return { ok: true };
+}
+
+/** Le numéro et le secret de cette installation, tels qu'enregistrés (le secret manque avant le premier signe). */
+export function identiteAuRelais(): { id: string; secret?: string } {
+  const identite = lireIdentite();
+  return { id: identite.id, secret: identite.secret };
 }
 
 /** Le secret de l'installation, demandé au relais s'il manque encore. */
@@ -186,7 +192,7 @@ export async function envoyerUnTicket(titre: string, message: string): Promise<{
   if ('raison' in cle) return { ok: false, raison: cle.raison };
   const ticket = TicketDuRelais.safeParse({ installation: cle.id, secret: cle.secret, titre, message });
   if (!ticket.success) return { ok: false, raison: 'Un titre et un message sont nécessaires.' };
-  const r = await appeler<{ id: string }>(ROUTES_DU_RELAIS.ticket, ticket.data);
+  const r = await appelerLeRelais<{ id: string }>(ROUTES_DU_RELAIS.ticket, ticket.data);
   return r.ok ? { ok: true } : { ok: false, raison: r.raison };
 }
 
@@ -194,7 +200,7 @@ export async function envoyerUnTicket(titre: string, message: string): Promise<{
 export async function lireMesTickets(): Promise<{ ok: boolean; tickets: TicketRendu[]; raison?: string }> {
   const identite = lireIdentite();
   if (!identite.secret) return { ok: true, tickets: [] };
-  const r = await appeler<{ tickets: TicketRendu[] }>(ROUTES_DU_RELAIS.reponses, { installation: identite.id, secret: identite.secret });
+  const r = await appelerLeRelais<{ tickets: TicketRendu[] }>(ROUTES_DU_RELAIS.reponses, { installation: identite.id, secret: identite.secret });
   return r.ok ? { ok: true, tickets: r.reponse.tickets ?? [] } : { ok: false, tickets: [], raison: r.raison };
 }
 
@@ -214,12 +220,23 @@ export function signalerLInstallation(): void {
   if (!adresseDuRelaisIci()) return;
   const delai = Number(process.env.BELUGA_RELAIS_DELAI_MS || 2 * 60 * 1000);
   const nouvelEssai = process.env.BELUGA_RELAIS_DELAI_MS ? delai : 30 * 60 * 1000;
-  const tenter = async () => {
+  /* LE RAPPORT D'USAGE ANONYME SUIT CHAQUE SIGNE DE VIE REÇU (`usage-installation.ts`) :
+     il a besoin du secret que le premier signe rend. Il part en silence, vers le
+     central de Beluga Build qui le reçoit (décision du 22/10/2026). */
+  const signeEtRapport = async () => {
     const r = await envoyerLeSigneDeVie();
+    if (r.ok) {
+      const { envoyerLesRapportsDUsage } = await import('./usage-installation.js');
+      await envoyerLesRapportsDUsage();
+    }
+    return r;
+  };
+  const tenter = async () => {
+    const r = await signeEtRapport();
     if (!r.ok) setTimeout(() => void tenter(), nouvelEssai).unref?.();
   };
   const premier = setTimeout(() => void tenter(), delai);
-  const periodique = setInterval(() => void envoyerLeSigneDeVie(), PERIODE_DU_SIGNE_DE_VIE_MS);
+  const periodique = setInterval(() => void signeEtRapport(), PERIODE_DU_SIGNE_DE_VIE_MS);
   premier.unref?.();
   periodique.unref?.();
 }

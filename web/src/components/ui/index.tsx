@@ -1392,6 +1392,7 @@ export function DialogContent({
       <DialogPrimitive.Close
         ref={croix}
         aria-label="Fermer"
+        title={t('Fermer')}
         className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text"
       >
         <X className="h-4 w-4" />
@@ -1431,6 +1432,7 @@ export function DialogContentLibre({
       <DialogPrimitive.Close
         ref={croix}
         aria-label="Fermer"
+        title={t('Fermer')}
         className="absolute right-3.5 top-3.5 z-10 rounded-md p-1.5 text-faint transition-colors hover:bg-raised hover:text-text"
       >
         <X className="h-4 w-4" />
@@ -2213,7 +2215,9 @@ export function Tooltip({ children, label }: { children: React.ReactNode; label:
   return (
     <DansUneInfobulle.Provider value>
     <TooltipPrimitive.Root delayDuration={DELAI_INFOBULLE_MS}>
-      <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+      <TooltipPrimitive.Trigger asChild data-infobulle-declencheur="">
+        {children}
+      </TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
         {/* Sur téléphone, l'infobulle n'a AUCUN sens (rien ne survole) et la
             règle qui pose les menus en tiroir la collait en bas de l'écran,
@@ -2280,7 +2284,13 @@ export function InfobullesDeLApplication() {
     };
     const entrer = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return;
-      const el = (e.target as Element | null)?.closest?.('[title],[data-infobulle-titre]') as HTMLElement | null;
+      const trouve = (e.target as Element | null)?.closest?.('[title],[data-infobulle-titre]') as HTMLElement | null;
+      /* UNE BULLE PLUS PROCHE GAGNE : un déclencheur de `Tooltip` posé DANS
+         l'élément titré (l'interrupteur dans l'entête d'une colonne) a sa
+         propre bulle — celle de l'ancêtre la recouvrait et l'empêchait de
+         paraître. */
+      const declencheur = (e.target as Element | null)?.closest?.('[data-infobulle-declencheur]');
+      const el = trouve && declencheur && declencheur !== trouve && trouve.contains(declencheur) ? null : trouve;
       if (el === cible) return;
       fermer();
       if (!el) return;
@@ -2659,7 +2669,7 @@ export function DropdownMenuItem({
   return (
     <DropdownPrimitive.Item
       className={cn(
-        'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[highlighted]:bg-raised',
+        'flex cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] text-text outline-none data-[highlighted]:bg-raised data-[disabled]:cursor-default data-[disabled]:opacity-50',
         className,
       )}
       {...props}
@@ -2756,17 +2766,18 @@ export function DropdownMenuSeparator() {
  * Pendant ce temps l'interrupteur est bloqué : un second appui partirait en
  * double. L'aspect au repos ne change pas d'un pixel.
  */
-export function Switch({
-  className,
-  attente,
-  disabled,
-  ...props
-}: React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root> & {
-  /** Une réponse est attendue : le rond porte un anneau qui tourne. */
-  attente?: boolean;
-}) {
+export const Switch = React.forwardRef<
+  React.ElementRef<typeof SwitchPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof SwitchPrimitive.Root> & {
+    /** Une réponse est attendue : le rond porte un anneau qui tourne. */
+    attente?: boolean;
+  }
+  /* LA RÉFÉRENCE PASSE : sous un `Tooltip`, la bulle s'accroche à l'interrupteur
+     par elle — sans, elle s'ouvrait hors de l'écran. */
+>(function Switch({ className, attente, disabled, ...props }, ref) {
   return (
     <SwitchPrimitive.Root
+      ref={ref}
       aria-busy={attente || undefined}
       disabled={disabled || attente}
       className={cn(
@@ -2802,7 +2813,7 @@ export function Switch({
       </SwitchPrimitive.Thumb>
     </SwitchPrimitive.Root>
   );
-}
+});
 
 export function Separator({ className, ...props }: React.ComponentPropsWithoutRef<typeof SeparatorPrimitive.Root>) {
   return <SeparatorPrimitive.Root className={cn('bg-border', 'h-px w-full', className)} {...props} />;

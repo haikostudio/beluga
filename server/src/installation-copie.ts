@@ -8,6 +8,8 @@ import {
   NOM_DE_COPIE_PAR_DEFAUT,
   depotDeLAdresse,
   nomDeDepotValide,
+  tacheDeMiseAJourOuverte,
+  TITRE_DE_LA_TACHE_DE_MISE_A_JOUR,
   type EtatDesNouveautes,
 } from '@beluga/shared';
 import { bus } from './bus.js';
@@ -37,12 +39,16 @@ const execFileAsync = promisify(execFile);
  *  - `origin` est le dépôt de la personne : ses modifications y sont sauvegardées ;
  *  - `amont` reste le dépôt public : les nouveautés en viennent, À LA DEMANDE.
  *
- * LES NOUVEAUTÉS NE S'APPLIQUENT JAMAIS SEULES. Le démon regarde une fois par
- * jour si le dépôt public a avancé et le DIT (bandeau, réglages). Récupérer est
- * un geste : sur une copie personnelle, il pose une carte dans le projet de
- * l'application — un agent rapproche les nouveautés des modifications locales,
- * et la mise en ligne reste celle de l'utilisateur ; sur une installation
- * jamais modifiée, il avance simplement le code et le reconstruit.
+ * LES NOUVEAUTÉS NE S'APPLIQUENT JAMAIS SEULES. Le démon regarde toutes les
+ * heures si le dépôt public a avancé et le DIT (bandeau, page « Mise à jour »
+ * des réglages). Récupérer est un geste — le clic « Mettre à jour » de cette
+ * page : il pose une carte MARQUÉE (`card.miseAJourBeluga`) dans le projet de
+ * l'application et la lance. L'agent rapproche les nouveautés des
+ * modifications locales et S'ARRÊTE sur une question à l'utilisateur au
+ * moindre heurt ou échec ; rendue sans blocage, la carte est publiée SEULE par
+ * le démon (`server/src/publication-de-la-mise-a-jour.ts`) — le clic vaut le
+ * geste explicite de mise en ligne. Sur une installation jamais modifiée, il
+ * avance simplement le code et le reconstruit.
  *
  * UNE INSTALLATION QUI NE SUIT PAS LE DÉPÔT PUBLIC NE VOIT RIEN DE TOUT CELA :
  * sans distant `amont` et avec un `origin` qui n'est pas le dépôt public — le
@@ -102,9 +108,16 @@ async function estUneCopie(): Promise<boolean> {
 
 let releve: EtatDesNouveautes = { suivi: false, disponibles: false, copie: false };
 let releveEnCours: Promise<EtatDesNouveautes> | null = null;
-/** En dessous de ce délai, un relevé non forcé rend ce qui est déjà connu. */
-const FRAICHEUR_MS = 6 * 60 * 60 * 1000;
-const PERIODE_MS = 24 * 60 * 60 * 1000;
+/**
+ * En dessous de ce délai, un relevé non forcé rend ce qui est déjà connu. Il
+ * reste SOUS la période : sinon le relevé horaire rendrait l'état précédent.
+ */
+const FRAICHEUR_MS = 50 * 60 * 1000;
+/**
+ * UN RELEVÉ PAR HEURE. Un `git fetch` sur l'adresse publique : ni appel d'API
+ * compté, ni charge notable pour GitHub. « Vérifier maintenant » force le relevé.
+ */
+const PERIODE_MS = 60 * 60 * 1000;
 
 async function reussit(args: string[]): Promise<boolean> {
   try {
@@ -168,7 +181,7 @@ export async function nouveautes(forcer = false): Promise<EtatDesNouveautes> {
   return releveEnCours;
 }
 
-/** Le relevé quotidien. Rend de quoi l'arrêter. */
+/** Le relevé horaire. Rend de quoi l'arrêter. */
 export function surveillerLesNouveautes(): () => void {
   if (DEMON_D_ESSAI || machineHebergee() || !estUnDepot()) return () => undefined;
   const premier = setTimeout(() => void nouveautes(true), 3 * 60 * 1000);
@@ -288,7 +301,15 @@ export async function etatDeLaCopie(): Promise<{ faite: boolean; depot: string; 
 /* Récupérer les nouveautés                                             */
 /* ------------------------------------------------------------------ */
 
-const TITRE_DE_LA_CARTE = 'Récupérer les nouveautés de Beluga Build';
+const TITRE_DE_LA_CARTE = TITRE_DE_LA_TACHE_DE_MISE_A_JOUR;
+
+/** La tâche de mise à jour encore ouverte (à lancer, au travail, ou rendue et pas en ligne), pour l'écran. */
+export function tacheDeMiseAJour(): { projectId: string; cardId: string; column: string } | null {
+  const projet = projetDeLApplication();
+  if (!projet) return null;
+  const carte = tacheDeMiseAJourOuverte(store.listCards(projet.id));
+  return carte ? { projectId: projet.id, cardId: carte.id, column: carte.column } : null;
+}
 
 export type RecuperationDesNouveautes =
   | { ok: true; mode: 'carte'; projectId: string; cardId: string }
@@ -299,8 +320,13 @@ export type RecuperationDesNouveautes =
  * LA CONSIGNE DE LA TÂCHE DE MISE À JOUR. L'agent part du JOURNAL DES CHANGEMENTS
  * du dépôt public — chaque enregistrement qu'il y reçoit dresse la liste des
  * travaux repris depuis le précédent (`scripts/synchroniser-miroir-public.mjs`) —,
- * dit en mots simples ce qui change, puis fusionne, construit et teste. Jamais de
- * mise en ligne ni de redémarrage : c'est le geste de l'utilisateur.
+ * dit en mots simples ce qui change, puis fusionne, construit et teste.
+ *
+ * IL NE TRANCHE AUCUN HEURT SEUL : un conflit avec une personnalisation, ou une
+ * construction / des tests en échec, se disent à l'utilisateur par `ask_user`
+ * (bloquant, DEC-026) — la question retient la carte, rien ne part. Il ne lance
+ * lui-même aucune mise en ligne ni aucun redémarrage : rendue sans blocage, sa
+ * carte est publiée SEULE par le démon (`publication-de-la-mise-a-jour.ts`).
  */
 export function consigneDeMiseAJour(distant: string): string {
   return [
@@ -309,10 +335,11 @@ export function consigneDeMiseAJour(distant: string): string {
     `1. Récupère le dépôt public : \`git fetch ${distant} ${BRANCHE_PUBLIQUE}\`.`,
     `2. LIS LE JOURNAL DES CHANGEMENTS : chaque enregistrement du dépôt public dresse la liste des travaux repris depuis le précédent. Lis-les avec \`git log --no-merges --format='%B' HEAD..${distant}/${BRANCHE_PUBLIQUE}\` (sans historique commun, lis les derniers : \`git log -10 --format='%B' ${distant}/${BRANCHE_PUBLIQUE}\`). Ouvre ton compte rendu par ce qui change pour l'utilisateur, en mots simples, nouveauté par nouveauté.`,
     `3. Fusionne \`${distant}/${BRANCHE_PUBLIQUE}\` dans la branche de cette carte. S'il n'y a aucun historique commun (installation posée depuis une archive, ou dépôt public reparti de zéro), fusionne avec \`--allow-unrelated-histories\`.`,
-    `4. En cas de heurt, garde les modifications propres à cette installation quand elles sont voulues, et dis lesquelles tu as tranchées.`,
-    `5. Mets les nouveautés en place : \`NODE_ENV=development npm install --include=dev\`, \`npm run build\`, puis rejoue les tests ; donne leur résultat.`,
+    `4. NE TRANCHE AUCUN HEURT TOI-MÊME. Dès qu'une nouveauté touche une modification propre à cette installation (conflit de fusion, ou changement qui la défait), arrête-toi et pose la question avec l'outil \`ask_user\` : pour chaque heurt, dis en mots simples quelle nouveauté arrive, quelle personnalisation elle touche, et les choix possibles (garder la personnalisation, prendre la nouveauté, combiner les deux). Continue selon la réponse.`,
+    `5. Mets les nouveautés en place : \`NODE_ENV=development npm install --include=dev\`, \`npm run build\`, puis rejoue les tests ; donne leur résultat. Si la construction ou les tests échouent et que tu ne peux pas le réparer sans toucher à une personnalisation, explique-le et pose la question avec \`ask_user\` de la même façon.`,
+    `6. Enregistre et pousse ta branche vers le dépôt de l'installation (\`origin\`), jamais vers le dépôt public.`,
     ``,
-    `Ne mets rien en ligne et ne redémarre rien : la mise en ligne reste le geste de l'utilisateur, depuis la colonne « À déployer ».`,
+    `Ne lance toi-même aucune mise en ligne ni aucun redémarrage. Une fois ta tâche rendue sans question en suspens, Beluga Build met en ligne CETTE SEULE tâche puis redémarre dès qu'aucun agent ne travaille : les autres travaux en attente restent où ils sont.`,
   ].join('\n');
 }
 
@@ -323,7 +350,8 @@ export function consigneDeMiseAJour(distant: string): string {
  *    le premier compte) : une carte est posée dans ce projet. Elle naît dans
  *    « Planifié » ; le bouton « Mettre à jour » des réglages la LANCE aussitôt
  *    (`lancer`, dans `ws.ts`) — rapprocher deux versions d'un outil qu'on a
- *    modifié est un travail d'agent, relu avant d'être mis en ligne.
+ *    modifié est un travail d'agent ; rendu sans blocage, il est mis en ligne
+ *    seul par le démon.
  *  - INSTALLATION JAMAIS MODIFIÉE : le code avance tout droit et se
  *    reconstruit ; il reste à redémarrer, ce que l'écran propose.
  */
@@ -336,7 +364,10 @@ export async function recupererLesNouveautes(): Promise<RecuperationDesNouveaute
   if (projet) {
     const deja = store
       .listCards(projet.id)
-      .find((carte) => carte.title === TITRE_DE_LA_CARTE && (carte.column === 'planned' || carte.column === 'running'));
+      .find(
+        (carte) =>
+          (carte.miseAJourBeluga || carte.title === TITRE_DE_LA_CARTE) && (carte.column === 'planned' || carte.column === 'running'),
+      );
     if (deja) return { ok: true, mode: 'carte', projectId: projet.id, cardId: deja.id };
     const carte = createCard(projet.id, {
       title: TITRE_DE_LA_CARTE,
@@ -344,9 +375,11 @@ export async function recupererLesNouveautes(): Promise<RecuperationDesNouveaute
       auteur: 'utilisateur',
       description: consigneDeMiseAJour(distant),
     });
+    // LA MARQUE qui fait publier cette carte seule, une fois rendue sans blocage.
+    const marquee = store.saveCard({ ...carte, miseAJourBeluga: true });
     // Sans cette annonce, la carte n'apparaissait qu'au prochain rechargement de l'écran.
-    bus.emit({ type: 'card.upsert', card: carte });
-    return { ok: true, mode: 'carte', projectId: projet.id, cardId: carte.id };
+    bus.emit({ type: 'card.upsert', card: marquee });
+    return { ok: true, mode: 'carte', projectId: projet.id, cardId: marquee.id };
   }
 
   if (await git(['status', '--porcelain', '--untracked-files=no']).catch(() => 'x')) {

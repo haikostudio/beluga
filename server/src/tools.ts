@@ -93,6 +93,7 @@ import {
   chercherDossier,
   analyseDeCadrageFaite,
   ecritureDeCarteAutoriseeAuCadrage,
+  titreDuPointPropre,
   REFUS_AVANT_ANALYSE,
   gesteAutoriseAvantLeTitreDeCadrage,
   demandeDeNaissance,
@@ -328,6 +329,15 @@ const CHAMP_RESUME_DEMANDE = {
     "Ce qui vient d'être DEMANDÉ, d'après le seul message de l'utilisateur — aucune solution, aucun nom de " +
     `fichier, aucune connaissance du projet requise : ${FORME_DES_RESUMES_DU_FIL}. S'affiche sous le point ` +
     '« Demande » du fil, dès l\'envoi. À écrire à CHAQUE tour, pour le message de CE tour.',
+};
+
+const CHAMP_TITRE_DU_POINT = {
+  type: 'string',
+  description:
+    "LE TITRE DU POINT DE CE TOUR : trois à six mots en mots courants qui nomment le sujet du message reçu " +
+    "(« Copie depuis le terminal », « Mini-carte de la mémoire »), jamais une phrase. 60 signes au plus. Il " +
+    "s'affiche dans la liste des points posée au-dessus des réponses suivantes, et un clic y ramène. À écrire à " +
+    'CHAQUE tour, avec « resumeDemande ».',
 };
 
 const CHAMP_DESCRIPTION =
@@ -569,6 +579,7 @@ export const TOOL_DEFS: ToolDef[] = [
         cardId: { type: 'string' },
         title: CHAMP_TITRE,
         resumeDemande: CHAMP_RESUME_DEMANDE,
+        titreDuPoint: CHAMP_TITRE_DU_POINT,
         description: { type: 'string' },
         labels: { type: 'array', items: { type: 'string' } },
         /*
@@ -1383,7 +1394,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'marketing',
     description:
-      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing. « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
+      "L'ATELIER MARKETING DE CE PROJET — réservé à l'agent marketing du projet et à l'assistant de l'application (qui nomme le projet visé). « action » : « lire » (configuration, fiche, rapport, avis sur les canaux, plan d'action, contenus, résultats des 30 derniers jours) ; « configurer » (configuration : nature, hebergement, hebergementDetail, adresse, origines, sourcesVentes, objectifs, methodeSuivi, langue, explication — ce qui n'est pas redit est conservé) ; « fiche » (fiche : cible, probleme, promesse, arguments, ton, offre, prix, concurrents) ; « canaux » (recommandations : ton avis sur les canaux du catalogue, chacun remplace l'avis précédent du même canal ; choisis : les canaux retenus pour commencer) ; « action » (le PLAN : sans « id » pose une action datée, avec « id » la corrige, « supprimer » true la retire : titre, detail, canal, datePrevue AAAA-MM-JJ) ; « contenu » (sans « id » crée, avec « id » modifie : genre, canal, titre, texte, datePrevue AAAA-MM-JJ, etape brouillon|a_valider, ou « abandonne » pour ARCHIVER une de tes propositions périmées encore en brouillon ou à valider, varianteDe, lienCible, nouveaute = la référence d'une nouveauté en réserve que ce contenu annonce) ; « poser_suivi » (prépare l'installation du script de suivi selon la méthode choisie et rend la phrase de confidentialité ; le mode visiteur et les repères par bouton se règlent avec l'outil « statistiques ») ; « rapport » (rapport : le rapport ENTIER en Markdown, qui remplace le précédent — refusé tant que nature et hebergement ne sont pas configurés) ; « messages » (les commentaires et messages privés reçus sur les comptes reliés) ; « reponse » (messageId, texte : PROPOSE une réponse, qui attend sous le message que l'utilisateur l'envoie — jamais envoyée par toi) ; « application » (pour l'agent qui ouvre un réseau : reseau, clientId, secret, etat en_validation|validee, note — le secret part au coffre). Tu ne valides, ne programmes, ne publies, n'envoies aucune réponse et ne coches jamais « fait » : ce sont des gestes de l'utilisateur.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1599,6 +1610,35 @@ export const TOOL_DEFS: ToolDef[] = [
             "Avec « id » : RELIE le site au projet qui le sert (nom ou identifiant), choisi par l'utilisateur. Seul avec « id », il relie sans rejouer la recette. C'est dans ce projet que naissent les cartes du site.",
         },
       },
+    },
+  },
+  {
+    name: 'veille_poser',
+    description:
+      "POSE UNE VEILLE SUR TA CARTE quand tu BUTES SUR UNE ATTENTE EXTÉRIEURE (un service qui valide un profil, un domaine qui se propage, un tiers qui doit répondre) : " +
+      "au lieu de demander à l'utilisateur de te relancer, tu donnes un contrôle GRATUIT que Beluga rejoue seul, sans moteur ni quota, et qui te RELANCE par un message dès qu'il passe. " +
+      "La recette a le format des surveillances (« appel » ou « parcours ») et ne porte JAMAIS de secret (« acces » référence une fiche du coffre). " +
+      "Pour lire une page où l'on est CONNECTÉ, nomme le « profil » du navigateur d'essai (compétence dev-browser) : seules les étapes aller, attendre (ms) et verifierTexte y sont permises. " +
+      "L'outil ESSAIE la recette : « pas encore » est le résultat attendu ; une panne du contrôle est refusée ; un blocage déjà levé aussi (poursuis alors). " +
+      "« essai: true » essaie sans rien poser. Posée, la carte passe en pause sur place : termine ton tour par une phrase courte. " +
+      "48 h au plus ; à l'échéance, l'utilisateur choisit de prolonger, te relancer ou abandonner.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        raison: { type: 'string', description: "Ce que la veille attend, en une phrase courte affichée sur la carte (ex. « Meta valide le profil Facebook »)" },
+        url: { type: 'string', description: 'La page appelée, ou la page de départ du parcours' },
+        recette: schemaDeRecetteSurveillance(),
+        profil: { type: 'string', description: 'Le profil du navigateur d’essai qui porte la session du compte (ex. « facebook-salut-haiko-studio »)' },
+        leveeSi: {
+          type: 'string',
+          enum: ['reussite', 'contenuAbsent'],
+          description: "« reussite » (défaut) : levé quand la recette passe (le texte attendu est là). « contenuAbsent » : levé quand le texte vérifié a DISPARU (ex. « en cours de vérification »)",
+        },
+        intervalleMinutes: { type: 'number', description: 'Tous les combien de minutes (15 au plus souvent, 360 au plus rarement, 60 par défaut)' },
+        dureeHeures: { type: 'number', description: 'Échéance en heures (48 au plus, 48 par défaut)' },
+        essai: { type: 'boolean', description: 'Essayer la recette sans rien poser' },
+      },
+      required: ['raison', 'url'],
     },
   },
   {
@@ -1905,6 +1945,7 @@ export const TASK_ONLY_TOOLS = new Set([
   'backup_essai',
   'surveillance_essai',
   'surveillance_recette',
+  'veille_poser',
   'marketing',
   'statistiques',
   'studio',
@@ -1930,6 +1971,15 @@ export function outilServiA(nom: string, agentId: string): boolean {
   // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
   if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
+  /*
+   * LA VEILLE : tout agent de TÂCHE qui porte une carte — tâche ordinaire comme
+   * agent du marketing (décision du 20/10/2026). Ni l'assistant général, ni le
+   * cadrage (qui ne reçoit pas les outils de tâche), ni un agent sans carte.
+   */
+  if (nom === 'veille_poser') {
+    const agent = store.getAgent(agentId);
+    return !!agent && agent.role === 'task' && !!agent.cardId && !agent.assistantGlobal;
+  }
   // Le verdict d'une réparation silencieuse : le seul agent qui la mène (`server/src/reparation-publication.ts`).
   if (nom === 'rendre_reparation') return Boolean(store.getAgent(agentId)?.reparationPublication);
   return true;
@@ -2418,10 +2468,14 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
        * l'affiche sous le point qui le montre.
        */
       const synthese = typeof args.resumeDemande === 'string' ? args.resumeDemande.trim() : '';
+      /* LE TITRE DU POINT voyage avec la synthèse, sur le même jalon : c'est lui
+         que la liste des points montre au-dessus des réponses suivantes. */
+      const titreDuPoint = titreDuPointPropre(args.titreDuPoint);
       let syntheseEcrite = false;
-      if (synthese && ctx.cardId) {
+      if ((synthese || titreDuPoint) && ctx.cardId) {
         const jalon = dernierJalonDeDemande(ctx.cardId, ctx.agentId);
-        const enrichi = jalon ? completerDonneesDuJournal(jalon.id, { resumeDemande: synthese }) : null;
+        const ajout = { ...(synthese ? { resumeDemande: synthese } : {}), ...(titreDuPoint ? { titreDuPoint } : {}) };
+        const enrichi = jalon ? completerDonneesDuJournal(jalon.id, ajout) : null;
         if (enrichi) {
           bus.emit({ type: 'journal.entree', entree: enrichi });
           syntheseEcrite = true;
@@ -2433,7 +2487,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
           : palier && modelePose
             ? ' Cette carte porte déjà un modèle : il est conservé tel quel, le palier est seulement noté.'
             : '';
-      const annonceSynthese = synthese
+      const annonceSynthese = synthese || titreDuPoint
         ? syntheseEcrite
           ? ' La synthèse de la demande est affichée dans le fil.'
           : " La synthèse n'a pas pu être rattachée à cette demande : le fil montrera celle de ta compréhension."
@@ -3650,6 +3704,12 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'bibliotheque_styles_ecrire': {
       const { ecrireStylesRediges } = await import('./studio-sources.js');
       return { ok: true, text: ecrireStylesRediges(args) };
+    }
+
+    case 'veille_poser': {
+      const { poserVeille } = await import('./veille-de-carte.js');
+      const pose = await poserVeille({ agentId: ctx.agentId, cardId: ctx.cardId, args });
+      return { ok: pose.ok, text: pose.texte };
     }
 
     case 'surveillance_essai': {

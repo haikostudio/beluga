@@ -45,9 +45,14 @@ import {
   estCarteDuRendezVousDeNuit,
   avancementDuLancement,
   blocDeFinAViser,
+  blocDeFinDuPassage,
+  repartirLesMediasLivres,
+  type MediaLivre,
+  sujetsDuCadrage,
   decouperAvantLePlan,
   reflexionRepliee,
   retirerLaStructureDeCadrage,
+  retirerLeBlocDeProcessus,
   genreDAction,
   nomClairDeLaLigne,
   nomDeLaLigne,
@@ -72,6 +77,8 @@ import { Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefi
 import { ContenuDeLEntree, EncadreQuestion } from '@/components/contenu-journal';
 import { BlocDuPlan } from '@/components/parcours-carte';
 import { PlanRapport } from '@/components/plan-rapport';
+import { PointsDuCadrage } from '@/components/points-du-cadrage';
+import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
 import { RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
@@ -377,6 +384,7 @@ export function FluxEnPoints({
   onToggleAll,
   configuration,
   deploiement,
+  resumeDeLAgent,
   journalCharge = true,
   galerieDesCaptures,
 }: {
@@ -394,6 +402,12 @@ export function FluxEnPoints({
    * sauf sur une carte mère, qui ne se déploie pas elle-même (DEC-258).
    */
   deploiement?: { etat: EtatDuDeploiement; deployeeA?: number };
+  /**
+   * LE RÉSUMÉ DE L'AGENT QUI A TRAITÉ LA DEMANDE, posé sous le point
+   * « Déploiement » une fois la carte en ligne ou rangée : la rangée d'action
+   * n'a alors plus de bouton, ni d'icône des réglages.
+   */
+  resumeDeLAgent?: React.ReactNode;
   projectId?: string;
   /** Les points et les questions ouvertes, dans l'ordre (`fluxDuParcours`). */
   flux: ElementDuFlux[];
@@ -538,6 +552,24 @@ export function FluxEnPoints({
     () => flux.flatMap((element) => (element.sorte === 'point' ? [element.point] : [])),
     [flux],
   );
+  /*
+   * LES MÉDIAS LIVRÉS, CHACUN SOUS LA RÉPONSE QUI CLÔT SON TOUR : la réponse, la
+   * compréhension, le plan ou le compte rendu rendu juste après lui.
+   */
+  const tousLesMediasLivres = useMediasLivres({ cardId: carte.id });
+  const mediasParPassage = React.useMemo(() => {
+    const reponses: { cle: string; at: number }[] = [];
+    for (const passage of passages) {
+      const bloc = blocDeFinDuPassage(passage);
+      const entree = bloc
+        ? passage.reponse?.id === bloc.cle
+          ? passage.reponse
+          : passage.moments.find((m) => m.entree.id === bloc.cle)?.entree
+        : passage.moments.find((m) => m.sorte === 'rapport' && m.dernier)?.entree;
+      if (entree) reponses.push({ cle: passage.ancre, at: entree.at });
+    }
+    return repartirLesMediasLivres(tousLesMediasLivres, reponses);
+  }, [passages, tousLesMediasLivres]);
   /* LES VERSIONS QUE LA CARTE CONNAÎT : un plan connu ne se cache jamais, même
      quand son jalon manque au journal affiché. */
   const versionsConnues = (carte.parcours?.plans ?? []).map((plan) => plan.numero);
@@ -631,6 +663,7 @@ export function FluxEnPoints({
               point={element.point}
               versionDuPlan={versionDuPassageDePlan(element.point, passages, versionsConnues)}
               passages={passages}
+              mediasLivres={mediasParPassage.get(element.point.ancre)}
               carte={carte}
               projectId={projectId}
               configuration={configuration}
@@ -647,7 +680,7 @@ export function FluxEnPoints({
           ))}
           {/* La carte de nuit n'a rien à déployer : elle s'arrête à ses propositions. */}
           {deploiement && deploiement.etat !== 'aucun' && !carte.suiviDesFilles?.length && !estCarteDuRendezVousDeNuit(carte) ? (
-            <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} />
+            <PointDeDeploiement etat={deploiement.etat} deployeeA={deploiement.deployeeA} resume={resumeDeLAgent} />
           ) : null}
         </ol>
         {projectId ? <ApercuDesCaptures galerie={galerieDesCaptures} /> : null}
@@ -677,7 +710,16 @@ const ETAT_DU_POINT_DE_DEPLOIEMENT: Record<Exclude<EtatDuDeploiement, 'aucun'>, 
  * « À déployer » et « Archivée » de la barre. Il ne s'ouvre pas : il n'a rien
  * à déplier.
  */
-function PointDeDeploiement({ etat, deployeeA }: { etat: Exclude<EtatDuDeploiement, 'aucun'>; deployeeA?: number }) {
+function PointDeDeploiement({
+  etat,
+  deployeeA,
+  resume,
+}: {
+  etat: Exclude<EtatDuDeploiement, 'aucun'>;
+  deployeeA?: number;
+  /** Le résumé de l'agent, une fois la mise en ligne faite (`ResumeDeLAgent`). */
+  resume?: React.ReactNode;
+}) {
   const mesures = useMesures();
   const etatDuPoint = ETAT_DU_POINT_DE_DEPLOIEMENT[etat];
   const ton = TON_DE_L_ETAT[etatDuPoint];
@@ -707,6 +749,7 @@ function PointDeDeploiement({ etat, deployeeA }: { etat: Exclude<EtatDuDeploieme
       <span className="text-center text-[13.5px] leading-relaxed text-muted" data-point-phrase>
         {phrase}
       </span>
+      {(etat === 'en_ligne' || etat === 'archivee') && resume ? resume : null}
     </li>
   );
 }
@@ -740,9 +783,12 @@ function PointDuFlux({
   onToggleEvolution,
   onToggleAll,
   passages,
+  mediasLivres,
 }: {
   point: PointDuParcours;
   carte: Card;
+  /** Les médias livrés pendant le tour que ce passage clôt : rendus sous sa réponse. */
+  mediasLivres?: readonly MediaLivre[];
   projectId?: string;
   /** Tous les passages du flux : le point « Plan » y lit s'il s'écrit encore. */
   passages: readonly PointDuParcours[];
@@ -895,6 +941,12 @@ function PointDuFlux({
      redirait que ce que son contenu montre. */
   const phraseUtile =
     (!point.resume || point.phrase === PHRASE_PLAN_A_DECIDER) && (point.etat !== 'fait' || point.phrase === PHRASE_PLAN_A_DECIDER);
+
+  /* Les sujets du cadrage jusqu'à celui de ce tour, posés au-dessus de sa réponse. */
+  const sujets = React.useMemo(
+    () => (point.etape === 'comprehension' ? sujetsDuCadrage(passages, point) : []),
+    [passages, point],
+  );
 
   if (cache) {
     return (
@@ -1147,6 +1199,12 @@ function PointDuFlux({
         </div>
       ) : null}
 
+      {/* 4 bis. LES SUJETS DU CADRAGE, au-dessus de la réponse de cette itération
+          (20/10/2026, en texte depuis le 21/10/2026) : ceux d'avant avec leur
+          résumé, puis celui du tour en gras ; un clic sur un titre d'avant
+          remonte à sa réponse. */}
+      {sujets.length ? <PointsDuCadrage points={sujets} className={LARGEUR_DE_L_AGENT} /> : null}
+
       {/* 5. LA RÉPONSE DE L'AGENT : un message, à gauche, toujours à l'écran. */}
       {point.reponse ? (
         <ol className="flex flex-col gap-3">
@@ -1197,6 +1255,10 @@ function PointDuFlux({
           ligne porte son propre lien. */}
       {point.filles?.length ? <FillesDuPoint point={point} /> : null}
       {point.propositions?.length ? <PropositionsDuPoint point={point} /> : null}
+
+      {/* 8. LES MÉDIAS LIVRÉS PAR CE TOUR, TOUS, sous sa réponse finale
+          (décision du 20/10/2026) : chacun téléchargeable, et tous d'un coup. */}
+      {mediasLivres?.length ? <MediasLivres medias={mediasLivres} className={LARGEUR_DE_L_AGENT} /> : null}
     </li>
   );
 }
@@ -1715,7 +1777,7 @@ function MomentDeReponse({
   entree: EntreeJournal;
   onToggleEvolution?: (text: string) => void;
 }) {
-  const texte = retirerLaStructureDeCadrage(entree.resultat ?? '').trim();
+  const texte = retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(entree.resultat ?? ''));
   const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
   return (
     /* LA RÉPONSE DE L'AGENT : à GAUCHE, SANS AUCUN FOND, en clair comme en

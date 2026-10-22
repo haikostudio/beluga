@@ -5,9 +5,11 @@
  * la naissance. Allumé, la carte suit LE MÊME PARCOURS QUE LE CAHIER DES
  * CHARGES (`cahier-des-charges.ts`, décision de l'utilisateur du 18/10/2026) :
  *  - un VOLET À PART (`estVoletDeRealisation`) : avec ses trois étapes
- *    (`barreDeLaRealisation`) et un bandeau du bas — phase, pourcentage, pause,
- *    reprise, lecture du document. La barre d'écriture n'y existe que tant
- *    qu'aucun type de média n'est choisi et une fois le cahier terminé
+ *    (`barreDeLaRealisation`), un seul bouton « Lancer la fabrication · <types> »
+ *    (éteint tant que le cahier n'est pas terminé) et la lecture du document en
+ *    dernière ligne du fil — plus de bandeau ni de pause dans l'interface
+ *    (21/10/2026). La barre d'écriture n'y existe que tant qu'aucun type de
+ *    média n'est choisi, en pause et une fois le cahier terminé
  *    (`barreDEcritureDuVoletDeRealisation`) ;
  *  - ALLUMER NE LANCE RIEN ET N'OUVRE PAS LE VOLET : le bouton pose seulement
  *    le mode, le volet attend le premier message parti (`demandeA`). L'utilisateur
@@ -209,12 +211,13 @@ export function estVoletDeRealisation(
 }
 
 /**
- * LA BARRE D'ÉCRITURE SOUS LE BANDEAU : tant qu'aucun type de média n'est choisi
+ * LA BARRE D'ÉCRITURE DU VOLET : tant qu'aucun type de média n'est choisi
  * (l'utilisateur écrit sa demande, et c'est ce message qui lance le cadrage —
- * allumer le mode ne lance rien) et une fois le cahier TERMINÉ (sans elle, un
- * cahier imparfait ne pourrait plus être amélioré). Pendant le questionnaire
- * (en cours, en pause) on répond dans le panneau de décision et rien ne change.
- * UN SEUL PRÉDICAT pour l'écran et les contrôles.
+ * allumer le mode ne lance rien), une fois le cahier TERMINÉ (sans elle, un
+ * cahier imparfait ne pourrait plus être amélioré) et sur un questionnaire
+ * EN PAUSE : l'interface n'a plus de bouton de reprise, on reprend en écrivant
+ * (`leverLaPauseDeRealisationSurMessage`). Pendant le questionnaire on répond
+ * dans le panneau de décision. UN SEUL PRÉDICAT pour l'écran et les contrôles.
  */
 export function barreDEcritureDuVoletDeRealisation(
   carte:
@@ -230,7 +233,7 @@ export function barreDEcritureDuVoletDeRealisation(
 ): boolean {
   if (!estVoletDeRealisation(carte)) return false;
   const etat = etatDeLaRealisation(realisationDeLaCarte(carte));
-  return etat === 'termine' || etat === 'genre';
+  return etat === 'termine' || etat === 'genre' || etat === 'en-pause';
 }
 
 export type EtatDuQuestionnaire = 'genre' | 'en-cours' | 'en-pause' | 'termine';
@@ -240,16 +243,6 @@ export function etatDeLaRealisation(r: Pick<EtatDeRealisation, 'medias' | 'genre
   if (r.enPauseA) return 'en-pause';
   if (r.termineA) return 'termine';
   return 'en-cours';
-}
-
-/** Tant que le cahier n'est pas déclaré terminé, la barre ne se remplit jamais tout à fait. */
-export const POURCENTAGE_MAX_AVANT_LA_FIN = 95;
-
-/** La part faite, de 0 à 100. Un total inconnu ne promet rien : 0. Pleine seulement une fois le cahier terminé. */
-export function pourcentageDeLaRealisation(r: Pick<EtatDeRealisation, 'faites' | 'total' | 'termineA'>): number {
-  if (r.termineA) return 100;
-  if (!r.total) return 0;
-  return Math.max(0, Math.min(POURCENTAGE_MAX_AVANT_LA_FIN, Math.round((r.faites / r.total) * 100)));
 }
 
 /**

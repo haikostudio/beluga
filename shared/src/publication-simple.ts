@@ -348,6 +348,33 @@ export const DEBUT_PROCESSUS = '<<<PROCESSUS';
 export const FIN_PROCESSUS = 'PROCESSUS>>>';
 
 /**
+ * LE BLOC DU PROCESSUS NE S'AFFICHE JAMAIS (21/10/2026). Il reste ENTIER dans
+ * le message enregistré — le serveur le relit (`retenirProcessusDuMessage`) et
+ * en tire aussi l'adresse de contrôle —, mais tout ce qui le MONTRE (le fil, la
+ * copie, la lecture à voix haute) passe par ici : la procédure se lit dans sa
+ * rubrique, jamais en JSON dans la conversation. Un bloc pas encore refermé
+ * (réponse en cours d'écriture) coupe tout depuis son début, et un début de
+ * repère encore incomplet en toute fin de texte aussi : rien ne clignote.
+ */
+export function retirerLeBlocDeProcessus(texte: string): string {
+  let reste = String(texte ?? '');
+  for (;;) {
+    const debut = reste.indexOf(DEBUT_PROCESSUS);
+    if (debut < 0) break;
+    const fin = reste.indexOf(FIN_PROCESSUS, debut + DEBUT_PROCESSUS.length);
+    if (fin < 0) {
+      reste = reste.slice(0, debut);
+      break;
+    }
+    reste = `${reste.slice(0, debut)}\n${reste.slice(fin + FIN_PROCESSUS.length)}`;
+  }
+  /* Le repère qui commence à s'écrire : « <<<P », « <<<PROC »… */
+  const queue = reste.match(/<<<[A-Z]*$/);
+  if (queue && DEBUT_PROCESSUS.startsWith(queue[0])) reste = reste.slice(0, queue.index);
+  return reste.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
  * LE PROCESSUS RENDU PAR L'AGENT D'INITIALISATION : un bloc JSON entre deux
  * repères. Ce qui précède le bloc est son explication en mots courants.
  */

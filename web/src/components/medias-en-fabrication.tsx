@@ -49,15 +49,19 @@ export function MediasEnFabrication({
   cardId,
   agentId,
   depuis,
+  exclure,
   className,
 }: {
   cardId?: string | null;
   agentId?: string | null;
   /** La dernière demande : les blocs terminés d'avant sont déjà des pièces jointes du fil. */
   depuis?: number;
+  /** Les pièces déjà rendues sous une réponse finale (`medias-livres.tsx`) : un seul aperçu par média. */
+  exclure?: ReadonlySet<string>;
   className?: string;
 }) {
-  const { blocs } = useBlocsDeLaConversation({ cardId, agentId }, depuis ?? 0);
+  const { blocs: tous } = useBlocsDeLaConversation({ cardId, agentId }, depuis ?? 0);
+  const blocs = exclure?.size ? tous.filter((m) => !(m.etat === 'fini' && m.attachmentId && exclure.has(m.attachmentId))) : tous;
   if (!blocs.length) return null;
   return (
     <div data-medias-en-fabrication={blocs.length} className={cn('flex flex-wrap items-start gap-3', className)}>

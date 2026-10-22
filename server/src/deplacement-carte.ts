@@ -109,10 +109,16 @@ export function rangerLaCarte(card: Card, target: ColumnKey, position?: number, 
        « À déployer », « Archivé ») referme cette relance : ressortie un jour,
        elle n'y retombe pas. Entre « Demande » et « Plan », elle se cadre
        encore : la relance tient. */
-    parcours:
-      card.parcours?.cadrageRouvertA && target !== card.column && !COLONNES_AVANT_LE_TRAVAIL.includes(target)
-        ? { ...card.parcours, cadrageRouvertA: undefined }
-        : card.parcours,
+    parcours: (() => {
+      let parcours = card.parcours;
+      if (parcours?.cadrageRouvertA && target !== card.column && !COLONNES_AVANT_LE_TRAVAIL.includes(target))
+        parcours = { ...parcours, cadrageRouvertA: undefined };
+      /* Sortie à la main de « À déployer », la carte referme aussi l'itération
+         d'une simple question (`iterationAFermer`) : aucun « Terminer la
+         tâche » fantôme ne l'attend à son retour. */
+      if (parcours?.iterationOuverteA && target !== card.column) parcours = { ...parcours, iterationOuverteA: undefined };
+      return parcours;
+    })(),
   });
 
   /*
@@ -265,7 +271,16 @@ export function carteApresFinDeTour(card: Card, fin: FinDeTour): Card {
     !relancePontMort &&
     !retenuePontEpuise &&
     !!colonneEnFinDeTour(card.column, fin.reussi, fin.role);
-  const questionOuverte = irait && store.questionOuverteSurLaCarte(card.id);
+  /*
+   * …ET POUR UN AGENT DE VOLET, LA QUESTION ÉCRITE EN TEXTE AUSSI. Sa carte ne
+   * rend pas de rapport : sa dernière phrase est une conversation en cours, et
+   * « Archivé » ferme les questions (`COLONNES_QUI_FERMENT_LES_QUESTIONS`) —
+   * la cloche et le triangle la perdaient avec elle. Les routines du marketing
+   * (plan de la semaine, réorganisation) sont rangées à part, par
+   * `rangerCarteDAgent`, après leur tour : elles ne passent pas par ici.
+   */
+  const questionOuverte =
+    irait && (store.questionOuverteSurLaCarte(card.id) || (!!fin.attitre && store.questionEnTexteSurLaCarte(card.id)));
 
   const issue = leSien
     ? issueDeFinDeTour(card.column, fin.reussi, fin.role, fin.trace, dejaEnregistreApres(card, fin), questionOuverte)

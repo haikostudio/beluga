@@ -6,7 +6,6 @@ import {
   Boxes,
   CalendarDays,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleDot,
@@ -106,7 +105,6 @@ interface Portee {
   unites: number;
   depreciees: number;
   changelog: number;
-  aRelire: number;
 }
 
 interface FicheResumee {
@@ -446,7 +444,6 @@ export function MemoireClasseurs({
         >
           <span className="min-w-0 flex-1 truncate">{p.id === 'global' ? t('Global') : p.nom}</span>
           {/* Les comptes restent lus et mesurés ; dans la colonne ils ne s'affichent plus. */}
-          {p.aRelire ? <span className={cn('shrink-0 text-[11px] text-warning', !telephone && 'sr-only')}>{p.aRelire}</span> : null}
           <span className={cn('shrink-0 text-[11.5px] text-faint', !telephone && 'sr-only')}>{p.unites}</span>
         </button>
       ))}
@@ -1371,7 +1368,6 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
   const [versions, setVersions] = React.useState<Version[] | null>(null);
   const [enCours, setEnCours] = React.useState(false);
   const erreur = (err: any) => client.pushToast('error', err?.message ?? t('Mémoire illisible'));
-  const aRelire = u.statut === 'active' && !u.relue && u.confiance < 0.6;
 
   const sections = sectionsDuDetail(detailSansSectionsVides(u.detail ?? ''));
   const intro = sections
@@ -1383,7 +1379,7 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
   const techniques = blocs.filter((b) => b.style.technique);
   const importance = importanceLisible(u.importance);
 
-  const geste = (type: 'memoire.confirmer' | 'memoire.deprecier', message: string) => {
+  const geste = (type: 'memoire.deprecier', message: string) => {
     setEnCours(true);
     client
       .call({ type, id: u.id })
@@ -1408,12 +1404,9 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
       <div className="flex flex-col gap-2">
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 truncate pt-1 text-[12.5px] text-faint">{chemin}</p>
-          {aRelire ? (
-            <Button size="sm" variant="subtle" className="h-7" onClick={() => geste('memoire.confirmer', t('Unité confirmée'))} disabled={enCours} data-memoire-confirmer>
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              {t('Confirmer')}
-            </Button>
-          ) : null}
+          {/* AUCUN « CONFIRMER » (décision du 20/10/2026) : l'écran ne demande
+              jamais de valider ce qu'un agent a écrit. Les unités peu sûres sont
+              relues par le système lui-même (`relecture-memoire.ts`). */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" className="h-7 w-7 shrink-0 p-0" aria-label="Plus d’options" title={t('Plus d’options')} data-memoire-unite-menu>
@@ -1451,7 +1444,6 @@ function LectureDUnite({ unite: u, chemin, onChange }: { unite: Unite; chemin: s
             {importance.libelle}
           </span>
           <span data-memoire-date>{dateDeLElement(u.creeLe, uniteReprise(u))}</span>
-          {aRelire ? <span className="text-warning">{t('À relire')}</span> : null}
           {u.statut === 'deprecated' ? <span>{t('dépréciée')}</span> : null}
           {u.supersededBy ? <span>{t('Remplacée par {id}', { id: u.supersededBy })}</span> : null}
         </p>

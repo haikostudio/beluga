@@ -1,4 +1,5 @@
 import { arreterLaya } from './laya.js';
+import { demarrerLesVeilles } from './veille-de-carte.js';
 import { veillerSurLaNuitDeLaya } from './laya-nuit.js';
 import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
 import { veillerSurLesSourcesDeStyles } from './studio-sources.js';
@@ -35,6 +36,7 @@ import { rattraperLesBranchesPerdues } from './rattrapage-branches-perdues.js';
 import { reprendreLesRattrapages } from './rattrapage-ecartee.js';
 import { poserLesVerrousDeLaMachine, verrouillerLesDistants } from './depot-public.js';
 import { signalerLInstallation, surveillerLesTelechargements } from './relais-installations.js';
+import { demarrerLaMesureDUsage } from './usage-installation.js';
 import { ensureSelfProject, rangerLeProjetDeLOutilSiHebergee, detacherLeProjetDuDepotPublic, refreshGitInfo, adoptServerProjects } from './projects.js';
 import { scheduleNightlyBackup } from './backup.js';
 import { purgerCopiesDeProjetsSupprimes } from './copie-de-projet-supprime.js';
@@ -61,6 +63,7 @@ import { planifierLeMiroirDesProjets } from './miroir-des-projets.js';
 import { planifierPurgeDesArchives } from './coffre-fort.js';
 import { remettreLeCoffreEnOrdreAuDemarrage } from './coffre-structuration.js';
 import { veillerSurLesTitresHumains } from './titres-humains.js';
+import { veillerSurLaRelectureDeLaMemoire } from './relecture-memoire.js';
 import { arreterLeVectoriseur } from './vectoriseur.js';
 import { planifierCompactage } from './compactage.js';
 import { planifierMiseAJourDesMoteurs } from './mise-a-jour-moteurs.js';
@@ -196,6 +199,7 @@ async function main(): Promise<void> {
   surveillerLesNouveautes();
   // Le signe de vie quotidien vers l'équipe Beluga, et, chez elle, le relevé des téléchargements.
   signalerLInstallation();
+  demarrerLaMesureDUsage();
   surveillerLesTelechargements();
 
   // Les projets dont l'icône manque encore — jamais récupérée, ou fichier
@@ -362,6 +366,13 @@ async function main(): Promise<void> {
    */
   const surveillanceTimer = demarrerSurveillance();
   /*
+   * LES VEILLES DE CARTE : un battement d'une minute qui rejoue, sans moteur
+   * ni quota, les contrôles DUS des cartes en attente d'un tiers. Au
+   * redémarrage, chaque veille reprend d'après son prochain passage relu en
+   * base (`server/src/veille-de-carte.ts`).
+   */
+  const veillesTimer = demarrerLesVeilles();
+  /*
    * L'atelier marketing : le rangement des vieux passages (90 jours) et le
    * plan de la semaine du dimanche soir (`server/src/marketing.ts`).
    */
@@ -486,6 +497,8 @@ async function main(): Promise<void> {
   remettreLeCoffreEnOrdreAuDemarrage();
   // Les unités de mémoire sans titre clair en reçoivent un, par lots, en tâche de fond (`server/src/titres-humains.ts`).
   const arreterLesTitresHumains = veillerSurLesTitresHumains();
+  // Les unités peu sûres sont relues par le système, jamais « confirmées » à la main (`server/src/relecture-memoire.ts`).
+  const arreterLaRelecture = veillerSurLaRelectureDeLaMemoire();
   const faviconTimer = planifierRevisionFavicons();
   /*
    * L'OUTIL DE CHAQUE MOTEUR (Claude, Codex, Cursor) SE TIENT À JOUR TOUT
@@ -550,6 +563,7 @@ async function main(): Promise<void> {
     suivreEcheances();
     suivreReprises();
     clearInterval(surveillanceTimer);
+    clearInterval(veillesTimer);
     clearInterval(marketingTimer);
     if (publicationSocialeTimer) clearInterval(publicationSocialeTimer);
     void fermerNavigateur();
@@ -569,6 +583,7 @@ async function main(): Promise<void> {
     for (const minuteur of memoireTimers) clearTimeout(minuteur);
     for (const minuteur of archivesTimers) clearTimeout(minuteur);
     arreterLesTitresHumains();
+    arreterLaRelecture();
     arreterLeVectoriseur();
     arreterLaya();
     clearInterval(faviconTimer);

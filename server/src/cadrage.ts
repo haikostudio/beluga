@@ -140,6 +140,8 @@ export async function rouvrirLeCadrage(cardId: string): Promise<Agent | null> {
       parcours: {
         ...(fraiche.parcours ?? { plans: [] }),
         cadrageRouvertA: fraiche.parcours?.cadrageRouvertA ?? Date.now(),
+        /* Une nouvelle demande remplace l'itération restée ouverte. */
+        iterationOuverteA: undefined,
         incident: undefined,
       },
     });

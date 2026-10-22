@@ -1,4 +1,5 @@
 import { slugEntier } from './slugs.js';
+import { CONSIGNE_DE_LA_VEILLE } from './veille-de-carte.js';
 import type { CibleSociale } from './reseaux-sociaux.js';
 /**
  * L'ATELIER MARKETING — les règles pures, sans base ni réseau.
@@ -36,10 +37,31 @@ export const LABEL_MARKETING = 'marketing';
  * cartes ne paraissent ni sur le tableau du projet, ni sur « En route », ni
  * sur les tableaux de bord — elles se suivent dans l'onglet Contenus de
  * l'atelier. Leurs QUESTIONS, elles, alertent toujours (cloche, triangle) :
- * seule la carte est retirée des listes, jamais la décision qu'elle attend.
+ * seule la carte est retirée des listes, jamais la décision qu'elle attend —
+ * et une carte en travail reparaît (`carteMarketingCachee`).
  */
 export function estCarteMarketing(carte: { labels?: readonly string[] | null } | null | undefined): boolean {
   return !!carte?.labels?.includes(LABEL_MARKETING);
+}
+
+/**
+ * …SAUF TANT QU'ELLE EST EN TRAVAIL (demande du 20/10/2026). Une carte de
+ * l'atelier qui attend une réponse, sur laquelle un agent travaille, ou qui
+ * est en veille, est en « En cours » : elle paraît alors sur les tableaux de
+ * bord comme sur le tableau du projet, avec son liseré et son badge de service.
+ * Rangée (« Archivé »), elle retourne dans l'atelier. Les deux autres états
+ * mènent tous ici : une question ouverte RETIENT la carte en « En cours »
+ * (`issueDeFinDeTour`), une veille la met en pause SUR PLACE.
+ *
+ * La même règle est écrite en SQL dans le démon (`SANS_MARKETING_CACHE`), pour
+ * que paquets et compteurs disent ce que la liste montre.
+ */
+export const COLONNE_OU_PARAIT_LA_CARTE_MARKETING = 'running';
+
+export function carteMarketingCachee(
+  carte: { labels?: readonly string[] | null; column?: string | null } | null | undefined,
+): boolean {
+  return estCarteMarketing(carte) && carte?.column !== COLONNE_OU_PARAIT_LA_CARTE_MARKETING;
 }
 
 export const NATURES_PRODUIT = ['site', 'boutique', 'app', 'saas'] as const;
@@ -494,6 +516,20 @@ export function fusionnerRecommandations(actuelles: readonly RecommandationCanal
     parCanal.set(canal, { canal, pertinence, raison, ...(premierPas ? { premierPas } : {}), ...(etapes.length ? { etapes } : {}) });
   }
   return [...parCanal.values()];
+}
+
+/**
+ * UN COMPTE RELIÉ VAUT CHOIX DU CANAL (demande du 20/10/2026) : le réseau d'un
+ * compte relié compte parmi les canaux choisis, sans geste de plus — pour
+ * l'écran comme pour l'agent. Les canaux déjà choisis gardent leur ordre ; les
+ * réseaux reliés s'ajoutent derrière, une fois chacun.
+ */
+export function canauxAvecComptesRelies(canaux: readonly string[], reseauxRelies: readonly string[]): string[] {
+  const sortie = [...new Set(canaux)];
+  for (const reseau of reseauxRelies) {
+    if (!sortie.includes(reseau) && CLES_CANAUX.includes(reseau)) sortie.push(reseau);
+  }
+  return sortie;
 }
 
 /**
@@ -1540,6 +1576,8 @@ TON OUTIL : « marketing ». Ses actions : « lire » (tout ce qui est enregistr
 LE RAPPORT VIT DANS TA CONVERSATION : l'utilisateur le lit dans ton fil et te répond juste dessous (« tu as oublié tel point », « change ceci »). Chaque fois que tu écris ou réécris le rapport, ta RÉPONSE FINALE est le rapport ENTIER, tel que tu l'as enregistré. Sur une demande de correction : « lire », corrige ce qui est demandé (configuration, fiche, canaux, plan, contenus), puis réécris le rapport entier avec « rapport » et rends-le.
 
 LISTE DE TÂCHES : au début d'un travail de plusieurs étapes, annonce ta liste de tâches et coche-la au fil de l'eau — l'écran la montre au-dessus du champ d'écriture. À l'initialisation et à la réanalyse, UNE tâche par point étudié : comprendre le produit, le positionnement, l'offre et le prix, la mesure, les canaux, le plan d'action, les premiers contenus, les ventes, le rapport.
+
+${CONSIGNE_DE_LA_VEILLE}
 
 TA RÉPONSE FINALE, hors rapport, tient en quelques lignes simples : ce que tu as fait, ce qui attend l'utilisateur. Aucun tableau, aucun bloc json.
 

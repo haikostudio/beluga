@@ -10,6 +10,7 @@ import {
   argumentsFinDeSession,
   argumentsSessionExiste,
   argumentsSuiviDeTaille,
+  argumentsPressePapiers,
   choisirLeCompteDuTerminal,
   commandeDuMoteurDuTerminal,
   VARIABLES_DU_COFFRE_DU_TERMINAL,
@@ -132,6 +133,9 @@ export function garantirLaSession(
   choix: ChoixDuTerminal = compteDuTerminal(),
 ): { ok: boolean; creee: boolean; erreur?: string } {
   if (!tmuxDisponible()) return { ok: false, creee: false, erreur: 'tmux n’est pas installé sur ce serveur' };
+  /* La copie d'un programme (Claude Code) doit pouvoir sortir jusqu'au navigateur :
+     option du serveur tmux, reposée à chaque attache sans recréer la session. */
+  tmux(argumentsPressePapiers());
   if (tmux(argumentsSessionExiste(SESSION_TERMINAL)).ok) {
     tmux(argumentsSuiviDeTaille(SESSION_TERMINAL));
     return { ok: true, creee: false };
@@ -159,6 +163,7 @@ export function garantirLaSession(
   const creation = tmux(argumentsCreationSession(SESSION_TERMINAL, colonnes, lignes, surLaSession), env);
   if (!creation.ok) return { ok: false, creee: false, erreur: creation.sortie || 'création de la session refusée' };
   tmux(argumentsSuiviDeTaille(SESSION_TERMINAL));
+  tmux(argumentsPressePapiers());
   // …et pour les fenêtres ouvertes ENSUITE, qui repartiraient sinon sur
   // l'environnement du démon et donc sur un autre coffre que le shell d'à côté.
   for (const [nom, valeur] of Object.entries(surLaSession)) {

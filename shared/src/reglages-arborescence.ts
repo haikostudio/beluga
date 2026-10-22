@@ -144,12 +144,21 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
     titre: 'Machine',
     pages: [
       {
+        // Récupérer les nouveautés du dépôt public de Beluga Build. Visible
+        // partout : la machine source et l'offre hébergée y lisent pourquoi
+        // elles n'ont rien à récupérer.
+        cle: 'mise-a-jour',
+        titre: 'Mise à jour',
+        motsCles: ['mise à jour', 'mettre à jour', 'nouveautés', 'version', 'dépôt public', 'changelog', 'vérifier', 'upgrade'],
+        libelles: ['Mettre à jour', 'Vérifier maintenant'],
+      },
+      {
         // Ce qui change d'un serveur à l'autre : adresse, nom de domaine, courriels,
         // espace client. Les pages de l'assistant de premier démarrage, réunies.
         cle: 'installation',
         titre: 'Installation',
-        motsCles: ['installation', 'domaine', 'adresse', 'courriel', 'email', 'resend', 'github', 'espace client', 'compétences', 'dictée', 'mise en route', 'assistant', 'mise à jour', 'mettre à jour', 'nouveautés', 'changelog', 'version', 'dépôt'],
-        libelles: ['Mettre à jour', 'Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
+        motsCles: ['installation', 'domaine', 'adresse', 'courriel', 'email', 'resend', 'github', 'espace client', 'compétences', 'dictée', 'mise en route', 'assistant', 'dépôt'],
+        libelles: ['Adresse de Beluga Build', 'Nom de domaine des projets', 'Adresse d’expédition', 'Nom de l’espace client'],
       },
       {
         // Le compte GitHub du serveur : qui est relié, d'où vient le jeton, les
@@ -158,14 +167,6 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         titre: 'GitHub',
         motsCles: ['github', 'jeton', 'token', 'dépôt', 'repo', 'clé', 'gh', 'réinitialiser', 'compte'],
         libelles: ['Réinitialiser le jeton'],
-      },
-      {
-        // Redémarrage, terminal et arrêt général : ce qui agit sur la machine
-        // entière, sorti du menu « … » qui ne garde que le contexte de la page.
-        cle: 'serveur',
-        titre: 'Serveur et agents',
-        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'serveur', 'démon'],
-        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents'],
       },
       {
         cle: 'capacite',
@@ -215,6 +216,22 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
         titre: 'Juge rapide',
         motsCles: ['laya', 'juge', 'jugement', 'avis', 'signal', 'urgence', 'niveau', 'local'],
         libelles: ['Le modèle local', 'Ce que le juge décide', 'Les jugements rendus'],
+      },
+    ],
+  },
+  {
+    /* TOUT EN BAS DU MENU (demande du 20/10/2026) : redémarrage, terminal et
+       arrêt général, ce qui agit sur la machine entière. Le redémarrage est
+       AUSSI dans le menu « … » des tableaux de bord ; la clé reste « serveur »
+       pour les adresses et les liens existants. */
+    cle: 'serveur',
+    titre: 'Serveur',
+    pages: [
+      {
+        cle: 'serveur',
+        titre: 'Serveur',
+        motsCles: ['redémarrer', 'redémarrage', 'relancer', 'terminal', 'console', 'arrêter', 'stop', 'agents', 'serveur', 'démon'],
+        libelles: ['Redémarrer le serveur', 'Terminal du serveur', 'Arrêter tous les agents'],
       },
     ],
   },

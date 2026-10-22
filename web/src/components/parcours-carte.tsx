@@ -9,6 +9,7 @@ import {
   MessageSquare,
   RotateCcw,
   Rocket,
+  SlidersHorizontal,
   Pause,
   Trash2,
   X,
@@ -18,6 +19,7 @@ import {
 import {
   Agent,
   BOUTON_DES_QUE_POSSIBLE,
+  lancementScinde,
   comprehensionPourLePlan,
   Card,
   DEFINITIONS_NIVEAU,
@@ -37,6 +39,7 @@ import {
   agentTientSonTour,
   avanceDEtape,
   barreEnFinDeTache,
+  iterationAFermer,
   lotDeployableDepuisLaCarte,
   decisionDePlanOuverte,
   travailDeLaCarteDejaLance,
@@ -62,6 +65,10 @@ import {
   COLONNES_AVANT_LE_TRAVAIL,
   estVoletDuCahier,
   estVoletDeRealisation,
+  etatDeLaRealisation,
+  realisationDeLaCarte,
+  typesDeMediaDeLaRealisation,
+  LIBELLES_TYPES_DE_MEDIA_DE_REALISATION,
   carteEnPause,
   MESSAGE_DE_REPRISE,
 } from '@beluga/shared';
@@ -78,8 +85,6 @@ import { PlanRapport } from '@/components/plan-rapport';
 import { BandeauPropositions } from '@/components/propositions';
 import { useArretAgent } from '@/components/arret-agent';
 import { BoutonEtapeSuivante, useAvancerEtapes } from '@/components/etape-suivante';
-import { BandeauCahierDesCharges } from '@/components/cahier-des-charges';
-import { BandeauDeRealisation } from '@/components/realisation-volet';
 import { client } from '@/lib/client';
 import { EVENEMENT_OUVRIR_DECISIONS, ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { useApp } from '@/lib/use-app';
@@ -653,6 +658,7 @@ function BoutonDeGeste({
   principal,
   libelle,
   onAgir,
+  groupe = false,
 }: {
   geste: EtatDuGeste;
   /** Le geste de gauche, celui qui prend la largeur restante. */
@@ -664,6 +670,8 @@ function BoutonDeGeste({
    */
   libelle?: string;
   onAgir: (geste: EtatDuGeste) => unknown;
+  /** Les réglages de l'agent sont collés à sa droite : ses coins droits s'effacent. */
+  groupe?: boolean;
 }) {
   const [vientDeSallumer, setVientDeSallumer] = React.useState(false);
   const etatPrecedent = React.useRef(geste.possible);
@@ -693,6 +701,7 @@ function BoutonDeGeste({
           title={!geste.possible && geste.raison ? t(geste.raison) : undefined}
           className={cn(
             CLASSES_BOUTON_DU_FIL,
+            groupe && 'rounded-r-none',
             vientDeSallumer && 'animate-appel',
             /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Suspendre »
                est un aplat rouge à écriture blanche (variante `arret`). */
@@ -744,23 +753,154 @@ export function BarreDAction(props: {
   agent: Agent | null;
   /** Un ou deux gestes, dans l'ordre (`gestesDuParcours`). */
   gestes: EtatDuGeste[];
+  /**
+   * LE MENU DES RÉGLAGES DE L'AGENT, construit par la conversation autour du
+   * déclencheur qu'on lui donne : la MOITIÉ COLLÉE À DROITE du bouton
+   * principal de la rangée, quel qu'il soit (`IconeDesReglages`, `colle`).
+   */
+  menuReglages?: (declencheur: React.ReactElement) => React.ReactNode;
+  /** Les réglages sont figés (lecture seule) : repère des contrôles. */
+  reglagesModifiables?: boolean;
+  /**
+   * LA MISE EN LIGNE EST FAITE (carte en ligne ou rangée) : sans aucun bouton,
+   * la rangée s'efface tout à fait — le résumé de l'agent se lit alors sous le
+   * point « Déploiement » du flux (`ResumeDeLAgent`, `chat.tsx`).
+   */
+  resumeSousLeDeploiement?: boolean;
 }) {
-  /* LE CAHIER DES CHARGES D'UN NOUVEAU PROJET n'a aucun geste de chapitre :
-     ni « Valider et lancer », ni arrêt — son bandeau (avancement, lecture,
-     pause) les remplace. Son volet ne pose d'ailleurs pas de barre
-     d'écriture (`estVoletDuCahier`, `chat.tsx`). */
+  /* LE VOLET DE RÉALISATION (caméra) n'a qu'UN bouton : « Lancer la
+     fabrication · <types> », pleine largeur, ses réglages collés à droite.
+     Plus de bandeau d'avancement, de pause ni de caméra : la jauge de suivi
+     dit l'avancement, le bouton caméra du champ fait foi, et la lecture du
+     cahier est la dernière ligne du fil (`chat.tsx`). */
   if (estVoletDeRealisation(props.carte)) {
+    const pret = etatDeLaRealisation(realisationDeLaCarte(props.carte)) === 'termine';
     return (
-      <div data-barre-realisation>
-        <BandeauDeRealisation carte={props.carte} />
+      <div data-barre-realisation className="flex items-stretch">
+        <BoutonLancerLaFabrication carte={props.carte} groupe={!!props.menuReglages} />
+        <IconeDesReglages
+          menuReglages={props.menuReglages}
+          modifiables={props.reglagesModifiables}
+          colle={pret ? 'accent' : 'neutre'}
+        />
       </div>
     );
   }
   if (!estVoletDuCahier(props.carte)) return <GestesDuChapitre {...props} />;
+  /* LE CAHIER DES CHARGES D'UN NOUVEAU PROJET n'a aucun geste de chapitre :
+     ni « Valider et lancer », ni arrêt, ni bandeau. Il ne garde que ses
+     réglages, seuls à droite ; la lecture du document est la dernière ligne
+     du fil (`chat.tsx`). */
+  if (!props.menuReglages) return null;
   return (
-    <div data-barre-cahier>
-      <BandeauCahierDesCharges carte={props.carte} />
+    <div data-barre-cahier data-barre-action="aucun" data-gestes="" className="flex justify-end">
+      <IconeDesReglages menuReglages={props.menuReglages} modifiables={props.reglagesModifiables} />
     </div>
+  );
+}
+
+/**
+ * « LANCER LA FABRICATION · IMAGE + VIDÉO » — le seul geste du volet de
+ * réalisation. Toujours visible, il ne s'allume qu'une fois le cahier de
+ * réalisation terminé (`etatDeLaRealisation === 'termine'`) et, éteint, dit
+ * pourquoi au survol. Roue pendant la requête (`demanderLeLancement`).
+ */
+function BoutonLancerLaFabrication({ carte, groupe }: { carte: Card; groupe: boolean }) {
+  const realisation = realisationDeLaCarte(carte);
+  const pret = etatDeLaRealisation(realisation) === 'termine';
+  const types = typesDeMediaDeLaRealisation(realisation);
+  const raison = pret ? undefined : RAISON_FABRICATION_PAS_PRETE;
+  const libelle = [
+    t('Lancer la fabrication'),
+    types.length ? types.map((type) => t(LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[type])).join(' + ') : undefined,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <div className="min-w-[150px] flex-1">
+      <BoutonPrincipal raison={raison}>
+        <Button
+          type="button"
+          variant="default"
+          data-realisation-lancer={pret ? 'pret' : 'eteint'}
+          aria-disabled={!pret}
+          title={raison ? t(raison) : undefined}
+          onClick={() =>
+            pret
+              ? client.demanderLeLancement(carte.id)
+              : client.pushToast('warning', t(RAISON_FABRICATION_PAS_PRETE), carte.id)
+          }
+          className={cn(
+            CLASSES_BOUTON_DU_FIL,
+            groupe && 'rounded-r-none',
+            pret ? 'bg-accent text-accent-fg hover:opacity-90' : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
+          )}
+        >
+          <Rocket className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{libelle}</span>
+        </Button>
+      </BoutonPrincipal>
+    </div>
+  );
+}
+
+const RAISON_FABRICATION_PAS_PRETE = 'Le cahier de réalisation n’est pas encore terminé';
+
+/** LE TON DE LA MOITIÉ « RÉGLAGES » : celui du bouton auquel elle est collée. */
+type TonDesReglages = 'accent' | 'arret' | 'neutre';
+
+function tonDuGeste(geste: EtatDuGeste, principal: boolean): TonDesReglages {
+  if (!geste.possible) return 'neutre';
+  if (geste.geste === 'arreter') return 'arret';
+  return principal ? 'accent' : 'neutre';
+}
+
+/**
+ * LES RÉGLAGES DE L'AGENT, MOITIÉ DROITE DU BOUTON PRINCIPAL (`colle`) : on
+ * choisit CE QUI part (modèle, réflexion, compte) au même endroit qu'on le
+ * fait partir — « Lancer », « Lancer et valider », « Annuler », « Suspendre »,
+ * « Terminer », « Déployer »… Jour d'un pixel, coins arrondis aux seules
+ * extrémités, même ton que le bouton ; avant le groupe « Auto » + horloge.
+ * JAMAIS détachés en bout de rangée (décision du 21.10.2026). Sans `colle`,
+ * l'icône seule d'une rangée sans bouton. Elle reste cliquable quand les
+ * gestes sont éteints : consulter les réglages est toujours permis (menu en
+ * lecture une fois figés). Rien sans menu.
+ */
+function IconeDesReglages({
+  menuReglages,
+  modifiables,
+  colle,
+}: {
+  menuReglages?: (declencheur: React.ReactElement) => React.ReactNode;
+  modifiables?: boolean;
+  colle?: TonDesReglages;
+}) {
+  if (!menuReglages) return null;
+  return (
+    <>
+      {menuReglages(
+        <Button
+          type="button"
+          variant={colle === 'arret' ? 'arret' : 'ghost'}
+          title={t('Configuration de l’agent')}
+          aria-label="Configuration de l’agent"
+          data-raccourci-reglages={modifiables ? 'modifiable' : 'lecture'}
+          data-reglages-du-lancement
+          data-reglages-colles={colle ? '' : undefined}
+          className={cn(
+            'h-9 w-9 shrink-0 rounded-lg p-0',
+            colle && 'ml-px rounded-l-none',
+            colle === 'arret'
+              ? null
+              : colle === 'accent'
+                ? 'bg-accent text-accent-fg hover:bg-accent hover:opacity-90'
+                : 'bg-raised text-text hover:bg-border',
+          )}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </Button>,
+      )}
+    </>
   );
 }
 
@@ -768,11 +908,17 @@ function GestesDuChapitre({
   carte,
   agent,
   gestes,
+  menuReglages,
+  reglagesModifiables,
+  resumeSousLeDeploiement,
 }: {
   carte: Card;
   agent: Agent | null;
   /** Un ou deux gestes, dans l'ordre (`gestesDuParcours`). */
   gestes: EtatDuGeste[];
+  menuReglages?: (declencheur: React.ReactElement) => React.ReactNode;
+  reglagesModifiables?: boolean;
+  resumeSousLeDeploiement?: boolean;
   /** « Refuser » n'envoie rien : il DÉPOSE sa phrase dans la barre d'écriture. */
 }) {
   const arret = useArretAgent({ agent, cardId: carte.id });
@@ -837,8 +983,10 @@ function GestesDuChapitre({
   const departSansAgent = carte.column === 'planned' && !agent;
   /* LE LOT SE DÉPLOIE AUSSI D'ICI : une carte « À déployer » porte le bouton
      qui ouvre la fenêtre de déploiement de tout le lot — sauf relancée
-     (`lotDeployableDepuisLaCarte`). */
-  const deployerLeLot = lotDeployableDepuisLaCarte(carte);
+     (`lotDeployableDepuisLaCarte`), et sauf quand une simple question a
+     laissé son étape « Travail » ouverte : « Terminer la tâche » tient alors
+     sa place, et « Déployer » revient après le clic (`iterationAFermer`). */
+  const deployerLeLot = lotDeployableDepuisLaCarte(carte) && !iterationAFermer(carte);
   /* En fin de tâche, plus d'étape suivante ici : « Déployer » seul (l'archivage
      se fait au tableau, par la règle `avanceDEtape`). */
   const rangement = (avanceUtile && !finDeTache) || deployerLeLot;
@@ -853,7 +1001,17 @@ function GestesDuChapitre({
       ? { ...geste, possible: false, raison: arret.raison }
       : geste,
   );
-  if (!duChapitre.length && !rangement) return null;
+  /* PLUS AUCUN BOUTON : une carte mise en ligne n'a plus de rangée du tout,
+     son résumé d'agent se lit sous « Déploiement ». Ailleurs, l'icône des
+     réglages reste seule, à droite. */
+  if (!duChapitre.length && !rangement) {
+    if (resumeSousLeDeploiement || !menuReglages) return null;
+    return (
+      <div data-barre-action="aucun" data-gestes="" className="flex justify-end">
+        <IconeDesReglages menuReglages={menuReglages} modifiables={reglagesModifiables} />
+      </div>
+    );
+  }
 
   /*
    * LE CLIC REND SA REQUÊTE AU BOUTON : roue pendant l'attente, coche à la
@@ -861,6 +1019,8 @@ function GestesDuChapitre({
    * puis RELANCÉ — sans quoi le bouton verrait une requête « réussie » et
    * poserait une coche sur un geste qui n'a pas abouti.
    */
+  /* Sans geste de chapitre, les réglages vont au premier bouton de rangement. */
+  const reglagesAuRangement = !duChapitre.length && !!menuReglages;
   const motDeRefus = t('Geste refusé');
   const refuse = (err: any) => {
     client.signalerRefus(err?.message ?? motDeRefus, carte.id);
@@ -914,12 +1074,9 @@ function GestesDuChapitre({
                change. */
             const annulerLeCadrage =
               index === 0 && geste.geste === 'arreter' && (geste.chapitre === 'cadrage' || geste.chapitre === 'plan');
-            const scinde =
-              index === 0 &&
-              (geste.geste === 'lancer' ||
-                geste.geste === 'reprendre' ||
-                geste.geste === 'valider-et-lancer' ||
-                annulerLeCadrage);
+            /* LE LANCEMENT GROUPÉ (« Auto » + horloge à sa droite) suit une
+               seule règle (`lancementScinde`). */
+            const scinde = index === 0 && lancementScinde(duChapitre);
             const avecAuto = geste.geste === 'valider-et-lancer' || annulerLeCadrage;
             const libelle = annulerLeCadrage
               ? t('Annuler')
@@ -941,9 +1098,28 @@ function GestesDuChapitre({
                       .filter(Boolean)
                       .join(' · ')
                   : undefined;
+            /* LES RÉGLAGES SONT LA MOITIÉ DROITE DU PREMIER BOUTON, quel qu'il
+               soit : sur téléphone (un bouton par ligne), ils restent sur sa
+               ligne. */
+            const avecReglages = index === 0 && !!menuReglages;
+            const bouton = (
+              <BoutonDeGeste geste={geste} principal={index === 0} libelle={libelle} onAgir={agir} groupe={avecReglages} />
+            );
+            const boutonEtReglages = avecReglages ? (
+              <div className="flex min-w-[150px] flex-1 items-stretch" data-groupe-reglages>
+                {bouton}
+                <IconeDesReglages
+                  menuReglages={menuReglages}
+                  modifiables={reglagesModifiables}
+                  colle={annulerLeCadrage ? 'arret' : tonDuGeste(geste, true)}
+                />
+              </div>
+            ) : (
+              bouton
+            );
             return scinde ? (
               <div key={geste.geste} className="flex min-w-[150px] flex-1 items-stretch gap-1.5" data-bouton-scinde={carte.id}>
-                <BoutonDeGeste geste={geste} principal libelle={libelle} onAgir={agir} />
+                {boutonEtReglages}
                 {/* « AUTO » ET L'HORLOGE FORMENT UN GROUPE, à droite du bouton
                     principal : tous deux disent QUAND la carte part (seule, ou à
                     l'heure choisie), le bouton principal dit QUE ça part. Le
@@ -965,7 +1141,7 @@ function GestesDuChapitre({
                 </div>
               </div>
             ) : (
-              <BoutonDeGeste key={geste.geste} geste={geste} principal={index === 0} libelle={libelle} onAgir={agir} />
+              <React.Fragment key={geste.geste}>{boutonEtReglages}</React.Fragment>
             );
           })}
         </div>
@@ -982,15 +1158,34 @@ function GestesDuChapitre({
             duChapitre.length && 'mt-1.5',
           )}
         >
+          {/* SANS GESTE DE CHAPITRE, les réglages se collent au PREMIER
+              bouton de rangement (« Déployer », l'étape suivante). */}
           {avanceUtile && !finDeTache ? (
-            <BoutonEtapeSuivante
-              card={carte}
-              agentActif={agentAuTravail}
-              className={CLASSES_BOUTON_DU_FIL}
-              onAvancer={() => avancer([{ card: carte, agentActif: agentAuTravail }])}
+            <AvecReglages
+              actif={reglagesAuRangement}
+              menuReglages={menuReglages}
+              modifiables={reglagesModifiables}
+              ton="neutre"
+            >
+              <BoutonEtapeSuivante
+                card={carte}
+                agentActif={agentAuTravail}
+                className={cn(CLASSES_BOUTON_DU_FIL, reglagesAuRangement && 'rounded-r-none')}
+                onAvancer={() => avancer([{ card: carte, agentActif: agentAuTravail }])}
+              />
+            </AvecReglages>
+          ) : null}
+          {deployerLeLot ? (
+            <BoutonDeployerLeLot
+              carte={carte}
+              seul={finDeTache && !duChapitre.length}
+              reglages={
+                reglagesAuRangement && !(avanceUtile && !finDeTache)
+                  ? { menuReglages, modifiables: reglagesModifiables }
+                  : undefined
+              }
             />
           ) : null}
-          {deployerLeLot ? <BoutonDeployerLeLot carte={carte} seul={finDeTache && !duChapitre.length} /> : null}
         </div>
       ) : null}
 
@@ -1008,7 +1203,16 @@ function GestesDuChapitre({
  * du démon (`raisonDeployerDepuisLaCarte`) : jamais allumé sur un lot que
  * `deploy.start` refuserait, un agent encore au travail en tête.
  */
-function BoutonDeployerLeLot({ carte, seul = false }: { carte: Card; seul?: boolean }) {
+function BoutonDeployerLeLot({
+  carte,
+  seul = false,
+  reglages,
+}: {
+  carte: Card;
+  seul?: boolean;
+  /** Les réglages de l'agent, collés à sa droite (rangée sans geste de chapitre). */
+  reglages?: { menuReglages?: (declencheur: React.ReactElement) => React.ReactNode; modifiables?: boolean };
+}) {
   const etat = useApp();
   const projectId = carte.projectId;
   const raison = React.useMemo(() => {
@@ -1027,7 +1231,14 @@ function BoutonDeployerLeLot({ carte, seul = false }: { carte: Card; seul?: bool
       horsLigne: !etat.connected,
     });
   }, [etat.cards, etat.projects, etat.deploys, etat.agents, etat.connected, projectId]);
+  const colle = !!reglages?.menuReglages;
   return (
+    <AvecReglages
+      actif={colle}
+      menuReglages={reglages?.menuReglages}
+      modifiables={reglages?.modifiables}
+      ton={seul && !raison ? 'accent' : 'neutre'}
+    >
     <BoutonPrincipal raison={raison ?? undefined}>
       <Button
         type="button"
@@ -1044,6 +1255,7 @@ function BoutonDeployerLeLot({ carte, seul = false }: { carte: Card; seul?: bool
         title={raison ? t(raison) : undefined}
         className={cn(
           CLASSES_BOUTON_DU_FIL,
+          colle && 'rounded-r-none',
           raison
             ? 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint'
             : seul
@@ -1055,6 +1267,30 @@ function BoutonDeployerLeLot({ carte, seul = false }: { carte: Card; seul?: bool
         <span className="min-w-0 truncate">{t('Déployer')}</span>
       </Button>
     </BoutonPrincipal>
+    </AvecReglages>
+  );
+}
+
+/** UN BOUTON ET SES RÉGLAGES COLLÉS À DROITE ; sans `actif`, le bouton seul. */
+function AvecReglages({
+  actif,
+  menuReglages,
+  modifiables,
+  ton,
+  children,
+}: {
+  actif: boolean;
+  menuReglages?: (declencheur: React.ReactElement) => React.ReactNode;
+  modifiables?: boolean;
+  ton: TonDesReglages;
+  children: React.ReactNode;
+}) {
+  if (!actif || !menuReglages) return <>{children}</>;
+  return (
+    <div className="flex min-w-0 items-stretch [&>:first-child]:min-w-0 [&>:first-child]:flex-1" data-groupe-reglages>
+      {children}
+      <IconeDesReglages menuReglages={menuReglages} modifiables={modifiables} colle={ton} />
+    </div>
   );
 }
 

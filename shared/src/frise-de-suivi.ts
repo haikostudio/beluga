@@ -21,6 +21,8 @@
  * Règle pure : sans base ni réseau, elle se teste seule.
  */
 
+import { iterationAFermer } from './relance-apres-rapport.js';
+
 export const ETAPES_DE_SUIVI = ['demande', 'comprehension', 'travail', 'a_deployer', 'archivee'] as const;
 
 /**
@@ -94,7 +96,7 @@ export type AllureEtapeDeSuivi =
 
 export interface CarteDeSuivi {
   colonne: string;
-  parcours?: { comprehension?: unknown; plans?: unknown[] };
+  parcours?: { comprehension?: unknown; plans?: unknown[]; cadrageRouvertA?: number; iterationOuverteA?: number };
   /** Un agent de la carte tourne en ce moment. */
   agentActif?: boolean;
   /** Au moins une décision attendue de l'utilisateur. */
@@ -150,6 +152,9 @@ export function etapeCouranteDeSuivi(carte: CarteDeSuivi): EtapeDeSuivi {
     return carte.colonne === 'archived' ? 'propositions' : 'examen';
   }
   if (carte.colonne === 'archived') return 'archivee';
+  /* UNE SIMPLE QUESTION A ROUVERT L'ÉTAPE « TRAVAIL » : elle reste l'étape de
+     la carte jusqu'au clic « Terminer la tâche » (`iterationAFermer`). */
+  if (iterationAFermer({ column: carte.colonne, parcours: carte.parcours })) return 'travail';
   if (carte.colonne === 'to_deploy') return 'a_deployer';
   if (carte.colonne === 'running') return 'travail';
   // « Planifié » : le cadrage a-t-il rendu (ou est-il en train de rendre) ce

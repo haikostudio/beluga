@@ -84,6 +84,17 @@ export function etatDuBoutonDeConfiguration(entree: {
   return entree.processus ? 'reconfigurer' : 'initialiser';
 }
 
+/**
+ * LE CLIC SUR LE BOUTON D'EN-TÊTE LANCE-T-IL L'AGENT ? Oui en « Initialiser »
+ * ET en « Reconfigurer » (21/10/2026) : un projet qui a déjà un processus mais
+ * plus d'agent de configuration montre « Reconfigurer », et ce clic ouvrait un
+ * volet vide avec un second bouton. Le tiroir ne lance de toute façon jamais
+ * un agent qui a déjà une conversation : celle-ci s'ouvre, rien ne repart.
+ */
+export function leClicLanceLAgent(etat: EtatDuBoutonDeConfiguration): boolean {
+  return etat === 'initialiser' || etat === 'reconfigurer';
+}
+
 export const LIBELLE_BOUTON_DE_CONFIGURATION: Record<EtatDuBoutonDeConfiguration, string> = {
   initialiser: 'Initialiser',
   travail: 'Agent au travail…',

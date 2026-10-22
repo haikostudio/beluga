@@ -344,21 +344,13 @@ export const CLE_ASSISTANT_GLOBAL = 'assistant-global';
 
 /**
  * PLACE PAR DÉFAUT DU ROBOT : DANS LE COIN, à 16 px du bord droit (demande du
- * 14/10/2026 — il flottait à 76 px du bord, laissant un vide dans le coin pour
- * le rond de l'agent marketing, qui n'existe que sur la page Marketing). Là, et
- * là seulement, le robot se décale à sa gauche (`DROITE_A_COTE_DU_ROND_VOISIN`).
+ * 14/10/2026). Le rond de l'agent marketing qui le poussait à gauche sur la
+ * page Marketing a disparu (20/10/2026) : le coin est au robot partout.
  */
 export const DROITE_ROBOT_DEFAUT = 16;
 export const ROND_ROBOT = 48;
-/** La place du robot quand le rond de l'agent marketing occupe le coin. */
-export const DROITE_A_COTE_DU_ROND_VOISIN = 16 + 48 + 12;
 /** L'ancienne place par défaut : une préférence qui la porte encore n'a jamais été choisie à la main. */
 const ANCIENNE_DROITE_PAR_DEFAUT = 16 + 48 + 12;
-
-/** La distance du robot au bord droit, décalée si le rond voisin occupe le coin. */
-export function droiteAvecVoisin(droite: number, rondVoisin: boolean): number {
-  return rondVoisin && droite < DROITE_A_COTE_DU_ROND_VOISIN ? DROITE_A_COTE_DU_ROND_VOISIN : droite;
-}
 
 /** La distance du robot au bord droit, ramenée dans l'écran. */
 export function droiteDuRobot(droite: unknown, largeurFenetre: number, marge = 8): number {
@@ -476,7 +468,7 @@ TU ES BRANCHÉ SUR TOUT BELUGA, pour TOUS les projets. Chaque outil Beluga accep
 - le RÉSUMÉ de tous les projets, les cartes et leur avancement : assistant_resume ;
 - le COFFRE-FORT : coffre_fort (tu peux ressortir un accès en clair quand on te le demande, et JOINDRE ou RETIRER les photos d'une fiche : « enregistrer » avec « images », l'alias de la pièce jointe de la conversation — tu ne réponds jamais que tu n'en as pas le droit ; tu RANGES les fiches en dossiers et sous-dossiers (chemin « Clients/Acme/Prod ») : « enregistrer » avec « dossier », « dossiers », « dossier_enregistrer », « dossier_supprimer » et « dossier_restaurer ») ;
 - la MESSAGERIE de l'espace client : assistant_messagerie (ce qui attend une réponse, lire une demande, répondre, créer, archiver) ;
-- le MARKETING et son calendrier : marketing ; les STATISTIQUES : statistiques ;
+- le MARKETING de chaque projet — calendrier, plan, contenus, canaux, comptes, rapport : marketing, TOUJOURS avec « projet » (l'écran Marketing n'a plus d'agent à lui : c'est toi qu'on y appelle, et un message qui commence par « Marketing de « X » : » vise le projet X ; les longues analyses restent à l'agent marketing du projet, lancées depuis son écran) ; les STATISTIQUES : statistiques ;
 - la SURVEILLANCE : assistant_surveillances, surveillance_essai, surveillance_recette ;
 - les BACKUPS : assistant_backups, backup_essai, backup_recette ;
 - les NOTES : assistant_notes ;${MENTION_FACTURATION}

@@ -49,7 +49,7 @@ export function SectionServeur() {
 
   return (
     <div className="space-y-5" data-reglages-serveur>
-      <Groupe titre={t('Serveur et agents')}>
+      <Groupe titre={t('Serveur')}>
         <div className={CLASSE_GROUPE_DE_LIGNES}>
           <Ligne
             icone={redemarrage.repart ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}

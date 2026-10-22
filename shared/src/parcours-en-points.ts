@@ -24,6 +24,8 @@ import {
 import { EtapeDeLancement, libelleEtapeDeLancement } from './lancement-en-cours.js';
 import { natureDeLaMention, type NatureDeLaMention } from './suivi-colonne.js';
 import { decisionDePlanOuverte } from './plan-conversation.js';
+import { carteRangee } from './question-en-texte.js';
+import { cadrageRouvertApresRapport, iterationAFermer } from './relance-apres-rapport.js';
 import type { PropositionDeLaNuit } from './auto-amelioration.js';
 import {
   ETAPES_DE_SUIVI,
@@ -747,6 +749,7 @@ export interface ContexteDesPoints {
     | 'planValide'
     | 'issueDuTour'
     | 'cadrageRouvertA'
+    | 'iterationOuverteA'
     | 'competencesProposees'
   > | null;
   /**
@@ -1120,6 +1123,21 @@ function avecLaSuiteDeLIteration(passages: PassageNu[]): PassageNu[] {
 }
 
 /**
+ * L'ITÉRATION D'UNE CARTE RANGÉE EST-ELLE REFERMÉE ? Une carte « À déployer »
+ * ou archivée n'attend plus rien de son dernier message, sauf deux cas : une
+ * relance encore en cadrage (`cadrageRouvertApresRapport`), et une simple
+ * question dont l'étape « Travail » attend son « Terminer la tâche »
+ * (`iterationAFermer`). Ailleurs, la suite annoncée sous la demande — un
+ * Travail et un Rapport vides — promettrait un travail qui ne viendra pas, et
+ * laissait la barre du haut sur un « Travail » jamais coché.
+ */
+function iterationRefermee(ctx: Pick<ContexteDesPoints, 'colonne' | 'parcours'>): boolean {
+  if (!carteRangee(ctx.colonne)) return false;
+  const carte = { column: ctx.colonne, parcours: ctx.parcours };
+  return !cadrageRouvertApresRapport(carte) && !iterationAFermer(carte);
+}
+
+/**
  * CE QUE LA PRÉPARATION EST EN TRAIN DE FAIRE, en une phrase. Le détail vient
  * du signal d'étape quand il est arrivé (« Vérification des accès et de la
  * place »), sinon on s'en tient à la phrase générale : une page ouverte en
@@ -1315,7 +1333,7 @@ export function pointsDuParcours(
   }
   /* ET LA SUITE DE L'ITÉRATION S'ANNONCE SOUS SA DEMANDE — après le rangement
      de la mémoire : un passage annoncé n'a consommé aucun morceau de carnet. */
-  passages = avecLaSuiteDeLIteration(passages);
+  if (!iterationRefermee(ctx)) passages = avecLaSuiteDeLIteration(passages);
   const rang = ETAPES_DU_PARCOURS.indexOf(courante);
   const plans = ctx.parcours?.plans?.length ?? 0;
   const derniereErreur = derniereErreurDuJournal(entrees);

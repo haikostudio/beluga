@@ -22,12 +22,16 @@ import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 
 /**
- * LE REDÉMARRAGE DU SERVEUR, DANS LES RÉGLAGES (page « Serveur et agents »).
+ * LE REDÉMARRAGE DU SERVEUR, DANS LES RÉGLAGES (page « Serveur », tout en bas)
+ * ET DANS LE MENU « … » DES TABLEAUX DE BORD.
  *
  * Il a vécu au pied de la colonne des projets, en icône dans le bandeau, puis
  * en entrée du menu des trois points ; ce menu ne garde plus que ce qui
  * concerne la page affichée, et un geste qui vaut pour toute la machine se
  * range dans les réglages, qu'on ouvre de partout (demande du 11/10/2026).
+ * Le 20/10/2026, l'utilisateur l'a redemandé dans le « … » des tableaux de
+ * bord (`en-route.tsx`), où il s'ÉTEINT et dit pourquoi tant qu'une tâche ou
+ * une publication tourne (`bloque`) ; le forçage reste dans les réglages.
  * Son état reste visible fenêtre fermée : le POINT commun des boutons, sur le
  * coin haut droit du bouton des RÉGLAGES, au pied de la colonne
  * (`PointRedemarrage`) :
@@ -134,7 +138,21 @@ export function useRedemarrage() {
     />
   );
 
-  return { etat, libelle, raison, repart, ouvrir: () => setConfirmer(true), dialogue };
+  /*
+   * CE QUI ÉTEINT LE BOUTON DES TABLEAUX DE BORD (demande du 20/10/2026) : une
+   * publication ou une tâche qui tourne, et le temps où le serveur repart. La
+   * phrase dit pourquoi ; le forçage, lui, reste dans les réglages.
+   */
+  const agents = demon?.agentsEnCours ?? 0;
+  const bloque = repart
+    ? raison
+    : publie
+      ? raisonPublications(publications)
+      : agents > 0
+        ? raisonAgents(agents, demon?.agentsDetail)
+        : null;
+
+  return { etat, libelle, raison, repart, bloque, ouvrir: () => setConfirmer(true), dialogue };
 }
 
 /* AU REPOS, LE POINT NE SE VOIT PAS. Un point vert permanent sur le bouton du

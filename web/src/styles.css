@@ -1178,3 +1178,21 @@ html.en-veille *::after {
 [data-fil-d-ariane] > svg:has(+ [data-titre-de-page-ici]:empty) {
   display: none;
 }
+
+/* LA RÉPONSE VISÉE DEPUIS LA LISTE DES POINTS DU CADRAGE s'éclaire un instant
+   (`points-du-cadrage.tsx`) : un fond violet léger — la teinte de l'élément
+   choisi — qui s'éteint en fondu. Coupé quand l'appareil demande moins
+   d'animations (le composant ne pose alors pas l'attribut). */
+[data-reponse-eclairee] {
+  animation: reponse-eclairee 1.2s ease-out;
+  border-radius: 0.75rem;
+}
+@keyframes reponse-eclairee {
+  0%,
+  35% {
+    background-color: hsl(var(--teinte) / 0.14);
+  }
+  100% {
+    background-color: transparent;
+  }
+}

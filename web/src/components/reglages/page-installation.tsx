@@ -10,7 +10,6 @@ import {
   SectionFacultatif,
   SectionGitHub,
   SectionMemoire,
-  SectionNouveautes,
   useEtatDeLInstallation,
 } from '@/components/installation/sections';
 import { SectionContacterLEquipe, SectionPartage, useEtatDuRelais } from '@/components/installation/relais';
@@ -55,15 +54,11 @@ export function PageInstallation() {
       <Groupe titre={t('GitHub')}>
         <SectionGitHub etat={etat} relire={relire} />
       </Groupe>
+      {/* Les mises à jour ont leur page à elles (« Mise à jour », `page-mise-a-jour.tsx`). */}
       {state.offreHebergee ? null : (
-        <>
-          <Groupe titre={t('Mises à jour')}>
-            <SectionNouveautes />
-          </Groupe>
-          <Groupe titre={t('Votre propre Beluga')}>
-            <SectionCopie etat={etat} relire={relire} />
-          </Groupe>
-        </>
+        <Groupe titre={t('Votre propre Beluga')}>
+          <SectionCopie etat={etat} relire={relire} />
+        </Groupe>
       )}
       <Groupe titre={t('La mémoire')}>
         <SectionMemoire etat={etat} relire={relire} />

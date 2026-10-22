@@ -84,6 +84,9 @@ type EcranDeBase =
   | { vue: 'statistiques'; siteId?: string }
   /* Les médias fabriqués, ouverts sur UN projet : « #medias/<projet> ». */
   | { vue: 'medias'; projectId?: string }
+  /* Les tâches récurrentes d'UN projet, et la veille ouverte dans son tiroir :
+     « #taches-recurrentes/<projet>/veille/<veille> ». */
+  | { vue: 'taches-recurrentes'; projectId?: string; veilleId?: string }
   /*
    * L'ESPACE CLIENT, OUVERT SUR UNE FICHE. C'est l'adresse que portent les
    * courriels envoyés à Haiko : un clic doit tomber sur le bon client ET la
@@ -156,6 +159,7 @@ const VUE_DE_LA_DESTINATION: Record<VueCentrale, EcranNavigateur['vue']> = {
   studio: 'studio',
   statistiques: 'statistiques',
   medias: 'medias',
+  'taches-recurrentes': 'taches-recurrentes',
 };
 
 /** Et le chemin inverse, calculé une fois plutôt que réécrit à la main. */
@@ -251,6 +255,11 @@ function construireFragmentSansTiroirs(ecran: EcranNavigateur): string {
       return ecran.siteId ? `statistiques/${encodeURIComponent(ecran.siteId)}` : 'statistiques';
     case 'medias':
       return ecran.projectId ? `medias/${encodeURIComponent(ecran.projectId)}` : 'medias';
+    case 'taches-recurrentes': {
+      if (!ecran.projectId) return 'taches-recurrentes';
+      const base = `taches-recurrentes/${encodeURIComponent(ecran.projectId)}`;
+      return ecran.veilleId ? `${base}/veille/${encodeURIComponent(ecran.veilleId)}` : base;
+    }
     case 'espace': {
       if (!ecran.clientId) return 'espace';
       const base = `espace/${encodeURIComponent(ecran.clientId)}`;
@@ -397,6 +406,11 @@ function lireFragmentSansTiroirs(brut: string): EcranNavigateur {
     const projectId = decodeSegment(morceaux[1] ?? '');
     return projectId ? { vue: 'medias', projectId } : { vue: 'medias' };
   }
+  if (tete === 'taches-recurrentes') {
+    const projectId = decodeSegment(morceaux[1] ?? '');
+    const veilleId = projectId && morceaux[2] === 'veille' ? decodeSegment(morceaux[3] ?? '') : '';
+    return { vue: 'taches-recurrentes', ...(projectId ? { projectId } : {}), ...(veilleId ? { veilleId } : {}) };
+  }
   if (tete === 'espace') {
     const clientId = decodeSegment(morceaux[1] ?? '');
     const demandeId = morceaux[2] === 'demande' ? decodeSegment(morceaux[3] ?? '') : '';
@@ -493,6 +507,9 @@ function memeEcranSansTiroirs(a: EcranNavigateur, b: EcranNavigateur): boolean {
   if (a.vue === 'studio' && b.vue === 'studio') return (a.creationId ?? '') === (b.creationId ?? '');
   if (a.vue === 'statistiques' && b.vue === 'statistiques') return (a.siteId ?? '') === (b.siteId ?? '');
   if (a.vue === 'medias' && b.vue === 'medias') return (a.projectId ?? '') === (b.projectId ?? '');
+  /* Ouvrir une veille est une destination : Précédent referme son tiroir. */
+  if (a.vue === 'taches-recurrentes' && b.vue === 'taches-recurrentes')
+    return (a.projectId ?? '') === (b.projectId ?? '') && (a.veilleId ?? '') === (b.veilleId ?? '');
   /*
    * DEUX ADRESSES D'ESPACE MÈNENT AU MÊME ÉCRAN. La fiche ouverte est un
    * détail d'affichage à l'intérieur de cet écran, pas une destination à part :
@@ -632,6 +649,9 @@ export type ElementVise = {
   studio?: string | null;
   statistiques?: string | null;
   medias?: string | null;
+  /* Les tâches récurrentes : le projet choisi, puis la veille ouverte. */
+  recurrentes?: string | null;
+  recurrenteVeille?: string | null;
 };
 
 /**
@@ -652,6 +672,8 @@ export function elementViseDeLEcran(ecran: EcranNavigateur): ElementVise {
     studio: ecran.vue === 'studio' ? ecran.creationId ?? null : null,
     statistiques: ecran.vue === 'statistiques' ? ecran.siteId ?? null : null,
     medias: ecran.vue === 'medias' ? ecran.projectId ?? null : null,
+    recurrentes: ecran.vue === 'taches-recurrentes' ? ecran.projectId ?? null : null,
+    recurrenteVeille: ecran.vue === 'taches-recurrentes' ? ecran.veilleId ?? null : null,
   };
 }
 
@@ -718,6 +740,12 @@ export function ecranDeLaVue(etat: {
       return { vue: 'statistiques', ...(element.statistiques ? { siteId: element.statistiques } : {}) };
     case 'medias':
       return { vue: 'medias', ...(element.medias ? { projectId: element.medias } : {}) };
+    case 'taches-recurrentes':
+      return {
+        vue: 'taches-recurrentes',
+        ...(element.recurrentes ? { projectId: element.recurrentes } : {}),
+        ...(element.recurrentes && element.recurrenteVeille ? { veilleId: element.recurrenteVeille } : {}),
+      };
     case 'espace-client':
       return {
         vue: 'espace',

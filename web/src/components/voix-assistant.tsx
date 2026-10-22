@@ -1,8 +1,11 @@
 import * as React from 'react';
+import { createPortal } from 'react-dom';
 import { Ear, EarOff, GripVertical, MessagesSquare, Volume2, VolumeX } from 'lucide-react';
 import {
   CLE_VOIX_POSITION,
   DECALAGE_VOIX_DEFAUT,
+  DROITE_ROBOT_DEFAUT,
+  ROND_ROBOT,
   NOM_UTILISATEUR,
   correctionOuverture,
   decalageRetenu,
@@ -77,12 +80,16 @@ export const CLE_VOIX_CONVERSATION = 'voix.conversation';
  * La clé qui dit que la place du module a DÉJÀ été remise à zéro une fois. La
  * place était jadis réécrite toute seule (recadrage au redimensionnement,
  * accroche à un bord), si bien qu'une correction faite ailleurs revenait sur
- * l'écran principal. On repart donc UNE fois d'une place neuve (bas au centre),
- * puis plus rien n'écrit la place sans un glissement volontaire. Le drapeau vit
- * en préférence serveur, donc partagé : la remise à zéro n'a lieu qu'une seule
- * fois, pas à chaque appareil ni à chaque rechargement.
+ * l'écran principal. On repart donc UNE fois d'une place neuve (coin bas
+ * droit), puis plus rien n'écrit la place sans un glissement volontaire. Le
+ * drapeau vit en préférence serveur, donc partagé : la remise à zéro n'a lieu
+ * qu'une seule fois, pas à chaque appareil ni à chaque rechargement.
+ *
+ * Clé RENOMMÉE quand l'origine a quitté le bas au centre pour le coin bas droit
+ * (21.10.2026) : un décalage retenu par rapport au centre n'a plus de sens
+ * depuis le coin, il est donc remis à zéro une fois de plus.
  */
-export const CLE_VOIX_REINIT = 'voix.reinit';
+export const CLE_VOIX_REINIT = 'voix.reinit.coin';
 
 /** Combien de messages prononcés la liste dépliée MONTRE, le plus récent en tête. */
 export const VOIX_MESSAGES_MAX = 10;
@@ -123,6 +130,25 @@ const VOIX_ROND = 44;
  * plus le panneau (elle n'est plus un descendant de la boîte qui écoute le survol).
  */
 const VOIX_ECART_POIGNEE = 6;
+
+/**
+ * LA PLACE D'ORIGINE EST LE COIN BAS DROIT, plus le bas au centre : au centre,
+ * le module tombait sous la barre d'écriture d'une discussion. Le coin même est
+ * au robot de l'assistant quand le compte l'a (rond de 48 px à 16 px du bord,
+ * `ROND_ROBOT`, `DROITE_ROBOT_DEFAUT`) : la voix se pose alors juste à sa
+ * GAUCHE, sur la même ligne. Sans robot, elle prend le coin. Dans les deux cas
+ * la place de sa poignée (24 px, à droite du rond) est laissée libre.
+ */
+const VOIX_ECART_ROBOT = 8;
+function margeDroiteVoix(avecRobot: boolean): number {
+  const bord = avecRobot ? DROITE_ROBOT_DEFAUT + ROND_ROBOT + VOIX_ECART_ROBOT : DROITE_ROBOT_DEFAUT;
+  return bord + 24 + VOIX_ECART_POIGNEE;
+}
+
+/** Le CENTRE horizontal du rond à sa place d'origine, en pixels depuis la gauche. */
+export function centreOrigineVoix(largeurFenetre: number, avecRobot: boolean): number {
+  return largeurFenetre - margeDroiteVoix(avecRobot) - VOIX_ROND / 2;
+}
 /**
  * Combien de barres compose la ligne d'ondes ÉLARGIE : assez pour remplir tout
  * le pied du panneau (256 px) sans que les gros écarts ne le fassent paraître
@@ -402,7 +428,7 @@ function LigneOndes({
  * fabrique se décide là-bas ; si le serveur n'a pas de voix, on retombe sur
  * celle du navigateur.
  *
- * Le module est TOUJOURS à l'écran, réduit en un petit rond au centre en bas. Au
+ * Le module est TOUJOURS à l'écran, réduit en un petit rond dans le coin bas droit. Au
  * repos, il montre cinq barres figées en vibration sonore symétrique. Au survol
  * (souris) ou à l'appui (doigt) — même choix que la pile des messages
  * (`(hover: hover) and (pointer: fine)`) —, il se MÉTAMORPHOSE : le rond lui-même
@@ -454,6 +480,10 @@ function useInterrupteurDEcoute(
 
 export function VoixAssistant() {
   const state = useApp();
+  /* Le robot de l'assistant (comptes administrateurs, `app.tsx`) tient le coin. */
+  const avecRobot = state.monRole === 'admin';
+  const avecRobotRef = React.useRef(avecRobot);
+  avecRobotRef.current = avecRobot;
   const [muet, setMuet] = usePref<boolean>(CLE_VOIX_MUETTE, false);
   const [visible] = usePref<boolean>(CLE_VOIX_VISIBLE, false);
   /*
@@ -814,7 +844,7 @@ export function VoixAssistant() {
    * OÙ LE MODULE SE POSE. Sa place est retenue dans le COMPTE, par le même
    * mécanisme que le bloc en bas à droite : une préférence serveur, donc la
    * même sur tous les appareils. Ce qu'on retient est un DÉCALAGE par rapport
-   * à la place d'origine (bas au centre) ; jamais une position absolue.
+   * à la place d'origine (coin bas droit) ; jamais une position absolue.
    *
    * La place n'est écrite QUE par un glissement volontaire — jamais par le
    * recadrage de visibilité (qui corrige l'affichage du moment sans rien
@@ -830,7 +860,7 @@ export function VoixAssistant() {
 
   /*
    * REMISE À ZÉRO, UNE SEULE FOIS. La place était jadis réécrite toute seule ;
-   * on repart donc d'une place neuve (bas au centre) une fois pour toutes, dès
+   * on repart donc d'une place neuve (coin bas droit) une fois pour toutes, dès
    * que les préférences sont chargées (`state.settings` posé au même moment).
    * Le drapeau vit en préférence serveur, partagé : la remise à zéro n'a lieu
    * qu'une fois, jamais à chaque appareil ni à chaque rechargement, et ne
@@ -895,7 +925,7 @@ export function VoixAssistant() {
    * La place d'origine du BOUTON — le rond fermé SANS décalage. C'est toujours ce
    * rond (44 px) que l'on borne, jamais le panneau ouvert : le bouton ne doit pas
    * bouger quand on déplie, et sa place retenue est celle du rond. Le centre est
-   * au milieu de l'écran, le bas vient de la ligne mesurée (moins le décalage
+   * à sa place d’origine du coin bas droit (`centreOrigineVoix`), le bas vient de la ligne mesurée (moins le décalage
    * déjà appliqué). Un repli mesure la boîte tant que la ligne n'est pas connue.
    */
   const ancre = React.useCallback(() => {
@@ -908,7 +938,7 @@ export function VoixAssistant() {
     }
     const originBas = bas - decalageRef.current.y;
     return {
-      left: window.innerWidth / 2 - VOIX_ROND / 2,
+      left: centreOrigineVoix(window.innerWidth, avecRobotRef.current) - VOIX_ROND / 2,
       top: originBas - VOIX_ROND,
       width: VOIX_ROND,
       height: VOIX_ROND,
@@ -1032,14 +1062,14 @@ export function VoixAssistant() {
       : { actif: parle, lecteur: lireNiveaux, classeBarre: 'bg-success' };
 
   // DE QUEL CÔTÉ LE PANNEAU S'OUVRE. Le bouton (rond fermé) ne bouge pas : on
-  // calcule sa boîte à l'écran (centre au milieu de la fenêtre + décalage, bas
+  // calcule sa boîte à l'écran (centre à sa place d’origine du coin + décalage, bas
   // sur la ligne mesurée), on choisit le côté où il reste de la place, et on en
   // tire une correction à AJOUTER au transform. Cette correction est nulle
   // module fermé, et s'anime avec la largeur/hauteur si bien que le côté ancré
   // (là où est le bouton) reste fixe pendant la métamorphose.
   const rondBas = baseBasRef.current ?? fenetre.height;
   const rondBoite = {
-    left: fenetre.width / 2 + decalage.x - VOIX_ROND / 2,
+    left: centreOrigineVoix(fenetre.width, avecRobot) + decalage.x - VOIX_ROND / 2,
     top: rondBas - VOIX_ROND,
     width: VOIX_ROND,
     height: VOIX_ROND,
@@ -1066,7 +1096,11 @@ export function VoixAssistant() {
   // « Réglages › Voix » ne l'a pas rallumé.
   if (!visible) return null;
 
-  return (
+  /* SOUS LE CORPS DE LA PAGE, PAS DANS L'APPLICATION : posé dans l'arbre de
+     l'app, le module héritait d'un contexte d'empilement (rang 1) que les
+     pages et discussions (`z-40`/`z-50`) recouvraient, quel que soit son
+     propre rang. */
+  return createPortal(
     <>
     <div
       ref={racineRef}
@@ -1082,8 +1116,13 @@ export function VoixAssistant() {
       // et coins sont des nombres, donc le navigateur les interpole ; rien ne
       // surgit à côté, rien ne saute. La classe `-translate-x-1/2` a disparu :
       // un seul transform porte le centrage d'origine ET le décalage retenu.
-      className="fixed bottom-20 left-1/2 z-30 max-w-[80vw] overflow-hidden border border-border bg-surface/90 shadow-lg backdrop-blur transition-all ease-out sm:bottom-6"
+      /* RANG 56 : AU-DESSUS DES PAGES ET DES DISCUSSIONS (`z-40`/`z-50`) et de
+         la colonne dépliée (`z-[55]`), sous les menus et infobulles (`z-[60]`).
+         En `z-30`, le module disparaissait sous la barre d'écriture d'une
+         discussion. */
+      className="fixed bottom-20 z-[56] max-w-[80vw] sm:bottom-[calc(18px+var(--hauteur-terminal,0px))] overflow-hidden border border-border bg-surface/90 shadow-lg backdrop-blur transition-all ease-out"
       style={{
+        left: `${centreOrigineVoix(fenetre.width, avecRobot)}px`,
         // Ancré au menu, la ligne du bas vient de la mesure de la barre (safe-area
         // déjà comprise) : on écrase alors `bottom` et la marge de sécurité.
         ...(ancreMenu && ancrageBas != null
@@ -1480,8 +1519,9 @@ export function VoixAssistant() {
           aria-label="Déplacer la voix de l’assistant"
           title={t('Tirer pour déplacer')}
           onPointerDown={commencerGlissement}
-          className="fixed bottom-20 left-1/2 z-30 grid h-6 w-6 cursor-grab place-items-center text-faint transition-transform ease-out hover:text-muted active:cursor-grabbing sm:bottom-6"
+          className="fixed bottom-20 z-[56] grid h-6 w-6 cursor-grab place-items-center text-faint transition-transform ease-out hover:text-muted active:cursor-grabbing sm:bottom-[calc(18px+var(--hauteur-terminal,0px))]"
           style={{
+            left: `${centreOrigineVoix(fenetre.width, avecRobot)}px`,
             marginBottom: 'env(safe-area-inset-bottom)',
             // Placée à droite du rond fermé, alignée sur son bas : bord gauche de
             // la poignée = bord droit du rond + l'écart. Le décalage retenu la
@@ -1500,6 +1540,7 @@ export function VoixAssistant() {
           <GripVertical className="h-3.5 w-3.5" aria-hidden />
         </button>
       )}
-    </>
+    </>,
+    document.body,
   );
 }

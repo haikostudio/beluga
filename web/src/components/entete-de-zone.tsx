@@ -268,9 +268,16 @@ export const useTenueDesOptions = () => React.useContext(TenueDesOptions);
 export function OptionsDePage({
   children,
   enCours = false,
+  enMenu = false,
   className,
 }: {
   children: React.ReactNode;
+  /**
+   * SUR ORDINATEUR AUSSI, LES OPTIONS VIVENT DERRIÈRE LES TROIS POINTS (les
+   * tableaux de bord : « Redémarrer le serveur », demande du 20/10/2026) au
+   * lieu de s'aligner en boutons dans la barre.
+   */
+  enMenu?: boolean;
   /**
    * UN GESTE DU MENU EST EN TRAIN DE SE FAIRE (« Vérifier maintenant ») : le
    * contenu d'un menu est démonté tant qu'il est fermé, et la roue du bouton
@@ -291,7 +298,7 @@ export function OptionsDePage({
       </div>
     );
   }
-  if (!telephone) {
+  if (!telephone && !enMenu) {
     /* L'enveloppe fixe la place des options dans la barre, quel que soit
        l'ordre où les portails se montent : après les gestes posés tels quels,
        avant le geste principal. */
@@ -334,6 +341,7 @@ export function OptionsDePage({
 export function OptionDePage({
   icone,
   children,
+  detail,
   onClick,
   disabled,
   variante = 'subtle',
@@ -346,6 +354,12 @@ export function OptionDePage({
   icone?: React.ReactNode;
   /** Le nom du geste (et, à sa suite, un compteur discret). */
   children: React.ReactNode;
+  /**
+   * UNE PHRASE SOUS LE NOM, dans le menu : pourquoi la ligne est éteinte. Une
+   * ligne éteinte ne montre pas sa bulle ; la raison s'écrit donc dessous.
+   * En bouton, elle devient sa bulle.
+   */
+  detail?: string | null;
   onClick?: () => void;
   disabled?: boolean;
   variante?: 'subtle' | 'ghost';
@@ -365,19 +379,28 @@ export function OptionDePage({
         {icone ? (
           <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted [&>svg]:h-4 [&>svg]:w-4">{icone}</span>
         ) : null}
-        <span className="flex min-w-0 items-center gap-1.5 truncate">{children}</span>
+        {detail ? (
+          <span className="flex min-w-0 flex-col">
+            <span className="flex min-w-0 items-center gap-1.5 truncate">{children}</span>
+            <span className="max-w-[18rem] whitespace-normal text-[12px] leading-snug text-muted" data-option-detail>
+              {detail}
+            </span>
+          </span>
+        ) : (
+          <span className="flex min-w-0 items-center gap-1.5 truncate">{children}</span>
+        )}
       </DropdownMenuItem>
     );
   }
   if (compact) {
     return (
-      <Button variant="ghost" size={taille} className={cn('shrink-0', className)} disabled={disabled} onClick={onClick} title={title} {...attributs}>
+      <Button variant="ghost" size={taille} className={cn('shrink-0', className)} disabled={disabled} onClick={onClick} title={detail ?? title} {...attributs}>
         {icone}
       </Button>
     );
   }
   return (
-    <Button variant={variante} size="sm" className={className} disabled={disabled} onClick={onClick} title={title} {...attributs}>
+    <Button variant={variante} size="sm" className={className} disabled={disabled} onClick={onClick} title={detail ?? title} {...attributs}>
       {icone}
       {children}
     </Button>
@@ -484,7 +507,8 @@ export interface CranDuChemin {
  *    cliquent pour remonter ; le dernier — le titre de la page — est en texte
  *    plein. Un cran peut ouvrir une LISTE DÉROULANTE (`menu`, `menuDuTitre`) :
  *    c'est par elle qu'on change de projet sans quitter la page. Sur une page
- *    qu'on a OUVERTE (une carte), une flèche de retour le précède ; sur
+ *    qu'on a OUVERTE (une carte), une flèche de retour le précède — sur
+ *    téléphone seulement, l'ordinateur remonte par les crans ; sinon, sur
  *    téléphone, c'est le bouton qui ouvre la colonne des projets.
  *  - À DROITE, LES GESTES DE LA PAGE, puis ses options derrière un bouton à
  *    trois points (`menu`).
@@ -576,6 +600,13 @@ export function EnteteDeZone({
   const petitEcran = useTabletteOuTelephone();
   const menuPrincipal = React.useContext(MenuPrincipal);
   const deuxRangs = deuxRangsSurPetitEcran && petitEcran;
+  /*
+   * SUR ORDINATEUR, LE FIL D'ARIANE N'A PLUS DE FLÈCHE (demande du 20/10/2026) :
+   * on remonte en cliquant un cran. Elle ne reste que là où aucun cran ne se
+   * clique — sans quoi la page n'aurait plus de sortie. Sur téléphone, où les
+   * crans sont masqués, elle reste : c'est le retour d'un cran de la barre.
+   */
+  const filQuiSeRemonte = titreEnCran || chemin.some((cran) => !!cran.onClick || !!cran.menu);
   const retour = (
     <>
       {onRetour ? (
@@ -583,7 +614,7 @@ export function EnteteDeZone({
           <Button
             variant="ghost"
             size="icon-barre"
-            className={cn('shrink-0 text-muted', !avant && 'sm:-ml-1.5', retourDansLaColonne && 'sm:hidden')}
+            className={cn('shrink-0 text-muted', !avant && 'sm:-ml-1.5', (retourDansLaColonne || filQuiSeRemonte) && 'sm:hidden')}
             aria-label="Retour"
             {...(reperesDeRetour ? { 'data-retour-du-fil': '', ...reperesDeRetour } : { 'data-retour-carte': '' })}
             {...(retourDePage ? { 'data-retour-de-page': '', 'data-poignee-tiroir': '' } : {})}

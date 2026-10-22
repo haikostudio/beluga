@@ -5,9 +5,11 @@ import {
   agentTientSonTour,
   chatAssistantRetenu,
   decisionsQuiAlertent,
+  type Agent,
   type ChatAssistant,
 } from '@beluga/shared';
-import { usePref } from '@/lib/prefs';
+import { readPref, usePref, writePref } from '@/lib/prefs';
+import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 
 /**
@@ -58,27 +60,22 @@ export function useEtatAssistant() {
   };
 }
 
-/*
- * LE ROND VOISIN. La page Marketing pose son propre rond dans le coin bas
- * droit : tant qu'elle est affichée, le robot se range à sa gauche
- * (`droiteAvecVoisin`). Ailleurs, le coin est au robot.
+/**
+ * OUVRIR L'ASSISTANT DEPUIS UN ÉCRAN, UNE AMORCE DANS SON CHAMP. Un seul robot
+ * dans l'application (demande du 20/10/2026) : l'écran Marketing n'a plus son
+ * propre chat, il ouvre celui-ci. L'amorce (« Marketing de « ProjetA » : ») dit à
+ * l'assistant quel projet viser ; elle ne se pose QUE dans un champ vide — un
+ * texte déjà commencé n'est jamais recouvert. Rien n'est envoyé.
  */
-let rondVoisin = false;
-const abonnesDuVoisin = new Set<() => void>();
-
-export function poserLeRondVoisin(present: boolean): void {
-  if (rondVoisin === present) return;
-  rondVoisin = present;
-  for (const abonne of abonnesDuVoisin) abonne();
-}
-
-export function useRondVoisin(): boolean {
-  return React.useSyncExternalStore(
-    (abonne) => {
-      abonnesDuVoisin.add(abonne);
-      return () => abonnesDuVoisin.delete(abonne);
-    },
-    () => rondVoisin,
-    () => false,
-  );
+export async function ouvrirLAssistant(amorce?: string): Promise<void> {
+  const retenu = chatAssistantRetenu(readPref<unknown>(CLE_ASSISTANT_GLOBAL, CHAT_ASSISTANT_DEFAUT));
+  if (!retenu.ouvert) writePref(CLE_ASSISTANT_GLOBAL, { ...retenu, ouvert: true });
+  if (!amorce) return;
+  try {
+    const id = agentIdCourant ?? (await client.call<{ agent: Agent }>({ type: 'assistant.agent' })).agent.id;
+    const cle = `draft.${id}`;
+    if (!readPref<string>(cle, '').trim()) writePref(cle, amorce);
+  } catch {
+    /* l'assistant s'ouvre quand même, champ vide */
+  }
 }

@@ -873,6 +873,7 @@ function LigneDeDossier({
           disabled={!onBascule}
           tabIndex={-1}
           aria-hidden
+          title={onBascule ? (ouvert ? t('Replier le dossier') : t('Déplier le dossier')) : undefined}
           className="min-w-0 flex-1 self-stretch"
         />
         {/* LES GESTES DE LA LIGNE vivent derrière un seul bouton à trois points,

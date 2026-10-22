@@ -25,6 +25,7 @@ import {
   LABEL_CORRECTION_SITE,
   LABEL_PANNE_SITE,
   type ProjetEtSesAdresses,
+  brouillonDeCorrectionAJour,
   type SiteSurveille,
   decisionDeDepannage,
   demandeDePanne,
@@ -284,6 +285,17 @@ export async function ouvrirLeDepannage(
 /* La carte de correction, ouverte par le bouton sous les soucis        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * LA DEMANDE POSÉE DANS LA BARRE D'ÉCRITURE DE LA CARTE, sans rien envoyer :
+ * même chemin qu'un `prefs.set` (écriture du réglage, puis diffusion à tous
+ * les écrans). Le champ, monté à l'ouverture de la carte, lit ce brouillon.
+ */
+function deposerDansLeChamp(agentId: string, texte: string): void {
+  const cle = `draft.${agentId}`;
+  store.writePreference(cle, texte);
+  bus.emit({ type: 'prefs', prefs: { [cle]: store.readPreference(cle) ?? null }, partiel: true });
+}
+
 export interface CorrectionLancee extends DepannageLance {
   /** Vrai quand une carte de correction encore ouverte a été reprise au lieu d'en ouvrir une autre. */
   reprise: boolean;
@@ -293,12 +305,15 @@ export interface CorrectionLancee extends DepannageLance {
  * OUVRIR LA CORRECTION DE CE QUE LA SURVEILLANCE WORDPRESS A DÉTECTÉ. Un geste
  * de l'utilisateur (le bouton sous la liste des soucis), jamais la tournée.
  *
- * La carte naît dans le projet du site, dans « Demande », avec son cadrage ; le
- * premier tour reçoit TOUT ce qui a été détecté (`demandeDeCorrectionWordpress`),
- * puis le plan est demandé et ATTEND la validation — comme pour une panne :
- * rien n'est corrigé ni mis en ligne sans l'utilisateur. Un second clic ne
- * double pas la carte : celle qui est encore ouverte est reprise, et reçoit la
- * liste à jour.
+ * La carte naît dans le projet du site avec son agent de cadrage, et TOUT ce
+ * qui a été détecté (`demandeDeCorrectionWordpress`) est DÉPOSÉ dans sa barre
+ * d'écriture (brouillon `draft.<agent>`) — AUCUN tour ne part (21/10/2026).
+ * L'utilisateur relit, complète s'il veut, puis envoie : la demande passe par
+ * le chemin humain, son point « Demande » la montre et reçoit sa synthèse. Un
+ * second clic ne double pas la carte : celle qui est encore ouverte est
+ * reprise, et SON brouillon reçoit la liste à jour (`brouillonDeCorrectionAJour`),
+ * sans rien envoyer. La carte d'enquête sur panne (`ouvrirDepannage`), elle,
+ * part toujours seule : elle n'est pas concernée.
  */
 export async function ouvrirLaCorrectionDuSite(siteId: string): Promise<CorrectionLancee> {
   const site = lireSurveillance(siteId);
@@ -326,7 +341,7 @@ export async function ouvrirLaCorrectionDuSite(siteId: string): Promise<Correcti
     );
   if (ancienne) {
     const agent = store.getLastAgentByCard(ancienne.id);
-    if (agent) noterDansLeFil(agent.id, `Nouvelle demande de correction : voici la liste à jour.\n\n${demande}`);
+    if (agent) deposerDansLeChamp(agent.id, brouillonDeCorrectionAJour(store.readPreference(`draft.${agent.id}`), demande));
     return { cardId: ancienne.id, agentId: agent?.id ?? '', projectId: ancienne.projectId, reprise: true };
   }
 
@@ -342,14 +357,8 @@ export async function ouvrirLaCorrectionDuSite(siteId: string): Promise<Correcti
   bus.emit({ type: 'card.upsert', card });
   const cadrage = await ouvrirLeCadrage(card.id);
   if (!cadrage) throw new Error('Aucun agent de cadrage pour cette carte.');
-  log.info(`correction : carte « ${titre} » ouverte dans ${accueil.projet.name} (${soucis.length} soucis)`);
-
-  void sendPrompt(cadrage.id, demande, { template: 'none', silent: true })
-    .then(async () => {
-      const { demanderLePlan } = await import('./ws.js');
-      await demanderLePlan(card.id);
-    })
-    .catch((err) => log.error(`correction : l’étude de « ${site.nom} » a échoué`, err));
+  deposerDansLeChamp(cadrage.id, demande);
+  log.info(`correction : carte « ${titre} » ouverte dans ${accueil.projet.name} (${soucis.length} soucis), demande déposée dans le champ`);
 
   return { cardId: card.id, agentId: cadrage.id, projectId: accueil.projet.id, reprise: false };
 }

@@ -4268,6 +4268,90 @@ export const MIGRATIONS: {
       );
     `,
   },
+  {
+    id: 134,
+    name: 'medias-livres',
+    /*
+     * LES MÉDIAS LIVRÉS PAR UNE DISCUSSION (`server/src/medias-livres.ts`) :
+     * chaque image, vidéo ou son FINI, quelle que soit sa source (réalisation,
+     * Studio, outil « media_en_cours »), rattaché à sa carte ou à son agent.
+     * Les blocs de fabrication vivent en mémoire et s'effacent au message
+     * suivant ; cette table, elle, permet de les rendre sous la réponse finale,
+     * après un redémarrage comme des semaines plus tard.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS medias_livres (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        card_id TEXT,
+        agent_id TEXT,
+        attachment_id TEXT NOT NULL,
+        genre TEXT NOT NULL,
+        groupe TEXT NOT NULL,
+        version INTEGER NOT NULL DEFAULT 1,
+        sujet TEXT NOT NULL DEFAULT '',
+        outil TEXT NOT NULL DEFAULT '',
+        livre_le INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_medias_livres_carte ON medias_livres(card_id, livre_le);
+      CREATE INDEX IF NOT EXISTS idx_medias_livres_agent ON medias_livres(agent_id, livre_le);
+    `,
+  },
+  {
+    id: 135,
+    name: 'veilles-de-carte',
+    /*
+     * LA VEILLE D'UNE CARTE (`server/src/veille-de-carte.ts`) : une attente
+     * extérieure confiée à un contrôle gratuit, rejoué sans agent. Une ligne
+     * par veille, l'historique des états compris ; une seule `en_cours` par
+     * carte (index partiel). La recette est déclarative et sans secret.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS veilles_de_carte (
+        id TEXT PRIMARY KEY,
+        card_id TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        raison TEXT NOT NULL,
+        recette TEXT NOT NULL,
+        intervalle_ms INTEGER NOT NULL,
+        echeance INTEGER NOT NULL,
+        etat TEXT NOT NULL DEFAULT 'en_cours',
+        cree_a INTEGER NOT NULL,
+        prochain_controle_a INTEGER NOT NULL,
+        dernier_controle TEXT,
+        question_message_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_veilles_de_carte_active ON veilles_de_carte(card_id) WHERE etat = 'en_cours';
+      CREATE INDEX IF NOT EXISTS idx_veilles_de_carte_etat ON veilles_de_carte(etat, prochain_controle_a);
+    `,
+  },
+  {
+    id: 136,
+    name: 'rapports-d-usage',
+    /*
+     * LE RAPPORT D'USAGE ANONYME, CÔTÉ INSTALLATION (`server/src/usage-installation.ts`) :
+     * `usage_local` garde la journée en cours de mesure, puis les journées pas
+     * encore reçues par le relais (rattrapées à l'envoi suivant). La réception
+     * vit dans le central de Beluga Build, jamais ici.
+     */
+    sql: `
+      CREATE TABLE IF NOT EXISTS usage_local (
+        jour TEXT PRIMARY KEY,
+        donnees TEXT NOT NULL,
+        envoye_le INTEGER
+      );
+    `,
+  },
+  {
+    id: 137,
+    name: 'veilles-de-carte-fin',
+    /*
+     * LA FIN D'UNE VEILLE, DATÉE : le service « Tâches récurrentes » range
+     * l'historique par date de fin (levée, arrêtée, échue). Nulle tant que la
+     * veille court ; une veille prolongée la remet à nul.
+     */
+    sql: `ALTER TABLE veilles_de_carte ADD COLUMN termine_a INTEGER;`,
+  },
 ];
 
 export function openDb(): DB {

@@ -44,6 +44,9 @@ import {
   colonneFermeLesQuestions,
   COLONNES_QUI_FERMENT_LES_QUESTIONS,
   decisionEnTexteLibre,
+  questionEnTexteLibre,
+  COLONNE_OU_PARAIT_LA_CARTE_MARKETING,
+  LABEL_MARKETING,
   messageAttendUneReponse,
   type StatutAgent,
   rendusParProjet,
@@ -684,12 +687,18 @@ export function listCards(projectId: string): Card[] {
 
 /**
  * LES CARTES DE L'AGENT MARKETING NE PARAISSENT NI SUR LE TABLEAU NI SUR « EN
- * ROUTE » (`estCarteMarketing`, `shared/src/marketing.ts`) : elles se suivent
- * dans l'outil Marketing. Écarté ICI, en SQL, pour que les paquets et les
- * compteurs de colonne disent ce que la liste montre. Leurs décisions en
- * attente, elles, ne passent pas par ces lectures : la cloche les garde.
+ * ROUTE » TANT QU'ELLES NE SONT PAS EN TRAVAIL (`carteMarketingCachee`,
+ * `shared/src/marketing.ts`) : rangées, elles se suivent dans l'outil
+ * Marketing. Une carte en « En cours » — un agent y travaille, elle attend une
+ * réponse, ou elle est en veille — paraît comme les autres. Écarté ICI, en
+ * SQL, pour que les paquets et les compteurs de colonne disent ce que la liste
+ * montre ; l'écran applique la même règle.
+ *
+ * (L'ancienne phrase « la cloche les garde » ne tenait pas : une carte rangée
+ * en « Archivé » FERME ses questions, cloche comprise. C'est la fin de tour qui
+ * retient désormais une carte de volet sur sa question — `questionEnTexteSurLaCarte`.)
  */
-const SANS_MARKETING = `NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label = 'marketing')`;
+const SANS_MARKETING = `(c.column_key = '${COLONNE_OU_PARAIT_LA_CARTE_MARKETING}' OR NOT EXISTS (SELECT 1 FROM card_labels ml WHERE ml.card_id = c.id AND ml.label = '${LABEL_MARKETING}'))`;
 
 /**
  * LA PREMIÈRE TRANCHE DE CHAQUE COLONNE, ET LE TOTAL RÉEL DE CHACUNE
@@ -1157,7 +1166,14 @@ function empreinteDuContenu(card: Card): string {
     }
     return valeur;
   };
-  return JSON.stringify(trier({ ...card, updatedAt: undefined, lastReadAt: undefined }));
+  /*
+   * UN PASSAGE DE VEILLE N'EST PAS UNE ACTION SUR LA CARTE. Le résumé de veille
+   * se réécrit à chaque contrôle (dernier passage, prochain) : sans ce retrait,
+   * la carte remonterait en tête des tableaux de bord toutes les heures. Poser,
+   * lever ou laisser expirer la veille, eux, comptent.
+   */
+  const veille = card.veille ? { id: card.veille.id, etat: card.veille.etat, raison: card.veille.raison, echeance: card.veille.echeance } : undefined;
+  return JSON.stringify(trier({ ...card, veille, updatedAt: undefined, lastReadAt: undefined }));
 }
 
 export function saveCard(card: Card, options: { action?: boolean } & DetailsDEnregistrement = {}): Card {
@@ -2122,6 +2138,30 @@ export function questionOuverteSurLaCarte(cardId: string): boolean {
     }
   }
   return false;
+}
+
+/**
+ * LA DERNIÈRE PHRASE DE LA CARTE EST-ELLE UNE QUESTION ÉCRITE EN TEXTE ?
+ *
+ * Le dernier message de la carte, tous agents confondus — la même lecture que
+ * la troisième source de la cloche (`decisionEnTexteLibre`). Elle ne sert qu'à
+ * la fin de tour d'un AGENT DE VOLET : sa carte n'a pas de rapport à rendre,
+ * et la ranger d'office sur « dites-moi quand… » faisait disparaître la
+ * question avec elle (carte 176d3fc7, 20/10/2026).
+ */
+export function questionEnTexteSurLaCarte(cardId: string): boolean {
+  const ligne = getDb()
+    .prepare(
+      `SELECT m.data AS data FROM messages m JOIN agents a ON a.id = m.agent_id
+        WHERE a.card_id = ? ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1`,
+    )
+    .get(cardId) as { data: string } | undefined;
+  if (!ligne) return false;
+  try {
+    return questionEnTexteLibre(Message.parse(JSON.parse(ligne.data))) !== null;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -119,6 +119,17 @@ export function clesAMarquerVues(captures: readonly CaptureDuFlux[], vues: Reado
   return [...new Set(capturesPasEncoreVues(captures, vues).flatMap(clesDeVue))];
 }
 
+/**
+ * LE BADGE DE LA BANDE REPLIÉE : combien d'images sont arrivées APRÈS le repli
+ * (`depuis`, en ms). Ce n'est pas « pas encore vues » : une image ancienne jamais
+ * ouverte n'y compte pas. Une image d'heure inconnue (`quand` = 0) n'est jamais
+ * comptée, et sans moment de repli connu (`depuis` = 0) il n'y a rien à compter.
+ */
+export function capturesArriveesDepuis(captures: readonly CaptureDuFlux[], depuis: number): number {
+  if (!(depuis > 0)) return 0;
+  return captures.reduce((n, c) => (c.quand > 0 && c.quand > depuis ? n + 1 : n), 0);
+}
+
 export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: readonly JointeDuTour[] = []): CaptureDuFlux[] {
   // Les copies d'icônes d'une construction n'entrent pas dans la bande (décision de l'utilisateur).
   const images = jointes.filter((j) => j.mime.startsWith('image/') && !pieceVenueDUneConstruction(j.name));

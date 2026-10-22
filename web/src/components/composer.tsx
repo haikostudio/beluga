@@ -64,6 +64,7 @@ import { EVENEMENT_FILE_RENDUE, type DetailFileRendue, useArretAgent, useChampMo
 import { AttachmentPreview } from '@/components/attachment-preview';
 import {
   Button,
+  type ButtonProps,
   CLASSE_MARGE_DU_LIBELLE_DU_CHAMP,
   CLASSE_RANGEE_DE_BOUTONS,
   Dialog,
@@ -201,22 +202,27 @@ const PREFIXE_COPIE_BROUILLON = 'beluga.brouillon.';
  * requête le dit dès le clic) et le bouton est bloqué. Un calque invisible
  * porte la cible au doigt à 36 px de haut sans grandir la barre.
  */
-function BoutonInterrupteur({
-  actif,
-  enVol,
-  icone,
-  libelle,
-  onClick,
-  ...data
-}: {
-  actif: boolean;
-  enVol: boolean;
-  icone: React.ReactNode;
-  libelle: string;
-  onClick: () => void;
-} & { [attribut: `data-${string}`]: string }) {
+const BoutonInterrupteur = React.forwardRef<
+  HTMLButtonElement,
+  {
+    actif: boolean;
+    enVol: boolean;
+    icone: React.ReactNode;
+    libelle: string;
+    onClick: () => void;
+  } & Omit<ButtonProps, 'onClick'>
+>(function BoutonInterrupteur({ actif, enVol, icone, libelle, onClick, className, ...reste }, ref) {
+  /*
+   * LA RÉFÉRENCE DOIT ARRIVER JUSQU'AU BOUTON. L'infobulle d'enveloppe
+   * (`Tooltip`, déclencheur Radix en `asChild`) s'accroche à l'élément par elle :
+   * sans `forwardRef`, React la jetait, la bulle s'ouvrait sans ancre et restait
+   * dessinée hors de l'écran — les trois interrupteurs n'avaient « aucune bulle ».
+   * Les gestionnaires posés par le déclencheur (survol, focus, aria) passent par
+   * `reste`.
+   */
   return (
     <Button
+      ref={ref}
       variant="ghost"
       size="sm"
       sansAttente
@@ -224,7 +230,7 @@ function BoutonInterrupteur({
       aria-pressed={actif}
       aria-busy={enVol || undefined}
       aria-label={libelle}
-      {...data}
+      {...reste}
       className={cn(
         // Même case que les boutons-icônes de la rangée (28 px de côté, marge
         // de 7 px autour du glyphe) : le vide jusqu'au voisin est le même.
@@ -238,6 +244,7 @@ function BoutonInterrupteur({
         // VIOLET (demande du 12/10/2026) : l'élément choisi, `aria-pressed`.
         actif ? 'text-teinte hover:text-teinte' : 'text-faint hover:text-muted',
         enVol && 'cursor-wait disabled:opacity-70',
+        className,
       )}
       onClick={onClick}
     >
@@ -246,7 +253,7 @@ function BoutonInterrupteur({
       </span>
     </Button>
   );
-}
+});
 
 /**
  * L'INTERRUPTEUR « PLAN », COLLÉ AU CHAMP D'ÉCRITURE.
@@ -2738,7 +2745,7 @@ function QueuedItem({
       <button
         type="button"
         title={t('Envoyer maintenant')}
-        aria-label={t('Envoyer maintenant')}
+        aria-label="Envoyer maintenant"
         aria-busy={envoiEnCours}
         disabled={envoiEnCours}
         onClick={() => void envoyerMaintenant()}

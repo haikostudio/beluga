@@ -1,15 +1,6 @@
 import * as React from 'react';
-import { BookOpen, ClipboardList, Download, FileText, FileType, Loader2, Pause, Play } from 'lucide-react';
-import {
-  Card,
-  LIBELLES_PHASES_DU_CAHIER,
-  nomDuCahierExporte,
-  etatDuCahier,
-  partiesDuCahier,
-  pausePossible,
-  pourcentageDuCahier,
-  reprisePossible,
-} from '@beluga/shared';
+import { BookOpen, ClipboardList, Download, FileText, FileType, Loader2 } from 'lucide-react';
+import { Card, nomDuCahierExporte, partiesDuCahier } from '@beluga/shared';
 import {
   Button,
   EnteteDeFeuille,
@@ -18,11 +9,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  Tooltip,
   ZoneDefilement,
 } from '@/components/ui';
 import { useTelechargement } from '@/lib/telechargement';
-import { BarreProgression } from '@/components/barre-progression';
 import { Silhouette } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
@@ -32,107 +21,28 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
- * LE BANDEAU DU CAHIER DES CHARGES, collé au-dessus des gestes de la carte.
- *
- * Seule la carte née de la case « Démarrer par un cahier des charges » le porte
- * (`Card.cahierDesCharges`, `shared/src/cahier-des-charges.ts`). Il dit où on
- * en est — questions tranchées, phase, pause —, ouvre le document tel qu'il
- * s'écrit, et porte la pause et la reprise. Les règles (pourcentage, boutons
- * éteints et leur raison) sont dans `shared/` ; ce composant ne fait que
- * dessiner.
+ * « LIRE LE CAHIER DES CHARGES », DERNIÈRE LIGNE DU FIL du volet du cahier
+ * (`chat.tsx`). Elle remplace l'ancien bandeau (phase, compteur, jauge,
+ * pause) : l'avancement se lit sur la jauge de suivi. Seule la carte née de
+ * la case « Démarrer par un cahier des charges » la porte
+ * (`Card.cahierDesCharges`), et rien tant que le document n'existe pas.
  */
-export function BandeauCahierDesCharges({ carte }: { carte: Card }) {
+export function LectureDuCahierDesCharges({ carte }: { carte: Card }) {
   const cahier = carte.cahierDesCharges;
-  const [geste, setGeste] = React.useState<'pause' | 'reprise' | null>(null);
   const [lecture, setLecture] = React.useState(false);
-  if (!cahier) return null;
-
-  const etat = etatDuCahier(cahier);
-  const pourcent = pourcentageDuCahier(cahier);
-  const pause = pausePossible(cahier);
-  const reprise = reprisePossible(cahier);
-
-  /* UN BOUTON QUI PART EN REQUÊTE LE DIT DÈS LE CLIC : roue pendant l'attente,
-     refus dit en rouge. */
-  const agir = async (quoi: 'pause' | 'reprise') => {
-    setGeste(quoi);
-    try {
-      await client.call({ type: quoi === 'pause' ? 'card.cahierPause' : 'card.cahierReprendre', id: carte.id });
-    } catch (err: any) {
-      client.signalerRefus(err?.message ?? t('Geste refusé'), carte.id);
-    } finally {
-      setGeste(null);
-    }
-  };
-
-  const libelleEtat =
-    etat === 'en-pause'
-      ? t('En pause')
-      : etat === 'termine'
-        ? t('Toutes les questions ont leur réponse')
-        : t(LIBELLES_PHASES_DU_CAHIER[cahier.phase]);
-
+  if (!cahier || (!cahier.majA && !cahier.faites)) return null;
   return (
-    <div
-      className="mb-1.5 rounded-md bg-raised px-3 py-2"
-      data-cahier-des-charges={carte.id}
-      data-cahier-etat={etat}
-    >
-      <div className="flex items-center gap-2 text-[13px]">
-        <ClipboardList className="h-3.5 w-3.5 shrink-0 text-muted" />
-        <span className="font-medium text-text">{t('Cahier des charges')}</span>
-        <span className={cn('min-w-0 truncate', etat === 'en-pause' ? 'text-warning' : 'text-muted')}>
-          · {libelleEtat}
-        </span>
-        <span className="ml-auto shrink-0 tabular-nums text-faint" data-cahier-avancement>
-          {cahier.total
-            ? t('{v0} questions sur {v1}', { v0: cahier.faites, v1: cahier.total })
-            : t('{v0} questions', { v0: cahier.faites })}
-        </span>
-      </div>
-      <BarreProgression
-        pourcent={pourcent}
-        teinte={etat === 'termine' ? 'success' : 'en-cours'}
-        className="mt-1.5"
-        data-cahier-jauge={String(pourcent)}
-      />
-      {/* LA LECTURE PREND TOUTE LA LARGEUR ; la pause (ou la reprise) n'est
-          plus qu'une icône à sa droite, avec sa raison au survol. */}
-      <div className="mt-2 flex items-center gap-1.5">
-        <Button size="sm" variant="outline" className="min-w-0 flex-1" onClick={() => setLecture(true)} data-cahier-lire>
-          <BookOpen className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate">{t('Lire le cahier des charges')}</span>
-        </Button>
-        {etat === 'en-pause' ? (
-          <Tooltip label={reprise.possible ? t('Repartir à la question suivante') : t(reprise.raison ?? '')}>
-            <Button
-              size="icon"
-              variant="default"
-              className="shrink-0"
-              aria-label="Reprendre"
-              disabled={!reprise.possible || geste !== null}
-              onClick={() => agir('reprise')}
-              data-cahier-reprendre
-            >
-              {geste === 'reprise' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-            </Button>
-          </Tooltip>
-        ) : etat === 'en-cours' ? (
-          <Tooltip label={pause.possible ? t('Mettre en pause : vous reprendrez à la question suivante') : t(pause.raison ?? '')}>
-            <Button
-              size="icon"
-              variant="outline"
-              className="shrink-0"
-              aria-label="Mettre en pause"
-              disabled={!pause.possible || geste !== null}
-              onClick={() => agir('pause')}
-              data-cahier-pause
-            >
-              {geste === 'pause' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pause className="h-3.5 w-3.5" />}
-            </Button>
-          </Tooltip>
-        ) : null}
-      </div>
+    <div className="px-4 pb-3 pt-1" data-lecture-du-cahier="cahier">
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-9 w-full min-w-0 justify-center gap-2 rounded-lg bg-raised px-3 text-[13px] font-medium text-text hover:bg-border"
+        onClick={() => setLecture(true)}
+        data-cahier-lire
+      >
+        <BookOpen className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{t('Lire le cahier des charges')}</span>
+      </Button>
       <TiroirDuCahier projectId={carte.projectId} majA={cahier.majA} open={lecture} onClose={() => setLecture(false)} />
     </div>
   );

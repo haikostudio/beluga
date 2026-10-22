@@ -5,6 +5,7 @@ import {
   agentDeConfiguration,
   agentTientSonTour,
   etatDuBoutonDeConfiguration,
+  leClicLanceLAgent,
   processusDeLEtape,
   procedureEnPlace,
   type CiblePublication,
@@ -65,9 +66,10 @@ export function useAgentDeConfiguration(projectId: string, cible: CiblePublicati
  *
  * Rien ne part tout seul à la simple visite : sans agent, le tiroir s'ouvre
  * sur une phrase et un second bouton lance le premier tour — SAUF quand le
- * clic est celui du bouton « Initialiser » (`lancer`) : ce clic est le geste, le
- * premier tour part avec l'ouverture, sans second clic (16/10/2026). Le bouton
- * du tiroir reste pour les autres entrées, où l'agent étudie
+ * clic est celui du bouton « Initialiser » OU « Reconfigurer » (`lancer`,
+ * `leClicLanceLAgent`) : ce clic est le geste, le premier tour part avec
+ * l'ouverture, sans second clic (16/10/2026, « Reconfigurer » le 21/10/2026).
+ * Le bouton du tiroir reste pour les autres entrées, où l'agent étudie
  * le projet puis pose ses questions (`ask_user`, affichée dans ce fil). Un
  * agent qui a déjà parlé ne se relance JAMAIS seul : on lui écrit par la
  * barre, et le serveur y joint ce qu'il doit savoir (`contexteDeConfiguration`).
@@ -93,7 +95,7 @@ export function BoutonAgentDeConfiguration({
       size="pied"
       disabled={!!voile}
       title={voile ?? undefined}
-      onClick={() => ouvrirAgentDeConfiguration(projectId, cible, { lancer: etat === 'initialiser' })}
+      onClick={() => ouvrirAgentDeConfiguration(projectId, cible, { lancer: leClicLanceLAgent(etat) })}
       data-agent-configuration={cible}
       data-ouvrir-agent-configuration={cible}
       data-etat-bouton-agent={etat}

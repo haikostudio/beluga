@@ -2,12 +2,10 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Bot, ChevronDown, Loader2, MessageCircleQuestion, RotateCw, X } from 'lucide-react';
 import {
-  BAS_ROBOT,
   HAUT_ENTETE,
   MARGE_CHAT,
   ROND_ROBOT,
   chatDeLAssistant,
-  droiteAvecVoisin,
   droiteDuRobot,
   estTelephoneChat,
   type Agent,
@@ -15,10 +13,11 @@ import {
   type FenetreChat,
 } from '@beluga/shared';
 import { Chat } from '@/components/chat';
+import { RangeeDesRonds } from '@/components/rangee-des-ronds';
 import { SilhouetteConversation } from '@/components/silhouettes';
 import { Button, CLASSE_POINT_DE_BOUTON, Tooltip } from '@/components/ui';
 import { client } from '@/lib/client';
-import { poserAgentDeLAssistant, useEtatAssistant, useRondVoisin } from '@/lib/assistant-global';
+import { poserAgentDeLAssistant, useEtatAssistant } from '@/lib/assistant-global';
 import { usePointerDrag, type DragItem } from '@/lib/dnd';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
@@ -59,10 +58,8 @@ export function AssistantGlobal() {
   const state = useApp();
   const { retenu, retenir: setBrut, agent: agentDuMagasin, travaille, questions } = useEtatAssistant();
   const [geste, setGeste] = React.useState<ChatAssistant | null>(null);
-  const rondVoisin = useRondVoisin();
-  const etatRetenu = geste ?? retenu;
-  /* Sur la page Marketing, son rond tient le coin : le robot se range à sa gauche, sans que la préférence change. */
-  const etat = { ...etatRetenu, droite: droiteAvecVoisin(etatRetenu.droite, rondVoisin) };
+  /* Le coin est au robot partout : l'écran Marketing n'a plus de rond à lui (20/10/2026). */
+  const etat = geste ?? retenu;
 
   const [fenetre, setFenetre] = React.useState<FenetreChat>(lireFenetre);
   React.useEffect(() => {
@@ -166,20 +163,22 @@ export function AssistantGlobal() {
           left: vu.droite,
           right: vu.droite,
           top: `calc(${vu.haut}px + var(--zone-sure-haut, 0px))`,
-          bottom: `max(calc(${vu.bas}px + env(safe-area-inset-bottom, 0px)), calc(var(--clavier, 0px) + 8px))`,
+          bottom: `max(calc(${vu.bas}px + env(safe-area-inset-bottom, 0px) + var(--hauteur-terminal, 0px)), calc(var(--clavier, 0px) + 8px))`,
         }
       : {
           right: vu.droite,
-          bottom: vu.bas,
+          // Le terminal ouvert soulève l'application : le chat monte avec la rangée des ronds.
+          bottom: `calc(${vu.bas}px + var(--hauteur-terminal, 0px))`,
           width: vu.largeur,
           height: vu.hauteur,
-          maxHeight: `calc(100dvh - ${vu.bas + HAUT_ENTETE + MARGE_CHAT}px - var(--zone-sure-haut, 0px) - var(--clavier, 0px))`,
+          maxHeight: `calc(100dvh - ${vu.bas + HAUT_ENTETE + MARGE_CHAT}px - var(--zone-sure-haut, 0px) - var(--clavier, 0px) - var(--hauteur-terminal, 0px))`,
         };
 
   return createPortal(
     <>
       {/* Sur téléphone, le robot ne flotte plus : le bouton de l'entête le remplace. */}
       {!telephone ? (
+      <RangeeDesRonds droite={droiteRobot}>
       <button
         type="button"
         onPointerDown={commencer('robot')}
@@ -190,12 +189,10 @@ export function AssistantGlobal() {
         aria-expanded={etat.ouvert}
         aria-label={etat.ouvert ? 'Fermer l’assistant' : 'Ouvrir l’assistant'}
         title={etat.ouvert ? t('Fermer l’assistant') : t('Ouvrir l’assistant — glisser pour le déplacer')}
-        className="fixed z-40 grid cursor-grab place-items-center rounded-full bg-text text-bg shadow-xl transition-transform hover:scale-105 active:cursor-grabbing"
+        className="relative grid cursor-grab place-items-center rounded-full bg-text text-bg shadow-xl transition-transform hover:scale-105 active:cursor-grabbing"
         style={{
           width: ROND_ROBOT,
           height: ROND_ROBOT,
-          right: droiteRobot,
-          bottom: `max(${BAS_ROBOT}px, env(safe-area-inset-bottom))`,
           touchAction: 'none',
         }}
       >
@@ -206,6 +203,7 @@ export function AssistantGlobal() {
           </span>
         ) : null}
       </button>
+      </RangeeDesRonds>
       ) : null}
 
       {etat.ouvert ? (

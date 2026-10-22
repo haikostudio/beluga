@@ -163,6 +163,18 @@ else
   fi
 fi
 
+# LE NAVIGATEUR DES AGENTS (`data/competences/dev-browser`) : un vrai Chrome
+# piloté en ligne de commande, avec une session gardée par compte. Version
+# ÉPINGLÉE : la « latest » de npm est encore l'ancienne génération (0.2.x).
+DEV_BROWSER_VERSION="1.0.0-rc.4"
+if command -v dev-browser >/dev/null 2>&1 && dev-browser --version 2>/dev/null | grep -q "$DEV_BROWSER_VERSION"; then
+  dire "navigateur des agents (dev-browser $DEV_BROWSER_VERSION) déjà en place."
+else
+  dire "pose du navigateur des agents (dev-browser $DEV_BROWSER_VERSION)."
+  faire npm install -g --no-audit --no-fund --loglevel=error "dev-browser@$DEV_BROWSER_VERSION" \
+    || dire "le navigateur des agents n'a pas pu être posé : il se posera plus tard, l'installation continue."
+fi
+
 # ------------------------------------------------------------------
 # 2. Le compte du service
 # ------------------------------------------------------------------

@@ -528,6 +528,7 @@ export function demandeDeCreationDeCompte(entree: {
     '- Chaque identifiant obtenu (courriel, mot de passe, clé, secret) s’enregistre aussitôt au coffre, une fiche par secret.',
     '- Un code reçu par SMS ou par courriel, une pièce d’identité, un paiement : déclenche l’envoi PUIS pose la question avec « ask_user » dans le même tour — jamais un point laissé « à vérifier ».',
     '- Un captcha ou un contrôle anti-robot : ne force jamais. Demande à l’utilisateur, avec « ask_user », de faire ce pas lui-même et de te dire quand c’est fait.',
+    '- Le réseau doit encore VALIDER (profil, selfie, application en revue) : pose une veille avec « veille_poser » sur une page qui le montre, lue dans le profil connecté du compte (navigateur dev-browser). Tu seras relancé quand la validation passe ; ne demande pas « relancez-moi ».',
     '- Tu ne publies rien sur le compte : la publication reste un geste de l’utilisateur dans l’atelier.',
     '- Termine par un compte rendu court : ce qui existe, ce qui attend la validation du réseau, et ce que l’utilisateur doit encore faire (bouton « Relier » dans l’onglet Comptes).',
   ].join('\n');

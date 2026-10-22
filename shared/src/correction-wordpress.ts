@@ -4,11 +4,13 @@
  * Sous la liste des soucis du bloc « État WordPress », un bouton ouvre une
  * carte dans le projet du site et lui donne TOUT ce que le contrôle a relevé :
  * chaque souci avec sa phrase, sa version, sa cible et sa date d'apparition, le
- * rythme du contrôle, et où se trouve le site (copie de test comprise). Un agent
- * de cadrage étudie, rend sa compréhension puis le plan ; le plan ATTEND la
- * validation de l'utilisateur — rien n'est corrigé ni mis en ligne sans lui.
+ * rythme du contrôle, et où se trouve le site (copie de test comprise).
  *
- * Le serveur (`server/src/depannage-site.ts`) ouvre la carte et lance le tour.
+ * RIEN NE PART TOUT SEUL (21/10/2026) : la demande est DÉPOSÉE dans la barre
+ * d'écriture de la carte (brouillon `draft.<agent>`), l'utilisateur la relit,
+ * la complète s'il veut, puis l'envoie lui-même — le point « Demande » du fil
+ * la montre alors comme n'importe quel message. Le serveur
+ * (`server/src/depannage-site.ts`) ouvre la carte et écrit le brouillon.
  */
 
 import type { SiteSurveille } from './surveillance.js';
@@ -35,16 +37,19 @@ export function descriptionDeCarteDeCorrection(site: Pick<SiteSurveille, 'nom' |
   const n = soucis.length;
   return (
     `La surveillance de ${site.nom} (${site.url}) a relevé ${n} point${n > 1 ? 's' : ''} à corriger. ` +
-    'Un agent étudie chacun d’eux et propose un plan de correction, qui attend votre accord : ' +
-    'rien n’est corrigé ni mis en ligne sans vous.'
+    'La demande est prête dans la barre d’écriture de la carte : relisez-la, complétez-la si besoin, puis envoyez-la. ' +
+    'Rien n’est corrigé ni mis en ligne sans vous.'
   );
 }
 
+/** L'en-tête qui ouvre la demande générée : sert à la reconnaître dans le brouillon. */
+export const ENTETE_DEMANDE_DE_CORRECTION = 'L’UTILISATEUR DEMANDE DE CORRIGER CE QUE LA SURVEILLANCE A DÉTECTÉ';
+
 /**
- * LA DEMANDE ENVOYÉE À L'AGENT DE CADRAGE : l'ensemble des données détectées,
- * sans aucun secret (l'accès au serveur n'est qu'une référence au coffre-fort).
- * Elle exige l'ENQUÊTE puis le PLAN, et interdit `ask_user` pour ce qui se
- * vérifie soi-même.
+ * LA DEMANDE DÉPOSÉE DANS LA BARRE D'ÉCRITURE : l'ensemble des données
+ * détectées, sans aucun secret (l'accès au serveur n'est qu'une référence au
+ * coffre-fort). C'est l'utilisateur qui l'envoie : elle demande l'ENQUÊTE et la
+ * compréhension, sans enchaîner de plan (l'interrupteur « Plan » en décide).
  */
 export function demandeDeCorrectionWordpress(entree: {
   site: SiteSurveille;
@@ -55,7 +60,7 @@ export function demandeDeCorrectionWordpress(entree: {
   const wp = site.wordpress;
   const resume = site.wpResume;
   const lignes: string[] = [
-    `L’UTILISATEUR DEMANDE DE CORRIGER CE QUE LA SURVEILLANCE A DÉTECTÉ sur ${site.nom} : ${soucis.length} point(s) relevé(s) par le contrôle WordPress.`,
+    `${ENTETE_DEMANDE_DE_CORRECTION} sur ${site.nom} : ${soucis.length} point(s) relevé(s) par le contrôle WordPress.`,
     '',
     'LE SITE',
     `- nom : ${site.nom}`,
@@ -104,12 +109,26 @@ export function demandeDeCorrectionWordpress(entree: {
   lignes.push(
     'CE QUE TU FAIS MAINTENANT',
     '1. ÉTUDIE CHAQUE POINT POUR DE VRAI : ce qu’il touche, son risque, la correction exacte (mise à jour, désactivation, remplacement d’une extension abandonnée, cause d’une erreur dans les journaux), et dans quel ordre les traiter. Ce que tu n’as pas pu vérifier se dit comme non vérifié.',
-    '2. RENDS CE QUE TU AS COMPRIS avec « rendre_comprehension », puis le plan de correction te sera demandé dans un second tour. Le plan attend la validation de l’utilisateur.',
+    '2. RENDS CE QUE TU AS COMPRIS avec « rendre_comprehension », avec la correction prévue pour chaque point. Le plan de correction, s’il est demandé, attend la validation de l’utilisateur.',
     wp?.copieDeTest
       ? `3. ${phraseDeLaCopieDeTest(wp.copieDeTest, projet?.nom)} Le site en ligne reste en lecture seule jusqu’à la mise en production.`
       : '3. Le site en ligne reste en lecture seule : une correction se prépare sur la copie de test du projet, puis se rejoue à la mise en production.',
     '',
-    'NE TOUCHE À AUCUN FICHIER pendant ce tour : tu comprends, puis tu proposes. Ce que seul l’utilisateur peut trancher se prépare dans le champ « questions » de « rendre_comprehension ».',
+    'NE TOUCHE À AUCUN FICHIER pendant ce tour : tu comprends, puis tu proposes. Ce que seul l’utilisateur peut trancher, tu le lui demandes avec « ask_user ».',
   );
   return lignes.join('\n');
+}
+
+/**
+ * LE BROUILLON APRÈS UN NOUVEAU CLIC SUR « CORRIGER AVEC UN AGENT ». Un champ
+ * vide, ou qui contient encore une demande générée (il commence par son
+ * en-tête), reçoit la liste à jour à sa place. Un champ où l'utilisateur a
+ * écrit autre chose n'est jamais écrasé : la nouvelle demande vient à la suite,
+ * après une ligne vide.
+ */
+export function brouillonDeCorrectionAJour(brouillon: unknown, demande: string): string {
+  const actuel = typeof brouillon === 'string' ? brouillon : '';
+  const net = actuel.trim();
+  if (!net || net.startsWith(ENTETE_DEMANDE_DE_CORRECTION)) return demande;
+  return `${actuel.replace(/\s+$/, '')}\n\n${demande}`;
 }

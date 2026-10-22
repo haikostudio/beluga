@@ -82,6 +82,7 @@ import {
 import { faireNaitreLaCarte } from './naissance-de-carte.js';
 import { adresseDeBeluga, recevoirEvenement, suivreLien } from './marketing.js';
 import { paysDeLaRequete } from './pays-des-visites.js';
+import { noterLEcran, noterUneLatence, noterUnePanne } from './usage-installation.js';
 import { scriptDeSuivi } from '@beluga/shared';
 import {
   IMAGE_ACCES_OCTETS_MAX,
@@ -1334,6 +1335,28 @@ export function createHttpServer(): http.Server {
 
       /* ---------------- API authentifiée ---------------- */
 
+      /* LA RAPIDITÉ RESSENTIE (`usage-installation.ts`) : le temps de chaque route, rangé par famille. */
+      if (route.startsWith('/api/')) {
+        const debutApi = performance.now();
+        res.once('finish', () => noterUneLatence(route, performance.now() - debutApi));
+      }
+
+      /*
+       * LE RAPPORT D'USAGE, VU DE L'ÉCRAN : ce que la page mesure d'elle-même
+       * (écrans ouverts, temps par zone, profil d'affichage, coupures). Ouverte
+       * à toute personne connectée ; sans effet là où aucun relais n'est joint.
+       */
+      if (route === '/api/usage' && req.method === 'POST') {
+        let brut: unknown = null;
+        try {
+          brut = JSON.parse((await readBody(req, 32 * 1024)).toString('utf8') || 'null');
+        } catch {
+          return json(res, 400, { ok: false });
+        }
+        noterLEcran(compte, brut, String(req.headers['user-agent'] ?? ''));
+        return json(res, 200, { ok: true });
+      }
+
       if (route === '/api/me') {
         return json(res, 200, {
           user: compte.identifiant,
@@ -1401,6 +1424,8 @@ export function createHttpServer(): http.Server {
         const juge = jugerRapportErreur(brut, Date.now());
         if (!juge.ok) return json(res, 400, { ok: false, error: juge.raison });
         enregistrerErreurInterface(juge.erreur);
+        // Et une panne regroupée du rapport d'usage, nettoyée avant de partir.
+        noterUnePanne(juge.erreur.source, juge.erreur.message, juge.erreur.pile, juge.erreur.zone);
         log.warn('interface', `${juge.erreur.source} — ${juge.erreur.message}`);
         return json(res, 200, { ok: true });
       }

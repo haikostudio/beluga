@@ -123,6 +123,8 @@ export const COMMANDES_LECTURE: Readonly<Record<string, ViseurDeCommande>> = {
   'card.cahierDocument': 'carte:id',
   'project.cahierDocument': 'projet:projectId',
   'card.realisationDocument': 'carte:id',
+  'medias.livres.carte': 'carte:cardId',
+  'medias.livres.agent': 'agent:agentId',
 };
 
 /** Ce que le MEMBRE fait en plus : piloter les cartes, les agents et les conversations des projets cochés. */
@@ -136,6 +138,8 @@ export const COMMANDES_TRAVAIL: Readonly<Record<string, ViseurDeCommande>> = {
   'card.validate': 'carte:id',
   'card.start': 'carte:id',
   'card.finish': 'carte:id',
+  'card.veille.arreter': 'carte:cardId',
+  'card.veille.verifier': 'carte:cardId',
   'card.cahierPause': 'carte:id',
   'card.cahierReprendre': 'carte:id',
   'card.asap': 'carte:id',
@@ -236,6 +240,7 @@ export const ROUTES_API_CLIENT: readonly string[] = [
   '/api/attachments/archive',
   '/api/download',
   '/api/erreur',
+  '/api/usage',
   '/api/push/subscribe',
   '/api/push/unsubscribe',
 ];
@@ -314,6 +319,7 @@ export const ROUTES_API_COLLABORATEUR: readonly string[] = [
   '/api/attachments/archive',
   '/api/favicon',
   '/api/erreur',
+  '/api/usage',
   '/api/push/subscribe',
   '/api/push/unsubscribe',
 ];

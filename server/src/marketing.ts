@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {
+  canauxAvecComptesRelies,
   agentEstUnRobot,
   type ActionMarketing,
   type ConfigurationMarketing,
@@ -152,13 +153,26 @@ function depuisLigneEspace(l: LigneEspace): EspaceMarketing {
   };
 }
 
+/**
+ * L'ESPACE TEL QU'IL SE LIT : ses canaux choisis comptent aussi les réseaux de
+ * ses comptes RELIÉS (`canauxAvecComptesRelies`). Dérivé à la lecture, jamais
+ * écrit : retirer le compte retire le choix qu'il portait.
+ */
+function avecComptesRelies(espace: EspaceMarketing): EspaceMarketing {
+  const relies = (
+    getDb().prepare("SELECT DISTINCT reseau FROM marketing_comptes WHERE project_id = ? AND etat = 'relie'").all(espace.projectId) as { reseau: string }[]
+  ).map((r) => r.reseau);
+  if (!relies.length) return espace;
+  return { ...espace, configuration: { ...espace.configuration, canaux: canauxAvecComptesRelies(espace.configuration.canaux, relies) } };
+}
+
 export function lireEspace(projectId: string): EspaceMarketing | null {
   const l = getDb().prepare('SELECT * FROM marketing_espaces WHERE project_id = ?').get(projectId) as LigneEspace | undefined;
-  return l ? depuisLigneEspace(l) : null;
+  return l ? avecComptesRelies(depuisLigneEspace(l)) : null;
 }
 
 export function listerEspaces(): EspaceMarketing[] {
-  return (getDb().prepare('SELECT * FROM marketing_espaces ORDER BY cree_le ASC').all() as LigneEspace[]).map(depuisLigneEspace);
+  return (getDb().prepare('SELECT * FROM marketing_espaces ORDER BY cree_le ASC').all() as LigneEspace[]).map((l) => avecComptesRelies(depuisLigneEspace(l)));
 }
 
 export function espaceParCle(cle: string): EspaceMarketing | null {

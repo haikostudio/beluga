@@ -36,6 +36,9 @@ export const VUES_CENTRALES = [
   /* Les MÉDIAS fabriqués par les cartes en mode « Réalisation », projet par
      projet, rangés par carte (`server/src/realisation.ts`). */
   'medias',
+  /* Les TÂCHES RÉCURRENTES : les veilles posées par les agents, projet par
+     projet, actives puis historique (`shared/src/veille-de-carte.ts`). */
+  'taches-recurrentes',
 ] as const;
 
 export type VueCentrale = (typeof VUES_CENTRALES)[number];

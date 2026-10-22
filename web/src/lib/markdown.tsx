@@ -23,6 +23,7 @@ import {
 import {
   MOTIF_MARKDOWN_EN_LIGNE,
   REPERE_SERVICES_CREATION,
+  sansBlocDeChiffrage,
   SUITES_MAX_APRES_AJOUTS,
   ideeDejaEnvoyee,
   type SuiteProposee,
@@ -430,7 +431,9 @@ export function Markdown({
   const envoyes = React.useContext(ContexteTextesEnvoyes);
   /* LE REPÈRE DE L'ENCADRÉ DES SERVICES DE CRÉATION (agent du Studio) ne se lit
      pas : l'écran pose l'encadré au bout du fil, le texte ne garde que la phrase. */
-  const blocks = React.useMemo(() => parse(content.replaceAll(REPERE_SERVICES_CREATION, '')), [content]);
+  /* LE BLOC JSON DU CHIFFRAGE est lu par l'application, jamais affiché
+     (`sansBlocDeChiffrage`). */
+  const blocks = React.useMemo(() => parse(sansBlocDeChiffrage(content).replaceAll(REPERE_SERVICES_CREATION, '')), [content]);
 
   /** Les listes de CETTE section se cochent-elles ? */
   const sectionCliquable = (titre: string) =>

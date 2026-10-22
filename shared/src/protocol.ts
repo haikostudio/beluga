@@ -385,6 +385,11 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('card.validate'), id: z.string() }),
   z.object({ type: z.literal('card.start'), id: z.string() }),
   z.object({ type: z.literal('card.finish'), id: z.string() }),
+  /* La veille d'une carte (`server/src/veille-de-carte.ts`) : l'arrêter, ou la rejouer tout de suite. */
+  z.object({ type: z.literal('card.veille.arreter'), cardId: z.string() }),
+  z.object({ type: z.literal('card.veille.verifier'), cardId: z.string() }),
+  /* Le service « Tâches récurrentes » : toutes les veilles, actives et terminées (`VeilleListee`). */
+  z.object({ type: z.literal('veilles.lister') }),
   /**
    * LE CAHIER DES CHARGES D'UN NOUVEAU PROJET : mettre en pause (l'agent
    * s'arrête, l'avancement reste), reprendre (l'agent repart à la question
@@ -907,8 +912,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('installation.nouveautes'), forcer: z.boolean().optional() }),
   /**
    * Récupérer les nouveautés du dépôt public. `lancer` : en plus de poser la tâche
-   * de mise à jour, l'agent part tout de suite (le geste de l'utilisateur) ; la
-   * mise en ligne, elle, reste son geste à lui.
+   * de mise à jour, l'agent part tout de suite (le geste de l'utilisateur). Ce
+   * clic vaut aussi la mise en ligne de CETTE SEULE tâche, une fois rendue sans
+   * blocage (`shared/src/publication-de-la-mise-a-jour.ts`).
    */
   z.object({ type: z.literal('installation.nouveautes.appliquer'), lancer: z.boolean().optional() }),
   z.object({ type: z.literal('installation.courriel-essai'), a: z.string().max(254) }),
@@ -1137,7 +1143,6 @@ export const ClientCommand = z.discriminatedUnion('type', [
     explication: z.string().optional(),
     poids: z.string(),
   }),
-  z.object({ type: z.literal('memoire.confirmer'), id: z.string() }),
   z.object({ type: z.literal('memoire.deprecier'), id: z.string() }),
   z.object({ type: z.literal('memoire.exporter'), portee: z.string() }),
   /** Relancer la génération par un modèle d'une portée ; son lot est importé quand elle finit. */
@@ -1256,6 +1261,9 @@ export const ClientCommand = z.discriminatedUnion('type', [
    * carte (`avant` : la date de la dernière carte reçue).
    */
   z.object({ type: z.literal('medias.projets') }),
+  /* Les médias livrés d'une discussion, rendus sous sa réponse finale (`medias-livres.ts`). */
+  z.object({ type: z.literal('medias.livres.carte'), cardId: z.string() }),
+  z.object({ type: z.literal('medias.livres.agent'), agentId: z.string() }),
   z.object({
     type: z.literal('medias.lister'),
     projectId: z.string(),
@@ -2118,6 +2126,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('attachments'), projectId: z.string(), items: z.array(Attachment) }),
   /** LES MÉDIAS EN FABRICATION, liste entière (`shared/src/media-en-fabrication.ts`) : le bloc d'attente du fil. */
   z.object({ type: z.literal('medias.fabrication'), items: z.array(MediaEnFabrication) }),
+  /**
+   * UNE VEILLE A BOUGÉ (posée, contrôlée, levée, arrêtée, échue) : le nombre de
+   * veilles qui courent, pour la tuile du service, et l'heure du changement,
+   * pour que la page « Tâches récurrentes » ouverte relise sa liste.
+   */
+  z.object({ type: z.literal('veilles.compte'), actives: z.number(), a: z.number() }),
   z.object({ type: z.literal('files'), projectId: z.string(), path: z.string(), nodes: z.array(FileNode) }),
   z.object({
     type: z.literal('toast'),

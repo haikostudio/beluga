@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Camera, ChevronDown, Eye } from 'lucide-react';
 import {
   captureDuChemin,
+  capturesArriveesDepuis,
   capturesDuFlux,
   capturesPasEncoreVues,
   clesAMarquerVues,
@@ -13,6 +14,7 @@ import {
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
 import { ZoneDefilement } from '@/components/ui';
+import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { CommandesDesVues, RienDeNouveau } from '@/components/commandes-des-vues';
 import { client } from '@/lib/client';
 import { useImagesVues } from '@/lib/use-images-vues';
@@ -214,6 +216,12 @@ export function useGalerieDesCaptures(steps: RunStep[], idsJointes: string[], pr
  * les cartes, pas pour une seule.
  */
 const CLE_BANDE_REPLIEE = 'captures.repliee';
+/**
+ * LE MOMENT DU REPLI (ms), réglage du compte lui aussi : posé dans le clic qui
+ * replie, remis à 0 dans celui qui déplie. Le badge de la ligne repliée compte
+ * les images arrivées depuis (`capturesArriveesDepuis`).
+ */
+const CLE_BANDE_REPLIEE_DEPUIS = 'captures.replieeDepuis';
 
 /** Ouvre en grand, dans la galerie de la carte, l'image d'un chemin vu dans le fil. Absent hors d'un flux de carte. */
 export const OuvrirUneCapture = React.createContext<((chemin: string) => boolean) | null>(null);
@@ -272,6 +280,23 @@ export function BandeDesCaptures({
 }) {
   const { captures } = g;
   const [repliee, setRepliee] = usePref<boolean>(CLE_BANDE_REPLIEE, false);
+  const [replieeDepuis, setReplieeDepuis] = usePref<number>(CLE_BANDE_REPLIEE_DEPUIS, 0);
+  /* Le moment s'écrit DANS LE GESTE, avec le repli lui-même. */
+  const basculer = (replier: boolean) => {
+    setRepliee(replier);
+    setReplieeDepuis(replier ? Date.now() : 0);
+  };
+  /*
+   * UNE BANDE DÉJÀ REPLIÉE SANS MOMENT CONNU (repliée avant le badge, ou par un
+   * écran plus ancien) : le moment se pose UNE fois, au premier affichage —
+   * le badge part de zéro au lieu de compter toute la carte.
+   */
+  const momentPose = React.useRef(false);
+  React.useEffect(() => {
+    if (!repliee || replieeDepuis > 0 || momentPose.current) return;
+    momentPose.current = true;
+    setReplieeDepuis(Date.now());
+  }, [repliee, replieeDepuis, setReplieeDepuis]);
 
   /*
    * UNE CAPTURE NEUVE SE MONTRE, SANS ARRACHER CELUI QUI FEUILLETTE. La plus
@@ -296,12 +321,20 @@ export function BandeDesCaptures({
   const [filtre, setFiltre] = React.useState(false);
   const nonVues = React.useMemo(() => capturesPasEncoreVues(captures, g.vues), [captures, g.vues]);
   const affichees = filtre ? nonVues : captures;
+  const nouvelles = React.useMemo(() => (repliee ? capturesArriveesDepuis(captures, replieeDepuis) : 0), [repliee, captures, replieeDepuis]);
 
   if (!captures.length) return null;
 
   return (
     <div className={cn('min-w-0', className)} data-captures-du-flux={captures.length} data-captures-repli={repliee ? 'ferme' : 'ouvert'}>
-      <div className={cn('flex items-center gap-x-1.5', !repliee && 'mb-1.5')}>
+      {/* UN BLOC À DEUX ÉTAGES (demande du 20/10/2026) : la rangée du titre et
+          des commandes est un EN-TÊTE sur fond contrasté, les vignettes vivent
+          dans le PANNEAU dessous. Aucun trait : ce sont les fonds qui séparent
+          le bloc du fil. Replié, l'en-tête reste seul, arrondi partout. */}
+      <EnTeteDePanneau
+        className={cn('flex items-center gap-x-1.5 font-normal', repliee && 'rounded-b-md')}
+        data-captures-en-tete=""
+      >
         {/* LE TITRE EST LE BOUTON DU REPLI : le chevron se lit juste à sa
             droite. Aucun texte replié (`line-clamp`) dans ce bouton. UNE SEULE
             RANGÉE, à toute largeur : titre à gauche, commandes à droite, qui
@@ -309,10 +342,10 @@ export function BandeDesCaptures({
             (`CommandesDesVues`) au lieu de tomber sous le titre. */}
         <button
           type="button"
-          onClick={() => setRepliee(!repliee)}
+          onClick={() => basculer(!repliee)}
           aria-expanded={!repliee}
           title={repliee ? t('Déplier les images de l’agent') : t('Replier les images de l’agent')}
-          className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-faint hover:text-text"
+          className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-muted hover:text-text"
           data-captures-bascule
         >
           <Camera className="h-3 w-3 shrink-0" aria-hidden />
@@ -329,13 +362,32 @@ export function BandeDesCaptures({
             onToutMarquer={g.toutMarquer}
           />
         ) : null}
-      </div>
-      {!repliee && filtre && !affichees.length ? <RienDeNouveau className="py-2" /> : null}
+        {/* LE BADGE DES NOUVELLES : seulement repliée, tout au bout de la ligne
+            (`ml-auto` : avec une seule image, aucune commande ne le pousse). Il
+            compte les images arrivées depuis le repli ; un tap déplie, et
+            l'efface. Violet : ce sont des images du travail de l'agent. */}
+        {nouvelles > 0 ? (
+          <button
+            type="button"
+            onClick={() => basculer(false)}
+            title={nouvelles === 1 ? t('Une nouvelle image depuis le repli') : t('{n} nouvelles images depuis le repli', { n: nouvelles })}
+            className="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-accent px-1 text-[10.5px] font-medium leading-none tabular-nums text-accent-fg"
+            data-captures-nouvelles={nouvelles}
+          >
+            <span aria-hidden>{nouvelles > 99 ? '99+' : nouvelles}</span>
+            <span className="sr-only">
+              {nouvelles === 1 ? t('Une nouvelle image depuis le repli') : t('{n} nouvelles images depuis le repli', { n: nouvelles })}
+            </span>
+          </button>
+        ) : null}
+      </EnTeteDePanneau>
+      <Panneau className={cn('px-2 py-1.5', repliee && 'hidden')} data-captures-panneau="">
+      {filtre && !affichees.length ? <RienDeNouveau className="py-2" /> : null}
       <ZoneDefilement
         ref={bande}
         axe="horizontal"
         voile
-        className={`flex flex-nowrap gap-1.5 pb-1${repliee || (filtre && !affichees.length) ? ' hidden' : ''}`}
+        className={`flex flex-nowrap gap-1.5 pb-1${filtre && !affichees.length ? ' hidden' : ''}`}
         data-captures-bande
       >
         {affichees.map((c) => {
@@ -374,6 +426,7 @@ export function BandeDesCaptures({
           );
         })}
       </ZoneDefilement>
+      </Panneau>
     </div>
   );
 }

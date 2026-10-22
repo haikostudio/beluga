@@ -30,7 +30,7 @@
  * silhouette (`lib/gabarit-tableau.ts`).
  */
 import * as React from 'react';
-import { Archive, Bot, CheckCircle2, Layers, Loader2, Microscope, Rocket, Square, TerminalSquare, UploadCloud, Waypoints, Wrench } from 'lucide-react';
+import { Archive, Bot, CheckCircle2, Layers, Loader2, Microscope, Power, Rocket, Square, UploadCloud, Waypoints, Wrench } from 'lucide-react';
 import {
   agentCompteCommeTravail,
   agentAuTravailALEcran,
@@ -67,14 +67,14 @@ import {
   type Card,
   type Project,
   type OngletEnRoute,
-  estCarteMarketing,
+  carteMarketingCachee,
   estUnRegroupement,
   membresActifsDuRegroupement,
   serviceDeLaCarte,
   serviceVisible,
 } from '@beluga/shared';
 import { CLE_ETAT_EN_ROUTE, client } from '@/lib/client';
-import { ouvrirLeTerminal } from '@/lib/ouvrir-terminal';
+import { useRedemarrage } from '@/components/redemarrage';
 import { OptionDePage, OptionsDePage } from '@/components/entete-de-zone';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { useApp } from '@/lib/use-app';
@@ -144,6 +144,7 @@ export function EnRoute({
   // rechargement (`DUREE_SYSTEME_TERMINE_MS`).
   const maintenant = useMinute();
   const telephone = useTelephone();
+  const redemarrage = useRedemarrage();
   /*
    * LE MENU D'UNE CARTE, COMME AU TABLEAU : clic droit à la souris, appui long
    * au doigt (le MÊME `usePointerDrag`, sans glissement — rien ne se dépose
@@ -228,7 +229,7 @@ export function EnRoute({
   const cartesActives = React.useMemo(
     () =>
       pilesEnRoute(
-        Object.values(state.enRoute?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
+        Object.values(state.enRoute?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !carteMarketingCachee(card)),
         'actif',
       ),
     [state.enRoute?.cartes, enService],
@@ -236,7 +237,7 @@ export function EnRoute({
   const cartesATerminer = React.useMemo(
     () =>
       pilesEnRoute(
-        Object.values(state.enRouteTerminer?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
+        Object.values(state.enRouteTerminer?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !carteMarketingCachee(card)),
         'terminer',
       ),
     [state.enRouteTerminer?.cartes, enService],
@@ -244,7 +245,7 @@ export function EnRoute({
   const cartesArchivees = React.useMemo(
     () =>
       pilesEnRoute(
-        Object.values(state.enRouteArchive?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
+        Object.values(state.enRouteArchive?.cartes ?? {}).filter((card) => enService.has(card.projectId) && !carteMarketingCachee(card)),
         'archive',
       ),
     [state.enRouteArchive?.cartes, enService],
@@ -353,7 +354,7 @@ export function EnRoute({
   const nombreARanger = state.enRouteTerminer?.charge
     ? state.enRouteTerminer.restant +
       cartesARangerDuTableauDeBord(
-        Object.values(state.enRouteTerminer.cartes).filter((card) => enService.has(card.projectId) && !estCarteMarketing(card)),
+        Object.values(state.enRouteTerminer.cartes).filter((card) => enService.has(card.projectId) && !carteMarketingCachee(card)),
       ).length
     : undefined;
   const nombreArchive = state.enRouteArchive?.charge
@@ -371,7 +372,7 @@ export function EnRoute({
     const etat = client.lireEtat();
     const aRanger = cartesARangerDuTableauDeBord(
       Object.values(etat.enRouteTerminer?.cartes ?? {}).filter(
-        (card) => !etat.projects.find((p) => p.id === card.projectId)?.archived && !estCarteMarketing(card),
+        (card) => !etat.projects.find((p) => p.id === card.projectId)?.archived && !carteMarketingCachee(card),
       ),
     );
     if (aRanger.length) setArchivage(aRanger);
@@ -388,8 +389,8 @@ export function EnRoute({
       if (state.enRoute?.cartes[cardId]) return false;
       if (state.enRouteTerminer?.cartes[cardId] || state.enRouteArchive?.cartes[cardId]) return true;
       const connue = state.cards[cardId];
-      // Une carte de l'agent marketing ne se montre que dans l'outil Marketing.
-      return !!connue && (!estEnRoute(connue) || estCarteMarketing(connue));
+      // Une carte de l’agent marketing rangée ne se montre que dans l’outil Marketing.
+      return !!connue && (!estEnRoute(connue) || carteMarketingCachee(connue));
     };
     return Math.min(nombreActif, nombreEnCoursEnRoute(Object.values(state.agents), enService, horsDeLaListe));
   }, [nombreActif, state.agents, enService, state.enRoute, state.enRouteTerminer, state.enRouteArchive, state.cards]);
@@ -657,22 +658,25 @@ export function EnRoute({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-bg" data-page-en-route>
-      {/* LE TERMINAL DU SERVEUR, EN HAUT À DROITE DES TABLEAUX DE BORD (et plus
-          sur la page « Résumé ») : un clic fait remonter l'application et le
-          révèle derrière elle. Sur téléphone, une ligne du menu à trois points. */}
-      <OptionsDePage>
+      {/* LE REDÉMARRAGE DU SERVEUR, DANS LE MENU « … » DES TABLEAUX DE BORD
+          (demande du 20/10/2026), sur ordinateur comme sur téléphone. Il passe
+          par la même fenêtre de confirmation que les réglages ; il s'éteint et
+          dit pourquoi tant qu'une tâche ou une publication tourne. Le terminal
+          a quitté cette barre : son rond flotte à gauche de l'assistant. */}
+      <OptionsDePage enMenu>
         <OptionDePage
-          compact
-          variante="ghost"
-          icone={<TerminalSquare className="h-4 w-4" />}
-          title={t('Terminal du serveur')}
-          aria-label="Terminal du serveur"
-          onClick={ouvrirLeTerminal}
-          data-terminal-bouton-tableau
+          icone={redemarrage.repart ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+          onClick={redemarrage.ouvrir}
+          disabled={!!redemarrage.bloque}
+          detail={redemarrage.bloque ?? redemarrage.raison}
+          data-bouton-redemarrage="tableaux-de-bord"
+          data-etat-redemarrage={redemarrage.etat}
+          data-redemarrage-bloque={redemarrage.bloque ? 'oui' : 'non'}
         >
-          {t('Terminal du serveur')}
+          {redemarrage.repart ? redemarrage.libelle : t('Redémarrer le serveur')}
         </OptionDePage>
       </OptionsDePage>
+      {redemarrage.dialogue}
       {/* Une confirmation courte avant le rangement : elle dit COMBIEN de cartes
           partent, et rappelle que les projets n'en sont pas touchés. */}
       <ConfirmDialog

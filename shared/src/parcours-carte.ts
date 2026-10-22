@@ -52,6 +52,7 @@ import { lireLesRubriques, type RubriqueDuCahier } from './cahier-vivant.js';
 import { travailDeLaCarteDejaLance } from './plan-conversation.js';
 import {
   cadrageRouvertApresRapport,
+  iterationAFermer,
   comprehensionDepuisLaRelance,
   planRenduDepuisLaRelance,
   relanceRetenueAvantLancement,
@@ -131,6 +132,7 @@ export interface ContexteParcours {
     | 'planValide'
     | 'comprehensionValidee'
     | 'cadrageRouvertA'
+    | 'iterationOuverteA'
   > | null;
   /** Le dernier message finit-il sur une question écrite en texte ordinaire ? */
   questionEnTexte?: boolean;
@@ -477,7 +479,7 @@ export const LIBELLES_GESTE: Record<Exclude<GesteDuParcours, 'aucun'>, string> =
   /* VALIDER, C'EST LANCER : un seul geste, un seul clic. La compréhension
      n'attend plus deux boutons ni deux tours : celui-ci écrit la validation
      sur la carte, puis part (`BarreDAction`, `web/src/components/parcours-carte.tsx`). */
-  'valider-et-lancer': 'Valider et lancer',
+  'valider-et-lancer': 'Lancer et valider',
   lancer: BOUTON_LANCER_LA_TACHE,
   /* SUSPENDRE, PLUS ARRÊTER : l'agent garde son contexte, la carte reste en
      « En cours » et repart au prochain message (`carteEnPause`). La clé
@@ -606,6 +608,23 @@ export interface EtatDuGeste {
    * libellé, dans les cinq langues, sans qu'aucune phrase soit à traduire.
    */
   versionDuPlan?: number;
+}
+
+/**
+ * LE BOUTON DE LANCEMENT EST-IL GROUPÉ ? Le premier geste de la rangée porte
+ * « Auto » / l'horloge à sa droite quand il fait partir la carte (« Lancer et
+ * valider », « Lancer », « Reprendre ») ou qu'il annule le cadrage en cours.
+ *
+ * Les réglages de l'agent n'en dépendent pas : sur une carte, ils sont
+ * TOUJOURS la moitié collée à droite du PREMIER bouton de la rangée d'action,
+ * quel qu'il soit (avant « Auto » + horloge), jamais détachés en bout de
+ * rangée ni dans la barre d'écriture.
+ */
+export function lancementScinde(gestes: readonly Pick<EtatDuGeste, 'geste' | 'chapitre'>[]): boolean {
+  const premier = gestes[0];
+  if (!premier) return false;
+  if (premier.geste === 'lancer' || premier.geste === 'reprendre' || premier.geste === 'valider-et-lancer') return true;
+  return premier.geste === 'arreter' && (premier.chapitre === 'cadrage' || premier.chapitre === 'plan');
 }
 
 /**
@@ -775,6 +794,17 @@ function gesteCalcule(ctx: ContexteParcours): EtatDuGeste {
       if (questions > 0) return eteint('reprendre', RAISONS_DU_GESTE.questionOuverte);
       return { geste: 'reprendre', possible: true, chapitre };
     }
+    if (decisions > 0) return eteint('terminer', RAISONS_DU_GESTE.decisionOuverte);
+    if (questions > 0) return eteint('terminer', RAISONS_DU_GESTE.questionOuverte);
+    return { geste: 'terminer', possible: true, chapitre };
+  }
+  /*
+   * UNE SIMPLE QUESTION POSÉE SUR UNE CARTE « À DÉPLOYER » laisse son étape
+   * « Travail » ouverte (`iterationAFermer`) : la rangée propose de la
+   * refermer, à la place de « Déployer », qui revient après le clic.
+   */
+  if (iterationAFermer({ column: ctx.colonne, parcours: ctx.parcours })) {
+    if (ctx.tourEnCours) return eteint('terminer', RAISONS_DU_GESTE.tourEnCours);
     if (decisions > 0) return eteint('terminer', RAISONS_DU_GESTE.decisionOuverte);
     if (questions > 0) return eteint('terminer', RAISONS_DU_GESTE.questionOuverte);
     return { geste: 'terminer', possible: true, chapitre };

@@ -44,6 +44,7 @@ import {
   canMove,
   COLONNES_AVANT_LE_TRAVAIL,
   cadrageRouvertApresRapport,
+  iterationAFermer,
   carteEnCadrage,
   allumerLeCahierToutSeul,
   raisonDAttendreLeLancement,
@@ -104,7 +105,7 @@ import * as store from './store.js';
 import { machineHebergee } from './offre-hebergee.js';
 import { evenementPourCollaborateur, refusDeLaCommande, reponsePourLeCollaborateur } from './vue-collaborateur.js';
 import { compteParId } from './comptes.js';
-import { etatDeLaCopie, nouveautes, recetteDeLaCopie, recupererLesNouveautes } from './installation-copie.js';
+import { etatDeLaCopie, nouveautes, recetteDeLaCopie, recupererLesNouveautes, tacheDeMiseAJour } from './installation-copie.js';
 import { lancerUnTravail, recetteDuGenre, travailDInstallation } from './installation-travaux.js';
 import { envoyerUnCourrielDEssai, sortieDirecteGardee } from './envoi-des-courriels.js';
 import { controlesDeLEnvoiDirect, poserLesReglagesDuDomaine } from './courriels-du-domaine.js';
@@ -131,6 +132,7 @@ import { ajouterAuJournal, journalDeLaCarte, phaseDeLaCarte } from './journal-ca
 import { copiesMortesDuProjet, nettoyerLesCopies } from './dossier-de-carte.js';
 import { CONFIG } from './config.js';
 import { identiteDeLaRequete } from './http.js';
+import { noterUneConnexion, noterUnGeste } from './usage-installation.js';
 import {
   commandeDeLEspaceClient,
   compteVisible,
@@ -332,7 +334,6 @@ import { rattacherParAlias } from './joindre-fichier.js';
 import { mintDownload } from './auth.js';
 import {
   chercherUnitesMelees,
-  confirmerUnite,
   dernierRapportDeGeneration,
   corrigerEntreeDuChangelog,
   entreesDuChangelog,
@@ -450,6 +451,10 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
   });
 
   wss.on('connection', (ws: WebSocket, _req: http.IncomingMessage, compte: CompteUtilisateur) => {
+    /* LE RAPPORT D'USAGE ANONYME (`usage-installation.ts`) : la session, et le PAYS de
+       la personne déduit de son adresse — oubliée aussitôt. Rien si le partage est coupé. */
+    const finDeSession = noterUneConnexion(compte, _req);
+    ws.once('close', finDeSession);
     /*
      * LE CANAL APPLIQUE LA MÊME GRILLE QUE LES COMMANDES, À L'ENVOI.
      *
@@ -525,6 +530,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         }
         try {
           if (!commandeAutorisee(compte.role, envelope.cmd.type)) throw new Error(REFUS_HORS_PORTEE);
+          noterUnGeste(compte, envelope.cmd.type);
           const data = await handleCommand(envelope.cmd, compte);
           if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
         } catch (err: any) {
@@ -605,6 +611,10 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     if (projetOuvert) send(instantaneDuProjet(projetOuvert));
     /* Les médias en fabrication : leurs blocs d'attente reparaissent au rechargement. */
     send({ type: 'medias.fabrication', items: mediasEnFabrication() });
+    /* Le compte des veilles qui courent : la tuile « Tâches récurrentes » le montre. */
+    void import('./veille-de-carte.js')
+      .then(({ compterLesVeillesActives }) => send({ type: 'veilles.compte', actives: compterLesVeillesActives(), a: Date.now() }))
+      .catch((err) => log.warn('compte des veilles indisponible', err?.message ?? err));
 
     // Ce qui manquait au premier envoi arrive dès qu'il est prêt, par les
     // événements que l'interface écoute déjà. Une panne ici n'a jamais empêché
@@ -633,6 +643,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         if (refus) throw new Error(refus);
         // AVANT la commande : sa réponse passe déjà par le périmètre mis à jour.
         elargirLePerimetre(perimetre, envelope.cmd);
+        noterUnGeste(compte, envelope.cmd.type);
         const data = reponsePourLeCollaborateur(compte, envelope.cmd, await handleCommand(envelope.cmd, compte));
         if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
       } catch (err: any) {
@@ -1795,9 +1806,45 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return result;
     }
 
+    /* « ARRÊTER LA VEILLE » : la carte reste en pause, c'est le prochain message qui relance. */
+    case 'card.veille.arreter': {
+      const { arreterLaVeille } = await import('./veille-de-carte.js');
+      const fait = arreterLaVeille(cmd.cardId);
+      if (!fait.ok) throw new Error(fait.raison);
+      return { ok: true };
+    }
+
+    /* LE SERVICE « TÂCHES RÉCURRENTES » : toutes les veilles, lues au démon. */
+    case 'veilles.lister': {
+      const { listerLesVeilles } = await import('./veille-de-carte.js');
+      return { veilles: listerLesVeilles() };
+    }
+
+    /* « VÉRIFIER MAINTENANT » : un passage de la veille tout de suite, sans moteur. */
+    case 'card.veille.verifier': {
+      const { verifierLaVeilleMaintenant } = await import('./veille-de-carte.js');
+      const fait = await verifierLaVeilleMaintenant(cmd.cardId);
+      if (!fait.ok) throw new Error(fait.raison);
+      return { ok: true, etat: fait.veille?.etat, issue: fait.veille?.dernierControle?.issue };
+    }
+
     case 'card.finish': {
       const card = store.getCard(cmd.id);
       if (!card) throw new Error('carte introuvable');
+      /*
+       * L'ÉTAPE « TRAVAIL » D'UNE SIMPLE QUESTION SE REFERME SUR PLACE. La
+       * carte est déjà dans le lot, à sa place : on n'efface que le repère
+       * (`iterationAFermer`) — ni déplacement, ni date touchée, ni alerte
+       * « Tâche terminée » pour un travail qui n'a pas eu lieu.
+       */
+      if (iterationAFermer(card)) {
+        const refermee = store.saveCard({
+          ...card,
+          parcours: { ...(card.parcours ?? { plans: [] }), iterationOuverteA: undefined },
+        });
+        bus.emit({ type: 'card.upsert', card: refermee });
+        return { card: refermee };
+      }
       if (card.agentId && isRunning(card.agentId)) stopAgent(card.agentId);
       const updated = store.saveCard({
         ...card,
@@ -2687,6 +2734,18 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       }
 
       /*
+       * L'ÉCHÉANCE D'UNE VEILLE est une question du DÉMON, pas de l'agent :
+       * prolonger, relancer ou abandonner se tranche ici (`trancherLEcheance`).
+       * Seul « relancer » fait repartir l'agent, par son propre message.
+       */
+      if (question.veille) {
+        const { trancherLEcheance } = await import('./veille-de-carte.js');
+        const fait = await trancherLEcheance(question.veille, cmd.answer);
+        if (!fait.ok) log.warn(`échéance de veille ${question.veille} : ${fait.raison}`);
+        return { ok: true };
+      }
+
+      /*
        * UNE QUESTION DE ROUTAGE NE SE REND PAS À CELUI QUI L'A POSÉE. Elle ne
        * vient pas d'un moteur en train de réfléchir : elle vient de l'assistant
        * vocal global, qui attend de savoir OÙ déposer une phrase dictée. La
@@ -3319,7 +3378,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     }
 
     case 'installation.nouveautes':
-      return { etat: await nouveautes(cmd.forcer === true) };
+      // La tâche de mise à jour encore ouverte : la page « Mise à jour » y mène.
+      return { etat: await nouveautes(cmd.forcer === true), tache: tacheDeMiseAJour() };
 
     case 'installation.nouveautes.appliquer': {
       const recuperation = await recupererLesNouveautes();
@@ -3328,7 +3388,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
         const carte = store.getCard(recuperation.cardId);
         if (carte) bus.emit({ type: 'card.upsert', card: carte });
         /* « Mettre à jour » LANCE L'AGENT tout de suite : c'est le geste de l'utilisateur. Un agent déjà au
-           travail sur cette tâche n'est pas relancé ; la mise en ligne reste un geste à part. */
+           travail sur cette tâche n'est pas relancé. Rendue sans blocage, la carte part en ligne seule
+           (`publication-de-la-mise-a-jour.ts`). */
         if (cmd.lancer && carte?.column === 'planned') {
           const lancement = await startCard(carte.id);
           return { ...recuperation, lance: lancement.ok, erreurLancement: lancement.ok ? undefined : lancement.error };
@@ -3838,12 +3899,6 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { entree: r.entree };
     }
 
-    case 'memoire.confirmer': {
-      const unite = confirmerUnite(cmd.id);
-      if (!unite) throw new Error('unité introuvable');
-      return { unite };
-    }
-
     case 'memoire.deprecier': {
       const avant = lireUnite(cmd.id);
       if (!avant) throw new Error('unité introuvable');
@@ -3952,6 +4007,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'medias.projets': {
       const { projetsAvecMedias } = await import('./realisation.js');
       return { projets: projetsAvecMedias() };
+    }
+
+    case 'medias.livres.carte': {
+      const { mediasLivresDe } = await import('./medias-livres.js');
+      return { medias: mediasLivresDe({ cardId: cmd.cardId }) };
+    }
+
+    case 'medias.livres.agent': {
+      const { mediasLivresDe } = await import('./medias-livres.js');
+      return { medias: mediasLivresDe({ agentId: cmd.agentId }) };
     }
 
     case 'medias.lister': {

@@ -7,11 +7,11 @@ import { t } from '@/lib/langue';
  * Le démon tranche selon ce qu'est devenue l'installation
  * (`server/src/installation-copie.ts`) : sur une copie personnelle, une tâche
  * est posée dans le projet de l'application ET lancée tout de suite : un agent
- * lit le journal des changements du dépôt public et met les nouveautés en place ; sinon le code avance et se reconstruit, et c'est la
- * page « Installation » des réglages qui montre le travail.
- *
- * Ce geste vit ici, hors des écrans : le bandeau du haut et le bouton des
- * réglages font exactement la même chose.
+ * lit le journal des changements du dépôt public et met les nouveautés en place,
+ * s'arrête sur une question au moindre conflit, et sa tâche part en ligne SEULE
+ * une fois rendue sans blocage ; sinon le code avance et se reconstruit. Dans
+ * les deux cas, c'est la page « Mise à jour » des réglages qui montre où l'on en
+ * est — le bandeau du haut ne fait qu'y mener.
  */
 export async function recupererLesNouveautes(): Promise<'carte' | 'simple' | null> {
   const echec = t('Les nouveautés n’ont pas pu être récupérées.');

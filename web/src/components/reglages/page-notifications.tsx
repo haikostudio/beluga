@@ -126,7 +126,7 @@ function AppareilsConnectes() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label={t('Retirer cet appareil')}
+                    aria-label="Retirer cet appareil"
                     onClick={() => retirer(appareil)}
                   >
                     <X className="h-4 w-4" />

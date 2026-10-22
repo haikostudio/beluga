@@ -23,13 +23,38 @@ export const PLAFOND_D_UN_MESSAGE = 600;
 export const FORME_D_UN_MESSAGE =
   `un message de messagerie : ${PLAFOND_D_UN_MESSAGE} signes au plus, soit 3 à 5 phrases courtes, sans titres, sans tableau ni liste longue, en mots courants pour quelqu'un qui ne programme pas — aucun nom de fichier, de fonction ni de technologie. Tu vas droit au fait : ce qui est fait ou décidé, puis ce qu'on peut constater. Tu ne redis jamais la demande. L'application refuse un message plus long`;
 
+/**
+ * LE BLOC JSON DU CHIFFRAGE NE S'AFFICHE JAMAIS. L'agent d'exécution termine sa
+ * réponse par un bloc json (durée machine, heures d'un développeur…) que
+ * l'application LIT (`parseEstimate`, `server/src/scheduler.ts`) ; l'écran le
+ * retire, et le texte enregistré reste intact. Seul un bloc qui porte
+ * `"machineSeconds"` est visé — un autre bloc json reste affiché. Pendant
+ * l'écriture, un bloc encore ouvert en fin de texte est retiré dès qu'il
+ * commence comme un chiffrage, sans attendre sa fermeture.
+ */
+export function sansBlocDeChiffrage(texte: string): string {
+  if (!texte || !texte.includes('```')) return texte;
+  const ferme = texte.replace(/\n?[ \t]*```json[ \t]*\n([\s\S]*?)```[ \t]*/gi, (bloc, corps: string) =>
+    corps.includes('"machineSeconds"') ? '' : bloc,
+  );
+  const ouvert = ferme.match(/\n?[ \t]*```json[ \t]*(?:\n([^`]*))?$/i);
+  if (ouvert && commenceCommeUnChiffrage(ouvert[1] ?? '')) return ferme.slice(0, ouvert.index).trimEnd();
+  return ferme === texte ? texte : ferme.trimEnd();
+}
+
+function commenceCommeUnChiffrage(corps: string): boolean {
+  const debut = corps.replace(/\s+/g, '');
+  const attendu = '{"machineSeconds"';
+  return debut.includes('"machineSeconds"') || attendu.startsWith(debut);
+}
+
 /** Les signes que l'écran montre réellement. */
 export function signesVisibles(texte: string): number {
   return visible(texte).length;
 }
 
 function visible(texte: string): string {
-  return (texte ?? '')
+  return sansBlocDeChiffrage(texte ?? '')
     .replace(/```json[\s\S]*?```/gi, '')
     .replace(/\[fichier:[^\]]*\]/g, 'fichier')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')

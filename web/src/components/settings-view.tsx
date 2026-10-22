@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Database,
+  Download,
   FolderTree,
   Github,
   Globe,
@@ -106,6 +107,10 @@ const RENDU_DES_PAGES: Record<string, RenduDePage> = {
     icone: Wallet,
     avecOuverture: true,
     rendu: paresseux(() => import('@/components/reglages/page-consommation'), 'UsageSection'),
+  },
+  'mise-a-jour': {
+    icone: Download,
+    rendu: paresseux(() => import('@/components/reglages/page-mise-a-jour'), 'PageMiseAJour'),
   },
   installation: {
     icone: Globe,

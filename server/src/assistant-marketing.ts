@@ -42,7 +42,7 @@ import * as store from './store.js';
 import { catalogueMoteurs } from './catalogue-moteurs.js';
 import { sendPrompt } from './runtime.js';
 import { direLaPanneSurLaCarte, ouvrirCarteDAgent, rangerCarteDAgent } from './carte-d-agent-demon.js';
-import { assurerEspace, listerEspaces, lireEspace as lireEspaceMarketing, marquerAgentMarketing, productionSuspendue, projetsAReorganiser, rythmeDuProjet } from './marketing.js';
+import { assurerEspace, diffuser, listerEspaces, lireEspace as lireEspaceMarketing, marquerAgentMarketing, productionSuspendue, projetsAReorganiser, rythmeDuProjet } from './marketing.js';
 import { adresseDeRetour, ecrireApplication, lireApplication } from './publication-sociale.js';
 import { log } from './logger.js';
 
@@ -223,6 +223,9 @@ export async function lancerCreationDeCompte(entree: { projectId: string; reseau
     run: { engine: 'claude', model: r.model, thinking: r.thinking as any },
   });
   if (app.etat === 'absente' || app.etat === 'en_creation') ecrireApplication({ application: fiche.application, etat: 'en_creation', cardId: card.id });
+  /* L'écran relit l'atelier : la carte et l'application qui la porte y arrivent
+     tout de suite — statut à la place de « Créer », témoin sur « Canaux ». */
+  diffuser(projet.id);
   void sendPrompt(
     agentId,
     demandeDeCreationDeCompte({

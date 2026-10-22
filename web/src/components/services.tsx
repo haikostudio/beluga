@@ -12,6 +12,7 @@ import {
   Library,
   Megaphone,
   NotebookPen,
+  Repeat,
   UsersRound,
 } from 'lucide-react';
 import { compterEnPanne, type VueCentrale } from '@beluga/shared';
@@ -36,6 +37,7 @@ const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Key; cleL
   { cle: 'espace-client', repere: 'espace-client', Icone: UsersRound, cleLibelle: 'Messagerie' },
   { cle: 'backups', repere: 'backups', Icone: HardDriveDownload, cleLibelle: 'Backup' },
   { cle: 'surveillance', repere: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance' },
+  { cle: 'taches-recurrentes', repere: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches récurrentes' },
   { cle: 'marketing', repere: 'marketing', Icone: Megaphone, cleLibelle: 'Marketing' },
   { cle: 'studio', repere: 'studio', Icone: Clapperboard, cleLibelle: 'Studio' },
   { cle: 'medias', repere: 'medias', Icone: Film, cleLibelle: 'Médias' },
@@ -65,7 +67,8 @@ function PastillePanne({ nombre }: { nombre: number }) {
  *
  * Il ouvre d'abord une ligne « Tableaux de bord » sur toute la largeur, puis
  * une grille : une tuile par service — Résumé, Statistiques,
- * Coffre-fort, Mémoire, Messagerie, Backup, Surveillance, Marketing, Studio, Médias,
+ * Coffre-fort, Mémoire, Messagerie, Backup, Surveillance, Tâches récurrentes,
+ * Marketing, Studio, Médias,
  * Notes. Choisir une tuile REMPLACE le contenu de la zone principale. Celle du
  * service affiché est marquée. Sur téléphone, la grille s'ouvre au bas de
  * l'écran, comme tout menu.
@@ -166,6 +169,12 @@ export function BoutonDesServices({
               <span className="min-w-0 flex-1 truncate">{t(cleLibelle)}</span>
               {cle === 'espace-client' ? <PastillesMessagerie compteurs={state.compteursMessagerie} colleADroite /> : null}
               {cle === 'surveillance' && sitesEnPanne ? <PastillePanne nombre={sitesEnPanne} /> : null}
+              {/* Le nombre de veilles qui courent : un chiffre gris, jamais une alerte. */}
+              {cle === 'taches-recurrentes' && state.veilles.actives ? (
+                <span className="shrink-0 text-[12px] text-faint" data-recurrentes-compte={state.veilles.actives}>
+                  {state.veilles.actives}
+                </span>
+              ) : null}
             </DropdownMenuItem>
           ))}
         </div>

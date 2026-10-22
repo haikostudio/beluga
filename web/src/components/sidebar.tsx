@@ -20,6 +20,7 @@ import {
   FileCheck2,
   Search,
   Settings2,
+  TerminalSquare,
   TriangleAlert,
   UploadCloud,
   Waypoints,
@@ -91,6 +92,8 @@ import { SilhouetteProjets } from '@/components/silhouettes';
 import { QuotaBadge } from '@/components/quota-badge';
 import { CLE_COLONNE_REDUITE, useEtatDeLiaison, useMoteurActif } from '@/components/quota-bar';
 import { PointRedemarrage, useRedemarrage } from '@/components/redemarrage';
+import { bulleDuTerminal } from '@/components/pastille-terminal';
+import { ouvrirLeTerminal, useEtatDuTerminal } from '@/lib/ouvrir-terminal';
 import { ouvrirConfigProjet } from '@/lib/ouvrir-config-projet';
 import { client } from '@/lib/client';
 import { usePointerDrag } from '@/lib/dnd';
@@ -704,6 +707,7 @@ export function Sidebar({
   const liaison = useEtatDeLiaison();
   const redemarrage = useRedemarrage();
   const moteurActif = useMoteurActif();
+  const terminal = useEtatDuTerminal();
 
   const rowProps = (id: string, kind: 'project' | 'group') => ({
     'data-drag-id': id,
@@ -1331,6 +1335,29 @@ export function Sidebar({
               12/10/2026) : sur ordinateur seulement — sur téléphone, elle
               reste en haut à droite de l'écran (`app.tsx`). */}
           {!telephone ? <ClocheNotifications className="h-9 w-9 shrink-0" /> : null}
+          {/* LE TERMINAL DU SERVEUR, SUR TÉLÉPHONE (décision du 20/10/2026) :
+              ici seulement, à côté des réglages — plus aucun rond ni pastille
+              flottante. Il tourne, en violet, quand le terminal réduit
+              travaille. Sur ordinateur, son rond flotte à gauche de
+              l'assistant (`pastille-terminal.tsx`). */}
+          {telephone && state.monRole === 'admin' ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative h-9 w-9 shrink-0 text-muted"
+              aria-label="Terminal du serveur"
+              title={bulleDuTerminal(terminal.etat, terminal.actif)}
+              data-terminal-pied
+              data-terminal-etat={terminal.etat}
+              data-terminal-actif={terminal.actif ? 'oui' : 'non'}
+              onClick={() => {
+                ouvrirLeTerminal();
+                onChoose?.();
+              }}
+            >
+              {terminal.actif ? <Loader2 className="h-4 w-4 animate-spin text-teinte" /> : <TerminalSquare className="h-4 w-4" />}
+            </Button>
+          ) : null}
           {onOpenSettings ? (
             <Tooltip label={t('Réglages')}>
               <Button
@@ -1346,7 +1373,7 @@ export function Sidebar({
               >
                 <Settings className="h-4 w-4" />
                 {/* UN REDÉMARRAGE ATTEND : le point le dit ici, sur le bouton
-                    qui mène à son geste (réglages, « Serveur et agents »). */}
+                    qui mène à son geste (réglages, « Serveur »). */}
                 <PointRedemarrage etat={redemarrage.etat} />
               </Button>
             </Tooltip>

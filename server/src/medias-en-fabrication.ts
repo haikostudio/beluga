@@ -19,6 +19,7 @@ import {
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
+import { enregistrerUnMediaLivre } from './medias-livres.js';
 
 let liste: MediaEnFabrication[] = [];
 
@@ -82,6 +83,9 @@ export function terminerUnMedia(id: string, fin: { attachmentId?: string | null;
     ...(fin.echec ? { echec: fin.echec.slice(0, 300) } : {}),
     ...(fin.prix !== undefined ? { prix: fin.prix } : {}),
   };
+  /* Fini avec sa pièce : il entre aussi, pour de bon, dans les médias livrés de
+     sa discussion — rendus sous la réponse finale (`medias-livres.ts`). */
+  if (apres.etat === 'fini') enregistrerUnMediaLivre(apres);
   ecrire(liste.map((m) => (m.id === id ? apres : m)));
   return apres;
 }

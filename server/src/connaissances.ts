@@ -203,7 +203,6 @@ export interface PorteeResumee {
   unites: number;
   depreciees: number;
   changelog: number;
-  aRelire: number;
   modifieLe: number;
 }
 
@@ -215,10 +214,10 @@ export function listerLesPortees(projets: readonly { id: string; name: string }[
       db
         .prepare(
           `SELECT portee, SUM(statut = 'active') AS actives, SUM(statut = 'deprecated') AS depreciees,
-                  SUM(statut = 'active' AND relue = 0 AND confiance < 0.6) AS a_relire, MAX(modifie_le) AS modifie
+                  MAX(modifie_le) AS modifie
              FROM connaissances GROUP BY portee`,
         )
-        .all() as { portee: string; actives: number; depreciees: number; a_relire: number; modifie: number }[]
+        .all() as { portee: string; actives: number; depreciees: number; modifie: number }[]
     ).map((l) => [l.portee, l]),
   );
   const changelogs = new Map(
@@ -226,7 +225,7 @@ export function listerLesPortees(projets: readonly { id: string; name: string }[
   );
   const resumer = (id: string, nom: string): PorteeResumee => {
     const c = comptes.get(id);
-    return { id, nom, unites: c?.actives ?? 0, depreciees: c?.depreciees ?? 0, changelog: changelogs.get(id) ?? 0, aRelire: c?.a_relire ?? 0, modifieLe: c?.modifie ?? 0 };
+    return { id, nom, unites: c?.actives ?? 0, depreciees: c?.depreciees ?? 0, changelog: changelogs.get(id) ?? 0, modifieLe: c?.modifie ?? 0 };
   };
   return [resumer(PORTEE_GLOBALE, 'Global'), ...[...projets].sort((a, b) => a.name.localeCompare(b.name, 'fr')).map((p) => resumer(p.id, p.name))];
 }
@@ -778,10 +777,42 @@ export async function proposerReglesDeNuit(
   );
 }
 
-/** Confirmée par un humain : l'unité quitte la liste « à relire ». */
-export function confirmerUnite(id: string): Unite | null {
-  getDb().prepare('UPDATE connaissances SET relue = 1 WHERE id = ?').run(String(id).toUpperCase());
+/**
+ * RELUE PAR LE SYSTÈME (`relecture-memoire.ts`) : l'unité quitte la relecture,
+ * sa confiance remonte au moins à `confiance`. La version d'avant est gardée.
+ * Plus aucun humain ne « confirme » : décision du 20/10/2026.
+ */
+export function marquerRelue(id: string, confiance: number, auteur: string, motif: string): Unite | null {
+  const avant = lireUnite(id);
+  if (!avant) return null;
+  garderLaVersion(avant, auteur, motif);
+  getDb()
+    .prepare('UPDATE connaissances SET relue = 1, confiance = MAX(confiance, ?), version = version + 1, modifie_le = ? WHERE id = ?')
+    .run(confiance, Date.now(), avant.id);
   return lireUnite(id);
+}
+
+/** Les unités peu sûres jamais relues, les plus importantes d'abord, hors celles déjà écartées. */
+export function unitesPeuSures(limite: number, ecartees: ReadonlySet<string> = new Set(), seuil = 0.6): Unite[] {
+  try {
+    const lignes = getDb()
+      .prepare(
+        `SELECT * FROM connaissances WHERE statut = 'active' AND relue = 0 AND confiance < ?
+          ORDER BY importance ASC, modifie_le DESC LIMIT ?`,
+      )
+      .all(seuil, limite + ecartees.size) as LigneUnite[];
+    return lignes.map(versUnite).filter((u) => !ecartees.has(u.id)).slice(0, limite);
+  } catch {
+    return [];
+  }
+}
+
+export function compterUnitesPeuSures(seuil = 0.6): number {
+  try {
+    return (getDb().prepare(`SELECT COUNT(*) AS n FROM connaissances WHERE statut = 'active' AND relue = 0 AND confiance < ?`).get(seuil) as { n: number }).n;
+  } catch {
+    return 0;
+  }
 }
 
 export function versionsDeLUnite(id: string): { version: number; auteur: string; motif: string; at: number; unite: Unite }[] {

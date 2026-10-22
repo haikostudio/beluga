@@ -48,8 +48,10 @@ import {
   TITRE_SYNTHESE,
   estLeMessageDeSynthese,
   retirerLaStructureDeCadrage,
+  retirerLeBlocDeProcessus,
   phraseDeLErreurDeTour,
   nettoyerTexteColle,
+  sansBlocDeChiffrage,
 } from '@beluga/shared';
 import { direVoix, taireVoix, useVoix } from '@/lib/voix';
 import { Badge, Button, DialogTitle, Drawer, Textarea, ZoneDefilement } from '@/components/ui';
@@ -239,7 +241,10 @@ export function MessageView({
      retour conditionnel change de nombre d'un rendu à l'autre selon le
      message affiché, ce que React interdit (erreur #300). */
   const contenuSansStructure = React.useMemo(
-    () => retirerLaStructureDeCadrage(message.content),
+    /* …ni le bloc « <<<PROCESSUS … PROCESSUS>>> » de l'agent de configuration
+       (21/10/2026) : enregistré pour le serveur, jamais montré, copié ni lu.
+       …ni le bloc json du chiffrage, lu par l'application (`sansBlocDeChiffrage`). */
+    () => sansBlocDeChiffrage(retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(message.content))),
     [message.content],
   );
 
@@ -495,7 +500,7 @@ export function MessageView({
               ? `puis ${duration(message.rangementMs / 1000)} de rangement`
               : null,
           ]}
-          texte={message.content}
+          texte={contenuSansStructure}
           cle={message.id}
         />
       </div>

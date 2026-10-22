@@ -18,6 +18,7 @@ import {
   ROUTE_TERMINAL,
   SESSION_TERMINAL,
   decoderSortie,
+  texteDuPressePapiers,
   type CompteAffiche,
   type MessageDuTerminal,
 } from '@beluga/shared';
@@ -178,6 +179,15 @@ export function TerminalServeur({
   const silenceJusquaRef = React.useRef(0);
   const [aSelection, setASelection] = React.useState(false);
   const [copie, setCopie] = React.useState(false);
+  /**
+   * UNE COPIE FAITE PAR UN PROGRAMME QUE LE NAVIGATEUR A REFUSÉE. Hors d'un geste
+   * de l'utilisateur, certains navigateurs (Safari) n'écrivent pas le
+   * presse-papiers : le texte attend alors sur le bouton « Copier », et un clic
+   * termine la copie.
+   */
+  const [copieEnAttente, setCopieEnAttente] = React.useState<string | null>(null);
+  const copieEnAttenteRef = React.useRef<string | null>(null);
+  copieEnAttenteRef.current = copieEnAttente;
   const reduitRef = React.useRef(reduit);
   reduitRef.current = reduit;
   const onActiviteRef = React.useRef(onActivite);
@@ -292,16 +302,38 @@ export function TerminalServeur({
     }, DUREE_DU_SOULEVEMENT_MS);
   };
 
+  const montrerCopie = React.useCallback(() => {
+    setCopie(true);
+    window.setTimeout(() => setCopie(false), 1500);
+  }, []);
+
   const copierLaSelection = React.useCallback(async () => {
     const terminal = terminalRef.current;
-    const texte = terminal?.getSelection() ?? '';
+    const texte = terminal?.getSelection() || copieEnAttenteRef.current || '';
     if (!texte) return;
     if (await copierLeTexte(texte)) {
-      setCopie(true);
-      window.setTimeout(() => setCopie(false), 1500);
+      setCopieEnAttente(null);
+      montrerCopie();
     }
     terminal?.focus();
-  }, []);
+  }, [montrerCopie]);
+
+  /**
+   * LA COPIE FAITE PAR LE PROGRAMME QUI TOURNE (Claude Code sélectionne lui-même
+   * à la souris et l'envoie par la séquence OSC 52, que tmux relaie) : elle part
+   * droit au presse-papiers de l'ordinateur, avec le même « Copié » que le bouton.
+   */
+  const recevoirUneCopie = React.useCallback(
+    async (texte: string) => {
+      if (await copierLeTexte(texte)) {
+        setCopieEnAttente(null);
+        montrerCopie();
+      } else {
+        setCopieEnAttente(texte);
+      }
+    },
+    [montrerCopie],
+  );
 
   /**
    * TIRER LA POIGNÉE. Un geste de redimensionnement, sans cible de dépôt : il
@@ -363,6 +395,13 @@ export function TerminalServeur({
      * Ctrl+C seul garde son rôle : arrêter la commande.
      */
     const selection = terminal.onSelectionChange(() => setASelection(terminal.hasSelection()));
+    /* OSC 52 : écrire le presse-papiers, oui ; le lire (« ? »), jamais. Le
+       gestionnaire rend vrai dans tous les cas : la séquence ne s'affiche pas. */
+    const pressePapiers = terminal.parser.registerOscHandler(52, (donnees) => {
+      const texte = texteDuPressePapiers(donnees);
+      if (texte) void recevoirUneCopie(texte);
+      return true;
+    });
     terminal.attachCustomKeyEventHandler((evenement) => {
       if (evenement.type !== 'keydown') return true;
       const touche = evenement.key.toLowerCase();
@@ -461,6 +500,7 @@ export function TerminalServeur({
       observateur.disconnect();
       frappe.dispose();
       selection.dispose();
+      pressePapiers.dispose();
       setASelection(false);
       if (reajusterRef.current === suivreLaTaille) reajusterRef.current = null;
       if (terminalRef.current === terminal) terminalRef.current = null;
@@ -469,8 +509,8 @@ export function TerminalServeur({
       if (voieRef.current === voie) voieRef.current = null;
       terminal.dispose();
     };
-    // `copierLaSelection` est stable (aucune dépendance).
-  }, [open, hote, cycle, copierLaSelection]);
+    // `copierLaSelection` et `recevoirUneCopie` sont stables.
+  }, [open, hote, cycle, copierLaSelection, recevoirUneCopie]);
 
   /**
    * CHANGER DE COMPTE COUPE CE QUI TOURNE, POUR TOUT LE MONDE. tmux fige
@@ -592,14 +632,19 @@ export function TerminalServeur({
         <span className="min-w-0 flex-1 sm:hidden" />
         {/* COPIER : présent seulement quand un texte est sélectionné. Le clic ne
             doit pas voler le focus, sinon la sélection disparaît avant la copie. */}
-        {aSelection || copie ? (
+        {aSelection || copie || copieEnAttente ? (
           <Button
             variant="ghost"
             size="sm"
             className="h-7 shrink-0 gap-1.5 px-2 text-[12.5px]"
             data-terminal-copier
             data-terminal-copie={copie ? 'oui' : undefined}
-            title={t('Copier la sélection (Ctrl+Maj+C)')}
+            data-terminal-copie-en-attente={copieEnAttente && !aSelection ? 'oui' : undefined}
+            title={
+              copieEnAttente && !aSelection
+                ? t('Le navigateur a bloqué la copie automatique : cliquez pour copier')
+                : t('Copier la sélection (Ctrl+Maj+C) · Option ou Maj + glisser force la sélection')
+            }
             aria-label="Copier la sélection"
             onMouseDown={(evenement) => evenement.preventDefault()}
             onClick={() => void copierLaSelection()}

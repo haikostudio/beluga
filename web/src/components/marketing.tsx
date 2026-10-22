@@ -2,10 +2,7 @@ import { useTiroirAdresse } from '@/lib/tiroirs-adresse';
 import * as React from 'react';
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
-  AtSign,
-  Bot,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -34,6 +31,7 @@ import {
   Trash2,
   TriangleAlert,
   X,
+  ListChecks,
 } from 'lucide-react';
 import {
   type ActionMarketing,
@@ -71,27 +69,18 @@ import {
   LIBELLE_FAMILLE_CANAL,
   agentTientSonTour,
   canalDuCatalogue,
+  CATALOGUE_CANAUX,
+  RESEAUX_SOCIAUX,
   canauxDansLOrdre,
   decisionsQuiAlertent,
   etatDuBoutonMarketing,
   jourValide,
   parcoursDuCanal,
-  CHAT_FLOTTANT_DEFAUT,
   COLONNES_CONTENU,
-  ROND_CHAT,
-  chatDeplace,
-  chatRedimensionne,
-  chatRetenu,
-  chatVisible,
-  cleChatMarketing,
   colonneDeContenu,
   depotContenu,
   type ColonneContenu,
   type CompteSocial,
-  estTelephoneBas,
-  estTelephoneChat,
-  type ChatFlottant,
-  type FenetreChat,
 } from '@beluga/shared';
 import {
   Badge,
@@ -121,23 +110,20 @@ import {
   Textarea,
   ZoneDefilement,
 } from '@/components/ui';
-import { SilhouetteConversation, SilhouetteMarketing, SilhouetteProjets } from '@/components/silhouettes';
-import { GestesDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
+import { SilhouetteMarketing, SilhouetteProjets } from '@/components/silhouettes';
+import { CranDuFil, GestesDePage, SeparateurDuFil, SuiteDuFil } from '@/components/entete-de-zone';
 import { CLASSE_LIGNE_DE_SERVICE, CLASSE_SECTION_DE_SERVICE, ColonneDeService, useColonneDeService } from '@/components/colonne-de-service';
 import { GesteDeCreationDeColonne } from '@/components/rubriques-de-colonne';
 import { RepereAttention } from '@/components/repere-attention';
-import { Chat } from '@/components/chat';
 import { Markdown } from '@/lib/markdown';
 import { InterrupteurDeSuivi } from '@/components/interrupteur-suivi';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { SelecteurDeProjet } from '@/components/selecteur-de-projet';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
-import { createPortal } from 'react-dom';
-import { usePref } from '@/lib/prefs';
 import { useTelephone } from '@/lib/telephone';
 import { formatRegional, t } from '@/lib/langue';
-import { poserLeRondVoisin } from '@/lib/assistant-global';
+import { ouvrirLAssistant } from '@/lib/assistant-global';
 import { cn } from '@/lib/utils';
 import { usePointerDrag, type DropTarget } from '@/lib/dnd';
 import { CourbeParJour, MiniCourbe, Repartition, copier, dateCourte } from '@/components/graphiques-statistiques';
@@ -152,13 +138,12 @@ import { OngletComptes, OngletMessages, OuPublier, type VueDesReseaux } from '@/
  *
  * REFONTE DU 26/09/2026 — un écran d'application professionnelle, pensé
  * d'abord pour le téléphone :
- *  - LE GUIDE EST LA CONVERSATION DE L'AGENT (refonte du 26/09, seconde
- *    passe) : le `Chat` commun y tient toute la hauteur, sa liste de tâches
- *    au-dessus du champ d'écriture, son rapport rendu dans le fil — on le
- *    corrige en lui répondant. Le BOUTON UNIQUE (`BoutonAgent`, état de
- *    `etatDuBoutonMarketing`) est le pied pleine largeur du chat flottant :
- *    « Initialiser », l'avancement n/N, la question, puis « Rapport », qui
- *    ouvre le dernier rapport enregistré en lecture ;
+ *  - UN SEUL ROBOT (20/10/2026) : plus de chat flottant propre au
+ *    Marketing. On parle à l'assistant de l'application, qui a l'outil
+ *    `marketing` pour tout projet ; l'agent attitré du projet travaille en
+ *    coulisse (`AgentEnCoulisse`) et son BOUTON UNIQUE (état de
+ *    `etatDuBoutonMarketing`) se pose dans la barre : « Initialiser »,
+ *    l'avancement n/N, la question, puis « Rapport » ;
  *  - Canaux montre TOUT le catalogue avec l'avis de l'agent, le Calendrier
  *    porte son plan d'action daté à côté des contenus, et le service Statistiques (écran à part) trace
  *    les courbes et les répartitions ;
@@ -322,6 +307,7 @@ function VoletInfo({
   onClose,
   children,
   adresse,
+  feuille,
 }: {
   ouvert: boolean;
   titre: string;
@@ -329,10 +315,12 @@ function VoletInfo({
   children: React.ReactNode;
   /** Le nom du volet dans l'adresse ; absent quand l'appelant la tient déjà. */
   adresse?: string;
+  /** En FEUILLE DU BAS, posée par-dessus l'écran, au lieu d'une page (un événement du calendrier). */
+  feuille?: boolean;
 }) {
   if (!ouvert) return null;
   return (
-    <Drawer open onClose={onClose} empile adresse={adresse}>
+    <Drawer open onClose={onClose} empile adresse={adresse} feuille={feuille}>
       <header className="flex shrink-0 items-center gap-2 px-4 pb-2">
         <Info className="h-3.5 w-3.5 shrink-0 text-accent" />
         <DialogTitle className="min-w-0 flex-1 truncate">{titre}</DialogTitle>
@@ -531,7 +519,7 @@ export function Marketing({
   }, [projectId]);
   /** Ouvre un projet : sur « Contenus » depuis la rangée « En cours », sinon sur le défaut. */
   const ouvrir = (id: string, voulu?: Onglet) => {
-    setOnglet(voulu && ONGLETS.includes(voulu) ? voulu : ONGLET_PAR_DEFAUT);
+    setOnglet(rubriqueVoulue(voulu));
     onVise?.(id);
   };
   /* Les projets sont-ils dans la colonne de gauche ? Sinon (téléphone, colonne
@@ -1513,8 +1501,14 @@ function LigneProjet({ ligne, onOuvrir }: { ligne: LigneAffichee; onOuvrir: () =
 
 /* L'onglet « Statistiques » est devenu un service à part (27/09/2026) : un
    onglet mémorisé ou demandé qui porterait encore ce nom retombe sur le défaut. */
-type Onglet = 'positionnement' | 'contenus' | 'calendrier' | 'canaux' | 'comptes' | 'messages';
-const ONGLETS: readonly Onglet[] = ['positionnement', 'contenus', 'calendrier', 'canaux', 'comptes', 'messages'];
+/* L'onglet « Comptes » a fusionné dans « Canaux » (20/10/2026) : demandé sous
+   son ancien nom, il ouvre « Canaux ». */
+type Onglet = 'positionnement' | 'contenus' | 'calendrier' | 'canaux' | 'messages';
+const ONGLETS: readonly Onglet[] = ['positionnement', 'contenus', 'calendrier', 'canaux', 'messages'];
+function rubriqueVoulue(voulu: string | undefined): Onglet {
+  if (voulu === 'comptes') return 'canaux';
+  return voulu && (ONGLETS as readonly string[]).includes(voulu) ? (voulu as Onglet) : ONGLET_PAR_DEFAUT;
+}
 /** La rubrique d'arrivée d'un projet, quand rien d'autre n'est demandé. */
 const ONGLET_PAR_DEFAUT: Onglet = 'calendrier';
 /** Les rubriques qui sont des plans de travail : elles prennent toute la largeur de la zone principale. */
@@ -1529,9 +1523,8 @@ function rubriquesDuProjet(): { cle: Onglet; Icone: React.ComponentType<{ classN
   return [
     { cle: 'calendrier', Icone: CalendarDays, libelle: t('Calendrier') },
     { cle: 'contenus', Icone: Columns3, libelle: t('Contenus') },
+    /* LES CANAUX PORTENT LES COMPTES (20/10/2026) : les comptes reliés en tête, puis le reste du catalogue. */
     { cle: 'canaux', Icone: Share2, libelle: t('Canaux') },
-    /* LA PUBLICATION OFFICIELLE (18/10/2026) : les comptes reliés du projet, puis leurs commentaires et messages. */
-    { cle: 'comptes', Icone: AtSign, libelle: t('Comptes') },
     { cle: 'messages', Icone: Inbox, libelle: t('Messages') },
     { cle: 'positionnement', Icone: Target, libelle: t('Positionnement') },
   ];
@@ -1651,6 +1644,14 @@ function EspaceDuProjet({
      ensuite » (colonne de gauche) et les pastilles du calendrier ouvrent le
      même volet. */
   const [actionOuverte, setActionOuverte] = React.useState<string | null>(null);
+  /* LE CANAL OUVERT EST UN CRAN DU FIL D'ARIANE (demande du 20/10/2026) :
+     « Marketing › Projet › Canaux › Instagram » — « Canaux » ramène à la liste,
+     sans bouton de retour dans la page. Changer de rubrique le referme. */
+  const [canalOuvert, setCanalOuvert] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (onglet !== 'canaux') setCanalOuvert(null);
+  }, [onglet]);
+  const canalDuFil = onglet === 'canaux' && canalOuvert ? CATALOGUE_CANAUX.find((c) => c.cle === canalOuvert) ?? null : null;
   const [creation, setCreation] = React.useState(false);
   useTiroirAdresse('nouveau-contenu-marketing', creation, setCreation);
   /* Les rubriques sont-elles dans la colonne de gauche ? Sinon (téléphone,
@@ -1693,9 +1694,16 @@ function EspaceDuProjet({
   const nomDuProjet = donnees?.nom ?? voisins.find((v) => v.projectId === projectId)?.nom ?? t('Marketing');
 
   const agent = useAgentMarketing(projectId, donnees?.espace);
-  const [chatBrut, setChatBrut] = usePref<unknown>(cleChatMarketing(projectId), CHAT_FLOTTANT_DEFAUT);
-  const chat = chatRetenu(chatBrut);
-  const ouvrirChat = () => setChatBrut({ ...chat, ouvert: true });
+  /** « Lancez son analyse » : le geste du bouton du haut tant qu'il n'y a rien à demander ; sinon, l'assistant. */
+  const analyser = () => {
+    if (agent.etat === 'initialiser') void agent.lancer('initialiser');
+    else if (agent.etat === 'conversation') void agent.lancer(donnees?.espace?.rapport ? 'reanalyser' : 'initialiser');
+    else ouvrirChat();
+  };
+  /* UN SEUL ROBOT (demande du 20/10/2026) : « demander à l'agent » ouvre
+     l'assistant de l'application, une amorce dans son champ qui nomme le
+     projet. L'agent marketing du projet reste en coulisse (`AgentEnCoulisse`). */
+  const ouvrirChat = () => void ouvrirLAssistant(t('Marketing de « {projet} » : ', { projet: nomDuProjet }));
   const contenu = donnees?.contenus.find((c) => c.id === contenuOuvert) ?? null;
   const action = donnees?.actions?.find((a) => a.id === actionOuverte) ?? null;
   // Le voile n'attend que les DONNÉES de l'espace : avant elles, on ne sait pas
@@ -1704,6 +1712,11 @@ function EspaceDuProjet({
   const rubriques = rubriquesDuProjet();
   /* Le compteur de l'onglet Messages : pas une alerte de plus (« trois genres alertent »), un chiffre. */
   const nonLus = donnees?.reseaux?.messagesNonLus ?? 0;
+  /* LE TÉMOIN D'ACTIVITÉ SE POSE SUR LA RUBRIQUE CONCERNÉE (demande du
+     20/10/2026) : une création de compte sur « Canaux », les autres cartes de
+     l'atelier sur « Contenus », où elles se suivent. Une question l'emporte
+     sur le travail. L'agent attitré, lui, se lit dans son bouton du haut. */
+  const temoins = temoinsDesRubriques(donnees, state.agents);
   /* Ce qui rend le contenu hors d'atteinte sous le voile, où qu'il soit monté. */
   const horsDAtteinte = { 'aria-hidden': voile || undefined, ...(voile ? { inert: '' } : {}) };
 
@@ -1718,7 +1731,7 @@ function EspaceDuProjet({
           aFaireDansLaColonne={rubriquesDansLaColonne}
           onOuvrir={setContenuOuvert}
           onOuvrirAction={setActionOuverte}
-          onAgent={ouvrirChat}
+          onAgent={analyser}
         />
       );
     }
@@ -1732,14 +1745,15 @@ function EspaceDuProjet({
           aUnAgent={agent.etat !== 'initialiser'}
           auTravail={agent.etat === 'travail' || agent.etat === 'question'}
           suiteEnvoyee={agent.envoi}
-          onAgent={ouvrirChat}
+          onAgent={agent.etat === 'initialiser' ? analyser : ouvrirChat}
           onSuite={() => void agent.lancer('suite')}
           onEcrire={() => setCreation(true)}
         />
       );
     }
-    if (cle === 'canaux') return <OngletCanaux projectId={projectId} donnees={d} onAgent={ouvrirChat} />;
-    if (cle === 'comptes') return <OngletComptes projectId={projectId} reseaux={d.reseaux} cartes={d.cartes ?? []} onOuvrirCarte={onOuvrirCarte} />;
+    if (cle === 'canaux') {
+      return <OngletCanaux projectId={projectId} donnees={d} ouvert={canalOuvert} onOuvrir={setCanalOuvert} onAgent={analyser} onOuvrirCarte={onOuvrirCarte} />;
+    }
     if (cle === 'messages') return <OngletMessages projectId={projectId} version={version} comptes={d.reseaux?.comptes ?? []} />;
     return <OngletPositionnement projectId={projectId} fiche={d.espace?.fiche ?? {}} />;
   };
@@ -1750,7 +1764,10 @@ function EspaceDuProjet({
           d'Ariane — « Services › Marketing › ProjetA Saas » —, il y ouvre la liste
           des autres projets, et « Marketing » y ramène à tous les projets. Ses
           gestes montent à droite de la barre d'en-tête. */}
-      <SuiteDuFil onRacine={onRetour} retour={{ action: onRetour, reperes: { 'data-marketing-retour': '' } }}>
+      <SuiteDuFil
+        onRacine={onRetour}
+        retour={canalDuFil ? { action: () => setCanalOuvert(null), reperes: { 'data-marketing-canal-retour': '' } } : { action: onRetour, reperes: { 'data-marketing-retour': '' } }}
+      >
         <SeparateurDuFil />
         <SelecteurDeProjet
           dansLeFil
@@ -1763,21 +1780,32 @@ function EspaceDuProjet({
           libelleFiltre={t('Filtrer les projets')}
           libelleVide={t('Aucun projet ne correspond.')}
         />
+        {canalDuFil ? (
+          <>
+            <CranDuFil dernier={false} onClick={() => setCanalOuvert(null)} data-marketing-cran-canaux="">
+              {t('Canaux')}
+            </CranDuFil>
+            <CranDuFil data-marketing-cran-canal={canalDuFil.cle}>{t(canalDuFil.libelle)}</CranDuFil>
+          </>
+        ) : null}
       </SuiteDuFil>
       <GestesDePage>
         {donnees ? <InterrupteurDeSuivi projectId={projectId} actif={donnees.espace?.actif !== false} /> : null}
-        <ActionsEntete
-          info={{
-            titre: t('L’atelier marketing'),
-            contenu: (
-              <>
-                <p>{t('L’agent marketing étudie le projet, puis rédige ce qui sert à le vendre. Vous relisez et validez : rien ne part sans vous.')}</p>
-                <p>{t('L’agent est dans la bulle ronde en bas à droite : il y analyse chaque point, y rend son rapport, modifie le calendrier à votre demande, et vous lui répondez juste dessous pour le corriger.')}</p>
-              </>
-            ),
-          }}
-        />
       </GestesDePage>
+      <AgentEnCoulisse
+        donnees={donnees}
+        projectId={projectId}
+        suivi={agent}
+        info={{
+          titre: t('L’atelier marketing'),
+          contenu: (
+            <>
+              <p>{t('L’agent marketing étudie le projet, puis rédige ce qui sert à le vendre. Vous relisez et validez : rien ne part sans vous.')}</p>
+              <p>{t('Il travaille en coulisse : son état se lit dans le bouton du haut, son rapport s’y ouvre. Pour lui demander quelque chose — modifier le calendrier, écrire un contenu —, parlez à l’assistant, le robot en bas à droite.')}</p>
+            </>
+          ),
+        }}
+      />
 
       {/* LES RUBRIQUES DU PROJET VIVENT DANS LA COLONNE DE GAUCHE (demande du
           11/10/2026), un cran sous la liste des projets : la tête de la colonne
@@ -1801,6 +1829,7 @@ function EspaceDuProjet({
                 >
                   <Icone className="h-4 w-4 shrink-0 text-muted" />
                   <span className="min-w-0 flex-1 truncate">{libelle}</span>
+                  {temoins[cle] ? <TemoinDeRubrique etat={temoins[cle]!} /> : null}
                   {cle === 'messages' && nonLus ? (
                     <span className="shrink-0 text-[11.5px] text-muted" data-marketing-non-lus={nonLus}>
                       {nonLus}
@@ -1809,7 +1838,7 @@ function EspaceDuProjet({
                 </button>
               ))}
             </nav>
-            {donnees ? <AFaireEnsuite dansLaColonne actions={donnees.actions ?? []} onOuvrir={setActionOuverte} onAgent={ouvrirChat} /> : null}
+            {donnees ? <AFaireEnsuite dansLaColonne actions={donnees.actions ?? []} onOuvrir={setActionOuverte} onAgent={analyser} /> : null}
           </div>
         </ZoneDefilement>
       </ColonneDeService>
@@ -1832,6 +1861,7 @@ function EspaceDuProjet({
                   {rubriques.map(({ cle, libelle }) => (
                     <TabsTrigger key={cle} value={cle} data-marketing-onglet={cle}>
                       {libelle}
+                      {temoins[cle] ? <TemoinDeRubrique etat={temoins[cle]!} className="ml-1" /> : null}
                       {cle === 'messages' && nonLus ? <span className="ml-1 text-muted" data-marketing-non-lus={nonLus}>{nonLus}</span> : null}
                     </TabsTrigger>
                   ))}
@@ -1853,11 +1883,11 @@ function EspaceDuProjet({
                 <Sparkles className="h-5 w-5 text-accent" />
                 <p className="text-[15px] font-medium leading-snug text-text">{t('Ce projet n’est pas encore initialisé')}</p>
                 <p className="text-[13px] leading-relaxed text-muted">
-                  {t('L’agent marketing va vous poser quelques questions, puis établir la liste de tâches à suivre pour ce projet.')}
+                  {t('L’agent marketing va étudier le projet et vous poser quelques questions, puis établir la liste de tâches à suivre pour ce projet.')}
                 </p>
-                <Button onClick={ouvrirChat} data-marketing-voile-bouton>
-                  <Bot className="h-3.5 w-3.5" />
-                  {t('Ouvrir l’agent')}
+                <Button onClick={() => void agent.lancer('initialiser')} disabled={agent.envoi} data-marketing-voile-bouton>
+                  {agent.envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {agent.envoi ? t('Démarrage…') : t('Initialiser le projet')}
                 </Button>
               </div>
             </div>
@@ -1865,7 +1895,6 @@ function EspaceDuProjet({
         </div>
       )}
 
-      {donnees ? <ChatFlottantMarketing donnees={donnees} projectId={projectId} suivi={agent} chat={chat} onChat={setChatBrut} /> : null}
       <TiroirContenu
         contenu={contenu}
         adresseLiens={donnees?.adresseLiens ?? ''}
@@ -1876,6 +1905,31 @@ function EspaceDuProjet({
       <TiroirNouveauContenu ouvert={creation} projectId={projectId} onClose={() => setCreation(false)} onCree={setContenuOuvert} />
       <VoletAction action={action} onClose={() => setActionOuverte(null)} />
     </>
+  );
+}
+
+/** Où un agent de l'atelier travaille ou attend une réponse, rubrique par rubrique. */
+function temoinsDesRubriques(donnees: EspaceComplet | null, agents: Record<string, Agent>): Partial<Record<Onglet, 'travail' | 'question'>> {
+  const temoins: Partial<Record<Onglet, 'travail' | 'question'>> = {};
+  if (!donnees) return temoins;
+  const creations = new Set((donnees.reseaux?.applications ?? []).map((a) => a.cardId).filter(Boolean));
+  for (const carte of donnees.cartes ?? []) {
+    const agent = (carte.agentId ? agents[carte.agentId] : undefined) ?? Object.values(agents).find((a) => a.cardId === carte.id && agentTientSonTour(a));
+    if (!agent) continue;
+    const etat = agent.attendReponse ? 'question' : agentTientSonTour(agent) ? 'travail' : null;
+    if (!etat) continue;
+    const cle: Onglet = creations.has(carte.id) ? 'canaux' : 'contenus';
+    if (temoins[cle] !== 'question') temoins[cle] = etat;
+  }
+  return temoins;
+}
+
+/** Le témoin posé sur une rubrique : le rond orange qui tourne, ou la question en attente. */
+function TemoinDeRubrique({ etat, className }: { etat: 'travail' | 'question'; className?: string }) {
+  return etat === 'question' ? (
+    <MessageCircleQuestion className={cn('h-3.5 w-3.5 shrink-0 text-warning', className)} aria-label="Question en attente" data-marketing-rubrique-travaille="question" />
+  ) : (
+    <Loader2 className={cn('h-3.5 w-3.5 shrink-0 animate-spin text-en-cours', className)} aria-label="L’agent travaille" data-marketing-rubrique-travaille="travail" />
   );
 }
 
@@ -1901,8 +1955,8 @@ function AFaireEnsuite({
   dansLaColonne?: boolean;
 }) {
   const aFaire = actions.filter((a) => !a.faitLe).slice(0, 3);
-  const toutEstFait = t('Tout le plan est fait. Demandez la suite à l’agent, dans sa bulle en bas à droite.');
-  const aucunPlan = t('Aucun plan pour l’instant : l’agent le pose pendant son analyse, lancée depuis sa bulle en bas à droite.');
+  const toutEstFait = t('Tout le plan est fait. Demandez la suite à l’assistant, le robot en bas à droite.');
+  const aucunPlan = t('Aucun plan pour l’instant : l’agent le pose pendant son analyse, lancée depuis le bouton du haut.');
   if (dansLaColonne) {
     return (
       <>
@@ -1952,304 +2006,105 @@ function AFaireEnsuite({
 }
 
 /**
- * LE BOUTON UNIQUE DE L'AGENT, pied pleine largeur du chat flottant. Il part en
- * requête dès le clic (« Initialiser »), puis suit l'agent : orange pendant le
- * travail, avec le compte « n/N » de sa liste de tâches ; une question
- * l'allume (elle se répond dans la conversation, juste au-dessus) ;
- * « Rapport » une fois rendu, qui ouvre le rapport enregistré en lecture.
+ * L'AGENT MARKETING, EN COULISSE (demande du 20/10/2026 : « un seul robot »).
+ * Son chat flottant a disparu : on parle à l'assistant de l'application, qui a
+ * les gestes du marketing de tout projet. L'agent attitré du projet garde les
+ * travaux longs — initialiser, analyser, réanalyser — et son état se lit dans
+ * UN bouton de la barre : il part en requête dès le clic (« Initialiser »),
+ * tourne en orange pendant le travail avec le compte « n/N » de sa liste de
+ * tâches, s'allume sur une question (le clic ouvre sa conversation pour y
+ * répondre), puis ouvre le rapport une fois rendu. Les points étudiés et
+ * « Réanalyser » sont des actions de l'entête, avec les explications.
  */
-function BoutonAgent({ etat, agent, envoi, onClick }: { etat: EtatBoutonMarketing; agent: Agent | null; envoi: boolean; onClick: () => void }) {
-  const compte = agent?.todos && agent.todos.total > 0 ? `${agent.todos.done}/${agent.todos.total}` : null;
-  const commun = 'min-w-0 flex-1';
-  if (etat === 'initialiser') {
-    return (
-      <Button size="pied" className={commun} disabled={envoi} onClick={onClick} data-marketing-bouton-agent="initialiser">
-        {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-        {envoi ? t('Démarrage…') : t('Initialiser le rapport de l’agent')}
-      </Button>
-    );
-  }
-  if (etat === 'travail') {
-    const part = agent?.todos && agent.todos.total > 0 ? Math.round((agent.todos.done / agent.todos.total) * 100) : null;
-    return (
-      <Button size="pied" variant="subtle" className={cn(commun, 'relative cursor-default overflow-hidden')} data-marketing-bouton-agent="travail">
-        <Loader2 className="h-3.5 w-3.5 animate-spin text-en-cours" />
-        {t('Analyse en cours')}
-        {compte ? <span className="text-faint">{compte}</span> : null}
-        {part !== null ? <span aria-hidden className="absolute bottom-0 left-0 h-0.5 bg-en-cours" style={{ width: `${part}%` }} /> : null}
-      </Button>
-    );
-  }
-  if (etat === 'question') {
-    return (
-      <Button size="pied" variant="subtle" className={cn(commun, 'cursor-default text-warning')} data-marketing-bouton-agent="question">
-        <MessageCircleQuestion className="h-3.5 w-3.5" />
-        {t('Une question vous attend, juste au-dessus')}
-      </Button>
-    );
-  }
-  if (etat === 'rapport') {
-    return (
-      <Button size="pied" className={commun} onClick={onClick} data-marketing-bouton-agent="rapport">
-        <FileText className="h-3.5 w-3.5" />
-        {t('Rapport')}
-      </Button>
-    );
-  }
-  return (
-    <Button size="pied" className={commun} disabled={envoi} onClick={onClick} data-marketing-bouton-agent="conversation">
-      {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-      {t('Reprendre l’analyse')}
-    </Button>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Le chat flottant de l'agent                                          */
-/* ------------------------------------------------------------------ */
-
-function lireFenetre(): FenetreChat {
-  return typeof window === 'undefined' ? { width: 1280, height: 800 } : { width: window.innerWidth, height: window.innerHeight };
-}
-
-/**
- * L'AGENT, EN CHAT FLOTTANT (demande du 28/09/2026) : il remplace l'ancien
- * onglet « Guide ». Un bouton rond en bas à droite l'ouvre et le ferme ; la
- * fenêtre se déplace par sa barre du haut et se redimensionne par son coin
- * haut gauche. Sa place, sa taille et son état ouvert/fermé se retiennent PAR
- * PROJET (préférence serveur, `cleChatMarketing`) — les règles de bornage sont
- * pures, dans `shared/src/chat-flottant.ts`. Sur téléphone, la fenêtre prend
- * presque tout l'écran, au-dessus du bouton rond. Posé sur `document.body` :
- * il reste au-dessus des onglets sans jamais cacher une fenêtre modale.
- */
-function ChatFlottantMarketing({
+function AgentEnCoulisse({
   donnees,
   projectId,
   suivi,
-  chat,
-  onChat,
+  info,
 }: {
-  donnees: EspaceComplet;
+  donnees: EspaceComplet | null;
   projectId: string;
   suivi: ReturnType<typeof useAgentMarketing>;
-  chat: ChatFlottant;
-  onChat: (etat: ChatFlottant) => void;
+  info: { titre: string; contenu: React.ReactNode };
 }) {
-  const { guide } = donnees;
-  const espace = donnees.espace;
+  const espace = donnees?.espace ?? null;
   const config = espace?.configuration;
+  const guide = donnees?.guide;
   const [points, setPoints] = React.useState(false);
   useTiroirAdresse('points-marketing', points, setPoints);
   const [rapport, setRapport] = React.useState(false);
   useTiroirAdresse('rapport-marketing', rapport, setRapport);
   const [confirmer, setConfirmer] = React.useState(false);
-  const { agent, agentId, etat } = suivi;
-  // Ce rond tient le coin bas droit : le robot de l'assistant se range à sa gauche tant qu'il est là.
-  React.useEffect(() => {
-    poserLeRondVoisin(true);
-    return () => poserLeRondVoisin(false);
-  }, []);
-
-  const [fenetre, setFenetre] = React.useState<FenetreChat>(lireFenetre);
-  React.useEffect(() => {
-    const suivre = () => setFenetre(lireFenetre());
-    window.addEventListener('resize', suivre);
-    return () => window.removeEventListener('resize', suivre);
-  }, []);
-
-  // Pendant un geste, la place vit ici ; elle n'est rangée qu'au relâchement.
-  const [geste, setGeste] = React.useState<ChatFlottant | null>(null);
-  const telephone = estTelephoneChat(fenetre);
-  // Écran bas (clavier ouvert) : le chat prend toute la fenêtre et rend au fil la
-  // place de son décor — barre d'avancement et pied. Sans agent, le pied reste :
-  // c'est lui qui l'initialise.
-  const ecranBas = estTelephoneBas(fenetre);
-  const decorMasque = ecranBas && etat !== 'initialiser';
-  const vu = chatVisible(geste ?? chat, fenetre);
-
-  const commencer = (mode: 'deplacer' | 'redimensionner') => (event: React.PointerEvent) => {
-    if (event.button !== 0 || telephone) return;
-    event.preventDefault();
-    const depart = vu;
-    const x0 = event.clientX;
-    const y0 = event.clientY;
-    let dernier = depart;
-    const bouge = (e: PointerEvent) => {
-      const dx = e.clientX - x0;
-      const dy = e.clientY - y0;
-      dernier = mode === 'deplacer' ? chatDeplace(depart, dx, dy, fenetre) : chatRedimensionne(depart, dx, dy, fenetre);
-      setGeste(dernier);
-    };
-    const fin = () => {
-      window.removeEventListener('pointermove', bouge);
-      window.removeEventListener('pointerup', fin);
-      window.removeEventListener('pointercancel', fin);
-      document.body.style.userSelect = '';
-      setGeste(null);
-      onChat(dernier);
-    };
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', bouge);
-    window.addEventListener('pointerup', fin);
-    window.addEventListener('pointercancel', fin);
-  };
+  const { agent, agentId, etat, envoi } = suivi;
+  const compte = agent?.todos && agent.todos.total > 0 ? `${agent.todos.done}/${agent.todos.total}` : null;
 
   const surBouton = () => {
     if (etat === 'initialiser') void suivi.lancer('initialiser');
     else if (etat === 'conversation') void suivi.lancer(espace?.rapport ? 'reanalyser' : 'initialiser');
     else if (etat === 'rapport') setRapport(true);
+    else if (etat === 'question' && agentId) client.openConversation({ projectId, agentId });
+    else setPoints(true);
   };
+  const tenue: Record<EtatBoutonMarketing, { icone: React.ReactNode; libelle: string; classe?: string }> = {
+    initialiser: { icone: envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />, libelle: envoi ? t('Démarrage…') : t('Initialiser le projet') },
+    travail: { icone: <Loader2 className="h-3.5 w-3.5 animate-spin text-en-cours" />, libelle: t('Analyse en cours') },
+    question: { icone: <MessageCircleQuestion className="h-3.5 w-3.5" />, libelle: t('Une question vous attend'), classe: 'text-warning' },
+    rapport: { icone: <FileText className="h-3.5 w-3.5" />, libelle: t('Rapport') },
+    conversation: { icone: envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />, libelle: t('Reprendre l’analyse') },
+  };
+  const vu = tenue[etat];
+  const actions: ActionDEntete[] = [];
+  if (guide) {
+    actions.push({ cle: 'points', libelle: t('Les points étudiés ({avancement} %)', { avancement: guide.avancement }), icone: <ListChecks className="h-4 w-4" />, onClick: () => setPoints(true), repere: 'data-marketing-avancement' });
+  }
+  if (espace?.rapport && (etat === 'rapport' || etat === 'conversation')) {
+    actions.push({ cle: 'reanalyser', libelle: t('Réanalyser le projet'), icone: <RotateCw className="h-4 w-4" />, onClick: () => setConfirmer(true), repere: 'data-marketing-reanalyser' });
+  }
 
-  if (typeof document === 'undefined') return null;
-
-  return createPortal(
+  return (
     <>
-      <button
-        type="button"
-        onClick={() => onChat({ ...vu, ouvert: !chat.ouvert })}
-        data-marketing-chat-bouton
-        data-ouvert={chat.ouvert ? 'oui' : 'non'}
-        aria-expanded={chat.ouvert}
-        aria-label={chat.ouvert ? 'Fermer l’agent' : 'Ouvrir l’agent'}
-        title={chat.ouvert ? t('Fermer l’agent') : t('Ouvrir l’agent')}
-        className={cn(
-          'fixed right-4 z-40 grid place-items-center rounded-full bg-accent text-accent-fg shadow-xl transition-transform hover:scale-105',
-          // Sur un écran bas, le chat ouvert prend tout : le rond ne le recouvre plus.
-          ecranBas && chat.ouvert && 'hidden',
-        )}
-        style={{ width: ROND_CHAT, height: ROND_CHAT, bottom: 'max(16px, env(safe-area-inset-bottom))' }}
-      >
-        {chat.ouvert ? <ChevronDown className="h-5 w-5" /> : suivi.travaille ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bot className="h-5 w-5" />}
-        {!chat.ouvert && suivi.questions > 0 ? (
-          <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-warning text-sur-etat" data-marketing-chat-question>
-            <MessageCircleQuestion className="h-2.5 w-2.5" />
-          </span>
+      <GestesDePage>
+        {donnees ? (
+          <Button
+            size="sm"
+            variant="subtle"
+            className={cn('shrink-0', vu.classe)}
+            disabled={envoi}
+            onClick={surBouton}
+            title={vu.libelle}
+            aria-label="L’agent marketing"
+            data-marketing-bouton-agent={etat}
+          >
+            {vu.icone}
+            <span className="hidden sm:inline">{vu.libelle}</span>
+            {etat === 'travail' && compte ? <span className="text-faint">{compte}</span> : null}
+          </Button>
         ) : null}
-      </button>
+        <ActionsEntete actions={actions} info={info} />
+      </GestesDePage>
 
-      {chat.ouvert ? (
-        <section
-          data-marketing-chat
-          data-marketing-guide={guide.avancement}
-          data-marketing-agent={agentId ?? 'nouveau'}
-          className="fixed z-40 flex flex-col overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-faint/30"
-          style={{ right: vu.droite, bottom: vu.bas, width: vu.largeur, height: vu.hauteur }}
-        >
-          <header
-            data-marketing-chat-entete
-            onPointerDown={commencer('deplacer')}
-            className={cn('flex shrink-0 items-center gap-2 bg-raised px-3 py-2 text-[13px] font-medium text-text', !telephone && 'cursor-grab active:cursor-grabbing')}
-            style={{ touchAction: 'none' }}
-          >
-            <Bot className="h-3.5 w-3.5 shrink-0 text-accent" />
-            <span className="min-w-0 flex-1 truncate">{t('L’agent marketing')}</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 text-muted"
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => onChat({ ...vu, ouvert: false })}
-              aria-label="Fermer l’agent"
-              title={t('Fermer l’agent')}
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </header>
-          {!telephone ? (
-            <span
-              data-marketing-chat-poignee
-              onPointerDown={commencer('redimensionner')}
-              title={t('Tirer pour redimensionner')}
-              className="absolute left-0 top-0 z-10 h-4 w-4 cursor-nwse-resize"
-              style={{ touchAction: 'none' }}
-            />
-          ) : null}
-
-          {decorMasque ? null : (
-          <button
-            type="button"
-            onClick={() => setPoints(true)}
-            data-marketing-avancement
-            className="mx-3 my-2 flex shrink-0 flex-col gap-1 rounded-md px-1 py-1 text-left hover:bg-raised"
-            title={t('Voir les points étudiés')}
-          >
-            <span className="flex items-center gap-2 text-[12.5px]">
-              <span className="flex-1 text-muted">{t('Où en est le projet')}</span>
-              <span className="text-faint">{guide.avancement} %</span>
-              <ChevronRight className="h-3.5 w-3.5 text-faint" />
-            </span>
-            <span className="block h-1 overflow-hidden rounded-full bg-faint/20">
-              <span className={cn('block h-full rounded-full', guide.avancement >= 100 ? 'bg-termine' : 'bg-en-cours')} style={{ width: `${guide.avancement}%` }} />
-            </span>
-          </button>
-          )}
-
-          <div className="flex min-h-0 flex-1 flex-col" data-marketing-conversation={agent ? 'oui' : agentId ? (suivi.introuvable ? 'introuvable' : 'chargement') : 'aucune'}>
-            {agent ? (
-              <Chat agent={agent} projectId={projectId} creuxReserveAilleurs />
-            ) : agentId && suivi.introuvable ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center" data-marketing-agent-introuvable>
-                <p className="text-[13.5px] leading-relaxed text-muted">{t('La conversation de l’agent n’a pas pu être chargée.')}</p>
-                <Button size="sm" variant="subtle" onClick={suivi.recharger}>
-                  <RotateCw className="h-3.5 w-3.5" />
-                  {t('Réessayer')}
-                </Button>
-              </div>
-            ) : agentId ? (
-              <div className="px-4">
-                <SilhouetteConversation bulles={3} />
-              </div>
-            ) : (
-          <ZoneDefilement fond="hsl(var(--surface))" className="px-4 pb-4">
-            <div className="flex flex-col gap-2.5 py-2 text-[13.5px] leading-relaxed text-text" data-marketing-accueil>
-              <p>{t('L’agent marketing va étudier votre projet point par point : ce que vous vendez et à qui, l’offre et le prix, la mesure des visites, les canaux qui conviennent, puis un plan daté et vos premiers contenus.')}</p>
-              <p className="text-muted">{t('Vous suivrez son travail ici même, sa liste de tâches au-dessus du champ d’écriture. Son rapport arrive dans la conversation : répondez-lui dessous pour le faire corriger.')}</p>
-            </div>
-          </ZoneDefilement>
-            )}
-          </div>
-
-          {decorMasque ? null : (
-          <div className="flex shrink-0 items-center gap-1.5 px-3 pb-2.5 pt-2" data-marketing-pied>
-            <BoutonAgent etat={etat} agent={agent} envoi={suivi.envoi} onClick={surBouton} />
-            {espace?.rapport && (etat === 'rapport' || etat === 'conversation') ? (
-              <Button
-                size="icon"
-                variant="subtle"
-                className="h-9 w-9 shrink-0"
-                aria-label="Réanalyser le projet"
-                title={t('Réanalyser le projet')}
-                onClick={() => setConfirmer(true)}
-                data-marketing-reanalyser
+      {guide ? (
+        <VoletInfo ouvert={points} titre={t('Les points étudiés')} onClose={() => setPoints(false)}>
+          <p className="text-muted">{t('Chaque point se coche tout seul quand le travail est vraiment fait. L’agent les passe en revue dans sa liste de tâches.')}</p>
+          <ul className="flex flex-col gap-2">
+            {guide.jalons.map((j) => (
+              <li
+                key={j.cle}
+                className="flex items-start gap-2.5"
+                data-marketing-jalon={j.cle}
+                data-fait={j.fait ? 'oui' : 'non'}
+                {...(j.cle === 'suivi' ? { 'data-marketing-suivi': config?.etatSuivi ?? 'absent' } : {})}
               >
-                <RotateCw className="h-3.5 w-3.5" />
-              </Button>
-            ) : null}
-          </div>
-          )}
-        </section>
+                {j.fait ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-termine" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-faint" />}
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className={j.fait ? 'text-text' : 'text-muted'}>{t(j.libelle)}</span>
+                  <span className="text-[12.5px] text-faint">{j.fait ? t(j.explication) : t(j.action)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </VoletInfo>
       ) : null}
-
-      <VoletInfo ouvert={points} titre={t('Les points étudiés')} onClose={() => setPoints(false)}>
-        <p className="text-muted">{t('Chaque point se coche tout seul quand le travail est vraiment fait. L’agent les passe en revue dans sa liste de tâches.')}</p>
-        <ul className="flex flex-col gap-2">
-          {guide.jalons.map((j) => (
-            <li
-              key={j.cle}
-              className="flex items-start gap-2.5"
-              data-marketing-jalon={j.cle}
-              data-fait={j.fait ? 'oui' : 'non'}
-              {...(j.cle === 'suivi' ? { 'data-marketing-suivi': config?.etatSuivi ?? 'absent' } : {})}
-            >
-              {j.fait ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-termine" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-faint" />}
-              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className={j.fait ? 'text-text' : 'text-muted'}>{t(j.libelle)}</span>
-                <span className="text-[12.5px] text-faint">{j.fait ? t(j.explication) : t(j.action)}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </VoletInfo>
 
       <TiroirRapport ouvert={rapport} espace={espace} onClose={() => setRapport(false)} />
       <ConfirmDialog
@@ -2263,8 +2118,7 @@ function ChatFlottantMarketing({
         }}
         onClose={() => setConfirmer(false)}
       />
-    </>,
-    document.body,
+    </>
   );
 }
 
@@ -2293,7 +2147,7 @@ function TiroirRapport({ ouvert, espace, onClose }: { ouvert: boolean; espace: E
           <div className="text-[13.5px] leading-relaxed text-text">
             <Markdown content={espace.rapport} />
           </div>
-          <p className="pt-2 text-[12.5px] text-faint">{t('Pour le faire corriger, répondez à l’agent dans sa bulle, en bas à droite.')}</p>
+          <p className="pt-2 text-[12.5px] text-faint">{t('Pour le faire corriger, demandez-le à l’assistant, le robot en bas à droite.')}</p>
         </div>
       </ZoneDefilement>
     </Drawer>
@@ -2586,7 +2440,7 @@ function ColonneDeContenus({
 }
 
 /** Où en est une carte de l'agent marketing : le même témoin que sur le tableau. */
-function etatDeCarte(card: Card, agent: Agent | undefined): { libelle: string; classe: string; tourne: boolean } {
+export function etatDeCarte(card: Card, agent: Agent | undefined): { libelle: string; classe: string; tourne: boolean } {
   if (agent?.attendReponse) return { libelle: t('Question en attente'), classe: 'text-warning', tourne: false };
   if (agent && agentTientSonTour(agent)) return { libelle: t('L’agent travaille'), classe: 'text-en-cours', tourne: true };
   if (card.column === 'running') return { libelle: t('En cours'), classe: 'text-en-cours', tourne: false };
@@ -2705,8 +2559,8 @@ function OngletContenus({
           <span className="flex-1 text-[12.5px] text-muted">
             {!visibles.length
               ? aUnAgent
-                ? t('Aucun contenu pour l’instant. Demandez-en à l’agent, dans sa bulle en bas à droite : il les rédige pour vous, prêts à relire.')
-                : t('L’agent rédige vos premiers contenus pendant son analyse : lancez-la depuis sa bulle en bas à droite.')
+                ? t('Aucun contenu pour l’instant. Demandez-en à l’assistant, le robot en bas à droite : il les rédige pour vous, prêts à relire.')
+                : t('L’agent rédige vos premiers contenus pendant son analyse : lancez-la depuis le bouton du haut.')
               : t('{n} contenus', { n: visibles.length })}
           </span>
           <Button
@@ -3376,7 +3230,8 @@ function VoletAction({ action, onClose }: { action: ActionMarketing | null; onCl
     }
   };
   return (
-    <VoletInfo ouvert titre={action.titre} onClose={onClose} adresse="action-marketing">
+    /* UN ÉVÉNEMENT S'OUVRE EN TIROIR, JAMAIS EN PAGE (demande du 20/10/2026) : le calendrier reste dessous. */
+    <VoletInfo ouvert titre={action.titre} onClose={onClose} adresse="action-marketing" feuille>
       <p className="text-[12.5px] text-faint">
         {[action.datePrevue ? dateCourte(action.datePrevue) : null, action.canal ? libelleCanal(action.canal) : null].filter(Boolean).join(' · ')}
       </p>
@@ -3409,13 +3264,34 @@ function libellePertinence(p: string): string {
  * PARCOURS pas à pas (la base du catalogue, complétée par les conseils de
  * l'agent). Choisir ou retirer le canal se fait sur la fiche.
  */
-function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donnees: EspaceComplet; onAgent: () => void }) {
+function OngletCanaux({
+  projectId,
+  donnees,
+  ouvert,
+  onOuvrir,
+  onAgent,
+  onOuvrirCarte,
+}: {
+  projectId: string;
+  donnees: EspaceComplet;
+  /** Le canal dont la fiche est ouverte : tenu par l'espace, qui en fait un cran du fil d'Ariane. */
+  ouvert: string | null;
+  onOuvrir: (cle: string | null) => void;
+  onAgent: () => void;
+  onOuvrirCarte?: (card: Card) => void;
+}) {
   const config = donnees.espace?.configuration;
   const lignes = canauxDansLOrdre({ canaux: config?.canaux ?? [], recommandations: config?.recommandations ?? [] });
-  const choisis = lignes.filter((l) => l.choisi);
-  const autres = lignes.filter((l) => !l.choisi);
+  /* Les réseaux reliables vivent dans le bloc des comptes, en tête : la liste du dessous ne les redit pas. */
+  const reseaux = donnees.reseaux;
+  const sousLesComptes = (cle: string) => !!reseaux && (RESEAUX_SOCIAUX as readonly string[]).includes(cle);
+  const choisis = lignes.filter((l) => l.choisi && !sousLesComptes(l.canal.cle));
+  const autres = lignes.filter((l) => !l.choisi && !sousLesComptes(l.canal.cle));
+  const relies = new Set((reseaux?.comptes ?? []).filter((c) => c.etat === 'relie').map((c) => c.reseau as string));
+  const etatDesReseaux = Object.fromEntries(
+    lignes.filter((l) => sousLesComptes(l.canal.cle)).map((l) => [l.canal.cle, { choisi: l.choisi, pertinence: l.recommandation?.pertinence }]),
+  );
   const [envoi, setEnvoi] = React.useState<string | null>(null);
-  const [ouvert, setOuvert] = React.useState<string | null>(null);
   const defilement = React.useRef<HTMLDivElement | null>(null);
   // La position de la liste, retrouvée au retour d'une fiche.
   const positionListe = React.useRef(0);
@@ -3427,7 +3303,7 @@ function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donn
 
   const ouvrir = (cle: string | null) => {
     if (cle && defilement.current) positionListe.current = defilement.current.scrollTop;
-    setOuvert(cle);
+    onOuvrir(cle);
   };
 
   const basculer = async (cle: string) => {
@@ -3447,7 +3323,7 @@ function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donn
   if (ligneOuverte) {
     return (
       <CorpsOnglet refDefilement={defilement}>
-        <FicheCanal ligne={ligneOuverte} envoi={envoi === ligneOuverte.canal.cle} onBasculer={() => void basculer(ligneOuverte.canal.cle)} onRetour={() => ouvrir(null)} onAgent={onAgent} />
+        <FicheCanal ligne={ligneOuverte} relie={relies.has(ligneOuverte.canal.cle)} envoi={envoi === ligneOuverte.canal.cle} onBasculer={() => void basculer(ligneOuverte.canal.cle)} onAgent={onAgent} />
       </CorpsOnglet>
     );
   }
@@ -3480,8 +3356,18 @@ function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donn
 
   return (
     <CorpsOnglet refDefilement={defilement}>
-      <div className="flex flex-col gap-4" data-marketing-canaux={choisis.length} data-marketing-catalogue={lignes.length}>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-4" data-marketing-canaux={lignes.filter((l) => l.choisi).length} data-marketing-catalogue={lignes.length}>
+        {reseaux ? (
+          <OngletComptes
+            projectId={projectId}
+            reseaux={reseaux}
+            cartes={donnees.cartes ?? []}
+            onOuvrirCarte={onOuvrirCarte}
+            canaux={etatDesReseaux}
+            onOuvrirCanal={(reseau) => ouvrir(reseau)}
+          />
+        ) : null}
+        <div className="flex items-center gap-2 pt-2">
           <span className="flex-1 text-[13px] text-muted">
             {aDesAvis ? t('Touchez un canal pour voir l’avis de l’agent et le parcours à suivre.') : t('Tous les canaux qui peuvent amener des clients.')}
           </span>
@@ -3490,14 +3376,14 @@ function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donn
             <p>{t('Mieux vaut peu de canaux bien tenus que tous à la fois. L’agent dit lesquels conviennent à votre produit et par quoi commencer ; vous choisissez.')}</p>
             <p>
               {t(
-                'Reliez vos comptes dans l’onglet Comptes : l’atelier publie alors lui-même sur Instagram, Facebook, LinkedIn, Threads, YouTube, TikTok, X, Pinterest et la fiche Google. Le lien de suivi de chaque contenu compte ses visites.',
+                'Reliez vos comptes en haut de cette page : l’atelier publie alors lui-même sur Instagram, Facebook, LinkedIn, Threads, YouTube, TikTok, X, Pinterest et la fiche Google, et un compte relié compte d’office parmi vos canaux. Le lien de suivi de chaque contenu compte ses visites.',
               )}
             </p>
           </PointInfo>
         </div>
         {!aDesAvis ? (
           <button type="button" onClick={onAgent} className="rounded-md bg-bloc px-3 py-2.5 text-left text-[12.5px] text-muted hover:bg-raised" data-marketing-canaux-sans-avis>
-            {t('L’agent n’a pas encore donné son avis. Lancez son analyse depuis la bulle de l’agent : il vous dira lesquels choisir.')}
+            {t('L’agent n’a pas encore donné son avis. Lancez son analyse depuis le bouton du haut : il vous dira lesquels choisir.')}
           </button>
         ) : null}
         {groupe(t('Vos canaux'), choisis)}
@@ -3513,7 +3399,7 @@ function OngletCanaux({ projectId, donnees, onAgent }: { projectId: string; donn
   );
 }
 
-function PastillePertinence({ pertinence }: { pertinence: string }) {
+export function PastillePertinence({ pertinence }: { pertinence: string }) {
   return (
     <Badge tone={pertinence === 'haute' ? 'success' : pertinence === 'moyenne' ? 'neutral' : 'warning'} className="shrink-0">
       {libellePertinence(pertinence)}
@@ -3539,15 +3425,16 @@ function BlocDeFiche({ titre, children, ...props }: { titre: string; children: R
  */
 function FicheCanal({
   ligne,
+  relie,
   envoi,
   onBasculer,
-  onRetour,
   onAgent,
 }: {
   ligne: ReturnType<typeof canauxDansLOrdre>[number];
+  /** Un compte relié porte ce canal : il est choisi d'office, et ne s'abandonne qu'en retirant le compte. */
+  relie: boolean;
   envoi: boolean;
   onBasculer: () => void;
-  onRetour: () => void;
   onAgent: () => void;
 }) {
   const { canal, choisi, recommandation } = ligne;
@@ -3558,12 +3445,6 @@ function FicheCanal({
   const [confirmerAbandon, setConfirmerAbandon] = React.useState(false);
   return (
     <div className="flex flex-col gap-4 pt-1" data-marketing-fiche-canal={canal.cle}>
-      <div className="flex items-center gap-1">
-        <Button size="sm" variant="ghost" className="-ml-2 shrink-0" onClick={onRetour} data-marketing-canal-retour>
-          <ArrowLeft className="h-4 w-4" />
-          {t('Tous les canaux')}
-        </Button>
-      </div>
       <div className="flex items-center gap-2">
         <h2 className="flex min-w-0 flex-1 items-center gap-2 text-[17px] font-semibold text-text">
           <span className="min-w-0 truncate">{t(canal.libelle)}</span>
@@ -3572,11 +3453,11 @@ function FicheCanal({
           {choisi ? (
             <span className="flex shrink-0 items-center gap-1 text-[12px] font-medium text-termine" data-marketing-canal-choisi={canal.cle}>
               <CheckCircle2 className="h-3.5 w-3.5" />
-              {t('Choisi')}
+              {relie ? t('Compte relié') : t('Choisi')}
             </span>
           ) : null}
         </h2>
-        {choisi ? (
+        {relie ? null : choisi ? (
           <Button
             size="sm"
             variant="ghost"
@@ -3618,7 +3499,7 @@ function FicheCanal({
           </div>
         ) : (
           <button type="button" onClick={onAgent} className="text-left text-[12.5px] text-muted hover:text-text">
-            {t('L’agent n’a pas encore donné son avis sur ce canal. Lancez son analyse depuis la bulle de l’agent.')}
+            {t('L’agent n’a pas encore donné son avis sur ce canal. Lancez son analyse depuis le bouton du haut.')}
           </button>
         )}
       </BlocDeFiche>
@@ -3758,7 +3639,9 @@ function TiroirContenu({
 
   return (
     <>
-      <Drawer adresse="contenu-marketing" open onClose={onClose} empile hauteurFixe>
+      {/* UN ÉVÉNEMENT S'OUVRE EN TIROIR, JAMAIS EN PAGE (demande du 20/10/2026) :
+          la feuille du bas monte par-dessus le calendrier ou les colonnes. */}
+      <Drawer adresse="contenu-marketing" open onClose={onClose} empile hauteurFixe feuille>
         <header className="flex shrink-0 items-center gap-1 px-3 pb-2">
           <DialogTitle className="min-w-0 flex-1 truncate">{contenu.titre}</DialogTitle>
           <Badge tone={toneEtape(contenu.etape)}>{t(LIBELLE_ETAPE[contenu.etape])}</Badge>

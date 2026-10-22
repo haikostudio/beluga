@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
-import { Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList } from 'lucide-react';
+import { Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from 'lucide-react';
 import {
   serviceDeLaCarte,
   serviceVisible,
@@ -77,7 +77,7 @@ import {
   agentDeConfiguration,
   etatDeLaVignetteDInitialisation,
   procedureEnPlace,
-  estCarteMarketing,
+  carteMarketingCachee,
   titreEnConstruction,
   estUnRegroupement,
   membresActifsDuRegroupement,
@@ -85,6 +85,7 @@ import {
 import { VignetteInitialisationProduction } from '@/components/vignette-initialisation-production';
 import { VignetteMiseEnProduction } from '@/components/vignette-mise-en-production';
 import { GestesDePage } from '@/components/entete-de-zone';
+import { phraseDeLaVeille } from '@/components/veille-de-carte';
 import { PointNonLu } from '@/components/point-non-lu';
 import { BadgeDEtape } from '@/components/badge-etape';
 import { RepereAttention } from '@/components/repere-attention';
@@ -516,10 +517,10 @@ export function Board({
   const cards = React.useMemo(
     () =>
       Object.values(state.cards)
-        // Les cartes de l'agent marketing ne vivent que dans l'outil Marketing
-        // (`estCarteMarketing`) : le démon ne les envoie plus dans les paquets
+        // Les cartes de l’agent marketing rangées ne vivent que dans l’outil Marketing
+        // (`carteMarketingCachee`) : le démon ne les envoie plus dans les paquets
         // du tableau, et celles qui arrivent en direct sont écartées ici.
-        .filter((card) => card.projectId === projectId && !estCarteMarketing(card))
+        .filter((card) => card.projectId === projectId && !carteMarketingCachee(card))
         // Un seul ordre de tri : le plus récent en premier (PLAN §16).
         .sort((a, b) => b.position - a.position),
     [state.cards, projectId],
@@ -2163,6 +2164,10 @@ export function CardTile({
   }
   if (sansSuite) {
     mentions.push({ cle: 'sans-suite', repere: { 'data-mention-sans-suite': true }, classe: 'text-faint', icone: Clock, texte: sansSuite });
+  }
+  /* LA VEILLE : ce qu'on attend d'un tiers, jusqu'à quand, et ses contrôles (`veille-de-carte.tsx`). */
+  if (card.veille && (card.veille.etat === 'en_cours' || card.veille.etat === 'expiree')) {
+    mentions.push({ cle: 'veille', repere: { 'data-veille': card.veille.etat }, classe: 'text-muted', icone: Eye, texte: phraseDeLaVeille(card.veille) });
   }
   const archivage = mentionArchivage(card);
   if (archivage) {
