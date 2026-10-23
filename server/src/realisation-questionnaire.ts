@@ -11,8 +11,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  ajouterALAmbiance,
   documentDeRealisation,
   demandeDeRepriseDeRealisation,
+  ENVELOPPE_CONSEILLEE,
   htmlDuCahier,
   lacunesDuCahierDeRealisation,
   lireAvancementDeRealisation,
@@ -127,6 +129,15 @@ export function ecrireLaRealisation(agentId: string, args: Record<string, unknow
   fs.mkdirSync(path.dirname(cible), { recursive: true });
   fs.writeFileSync(cible, document.endsWith('\n') ? document : `${document}\n`, 'utf8');
 
+  /* LES APERÇUS À GARDER rejoignent le tableau d'ambiance, rangés sous la rubrique en cours. */
+  const aGarder = Array.isArray(args.ambiance)
+    ? args.ambiance
+        .map((p: any) => ({ piece: String(p?.piece ?? p ?? '').trim().replace(/^#/, ''), legende: typeof p?.legende === 'string' ? p.legende.trim().slice(0, 80) : undefined }))
+        .filter((p) => p.piece && store.getAttachment(p.piece)?.mime.startsWith('image/'))
+        .map((p) => ({ piece: p.piece, phase: lu.realisation.phase, ...(p.legende ? { legende: p.legende } : {}) }))
+    : [];
+  if (aGarder.length) lu.realisation = ajouterALAmbiance(lu.realisation, aGarder, Date.now());
+
   const fraiche = store.getCard(carte.id) ?? carte;
   const ecrite = store.saveCard({ ...fraiche, realisation: lu.realisation });
   bus.emit({ type: 'card.upsert', card: ecrite });
@@ -138,15 +149,43 @@ export function ecrireLaRealisation(agentId: string, args: Record<string, unknow
     };
   }
   if (!r.termineA) {
+    /* L'ENVELOPPE D'APERÇUS se demande juste après les types de média : l'outil le rappelle tant qu'elle manque. */
+    const enveloppe =
+      r.enveloppe === undefined
+        ? ` L’enveloppe d’aperçus n’est pas encore demandée : ta question SUIVANTE est celle-là (« ask_user », ${ENVELOPPE_CONSEILLEE} $ recommandé), puis passe « enveloppe » à cet outil.`
+        : '';
     return {
       ok: true,
-      text: `Enregistré : ${r.faites} question(s) tranchée(s)${r.total ? ` sur ${r.total}` : ''}, document ${chemin} à jour. Pose la question suivante.`,
+      text: `Enregistré : ${r.faites} question(s) tranchée(s)${r.total ? ` sur ${r.total}` : ''}, document ${chemin} à jour.${enveloppe || ' Pose la question suivante.'}`,
     };
   }
   return {
     ok: true,
-    text: `Cahier de réalisation complet, enregistré dans ${chemin}. L’utilisateur lance la fabrication depuis le bandeau de la carte (« Lancer la fabrication »). Ne rends pas de plan : termine ton tour par une phrase qui dit que le cahier de réalisation est complet.`,
+    text: `Cahier de réalisation complet, enregistré dans ${chemin}. L’utilisateur lance la fabrication depuis le bouton de la carte (« Lancer la fabrication »). Ne rends pas de plan : termine ton tour par une phrase qui dit que le cahier de réalisation est complet.`,
   };
+}
+
+/**
+ * UN CHOIX EN IMAGES TRANCHÉ : les vignettes des options retenues rejoignent
+ * le tableau d'ambiance de la carte, sous la rubrique en cours, avec leur
+ * libellé pour légende. La réponse est le texte rendu par l'écran : une option
+ * est retenue quand son libellé y figure. Rien hors d'un cadrage caméra.
+ */
+export function retenirLesImagesChoisies(
+  agentId: string,
+  question: { options: { label: string; image?: string }[] },
+  reponse: string,
+): Card | null {
+  const carte = carteDeRealisationDeLAgent(agentId);
+  if (!carte) return null;
+  const r = realisationDeLaCarte(carte);
+  const retenues = question.options
+    .filter((o) => o.image && o.label && reponse.includes(o.label))
+    .map((o) => ({ piece: o.image!, phase: r.phase, legende: o.label.slice(0, 80) }));
+  if (!retenues.length) return null;
+  const ecrite = store.saveCard({ ...carte, realisation: ajouterALAmbiance(r, retenues, Date.now()) });
+  bus.emit({ type: 'card.upsert', card: ecrite });
+  return ecrite;
 }
 
 /**

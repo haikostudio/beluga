@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { FeuilleDeValidationDeConfiguration } from '@/components/carte-de-configuration';
 import {
   AlertCircle,
   Calendar,
@@ -71,9 +72,11 @@ import {
   LIBELLES_TYPES_DE_MEDIA_DE_REALISATION,
   carteEnPause,
   MESSAGE_DE_REPRISE,
+  questionAMontrer,
 } from '@beluga/shared';
-import { BulleInfo, Button, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
+import { BulleInfo, Button, CLASSE_BLOC_DU_PIED, DialogFooter, DialogTitle, Drawer, Input, Label, Switch, Tooltip, ZoneDefilement } from '@/components/ui';
 import { CarouselQuestions } from '@/components/carousel-questions';
+import { BarrePagination } from '@/components/ui/pagination-fleches';
 import { BulleQuestion, cleDeBrouillonDeReponse } from '@/components/bulle-question';
 import {
   ErreurDeTourCard,
@@ -82,7 +85,6 @@ import {
   RepriseDeCompteCard,
 } from '@/components/message-view';
 import { PlanRapport } from '@/components/plan-rapport';
-import { BandeauPropositions } from '@/components/propositions';
 import { useArretAgent } from '@/components/arret-agent';
 import { BoutonEtapeSuivante, useAvancerEtapes } from '@/components/etape-suivante';
 import { client } from '@/lib/client';
@@ -90,6 +92,7 @@ import { EVENEMENT_OUVRIR_DECISIONS, ouvrirLesDecisions } from '@/lib/ouvrir-dec
 import { useApp } from '@/lib/use-app';
 import { cn, dateHeure } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { BoutonLireLeCahier, cahierALire } from '@/components/cahier-des-charges';
 
 /**
  * L'ÉCRAN D'UNE CARTE, DE HAUT EN BAS : LA BARRE, LE FLUX EN POINTS, LA
@@ -380,6 +383,10 @@ export function PanneauDeDecision({
   const questions = decisions.filter((d): d is Extract<DecisionDuParcours, { sorte: 'question' }> => d.sorte === 'question');
   const autres = decisions.filter((d) => d.sorte !== 'question');
   const [replie, setReplie] = React.useState(false);
+  /* Le rang de la question montrée vit ICI : ses flèches sont dans l'entête,
+     le carrousel du corps ne fait que suivre (`pilotage`). */
+  const [questionChoisie, setQuestionChoisie] = React.useState<number | undefined>(undefined);
+  const indexQuestion = questionAMontrer({ repondues: questions.map(() => false), choisie: questionChoisie });
   // « Reprendre » heurtant cette décision la déplie (`ouvrirLesDecisions`).
   React.useEffect(() => {
     const deplier = () => setReplie(false);
@@ -392,21 +399,18 @@ export function PanneauDeDecision({
   const questionsDeLaCarte = <QuestionsDeLaCarte carte={carte} projectId={projectId} />;
 
   if (!decisions.length) {
-    return (
-      <>
-        <BandeauPropositions messages={messages} />
-        {questionsDeLaCarte}
-      </>
-    );
+    /* LES CARTES PROPOSÉES PAR L'AGENT DE LA CARTE ne sont plus ici : elles
+       se posent DANS LE FIL, sous sa réponse (`CartesProposeesDuFil`,
+       `chat.tsx`) — le bandeau du pied mangeait l'écran d'une carte. */
+    return questionsDeLaCarte;
   }
 
   const intitule = titreDeLaDecision(decisions[0], parId);
 
   return (
     <>
-      <BandeauPropositions messages={messages} />
       {questionsDeLaCarte}
-      <div className="shrink-0 px-3 pb-1 pt-2" data-panneau-decision={decisions.length}>
+      <div className={CLASSE_BLOC_DU_PIED} data-panneau-decision={decisions.length}>
         <div
           className={cn(
             'overflow-hidden rounded-2xl border bg-bloc-fil',
@@ -414,28 +418,51 @@ export function PanneauDeDecision({
           )}
           data-panneau-etat={replie ? 'replie' : 'deploye'}
         >
-          <button
-            type="button"
-            onClick={() => setReplie((r) => !r)}
-            aria-expanded={!replie}
-            data-panneau-bascule
-            className="flex w-full items-center gap-2 px-3 py-2 text-left"
-          >
-            <MessageSquare className="h-4 w-4 shrink-0 text-warning" aria-hidden />
-            <span className="shrink-0 text-[13.5px] font-medium text-text">
-              {decisions.length > 1
-                ? t('{v0} décisions attendent', { v0: decisions.length })
-                : t('Une décision attend')}
-            </span>
-            {replie && intitule ? (
-              <span className="min-w-0 flex-1 truncate text-[13px] text-faint" data-panneau-intitule>
-                {intitule}
+          {/* L'ENTÊTE N'EST PLUS UN SEUL BOUTON : la bascule (titre + chevron) et
+              les flèches des questions sont deux boutons VOISINS — un bouton ne
+              s'imbrique pas dans un autre, et feuilleter ne replie pas le panneau. */}
+          <div className="flex w-full items-center gap-1 pr-2">
+            <button
+              type="button"
+              onClick={() => setReplie((r) => !r)}
+              aria-expanded={!replie}
+              data-panneau-bascule
+              className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-3 text-left"
+            >
+              <MessageSquare className="h-4 w-4 shrink-0 text-warning" aria-hidden />
+              <span className="shrink-0 text-[13.5px] font-medium text-text">
+                {decisions.length > 1
+                  ? t('{v0} décisions attendent', { v0: decisions.length })
+                  : t('Une décision attend')}
               </span>
-            ) : (
-              <span className="min-w-0 flex-1" />
-            )}
-            <ChevronDown className={cn('h-4 w-4 shrink-0 text-faint transition-transform', replie && '-rotate-90')} aria-hidden />
-          </button>
+              {replie && intitule ? (
+                <span className="min-w-0 flex-1 truncate text-[13px] text-faint" data-panneau-intitule>
+                  {intitule}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1" />
+              )}
+            </button>
+            {!replie && questions.length > 1 ? (
+              <BarrePagination
+                index={indexQuestion}
+                total={questions.length}
+                aller={setQuestionChoisie}
+                repere="pagination-questions"
+                libellePrecedent="question-precedente"
+                libelleSuivant="question-suivante"
+              />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setReplie((r) => !r)}
+              aria-label={replie ? t('Déplier') : t('Replier')}
+              tabIndex={-1}
+              className="shrink-0 rounded-md p-1"
+            >
+              <ChevronDown className={cn('h-4 w-4 text-faint transition-transform', replie && '-rotate-90')} aria-hidden />
+            </button>
+          </div>
 
           {replie ? null : (
             /* LE DÉFILEMENT RESTE DANS LE PANNEAU (`overscroll-contain`) : arrivé à
@@ -451,6 +478,7 @@ export function PanneauDeDecision({
                   questions={questions}
                   cle={(item) => item.questionId}
                   repondue={() => false}
+                  pilotage={{ choisie: questionChoisie, setChoisie: setQuestionChoisie }}
                   rendu={(item) => {
                     const message = parId.get(item.messageId);
                     const question = message?.questions.find((q) => q.id === item.questionId);
@@ -512,7 +540,7 @@ function QuestionsDeLaCarte({ carte, projectId }: { carte: Card; projectId?: str
   if (!question || !COLONNES_AVANT_LE_TRAVAIL.includes(carte.column)) return null;
   const rang = toutes.findIndex((q) => q.id === question.id) + 1;
   return (
-    <div className="shrink-0 px-3 pb-1 pt-2" data-questions-de-carte={toutes.length} data-question-de-carte-rang={rang}>
+    <div className={CLASSE_BLOC_DU_PIED} data-questions-de-carte={toutes.length} data-question-de-carte-rang={rang}>
       <ZoneDefilement
         classeEnveloppe="max-h-[45vh] overflow-hidden rounded-xl border border-transparent bg-bloc-fil"
         fond="var(--fond-bloc-fil, hsl(var(--bloc-etapes)))"
@@ -772,7 +800,7 @@ export function BarreDAction(props: {
      fabrication · <types> », pleine largeur, ses réglages collés à droite.
      Plus de bandeau d'avancement, de pause ni de caméra : la jauge de suivi
      dit l'avancement, le bouton caméra du champ fait foi, et la lecture du
-     cahier est la dernière ligne du fil (`chat.tsx`). */
+     cahier de réalisation est la dernière ligne du fil (`chat.tsx`). */
   if (estVoletDeRealisation(props.carte)) {
     const pret = etatDeLaRealisation(realisationDeLaCarte(props.carte)) === 'termine';
     return (
@@ -788,13 +816,25 @@ export function BarreDAction(props: {
   }
   if (!estVoletDuCahier(props.carte)) return <GestesDuChapitre {...props} />;
   /* LE CAHIER DES CHARGES D'UN NOUVEAU PROJET n'a aucun geste de chapitre :
-     ni « Valider et lancer », ni arrêt, ni bandeau. Il ne garde que ses
-     réglages, seuls à droite ; la lecture du document est la dernière ligne
-     du fil (`chat.tsx`). */
-  if (!props.menuReglages) return null;
+     ni « Valider et lancer », ni arrêt, ni bandeau. Sa rangée porte « Lire le
+     cahier des charges » dès que le document existe, ses réglages collés à
+     droite ; avant, les réglages restent seuls à droite. */
+  const aLire = cahierALire(props.carte);
+  if (!aLire && !props.menuReglages) return null;
   return (
-    <div data-barre-cahier data-barre-action="aucun" data-gestes="" className="flex justify-end">
-      <IconeDesReglages menuReglages={props.menuReglages} modifiables={props.reglagesModifiables} />
+    <div
+      data-barre-cahier
+      data-barre-action="aucun"
+      data-gestes=""
+      data-groupe-reglages={aLire && props.menuReglages ? '' : undefined}
+      className={cn('flex items-stretch', !aLire && 'justify-end')}
+    >
+      {aLire ? <BoutonLireLeCahier carte={props.carte} groupe={!!props.menuReglages} /> : null}
+      <IconeDesReglages
+        menuReglages={props.menuReglages}
+        modifiables={props.reglagesModifiables}
+        colle={aLire ? 'neutre' : undefined}
+      />
     </div>
   );
 }
@@ -981,6 +1021,14 @@ function GestesDuChapitre({
    * repartirait sous le mot « Lancer ».
    */
   const departSansAgent = carte.column === 'planned' && !agent;
+  /*
+   * LA CARTE DE CONSTRUCTION D'UN CAHIER DES CHARGES (`suiteDuCahier`) ne part
+   * pas au premier clic : « Lancer » ouvre les réglages de l'agent, et c'est
+   * « Valider la configuration et lancer » qui la lance (demande du
+   * 22/10/2026). Ni horloge ni « Auto » : la validation est toujours demandée.
+   */
+  const validerAvantDeLancer = departSansAgent && !!carte.suiteDuCahier;
+  const [configurationAValider, setConfigurationAValider] = React.useState(false);
   /* LE LOT SE DÉPLOIE AUSSI D'ICI : une carte « À déployer » porte le bouton
      qui ouvre la fenêtre de déploiement de tout le lot — sauf relancée
      (`lotDeployableDepuisLaCarte`), et sauf quand une simple question a
@@ -1036,6 +1084,10 @@ function GestesDuChapitre({
     if (geste.geste === 'reprendre' && carteEnPause(carte.scheduling) && agentEnPause) {
       return client.call({ type: 'agent.prompt', agentId: agentEnPause, text: MESSAGE_DE_REPRISE }).catch(refuse);
     }
+    if (geste.geste === 'lancer' && validerAvantDeLancer) {
+      setConfigurationAValider(true);
+      return undefined;
+    }
     if (geste.geste === 'lancer' || geste.geste === 'reprendre') {
       /* Le chemin de lancement est UNIQUE (`demanderLeLancement`) : c'est lui
          qui porte l'attente, la phrase d'un délai dépassé et le refus relancé. */
@@ -1055,6 +1107,13 @@ function GestesDuChapitre({
       data-gestes={duChapitre.map((g) => g.geste).join(',')}
       data-fin-de-tache={finDeTache ? '' : undefined}
     >
+      {validerAvantDeLancer ? (
+        <FeuilleDeValidationDeConfiguration
+          carte={carte}
+          open={configurationAValider}
+          onClose={() => setConfigurationAValider(false)}
+        />
+      ) : null}
       {/* PLUS AUCUN AVIS ÉCRIT AU-DESSUS DU LANCEMENT : la note du relecteur se
           lit sur l'indicateur à trois barres de la barre d'écriture
           (`web/src/components/indicateur-comprehension.tsx`). */}
@@ -1076,7 +1135,7 @@ function GestesDuChapitre({
               index === 0 && geste.geste === 'arreter' && (geste.chapitre === 'cadrage' || geste.chapitre === 'plan');
             /* LE LANCEMENT GROUPÉ (« Auto » + horloge à sa droite) suit une
                seule règle (`lancementScinde`). */
-            const scinde = index === 0 && lancementScinde(duChapitre);
+            const scinde = index === 0 && lancementScinde(duChapitre) && !validerAvantDeLancer;
             const avecAuto = geste.geste === 'valider-et-lancer' || annulerLeCadrage;
             const libelle = annulerLeCadrage
               ? t('Annuler')

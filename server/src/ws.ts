@@ -202,6 +202,7 @@ import {
   lireLeDocumentDeRealisation,
   mettreLaRealisationEnPause,
   reprendreLaRealisation,
+  retenirLesImagesChoisies,
 } from './realisation-questionnaire.js';
 import { getMeta, setMeta } from './db.js';
 import { deposerDemandeDictee, repondreALaDictee } from './routage-vocal.js';
@@ -531,7 +532,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
         try {
           if (!commandeAutorisee(compte.role, envelope.cmd.type)) throw new Error(REFUS_HORS_PORTEE);
           noterUnGeste(compte, envelope.cmd.type);
-          const data = await handleCommand(envelope.cmd, compte);
+          const data = await handleCommand(envelope.cmd, compte, ws);
           if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: true, data });
         } catch (err: any) {
           const brut = err?.message ?? String(err);
@@ -539,7 +540,13 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
           if (envelope.id) repondre({ type: 'ack', id: envelope.id, ok: false, error: await phrasePourLEcran(brut, envelope.cmd.type) });
         }
       });
-      ws.on('close', unsubscribe);
+      ws.on('close', () => {
+        unsubscribe();
+        /* Le canal parti ne tient plus ses modifications : le délai court depuis maintenant. */
+        for (const agentId of store.lacherLesEditionsDuCanal(ws)) {
+          setTimeout(() => reprendreLaFile(agentId), EDITION_EN_FILE_PERIMEE_MS + 1_000).unref?.();
+        }
+      });
       ws.on('error', () => unsubscribe());
       return;
     }
@@ -563,6 +570,11 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
     const decisions = store.decisionsEnAttente();
     send({ type: 'attention', ...store.signalAttention(decisions) });
     send({ type: 'rendus', byProject: store.projectsWithFinishedWork() });
+    // Les files retombées faute de quota : le badge « En attente de quota »
+    // des cartes se lit sans ouvrir leur fil (`shared/src/attente-de-quota.ts`).
+    for (const file of store.filesSansQuota()) {
+      if (peutVoirProjet(compte, file.projectId)) send({ type: 'queue.etat', agentId: file.agentId, queue: file.queue });
+    }
     // L'état des sites surveillés : quelques lignes de base, et c'est lui qui
     // allume la pastille du menu avant même qu'on ouvre la fenêtre.
     send({ type: 'surveillance', sites: listerSites() });
@@ -1034,6 +1046,9 @@ function runChange(avant: Card['run'] | undefined, patch: Partial<Card['run']>):
 type AccuseServeur = Extract<ServerEvent, { type: 'ack' }>;
 const accusesOrphelins = new BoiteDesAccuses<AccuseServeur>();
 
+/** Les propositions dont la décision est en train de s'écrire (`proposal.decide`). */
+const decisionsEnCours = new Set<string>();
+
 /**
  * LA CARTE « CAHIER DES CHARGES » D'UN PROJET QU'ON VIENT DE MONTER, sans
  * retenir la réponse du montage plus de quelques secondes : passé ce délai,
@@ -1086,7 +1101,7 @@ function oublierLesPiecesParties(agentId: string, parties: readonly string[]): v
   diffuserLeReglage(cle);
 }
 
-async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur): Promise<unknown> {
+async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur, canal?: WebSocket): Promise<unknown> {
   // L'espace client a ses propres commandes, et son propre cloisonnement.
   if (estCommandeDeLEspace(commande)) return commandeDeLEspaceClient(commande, compte);
 
@@ -2691,9 +2706,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
          est relancée à ce moment-là. */
       const agentId = store.marquerEditionEnFile(cmd.id, cmd.actif);
       if (!agentId) return { ok: false };
+      if (canal) store.tenirEditionParCanal(cmd.id, canal, cmd.actif);
       bus.emit({ type: 'queue.etat', agentId, queue: store.listQueue(agentId) });
       if (!cmd.actif) reprendreLaFile(agentId);
-      else setTimeout(() => reprendreLaFile(agentId), EDITION_EN_FILE_PERIMEE_MS + 1_000).unref?.();
       return { ok: true };
     }
 
@@ -2722,6 +2737,8 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       bus.emit({ type: 'message.upsert', message: updated });
       bus.emit({ type: 'attention', ...store.signalAttention() });
       oublierLeBrouillonDeReponse(`reponse.${cmd.questionId}`);
+      /* UN CHOIX EN IMAGES TRANCHÉ rejoint le tableau d'ambiance de la carte (mode Réalisation). */
+      if (question.options.some((o) => o.image)) retenirLesImagesChoisies(message.agentId, question, cmd.answer);
 
       /*
        * UN ANCIEN ENCADRÉ DE COMPÉTENCE (d'avant la retenue d'office) N'EST
@@ -2911,6 +2928,16 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       const proposal = message.proposals.find((p) => p.id === cmd.proposalId);
       if (!proposal) throw new Error('proposition introuvable');
       if (proposal.decision !== 'pending') return { already: true };
+      /*
+       * UN SEUL CLIC FAIT UNE SEULE CARTE. La décision n'est écrite qu'après
+       * l'attente du catalogue des moteurs : deux clics rapprochés (double
+       * clic, commande rejouée à la reconnexion) passaient tous deux la garde
+       * ci-dessus et créaient deux cartes. La proposition est donc réservée
+       * AVANT toute attente, et libérée quoi qu'il arrive.
+       */
+      if (decisionsEnCours.has(proposal.id)) return { already: true };
+      decisionsEnCours.add(proposal.id);
+      try {
 
       const agent = store.getAgent(message.agentId);
       if (!agent) throw new Error('agent introuvable');
@@ -3018,6 +3045,9 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       // Tranchée, la proposition ne réclame plus rien : le signal s'éteint.
       bus.emit({ type: 'attention', ...store.signalAttention() });
       return { cardId };
+      } finally {
+        decisionsEnCours.delete(proposal.id);
+      }
     }
 
     case 'proposal.config': {

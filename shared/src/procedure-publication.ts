@@ -95,6 +95,31 @@ export function leClicLanceLAgent(etat: EtatDuBoutonDeConfiguration): boolean {
   return etat === 'initialiser' || etat === 'reconfigurer';
 }
 
+/**
+ * OÙ MÈNE LE BOUTON D'UNE ÉTAPE DANS LA BARRE DU HAUT (« Déployer », « Mise en
+ * production ») — 22/10/2026, « on clique sur Déployer, on s'attend à ce que
+ * ça déploie, pas à traverser deux volets ».
+ *   - `agent` : la conversation de l'agent de configuration, dans son tiroir.
+ *     C'est le cas tant qu'aucune procédure n'est en place (le clic le lance
+ *     alors, par `leClicLanceLAgent`), ET dès que cet agent travaille ou attend
+ *     une réponse, même procédure en place : il se retrouve d'un clic, sans
+ *     jamais être relancé.
+ *   - `etape` : le geste de l'étape — la fenêtre de choix des tâches pour le
+ *     déploiement, la confirmation pour la mise en production.
+ * Plus aucun clic ne mène à la rubrique des réglages : l'icône de réglages du
+ * volet et le menu de la colonne y mènent toujours.
+ */
+export type GesteDuBoutonDEtape = 'agent' | 'etape';
+
+export function gesteDuBoutonDEtape(entree: {
+  procedure: boolean;
+  auTravail: boolean;
+  question: boolean;
+}): GesteDuBoutonDEtape {
+  if (entree.question || entree.auTravail) return 'agent';
+  return entree.procedure ? 'etape' : 'agent';
+}
+
 export const LIBELLE_BOUTON_DE_CONFIGURATION: Record<EtatDuBoutonDeConfiguration, string> = {
   initialiser: 'Initialiser',
   travail: 'Agent au travail…',

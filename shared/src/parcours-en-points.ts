@@ -1205,20 +1205,28 @@ export function tourDeReponseSeule(
  * « Réflexion » repliée — rien n'est perdu, mais on ne lit jamais deux réponses
  * quasi semblables. La compréhension s'ouvre elle-même en répondant à la
  * question posée. Seul un tour qui a RÉPONDU AU LIEU DE CADRER (une simple
- * question) sort sa réponse du récit, et la lit en clair. Rien pour un passage
- * hors « Compréhension », ni pour une réponse vide.
+ * question) sort sa réponse du récit, et la lit en clair. Le passage « Plan »
+ * sort toujours la sienne (voir plus bas). Rien ailleurs, ni pour une réponse vide.
  */
 export function reponseDuPassage(
   passage: Pick<PassageNu, 'etape' | 'moments' | 'traces'>,
   parcours?: Pick<ParcoursDeCarte, 'issueDuTour'> | null,
 ): EntreeJournal | undefined {
+  const reponses = () => passage.traces.filter((trace) => estReponseRendue(trace) && (trace.resultat ?? '').trim());
+  /*
+   * LE PASSAGE « PLAN » SORT AUSSI SA RÉPONSE (22/10/2026, captures #40a5) :
+   * une question posée après le plan relance un tour qui rend compréhension,
+   * nouvelle version ET un mot à l'utilisateur. Ce mot restait une trace du
+   * récit, tronquée entre deux lectures de fichier. Il se lit désormais en
+   * clair, au-dessus du suivi du passage ; le plan reste le bloc de fin.
+   */
+  if (passage.etape === 'plan') return reponses().at(-1);
   if (passage.etape !== 'comprehension') return undefined;
   const aCompris = passage.moments.some((moment) => moment.sorte === 'comprehension');
   /* UNE SEULE RÉPONSE PAR TOUR : la compréhension rendue EST la réponse. */
   if (aCompris) return undefined;
   if (!tourDeReponseSeule(passage, parcours)) return undefined;
-  const reponses = passage.traces.filter((trace) => estReponseRendue(trace) && (trace.resultat ?? '').trim());
-  return reponses[reponses.length - 1];
+  return reponses().at(-1);
 }
 
 /** Le cadre qui referme un passage : ce que l'agent a RENDU, et qu'on vient lire. */

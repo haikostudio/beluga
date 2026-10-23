@@ -1,0 +1,95 @@
+import * as React from 'react';
+import {
+  HAUTEUR_REPLIEE_PAR_DEFAUT,
+  PART_DE_L_ECRAN_POUR_LE_PIED,
+  blocsARepliers,
+  ordreDOuverture,
+  type BlocDuPied,
+} from '@beluga/shared';
+
+/** Un bloc du pied : sa clé, et s'il se replie (le panneau de décision compte sans se replier). */
+export interface BlocSuivi {
+  cle: string;
+  repliable: boolean;
+}
+
+interface Hauteurs {
+  depliee?: number;
+  repliee?: number;
+}
+
+/**
+ * LE PIED COMPACT DU TÉLÉPHONE (`shared/src/pied-compact.ts`). Rend, pour chaque
+ * bloc présent, s'il est replié ; `mesurer(cle)` se pose sur l'enveloppe du
+ * bloc pour retenir sa hauteur, `rouvrir(cle)` le déplie et en fait le dernier
+ * ouvert. Éteint (ordinateur), rien ne se replie.
+ */
+export function usePiedCompact(actif: boolean, blocs: readonly BlocSuivi[]) {
+  const presents = blocs.map((b) => b.cle);
+  const signature = presents.join('|');
+  const [ordre, setOrdre] = React.useState<string[]>(() => ordreDOuverture([], presents));
+  React.useEffect(() => {
+    setOrdre((avant) => {
+      const apres = ordreDOuverture(avant, presents);
+      return apres.join('|') === avant.join('|') ? avant : apres;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+
+  const [hauteurs, setHauteurs] = React.useState<Record<string, Hauteurs>>({});
+  const [budget, setBudget] = React.useState(() =>
+    typeof window === 'undefined' ? 400 : window.innerHeight * PART_DE_L_ECRAN_POUR_LE_PIED,
+  );
+  React.useEffect(() => {
+    if (!actif) return;
+    const lire = () => setBudget((window.visualViewport?.height ?? window.innerHeight) * PART_DE_L_ECRAN_POUR_LE_PIED);
+    lire();
+    window.addEventListener('resize', lire);
+    return () => window.removeEventListener('resize', lire);
+  }, [actif]);
+
+  const replies = React.useMemo(() => {
+    if (!actif) return new Set<string>();
+    const mesures: BlocDuPied[] = blocs.map((b) => {
+      const h = hauteurs[b.cle] ?? {};
+      const repliee = h.repliee ?? HAUTEUR_REPLIEE_PAR_DEFAUT;
+      return { cle: b.cle, repliable: b.repliable, hauteurRepliee: repliee, hauteurDepliee: h.depliee ?? repliee };
+    });
+    return new Set(blocsARepliers(mesures, ordre, budget));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actif, signature, hauteurs, ordre, budget]);
+
+  /* Chaque enveloppe est suivie : sa hauteur s'écrit sous l'état où elle a été
+     mesurée (repliée ou dépliée), à 2 px près pour ne pas redessiner pour rien. */
+  const etatCourant = React.useRef(replies);
+  etatCourant.current = replies;
+  const observateurs = React.useRef(new Map<string, ResizeObserver>());
+  const mesurer = React.useCallback(
+    (cle: string) => (noeud: HTMLElement | null) => {
+      observateurs.current.get(cle)?.disconnect();
+      observateurs.current.delete(cle);
+      if (!noeud || typeof ResizeObserver === 'undefined') return;
+      const obs = new ResizeObserver(() => {
+        const h = noeud.getBoundingClientRect().height;
+        const champ: keyof Hauteurs = etatCourant.current.has(cle) ? 'repliee' : 'depliee';
+        setHauteurs((avant) => {
+          const ancien = avant[cle]?.[champ];
+          if (ancien !== undefined && Math.abs(ancien - h) < 2) return avant;
+          return { ...avant, [cle]: { ...avant[cle], [champ]: h } };
+        });
+      });
+      obs.observe(noeud);
+      observateurs.current.set(cle, obs);
+    },
+    [],
+  );
+  React.useEffect(() => () => observateurs.current.forEach((o) => o.disconnect()), []);
+
+  const rouvrir = React.useCallback(
+    (cle: string) => setOrdre((avant) => ordreDOuverture(avant, presents, cle)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [signature],
+  );
+
+  return { estReplie: (cle: string) => replies.has(cle), mesurer, rouvrir };
+}

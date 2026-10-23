@@ -15,7 +15,7 @@
  * coûte rien.
  *
  * LE RANGEMENT SUIT L'ARCHITECTURE DÉJÀ EN PLACE, il ne la contourne pas : le
- * TEXTE ENTIER de la règle va dans le fichier de son SUJET (`docs/regles/`),
+ * TEXTE ENTIER de la règle va dans la base de connaissances, sous son SUJET,
  * et seule une ligne de CONTRAT — quand l'agent en écrit une — rejoint
  * `CLAUDE.md`. C'est ce qui empêche le fichier d'instructions de regrossir
  * d'un pavé par carte, comme il vient de le faire (15 938 → 158 743 signes en
@@ -80,7 +80,7 @@ export const PERIODE_DE_FUSION_MS = 20 * 60 * 60 * 1000;
 export interface EntreeDInstruction {
   /** Le nom de la règle, tel qu'il paraîtra dans le fichier du sujet. */
   titre: string;
-  /** Le sujet de `docs/regles/` où le texte entier sera rangé. */
+  /** Le sujet de la base de connaissances où le texte entier sera rangé. */
   sujet: string;
   /** La ligne — UNE seule — à ajouter au contrat de `CLAUDE.md`. Facultative. */
   contrat?: string;
@@ -243,9 +243,9 @@ export const SUJET_DE_REPLI = 'methode';
 /**
  * Ce que la nuit va ranger, et ce qu'elle refuse.
  *
- * LE SUJET DOIT EXISTER : on ne fabrique jamais un fichier de règles à partir
- * d'un nom mal tapé, sinon la règle irait dormir dans un fichier que
- * `project_memory` ne sert à personne.
+ * LE SUJET DOIT EXISTER : on ne fabrique jamais un sujet à partir d'un nom
+ * mal tapé, sinon la règle irait dormir sous un sujet que l'outil `memoire`
+ * ne sert à personne.
  *
  * …MAIS UNE ENTRÉE NE RESTE PLUS BLOQUÉE POUR TOUJOURS. Refuser et redire la
  * raison chaque nuit semblait prudent ; à l'usage, personne ne relit un fichier
@@ -457,7 +457,7 @@ function partDeCapitales(texte: string): number {
  * La STRUCTURE tranche là où le vocabulaire ne peut pas : une formulation écrite
  * tout en capitales et dépourvue du moindre repère technique ne porte aucun
  * invariant que le titre ne porte déjà. Le texte ENTIER de la règle vit de toute
- * façon dans `docs/regles/<sujet>.md` — le contrat n'a jamais eu à le redire.
+ * façon dans la base de connaissances, sous son sujet — le contrat n'a jamais eu à le redire.
  *
  * Dans le doute, on GARDE : la moindre commande, le moindre chemin, le moindre
  * libellé cité suffit à conserver la ligne entière — À CONDITION D'ÊTRE NEUF.
@@ -648,8 +648,8 @@ export function contratsQuiTiennent<T extends { ligne: string }>(
 /**
  * Le marqueur ajouté après un invariant que le plafond n'a pas laissé nommer
  * dans `CLAUDE.md`. La règle fait foi quand même ; l'explication complète de
- * ce marqueur n'est posée qu'une fois, en tête de chaque fichier de
- * `docs/regles/` — pas répétée à chaque invariant.
+ * ce marqueur n'est posée qu'une fois, en tête de chaque fiche de règles de
+ * la base de connaissances — pas répétée à chaque invariant.
  */
 export function contratMisDeCote(entree: { titre: string; ligne: string }): string {
   return `\n  _(hors contrat)_\n`;

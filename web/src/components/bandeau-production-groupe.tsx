@@ -1,10 +1,25 @@
 import * as React from 'react';
-import { Check, ChevronLeft, ChevronRight, GitCommitHorizontal, Loader2, Rocket, Settings2 } from 'lucide-react';
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  GitCommitHorizontal,
+  Loader2,
+  MessageCircleQuestion,
+  Rocket,
+  Settings2,
+  Sparkles,
+} from 'lucide-react';
 import {
   type ColumnKey,
   type DeployRun,
   type EtatProduction,
   type Project,
+  agentDeConfiguration,
+  agentTientSonTour,
+  etatDuBoutonDeConfiguration,
+  leClicLanceLAgent,
+  processusDeLEtape,
   annonceMiseAJourProduction,
   descriptionDeLEtape,
   ecartProduction,
@@ -13,6 +28,7 @@ import {
   procedureEnPlace,
   productionEnRetard,
   raisonMembrePasPret,
+  raisonProductionDesactivee,
   rapportAGarder,
   resumeDeLaProductionDuGroupe,
   runDeProductionDuMembre,
@@ -28,7 +44,7 @@ import { Button, ConfirmDialog, Pastille, ZoneDefilement } from '@/components/ui
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { useSeconde } from '@/lib/horloge';
-import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
+import { ouvrirAgentDeConfiguration, ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { lancerIntervalleVisible } from '@/lib/veille';
 import { cn, elapsed } from '@/lib/utils';
 import { t } from '@/lib/langue';
@@ -228,6 +244,47 @@ export function BandeauProductionGroupe({
   const boutonDuMembre = (ligne: (typeof lignes)[number], pied = false) => {
     const id = ligne.membre.id;
     const parti = envoi.has(id);
+    /* UN MEMBRE SANS PROCÉDURE MÈNE À SON AGENT DE CONFIGURATION (22/10/2026),
+       comme le bouton d'un projet seul : la conversation s'ouvre et l'agent
+       démarre, ou elle se rouvre s'il travaille ou attend une réponse. */
+    if (!ligne.enPlace && !raisonProductionDesactivee(ligne.membre)) {
+      const agentId = agentDeConfiguration(ligne.membre, 'production');
+      const agent = agentId ? state.agents[agentId] : undefined;
+      const etat = etatDuBoutonDeConfiguration({
+        processus: !!processusDeLEtape(ligne.membre, 'production'),
+        auTravail: !!state.procedures[`${id}:production`]?.enCours || (!!agent && agentTientSonTour(agent)),
+        question: !!state.procedures[`${id}:production`]?.question || agent?.attendReponse === true,
+      });
+      return (
+        <Button
+          variant={pied ? 'default' : 'outline'}
+          size="pied"
+          className="shrink-0 gap-1.5"
+          onClick={() => {
+            setOuvert(false);
+            ouvrirAgentDeConfiguration(id, 'production', { lancer: leClicLanceLAgent(etat) });
+          }}
+          data-bouton-production-membre={id}
+          data-agent-configuration="production"
+          data-etat-bouton-agent={etat}
+        >
+          {etat === 'travail' ? (
+            <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          ) : etat === 'question' ? (
+            <MessageCircleQuestion className="h-3 w-3 shrink-0" />
+          ) : (
+            <Sparkles className="h-3 w-3 shrink-0" />
+          )}
+          <span className="truncate">
+            {etat === 'travail'
+              ? t('Agent au travail…')
+              : etat === 'question'
+                ? t('Répondre à l’agent')
+                : t('Configurer la mise en production')}
+          </span>
+        </Button>
+      );
+    }
     /* PLEINE LARGEUR, sur la carte du projet comme en pied de son détail
        (05/10/2026) : le bouton occupe toute la largeur, sous le contenu. */
     return (

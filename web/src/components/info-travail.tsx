@@ -29,7 +29,13 @@ export function InfoTravail({
   icone,
   alterner = false,
   classeDuTexte,
+  etiquette,
 }: {
+  /**
+   * AVEC QUOI L'AGENT TRAVAILLE (`EtiquetteDuModele`) : moteur, modèle et
+   * niveau, posés juste après la phrase, avant le compte et le temps.
+   */
+  etiquette?: React.ReactNode;
   quoi: string;
   /**
    * La couleur de la phrase et de sa roue. Absente : le gris du texte discret.
@@ -67,6 +73,7 @@ export function InfoTravail({
     <>
       {icone ?? <Loader2 className={cn('h-3 w-3 shrink-0 animate-spin', classeDuTexte ?? 'text-en-cours', className)} />}
       <span className={cn('min-w-0 flex-1 truncate text-[13px]', classeDuTexte ?? 'text-muted')}>{quoi}</span>
+      {etiquette}
       {avancement || temps ? (
         <span
           data-avancement-travail

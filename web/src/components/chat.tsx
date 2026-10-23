@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CircleDot,
   Cpu,
@@ -29,7 +31,8 @@ import {
   barreDeLaRealisation,
   estVoletDuCahier,
   estVoletDeRealisation,
-  barreDEcritureDuVoletDeRealisation,
+  cheminDeRealisationVisible,
+  barreDEcritureDuVolet,
   etapeCouranteDeLaRealisation,
   realisationDeLaCarte,
   etapeCouranteDuCahier,
@@ -69,7 +72,7 @@ import {
   comprehensionValideePourLaVersionCourante,
   titreDeBloc,
   TEXTE_BARRE_EN_ATTENTE,
-  modeleActuel,
+  libellesDuRun,
   idDuMessageDeSynthese,
   estUneAide,
   carteEnPause,
@@ -87,6 +90,8 @@ import {
   Tooltip,
   ZoneDefilement,
   ouvertureAuClic,
+  CLASSE_BLOC_DU_PIED,
+  CLASSE_FIN_DU_PIED,
 } from '@/components/ui';
 import { IndicateurActivite } from '@/components/indicateur-activite';
 import { EntreesDeReglages, RunSelectors, resoudreRun, type ReglageDeRun, type RunChoix } from '@/components/run-selectors';
@@ -96,16 +101,23 @@ import { ContextePiecesDesBlocs, MediasEnFabrication, useBlocsDeLaConversation }
 import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
 import { Composer } from '@/components/composer';
 import { BandeDesCaptures, useGalerieDesCaptures } from '@/components/captures-du-flux';
+import { SuggestionsDeCarte, groupesDeSuggestions, suggestionsDeLaCarte, useSuggestionsFermees } from '@/components/suggestions-de-carte';
 import { ANCRE_DU_DEPLOIEMENT, FluxEnPoints, type OuvertureDemandee } from '@/components/flux-en-points';
 import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { BarreDEtapes } from '@/components/barre-etapes';
-import { LectureDuCahierDesCharges } from '@/components/cahier-des-charges';
 import { LectureDuCahierDeRealisation } from '@/components/realisation-volet';
+import { CheminDuCahier } from '@/components/cahier-des-charges';
+import { CheminDeRealisation, GaleriesDuTournage } from '@/components/chemin-de-realisation';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
+import { EtiquetteDuModele } from '@/components/etiquette-du-modele';
+import { useTelephone } from '@/lib/telephone';
+import { usePiedCompact } from '@/lib/pied-compact';
+import { CarteDeConfiguration, choixDeLaCarte } from '@/components/carte-de-configuration';
+export { LigneDeConfiguration } from '@/components/carte-de-configuration';
 import { CorpsListeTaches, resumeDesTaches, usePliDesTaches } from '@/components/todos';
-import { BandeauPropositions } from '@/components/propositions';
+import { BandeauPropositions, VignetteProposition } from '@/components/propositions';
 import { SilhouetteConversation } from '@/components/silhouettes';
 import { client } from '@/lib/client';
 import { quandLEcranEstRegarde } from '@/lib/ecran-regarde';
@@ -690,10 +702,45 @@ export function Chat({
      passe alors par son bouton principal, une seule fois) pour demander une
      amélioration. Avant, on répond dans le panneau de décision. */
   /* Un cahier des charges EN PAUSE rend aussi la barre : sans bouton de
-     reprise, on reprend en écrivant (`leverLaPauseSurMessage`). */
-  const barreRendueAuVolet =
-    barreDEcritureDuVoletDeRealisation(carte) || (estVoletDuCahier(carte) && !!carte?.cahierDesCharges?.enPauseA);
+     reprise, on reprend en écrivant (`leverLaPauseSurMessage`). Et PENDANT
+     QUE L'AGENT TRAVAILLE, les deux volets la rendent (Suspendre, envoi
+     prioritaire), sauf quand une question attend : le panneau de décision
+     garde la main (`barreDEcritureDuVolet`). La rangée du volet (« Lire le
+     cahier des charges », réglages) reste au-dessus du champ, portée par la
+     barre d'écriture elle-même (`boutonPrincipal`). */
+  const questionEnAttente = React.useMemo(
+    () => messages.some((m) => m.questions?.some((q) => !q.answer && !q.cancelled && !q.competence)),
+    [messages],
+  );
+  const barreRendueAuVolet = barreDEcritureDuVolet(carte, { travaille: busy, questionEnAttente });
+  /* LE PIED NE MANGE PLUS L'ÉCRAN DU TÉLÉPHONE (demande du 22/10/2026,
+     capture #b76d) : déroulé, « Ce que l'agent a vu » et panneau de décision
+     s'empilaient jusqu'en haut. La question se réduit à son intitulé et à
+     « Répondre » (`BulleQuestion`, feuille du bas)… */
+  const telephone = useTelephone();
   const cahier = carte?.cahierDesCharges;
+  const cheminDuTournage = !!carte && cheminDeRealisationVisible(carte);
+  /* …ET IL SE REPLIE PAR ORDRE D'APPARITION (demande du 22/10/2026) : sur
+     téléphone, quand les blocs collés sous le fil dépassent leur part de
+     l'écran, le plus ancien se replie d'abord, le dernier ouvert reste déplié,
+     et un appui rouvre un bloc replié (`usePiedCompact`,
+     `shared/src/pied-compact.ts`). */
+  const avecCaptures = !!projectId && galerieDesCaptures.captures.length > 0;
+  /* …ET SA CROIX LE FERME EN ENTIER : fermé, il quitte le pied ; une
+     suggestion nouvelle ou le bouton « Voir » du fil le ramène. */
+  const suggestionsFermees = useSuggestionsFermees(carte?.id, messages);
+  const avecSuggestions = !!carte && !suggestionsFermees && suggestionsDeLaCarte(messages).length > 0;
+  const groupesDuFil = React.useMemo(() => (carte ? groupesDeSuggestions(messages) : []), [carte?.id, messages]);
+  const blocsDuPied = React.useMemo(
+    () => [
+      ...(cheminDuTournage || cahier ? [{ cle: 'chemin', repliable: true }] : []),
+      ...(avecCaptures ? [{ cle: 'captures', repliable: true }] : []),
+      ...(avecSuggestions ? [{ cle: 'suggestions', repliable: true }] : []),
+      { cle: 'decision', repliable: false },
+    ],
+    [cheminDuTournage, !!cahier, avecCaptures, avecSuggestions],
+  );
+  const pied = usePiedCompact(telephone && !!carte, blocsDuPied);
   const realisation = voletDeRealisation ? realisationDeLaCarte(carte) : null;
   const segments = React.useMemo(
     () =>
@@ -918,6 +965,35 @@ export function Chat({
       fil.removeEventListener('keydown', touche);
     };
   }, [cardId, agent?.id, configurationOuverte, carte && cardId ? 'parcours' : 'fil']);
+
+  /*
+   * LE FIL EST-IL EN BAS ? — pour le déroulé collé sous lui (cahier des
+   * charges, tournage) : réduit à ses ronds dès qu'on remonte, déplié en bas.
+   * Un état React (le rendu en dépend), distinct de `suit` qui reste un ref.
+   * HYSTÉRÉSIS : on y entre à 24 px du bas, on n'en sort qu'au-delà de 96 px —
+   * plus que ce que le déroulé gagne en se dépliant (compte, suite, relais), sinon
+   * le dépliage, qui raccourcit le fil, le ferait aussitôt sortir du bas.
+   */
+  const [auBas, setAuBas] = React.useState(true);
+  React.useEffect(() => {
+    const fil = filRef.current;
+    if (!fil || !(cahier || cheminDuTournage)) return;
+    let image = 0;
+    const mesurer = () => {
+      image = 0;
+      const reste = fil.scrollHeight - fil.scrollTop - fil.clientHeight;
+      setAuBas((avant) => (avant ? reste <= 96 : reste <= 24));
+    };
+    const planifier = () => {
+      if (!image) image = window.requestAnimationFrame(mesurer);
+    };
+    mesurer();
+    fil.addEventListener('scroll', planifier, { passive: true });
+    return () => {
+      fil.removeEventListener('scroll', planifier);
+      if (image) window.cancelAnimationFrame(image);
+    };
+  }, [cardId, configurationOuverte, !!cahier, cheminDuTournage]);
 
   React.useEffect(() => {
     const cle = cardId ?? agent?.id;
@@ -1156,6 +1232,11 @@ export function Chat({
           />
         )
       : undefined;
+  /* ÉTAPES ET TÂCHES EN UN SEUL BLOC (demande du 23/10/2026, capture #8023) :
+     dès que la barre d'écriture est là, le chemin du tournage quitte le pied
+     pour devenir la tête du repère des tâches collé au champ. */
+  const cheminDansLeRepere =
+    cheminDuTournage && !(voletDuCahier && !barreRendueAuVolet) && !avancementDansLeFil && !(configurationOuverte && reglagesCarte.libelles);
   const barreDEcriture = (
     <Composer
       agent={agent}
@@ -1188,7 +1269,7 @@ export function Chat({
       reglages={!carte && agent ? <BoutonReglagesAgent agent={agent} /> : undefined}
       /* L'arrêt vit dans la barre d'action quand c'est le geste du chapitre :
          un second carré d'arrêt dans le champ le redirait. */
-      sansArret={!!carte && geste.geste === 'arreter'}
+      sansArret={!!carte && geste.geste === 'arreter' && !voletDuCahier}
       engines={state.engines}
       queue={queue}
       busy={busy}
@@ -1226,7 +1307,28 @@ export function Chat({
               ))}
             </div>
           ) : null}
-          <TravailEnCours agent={agent} messages={messages} busy={busy} cardId={cardId} sansListe={!!avancementDansLeFil} />
+          <TravailEnCours
+            agent={agent}
+            messages={messages}
+            busy={busy}
+            cardId={cardId}
+            sansListe={!!avancementDansLeFil}
+            entete={
+              cheminDansLeRepere && carte
+                ? (taches) => (
+                    <div className="min-w-0 flex-1" ref={pied.mesurer('chemin')} data-bloc-du-pied="chemin" data-bloc-replie={pied.estReplie('chemin') ? '' : undefined}>
+                      <CheminDeRealisation
+                        carte={carte}
+                        integre
+                        reduit={!auBas || pied.estReplie('chemin')}
+                        onDeplier={pied.estReplie('chemin') ? () => pied.rouvrir('chemin') : undefined}
+                        taches={taches}
+                      />
+                    </div>
+                  )
+                : undefined
+            }
+          />
         </>
       }
       /* RIEN NE FIGE À L'ENVOI : le parcours s'ouvre au clic (`envoiLocal`). */
@@ -1298,6 +1400,7 @@ export function Chat({
               <FluxEnPoints
                 carte={carte}
                 projectId={projectId}
+                suggestions={groupesDuFil}
                 galerieDesCaptures={galerieDesCaptures}
                 /* LE POINT « CONFIGURATION » PORTE LES RÉGLAGES DE L'AGENT :
                    moteur, modèle, réflexion, compte. Ils restent le point
@@ -1340,21 +1443,85 @@ export function Chat({
               </ContexteTextesEnvoyes.Provider>
               </ContexteTexteDuChamp.Provider>
               <MediasEnFabrication {...ouDesBlocs} depuis={derniereDemandeA} exclure={piecesLivrees} className="px-4 pb-3 pt-1" />
-              {/* LA LECTURE DU CAHIER EST TOUJOURS LA DERNIÈRE LIGNE DU FIL,
-                  sous le plan et les médias en fabrication. */}
+              {/* LA LECTURE DU CAHIER DE RÉALISATION EST LA DERNIÈRE LIGNE DU FIL,
+                  sous le plan, les médias en fabrication et les galeries du
+                  tournage. Celle du cahier des charges vit dans la rangée
+                  d'action (`parcours-carte.tsx`). */}
+              {cheminDuTournage ? <GaleriesDuTournage carte={carte} /> : null}
               {voletDeRealisation ? <LectureDuCahierDeRealisation carte={carte} /> : null}
-              {cahier ? <LectureDuCahierDesCharges carte={carte} /> : null}
               <div ref={bottomRef} />
             </ZoneDefilement>
+
+          </>
+        )}
+
+        {/* LE PIED DE LA CONVERSATION : tout ce qui est collé sous le fil, dans
+            l'ordre — déroulé, captures, décision, rangée d'action ou barre
+            d'écriture. Chaque bloc porte `CLASSE_BLOC_DU_PIED` (mêmes bords,
+            même écart) ; le repère sert au contrôle des écarts
+            (`scripts/verif-ecarts-et-alignements.mjs`). */}
+        <div className="flex shrink-0 flex-col" data-pied-de-conversation>
+        {configurationOuverte && reglagesCarte.libelles ? null : (
+          <>
+            {/* LE DÉROULÉ DU CAHIER DES CHARGES ET LE CHEMIN DU TOURNAGE, COLLÉS
+                EN BAS (demande du 22/10/2026) : hors de la zone qui défile — un
+                `sticky` dedans resterait sous son voile de fin —, juste
+                au-dessus de la rangée d'action. Réduits à la ligne des ronds
+                quand on remonte lire, dépliés une fois revenu en bas (`auBas`). */}
+            {/* Le chemin du tournage ne reste ici que sans barre d'écriture
+                (questionnaire, rangée d'action) : avec elle, il est la tête du
+                repère des tâches (`cheminDansLeRepere`). */}
+            {cheminDuTournage && !cheminDansLeRepere ? (
+              <div className="shrink-0" ref={pied.mesurer('chemin')} data-bloc-du-pied="chemin" data-bloc-replie={pied.estReplie('chemin') ? '' : undefined}>
+                <CheminDeRealisation
+                  carte={carte}
+                  reduit={!auBas || pied.estReplie('chemin')}
+                  onDeplier={pied.estReplie('chemin') ? () => pied.rouvrir('chemin') : undefined}
+                />
+              </div>
+            ) : null}
+            {cahier ? (
+              <div className="shrink-0" ref={pied.mesurer('chemin')} data-bloc-du-pied="chemin" data-bloc-replie={pied.estReplie('chemin') ? '' : undefined}>
+                <CheminDuCahier
+                  carte={carte}
+                  reduit={!auBas || pied.estReplie('chemin')}
+                  onDeplier={pied.estReplie('chemin') ? () => pied.rouvrir('chemin') : undefined}
+                />
+              </div>
+            ) : null}
 
             {/* CE QUE L'AGENT A VU, COLLÉ EN BAS : la bande ne défile pas avec
                 le flux, elle reste au-dessus du panneau de décision et de la
                 barre d'écriture, et se replie sur sa ligne de titre par son
                 chevron (`BandeDesCaptures`). Rien tant que l'agent n'a pas
                 produit d'image. */}
-            {projectId && galerieDesCaptures.captures.length ? (
-              <div className="shrink-0 px-4 pb-1.5 pt-1" data-captures-de-la-carte={galerieDesCaptures.captures.length}>
-                <BandeDesCaptures galerie={galerieDesCaptures} className="" />
+            {avecCaptures ? (
+              <div
+                className={CLASSE_BLOC_DU_PIED}
+                ref={pied.mesurer('captures')}
+                data-bloc-du-pied="captures"
+                data-captures-de-la-carte={galerieDesCaptures.captures.length}
+              >
+                <BandeDesCaptures
+                  galerie={galerieDesCaptures}
+                  className=""
+                  replieeDOffice={pied.estReplie('captures')}
+                  onDeplie={() => pied.rouvrir('captures')}
+                />
+              </div>
+            ) : null}
+
+            {/* LES CARTES SUGGÉRÉES, EN RANGÉE (demande du 23/10/2026) : un bloc
+                du pied comme la bande des captures, juste au-dessus du panneau
+                de décision. Plus aucune vignette verticale dans le fil. */}
+            {avecSuggestions ? (
+              <div className={CLASSE_BLOC_DU_PIED} ref={pied.mesurer('suggestions')} data-bloc-du-pied="suggestions">
+                <SuggestionsDeCarte
+                  cardId={carte!.id}
+                  messages={messages}
+                  replieeDOffice={pied.estReplie('suggestions')}
+                  onDeplie={() => pied.rouvrir('suggestions')}
+                />
               </div>
             ) : null}
           </>
@@ -1363,17 +1530,24 @@ export function Chat({
         {/* LE PANNEAU DE DÉCISION, collé au-dessus du champ : tout ce qui
             attend l'utilisateur — question, erreur, reprise, incident — à
             l'endroit où l'on répond (`PanneauDeDecision`). */}
-        <PanneauDeDecision
-          messages={messages}
-          carte={carte}
-          projectId={projectId}
-          questionEnTexte={!!questionEnTexte}
-        />
+        <div ref={pied.mesurer('decision')} data-bloc-du-pied="decision">
+          <PanneauDeDecision
+            messages={messages}
+            carte={carte}
+            projectId={projectId}
+            questionEnTexte={!!questionEnTexte}
+          />
+        </div>
 
         {voletDuCahier && !barreRendueAuVolet ? (
           <div
-            className="shrink-0 px-2.5 pt-2"
-            style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+            className={cn(CLASSE_BLOC_DU_PIED, CLASSE_FIN_DU_PIED)}
+            /* SOUS LE BOUTON, L'ÉCART DU PIED ET RIEN DE PLUS (demande du
+               22/10/2026) : la page de la carte (`FeuilleDeTiroir`) réserve
+               DÉJÀ la zone sûre du téléphone. La recompter ici (34 px − 12)
+               creusait 56 px de vide sous « Lire le cahier des charges »,
+               contre 42 sous la barre d'écriture. Mêmes bords (16 px) et même
+               écart (8 px) que les autres blocs du pied. */
             data-volet-cahier={voletDeRealisation ? undefined : carte.id}
             data-volet-realisation={voletDeRealisation ? carte.id : undefined}
           >
@@ -1390,6 +1564,7 @@ export function Chat({
         ) : (
           barreDEcriture
         )}
+        </div>
       </div>
     );
   }
@@ -1676,6 +1851,7 @@ function TravailEnCours({
   busy,
   cardId,
   sansListe,
+  entete,
 }: {
   agent: Agent | null;
   messages: Message[];
@@ -1684,6 +1860,12 @@ function TravailEnCours({
   cardId?: string;
   /** La liste vit DANS LE FIL (Studio) : le repère ne garde que le témoin de travail. */
   sansListe?: boolean;
+  /**
+   * Les étapes du tournage posées en TÊTE du repère : un seul bloc. Elles
+   * reçoivent la ligne de travail et la liste de tâches (`taches`) pour les
+   * ranger SOUS l'étape où l'on est (décision du 23/10/2026, capture #cd9b).
+   */
+  entete?: (taches: React.ReactNode) => React.ReactNode;
 }) {
   const state = useApp();
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
@@ -1698,10 +1880,40 @@ function TravailEnCours({
   useSeconde(busy);
 
   const dernier = messages[messages.length - 1];
+  /*
+   * LES PROCÉDURES PRÉCÉDENTES (demande du 23/10/2026) : chaque tour qui s'est
+   * annoncé une liste de tâches en laisse une. Les flèches ‹ n/N ›, posées
+   * tout à droite juste avant le chevron de repli (le statut violet garde la
+   * tête de ligne), les font défiler ; `rang === null` suit toujours la plus récente, qui
+   * s'affiche par défaut et revient d'elle-même quand un nouveau tour part.
+   */
+  const passees = React.useMemo(
+    () => messages.filter((m) => m !== dernier && !!m.todos?.length),
+    [messages, dernier],
+  );
+  const [rang, setRang] = React.useState<number | null>(null);
+  React.useEffect(() => setRang(null), [passees.length]);
+  /*
+   * LA DERNIÈRE LISTE NE DISPARAÎT JAMAIS TOUTE SEULE (décision du 23/10/2026,
+   * capture #e509) : un nouveau message part, le tour qui le suit n'a pas
+   * encore annoncé sa liste — on garde sous les yeux la plus récente des
+   * procédures passées, avec ses cases telles qu'elles ont fini, pour relire
+   * ce qui s'est passé. La liste du nouveau tour prend sa place dès qu'elle
+   * est annoncée, et l'ancienne reste aux flèches. Sans liste courante, les
+   * flèches ne comptent que les procédures passées : jamais un « N/N » vide.
+   */
+  const courante = dernier?.todos?.length ? dernier.todos : undefined;
+  const total = passees.length + (courante ? 1 : 0);
+  const defaut = total - 1;
+  const position = rang !== null && rang < defaut ? rang : defaut;
+  const enPasse = position < defaut && agent?.role !== 'cadrage' && !sansListe;
   // La liste complète ne se déplie que si l'agent en a annoncé une — un
   // agent qui n'avance que par étapes (steps) n'a rien de plus à montrer ici,
   // ces étapes restant visibles repliées dans le fil au-dessus.
-  const todos = dernier?.todos;
+  const todos = position >= 0 && position < passees.length ? passees[position].todos : courante;
+  /* Seule la liste du tour EN COURS s'anime : une procédure passée, même
+     gardée par défaut, montre ses états finaux. */
+  const listeDuTour = !!courante && position === passees.length;
   /*
    * LE CADRAGE NE GARDE PAS SA LISTE SOUS LES YEUX. L'agent léger qui discute
    * le besoin s'annonce lui aussi des sous-tâches (« lire la mémoire »,
@@ -1713,8 +1925,55 @@ function TravailEnCours({
    */
   const todosDisponibles = !!todos?.length && agent?.role !== 'cadrage' && !sansListe;
 
+  const avecFleches = total > 1 && agent?.role !== 'cadrage' && !sansListe;
   // Rien ne tourne et aucune liste à garder sous les yeux : le repère s'efface.
-  if (!busy && !todosDisponibles) return null;
+  if (!busy && !todosDisponibles && !entete && !avecFleches) return null;
+  /* La ligne du témoin : ce qui tourne, le bilan de la liste montrée, ou les
+     flèches des procédures — elles n'ont plus d'autre place. Sans rien de
+     tout cela, le bloc ne garde que ses étapes. */
+  const avecLigne = busy || todosDisponibles || enPasse || avecFleches;
+  /* Une procédure passée se lit en entier : sa liste est dépliée d'office.
+     Pour le reste, SEUL le chevron replie la liste — rien ne la referme à la
+     fin d'un tour ni à l'envoi d'un message. */
+  const listeVisible = todosDisponibles && (listeOuverte || enPasse);
+  /*
+   * UN SEUL PLI POUR TOUT LE BLOC (demande du 23/10/2026) : en mode
+   * Réalisation, la ligne d'état replie les étapes ET les tâches rangées sous
+   * elles, d'un clic ; un second clic rouvre tout. Seule la ligne reste. Sans
+   * ligne (rien ne tourne, aucune liste), les étapes restent : rien ne les
+   * rouvrirait.
+   */
+  const niche = !!entete;
+  const etapesVisibles = niche && (!avecLigne || listeOuverte || enPasse);
+  const repliable = todosDisponibles || niche;
+  const deplie = niche ? etapesVisibles : listeVisible;
+  const fleches = avecFleches ? (
+    <span className="flex shrink-0 items-center gap-0.5 text-faint" data-fleches-procedures={`${position + 1}/${total}`}>
+      <button
+        type="button"
+        aria-label={t('Procédure précédente')}
+        title={t('Procédure précédente')}
+        disabled={position === 0}
+        onClick={() => setRang(position - 1)}
+        className="rounded p-0.5 hover:text-text disabled:opacity-40 disabled:hover:text-faint"
+        data-procedure-precedente
+      >
+        <ChevronLeft className="h-3.5 w-3.5" />
+      </button>
+      <span className="text-[11px] tabular-nums">{`${position + 1}/${total}`}</span>
+      <button
+        type="button"
+        aria-label={t('Procédure suivante')}
+        title={t('Procédure suivante')}
+        disabled={!enPasse}
+        onClick={() => setRang(position + 1 >= defaut ? null : position + 1)}
+        className="rounded p-0.5 hover:text-text disabled:opacity-40 disabled:hover:text-faint"
+        data-procedure-suivante
+      >
+        <ChevronRight className="h-3.5 w-3.5" />
+      </button>
+    </span>
+  ) : null;
 
   const todoEnCours = dernier?.todos?.find((todo) => todo.state === 'running');
   const etapeEnCours = [...(dernier?.steps ?? [])].reverse().find((step) => step.state === 'running');
@@ -1736,7 +1995,11 @@ function TravailEnCours({
    */
   const rangeLeTour =
     busy && agent?.tourVivantDepuis !== undefined && agent?.status !== 'running' && agent?.status !== 'starting';
-  const quoi = !busy
+  const quoi = enPasse
+    ? resumeDesTaches(todos!)
+    : !busy && !todosDisponibles
+    ? t('Procédures précédentes')
+    : !busy
     ? resumeDesTaches(todos!, { examen: estCarteDuRendezVousDeNuit(cardId ? state.cards[cardId] : undefined) })
     : agent?.attendReponse
       ? TEXTE_BARRE_EN_ATTENTE
@@ -1747,7 +2010,7 @@ function TravailEnCours({
   // Le chronomètre et le compte « n/N » ne parlent que d'un travail EN COURS :
   // une fois le tour refermé, le compte est déjà dans la phrase ci-dessus, et
   // le temps n'avance plus.
-  const temps = busy ? arret.temps : null;
+  const temps = busy && !enPasse ? arret.temps : null;
   // Même décompte que le décroché d'une carte (`agent.todos`, mis à jour en
   // direct par le démon à chaque étape cochée) : « n/N » sur l'ensemble des
   // étapes prévues, pas seulement l'étape en cours. Silence tant qu'aucune
@@ -1758,7 +2021,7 @@ function TravailEnCours({
   // « Exécution de la tâche ») n'a alors AUCUN chiffre ici, alors que le
   // même compte est déjà affiché plus haut : on retombe donc sur les étapes
   // du dernier message quand aucune liste de tâches n'existe.
-  const avancement = !busy
+  const avancement = !busy || enPasse
     ? null
     : agent?.todos && agent.todos.total > 0
       ? agent.todos
@@ -1770,11 +2033,87 @@ function TravailEnCours({
   // tour refermé, une coche BLEUE si tout est fait, sinon un point discret —
   // les mêmes repères que portait l'ancienne barre pleine largeur.
   const toutFait = todosDisponibles && todos!.every((todo) => todo.state === 'done');
-  const icone = busy ? undefined : toutFait ? (
+  /* AVEC QUOI L'AGENT TRAVAILLE, tant qu'il travaille : moteur, modèle et
+     niveau en toutes lettres (la largeur du champ le permet). */
+  const etiquette = busy && !enPasse && agent ? <EtiquetteDuModele run={agent.run} complet className="max-w-[50%]" /> : null;
+  const icone = busy && !enPasse ? undefined : toutFait ? (
     <Check className="h-3 w-3 shrink-0 text-termine" />
   ) : (
     <CircleDot className="h-3 w-3 shrink-0 text-faint" />
   );
+
+  /* LA LIGNE DU TÉMOIN EST TOUJOURS EN TÊTE DU BLOC, mode Réalisation compris
+     (décision utilisateur du 23/10/2026) : point, chargement, ce que fait
+     l'agent, modèle et temps, flèches, chevron — le même composant partout.
+     Seule la LISTE se range sous l'étape où l'on est (`entete`) : elle prend
+     alors le retrait du nom de l'étape, et c'est le bloc des étapes qui porte
+     la compensation du recouvrement. */
+  const ligne = (
+    <div
+      className={cn(
+        'flex items-center gap-2 px-3 pt-1.5',
+        // pb-5 (20px) compense le recouvrement de -mb-3 (12px) posé sur le
+        // conteneur : il reste 8px d'air visible sous le texte avant que la
+        // zone de saisie ne le recouvre, proche des 6px du pt-1.5 au-dessus
+        // — cette marge ne vaut que pour la DERNIÈRE ligne visible : une
+        // fois la liste dépliée sous elle, c'est elle qui la porte à la
+        // place.
+        etapesVisibles || listeVisible ? 'pb-1.5' : 'pb-5',
+      )}
+      data-ligne-du-temoin
+    >
+      {/* « CETTE CARTE TRAVAILLE » : le même point que les entêtes de
+          colonnes (`IndicateurActivite`), à la place du personnage animé.
+          Un seul dessin pour les deux endroits — deux mouvements écrits
+          séparément finissent toujours par diverger. Rien ne s'affiche
+          quand le tour est refermé : l'absence est le signal du repos. */}
+      <IndicateurActivite cartesAuTravail={busy && !enPasse ? 1 : 0} data-avatar-tiroir className="ml-0.5 mr-1" />
+      {repliable ? (
+        <>
+          {/* Le chevron sort du bouton du statut pour laisser les flèches se
+              glisser entre eux : deux boutons frères, même geste, jamais un
+              bouton dans un bouton. */}
+          <button
+            type="button"
+            aria-expanded={deplie}
+            onClick={enPasse ? () => setRang(null) : basculerListe}
+            className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            data-statut-du-temoin
+          >
+            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" etiquette={etiquette} />
+          </button>
+          {fleches}
+          <button
+            type="button"
+            aria-expanded={deplie}
+            aria-label={deplie ? t('Replier la liste') : t('Déplier la liste')}
+            onClick={enPasse ? () => setRang(null) : basculerListe}
+            className="shrink-0 rounded p-0.5 text-faint hover:text-text"
+            data-chevron-du-temoin
+          >
+            {deplie ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+          </button>
+        </>
+      ) : (
+        <>
+          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" etiquette={etiquette} />
+          {fleches ? <span className="ml-auto flex shrink-0">{fleches}</span> : null}
+        </>
+      )}
+    </div>
+  );
+  /* Sous l'étape, les cases s'alignent sur le nom de l'étape (la liste porte
+     ses propres retraits, `CorpsListeTaches`). */
+  const liste = listeVisible ? (
+    /* Sous l'étape, la liste déborde de 27 px à gauche du nom pour loger, dans
+       sa propre zone, l'axe des branches qui la relient à la case de l'étape
+       (`BrancheDeTache`, `todos.tsx`) ; les cases tombent sous le nom. À
+       DROITE, AUCUN DÉBORD (capture #b153) : un `-mr-3` poussait la durée des
+       tâches 12 px hors de la colonne des étapes, contre le bord du bloc. */
+    <div className={niche ? '-ml-[27px]' : 'pb-5'} data-liste-du-temoin>
+      <CorpsListeTaches todos={todos!} streaming={busy && listeDuTour} maintenant={Date.now()} enBranches={niche} />
+    </div>
+  ) : null;
 
   return (
     <div
@@ -1782,6 +2121,7 @@ function TravailEnCours({
       /* C'est aussi, désormais, LE volet des tâches : un seul endroit, donc le
          même repère pour qui le cherche (scripts de vérification compris). */
       data-volet="taches"
+      data-procedure-passee={enPasse ? '' : undefined}
       className={cn(
         // Aucune marge horizontale : posé dans le même conteneur que la zone
         // de saisie (même repli latéral), il en épouse exactement la largeur.
@@ -1799,48 +2139,23 @@ function TravailEnCours({
         'bg-decroche',
       )}
     >
-      <div
-        className={cn(
-          'flex items-center gap-2 px-3 pt-1.5',
-          // pb-5 (20px) compense le recouvrement de -mb-3 (12px) posé sur le
-          // conteneur : il reste 8px d'air visible sous le texte avant que la
-          // zone de saisie ne le recouvre, proche des 6px du pt-1.5 au-dessus
-          // — cette marge ne vaut que pour la DERNIÈRE ligne visible : une
-          // fois la liste dépliée sous elle, c'est elle qui la porte à la
-          // place.
-          todosDisponibles && listeOuverte ? 'pb-1.5' : 'pb-5',
-        )}
-      >
-        {/* « CETTE CARTE TRAVAILLE » : le même point que les entêtes de
-            colonnes (`IndicateurActivite`), à la place du personnage animé.
-            Un seul dessin pour les deux endroits — deux mouvements écrits
-            séparément finissent toujours par diverger. Rien ne s'affiche
-            quand le tour est refermé : l'absence est le signal du repos. */}
-        <IndicateurActivite cartesAuTravail={busy ? 1 : 0} data-avatar-tiroir className="ml-0.5 mr-1" />
-        {todosDisponibles ? (
-          <button
-            type="button"
-            aria-expanded={listeOuverte}
-            onClick={basculerListe}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          >
-            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
-            {listeOuverte ? (
-              <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-            ) : (
-              <ChevronUp className="h-3 w-3 shrink-0 text-faint" />
-            )}
-          </button>
-        ) : (
-          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
-        )}
-      </div>
-
-      {todosDisponibles && listeOuverte ? (
-        <div className="pb-5">
-          <CorpsListeTaches todos={todos} streaming={busy} maintenant={Date.now()} />
-        </div>
-      ) : null}
+      {entete ? (
+        /* La ligne du témoin en tête, puis les étapes, et les tâches du tour
+           rangées sous l'étape où l'on est. */
+        <>
+          {avecLigne ? ligne : null}
+          {etapesVisibles ? (
+            <div className={cn('flex min-w-0 items-start gap-2 px-3 pb-5', avecLigne ? 'pt-0.5' : 'pt-1.5')} data-entete-du-repere>
+              {entete(liste)}
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {avecLigne ? ligne : null}
+          {avecLigne ? liste : null}
+        </>
+      )}
     </div>
   );
 }
@@ -1849,31 +2164,7 @@ function TravailEnCours({
 /* Les réglages de l'agent de la carte                                 */
 /* ------------------------------------------------------------------ */
 
-/**
- * Un identifiant technique n'apprend rien : on cherche son libellé dans le
- * catalogue des moteurs.
- *
- * Ce qui SERVIRA (`source: 'prevu'`) suit la même règle que le lancement : un
- * modèle retiré par la mise à jour du moteur est montré sous sa version
- * actuelle, de la même famille (`modeleActuel`) — c'est elle qui partira.
- * Ce qui A SERVI (`reel`) est une trace : on retombe alors sur l'identifiant
- * brut s'il n'est plus au catalogue, sans jamais le réécrire.
- */
-function libellesDuRun(
-  engines: EngineInfo[],
-  vu: Pick<ReglagesCarte, 'engine' | 'model' | 'thinking' | 'source'>,
-) {
-  const moteur = engines.find((e) => e.id === vu.engine);
-  const modele =
-    vu.source === 'reel' ? moteur?.models.find((m) => m.id === vu.model) : moteur ? modeleActuel(moteur, vu.model) : undefined;
-  const niveau =
-    modele?.thinking?.find((t) => t.id === vu.thinking) ?? (vu.source === 'reel' ? undefined : modele?.thinking?.[0]);
-  return {
-    moteur: moteur?.label ?? vu.engine ?? '—',
-    modele: modele?.label ?? vu.model ?? '—',
-    reflexion: niveau?.label ?? vu.thinking ?? '—',
-  };
-}
+/* Les libellés d'un réglage : `libellesDuRun` (shared/src/catalogue-modeles.ts). */
 
 /**
  * Calcule une fois ce qui vaut pour une carte — figé ou non, avec quels
@@ -2176,131 +2467,6 @@ function ReglagesLusDeLaCarte({
 }
 
 /**
- * LA CARTE DE CONFIGURATION D'UNE TÂCHE NEUVE — le PREMIER geste du flux.
- *
- * L'utilisateur clique « Nouvelle tâche » : avant de dire ce qu'il veut, il
- * choisit AVEC QUOI ce sera fait — moteur, modèle, niveau de réflexion, et le
- * compte quand plusieurs se disputent le travail. Rien de tout cela ne passe
- * par un moteur : le catalogue est déjà à l'écran, la carte s'affiche seule et
- * ne coûte pas un jeton.
- *
- * Elle porte les valeurs EN CLAIR, une ligne par réglage, et chaque ligne
- * ouvre DIRECTEMENT la liste de ce réglage, en menu ancré SOUS ELLE
- * (`RunSelectors ouvrirSur`) — jamais une page, jamais un aperçu qu'il faudrait
- * re-cliquer. Le choix écrit sur la CARTE, qui est ce que le lancement lira,
- * exactement comme le bloc compact qui prendra sa place dès le premier message
- * (`ReglagesAgent`, juste au-dessus).
- */
-function CarteDeConfiguration({
-  card,
-  libelles,
-}: {
-  card: Card;
-  libelles: { moteur: string; modele: string; reflexion: string };
-}) {
-  const state = useApp();
-  const choisir = choixDeLaCarte(card, state.engines);
-
-  /* La ligne « Compte » ne paraît que si plusieurs comptes du moteur retenu
-     se disputent vraiment le travail — sinon le choix automatique suffit. */
-  const moteurChoisi = resoudreRun(state.engines, card.run).engine;
-  const comptes = (state.quotas ?? []).filter((c) => c.engine === moteurChoisi?.id && !c.disabled);
-  const compte = card.run?.account ? comptes.find((c) => c.id === card.run?.account) : undefined;
-
-  /* Chaque ligne est le bouton de SON menu : le même composant que partout
-     ailleurs, ouvert droit sur la liste du réglage nommé. */
-  const ligne = (reglage: ReglageDeRun, nom: string, valeur: string) => (
-    <RunSelectors
-      engines={state.engines}
-      choix={card.run}
-      onSelect={choisir}
-      comptes={state.quotas}
-      ouvrirSur={reglage}
-      declencheur={<LigneDeConfiguration nom={nom} valeur={valeur} />}
-    />
-  );
-
-  return (
-    <div data-carte-configuration className="rounded-lg border border-border bg-raised px-3 py-3">
-      <div className="flex items-center gap-1.5 text-[12.5px] uppercase tracking-wide text-faint">
-        <Cpu className="h-3 w-3 shrink-0" />
-        {t('Configuration de l’agent')}
-      </div>
-      <p className="flex items-center gap-1 mt-1 text-[14.5px] font-medium leading-relaxed text-text">{t(MOT_CONFIGURATION.titre)}<BulleInfo cote="start">{t(MOT_CONFIGURATION.indice)}</BulleInfo></p>
-
-      <div className="mt-2.5 flex flex-col gap-1">
-        {ligne('moteur', t('Moteur'), libelles.moteur)}
-        {ligne('modele', t('Modèle'), libelles.modele)}
-        {ligne('reflexion', t('Réflexion'), libelles.reflexion)}
-        {comptes.length > 1 ? ligne('compte', t('Compte'), compte?.label ?? t('Automatique')) : null}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Une ligne de la carte de configuration : le nom, la valeur, un chevron. C'est
- * un vrai `button`, qui transmet sa référence et ses propriétés : il sert de
- * BOUTON au menu de son réglage (`RunSelectors declencheur`), qui s'ancre sous
- * lui.
- */
-export const LigneDeConfiguration = React.forwardRef<
-  HTMLButtonElement,
-  { nom: string; valeur: string } & React.ButtonHTMLAttributes<HTMLButtonElement>
->(function LigneDeConfiguration({ nom, valeur, className, ...props }, ref) {
-  return (
-    <button
-      ref={ref}
-      type="button"
-      data-ligne-configuration={nom}
-      className={cn(
-        'flex w-full items-center gap-2 rounded-md bg-surface px-2.5 py-1.5 text-left transition-colors hover:bg-raised',
-        className,
-      )}
-      {...props}
-    >
-      <span className="shrink-0 text-[12.5px] text-faint">{nom}</span>
-      <span data-valeur={valeur} className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">
-        {valeur}
-      </span>
-      <ChevronDown className="h-3 w-3 shrink-0 text-faint" />
-    </button>
-  );
-});
-
-/**
- * ÉCRIRE LE RÉGLAGE SUR LA CARTE — un seul geste, partagé par la carte de
- * configuration et la bulle compacte. Le serveur tranche la cascade : on lui
- * donne le souhait, il rend la combinaison qui existe vraiment.
- */
-function choixDeLaCarte(card: Card, engines: EngineInfo[]) {
-  return async (patch: Parameters<typeof RunSelectors>[0]['choix'] & object) => {
-    const souhait: RunChoix = patch.engine ? { engine: patch.engine } : { ...card.run, ...patch };
-    const retenu = resoudreRun(engines, souhait);
-    if (!retenu.engine) return;
-    try {
-      await client.call({
-        type: 'card.update',
-        id: card.id,
-        patch: {
-          run: {
-            ...card.run,
-            engine: retenu.engine.id,
-            model: retenu.model?.id,
-            thinking: retenu.thinking?.id ?? 'none',
-            account: souhait.account,
-            // Un choix fait à l'écran l'emporte sur le niveau du cadrage.
-            niveau: undefined,
-          },
-        },
-      });
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('réglage impossible'));
-    }
-  };
-}
-
-/**
  * Une part de quota, en clair : « 2,4 % » de la fenêtre. Sous un dixième de
  * pour-cent, on ne prétend pas à la décimale — « moins de 0,1 % » dit le vrai.
  */
@@ -2329,3 +2495,4 @@ function LigneLue({ nom, valeur }: { nom: string; valeur: string }) {
     </div>
   );
 }
+

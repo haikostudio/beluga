@@ -8,6 +8,8 @@ import {
   MODES_DE_CLONAGE,
   PHASES_DU_CAHIER,
   PHASES_DE_REALISATION,
+  ENVELOPPE_CONSEILLEE,
+  ENVELOPPE_MAXIMALE,
   colonneApresComprehensionDeRelance,
   LABEL_BIBLIOTHEQUE,
   jugerRecetteSource,
@@ -149,6 +151,22 @@ import {
   supprimerDossier,
 } from './coffre-fort.js';
 import * as store from './store.js';
+
+/** L'image d'une option d'« ask_user » : l'identifiant d'une pièce jointe IMAGE connue, sinon rien. */
+function imageDOption(valeur: unknown): string | undefined {
+  const id = typeof valeur === 'string' ? valeur.trim().replace(/^#/, '') : '';
+  if (!id || id.length > 80) return undefined;
+  const piece = store.getAttachment(id);
+  return piece?.mime.startsWith('image/') ? piece.id : undefined;
+}
+
+/** Le son ou la vidéo d'une option d'« ask_user » : une pièce jointe AUDIO ou VIDÉO connue, sinon rien. */
+function mediaDOption(valeur: unknown): string | undefined {
+  const id = typeof valeur === 'string' ? valeur.trim().replace(/^#/, '') : '';
+  if (!id || id.length > 80) return undefined;
+  const piece = store.getAttachment(id);
+  return piece && /^(audio|video)\//.test(piece.mime) ? piece.id : undefined;
+}
 import { REFUS_SORTIE_GROUPE_LOCAL } from '@beluga/shared';
 import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
@@ -293,7 +311,7 @@ import { creneauPourUneCarte } from './heure-de-lancement.js';
 import { supprimerLaCarte } from './suppression-carte.js';
 import { refusDesProjetsTouches } from './regroupements.js';
 import { deleguer, evaluer, suggererModele } from './mode-creation.js';
-import { realiser } from './realisation.js';
+import { fabriquerUnApercu, realiser } from './realisation.js';
 import { chercherUnDoublon, proposerUnNiveau } from './jugement-rapide.js';
 import { UNITES_RECUES_PAR_L_AGENT, garderLesUnitesPertinentes } from './recherche-comme-l-agent.js';
 
@@ -831,7 +849,19 @@ export const TOOL_DEFS: ToolDef[] = [
           items: {
             type: 'object',
             required: ['label'],
-            properties: { label: { type: 'string' }, description: { type: 'string' } },
+            properties: {
+              label: { type: 'string' },
+              description: { type: 'string' },
+              image: {
+                type: 'string',
+                description: 'Facultatif : l’identifiant d’une pièce jointe image (un aperçu) qui illustre ce choix — la question devient un choix en images',
+              },
+              media: {
+                type: 'string',
+                description:
+                  'Facultatif : l’identifiant d’une pièce jointe SON ou VIDÉO (rendu par attach_file) que ce choix fait écouter ou regarder — un bouton lecture s’affiche à droite du choix',
+              },
+            },
           },
         },
       },
@@ -1112,6 +1142,34 @@ export const TOOL_DEFS: ToolDef[] = [
         phase: { type: 'string', enum: [...PHASES_DE_REALISATION], description: 'La rubrique en cours' },
         restants: { type: 'array', items: { type: 'string' }, description: 'Ce qui reste à voir, quelques mots chacun' },
         termine: { type: 'boolean', description: 'Vrai quand toutes les questions sont tranchées' },
+        enveloppe: {
+          type: 'number',
+          description: `L’enveloppe d’aperçus acceptée, en dollars (${ENVELOPPE_CONSEILLEE} $ conseillé, ${ENVELOPPE_MAXIMALE} $ au plus ; 0 = pas d’aperçus) : à passer dès la réponse à la question de l’enveloppe, posée juste après les types de média`,
+        },
+        ambiance: {
+          type: 'array',
+          description: 'Des aperçus à GARDER au tableau d’ambiance de la carte (un choix en images tranché y entre déjà tout seul)',
+          items: {
+            type: 'object',
+            required: ['piece'],
+            properties: { piece: { type: 'string', description: 'L’identifiant de la pièce jointe' }, legende: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'apercu_de_realisation',
+    description:
+      "APERÇU DU QUESTIONNAIRE DE RÉALISATION (mode caméra, cadrage seulement) — fabrique UNE image d'essai pour illustrer un choix (style, ambiance, personnage, cadrage), payée sur l'enveloppe d'aperçus acceptée par l'utilisateur et jamais sur le budget principal. Refusé sans enveloppe, au-delà de l'enveloppe, ou si le prix du modèle n'est pas publié. L'appel attend l'image (quelques secondes) et rend l'identifiant de sa pièce jointe : passe-le dans « image » d'une option d'« ask_user » pour un choix en images. Trois aperçus au plus par question.",
+    inputSchema: {
+      type: 'object',
+      required: ['consigne', 'phase'],
+      properties: {
+        consigne: { type: 'string', description: 'La demande complète au modèle d’image, en anglais, une seule proposition' },
+        phase: { type: 'string', enum: [...PHASES_DE_REALISATION], description: 'La rubrique que cet aperçu illustre' },
+        legende: { type: 'string', description: 'Quelques mots lisibles par l’utilisateur (« Néon nocturne »)' },
+        format: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:5'], description: 'Défaut 1:1' },
       },
     },
   },
@@ -1776,12 +1834,12 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'realiser',
     description:
-      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget du cahier des charges. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (AVANT CHAQUE génération : modèle, prix, raison — puis écris l'annonce dans ta réponse), « generer » (lance un devis ; au-delà du seuil ou sans prix publié, pose la question d'accord et ATTEND : rappelle alors « generer » avec le même devis), « suivre » (attend le résultat, qui paraît dans le fil), « lister » (médias produits et total dépensé), « ajouter » (range un fichier monté par toi, ex. ffmpeg), « fixer_budget » (pose la question du budget et du seuil ; après « Accepter », rappelle avec les mêmes montants).",
+      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget du cahier des charges. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (AVANT CHAQUE génération : modèle, prix, raison — puis écris l'annonce dans ta réponse), « generer » (lance un devis ; au-delà du seuil ou sans prix publié, pose la question d'accord et ATTEND : rappelle alors « generer » avec le même devis), « suivre » (attend le résultat, qui paraît dans le fil), « lister » (médias produits et total dépensé), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » que l'utilisateur suit), « ajouter » (range un fichier monté par toi, ex. ffmpeg), « fixer_budget » (pose la question du budget et du seuil ; après « Accepter », rappelle avec les mêmes montants).",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['modeles', 'voix', 'devis', 'generer', 'suivre', 'lister', 'ajouter', 'fixer_budget'] },
+        action: { type: 'string', enum: ['modeles', 'voix', 'devis', 'generer', 'suivre', 'lister', 'monter', 'ajouter', 'fixer_budget'] },
         capacite: { type: 'string', enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar'], description: '« modeles » : filtrer par capacité' },
         service: { type: 'string', description: '« devis » : le service (fal, runway, heygen, elevenlabs, openrouter…) ; « voix » : heygen ou elevenlabs' },
         modele: { type: 'string', description: '« devis » : l’identifiant du modèle lu dans « modeles »' },
@@ -1967,7 +2025,7 @@ export function outilServiA(nom: string, agentId: string): boolean {
   // Le cahier des charges : le seul cadrage d'une carte née de la case « Démarrer par un cahier des charges ».
   if (nom === 'cahier_des_charges') return estAgentDuCahier(agentId);
   // Le cahier de réalisation : le seul cadrage d'une carte dont la caméra est allumée.
-  if (nom === 'cahier_de_realisation') return estAgentDuQuestionnaireDeRealisation(agentId);
+  if (nom === 'cahier_de_realisation' || nom === 'apercu_de_realisation') return estAgentDuQuestionnaireDeRealisation(agentId);
   // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
   if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
@@ -1986,15 +2044,18 @@ export function outilServiA(nom: string, agentId: string): boolean {
 }
 
 /**
- * Ce que l'AGENT DE CADRAGE ne voit pas. Cette conversation EST la carte : lui
- * laisser de quoi en proposer une autre, c'est repartir dans le parcours que le
- * « + » remplace. Le reste des outils du démon lui sert vraiment — écrire SA
- * carte (`board_update_card`), poser une question (`ask_user`), consulter la
- * mémoire ou les compétences.
+ * Ce que l'AGENT DE CADRAGE ne voit pas. Le reste des outils du démon lui sert
+ * vraiment — écrire SA carte (`board_update_card`), poser une question
+ * (`ask_user`), consulter la mémoire ou les compétences.
+ *
+ * `board_create_card` LUI EST RENDU (carte du 23/10/2026) : quand une partie
+ * de la demande mérite sa propre carte, il la PROPOSE — une vignette « Créer
+ * la carte » dans le fil de la carte, rien n'entre sur le tableau sans ce clic.
+ * Avant, la « carte à part » n'était qu'un choix d'`ask_user` que rien ne
+ * suivait : l'utilisateur la cherchait en vain dans « Planifié ».
  */
 export const CADRAGE_BLOCKED_TOOLS = new Set([
   ...TASK_ONLY_TOOLS,
-  'board_create_card',
   'propose_task',
   'board_delete_card',
   'board_move_card',
@@ -2013,6 +2074,7 @@ export const CADRAGE_ONLY_TOOLS = new Set([
   'deplacer_vers_projet',
   'cahier_des_charges',
   'cahier_de_realisation',
+  'apercu_de_realisation',
 ]);
 
 /** Les outils du mode « Création » : servis seulement quand la carte l'a allumé. */
@@ -2954,6 +3016,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
                200 signes, au milieu d'une phrase (« La fiche reste au nom »). */
             label: String(opt?.label ?? opt ?? '').slice(0, 240),
             description: typeof opt?.description === 'string' ? opt.description.trim().slice(0, 1000) : undefined,
+            /* UN CHOIX EN IMAGES : seule une pièce jointe connue d'image est gardée. */
+            ...(imageDOption(opt?.image) ? { image: imageDOption(opt?.image) } : {}),
+            /* UN CHOIX QUI S'ÉCOUTE : seule une pièce jointe connue de son ou de vidéo est gardée. */
+            ...(mediaDOption(opt?.media) ? { media: mediaDOption(opt?.media) } : {}),
           }))
         : [];
 
@@ -3201,6 +3267,13 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'cahier_de_realisation': {
       if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
       return ecrireLaRealisation(ctx.agentId, args);
+    }
+
+    case 'apercu_de_realisation': {
+      if (ctx.role !== 'cadrage' || !ctx.cardId) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte.' };
+      if (!estAgentDuQuestionnaireDeRealisation(ctx.agentId)) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte dont le mode réalisation est allumé.' };
+      const fait = await fabriquerUnApercu({ agentId: ctx.agentId, projectId: ctx.projectId, cardId: ctx.cardId }, args);
+      return { ok: fait.ok, text: fait.text };
     }
 
     case 'rendre_plan': {

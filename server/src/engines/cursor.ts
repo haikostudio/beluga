@@ -27,6 +27,7 @@ import {
   raisonDeLaSortieCursor,
   raisonDeRefusCursor,
   texteDuPlanCursor,
+  detailDEtape,
   type CreditCursor,
   type EtatCompteCursor,
   type ModeleCursorCli,
@@ -626,7 +627,7 @@ export function emitFromCursor(
       }
       const label = pendingSteps.get(key) ?? step.label;
       pendingSteps.delete(key);
-      const resultat = resultatDeLOutil(event.tool_call);
+      const resultat = resultatDeLOutil(event.tool_call, traduit.nom);
       onEvent({
         kind: 'step',
         step: {
@@ -673,8 +674,21 @@ export function emitFromCursor(
   }
 }
 
+/**
+ * Le texte d'un résultat d'outil MCP rendu en blocs. Forme supposée d'après le
+ * protocole MCP (`[{ text }]`), avec la variante imbriquée `{ text: { text } }`.
+ */
+function texteDesBlocs(blocs: unknown): string | undefined {
+  if (!Array.isArray(blocs)) return undefined;
+  const texte = blocs
+    .map((b: any) => (typeof b?.text === 'string' ? b.text : typeof b?.text?.text === 'string' ? b.text.text : ''))
+    .filter(Boolean)
+    .join('\n');
+  return texte || undefined;
+}
+
 /** Ce qu'un appel d'outil terminé a donné : son échec éventuel, et de quoi le lire. */
-function resultatDeLOutil(appel: unknown): { echec: boolean; detail?: string } {
+function resultatDeLOutil(appel: unknown, outil?: string): { echec: boolean; detail?: string } {
   if (!appel || typeof appel !== 'object') return { echec: false };
   const cle = Object.keys(appel as Record<string, unknown>).find((k) => k.endsWith('ToolCall'));
   const resultat = cle ? (appel as Record<string, any>)[cle]?.result : undefined;
@@ -689,6 +703,7 @@ function resultatDeLOutil(appel: unknown): { echec: boolean; detail?: string } {
       ? succes.message
       : typeof succes?.output === 'string'
         ? succes.output
-        : undefined;
-  return { echec: false, detail: detail?.slice(0, 400) };
+        : texteDesBlocs(succes?.content);
+  // La réponse à une question garde son texte entier (`detailDEtape`).
+  return { echec: false, detail: detailDEtape(outil, detail) };
 }

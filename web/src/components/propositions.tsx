@@ -131,7 +131,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
       data-bandeau="propositions"
       className="shrink-0 border-t border-accent/30 bg-gradient-to-b from-surface to-surface/0"
     >
-      <div className="flex items-center gap-1.5 px-3 pt-1.5 text-[12px] text-muted">
+      <div className="flex items-center gap-1.5 px-4 pt-1.5 text-[12px] text-muted">
         {/* TOUT L'ENTÊTE REPLIE ET DÉPLIE : un clic n'importe où sur la ligne
             du titre suffit, sans viser le chevron posé à son extrémité. */}
         <button
@@ -165,7 +165,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
           data-bandeau-zone=""
           axe="horizontal"
           classeEnveloppe="flex-none"
-          className="flex gap-2 px-3 py-2"
+          className="flex gap-2 px-4 py-2"
         >
           {attente.map((entree: PropositionEnAttente<Proposition>) => (
             <VignetteProposition
@@ -184,7 +184,7 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
       )}
 
       {ouvert && selectionActive ? (
-        <div data-fusion-propositions="actions" className="flex items-center gap-1.5 border-t border-border px-3 py-1.5">
+        <div data-fusion-propositions="actions" className="flex items-center gap-1.5 border-t border-border px-4 py-1.5">
           <Button size="sm" variant="ghost" className="flex-1" disabled={fusionEnCours} onClick={fermerSelection}>
             {t('Annuler')}</Button>
           <Button
@@ -212,15 +212,18 @@ export function BandeauPropositions({ messages }: { messages: Message[] }) {
  * La description longue est REPLIÉE (le bandeau doit rester une bande) et
  * s'ouvre au clic, dans une zone de hauteur bornée qui défile sur elle-même.
  */
-function VignetteProposition({
+export function VignetteProposition({
   messageId,
   agentId,
   proposal,
   selectionActive,
   selectionnee,
   onSelection,
+  className,
 }: {
   messageId: string;
+  /** Ajouté au cadre : la rangée des suggestions l'étire à sa hauteur (`flex-1`). */
+  className?: string;
   /** L'agent de la conversation : la carte hérite de SES réglages par défaut. */
   agentId?: string;
   proposal: Proposition;
@@ -298,7 +301,7 @@ function VignetteProposition({
           ? { engine: retenu.engine.id, model: retenu.model?.id, thinking: retenu.thinking?.id, account: choix?.account }
           : undefined,
       });
-      client.pushToast(accept ? 'success' : 'info', accept ? t('Carte créée dans « Demande »') : t('Carte refusée'));
+      client.pushToast(accept ? 'success' : 'info', accept ? t('Carte créée dans « Planifié »') : t('Carte refusée'));
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('décision impossible'));
     } finally {
@@ -311,7 +314,7 @@ function VignetteProposition({
   return (
     <div
       data-vignette="proposition"
-      className="flex w-[min(320px,80vw)] shrink-0 flex-col overflow-hidden rounded-md border border-accent/40 bg-base"
+      className={cn('flex w-[min(320px,80vw)] shrink-0 flex-col overflow-hidden rounded-md border border-accent/40 bg-base', className)}
     >
       <div className="flex items-center gap-1.5 border-b border-border bg-raised px-2.5 py-1 text-[12px] text-muted">
         {selectionActive ? (

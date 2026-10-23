@@ -500,7 +500,7 @@ export function Backups({
             inverse le sens. Il partage l'état `tri` — aucune règle de tri n'est
             réécrite. Sur ordinateur, la rangée ne change pas. */}
         {resumes.length ? (
-          <div className="shrink-0 pb-5">
+          <div className="shrink-0 pb-4">
             <div className="flex items-center gap-1.5">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
@@ -586,7 +586,7 @@ export function Backups({
                dans 390 px : le statut se rognait et les boutons sortaient de
                l'écran. Les fiches consomment la MÊME liste déjà filtrée et
                triée, et les mêmes gestes. */
-            <div className="space-y-1.5 pt-1" data-backups-fiches>
+            <div className="space-y-2" data-backups-fiches>
               {resumesAffiches.map((resume) => (
                 <FicheSiteMobile key={resume.site.id} {...propsDeSite(resume)} />
               ))}

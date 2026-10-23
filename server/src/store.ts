@@ -32,6 +32,9 @@ import {
   DeployRun,
   fusionnerPropositions,
   Message,
+  RepriseDeCompte,
+  ErreurDeTour,
+  AgentQuestion,
   Project,
   ProjectGroup,
   QueuedPrompt,
@@ -644,6 +647,31 @@ function listesDeCartes(table: string, colonne: string, projectId?: string): Map
   return par;
 }
 
+/**
+ * Les mêmes listes, pour les SEULES cartes déjà lues. L'ordonnanceur relit à
+ * chaque tick les cartes d'une colonne ou celles armées pour une reprise —
+ * souvent aucune : relire alors les étiquettes et pièces jointes de tout le
+ * projet (1 500 cartes pour Beluga) était un coût pur, vu dans les gels de
+ * `data/logs/blocages.log` (`listesDeCartes < cartesArmeesPourReprise < tick`).
+ */
+function listesDesCartes(table: string, colonne: string, ids: readonly string[]): Map<string, string[]> {
+  const par = new Map<string, string[]>();
+  if (!ids.length) return par;
+  const rows = getDb()
+    .prepare(
+      `SELECT card_id AS cardId, ${colonne} AS valeur FROM ${table}
+        WHERE card_id IN (SELECT value FROM json_each(?))
+        ORDER BY card_id, position`,
+    )
+    .all(JSON.stringify(ids)) as { cardId: string; valeur: string }[];
+  for (const row of rows) {
+    const liste = par.get(row.cardId);
+    if (liste) liste.push(row.valeur);
+    else par.set(row.cardId, [row.valeur]);
+  }
+  return par;
+}
+
 function listeDUneCarte(table: string, colonne: string, cardId: string): string[] {
   const rows = getDb()
     .prepare(`SELECT ${colonne} AS valeur FROM ${table} WHERE card_id = ? ORDER BY position`)
@@ -988,8 +1016,9 @@ export function listCardsInColumn(projectId: string, column: ColumnKey): Card[] 
   const rows = getDb()
     .prepare('SELECT * FROM cards WHERE project_id = ? AND column_key = ? ORDER BY position DESC')
     .all(projectId, column) as LigneCarte[];
-  const labels = listesDeCartes('card_labels', 'label', projectId);
-  const attachments = listesDeCartes('card_attachments', 'path', projectId);
+  const ids = rows.map((r) => r.id);
+  const labels = listesDesCartes('card_labels', 'label', ids);
+  const attachments = listesDesCartes('card_attachments', 'path', ids);
   const cartes: Card[] = [];
   for (const row of rows) {
     try {
@@ -1022,8 +1051,9 @@ export function cartesArmeesPourReprise(projectId: string): Card[] {
       "SELECT * FROM cards WHERE project_id = ? AND data LIKE '%reprendreDesQuePossible%' ORDER BY position DESC",
     )
     .all(projectId) as LigneCarte[];
-  const labels = listesDeCartes('card_labels', 'label', projectId);
-  const attachments = listesDeCartes('card_attachments', 'path', projectId);
+  const ids = rows.map((r) => r.id);
+  const labels = listesDesCartes('card_labels', 'label', ids);
+  const attachments = listesDesCartes('card_attachments', 'path', ids);
   const cartes: Card[] = [];
   for (const row of rows) {
     try {
@@ -1949,18 +1979,22 @@ export interface RepriseEnAttente {
  * capture le 23/08/2026, deux cartes concernées sur ce serveur.
  */
 export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
+  /*
+   * L'INDEX PARTIEL D'ABORD (migration 138) : la colonne générée ne marque que
+   * les reprises encore ouvertes, une poignée de lignes. On n'en lit que la
+   * reprise elle-même (`json_extract`), jamais le message entier — 86 Ko en
+   * moyenne, étapes comprises. Avant, un `LIKE` balayait tous les messages
+   * des conversations ouvertes à chaque calcul des décisions.
+   */
   const rows = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
-              m.id AS messageId, m.data AS data, m.created_at AS createdAt,
-              c.column_key AS colonne
-       FROM agents a
+              m.id AS messageId, json_extract(m.data, '$.repriseCompte') AS reprise,
+              m.created_at AS createdAt, c.column_key AS colonne
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
        LEFT JOIN cards c ON c.id = a.card_id
-       -- CROSS JOIN : SQLite ne réordonne pas cette jointure. Il part donc des
-       -- conversations encore ouvertes et ne lit que LEURS messages, au lieu
-       -- de balayer le texte de toute la table (150 ms → 28 ms, 15/09/2026).
-       CROSS JOIN messages m ON m.agent_id = a.id
-       WHERE m.data LIKE '%"repriseCompte":{%'
+       WHERE m.a_reprise_ouverte = 1
          AND (c.column_key IS NULL OR c.column_key NOT IN (${SQL_COLONNES_FERMEES}))`,
     )
     .all() as {
@@ -1968,7 +2002,7 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
     agentId: string;
     cardId: string | null;
     messageId: string;
-    data: string;
+    reprise: string | null;
     createdAt: number;
     colonne: string | null;
   }[];
@@ -1976,10 +2010,10 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
   const attentes: RepriseEnAttente[] = [];
   for (const row of rows) {
     if (colonneFermeLesQuestions(row.colonne ?? undefined)) continue;
+    if (!row.reprise) continue;
     try {
-      const message = Message.parse(JSON.parse(row.data));
-      const reprise = message.repriseCompte;
-      if (!reprise || reprise.choisi || reprise.abandonnee || reprise.consommeeA) continue;
+      const reprise = RepriseDeCompte.parse(JSON.parse(row.reprise));
+      if (reprise.choisi || reprise.abandonnee || reprise.consommeeA) continue;
       attentes.push({
         projectId: row.projectId,
         agentId: row.agentId,
@@ -1991,7 +2025,7 @@ export function reprisesDeCompteEnAttente(): RepriseEnAttente[] {
         poseeA: row.createdAt,
       });
     } catch {
-      /* message illisible : on l'ignore */
+      /* reprise illisible : on l'ignore */
     }
   }
   return attentes;
@@ -2013,16 +2047,17 @@ export interface ErreurDeTourEnAttente {
  * décision pour de bon.
  */
 export function erreursDeTourEnAttente(): ErreurDeTourEnAttente[] {
+  // Même index partiel que les reprises de compte (migration 138), même lecture
+  // de la seule erreur.
   const rows = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
-              m.id AS messageId, m.data AS data, m.created_at AS createdAt,
-              c.column_key AS colonne
-       FROM agents a
+              m.id AS messageId, json_extract(m.data, '$.erreurDeTour') AS erreur,
+              m.created_at AS createdAt, c.column_key AS colonne
+       FROM messages m
+       JOIN agents a ON a.id = m.agent_id
        LEFT JOIN cards c ON c.id = a.card_id
-       -- Même ordre forcé que les reprises de compte, et pour la même raison.
-       CROSS JOIN messages m ON m.agent_id = a.id
-       WHERE m.data LIKE '%"erreurDeTour":{%'
+       WHERE m.a_erreur_ouverte = 1
          AND (c.column_key IS NULL OR c.column_key NOT IN (${SQL_COLONNES_FERMEES}))`,
     )
     .all() as {
@@ -2030,7 +2065,7 @@ export function erreursDeTourEnAttente(): ErreurDeTourEnAttente[] {
     agentId: string;
     cardId: string | null;
     messageId: string;
-    data: string;
+    erreur: string | null;
     createdAt: number;
     colonne: string | null;
   }[];
@@ -2038,10 +2073,10 @@ export function erreursDeTourEnAttente(): ErreurDeTourEnAttente[] {
   const attentes: ErreurDeTourEnAttente[] = [];
   for (const row of rows) {
     if (colonneFermeLesQuestions(row.colonne ?? undefined)) continue;
+    if (!row.erreur) continue;
     try {
-      const message = Message.parse(JSON.parse(row.data));
-      const erreur = message.erreurDeTour;
-      if (!erreur || erreur.choix) continue;
+      const erreur = ErreurDeTour.parse(JSON.parse(row.erreur));
+      if (erreur.choix) continue;
       attentes.push({
         projectId: row.projectId,
         agentId: row.agentId,
@@ -2051,7 +2086,7 @@ export function erreursDeTourEnAttente(): ErreurDeTourEnAttente[] {
         poseeA: row.createdAt,
       });
     } catch {
-      /* message illisible : on l'ignore */
+      /* erreur illisible : on l'ignore */
     }
   }
   return attentes;
@@ -2378,8 +2413,8 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
   const rows = getDb()
     .prepare(
       `SELECT a.project_id AS projectId, a.id AS agentId, a.card_id AS cardId,
-              m.id AS messageId, m.data AS data, m.created_at AS createdAt,
-              c.column_key AS colonne
+              m.id AS messageId, json_extract(m.data, '$.questions') AS questions,
+              m.created_at AS createdAt, c.column_key AS colonne
        FROM messages m
        JOIN agents a ON a.id = m.agent_id
        LEFT JOIN cards c ON c.id = a.card_id
@@ -2391,10 +2426,13 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
     agentId: string;
     cardId: string | null;
     messageId: string;
-    data: string;
+    // Les seules questions, jamais le message entier : 250 Ko au lieu de 7 Mo
+    // sur ce serveur (23/10/2026), à chaque calcul des décisions.
+    questions: string | null;
     createdAt: number;
     colonne: string | null;
   }[];
+  const ListeDeQuestions = AgentQuestion.array();
   for (const row of rows) {
     /*
      * UNE CARTE RANGÉE N'ATTEND PLUS DE RÉPONSE. Le déplacement ferme désormais
@@ -2406,8 +2444,8 @@ function calculerDecisionsEnAttente(): DecisionAttendue[] {
      */
     if (colonneFermeLesQuestions(row.colonne ?? undefined)) continue;
     try {
-      const message = Message.parse(JSON.parse(row.data));
-      for (const question of message.questions) {
+      const questions = row.questions ? ListeDeQuestions.parse(JSON.parse(row.questions)) : [];
+      for (const question of questions) {
         decisions.push({
           projectId: row.projectId,
           agentId: row.agentId,
@@ -2943,6 +2981,23 @@ export function listQueue(agentId: string): QueuedPrompt[] {
 }
 
 /**
+ * LES FILES QUI ATTENDENT UN QUOTA : celles qui portent une demande déjà écrite
+ * (`messageId`), retombée en file faute de compte. Elles partent au premier
+ * envoi, pour que le badge « En attente de quota » d'une carte se voie sans
+ * ouvrir son fil (`shared/src/attente-de-quota.ts`).
+ */
+export function filesSansQuota(): { agentId: string; projectId: string; queue: QueuedPrompt[] }[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT q.agent_id AS agentId, a.project_id AS projectId
+         FROM queue q JOIN agents a ON a.id = q.agent_id
+        WHERE q.data LIKE '%"messageId":"%'`,
+    )
+    .all() as { agentId: string; projectId: string }[];
+  return rows.map((row) => ({ ...row, queue: listQueue(row.agentId) }));
+}
+
+/**
  * Empile une demande. `messageId` nomme la bulle DÉJÀ écrite dans la
  * conversation, quand la demande a été enregistrée avant de retomber en file :
  * le tour qui la dépilera reprendra ce message au lieu d'en créer un second.
@@ -2980,13 +3035,48 @@ export function enqueuePrompt(
   return item;
 }
 
+/**
+ * Les canaux vivants qui déclarent modifier une demande en attente (id de la
+ * demande → canaux). Tant qu'un canal la tient, elle est retenue sans délai.
+ */
+const canauxEnEdition = new Map<string, Set<object>>();
+
+/** Un canal déclare (ou lève) la modification ; rend `true` si plus aucun canal ne la tient. */
+export function tenirEditionParCanal(id: string, canal: object, actif: boolean): void {
+  const tenus = canauxEnEdition.get(id) ?? new Set<object>();
+  if (actif) tenus.add(canal);
+  else tenus.delete(canal);
+  if (tenus.size) canauxEnEdition.set(id, tenus);
+  else canauxEnEdition.delete(id);
+}
+
+/**
+ * Un canal se ferme : ses modifications ne sont plus tenues. Le repère de
+ * chaque demande repart de MAINTENANT, pour que le délai laisse à l'écran le
+ * temps de se reconnecter. Rend les agents dont la file doit être relue plus tard.
+ */
+export function lacherLesEditionsDuCanal(canal: object): string[] {
+  const agents = new Set<string>();
+  for (const [id, tenus] of [...canauxEnEdition]) {
+    if (!tenus.delete(canal)) continue;
+    if (!tenus.size) canauxEnEdition.delete(id);
+    const row = getDb().prepare('SELECT agent_id, data FROM queue WHERE id = ?').get(id) as { agent_id: string; data: string } | undefined;
+    if (!row) continue;
+    const avant = QueuedPrompt.parse(JSON.parse(row.data));
+    if (!avant.enEditionDepuis || tenus.size) continue;
+    getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify({ ...avant, enEditionDepuis: now() }), id);
+    agents.add(row.agent_id);
+  }
+  return [...agents];
+}
+
 export function dequeuePrompt(agentId: string): QueuedPrompt | null {
   const items = listQueue(agentId);
   if (!items.length) return null;
   const first = items[0];
   /* La demande de tête est ouverte dans la barre d'écriture : la file l'attend
      (`retenueParUneEdition`, shared/src/file-en-edition.ts). */
-  if (retenueParUneEdition(first, now())) return null;
+  if (retenueParUneEdition(first, now(), (canauxEnEdition.get(first.id)?.size ?? 0) > 0)) return null;
   getDb().prepare('DELETE FROM queue WHERE id = ?').run(first.id);
   return first;
 }
@@ -3033,6 +3123,7 @@ export function marquerEditionEnFile(id: string, actif: boolean): string | null 
   const row = getDb().prepare('SELECT agent_id, data FROM queue WHERE id = ?').get(id) as { agent_id: string; data: string } | undefined;
   if (!row) return null;
   const avant = QueuedPrompt.parse(JSON.parse(row.data));
+  if (!actif) canauxEnEdition.delete(id);
   const item = QueuedPrompt.parse({ ...avant, enEditionDepuis: actif ? now() : undefined });
   getDb().prepare('UPDATE queue SET data = ? WHERE id = ?').run(JSON.stringify(item), id);
   return row.agent_id;
@@ -3056,6 +3147,7 @@ export function remonterEnTete(id: string): string | null {
   const avant = QueuedPrompt.parse(JSON.parse(row.data));
   const premiere = listQueue(row.agent_id)[0];
   const position = premiere && premiere.id !== id ? premiere.position - 1 : avant.position;
+  canauxEnEdition.delete(id);
   const item = QueuedPrompt.parse({ ...avant, position, enEditionDepuis: undefined });
   getDb().prepare('UPDATE queue SET position = ?, data = ? WHERE id = ?').run(position, JSON.stringify(item), id);
   return row.agent_id;

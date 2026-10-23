@@ -262,7 +262,8 @@ const ATTENTE_FIN_DU_TOUR_MS = 60_000;
  * n'en fait pas naître une autre) ; le rangement de la carte du cahier, lui,
  * attend que son tour se referme — l'outil est appelé EN PLEIN tour, et
  * l'archivage refuse un agent qui parle encore. Passé un délai, le tour est
- * coupé comme par la pause. Puis la carte de suite ouvre son cadrage.
+ * coupé comme par la pause. La carte de suite, elle, n'ouvre plus de cadrage :
+ * elle attend le clic qui valide les réglages de l'agent et la lance.
  */
 async function passerLaMain(carte: Card, agentId: string): Promise<Card | null> {
   const cahier = carte.cahierDesCharges;
@@ -273,7 +274,7 @@ async function passerLaMain(carte: Card, agentId: string): Promise<Card | null> 
   if (!projet) return null;
   let suite: Card;
   try {
-    suite = await creerLaCarteDeSuite(projet);
+    suite = await creerLaCarteDeSuite(projet, carte.id);
   } catch (err) {
     log.error(`la carte de suite du cahier de « ${projet.name} » n'a pas pu naître`, err);
     return null;
@@ -283,32 +284,38 @@ async function passerLaMain(carte: Card, agentId: string): Promise<Card | null> 
     cahierDesCharges: { ...cahier, suiteId: suite.id },
   });
   bus.emit({ type: 'card.upsert', card: marquee });
-  void rangerPuisLancer(carte.id, agentId, suite.id).catch((err) =>
+  void rangerLeCahier(carte.id, agentId, suite.id).catch((err) =>
     log.error(`la fin du cahier des charges de « ${projet.name} » n'a pas abouti`, err),
   );
   return suite;
 }
 
-/** La carte de construction, posée dans « Planifié » : elle ne part pas avant la validation de son plan. */
-async function creerLaCarteDeSuite(projet: Project): Promise<Card> {
+/**
+ * LA CARTE DE CONSTRUCTION, posée dans « Planifié », PRÊTE À PARTIR (demande du
+ * 22/10/2026) : sa demande d'exécution est déjà écrite (`briefing`), elle n'a
+ * ni compréhension ni plan à attendre. Son bouton « Lancer » ouvre les
+ * réglages de l'agent ; leur validation la lance (`suiteDuCahier`). Rien ne
+ * part avant ce clic.
+ */
+async function creerLaCarteDeSuite(projet: Project, cahierId: string): Promise<Card> {
   // Chargé à la demande, comme au montage : les outils importent ce module.
   const { createCard } = await import('./tools.js');
-  return createCard(projet.id, {
+  const carte = createCard(projet.id, {
     title: titreDeLaCarteDeSuite(projet.name),
     description:
-      `Construire l'application « ${projet.name} » à partir de son cahier des charges (${DOCUMENT_DU_CAHIER}) : ` +
-      `compréhension, plan de construction, puis, une fois le plan validé, la construction en un seul long travail.`,
-    briefing:
-      `Le cahier des charges du projet « ${projet.name} » est terminé : ${projet.path}/${DOCUMENT_DU_CAHIER}. ` +
-      `Sources d'inspiration fournies : ${projet.path}/${DOSSIER_INSPIRATION}/. ` +
-      `Rendre la compréhension, puis le plan de construction (compétence « ${COMPETENCE_DU_CAHIER} »).`,
+      `Construire l'application « ${projet.name} » à partir de son cahier des charges (${DOCUMENT_DU_CAHIER}), ` +
+      `en un seul long travail, dès que les réglages de l'agent sont validés.`,
+    briefing: demandeDeLaCarteDeSuite({ name: projet.name }, projet.path, cheminDeLaCompetence()),
     origin: 'user',
     cadrage: true,
   });
+  const marquee = store.saveCard({ ...carte, suiteDuCahier: { cahierId } });
+  bus.emit({ type: 'card.upsert', card: marquee });
+  return marquee;
 }
 
-async function rangerPuisLancer(cardId: string, agentId: string, suiteId: string): Promise<void> {
-  const { isRunning, arreterLAgent, sendPrompt } = await moteur();
+async function rangerLeCahier(cardId: string, agentId: string, suiteId: string): Promise<void> {
+  const { isRunning, arreterLAgent } = await moteur();
   const debut = Date.now();
   while (isRunning(agentId) && Date.now() - debut < ATTENTE_FIN_DU_TOUR_MS) {
     await new Promise((r) => setTimeout(r, 1000));
@@ -322,18 +329,9 @@ async function rangerPuisLancer(cardId: string, agentId: string, suiteId: string
   const { archiveCard } = await import('./archive.js');
   const range = await archiveCard(cardId);
   if (!range.ok) log.warn(`la carte du cahier des charges n'a pas pu être archivée : ${range.error}`);
-
-  const suite = store.getCard(suiteId);
-  const projet = suite ? store.getProject(suite.projectId) : undefined;
-  if (!suite || !projet) return;
-  const { ouvrirLeCadrageDeLaCarte } = await import('./naissance-de-carte.js');
-  const cadrage = await ouvrirLeCadrageDeLaCarte(suite, 'utilisateur', false);
-  /* Sous les tests, aucun moteur ne part : la carte et son cadrage suffisent à juger. */
-  if (!cadrage || process.env.NODE_TEST_CONTEXT) return;
-  await sendPrompt(cadrage.id, demandeDeLaCarteDeSuite({ name: projet.name }, projet.path, cheminDeLaCompetence()), {
-    template: 'none',
-    silent: true,
-  });
+  /* PLUS DE CADRAGE SUR LA CARTE DE SUITE : elle attend dans « Planifié » le
+     clic sur « Valider la configuration et lancer ». Aucun moteur ne part. */
+  if (!store.getCard(suiteId)) log.warn(`la carte de construction ${suiteId} a disparu avant la fin du cahier`);
 }
 
 /**

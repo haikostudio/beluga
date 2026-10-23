@@ -921,13 +921,20 @@
    remonte de la hauteur du volet, comme une feuille soulevée, et son bord bas
    porte une ombre sur le haut du terminal. Fermé, aucune transformation ne
    reste posée : elle ferait de la racine le repère de tous ses éléments
-   `fixed`. */
+   `fixed`.
+   LE RANG `z-index: 1` NE VAUT QUE TANT QUE LE VOLET EST VISIBLE (monté et
+   pas réduit, animation de fermeture comprise) : posé en permanence, il
+   faisait de la racine un contexte d'empilement, et le panneau survolé de la
+   colonne réduite (`z-[55]`, `sidebar.tsx`) y restait enfermé, SOUS les pages
+   ouvertes en portail (`FeuilleDeTiroir`, `z-40`/`z-50`). */
 [data-app-racine] {
   position: relative;
-  z-index: 1;
   transition:
     transform 190ms ease-out,
     box-shadow 190ms ease-out;
+}
+html:has([data-terminal-volet]:not([data-terminal-reduit])) [data-app-racine] {
+  z-index: 1;
 }
 html[data-terminal-ouvert] [data-app-racine] {
   transform: translateY(calc(-1 * var(--hauteur-terminal, 0px)));

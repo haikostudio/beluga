@@ -7,6 +7,9 @@ import { promisify } from 'node:util';
 import {
   agentBride,
   delaiOutilMoteurMs,
+  detailDEtape,
+  PLAFOND_DETAIL_D_ETAPE,
+  plafondDuDetailDEtape,
   diseLaCause,
   enteteDuTour,
   pluginsTiers,
@@ -446,6 +449,22 @@ export function buildCodexArgs(options: EngineRunOptions): string[] {
 }
 
 /** Met en français la raison d'un appel d'outil qui n'a pas abouti. */
+/**
+ * Le texte rendu par un outil MCP sous Codex : `result.content` est une liste de
+ * blocs `{ type: 'text', text }` (forme du protocole MCP) ; une chaîne nue est
+ * acceptée aussi.
+ */
+export function texteDuResultatMcp(result: unknown): string | undefined {
+  if (typeof result === 'string') return result || undefined;
+  const blocs = (result as any)?.content;
+  if (!Array.isArray(blocs)) return undefined;
+  const texte = blocs
+    .map((b: any) => (typeof b?.text === 'string' ? b.text : ''))
+    .filter(Boolean)
+    .join('\n');
+  return texte || undefined;
+}
+
 export function explainToolFailure(raw: unknown): string {
   const message = typeof raw === 'string' ? raw : raw ? String((raw as any).message ?? '') : '';
   const text = message.trim();
@@ -522,15 +541,24 @@ export function emitFromCodex(event: any, onEvent: (e: EngineEvent) => void): vo
           // Un appel refusé ou annulé ne doit jamais rester une étape rouge
           // muette : la raison est recopiée dans le détail, en clair.
           const reason = failed ? explainToolFailure(item.error?.message ?? item.error) : undefined;
+          /* LA RÉPONSE À UNE QUESTION REJOINT LE JOURNAL. Seul le résultat de
+             `ask_user` (et de ses pareils) est recopié, entier : c'est ce que
+             l'encadré « Question posée » relit. Les autres outils gardent leurs
+             paramètres comme détail. */
+          const outil = `mcp__beluga__${item.tool ?? ''}`;
+          const reponse =
+            done && !failed && plafondDuDetailDEtape(outil) !== PLAFOND_DETAIL_D_ETAPE
+              ? detailDEtape(outil, texteDuResultatMcp(item.result))
+              : undefined;
           onEvent({
             kind: 'step',
             step: {
               key,
               label: failed ? `${step.label} — non aboutie` : step.label,
               state: failed ? 'failed' : done ? 'done' : 'running',
-              detail: reason ? [reason, step.detail].filter(Boolean).join('\n') : step.detail,
+              detail: reason ? [reason, step.detail].filter(Boolean).join('\n') : reponse ?? step.detail,
               capture: step.capture,
-              outil: `mcp__beluga__${item.tool ?? ''}`,
+              outil,
               entree: item.arguments,
             },
           });

@@ -13,6 +13,10 @@
  *     avant, par une autre étape). Seul le dossier de travail est balayé : le
  *     dossier temporaire du système est partagé avec tous les autres agents.
  *
+ * LES VIDÉOS ET LES SONS SUIVENT LE MÊME CHEMIN (`EXTENSIONS_RANGEES_D_OFFICE`) :
+ * un rendu, une voix off ou une musique écrits pendant le tour se rangent sans
+ * que l'agent ait à les joindre.
+ *
  * Avant ces deux recherches, l'IMAGE QUE L'ÉTAPE A REGARDÉE (`RunStep.capture`)
  * se range TOUJOURS, sans plafond et quelle que soit sa date : c'est elle que
  * la bande montre, et elle dort souvent dans le dossier temporaire du système,
@@ -39,6 +43,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  EXTENSIONS_RANGEES_D_OFFICE,
   cheminsDImages,
   cheminsDuStatutGit,
   cheminsSeparesParNul,
@@ -61,7 +66,7 @@ import { log } from './logger.js';
  */
 export const PLAFOND_DU_TEXTE = 200;
 export const PLAFOND_DU_BALAYAGE = 200;
-const EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const EXTENSIONS = new Set<string>(EXTENSIONS_RANGEES_D_OFFICE);
 const DOSSIERS_IGNORES = new Set(['node_modules', '.git', 'dist', '.cache', '__pycache__', '.venv', 'venv']);
 /** Le balayage reste borné : un gros dépôt ne ralentit pas la fin d'une étape. */
 const PROFONDEUR_MAX = 6;

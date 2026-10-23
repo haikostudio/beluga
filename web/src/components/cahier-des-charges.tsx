@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { BookOpen, ClipboardList, Download, FileText, FileType, Loader2 } from 'lucide-react';
-import { Card, nomDuCahierExporte, partiesDuCahier } from '@beluga/shared';
+import { Card, LIBELLES_PHASES_DU_CAHIER, cheminDuCahier, nomDuCahierExporte, partiesDuCahier } from '@beluga/shared';
+import { RondDEtape } from '@/components/barre-etapes';
 import {
   Button,
   EnteteDeFeuille,
@@ -10,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   ZoneDefilement,
+  CLASSE_BLOC_DU_PIED,
 } from '@/components/ui';
 import { useTelechargement } from '@/lib/telechargement';
 import { Silhouette } from '@/components/silhouettes';
@@ -21,22 +23,173 @@ import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
- * « LIRE LE CAHIER DES CHARGES », DERNIÈRE LIGNE DU FIL du volet du cahier
- * (`chat.tsx`). Elle remplace l'ancien bandeau (phase, compteur, jauge,
- * pause) : l'avancement se lit sur la jauge de suivi. Seule la carte née de
- * la case « Démarrer par un cahier des charges » la porte
- * (`Card.cahierDesCharges`), et rien tant que le document n'existe pas.
+ * LE DÉROULÉ DU CAHIER DES CHARGES (demande de l'utilisateur du 22/10/2026) :
+ * même dessin que le chemin du tournage (`chemin-de-realisation.tsx`) — ronds
+ * `RondDEtape`, nom à côté, trait plein jusqu'où l'on est, noir et blanc — pour
+ * les phases du questionnaire, puis la phase en cours avec « Question n sur
+ * total » et la suivante annoncée.
+ *
+ * COLLÉ AU-DESSUS DE LA RANGÉE D'ACTION, HORS DU FIL (`chat.tsx`) : toujours
+ * visible quand on remonte lire. `reduit` (le fil n'est pas en bas) ne garde que
+ * la ligne des ronds ; tout en bas, le compte et la suite se déplient. Ce n'est
+ * PAS l'ancien bandeau fixe retiré le 21/10/2026 : ni jauge, ni pause.
+ *
+ * SEUL LE NOM DE LA PHASE EN COURS S'ÉCRIT, À TOUTES LES LARGEURS (demande du
+ * 22/10/2026 : les noms tronqués des autres « juraient ») : faites et à venir ne
+ * gardent que leur rond, et leur nom paraît en bulle au survol — le `title` du
+ * rond, rendu par l'infobulle maison de l'application. Même règle que le
+ * chemin du tournage, les deux bandes restent identiques.
  */
-export function LectureDuCahierDesCharges({ carte }: { carte: Card }) {
+export function CheminDuCahier({
+  carte,
+  reduit = false,
+  onDeplier,
+}: {
+  carte: Card;
+  reduit?: boolean;
+  /** Replié pour faire de la place (pied compact du téléphone) : un appui le rouvre. */
+  onDeplier?: () => void;
+}) {
+  const cahier = carte.cahierDesCharges;
+  if (!cahier || carte.archivedAt) return null;
+  const chemin = cheminDuCahier(cahier);
+  const enCours = Math.min(chemin.faites + 1, chemin.total);
+  const compte = chemin.termine
+    ? t('Toutes les questions ont leur réponse.')
+    : chemin.total
+      ? t('Question {n} sur {total}', { n: String(enCours), total: String(chemin.total) })
+      : t('{n} question(s) tranchée(s)', { n: String(chemin.faites) });
+  return (
+    <section
+      className={CLASSE_BLOC_DU_PIED}
+      data-chemin-cahier
+      data-chemin-reduit={reduit ? '' : undefined}
+      data-phase={chemin.termine ? 'termine' : chemin.phase}
+      data-questions={`${chemin.faites}/${chemin.total}`}
+    >
+      <div
+        className={cn('rounded-xl bg-raised/60 px-3 py-2', onDeplier && 'cursor-pointer')}
+        /* Replié par le pied compact : tout le bloc se rouvre d'un appui. */
+        {...(onDeplier
+          ? {
+              role: 'button',
+              tabIndex: 0,
+              'aria-expanded': false,
+              'data-deplier-bloc': '',
+              onClick: onDeplier,
+              onKeyDown: (event: React.KeyboardEvent) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onDeplier();
+                }
+              },
+            }
+          : {})}
+      >
+        <ol className="flex items-center gap-1.5 sm:gap-2" aria-label="Étapes du cahier des charges">
+          {chemin.etapes.map((etape, rang) => {
+            const ici = etape.etat === 'encours';
+            const dernier = rang === chemin.etapes.length - 1;
+            const nom = t(LIBELLES_PHASES_DU_CAHIER[etape.phase]);
+            return (
+              <li
+                key={etape.phase}
+                className={cn('flex min-w-0 items-center gap-1.5 sm:gap-2', dernier ? 'shrink-0' : 'flex-auto')}
+                data-etape-cahier={etape.phase}
+                data-etat={etape.etat}
+                aria-current={ici ? 'step' : undefined}
+              >
+                <span className="flex min-w-0 items-center gap-1.5 py-1" title={etape.etat === 'avenir' ? `${nom} · ${t('à venir')}` : nom}>
+                  <RondDEtape forme={etape.etat === 'fait' ? 'faite' : ici ? 'ici' : 'avenir'} />
+                  <span
+                    className={cn(
+                      'min-w-0 truncate text-[12px] leading-normal sm:text-[13px]',
+                      etape.etat === 'avenir' ? 'text-faint' : 'font-medium text-text',
+                      /* Seule la phase en cours écrit son nom ; les autres le donnent au survol. */
+                      !ici && 'hidden',
+                      ici && 'shrink-0',
+                    )}
+                  >
+                    {nom}
+                  </span>
+                </span>
+                {/* Un trait qui porte une information : plein jusqu'où l'on est arrivé, pâle au-delà. */}
+                {dernier ? null : <span aria-hidden className={cn('h-px min-w-2 flex-1', etape.etat === 'fait' ? 'bg-text/60' : 'bg-border')} />}
+              </li>
+            );
+          })}
+        </ol>
+
+        <DetailDuChemin reduit={reduit}>
+          <p className="pt-1.5 text-[13.5px] font-medium leading-snug text-text" data-compte-cahier>
+            {chemin.termine ? null : (
+              <>
+                {t(LIBELLES_PHASES_DU_CAHIER[chemin.phase])}
+                <span className="font-normal text-faint"> · </span>
+              </>
+            )}
+            <span className={chemin.termine ? undefined : 'font-normal text-muted'}>{compte}</span>
+          </p>
+          {chemin.suivante ? (
+            <p className="mt-1 text-[12px] leading-snug text-faint" data-cahier-suivante={chemin.suivante}>
+              {t('Ensuite : {etape}', { etape: t(LIBELLES_PHASES_DU_CAHIER[chemin.suivante]) })}
+            </p>
+          ) : null}
+        </DetailDuChemin>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * CE QUI SE REPLIE SOUS LA LIGNE DES RONDS d'un chemin collé en bas (cahier des
+ * charges, tournage) : grille `0fr` ↔ `1fr`, hauteur et opacité en 200 ms, sans
+ * saut. Le contenu reste dans la page (`inert` une fois replié).
+ */
+export function DetailDuChemin({ reduit, className, children, ...reste }: { reduit: boolean; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+        reduit ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+      )}
+      aria-hidden={reduit || undefined}
+      /* React 18 ne type pas encore `inert` : l'attribut passe tel quel. */
+      {...(reduit ? ({ inert: '' } as React.HTMLAttributes<HTMLDivElement>) : {})}
+      {...reste}
+    >
+      <div className={cn('min-h-0 min-w-0 overflow-hidden', className)}>{children}</div>
+    </div>
+  );
+}
+
+/** Le document du cahier existe-t-il déjà ? Sinon, aucun bouton de lecture. */
+export function cahierALire(carte: Card): boolean {
+  const cahier = carte.cahierDesCharges;
+  return !!cahier && (!!cahier.majA || !!cahier.faites);
+}
+
+/**
+ * « LIRE LE CAHIER DES CHARGES », PREMIER BOUTON DE LA RANGÉE D'ACTION du volet
+ * du cahier (`parcours-carte.tsx`), ses réglages collés à droite (`groupe`).
+ * Il remplace l'ancienne dernière ligne du fil, qui laissait sous elle une
+ * rangée presque vide. Seule la carte née de la case « Démarrer par un cahier
+ * des charges » la porte (`Card.cahierDesCharges`), et rien tant que le
+ * document n'existe pas.
+ */
+export function BoutonLireLeCahier({ carte, groupe }: { carte: Card; groupe: boolean }) {
   const cahier = carte.cahierDesCharges;
   const [lecture, setLecture] = React.useState(false);
-  if (!cahier || (!cahier.majA && !cahier.faites)) return null;
+  if (!cahier || !cahierALire(carte)) return null;
   return (
-    <div className="px-4 pb-3 pt-1" data-lecture-du-cahier="cahier">
+    <div className="min-w-0 flex-1" data-lecture-du-cahier="cahier">
       <Button
         type="button"
         variant="ghost"
-        className="h-9 w-full min-w-0 justify-center gap-2 rounded-lg bg-raised px-3 text-[13px] font-medium text-text hover:bg-border"
+        className={cn(
+          'h-9 w-full min-w-0 justify-center gap-2 rounded-lg bg-raised px-3 py-0 text-[13px] font-medium text-text hover:bg-border',
+          groupe && 'rounded-r-none',
+        )}
         onClick={() => setLecture(true)}
         data-cahier-lire
       >

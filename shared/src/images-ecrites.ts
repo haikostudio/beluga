@@ -14,7 +14,18 @@
 
 import { slug } from './slugs.js';
 
-const EXTENSION_IMAGE = /\.(?:png|jpe?g|gif|webp)$/i;
+/**
+ * LES EXTENSIONS RANGÉES D'OFFICE : les images, et AUSSI les vidéos et les sons
+ * (décision de l'utilisateur, « tout, sans filtre ») — un MP4 ou un MP3 écrit
+ * par une commande de l'agent rejoint le fil et la bande comme une capture.
+ * Le démon reprend la même liste pour son balayage (`server/src/captures-auto.ts`).
+ */
+export const EXTENSIONS_RANGEES_D_OFFICE = [
+  '.png', '.jpg', '.jpeg', '.gif', '.webp',
+  '.mp4', '.webm', '.mov', '.m4v',
+  '.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.flac', '.opus',
+] as const;
+const EXTENSION_IMAGE = new RegExp(`(?:${EXTENSIONS_RANGEES_D_OFFICE.map((e) => e.replace('.', '\\.')).join('|')})$`, 'i');
 const SEPARATEURS = /[\s"'`<>|;&(),=:{}\[\]]+/;
 const DOSSIERS_ECARTES = /(?:^|\/)(?:node_modules|\.git|dist)(?:\/|$)/;
 

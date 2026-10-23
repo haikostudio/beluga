@@ -83,6 +83,7 @@ import { useTelephone } from '@/lib/telephone';
 import { t } from '@/lib/langue';
 import { cn, dateHeure, relativeTime } from '@/lib/utils';
 import { BadgeDEtape } from './badge-etape';
+import { useAttendUnQuota } from '@/lib/attente-de-quota';
 import { Badge, Button, ConfirmDialog, Dot, EmptyState, Tooltip, ZoneDefilement } from '@/components/ui';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { CardTile, avalerLeRelachement } from '@/components/board';
@@ -1050,6 +1051,11 @@ function CarteEnRoute({
     carteDeSuivi(card, { agentActif: !!agent, deploys: state.deploys, colonne: etape }),
   );
   const ton = tonDuBadgeDEtape(etapeDeSuivi);
+  /* BLOQUÉE PAR LE MANQUE DE CRÉDIT : demande en file faute de compte, ou tour
+     coupé par la limite en attente de reprise. Ni point qui bat ni « Au
+     travail » : rien ne tourne (`shared/src/attente-de-quota.ts`). */
+  const attendQuota = useAttendUnQuota(card);
+  const question = !!agent?.attendReponse;
   const texteRendue =
     card.renduA == null
       ? ''
@@ -1077,7 +1083,9 @@ function CarteEnRoute({
           droite: (
             <span
               className="flex items-center gap-1"
-              data-temoin-en-route={agent?.attendReponse ? 'question' : agent || fillesAuTravail ? 'travail' : 'repos'}
+              data-temoin-en-route={
+                question ? 'question' : attendQuota ? 'quota' : agent || fillesAuTravail ? 'travail' : 'repos'
+              }
             >
               {/* UN AGENT ARRÊTÉ SUR SA QUESTION N'EST EN TRAVAIL POUR
                   PERSONNE : ni point qui bat, ni « en cours » — la carte
@@ -1090,6 +1098,12 @@ function CarteEnRoute({
                   <BadgeDEtape ton={ton}>{t('Attend votre réponse')}</BadgeDEtape>
                 ) : (
                   <span className="text-warning">{t('Attend votre réponse')}</span>
+                )
+              ) : attendQuota ? (
+                ton ? (
+                  <BadgeDEtape ton={ton}>{t('En attente de quota')}</BadgeDEtape>
+                ) : (
+                  <span className="text-warning">{t('En attente de quota')}</span>
                 )
               ) : (!agent && fillesAuTravail) || agent ? (
                 ton ? (

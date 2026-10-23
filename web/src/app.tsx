@@ -1880,7 +1880,7 @@ export function App() {
           // ce repère il retombait sur `--bg`, une bande NOIRE en thème sombre
           // collée sous un tableau gris — deux fonds pour une seule page.
           data-zone="centre"
-          className="shrink-0 px-3 pb-2 pt-1 sm:hidden"
+          className="shrink-0 px-4 pb-2 pt-1 sm:hidden"
           // Juste la zone sûre du téléphone en dessous, pas un doigt de plus.
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
         >

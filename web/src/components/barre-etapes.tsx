@@ -12,6 +12,38 @@ import { t } from '@/lib/langue';
  */
 const LARGEUR_DE_LA_BARRE_POUR_CINQ_NOMS = 560;
 
+/** Ce que montre un rond d'étape : fait, ici (une roue tant qu'on y travaille, « ! » tombé), à venir. */
+export type FormeDuRondDEtape = 'faite' | 'travail' | 'erreur' | 'ici' | 'avenir';
+
+/**
+ * LE ROND D'UNE ÉTAPE, en noir et blanc : plein avec sa coche une fois fait,
+ * cerclé avec un point (ou une roue, ou « ! ») là où l'on est, vide et pâle à
+ * venir. Partagé par la barre d'étapes de la carte et le chemin du tournage du
+ * mode Réalisation : les deux se lisent de la même façon.
+ */
+export function RondDEtape({ forme }: { forme: FormeDuRondDEtape }) {
+  return (
+    <span
+      aria-hidden
+      data-rond-etape={forme}
+      className={cn(
+        'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full transition-colors',
+        forme === 'faite' ? 'bg-text text-bg' : forme === 'avenir' ? 'border-[1.5px] border-faint/50 text-faint' : 'border-[1.5px] border-text text-text',
+      )}
+    >
+      {forme === 'faite' ? (
+        <Check className="h-3 w-3" strokeWidth={3} />
+      ) : forme === 'travail' ? (
+        <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" strokeWidth={2.5} />
+      ) : forme === 'erreur' ? (
+        <span className="text-[11px] font-bold leading-none text-danger">!</span>
+      ) : forme === 'ici' ? (
+        <span className="h-2 w-2 rounded-full bg-text" />
+      ) : null}
+    </span>
+  );
+}
+
 /**
  * LA BARRE D'ÉTAPES : UNE RANGÉE DE RONDS, LEUR NOM À CÔTÉ, ET UN RACCOURCI.
  *
@@ -104,27 +136,9 @@ export function BarreDEtapes({
               }
               className={cn('group flex min-w-0 items-center gap-2 py-1', !compacte && 'sm:shrink-0')}
             >
-              <span
-                aria-hidden
-                className={cn(
-                  'flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full transition-colors',
-                  faite
-                    ? 'bg-text text-bg'
-                    : ici && atteinte
-                      ? 'border-[1.5px] border-text text-text'
-                      : 'border-[1.5px] border-faint/50 text-faint',
-                )}
-              >
-                {faite ? (
-                  <Check className="h-3 w-3" strokeWidth={3} />
-                ) : segment.etat === 'encours' ? (
-                  <Loader2 className="h-3 w-3 animate-spin motion-reduce:animate-none" strokeWidth={2.5} />
-                ) : segment.etat === 'erreur' ? (
-                  <span className="text-[11px] font-bold leading-none text-danger">!</span>
-                ) : ici && atteinte ? (
-                  <span className="h-2 w-2 rounded-full bg-text" />
-                ) : null}
-              </span>
+              <RondDEtape
+                forme={faite ? 'faite' : segment.etat === 'encours' ? 'travail' : segment.etat === 'erreur' ? 'erreur' : ici && atteinte ? 'ici' : 'avenir'}
+              />
               <span
                 className={cn(
                   'min-w-0 truncate text-[12px] leading-normal transition-colors group-hover:text-text sm:text-[13px] sm:leading-none',

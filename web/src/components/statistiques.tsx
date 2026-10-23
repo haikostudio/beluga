@@ -306,7 +306,7 @@ export function Statistiques({
               </OptionDePage>
             </OptionsDePage>
           ) : null}
-          <div className={cn('shrink-0 pb-3', groupe === 'installations' && 'hidden')}>
+          <div className={cn('shrink-0 pb-4', groupe === 'installations' && 'hidden')}>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
               <Input

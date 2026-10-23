@@ -22,6 +22,7 @@ export function CarouselQuestions<Q>({
   repondue,
   rendu,
   cle,
+  pilotage,
 }: {
   questions: Q[];
   /** Cette question a-t-elle déjà sa réponse (ou a-t-elle été annulée) ? */
@@ -30,13 +31,21 @@ export function CarouselQuestions<Q>({
   rendu: (question: Q) => React.ReactNode;
   /** La clé React d'une question. */
   cle: (question: Q) => string;
+  /**
+   * PAGINATION POSÉE AILLEURS (entête du panneau des décisions) : le parent
+   * garde le choix manuel et dessine lui-même la barre — le carrousel ne la
+   * redessine pas. Sans ce pilotage, rien ne change (retour d'analyse, fil).
+   */
+  pilotage?: { choisie: number | undefined; setChoisie: (index: number | undefined) => void };
 }) {
   /*
    * Le choix MANUEL, quand on est revenu en arrière avec les flèches. Tant
    * qu'il n'y en a pas, l'affichage suit la première question sans réponse :
    * c'est ce qui fait avancer le carrousel tout seul.
    */
-  const [choisie, setChoisie] = React.useState<number | undefined>(undefined);
+  const [choisieLocale, setChoisieLocale] = React.useState<number | undefined>(undefined);
+  const choisie = pilotage ? pilotage.choisie : choisieLocale;
+  const setChoisie = pilotage ? pilotage.setChoisie : setChoisieLocale;
   const repondues = questions.map(repondue);
   const index = questionAMontrer({ repondues, choisie });
 
@@ -46,12 +55,14 @@ export function CarouselQuestions<Q>({
    */
   React.useEffect(() => {
     setChoisie(undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions.length]);
 
   if (!questions.length) return null;
   if (questions.length === 1) return <>{rendu(questions[0])}</>;
 
   const question = questions[index];
+  if (pilotage) return <div data-carousel-questions key={cle(question)}>{rendu(question)}</div>;
 
   return (
     /* UI MINIMALISTE : plus de cadre gris supplémentaire autour de la question

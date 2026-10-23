@@ -78,14 +78,15 @@ export async function joindreUnFichier(opts: {
 }): Promise<ResultatDeJointure> {
   const { fichier } = opts;
   const mime = mimeDuFichier(fichier);
-  /* LE SEUL REFUS EST LE POIDS : le fichier est recopié entier en mémoire. */
+  /* LE SEUL REFUS EST LE POIDS. Le fichier est lu EN FLUX (empreinte puis
+     copie disque à disque) : une vidéo rangée d'office ne passe jamais entière
+     par la mémoire du démon. */
   const poids = opts.attendreStable ? await attendreUneTailleStable(fichier) : (await fs.promises.stat(fichier)).size;
   const refus = refusDeTaille(poids);
   if (refus) return { ok: false, refus };
-  const data = await fs.promises.readFile(fichier);
-  const sha = crypto.createHash('sha256').update(data).digest('hex');
+  const sha = await empreinteEnFlux(fichier);
   const existant = store.findAttachmentBySha(opts.projectId, sha);
-  if (existant) return { ok: true, attachment: existant, taille: data.length, nouvelle: false };
+  if (existant) return { ok: true, attachment: existant, taille: poids, nouvelle: false };
 
   const conversation = opts.cardId ?? opts.agentId;
   const dejaUtilises = store
@@ -99,17 +100,28 @@ export async function joindreUnFichier(opts: {
     projectId: opts.projectId,
     name: nomSansCollision(opts.nom?.trim() || path.basename(fichier), dejaUtilises),
     mime,
-    size: data.length,
+    size: poids,
     sha,
     cardId: opts.cardId,
     agentId: opts.agentId,
     createdAt: Date.now(),
     deLAgent: opts.deLAgent ? true : undefined,
   });
-  await fs.promises.writeFile(path.join(dossierDEcriture(), nomSurDisque(attachment)), data);
+  await fs.promises.copyFile(fichier, path.join(dossierDEcriture(), nomSurDisque(attachment)));
   store.saveAttachment(attachment);
   bus.emit({ type: 'attachments', projectId: opts.projectId, items: store.listAttachments(opts.projectId) });
-  return { ok: true, attachment, taille: data.length, nouvelle: true };
+  return { ok: true, attachment, taille: poids, nouvelle: true };
+}
+
+/** L'empreinte d'un fichier, lue par morceaux (jamais le fichier entier en mémoire). */
+function empreinteEnFlux(fichier: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hache = crypto.createHash('sha256');
+    fs.createReadStream(fichier)
+      .on('data', (morceau) => hache.update(morceau))
+      .on('error', reject)
+      .on('end', () => resolve(hache.digest('hex')));
+  });
 }
 
 /**

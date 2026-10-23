@@ -3,6 +3,7 @@ import { avancementDeLaCarte, type Agent } from '@beluga/shared';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 import { InfoTravail } from '@/components/info-travail';
+import { EtiquetteDuModele } from '@/components/etiquette-du-modele';
 import { BarreProgression } from '@/components/barre-progression';
 import { dureeLisible } from '@/components/arret-agent';
 import { useSeconde } from '@/lib/horloge';
@@ -57,7 +58,13 @@ export function BandeauTravail({
     >
       {/* `alterner` : le compte des étapes et le chronomètre tournent l'un
           après l'autre plutôt que de se concaténer. */}
-      <InfoTravail quoi={agent.etapeEnCours ?? t('Réflexion en cours…')} avancement={avancement} temps={temps} alterner />
+      <InfoTravail
+        quoi={agent.etapeEnCours ?? t('Réflexion en cours…')}
+        avancement={avancement}
+        temps={temps}
+        alterner
+        etiquette={<EtiquetteDuModele run={agent.run} className="max-w-[45%]" />}
+      />
       {/* LA BARRE FINE, posée en absolu : elle suit l'arrondi sans ajouter un
           pixel de hauteur ; sans liste d'étapes, elle défile. */}
       <BarreProgression

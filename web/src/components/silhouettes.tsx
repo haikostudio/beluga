@@ -428,7 +428,7 @@ export function SilhouetteTiroirCarte() {
           gris qui s'ajoute vaut moins qu'un pied stable. Les briques restent
           en `bg-raised` : posées sur `--surface`, celles en `--border`
           disparaissent dans les palettes sombres. */}
-      <div className="shrink-0 px-2.5 pt-2 pb-2" data-silhouette-pied>
+      <div className="shrink-0 px-4 pt-2 pb-2" data-silhouette-pied>
         <div className="mb-2">
           <Silhouette className="h-9 w-full rounded-lg bg-raised" />
         </div>

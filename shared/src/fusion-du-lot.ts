@@ -470,3 +470,112 @@ export function mentionDeLEcartement(ecart: EcartementDuLot): string {
   const issue = ecart.recit?.trim() ? ` ${ecart.recit.trim()}.` : '';
   return `${ecart.branche} écartée du lot : heurt sur ${fichiers}, contre ${contre}.${issue}`;
 }
+
+/* ------------------------------------------------------------------ */
+/* 7. Une carte n'est archivée que si son travail est PROUVÉ arrivé    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Constat (23/10/2026) : la fusion du lot cherchait la branche d'une carte
+ * dans le seul dossier local. Une branche qui n'existait que sur GitHub était
+ * sautée en silence (« branche absente »)… puis la carte était marquée
+ * déployée et ARCHIVÉE avec le reste du lot, son travail jamais mis en ligne.
+ * Désormais la branche est d'abord RAPATRIÉE, et une carte dont le travail
+ * n'est ni trouvé ni prouvé dans la branche d'accueil reste dans « À
+ * déployer », écartée et nommée — jamais archivée.
+ */
+
+/** Ce qu'il faut faire de la branche d'une carte, vu le local et le distant. */
+export type PlanDeRapatriement =
+  /** Rien nulle part : la carte est introuvable dans ce dépôt. */
+  | 'introuvable'
+  /** La branche locale fait foi (seule, à jour, ou en avance sur le distant). */
+  | 'locale'
+  /** Seul le distant la porte : on CRÉE la branche locale depuis lui. */
+  | 'creer'
+  /** Le distant est en avance sur la locale : on AVANCE la locale. */
+  | 'avancer';
+
+/**
+ * LE PLAN DE RAPATRIEMENT, sur trois constats : l'enregistrement de la branche
+ * locale, celui de la branche distante, et si la locale est un ancêtre strict
+ * du distant. Une locale qui a DIVERGÉ garde la main — c'est elle que l'agent
+ * de la carte a écrite ici.
+ */
+export function planDeRapatriement(constat: {
+  locale?: string | null;
+  distante?: string | null;
+  localeEnRetard?: boolean;
+}): PlanDeRapatriement {
+  const locale = (constat.locale ?? '').trim();
+  const distante = (constat.distante ?? '').trim();
+  if (!locale && !distante) return 'introuvable';
+  if (!locale) return 'creer';
+  if (distante && distante !== locale && constat.localeEnRetard) return 'avancer';
+  return 'locale';
+}
+
+/** Un enregistrement git, et rien d'autre : un dépôt sans distant fait sortir `rev-parse` en erreur AVEC du texte. */
+export function estUnEnregistrement(texte: string | null | undefined): boolean {
+  return /^[0-9a-f]{7,40}$/.test((texte ?? '').trim());
+}
+
+/**
+ * LES CARTES DONT LE TRAVAIL N'A ÉTÉ TROUVÉ DANS AUCUN DÉPÔT. Un projet réuni
+ * publie plusieurs dépôts : une branche absente d'un dépôt SECONDAIRE est
+ * normale, seule l'absence PARTOUT compte. Une carte sans branche n'a rien à
+ * fusionner, une carte déjà écartée a déjà sa raison.
+ */
+export function cartesIntrouvables(
+  cartes: readonly { cardId: string; branche?: string }[],
+  trouvees: ReadonlySet<string>,
+  ecartees: ReadonlySet<string>,
+): string[] {
+  return cartes
+    .filter((c) => (c.branche ?? '').trim() && !trouvees.has(c.cardId) && !ecartees.has(c.cardId))
+    .map((c) => c.cardId);
+}
+
+/** La raison d'une carte introuvable, telle que la lisent le volet et la carte. */
+export function raisonDeLAbsence(branche: string): string {
+  return `le travail de cette carte (branche ${branche}) est introuvable, ni sur le serveur ni sur GitHub : rien n’a été mis en ligne pour elle`;
+}
+
+/** La raison d'une fusion annoncée dont le travail n'est pourtant pas dans la branche d'accueil. */
+export function raisonDeLaNonArrivee(branche: string, brancheDAccueil: string): string {
+  return `la fusion de ${branche} a été annoncée, mais son travail n’est pas dans ${brancheDAccueil} : rien n’a été mis en ligne pour elle`;
+}
+
+/** La phrase de l'étape quand AUCUNE carte du lot n'a pu passer. */
+export function bilanDuLotEntierEcarte(taches: readonly Pick<TacheDuLot, 'etat'>[]): {
+  titre: string;
+  explication: string;
+  marcheASuivre: string;
+} {
+  const absentes = taches.filter((t) => t.etat === 'absente').length;
+  if (absentes && absentes === taches.length) {
+    return {
+      titre: 'Le travail d’aucune carte du lot n’a été trouvé : rien n’a été fusionné.',
+      explication:
+        'Aucune des branches du lot n’existe, ni sur le serveur ni sur GitHub : il n’y a rien à mettre en ligne, et les cartes restent dans « À déployer ».',
+      marcheASuivre:
+        'Ouvrez une des tâches restées dans « À déployer » et vérifiez que son travail a bien été enregistré, puis relancez-la.',
+    };
+  }
+  if (absentes) {
+    return {
+      titre: 'Aucune carte du lot n’a pu être fusionnée : branches introuvables ou en conflit.',
+      explication:
+        'Une partie du lot n’a pas de travail retrouvable, le reste heurte ce qui est déjà en place sans avoir pu être réglé automatiquement : rien n’a été fusionné.',
+      marcheASuivre:
+        'Ouvrez les tâches restées dans « À déployer » : relancez celles dont le travail manque, demandez aux autres d’intégrer la dernière version, puis cliquez « Relancer ».',
+    };
+  }
+  return {
+    titre: 'Toutes les cartes du lot sont en conflit : rien n’a pu être fusionné.',
+    explication:
+      'Chaque tâche du lot heurte ce qui est déjà en place, et les heurts n’ont pas pu être réglés automatiquement : rien n’a été fusionné.',
+    marcheASuivre:
+      'Ouvrez une des tâches restées dans « À déployer » et demandez à son agent d’intégrer la dernière version, puis cliquez « Relancer ».',
+  };
+}

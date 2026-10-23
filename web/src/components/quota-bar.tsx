@@ -6,6 +6,7 @@ import {
   EllipsisVertical,
   FolderOpen,
   Loader2,
+  MessageCircleQuestion,
   Paperclip,
   Play,
   Rocket,
@@ -174,6 +175,14 @@ BoutonOptionsDuProjet.displayName = 'BoutonOptionsDuProjet';
 
 /** Ce qu'une ligne de publication dit à droite : l'avancement, sinon ce qui attend. */
 function EtatDeLaLigneDePublication({ geste, pastille }: { geste: SignalLu; pastille?: boolean }) {
+  /* L'agent de configuration au travail ou en attente : la ligne mène à lui, et le dit. */
+  if (geste.pourcent === null && (geste.agent === 'travail' || geste.agent === 'question')) {
+    return geste.agent === 'travail' ? (
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-en-cours" data-etat-ligne-agent="travail" aria-label={t('Agent au travail…')} />
+    ) : (
+      <MessageCircleQuestion className="h-3.5 w-3.5 shrink-0 text-warning" data-etat-ligne-agent="question" aria-label={t('Répondre à l’agent')} />
+    );
+  }
   if (geste.pourcent !== null) {
     return (
       <span className={cn('shrink-0 text-[12.5px] font-semibold tabular-nums', geste.tombee ? 'text-danger' : 'text-text')}>

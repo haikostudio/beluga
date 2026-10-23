@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Camera, ChevronDown, Eye } from 'lucide-react';
+import { Camera, ChevronDown, Eye, Play } from 'lucide-react';
 import {
   captureDuChemin,
   capturesArriveesDepuis,
@@ -12,6 +12,8 @@ import {
   type RunStep,
 } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { LecteurSon } from '@/components/lecteur-son';
+import { VignetteVideo } from '@/components/lecteur-video';
 import { LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
 import { ZoneDefilement } from '@/components/ui';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
@@ -47,6 +49,10 @@ import { cn, heureOuDate } from '@/lib/utils';
  * garde toute la série) et « tout marquer comme vu » (`CommandesDesVues`). Le
  * mécanisme de l'œil est celui de `useImagesVues`, partagé avec l'onglet des
  * pièces jointes et les notes.
+ *
+ * LES VIDÉOS ET LES SONS DE L'AGENT Y SONT AUSSI : une vidéo est une vignette
+ * à son image d'aperçu, bouton lecture au centre, qui s'ouvre en grand ; un son
+ * est un lecteur à onde qui se joue sur place (`LecteurSon`), avec « agrandir ».
  *
  * SUR LA PAGE D'UNE CARTE, LA BANDE EST COLLÉE EN BAS, hors de la zone qui
  * défile (`chat.tsx`), et un CHEVRON à droite de son titre la replie sur cette
@@ -273,16 +279,36 @@ function VignetteQuiReessaie({ src, alt, onPerdue }: { src: string; alt: string;
 export function BandeDesCaptures({
   galerie: g,
   className = 'mt-3',
+  replieeDOffice = false,
+  onDeplie,
 }: {
   galerie: GalerieDesCaptures;
+  /**
+   * REPLIÉE PAR LE PIED COMPACT DU TÉLÉPHONE (`chat.tsx`, `usePiedCompact`) :
+   * la bande se réduit à sa ligne de titre sans toucher au choix retenu ; un
+   * tap la rouvre pour cette fois.
+   */
+  replieeDOffice?: boolean;
+  /** Un tap vient de déplier la bande : elle devient le dernier bloc ouvert du pied. */
+  onDeplie?: () => void;
   /** La marge de la bande : dans un message elle se pose sous le texte, collée en bas de la carte elle n'en a pas. */
   className?: string;
 }) {
   const { captures } = g;
-  const [repliee, setRepliee] = usePref<boolean>(CLE_BANDE_REPLIEE, false);
+  const pieceVideo = (id: string) => g.galerie.find((p) => p.id === id);
+  const [replieeRetenue, setRepliee] = usePref<boolean>(CLE_BANDE_REPLIEE, false);
   const [replieeDepuis, setReplieeDepuis] = usePref<number>(CLE_BANDE_REPLIEE_DEPUIS, 0);
+  /* Le repli d'office se lève d'un tap, pour cette question seulement. */
+  const [deplieeMalgre, setDeplieeMalgre] = React.useState(false);
+  React.useEffect(() => setDeplieeMalgre(false), [replieeDOffice]);
+  const repliee = replieeRetenue || (replieeDOffice && !deplieeMalgre);
   /* Le moment s'écrit DANS LE GESTE, avec le repli lui-même. */
   const basculer = (replier: boolean) => {
+    if (!replier) onDeplie?.();
+    if (replieeDOffice && !replieeRetenue) {
+      setDeplieeMalgre(!replier);
+      return;
+    }
     setRepliee(replier);
     setReplieeDepuis(replier ? Date.now() : 0);
   };
@@ -293,10 +319,10 @@ export function BandeDesCaptures({
    */
   const momentPose = React.useRef(false);
   React.useEffect(() => {
-    if (!repliee || replieeDepuis > 0 || momentPose.current) return;
+    if (!replieeRetenue || replieeDepuis > 0 || momentPose.current) return;
     momentPose.current = true;
     setReplieeDepuis(Date.now());
-  }, [repliee, replieeDepuis, setReplieeDepuis]);
+  }, [replieeRetenue, replieeDepuis, setReplieeDepuis]);
 
   /*
    * UNE CAPTURE NEUVE SE MONTRE, SANS ARRACHER CELUI QUI FEUILLETTE. La plus
@@ -321,7 +347,7 @@ export function BandeDesCaptures({
   const [filtre, setFiltre] = React.useState(false);
   const nonVues = React.useMemo(() => capturesPasEncoreVues(captures, g.vues), [captures, g.vues]);
   const affichees = filtre ? nonVues : captures;
-  const nouvelles = React.useMemo(() => (repliee ? capturesArriveesDepuis(captures, replieeDepuis) : 0), [repliee, captures, replieeDepuis]);
+  const nouvelles = React.useMemo(() => (replieeRetenue ? capturesArriveesDepuis(captures, replieeDepuis) : 0), [replieeRetenue, captures, replieeDepuis]);
 
   if (!captures.length) return null;
 
@@ -393,35 +419,74 @@ export function BandeDesCaptures({
         {affichees.map((c) => {
           const vue = g.dejaVue(c);
           // L'étiquette du coin ne reçoit pas le pointeur : son détail se lit ici.
-          const infobulle = [t('Voir la capture en grand'), c.quand ? heureExacte(c.quand) : '', vue ? t('Déjà vue') : '']
+          const ouvrirEnGrand = c.genre === 'jointe' && c.media ? t('Ouvrir en grand') : t('Voir la capture en grand');
+          const infobulle = [ouvrirEnGrand, c.quand ? heureExacte(c.quand) : '', vue ? t('Déjà vue') : '']
             .filter(Boolean)
             .join(' · ');
+          /* L'ÉTIQUETTE DU COIN : l'œil si l'image a déjà été ouverte, puis
+             son heure. Sur son propre fond de thème, donc lisible sur une
+             image claire comme sombre ; elle ne capte pas le clic. */
+          const etiquette =
+            c.quand || vue ? (
+              <span
+                className="pointer-events-none absolute bottom-0.5 right-0.5 flex items-center gap-1 rounded-sm bg-surface/85 px-1 text-[10.5px] leading-4 tabular-nums text-muted"
+                data-capture-etiquette
+              >
+                {vue ? <Eye className="h-3 w-3 shrink-0" aria-hidden data-capture-vue /> : null}
+                {c.quand ? <span data-capture-heure={c.quand}>{heureOuDate(c.quand)}</span> : null}
+              </span>
+            ) : null;
+          /*
+           * UN SON SE JOUE DANS LA BANDE (décision de l'utilisateur) : le lecteur
+           * à onde, lecture / pause à gauche, plus large qu'une vignette ; son
+           * bouton « agrandir » ouvre la visionneuse. Ce n'est pas un bouton
+           * (un bouton ne contient pas d'autres boutons).
+           */
+          if (c.genre === 'jointe' && c.media === 'son') {
+            return (
+              <div
+                key={c.cle}
+                data-capture-du-flux={c.cle}
+                data-capture-media="son"
+                title={infobulle}
+                className="relative flex h-20 w-64 shrink-0 flex-col justify-between overflow-hidden rounded bg-raised p-1"
+              >
+                <span className="min-w-0 truncate px-1 pr-14 text-[11px] leading-4 text-muted">{c.libelle}</span>
+                <LecteurSon id={c.id} nom={c.libelle} compact className="bg-surface" onAgrandir={() => g.ouvrir(c)} />
+                {etiquette ? <span className="pointer-events-none absolute right-0 top-0.5">{etiquette}</span> : null}
+              </div>
+            );
+          }
           return (
             <button
               key={c.cle}
               type="button"
               data-capture-du-flux={c.cle}
+              data-capture-media={c.genre === 'jointe' && c.media === 'video' ? 'video' : 'image'}
               onClick={() => g.ouvrir(c)}
               title={infobulle}
               className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1`}
             >
-              <VignetteQuiReessaie
-                src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`}
-                alt={c.libelle}
-                onPerdue={() => g.perdre(c)}
-              />
-              {/* L'ÉTIQUETTE DU COIN : l'œil si l'image a déjà été ouverte, puis
-                  son heure. Sur son propre fond de thème, donc lisible sur une
-                  image claire comme sombre ; elle ne capte pas le clic. */}
-              {c.quand || vue ? (
-                <span
-                  className="pointer-events-none absolute bottom-0.5 right-0.5 flex items-center gap-1 rounded-sm bg-surface/85 px-1 text-[10.5px] leading-4 tabular-nums text-muted"
-                  data-capture-etiquette
-                >
-                  {vue ? <Eye className="h-3 w-3 shrink-0" aria-hidden data-capture-vue /> : null}
-                  {c.quand ? <span data-capture-heure={c.quand}>{heureOuDate(c.quand)}</span> : null}
-                </span>
-              ) : null}
+              {c.genre === 'jointe' && c.media === 'video' ? (
+                /* UNE VIDÉO : son image d'aperçu (la même règle que le lecteur)
+                   et le bouton lecture AU CENTRE ; le clic l'ouvre en grand, où
+                   elle démarre. */
+                <>
+                  <VignetteVideo id={c.id} nom={c.libelle} seconde={pieceVideo(c.id)?.apercuSeconde} className="pointer-events-none max-h-full max-w-full rounded object-contain" />
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center" data-capture-lecture>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface/85 text-text">
+                      <Play className="h-4 w-4 translate-x-[1px]" fill="currentColor" aria-hidden />
+                    </span>
+                  </span>
+                </>
+              ) : (
+                <VignetteQuiReessaie
+                  src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`}
+                  alt={c.libelle}
+                  onPerdue={() => g.perdre(c)}
+                />
+              )}
+              {etiquette}
             </button>
           );
         })}

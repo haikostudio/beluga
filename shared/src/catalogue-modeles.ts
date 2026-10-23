@@ -222,3 +222,57 @@ export function modelesAffiches<T extends Pick<ModelInfo, 'id' | 'label'>>(
   if (choisi && !visibles.includes(choisi)) visibles.push(choisi);
   return { visibles, caches: models.length - visibles.length };
 }
+
+/**
+ * Un identifiant technique n'apprend rien : on cherche son libellé dans le
+ * catalogue des moteurs.
+ *
+ * Ce qui SERVIRA (`source: 'prevu'`) suit la même règle que le lancement : un
+ * modèle retiré par la mise à jour du moteur est montré sous sa version
+ * actuelle, de la même famille (`modeleActuel`) — c'est elle qui partira.
+ * Ce qui A SERVI (`reel`) est une trace : on retombe alors sur l'identifiant
+ * brut s'il n'est plus au catalogue, sans jamais le réécrire.
+ */
+export function libellesDuRun(
+  engines: EngineInfo[],
+  vu: { engine?: string; model?: string; thinking?: string; source?: string },
+) {
+  const moteur = engines.find((e) => e.id === vu.engine);
+  const modele =
+    vu.source === 'reel' ? moteur?.models.find((m) => m.id === vu.model) : moteur ? modeleActuel(moteur, vu.model) : undefined;
+  const niveau =
+    modele?.thinking?.find((t) => t.id === vu.thinking) ?? (vu.source === 'reel' ? undefined : modele?.thinking?.[0]);
+  return {
+    moteur: moteur?.label ?? vu.engine ?? '—',
+    modele: modele?.label ?? vu.model ?? '—',
+    reflexion: niveau?.label ?? vu.thinking ?? '—',
+  };
+}
+
+/**
+ * AVEC QUOI CET AGENT TRAVAILLE, EN UNE LIGNE : moteur, modèle et niveau de
+ * réflexion, pour les témoins de travail (carte du tableau, vignette d'un
+ * agent sans carte, décroché au-dessus du champ d'écriture). Même résolution
+ * que ce qui part (`modeleActuel`) : un agent sans modèle explicite montre le
+ * modèle par défaut de son moteur. Le niveau est tu quand le modèle n'en offre
+ * qu'un — la configuration ne montre pas non plus de ligne « Réflexion ».
+ */
+export function etiquetteDuRun(
+  engines: EngineInfo[],
+  run: Pick<RunConfig, 'engine' | 'model' | 'thinking'> | undefined,
+): { moteur: string; modele?: string; niveau?: string; texte: string } | null {
+  if (!run?.engine) return null;
+  const moteur = engines.find((e) => e.id === run.engine);
+  const modele = moteur ? modeleActuel(moteur, run.model) : undefined;
+  const niveaux = modele?.thinking ?? [];
+  // Même repli que `resoudreRun` : un niveau inconnu du modèle montre le premier.
+  const niveau = niveaux.length > 1 ? (niveaux.find((n) => n.id === run.thinking) ?? niveaux[0])?.label : undefined;
+  const nomDuMoteur = moteur?.label ?? run.engine;
+  const nomDuModele = modele?.label ?? run.model;
+  return {
+    moteur: nomDuMoteur,
+    ...(nomDuModele ? { modele: nomDuModele } : {}),
+    ...(niveau ? { niveau } : {}),
+    texte: [nomDuMoteur, nomDuModele, niveau].filter(Boolean).join(' · '),
+  };
+}

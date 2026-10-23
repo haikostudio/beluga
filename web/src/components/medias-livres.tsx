@@ -2,6 +2,7 @@ import * as React from 'react';
 import { Download, Loader2, Music } from 'lucide-react';
 import { ROUTE_ARCHIVE_DES_IMAGES, type CorpsDArchive, type LotDArchive, type MediaLivre } from '@beluga/shared';
 import { AttachmentPreview } from '@/components/attachment-preview';
+import { LecteurSon } from '@/components/lecteur-son';
 import { EnTeteDePanneau, Panneau } from '@/components/panneau';
 import { adresseDePiece, LARGEUR_DE_VIGNETTE } from '@/components/pastille-de-fichier';
 import { Button } from '@/components/ui';
@@ -93,9 +94,9 @@ function MediaDuBloc({ media }: { media: MediaLivre }) {
         ) : media.genre === 'video' ? (
           <video src={adresseDePiece(media.attachmentId)} controls preload="metadata" className="block aspect-video w-full bg-raised" data-media-livre-video />
         ) : (
-          <div className="flex flex-col gap-2 p-2">
+          <div className="flex aspect-video flex-col justify-center gap-2 p-2" data-media-livre-son>
             <Music className="h-4 w-4 text-faint" aria-hidden />
-            <audio src={adresseDePiece(media.attachmentId)} controls preload="metadata" className="w-full" data-media-livre-son />
+            <LecteurSon id={media.attachmentId} nom={legende} poids={piece?.size} compact className="bg-surface" onAgrandir={piece ? () => setOuverte(true) : undefined} />
           </div>
         )}
       </div>

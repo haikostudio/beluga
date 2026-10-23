@@ -37,6 +37,13 @@ function nomAffiche(cle: CleDeSection, nom: string): string {
   return nom;
 }
 
+/**
+ * LA BULLE GRISE D'UNE RÉPONSE DE L'AGENT, à gauche, symétrique de la vôtre
+ * (`bg-encre`, à droite) — demande du 22/10/2026. Seules les RÉPONSES en
+ * portent une : la compréhension et le compte rendu restent à plat.
+ */
+export const BULLE_DE_L_AGENT = 'bulle-agent min-w-0 overflow-hidden rounded-[20px] bg-raised px-4 py-2.5';
+
 export interface RapportEnFluxProps {
   contenu: string;
   onToggleEvolution?: (text: string) => void;
@@ -52,6 +59,8 @@ export interface RapportEnFluxProps {
    * et garde son alignement.
    */
   dansLaCarte?: boolean;
+  /** Une réponse LIBRE (texte qui n'est pas un compte rendu à sections) se pose dans la bulle grise. */
+  enBulle?: boolean;
 }
 
 export function RapportEnFlux({
@@ -60,11 +69,12 @@ export function RapportEnFlux({
   onToggleAll,
   streaming,
   dansLaCarte,
+  enBulle,
 }: RapportEnFluxProps) {
   const range = React.useMemo(() => rangerLeRapport(contenu), [contenu]);
 
   if (streaming || !range.conforme) {
-    return (
+    const texte = (
       <Markdown
         /* Dans la carte, le texte brut se cale lui aussi sur le bord du titre. */
         className={cn('texte-du-fil', dansLaCarte && 'pl-6')}
@@ -73,6 +83,15 @@ export function RapportEnFlux({
         onToggleAll={onToggleAll}
         streaming={streaming}
       />
+    );
+    /* UNE RÉPONSE LIBRE (pas un compte rendu à sections) d'un agent sans carte
+       se lit dans la bulle grise, comme sur une carte (`MomentDeReponse`). */
+    return enBulle && !dansLaCarte ? (
+      <div data-bulle="agent" data-bulle-reponse className={cn(BULLE_DE_L_AGENT, 'w-fit max-w-full')}>
+        {texte}
+      </div>
+    ) : (
+      texte
     );
   }
 

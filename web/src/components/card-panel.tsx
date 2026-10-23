@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { ContexteEmplacementDuDocument, fermerLeDocument, useDocumentDeCarte } from '@/lib/document-de-carte';
 import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte';
 import {
   AlertTriangle,
@@ -380,8 +381,13 @@ function CardPanelBody({
   React.useEffect(() => {
     const avant = colonneVue.current;
     colonneVue.current = card.column;
-    if (voletDuCahier && avant !== 'archived' && card.column === 'archived') onClose();
-  }, [card.column, voletDuCahier, onClose]);
+    if (!voletDuCahier || avant === 'archived' || card.column !== 'archived') return;
+    /* …ET L'ÉCRAN CÈDE LA PLACE À LA CARTE DE CONSTRUCTION (demande du
+       22/10/2026), prête à partir : son « Lancer » montre les réglages. */
+    const suite = card.cahierDesCharges?.suiteId;
+    if (suite) client.openCard(suite);
+    else onClose();
+  }, [card.column, voletDuCahier, onClose, card.cahierDesCharges?.suiteId]);
   /* L'onglet affiché remonte à l'adresse. */
   React.useEffect(() => {
     remonterOnglet.current?.(ongletActif);
@@ -664,8 +670,26 @@ function CardPanelBody({
     };
   }, [poigneeTenue]);
 
+  /*
+   * LE DOCUMENT OUVERT À CÔTÉ DE LA CONVERSATION (le plan, carte du
+   * 23/10/2026) : un panneau à droite sur ordinateur, une page sur téléphone.
+   * Le fil y rend le plan par un portail (`document-de-carte.tsx`) ;
+   * l'emplacement reste monté, caché, pour que l'ouverture ne passe jamais
+   * par un rendu dans le fil. Il prend la place de l'aperçu du site.
+   */
+  const documentOuvert = useDocumentDeCarte(card.id);
+  const [emplacementDuDocument, setEmplacementDuDocument] = React.useState<HTMLDivElement | null>(null);
+  React.useEffect(() => () => fermerLeDocument(), [card.id]);
+  const documentPleinEcran = !!documentOuvert && telephone;
+  /* Sa largeur, réglable et gardée ; le plafond laisse 360 px à la conversation. */
+  const largeurDuDocument = useResizable('document-de-carte', {
+    initial: 520,
+    min: 360,
+    max: placeDeLaRangee ? Math.max(360, Math.min(960, placeDeLaRangee - 360)) : 960,
+  });
+
   const adresseDeDev = project?.devUrl?.trim() || undefined;
-  const apercuOuvert = apercu && !!adresseDeDev && !voletDuCahier;
+  const apercuOuvert = apercu && !!adresseDeDev && !voletDuCahier && !documentOuvert;
   const apercuPleinEcran = apercuOuvert && telephone;
 
   return (
@@ -678,7 +702,7 @@ function CardPanelBody({
         deuxRangsSurPetitEcran
         /* Aperçu ouvert sur téléphone : la flèche le referme d'abord, et ramène
            à la conversation ; un second appui quitte la carte. */
-        onRetour={apercuPleinEcran ? () => setApercu(false) : onClose}
+        onRetour={documentPleinEcran ? fermerLeDocument : apercuPleinEcran ? () => setApercu(false) : onClose}
         /* Sur ordinateur, le retour est porté par la colonne de gauche. */
         retourDansLaColonne={dansLaColonne}
         chemin={
@@ -868,6 +892,7 @@ function CardPanelBody({
 
       <MentionDeRedaction card={card} />
 
+      <ContexteEmplacementDuDocument.Provider value={emplacementDuDocument}>
       <div ref={setRangee} className="flex min-h-0 flex-1">
       <Tabs
         key={card.id}
@@ -876,15 +901,17 @@ function CardPanelBody({
         onScrollCapture={surDefilement}
         onTouchMoveCapture={noterLeGeste}
         onWheelCapture={noterLeGeste}
-        data-conversation-masquee={apercuPleinEcran ? '' : undefined}
+        data-conversation-masquee={apercuPleinEcran || documentPleinEcran ? '' : undefined}
         style={apercuOuvert && !apercuPleinEcran ? { width: largeurDuChat.width } : undefined}
         className={cn(
           'flex min-h-0 flex-col',
-          apercuPleinEcran
+          apercuPleinEcran || documentPleinEcran
             ? 'hidden'
             : apercuOuvert
               ? 'shrink-0'
-              : cn('mx-auto w-full flex-1', CLASSE_COLONNE_DE_CARTE),
+              : documentOuvert
+                ? 'min-w-0 flex-1'
+                : cn('mx-auto w-full flex-1', CLASSE_COLONNE_DE_CARTE),
         )}
       >
         {/* SUR TÉLÉPHONE, LA BARRE D'ÉTAPES EST COLLÉE SOUS L'EN-TÊTE : la
@@ -954,7 +981,48 @@ function CardPanelBody({
         />
       ) : null}
       {apercuOuvert ? <VoletApercu adresse={adresseDeDev!} projectId={card.projectId} onFermer={() => setApercu(false)} inerte={poigneeTenue} /> : null}
+      {documentOuvert && !documentPleinEcran ? (
+        <ResizeHandle
+          onPointerDown={(event) => largeurDuDocument.start(event, 'right')}
+          onDoubleClick={largeurDuDocument.reset}
+          /* Au-dessus de la piste du pouce de défilement de la conversation (z-20), qui la recouvrait. */
+          className="z-30"
+          data-document-poignee=""
+        />
+      ) : null}
+      {/*
+       * LE VOLET DU DOCUMENT, sur ordinateur : un volet À PART, comme celui de
+       * l'aperçu du site — fond `fond-plan` (gris clair en clair, un cran au-dessus
+       * de la page en sombre ; PAS `surface`, que la page de carte ramène à
+       * `--bg` par son style), et le document
+       * posé dans une fenêtre arrondie au fond `bg` (blanc en clair, le fond
+       * sombre en sombre), liseré `--faint` et ombre très légère. Sa largeur
+       * se règle à la poignée et se garde (`width.document-de-carte`). Sur
+       * téléphone, rien de tout cela : le document est une page entière.
+       */}
+      <div
+        data-volet-du-document=""
+        style={documentOuvert && !documentPleinEcran ? { width: largeurDuDocument.width } : undefined}
+        className={cn(
+          'min-h-0',
+          !documentOuvert
+            ? 'hidden'
+            : documentPleinEcran
+              ? 'flex w-full flex-1 flex-col'
+              : 'flex shrink-0 flex-col bg-fond-plan p-2',
+        )}
+      >
+        <div
+          ref={setEmplacementDuDocument}
+          data-emplacement-du-document=""
+          className={cn(
+            'flex min-h-0 min-w-0 flex-1 flex-col',
+            documentOuvert && !documentPleinEcran && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25',
+          )}
+        />
       </div>
+      </div>
+      </ContexteEmplacementDuDocument.Provider>
 
     </div>
   );

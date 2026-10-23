@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type { EtatDuBoutonDeConfiguration } from '@beluga/shared';
 
 /**
  * CE QUE LES DEUX GESTES DE PUBLICATION ONT À DIRE HORS DE LEUR BOUTON.
@@ -15,7 +16,8 @@ import * as React from 'react';
  * caché, et DISENT ici leur état. Le bouton à trois points et ses deux lignes
  * le lisent, et ouvrent la page du geste par `ouvrir` — la MÊME que le bouton
  * d'origine. Rien n'est recopié, rien ne part d'ici : une ligne de menu ouvre
- * une page, elle ne lance jamais une publication.
+ * une page — ou la conversation de l'agent de configuration, ou la confirmation
+ * de la mise en production —, elle ne lance jamais une publication.
  */
 export type GesteDePublication = 'deploiement' | 'production';
 
@@ -30,6 +32,12 @@ export interface SignalDePublication {
   pourcent: number | null;
   enRoute: boolean;
   tombee: boolean;
+  /**
+   * LA LIGNE MÈNE À L'AGENT DE CONFIGURATION (22/10/2026) : sans procédure, ou
+   * tant que cet agent travaille ou attend une réponse. La ligne le dit (roue,
+   * bulle de question, étincelles) et `ouvrir` ouvre sa conversation.
+   */
+  agent?: EtatDuBoutonDeConfiguration | null;
 }
 
 export type SignalLu = SignalDePublication & { ouvrir: () => void };

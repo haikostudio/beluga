@@ -41,7 +41,7 @@ import type { RubriqueDuCahier } from './cahier-vivant.js';
 import { COLONNES_AVANT_LE_TRAVAIL } from './columns.js';
 import type { EtapeDeSuivi } from './frise-de-suivi.js';
 import type { SegmentDeSuivi } from './parcours-en-points.js';
-import { MARQUE_A_VOIR, partiesDuCahier } from './cahier-des-charges.js';
+import { MARQUE_A_VOIR, estVoletDuCahier, partiesDuCahier } from './cahier-des-charges.js';
 import { REGLE_DES_PISTES } from './pistes-de-question.js';
 
 /**
@@ -127,6 +127,15 @@ export const LIBELLES_PHASES_DE_REALISATION = Object.fromEntries(
   PHASES_DE_REALISATION.map((phase, index) => [phase, RUBRIQUES_DE_REALISATION[index]!]),
 ) as Record<PhaseDeRealisation, string>;
 
+/** Une vignette du tableau d'ambiance : la pièce jointe, la rubrique qu'elle illustre, sa légende. */
+export const PieceDAmbiance = z.object({
+  piece: z.string(),
+  phase: z.enum(PHASES_DE_REALISATION),
+  legende: z.string().optional(),
+  at: z.number(),
+});
+export type PieceDAmbiance = z.infer<typeof PieceDAmbiance>;
+
 /** L'état écrit sur la carte (`Card.realisation`), calqué sur `CahierDesCharges`. */
 export const EtatDeRealisation = z.object({
   /** La réponse à la première question : les types de média voulus. Vide : elle n'est pas encore tranchée. */
@@ -152,6 +161,27 @@ export const EtatDeRealisation = z.object({
    * l'interrupteur, qui ouvre le volet (`estVoletDeRealisation`).
    */
   demandeA: z.number().optional(),
+  /**
+   * L'ENVELOPPE D'APERÇUS, en dollars (décision de l'utilisateur du 22/10/2026) :
+   * demandée juste après les types de média, acceptée d'un clic. Elle paie les
+   * images d'essai fabriquées PENDANT le questionnaire (`decisionDApercu`),
+   * à part du budget principal, qui reste la dernière question. Absente : pas
+   * encore demandée ; 0 : refusée (aucun aperçu).
+   */
+  enveloppe: z.number().nonnegative().optional(),
+  /**
+   * LE TABLEAU D'AMBIANCE : les vignettes retenues pendant le questionnaire
+   * (un choix en images tranché, un aperçu gardé), chacune avec la rubrique
+   * qu'elle illustre. Absent sur les cartes d'avant.
+   */
+  ambiance: z.array(PieceDAmbiance).optional(),
+  /**
+   * LE MONTAGE A COMMENCÉ (décision de l'utilisateur du 22/10/2026) : posée par
+   * le démon quand l'agent de tâche annonce l'assemblage (« realiser » action
+   * « monter »), ou à défaut au premier fichier monté rangé (« ajouter »). Elle
+   * allume l'étape « Montage » du chemin du tournage tant que la carte travaille.
+   */
+  montageA: z.number().optional(),
 });
 export type EtatDeRealisation = z.infer<typeof EtatDeRealisation>;
 
@@ -279,6 +309,206 @@ export function etapeCouranteDeLaRealisation(r: Pick<EtatDeRealisation, 'medias'
   return r.termineA ? 'fabrication' : 'questionnaire';
 }
 
+/* ------------------------------------------------------------------ */
+/* Le chemin du tournage : sept étapes, une équipe qui se passe le relais */
+/* ------------------------------------------------------------------ */
+
+/**
+ * LES SEPT ÉTAPES VISIBLES du chemin (décision de l'utilisateur du 22/10/2026) :
+ * les douze rubriques du questionnaire se regroupent en quatre étapes avant le
+ * lancement (idée, style, scénario, budget), puis la fabrication, le montage
+ * et la livraison. Le chemin vit DANS le fil (`chemin-de-realisation.tsx`),
+ * jamais en bandeau fixe : le bandeau a été retiré le 21/10/2026.
+ */
+export const JALONS_DE_REALISATION = ['idee', 'style', 'scenario', 'budget', 'fabrication', 'montage', 'livre'] as const;
+export type JalonDeRealisation = (typeof JALONS_DE_REALISATION)[number];
+
+export const LIBELLES_JALONS_DE_REALISATION: Record<JalonDeRealisation, string> = {
+  idee: 'Idée',
+  style: 'Style',
+  scenario: 'Scénario',
+  budget: 'Budget',
+  fabrication: 'Fabrication',
+  montage: 'Montage',
+  livre: 'Livré',
+};
+
+/** L'ÉQUIPE DE TOURNAGE : qui parle à chaque moment du questionnaire, puis de la fabrication. */
+export const ROLES_DE_REALISATION = ['directeur-artistique', 'realisateur', 'monteur', 'producteur'] as const;
+export type RoleDeRealisation = (typeof ROLES_DE_REALISATION)[number];
+
+/** L'étape du chemin où se range chaque rubrique du questionnaire. */
+export const JALON_DE_LA_PHASE: Record<PhaseDeRealisation, JalonDeRealisation> = {
+  intention: 'idee',
+  format: 'idee',
+  direction: 'style',
+  personnages: 'style',
+  scenario: 'scenario',
+  plans: 'scenario',
+  son: 'scenario',
+  montage: 'scenario',
+  droits: 'scenario',
+  controle: 'scenario',
+  devis: 'budget',
+  budget: 'budget',
+};
+
+/** Qui mène chaque rubrique : le relais passe du directeur artistique au réalisateur, au monteur, puis au producteur. */
+export const ROLE_DE_LA_PHASE: Record<PhaseDeRealisation, RoleDeRealisation> = {
+  intention: 'directeur-artistique',
+  format: 'directeur-artistique',
+  direction: 'directeur-artistique',
+  personnages: 'directeur-artistique',
+  scenario: 'realisateur',
+  plans: 'realisateur',
+  son: 'realisateur',
+  montage: 'monteur',
+  droits: 'monteur',
+  controle: 'monteur',
+  devis: 'producteur',
+  budget: 'producteur',
+};
+
+/** Qui mène chaque étape une fois le questionnaire passé. */
+const ROLE_APRES_LE_QUESTIONNAIRE: Record<'fabrication' | 'montage' | 'livre', RoleDeRealisation> = {
+  fabrication: 'realisateur',
+  montage: 'monteur',
+  livre: 'monteur',
+};
+
+export type EtatDUnJalon = 'fait' | 'encours' | 'pret' | 'avenir';
+
+export interface CheminDeRealisation {
+  /** L'étape où l'on est. */
+  jalon: JalonDeRealisation;
+  /** Celui qui parle maintenant. */
+  role: RoleDeRealisation;
+  /** Les sept étapes, chacune avec son état ; `pret` : la fabrication attend le clic. */
+  etapes: { jalon: JalonDeRealisation; etat: EtatDUnJalon }[];
+  /** L'étape suivante, pour l'annoncer ; absente une fois livré. */
+  suivant?: { jalon: JalonDeRealisation; role: RoleDeRealisation };
+}
+
+/**
+ * OÙ EN EST LE TOURNAGE ? Calculé depuis la carte seule — sa colonne et
+ * `Card.realisation` —, jamais depuis les messages. Une carte d'avant (ni
+ * enveloppe ni ambiance, ancien « genre ») se lit aussi : elle n'a besoin que
+ * de sa phase.
+ */
+export function cheminDeLaRealisation(carte: {
+  column?: string;
+  realisation?: Partial<Pick<EtatDeRealisation, 'medias' | 'genre' | 'phase' | 'termineA' | 'enveloppe' | 'montageA'>> | null;
+}): CheminDeRealisation {
+  const r = carte.realisation ?? {};
+  const colonne = String(carte.column ?? '');
+  const avant = (COLONNES_AVANT_LE_TRAVAIL as readonly string[]).includes(colonne) || !colonne;
+  let jalon: JalonDeRealisation;
+  let role: RoleDeRealisation;
+  let pret = false;
+  if (!avant) {
+    /* Au travail : la fabrication, puis le montage une fois l'assemblage
+       annoncé (`montageA`) ; au-delà (à déployer, terminé, archivé), le média est livré. */
+    jalon = colonne === 'running' ? (r.montageA ? 'montage' : 'fabrication') : 'livre';
+    role = ROLE_APRES_LE_QUESTIONNAIRE[jalon as 'fabrication' | 'montage' | 'livre'];
+  } else if (r.termineA) {
+    jalon = 'fabrication';
+    role = 'realisateur';
+    pret = true;
+  } else if (!typesDeMediaDeLaRealisation(r).length) {
+    jalon = 'idee';
+    role = 'directeur-artistique';
+  } else if (r.enveloppe === undefined && (r.phase ?? 'intention') === 'intention') {
+    /* Juste après les types de média, le producteur propose l'enveloppe d'aperçus. */
+    jalon = 'idee';
+    role = 'producteur';
+  } else {
+    const phase = (PHASES_DE_REALISATION as readonly string[]).includes(String(r.phase)) ? (r.phase as PhaseDeRealisation) : 'intention';
+    jalon = JALON_DE_LA_PHASE[phase];
+    role = ROLE_DE_LA_PHASE[phase];
+  }
+  const rang = JALONS_DE_REALISATION.indexOf(jalon);
+  const livre = jalon === 'livre';
+  const etapes = JALONS_DE_REALISATION.map((j, i) => ({
+    jalon: j,
+    etat: (i < rang || (livre && i === rang) ? 'fait' : i === rang ? (pret ? 'pret' : 'encours') : 'avenir') as EtatDUnJalon,
+  }));
+  const prochain = livre ? undefined : JALONS_DE_REALISATION[rang + 1];
+  return {
+    jalon,
+    role,
+    etapes,
+    ...(prochain ? { suivant: { jalon: prochain, role: roleDuJalon(prochain) } } : {}),
+  };
+}
+
+/**
+ * LE CHEMIN SE MONTRE dans le fil d'une carte caméra : pendant le
+ * questionnaire (le volet), puis pendant et après la fabrication d'un cahier
+ * terminé. Jamais sur une carte où la caméra est éteinte.
+ */
+export function cheminDeRealisationVisible(
+  carte:
+    | (Parameters<typeof estVoletDeRealisation>[0] & { realisation?: Partial<Pick<EtatDeRealisation, 'termineA' | 'demandeA' | 'medias' | 'genre'>> | null })
+    | null
+    | undefined,
+): boolean {
+  if (!carte?.parcours?.realisationSouhaitee || carte.archivedAt) return false;
+  return estVoletDeRealisation(carte) || !!carte.realisation?.termineA;
+}
+
+/** Le membre de l'équipe qui ouvre une étape. */
+export function roleDuJalon(jalon: JalonDeRealisation): RoleDeRealisation {
+  if (jalon === 'fabrication' || jalon === 'montage' || jalon === 'livre') return ROLE_APRES_LE_QUESTIONNAIRE[jalon];
+  const phase = PHASES_DE_REALISATION.find((p) => JALON_DE_LA_PHASE[p] === jalon)!;
+  return ROLE_DE_LA_PHASE[phase];
+}
+
+/* ------------------------------------------------------------------ */
+/* L'enveloppe d'aperçus et le tableau d'ambiance                       */
+/* ------------------------------------------------------------------ */
+
+/** L'enveloppe proposée par défaut, et son plafond : quelques images d'essai, pas une fabrication. */
+export const ENVELOPPE_CONSEILLEE = 1;
+export const ENVELOPPE_MAXIMALE = 5;
+
+/** Les aperçus se reconnaissent à leur nom de plan : ils ne comptent JAMAIS dans le budget principal. */
+export const PREFIXE_DES_APERCUS = 'apercu-';
+
+/** Le modèle des aperçus par défaut : le moins cher du catalogue, au prix publié par fal.ai. */
+export const MODELE_DES_APERCUS = { service: 'fal', id: 'fal-ai/flux/schnell' } as const;
+
+export function estUnApercu(plan: string): boolean {
+  return plan.startsWith(PREFIXE_DES_APERCUS);
+}
+
+/**
+ * PEUT-ON FABRIQUER CET APERÇU ? La porte de dépense DU CADRAGE, distincte de
+ * « realiser » (réservé à l'agent de tâche) : rien sans enveloppe acceptée,
+ * rien dont le prix n'est pas publié (personne ne valide un aperçu un par un),
+ * jamais au-delà de l'enveloppe. La règle de fond reste `decisionDeDepense`,
+ * appliquée avec l'enveloppe comme budget ET comme seuil.
+ */
+export function decisionDApercu(e: { enveloppe: number | undefined; prix: number | null; depense: number }): DecisionDeDepense {
+  if (e.enveloppe === undefined) {
+    return { verdict: 'refus', raison: 'l’enveloppe d’aperçus n’est pas encore demandée : pose-la avec « ask_user », puis passe « enveloppe » à « cahier_de_realisation ».' };
+  }
+  if (e.enveloppe <= 0) return { verdict: 'refus', raison: 'l’utilisateur a refusé l’enveloppe d’aperçus : continue avec des choix décrits en mots.' };
+  if (e.prix === null) return { verdict: 'refus', raison: 'ce modèle ne publie pas son prix : un aperçu ne part qu’avec un prix connu. Choisis un modèle d’image au prix publié (fal.ai).' };
+  const decision = decisionDeDepense({ prix: e.prix, depense: e.depense, budget: e.enveloppe, seuil: e.enveloppe });
+  if (decision.verdict === 'refus') {
+    return { verdict: 'refus', raison: `l’enveloppe d’aperçus de ${e.enveloppe} $ ne suffit plus (${arrondi(e.depense)} $ déjà dépensés, cet aperçu coûte ${arrondi(e.prix)} $) : continue avec des choix décrits en mots.` };
+  }
+  return decision;
+}
+
+/** Ajoute une vignette au tableau d'ambiance, sans doublon (la même pièce n'y entre qu'une fois). */
+export function ajouterALAmbiance(r: EtatDeRealisation, pieces: readonly Omit<PieceDAmbiance, 'at'>[], at: number): EtatDeRealisation {
+  const deja = new Set((r.ambiance ?? []).map((p) => p.piece));
+  const nouvelles = pieces.filter((p) => p.piece && !deja.has(p.piece)).map((p) => ({ ...p, at }));
+  if (!nouvelles.length) return r;
+  return { ...r, ambiance: [...(r.ambiance ?? []), ...nouvelles].slice(-24) };
+}
+
 /** Le verdict d'un bouton du bandeau : possible, ou la raison de son extinction. */
 export interface VerdictDeRealisation {
   possible: boolean;
@@ -328,6 +558,16 @@ export function lireAvancementDeRealisation(
     return { ok: false, raison: `Type de média inconnu « ${inconnus[0]} » : ${TYPES_DE_MEDIA_DE_REALISATION.join(', ')}.` };
   }
   const medias = [...new Set(brut.filter(Boolean))] as TypeDeMediaDeRealisation[];
+  /* L'ENVELOPPE D'APERÇUS : un montant en dollars, borné ; absente, celle de la carte. */
+  let enveloppe = avant.enveloppe;
+  if (args.enveloppe !== undefined && args.enveloppe !== null && args.enveloppe !== '') {
+    const n = typeof args.enveloppe === 'string' ? Number(args.enveloppe.replace(',', '.')) : Number(args.enveloppe);
+    if (!Number.isFinite(n) || n < 0) return { ok: false, raison: '« enveloppe » est un montant en dollars, 0 pour « pas d’aperçus ».' };
+    if (n > ENVELOPPE_MAXIMALE) {
+      return { ok: false, raison: `L’enveloppe d’aperçus reste petite : ${ENVELOPPE_MAXIMALE} $ au plus. Le budget de la fabrication, lui, se demande à la fin.` };
+    }
+    enveloppe = Math.round(n * 100) / 100;
+  }
   return {
     ok: true,
     realisation: {
@@ -342,6 +582,8 @@ export function lireAvancementDeRealisation(
       termineA: termine ? avant.termineA ?? maintenant : undefined,
       /* La date du premier envoi ne se perd pas à la réécriture : c'est elle qui tient le volet ouvert. */
       ...(avant.demandeA ? { demandeA: avant.demandeA } : {}),
+      ...(enveloppe !== undefined ? { enveloppe } : {}),
+      ...(avant.ambiance?.length ? { ambiance: avant.ambiance } : {}),
     },
   };
 }
@@ -375,14 +617,24 @@ export function nomDeLaRealisationExportee(titreDeLaCarte: string, format: 'pdf'
  * (choix multiple, audio compris). Une fois tranchés, ils arrivent dans la
  * consigne et l'agent ne les redemande jamais.
  */
-export function consigneDuQuestionnaire(e: { medias?: readonly TypeDeMediaDeRealisation[]; document: string }): string {
+export function consigneDuQuestionnaire(e: { medias?: readonly TypeDeMediaDeRealisation[]; document: string; enveloppe?: number }): string {
   const choisis = e.medias ?? [];
   const types = choisis.length
     ? `L’UTILISATEUR A DÉJÀ RÉPONDU À « ${PREMIERE_QUESTION_DE_REALISATION} » : ${libelleDesTypesDeMedia(choisis).toUpperCase()}. Ne repose JAMAIS cette question ; si sa demande change les types voulus, repose-la une fois et passe la nouvelle liste dans « medias ».`
     : `AUCUN TYPE DE MÉDIA N’EST ENCORE CHOISI. Ta PREMIÈRE question, avant toute autre, est « ${PREMIERE_QUESTION_DE_REALISATION} » avec « ask_user » en choix MULTIPLE (kind « multiple »), avec ces options et leur description : ${TYPES_DE_MEDIA_DE_REALISATION.map((t) => `« ${LIBELLES_TYPES_DE_MEDIA_DE_REALISATION[t]} » (${DESCRIPTIONS_TYPES_DE_MEDIA_DE_REALISATION[t]})`).join(', ')}. Recommande celles que la demande de l’utilisateur appelle déjà. Dès sa réponse, écris un premier document avec « cahier_de_realisation » en passant « medias » = la liste choisie (valeurs : ${TYPES_DE_MEDIA_DE_REALISATION.join(', ')}) : l’outil REFUSE d’écrire tant que « medias » n’est pas donné. Rien ne se fabrique et aucune autre question ne se pose avant cette réponse.`;
+  const enveloppe =
+    e.enveloppe === undefined
+      ? `1 bis. L’ENVELOPPE D’APERÇUS — la question JUSTE APRÈS les types de média, avant toute autre, posée par le PRODUCTEUR : « ask_user » en choix unique, « Une petite enveloppe pour fabriquer des aperçus ? », avec en description qu’elle paie quelques images d’essai pour choisir le style en images, à part du budget de la fabrication (demandé à la fin). Options : « ${ENVELOPPE_CONSEILLEE} $ (recommandé) », « 2 $ », « Pas d’aperçus ». Dès la réponse, passe « enveloppe » (en dollars, 0 pour « pas d’aperçus », ${ENVELOPPE_MAXIMALE} $ au plus) à « cahier_de_realisation ».`
+      : e.enveloppe > 0
+        ? `1 bis. L’ENVELOPPE D’APERÇUS EST ACCEPTÉE : ${e.enveloppe} $. Ne la redemande pas.`
+        : '1 bis. L’utilisateur a REFUSÉ l’enveloppe d’aperçus : aucun aperçu, tous les choix se posent en mots. Ne la redemande pas.';
   return [
     'MODE RÉALISATION ALLUMÉ SUR CETTE CARTE (bouton caméra) — tu cadres une IMAGE ou une VIDÉO, en réalisateur, scénariste et directeur de la photographie. Ce questionnaire REMPLACE les questions génériques de cadrage, et il SUIT LE PARCOURS DU CAHIER DES CHARGES : une question à la fois, un document réécrit après chaque réponse, une pause possible à tout moment.',
     `1. ${types}`,
+    enveloppe,
+    `1 ter. L’ÉQUIPE DE TOURNAGE SE PASSE LE RELAIS. L’utilisateur voit dans le fil un chemin de sept étapes (${JALONS_DE_REALISATION.map((j) => LIBELLES_JALONS_DE_REALISATION[j]).join(', ')}) et le membre de l’équipe qui parle, déduits de « phase » : tiens « phase » exacte à chaque appel. Les rubriques ${PHASES_DE_REALISATION.filter((p) => ROLE_DE_LA_PHASE[p] === 'directeur-artistique').join(', ')} sont menées par le DIRECTEUR ARTISTIQUE ; ${PHASES_DE_REALISATION.filter((p) => ROLE_DE_LA_PHASE[p] === 'realisateur').join(', ')} par le RÉALISATEUR ; ${PHASES_DE_REALISATION.filter((p) => ROLE_DE_LA_PHASE[p] === 'monteur').join(', ')} par le MONTEUR ; l’enveloppe, ${PHASES_DE_REALISATION.filter((p) => ROLE_DE_LA_PHASE[p] === 'producteur').join(', ')} par le PRODUCTEUR. Avant chaque question, écris UNE phrase courte et vivante au nom de celui qui parle ; quand la rubrique change de membre, annonce le passage de relais (« Je laisse la main au réalisateur pour le scénario. »). Ton ton reste celui d’un plateau de tournage, jamais d’un formulaire.`,
+    `1 quater. LES CHOIX EN IMAGES : pour les questions de style, d’ambiance, de personnage et de cadrage (rubriques direction, personnages, plans), quand l’enveloppe est acceptée, fabrique d’abord DEUX ou TROIS aperçus avec « apercu_de_realisation » (une consigne d’image en anglais par proposition, une légende de quelques mots), puis pose « ask_user » avec une option par aperçu, l’identifiant rendu dans « image » de l’option et la légende en « label ». Le choix retenu rejoint seul le tableau d’ambiance de la carte ; un aperçu à garder sans question passe dans « ambiance » de « cahier_de_realisation ». Quand l’outil refuse (enveloppe vide ou épuisée, service non branché), pose la question en mots et continue : ne redemande jamais d’argent pour un aperçu.`,
+    '1 quinquies. LES CHOIX QUI S’ÉCOUTENT : quand tu fais comparer des voix, des musiques ou des vidéos d’essai, joins chaque fichier avec « attach_file », puis pose « ask_user » avec une option par fichier et l’identifiant rendu dans « media » de l’option : un bouton lecture s’affiche à droite du choix (le son se lit sur place, la vidéo s’ouvre en grand). Commence le libellé de chaque option par le même repère que la légende du fichier joint (« Voix A : … »).',
     '2. UNE question à la fois avec « ask_user », seulement celles qui comptent pour les médias CHOISIS, chacune avec des choix concrets et ta recommandation en tête, marquée « (recommandé) » : genre de production (publicité produit, publicité d’application, film de marque, accroche pour les réseaux, clip, présentation, immobilier, film d’animation, tutoriel…), objectif, public, message, accroche et appel à l’action, durée et formats (vertical 9:16, carré 1:1, portrait 4:5, horizontal 16:9), histoire et découpage en scènes puis en plans, style visuel et références, cadrage, optique et mouvements de caméra, lumière, étalonnage et couleurs, personnages, décors et costumes à garder cohérents, présentateur humain et langues de déclinaison, voix off, musique et bruitages, textes à l’écran et sous-titres, images de référence fournies (première et dernière image d’un plan), ce qui vient d’un écran réel et ce qui est généré, licences. Pour la MUSIQUE : usage, durée, ambiance et émotion, genre musical et références, tempo, instruments, voix chantée ou non, paroles, boucle ou titre complet, licence. Pour la VOIX OFF : texte exact, langue, ton, rythme, voix homme ou femme. Pour les BRUITAGES : liste des sons, durée, moments du plan où ils tombent. Une rubrique qui ne concerne aucun des médias choisis s’écrit « Sans objet ». L’utilisateur répond dans le panneau de décision : une fois le premier message envoyé et tant que le cahier n’est pas terminé, il n’a pas de barre d’écriture sur cette carte (voir le point 7 bis pour la suite).',
     `2 bis. ${REGLE_DES_PISTES} Exemple : pour « comment la vidéo invite-t-elle à vous contacter ? », ne propose pas seulement « adresse du site » et « formulaire » ; ajoute par exemple un mot-clé dit par le présentateur puis un message direct, un code à l’écran, une offre limitée dans le temps.`,
     '3. TU AGIS EN DIRECTEUR ARTISTIQUE, RÉALISATEUR PUBLICITAIRE ET SUPERVISEUR DE POSTPRODUCTION — pas en simple générateur. La chaîne : brief commercial → direction artistique → storyboard → prompts par plan → génération → montage → validation. Le cahier couvre TOUTE la chaîne, jusqu’aux prompts et au contrôle, pas seulement le brief et le storyboard. Huit règles de fond :',
@@ -398,9 +650,9 @@ export function consigneDuQuestionnaire(e: { medias?: readonly TypeDeMediaDeReal
     `5. APRÈS CHAQUE RÉPONSE, AVANT LA QUESTION SUIVANTE, appelle « cahier_de_realisation » avec le document ENTIER mis à jour et l’avancement : « faites » (questions tranchées, le genre compris), « total » (questions prévues, ajusté en chemin), « phase » (${PHASES_DE_REALISATION.join(', ')}), « restants » (ce qui reste à voir, quelques mots chacun). L’outil l’écrit dans ${e.document} du projet ; l’utilisateur le lit depuis la carte pendant qu’il s’écrit. Le document porte ces rubriques « ## », dans cet ordre : ${RUBRIQUES_DE_REALISATION.map((r) => `« ${r} »`).join(', ')} ; une rubrique pas encore tranchée porte « ${MARQUE_A_VOIR} », une rubrique sans objet pour ce média s’écrit « Sans objet : <raison> ». « Budget et seuil » s’écrit EXACTEMENT sous cette forme, sur trois lignes : « Budget total : <montant> $ », « Seuil d’accord par génération : <montant> $ » puis « Nouvelles tentatives maximales par plan : <nombre> ».`,
     '6. L’UTILISATEUR PEUT METTRE EN PAUSE à tout moment : ton tour s’arrête net. À la reprise, on te redonne le document et l’avancement : ne repose JAMAIS une question déjà tranchée.',
     `7. QUAND TOUT EST TRANCHÉ (budget et seuil compris) : relis le document comme un directeur de production — chaque rubrique écrite, chaque plan avec son prompt et sa mention généré ou monté, chaque montant avec son assiette, devis et budget cohérents. Puis appelle « cahier_de_realisation » avec « termine » = vrai et le document complet, sans plus aucune marque « ${MARQUE_A_VOIR} » : l’outil REFUSE de terminer tant qu’une rubrique manque ou reste à voir, et te dit laquelle. Tu ne rends PAS de plan : le document le remplace. Termine ton tour par une phrase qui dit que le cahier de réalisation est complet et que la fabrication part au clic sur « Lancer la fabrication ».`,
-    `7 bis. APRÈS « TERMINÉ », L’UTILISATEUR PEUT ÉCRIRE : la barre d’écriture revient sous le bandeau pour demander une amélioration du cahier (un plan à changer, un ton, un budget, une rubrique à creuser). Relis alors ${e.document}, applique la demande, puis réécris le document ENTIER avec « cahier_de_realisation » et « termine » = vrai (tout reste complet et sans « ${MARQUE_A_VOIR} »). Si la demande rouvre une VRAIE question, appelle l’outil avec « termine » = faux, pose la question avec « ask_user » puis reviens au point 7. Sans « termine » dans l’appel, le cahier repasse « en cours ». Tu ne rends pas de plan et tu ne lances pas la fabrication : elle part au clic sur « Lancer la fabrication ». Termine par une phrase qui dit ce qui a changé dans le cahier.`,
+    `7 bis. APRÈS « TERMINÉ », L’UTILISATEUR PEUT ÉCRIRE : la barre d’écriture revient sous le fil pour demander une amélioration du cahier (un plan à changer, un ton, un budget, une rubrique à creuser). Relis alors ${e.document}, applique la demande, puis réécris le document ENTIER avec « cahier_de_realisation » et « termine » = vrai (tout reste complet et sans « ${MARQUE_A_VOIR} »). Si la demande rouvre une VRAIE question, appelle l’outil avec « termine » = faux, pose la question avec « ask_user » puis reviens au point 7. Sans « termine » dans l’appel, le cahier repasse « en cours ». Tu ne rends pas de plan et tu ne lances pas la fabrication : elle part au clic sur « Lancer la fabrication ». Termine par une phrase qui dit ce qui a changé dans le cahier.`,
     `8. Appuie tes questions et ton découpage sur ${COMPETENCES_DE_REALISATION}.`,
-    'Rien ne se génère pendant le cadrage : la fabrication part au lancement de la carte, par l’agent de tâche.',
+    'Rien d’autre que les aperçus de l’enveloppe ne se génère pendant le cadrage : la fabrication part au lancement de la carte, par l’agent de tâche.',
   ].join('\n');
 }
 
@@ -617,8 +869,36 @@ export function consigneDeFabrication(e: BudgetDeRealisation & { depense: number
     '2. FABRIQUE DANS L’ORDRE : bible visuelle et images de référence (un personnage, un décor) d’abord, validées en les REGARDANT ; puis les plans, un par un ; puis le montage. Ne génère QUE ce que le cahier marque « généré » : les vraies captures du produit s’incrustent au montage, jamais inventées par un générateur. Choisis le modèle de chaque plan avec « realiser » action « modeles » (filtré par capacité : image, video, voix, son, musique, avatar) : la qualité d’abord, puis le coût.',
     '3. AVANT CHAQUE génération, fais un « devis » : il rend le prix. Écris alors dans ta réponse, en une ligne lisible : 🎬 <plan> — <modèle> (<service>) — <prix> — <pourquoi>. Puis « generer » avec l’identifiant du devis. Au-delà du seuil, ou quand le prix n’est pas publié, « generer » pose la question d’accord et ATTEND la réponse : rappelle alors « generer » avec le même devis. Une génération aboutie se facture même ratée : respecte le nombre maximal de nouvelles tentatives par plan écrit dans « Budget et seuil » ; au-delà, arrête-toi et demande.',
     '4. « suivre » attend le résultat (une vidéo prend plusieurs minutes) ; le média paraît dans le fil de la carte. REGARDE chaque image ou première image d’un plan avant de passer au suivant (lis le fichier rendu) et juge-le avec les critères de la rubrique « Contrôle qualité » (visages, mains, continuité, identité des personnages, texte parasite) : un plan raté se refait seul avec un nouveau devis (version suivante), sans refaire le reste.',
-    '5. Le montage final (enchaînement des plans, vraies interfaces incrustées, voix, musique, sous-titres, titres, appel à l’action, formats vertical, carré et horizontal avec leurs zones de sécurité) se fait avec ffmpeg dans le dossier des médias, comme « Montage et incrustations » l’écrit ; le fichier monté se range avec « realiser » action « ajouter ». Contrôle le résultat final (montants affichés, lisibilité sur téléphone, synchronisation) avant de le rendre.',
+    '5. Le montage final (enchaînement des plans, vraies interfaces incrustées, voix, musique, sous-titres, titres, appel à l’action, formats vertical, carré et horizontal avec leurs zones de sécurité) se fait avec ffmpeg dans le dossier des médias, comme « Montage et incrustations » l’écrit ; le fichier monté se range avec « realiser » action « ajouter ». Contrôle le résultat final (montants affichés, lisibilité sur téléphone, synchronisation) avant de le rendre. JUSTE AVANT d’assembler, appelle « realiser » action « monter » : l’étape « Montage » s’allume sur le chemin du tournage que l’utilisateur suit.',
     '6. Ta réponse finale est un RAPPORT : tous les médias produits (« realiser » action « lister »), les modèles et réglages employés, les crédits dépensés et ce qui reste du budget, les défauts restants, les fichiers sources réutilisables.',
     `Savoir-faire : ${COMPETENCES_DE_REALISATION}.`,
   ].join('\n');
+}
+
+/**
+ * LA BARRE D'ÉCRITURE DES DEUX VOLETS (cahier des charges et réalisation),
+ * UN SEUL PRÉDICAT pour l'écran et les contrôles. Elle revient :
+ *  - dans les cas propres au volet de réalisation (`barreDEcritureDuVoletDeRealisation`) ;
+ *  - sur un cahier des charges EN PAUSE (on reprend en écrivant, `leverLaPauseSurMessage`) ;
+ *  - PENDANT QUE L'AGENT TRAVAILLE (demande du 22/10/2026) : sans elle, rien
+ *    pour Suspendre ni pour envoyer un message en priorité pendant la
+ *    réflexion. « Travaille » = le témoin du tour vivant (`temoinDeTravail`),
+ *    pas le dernier message, pour ne pas clignoter entre deux outils.
+ * Une QUESTION EN ATTENTE garde la main : on y répond dans le panneau de
+ * décision, jamais dans deux endroits à la fois (l'agent est arrêté dessus).
+ */
+export function barreDEcritureDuVolet(
+  carte:
+    | (Parameters<typeof barreDEcritureDuVoletDeRealisation>[0] & {
+        cahierDesCharges?: { enPauseA?: number | null } | null;
+      })
+    | null
+    | undefined,
+  etat: { travaille: boolean; questionEnAttente: boolean },
+): boolean {
+  if (barreDEcritureDuVoletDeRealisation(carte)) return true;
+  const cahier = estVoletDuCahier(carte);
+  if (!cahier && !estVoletDeRealisation(carte)) return false;
+  if (cahier && carte?.cahierDesCharges?.enPauseA) return true;
+  return etat.travaille && !etat.questionEnAttente;
 }

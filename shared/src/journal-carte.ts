@@ -68,6 +68,27 @@ export const PLAFOND_RESULTAT = 8000;
 export const PLAFOND_PARAMS = 2000;
 
 /**
+ * LE DÉTAIL D'UNE ÉTAPE DE MOTEUR EST COUPÉ À 400 SIGNES — sauf la réponse à une
+ * question. Les adaptateurs (Claude, Cursor, Codex) rognent le résultat d'un
+ * outil pour l'écran en direct : une sortie de commande n'a pas à peser plus.
+ * Mais le résultat de `ask_user` EST la réponse de l'utilisateur, que le fil
+ * relit pour l'encadré « Question posée » (`reponseALaQuestion`) : coupée à 400,
+ * la précision écrite à la main s'arrêtait au milieu d'un mot. Ces outils-là
+ * gardent leur résultat jusqu'à la borne du journal, et seulement eux.
+ */
+export const PLAFOND_DETAIL_D_ETAPE = 400;
+const OUTILS_A_REPONSE_ENTIERE = /(?:^|__)(ask_user|suggerer_modele|realiser)$/;
+
+export function plafondDuDetailDEtape(outil: string | undefined): number {
+  return outil && OUTILS_A_REPONSE_ENTIERE.test(outil) ? PLAFOND_RESULTAT : PLAFOND_DETAIL_D_ETAPE;
+}
+
+/** Le détail d'une étape terminée, coupé selon l'outil qui l'a rendu. */
+export function detailDEtape(outil: string | undefined, texte: string | undefined): string | undefined {
+  return texte === undefined ? undefined : texte.slice(0, plafondDuDetailDEtape(outil));
+}
+
+/**
  * Coupe un texte à sa borne en DISANT ce qui manque. Un texte vide reste vide :
  * un outil qui n'a rien rendu ne doit pas paraître avoir été coupé.
  */

@@ -86,6 +86,7 @@ export function ResizeHandle({
   cacheAuRepos?: boolean;
   'data-studio-poignee'?: string;
   'data-conversation-poignee'?: string;
+  'data-document-poignee'?: string;
 }) {
   return (
     <div

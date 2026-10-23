@@ -1318,6 +1318,14 @@ export const Card = z.object({
    */
   cahierDesCharges: CahierDesCharges.optional(),
   /**
+   * LA CARTE DE CONSTRUCTION NÉE D'UN CAHIER DES CHARGES TERMINÉ (demande du
+   * 22/10/2026) : ni compréhension ni plan, son bouton « Lancer » ouvre les
+   * réglages de l'agent avec « Valider la configuration et lancer ». Le
+   * lancement automatique ne la prend jamais. Vit dans le blob `data` : aucune
+   * migration (`laCarteSeLanceApresConfiguration`, `shared/src/parcours-carte.ts`).
+   */
+  suiteDuCahier: z.object({ cahierId: z.string() }).optional(),
+  /**
    * LE QUESTIONNAIRE DE RÉALISATION (caméra) : genre choisi, avancement, phase,
    * points restants et pause — le même état explicite que le cahier des
    * charges, pour reprendre exactement où on s'était arrêté
@@ -1716,7 +1724,24 @@ export const AgentQuestion = z.object({
    */
   description: z.string().optional(),
   kind: z.enum(['single', 'multiple', 'text']).default('single'),
-  options: z.array(z.object({ id: z.string(), label: z.string(), description: z.string().optional() })).default([]),
+  /**
+   * `image` : l'identifiant d'une pièce jointe qui ILLUSTRE le choix (mode
+   * Réalisation, 22/10/2026) — la question s'affiche alors en vignettes
+   * cliquables. Absente : la pastille de texte habituelle.
+   * `media` : l'identifiant d'une pièce jointe SON ou VIDÉO que le choix fait
+   * écouter (23/10/2026) — un bouton lecture à droite, sans changer la forme.
+   */
+  options: z
+    .array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+        description: z.string().optional(),
+        image: z.string().optional(),
+        media: z.string().optional(),
+      }),
+    )
+    .default([]),
   /** Un complément libre est toujours possible, en plus des choix. */
   allowFreeText: z.boolean().default(true),
   answer: z.string().optional(),

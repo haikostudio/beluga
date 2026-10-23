@@ -69,7 +69,13 @@ import {
   detailDeLEtape,
   avecEtatDeTache,
   lotMisEnLigne,
+  bilanDuLotEntierEcarte,
   cartesHeurtees,
+  cartesIntrouvables,
+  estUnEnregistrement,
+  planDeRapatriement,
+  raisonDeLAbsence,
+  raisonDeLaNonArrivee,
   mentionDeLEcartement,
   rattrapagesAPoser,
   type CarteFusionneeDuLot,
@@ -545,6 +551,59 @@ async function seposerSurLaBranche(cwd: string, branche: string): Promise<{ ok: 
     await runGit(cwd, ['push', '-u', 'origin', branche], 120000).catch(() => undefined);
   }
   return creee;
+}
+
+/**
+ * LA BRANCHE D'UNE CARTE, RAPATRIÉE AVANT SA FUSION.
+ *
+ * La fusion cherchait la branche dans le seul dossier local : une branche qui
+ * n'existait que sur GitHub était sautée en silence, puis la carte archivée
+ * comme déployée (23/10/2026). On lit donc AUSSI le distant : seule chez lui,
+ * la branche locale est CRÉÉE depuis lui ; en avance sur la locale, celle-ci
+ * est AVANCÉE. Jamais de `checkout` (on est posé sur la branche d'accueil),
+ * jamais d'envoi. Une locale tenue par la copie de travail d'une carte refuse
+ * d'être avancée : on fusionne alors le distant directement.
+ *
+ * Rend ce qu'il faut fusionner (`cible`) et l'enregistrement RELEVÉ AVANT la
+ * fusion (`sha`), qui sert ensuite à prouver l'arrivée — ou `null` si la
+ * branche n'existe nulle part. Un distant absent ou muet ne fait pas tomber
+ * l'étape : la branche est seulement cherchée en local.
+ */
+export async function rapatrierLaBrancheDeLaCarte(
+  cwd: string,
+  branch: string,
+): Promise<{ cible: string; sha: string; recit?: string } | null> {
+  const lire = async (ref: string) => {
+    const lu = await runCommand(cwd, `git rev-parse --verify --quiet ${ref}`, 20000);
+    return lu.ok && estUnEnregistrement(lu.out) ? lu.out.trim() : null;
+  };
+  const aOrigin = (await runCommand(cwd, 'git remote', 20000)).out.split('\n').some((n) => n.trim() === 'origin');
+  if (aOrigin) await runCommand(cwd, `git fetch --quiet origin ${branch}`, 60000);
+  const locale = await lire(`refs/heads/${branch}`);
+  const distante = aOrigin ? await lire(`refs/remotes/origin/${branch}`) : null;
+  const localeEnRetard =
+    !!locale && !!distante && locale !== distante
+      ? (await runCommand(cwd, `git merge-base --is-ancestor ${locale} ${distante}`, 20000)).ok
+      : false;
+
+  switch (planDeRapatriement({ locale, distante, localeEnRetard })) {
+    case 'introuvable':
+      return null;
+    case 'locale':
+      return { cible: branch, sha: locale! };
+    case 'creer': {
+      const creee = await runCommand(cwd, `git branch ${branch} ${distante}`, 20000);
+      return creee.ok
+        ? { cible: branch, sha: distante!, recit: 'rapatriée depuis GitHub' }
+        : { cible: `origin/${branch}`, sha: distante!, recit: 'prise directement sur GitHub' };
+    }
+    case 'avancer': {
+      const avancee = await runCommand(cwd, `git branch -f ${branch} ${distante}`, 20000);
+      return avancee.ok
+        ? { cible: branch, sha: distante!, recit: 'avancée depuis GitHub' }
+        : { cible: `origin/${branch}`, sha: distante!, recit: 'prise directement sur GitHub, plus à jour' };
+    }
+  }
 }
 
 /**
@@ -1706,9 +1765,20 @@ async function deployer(
     return { ok: false, abandon: agentId ? blocageApresLesEssais({ etape: STEP_LABELS.merge, essais: MAX_REPARATIONS_PAR_ETAPE, agentId }) : undefined };
   };
 
+  /** Écarter une carte SANS heurt (introuvable, ou pas arrivée) : elle reste dans « À déployer », nommée. */
+  const ecarterSansHeurt = (card: Card, etat: 'absente' | 'ecartee', raison: string, ligne: string) => {
+    ecartees.add(card.id);
+    current = marquerLaTache(current, card.id, etat, raison);
+    recitFusion.push(`${ligne} La carte reste dans « À déployer ».`);
+    noterLEcartementSurLaCarte(card, raison);
+  };
+
   await avecReparation('merge', async () => {
     recitFusion.length = 0;
     current = setStep(current, 'merge', 'running');
+    /* Les cartes dont la branche a été TROUVÉE dans au moins un dépôt : les
+       autres sont jugées introuvables après le tour de tous les dépôts. */
+    const trouvees = new Set<string>();
     for (const d of gits) {
       const cwd = d.projet.path;
       const branche = (await brancheDeLEtape(d.projet, 'dev')).branche;
@@ -1751,29 +1821,33 @@ async function deployer(
             recitFusion.push(`${prefixe(d)}${branch} : partagée avec « ${deja.titre} », écartée avec elle.`);
             noterLEcartementSurLaCarte(card, deja.ecartee);
           } else {
+            trouvees.add(card.id);
             current = marquerLaTache(current, card.id, 'fusionnee');
             recitFusion.push(`${prefixe(d)}${branch} : déjà fusionnée avec « ${deja.titre} »`);
           }
           continue;
         }
-        const existe = await runCommand(cwd, `git rev-parse --verify --quiet ${branch}`, 20000);
-        if (!existe.ok || !existe.out.trim()) {
-          if (d.principal) current = marquerLaTache(current, card.id, 'absente');
-          continue;
-        }
+        /* LA BRANCHE EST CHERCHÉE ICI ET SUR GITHUB (`rapatrierLaBrancheDeLaCarte`).
+           Absente de CE dépôt, elle n'est pas encore jugée : un projet réuni la
+           porte peut-être ailleurs — le verdict tombe après tous les dépôts. */
+        const rapatriee = await rapatrierLaBrancheDeLaCarte(cwd, branch);
+        if (!rapatriee) continue;
+        trouvees.add(card.id);
+        if (rapatriee.recit) recitFusion.push(`${prefixe(d)}${branch} : ${rapatriee.recit}`);
+        const cible = rapatriee.cible;
         sortDesBranches.set(branch, { titre: card.title });
         current = progresser(current, 'merge', `${prefixe(d)}Fusion de ${branch}…`);
         current = marquerLaTache(current, card.id, 'fusion');
-        noter(current, 'merge', `$ git merge --no-edit ${branch}`, 'commande');
+        noter(current, 'merge', `$ git merge --no-edit ${cible}`, 'commande');
         const avant = (await runCommand(cwd, 'git rev-parse HEAD', 20000)).out.trim();
-        const fusion = await runCommand(cwd, `git merge --no-edit ${branch}`, DELAIS_DU_DEPLOIEMENT_MS.fusion, 3000, signal);
+        const fusion = await runCommand(cwd, `git merge --no-edit ${cible}`, DELAIS_DU_DEPLOIEMENT_MS.fusion, 3000, signal);
         const retenirLApport = async () => {
           const apport = avant ? await runCommand(cwd, `git diff --name-only ${avant} HEAD`, 20000) : null;
           fusionnees.push({
             cardId: card.id,
             titre: card.title,
             branche: branch,
-            commit: existe.out.trim() || undefined,
+            commit: rapatriee.sha,
             fichiers: apport?.ok ? apport.out.split('\n').map((f) => f.trim()).filter(Boolean) : [],
           });
         };
@@ -1797,7 +1871,7 @@ async function deployer(
           continue;
         }
         if (!fusion.delaiDepasse) {
-          const reglage = await reglerLeHeurtSurPlace({ cwd, card, branch, brancheDAccueil: branche, fichiers: enConflit, avant });
+          const reglage = await reglerLeHeurtSurPlace({ cwd, card, branch: cible, brancheDAccueil: branche, fichiers: enConflit, avant });
           if (reglage.ok) {
             recitFusion.push(`${prefixe(d)}${branch} : heurt sur ${enConflit.join(', ') || 'des fichiers'} réglé pendant le déploiement`);
             current = marquerLaTache(current, card.id, 'fusionnee', `heurt réglé sur ${enConflit.join(', ')}`);
@@ -1829,22 +1903,45 @@ async function deployer(
         }
         noterLEcartementSurLaCarte(card, raison);
       }
+
+      /* LA FUSION ANNONCÉE SE PROUVE : l'enregistrement relevé AVANT la fusion
+         doit être dans la branche d'accueil — recollage et heurt réglé compris.
+         Sinon la carte (et celles qui partagent sa branche) reste à déployer. */
+      for (const f of fusionnees) {
+        if (!f.commit || !f.branche) continue;
+        if ((await runCommand(cwd, `git merge-base --is-ancestor ${f.commit} HEAD`, 20000)).ok) continue;
+        const raison = raisonDeLaNonArrivee(f.branche, branche);
+        for (const card of cards) {
+          if (card.github?.branch !== f.branche || ecartees.has(card.id)) continue;
+          ecarterSansHeurt(card, 'ecartee', raison, `${prefixe(d)}${f.branche} : NON ARRIVÉE — ${raison}.`);
+        }
+      }
     }
-    if (cards.length && ecartees.size === cards.length) {
-      /* Chaque heurt a DÉJÀ eu ses trois agents : l'étape tombe telle quelle, avec son encadré. */
-      throw new EchecDEtape(
-        'merge',
-        `${recitFusion.join('\n')}\n\nToutes les cartes du lot sont en conflit : rien n’a pu être fusionné.`,
-        {
-          sansReparation: true,
-          blocage: dernierAbandon ?? {
-            explication:
-              'Chaque tâche du lot heurte ce qui est déjà en place, et les heurts n’ont pas pu être réglés automatiquement : rien n’a été fusionné.',
-            marcheASuivre:
-              'Ouvrez une des tâches restées dans « À déployer » et demandez à son agent d’intégrer la dernière version, puis cliquez « Relancer ».',
-          },
-        },
+
+    /* INTROUVABLE PARTOUT = ÉCARTÉE, JAMAIS ARCHIVÉE. Une branche absente d'un
+       seul dépôt d'un projet réuni est normale : seule l'absence de TOUS compte. */
+    if (gits.length) {
+      const introuvables = cartesIntrouvables(
+        cards.map((c) => ({ cardId: c.id, branche: c.github?.branch })),
+        trouvees,
+        ecartees,
       );
+      for (const card of cards.filter((c) => introuvables.includes(c.id))) {
+        const raison = raisonDeLAbsence(card.github!.branch!);
+        ecarterSansHeurt(card, 'absente', raison, `${card.github!.branch} : INTROUVABLE — ${raison}.`);
+      }
+    }
+
+    if (cards.length && ecartees.size === cards.length) {
+      /* Chaque heurt a DÉJÀ eu ses trois agents, une branche introuvable n'en
+         appelle aucun : l'étape tombe telle quelle, avec son encadré. */
+      const bilan = bilanDuLotEntierEcarte(
+        cards.map((c) => ({ etat: current.taches?.find((t) => t.cardId === c.id)?.etat ?? 'ecartee' })),
+      );
+      throw new EchecDEtape('merge', `${recitFusion.join('\n')}\n\n${bilan.titre}`, {
+        sansReparation: true,
+        blocage: dernierAbandon ?? { explication: bilan.explication, marcheASuivre: bilan.marcheASuivre },
+      });
     }
     current = setStep(
       current,

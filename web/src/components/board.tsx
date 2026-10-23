@@ -88,6 +88,7 @@ import { GestesDePage } from '@/components/entete-de-zone';
 import { phraseDeLaVeille } from '@/components/veille-de-carte';
 import { PointNonLu } from '@/components/point-non-lu';
 import { BadgeDEtape } from '@/components/badge-etape';
+import { useAttendUnQuota } from '@/lib/attente-de-quota';
 import { RepereAttention } from '@/components/repere-attention';
 import { BulleTexteCoupe, useTexteCoupe } from '@/components/texte-coupe';
 import { IconeMoteur } from '@/components/icone-moteur';
@@ -1979,6 +1980,9 @@ export function CardTile({
    * attentes).
    */
   const attendQuestion = !!agentActif?.attendReponse;
+  /* BLOQUÉE PAR LE MANQUE DE CRÉDIT (`shared/src/attente-de-quota.ts`) : le
+     badge le dit, sans point qui bat — rien ne tourne. */
+  const attendQuota = useAttendUnQuota(card);
   /*
    * UNE MÈRE TRAVAILLE PAR SES FILLES. Elle ne lance aucun agent : ce qui
    * tourne se lit sur son seul relevé (`card.suiviDesFilles`), jamais sur les
@@ -2513,15 +2517,26 @@ export function CardTile({
             /* LE BADGE DE STATUT, en haut à droite : jaune à la Compréhension,
                violet au Travail (`tonDuBadgeDEtape`). Il prend la place du
                voyant, sur la même ligne : la carte ne change pas de hauteur. */
-            <BadgeDEtape ton={tonBadge} enCours={etat === 'travaille'} className="mt-px">
+            <BadgeDEtape
+              ton={tonBadge}
+              enCours={etat === 'travaille' && !attendQuota}
+              className="mt-px"
+              data-attente-quota={attendQuota && !attendQuestion ? card.id : undefined}
+            >
               {attendQuestion
                 ? t('Attend votre réponse')
-                : etat === 'travaille'
+                : attendQuota
+                  ? t('En attente de quota')
+                  : etat === 'travaille'
                   ? agentActif?.role === 'cadrage'
                     ? t('Cadrage en cours')
                     : t('Au travail')
                   : t(LIBELLE_ETAPE_DE_SUIVI[etapeBadge])}
             </BadgeDEtape>
+          ) : attendQuota && !enRoute ? (
+            <span className="mt-px shrink-0 text-[12px] text-warning" data-attente-quota={card.id}>
+              {t('En attente de quota')}
+            </span>
           ) : etat === 'travaille' ? (
             <Loader2 className="mt-[3px] h-3 w-3 shrink-0 animate-spin text-en-cours" />
           ) : etat === 'echec' || etat === 'attente' || etat === 'enligne' ? (

@@ -75,7 +75,9 @@ import {
   DialogTitle,
   Textarea,
   Tooltip,
+  ZoneDefilement,
 } from '@/components/ui';
+import { type DragItem, type DropTarget, usePointerDrag } from '@/lib/dnd';
 import { IndicateurComprehension } from '@/components/indicateur-comprehension';
 import { MicButton, RecorderErrorBar, RecordingBar, useRecorder } from '@/components/recorder';
 import { MenuSlash, PastilleCommande } from '@/components/menu-slash';
@@ -593,18 +595,33 @@ export function Composer({
   const attachmentsCourantes = React.useRef(attachments);
   attachmentsCourantes.current = attachments;
   const [scrollTexte, setScrollTexte] = React.useState(0);
-  /** L'étiquette en train d'être glissée, pour reposer les autres et l'estomper. */
-  const [glissee, setGlissee] = React.useState<number | null>(null);
   /*
-   * LES PIÈCES JOINTES SE REPLIENT. Deux au plus restent dépliées d'office —
-   * on vient de les déposer, on veut les voir. Au-delà, elles tiendraient trois
-   * rangées au-dessus du champ, et sur un téléphone c'est la moitié de
-   * l'écran : le bandeau seul suffit alors, jusqu'au clic. `undefined` = pas
-   * encore tranché à la main.
+   * LES VIGNETTES SE RÉORDONNENT PAR LE GLISSER COMMUN (`usePointerDrag`) : au
+   * doigt comme à la souris, sans le glisser natif du navigateur, qui ne marche
+   * pas sur téléphone. La rangée est horizontale : la cible se lit en x — avant
+   * ou après la vignette survolée.
    */
-  const [piecesOuvertes, setPiecesOuvertes] = React.useState<boolean | undefined>(undefined);
-  /** L'état RÉEL du repli : le choix de la main, sinon la règle des deux. */
-  const piecesOuvertes_ = piecesOuvertes ?? attachments.length <= 2;
+  const resoudreVignette = React.useCallback((element: Element, _y: number, x: number): DropTarget | null => {
+    const vignette = element.closest('[data-piece-vignette]');
+    const id = vignette?.getAttribute('data-piece-vignette');
+    if (!vignette || !id) return null;
+    const r = vignette.getBoundingClientRect();
+    return { id, kind: 'piece', position: x < r.left + r.width / 2 ? 'before' : 'after' };
+  }, []);
+  /** Un glissement qui vient de finir n'ouvre pas l'aperçu de la vignette lâchée. */
+  const finDeGlissement = React.useRef(0);
+  const deposerVignette = React.useCallback((item: DragItem, cible: DropTarget | null) => {
+    finDeGlissement.current = Date.now();
+    if (!cible || cible.position === 'inside') return;
+    setAttachments((liste) => {
+      const depuis = liste.findIndex((piece) => piece.id === item.id);
+      const sur = liste.findIndex((piece) => piece.id === cible.id);
+      if (depuis < 0 || sur < 0) return liste;
+      const vers = cible.position === 'before' ? (depuis < sur ? sur - 1 : sur) : depuis < sur ? sur : sur + 1;
+      return deplacerJointe(liste, depuis, vers);
+    });
+  }, []);
+  const glisserVignette = usePointerDrag({ resolve: resoudreVignette, onDrop: deposerVignette, holdMs: 250 });
   /** Le drapeau du texte qu'on est en train de glisser, pour le suivre du doigt. */
   const [drapeauGlisse, setDrapeauGlisse] = React.useState<{
     nom: string;
@@ -1640,10 +1657,32 @@ export function Composer({
   const idEnEdition = edition?.id;
   React.useEffect(() => {
     if (!idEnEdition) return;
-    const signaler = (actif: boolean) => client.call({ type: 'queue.edition', id: idEnEdition, actif }).catch(() => undefined);
+    /* Un échec ne se tait plus : le repère est redit dès que possible, et à chaque retour de l'onglet. */
+    let relance: number | undefined;
+    const signaler = (actif: boolean): Promise<unknown> =>
+      client.call({ type: 'queue.edition', id: idEnEdition, actif }).catch(() => {
+        if (actif) {
+          window.clearTimeout(relance);
+          relance = window.setTimeout(() => void signaler(true), 5_000);
+        }
+      });
     void signaler(true);
     const rafraichir = window.setInterval(() => void signaler(true), EDITION_EN_FILE_RAFRAICHIE_MS);
+    const auRetour = () => {
+      if (document.visibilityState === 'visible') void signaler(true);
+    };
+    document.addEventListener('visibilitychange', auRetour);
+    // Le canal revient après une coupure : le serveur l'a perdu de vue, on redit le repère.
+    let etaitConnecte = client.lireEtat().connected;
+    const unsub = client.subscribe(() => {
+      const connecte = client.lireEtat().connected;
+      if (connecte && !etaitConnecte) void signaler(true);
+      etaitConnecte = connecte;
+    });
     return () => {
+      unsub();
+      document.removeEventListener('visibilitychange', auRetour);
+      window.clearTimeout(relance);
       window.clearInterval(rafraichir);
       void signaler(false);
     };
@@ -2100,116 +2139,6 @@ export function Composer({
         </div>
       ) : null}
 
-      {/* Les fichiers joints en attente : chacun est une ÉTIQUETTE qu'on peut
-          glisser pour changer l'ordre d'envoi, avec sa croix à droite pour le
-          retirer (lui ET son ancre du texte). Un clic sur le nom ouvre
-          l'aperçu en grand. Pendant une modification, ce sont les pièces du
-          message modifié (`attachments` suit ce que le champ montre). */}
-      {attachments.length ? (
-        <div
-          className="mb-1.5"
-          data-pieces-jointes={attachments.length}
-          data-pieces-de={edition ? 'message-en-attente' : 'brouillon'}
-          data-pieces-ouvertes={piecesOuvertes_ ? '' : undefined}
-        >
-          {/* L'ACCORDÉON DES PIÈCES JOINTES. Six captures déposées occupaient
-              trois rangées d'étiquettes au-dessus du champ : sur un téléphone,
-              la moitié de l'écran, et la conversation disparaissait. Le
-              bandeau dit COMBIEN il y en a, et la liste se replie. Deux
-              pièces au plus restent dépliées d'office — au-delà, c'est le
-              bandeau seul, jusqu'au clic. */}
-          <button
-            type="button"
-            onClick={() => setPiecesOuvertes(!piecesOuvertes_)}
-            aria-expanded={piecesOuvertes_}
-            data-pieces-bascule
-            className="flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left text-[12.5px] text-faint hover:text-text"
-          >
-            <Paperclip className="h-3 w-3 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1 truncate">
-              {t('{v0} pièces jointes', { v0: attachments.length })}
-            </span>
-            <ChevronDown
-              className={cn('h-3.5 w-3.5 shrink-0 transition-transform', piecesOuvertes_ && 'rotate-180')}
-              aria-hidden
-            />
-          </button>
-          <div className={cn('flex flex-wrap gap-1.5 pt-1', !piecesOuvertes_ && 'hidden')} data-pieces-liste>
-          {attachments.map((file, index) => (
-            <div
-              key={file.id}
-              draggable
-              onDragStart={(event) => {
-                setGlissee(index);
-                event.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragOver={(event) => {
-                if (glissee === null) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                if (glissee === null) return;
-                setAttachments((liste) => deplacerJointe(liste, glissee, index));
-                setGlissee(null);
-              }}
-              onDragEnd={() => setGlissee(null)}
-              onMouseEnter={() => montreAncre(file)}
-              onFocus={() => montreAncre(file)}
-              className={cn(
-                'flex h-8 max-w-[220px] cursor-grab items-center gap-1.5 rounded-md border border-border bg-surface px-1.5 text-[12.5px] text-muted active:cursor-grabbing',
-                glissee === index && 'opacity-40',
-              )}
-            >
-              <GripVertical className="h-3 w-3 shrink-0 text-faint" />
-              {file.mime.startsWith('image/') ? (
-                <button
-                  type="button"
-                  title={etiquetteDePiece(file)}
-                  onClick={() => setApercu(file)}
-                  className="h-5 w-5 shrink-0 overflow-hidden rounded bg-raised"
-                >
-                  <img
-                    src={`/api/attachment?id=${file.id}`}
-                    alt={etiquetteDePiece(file)}
-                    className="h-full w-full object-cover"
-                  />
-                </button>
-              ) : (
-                <button type="button" title={etiquetteDePiece(file)} onClick={() => setApercu(file)} className="shrink-0 text-faint">
-                  {file.mime === 'application/pdf' ? <FileText className="h-3 w-3" /> : <Paperclip className="h-3 w-3" />}
-                </button>
-              )}
-              {/* UN SEUL NOM VISIBLE : L'IDENTIFIANT GÉNÉRÉ. La barre affichait le
-                  nom du fichier déposé pendant que son tag, dans le champ juste
-                  en dessous, citait « #1a0c » : rien ne reliait la vignette à
-                  son tag. Les deux portent désormais la même étiquette
-                  (`etiquetteDePiece`). Le fichier, lui, garde son nom sur le
-                  disque et au téléchargement. */}
-              <button
-                type="button"
-                title={etiquetteDePiece(file)}
-                onClick={() => setApercu(file)}
-                data-piece-etiquette={etiquetteDePiece(file)}
-                className="min-w-0 flex-1 truncate text-left hover:text-text"
-              >
-                {etiquetteDePiece(file)}
-              </button>
-              <button
-                type="button"
-                title={t('Retirer ce fichier')}
-                onClick={() => retirerJointe(file)}
-                className="shrink-0 text-faint hover:text-danger"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
-          </div>
-        </div>
-      ) : null}
-
       <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={attachments.filter((p) => p.mime.startsWith('image/'))} />
 
       {recorder.recording ? (
@@ -2509,6 +2438,87 @@ export function Composer({
           className="hidden"
           onChange={(event) => event.target.files && upload(event.target.files)}
         />
+
+        {/* LES PIÈCES JOINTES EN ATTENTE, DANS LE CHAMP (demande du 22/10/2026) :
+            des VIGNETTES ENCADRÉES sous le texte, au-dessus de la rangée de
+            boutons — le même rendu dans toutes les conversations, qu'on
+            démarre une carte ou qu'on soit en plein échange. Plus d'accordéon
+            « n pièces jointes » posé au-dessus du champ : la rangée défile de
+            côté et ne prend jamais qu'une ligne. Un toucher ouvre l'aperçu en
+            grand, la croix retire la pièce (et son ancre du texte), un
+            glissement change l'ordre d'envoi. Pendant une modification, ce
+            sont les pièces du message modifié (`attachments` suit ce que le
+            champ montre). */}
+        {attachments.length ? (
+          <ZoneDefilement
+            axe="horizontal"
+            classeEnveloppe="relative z-30"
+            className="flex gap-2 px-3 pb-1 pt-1"
+            data-pieces-jointes={attachments.length}
+            data-pieces-de={edition ? 'message-en-attente' : 'brouillon'}
+          >
+            {attachments.map((file) => {
+              const etiquette = etiquetteDePiece(file);
+              const visee = glisserVignette.target?.id === file.id ? glisserVignette.target.position : null;
+              return (
+                <div
+                  key={file.id}
+                  data-piece-vignette={file.id}
+                  onPointerDown={(event) => glisserVignette.start(event, { id: file.id, kind: 'piece', label: etiquette })}
+                  onMouseEnter={() => montreAncre(file)}
+                  onFocus={() => montreAncre(file)}
+                  className={cn(
+                    'relative h-14 w-14 shrink-0 touch-pan-x select-none overflow-hidden rounded-md bg-surface ring-1 ring-inset ring-faint/40',
+                    glisserVignette.dragging?.id === file.id && 'opacity-40',
+                    visee === 'before' && 'shadow-[-3px_0_0_0_hsl(var(--accent))]',
+                    visee === 'after' && 'shadow-[3px_0_0_0_hsl(var(--accent))]',
+                  )}
+                >
+                  {/* UN SEUL NOM VISIBLE : L'IDENTIFIANT GÉNÉRÉ, le même que le
+                      tag du texte (`etiquetteDePiece`) — c'est lui qui relie la
+                      vignette à son ancre. Le fichier garde son nom sur le
+                      disque et au téléchargement. */}
+                  <button
+                    type="button"
+                    title={etiquette}
+                    data-piece-etiquette={etiquette}
+                    onClick={() => {
+                      if (Date.now() - finDeGlissement.current < 400) return;
+                      setApercu(file);
+                    }}
+                    className="flex h-full w-full flex-col items-center justify-center text-faint"
+                  >
+                    {file.mime.startsWith('image/') ? (
+                      <img
+                        src={`/api/attachment?id=${file.id}`}
+                        alt={etiquette}
+                        draggable={false}
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                    ) : file.mime === 'application/pdf' ? (
+                      <FileText className="h-5 w-5" />
+                    ) : (
+                      <Paperclip className="h-5 w-5" />
+                    )}
+                    <span className="absolute inset-x-0 bottom-0 truncate bg-surface/85 px-1 text-center text-[10px] leading-4 text-muted">
+                      {etiquette}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    title={t('Retirer ce fichier')}
+                    aria-label={t('Retirer ce fichier')}
+                    onClick={() => retirerJointe(file)}
+                    data-piece-retirer
+                    className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-surface/90 text-muted hover:text-danger"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
+          </ZoneDefilement>
+        ) : null}
 
         {/* TOUS LES BOUTONS VIVENT DANS LE CHAMP, SUR SA RANGÉE DU BAS. À
             GAUCHE, CE QUI PRÉPARE LE MESSAGE : joindre un

@@ -33,6 +33,12 @@
  * heures pour la même image (la date de RANGEMENT d'une pièce, elle, tombe
  * après l'étape).
  *
+ * LES VIDÉOS ET LES SONS DE L'AGENT Y ENTRENT AUSSI (décision de l'utilisateur,
+ * carte « Vidéos et sons dans la conversation ») : une pièce vidéo ou son jointe
+ * par ses messages devient une capture `jointe` qui porte `media` ('video' ou
+ * 'son') ; sans `media`, c'est une image. Les captures d'étape restent des
+ * images (c'est ce que l'agent a regardé).
+ *
  * ET UNE IDENTITÉ QUI NE CHANGE PAS. La clé d'une capture d'étape devient celle
  * de sa pièce le jour où le démon la range (`etape:…` → `jointe:…`), souvent
  * en plein tour. Ce qui se retient par image — « déjà vue » — se lit donc sous
@@ -40,6 +46,7 @@
  */
 
 import { pieceVenueDUneConstruction } from './images-ecrites.js';
+import type { GenreDeMedia } from './services-de-generation.js';
 
 export interface EtapeAvecCapture {
   id: string;
@@ -69,7 +76,18 @@ export type CaptureDuFlux =
       quand: number;
       /** La clé que cette image portait AVANT d'être rangée en pièce jointe. */
       cleDOrigine?: string;
+      /** Une vidéo ou un son ; absent, c'est une image. */
+      media?: 'video' | 'son';
     };
+
+/** Ce qu'une pièce montre dans la bande et la visionneuse, d'après son type ; null = rien à montrer. */
+export function genreDeMedia(mime: string | undefined | null): GenreDeMedia | null {
+  const type = (mime ?? '').toLowerCase();
+  if (type.startsWith('image/')) return 'image';
+  if (type.startsWith('video/')) return 'video';
+  if (type.startsWith('audio/')) return 'son';
+  return null;
+}
 
 /** Le dernier morceau d'un chemin, sans dépendre du système de fichiers. */
 export function nomDuChemin(chemin: string): string {
@@ -132,7 +150,8 @@ export function capturesArriveesDepuis(captures: readonly CaptureDuFlux[], depui
 
 export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: readonly JointeDuTour[] = []): CaptureDuFlux[] {
   // Les copies d'icônes d'une construction n'entrent pas dans la bande (décision de l'utilisateur).
-  const images = jointes.filter((j) => j.mime.startsWith('image/') && !pieceVenueDUneConstruction(j.name));
+  const medias = jointes.filter((j) => genreDeMedia(j.mime) && !pieceVenueDUneConstruction(j.name));
+  const images = medias.filter((j) => genreDeMedia(j.mime) === 'image');
   const parId = new Map(images.map((j) => [j.id, j] as const));
   const parNom = new Map<string, JointeDuTour>();
   for (const j of images) parNom.set(j.name, j);
@@ -164,10 +183,18 @@ export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: rea
     chemins.add(chemin);
     poser({ cle: `etape:${etape.id}`, genre: 'etape', chemin, libelle: etape.label, quand: etape.startedAt ?? 0 });
   }
-  for (const piece of images) {
+  for (const piece of medias) {
     if (placees.has(piece.id)) continue;
     placees.add(piece.id);
-    poser({ cle: `jointe:${piece.id}`, genre: 'jointe', id: piece.id, libelle: piece.name, quand: piece.createdAt ?? 0 });
+    const genre = genreDeMedia(piece.mime);
+    poser({
+      cle: `jointe:${piece.id}`,
+      genre: 'jointe',
+      id: piece.id,
+      libelle: piece.name,
+      quand: piece.createdAt ?? 0,
+      ...(genre === 'video' || genre === 'son' ? { media: genre } : {}),
+    });
   }
   return rendu.sort((a, b) => b.capture.quand - a.capture.quand || b.rang - a.rang).map((r) => r.capture);
 }

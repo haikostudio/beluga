@@ -9,8 +9,10 @@ import {
   FilePlus2,
   GitCommitHorizontal,
   Loader2,
+  MessageCircleQuestion,
   Rocket,
   Settings2,
+  Sparkles,
   X,
 } from 'lucide-react';
 import {
@@ -43,8 +45,10 @@ import {
   procedureEnPlace,
   RAISON_SANS_PROCEDURE_DE_DEPLOIEMENT,
   raisonProductionDesactivee,
+  agentDeConfiguration,
   etatDeLInitialisation,
   type EtatDeLInitialisation,
+  type EtatDuBoutonDeConfiguration,
   raisonLotBloque,
   rapportAGarder,
   runDeLEtape,
@@ -52,9 +56,10 @@ import {
   titreDeLaPublication,
 } from '@beluga/shared';
 import { BoutonInitierProcedure } from '@/components/boutons-procedure';
+import { useCheminVersLAgentDeConfiguration } from '@/components/config-projet/agent-de-configuration';
+import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { CopieDeTest } from '@/components/copie-de-test';
 import { ExplicationDeConfiguration, TiroirProcedureProduction } from '@/components/tiroir-procedure-production';
-import { ouvrirRubriqueDeLEtape } from '@/lib/ouvrir-config-projet';
 import { BarreProgression } from '@/components/barre-progression';
 import { Chat } from '@/components/chat';
 import { useSeconde } from '@/lib/horloge';
@@ -337,14 +342,24 @@ export function DeployPanel({
    */
   const projet = state.projects.find((p) => p.id === projectId);
   const enPlace = !!etape && procedureEnPlace(projet, etape.cible);
+  /* LE CHEMIN VERS L'AGENT DE CONFIGURATION DE CETTE ÉTAPE (22/10/2026) : sans
+     procédure, ou tant que cet agent travaille ou attend une réponse, le bouton
+     de l'étape ouvre SA conversation (et le lance s'il n'a jamais parlé), au
+     lieu de la rubrique des réglages — un clic, plus deux volets. */
+  const cheminAgent = useCheminVersLAgentDeConfiguration(projectId, etape?.cible ?? 'dev', enPlace);
   /* L'AGENT DE CONFIGURATION AU TRAVAIL se lit à droite du bandeau, et le clic
      ouvre alors sa CONVERSATION (`etatDeLInitialisation`). La minute fait
      tomber l'état « terminé » une fois sa garde passée. */
   const minute = useMinute();
-  const idConfiguration = projet?.miseEnProduction?.agentId;
+  const idConfiguration = agentDeConfiguration(projet, etape?.cible ?? 'production');
   const initialisation =
     presentation === 'bandeau'
-      ? etatDeLInitialisation(projet, idConfiguration ? state.agents[idConfiguration] : undefined, Math.max(minute, Date.now()))
+      ? etatDeLInitialisation(
+          projet,
+          idConfiguration ? state.agents[idConfiguration] : undefined,
+          Math.max(minute, Date.now()),
+          etape?.cible ?? 'production',
+        )
       : null;
 
   /*
@@ -796,9 +811,10 @@ export function DeployPanel({
           pourcent: suivi && suiviVisible ? suivi.pourcent : null,
           enRoute,
           tombee,
+          agent: cheminAgent.versLAgent ? cheminAgent.etat : null,
         }
       : null,
-    () => (enPlace ? setProcessOuvert(true) : onInitier?.()),
+    () => (cheminAgent.versLAgent ? cheminAgent.ouvrir() : setProcessOuvert(true)),
   );
 
   if (!etape) return null;
@@ -815,6 +831,9 @@ export function DeployPanel({
        s'ouvre sur la CONVERSATION, où l'agent de configuration démarre ;
        le tiroir dit ce qui manque, et son pied mène aux réglages. */
     if (presentation === 'bandeau') {
+      /* Éteinte, et aucun agent qui travaille ou attend : le clic n'a rien à lancer. */
+      const eteinteSansAgent =
+        !!raisonProductionDesactivee(projet) && cheminAgent.etat !== 'travail' && cheminAgent.etat !== 'question';
       return (
         <BandeauProduction
           enTete={enTete}
@@ -823,15 +842,16 @@ export function DeployPanel({
           colonne={colonne}
           suivi="repos"
           initialisation={initialisation}
+          etatAgent={eteinteSansAgent ? null : cheminAgent.etat}
           ouvert={tiroirOuvert}
           onOuvert={(v) => {
-            /* L'AGENT DE CONFIGURATION AU TRAVAIL : la barre mène à sa
-               conversation, dans la rubrique des réglages. */
-            if (v && initialisation && initialisation !== 'fini') {
-              ouvrirRubriqueDeLEtape(projectId, 'production');
-              return;
-            }
-            setTiroirOuvert(v);
+            /* SANS PROCÉDURE, LE BOUTON MÈNE À L'AGENT : sa conversation s'ouvre
+               et il démarre, ou elle se rouvre s'il travaille ou attend.
+               MISE EN PRODUCTION ÉTEINTE (le défaut d'un projet neuf) : rien ne
+               se lance — le volet s'ouvre sur son interrupteur et dit pourquoi. */
+            if (!v) setTiroirOuvert(false);
+            else if (eteinteSansAgent) setTiroirOuvert(true);
+            else cheminAgent.ouvrir();
           }}
           actions={actions}
           corps={<ExplicationDeConfiguration />}
@@ -840,7 +860,8 @@ export function DeployPanel({
               cible={etape.cible}
               onOuvrir={() => {
                 setTiroirOuvert(false);
-                ouvrirRubriqueDeLEtape(projectId, 'production');
+                if (eteinteSansAgent) ouvrirRubriqueDeLEtape(projectId, 'production');
+                else cheminAgent.ouvrir();
               }}
             />
           }
@@ -875,14 +896,16 @@ export function DeployPanel({
         <>
           {/* En menu (téléphone), c'est la ligne « Déployer » du menu du haut
               qui mène à l'initialisation : le bouton ne se dessine pas. */}
-          {enMenu ? null : <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} compact />}
+          {enMenu ? null : (
+            <BoutonDEtapeVersLAgent cible={etape.cible} etat={cheminAgent.etat} onClick={cheminAgent.ouvrir} compact />
+          )}
           {noeudDeroule ? createPortal(<div className="px-1.5 pt-1.5">{explications}</div>, noeudDeroule) : null}
         </>
       );
     }
     return (
       <div className="mb-2 border-b border-border px-2 pt-2 pb-2" data-bloc-publication={colonne}>
-        <BoutonInitierProcedure cible={etape.cible} onOuvrir={() => onInitier?.()} />
+        <BoutonDEtapeVersLAgent cible={etape.cible} etat={cheminAgent.etat} onClick={cheminAgent.ouvrir} />
         {noeudDeroule ? (
           createPortal(<div className="mb-2 px-2">{explications}</div>, noeudDeroule)
         ) : (
@@ -949,16 +972,25 @@ export function DeployPanel({
         suivi={suivi && (modeSuivi || reussiteVisible) ? suivi.etat : 'repos'}
         initialisation={reconfiguration}
         reconfiguration
+        etatAgent={!modeDeroule && cheminAgent.versLAgent ? cheminAgent.etat : null}
         ouvert={tiroirOuvert}
         onOuvert={(v) => {
-          /* L'agent de configuration au travail : la barre mène à sa
-             conversation, dans la rubrique des réglages. */
-          if (v && reconfiguration && reconfiguration !== 'fini') {
-            ouvrirRubriqueDeLEtape(projectId, 'production');
+          if (!v) {
+            setTiroirOuvert(false);
             return;
           }
-          setTiroirOuvert(v);
+          /* UN CLIC, LE BON GESTE (22/10/2026). Pendant une mise en production,
+             après un échec ou une réussite toute fraîche : le suivi, dans le
+             volet. L'agent de reconfiguration au travail ou en attente : sa
+             conversation, sans le relancer. Un bouton éteint : le volet, qui
+             DIT pourquoi au-dessus du bouton. Sinon, la CONFIRMATION tout de
+             suite — rien ne part avant « Mettre à jour ». */
+          if (modeDeroule) setTiroirOuvert(true);
+          else if (cheminAgent.versLAgent) cheminAgent.ouvrir();
+          else if (eteint) setTiroirOuvert(true);
+          else demarrer();
         }}
+        onDetail={() => setTiroirOuvert(true)}
         enRoute={enRoute}
         tombee={tombee}
         pourcent={suivi && (modeSuivi || reussiteVisible) ? suivi.pourcent : null}
@@ -1096,7 +1128,36 @@ export function DeployPanel({
           open={confirmation}
           title={t('Mise en production')}
           description={
-            <>{t(annonceMiseAJourProduction(etatProduction).texte, annonceMiseAJourProduction(etatProduction).valeurs)}</>
+            /* LA CONFIRMATION S'OUVRE D'UN CLIC SUR LE BOUTON DU HAUT : elle dit
+               donc elle-même ce que le volet disait avant — ce qui part, la
+               version en ligne —, et mène au détail pour qui veut le lire. Des
+               `span` : ce texte vit dans le paragraphe de la description. */
+            <span className="flex flex-col gap-1.5" data-confirmation-production>
+              <span>{t(annonceMiseAJourProduction(etatProduction).texte, annonceMiseAJourProduction(etatProduction).valeurs)}</span>
+              <span className="flex items-center gap-1.5 text-[12.5px] text-faint" data-version-en-ligne-confirmation>
+                <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0" />
+                {etatProduction?.commit ? (
+                  <>
+                    <span>{t('En ligne :')}</span>
+                    <span className="font-mono text-muted">{empreinteCourte(etatProduction.commit)}</span>
+                    {etatProduction.at ? <span>· {elapsed(etatProduction.at)}</span> : null}
+                  </>
+                ) : (
+                  <span>{t('Aucune version en production')}</span>
+                )}
+              </span>
+              <button
+                type="button"
+                className="self-start text-[12.5px] text-muted underline underline-offset-2 hover:text-text"
+                onClick={() => {
+                  setConfirmation(false);
+                  setTiroirOuvert(true);
+                }}
+                data-voir-detail-production
+              >
+                {t('Voir le détail')}
+              </button>
+            </span>
           }
           confirmLabel={t('Mettre à jour')}
           danger
@@ -1147,6 +1208,17 @@ export function DeployPanel({
             le libellé lance, le chevron — DANS le bouton, à son bord droit —
             ouvre le déroulé. Une coupure d'un pixel (`gap-px`) les sépare. */}
         <div className={cn('flex min-w-0 items-stretch gap-px', !enTete && 'flex-1')} data-bouton-reuni>
+        {cheminAgent.versLAgent && !publicationEnCours ? (
+          /* L'AGENT DE CONFIGURATION TRAVAILLE OU ATTEND UNE RÉPONSE : le
+             bouton le dit et rouvre sa conversation, sans le relancer. */
+          <BoutonDEtapeVersLAgent
+            cible={etape.cible}
+            etat={cheminAgent.etat}
+            onClick={cheminAgent.ouvrir}
+            compact
+            className={cn('rounded-r-none border-0', !enTete && 'flex-1')}
+          />
+        ) : (
         <Button
           /* PLUS DE CONTOUR. Le variant `outline` dessinait un cadre dans une
              barre qu'on veut invisible ; `subtle` garde un fond lisible (donc
@@ -1241,6 +1313,7 @@ export function DeployPanel({
             </>
           ) : null}
         </Button>
+        )}
 
         <Button
           /* LE MÊME FOND QUE LE LIBELLÉ, à chaque état : plein quand un lot
@@ -1636,6 +1709,60 @@ export function DeployPanel({
  * maintenant, les conflictuelles au coup suivant, seules et sans le cumul du
  * lot.
  */
+/** L'infobulle d'un bouton d'étape qui mène à l'agent de configuration. */
+function titreVersLAgent(cible: 'dev' | 'production', etat: EtatDuBoutonDeConfiguration): string {
+  if (etat === 'question') return 'Répondre à l’agent';
+  if (etat === 'travail') return 'Agent au travail…';
+  return cible === 'dev' ? 'Configurer le déploiement' : 'Configurer la mise en production';
+}
+
+/** Roue pendant un tour, bulle de question quand l'agent attend, étincelles sinon. */
+function IconeVersLAgent({ etat, className }: { etat: EtatDuBoutonDeConfiguration; className?: string }) {
+  if (etat === 'travail') return <Loader2 className={cn('shrink-0 animate-spin', className)} />;
+  if (etat === 'question') return <MessageCircleQuestion className={cn('shrink-0', className)} />;
+  return <Sparkles className={cn('shrink-0', className)} />;
+}
+
+/**
+ * LE BOUTON D'UNE ÉTAPE QUI MÈNE À SON AGENT DE CONFIGURATION (22/10/2026). Il
+ * garde le NOM de l'étape (« Déployer », « Mise en production ») : c'est le
+ * geste qu'on cherche ; l'icône et l'infobulle disent qu'il configure d'abord,
+ * que l'agent travaille, ou qu'il attend une réponse. Le clic ouvre la
+ * conversation de l'agent (et le lance s'il n'a jamais parlé).
+ */
+function BoutonDEtapeVersLAgent({
+  cible,
+  etat,
+  onClick,
+  compact,
+  className,
+}: {
+  cible: 'dev' | 'production';
+  etat: EtatDuBoutonDeConfiguration;
+  onClick: () => void;
+  compact?: boolean;
+  className?: string;
+}) {
+  const libelle = cible === 'dev' ? t('Déployer') : t('Mise en production');
+  const titre = t(titreVersLAgent(cible, etat));
+  return (
+    <Button
+      size={compact ? 'sm' : 'pied'}
+      className={cn('min-w-0 gap-1.5', className)}
+      title={titre}
+      aria-label={`${libelle} — ${titre}`}
+      onClick={onClick}
+      data-bouton-etape-vers-agent={cible}
+      data-initier-procedure={cible}
+      data-agent-configuration={cible}
+      data-etat-bouton-agent={etat}
+    >
+      <IconeVersLAgent etat={etat} className="h-3 w-3" />
+      <span className="truncate">{libelle}</span>
+    </Button>
+  );
+}
+
 /**
  * LA BARRE DE MISE EN PRODUCTION ET SON TIROIR.
  *
@@ -1653,6 +1780,8 @@ export function BandeauProduction({
   suivi,
   initialisation = null,
   reconfiguration = false,
+  etatAgent = null,
+  onDetail,
   ouvert,
   onOuvert,
   enRoute = false,
@@ -1696,6 +1825,19 @@ export function BandeauProduction({
   initialisation?: EtatDeLInitialisation | null;
   /** La procédure existe déjà : l'agent la RECONFIGURE plutôt que l'initialiser. */
   reconfiguration?: boolean;
+  /**
+   * LE BOUTON MÈNE À L'AGENT DE CONFIGURATION (22/10/2026) : sans procédure, ou
+   * tant que cet agent travaille ou attend une réponse. Il le dit alors — roue,
+   * bulle de question, étincelles — et `onOuvert(true)` ouvre sa conversation.
+   * `null` : le bouton mène au geste de l'étape.
+   */
+  etatAgent?: EtatDuBoutonDeConfiguration | null;
+  /**
+   * LE DÉTAIL, À CÔTÉ DU BOUTON : le clic du bouton ouvre la confirmation, la
+   * flèche accolée ouvre le volet (version en ligne, procédure, copie de
+   * test). Absent : pas de flèche (regroupement, ou rien à détailler).
+   */
+  onDetail?: () => void;
   ouvert: boolean;
   onOuvert: (ouvert: boolean) => void;
   enRoute?: boolean;
@@ -1741,6 +1883,7 @@ export function BandeauProduction({
           pourcent,
           enRoute,
           tombee,
+          agent: etatAgent,
         }
       : null,
     () => onOuvert(true),
@@ -1767,26 +1910,32 @@ export function BandeauProduction({
       data-initialisation-production={initialisation ?? undefined}
     >
       {enTete ? (
+        <div className="flex items-stretch gap-px" data-bouton-reuni-production>
         <button
           type="button"
           onClick={() => onOuvert(!ouvert)}
           aria-expanded={ouvert}
           aria-haspopup="dialog"
-          aria-label="Mise en production"
-          title={libelleDuBouton}
+          aria-label={etatAgent ? `${t('Mise en production')} — ${t(titreVersLAgent('production', etatAgent))}` : 'Mise en production'}
+          title={etatAgent ? t(titreVersLAgent('production', etatAgent)) : libelleDuBouton}
           className={cn(
             /* UN APLAT D'ENCRE, ICÔNE CLAIRE (demande du 11/10/2026 : « noir
                avec l'icône blanche ») : noir en clair, gris soutenu en sombre —
                le même jeton que le bouton qui arrête. Aucune bordure. */
             'relative flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-lg bg-encre px-2 text-encre-fg transition-opacity hover:opacity-85',
+            onDetail && 'rounded-r-none',
             ouvert && 'opacity-85',
           )}
           data-ouvrir-tiroir-production={ouvert ? 'ouvert' : 'ferme'}
+          data-agent-configuration={etatAgent ? 'production' : undefined}
+          data-etat-bouton-agent={etatAgent ?? undefined}
         >
           {enRoute ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
           ) : tombee ? (
             <X className="h-4 w-4 shrink-0" />
+          ) : etatAgent ? (
+            <IconeVersLAgent etat={etatAgent} className="h-4 w-4" />
           ) : (
             <Rocket className="h-4 w-4 shrink-0" />
           )}
@@ -1824,12 +1973,25 @@ export function BandeauProduction({
               <span className="sr-only">
                 <EtatDInitialisation etat={initialisation} reconfiguration={reconfiguration} />
               </span>
-              {pourcent === null && !(enAttente && enAttente.nombre > 0) ? (
+              {pourcent === null && !(enAttente && enAttente.nombre > 0) && !etatAgent ? (
                 <span className={cn(CLASSE_POINT_DE_BOUTON, 'animate-pulse-soft bg-text')} aria-hidden />
               ) : null}
             </>
           ) : null}
         </button>
+        {onDetail ? (
+          <button
+            type="button"
+            onClick={onDetail}
+            aria-label="Voir le détail de la mise en production"
+            title={t('Voir le détail de la mise en production')}
+            className="flex h-8 w-6 items-center justify-center rounded-lg rounded-l-none bg-encre text-encre-fg transition-opacity hover:opacity-85"
+            data-chevron-production
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        ) : null}
+        </div>
       ) : (
       <button
         type="button"
@@ -1838,11 +2000,16 @@ export function BandeauProduction({
         aria-haspopup="dialog"
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-raised/50"
         data-ouvrir-tiroir-production={ouvert ? 'ouvert' : 'ferme'}
+        data-agent-configuration={etatAgent ? 'production' : undefined}
+        data-etat-bouton-agent={etatAgent ?? undefined}
+        title={etatAgent ? t(titreVersLAgent('production', etatAgent)) : undefined}
       >
         {enRoute ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-en-cours" />
         ) : tombee ? (
           <X className="h-3.5 w-3.5 shrink-0 text-danger" />
+        ) : etatAgent ? (
+          <IconeVersLAgent etat={etatAgent} className="h-3.5 w-3.5 text-faint" />
         ) : (
           <Rocket className="h-3.5 w-3.5 shrink-0 text-faint" />
         )}

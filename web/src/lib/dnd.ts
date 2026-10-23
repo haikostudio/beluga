@@ -23,8 +23,8 @@ export interface DropTarget {
 }
 
 interface Options {
-  /** Lit la cible sous le pointeur ; rend null si l'endroit n'accepte rien. */
-  resolve: (element: Element, y: number) => DropTarget | null;
+  /** Lit la cible sous le pointeur (x servant aux rangées horizontales) ; rend null si l'endroit n'accepte rien. */
+  resolve: (element: Element, y: number, x: number) => DropTarget | null;
   /** Appelé au relâchement, avec la dernière cible valide. */
   onDrop: (item: DragItem, target: DropTarget | null) => void;
   /**
@@ -101,7 +101,7 @@ export function usePointerDrag({ resolve, onDrop, holdMs = 0, onLongPress, longP
       setPointer({ x: event.clientX, y: event.clientY });
 
       const sous = document.elementFromPoint(event.clientX, event.clientY);
-      const trouve = sous ? resolve(sous, event.clientY) : null;
+      const trouve = sous ? resolve(sous, event.clientY, event.clientX) : null;
       const valide = trouve && trouve.id !== current.item.id ? trouve : null;
       targetRef.current = valide;
       setTarget(valide);

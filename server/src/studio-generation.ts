@@ -973,7 +973,8 @@ export async function lancerGenerationValidee(depenseId: string): Promise<void> 
     projectId: creation.projectId,
     agentId: creation.agentId ?? null,
     sujet: `${depense.genre === 'image' ? 'Image' : depense.genre === 'clip' ? 'Clip' : 'Musique'} — ${String(d0.consigne ?? depense.raison ?? '').slice(0, 90)}`,
-    outil: depense.genre === 'image' ? 'Codex' : String(d0.modeleService ?? depense.modele),
+    // Codex ne dit pas quel modèle d'image il emploie : on nomme son générateur intégré.
+    outil: depense.genre === 'image' ? 'Codex · générateur d’images intégré' : String(d0.modeleService ?? depense.modele),
     prix: depense.plafond,
     format: String(d0.ratio ?? d0.format ?? (depense.genre === 'image' ? '1:1' : '16:9')),
     genre: depense.genre === 'image' ? 'image' : depense.genre === 'clip' ? 'video' : 'son',

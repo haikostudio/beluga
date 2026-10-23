@@ -4352,6 +4352,45 @@ export const MIGRATIONS: {
      */
     sql: `ALTER TABLE veilles_de_carte ADD COLUMN termine_a INTEGER;`,
   },
+  {
+    id: 138,
+    name: 'incidents-ouverts-indexes',
+    siTable: 'messages',
+    /*
+     * LES INCIDENTS OUVERTS NE BALAIENT PLUS LE TEXTE DES CONVERSATIONS
+     * (23/10/2026). `reprisesDeCompteEnAttente` et `erreursDeTourEnAttente`
+     * passaient chacune un `LIKE` sur TOUS les messages des conversations
+     * ouvertes (63 Mo sur ce serveur), puis décodaient en entier les 257
+     * reprises trouvées (24 Mo) pour n'en garder que 2 encore ouvertes — à
+     * chaque calcul des décisions, c'est-à-dire à chaque passage de veille dès
+     * qu'un agent écrit. Premier poste des gels de `data/logs/blocages.log`
+     * (145 le 21/10, 618 le 23/10).
+     *
+     * Même recette que la migration 121 : une colonne GÉNÉRÉE que SQLite tient
+     * à jour à chaque écriture, d'où qu'elle vienne, et un index PARTIEL qui ne
+     * porte que les lignes à 1. Le prédicat est celui de la lecture : une
+     * reprise sans compte choisi, ni abandonnée, ni consommée ; une erreur sans
+     * choix. Le `LIKE` passe d'abord (CASE garantit l'ordre) : `json_extract`
+     * ne touche que les messages qui portent un incident, et `json_valid` le
+     * garde d'un texte illisible — qui ferait sinon échouer l'écriture.
+     */
+    sql: `
+      ALTER TABLE messages ADD COLUMN a_reprise_ouverte INTEGER
+        GENERATED ALWAYS AS (CASE WHEN data LIKE '%"repriseCompte":{%' AND json_valid(data)
+          THEN json_extract(data, '$.repriseCompte.choisi') IS NULL
+           AND coalesce(json_extract(data, '$.repriseCompte.abandonnee'), 0) = 0
+           AND json_extract(data, '$.repriseCompte.consommeeA') IS NULL
+          ELSE 0 END) VIRTUAL;
+      CREATE INDEX idx_messages_reprise_ouverte
+        ON messages(a_reprise_ouverte) WHERE a_reprise_ouverte = 1;
+      ALTER TABLE messages ADD COLUMN a_erreur_ouverte INTEGER
+        GENERATED ALWAYS AS (CASE WHEN data LIKE '%"erreurDeTour":{%' AND json_valid(data)
+          THEN json_extract(data, '$.erreurDeTour.choix') IS NULL
+          ELSE 0 END) VIRTUAL;
+      CREATE INDEX idx_messages_erreur_ouverte
+        ON messages(a_erreur_ouverte) WHERE a_erreur_ouverte = 1;
+    `,
+  },
 ];
 
 export function openDb(): DB {

@@ -18,7 +18,9 @@ import {
   RotateCcw,
   Terminal,
   Wrench,
+  X,
   type LucideIcon,
+  LayoutGrid,
 } from 'lucide-react';
 import { PointDuFil, type TonDuPoint } from '@/components/point-du-fil';
 import { ICONE_DE_LA_LIGNE, ICONE_DU_GENRE, RondDeLaLigne } from '@/components/icone-du-point';
@@ -72,18 +74,25 @@ import {
   vueDeLEntree,
   type TourDuParcours,
   type CompetenceProposee,
+  planCourant,
+  travailDeLaCarteDejaLance,
+  rangerLesSuggestions,
+  type GroupeDeSuggestions,
 } from '@beluga/shared';
+import { createPortal } from 'react-dom';
+import { ContexteEmplacementDuDocument, fermerLeDocument, ouvrirLeDocument, useDocumentDeCarte } from '@/lib/document-de-carte';
 import { Button, Dialog, DialogContentLibre, DialogHeader, DialogTitle, ZoneDefilement } from '@/components/ui';
 import { ContenuDeLEntree, EncadreQuestion } from '@/components/contenu-journal';
 import { BlocDuPlan } from '@/components/parcours-carte';
 import { PlanRapport } from '@/components/plan-rapport';
 import { PointsDuCadrage } from '@/components/points-du-cadrage';
 import { MediasLivres, useMediasLivres } from '@/components/medias-livres';
-import { RapportEnFlux } from '@/components/rapport-flux';
+import { BULLE_DE_L_AGENT, RapportEnFlux } from '@/components/rapport-flux';
 import { SilhouetteParcours } from '@/components/silhouettes';
 import { LienPromptDeLaDemande, LiensDesPromptsDuPoint } from '@/components/prompt-envoye-complet';
 import { Markdown, SuitesProposees, suitesDuJalon } from '@/lib/markdown';
 import { client } from '@/lib/client';
+import { voirLesSuggestions } from '@/lib/suggestions-de-carte';
 import { useTitresClairs } from '@/lib/titres-memoire';
 import { ouvrirLesDecisions } from '@/lib/ouvrir-decisions';
 import { copierLaDemande } from '@/lib/copie-riche';
@@ -166,14 +175,17 @@ function MarqueDEtape({
   titre,
   etat,
   repere,
+  discrete = false,
 }: {
   icone: React.ComponentType<{ className?: string }>;
   titre: string;
   etat: EtatDuPoint;
   repere: string;
+  /** Lue par les lecteurs d'écran, invisible à l'écran. */
+  discrete?: boolean;
 }) {
   return (
-    <div className="flex justify-center" data-marque-d-etape={repere} data-marque-etat={etat}>
+    <div className={cn('flex justify-center', discrete && 'sr-only')} data-marque-d-etape={repere} data-marque-etat={etat}>
       <span className="inline-flex items-center gap-1.5 rounded-full bg-raised px-3 py-1 text-[12.5px] font-medium text-muted">
         {etat === 'encours' ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
@@ -387,8 +399,15 @@ export function FluxEnPoints({
   resumeDeLAgent,
   journalCharge = true,
   galerieDesCaptures,
+  suggestions = [],
 }: {
   carte: Card;
+  /**
+   * LES CARTES SUGGÉRÉES DANS CETTE CONVERSATION, groupées par message
+   * (`groupesDeSuggestions`) : chaque passage où des cartes sont nées porte la
+   * ligne « N cartes suggérées ici », qui rouvre la rangée du pied sur elles.
+   */
+  suggestions?: GroupeDeSuggestions[];
   /**
    * LES IMAGES DE L'AGENT, tenues par la page de la carte (`chat.tsx`) : la
    * bande « Ce que l'agent a vu » est collée au-dessus de la barre d'écriture,
@@ -649,6 +668,11 @@ export function FluxEnPoints({
      faisait tourner « Demande » et « Travail » en même temps. */
   if (!journalCharge) return <SilhouetteParcours />;
 
+  const suggestionsParPassage = rangerLesSuggestions(
+    flux.map((element) => ({ ancre: element.point.ancre, debut: element.point.debut })),
+    suggestions,
+  );
+
   return (
     <MesuresContexte.Provider value={mesures}>
       <OuvrirUneCapture.Provider value={galerieDesCaptures.ouvrirLeChemin}>
@@ -664,6 +688,7 @@ export function FluxEnPoints({
               versionDuPlan={versionDuPassageDePlan(element.point, passages, versionsConnues)}
               passages={passages}
               mediasLivres={mediasParPassage.get(element.point.ancre)}
+              suggestions={suggestionsParPassage.get(element.point.ancre)}
               carte={carte}
               projectId={projectId}
               configuration={configuration}
@@ -784,9 +809,12 @@ function PointDuFlux({
   onToggleAll,
   passages,
   mediasLivres,
+  suggestions,
 }: {
   point: PointDuParcours;
   carte: Card;
+  /** Les cartes suggérées pendant ce passage : le repère qui rouvre leur rangée. */
+  suggestions?: GroupeDeSuggestions[];
   /** Les médias livrés pendant le tour que ce passage clôt : rendus sous sa réponse. */
   mediasLivres?: readonly MediaLivre[];
   projectId?: string;
@@ -942,6 +970,14 @@ function PointDuFlux({
   const phraseUtile =
     (!point.resume || point.phrase === PHRASE_PLAN_A_DECIDER) && (point.etat !== 'fait' || point.phrase === PHRASE_PLAN_A_DECIDER);
 
+  /* CE QUE L'AGENT A FAIT, COMPTÉ : la ligne repliée d'un passage terminé le
+     dit comme Claude Desktop (« L'agent a fait 4 actions ») au lieu de la
+     phrase fixe de l'étape, qui ne disait rien de ce qui se cache dessous. */
+  const nombreDActions = React.useMemo(
+    () => recitDuPoint(entreesDeLaSorte([...point.traces].sort((a, b) => a.rang - b.rang), 'actions')).blocs.length,
+    [point.traces],
+  );
+
   /* Les sujets du cadrage jusqu'à celui de ce tour, posés au-dessus de sa réponse. */
   const sujets = React.useMemo(
     () => (point.etape === 'comprehension' ? sujetsDuCadrage(passages, point) : []),
@@ -978,7 +1014,13 @@ function PointDuFlux({
     (point.etape === 'travail' && point.total === 1);
   /* La ligne de la carte : ce que l'agent en dit lui-même, sinon la phrase de
      l'étape. C'est tout ce qu'on lit tant qu'on ne l'ouvre pas. */
-  const ligneDeLaCarte = point.resume?.trim() || t(point.phrase);
+  const ligneDeLaCarte =
+    point.resume?.trim() ||
+    (point.etat === 'fait' && nombreDActions > 0
+      ? nombreDActions > 1
+        ? t('L’agent a fait {v0} actions', { v0: nombreDActions })
+        : t('L’agent a fait 1 action')
+      : t(point.phrase));
   /* LE COMPTE RENDU RENDU N'A QU'UN TITRE (demande du 12/10/2026) : « Compte
      rendu » et sa date, sur la barre de la carte. La phrase « Le compte rendu
      est rendu. » redisait ce que ce titre dit déjà, et le même titre se
@@ -1003,12 +1045,27 @@ function PointDuFlux({
       {/* Le rond d'étape n'est plus dessiné ; son repère reste pour les contrôles. */}
       <span aria-hidden data-point-rond className="hidden" />
 
-      {/* 1. LA MARQUE D'ÉTAPE, entre les messages. */}
+      {/* 1. LA MARQUE D'ÉTAPE, entre les messages. UNE DISCUSSION N'A PAS DE
+          SÉPARATEURS (carte du 23/10/2026, « comme Claude Desktop ») : la
+          marque d'un passage de cadrage TERMINÉ se tait à l'écran — la barre
+          d'étapes du haut dit déjà où l'on en est — et ne reste lue que par
+          les lecteurs d'écran et les contrôles. Elle reparaît tant que le
+          passage tourne ou tombe, et pour ce qui suit le travail.
+          LE TRAVAIL EST UN SEUL FLUX (carte du 23/10/2026, capture #5675) :
+          chaque tour de l'agent ouvre un passage « Travail » neuf, et chacun
+          posait sa pastille — quatre pour une seule carte. Sa marque se tait
+          donc dans TOUS ses états ; les tours s'enchaînent sans séparateur et
+          la barre du haut dit seule où l'on en est. Seul un passage au titre
+          propre (« Examen » de la carte de nuit) garde la sienne. */}
       <MarqueDEtape
         icone={Icone}
         titre={t(point.titre ?? LIBELLES_ETAPE[point.etape])}
         etat={point.etat}
         repere={point.etape}
+        discrete={
+          (point.etape === 'travail' && !point.titre) ||
+          (point.etat === 'fait' && (point.etape === 'demande' || point.etape === 'comprehension' || point.etape === 'plan'))
+        }
       />
 
       {/* 2. CE QUE VOUS AVEZ ÉCRIT : la bulle de la demande (ou la précision
@@ -1046,6 +1103,24 @@ function PointDuFlux({
       {/* LE TEXTE ENVOYÉ AU MOTEUR par un tour lancé par un bouton : il n'a pas
           de bulle de demande, son lien se pose donc ici, avant le détail. */}
       {toursDuPrompt?.length ? <LiensDesPromptsDuPoint cardId={carte.id} tours={toursDuPrompt} className={cn('w-full', LARGEUR_DE_L_AGENT)} /> : null}
+
+      {/* 4 bis. LES SUJETS DU CADRAGE, au-dessus de la réponse de cette itération
+          (20/10/2026, en texte depuis le 21/10/2026) : ceux d'avant avec leur
+          résumé, puis celui du tour en gras ; un clic sur un titre d'avant
+          remonte à sa réponse. */}
+      {sujets.length ? <PointsDuCadrage points={sujets} className={LARGEUR_DE_L_AGENT} /> : null}
+
+      {/* 5. LA RÉPONSE DE L'AGENT : un message, à gauche, toujours à l'écran —
+          AU-DESSUS DU SUIVI du passage (demande du 22/10/2026, capture #40a5) :
+          on lit d'abord ce que l'agent répond, puis, dessous, la carte qui
+          raconte comment il y est arrivé. */}
+      {point.reponse ? (
+        <ol className="flex flex-col gap-3">
+          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
+            <MomentDeReponse entree={point.reponse} onToggleEvolution={onToggleEvolution} />
+          </SousPointDuFlux>
+        </ol>
+      ) : null}
 
       {/* 4. LA CARTE DU PASSAGE : une ligne, qu'on ouvre pour le détail. */}
       {aDansLaCarte || attente || point.mention || (point.etape === 'preparation' && point.etat === 'encours') ? (
@@ -1199,21 +1274,6 @@ function PointDuFlux({
         </div>
       ) : null}
 
-      {/* 4 bis. LES SUJETS DU CADRAGE, au-dessus de la réponse de cette itération
-          (20/10/2026, en texte depuis le 21/10/2026) : ceux d'avant avec leur
-          résumé, puis celui du tour en gras ; un clic sur un titre d'avant
-          remonte à sa réponse. */}
-      {sujets.length ? <PointsDuCadrage points={sujets} className={LARGEUR_DE_L_AGENT} /> : null}
-
-      {/* 5. LA RÉPONSE DE L'AGENT : un message, à gauche, toujours à l'écran. */}
-      {point.reponse ? (
-        <ol className="flex flex-col gap-3">
-          <SousPointDuFlux icone={ICONE_DE_LA_LIGNE.reponse} attrs={{ 'data-sous-point-flux': 'reponse' }}>
-            <MomentDeReponse entree={point.reponse} onToggleEvolution={onToggleEvolution} />
-          </SousPointDuFlux>
-        </ol>
-      ) : null}
-
       {/* 6. LA COMPRÉHENSION, DÉTACHÉE DU BLOC : un texte posé sous le bloc de
           travail (et sous la réponse qui la précède dans le tour), sur le fond
           de la page, sans cadre ni en-tête — comme un message. Le bloc à points
@@ -1255,6 +1315,9 @@ function PointDuFlux({
           ligne porte son propre lien. */}
       {point.filles?.length ? <FillesDuPoint point={point} /> : null}
       {point.propositions?.length ? <PropositionsDuPoint point={point} /> : null}
+      {suggestions?.map((groupe) => (
+        <RepereDeSuggestions key={groupe.messageId} carteId={carte.id} groupe={groupe} />
+      ))}
 
       {/* 8. LES MÉDIAS LIVRÉS PAR CE TOUR, TOUS, sous sa réponse finale
           (décision du 20/10/2026) : chacun téléchargeable, et tous d'un coup. */}
@@ -1375,6 +1438,33 @@ function PropositionsDuPoint({ point }: { point: PointDuParcours }) {
   );
 }
 
+/**
+ * « N CARTES SUGGÉRÉES ICI » (demande du 23/10/2026) : la trace, dans le fil,
+ * de l'endroit où l'agent a proposé des cartes. Elles vivent dans la rangée du
+ * pied, qu'une croix peut fermer ; « Voir » la rouvre et la fait défiler
+ * jusqu'à elles (`voirLesSuggestions`).
+ */
+function RepereDeSuggestions({ carteId, groupe }: { carteId: string; groupe: GroupeDeSuggestions }) {
+  const n = groupe.ids.length;
+  return (
+    <div
+      className={cn('flex items-center gap-2 text-[13px] leading-snug text-muted', LARGEUR_DE_L_AGENT)}
+      data-repere-suggestions={groupe.messageId}
+    >
+      <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0">{n > 1 ? t('{v0} cartes suggérées ici', { v0: n }) : t('1 carte suggérée ici')}</span>
+      <button
+        type="button"
+        onClick={() => voirLesSuggestions(carteId, groupe.ids)}
+        className="shrink-0 rounded-md px-1.5 py-0.5 font-medium text-text hover:bg-raised"
+        data-repere-suggestions-voir=""
+      >
+        {t('Voir')}
+      </button>
+    </div>
+  );
+}
+
 type PartDuCarton = 'entete' | 'cadre';
 
 /**
@@ -1407,11 +1497,13 @@ function SilhouetteDuPlan({ version }: { version: number }) {
 }
 
 /**
- * LE PLAN D'UN PASSAGE, LU COMME UNE RÉPONSE : à gauche, SANS AUCUN FOND, dans
- * la largeur d'un message — le même dessin que la compréhension détachée
- * (`MomentDeComprehension`). Le bloc gris replié, son bandeau et son volet
- * plein écran sur téléphone ont disparu : le texte entier est là, et la version
- * rendue dit son heure en petit dessous.
+ * LE PLAN D'UN PASSAGE, LU COMME DANS CLAUDE DESKTOP (carte du 23/10/2026) :
+ * dans le fil, un ENCART — sa version, son titre, son résumé, et ce qui en est
+ * de son lancement (« rien n'est lancé » tant que la carte n'est pas partie).
+ * Un clic ouvre le plan ENTIER dans un panneau à droite sur ordinateur, en
+ * page sur téléphone (`document-de-carte.tsx`). Le texte du plan ne se déroule
+ * plus au milieu de la discussion : on la lit d'un trait, et le document
+ * s'ouvre à côté quand on le veut.
  */
 function MomentDePlan({
   point,
@@ -1430,34 +1522,122 @@ function MomentDePlan({
 }) {
   const plans = carte.parcours?.plans ?? [];
   const moment = point.moments.find((m) => m.sorte === 'plan');
+  const emplacement = React.useContext(ContexteEmplacementDuDocument);
+  const documentOuvert = useDocumentDeCarte(carte.id);
   if (!plans.length || versionDuPlan === null) return null;
+  const courant = planCourant(plans);
+  const vue = (versionDuPlan === 'courante' ? courant : plans.find((p) => p.numero === versionDuPlan)) ?? courant;
+  if (!vue) return null;
+  const agentDuPlan = moment?.entree.agentId ?? carte.agentId;
+  const etatCarte = {
+    colonne: carte.column,
+    agentDeLaCarte: carte.agentId,
+    codeDejaEnregistre: carte.codeDejaEnregistre,
+    /* …sauf le plan d'une RELANCE après rapport (`planDeLaRelance`). */
+    cadrageRouvertA: carte.parcours?.cadrageRouvertA,
+  };
+  const lance = travailDeLaCarteDejaLance({ ...etatCarte, agentDuPlan, planRenduA: vue.at });
+  const estCourant = vue.numero === courant?.numero;
+  const ouvert = documentOuvert?.genre === 'plan' && documentOuvert.numero === vue.numero;
+  const basculer = () => (ouvert ? fermerLeDocument() : ouvrirLeDocument({ cardId: carte.id, genre: 'plan', numero: vue.numero }));
+  const etat = !estCourant
+    ? t('Version remplacée par la v{v0}', { v0: courant?.numero ?? vue.numero })
+    : lance
+      ? t('Plan suivi par l’agent')
+      : t('Plan prêt — rien n’est lancé');
+
+  const bloc = (
+    <BlocDuPlan
+      plans={plans}
+      version={vue.numero}
+      /* L'AGENT DU PLAN EST CELUI QUI L'A ÉCRIT : c'est à lui que
+         « Valider » parle, pas à celui qui travaille aujourd'hui. */
+      agentId={agentDuPlan}
+      planValide={carte.parcours?.planValide ?? null}
+      /* ET LE PLAN D'UNE CARTE DÉJÀ LANCÉE NE SE DÉCIDE PLUS : la carte
+         le dit elle-même (colonne, agent qui la tient, code enregistré). */
+      etatCarte={etatCarte}
+      /* LE LOADER NE VISE QUE LE TOUR QUI ÉCRIT CE PLAN (`planEnCoursDEcriture`). */
+      passage={point}
+      passages={passages}
+      onToggleEvolution={onToggleEvolution ?? (() => undefined)}
+      onToggleAll={onToggleAll ?? (() => undefined)}
+      carte={carte}
+    />
+  );
+
   return (
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="plan-rendu">
-      <div data-bulle="agent" className={LARGEUR_DE_L_AGENT}>
-        <BlocDuPlan
-          plans={plans}
-          version={versionDuPlan === 'courante' ? undefined : versionDuPlan}
-          /* L'AGENT DU PLAN EST CELUI QUI L'A ÉCRIT : c'est à lui que
-             « Valider » parle, pas à celui qui travaille aujourd'hui. */
-          agentId={moment?.entree.agentId ?? carte.agentId}
-          planValide={carte.parcours?.planValide ?? null}
-          /* ET LE PLAN D'UNE CARTE DÉJÀ LANCÉE NE SE DÉCIDE PLUS : la carte
-             le dit elle-même (colonne, agent qui la tient, code enregistré). */
-          etatCarte={{
-            colonne: carte.column,
-            agentDeLaCarte: carte.agentId,
-            codeDejaEnregistre: carte.codeDejaEnregistre,
-            /* …sauf le plan d'une RELANCE après rapport (`planDeLaRelance`). */
-            cadrageRouvertA: carte.parcours?.cadrageRouvertA,
-          }}
-          /* LE LOADER NE VISE QUE LE TOUR QUI ÉCRIT CE PLAN (`planEnCoursDEcriture`). */
-          passage={point}
-          passages={passages}
-          onToggleEvolution={onToggleEvolution ?? (() => undefined)}
-          onToggleAll={onToggleAll ?? (() => undefined)}
-          carte={carte}
-        />
+      {/* UN BLOC ORDINAIRE AU RÔLE DE BOUTON : le résumé est replié
+          (`line-clamp`), et un texte replié ne se pose jamais dans un
+          `button` (WebKit réserve alors la hauteur du texte entier). */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={ouvert}
+        data-encart-du-plan={vue.numero}
+        data-encart-ouvert={ouvert ? '' : undefined}
+        onClick={basculer}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          basculer();
+        }}
+        className={cn(
+          /* Le fond du FIL est déjà `surface` : l'encart prend le gris des
+             bulles de l'agent, et le violet de l'élément choisi quand il est ouvert. */
+          'group flex w-full max-w-[460px] cursor-pointer items-start gap-3 rounded-xl bg-raised px-3.5 py-3 text-left transition-colors hover:bg-raised/70',
+          ouvert && 'ring-1 ring-accent/60',
+        )}
+      >
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-base/60 text-muted group-hover:text-text">
+          <FileText className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[12.5px] text-muted">
+            {t('Plan v{v0}', { v0: vue.numero })} · {etat}
+          </span>
+          <span className="block truncate text-[14.5px] font-medium leading-snug text-text">{vue.titre}</span>
+          {vue.resume ? <span className="mt-0.5 line-clamp-2 block text-[13.5px] leading-relaxed text-muted">{vue.resume}</span> : null}
+        </span>
+        <span className="mt-0.5 shrink-0 text-[12.5px] text-faint group-hover:text-text">
+          {ouvert ? t('Fermer') : t('Ouvrir')}
+        </span>
       </div>
+      {ouvert && emplacement
+        ? createPortal(
+            <PanneauDuPlan titre={t('Plan v{v0}', { v0: vue.numero })}>{bloc}</PanneauDuPlan>,
+            emplacement,
+          )
+        : null}
+      {/* SANS EMPLACEMENT (une conversation montée hors de la page d'une
+          carte), le plan se déroule dans le fil, comme avant. */}
+      {ouvert && !emplacement ? <div data-bulle="agent" className={cn('mt-2', LARGEUR_DE_L_AGENT)}>{bloc}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * LE PANNEAU DU PLAN, rendu dans l'emplacement de droite de la page de la
+ * carte : son titre, sa croix, et le plan qui défile sur lui-même.
+ */
+function PanneauDuPlan({ titre, children }: { titre: string; children: React.ReactNode }) {
+  return (
+    <div className="flex h-full min-h-0 flex-col" data-panneau-du-plan>
+      <div className="flex shrink-0 items-center gap-2 px-5 pb-2 pt-3">
+        <FileText className="h-4 w-4 text-muted" />
+        <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{titre}</span>
+        <button
+          type="button"
+          onClick={fermerLeDocument}
+          title={t('Fermer le plan')}
+          data-fermer-le-plan
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-raised hover:text-text"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <ZoneDefilement className="px-5 pb-6">{children}</ZoneDefilement>
     </div>
   );
 }
@@ -1780,12 +1960,13 @@ function MomentDeReponse({
   const texte = retirerLeBlocDeProcessus(retirerLaStructureDeCadrage(entree.resultat ?? ''));
   const suites = React.useMemo(() => suitesDuJalon(entree.donnees), [entree.donnees]);
   return (
-    /* LA RÉPONSE DE L'AGENT : à GAUCHE, SANS AUCUN FOND, en clair comme en
-       sombre — seul ce que VOUS écrivez porte une bulle. `scroll-mt-12` : visée
+    /* LA RÉPONSE DE L'AGENT : une BULLE GRISE à GAUCHE, face à la vôtre à
+       droite (demande du 22/10/2026). Seule la réponse en porte une : la
+       compréhension et le compte rendu restent à plat. `scroll-mt-12` : visée
        par son début, elle s'arrête sous le fondu du haut du fil et se lit nette. */
     <div className="flex scroll-mt-12 flex-col items-start" data-moment="reponse" data-bloc-reponse={entree.id}>
-      <div data-bulle="agent" className={LARGEUR_DE_L_AGENT}>
-        <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text" />
+      <div data-bulle="agent" className={cn(BULLE_DE_L_AGENT, LARGEUR_DE_L_AGENT)}>
+        <Markdown content={texte} className="texte-du-fil [&_p]:mb-2.5 [&_p]:text-text [&>*:last-child]:mb-0" />
         <SuitesProposees suites={suites} onBasculer={onToggleEvolution} cible={{ entreeId: entree.id }} />
       </div>
       <span className="mt-1 pl-1 text-[12px] text-faint">{dateHeure(entree.at)}</span>

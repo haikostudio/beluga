@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { modeleBanni, modelePermis, TodoItem } from '@beluga/shared';
+import { detailDEtape, modeleBanni, PLAFOND_DETAIL_D_ETAPE, plafondDuDetailDEtape, modelePermis, TodoItem } from '@beluga/shared';
 import { log } from '../logger.js';
 import { AIDES_FERMEES, aidesDeLecture } from './aides-claude.js';
 import {
@@ -592,6 +592,14 @@ export class SuiviDesTaches {
   }
 }
 
+/**
+ * Les appels dont le résultat est une RÉPONSE de l'utilisateur, attendus par
+ * leur identifiant d'appel (unique pour tout le démon). L'étape en cours ne
+ * retient que son libellé : c'est ici qu'on se souvient qu'elle échappe à la
+ * coupe à 400 signes.
+ */
+const outilsAReponseEntiere = new Set<string>();
+
 export function emitFromClaude(
   event: any,
   onEvent: (e: EngineEvent) => void,
@@ -652,6 +660,7 @@ export function emitFromClaude(
           const step = humanStep(block.name, block.input);
           const key = block.id ?? `${block.name}-${Date.now()}`;
           pendingSteps.set(key, step.label);
+          if (plafondDuDetailDEtape(block.name) !== PLAFOND_DETAIL_D_ETAPE) outilsAReponseEntiere.add(key);
           onEvent({
             kind: 'step',
             step: {
@@ -678,15 +687,16 @@ export function emitFromClaude(
           if (label !== undefined) {
             pendingSteps.delete(key);
             const failed = block.is_error === true;
-            const detail =
+            // La réponse à une question garde son texte entier (`detailDEtape`).
+            const outil = outilsAReponseEntiere.delete(key) ? 'ask_user' : undefined;
+            const detail = detailDEtape(
+              outil,
               typeof block.content === 'string'
-                ? block.content.slice(0, 400)
+                ? block.content
                 : Array.isArray(block.content)
-                  ? block.content
-                      .map((c: any) => (typeof c?.text === 'string' ? c.text : ''))
-                      .join(' ')
-                      .slice(0, 400)
-                  : undefined;
+                  ? block.content.map((c: any) => (typeof c?.text === 'string' ? c.text : '')).join(' ')
+                  : undefined,
+            );
             // Étiquette vide = création de tâche : pas une étape du journal,
             // seulement le numéro à retenir pour pouvoir la cocher plus tard.
             if (!label) {

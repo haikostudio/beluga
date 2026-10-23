@@ -5,6 +5,7 @@ import {
   agentDeConfiguration,
   agentTientSonTour,
   etatDuBoutonDeConfiguration,
+  gesteDuBoutonDEtape,
   leClicLanceLAgent,
   processusDeLEtape,
   procedureEnPlace,
@@ -41,6 +42,24 @@ export function useAgentDeConfiguration(projectId: string, cible: CiblePublicati
     projet,
     auTravail: !!procedure?.enCours || (!!agent && agentTientSonTour(agent)),
     question: !!procedure?.question || agent?.attendReponse === true,
+  };
+}
+
+/**
+ * LE CHEMIN VERS L'AGENT, POUR LES BOUTONS DE LA BARRE DU HAUT (« Déployer »,
+ * « Mise en production », 22/10/2026). L'état se lit par le MÊME hook que le
+ * bouton de la rubrique, et le clic suit la même règle : il lance l'agent en
+ * « Initialiser » / « Reconfigurer », il rouvre seulement sa conversation
+ * quand il travaille ou attend une réponse. `versLAgent` dit si le bouton de
+ * l'étape mène à l'agent plutôt qu'à son geste (`gesteDuBoutonDEtape`).
+ */
+export function useCheminVersLAgentDeConfiguration(projectId: string, cible: CiblePublication, procedure: boolean) {
+  const { projet, auTravail, question } = useAgentDeConfiguration(projectId, cible);
+  const etat = etatDuBoutonDeConfiguration({ processus: !!processusDeLEtape(projet, cible), auTravail, question });
+  return {
+    etat,
+    versLAgent: gesteDuBoutonDEtape({ procedure, auTravail, question }) === 'agent',
+    ouvrir: () => ouvrirAgentDeConfiguration(projectId, cible, { lancer: leClicLanceLAgent(etat) }),
   };
 }
 

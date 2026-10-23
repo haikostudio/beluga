@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
   AlertCircle,
+  ArrowUpRight,
   BatteryLow,
   Check,
   Circle,
@@ -18,6 +19,11 @@ import {
 } from 'lucide-react';
 import {
   Attachment,
+  LIBELLE_ETAPE_DE_SUIVI,
+  agentAuTravailALEcran,
+  agentCompteCommeTravail,
+  colonneAffichee,
+  etapeCouranteDeSuivi,
   DEFINITIONS_NIVEAU,
   MEMORY_STEP_ID,
   Message,
@@ -70,6 +76,7 @@ import { BullesDuPromptEnvoye } from '@/components/prompt-envoye';
 import { LienPromptEnvoye } from '@/components/prompt-envoye-complet';
 import { RunChoix, RunSelectors, nomCourtMoteur, resoudreRun } from '@/components/run-selectors';
 import { client } from '@/lib/client';
+import { carteDeSuivi } from '@/lib/carte-de-suivi';
 import { pieceEmbarquee } from '@/lib/copie-riche';
 import { useApp } from '@/lib/use-app';
 import { cn, duration, heureDuMessage, jetons } from '@/lib/utils';
@@ -387,6 +394,7 @@ export function MessageView({
               onToggleEvolution={onToggleEvolution}
               onToggleAll={onToggleAll}
               streaming={message.streaming}
+              enBulle
             />
           )
         ) : message.streaming && !etapes.length ? (
@@ -670,6 +678,19 @@ function BoutonCopier({
  * unique, choix multiple ou texte libre — et toujours la possibilité d'ajouter
  * une précision.
  */
+function usePiecesDuMessage(messageId: string, agentId?: string): string[] | undefined {
+  const state = useApp();
+  if (agentId) {
+    const trouve = state.messages[agentId]?.find((m) => m.id === messageId);
+    if (trouve) return trouve.attachments;
+  }
+  for (const fil of Object.values(state.cardMessages)) {
+    const trouve = fil.messages.find((m) => m.id === messageId);
+    if (trouve) return trouve.attachments;
+  }
+  return undefined;
+}
+
 export function QuestionCard({
   messageId,
   agentId,
@@ -690,6 +711,9 @@ export function QuestionCard({
    */
   sansEntete?: boolean;
 }) {
+  /* Les pièces jointes du message qui porte la question : le son ou la vidéo
+     d'un choix s'y cherche d'abord (`mediaDeLOption`). */
+  const piecesDuMessage = usePiecesDuMessage(messageId, agentId);
   if (question.cancelled) {
     return (
       <div
@@ -752,6 +776,7 @@ export function QuestionCard({
         )
       }
       repere={{ 'data-question-agent': question.id }}
+      piecesDuMessage={piecesDuMessage}
       /* UNE QUESTION À CHOIX PUR N'EST PAS RÉPONDUE PAR LA BARRE : ce qu'on y
          écrit reste une demande de plus, et le choix coché reste dans la bulle. */
       cleDeBrouillon={cleDeBrouillonDeReponse.outil(question.id)}
@@ -1233,13 +1258,49 @@ export function ErreurDeTourCard({ message }: { message: Message }) {
  * barre d'écriture (`BandeauPropositions`), où le défilement ne les emporte
  * pas.
  */
-function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) {
+export function ProposalChip({
+  proposal,
+  etiree = false,
+}: {
+  proposal: Message['proposals'][number];
+  /** Dans la rangée des suggestions : la pastille prend la hauteur de la rangée, le bouton en bas. */
+  etiree?: boolean;
+}) {
   const state = useApp();
   const [lancement, setLancement] = React.useState(false);
 
   if (proposal.decision === 'accepted') {
     const card = proposal.cardId ? state.cards[proposal.cardId] : undefined;
-    const peutLancer = card && card.column === 'planned';
+    const peutLancer = !!card && card.column === 'planned';
+
+    /* UNE CARTE LANCÉE GARDE SON BOUTON (demande du 23/10/2026) : il dit
+       l'étape RÉELLE de la carte, calculée comme le badge du tableau
+       (`etapeCouranteDeSuivi`), orange tant qu'elle travaille, bleu une fois
+       rendue, et l'ouvre au clic. Une carte absente de l'écran (déchargée,
+       rangée) s'ouvre quand même : le tiroir la réclame au serveur. */
+    const agentActif = card
+      ? Object.values(state.agents).find((a) => a.cardId === card.id && agentAuTravailALEcran(a))
+      : undefined;
+    const etape = card
+      ? etapeCouranteDeSuivi(
+          carteDeSuivi(card, {
+            agentActif: !!agentActif,
+            deploys: state.deploys,
+            colonne: colonneAffichee({
+              column: card.column,
+              agentAuTravail: !!agentActif && agentCompteCommeTravail(agentActif.role),
+            }),
+          }),
+        )
+      : undefined;
+    const libelleDEtat = !card
+      ? t('Ouvrir la carte')
+      : agentActif
+        ? agentActif.role === 'cadrage'
+          ? t('Cadrage en cours')
+          : t('Au travail')
+        : t(LIBELLE_ETAPE_DE_SUIVI[etape!]);
+    const toneDEtat = card && (card.column === 'to_deploy' || card.column === 'archived') ? 'text-success' : 'text-en-cours';
 
     const lancer = (event: React.MouseEvent) => {
       event.stopPropagation();
@@ -1271,13 +1332,15 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
           event.preventDefault();
           if (proposal.cardId) client.openCard(proposal.cardId);
         }}
-        className="w-full cursor-pointer rounded-md border border-transparent bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised"
+        className={cn(
+          'w-full cursor-pointer rounded-md border border-transparent bg-surface px-3 py-2.5 text-left transition-colors hover:bg-raised',
+          etiree && 'flex flex-1 flex-col',
+        )}
       >
         <div className="mb-1.5 flex items-center gap-1.5 text-[12.5px] text-success">
           <Check className="h-3 w-3" />
-          
-{t('Carte créée dans « Demande »')}
-</div>
+          {card && !peutLancer ? t('Carte lancée') : t('Carte créée dans « Planifié »')}
+        </div>
         <p className="text-[14.5px] font-medium leading-snug text-text">{proposal.title}</p>
         {proposal.description ? (
           <p className="mt-1 line-clamp-2 text-[14.5px] leading-relaxed text-muted">{proposal.description}</p>
@@ -1289,11 +1352,28 @@ function ProposalChip({ proposal }: { proposal: Message['proposals'][number] }) 
             ))}
           </div>
         ) : null}
-        {peutLancer ? (
-          <Button size="sm" variant="outline" className="mt-2" disabled={lancement} onClick={lancer}>
-            <Play className="h-3 w-3" /> {lancement ? t('Lancement…') : t('Lancer')}
-          </Button>
-        ) : null}
+        <div className={etiree ? 'mt-auto pt-2' : 'mt-2'}>
+          {peutLancer ? (
+            <Button size="sm" variant="outline" disabled={lancement} onClick={lancer} data-carte-proposee-bouton="lancer">
+              <Play className="h-3 w-3" /> {lancement ? t('Lancement…') : t('Lancer')}
+            </Button>
+          ) : proposal.cardId ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className={toneDEtat}
+              onClick={(event) => {
+                event.stopPropagation();
+                client.openCard(proposal.cardId!);
+              }}
+              data-carte-proposee-bouton="etat"
+              data-carte-proposee-etape={etape ?? ''}
+            >
+              {agentActif ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> : <ArrowUpRight className="h-3 w-3" aria-hidden />}
+              {libelleDEtat}
+            </Button>
+          ) : null}
+        </div>
       </div>
     );
   }

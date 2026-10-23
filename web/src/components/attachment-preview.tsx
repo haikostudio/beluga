@@ -40,6 +40,7 @@ import {
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
 import { PastilleDeFichier, VignetteDImage, adresseDePiece } from '@/components/pastille-de-fichier';
 import { LecteurVideo, type ApercuDeVideo } from '@/components/lecteur-video';
+import { LecteurSon } from '@/components/lecteur-son';
 import { client } from '@/lib/client';
 import { useTelechargement } from '@/lib/telechargement';
 import { bytes, cn, dateHeure } from '@/lib/utils';
@@ -771,6 +772,20 @@ export function AttachmentPreview({
                   apercu={apercuDeLaPiece}
                   className="mx-auto"
                 />
+              ) : courante.mime.startsWith('audio/') ? (
+                /* LE MÊME LECTEUR SON QUE DANS LE FIL, en grand : plus de bâtons,
+                   et la lecture part d'elle-même, comme la vidéo agrandie. */
+                <div className="flex h-full min-h-[40dvh] items-center justify-center px-2 sm:px-6" data-visionneuse-son={courante.id}>
+                  <LecteurSon
+                    key={courante.id}
+                    id={courante.id}
+                    nom={etiquetteDePiece(courante)}
+                    poids={courante.size}
+                    batons={120}
+                    demarrer
+                    className="w-full max-w-[720px] bg-surface"
+                  />
+                </div>
               ) : courante.mime === 'application/pdf' ? (
                 <iframe title={etiquetteDePiece(courante)} src={source} className="h-full min-h-[60dvh] w-full rounded" />
               ) : (
@@ -859,13 +874,14 @@ export function AttachmentThumb({
 
   /*
    * UN SON SE LIT DANS LE FIL AUSSI (mode « Réalisation » : voix off,
-   * bruitages, musique). Le lecteur du navigateur, sans rien précharger
-   * d'autre que l'entête ; dans la barre d'écriture, il reste une pastille.
+   * bruitages, musique), par le lecteur à onde (`LecteurSon`) : lecture / pause
+   * à gauche, l'onde sur la largeur, et « agrandir » vers la visionneuse. Dans
+   * la barre d'écriture, il reste une pastille.
    */
   if (!compact && item.mime.startsWith('audio/')) {
     return (
       <figure className={cn('w-full max-w-[480px]', className)} data-audio-fil={item.id}>
-        <audio controls preload="metadata" src={adresseDePiece(item.id)} className="w-full" />
+        <LecteurSon id={item.id} nom={etiquetteDePiece(item)} poids={item.size} onAgrandir={onOpen} />
         <figcaption className="mt-1 min-w-0 truncate text-[12px] text-faint" title={item.name}>
           {etiquetteDePiece(item)} · {bytes(item.size)}
         </figcaption>

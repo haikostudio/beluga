@@ -1,14 +1,16 @@
 import * as React from 'react';
-import { Check, Circle, Loader2, Paperclip, RefreshCw, X } from 'lucide-react';
-import { Attachment, reponsePrete, texteDeReponse } from '@beluga/shared';
-import { Button, Textarea } from '@/components/ui';
+import { Check, Circle, Loader2, Paperclip, Pause, Play, RefreshCw, X } from 'lucide-react';
+import { Attachment, genreDeMedia, mediaDeLOption, repereDuLibelle, reponsePrete, texteDeReponse } from '@beluga/shared';
+import { Button, Drawer, EnteteDeFeuille, Textarea, ZoneDefilement } from '@/components/ui';
+import { useTelephone } from '@/lib/telephone';
 import { AttachmentPreview, AttachmentThumb } from '@/components/attachment-preview';
-import { PastilleDeFichier } from '@/components/pastille-de-fichier';
+import { ImageDePiece, PastilleDeFichier } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { writePref } from '@/lib/prefs';
+import { arreterLeSon, basculerSon, useLectureDeSon } from '@/lib/lecture-de-media';
 
 /**
  * LE BROUILLON D'UNE RÉPONSE : le texte écrit dans la bulle, les choix cochés et
@@ -83,7 +85,7 @@ export function PiecesJointes({ ids, projectId }: { ids: string[]; projectId?: s
       <AttachmentPreview
         item={apercu}
         onClose={() => setApercu(null)}
-        galerie={items.filter((item) => item.mime.startsWith('image/'))}
+        galerie={items.filter((item) => genreDeMedia(item.mime))}
         onNaviguer={setApercu}
       />
     </>
@@ -95,6 +97,10 @@ export interface OptionDeQuestion {
   id: string;
   label: string;
   description?: string;
+  /** Une pièce jointe image qui illustre le choix : la zone devient un choix en images. */
+  image?: string;
+  /** Une pièce jointe son ou vidéo que le choix fait écouter : un bouton lecture à droite. */
+  media?: string;
 }
 
 /** Une question à poser, quelle que soit la façon dont elle est arrivée. */
@@ -139,17 +145,73 @@ export interface QuestionAAfficher {
  * ordinaire, dont les options sont relues dans la phrase
  * (`choixDeQuestionEnTexte`, `shared/src/question-en-texte.ts`).
  */
-export function BulleQuestion({
-  question,
-  projectId,
-  agentId,
-  entete,
-  variante = 'neutre',
-  onRepondre,
-  onAnnuler,
-  repere,
-  cleDeBrouillon,
-}: {
+export function BulleQuestion(props: ProprietesDeLaBulle) {
+  const telephone = useTelephone();
+  const reponsePossible = props.question.options.length > 0 || !!props.question.allowFreeText;
+  if (!telephone || !reponsePossible) return <BulleQuestionComplete {...props} />;
+  return <BulleQuestionCompacte {...props} />;
+}
+
+/**
+ * SUR TÉLÉPHONE, LA QUESTION SE RÉDUIT À SON INTITULÉ ET À « RÉPONDRE »
+ * (demande du 22/10/2026). Les choix, la précision, le champ libre et les
+ * pièces jointes mangeaient l'écran entier au-dessus de la barre d'écriture :
+ * ils vivent désormais dans une FEUILLE DU BAS, ouverte par le bouton, qui
+ * porte la bulle complète et se referme dès que la réponse est partie. Le
+ * brouillon vit côté serveur (`cleDeBrouillon`) : refermer la feuille ne perd
+ * rien. Sur ordinateur, rien ne change.
+ */
+function BulleQuestionCompacte(props: ProprietesDeLaBulle) {
+  const { question, entete, variante = 'neutre', repere } = props;
+  const [ouverte, setOuverte] = React.useState(false);
+  const repondre = async (reponse: string, images: string[]) => {
+    await props.onRepondre(reponse, images);
+    setOuverte(false);
+  };
+  const annuler = props.onAnnuler
+    ? async () => {
+        await props.onAnnuler!();
+        setOuverte(false);
+      }
+    : undefined;
+  return (
+    <div
+      className={cn('rounded-lg px-3 py-2.5', variante === 'neutre' ? 'bg-bloc-fil' : 'bg-raised')}
+      data-bulle-question={variante}
+      data-question-compacte=""
+      {...(repere ?? {})}
+    >
+      {entete}
+      {/* L'intitulé reste un TEXTE (copiable), jamais posé dans le bouton. */}
+      {question.question ? (
+        <p
+          data-intitule-question
+          className={cn('line-clamp-3 text-[15px] font-medium leading-snug text-text', entete ? 'mt-1.5' : undefined)}
+        >
+          {question.question}
+        </p>
+      ) : null}
+      <div className="mt-2 flex justify-end">
+        <Button size="sm" onClick={() => setOuverte(true)} data-repondre-question="">
+          {t('Répondre')}
+        </Button>
+      </div>
+      <Drawer open={ouverte} onClose={() => setOuverte(false)} feuille>
+        <EnteteDeFeuille titre={t('Une question vous attend')} data-entete-feuille-question="" />
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-3 pb-4">
+          <BulleQuestionComplete
+            {...props}
+            repere={{ 'data-feuille-question': '' }}
+            onRepondre={repondre}
+            onAnnuler={annuler}
+          />
+        </ZoneDefilement>
+      </Drawer>
+    </div>
+  );
+}
+
+interface ProprietesDeLaBulle {
   question: QuestionAAfficher;
   /** Le projet : c'est lui qui porte les pièces jointes. */
   projectId?: string;
@@ -175,7 +237,25 @@ export function BulleQuestion({
    * Absent : la réponse n'est gardée que dans cette page.
    */
   cleDeBrouillon?: string;
-}) {
+  /**
+   * Les pièces jointes du message qui porte la question : c'est là qu'on
+   * cherche d'abord le son ou la vidéo d'un choix (`mediaDeLOption`).
+   */
+  piecesDuMessage?: string[];
+}
+
+function BulleQuestionComplete({
+  question,
+  projectId,
+  agentId,
+  entete,
+  variante = 'neutre',
+  onRepondre,
+  onAnnuler,
+  repere,
+  cleDeBrouillon,
+  piecesDuMessage,
+}: ProprietesDeLaBulle) {
   /* Le brouillon tel que le serveur le tient : la bulle en part, et le suit. */
   const brut = React.useSyncExternalStore(
     client.subscribe,
@@ -224,6 +304,9 @@ export function BulleQuestion({
     return () => window.clearTimeout(minuteur);
   }, [cleDeBrouillon, choisis, texteLibre, images, ecrireLeBrouillon]);
   const [apercu, setApercu] = React.useState<Attachment | null>(null);
+  const mediaDe = useMediasDesChoix(question.options, projectId, agentId, piecesDuMessage);
+  /** La vidéo d'un choix, ouverte en grand par-dessus l'écran. */
+  const [video, setVideo] = React.useState<Attachment | null>(null);
   const [envoiFichier, setEnvoiFichier] = React.useState(false);
   const [envoi, setEnvoi] = React.useState(false);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -428,18 +511,29 @@ export function BulleQuestion({
           <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">
             {question.kind === 'multiple' ? t('Plusieurs réponses possibles') : t('Un seul choix')}
           </p>
+          {question.options.some((option) => option.image) ? (
+            <ChoixEnImages
+              options={question.options}
+              choisis={choisis}
+              recommandee={question.recommandee}
+              onBasculer={basculer}
+            />
+          ) : (
           <div className="space-y-1" data-choix-question>
           {question.options.map((option) => {
             const actif = choisis.includes(option.id);
+            const media = mediaDe(option);
             return (
+              /* LE BOUTON LECTURE EST VOISIN DU CHOIX, jamais dedans : un bouton
+                 ne s'imbrique pas dans un autre, et écouter ne coche rien. */
+              <div key={option.id} className="flex items-start gap-1">
               <button
-                key={option.id}
                 type="button"
                 onClick={() => basculer(option.id)}
                 data-option-question={option.id}
                 data-option-retenue={actif ? '' : undefined}
                 className={cn(
-                  'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+                  'flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
                   /* LE CHOIX RETENU DOIT RESTER VISIBLE : sur ces variantes,
                      le bloc est DÉJÀ posé sur `--raised` — une pastille du
                      même fond n'aurait plus rien montré. */
@@ -472,9 +566,12 @@ export function BulleQuestion({
                   ) : null}
                 </span>
               </button>
+              {media ? <BoutonLecture piece={media} onVideo={setVideo} /> : null}
+              </div>
             );
           })}
           </div>
+          )}
           {reponsePossible ? (
             <button
               type="button"
@@ -541,6 +638,7 @@ export function BulleQuestion({
       ) : null}
 
       <AttachmentPreview item={apercu} onClose={() => setApercu(null)} galerie={images} />
+      <AttachmentPreview item={video} onClose={() => setVideo(null)} adresse="video-du-choix" />
 
       {/* Une question peut porter assez d'options pour dépasser l'écran. Les
           deux issues restent donc collées au bas du fil pendant sa lecture :
@@ -622,5 +720,139 @@ export function BulleQuestion({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * LE CHOIX EN IMAGES (mode Réalisation, 22/10/2026) : quand une option porte
+ * une image (un aperçu fabriqué par le cadrage), la zone devient une grille de
+ * vignettes cliquables, deux par ligne sur téléphone, trois au-delà. Le clic
+ * bascule le choix comme une pastille ; le retenu porte le violet et sa coche.
+ * Une option sans image garde sa vignette vide, son libellé dessous : rien ne
+ * se perd d'une question mixte.
+ */
+function ChoixEnImages({
+  options,
+  choisis,
+  recommandee,
+  onBasculer,
+}: {
+  options: OptionDeQuestion[];
+  choisis: string[];
+  recommandee?: string;
+  onBasculer: (id: string) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-choix-question data-choix-en-images>
+      {options.map((option) => {
+        const actif = choisis.includes(option.id);
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onBasculer(option.id)}
+            data-option-question={option.id}
+            data-option-retenue={actif ? '' : undefined}
+            data-option-image={option.image ?? undefined}
+            title={option.description ?? option.label}
+            className={cn(
+              'group flex min-w-0 flex-col overflow-hidden rounded-lg text-left transition-colors',
+              actif ? 'bg-teinte-fond text-teinte' : 'bg-surface text-muted hover:bg-text/5',
+            )}
+          >
+            <span className={cn('relative block aspect-square w-full overflow-hidden bg-raised', actif && 'ring-2 ring-inset ring-teinte')}>
+              {option.image ? <ImageDePiece id={option.image} alt={option.label} className="h-full w-full object-cover" /> : null}
+              {actif ? (
+                <span className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-teinte text-bg">
+                  <Check className="h-3 w-3" />
+                </span>
+              ) : null}
+            </span>
+            <span className="block min-w-0 px-2 py-1.5">
+              <span className="block truncate text-[13px] font-medium leading-snug">{option.label}</span>
+              {recommandee && option.label === recommandee ? (
+                <span className="text-[11.5px] font-medium text-accent" data-option-conseillee>
+                  {t('Conseillé')}
+                </span>
+              ) : null}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * LE SON OU LA VIDÉO DE CHAQUE CHOIX — lien posé par l'agent, sinon repère du
+ * nom (`mediaDeLOption`, règle pure) : d'abord parmi les pièces du message de
+ * la question, puis parmi toutes celles du même agent.
+ */
+function useMediasDesChoix(
+  options: OptionDeQuestion[],
+  projectId: string | undefined,
+  agentId: string | undefined,
+  piecesDuMessage: string[] | undefined,
+): (option: OptionDeQuestion) => Attachment | undefined {
+  const state = useApp();
+  const peutEnAvoir = options.some((o) => o.media || repereDuLibelle(o.label));
+  const connues = projectId ? state.attachments[projectId] : undefined;
+  React.useEffect(() => {
+    if (peutEnAvoir && projectId && !connues) client.send({ type: 'attachments.list', projectId });
+  }, [peutEnAvoir, projectId, !connues]);
+  const groupes = React.useMemo(() => {
+    const liste = connues ?? [];
+    const duMessage = (piecesDuMessage ?? [])
+      .map((id) => liste.find((p) => p.id === id))
+      .filter((p): p is Attachment => !!p);
+    const deLAgent = agentId ? liste.filter((p) => p.agentId === agentId) : [];
+    return [duMessage, deLAgent];
+  }, [connues, piecesDuMessage, agentId]);
+  return React.useCallback(
+    (option: OptionDeQuestion) => {
+      if (!peutEnAvoir) return undefined;
+      const trouvee = mediaDeLOption(option, groupes);
+      return trouvee ? (trouvee as Attachment) : undefined;
+    },
+    [groupes, peutEnAvoir],
+  );
+}
+
+/**
+ * LE BOUTON LECTURE D'UN CHOIX : un son se lit SUR PLACE (lecture / pause, un
+ * seul à la fois), une vidéo s'ouvre EN GRAND par-dessus l'écran (décision du
+ * 23/10/2026). Sans bordure ; violet tant que le son joue.
+ */
+function BoutonLecture({ piece, onVideo }: { piece: Attachment; onVideo: (piece: Attachment) => void }) {
+  const etat = useLectureDeSon(piece.id);
+  const estVideo = piece.mime.startsWith('video/');
+  const libelle = estVideo ? t('Regarder') : etat === 'arret' ? t('Écouter') : t('Pause');
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (estVideo) {
+          arreterLeSon();
+          onVideo(piece);
+        } else basculerSon(piece.id);
+      }}
+      aria-label={libelle}
+      title={libelle}
+      data-lecture-option={piece.id}
+      data-lecture-etat={estVideo ? 'video' : etat}
+      className={cn(
+        'mt-0.5 shrink-0 rounded-md p-1.5 transition-colors hover:bg-raised/60',
+        etat === 'arret' ? 'text-muted hover:text-text' : 'text-teinte',
+      )}
+    >
+      {etat === 'chargement' ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : etat === 'lecture' ? (
+        <Pause className="h-4 w-4" />
+      ) : (
+        <Play className="h-4 w-4" />
+      )}
+    </button>
   );
 }

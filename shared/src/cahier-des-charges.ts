@@ -41,6 +41,42 @@ export const TITRE_CARTE_CAHIER = 'Cahier des charges';
 export const COMPETENCE_DU_CAHIER = 'creer-une-application-complete';
 
 /**
+ * LE SOCLE DE FINITION, imposé à chaque construction (carte du 23/10/2026,
+ * après ETSigna v2 : 43 listes du navigateur, blanc en sombre, aucune barre de
+ * défilement). Annexes de la compétence du cahier, dans son dossier.
+ */
+export const SOCLE_DE_FINITION = 'socle-de-finition.md';
+export const CONTROLE_DE_FINITION = 'controle-finition.mjs';
+
+/**
+ * LES COMPÉTENCES DU SOCLE, citées par leur NOM dans la demande de la carte de
+ * construction : l'agent ouvre chacune avant la brique qu'elle couvre. Citées,
+ * jamais recopiées — la demande part dans chaque reprise du tour.
+ */
+export const COMPETENCES_DU_SOCLE = [
+  'design-systeme-de-depart',
+  'polices-de-marque',
+  'choix-du-theme-auto-clair-sombre-sans-eclair',
+  'theme-sombre-ajoute-par-jetons-tailwind',
+  'liste-deroulante-avec-recherche',
+  'roulettes-et-calendrier-defilant-en-scroll-snap',
+  'selecteur-de-periode',
+  'tableau-de-donnees-triable-et-pagine',
+  'champ-de-mot-de-passe-avec-oeil-et-generateur',
+  'composants-ui-prets-a-l-emploi',
+  'barre-de-defilement-fine-qui-parait-au-defilement',
+  'apparition-au-defilement-sans-cacher-le-ssr',
+  'entete-de-site-masque-au-defilement',
+  'animation-au-defilement-en-css-pur-avec-repli',
+  'gsap-scrolltrigger-avec-lenis-defilement-doux',
+  'animation-au-defilement-accessible-et-fluide',
+  'silhouette-de-chargement-sans-saut',
+  'icones-et-svg-coherents',
+  'menu-de-langue-dans-l-entete',
+  'finition-et-reglages-de-design',
+] as const;
+
+/**
  * LES SOURCES D'INSPIRATION fournies par l'utilisateur (images, fichiers joints
  * à ses réponses) : l'agent les recopie ici, dans le dossier du projet, et les
  * liste avec les liens de sites dans la partie « Inspiration » du document.
@@ -223,6 +259,38 @@ export function barreDuCahier(cahier: Pick<CahierDesCharges, 'termineA' | 'enPau
   ];
 }
 
+export type EtatDUnePhaseDuCahier = 'fait' | 'encours' | 'avenir';
+
+/**
+ * LE DÉROULÉ DU CAHIER, DANS LE FIL (demande de l'utilisateur du 22/10/2026,
+ * « comme le chemin du tournage ») : ses phases, de la vision à la relecture,
+ * celle où l'on est, la suivante, et le compte des questions tranchées sur les
+ * prévues (`total` 0 : pas encore estimé, le compte ne dit que les faites).
+ * Tout se lit sur la carte, jamais dans les messages.
+ */
+export function cheminDuCahier(cahier: Pick<CahierDesCharges, 'phase' | 'faites' | 'total' | 'termineA' | 'source'>): {
+  phase: PhaseDuCahier;
+  etapes: { phase: PhaseDuCahier; etat: EtatDUnePhaseDuCahier }[];
+  suivante?: PhaseDuCahier;
+  faites: number;
+  total: number;
+  termine: boolean;
+} {
+  const phases = phasesDuCahier(!!cahier.source);
+  const termine = !!cahier.termineA;
+  const phase = phases.includes(cahier.phase) ? cahier.phase : phases[0]!;
+  const rang = termine ? phases.length : phases.indexOf(phase);
+  const faites = Math.max(0, cahier.faites ?? 0);
+  return {
+    phase,
+    etapes: phases.map((p, i) => ({ phase: p, etat: i < rang ? 'fait' : i === rang ? 'encours' : 'avenir' })),
+    suivante: termine ? undefined : phases[rang + 1],
+    faites,
+    total: Math.max(faites, cahier.total ?? 0),
+    termine,
+  };
+}
+
 /** La case de la fenêtre « Nouveau projet » : cochée d'office pour un projet vide seulement. */
 export function caseCahierCocheeParDefaut(source: 'vide' | 'github'): boolean {
   return source === 'vide';
@@ -286,6 +354,8 @@ L'UTILISATEUR RÉPOND DANS LE PANNEAU DE DÉCISION : il n'a pas de barre d'écri
 
 LES SOURCES D'INSPIRATION SE DEMANDENT, dans la phase « ${LIBELLES_PHASES_DU_CAHIER.identite} » : une question dédiée invite à donner des liens de sites qui plaisent et à joindre des images ou des fichiers (captures, logo, maquettes, charte). Chaque fichier reçu avec une réponse se RECOPIE dans ${cheminDuProjet}/${DOSSIER_INSPIRATION}/ ; le document les liste, avec les liens et ce qui plaît dans chacun, dans sa partie « ## Inspiration ».
 
+LA FINITION SE DEMANDE AUSSI, dans la phase « ${LIBELLES_PHASES_DU_CAHIER.identite} », après les couleurs : quatre questions courtes, chacune avec ses pistes et la recommandée en tête — l'AMBIANCE (sobre et dense / aérée et douce / affirmée et graphique), le NIVEAU D'ANIMATION (discret : apparitions douces au défilement / marqué : entrées et transitions visibles / aucun), la DENSITÉ des écrans de travail (compacte / confortable), et le CHOIX DU THÈME proposé aux utilisateurs (automatique, clair et sombre / clair seul / sombre seul). Quand le niveau d'animation n'est pas « aucun », une CINQUIÈME question, distincte de celle du niveau, porte sur les ANIMATIONS AU DÉFILEMENT : les effets voulus (apparitions / barre de progression / parallaxe / section épinglée / défilement doux), leur intensité (légère / marquée) et le repli quand l'appareil demande moins de mouvement ou ne sait pas les jouer (contenu simplement visible / fondu court). Le reste — listes déroulantes, cases et dates maison, barre de défilement, aucun blanc en sombre — est un SOCLE IMPOSÉ à la construction (annexe « ${SOCLE_DE_FINITION} ») : il ne se demande pas, il s'écrit comme décidé. Les réponses vont dans la partie « ## Finition » du document.
+
 LA PILE TECHNIQUE SE CHOISIT COUCHE PAR COUCHE, dans la phase « ${LIBELLES_PHASES_DU_CAHIER.technologies} » : UNE question par couche utile au projet (interface, serveur, base de données, comptes et connexion, notifications, paiement, courriels, temps réel, IA, stockage de fichiers…), chacune avec deux à quatre alternatives tirées de la grille technologique de la compétence, la recommandée en tête « (recommandé) », et dans sa description les projets récents qui l'emploient déjà. Une couche sans objet pour ce projet se saute.
 
 L'UTILISATEUR PEUT METTRE EN PAUSE à tout moment : ton tour s'arrête net. À la reprise, on te redonne le document et l'avancement : relis-les, ne repose JAMAIS une question déjà tranchée, et enchaîne sur la suivante.
@@ -324,22 +394,32 @@ Ne repose aucune question déjà tranchée dans ce document. Pose la question SU
 }
 
 /**
- * LA PREMIÈRE DEMANDE DE LA CARTE DE SUITE, envoyée en silence à son cadrage
- * quand le cahier est terminé. Elle ne lance RIEN : l'agent rend sa
- * compréhension puis son plan, et c'est la validation du plan qui lance la
- * construction (« rien ne part au moteur avant le lancement »).
+ * LA DEMANDE DE LA CARTE DE CONSTRUCTION, écrite à sa naissance comme sa
+ * synthèse du besoin (`briefing`) : elle s'affiche en tête de la carte et part
+ * telle quelle dans le prompt d'exécution (`blocDeSyntheseDuBesoin`).
+ *
+ * PLUS DE COMPRÉHENSION NI DE PLAN (demande du 22/10/2026) : le cahier a déjà
+ * tout tranché, question par question. La carte naît prête ; son bouton
+ * « Lancer » montre les réglages de l'agent, et leur validation fait partir la
+ * construction — rien ne part avant ce clic.
  */
 export function demandeDeLaCarteDeSuite(projet: { name: string }, cheminDuProjet: string, cheminCompetence: string): string {
-  return `LE CAHIER DES CHARGES DU PROJET « ${projet.name} » EST TERMINÉ. Il a été établi question par question avec l'utilisateur sur une autre carte, désormais archivée : cette carte-ci en prend la suite.
+  const dossier = cheminCompetence.replace(/\/[^/]*$/, '');
+  const dossierDuPool = dossier.replace(/\/[^/]*$/, '');
+  return `Le cahier des charges du projet « ${projet.name} » est terminé : il a été établi question par question avec l'utilisateur, et tout ce qu'il contient est TRANCHÉ. Construis maintenant l'application, d'après lui, en un seul long travail.
 
 LIS D'ABORD, EN ENTIER :
 - le cahier des charges : ${cheminDuProjet}/${DOCUMENT_DU_CAHIER} ;
 - les sources d'inspiration fournies par l'utilisateur, s'il y en a : ${cheminDuProjet}/${DOSSIER_INSPIRATION}/ ;
 - la compétence « ${COMPETENCE_DU_CAHIER} » (${cheminCompetence}), dont la méthode de construction fait foi.
 
-PUIS, sans attendre qu'on te le demande : rends ta compréhension avec « rendre_comprehension », puis le PLAN DE CONSTRUCTION avec « rendre_plan ». Le plan suit la méthode de construction de la compétence ; sa PREMIÈRE étape recopie le cahier des charges et le dossier d'inspiration dans la copie de travail et les enregistre, car la copie de travail d'une carte ne contient que ce qui est enregistré — SAUF ${DOSSIER_DE_LA_SOURCE}/ (les fichiers d'un produit cloné : APK, archives, parfois lourds), qui se lit dans le dossier du projet et ne s'enregistre jamais ; le rapport d'analyse (${RAPPORT_D_ANALYSE}), lui, s'enregistre.
+PREMIÈRE ÉTAPE : recopie le cahier des charges et le dossier d'inspiration dans ta copie de travail et enregistre-les — la copie de travail d'une carte ne contient que ce qui est enregistré —, SAUF ${DOSSIER_DE_LA_SOURCE}/ (les fichiers d'un produit cloné : APK, archives, parfois lourds), qui se lit dans le dossier du projet et ne s'enregistre jamais ; le rapport d'analyse (${RAPPORT_D_ANALYSE}), lui, s'enregistre.
 
-Tout ce qui est écrit dans le cahier est TRANCHÉ : ne repose aucune de ses questions. Une précision qui manque vraiment se demande avec « ask_user ». Puis ARRÊTE-TOI : l'utilisateur valide le plan, et c'est ce clic qui lance la construction.`;
+LE SOCLE DE FINITION EST IMPOSÉ, quel que soit le cahier : ${dossier}/${SOCLE_DE_FINITION}. Lis-le en entier avant le premier écran. Chaque point y nomme sa compétence : OUVRE-LA (${dossierDuPool}/<nom>/SKILL.md) AVANT d'écrire la brique qu'elle couvre — ${COMPETENCES_DU_SOCLE.join(', ')}. Aucun élément du navigateur visible (liste, case, date, nombre, fichier), aucune couleur en dur, aucun blanc en sombre. Cherche aussi dans la mémoire (« memoire », geste « chercher ») ce que les autres projets ont appris sur chaque brique, et reprends leurs composants cités en exemple plutôt que d'en réinventer.
+
+PUIS CONSTRUIS, étape par étape, selon la méthode de la compétence, sans rendre de compréhension ni de plan. Ne repose aucune question du cahier ; une précision qui manque VRAIMENT se demande avec « ask_user ».
+
+POUR FINIR, AVANT TON RAPPORT : lance le contrôle de finition (${dossier}/${CONTROLE_DE_FINITION}, mode d'emploi dans le socle) sur toutes les routes, fais relire ses captures UNE fois par un directeur artistique (une aide séparée, avec la grille du socle), applique ses retouches, puis relance le contrôle JUSQU'AU VERT. Ton rapport cite la dernière sortie du contrôle et les retouches faites ou écartées ; aucun rapport sur un contrôle rouge.`;
 }
 
 /** Le nom du fichier exporté : « Cahier des charges — <projet>.pdf » ou « .md ». */

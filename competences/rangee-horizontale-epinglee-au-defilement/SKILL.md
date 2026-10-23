@@ -29,6 +29,8 @@ Une section épinglée fige une scène d'un écran de haut en `overflow: hidden`
 9. Annuler le clic qui suit un vrai glissement (écouteur `click` en capture, fenêtre de 350 ms) ; un appui simple doit toujours ouvrir la carte.
 10. Montrer l'avancement (barre de progression pilotée par une variable CSS) : c'est elle qui dit qu'il y a une suite.
 
+Voir aussi : « gsap-scrolltrigger-avec-lenis-defilement-doux » (épinglage GSAP avec défilement doux) et « animation-au-defilement-accessible-et-fluide » (en mouvement réduit, la rangée reste une rangée qu'on fait défiler au doigt, sans épinglage).
+
 ## Vérification
 
 Dans un vrai navigateur en émulation tactile (Playwright, `hasTouch` et `isMobile`), aux tailles 360×640, 375×550, 393×852, 768×1024 et en paysage 852×393 : l'attribut d'épinglage vaut « oui » partout sauf en paysage et en mouvement réduit ; à mi-parcours la variable d'avancement vaut 0,5 ; à la fin la dernière carte touche la marge droite ; aucune carte n'a `scrollHeight > clientHeight` ; `document.documentElement.scrollWidth − innerWidth` vaut 0. Geste tactile réel par CDP (`Input.dispatchTouchEvent` : touchStart, touchMove répétés, touchEnd) : 150 px vers la gauche font descendre la page de 150 px exactement ; des gestes répétés s'arrêtent pile à la fin puis au début de la zone ; un geste vertical défile normalement ; un appui simple sur une carte-lien ouvre sa page, un glissement qui finit dessus ne l'ouvre pas. Sur ordinateur, hauteurs des sections identiques avant et après.

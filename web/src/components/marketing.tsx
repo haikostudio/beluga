@@ -782,9 +782,9 @@ function TableauDeBordMarketing({
     ...(publies > 0 ? [{ cle: 'publies', libelle: t('Publiés'), n: publies }] : []),
   ];
   return (
-    <div className="flex min-w-0 flex-col gap-3" data-marketing-tableau-de-bord={tous.length}>
-      <div className="flex min-w-0 flex-col gap-3" data-marketing-chiffres>
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-5">
+    <div className="flex min-w-0 flex-col gap-4" data-marketing-tableau-de-bord={tous.length}>
+      <div className="flex min-w-0 flex-col gap-2" data-marketing-chiffres>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {tuiles.map((x) => (
             <div key={x.cle} className="flex min-w-0 flex-col gap-0.5 rounded-md bg-bloc px-3 py-2" data-marketing-chiffre={x.cle}>
               <span className="truncate text-[12px] text-faint">{x.libelle}</span>

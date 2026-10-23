@@ -1258,6 +1258,68 @@ function repartirEmplacements(children: React.ReactNode) {
 export const Dialog = DialogPrimitive.Root;
 
 /**
+ * LA BANDE DU VOILE, SOUS L'HEURE (demande du 22/10/2026, capture d'un menu
+ * ouvert sur l'iPhone). Un voile plein écran est TRANSLUCIDE jusqu'au bord du
+ * haut : iOS 26/27 n'y trouve plus d'élément fixe et OPAQUE à échantillonner
+ * sous l'heure, et il y remet son flou — un dégradé clair qui dépassait au-
+ * dessus du voile sombre. C'est le même mécanisme que la bande des zones
+ * (`BandeSousLHeure`, DEC-389) : un élément fixe, opaque, collé au bord, de la
+ * hauteur de la zone sûre du haut.
+ *
+ * SA COULEUR EST CELLE QUE LE VOILE DONNE DÉJÀ À L'ŒIL, jamais une autre (un
+ * bandeau visible est refusé) : au montage, la bande lit le fond OPAQUE posé
+ * sous elle — la zone, une page, le panneau des projets, selon l'écran et
+ * l'ambiance — et peint le mélange exact du voile sur ce fond. Hors iPhone
+ * installé, la zone sûre vaut 0 : la bande n'a aucune hauteur, rien ne se lit.
+ * Enfant du voile, elle suit son fondu d'entrée et de sortie, et laisse passer
+ * le toucher jusqu'à lui (qui referme ce qu'il couvre).
+ */
+function couleurOpaqueSous(x: number, y: number, ignorer: Element): [number, number, number] | null {
+  for (const element of document.elementsFromPoint(x, y)) {
+    if (ignorer.contains(element)) continue;
+    for (let noeud: Element | null = element; noeud; noeud = noeud.parentElement) {
+      const rgba = lireRgba(getComputedStyle(noeud).backgroundColor);
+      if (rgba && rgba[3] >= 0.99) return [rgba[0], rgba[1], rgba[2]];
+    }
+  }
+  const fond = lireRgba(getComputedStyle(document.body).backgroundColor);
+  return fond ? [fond[0], fond[1], fond[2]] : null;
+}
+
+function lireRgba(couleur: string): [number, number, number, number] | null {
+  const m = couleur.match(/rgba?\(([^)]+)\)/);
+  if (!m) return null;
+  const parts = m[1]!.split(/[ ,/]+/).filter(Boolean).map(Number);
+  if (parts.length < 3 || parts.some((n) => Number.isNaN(n))) return null;
+  return [parts[0]!, parts[1]!, parts[2]!, parts[3] ?? 1];
+}
+
+export function BandeDuVoile() {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [couleur, setCouleur] = React.useState<string | undefined>(undefined);
+  React.useLayoutEffect(() => {
+    const bande = ref.current;
+    const voile = bande?.parentElement;
+    if (!bande || !voile || bande.offsetHeight === 0) return;
+    const teinte = lireRgba(getComputedStyle(voile).backgroundColor);
+    const dessous = couleurOpaqueSous(window.innerWidth / 2, Math.max(0, bande.offsetHeight / 2), voile);
+    if (!teinte || !dessous) return;
+    const a = teinte[3];
+    const melange = [0, 1, 2].map((i) => Math.round(teinte[i]! * a + dessous[i]! * (1 - a)));
+    setCouleur(`rgb(${melange.join(', ')})`);
+  }, []);
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      data-bande-du-voile
+      className="pointer-events-none absolute inset-x-0 top-0"
+      style={{ height: 'var(--zone-sure-haut, 0px)', backgroundColor: couleur }}
+    />
+  );
+}
+
+/**
  * UNE FENÊTRE EST UNE FENÊTRE, CENTRÉE — plus jamais un volet (demande du
  * 11/10/2026, qui défait celle du 09/10 : « je ne veux plus de volets »).
  * `DialogContent` pose une fenêtre au milieu de l'écran, sur un voile léger,
@@ -1289,7 +1351,9 @@ function FenetreCentree({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/40 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
+        <BandeDuVoile />
+      </DialogPrimitive.Overlay>
       {/*
        * La fenêtre est POSÉE par une enveloppe en flux (collée en bas sur
        * téléphone, centrée sur grand écran), jamais par un décalage de moitié :
@@ -1460,7 +1524,9 @@ export function FenetreDeVisionneuse({
   const croix = React.useRef<HTMLButtonElement>(null);
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/80 backdrop-blur-[3px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+      <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/80 backdrop-blur-[3px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
+        <BandeDuVoile />
+      </DialogPrimitive.Overlay>
       <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center sm:p-4">
         <DialogPrimitive.Content
           data-fenetre-visionneuse
@@ -1527,6 +1593,28 @@ export const DialogClose = DialogPrimitive.Close;
 export const CLASSE_LARGEUR_DE_CONTENU = 'max-w-[820px]';
 /** Les marges d'une page autour de son contenu : avec elles, 756 px de lecture. */
 export const CLASSE_MARGES_DE_PAGE = 'px-4 sm:px-8';
+/*
+ * L'ÉCHELLE DES ÉCARTS (demande du 22/10/2026 : « que tous les gaps soient
+ * corrects »). Trois écarts verticaux entre deux blocs, et aucun autre :
+ * SERRÉ (4 px) entre deux lignes d'un même groupe, BLOC (8 px) entre deux
+ * blocs empilés, SECTION (16 px) entre deux sections. Les marges des côtés
+ * d'une page (`CLASSE_MARGES_DE_PAGE`) valent la même chose que la SECTION sur
+ * téléphone : 16 px. `scripts/verif-ecarts-et-alignements.mjs` lit les écarts
+ * réels dans le navigateur et refuse ce qui sort de cette échelle (0, 4, 8,
+ * 16 px : `gap-1`, `gap-2`, `gap-4`).
+ */
+/**
+ * LE PIED D'UNE CONVERSATION : chaque bloc empilé sous le fil — déroulé du
+ * cahier ou du tournage, « Ce que l'agent a vu », panneau de décision,
+ * rangée d'action, barre d'écriture — porte CETTE classe, et rien d'autre ne
+ * l'écarte de son voisin. Mêmes bords que la barre d'écriture (16 px, la marge
+ * de page du téléphone), et un écart BLOC (8 px) au-dessus de chacun. Le
+ * dernier bloc ajoute 8 px dessous : la zone sûre du bas est déjà réservée par
+ * la page qui les porte (`FeuilleDeTiroir`), elle ne se recompte pas.
+ */
+export const CLASSE_BLOC_DU_PIED = 'shrink-0 px-4 pt-2';
+/** Ce qui suit le dernier bloc du pied : l'écart BLOC, seul. */
+export const CLASSE_FIN_DU_PIED = 'pb-2';
 export const CLASSE_LARGEUR_PAGE = CLASSE_LARGEUR_DE_CONTENU;
 /** La largeur de la feuille du bas (`Drawer feuille`) : 960 px au plus sur grand écran. */
 const CLASSE_LARGEUR_TIROIR = 'max-w-[960px]';
@@ -1758,7 +1846,9 @@ function FeuilleDuBas({
           onClose();
         }}
         className="fixed inset-0 z-50 bg-voile/70 data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out"
-      />
+      >
+        <BandeDuVoile />
+      </div>
       <DialogPrimitive.Content
         onInteractOutside={(event) => {
           /* Ni le focus qui passe ailleurs, ni un menu, une fenêtre ou une
@@ -2025,7 +2115,9 @@ export function SidePanel({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out" />
+        <DialogPrimitive.Overlay data-voile-de-fenetre className="fixed inset-0 z-50 bg-voile/70 backdrop-blur-[2px] data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out">
+          <BandeDuVoile />
+        </DialogPrimitive.Overlay>
         <DialogPrimitive.Content
           aria-label={title}
           className={cn(
@@ -2486,7 +2578,9 @@ function VoileMenu({ panneau }: { panneau: React.RefObject<HTMLDivElement | null
         'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
       )}
       style={{ opacity: etat === 'closed' ? 0 : undefined }}
-    />,
+    >
+      <BandeDuVoile />
+    </div>,
     document.body,
   );
 }

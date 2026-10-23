@@ -44,6 +44,13 @@ import {
   consigneDuQuestionnaire,
   typesDeMediaDeLaRealisation,
   decisionDeDepense,
+  decisionDApercu,
+  estUnApercu,
+  MODELE_DES_APERCUS,
+  PHASES_DE_REALISATION,
+  PREFIXE_DES_APERCUS,
+  realisationDeLaCarte,
+  type PhaseDeRealisation,
   dossierRelatifDesMedias,
   dureeAjustee,
   extensionDuMedia,
@@ -104,7 +111,21 @@ export function budgetDeLaCarte(card: Card): BudgetDeRealisation {
 /** Ce que la carte a déjà engagé : les générations lancées ou finies, au coût réel quand il est connu. */
 export function depenseDeLaCarte(cardId: string): number {
   const ligne = getDb()
-    .prepare(`SELECT COALESCE(SUM(COALESCE(cout_reel, prix, 0)), 0) AS total FROM medias_realisation WHERE card_id = ? AND etat IN ('en-cours', 'fini')`)
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(cout_reel, prix, 0)), 0) AS total FROM medias_realisation
+        WHERE card_id = ? AND etat IN ('en-cours', 'fini') AND plan NOT LIKE '${PREFIXE_DES_APERCUS}%'`,
+    )
+    .get(cardId) as { total: number } | undefined;
+  return Math.round((ligne?.total ?? 0) * 1e4) / 1e4;
+}
+
+/** Ce que les APERÇUS du questionnaire ont engagé : pris sur l'enveloppe, jamais sur le budget principal. */
+export function depenseDesApercus(cardId: string): number {
+  const ligne = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(COALESCE(cout_reel, prix, 0)), 0) AS total FROM medias_realisation
+        WHERE card_id = ? AND etat IN ('en-cours', 'fini') AND plan LIKE '${PREFIXE_DES_APERCUS}%'`,
+    )
     .get(cardId) as { total: number } | undefined;
   return Math.round((ligne?.total ?? 0) * 1e4) / 1e4;
 }
@@ -128,7 +149,9 @@ function resumeDesServices(): string {
 export function consigneDeRealisationDeLaCarte(card: Card, role: string): string {
   if (!card.parcours?.realisationSouhaitee) return '';
   const document = cheminAbsoluDuDocument(card);
-  if (role === 'cadrage') return consigneDuQuestionnaire({ medias: typesDeMediaDeLaRealisation(card.realisation), document });
+  if (role === 'cadrage') {
+    return consigneDuQuestionnaire({ medias: typesDeMediaDeLaRealisation(card.realisation), document, enveloppe: card.realisation?.enveloppe });
+  }
   return consigneDeFabrication({
     ...budgetDeLaCarte(card),
     depense: depenseDeLaCarte(card.id),
@@ -515,7 +538,8 @@ async function fabriquer(m: MediaDeRealisation, attente: (ms: number) => Promise
 async function ranger(m: MediaDeRealisation, data: Buffer, type: string, coutReel?: number): Promise<MediaDeRealisation> {
   const card = store.getCard(m.cardId);
   if (!card) throw new Error('la carte a disparu pendant la fabrication');
-  const dossier = dossierDesMediasDeLaCarte(card, m.agentId);
+  /* Un aperçu du questionnaire n'a pas de branche : il se range sous le nom de la carte. */
+  const dossier = dossierDesMediasDeLaCarte(card, estUnApercu(m.plan) ? null : m.agentId);
   const version = versionSuivante(m.cardId, m.plan);
   const fichier = path.join(dossier, nomDuFichierDeMedia(m.plan, version, extensionDuMedia(m.capacite, type)));
   fs.writeFileSync(fichier, data);
@@ -607,6 +631,21 @@ function questionPosee(forme: { question: string; description: string; options: 
 function ligneDeMedia(m: MediaDeRealisation): string {
   const prix = m.coutReel ?? m.prix;
   return `- ${m.plan} v${m.version} — ${m.modeleNom} (${m.service}) — ${prix === null ? 'prix non publié' : `${arrondi(prix)} $`}${m.fichier ? ` — ${m.fichier}` : ''}`;
+}
+
+/**
+ * LE MONTAGE COMMENCE : `realisation.montageA` se pose une fois, sur la carte
+ * relue (une écriture concurrente du tour n'est pas écrasée), et l'étape
+ * « Montage » du chemin du tournage s'allume (`cheminDeLaRealisation`).
+ * Rend la carte écrite, ou `null` quand le montage était déjà posé.
+ */
+function poserLeMontage(card: Card): Card | null {
+  const fraiche = store.getCard(card.id) ?? card;
+  const avant = realisationDeLaCarte(fraiche);
+  if (avant.montageA) return null;
+  const ecrite = store.saveCard({ ...fraiche, realisation: { ...avant, montageA: Date.now() } });
+  bus.emit({ type: 'card.upsert', card: ecrite });
+  return ecrite;
 }
 
 export async function realiser(ctx: ContexteRealisation, args: Record<string, unknown>, attente: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<ResultatRealisation> {
@@ -831,6 +870,14 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       };
     }
 
+    case 'monter': {
+      const ecrite = poserLeMontage(card);
+      return {
+        ok: true,
+        text: `Montage annoncé${ecrite ? '' : ' (déjà)'} : l’étape « Montage » est allumée sur le chemin du tournage. Assemble, puis range le fichier monté avec l’action « ajouter ».`,
+      };
+    }
+
     case 'ajouter': {
       const chemin = String(args.chemin ?? '').trim();
       const plan = String(args.plan ?? '').trim().slice(0, 80) || 'montage';
@@ -866,6 +913,8 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         modifieLe: maintenant,
       };
       enregistrer(m);
+      /* Le repli : un agent qui range son montage sans l'avoir annoncé allume quand même l'étape. */
+      poserLeMontage(card);
       try {
         const fini = await ranger(m, fs.readFileSync(chemin), ext === 'mp4' ? 'video/mp4' : ext);
         const attachment = fini.attachmentId ? store.getAttachment(fini.attachmentId) : null;
@@ -907,6 +956,93 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
     }
 
     default:
-      return { ok: false, text: 'Action inconnue. Actions : modeles, voix, devis, generer, suivre, lister, ajouter, fixer_budget.' };
+      return { ok: false, text: 'Action inconnue. Actions : modeles, voix, devis, generer, suivre, lister, monter, ajouter, fixer_budget.' };
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Les aperçus du questionnaire — la porte de dépense DU CADRAGE         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN APERÇU POUR UN CHOIX EN IMAGES (décision de l'utilisateur du 22/10/2026).
+ * Le cadrage n'a PAS l'outil « realiser » : cette porte-ci ne fabrique que des
+ * IMAGES d'essai, à prix publié, prises sur l'enveloppe d'aperçus acceptée au
+ * début du questionnaire (`decisionDApercu`) — jamais sur le budget principal.
+ * La fabrication passe par le même chemin que la tâche (bloc d'attente du fil,
+ * disque de stockage, pièce jointe), et l'appel attend l'image : le cadrage la
+ * pose ensuite en option illustrée d'« ask_user ».
+ */
+export async function fabriquerUnApercu(
+  ctx: ContexteRealisation,
+  args: Record<string, unknown>,
+  attente: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<ResultatRealisation> {
+  const card = ctx.cardId ? store.getCard(ctx.cardId) : null;
+  if (!card?.parcours?.realisationSouhaitee) return { ok: false, text: REFUS_MODE_ETEINT };
+  const realisation = realisationDeLaCarte(card);
+  const consigne = String(args.consigne ?? '').trim();
+  if (!consigne) return { ok: false, text: 'Il faut « consigne » : la demande complète au modèle d’image (en anglais), une seule proposition par aperçu.' };
+  const phase = (PHASES_DE_REALISATION as readonly string[]).includes(String(args.phase)) ? (args.phase as PhaseDeRealisation) : realisation.phase;
+  const legende = String(args.legende ?? '').trim().slice(0, 80);
+  const service = MODELE_DES_APERCUS.service;
+  if (!servicesDeGenerationBranches().includes(service)) {
+    return { ok: false, text: 'fal.ai n’est pas branché : pas d’aperçu possible. Continue avec des choix décrits en mots (l’utilisateur branche fal.ai dans Réglages › Services de création).' };
+  }
+  const modele = modeleDeGeneration(service, String(args.modele ?? '') || MODELE_DES_APERCUS.id) ?? modeleDeGeneration(service, MODELE_DES_APERCUS.id);
+  if (!modele || modele.capacite !== 'image') return { ok: false, text: 'Un aperçu est une IMAGE : choisis un modèle d’image de fal.ai (par défaut FLUX Schnell).' };
+  const prix = await prixPublie(modele, 0);
+  const depense = depenseDesApercus(card.id);
+  const decision = decisionDApercu({ enveloppe: realisation.enveloppe, prix, depense });
+  if (decision.verdict === 'refus') return { ok: false, text: `Aperçu refusé : ${decision.raison}` };
+  if (!fs.existsSync(PATHS.medias)) {
+    try {
+      fs.mkdirSync(PATHS.medias, { recursive: true });
+    } catch {
+      return { ok: false, text: `Le dossier des médias (${PATHS.medias}) est inaccessible : le disque de stockage est peut-être démonté. Rien n’est lancé.` };
+    }
+  }
+  const rang = mediasDeLaCarte(card.id).filter((m) => estUnApercu(m.plan) && m.plan.startsWith(`${PREFIXE_DES_APERCUS}${phase}-`)).length + 1;
+  const format = FORMATS.find((f) => f === args.format) ?? '1:1';
+  const maintenant = Date.now();
+  const m: MediaDeRealisation = {
+    id: store.newId(),
+    projectId: card.projectId,
+    cardId: card.id,
+    agentId: ctx.agentId,
+    branche: null,
+    plan: `${PREFIXE_DES_APERCUS}${phase}-${rang}`,
+    version: 0,
+    capacite: 'image',
+    genre: genreDuMedia('image'),
+    service,
+    modele: modele.id,
+    modeleNom: modele.nom,
+    demande: { consigne, format },
+    raison: legende || 'aperçu du questionnaire',
+    prix,
+    sourcePrix: modele.prix,
+    coutReel: null,
+    etat: 'en-cours',
+    questionId: null,
+    echec: null,
+    fichier: null,
+    taille: null,
+    attachmentId: null,
+    creeLe: maintenant,
+    modifieLe: maintenant,
+  };
+  enregistrer(m);
+  lancer(m, attente);
+  await Promise.race([enVol.get(m.id), attente(RYTHME_REALISATION.attenteSuiviMs)]);
+  const fini = mediaParId(m.id);
+  const reste = arrondi(Math.max(0, (realisation.enveloppe ?? 0) - depenseDesApercus(card.id)));
+  if (fini?.etat === 'fini' && fini.attachmentId) {
+    return {
+      ok: true,
+      text: `Aperçu prêt (${arrondi(fini.coutReel ?? fini.prix ?? 0)} $, reste ${reste} $ dans l’enveloppe) : pièce « ${fini.attachmentId} »${legende ? ` — ${legende}` : ''}. Pour un choix en images, passe cet identifiant dans « image » d’une option d’« ask_user ». Le choix retenu rejoint seul le tableau d’ambiance.`,
+    };
+  }
+  if (fini?.etat === 'en-cours') return { ok: false, text: 'L’aperçu tarde : il paraîtra dans le fil dès qu’il sera prêt. Pose ta question en mots en attendant.' };
+  return { ok: false, text: `L’aperçu a échoué : ${fini?.echec ?? 'raison inconnue'}. Continue avec des choix décrits en mots.` };
 }
