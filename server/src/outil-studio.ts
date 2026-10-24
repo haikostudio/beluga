@@ -41,7 +41,7 @@ import {
 } from './studio.js';
 import { controlerComposition, imagesDeLaComposition, lancerExport } from './studio-rendu.js';
 import * as store from './store.js';
-import { fichierPermis, joindreUnFichier, racinesDeLAgent } from './joindre-fichier.js';
+import { fichierPermis, joindreUnFichier, racinesDeLAgent, refusDeChemin } from './joindre-fichier.js';
 import { payeurOpenRouter, devisDeGeneration, devisDesVoix, fabriquerVoixEssai, fabriquerVoixManquantes, importerPieceJointeMesuree, voixDEssaiDisponibles } from './studio-generation.js';
 import { listerModeles, lireModele } from './studio-modeles.js';
 import { modeleVideoRetenu, retenirModeleVideo, servicesVideoBranches } from './studio-services.js';
@@ -407,8 +407,9 @@ export async function outilStudio(ctx: Contexte, project: Project, args: Record<
       const refusDeGenre = 'seules les images, vidéos et sons entrent dans la bibliothèque';
       let piece;
       if (chemin) {
-        const full = fichierPermis(chemin, racinesDeLAgent(ctx.agentId, project));
-        if (!full) return { ok: false, text: `Fichier introuvable (ou hors du dossier de travail, du projet et des données de Beluga Build) : ${chemin}` };
+        const racines = racinesDeLAgent(ctx.agentId, project);
+        const full = fichierPermis(chemin, racines);
+        if (!full) return { ok: false, text: refusDeChemin(chemin, racines) };
         if (!genreDuMime(mimeDuFichier(full))) return { ok: false, text: `Refusé : ${refusDeGenre} (${chemin}).` };
         const nomVoulu = typeof args.nom === 'string' && args.nom.trim() ? args.nom.trim() : undefined;
         const jointure = await joindreUnFichier({

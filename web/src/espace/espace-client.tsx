@@ -45,7 +45,7 @@ import {
   type TriDemande,
 } from '@beluga/shared';
 import { canalEspace, type EtatCanalEspace } from './canal-espace';
-import { BoutonJoindre, EnvoisEnCours, PiecesDeposees, PiecesDuMessage, Visionneuse, useEnvois } from './pieces';
+import { BoutonJoindre, EnvoisEnCours, PiecesDeposees, PiecesDuMessage, Visionneuse, useEnvois, sOuvreEnVisionneuse } from './pieces';
 import { usePointerDrag, type DragItem, type DropTarget } from '@/lib/dnd';
 import { DELAI_APPUI_LONG, cibleDeDepot, type CibleDeDepot } from './depot-demande';
 import { TiroirDemande } from './tiroir-demande';
@@ -100,7 +100,7 @@ export function VoletDiscussion({
   const [texte, setTexte] = React.useState('');
   const envois = useEnvois(projectId);
   const bas = React.useRef<HTMLDivElement | null>(null);
-  const images = React.useMemo(() => pieces.filter((piece) => piece.genre === 'image'), [pieces]);
+  const images = React.useMemo(() => pieces.filter(sOuvreEnVisionneuse), [pieces]);
 
   const recharger = React.useCallback(() => {
     void canalEspace

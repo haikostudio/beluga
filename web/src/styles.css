@@ -144,7 +144,8 @@
     --teinte-fond: 262 85% 78% / 0.14;
     --teinte-trait: 262 85% 78% / 0.5;
     /* LE VIOLET PLEIN, sous un texte BLANC : les boutons d'action de
-       l'assistant de démarrage, et eux seuls (demande du 18/10/2026). */
+       l'assistant de démarrage (demande du 18/10/2026), et le bouton
+       « Annuler » / « Suspendre » d'un agent au travail (24/10/2026). */
     --teinte-plein: 262 60% 56%;
     /* L'APLAT D'ENCRE — la bulle de l'utilisateur dans une discussion, et le
        bouton qui arrête. En clair il est NOIR, comme l'accent ; en sombre

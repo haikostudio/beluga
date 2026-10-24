@@ -1,12 +1,13 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, ArrowUp, Check, ChevronDown, ClipboardList, FileText, GripVertical, Loader2, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
+import { ArrowRight, ArrowUp, Check, ChevronDown, ClipboardList, FileText, Loader2, MessageSquareText, Paperclip, Pause, Pencil, Sparkles, Trash2, Video, X } from 'lucide-react';
 import {
   Agent,
   COLONNES_AVANT_LE_TRAVAIL,
   Attachment,
   EngineInfo,
   QueuedPrompt,
+  tagsDuTexte,
   RAISON_SANS_REPONSE,
   TYPE_JOINTES_COLLABLES,
   ajouterJointesCollees,
@@ -69,6 +70,8 @@ import {
   CLASSE_RANGEE_DE_BOUTONS,
   Dialog,
   DialogContent,
+  Drawer,
+  EnteteDeFeuille,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -2071,24 +2074,20 @@ export function Composer({
         </div>
       ) : null}
 
-      {/* La file d'attente s'empile juste au-dessus de la barre d'écriture */}
+      {/* LA FILE D'ATTENTE NE PREND PLUS DE LIGNE (demande du 24/10/2026) :
+          une icône chiffrée flotte en bas à droite du fil, au-dessus du pied,
+          et ouvre le tiroir des messages en attente (`FileDAttente`). */}
       {queue.length ? (
-        <div className="mb-1.5 space-y-1">
-          {queue.map((item, index) => (
-            <QueuedItem
-              key={item.id}
-              item={item}
-              index={index}
-              actif={edition?.id === item.id}
-              onEdit={() => ouvrirEnEdition(item)}
-            />
-          ))}
-          <p className="px-1 text-[12px] text-faint">
-            {queue.length === 1
-              ? t('Votre message part dès que l\'agent a fini, ou tout de suite avec la flèche.')
-              : t('{v0} messages en attente : ils partiront l\'un après l\'autre, ou tout de suite avec la flèche.', { v0: queue.length })}
-          </p>
-        </div>
+        <FileDAttente
+          queue={queue}
+          enEdition={edition?.id}
+          onEdit={(item) => {
+            ouvrirEnEdition(item);
+            /* Le tiroir refermé rend le focus à l'icône : on le reprend pour
+               le champ, une fois la feuille partie. */
+            window.setTimeout(() => textareaRef.current?.focus(), 320);
+          }}
+        />
       ) : null}
 
       {/* LA COUPURE SE DIT AU CHAMP LUI-MÊME : verrouillé, il explique pourquoi,
@@ -2707,6 +2706,65 @@ function LigneEnvoi({ envoi }: { envoi: Envoi }) {
   );
 }
 
+/**
+ * LES MESSAGES EN ATTENTE, DERRIÈRE UNE ICÔNE CHIFFRÉE (demande du 24/10/2026).
+ *
+ * Ils ne s'empilent plus au-dessus du champ, et leur phrase d'explication a
+ * disparu : sur téléphone, chaque ligne mangeait la hauteur du fil. Une petite
+ * icône porte leur nombre, en bas à droite du fil — posée en `absolute` contre
+ * le pied de la conversation (`data-pied-de-conversation`, `relative`), donc
+ * au-dessus de TOUS ses blocs —, et ouvre une feuille du bas qui les liste avec
+ * leurs gestes : modifier, envoyer tout de suite, retirer. Le crayon referme la
+ * feuille et remonte le message dans le champ, comme avant. La file elle-même
+ * (ordre, envoi dès que l'agent a fini) ne change pas : seul son affichage.
+ */
+function FileDAttente({
+  queue,
+  enEdition,
+  onEdit,
+}: {
+  queue: QueuedPrompt[];
+  enEdition?: string;
+  onEdit: (item: QueuedPrompt) => void;
+}) {
+  const [ouvert, setOuvert] = React.useState(false);
+  const libelle = queue.length === 1 ? t('1 message en attente') : t('{v0} messages en attente', { v0: queue.length });
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOuvert(true)}
+        title={libelle}
+        aria-label="Messages en attente"
+        data-file-attente-pastille={queue.length}
+        className="absolute bottom-full right-4 z-10 mb-2 flex h-9 items-center gap-1.5 rounded-full bg-raised px-3 text-text shadow-md hover:bg-border"
+      >
+        <MessageSquareText className="h-4 w-4" />
+        <span className="text-[13px] font-semibold tabular-nums">{queue.length}</span>
+      </button>
+      <Drawer open={ouvert} onClose={() => setOuvert(false)} feuille>
+        <EnteteDeFeuille titre={libelle} />
+        <ZoneDefilement classeEnveloppe="min-h-0 flex-1" className="px-3 pb-4">
+          <div className="space-y-1.5" data-file-attente-tiroir={queue.length}>
+            {queue.map((item, index) => (
+              <QueuedItem
+                key={item.id}
+                item={item}
+                index={index}
+                actif={enEdition === item.id}
+                onEdit={() => {
+                  setOuvert(false);
+                  onEdit(item);
+                }}
+              />
+            ))}
+          </div>
+        </ZoneDefilement>
+      </Drawer>
+    </>
+  );
+}
+
 function QueuedItem({
   item,
   index,
@@ -2732,25 +2790,37 @@ function QueuedItem({
       setEnvoiEnCours(false);
     }
   };
+  /* UN TAG « [fichier: …] » SE LIT COMME UNE PASTILLE, jamais comme du texte brut. */
+  const morceaux: React.ReactNode[] = [];
+  let depuis = 0;
+  for (const tag of tagsDuTexte(apercu)) {
+    if (tag.debut > depuis) morceaux.push(apercu.slice(depuis, tag.debut));
+    morceaux.push(
+      <span key={tag.debut} className="mx-0.5 inline-flex items-center gap-1 rounded bg-bg px-1.5 align-middle text-[12px] text-text">
+        <Paperclip className="h-3 w-3 shrink-0" />
+        {tag.nom}
+      </span>,
+    );
+    depuis = tag.fin;
+  }
+  if (depuis < apercu.length) morceaux.push(apercu.slice(depuis));
+  const geste = 'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-border hover:text-text';
   return (
     <div
-      className={cn(
-        'flex h-8 items-center gap-1.5 rounded-md border bg-surface px-2',
-        actif ? 'border-accent/50' : 'border-border',
-      )}
+      data-file-attente-element={item.id}
+      className={cn('flex min-h-11 items-center gap-1 rounded-lg bg-raised py-1 pl-3 pr-1', actif && 'ring-1 ring-accent/50')}
     >
-      <GripVertical className="h-3 w-3 shrink-0 text-faint" />
-      <span className="shrink-0 text-[12px] text-faint">{index + 1}</span>
+      <span className="shrink-0 text-[12px] tabular-nums text-faint">{index + 1}</span>
       <button
         type="button"
         onClick={onEdit}
         title={apercu}
-        className="min-w-0 flex-1 truncate text-left text-[13.5px] text-muted hover:text-text"
+        className="min-w-0 flex-1 truncate px-1 text-left text-[13.5px] text-text"
       >
-        {apercu}
+        {morceaux}
       </button>
-      <button type="button" title={t('Modifier')} onClick={onEdit} className="shrink-0 text-faint hover:text-text">
-        <Pencil className="h-3 w-3" />
+      <button type="button" title={t('Modifier')} aria-label="Modifier" onClick={onEdit} className={geste} data-file-attente-modifier>
+        <Pencil className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
@@ -2759,17 +2829,18 @@ function QueuedItem({
         aria-busy={envoiEnCours}
         disabled={envoiEnCours}
         onClick={() => void envoyerMaintenant()}
-        className="shrink-0 text-faint hover:text-accent disabled:cursor-wait"
+        className={cn(geste, 'disabled:cursor-wait')}
       >
-        {envoiEnCours ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowUp className="h-3 w-3" />}
+        {envoiEnCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowUp className="h-3.5 w-3.5" />}
       </button>
       <button
         type="button"
         title={t('Retirer de la file')}
+        aria-label="Retirer de la file"
         onClick={() => void client.geste({ type: 'queue.remove', id: item.id }, t('Retirer de la file'))}
-        className="shrink-0 text-faint hover:text-danger"
+        className={cn(geste, 'hover:text-danger')}
       >
-        <Trash2 className="h-3 w-3" />
+        <Trash2 className="h-3.5 w-3.5" />
       </button>
     </div>
   );

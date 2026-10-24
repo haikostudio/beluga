@@ -87,7 +87,7 @@ import {
 import { SilhouetteFicheDemande } from '@/components/silhouettes';
 import { useTelephone } from '@/lib/telephone';
 import { canalEspace } from './canal-espace';
-import { Galerie, PiecesDuMessage, Visionneuse, useEnvois } from './pieces';
+import { Galerie, PiecesDuMessage, Visionneuse, useEnvois, sOuvreEnVisionneuse } from './pieces';
 import { ComposeurEspace, type MentionPossible } from './composeur-espace';
 import { OptionsDemande, type PatchDOptions } from './options-demande';
 import { BlocDeFiche } from './bloc-de-fiche';
@@ -200,7 +200,7 @@ export function TiroirDemande({
   const [piecesOuvertes, setPiecesOuvertes] = React.useState(false);
   /** L'image montrée en grand, parmi TOUTES les images de la demande ; `null` : fermée. */
   const [visionneuse, setVisionneuse] = React.useState<number | null>(null);
-  const images = React.useMemo(() => pieces.filter((piece) => piece.genre === 'image'), [pieces]);
+  const images = React.useMemo(() => pieces.filter(sOuvreEnVisionneuse), [pieces]);
   const [erreur, setErreur] = React.useState<string | null>(null);
   const envois = useEnvois(projectId);
   /*

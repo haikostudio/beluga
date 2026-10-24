@@ -147,6 +147,20 @@ export function veilleEchue(veille: Pick<VeilleDeCarte, 'etat' | 'echeance'>, ma
   return veille.etat === 'en_cours' && maintenant >= veille.echeance;
 }
 
+/**
+ * LA VEILLE TIENT LA RANGÉE D'ACTION (demande du 24/10/2026) : pendant une
+ * veille en cours ou échue, ses gestes — vérifier, arrêter, le service —
+ * REMPLACENT « Reprendre / Terminer la tâche / réglages / horloge » au lieu de
+ * s'y ajouter. Un agent qui travaille malgré la veille (un message l'a relancé)
+ * garde la rangée habituelle : son arrêt doit rester à portée.
+ */
+export function veilleTientLaRangee(
+  veille: Pick<ResumeDeVeille, 'etat'> | null | undefined,
+  agentAuTravail: boolean,
+): boolean {
+  return !agentAuTravail && (veille?.etat === 'en_cours' || veille?.etat === 'expiree');
+}
+
 /* ------------------------------------------------------------------ */
 /* La recette                                                           */
 /* ------------------------------------------------------------------ */

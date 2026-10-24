@@ -39,6 +39,11 @@
  * 'son') ; sans `media`, c'est une image. Les captures d'étape restent des
  * images (c'est ce que l'agent a regardé).
  *
+ * LES PDF DE L'AGENT AUSSI (carte « Aperçu des PDF et des liens ») : un rapport,
+ * une comparaison, un devis qu'il a produits sont ce qu'il a fait de plus
+ * concret. Ils portent `media: 'pdf'` ; la vignette montre leur première page
+ * (miniature rendue par le démon) et la visionneuse les ouvre en entier.
+ *
  * ET UNE IDENTITÉ QUI NE CHANGE PAS. La clé d'une capture d'étape devient celle
  * de sa pièce le jour où le démon la range (`etape:…` → `jointe:…`), souvent
  * en plein tour. Ce qui se retient par image — « déjà vue » — se lit donc sous
@@ -76,13 +81,17 @@ export type CaptureDuFlux =
       quand: number;
       /** La clé que cette image portait AVANT d'être rangée en pièce jointe. */
       cleDOrigine?: string;
-      /** Une vidéo ou un son ; absent, c'est une image. */
-      media?: 'video' | 'son';
+      /** Une vidéo, un son ou un PDF ; absent, c'est une image. */
+      media?: 'video' | 'son' | 'pdf';
     };
 
+/** Ce que la bande et la visionneuse savent montrer : les médias, plus le PDF. */
+export type GenreDeLaBande = GenreDeMedia | 'pdf';
+
 /** Ce qu'une pièce montre dans la bande et la visionneuse, d'après son type ; null = rien à montrer. */
-export function genreDeMedia(mime: string | undefined | null): GenreDeMedia | null {
+export function genreDeMedia(mime: string | undefined | null): GenreDeLaBande | null {
   const type = (mime ?? '').toLowerCase();
+  if (type === 'application/pdf') return 'pdf';
   if (type.startsWith('image/')) return 'image';
   if (type.startsWith('video/')) return 'video';
   if (type.startsWith('audio/')) return 'son';
@@ -193,7 +202,7 @@ export function capturesDuFlux(etapes: readonly EtapeAvecCapture[], jointes: rea
       id: piece.id,
       libelle: piece.name,
       quand: piece.createdAt ?? 0,
-      ...(genre === 'video' || genre === 'son' ? { media: genre } : {}),
+      ...(genre === 'video' || genre === 'son' || genre === 'pdf' ? { media: genre } : {}),
     });
   }
   return rendu.sort((a, b) => b.capture.quand - a.capture.quand || b.rang - a.rang).map((r) => r.capture);

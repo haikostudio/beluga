@@ -14,9 +14,21 @@ import { CONFIG } from './config.js';
  * se fabrique une fois (ffmpeg), se garde sur disque, et se sert à la place.
  *
  * Toute panne rend `null` : l'appelant sert alors l'original, comme avant.
+ *
+ * UN PDF A AUSSI SA VIGNETTE : l'image de sa PREMIÈRE PAGE, rendue par
+ * `pdftoppm` (poppler) en PNG, sous le même plafond de temps et dans le même
+ * cache. La miniature change alors de type (PDF → PNG) : elle se sert toujours,
+ * quel que soit son poids face à l'original.
  */
 
-const FORMATS: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' };
+const FORMATS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'application/pdf': 'png',
+};
+/** Le type de la miniature quand il diffère de l'original. */
+const TYPE_DE_LA_MINIATURE: Record<string, string> = { 'application/pdf': 'image/png' };
 /** Largeurs demandées, bornées : une adresse ne fabrique pas n'importe quelle taille. */
 export const LARGEUR_MIN = 64;
 export const LARGEUR_MAX = 1024;
@@ -49,7 +61,18 @@ function rendreLaPlace(): void {
   attente.shift()?.();
 }
 
-function fabriquer(source: string, cible: string, largeur: number, extension: string): Promise<boolean> {
+/** La première page d'un PDF, en PNG de `largeur` pixels de large. */
+function premierePageDuPdf(source: string, cible: string, largeur: number): Promise<boolean> {
+  /* `-singlefile` écrit `<préfixe>.png` : le préfixe est la cible sans son extension. */
+  const prefixe = cible.replace(/\.png$/, '');
+  const args = ['-png', '-f', '1', '-l', '1', '-singlefile', '-scale-to-x', String(largeur), '-scale-to-y', '-1', source, prefixe];
+  return new Promise((resolve) => {
+    execFile('pdftoppm', args, { timeout: DELAI_MS }, (erreur) => resolve(!erreur && fs.existsSync(cible)));
+  });
+}
+
+function fabriquer(source: string, cible: string, largeur: number, extension: string, mime: string): Promise<boolean> {
+  if (mime === 'application/pdf') return premierePageDuPdf(source, cible, largeur);
   const args = ['-v', 'error', '-y', '-i', source, '-frames:v', '1', '-vf', `scale='min(${largeur},iw)':-2`];
   if (extension === 'jpg') args.push('-q:v', '4');
   args.push(cible);
@@ -81,6 +104,8 @@ export async function miniatureDe(
   const servir = (): { file: string; mime: string; taille: number } | null => {
     try {
       const fait = fs.statSync(cible);
+      const typeServi = TYPE_DE_LA_MINIATURE[mime];
+      if (typeServi) return fait.size > 0 ? { file: cible, mime: typeServi, taille: fait.size } : null;
       /* Une miniature plus lourde que l'original ne sert à rien. */
       return fait.size > 0 && fait.size < stat.size ? { file: cible, mime, taille: fait.size } : null;
     } catch {
@@ -95,7 +120,7 @@ export async function miniatureDe(
       try {
         fs.mkdirSync(dossier, { recursive: true });
         const provisoire = `${cible}.${process.pid}.tmp.${extension}`;
-        const ok = await fabriquer(fichier, provisoire, largeur, extension);
+        const ok = await fabriquer(fichier, provisoire, largeur, extension, mime);
         if (ok) fs.renameSync(provisoire, cible);
         else fs.rmSync(provisoire, { force: true });
         return ok ? cible : null;

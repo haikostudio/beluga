@@ -17,6 +17,11 @@
  * voir la visionneuse de l'espace client). Leur téléchargement reste à un clic,
  * par le petit bouton posé dans le coin de la vignette.
  *
+ * UN PDF S'OUVRE EN APERÇU quand l'appelant sait l'ouvrir (`onApercu`) : le
+ * clic sur la pastille montre le document dans la visionneuse, et le
+ * téléchargement reste à un clic par la flèche posée au bout (repère
+ * `data-apercu-pdf`).
+ *
  * Les repères techniques `data-lien-piece` et `data-apercu-image` voyagent avec
  * la pastille : un contrôle navigateur les lit sans rien savoir du rendu.
  */
@@ -116,17 +121,58 @@ export interface PastilleDeFichierProps {
   poids?: number;
   /** Dans la barre d'écriture, la pastille est plus basse. */
   compact?: boolean;
+  /**
+   * Ouvrir la pièce dans la visionneuse. Donné pour un PDF : le clic sur la
+   * pastille l'ouvre au lieu de le télécharger, et la flèche du bout télécharge.
+   */
+  onApercu?: () => void;
   className?: string;
 }
+
+/** Une pièce que la visionneuse sait montrer en entier, au-delà des images et des vidéos. */
+export const estUnPdf = (mime?: string | null) => (mime ?? '').toLowerCase() === 'application/pdf';
 
 /**
  * UN FICHIER QUELCONQUE : son icône, son nom, son poids, et le téléchargement
  * au clic. Le composant rend un VRAI lien — on peut donc l'ouvrir dans un autre
  * onglet, le copier, ou s'en servir au clavier, sans une ligne de code de plus.
  */
-export function PastilleDeFichier({ id, nom, nomDuFichier, mime, poids, compact, className }: PastilleDeFichierProps) {
+export function PastilleDeFichier({ id, nom, nomDuFichier, mime, poids, compact, onApercu, className }: PastilleDeFichierProps) {
   const nomAffiche = nom?.trim() || t('Fichier joint');
   const aEnregistrer = nomDuFichier?.trim() || nom?.trim();
+  if (onApercu) {
+    return (
+      <span
+        className={cn(
+          'inline-flex max-w-[230px] items-center rounded-lg border border-border bg-surface text-[13px] text-muted transition-colors hover:border-faint',
+          compact && 'h-12 text-[12.5px]',
+          className,
+        )}
+      >
+        <button
+          type="button"
+          onClick={onApercu}
+          title={`${t('Ouvrir en grand')} — ${nomAffiche}${poids ? ` — ${bytes(poids)}` : ''}`}
+          data-apercu-pdf={id}
+          className={cn('inline-flex min-w-0 items-center gap-1.5 py-1.5 pl-2 pr-1 hover:text-text', compact && 'h-full py-0')}
+        >
+          <IconeDeGenre genre={genreDuFichier(mime ?? '')} className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{nomAffiche}</span>
+          {poids ? <span className="shrink-0 text-[11.5px] text-faint">{bytes(poids)}</span> : null}
+        </button>
+        <a
+          href={adresseDePiece(id, true)}
+          download={aEnregistrer || undefined}
+          title={t('Télécharger')}
+          aria-label="Telecharger"
+          data-lien-piece={id}
+          className="grid h-full shrink-0 place-items-center py-1.5 pl-1 pr-2 text-faint hover:text-text"
+        >
+          <Download className="h-3 w-3" aria-hidden />
+        </a>
+      </span>
+    );
+  }
   return (
     <a
       href={adresseDePiece(id, true)}

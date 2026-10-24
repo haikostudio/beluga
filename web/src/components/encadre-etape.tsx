@@ -2,6 +2,7 @@ import * as React from 'react';
 import { ChevronRight, CircleAlert } from 'lucide-react';
 import { cn, duration } from '@/lib/utils';
 import { t } from '@/lib/langue';
+import { CheminCliquable } from '@/lib/chemin-cliquable';
 
 /**
  * LA COQUILLE COMMUNE À TOUS LES ENCADRÉS D'UNE ÉTAPE D'AGENT.
@@ -146,6 +147,9 @@ export function Etiquette({ children }: { children: React.ReactNode }) {
  * un délai, un mode, un état. La valeur se copie à la souris — ces textes sont
  * faits pour être repris ailleurs.
  */
+/** Les champs d'un appel d'outil qui portent un chemin de fichier. */
+const CHAMPS_DE_CHEMIN = new Set(['path', 'file_path', 'chemin', 'fichier']);
+
 export function ChampsNommes({ champs }: { champs: readonly { cle: string; libelle: string; valeur: string }[] }) {
   if (!champs.length) return null;
   return (
@@ -153,7 +157,10 @@ export function ChampsNommes({ champs }: { champs: readonly { cle: string; libel
       {champs.map((champ) => (
         <React.Fragment key={champ.cle}>
           <dt className="text-faint">{champ.libelle}</dt>
-          <dd className="min-w-0 break-words text-text texte-copiable">{champ.valeur}</dd>
+          <dd className="min-w-0 break-words text-text texte-copiable">
+            {/* LE CHAMP « CHEMIN » D'UN APPEL (`path`, `file_path`, `chemin`) s'ouvre au clic. */}
+            {CHAMPS_DE_CHEMIN.has(champ.cle) ? <CheminCliquable chemin={champ.valeur}>{champ.valeur}</CheminCliquable> : champ.valeur}
+          </dd>
         </React.Fragment>
       ))}
     </dl>
@@ -239,8 +246,11 @@ export function Chemin({ chemin }: { chemin: string }) {
   const nom = coupe > 0 ? chemin.slice(coupe + 1) : chemin;
   return (
     <span className="min-w-0 break-all font-mono text-[12.5px] texte-copiable" data-encadre-chemin>
-      {dossier ? <span className="text-faint">{dossier}</span> : null}
-      <span className="text-text">{nom}</span>
+      {/* Le chemin s'ouvre dans la visionneuse quand un fil l'entoure (`CheminCliquable`). */}
+      <CheminCliquable chemin={chemin}>
+        {dossier ? <span className="text-faint">{dossier}</span> : null}
+        <span className="text-text">{nom}</span>
+      </CheminCliquable>
     </span>
   );
 }

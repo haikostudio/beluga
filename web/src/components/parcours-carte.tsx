@@ -721,7 +721,7 @@ function BoutonDeGeste({
       <BoutonPrincipal raison={!geste.possible ? geste.raison : undefined}>
         <Button
           type="button"
-          variant={arretRouge ? 'arret' : principal ? 'default' : 'outline'}
+          variant={principal || arretRouge ? 'default' : 'outline'}
           data-geste-principal={geste.geste}
           aria-disabled={!geste.possible}
           /* Éteint parce qu'une décision attend : le clic MÈNE à cette décision. */
@@ -731,11 +731,12 @@ function BoutonDeGeste({
             CLASSES_BOUTON_DU_FIL,
             groupe && 'rounded-r-none',
             vientDeSallumer && 'animate-appel',
-            /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Suspendre »
-               est un aplat rouge à écriture blanche (variante `arret`). */
+            /* AUCUN TRAIT SUR UN BOUTON : son fond le dessine. « Annuler » /
+               « Suspendre » est un aplat VIOLET à écriture blanche — la couleur
+               du travail de l'agent, plus le rouge d'une erreur. */
             geste.possible
               ? arretRouge
-                ? null
+                ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:opacity-90'
                 : principal
                   ? 'bg-accent text-accent-fg hover:opacity-90'
                   : 'bg-raised text-text hover:bg-border'
@@ -921,7 +922,7 @@ function IconeDesReglages({
       {menuReglages(
         <Button
           type="button"
-          variant={colle === 'arret' ? 'arret' : 'ghost'}
+          variant="ghost"
           title={t('Configuration de l’agent')}
           aria-label="Configuration de l’agent"
           data-raccourci-reglages={modifiables ? 'modifiable' : 'lecture'}
@@ -931,7 +932,7 @@ function IconeDesReglages({
             'h-9 w-9 shrink-0 rounded-lg p-0',
             colle && 'ml-px rounded-l-none',
             colle === 'arret'
-              ? null
+              ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:text-white hover:opacity-90'
               : colle === 'accent'
                 ? 'bg-accent text-accent-fg hover:bg-accent hover:opacity-90'
                 : 'bg-raised text-text hover:bg-border',

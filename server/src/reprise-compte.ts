@@ -127,9 +127,14 @@ async function modeleDeLaReprise(agent: Agent, moteur: string, demande?: string)
  * part lit `agent.run`, et la carte ne doit pas annoncer l'ancien moteur. Le
  * compte imposé du réglage tombe — celui de la reprise est imposé au tour.
  */
-async function reglerLeMoteurDeLaReprise(agent: Agent, moteur: Agent['run']['engine'], modele?: string): Promise<void> {
+async function reglerLeMoteurDeLaReprise(
+  agent: Agent,
+  moteur: Agent['run']['engine'],
+  modele?: string,
+  reflexion?: Agent['run']['thinking'],
+): Promise<void> {
   const moteurs = await listEngines().catch(() => []);
-  const thinking = normaliseThinking(moteurs.find((m) => m.id === moteur)?.models ?? [], modele, agent.run.thinking);
+  const thinking = normaliseThinking(moteurs.find((m) => m.id === moteur)?.models ?? [], modele, reflexion ?? agent.run.thinking);
   const run = { ...agent.run, engine: moteur, model: modele, thinking, account: undefined } as Agent['run'];
   const agentRegle = store.saveAgent({ ...agent, run, contextUsage: undefined });
   bus.emit({ type: 'agent.upsert', agent: agentRegle });
@@ -262,7 +267,7 @@ export interface ResultatDeReprise {
 export async function reprendreSurCompte(
   messageId: string,
   accountId: string,
-  options: { automatique?: boolean; model?: string } = {},
+  options: { automatique?: boolean; model?: string; thinking?: Agent['run']['thinking'] } = {},
 ): Promise<ResultatDeReprise> {
   const message = store.getMessage(messageId);
   if (!message) throw new Error('message introuvable');
@@ -308,6 +313,8 @@ export async function reprendreSurCompte(
   const changeDeMoteur = repriseSurUnAutreMoteur({ engine: reprise.engine }, { engine: moteur });
   const modele = await modeleDeLaReprise(agent, moteur, options.model);
   const changeDeModele = modele !== agent.run.model;
+  /* LA RÉFLEXION SE CHANGE AUSSI depuis la fenêtre ; elle seule ne change pas de fil. */
+  const changeDeReflexion = !!options.thinking && options.thinking !== agent.run.thinking;
   // La passation se lit sur l'agent tel qu'il était : son dossier, ses messages.
   const demande = changeDeMoteur
     ? passationDe(agent, messageId, reprise, choisi.label, moteur, modele)
@@ -329,7 +336,9 @@ export async function reprendreSurCompte(
    * départ du tour. La clé de session suit d'elle-même (`cleDeSession`) : un
    * autre moteur — ou un autre modèle sous Codex — ouvre un fil neuf.
    */
-  if (changeDeMoteur || changeDeModele) await reglerLeMoteurDeLaReprise(agent, moteur, modele);
+  if (changeDeMoteur || changeDeModele || changeDeReflexion) {
+    await reglerLeMoteurDeLaReprise(agent, moteur, modele, options.thinking);
+  }
   bus.emit({ type: 'message.upsert', message: retenue });
   bus.emit({ type: 'attention', ...store.signalAttention() });
   oublierSignale(messageId);

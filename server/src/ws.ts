@@ -48,6 +48,7 @@ import {
   carteEnCadrage,
   allumerLeCahierToutSeul,
   raisonDAttendreLeLancement,
+  suiteDuPlanAttendu,
   questionsSansReponse,
   consigneDeDemandeComplexe,
   jugerLaComplexite,
@@ -906,10 +907,6 @@ async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: 
     planDemande: !!card.parcours.planDemandeA,
     plansRendusA: (card.parcours.plans ?? []).map((plan) => plan.at),
   });
-  if (raison) {
-    log.info(`lancement automatique de ${cardId} en attente : ${raison}`);
-    return;
-  }
   const noterLeRefus = (texte: string) => {
     const jalon = ajouterAuJournal({
       cardId,
@@ -923,6 +920,26 @@ async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: 
     });
     if (jalon) bus.emit({ type: 'journal.entree', entree: jalon });
   };
+  /* LE PLAN MANQUANT SE RÉCLAME, UNE FOIS par compréhension. */
+  const suite = suiteDuPlanAttendu(raison, comprise?.at, card.parcours.planReclamePour);
+  if (suite === 'reclamer') {
+    const marquee = store.saveCard({
+      ...card,
+      parcours: { ...card.parcours, planReclamePour: comprise!.at },
+    });
+    bus.emit({ type: 'card.upsert', card: marquee });
+    log.info(`lancement automatique de ${cardId} : plan réclamé à l’agent de cadrage`);
+    await demanderLePlan(cardId).catch((err: any) => noterLeRefus(`plan non réclamé : ${String(err?.message ?? err)}`));
+    return;
+  }
+  if (suite === 'refuser') {
+    noterLeRefus('le plan a été réclamé, mais l’agent ne l’a pas rendu');
+    return;
+  }
+  if (raison) {
+    log.info(`lancement automatique de ${cardId} en attente : ${raison}`);
+    return;
+  }
   const validee = validerLaComprehension(cardId);
   if (!validee.ok) {
     noterLeRefus(validee.error ?? 'validation impossible');
@@ -1924,7 +1941,12 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
     case 'card.lancement.automatique': {
       const card = store.getCard(cmd.cardId);
       if (!card) throw new Error('carte introuvable');
-      const parcours = { ...(card.parcours ?? { plans: [] }), lancementAutomatique: cmd.actif };
+      /* Rallumer « Auto » est un geste neuf : il rouvre la réclamation du plan. */
+      const parcours = {
+        ...(card.parcours ?? { plans: [] }),
+        lancementAutomatique: cmd.actif,
+        ...(cmd.actif ? { planReclamePour: undefined } : {}),
+      };
       const ecrite = store.saveCard({ ...card, parcours });
       bus.emit({ type: 'card.upsert', card: ecrite });
       if (cmd.actif && card.agentId && !isRunning(card.agentId)) {
@@ -2885,7 +2907,10 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
      * motif en français, sans rien lancer.
      */
     case 'reprise.compte': {
-      const resultat = await reprendreSurCompte(cmd.messageId, cmd.accountId, { model: cmd.model });
+      const resultat = await reprendreSurCompte(cmd.messageId, cmd.accountId, {
+        model: cmd.model,
+        ...(cmd.thinking ? { thinking: cmd.thinking } : {}),
+      });
       if (!resultat.ok) throw new Error(resultat.error ?? 'reprise impossible');
       return { ok: true };
     }

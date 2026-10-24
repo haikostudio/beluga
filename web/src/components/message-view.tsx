@@ -917,8 +917,11 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
    * reprend le même fil, en changer ouvre un fil neuf avec passation.
    */
   const modeleActuel = agents[message.agentId]?.run.model;
+  const reflexionActuelle = agents[message.agentId]?.run.thinking;
   const [moteur, setMoteur] = React.useState<string>(reprise.engine);
   const [modele, setModele] = React.useState<string | undefined>(modeleActuel);
+  /* LA RÉFLEXION AUSSI : sans elle, la ligne « Réflexion » du menu ne changeait rien. */
+  const [reflexion, setReflexion] = React.useState<string | undefined>(reflexionActuelle);
 
   const tousLesChoix = React.useMemo(
     () =>
@@ -996,7 +999,14 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
     try {
       // Le modèle ne part que s'il change quelque chose : sinon le démon garde celui de l'agent.
       const autreModele = modele && (moteur !== reprise.engine || modele !== modeleActuel) ? modele : undefined;
-      await client.call({ type: 'reprise.compte', messageId: message.id, accountId, ...(autreModele ? { model: autreModele } : {}) });
+      const autreReflexion = reflexion && reflexion !== reflexionActuelle ? reflexion : undefined;
+      await client.call({
+        type: 'reprise.compte',
+        messageId: message.id,
+        accountId,
+        ...(autreModele ? { model: autreModele } : {}),
+        ...(autreReflexion ? { thinking: autreReflexion } : {}),
+      });
     } catch (err: any) {
       client.pushToast('warning', err?.message ?? 'reprise impossible');
     } finally {
@@ -1033,13 +1043,15 @@ export function RepriseDeCompteCard({ message }: { message: Message }) {
       <div className="mt-2" data-reprise-moteur={moteur}>
         <RunSelectors
           engines={engines}
-          choix={{ engine: moteur as RunChoix['engine'], model: modele }}
+          choix={{ engine: moteur as RunChoix['engine'], model: modele, ...(reflexion ? { thinking: reflexion } : {}) }}
           pleineLargeur
           onSelect={(patch) => {
             if (patch.engine && patch.engine !== moteur) {
               setMoteur(patch.engine);
               setModele(patch.engine === reprise.engine ? modeleActuel : undefined);
+              setReflexion(patch.engine === reprise.engine ? reflexionActuelle : undefined);
             } else if (patch.model) setModele(patch.model);
+            else if (patch.thinking) setReflexion(patch.thinking);
           }}
         />
         {moteur !== reprise.engine ? (

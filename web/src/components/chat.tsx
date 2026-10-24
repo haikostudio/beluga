@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
+import { FichiersCites } from '@/components/fichiers-cites';
 import {
   Check,
   ChevronDown,
@@ -78,6 +79,7 @@ import {
   carteEnPause,
   repartirLesMediasLivres,
   type MediaLivre,
+  veilleTientLaRangee,
 } from '@beluga/shared';
 import {
   BulleInfo,
@@ -136,7 +138,20 @@ import { useSeconde } from '@/lib/horloge';
 import { useIntervalleVisible } from '@/lib/veille';
 import { BandeauDeVeille } from '@/components/veille-de-carte';
 
-export function Chat({
+/**
+ * LES CHEMINS DE FICHIERS CITÉS DANS LE FIL S'OUVRENT DANS LA VISIONNEUSE
+ * (`FichiersCites`) : le fil pose le fournisseur, qui connaît son projet et
+ * son agent, une fois pour toutes ses réponses et ses étapes.
+ */
+export function Chat(props: React.ComponentProps<typeof FilDeConversation>) {
+  return (
+    <FichiersCites projectId={props.projectId} agentId={props.agent?.id}>
+      <FilDeConversation {...props} />
+    </FichiersCites>
+  );
+}
+
+function FilDeConversation({
   agent,
   projectId,
   header,
@@ -1246,16 +1261,25 @@ export function Chat({
       boutonPrincipal={
         carte && cardId ? (
           <>
-            {/* LA VEILLE DE LA CARTE : ce qu'on attend, et ses deux gestes (`veille-de-carte.tsx`). */}
-            {carte.veille ? <BandeauDeVeille carte={carte} /> : null}
-            <BarreDAction
-              carte={carte}
-              agent={agent}
-              gestes={gestes}
-              menuReglages={menuReglagesCarte}
-              reglagesModifiables={reglagesCarte.vu?.modifiable === true}
-              resumeSousLeDeploiement={miseEnLigneFaite}
-            />
+            {/* LA VEILLE DE LA CARTE : ce qu'on attend, et ses gestes (`veille-de-carte.tsx`).
+                Tant qu'aucun agent ne travaille, ses gestes TIENNENT la rangée
+                d'action, à la place de « Reprendre / Terminer la tâche » ; la
+                veille arrêtée, la rangée habituelle revient d'elle-même. */}
+            {veilleTientLaRangee(carte.veille, busy) ? (
+              <BandeauDeVeille carte={carte} rangee />
+            ) : (
+              <>
+                {carte.veille ? <BandeauDeVeille carte={carte} /> : null}
+                <BarreDAction
+                  carte={carte}
+                  agent={agent}
+                  gestes={gestes}
+                  menuReglages={menuReglagesCarte}
+                  reglagesModifiables={reglagesCarte.vu?.modifiable === true}
+                  resumeSousLeDeploiement={miseEnLigneFaite}
+                />
+              </>
+            )}
           </>
         ) : undefined
       }
@@ -1460,7 +1484,7 @@ export function Chat({
             d'écriture. Chaque bloc porte `CLASSE_BLOC_DU_PIED` (mêmes bords,
             même écart) ; le repère sert au contrôle des écarts
             (`scripts/verif-ecarts-et-alignements.mjs`). */}
-        <div className="flex shrink-0 flex-col" data-pied-de-conversation>
+        <div className="relative flex shrink-0 flex-col" data-pied-de-conversation>
         {configurationOuverte && reglagesCarte.libelles ? null : (
           <>
             {/* LE DÉROULÉ DU CAHIER DES CHARGES ET LE CHEMIN DU TOURNAGE, COLLÉS
@@ -1692,9 +1716,13 @@ export function Chat({
           bandeau FIXE, juste au-dessus du volet des tâches : elles ne remontent
           plus avec les messages et leurs boutons restent sous les yeux. Sans
           proposition en attente, le bandeau ne rend rien. */}
-      <BandeauPropositions messages={messages} />
+      {/* `relative` : l'icône des messages en attente s'y pose, en bas à
+          droite du fil, au-dessus du bandeau et de la barre (`FileDAttente`). */}
+      <div className="relative shrink-0" data-pied-du-fil>
+        <BandeauPropositions messages={messages} />
 
-      {barreDEcriture}
+        {barreDEcriture}
+      </div>
     </div>
   );
 }

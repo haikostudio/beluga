@@ -12,7 +12,7 @@ import { AttachmentPreview } from '@/components/attachment-preview';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { genreDuFichier, refusDeTaille, type Attachment, type GenrePiece } from '@beluga/shared';
-import { IconeDeGenre, PastilleDeFichier } from '@/components/pastille-de-fichier';
+import { IconeDeGenre, PastilleDeFichier, estUnPdf } from '@/components/pastille-de-fichier';
 import { GrilleDImages } from '@/components/grille-images';
 import { LecteurVideo, VignetteVideo } from '@/components/lecteur-video';
 import { envoyerLeFichier } from './canal-espace';
@@ -222,6 +222,14 @@ export function PiecesDeposees({ pieces, onRetirer }: { pieces: PieceEnvoyee[]; 
  * pièces jointes et une pièce ouverte. L'archive passe par la même route, qui
  * refuse au client toute pièce qui n'est pas à lui.
  */
+/**
+ * CE QUI S'OUVRE DANS LA VISIONNEUSE : les images, et les PDF (carte « Aperçu
+ * des PDF et des liens »). Les listes `images` du fil et des fiches passent
+ * par ce seul prédicat, pour que le rang d'une pièce y reste le même partout.
+ */
+export const sOuvreEnVisionneuse = (piece: { genre: GenrePiece; mime?: string }) =>
+  piece.genre === 'image' || estUnPdf(piece.mime);
+
 export function Visionneuse({
   images,
   index,
@@ -276,7 +284,7 @@ export function Galerie({
 }) {
   const [ouverte, setOuverte] = React.useState<string | null>(null);
   const [vue, setVue] = React.useState<number | null>(null);
-  const images = pieces.filter((piece) => piece.genre === 'image');
+  const images = pieces.filter(sOuvreEnVisionneuse);
   if (!pieces.length) return null;
   return (
     <div data-galerie={pieces.length}>
@@ -291,7 +299,7 @@ export function Galerie({
             key={piece.id}
             type="button"
             onClick={() =>
-              piece.genre === 'image'
+              sOuvreEnVisionneuse(piece)
                 ? setVue(images.findIndex((image) => image.id === piece.id))
                 : setOuverte(ouverte === piece.id ? null : piece.id)
             }
@@ -401,7 +409,14 @@ export function PiecesDuMessage({
       {autres.length ? (
         <div className="flex flex-wrap gap-1.5">
           {autres.map((piece) => (
-            <PastilleDeFichier key={piece.id} id={piece.id} nom={piece.nom} mime={piece.mime} poids={piece.taille} />
+            <PastilleDeFichier
+              key={piece.id}
+              id={piece.id}
+              nom={piece.nom}
+              mime={piece.mime}
+              poids={piece.taille}
+              onApercu={estUnPdf(piece.mime) ? () => onOuvrirImage(images.findIndex((image) => image.id === piece.id)) : undefined}
+            />
           ))}
         </div>
       ) : null}

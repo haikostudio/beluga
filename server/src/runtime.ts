@@ -133,6 +133,7 @@ import {
   blocDuDernierPlan,
   numeroDuProchainPlan,
   planManquant,
+  repriseDepasseeParLeTour,
   INCIDENT_PLAN_NON_RENDU,
   ETAPE_PLAN_RECLAME,
   ETAPE_PLAN_RECLAME_ID,
@@ -3229,6 +3230,7 @@ async function startTurn(
     },
   });
   consommerLaReprise(tour.repriseDe, runState.messageId);
+  refermerLesReprisesDepassees(agent.id, tour.repriseDe, account, runState.messageId);
 
   /*
    * LA DEMANDE QUI A DÉCLENCHÉ CE TOUR N'EST PLUS ÉCRITE ICI : elle ouvre le
@@ -5022,6 +5024,44 @@ function consommerLaReprise(messageId: string | undefined, tourMessageId: string
   bus.emit({ type: 'message.upsert', message: consommee });
   bus.emit({ type: 'attention', ...store.signalAttention() });
   log.info(`reprise consommée : le tour ${tourMessageId} repart sur « ${reprise.choisiLabel ?? reprise.choisi} »`);
+}
+
+/**
+ * UN TRAVAIL REPARTI SANS CLIC REFERME LA QUESTION « AVEC QUEL COMPTE
+ * POURSUIVRE ? ». Le quota revenu, un message envoyé ou une demande rejouée
+ * par la file relancent l'agent sans passer par la reprise : la fenêtre restait
+ * ouverte au-dessus d'un agent déjà en pleine réflexion. Dès qu'un tour de cet
+ * agent part, toute reprise encore ouverte de cet agent est refermée sur le
+ * compte qui sert ce tour — jamais deux tours : un clic arrivé ensuite trouve
+ * la décision déjà prise et ne relance rien.
+ */
+export function refermerLesReprisesDepassees(
+  agentId: string,
+  repriseDuTour: string | undefined,
+  compte: { id: string; label?: string },
+  tourMessageId: string,
+): void {
+  for (const attente of store.reprisesDeCompteEnAttente()) {
+    if (!repriseDepasseeParLeTour(attente, { agentId, repriseDe: repriseDuTour })) continue;
+    const message = store.getMessage(attente.messageId);
+    const reprise = message?.repriseCompte;
+    if (!message || !reprise || reprise.choisi || reprise.abandonnee || reprise.consommeeA) continue;
+    const maintenant = Date.now();
+    const refermee = store.saveMessage({
+      ...message,
+      repriseCompte: {
+        ...reprise,
+        choisi: compte.id,
+        choisiLabel: compte.label ?? compte.id,
+        choisiA: maintenant,
+        automatique: true,
+        consommeeA: maintenant,
+      },
+    });
+    bus.emit({ type: 'message.upsert', message: refermee });
+    bus.emit({ type: 'attention', ...store.signalAttention() });
+    log.info(`reprise ${attente.messageId} refermée : le travail est reparti seul (tour ${tourMessageId})`);
+  }
 }
 
 function pushMessage(run: LiveRun, patch: Partial<Message>): void {

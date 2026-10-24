@@ -6,6 +6,7 @@ export * from './analyse.js';
 export * from './analyse-cout.js';
 export * from './apercu-fichier.js';
 export * from './mime-fichiers.js';
+export * from './fichiers-cites.js';
 export * from './arret-carte.js';
 export * from './arret-de-secours.js';
 export * from './assistant-moteurs.js';

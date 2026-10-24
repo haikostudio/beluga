@@ -2,6 +2,8 @@ import * as React from 'react';
 import { Eye, ListChecks, Loader2, RefreshCw, X } from 'lucide-react';
 import { construireFragment, type Card, type ResumeDeVeille } from '@beluga/shared';
 import { Button } from '@/components/ui';
+import { CLASSES_BOUTON_DU_FIL } from '@/components/parcours-carte';
+import { cn } from '@/lib/utils';
 import { client } from '@/lib/client';
 import { t, formatRegional } from '@/lib/langue';
 
@@ -92,26 +94,68 @@ export function useGestesDeVeille(cardId: string) {
  * boutons ; en dessous, les boutons passent à la ligne et le texte garde toute
  * la largeur (capture du 22/10/2026 : le texte écrasé en colonne d'un mot,
  * quand les deux boutons prenaient tout).
+ *
+ * EN RANGÉE (`rangee`, demande du 24/10/2026) : la veille TIENT la rangée
+ * d'action du pied (`veilleTientLaRangee`). Le bandeau ne garde que sa phrase,
+ * et ses gestes descendent dans une rangée de la hauteur des boutons du fil —
+ * à la place de « Reprendre / Terminer la tâche », jamais en plus.
  */
-export function BandeauDeVeille({ carte }: { carte: Card }) {
+export function BandeauDeVeille({ carte, rangee = false }: { carte: Card; rangee?: boolean }) {
   const veille = carte.veille;
   const { occupe, agir } = useGestesDeVeille(carte.id);
   if (!veille || (veille.etat !== 'en_cours' && veille.etat !== 'expiree')) return null;
+  const texte = (
+    <div className="flex min-w-0 grow basis-64 items-start gap-2" data-bandeau-veille-texte>
+      <Eye className="mt-[3px] h-3.5 w-3.5 shrink-0" aria-hidden />
+      <div className="min-w-0 flex-1 select-text">
+        <p className="break-words text-[13px] leading-snug text-text">
+          {veille.etat === 'expiree' ? t('Veille échue : {raison}', { raison: veille.raison }) : veille.raison}
+        </p>
+        <p className="mt-0.5 break-words leading-snug text-faint">{horairesDeLaVeille(veille)}</p>
+      </div>
+    </div>
+  );
+  if (rangee) {
+    const classeBouton = cn(CLASSES_BOUTON_DU_FIL, 'flex-1 gap-1.5 px-2 bg-raised text-text hover:bg-border');
+    return (
+      <>
+        <div className="mb-2 rounded-lg bg-raised px-3 py-2 text-xs text-muted" data-veille={veille.etat} data-bandeau-veille>
+          {texte}
+        </div>
+        <div className="flex items-stretch gap-1.5" data-rangee-veille data-bandeau-veille-gestes>
+          {veille.etat === 'en_cours' ? (
+            <Button variant="ghost" size="sm" className={classeBouton} disabled={occupe !== null} onClick={() => void agir('verifier')} data-veille-verifier>
+              {occupe === 'verifier' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              <span className="min-w-0 truncate">{t('Vérifier maintenant')}</span>
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" className={classeBouton} disabled={occupe !== null} onClick={() => void agir('arreter')} data-veille-arreter>
+            {occupe === 'arreter' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+            <span className="min-w-0 truncate">{t('Arrêter la veille')}</span>
+          </Button>
+          {/* À LA PLACE DE L'HORLOGE : le service où vit cette veille. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 w-9 shrink-0 rounded-lg bg-raised p-0 text-text hover:bg-border"
+            onClick={() => ouvrirLaVeilleDansLeService(carte.projectId, veille.id)}
+            title={t('Voir dans Tâches récurrentes')}
+            aria-label="Voir dans Tâches récurrentes"
+            data-veille-service
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </>
+    );
+  }
   return (
     <div
       className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-raised px-3 py-2 text-xs text-muted"
       data-veille={veille.etat}
       data-bandeau-veille
     >
-      <div className="flex min-w-0 grow basis-64 items-start gap-2" data-bandeau-veille-texte>
-        <Eye className="mt-[3px] h-3.5 w-3.5 shrink-0" aria-hidden />
-        <div className="min-w-0 flex-1 select-text">
-          <p className="break-words text-[13px] leading-snug text-text">
-            {veille.etat === 'expiree' ? t('Veille échue : {raison}', { raison: veille.raison }) : veille.raison}
-          </p>
-          <p className="mt-0.5 break-words leading-snug text-faint">{horairesDeLaVeille(veille)}</p>
-        </div>
-      </div>
+      {texte}
       <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1" data-bandeau-veille-gestes>
         {veille.etat === 'en_cours' ? (
           <Button variant="ghost" size="sm" disabled={occupe !== null} onClick={() => void agir('verifier')} data-veille-verifier>

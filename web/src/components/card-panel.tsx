@@ -540,9 +540,11 @@ function CardPanelBody({
           hauteur = fil.scrollHeight;
           stableDepuis = maintenant;
         } else if (maintenant - stableDepuis >= STABLE_A_L_OUVERTURE) {
-          /* Seule la barre des étapes se replie : l'en-tête du haut reste. */
+          /* L'en-tête maître et la barre des étapes se replient ensemble : le
+             fil doit pouvoir rendre leurs DEUX hauteurs (le rang du titre reste). */
+          const enTete = page.current?.querySelector('[data-entete-maitre]')?.getBoundingClientRect().height ?? 0;
           const barre = emplacementBarre.current?.getBoundingClientRect().height ?? 0;
-          const etat = repliALOuverture(fil.scrollTop, fil.scrollHeight - fil.clientHeight, barre);
+          const etat = repliALOuverture(fil.scrollTop, fil.scrollHeight - fil.clientHeight, enTete + barre);
           if (etat) {
             zoneSuivie.current = fil;
             repli.current = etat;
@@ -700,6 +702,9 @@ function CardPanelBody({
       <EnteteDeZone
         avant={lieu?.avant}
         deuxRangsSurPetitEcran
+        /* LE RANG DU HAUT SE REPLIE AVEC LA BARRE DES ÉTAPES (demande du
+           24/10/2026) ; le rang du titre, avec la branche, reste. */
+        rangDuHautMasque={!barreVisible && !apercuPleinEcran}
         /* Aperçu ouvert sur téléphone : la flèche le referme d'abord, et ramène
            à la conversation ; un second appui quitte la carte. */
         onRetour={documentPleinEcran ? fermerLeDocument : apercuPleinEcran ? () => setApercu(false) : onClose}
@@ -918,7 +923,7 @@ function CardPanelBody({
             conversation la pose ici par un portail (`emplacementBarre`,
             `chat.tsx`). Sur ordinateur, elle vit en tête de la conversation. */}
         {telephone ? (
-          /* Elle seule se replie quand on descend (l'en-tête du haut reste), et revient dès qu'on remonte. */
+          /* Elle se replie avec l'en-tête maître quand on descend, et revient dès qu'on remonte. */
           <div
             data-repli-des-etapes
             data-barre-masquee={barreVisible ? undefined : ''}

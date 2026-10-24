@@ -775,6 +775,13 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   'Échec de la fabrication': ['Generation failed', 'La fabricación ha fallado', 'Erstellung fehlgeschlagen', '制作失败'],
   'gratuit': ['free', 'gratis', 'kostenlos', '免费'],
   'Ouvrir en grand': ['Open full size', 'Abrir en grande', 'Groß öffnen', '放大打开'],
+  'Ouvrir le fichier': ['Open the file', 'Abrir el archivo', 'Datei öffnen', '打开文件'],
+  'Ce fichier est introuvable, ou il se trouve hors des dossiers du projet : {v0}': [
+    'This file cannot be found, or it lies outside the project folders: {v0}',
+    'No se encuentra este archivo, o está fuera de las carpetas del proyecto: {v0}',
+    'Diese Datei wurde nicht gefunden oder liegt außerhalb der Projektordner: {v0}',
+    '找不到此文件，或它位于项目文件夹之外：{v0}',
+  ],
   'Changer de compte': ['Switch account', 'Cambiar de cuenta', 'Konto wechseln', '切换账号'],
   'La liaison avec le terminal du serveur a été refusée.': [
     'The connection to the server terminal was refused.',
@@ -2719,18 +2726,8 @@ const TEXTES: Readonly<Record<string, Quatre>> = {
   ],
   "Envoi du fichier impossible": ['The file could not be sent', 'No se pudo enviar el archivo', 'Die Datei konnte nicht gesendet werden', '文件发送失败'],
   'Réessayer l\'envoi': ['Send again', 'Reintentar el envío', 'Erneut senden', '重新发送'],
-  'Votre message part dès que l\'agent a fini, ou tout de suite avec la flèche.': [
-    'Your message goes out as soon as the agent has finished, or right away with the arrow.',
-    'Su mensaje se enviará en cuanto el agente termine, o al instante con la flecha.',
-    'Ihre Nachricht geht raus, sobald der Agent fertig ist, oder sofort mit dem Pfeil.',
-    '智能体完成后，您的消息会立即发出；也可点箭头马上发送。',
-  ],
-  "{v0} messages en attente : ils partiront l'un après l'autre, ou tout de suite avec la flèche.": [
-    '{v0} messages waiting: they will go out one after the other, or right away with the arrow.',
-    '{v0} mensajes en espera: saldrán uno tras otro, o al instante con la flecha.',
-    '{v0} Nachrichten warten: Sie gehen nacheinander raus, oder sofort mit dem Pfeil.',
-    '{v0} 条消息待发送：将逐条发出；也可点箭头马上发送。',
-  ],
+  '1 message en attente': ['1 message waiting', '1 mensaje en espera', '1 wartende Nachricht', '1 条消息待发送'],
+  '{v0} messages en attente': ['{v0} messages waiting', '{v0} mensajes en espera', '{v0} wartende Nachrichten', '{v0} 条消息待发送'],
   'Envoyer maintenant': ['Send now', 'Enviar ahora', 'Jetzt senden', '立即发送'],
   'Modification d\'un message en attente {v0}': ['Editing a pending message {v0}', 'Modificación de un mensaje en espera {v0}', 'Bearbeitung einer wartenden Nachricht {v0}', '正在编辑待发送的消息 {v0}'],
   'Ce message est déjà parti : la modification n’a pas pu s’appliquer.': [

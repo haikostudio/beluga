@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
-import { FileNode } from '@beluga/shared';
+import { FileNode, mimeDuFichier } from '@beluga/shared';
 import { PATHS } from './config.js';
 
 const IGNORED = new Set(['.git', 'node_modules', 'dist', '.next', '.nuxt', '.venv', 'venv', '__pycache__', '.cache']);
@@ -44,6 +44,52 @@ export function imageDEtape(chemin: string, racines: string[]): { file: string; 
   if (!dedans) return null;
   if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return null;
   return { file: full, mime };
+}
+
+/** Le chemin réel d'un dossier ou d'un fichier, ou `null` s'il n'existe pas. */
+function reel(chemin: string): string | null {
+  try {
+    return fs.realpathSync(chemin);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * UN FICHIER CITÉ PAR L'AGENT, SERVI SEULEMENT S'IL EST À SA PLACE.
+ *
+ * Le chemin vient du texte d'un agent : il se vérifie comme une saisie. Un
+ * chemin relatif se cherche dans chaque `base` (dossier de travail de l'agent,
+ * puis dépôt du projet) sans pouvoir en sortir ; un chemin absolu est pris tel
+ * quel. Dans les deux cas, le chemin RÉEL (liens symboliques résolus) doit
+ * tomber dans l'une des `racines` — un lien posé dans le projet vers
+ * `/etc/passwd` ne fait rien sortir. Rend le fichier, son type et son poids, ou
+ * `null`.
+ */
+export function fichierCite(
+  chemin: string,
+  racines: Array<string | null | undefined>,
+  bases: Array<string | null | undefined>,
+): { file: string; mime: string; taille: number } | null {
+  if (!chemin || chemin.includes('\0')) return null;
+  const candidats = path.isAbsolute(chemin)
+    ? [path.resolve(chemin)]
+    : (bases.filter(Boolean) as string[]).map((base) => safeJoin(base, chemin)).filter((c): c is string => !!c);
+  const permises = [...new Set((racines.filter(Boolean) as string[]).map(reel).filter((r): r is string => !!r))];
+  for (const candidat of candidats) {
+    const vrai = reel(candidat);
+    if (!vrai) continue;
+    if (!permises.some((racine) => vrai === racine || vrai.startsWith(racine + path.sep))) continue;
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(vrai);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile()) continue;
+    return { file: vrai, mime: mimeDuFichier(vrai), taille: stat.size };
+  }
+  return null;
 }
 
 export function listDir(root: string, relative = ''): FileNode[] {

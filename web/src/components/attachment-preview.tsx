@@ -38,7 +38,7 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { BasculeApercu, ContenuTexte, useFormatApercu } from '@/components/apercu-markdown';
-import { PastilleDeFichier, VignetteDImage, adresseDePiece } from '@/components/pastille-de-fichier';
+import { PastilleDeFichier, VignetteDImage, adresseDePiece, estUnPdf } from '@/components/pastille-de-fichier';
 import { LecteurVideo, type ApercuDeVideo } from '@/components/lecteur-video';
 import { LecteurSon } from '@/components/lecteur-son';
 import { client } from '@/lib/client';
@@ -81,6 +81,12 @@ const sourceDUnePiece = (piece: Attachment) => `/api/attachment?id=${piece.id}`;
 const pourEnregistrer = (adresse: string) => `${adresse}${adresse.includes('?') ? '&' : '?'}download=1`;
 
 const estUneImage = (piece: Attachment | null | undefined) => !!piece && piece.mime.startsWith('image/');
+
+/** Au-delà, un texte se télécharge : un journal de 50 Mo figerait la fenêtre. */
+const TEXTE_LISIBLE_MAX = 1024 * 1024;
+/** Un texte qui se lit en clair dans la visionneuse : code, journal, JSON, CSV. */
+const estUnTexteLisible = (piece: Attachment) =>
+  (piece.mime.startsWith('text/') || piece.mime === 'application/json') && piece.size <= TEXTE_LISIBLE_MAX;
 
 /** La durée d'un passage d'image à l'autre, en glissant. */
 const DUREE_DE_PASSAGE_MS = 240;
@@ -588,6 +594,7 @@ export function AttachmentPreview({
   nomDuLot,
   quandDe,
   dejaVue,
+  erreur,
 }: {
   item: Attachment | null;
   onClose: () => void;
@@ -605,6 +612,12 @@ export function AttachmentPreview({
   quandDe?: (piece: Attachment) => number | undefined;
   /** Cette pièce avait-elle déjà été ouverte en grand ? Sans réponse, aucun œil. */
   dejaVue?: (piece: Attachment) => boolean;
+  /**
+   * LA PIÈCE NE PEUT PAS S'OUVRIR, ET LA FENÊTRE LE DIT : un fichier cité
+   * introuvable ou hors des dossiers du projet (`fichiers-cites.tsx`). Jamais
+   * une page blanche.
+   */
+  erreur?: string;
 }) {
   /* L'image montrée : celle de l'appelant, ou celle où l'on a navigué depuis. */
   const [choisie, setChoisie] = React.useState<string | null>(null);
@@ -661,23 +674,30 @@ export function AttachmentPreview({
     [galerie, courante],
   );
 
-  /* Une pièce jointe Markdown n'est pas déjà en mémoire, contrairement à un
-     fichier du projet : on va la chercher, une seule fois, à l'ouverture. */
+  /* UN TEXTE SE LIT EN CLAIR : un Markdown mis en page, et tout autre texte
+     (code, journal, JSON) brut — tant qu'il reste raisonnable, sinon il se
+     télécharge. Il n'est pas déjà en mémoire, contrairement à un fichier du
+     projet : on va le chercher, une seule fois, à l'ouverture, PAR LA MÊME
+     ADRESSE que le reste (`sourceDe`) — un fichier cité n'est pas une pièce. */
+  const texteBrut = !!courante && !markdown && estUnTexteLisible(courante);
+  const lisible = markdown || texteBrut;
+  const adresseDuTexte = courante && lisible ? sourceDe(courante) : null;
   React.useEffect(() => {
     setTexte(null);
-    if (!courante || !markdown) return;
+    if (!adresseDuTexte || erreur) return;
     let vivant = true;
-    fetch(`/api/attachment?id=${courante.id}`)
+    fetch(adresseDuTexte)
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
       .then((contenu) => vivant && setTexte(contenu))
       .catch(() => vivant && setTexte('_Lecture impossible._'));
     return () => {
       vivant = false;
     };
-  }, [courante?.id, markdown]);
+  }, [adresseDuTexte, erreur]);
 
   if (!item || !courante) return null;
   const source = sourceDe(courante);
+  const pieceJointe = source.startsWith('/api/attachment');
   const repere = feuilletable ? `${rang + 1}/${total}` : undefined;
   const quand = quandDe?.(courante) || courante.createdAt || 0;
   const vue = !!dejaVue?.(courante);
@@ -700,12 +720,14 @@ export function AttachmentPreview({
           droite={
             <>
               {markdown ? <BasculeApercu format={format} onChange={setFormat} /> : null}
-              <TelechargementDeLaVisionneuse
-                piece={courante}
-                images={images}
-                sourceDe={sourceDe}
-                nomDuLot={nomDuLot ?? t('Images')}
-              />
+              {erreur ? null : (
+                <TelechargementDeLaVisionneuse
+                  piece={courante}
+                  images={images}
+                  sourceDe={sourceDe}
+                  nomDuLot={nomDuLot ?? t('Images')}
+                />
+              )}
               <DialogClose asChild>
                 <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label="Fermer" title={t('Fermer')} data-fermer-visionneuse>
                   <X className="h-4 w-4" />
@@ -737,7 +759,11 @@ export function AttachmentPreview({
           </div>
         </DialogHeader>
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {estUneImage(courante) && !markdown ? (
+          {erreur ? (
+            <div className="mx-3 mb-3 flex flex-1 items-center justify-center rounded-md bg-raised p-6 text-center" data-visionneuse-erreur>
+              <p className="max-w-[420px] text-[13.5px] text-muted texte-copiable">{erreur}</p>
+            </div>
+          ) : estUneImage(courante) && !markdown ? (
             <SceneDImages
               ref={pilote}
               vues={[avant, courante, apres]}
@@ -754,12 +780,20 @@ export function AttachmentPreview({
               data-feuilletage={repere}
               className="h-full overflow-x-auto p-2"
             >
-              {markdown ? (
+              {lisible ? (
                 texte === null ? (
                   <p className="p-4 text-[13.5px] text-faint">{t('Lecture…')}</p>
                 ) : (
-                  <ContenuTexte contenu={texte} format={format} />
+                  <ContenuTexte contenu={texte} format={markdown ? format : 'markdown'} />
                 )
+              ) : !pieceJointe && genreDuFichier(courante.mime) === 'video' ? (
+                /* UN FICHIER CITÉ N'EST PAS UNE PIÈCE : les lecteurs du fil lisent
+                   par l'identifiant d'une pièce, celui-ci par son adresse. */
+                <video src={source} controls autoPlay className="mx-auto max-h-full max-w-full rounded" data-visionneuse-video-citee />
+              ) : !pieceJointe && courante.mime.startsWith('audio/') ? (
+                <div className="flex h-full min-h-[40dvh] items-center justify-center px-2 sm:px-6">
+                  <audio src={source} controls autoPlay className="w-full max-w-[720px]" />
+                </div>
               ) : genreDuFichier(courante.mime) === 'video' ? (
                 /* LE MÊME LECTEUR QUE DANS LE FIL — il n'y a pas deux jeux de
                    commandes à tenir d'accord. Déjà agrandi ici, il ne propose plus
@@ -815,8 +849,8 @@ export function AttachmentPreview({
 
 /**
  * La vignette d'une pièce jointe dans un message. UNE IMAGE s'affiche et
- * s'agrandit au clic ; TOUT AUTRE FICHIER se télécharge au clic, sous son vrai
- * nom. Le rendu est celui de `PastilleDeFichier` — la même pièce que l'espace
+ * s'agrandit au clic ; UN PDF s'ouvre dans la visionneuse ; TOUT AUTRE FICHIER
+ * se télécharge au clic, sous son vrai nom. Le rendu est celui de `PastilleDeFichier` — la même pièce que l'espace
  * client, pour ne pas tenir deux affichages d'accord à la main.
  *
  * Le nom MONTRÉ reste l'étiquette courte de la pièce (« #1a0c ») : c'est le
@@ -897,6 +931,7 @@ export function AttachmentThumb({
       mime={item.mime}
       poids={item.size}
       compact={compact}
+      onApercu={estUnPdf(item.mime) ? onOpen : undefined}
       className={className}
     />
   );

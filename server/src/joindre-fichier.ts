@@ -13,7 +13,8 @@ import crypto from 'node:crypto';
 import { Attachment, aliasDePieceJointe, mimeDuFichier, nomSansCollision, nomSurDisque, refusDeTaille } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
-import { cheminDePieceJointe, dossierDEcriture } from './pieces-jointes.js';
+import { cheminDePieceJointe, dossierDEcriture, dossiersDeDonneesOuverts } from './pieces-jointes.js';
+import { racinesDesCopiesDuProjet } from './copies-de-cartes.js';
 import { CONFIG } from './config.js';
 import { safeJoin } from './files.js';
 
@@ -21,8 +22,11 @@ import { safeJoin } from './files.js';
  * LES DOSSIERS OÙ UN AGENT PEUT PRENDRE UN FICHIER — UNE SEULE DÉFINITION,
  * partagée par `attach_file` et par l'import du Studio (`outil-studio.ts`) :
  * le dossier de travail de l'agent (où vit une capture prise par ses propres
- * scripts), le dépôt du projet, et le dossier de données partagé de Beluga
- * Build (pièces jointes, scripts de vérification « de tous les jours »).
+ * scripts), le dépôt du projet, le dossier de données partagé de Beluga
+ * Build (pièces jointes, scripts de vérification « de tous les jours »), le
+ * DISQUE DE STOCKAGE des pièces (`dossiersDeDonneesOuverts`, déjà ouvert en
+ * lecture à tout moteur : un PDF produit là était refusé « introuvable » alors
+ * qu'il existait) et les copies de travail des cartes du projet.
  *
  * Un chemin absolu doit ÊTRE une racine ou commencer par « racine + / » (un
  * préfixe trompeur comme « data2 » ne passe pas) ; un chemin relatif se
@@ -41,9 +45,29 @@ export function fichierPermis(demande: string, racines: Array<string | undefined
   return null;
 }
 
-/** Les trois racines de `fichierPermis` pour un agent et son projet. */
+/** Les racines de `fichierPermis` pour un agent et son projet. */
 export function racinesDeLAgent(agentId: string, projet: { path: string }): Array<string | undefined> {
-  return [store.getAgent(agentId)?.workdir, projet.path, CONFIG.dataDir];
+  return [
+    store.getAgent(agentId)?.workdir,
+    projet.path,
+    CONFIG.dataDir,
+    ...dossiersDeDonneesOuverts(),
+    ...racinesDesCopiesDuProjet(projet.path),
+  ];
+}
+
+/**
+ * LE REFUS DIT LA VRAIE RAISON : un fichier absent n'est pas un fichier hors
+ * des dossiers permis. L'agent qui lit « introuvable » sur un fichier qu'il
+ * vient d'écrire croit à une faute de frappe et tourne en rond.
+ */
+export function refusDeChemin(demande: string, racines: Array<string | undefined | null>): string {
+  const absolu = path.isAbsolute(demande);
+  if (absolu && fs.existsSync(demande)) {
+    const permises = (racines.filter(Boolean) as string[]).join(', ');
+    return `Fichier hors des dossiers permis : ${demande} (dossiers acceptés : ${permises})`;
+  }
+  return `Fichier introuvable : ${demande}`;
 }
 
 export type ResultatDeJointure =

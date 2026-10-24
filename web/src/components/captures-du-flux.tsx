@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Camera, ChevronDown, Eye, Play } from 'lucide-react';
+import { Camera, ChevronDown, Eye, FileText, Play } from 'lucide-react';
 import {
   captureDuChemin,
   capturesArriveesDepuis,
@@ -275,6 +275,34 @@ function VignetteQuiReessaie({ src, alt, onPerdue }: { src: string; alt: string;
   );
 }
 
+/**
+ * UN PDF DANS LA BANDE : l'image de sa première page (miniature rendue par le
+ * démon), marquée « PDF » au coin. Si la miniature manque (PDF illisible,
+ * outil absent), la vignette garde sa place avec l'icône du document : un PDF
+ * produit par l'agent ne disparaît jamais de la bande.
+ */
+function VignetteDePdf({ src, nom }: { src: string; nom: string }) {
+  const [ratee, setRatee] = React.useState(false);
+  return (
+    <>
+      {ratee ? (
+        <span className="pointer-events-none flex flex-col items-center gap-1 px-1 text-muted">
+          <FileText className="h-6 w-6" aria-hidden />
+          <span className="max-w-full truncate text-[10.5px] leading-4">{nom}</span>
+        </span>
+      ) : (
+        <VignetteQuiReessaie src={src} alt={nom} onPerdue={() => setRatee(true)} />
+      )}
+      <span
+        className="pointer-events-none absolute left-0.5 top-0.5 rounded-sm bg-surface/85 px-1 text-[10px] font-medium leading-4 text-text"
+        data-capture-pdf
+      >
+        PDF
+      </span>
+    </>
+  );
+}
+
 /** La bande seule ; l'aperçu se pose à part (`ApercuDesCaptures`), une fois pour toute la carte. */
 export function BandeDesCaptures({
   galerie: g,
@@ -462,7 +490,7 @@ export function BandeDesCaptures({
               key={c.cle}
               type="button"
               data-capture-du-flux={c.cle}
-              data-capture-media={c.genre === 'jointe' && c.media === 'video' ? 'video' : 'image'}
+              data-capture-media={c.genre === 'jointe' && (c.media === 'video' || c.media === 'pdf') ? c.media : 'image'}
               onClick={() => g.ouvrir(c)}
               title={infobulle}
               className={`${VIGNETTE} relative flex items-center justify-center overflow-hidden rounded bg-raised p-1`}
@@ -479,6 +507,8 @@ export function BandeDesCaptures({
                     </span>
                   </span>
                 </>
+              ) : c.genre === 'jointe' && c.media === 'pdf' ? (
+                <VignetteDePdf src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`} nom={c.libelle} />
               ) : (
                 <VignetteQuiReessaie
                   src={`${g.source(c)}&w=${LARGEUR_DE_VIGNETTE}`}

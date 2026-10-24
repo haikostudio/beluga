@@ -172,7 +172,7 @@ import { createProjectFolder } from './projects.js';
 import { bus } from './bus.js';
 import { completerDonneesDuJournal, dernierJalonDeDemande } from './journal-carte.js';
 import { CONFIG, PATHS } from './config.js';
-import { fichierPermis, joindreUnFichier, racinesDeLAgent } from './joindre-fichier.js';
+import { fichierPermis, joindreUnFichier, racinesDeLAgent, refusDeChemin } from './joindre-fichier.js';
 import { annoncerUnMedia, blocOuvertDeLAgent, terminerUnMedia } from './medias-en-fabrication.js';
 import { mintDownload } from './auth.js';
 import {
@@ -2919,9 +2919,10 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'attach_screenshot': {
       const demande = String(args.path ?? '').trim();
       if (!demande) return { ok: false, text: 'Aucun chemin donné.' };
-      /* TROIS RACINES ACCEPTÉES — définies une seule fois, partagées avec l'import du Studio. */
-      const full = fichierPermis(demande, racinesDeLAgent(ctx.agentId, project));
-      if (!full) return { ok: false, text: `Fichier introuvable : ${demande}` };
+      /* LES RACINES ACCEPTÉES — définies une seule fois, partagées avec l'import du Studio. */
+      const racines = racinesDeLAgent(ctx.agentId, project);
+      const full = fichierPermis(demande, racines);
+      if (!full) return { ok: false, text: refusDeChemin(demande, racines) };
       /*
        * PLUS AUCUN REFUS SUR L'EXTENSION, ET LE SEUL REFUS QUI RESTE EST LE
        * POIDS : la mécanique (type, plafond de 200 Mo, empreinte, dédoublonnage,

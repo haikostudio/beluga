@@ -26,6 +26,8 @@ export interface EtatPourLeLancementAutomatique {
 }
 
 /** Rend la raison d'attendre, ou `null` quand le lancement peut partir. */
+export const RAISON_PLAN_ATTENDU = 'le cahier des charges attend son plan';
+
 export function raisonDAttendreLeLancement(etat: EtatPourLeLancementAutomatique): string | null {
   if (!etat.actif) return 'interrupteur éteint';
   if (!etat.tourReussi) return 'le tour de cadrage ne s’est pas fini normalement';
@@ -33,7 +35,29 @@ export function raisonDAttendreLeLancement(etat: EtatPourLeLancementAutomatique)
   if (etat.questionEnAttente) return 'une question attend votre réponse';
   if (etat.planDemande) return 'le plan est encore en cours d’écriture';
   if (etat.planSouhaite && !etat.plansRendusA.some((at) => at >= etat.comprehensionAt!)) {
-    return 'le cahier des charges attend son plan';
+    return RAISON_PLAN_ATTENDU;
   }
   return null;
+}
+
+/**
+ * LE PLAN MANQUANT SE RÉCLAME, UNE FOIS. « Auto » allumé avec le cahier des
+ * charges : la compréhension est prête mais aucun plan n'a été rendu depuis.
+ * Plutôt que d'attendre en silence un plan que personne ne demande, le démon
+ * le réclame lui-même à l'agent de cadrage (même chemin que « Générer le
+ * plan ») ; la fin de ce tour rejoue le lancement automatique, qui part alors.
+ *
+ * UNE SEULE RÉCLAMATION PAR COMPRÉHENSION (`planReclamePour` = l'instant de la
+ * compréhension réclamée) : un agent qui ne rend toujours pas de plan n'est
+ * jamais relancé en boucle — le lancement est alors refusé, au journal.
+ */
+export type SuiteDuPlanAttendu = 'reclamer' | 'refuser' | null;
+
+export function suiteDuPlanAttendu(
+  raison: string | null,
+  comprehensionAt: number | undefined,
+  planReclamePour: number | undefined,
+): SuiteDuPlanAttendu {
+  if (raison !== RAISON_PLAN_ATTENDU || !comprehensionAt) return null;
+  return planReclamePour === comprehensionAt ? 'refuser' : 'reclamer';
 }

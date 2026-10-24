@@ -88,6 +88,8 @@ import {
   IMAGE_ACCES_OCTETS_MAX,
   PROJET_DU_COFFRE,
   ROUTE_ARCHIVE_DES_IMAGES,
+  ROUTE_FICHIER_CITE,
+  typeServiDUnFichierCite,
   adresseDuLot,
   imageDuCoffreAcceptee,
   type CorpsDArchive,
@@ -105,7 +107,7 @@ import {
   jugerLAppelSousListe,
   liveRun,
 } from './runtime.js';
-import { readFilePreview, imageDEtape, makeZip, safeJoin } from './files.js';
+import { readFilePreview, imageDEtape, fichierCite, makeZip, safeJoin } from './files.js';
 import { EXTRAIT, transcribe, digestText, speak, voiceAvailable, normaliserTexteVoix } from './voice.js';
 import { appareilsDuCompte, publicKey, retirerAppareilDuCompte, subscribe, unsubscribe } from './push.js';
 import { pontDemarre, pontAServiLesOutils, pontAAbouti } from './pont.js';
@@ -1858,6 +1860,64 @@ export function createHttpServer(): http.Server {
         if (!trouve) return json(res, 404, { error: 'capture introuvable' });
         res.writeHead(200, { 'content-type': trouve.mime, 'cache-control': 'private, max-age=3600' });
         return fs.createReadStream(trouve.file).pipe(res);
+      }
+
+      /*
+       * UN FICHIER CITÉ PAR L'AGENT, LU SUR PLACE (`shared/src/fichiers-cites.ts`).
+       * Lecture seule, sans créer de pièce jointe : le clic sur un chemin du fil
+       * ouvre la visionneuse sur ce fichier. Réservé à l'administrateur (aucune
+       * liste de routes des autres rôles ne la nomme). Les racines sont celles
+       * où l'agent écrit réellement : son dossier de travail, le projet et les
+       * copies de ses cartes, les données de Beluga Build et le disque des
+       * pièces jointes — le chemin RÉEL doit y tomber (`fichierCite`).
+       * `info=1` rend la fiche (type, poids) pour que l'écran choisisse son
+       * rendu, ou dise en clair pourquoi le fichier ne s'ouvre pas.
+       */
+      if (route === ROUTE_FICHIER_CITE) {
+        const project = store.getProject(url.searchParams.get('project') ?? '');
+        if (!project) return json(res, 404, { error: 'projet introuvable' });
+        const agent = store.getAgent(url.searchParams.get('agent') ?? '');
+        const workdir = agent && agent.projectId === project.id ? agent.workdir : undefined;
+        const racines = [workdir, project.path, CONFIG.dataDir, ...dossiersDeLecture(), ...racinesDesCopiesDuProjet(project.path)];
+        const trouve = fichierCite(url.searchParams.get('path') ?? '', racines, [workdir, project.path]);
+        if (!trouve) return json(res, 404, { error: 'fichier introuvable ou hors des dossiers du projet' });
+        if (url.searchParams.get('info')) {
+          return json(res, 200, { nom: path.basename(trouve.file), chemin: trouve.file, mime: trouve.mime, taille: trouve.taille });
+        }
+        const largeur = url.searchParams.get('download') ? null : largeurDemandee(url.searchParams.get('w'));
+        if (largeur && !req.headers.range) {
+          const mini = await miniatureDe(trouve.file, trouve.mime, largeur);
+          if (mini) {
+            res.writeHead(200, { 'content-type': mini.mime, 'cache-control': 'private, max-age=600', 'content-length': mini.taille });
+            if (req.method === 'HEAD') return res.end();
+            return pipeline(fs.createReadStream(mini.file), res).catch(() => {});
+          }
+        }
+        const servi = typeServiDUnFichierCite(trouve.mime);
+        const entetes: http.OutgoingHttpHeaders = {
+          'content-type': servi.type,
+          'accept-ranges': 'bytes',
+          'cache-control': 'private, no-cache',
+          'x-content-type-options': 'nosniff',
+          'content-disposition': url.searchParams.get('download')
+            ? `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(trouve.file))}`
+            : 'inline',
+          ...(servi.isole ? { 'content-security-policy': 'sandbox' } : {}),
+        };
+        const taille = trouve.taille;
+        const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
+        if (plage.genre === 'impossible') {
+          res.writeHead(416, { 'content-range': `bytes */${taille}` });
+          return res.end();
+        }
+        if (plage.genre === 'partiel') {
+          res.writeHead(206, { ...entetes, 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
+          if (req.method === 'HEAD') return res.end();
+          return pipeline(fs.createReadStream(trouve.file, { start: plage.debut, end: plage.fin }), res).catch(() => {});
+        }
+        res.writeHead(200, { ...entetes, 'content-length': taille });
+        if (req.method === 'HEAD') return res.end();
+        return pipeline(fs.createReadStream(trouve.file), res).catch(() => {});
       }
 
       if (route === '/api/file') {

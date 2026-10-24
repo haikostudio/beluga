@@ -20,7 +20,9 @@ import {
   Loader2,
   type LucideIcon,
 } from 'lucide-react';
+import { CheminCliquable } from '@/lib/chemin-cliquable';
 import {
+  cheminDeFichierCite,
   MOTIF_MARKDOWN_EN_LIGNE,
   REPERE_SERVICES_CREATION,
   sansBlocDeChiffrage,
@@ -142,6 +144,15 @@ function inline(text: string, key: string, sansLien = false): React.ReactNode {
     const id = `${key}-${index++}`;
     if (morceau.genre === 'lien') {
       if (sansLien) return morceau.texte;
+      /* UN LIEN VERS UN FICHIER s'ouvre dans la visionneuse ; un lien vers un
+         SITE reste en nouvel onglet (décision de l'utilisateur). */
+      if (cheminDeFichierCite(morceau.href)) {
+        return (
+          <CheminCliquable key={id} chemin={morceau.href}>
+            {morceau.texte}
+          </CheminCliquable>
+        );
+      }
       return (
         <a key={id} href={morceau.href} target="_blank" rel="noreferrer">
           {morceau.texte}
@@ -149,7 +160,17 @@ function inline(text: string, key: string, sansLien = false): React.ReactNode {
       );
     }
     if (morceau.genre === 'gras') return <strong key={id}>{morceau.texte}</strong>;
-    if (morceau.genre === 'code') return <code key={id}>{morceau.texte}</code>;
+    if (morceau.genre === 'code') {
+      /* UN CHEMIN EN `code` se clique, sauf dans un bouton (`sansLien`). */
+      if (!sansLien && cheminDeFichierCite(morceau.texte)) {
+        return (
+          <CheminCliquable key={id} chemin={morceau.texte}>
+            <code>{morceau.texte}</code>
+          </CheminCliquable>
+        );
+      }
+      return <code key={id}>{morceau.texte}</code>;
+    }
     return <em key={id}>{morceau.texte}</em>;
   });
 }

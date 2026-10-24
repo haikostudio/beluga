@@ -638,6 +638,8 @@ export const ClientCommand = z.discriminatedUnion('type', [
      * compte choisi : un compte Codex fait repartir le travail sous Codex.
      */
     model: z.string().optional(),
+    /** LA RÉFLEXION DE LA REPRISE, quand on en change (facultatif : anciens clients). */
+    thinking: z.string().optional(),
   }),
   /**
    * FERMER UN CHOIX DE REPRISE SANS REPARTIR — le bouton « Annuler » de la

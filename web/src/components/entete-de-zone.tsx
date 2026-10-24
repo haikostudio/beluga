@@ -535,6 +535,7 @@ export function EnteteDeZone({
   children,
   menu,
   deuxRangsSurPetitEcran = false,
+  rangDuHautMasque = false,
   className,
   ...attributs
 }: {
@@ -547,6 +548,12 @@ export function EnteteDeZone({
    * principal ou par l'icône du projet). Sur ordinateur, un seul rang.
    */
   deuxRangsSurPetitEcran?: boolean;
+  /**
+   * LE RANG DU HAUT SE REPLIE (on descend dans la page, demande du 24/10/2026) :
+   * il rend sa hauteur à la lecture, avec la barre des étapes. Le rang du titre
+   * (projet, branche, titre) reste.
+   */
+  rangDuHautMasque?: boolean;
   /** Les lieux qui mènent à la page, du plus large au plus proche. */
   chemin?: CranDuChemin[];
   titre: React.ReactNode;
@@ -787,17 +794,29 @@ export function EnteteDeZone({
         /* La marge de la barre d'état se compte une fois, sur le bloc entier. */
         style={{ paddingTop: MARGE_HAUTE_DE_LA_BARRE }}
       >
-        {/* L'EN-TÊTE MAÎTRE : les boutons globaux. Il reste TOUJOURS affiché :
-            seule la barre des étapes, dessous, se replie au défilement. */}
-        <div data-entete-maitre="visible">
-          <div className="flex h-12 items-center gap-1 px-3">
-            {/* LE MENU PRINCIPAL, TOUT EN HAUT : toujours à portée, sur chaque page. */}
-            {menuPrincipal ? <BoutonDuMenuPrincipal {...menuPrincipal} /> : null}
-            {/* LE BOUTON DES SERVICES, JUSTE À DROITE DU MENU : menu / services
-                à gauche, les options de la page à droite (demande du 15/10/2026). */}
-            {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
-            <span className="flex-1" />
-            {droite}
+        {/* L'EN-TÊTE MAÎTRE : les boutons globaux. Il se replie AVEC la barre
+            des étapes quand on descend dans la conversation, et revient dès
+            qu'on remonte (demande du 24/10/2026, qui remplace celle du 15/10
+            où il restait toujours affiché). */}
+        <div
+          data-entete-maitre={rangDuHautMasque ? 'masque' : 'visible'}
+          aria-hidden={rangDuHautMasque || undefined}
+          {...(rangDuHautMasque ? { inert: '' } : {})}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-200 ease-out',
+            rangDuHautMasque ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="flex h-12 items-center gap-1 px-3">
+              {/* LE MENU PRINCIPAL, TOUT EN HAUT : toujours à portée, sur chaque page. */}
+              {menuPrincipal ? <BoutonDuMenuPrincipal {...menuPrincipal} /> : null}
+              {/* LE BOUTON DES SERVICES, JUSTE À DROITE DU MENU : menu / services
+                  à gauche, les options de la page à droite (demande du 15/10/2026). */}
+              {avant ? <div className="flex shrink-0 items-center" data-avant-le-fil>{avant}</div> : null}
+              <span className="flex-1" />
+              {droite}
+            </div>
           </div>
         </div>
         {/* LE FIL D'ARIANE : « Tableaux de bord », le projet, la branche et le

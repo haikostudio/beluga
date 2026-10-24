@@ -923,6 +923,11 @@ export const ParcoursDeCarte = z.object({
   /** Un clic « Générer le plan » (ou un message d'affinage) est parti : le tour tourne. */
   planDemandeA: z.number().optional(),
   /**
+   * « AUTO » A DÉJÀ RÉCLAMÉ LE PLAN de cette compréhension (son instant) :
+   * une seule réclamation par compréhension (`suiteDuPlanAttendu`).
+   */
+  planReclamePour: z.number().optional(),
+  /**
    * LE CADRAGE A ÉTÉ ROUVERT PAR UN MESSAGE sur une carte en « Rapport »
    * (`shared/src/relance-apres-rapport.ts`). La carte reste dans sa colonne,
    * mais se lit en cadrage jusqu'au lancement, qui efface ce repère.

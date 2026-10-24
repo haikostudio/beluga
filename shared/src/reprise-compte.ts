@@ -567,3 +567,15 @@ export function demandeDePassation(p: Passation): string {
   ];
   return blocs.filter(Boolean).join('\n\n');
 }
+
+/**
+ * UNE REPRISE OUVERTE EST DÉPASSÉE quand un AUTRE tour de son agent part : le
+ * travail a repris sans clic (quota revenu, message, file rejouée). Le tour qui
+ * porte la reprise elle-même la consomme par son propre chemin.
+ */
+export function repriseDepasseeParLeTour(
+  attente: { agentId: string; messageId: string },
+  tour: { agentId: string; repriseDe?: string },
+): boolean {
+  return attente.agentId === tour.agentId && attente.messageId !== tour.repriseDe;
+}

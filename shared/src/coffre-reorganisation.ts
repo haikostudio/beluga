@@ -100,6 +100,8 @@ const ALIAS_DE_PROPRIETAIRE: ReadonlyArray<{ cle: string; projet: string }> = [
   { cle: 'beluga heberge', projet: 'Beluga Build' },
   { cle: 'facturation haiko', projet: 'HaikoBill' },
   { cle: 'projetc dashboard', projet: 'projetc' },
+  // « ETSigna v2 » est la version 2 : sans cet alias, la clé « projetd » (version 1) la prend.
+  { cle: 'projetd v2', projet: 'ETSigna - v2' },
 ];
 
 /** Un projet « d'ensemble » : ce qui y est rangé sans nommer de propriétaire est un accès commun. */
