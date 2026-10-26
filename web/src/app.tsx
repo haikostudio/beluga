@@ -38,7 +38,7 @@ import {
   SilhouetteBackups,
   SilhouetteSurveillance,
   SilhouetteMarketing,
-  SilhouetteStudio,
+  SilhouetteAtelier,
   SilhouetteStatistiques,
   SilhouetteMedias,
   SilhouetteTachesRecurrentes,
@@ -102,7 +102,6 @@ import {
   type DemandeDeConfig,
 } from '@/lib/ouvrir-config-projet';
 import { t, useLangueAppliquee } from '@/lib/langue';
-import { EVENEMENT_OUVRIR_COFFRE } from '@/lib/ouvrir-coffre';
 import { VisionneuseDeLien } from '@/components/visionneuse-de-lien';
 
 /*
@@ -123,7 +122,6 @@ const chargerEspaceHaiko = () => import('@/espace/espace-haiko');
 const chargerBackups = () => import('@/components/backups');
 const chargerSurveillance = () => import('@/components/surveillance');
 const chargerMarketing = () => import('@/components/marketing');
-const chargerStudio = () => import('@/components/studio/studio');
 const chargerStatistiques = () => import('@/components/statistiques');
 const chargerMedias = () => import('@/components/medias-page');
 const chargerTachesRecurrentes = () => import('@/components/taches-recurrentes');
@@ -171,7 +169,6 @@ const Surveillance = React.lazy(() =>
   chargerSurveillance().then((m) => ({ default: m.Surveillance })),
 );
 const Marketing = React.lazy(() => chargerMarketing().then((m) => ({ default: m.Marketing })));
-const Studio = React.lazy(() => chargerStudio().then((m) => ({ default: m.Studio })));
 const Statistiques = React.lazy(() => chargerStatistiques().then((m) => ({ default: m.Statistiques })));
 const MediasPage = React.lazy(() => chargerMedias().then((m) => ({ default: m.MediasPage })));
 const TachesRecurrentes = React.lazy(() => chargerTachesRecurrentes().then((m) => ({ default: m.TachesRecurrentes })));
@@ -225,7 +222,6 @@ const VUES_A_MENU: readonly VueCentrale[] = [
   'espace-client',
   'backups',
   'surveillance',
-  'studio',
   'medias',
   'taches-recurrentes',
 ];
@@ -239,7 +235,6 @@ const CLES_TITRE_DE_VUE: Record<Exclude<VueCentrale, 'projet' | 'en-route'>, str
   backups: 'Backup',
   surveillance: 'Surveillance',
   marketing: 'Marketing',
-  studio: 'Studio',
   notes: 'Notes',
   medias: 'Médias',
   'taches-recurrentes': 'Tâches récurrentes',
@@ -337,7 +332,7 @@ export function App() {
      réglages sont un menu de pages, un lien doit pouvoir en désigner une. */
   const [settingsPage, setSettingsPage] = React.useState<string | undefined>(undefined);
   /* UN ÉCRAN PEUT OUVRIR LES RÉGLAGES SUR UNE RUBRIQUE (`beluga:ouvrir-reglages`,
-     détail `{ page }`) — l'encadré du Studio mène ainsi à « Services de création ». */
+     détail `{ page }`) — l'encadré de branchement d'un service mène ainsi à « Services de création ». */
   React.useEffect(() => {
     const ouvrir = (event: Event) => {
       const page = (event as CustomEvent<{ page?: string }>).detail?.page;
@@ -369,19 +364,6 @@ export function App() {
    * RACCOURCIS de lecture : tout le code qui les appelait continue de marcher.
    */
   const [vueCentrale, setVueCentrale] = React.useState<VueCentrale>('projet');
-  /*
-   * LE STUDIO EST FERMÉ À QUI N'EST PAS SUPER ADMINISTRATEUR : une adresse
-   * « #studio », une vue gardée, le clic sur la carte d'un agent de volet ou un
-   * lien le ramenaient à un écran que le démon refuse. Dès que l'état complet
-   * est là — jamais avant : le droit n'est pas encore connu —, on retombe sur le
-   * tableau. Un seul endroit pour tous ces chemins.
-   */
-  React.useEffect(() => {
-    if (state.pret && !state.studioOuvert && vueCentrale === 'studio') {
-      setVueCentrale('projet');
-      setElementVise({});
-    }
-  }, [state.pret, state.studioOuvert, vueCentrale]);
   /*
    * LA FICHE DÉSIGNÉE PAR L'ADRESSE, dans l'espace client : le lien porté par
    * le point quotidien envoyé à Haiko. Il ouvre l'écran sur le bon client ET la
@@ -611,7 +593,7 @@ export function App() {
    * qui est l'endroit dont la carte fait partie.
    */
   /*
-   * LA CARTE D'UN AGENT DE VOLET MÈNE À SON SERVICE. Studio, Marketing,
+   * LA CARTE D'UN AGENT DE VOLET MÈNE À SON SERVICE. Marketing,
    * Surveillance, Sauvegardes : un clic sur leur carte — au tableau, sur « En
    * route », depuis la cloche, un fil ou un lien — ramène sur la conversation de
    * l'agent, dans le service, au lieu d'ouvrir un volet dont on ne sait plus à
@@ -768,7 +750,7 @@ export function App() {
   React.useEffect(() => {
     const projectId = state.activeProjectId;
     /* LA REPRISE N'A LIEU QUE SUR LE TABLEAU DU PROJET. Arrivé sur un service
-       (coffre, mémoire, Studio…), la carte retenue attend le retour au tableau :
+       (coffre, mémoire, marketing…), la carte retenue attend le retour au tableau :
        elle ne se rouvre jamais par-dessus un écran qui n'a rien à voir. */
     if (vueCentrale !== 'projet') return;
     if (!projectId || openCardId || carteReprise.current.has(projectId)) return;
@@ -905,19 +887,7 @@ export function App() {
   const titreCarteOuverte = openCardId ? state.cards[openCardId]?.title ?? null : null;
 
   /*
-   * LE STUDIO N'OUVRE AUCUN VOLET DE CARTE TOUT SEUL. La carte retenue pour le
-   * projet (reprise ci-dessus), celle d'une adresse restaurée ou celle restée
-   * ouverte avant d'entrer se posaient en tiroir PAR-DESSUS le Studio : on
-   * revenait à l'atelier et un volet d'agent l'avait recouvert. Au Studio, le
-   * tiroir n'est donc jamais AFFICHÉ — mais `openCardId` reste tel quel : le
-   * souvenir du tableau n'est pas effacé, et la carte se retrouve au retour.
-   * Un geste explicite (clic sur une carte, cloche, alerte) passe par
-   * `client.onOpenCard` / `ouvrirAgent`, qui ramènent en vue « projet » : il
-   * ouvre la carte comme avant.
-   */
-  /*
-   * PLUS AUCUN VOLET DE CARTE HORS DU TABLEAU DU PROJET. Ce qui valait pour le
-   * Studio vaut pour tous les services (coffre, mémoire, sauvegardes,
+   * PLUS AUCUN VOLET DE CARTE HORS DU TABLEAU DU PROJET, sur aucun service (coffre, mémoire, sauvegardes,
    * surveillance, marketing, statistiques, notes, espace client) : la carte
    * n'est AFFICHÉE que sur le tableau du projet — et sur « Tableaux de bord » /
    * « En route » seulement si elle y a été ouverte d'un clic. `openCardId`
@@ -1409,13 +1379,6 @@ export function App() {
             onRetour: niveauDeColonne?.onRetour ?? (() => ouvrirVue('projet')),
           }
         : null;
-  /* LE STUDIO MÈNE AU COFFRE-FORT quand la clé OpenRouter de la voix finale y manque. */
-  React.useEffect(() => {
-    const versLeCoffre = () => ouvrirVue('coffre');
-    window.addEventListener(EVENEMENT_OUVRIR_COFFRE, versLeCoffre);
-    return () => window.removeEventListener(EVENEMENT_OUVRIR_COFFRE, versLeCoffre);
-  }, [ouvrirVue]);
-
   /*
    * UNE CARTE OUVERTE DEPUIS LA PAGE « EN ROUTE » : le même tiroir que le
    * tableau, sans quitter la page ni changer de projet. Le tiroir lit la
@@ -1726,18 +1689,6 @@ export function App() {
                     vise={elementVise.marketing ?? null}
                     onVise={(projectId) => setElementVise((v) => ({ ...v, marketing: projectId }))}
                     onOuvrirCarte={ouvrirCarteDepuisUnService}
-                  />
-                </PanneauALaDemande>
-              </Filet>
-            ) : vueCentrale === 'studio' && state.studioOuvert ? (
-              <Filet zone="Studio">
-                <PanneauALaDemande monte attente={<AttenteEcran><SilhouetteStudio /></AttenteEcran>}>
-                  <Studio
-                    open
-                    enPage
-                    onClose={() => ouvrirVue('projet')}
-                    vise={elementVise.studio ?? null}
-                    onVise={(creationId) => setElementVise((v) => ({ ...v, studio: creationId }))}
                   />
                 </PanneauALaDemande>
               </Filet>

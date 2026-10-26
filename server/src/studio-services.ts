@@ -20,12 +20,10 @@ import {
   SERVICES_CREATION,
   adresseDeSuivi,
   cleAssemblee,
-  cleDuModeleVideo,
   entetesDuService,
   lireCreationDeClip,
   lireResultatFal,
   lireSuiviDeClip,
-  modeleVideoDeService,
   nomDeFicheDuService,
   plafondFal,
   requeteDeCreation,
@@ -89,16 +87,6 @@ export function cleDuService(id: IdServiceGeneration): string | undefined {
  */
 export function servicesDeGenerationBranches(): IdServiceGeneration[] {
   return SERVICES_DE_GENERATION.filter((s) => !estServiceCache(s.id) && !!cleDuService(s.id)).map((s) => s.id);
-}
-
-/** Les services dont une clé est branchée (jamais un service caché). */
-export function servicesBranches(): IdServiceCreation[] {
-  return SERVICES_CREATION.filter((s) => !estServiceCache(s.id) && !!cleDuService(s.id)).map((s) => s.id);
-}
-
-/** Les services VIDÉO branchés (OpenRouter sert la voix et la musique, pas les extraits). */
-export function servicesVideoBranches(): IdServiceCreation[] {
-  return servicesBranches().filter((id) => (serviceDeCreation(id)?.modeles.length ?? 0) > 0);
 }
 
 function dernierTest(id: IdServiceGeneration): TestDeService | null {
@@ -206,38 +194,6 @@ export function retirerService(id: string): { ok: boolean; raison?: string } {
   const r = supprimerAcces(fiche.id);
   if (r.ok) setMeta(cleDuTest(service.id), '');
   return r;
-}
-
-/* ------------------------------------------------------------------ */
-/* Le modèle vidéo retenu pour une création                             */
-/* ------------------------------------------------------------------ */
-
-export interface ModeleVideoRetenu {
-  service: IdServiceCreation;
-  modele: string;
-}
-
-export function modeleVideoRetenu(creationId: string): ModeleVideoRetenu | null {
-  try {
-    const brut = getMeta(cleDuModeleVideo(creationId));
-    if (!brut) return null;
-    const m = JSON.parse(brut) as ModeleVideoRetenu;
-    /* Un ancien choix chez un service caché se lit sans planter : il est oublié, le choix automatique reprend. */
-    return modeleVideoDeService(m.service, m.modele) && !estServiceCache(m.service) ? m : null;
-  } catch {
-    return null;
-  }
-}
-
-export function retenirModeleVideo(creationId: string, service: string, modele: string): { ok: true; retenu: ModeleVideoRetenu; nom: string } | { ok: false; raison: string } {
-  const s = serviceDeCreation(service);
-  const m = modeleVideoDeService(service, modele);
-  if (!s || !m) return { ok: false, raison: 'ce modèle n’est pas au catalogue des services de création' };
-  if (estServiceCache(s.id)) return { ok: false, raison: `${s.nom} n’est plus proposé : choisissez un modèle de kie.ai` };
-  if (!cleDuService(s.id)) return { ok: false, raison: `${s.nom} n’est pas branché : ajoutez sa clé dans les paramètres, rubrique « Services de création »` };
-  const retenu = { service: s.id, modele: m.id };
-  setMeta(cleDuModeleVideo(creationId), JSON.stringify(retenu));
-  return { ok: true, retenu, nom: `${m.nom} (${s.nom})` };
 }
 
 /* ------------------------------------------------------------------ */

@@ -19,8 +19,12 @@
 /** Une copie plus vieille ne rassure plus : mieux vaut la pause d'attente. */
 export const VALIDITE_DU_DERNIER_ETAT_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Au-delà, la copie ne s'écrit pas : un stockage plein ne doit rien casser. */
-export const POIDS_MAX_DU_DERNIER_ETAT = 1_500_000;
+/**
+ * Au-delà, la copie ne s'écrit pas : un stockage plein ne doit rien casser, et
+ * une copie relue d'un bloc au démarrage pèse sur un téléphone (26/10/2026 :
+ * 1,5 million de signes → 800 000 ; un tableau ordinaire en fait ~400 000).
+ */
+export const POIDS_MAX_DU_DERNIER_ETAT = 800_000;
 
 export const CLE_DU_DERNIER_ETAT = 'beluga.dernier-etat';
 

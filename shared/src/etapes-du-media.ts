@@ -1,40 +1,48 @@
 /**
- * UNE CRÉATION DE MÉDIA PARLE SON PROPRE LANGAGE (carte caméra, décisions de
- * l'utilisateur du 25/10/2026) — règles PURES, sans base ni disque.
+ * UNE CRÉATION DE MÉDIA PARLE SON PROPRE LANGAGE (carte caméra) — règles
+ * PURES, sans base ni disque.
  *
- *  - SIX ÉTAPES, LES MÊMES PARTOUT : Type → Idée → Images clés et prix →
- *    Fabrication → Film monté → Livré (`ETAPES_DE_SUIVI_DE_LA_REALISATION`).
- *    La barre d'étapes de la carte les montre du premier message à la fin —
- *    jamais « Demande, Compréhension, Travail, À déployer » —, et le volet
- *    « Suivi de la production » range ses pièces sous les MÊMES six étapes
- *    (`voletDuMedia`). Les deux lisent `etapesDuMedia` : ils allument la même
- *    étape au même moment.
- *  - L'ÉTAT VIT DANS LA BASE (MEM-0370) : la carte (types choisis, accord de
- *    fabrication, colonne, montage, film soumis puis validé) et les pièces de
- *    la production (une pièce « à valider » = un arrêt qui attend l'accord).
- *  - UN BOUTON QUI SUIT L'ÉTAPE (`boutonDuMedia`) : « Valider l'idée »,
- *    « Valider et lancer la fabrication · prix », « Suspendre », « Valider le
- *    film », puis « Terminer », qui range la carte dans « Archivé ». Un clic
- *    RÉPOND à la question d'accord du directeur — jamais un second chemin de
- *    lancement : c'est l'accord de l'arrêt 2 qui lance la fabrication.
- *  - JAMAIS DE DÉPLOIEMENT : un média ne livre aucun code (`carteDeMedia`
- *    l'écarte du lot, de l'en-tête et de « Déployer »).
+ * QUATRE ÉTAPES FIXES, LES MÊMES POUR TOUS LES MÉDIAS (décision de
+ * l'utilisateur du 26/10/2026, elles remplacent « Type → Idée → Images clés et
+ * prix → Fabrication → Film monté → Livré ») :
+ *
+ *  - BRIEF : une discussion avec le directeur artistique, dont les questions
+ *    sont PROPRES au média choisi (photo, vidéo, musique, voix, son). Le brief
+ *    d'une vidéo se termine par le découpage en plans (durée, capacité) et le
+ *    texte de la voix off. Rien ne se dépense. Bouton « Passer aux esquisses ».
+ *  - ESQUISSES : chaque génération propose 2 à 4 brouillons, chacune avec son
+ *    PRIX SUR LE BOUTON (un clic vaut accord, jamais d'accord global) ; on
+ *    VALIDE d'un clic, directement sur le média, autant d'éléments qu'on veut.
+ *    Une vidéo y a DEUX TEMPS (`phaseDesEsquisses`) : l'image de chaque plan,
+ *    puis « Passer aux séquences vidéo » — chaque plan s'anime par son propre
+ *    bouton à prix, et la voix off et la musique prévues au brief s'y
+ *    fabriquent. « Passer au montage » ne s'allume que quand tout ce qui est
+ *    prévu est validé, et DIT ce qui manque sinon (`passageDuMedia`).
+ *  - MONTAGE : chaque média a SON studio, gratuit — photo (cadrage, couleurs),
+ *    vidéo (l'éditeur de montage de la carte, nourri des éléments validés),
+ *    son (pistes, coupes, fondus). « Revenir aux esquisses » reste possible.
+ *  - TÉLÉCHARGEMENT : les médias finaux, puis les validés, puis toutes les
+ *    esquisses, et une archive à trois dossiers ; « Terminer » range la carte.
+ *
+ * La barre d'étapes et le volet « Suivi de la production » lisent TOUS DEUX
+ * `etapesDuMedia` : ils allument la même étape au même moment. L'état vit
+ * dans la base (MEM-0370) : les dates de passage sur la carte
+ * (`realisation.esquissesA`, `sequencesA`, `montageA`, `telechargementA`) et
+ * les médias validés (`retenuLe`). Une carte commencée sur l'ancien parcours se
+ * relit par alias (`etapeDuMediaLue`) : l'accord de fabrication d'hier vaut
+ * passage aux esquisses, le film soumis vaut montage, le film validé vaut
+ * téléchargement — sans rien relancer ni dépenser.
+ *
+ * JAMAIS DE DÉPLOIEMENT : un média ne livre aucun code (`carteDeMedia` l'écarte
+ * du lot, de l'en-tête et de « Déployer »).
  */
 
 import type { EtatDuPoint, SegmentDeSuivi } from './parcours-en-points.js';
 import { ETAPES_DE_SUIVI_DE_LA_REALISATION } from './frise-de-suivi.js';
-import { typesDeMediaDeLaRealisation, type EtatDeRealisation } from './mode-realisation.js';
-import type { ElementDeProduction, EtapeDuSuivi, EtapeDuVoletDeSuivi, EtatDEtapeDuSuivi, LotDeDevis } from './production.js';
-import {
-  REPONSE_AUTRES_DIRECTIONS,
-  REPONSE_LANCER_LA_FABRICATION,
-  REPONSE_VALIDER_LE_FILM,
-  REPONSE_VALIDER_L_ETAPE,
-  GENRE_DE_L_ETAPE_D_ECRITURE,
-  arretAccorde,
-  arretLu,
-  etapesDeLArret,
-} from './responsable-creatif.js';
+import { COLONNES_AVANT_LE_TRAVAIL } from './columns.js';
+import { typesDeMediaDeLaRealisation, type EtatDeRealisation, type TypeDeMediaDeRealisation } from './mode-realisation.js';
+import { cleDElement, elementsCourants, estRetenu, type ElementDeProduction, type EtapeDuSuivi, type EtapeDuVoletDeSuivi, type EtatDEtapeDuSuivi, type LotDeDevis, type MediaDuSuivi } from './production.js';
+import { CAPACITE_DU_MONTAGE, capaciteDuPlan, champsDuBrief, piecesAFournirManquantes } from './responsable-creatif.js';
 
 export type EtapeDuMedia = (typeof ETAPES_DE_SUIVI_DE_LA_REALISATION)[number];
 
@@ -43,7 +51,9 @@ export interface CarteDuMedia {
   column?: string;
   cahierDesCharges?: unknown;
   parcours?: { realisationSouhaitee?: boolean; fabricationAccordeeA?: number } | null;
-  realisation?: Partial<Pick<EtatDeRealisation, 'medias' | 'genre' | 'montageA' | 'filmSoumisA' | 'filmValideA'>> | null;
+  realisation?: Partial<
+    Pick<EtatDeRealisation, 'medias' | 'genre' | 'montageA' | 'filmSoumisA' | 'filmValideA' | 'esquissesA' | 'sequencesA' | 'telechargementA' | 'finaux'>
+  > | null;
 }
 
 /**
@@ -60,93 +70,473 @@ export function horsDuLotDeDeploiement(carte: Pick<CarteDuMedia, 'parcours' | 'c
   return !!carte.excludedFromDeploy || carteDeMedia(carte);
 }
 
+/* ------------------------------------------------------------------ */
+/* 1. Les dates de passage, ancien parcours compris                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * UN NOM D'ÉTAPE LU AVEC TOLÉRANCE, anciens noms compris (cartes et questions
+ * d'avant le 26/10/2026) : type et brief → brief ; idée, direction, images
+ * clés, scénario, plans, fabrication, composition, inspiration → esquisses ;
+ * film, rendu, finalisation → montage ; livré → téléchargement.
+ */
+export function etapeDuMediaLue(brut: unknown): EtapeDuMedia | null {
+  const s = String(brut ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if ((ETAPES_DE_SUIVI_DE_LA_REALISATION as readonly string[]).includes(s)) return s as EtapeDuMedia;
+  const alias: Record<string, EtapeDuMedia> = {
+    type: 'brief',
+    esquisse: 'esquisses',
+    idee: 'esquisses',
+    direction: 'esquisses',
+    inspiration: 'esquisses',
+    'images-cles': 'esquisses',
+    scenario: 'esquisses',
+    storyboard: 'esquisses',
+    plans: 'esquisses',
+    fabrication: 'esquisses',
+    composition: 'esquisses',
+    sequences: 'esquisses',
+    film: 'montage',
+    rendu: 'montage',
+    finalisation: 'montage',
+    livre: 'telechargement',
+    livraison: 'telechargement',
+    export: 'telechargement',
+  };
+  return alias[s] ?? null;
+}
+
+/** Les passages d'une carte, ancien parcours relu : l'accord de fabrication valait le départ des esquisses. */
+export function passagesDuMedia(carte: CarteDuMedia): { esquisses: boolean; sequences: boolean; montage: boolean; telechargement: boolean; range: boolean } {
+  const r = carte.realisation ?? {};
+  const colonne = String(carte.column ?? '');
+  const range = colonne === 'archived';
+  /* Une carte d'avant, LANCÉE (tâche de fabrication), avait passé l'arrêt des images clés. */
+  const lancee = !!colonne && !(COLONNES_AVANT_LE_TRAVAIL as readonly string[]).includes(colonne);
+  const telechargement = !!r.telechargementA || !!r.filmValideA || range;
+  const montage = !!r.montageA || !!r.filmSoumisA || telechargement;
+  const esquisses = !!r.esquissesA || !!carte.parcours?.fabricationAccordeeA || lancee || montage;
+  return { esquisses, sequences: !!r.sequencesA, montage, telechargement, range };
+}
+
 export interface ContexteDuMedia {
   carte: CarteDuMedia;
-  /** Les pièces de la production (toutes versions) : c'est là qu'un arrêt attend l'accord. */
+  /** Les pièces de la production (toutes versions). */
   elements?: readonly Pick<ElementDeProduction, 'cle' | 'version' | 'genre' | 'etat'>[];
-  /** Les lots de fabrication : un lot proposé attend la validation de l'utilisateur. */
+  /** Les lots de fabrication : un lot proposé attend le clic de l'utilisateur. */
   lots?: readonly Pick<LotDeDevis, 'etat'>[];
 }
 
-const COLONNES_APRES_LE_TRAVAIL = ['to_deploy', 'archived'];
-
-/** Une étape d'un arrêt attend-elle l'accord ? Une de ses pièces courantes est « à valider ». */
-function arretEnAttente(arret: 'idee' | 'images-cles', elements: ContexteDuMedia['elements'], types: ReturnType<typeof typesDeMediaDeLaRealisation>): boolean {
-  const etapes = etapesDeLArret(arret, types);
-  const voulus = new Set<string>(etapes.map((e) => GENRE_DE_L_ETAPE_D_ECRITURE[e]));
-  const derniere = new Map<string, { version: number; etat: string; genre: string }>();
-  for (const e of elements ?? []) {
-    const avant = derniere.get(e.cle);
-    if (!avant || e.version > avant.version) derniere.set(e.cle, e);
-  }
-  return [...derniere.values()].some((e) => voulus.has(e.genre) && e.etat === 'a-valider');
-}
-
 /**
- * LES SIX ÉTAPES ET LEUR ÉTAT, lus dans la base :
- *  - TYPE : fait dès qu'un type est choisi ;
- *  - IDÉE : faite quand brief et direction sont accordés (ou la fabrication
- *    accordée / lancée) ; « à voir » quand l'accord est demandé ; en cours sinon ;
- *  - IMAGES CLÉS ET PRIX : faite à l'accord de fabrication ; « à voir » quand le
- *    prix est soumis ; en cours dès que l'idée est accordée ;
- *  - FABRICATION : en cours une fois accordée (la tâche tourne) ; « à voir »
- *    quand un lot attend votre accord ; faite dès que le montage commence ;
- *  - FILM MONTÉ : en cours au montage ; « à voir » quand le film est soumis ;
- *    fait une fois validé (ou le travail rendu) ;
- *  - LIVRÉ : en cours pendant l'export qui suit l'accord ; « à voir » quand le
- *    travail est rendu et attend « Terminer » ; fait une fois la carte rangée.
+ * LES QUATRE ÉTAPES ET LEUR ÉTAT, lus dans la base :
+ *  - BRIEF : en cours jusqu'au passage aux esquisses, fait ensuite ;
+ *  - ESQUISSES : en cours une fois passée (« à voir » quand une génération
+ *    attend son clic à prix), faite au passage au montage ;
+ *  - MONTAGE : attend l'utilisateur dans son studio, faite au passage au
+ *    téléchargement ;
+ *  - TÉLÉCHARGEMENT : attend « Terminer », faite une fois la carte rangée.
  */
 export function etapesDuMedia(ctx: ContexteDuMedia): (SegmentDeSuivi & { etape: EtapeDuMedia })[] {
-  const { carte } = ctx;
-  const r = carte.realisation ?? {};
-  const types = typesDeMediaDeLaRealisation(r);
-  const elements = (ctx.elements ?? []) as readonly ElementDeProduction[];
-  const colonne = String(carte.column ?? '');
-  const range = colonne === 'archived';
-  const rendu = COLONNES_APRES_LE_TRAVAIL.includes(colonne);
-  const lancee = colonne === 'running' || rendu;
-  const accordee = !!carte.parcours?.fabricationAccordeeA || lancee;
-  const filmValide = !!r.filmValideA || rendu;
-  const filmSoumis = !!r.filmSoumisA;
-  const montage = !!r.montageA || filmSoumis || filmValide;
-
-  const ideeFaite = accordee || arretAccorde('idee', elements, types);
+  const p = passagesDuMedia(ctx.carte);
+  const lotEnAttente = (ctx.lots ?? []).some((l) => l.etat === 'propose');
   const etats: Record<EtapeDuMedia, EtatDuPoint> = {
-    type: types.length || lancee ? 'fait' : 'question',
-    idee: ideeFaite ? 'fait' : !types.length ? 'avenir' : arretEnAttente('idee', ctx.elements, types) ? 'question' : 'encours',
-    'images-cles': accordee ? 'fait' : !ideeFaite ? 'avenir' : arretEnAttente('images-cles', ctx.elements, types) ? 'question' : 'encours',
-    fabrication: montage ? 'fait' : !accordee ? 'avenir' : (ctx.lots ?? []).some((l) => l.etat === 'propose') ? 'question' : 'encours',
-    film: filmValide ? 'fait' : filmSoumis ? 'question' : montage ? 'encours' : 'avenir',
-    livre: range ? 'fait' : rendu ? 'question' : filmValide ? 'encours' : 'avenir',
+    brief: p.esquisses ? 'fait' : 'encours',
+    esquisses: p.montage ? 'fait' : p.esquisses ? (lotEnAttente ? 'question' : 'encours') : 'avenir',
+    montage: p.telechargement ? 'fait' : p.montage ? 'question' : 'avenir',
+    telechargement: p.range ? 'fait' : p.telechargement ? 'question' : 'avenir',
   };
   return ETAPES_DE_SUIVI_DE_LA_REALISATION.map((etape) => ({ etape, etat: etats[etape] }));
 }
 
-/** L'étape où se trouve la création : la première qui n'est pas faite ; « Livré » une fois tout fait. */
+/** L'étape où se trouve la création : la première qui n'est pas faite ; « Téléchargement » une fois tout fait. */
 export function etapeCouranteDuMedia(segments: readonly { etape: EtapeDuMedia; etat: EtatDuPoint }[]): EtapeDuMedia {
-  return segments.find((s) => s.etat !== 'fait')?.etape ?? 'livre';
+  return segments.find((s) => s.etat !== 'fait')?.etape ?? 'telechargement';
 }
 
 /* ------------------------------------------------------------------ */
-/* Le volet « Suivi de la production » sur les mêmes six étapes          */
+/* 2. Le découpage d'une vidéo et ce qui est validé pour chaque plan    */
+/* ------------------------------------------------------------------ */
+
+/** Un plan du découpage, tel que les esquisses le suivent. */
+export interface PlanDuDecoupage {
+  cle: string;
+  titre: string;
+  /** La durée écrite au plan (« Durée : 5 s »), en secondes. */
+  duree: number | null;
+  capacite: string | null;
+  /** Un plan VISUEL attend une image puis une séquence ; un plan monté (titre, capture réelle) ou sonore, non. */
+  visuel: boolean;
+}
+
+/** Les capacités qui ne demandent ni image ni séquence : faites au montage, ou purement sonores. */
+const CAPACITES_SANS_IMAGE = new Set([CAPACITE_DU_MONTAGE, 'voix', 'musique', 'son', 'synchro']);
+
+/** La durée écrite dans un plan : « Durée : 5 s », « durée : 4,5 secondes ». */
+export function dureeDuPlan(contenu: string): number | null {
+  const m = /dur[ée]e\s*:\s*(\d+(?:[.,]\d+)?)\s*(?:s\b|sec|seconde)/i.exec(contenu ?? '');
+  if (!m) return null;
+  const n = Number(m[1]!.replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Le rang d'un plan dans le découpage : son numéro (« plan-2 » avant « plan-10 »), sinon sa naissance. */
+function rangDuPlan(cle: string): number {
+  const m = /(\d+)(?!.*\d)/.exec(cle);
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * LE DÉCOUPAGE D'UNE VIDÉO : les plans écrits (version courante, ni remplacés
+ * ni écartés), dans l'ordre de leur numéro.
+ */
+export function decoupageDuMedia(elements: readonly ElementDeProduction[]): PlanDuDecoupage[] {
+  return elementsCourants(elements)
+    .filter((e) => e.genre === 'plan' && e.etat !== 'remplace' && e.etat !== 'refuse')
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => rangDuPlan(a.e.cle) - rangDuPlan(b.e.cle) || a.i - b.i)
+    .map(({ e }) => {
+      const capacite = capaciteDuPlan(e.contenu);
+      return { cle: e.cle, titre: e.titre, duree: dureeDuPlan(e.contenu), capacite, visuel: !capacite || !CAPACITES_SANS_IMAGE.has(capacite) };
+    });
+}
+
+const normal = (t: string): string =>
+  String(t ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * LE PLAN D'UN MÉDIA : le champ « plan » de son devis nomme le plan par sa
+ * clé (« plan-2 »), par son titre, ou par « Plan 2 » ; une suite après la clé
+ * est tolérée (« plan-2 — variante »), jamais un autre numéro (« plan-20 »).
+ */
+export function planDuMedia(nom: string, plans: readonly Pick<PlanDuDecoupage, 'cle' | 'titre'>[]): string | null {
+  const brut = normal(nom);
+  if (!brut) return null;
+  const commeCle = cleDElement(nom, 'plan');
+  for (const p of plans) {
+    if (commeCle === p.cle) return p.cle;
+    if (commeCle.startsWith(`${p.cle}-`) && !/^\d/.test(commeCle.slice(p.cle.length + 1))) return p.cle;
+  }
+  for (const p of plans) {
+    const titre = normal(p.titre);
+    if (titre && (brut === titre || (brut.startsWith(titre) && /^[\s—–:,.(-]/.test(brut.slice(titre.length))))) return p.cle;
+  }
+  return null;
+}
+
+type MediaDuPassage = Pick<MediaDuSuivi, 'id' | 'plan' | 'genre' | 'capacite' | 'etat' | 'retenuLe' | 'creeLe' | 'sourceId'>;
+
+/** Ce que chaque plan d'une vidéo a de validé : son image, sa séquence, et si la séquence est à refaire. */
+export interface EtatDuPlan extends PlanDuDecoupage {
+  /** Les images validées du plan, la plus récente d'abord. */
+  images: MediaDuPassage[];
+  /** La séquence validée du plan (la plus récente). */
+  sequence: MediaDuPassage | null;
+  /** La séquence a été animée d'une image qui n'est plus validée pour ce plan. */
+  aRefaire: boolean;
+}
+
+export function etatDesPlans(plans: readonly PlanDuDecoupage[], medias: readonly MediaDuPassage[]): EtatDuPlan[] {
+  const valides = medias.filter((m) => estRetenu(m)).sort((a, b) => b.creeLe - a.creeLe);
+  return plans.map((p) => {
+    const duPlan = valides.filter((m) => planDuMedia(m.plan, plans) === p.cle);
+    const images = duPlan.filter((m) => m.genre === 'image');
+    const sequence = duPlan.find((m) => m.genre === 'video') ?? null;
+    const aRefaire = !!sequence?.sourceId && !images.some((i) => i.id === sequence.sourceId);
+    return { ...p, images, sequence, aRefaire };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. Les deux temps des esquisses d'une vidéo                         */
+/* ------------------------------------------------------------------ */
+
+export type PhaseDesEsquisses = 'images' | 'sequences' | 'medias';
+
+/** Une vidéo : l'image de chaque plan, puis les séquences (passage par le bouton). Les autres médias : un seul temps. */
+export function phaseDesEsquisses(types: readonly TypeDeMediaDeRealisation[], realisation: Pick<CarteDuMedia, 'realisation'>['realisation']): PhaseDesEsquisses {
+  if (!types.includes('video')) return 'medias';
+  return realisation?.sequencesA ? 'sequences' : 'images';
+}
+
+/**
+ * UNE ANIMATION PEUT-ELLE PARTIR ? Jamais pendant le premier temps d'une vidéo
+ * (toutes les images d'abord, décision du 26/10/2026) ; ni avant les
+ * esquisses. Le serveur le juge pour l'agent comme pour les boutons.
+ */
+export function animationPermise(e: { types: readonly TypeDeMediaDeRealisation[]; carte: CarteDuMedia }): { ok: true } | { ok: false; raison: string } {
+  const p = passagesDuMedia(e.carte);
+  if (!p.esquisses) return { ok: false, raison: 'la carte est encore au brief : rien ne se fabrique avant « Passer aux esquisses ».' };
+  if (e.types.includes('video') && !p.sequences) {
+    return { ok: false, raison: 'les esquisses de cette vidéo en sont aux IMAGES des plans : aucune animation tant que l’utilisateur n’a pas cliqué « Passer aux séquences vidéo » (toutes les images d’abord).' };
+  }
+  return { ok: true };
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Le brief : ce qu'une vidéo prévoit d'entendre                     */
+/* ------------------------------------------------------------------ */
+
+/** Une valeur de brief qui prévoit vraiment quelque chose (« non », « aucune », « sans » ne prévoient rien). */
+export function prevuAuBrief(valeur: string | null | undefined): boolean {
+  const v = String(valeur ?? '').trim();
+  return !!v && !/^(non|aucune?s?|sans|pas de|pas d['’]|rien|néant|sans objet)\b/i.test(v);
+}
+
+/** La voix off et la musique d'une vidéo, lues au brief. */
+export function sonDuBrief(brief: string | null | undefined): { voix: boolean; musique: boolean } {
+  const champs = champsDuBrief(brief);
+  const valeur = (c: string) => champs.find((x) => x.champ === c)?.valeur;
+  return { voix: prevuAuBrief(valeur('voix')), musique: prevuAuBrief(valeur('musique')) };
+}
+
+/* ------------------------------------------------------------------ */
+/* 5. Le bouton du bas : chaque passage, ou ce qui manque               */
+/* ------------------------------------------------------------------ */
+
+export type GesteDuMedia = 'passer-esquisses' | 'passer-sequences' | 'passer-montage' | 'passer-telechargement' | 'terminer' | 'revenir-esquisses';
+
+export const LIBELLES_GESTES_DU_MEDIA: Record<GesteDuMedia, string> = {
+  'passer-esquisses': 'Passer aux esquisses',
+  'passer-sequences': 'Passer aux séquences vidéo',
+  'passer-montage': 'Passer au montage',
+  'passer-telechargement': 'Passer au téléchargement',
+  terminer: 'Terminer',
+  'revenir-esquisses': 'Revenir aux esquisses',
+};
+
+/** Une raison dite à l'écran : la phrase française, traduite là-bas, et ses trous. */
+export interface RaisonDuMedia {
+  texte: string;
+  valeurs?: Record<string, string | number>;
+}
+
+export interface BoutonDuMedia {
+  geste: GesteDuMedia;
+  /** Le libellé, en français (traduit à l'écran). */
+  libelle: string;
+  possible: boolean;
+  /** Pourquoi le bouton est éteint : ce qui manque, en mots courants. */
+  raison?: RaisonDuMedia;
+  /** Le geste d'à côté, toujours permis (« Revenir aux esquisses » depuis le montage). */
+  secondaire?: { geste: GesteDuMedia; libelle: string };
+}
+
+export const RAISONS_DU_BOUTON_DU_MEDIA = {
+  brief: 'Le brief n’est pas encore écrit : décrivez au directeur ce que vous voulez créer.',
+  decoupage: 'Il manque le découpage en plans : le directeur l’écrit à la fin du brief.',
+  pieces: 'Il manque encore : {pieces}.',
+  imageDuPlan: 'Il manque l’image validée du plan « {titre} ».',
+  imagesDesPlans: 'Il manque l’image validée de {n} plans : {titres}.',
+  sequenceDuPlan: 'Il manque la séquence validée du plan « {titre} ».',
+  sequencesDesPlans: 'Il manque la séquence validée de {n} plans : {titres}.',
+  sequenceARefaire: 'La séquence du plan « {titre} » est à refaire : son image a changé.',
+  voix: 'Il manque la voix off validée.',
+  musique: 'Il manque la musique validée.',
+  unElement: 'Validez au moins un élément pour passer au montage.',
+  enFabrication: 'Une génération est encore en cours : attendez son résultat.',
+  export: 'Exportez d’abord le film depuis le montage.',
+  final: 'Gardez au moins un média final pour le téléchargement.',
+} as const;
+
+/** Ce qui se lit pour juger un passage. */
+export interface EntreeDuPassage {
+  carte: CarteDuMedia;
+  /** Toutes les pièces écrites de la production (toutes versions). */
+  elements?: readonly ElementDeProduction[];
+  /** Tous les médias de la carte. */
+  medias?: readonly MediaDuPassage[];
+  /** Des exports de montage prêts (vidéo). */
+  exportsPrets?: number;
+}
+
+const GENRE_DU_TYPE: Record<TypeDeMediaDeRealisation, 'image' | 'video' | 'son'> = {
+  image: 'image',
+  video: 'video',
+  musique: 'son',
+  voix: 'son',
+  bruitages: 'son',
+  son: 'son',
+};
+
+function manqueDePlans(plans: readonly { titre: string }[], seul: string, plusieurs: string): RaisonDuMedia {
+  if (plans.length === 1) return { texte: seul, valeurs: { titre: plans[0]!.titre } };
+  const titres = plans
+    .slice(0, 3)
+    .map((p) => `« ${p.titre} »`)
+    .join(', ');
+  return { texte: plusieurs, valeurs: { n: plans.length, titres: plans.length > 3 ? `${titres}…` : titres } };
+}
+
+/**
+ * LE PASSAGE À VENIR, PERMIS OU NON, ET CE QUI MANQUE (`boutonDuMedia`).
+ *  - BRIEF → ESQUISSES : un brief écrit ; pour une vidéo, un découpage en
+ *    plans ; et toutes les pièces à fournir reçues.
+ *  - ESQUISSES d'une vidéo, temps 1 → SÉQUENCES : chaque plan visuel a son
+ *    image validée.
+ *  - ESQUISSES → MONTAGE : vidéo, chaque plan visuel a sa séquence validée (pas
+ *    à refaire), et la voix off et la musique prévues au brief sont validées ;
+ *    autre média, au moins un élément du bon genre validé. Jamais pendant une
+ *    génération en cours.
+ *  - MONTAGE → TÉLÉCHARGEMENT : une vidéo exportée ; une photo ou un son, au
+ *    moins un validé (il devient final tel quel, retouché ou non).
+ */
+export function passageDuMedia(e: EntreeDuPassage): { geste: GesteDuMedia; possible: boolean; raison?: RaisonDuMedia } | null {
+  const p = passagesDuMedia(e.carte);
+  if (p.range) return null;
+  const types = typesDeMediaDeLaRealisation(e.carte.realisation);
+  const elements = e.elements ?? [];
+  const medias = e.medias ?? [];
+  const video = types.includes('video');
+  const valides = medias.filter((m) => estRetenu(m));
+  const enCours = medias.some((m) => m.etat === 'en-cours');
+
+  if (!p.esquisses) {
+    const brief = elementsCourants(elements).find((x) => x.genre === 'brief');
+    if (!brief?.contenu.trim()) return { geste: 'passer-esquisses', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.brief } };
+    if (video && !decoupageDuMedia(elements).length) return { geste: 'passer-esquisses', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.decoupage } };
+    const manquantes = piecesAFournirManquantes(champsDuBrief(brief.contenu), elements);
+    if (manquantes.length) return { geste: 'passer-esquisses', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.pieces, valeurs: { pieces: manquantes.join(', ') } } };
+    return { geste: 'passer-esquisses', possible: true };
+  }
+
+  if (!p.montage) {
+    if (video) {
+      const plans = etatDesPlans(decoupageDuMedia(elements), medias).filter((x) => x.visuel);
+      if (!p.sequences) {
+        const sansImage = plans.filter((x) => !x.images.length);
+        if (sansImage.length) return { geste: 'passer-sequences', possible: false, raison: manqueDePlans(sansImage, RAISONS_DU_BOUTON_DU_MEDIA.imageDuPlan, RAISONS_DU_BOUTON_DU_MEDIA.imagesDesPlans) };
+        return { geste: 'passer-sequences', possible: true };
+      }
+      if (enCours) return { geste: 'passer-montage', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.enFabrication } };
+      const aRefaire = plans.find((x) => x.sequence && x.aRefaire);
+      if (aRefaire) return { geste: 'passer-montage', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.sequenceARefaire, valeurs: { titre: aRefaire.titre } } };
+      const sansSequence = plans.filter((x) => !x.sequence);
+      if (sansSequence.length) return { geste: 'passer-montage', possible: false, raison: manqueDePlans(sansSequence, RAISONS_DU_BOUTON_DU_MEDIA.sequenceDuPlan, RAISONS_DU_BOUTON_DU_MEDIA.sequencesDesPlans) };
+      const son = sonDuBrief(elementsCourants(elements).find((x) => x.genre === 'brief')?.contenu);
+      if (son.voix && !valides.some((m) => m.capacite === 'voix')) return { geste: 'passer-montage', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.voix } };
+      if (son.musique && !valides.some((m) => m.capacite === 'musique')) return { geste: 'passer-montage', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.musique } };
+      return { geste: 'passer-montage', possible: true };
+    }
+    if (enCours) return { geste: 'passer-montage', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.enFabrication } };
+    const genres = new Set(types.map((t) => GENRE_DU_TYPE[t]));
+    if (!valides.some((m) => !genres.size || genres.has(m.genre))) return { geste: 'passer-montage', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.unElement } };
+    return { geste: 'passer-montage', possible: true };
+  }
+
+  if (!p.telechargement) {
+    if (video) {
+      if (!(e.exportsPrets ?? 0) && !(e.carte.realisation?.finaux ?? []).some((f) => f.genre === 'video')) {
+        return { geste: 'passer-telechargement', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.export } };
+      }
+      return { geste: 'passer-telechargement', possible: true };
+    }
+    if (!valides.length && !(e.carte.realisation?.finaux ?? []).length) return { geste: 'passer-telechargement', possible: false, raison: { texte: RAISONS_DU_BOUTON_DU_MEDIA.final } };
+    return { geste: 'passer-telechargement', possible: true };
+  }
+
+  return { geste: 'terminer', possible: true };
+}
+
+/**
+ * LE BOUTON PRINCIPAL D'UNE CRÉATION DE MÉDIA : le passage à venir, allumé
+ * ou éteint avec ce qui manque, et « Revenir aux esquisses » à côté pendant le
+ * montage. Une carte rangée n'en a plus (`null`). Aucun bouton ne dépense :
+ * chaque génération garde son propre bouton à prix, dans le fil.
+ */
+export function boutonDuMedia(e: EntreeDuPassage): BoutonDuMedia | null {
+  const passage = passageDuMedia(e);
+  if (!passage) return null;
+  const p = passagesDuMedia(e.carte);
+  return {
+    geste: passage.geste,
+    libelle: LIBELLES_GESTES_DU_MEDIA[passage.geste],
+    possible: passage.possible,
+    ...(passage.raison ? { raison: passage.raison } : {}),
+    ...(p.montage && !p.telechargement ? { secondaire: { geste: 'revenir-esquisses' as const, libelle: LIBELLES_GESTES_DU_MEDIA['revenir-esquisses'] } } : {}),
+  };
+}
+
+/**
+ * CE QU'UN PASSAGE ÉCRIT SUR LA CARTE (`realisation.passer`, côté démon).
+ * Refusé quand il n'est pas permis, ou quand ce n'est pas le passage à venir
+ * (deux clics, deux onglets) ; « Revenir aux esquisses » efface le montage et
+ * le téléchargement sans toucher au travail fait dans le studio.
+ */
+export function passageAEcrire(
+  e: EntreeDuPassage & { geste: GesteDuMedia; maintenant: number },
+): { ok: true; realisation: Partial<EtatDeRealisation>; deja?: boolean } | { ok: false; raison: string } {
+  const r = e.carte.realisation ?? {};
+  if (e.geste === 'revenir-esquisses') {
+    const p = passagesDuMedia(e.carte);
+    if (!p.montage || p.range) return { ok: false, raison: 'la carte n’est pas au montage' };
+    return { ok: true, realisation: { montageA: undefined, telechargementA: undefined, filmSoumisA: undefined, filmValideA: undefined } };
+  }
+  const passage = passageDuMedia(e);
+  if (!passage) return { ok: false, raison: 'la carte est rangée' };
+  if (passage.geste !== e.geste) {
+    const deja: Partial<Record<GesteDuMedia, boolean>> = {
+      'passer-esquisses': !!r.esquissesA || passagesDuMedia(e.carte).esquisses,
+      'passer-sequences': !!r.sequencesA,
+      'passer-montage': passagesDuMedia(e.carte).montage,
+      'passer-telechargement': passagesDuMedia(e.carte).telechargement,
+    };
+    if (deja[e.geste]) return { ok: true, realisation: {}, deja: true };
+    return { ok: false, raison: `ce n’est pas l’étape suivante (attendu : ${LIBELLES_GESTES_DU_MEDIA[passage.geste]})` };
+  }
+  if (!passage.possible) {
+    const raison = passage.raison ? remplir(passage.raison) : 'passage impossible';
+    return { ok: false, raison };
+  }
+  const t = e.maintenant;
+  switch (e.geste) {
+    case 'passer-esquisses':
+      return { ok: true, realisation: { esquissesA: t } };
+    case 'passer-sequences':
+      return { ok: true, realisation: { sequencesA: t } };
+    case 'passer-montage':
+      return { ok: true, realisation: { montageA: r.montageA ?? t } };
+    case 'passer-telechargement':
+      return { ok: true, realisation: { telechargementA: t } };
+    default:
+      return { ok: true, realisation: {} };
+  }
+}
+
+/** Une raison remplie, en français (journal, réponse d'une commande). */
+export function remplir(raison: RaisonDuMedia): string {
+  return raison.texte.replace(/\{(\w+)\}/g, (_, k: string) => String(raison.valeurs?.[k] ?? ''));
+}
+
+/* ------------------------------------------------------------------ */
+/* 6. Le volet « Suivi de la production » sur les mêmes quatre étapes   */
 /* ------------------------------------------------------------------ */
 
 /**
- * LES PIÈCES DU SUIVI RANGÉES SOUS CHAQUE ÉTAPE. Les plans ÉCRITS restent sous
- * « Images clés et prix » ; les médias FABRIQUÉS à partir d'eux passent sous
- * « Fabrication » (`voletDuMedia`).
+ * LES PIÈCES DU SUIVI RANGÉES SOUS CHAQUE ÉTAPE : l'écrit (brief, direction,
+ * scénario, storyboard, plans) sous « Brief » ; les médias VALIDÉS sous
+ * « Esquisses » ; le montage et l'export sous « Montage » ; la livraison sous
+ * « Téléchargement ». Le volet ne garde que le validé (décision du
+ * 26/10/2026) : tout le reste vit dans la conversation et la bande du bas.
  */
 export const SOUS_ETAPES_DU_MEDIA: Record<EtapeDuMedia, readonly EtapeDuSuivi[]> = {
-  type: [],
-  idee: ['brief', 'direction', 'style'],
-  'images-cles': ['scenario', 'ecriture', 'storyboard', 'plans'],
-  fabrication: ['plans', 'creation', 'son', 'creation-sonore'],
-  film: ['montage', 'export'],
-  livre: ['livraison'],
+  brief: ['brief', 'direction', 'style', 'scenario', 'ecriture', 'storyboard'],
+  esquisses: ['plans', 'creation', 'son', 'creation-sonore'],
+  montage: ['montage', 'export'],
+  telechargement: ['livraison'],
 };
 
 /** Un bloc d'une étape : les pièces d'une étape du suivi (brief, direction…), sous son nom. */
-export type BlocDuMedia = Pick<EtapeDuVoletDeSuivi, 'etape' | 'elements' | 'medias' | 'ambiance'> & Partial<Pick<EtapeDuVoletDeSuivi, 'enConception'>>;
+export type BlocDuMedia = Pick<EtapeDuVoletDeSuivi, 'etape' | 'elements' | 'medias' | 'ambiance'>;
 
 export interface EtapeDuVoletDuMedia {
   etape: EtapeDuMedia;
@@ -156,7 +546,7 @@ export interface EtapeDuVoletDuMedia {
 
 /** L'état d'un segment, dit dans la langue du volet. */
 function etatDuVolet(etape: EtapeDuMedia, etat: EtatDuPoint): EtatDEtapeDuSuivi {
-  if (etat === 'fait') return etape === 'type' || etape === 'idee' || etape === 'images-cles' ? 'validee' : 'terminee';
+  if (etat === 'fait') return etape === 'brief' ? 'validee' : 'terminee';
   if (etat === 'encours') return 'en-cours';
   if (etat === 'question') return 'a-valider';
   if (etat === 'erreur') return 'erreur';
@@ -164,124 +554,147 @@ function etatDuVolet(etape: EtapeDuMedia, etat: EtatDuPoint): EtatDEtapeDuSuivi 
 }
 
 /**
- * LE VOLET DU MÉDIA : les six étapes de la barre, dans le même état, chacune
- * avec les pièces des étapes du suivi qui lui reviennent. Les étapes du suivi
- * restent calculées par `etapesDuSuivi` ; rien ne se perd : une étape du suivi
- * absente de la table tombe sous « Fabrication ».
+ * LE VOLET DU MÉDIA : les quatre étapes de la barre, dans le même état,
+ * chacune avec les pièces qui lui reviennent. Les écrits restent sous le brief
+ * (les plans écrits compris), les médias validés sous les esquisses ; rien ne
+ * se perd : une étape du suivi absente de la table tombe sous « Esquisses ».
+ * Jamais de média « en conception » ni de pièce non validée.
  */
 export function voletDuMedia(volet: readonly EtapeDuVoletDeSuivi[], segments: readonly { etape: EtapeDuMedia; etat: EtatDuPoint }[]): EtapeDuVoletDuMedia[] {
   const rangees = new Set(Object.values(SOUS_ETAPES_DU_MEDIA).flat());
   return segments.map(({ etape, etat }) => {
     const blocs: BlocDuMedia[] = [];
     for (const x of volet) {
-      const ici = SOUS_ETAPES_DU_MEDIA[etape].includes(x.etape) || (etape === 'fabrication' && !rangees.has(x.etape));
+      /* Les plans ÉCRITS vont au brief ; leurs médias validés aux esquisses. */
+      const ecritDesPlans = x.etape === 'plans' && etape === 'brief';
+      const ici = ecritDesPlans || SOUS_ETAPES_DU_MEDIA[etape].includes(x.etape) || (etape === 'esquisses' && !rangees.has(x.etape));
       if (!ici) continue;
-      /* « Plans » : l'écrit sous les images clés, les médias fabriqués sous la fabrication. */
-      const ecrit = x.etape !== 'plans' || etape === 'images-cles';
-      const fabrique = x.etape !== 'plans' || etape === 'fabrication';
-      blocs.push({
+      const ecrit = x.etape !== 'plans' || etape === 'brief';
+      const fabrique = x.etape !== 'plans' || etape === 'esquisses';
+      const bloc: BlocDuMedia = {
         etape: x.etape,
         elements: ecrit ? x.elements : [],
-        medias: fabrique ? x.medias : [],
-        enConception: fabrique ? x.enConception ?? [] : [],
+        medias: fabrique ? x.medias.filter((m) => estRetenu(m)) : [],
         ambiance: ecrit ? x.ambiance : [],
-      });
+      };
+      if (!bloc.elements.length && !bloc.medias.length && !bloc.ambiance.length && etape !== 'brief') continue;
+      blocs.push(bloc);
     }
     return { etape, etat: etatDuVolet(etape, etat), blocs };
   });
 }
 
 /* ------------------------------------------------------------------ */
-/* Le bouton qui suit l'étape                                           */
+/* 7. La page Téléchargement : finaux, validés, esquisses               */
 /* ------------------------------------------------------------------ */
 
-export type GesteDuMedia = 'valider-idee' | 'lancer-fabrication' | 'suspendre' | 'valider-film' | 'terminer';
+export const SECTIONS_DU_TELECHARGEMENT = ['finaux', 'valides', 'esquisses'] as const;
+export type SectionDuTelechargement = (typeof SECTIONS_DU_TELECHARGEMENT)[number];
 
-export interface BoutonDuMedia {
-  geste: GesteDuMedia;
-  /** Le libellé, en français (traduit à l'écran). */
-  libelle: string;
-  /** Le prix annoncé, lu sur la question d'accord (« Valider et lancer la fabrication · 3,20 $ »). */
-  prix?: number;
-  possible: boolean;
-  /** Pourquoi le bouton est éteint, en mots courants. */
-  raison?: string;
-  /** La réponse que le clic donne à la question d'accord. */
-  reponse?: string;
-}
-
-/** Une question d'accord encore ouverte, telle que l'écran la lit dans le fil. */
-export interface AccordOuvert {
-  etape: string;
-  prix?: number;
-  options: readonly { id: string; label: string }[];
-}
-
-export const LIBELLES_GESTES_DU_MEDIA: Record<GesteDuMedia, string> = {
-  'valider-idee': 'Valider l’idée',
-  'lancer-fabrication': 'Valider et lancer la fabrication',
-  suspendre: 'Suspendre',
-  'valider-film': 'Valider le film',
-  terminer: 'Terminer',
+/** Le nom de chaque section, et du dossier de l'archive (traduit à l'écran et dans l'archive). */
+export const LIBELLES_SECTIONS_DU_TELECHARGEMENT: Record<SectionDuTelechargement, string> = {
+  finaux: 'Médias finaux',
+  valides: 'Validés',
+  esquisses: 'Esquisses',
 };
 
-export const RAISONS_DU_BOUTON_DU_MEDIA = {
-  idee: 'Le directeur prépare l’idée : rien à valider pour l’instant.',
-  direction: 'Choisissez d’abord une direction dans la question.',
-  imagesCles: 'Le directeur écrit le scénario et les plans : le prix viendra avec les images clés.',
-  depart: 'La fabrication va démarrer d’elle-même.',
-  film: 'Le film n’est pas encore prêt à valider.',
-  export: 'L’export final se termine : « Terminer » viendra juste après.',
-} as const;
+/** Un fichier de la page : sa pièce jointe, son genre, son nom lisible. */
+export interface FichierDuTelechargement {
+  piece: string;
+  genre: 'image' | 'video' | 'son';
+  nom: string;
+  /** Le média de production d'où il vient (rien pour un final rendu par un studio). */
+  mediaId?: string;
+}
+
+/** Un nom de fichier sûr et lisible : « titre-plan-v2 ». */
+export function nomDeFichierLisible(morceaux: readonly (string | number | null | undefined)[]): string {
+  return (
+    morceaux
+      .filter((m) => m !== null && m !== undefined && String(m).trim())
+      .map((m) =>
+        String(m)
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, ''),
+      )
+      .filter(Boolean)
+      .join('-')
+      .slice(0, 90) || 'media'
+  );
+}
 
 /**
- * LE BOUTON PRINCIPAL D'UNE CRÉATION DE MÉDIA, selon l'étape et la question
- * d'accord ouverte. Une carte rangée n'en a plus (`null`).
- *  - une question d'accord ouverte décide du geste : idée, images clés, film ;
- *    pour une idée à plusieurs directions, la réponse est la direction cochée
- *    dans la question (`choisis`) — jamais une direction par défaut ;
- *  - sinon l'étape : « Suspendre » pendant que la tâche tourne, « Terminer »
- *    une fois le travail rendu, et le geste à venir, éteint, avant.
+ * LES TROIS SECTIONS DU TÉLÉCHARGEMENT, de haut en bas (décision du
+ * 26/10/2026) : les MÉDIAS FINAUX (rendus des studios, exports du montage ; à
+ * défaut, pour une photo ou un son, chaque validé tel quel), les VALIDÉS, puis
+ * TOUTES LES ESQUISSES de la carte, validées ou non. Un média à la fois validé
+ * et final paraît dans les deux sections. Rien d'en cours ni de raté.
  */
-export function boutonDuMedia(e: {
-  carte: Pick<CarteDuMedia, 'column' | 'realisation'>;
-  etape: EtapeDuMedia;
-  accord?: AccordOuvert | null;
-  /** Les options cochées dans la question d'accord (identifiants). */
-  choisis?: readonly string[];
-}): BoutonDuMedia | null {
-  const colonne = String(e.carte.column ?? '');
-  if (colonne === 'archived') return null;
-  const accord = e.accord ?? null;
-  const arret = accord ? arretLu(accord.etape) : null;
-  if (accord && arret === 'idee') {
-    const valider = accord.options.find((o) => o.label === REPONSE_VALIDER_L_ETAPE);
-    if (valider) return { geste: 'valider-idee', libelle: LIBELLES_GESTES_DU_MEDIA['valider-idee'], possible: true, reponse: valider.label };
-    const choisie = accord.options.find((o) => (e.choisis ?? []).includes(o.id) && o.label !== REPONSE_AUTRES_DIRECTIONS);
-    return choisie
-      ? { geste: 'valider-idee', libelle: LIBELLES_GESTES_DU_MEDIA['valider-idee'], possible: true, reponse: choisie.label }
-      : { geste: 'valider-idee', libelle: LIBELLES_GESTES_DU_MEDIA['valider-idee'], possible: false, raison: RAISONS_DU_BOUTON_DU_MEDIA.direction };
+export function sectionsDuTelechargement(e: {
+  titre: string;
+  types: readonly TypeDeMediaDeRealisation[];
+  medias: readonly (MediaDuPassage & { attachmentId: string | null; version: number })[];
+  /** Les finaux rendus par les studios et les exports prêts du montage. */
+  finaux: readonly { piece: string; genre: 'image' | 'video' | 'son'; nom?: string; source?: string | null }[];
+}): Record<SectionDuTelechargement, FichierDuTelechargement[]> {
+  const finis = e.medias.filter((m) => m.etat === 'fini' && m.attachmentId).sort((a, b) => a.creeLe - b.creeLe);
+  const fichier = (m: (typeof finis)[number]): FichierDuTelechargement => ({ piece: m.attachmentId!, genre: m.genre, nom: nomDeFichierLisible([e.titre, m.plan, `v${m.version}`]), mediaId: m.id });
+  const valides = finis.filter((m) => estRetenu(m));
+  const finaux: FichierDuTelechargement[] = e.finaux.map((f, i) => ({ piece: f.piece, genre: f.genre, nom: f.nom ? nomDeFichierLisible([e.titre, f.nom]) : nomDeFichierLisible([e.titre, 'final', i + 1]) }));
+  /* UNE PHOTO OU UN SON VALIDÉ DEVIENT FINAL TEL QUEL quand le studio ne l'a pas retouché. */
+  if (!e.types.includes('video')) {
+    const retouches = new Set(e.finaux.map((f) => f.source).filter(Boolean));
+    for (const m of valides) {
+      if (retouches.has(m.id) || retouches.has(m.attachmentId)) continue;
+      if (!finaux.some((f) => f.piece === m.attachmentId)) finaux.push({ ...fichier(m), nom: nomDeFichierLisible([e.titre, 'final', m.plan, `v${m.version}`]) });
+    }
   }
-  if (accord && arret === 'images-cles') {
-    return {
-      geste: 'lancer-fabrication',
-      libelle: LIBELLES_GESTES_DU_MEDIA['lancer-fabrication'],
-      ...(typeof accord.prix === 'number' ? { prix: accord.prix } : {}),
-      possible: true,
-      reponse: REPONSE_LANCER_LA_FABRICATION,
-    };
+  return { finaux, valides: valides.map(fichier), esquisses: finis.map(fichier) };
+}
+
+/* ------------------------------------------------------------------ */
+/* 8. Le montage vidéo nourri de tous les éléments validés              */
+/* ------------------------------------------------------------------ */
+
+/** Un élément à verser dans le montage de la carte : posé sur la ligne de temps, ou seulement rangé à portée de main. */
+export interface ElementAVerser {
+  attachmentId: string;
+  genre: 'image' | 'video' | 'son';
+  sujet: string;
+  /** Posé sur la ligne de temps (séquences, voix, musique) ; sinon seulement dans la bibliothèque (images). */
+  poser: boolean;
+}
+
+/**
+ * CE QUE LE MONTAGE D'UNE VIDÉO REÇOIT AU PASSAGE AU MONTAGE (26/10/2026) :
+ * la séquence VALIDÉE de chaque plan, DANS L'ORDRE DU DÉCOUPAGE (plus l'ordre
+ * des livraisons), puis la voix off et la musique validées sur leurs pistes ;
+ * les images validées vont à la bibliothèque, à portée de main. Rien de non
+ * validé, rien de déjà versé.
+ */
+export function elementsAVerserDuMedia(e: {
+  elements: readonly ElementDeProduction[];
+  medias: readonly (MediaDuPassage & { attachmentId: string | null; version: number })[];
+  deja: ReadonlySet<string>;
+}): ElementAVerser[] {
+  const plans = decoupageDuMedia(e.elements);
+  const valides = e.medias.filter((m) => estRetenu(m) && !!m.attachmentId);
+  const sortie: ElementAVerser[] = [];
+  const ajouter = (m: (typeof valides)[number], poser: boolean) => {
+    if (e.deja.has(m.attachmentId!) || sortie.some((x) => x.attachmentId === m.attachmentId)) return;
+    sortie.push({ attachmentId: m.attachmentId!, genre: m.genre, sujet: m.plan, poser });
+  };
+  for (const p of etatDesPlans(plans, valides)) {
+    const sequence = p.sequence ? valides.find((m) => m.id === p.sequence!.id) : undefined;
+    if (sequence) ajouter(sequence, true);
   }
-  if (accord && arret === 'rendu') {
-    return { geste: 'valider-film', libelle: LIBELLES_GESTES_DU_MEDIA['valider-film'], possible: true, reponse: REPONSE_VALIDER_LE_FILM };
-  }
-  if (COLONNES_APRES_LE_TRAVAIL.includes(colonne)) return { geste: 'terminer', libelle: LIBELLES_GESTES_DU_MEDIA.terminer, possible: true };
-  if (colonne === 'running') {
-    if (e.carte.realisation?.filmValideA) return { geste: 'terminer', libelle: LIBELLES_GESTES_DU_MEDIA.terminer, possible: false, raison: RAISONS_DU_BOUTON_DU_MEDIA.export };
-    return { geste: 'suspendre', libelle: LIBELLES_GESTES_DU_MEDIA.suspendre, possible: true };
-  }
-  /* Avant la fabrication : le geste à venir, éteint, et pourquoi. */
-  if (e.etape === 'type' || e.etape === 'idee') return { geste: 'valider-idee', libelle: LIBELLES_GESTES_DU_MEDIA['valider-idee'], possible: false, raison: RAISONS_DU_BOUTON_DU_MEDIA.idee };
-  if (e.etape === 'images-cles') return { geste: 'lancer-fabrication', libelle: LIBELLES_GESTES_DU_MEDIA['lancer-fabrication'], possible: false, raison: RAISONS_DU_BOUTON_DU_MEDIA.imagesCles };
-  if (e.etape === 'fabrication') return { geste: 'suspendre', libelle: LIBELLES_GESTES_DU_MEDIA.suspendre, possible: false, raison: RAISONS_DU_BOUTON_DU_MEDIA.depart };
-  return { geste: 'valider-film', libelle: LIBELLES_GESTES_DU_MEDIA['valider-film'], possible: false, raison: RAISONS_DU_BOUTON_DU_MEDIA.film };
+  /* Une séquence validée hors découpage (un plan ajouté en route) vient ensuite, dans l'ordre de sa fabrication. */
+  for (const m of [...valides].sort((a, b) => a.creeLe - b.creeLe)) if (m.genre === 'video') ajouter(m, true);
+  for (const m of valides) if (m.genre === 'son' && m.capacite === 'voix') ajouter(m, true);
+  for (const m of valides) if (m.genre === 'son' && m.capacite !== 'voix') ajouter(m, true);
+  for (const m of valides) if (m.genre === 'image') ajouter(m, false);
+  return sortie;
 }

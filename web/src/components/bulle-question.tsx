@@ -693,7 +693,7 @@ function BulleQuestionComplete({
 
       {/* 1 bis bis. CE QUE LA QUESTION AUTORISE OU DEMANDE DE BRANCHER (studio
           créatif) : le détail d'un devis, ou l'encadré où coller une clé. */}
-      {question.devis ? <DevisDuLot devis={question.devis} /> : null}
+      {question.devis ? <DevisDuLot devis={question.devis} onRepondre={reponsePossible ? (reponse) => onRepondre(reponse, []) : undefined} /> : null}
       {question.branchement ? (
         <BranchementDeService capacites={question.branchement.capacites} onBranche={(reponse) => onRepondre(reponse, [])} />
       ) : null}

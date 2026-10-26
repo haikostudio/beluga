@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { estUnRegroupement, membresActifsDuRegroupement, type Project } from '@beluga/shared';
+import { adresseDePastille, estUnRegroupement, membresActifsDuRegroupement, type Project } from '@beluga/shared';
 
 /**
  * L'icône de repos d'une ligne de projet : le favicon que le SERVEUR a su
@@ -27,7 +27,7 @@ export function PastilleProjet({
   if (project.favicon && !cassee) {
     return (
       <img
-        src={project.favicon}
+        src={adresseDePastille(project.favicon, taille)}
         alt=""
         aria-hidden
         data-favicon-projet

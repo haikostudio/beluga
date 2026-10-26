@@ -84,6 +84,10 @@ import {
   POIDS_MAX_DU_DERNIER_ETAT,
   composerLeDernierEtat,
   lireLeDernierEtat,
+  CLE_DU_DEMARRAGE_EN_COURS,
+  DELAI_DE_DEMARRAGE_STABLE_MS,
+  demarrageApresCoupure,
+  messageAvecContexteRepris,
   canalAAbandonner,
   DELAI_PING_SANS_REPONSE,
   DELAI_OUVERTURE_DU_CANAL,
@@ -569,7 +573,6 @@ class Client {
   private reconnectTimer: number | null = null;
   private notifyHandlers = new Set<(event: Extract<ServerEvent, { type: 'notify' }>) => void>();
   /** Les images du navigateur des sources : remises au seul volet ouvert, jamais rangées dans l'état général. */
-  private navigateurHandlers = new Set<(event: Extract<ServerEvent, { type: 'studio.navigateur' }>) => void>();
   /*
    * L'état du LIEN avec le serveur, tel que la règle `alerteServeurInjoignable`
    * le demande : depuis quand le canal est coupé, et combien de requêtes
@@ -606,6 +609,7 @@ class Client {
   /** Le chargement de la page : le message de coupure ne paraît pas pendant la toute première connexion. */
   private demarreA = Date.now();
   private copieLocaleLue = false;
+  private demarrageMarque = false;
   private minuterieDeLaCopie: number | null = null;
   /** Le minuteur qui relit l'état du canal : « muet » dépend du temps qui passe. */
   private veilleDuCanal: number | null = null;
@@ -788,11 +792,6 @@ class Client {
     return () => this.notifyHandlers.delete(handler);
   }
 
-  /** Le volet « Passer la vérification » écoute son navigateur : images et changements d'état. */
-  onNavigateur(handler: (event: Extract<ServerEvent, { type: 'studio.navigateur' }>) => void): () => void {
-    this.navigateurHandlers.add(handler);
-    return () => this.navigateurHandlers.delete(handler);
-  }
 
 
   /** Ouvrir une carte depuis n'importe où (une carte affichée dans le chat, par exemple). */
@@ -1129,7 +1128,12 @@ class Client {
     if (this.state.pret) return;
     let brut: string | null = null;
     try {
-      brut = localStorage.getItem(CLE_DU_DERNIER_ETAT);
+      /* UN DÉMARRAGE COUPÉ SE VOIT AU SUIVANT (`shared/src/demarrage-allege.ts`) :
+         la page précédente est morte en route, on repart sans la copie, jetée. */
+      const coupe = demarrageApresCoupure(localStorage.getItem(CLE_DU_DEMARRAGE_EN_COURS), Date.now());
+      localStorage.setItem(CLE_DU_DEMARRAGE_EN_COURS, String(Date.now()));
+      if (coupe) localStorage.removeItem(CLE_DU_DERNIER_ETAT);
+      else brut = localStorage.getItem(CLE_DU_DERNIER_ETAT);
     } catch {
       /* stockage refusé : pas de copie, l'attente habituelle */
     }
@@ -1146,6 +1150,23 @@ class Client {
       cartesChargees: projet ? { [projet]: true } : {},
       copieLocale: true,
     });
+  }
+
+  /**
+   * LE DÉMARRAGE A TENU : le premier état est là et la page vit encore
+   * `DELAI_DE_DEMARRAGE_STABLE_MS` plus tard — le marqueur posé par
+   * `appliquerLaCopieLocale` s'efface. Une page tuée avant ne l'efface pas.
+   */
+  private marquerLeDemarrageReussi(): void {
+    if (this.demarrageMarque) return;
+    this.demarrageMarque = true;
+    window.setTimeout(() => {
+      try {
+        localStorage.removeItem(CLE_DU_DEMARRAGE_EN_COURS);
+      } catch {
+        /* stockage refusé : aucun marqueur n'a pu être posé */
+      }
+    }, DELAI_DE_DEMARRAGE_STABLE_MS);
   }
 
   /**
@@ -1568,6 +1589,7 @@ class Client {
         // Les moteurs ajoutés entrent au registre AVANT le premier affichage.
         poserLesMoteursAjoutes(event.moteursAjoutes ?? []);
         if (event.settings?.installation) definirIdentiteDInstallation(event.settings.installation);
+        this.marquerLeDemarrageReussi();
         this.set({
           moteursAjoutes: event.moteursAjoutes ?? [],
           pret: true,
@@ -1878,8 +1900,14 @@ class Client {
         this.set((state) => {
           const list = state.messages[event.message.agentId] ?? [];
           const index = list.findIndex((m) => m.id === event.message.id);
-          const next = index >= 0 ? [...list] : [...list, event.message];
-          if (index >= 0) next[index] = event.message;
+          /* Contexte envoyé dit INCHANGÉ par le serveur : on garde celui déjà connu. */
+          const connu =
+            index >= 0
+              ? list[index]
+              : Object.values(state.cardMessages).flatMap((entry) => entry.messages).find((m) => m.id === event.message.id);
+          const message = messageAvecContexteRepris(event.message, connu, event.contexteInchange);
+          const next = index >= 0 ? [...list] : [...list, message];
+          if (index >= 0) next[index] = message;
 
           // Le message rejoint aussi la conversation de la carte concernée,
           // pour que rien ne disparaisse quand un nouvel agent prend le relais.
@@ -1893,8 +1921,8 @@ class Client {
             if (!dansLaCarte && entry.activeAgentId !== event.message.agentId && carteDeLAgent !== cardId) continue;
             const liste = [...entry.messages];
             const position = liste.findIndex((m) => m.id === event.message.id);
-            if (position >= 0) liste[position] = event.message;
-            else liste.push(event.message);
+            if (position >= 0) liste[position] = messageAvecContexteRepris(event.message, liste[position], event.contexteInchange);
+            else liste.push(message);
             cardMessages[cardId] = { ...entry, messages: liste };
           }
 
@@ -1928,26 +1956,6 @@ class Client {
         this.set({ surveillance: event.sites, surveillanceRecue: true });
         break;
 
-      case 'studio': {
-        if (event.progression) {
-          this.set({ studioProgression: { ...this.state.studioProgression, [event.progression.exportId]: { valeur: event.progression.valeur, etape: event.progression.etape } } });
-          break;
-        }
-        const v = this.state.studioVersions;
-        // La bibliothèque de styles a changé : seule la galerie se relit, aucune création.
-        if (event.creationId === 'bibliotheque') {
-          this.set({ studioVersions: { ...v, bibliotheque: (v.bibliotheque ?? 0) + 1 } });
-          break;
-        }
-        this.set({
-          studioVersions: {
-            ...v,
-            '*': (v['*'] ?? 0) + 1,
-            ...(event.creationId ? { [event.creationId]: (v[event.creationId] ?? 0) + 1 } : {}),
-          },
-        });
-        break;
-      }
 
       case 'marketing': {
         const versions = this.state.marketingVersions;
@@ -2076,10 +2084,6 @@ class Client {
       case 'notify':
         this.garderAnnonce(event);
         for (const handler of this.notifyHandlers) handler(event);
-        break;
-
-      case 'studio.navigateur':
-        for (const handler of this.navigateurHandlers) handler(event);
         break;
 
 

@@ -45,12 +45,15 @@
  * générations → contrôle qualité), rien n'en est recopié.
  */
 
+import { IDS_STYLES_DE_REALISATION, STYLES_DE_REALISATION, styleDeRealisation, type IdStyleDeRealisation } from './styles-de-realisation.js';
+import { BIBLIOTHEQUES_DE_COMPOSITION, CAPACITE_COMPOSITION } from './composition.js';
 import { z } from 'zod';
 import type { RubriqueDuCahier } from './cahier-vivant.js';
 import { COLONNES_AVANT_LE_TRAVAIL } from './columns.js';
 import { MARQUE_A_VOIR, estVoletDuCahier, partiesDuCahier } from './cahier-des-charges.js';
 import { REGLE_DES_PISTES } from './pistes-de-question.js';
 import { REGLE_DE_LA_PIECE_DESIGNEE } from './responsable-creatif.js';
+import { MediaFinal, MontageSon, ReglagesPhoto } from './studios-du-media.js';
 
 /**
  * Les rubriques FIXES du cahier d'un média, dans cet ordre. Elles suivent la
@@ -204,6 +207,35 @@ export const EtatDeRealisation = z.object({
   filmSoumisA: z.number().optional(),
   /** « Valider le film » a été répondu : l'export final part, puis « Terminer » range la carte. */
   filmValideA: z.number().optional(),
+  /*
+   * LES PASSAGES DU NOUVEAU PARCOURS (Brief → Esquisses → Montage →
+   * Téléchargement, décision du 26/10/2026), posés par le bouton du bas
+   * (`realisation.passer`, `passageAEcrire`) — jamais par l'agent.
+   */
+  /** « Passer aux esquisses » : les générations à prix deviennent possibles. */
+  esquissesA: z.number().optional(),
+  /** Vidéo : « Passer aux séquences vidéo » — chaque plan a son image validée, l'animation devient possible. */
+  sequencesA: z.number().optional(),
+  /** « Passer au téléchargement » : le montage est fini, la page des fichiers s'ouvre. */
+  telechargementA: z.number().optional(),
+  /** LES MÉDIAS FINAUX rendus par les studios (photo retouchée, mixage son, export vidéo). */
+  finaux: z.array(MediaFinal).optional(),
+  /** Les réglages du studio photo, par image source (média ou pièce jointe) : rouverts tels quels. */
+  retouchesPhoto: z.record(z.string(), ReglagesPhoto).optional(),
+  /** Le montage du studio son : pistes et extraits, rouvert tel quel. */
+  montageSon: MontageSon.optional(),
+  /**
+   * LE STYLE RETENU (décision de l'utilisateur du 26/10/2026), un des dix de
+   * `STYLES_DE_REALISATION`, choisi en images au premier échange
+   * (« production » action « style ») : il décide de la fabrication — sur le
+   * serveur sans frais, par un service payant, ou les deux.
+   */
+  style: z.enum(IDS_STYLES_DE_REALISATION).optional(),
+  /**
+   * LE CONTENU MARKETING D'OÙ VIENT LA CARTE (« Créer le visuel », 26/10/2026) :
+   * le film validé de la carte revient à ce contenu, prêt à publier.
+   */
+  contenuMarketingId: z.string().optional(),
 });
 export type EtatDeRealisation = z.infer<typeof EtatDeRealisation>;
 
@@ -286,18 +318,9 @@ export function barreDEcritureDuVoletDeRealisation(
     | null
     | undefined,
 ): boolean {
-  if (!estVoletDeRealisation(carte)) return false;
-  const etat = etatDeLaRealisation(realisationDeLaCarte(carte));
-  return etat === 'termine' || etat === 'genre' || etat === 'en-pause';
-}
-
-export type EtatDuQuestionnaire = 'genre' | 'en-cours' | 'en-pause' | 'termine';
-
-export function etatDeLaRealisation(r: Pick<EtatDeRealisation, 'medias' | 'genre' | 'enPauseA' | 'termineA'>): EtatDuQuestionnaire {
-  if (!typesDeMediaDeLaRealisation(r).length) return 'genre';
-  if (r.enPauseA) return 'en-pause';
-  if (r.termineA) return 'termine';
-  return 'en-cours';
+  /* LE BRIEF EST UNE DISCUSSION, LES ESQUISSES S'AFFINENT EN MOTS (26/10/2026) :
+     la barre d'écriture est là à TOUTES les étapes d'une création de média. */
+  return estVoletDeRealisation(carte);
 }
 
 /**
@@ -334,16 +357,6 @@ export const REFUS_COMPREHENSION_SANS_CAHIER =
 export const JALONS_DE_REALISATION = ['idee', 'style', 'scenario', 'budget', 'fabrication', 'montage', 'livre'] as const;
 export type JalonDeRealisation = (typeof JALONS_DE_REALISATION)[number];
 
-export const LIBELLES_JALONS_DE_REALISATION: Record<JalonDeRealisation, string> = {
-  idee: 'Idée',
-  style: 'Style',
-  scenario: 'Scénario',
-  budget: 'Budget',
-  fabrication: 'Fabrication',
-  montage: 'Montage',
-  livre: 'Livré',
-};
-
 /**
  * L'ÉQUIPE DE TOURNAGE : UN SEUL agent, le responsable créatif, qui tient SEPT
  * rôles (carte 2 du studio créatif, 24/10/2026) — qui parle à chaque moment du
@@ -361,16 +374,6 @@ export const ROLES_DE_REALISATION = [
   'monteur',
 ] as const;
 export type RoleDeRealisation = (typeof ROLES_DE_REALISATION)[number];
-
-export const LIBELLES_ROLES_DE_REALISATION: Record<RoleDeRealisation, string> = {
-  'directeur-createur': 'directeur créatif',
-  scenariste: 'scénariste',
-  'directeur-artistique': 'directeur artistique',
-  realisateur: 'réalisateur',
-  producteur: 'producteur',
-  'ingenieur-son': 'ingénieur du son',
-  monteur: 'monteur',
-};
 
 /** L'étape du chemin où se range chaque rubrique du questionnaire. */
 export const JALON_DE_LA_PHASE: Record<PhaseDeRealisation, JalonDeRealisation> = {
@@ -523,7 +526,7 @@ export function estUnApercu(plan: string): boolean {
 
 /**
  * PEUT-ON FABRIQUER CET APERÇU ? La porte de dépense DU CADRAGE, distincte de
- * « realiser » (réservé à l'agent de tâche) : rien sans enveloppe acceptée,
+ * « realiser » (réservé à l'agent de tâche) : enveloppe posée d’office, 0 = refusée,
  * rien dont le prix n'est pas publié (personne ne valide un aperçu un par un),
  * jamais au-delà de l'enveloppe. La règle de fond reste `decisionDeDepense`,
  * appliquée avec l'enveloppe comme budget ET comme seuil.
@@ -649,79 +652,97 @@ export function nomDeLaRealisationExportee(titreDeLaCarte: string, format: 'pdf'
 /* Les textes envoyés au cadrage                                        */
 /* ------------------------------------------------------------------ */
 
-/**
- * LA CONSIGNE DU CADRAGE, jointe à chaque tour tant que la caméra est allumée.
- * Le type de média (vidéo, image ou son) est choisi au bouton caméra avant
- * l'envoi : il arrive dans la consigne et l'agent ne le demande jamais.
- */
-/** La chaîne d'écriture d'une vidéo, dite dans la consigne (`shared/src/responsable-creatif.ts` la tient). */
-const ETAPES_DU_PARCOURS_CREATIF = 'brief → directions → scénario → storyboard → plans';
+/** Les questions du brief, PROPRES À CHAQUE MÉDIA (décision du 26/10/2026) : jamais celles d'une vidéo pour une photo. */
+export const QUESTIONS_DU_BRIEF_PAR_TYPE: Record<TypeDeMediaDeRealisation, string> = {
+  image:
+    'PHOTO / IMAGE — le sujet (qui ou quoi, en action ou posé), l’usage et le canal (réseau, affiche, site, impression), le format et le cadrage (vertical, carré, horizontal ; gros plan ou plan large), le style (photographique, illustration, 3D…), la lumière et l’ambiance, le décor, les personnes ou le produit à montrer tels quels (photos à fournir), les textes ou logos à garder libres de place, les références.',
+  video:
+    'VIDÉO — l’objectif et le public, le message et l’accroche des deux premières secondes, la durée et les formats (9:16, 1:1, 16:9), le ton, l’histoire en quelques temps, les personnages à garder cohérents, la VOIX OFF (oui ou non, son texte, sa langue, son timbre), la MUSIQUE (oui ou non, son ambiance), les bruitages, l’appel à l’action, ce qui vient d’écrans réels (incrusté au montage, jamais généré).',
+  musique:
+    'MUSIQUE — l’usage (jingle, fond sonore, titre complet), la durée, l’ambiance et l’émotion, le genre et les références, le tempo, les instruments, chantée ou instrumentale (et les paroles), en boucle ou non, la licence voulue.',
+  voix: 'VOIX OFF — le texte exact, la langue, le timbre (femme, homme, âge, chaleur), le ton et le rythme, l’usage (publicité, narration, annonce), la durée visée.',
+  bruitages: 'BRUITAGES — la liste des sons, leur nature (réaliste, stylisée), leur durée, les moments où ils tombent, l’usage.',
+  son: 'SON — d’abord le genre (musique, voix off ou bruitages), puis les questions de ce genre : usage, durée, ambiance, et pour une voix le texte exact et le timbre.',
+};
 
+/**
+ * LA CONSIGNE DU DIRECTEUR ARTISTIQUE, jointe à chaque tour tant que la caméra
+ * est allumée (décision de l'utilisateur du 26/10/2026 : quatre étapes fixes,
+ * Brief → Esquisses → Montage → Téléchargement). Elle dit l'étape en cours, ce
+ * qu'elle attend et le bouton que voit l'utilisateur — c'est LUI qui passe
+ * d'une étape à l'autre, jamais l'agent. Le type de média (vidéo, image ou son)
+ * est choisi au bouton caméra avant l'envoi : il arrive ici et l'agent ne le
+ * demande jamais.
+ */
 export function consigneDuQuestionnaire(e: {
   medias?: readonly TypeDeMediaDeRealisation[];
   document: string;
-  enveloppe?: number;
   /** Les capacités réellement branchées (image, video, animation, voix…), lues au catalogue du démon. */
   capacites?: readonly string[];
-  /** L'accord de l'arrêt 2 est déjà donné : une retouche demandée part d'elle-même en fabrication. */
-  fabricationAccordee?: boolean;
+  /** L'étape où se trouve la carte (`etapesDuMedia`). Absente : le brief. */
+  etape?: 'brief' | 'esquisses' | 'montage' | 'telechargement';
+  /** Une vidéo aux esquisses : les images des plans, ou les séquences. */
+  phase?: 'images' | 'sequences' | 'medias';
+  /** Ce que le brief d'une vidéo prévoit d'entendre. */
+  son?: { voix: boolean; musique: boolean };
+  /** Le style déjà retenu (`realisation.style`). */
+  style?: IdStyleDeRealisation;
 }): string {
   const choisis = e.medias ?? [];
-  /* LE TYPE SE CHOISIT AU BOUTON CAMÉRA, AVANT L'ENVOI (décision du 25/10/2026) :
-     jamais dans la discussion, ni au départ ni pour en changer. */
+  const etape = e.etape ?? 'brief';
+  const video = choisis.includes('video');
   const types = choisis.length
-    ? `L’UTILISATEUR A CHOISI CE QU’IL VEUT OBTENIR, AU BOUTON CAMÉRA AVANT D’ENVOYER : ${libelleDesTypesDeMedia(choisis).toUpperCase()}. Ne pose JAMAIS de question sur le type de média (vidéo, image ou son), ni pour le confirmer ni pour en changer : si sa demande appelle un autre type, dis-le en une phrase et invite-le à le changer dans le menu du bouton caméra. Une VIDÉO comprend d’office tout ce qu’il lui faut (storyboard, images des plans, animation, voix, musique, bruitages, montage) — ne demande JAMAIS de cocher la musique ou la voix en plus ; ce qu’on entend se tranche à la rubrique « Son ». Pour un SON seul, le genre (musique, voix off ou bruitages) se demande dans le brief.`
+    ? `L’UTILISATEUR A CHOISI CE QU’IL VEUT OBTENIR, AU BOUTON CAMÉRA AVANT D’ENVOYER : ${libelleDesTypesDeMedia(choisis).toUpperCase()}. Ne pose JAMAIS de question sur le type de média (vidéo, image ou son), ni pour le confirmer ni pour en changer : si sa demande appelle un autre type, dis-le en une phrase et invite-le à le changer dans le menu du bouton caméra. Une VIDÉO comprend d’office ce qu’il lui faut (images des plans, animation, voix, musique, bruitages, montage) — ne demande JAMAIS de cocher la musique ou la voix en plus : le brief tranche ce qu’on entend.`
     : `LE TYPE DE MÉDIA N’EST PAS CHOISI. Il se choisit dans le menu du bouton caméra, sous le champ d’écriture, jamais dans la discussion : ne le demande PAS, n’écris rien, et termine ton tour par une phrase qui invite l’utilisateur à choisir Vidéo, Image ou Son à ce bouton.`;
-  /* L'ENVELOPPE D'APERÇUS EST POSÉE D'OFFICE à 1 $ (25/10/2026) : plus de question. */
-  const enveloppeEnDollars = e.enveloppe ?? ENVELOPPE_CONSEILLEE;
-  const enveloppe =
-    enveloppeEnDollars > 0
-      ? `1 bis. L’ENVELOPPE D’APERÇUS est posée d’office : ${enveloppeEnDollars} $ pour cette production, sans la demander. Elle paie les images clés de l’arrêt 2 (et, si besoin, deux ou trois aperçus de style pour l’arrêt 1) ; au-delà, tout se dit en mots.`
-      : '1 bis. L’utilisateur a REFUSÉ l’enveloppe d’aperçus : aucun aperçu, tous les choix se posent en mots. Ne la redemande pas.';
   const capacites = e.capacites ?? [];
-  const inventaire = `0. AVANT TOUT, CE QUE TU SAIS VRAIMENT FABRIQUER — capacités branchées aujourd’hui : ${capacites.length ? capacites.join(', ') : 'AUCUNE (aucun service de fabrication n’est branché : dis-le dès ta première réponse, avant d’écrire quoi que ce soit)'}. Tu ne prévois JAMAIS un plan, une direction ni un brief qui reposent sur une capacité absente (un « présentateur avatar » sans la capacité « avatar », par exemple) : propose ce qui existe (une image animée avec une voix synchronisée, un plan filmé au montage…) ou dis franchement ce qui est impossible. Chaque plan porte une ligne « Capacité : <capacité> » (une de la liste, ou « montage » pour ce qui se fait au montage) ; l’outil REFUSE un plan qui n’en a pas ou qui en demande une absente. DÈS LE PREMIER ÉCHANGE, relève aussi les PIÈCES À FOURNIR par l’utilisateur (photo d’une personne à animer, logo, captures d’écran réelles, voix enregistrée, musique sous licence…) : écris-les dans le champ « pieces » du brief (« aucune » s’il n’y en a pas) et demande-les dans le formulaire du brief ; dès qu’une pièce est là — jointe à un message, à une réponse, ou parmi ce que tu as vu —, note-la TOI-MÊME avec l’action « piece_recue » (« nom » = le nom écrit au brief, « piece » = l’identifiant ou l’alias « #xxxx » de la pièce jointe) ; ne demande JAMAIS à l’utilisateur de rejoindre une pièce déjà reçue. L’arrêt 2 est REFUSÉ tant qu’une pièce manque : rien ne se dépense sur une vidéo à qui manque sa photo.`;
-  const apresAccord = e.fabricationAccordee
-    ? 'LA FABRICATION A DÉJÀ L’ACCORD DE L’UTILISATEUR (arrêt 2 validé). Un message qui demande une RETOUCHE (un plan, un texte, le rythme, le film entier) part de lui-même en fabrication à la fin de ton tour : relis l’état (« production » action « etat »), note la retouche dans la pièce concernée (« modifier ») ou dans le cahier, puis dis en UNE phrase ce qui va être retouché — sans question, sans « soumettre ». Ne redemande l’accord que si la retouche coûte plus que le prix accordé marge comprise ou change l’idée validée.'
-    : '';
+  const inventaire = `CE QUE TU SAIS VRAIMENT FABRIQUER — capacités branchées aujourd’hui : ${capacites.length ? capacites.join(', ') : 'AUCUNE (aucun service de fabrication n’est branché : dis-le dès ta première réponse, avant d’écrire quoi que ce soit)'}. Tu ne prévois JAMAIS ce qui repose sur une capacité absente (un « présentateur avatar » sans la capacité « avatar ») : propose ce qui existe ou dis franchement ce qui est impossible. Chaque plan d’une vidéo porte une ligne « Capacité : <capacité> » (une de la liste, ou « montage » pour ce qui se fait au montage) et une ligne « Durée : <n> s » (3 à 15 s) ; l’outil REFUSE un plan sans capacité ou sur une capacité absente. Relève dès le premier échange les PIÈCES À FOURNIR par l’utilisateur (photo d’une personne, logo, captures d’écran réelles, voix enregistrée…) dans le champ « pieces » du brief (« aucune » s’il n’y en a pas) ; dès qu’une pièce est là — jointe à un message, à une réponse, ou parmi ce que tu as vu —, note-la TOI-MÊME avec « production » action « piece_recue » (« nom » = le nom écrit au brief, « piece » = l’identifiant ou l’alias « #xxxx ») ; ne redemande JAMAIS une pièce déjà reçue. Le passage aux esquisses reste fermé tant qu’une pièce manque.`;
+  const questions = choisis.length ? choisis.map((t) => `   - ${QUESTIONS_DU_BRIEF_PAR_TYPE[t]}`).join('\n') : '';
+  const etapes: Record<NonNullable<typeof e.etape>, string> = {
+    brief: [
+      `L’ÉTAPE EN COURS EST « BRIEF » — une discussion, sans RIEN fabriquer : « realiser » refuse toute génération avant que l’utilisateur clique « Passer aux esquisses ». Le bouton du bas porte « Passer aux esquisses » ; il reste éteint et dit ce qui manque tant que le brief n’est pas écrit${video ? ', que le découpage en plans n’existe pas' : ''} ou qu’une pièce à fournir manque.`,
+      '   a. Relève d’abord TOUT ce que la phrase de l’utilisateur dit déjà et écris-le avec « production » action « brief » (« champs », source « demande »). Puis UN SEUL formulaire (« production » action « formulaire ») : 3 à 5 questions d’un coup, seulement sur ce qui manque et compte vraiment, chacune liée à son « champ », avec trois ou quatre choix suggérés, ta recommandation en tête marquée « (recommandé) ». L’outil écarte une question dont le brief a déjà la réponse ; ne pose jamais les questions du brief une par une. Les réponses te reviennent ensemble : écris-les dans le brief (source « reponse »).',
+      `   b. LES QUESTIONS SONT CELLES DU MÉDIA CHOISI, jamais celles d’un autre :\n${questions || '   - (le type n’est pas encore choisi)'}`,
+      '   c. L’INSPIRATION : les images, sons ou liens que l’utilisateur joint au brief sont ses références ; note-les dans « references » (identifiants « #xxxx ») et appuie-toi dessus. Si deux ou trois pistes vraiment différentes sont possibles, écris-les avec « concept » et fais choisir par « soumettre » (étape « idee ») — facultatif, et rien ne se dépense.',
+      video
+        ? `   d. LA VIDÉO SE TERMINE AU BRIEF PAR SON DÉCOUPAGE : « script » (l’histoire en tableau temps / visuel / voix off, avec le TEXTE EXACT de la voix off s’il y en a une), puis « plans » (une pièce par plan, clé « plan-1 », « plan-2 »…, titre court, puis : « Durée : <n> s », « Capacité : <capacité> », ce qu’on voit en actions observables, cadrage, mouvement, lumière, son, ce qui est GÉNÉRÉ et ce qui est MONTÉ, et le prompt complet de son image de départ). Le brief porte « voix » et « musique » (ce qu’on entend, ou « non »).`
+        : '   d. Pas de découpage en plans pour ce média : le brief suffit.',
+      '   e. Quand le brief est complet, dis-le en UNE phrase et invite l’utilisateur à cliquer « Passer aux esquisses » sous le champ d’écriture. Tu ne passes JAMAIS l’étape toi-même.',
+    ].join('\n'),
+    esquisses: [
+      `L’ÉTAPE EN COURS EST « ESQUISSES » — tu proposes des brouillons de plus en plus affinés, l’utilisateur VALIDE d’un clic, directement sur le média, ce qu’il garde (bouton « Valider » ; un second clic retire la validation). Toi, tu ne valides jamais.`,
+      video && e.phase !== 'sequences'
+        ? '   PREMIER TEMPS D’UNE VIDÉO : L’IMAGE DE CHAQUE PLAN. Une génération par plan visuel, « plan » = la CLÉ du plan (« plan-2 ») dans le devis, le prompt de départ écrit au plan. Aucune animation : l’outil la refuse tant que l’utilisateur n’a pas cliqué « Passer aux séquences vidéo » — ce bouton s’allume quand chaque plan visuel a son image validée, et dit lequel manque sinon. Ne parle ni de séquence ni de montage avant.'
+        : video
+          ? `   SECOND TEMPS D’UNE VIDÉO : LES SÉQUENCES. Chaque plan a, dans le suivi à droite, son bouton « Animer · prix » : l’utilisateur anime lui-même un plan d’un clic (le meilleur modèle d’animation, la durée du plan, l’image validée en départ). Si on te le demande en mots, fais le devis d’animation (capacité « animation », « source » = l’image validée du plan, « plan » = sa clé, « duree » = la durée du plan) puis le lot. ${e.son?.voix ? 'Propose la VOIX OFF prévue au brief (capacité « voix », le texte exact du script). ' : ''}${e.son?.musique ? 'Propose la MUSIQUE prévue au brief (capacité « musique », la durée du film). ' : ''}« Passer au montage » s’allume quand chaque plan visuel a sa séquence validée${e.son?.voix || e.son?.musique ? ' et que la voix off et la musique prévues sont validées' : ''} ; une séquence dont l’image a changé depuis est à refaire.`
+          : '   Propose la première génération dès ce tour, d’après le brief et ses références, puis affine selon les retours. « Passer au montage » s’allume quand au moins un élément est validé.',
+      '   CHAQUE GÉNÉRATION SE VALIDE UNE À UNE, PRIX SUR LE BOUTON : « realiser » action « devis » (« variantes » 2 à 4, 2 par défaut — autant de brouillons à départager), puis « realiser » action « lot » avec ces devis SEULEMENT (une génération par lot, jamais plusieurs plans ensemble). La question part dans le fil avec le bouton « Générer · prix » : le clic de l’utilisateur VAUT ACCORD et lance la génération ; il ARRÊTE ton tour jusqu’à lui. Puis « generer » (« lot ») et « suivre ». Aucun accord global, aucune fabrication d’office, aucun plafond.',
+      '   UNE PANNE NON FACTURÉE se retente UNE fois, au même modèle et au même prix : refais le « devis » à l’identique avec « reessai » = l’identifiant du média raté, puis le « lot » — il part d’office, une seule fois. Tout autre modèle ou autre prix repasse par le bouton à prix.',
+      '   LES OPTIONS DU MENU « … » D’UN MÉDIA (remplacer le visage, lumière, angles, animer, gestes, consigne) ouvrent un PANNEAU chez l’utilisateur, avec le modèle et le prix : il les lance lui-même, sans toi. Une retouche demandée en MOTS passe par toi : devis (« source » = le média visé), lot, génération.',
+    ].join('\n'),
+    montage: `L’ÉTAPE EN COURS EST « MONTAGE » — l’utilisateur travaille dans le studio de son média, gratuit : ${video ? 'l’éditeur de montage de la carte, où les séquences validées sont posées dans l’ordre du découpage, avec la voix off et la musique sur leurs pistes ; il exporte en vertical, carré ou horizontal' : choisis.includes('image') ? 'le studio photo (recadrage, redressement, exposition, contraste, couleurs, netteté, vignettage)' : 'le studio son (pistes, coupes, volumes, fondus, export MP3 ou WAV)'}. Réponds à ses questions ; une génération demandée en mots reste possible, toujours devis puis lot à prix. « Passer au téléchargement » est son geste ; « Revenir aux esquisses » aussi.`,
+    telechargement: 'L’ÉTAPE EN COURS EST « TÉLÉCHARGEMENT » — la page rangée de haut en bas (médias finaux, validés, esquisses) et l’archive à trois dossiers sont prêtes. Rien à fabriquer : réponds aux questions ; « Terminer » range la carte.',
+  };
+  const retenu = styleDeRealisation(e.style);
+  const style = retenu
+    ? `1 sexies. LE STYLE EST RETENU : « ${retenu.libelle} » (${retenu.description}) — ${retenu.fabrication === 'serveur' ? 'fabriqué SUR LE SERVEUR, sans frais (point 1 septies)' : retenu.fabrication === 'mixte' ? 'des plans générés par un service payant, puis HABILLÉS sur le serveur sans frais (point 1 septies)' : 'images et plans fabriqués par un service payant, après accord sur le prix'}. Ne le redemande pas ; s’il ne convient plus, l’utilisateur le dit et tu le changes avec « production » action « style ». Modes d’emploi à lire avant d’écrire (outil « memoire », geste « chercher ») : ${retenu.competences.join(', ') || 'aucun en particulier'}.`
+    : `1 sexies. LE STYLE, JUSTE APRÈS LE TYPE ET AVANT LE BRIEF : appelle « production » action « styles » — elle rend les ${STYLES_DE_REALISATION.length} styles (${STYLES_DE_REALISATION.map((s) => s.libelle).join(', ')}), chacun avec l’identifiant de son IMAGE. Pose « ask_user » avec UNE option par style : « label » = le libellé, « description » = sa phrase, « image » = l’identifiant rendu ; ta recommandation d’après la demande en tête, marquée « (recommandé) ». Écris la réponse avec « production » action « style ». Pour une PHOTO ou un SON, garde les styles qui ont du sens (une photo n’a pas de démonstration d’écran animée, un son n’a pas de style visuel : pour un son seul, passe ce point). Le style décide de la fabrication (point 1 septies).`;
+  const fabricationServeur = `1 septies. LA FABRICATION SUR LE SERVEUR (capacité « ${CAPACITE_COMPOSITION} », SANS FRAIS) : pour les styles ${STYLES_DE_REALISATION.filter((s) => s.fabrication === 'serveur').map((s) => s.libelle).join(', ')} — et l’habillage du style Mixte —, c’est TOI qui écris l’image ou la vidéo : une page HTML pilotée par UNE chronologie GSAP en pause (format HyperFrames), rendue par le serveur. Tout ce qui se voit est une fonction du temps de cette chronologie : ni Date.now, ni Math.random sans graine, ni requestAnimationFrame, ni minuteur, ni réseau. Bibliothèques servies sur le serveur : ${BIBLIOTHEQUES_DE_COMPOSITION.map((b) => `${b.nom} (« ${b.id} »)`).join(', ')}. Les plans de ces styles portent « Capacité : ${CAPACITE_COMPOSITION} » et coûtent 0 $ au devis prévisionnel. Leurs IMAGES CLÉS se font GRATUITEMENT : « production » action « esquisse » (« plan », « html » = la page entière, « format », « instants ») contrôle la page, en tire les images et rend leurs identifiants — regarde-les, puis passe-les dans « images » de « soumettre » images-cles. Pour t’inspirer, le catalogue de 350 directions de motion design : « production » action « catalogue » (« recherche », « categorie », ou « id » pour le détail) — on s’en inspire, on ne le recopie jamais. Deux VIDÉOS VALIDÉES servent d’exemples de page bien construite (rythme, scènes, sous-titres au mot) : « production » action « exemples » — lis-en une avant ta première composition ; jamais leurs textes ni leurs visuels, qui appartiennent à des clients.`;
+  const voix = '1 octies. LA VOIX D’ESSAI, GRATUITE : dès que le scénario a une voix off, fabrique-la avec « production » action « voix_essai » (« texte » = le texte EXACT dit, « voix » facultative : Claire, Thomas, Pierre ou Jessica) et passe l’identifiant rendu dans « voix » de « soumettre » images-cles : l’utilisateur l’écoute dans la question, et son accord VAUT validation des textes. La voix finale (une des vingt voix Gemini par OpenRouter, ou une voix ElevenLabs par kie.ai) se fabrique ensuite, dans le prix accordé : compte-la au devis prévisionnel.';
   return [
-    'MODE RÉALISATION ALLUMÉ SUR CETTE CARTE (bouton caméra) — tu es le DIRECTEUR ARTISTIQUE d’une production (IMAGE, VIDÉO ou SON) : un seul agent qui tient sept rôles et qui GUIDE l’utilisateur du début à la fin, dans UNE SEULE conversation : le brief, l’idée, les images clés et le prix, puis la fabrication, le montage et le film livré. Il n’y a PAS de bouton « Lancer » : l’accord de l’arrêt 2 lance la fabrication ici même. TROIS ARRÊTS POUR ACCORD, PAS UN DE PLUS : (1) l’IDÉE — brief et directions ensemble ; (2) les IMAGES CLÉS et le PRIX du film — son accord LANCE la fabrication ; (3) le FILM MONTÉ. Entre deux arrêts tu avances seul. Ce parcours REMPLACE les questions génériques de cadrage ; le document de réalisation est réécrit au fil de l’eau, une pause possible à tout moment.',
-    ...(apresAccord ? [apresAccord] : []),
-    inventaire,
+    'MODE RÉALISATION ALLUMÉ SUR CETTE CARTE (bouton caméra) — tu es le DIRECTEUR ARTISTIQUE d’une production (IMAGE, VIDÉO ou SON), un seul agent qui guide l’utilisateur du début à la fin, dans UNE SEULE conversation. LE PARCOURS A QUATRE ÉTAPES FIXES, LES MÊMES POUR TOUS LES MÉDIAS : BRIEF → ESQUISSES → MONTAGE → TÉLÉCHARGEMENT. La barre du haut les montre ; l’utilisateur passe de l’une à l’autre par le BOUTON DU BAS — jamais toi, et tu ne lui proposes jamais une étape qui n’est pas la suivante (pas de « lancer la vidéo » pendant la retouche d’une photo).',
+    etapes[etape],
     `1. ${types}`,
-    enveloppe,
-    `1 ter. L’ÉQUIPE DE TOURNAGE SE PASSE LE RELAIS — TU TIENS SEPT RÔLES : ${ROLES_DE_REALISATION.map((r) => LIBELLES_ROLES_DE_REALISATION[r].toUpperCase()).join(', ')}. L’utilisateur voit dans le fil un chemin de sept étapes (${JALONS_DE_REALISATION.map((j) => LIBELLES_JALONS_DE_REALISATION[j]).join(', ')}) et le membre de l’équipe qui parle, déduits de « phase » : tiens « phase » exacte à chaque appel. ${ROLES_DE_REALISATION.filter((r) => PHASES_DE_REALISATION.some((p) => ROLE_DE_LA_PHASE[p] === r))
-      .map((r) => `Le ${LIBELLES_ROLES_DE_REALISATION[r].toUpperCase()} mène ${PHASES_DE_REALISATION.filter((p) => ROLE_DE_LA_PHASE[p] === r).join(', ')}`)
-      .join(' ; ')}. Avant chaque question, écris UNE phrase courte et vivante au nom de celui qui parle ; quand la rubrique change de membre, annonce le passage de relais (« Je laisse la main au scénariste pour l’histoire. »). Ton ton reste celui d’un plateau de tournage, jamais d’un formulaire administratif.`,
-    `1 quater. LES CHOIX EN IMAGES : pour les directions de l’arrêt 1, et SURTOUT pour les IMAGES CLÉS de l’arrêt 2 (l’image de départ des plans principaux), fabrique des aperçus sur l’enveloppe — pour un choix de style, DEUX ou TROIS aperçus avec « apercu_de_realisation » (une consigne d’image par proposition, écrite en français et traduite en anglais avant l’envoi, une légende de quelques mots), puis pose « ask_user » avec une option par aperçu (pour les DIRECTIONS, passe plutôt les identifiants dans « images » de l’action « soumettre » de l’outil « production », clé de la direction → identifiant), l’identifiant rendu dans « image » de l’option et la légende en « label ». Les IMAGES CLÉS ne font pas une question à part : elles partent avec l’arrêt 2 (« soumettre » images-cles, « images »). Le choix retenu rejoint seul le tableau d’ambiance de la carte ; un aperçu à garder sans question passe dans « ambiance » de « cahier_de_realisation ». Quand l’outil refuse (enveloppe vide ou épuisée, service non branché), pose la question en mots et continue : ne redemande jamais d’argent pour un aperçu.`,
-    '1 quinquies. LES CHOIX QUI S’ÉCOUTENT : quand tu fais comparer des voix, des musiques ou des vidéos d’essai, joins chaque fichier avec « attach_file », puis pose « ask_user » avec une option par fichier et l’identifiant rendu dans « media » de l’option : un bouton lecture s’affiche à droite du choix (le son se lit sur place, la vidéo s’ouvre en grand). Commence le libellé de chaque option par le même repère que la légende du fichier joint (« Voix A : … »).',
-    `2. LA CHAÎNE D’ÉCRITURE, PAR L’OUTIL « production » — dès le premier tour, AVANT les autres rubriques. Chaîne d’une vidéo : ${ETAPES_DU_PARCOURS_CREATIF}. Une image n’a ni scénario ni storyboard ; un son seul n’a ni direction ni storyboard. Tout s’écrit en texte et ne coûte rien ; chaque pièce rejoint la mémoire de production et paraît dans le suivi à droite. L’outil REFUSE d’écrire le scénario, le storyboard ou les plans tant que l’IDÉE n’a pas l’accord de l’utilisateur.`,
-    '   a. LE BRIEF ADAPTATIF (directeur créatif) : relève d’abord TOUT ce que la phrase de l’utilisateur dit déjà (objectif, public, message, ton, formats, durée, pièces à fournir…) et écris-le avec l’action « brief » (« champs », source « demande »). Puis UN SEUL formulaire avec l’action « formulaire » : 3 à 5 questions d’un coup, seulement sur ce qui manque et compte vraiment — les pièces à fournir comprises —, chacune liée à son « champ », avec trois ou quatre choix suggérés dont ta recommandation en tête marquée « (recommandé) » — l’utilisateur peut toujours répondre librement. L’outil écarte seul une question dont le brief a déjà la réponse : ne pose JAMAIS une question déjà répondue, et ne pose pas les questions du brief une par une avec « ask_user ». Les réponses te reviennent ensemble ; écris-les dans le brief (« brief », source « reponse »).',
-    '   b. LES DIRECTIONS (directeur artistique) : « concept » avec DEUX ou TROIS directions vraiment différentes (titre court, puis l’idée, l’accroche, le ton, la palette, la lumière, les références), toutes faisables avec les capacités branchées.',
-    '   c. ARRÊT 1 — L’IDÉE : « soumettre » avec « etape » = « idee » (et « images » pour un aperçu par direction s’il y en a). L’utilisateur choisit une direction : ce choix vaut accord sur le brief ET la direction. « Aucune » ou une précision : retouche (« modifier » ou « concept »), puis soumets de nouveau.',
-    '   d. SANS T’ARRÊTER, ÉCRIS LA SUITE : « script » (l’histoire, son contraste avant/après, puis le tableau temps / visuel / voix off), « storyboard » (une pièce par scène : ce qu’on voit, cadrage, lumière, son, durée), « plans » (une pièce par plan : numéro, durée, ce qu’on voit en actions observables, cadrage, mouvement, lumière, son, la ligne « Capacité : … », ce qui est GÉNÉRÉ et ce qui est MONTÉ, et le prompt de génération complet). Aucune question entre ces trois étapes, sauf une vraie impasse.',
-    '   e. ARRÊT 2 — LES IMAGES CLÉS ET LE PRIX : fabrique sur l’enveloppe les images clés (l’image de départ des plans principaux, « apercu_de_realisation »), chiffre le « Devis prévisionnel » plan par plan (modèle visé, prix publié, total), écris la rubrique « Budget et seuil » ainsi : « Prix annoncé : <total> $ » puis « Plafond avec la marge de réparation de 30 % : <total × 1,3> $ », termine le cahier (point 7), puis « soumettre » avec « etape » = « images-cles », « prix » = le total en dollars et « images » = les identifiants des images clés. La question part avec le prix et le plafond : « Valider et lancer la fabrication » LANCE la fabrication dans cette même conversation — rien d’autre à cliquer. Un prix NON publié par le service ne compte pas dans « prix » : dis-le, il fera l’objet d’un accord à part pendant la fabrication.',
-    '   f. « soumettre » ARRÊTE ton tour jusqu’à la réponse, comme « ask_user ». Une retouche écrit une NOUVELLE version (l’ancienne est gardée et l’utilisateur peut y revenir depuis le suivi), puis tu soumets de nouveau l’arrêt. Retoucher l’idée après son accord invalide ce qui la suit : dis-le en une phrase. Ne redemande JAMAIS un accord déjà donné : « etat » relit la production en base, sans la conversation — appelle-le au début de chaque tour et à chaque reprise.',
-    '   g. APRÈS « Valider et lancer la fabrication » : termine ton tour IMMÉDIATEMENT par une phrase courte (« C’est parti : je fabrique et je reviens avec le film monté. »), sans autre outil ni question — la fabrication part d’elle-même à la fin de ton tour.',
-    `   h. ${REGLE_DE_LA_PIECE_DESIGNEE}`,
-    `   i. APRÈS CHAQUE ARRÊT ACCORDÉ, reporte-le dans le cahier (point 5) : brief → « ${RUBRIQUES_DE_REALISATION[0]} » et « ${RUBRIQUES_DE_REALISATION[1]} » ; direction → « ${RUBRIQUES_DE_REALISATION[3]} » et « ${RUBRIQUES_DE_REALISATION[4]} » ; scénario et storyboard → « ${RUBRIQUES_DE_REALISATION[2]} » ; plans → « ${RUBRIQUES_DE_REALISATION[5]} ».`,
-    '2 ter. LES RUBRIQUES QUI RESTENT (son, montage, droits, contrôle) : tranche-les TOI-MÊME d’après le brief et l’idée validée, et n’en fais une question (« ask_user », une à la fois) que si un choix appartient vraiment à l’utilisateur et n’a pas été tranché, chacune avec des choix concrets et ta recommandation en tête, marquée « (recommandé) ». Le champ complet à couvrir, chaîne comprise : genre de production (publicité produit, publicité d’application, film de marque, accroche pour les réseaux, clip, présentation, immobilier, film d’animation, tutoriel…), objectif, public, message, accroche et appel à l’action, durée et formats (vertical 9:16, carré 1:1, portrait 4:5, horizontal 16:9), histoire et découpage en scènes puis en plans, style visuel et références, cadrage, optique et mouvements de caméra, lumière, étalonnage et couleurs, personnages, décors et costumes à garder cohérents, présentateur humain et langues de déclinaison, voix off, musique et bruitages, textes à l’écran et sous-titres, images de référence fournies (première et dernière image d’un plan), ce qui vient d’un écran réel et ce qui est généré, licences. Pour la MUSIQUE : usage, durée, ambiance et émotion, genre musical et références, tempo, instruments, voix chantée ou non, paroles, boucle ou titre complet, licence. Pour la VOIX OFF : texte exact, langue, ton, rythme, voix homme ou femme. Pour les BRUITAGES : liste des sons, durée, moments du plan où ils tombent. UNE VIDÉO comprend toujours son son : la rubrique « Son » y tranche ce qu’on entend (voix off, musique, bruitages, ou rien de tout cela par choix), jamais « Sans objet » faute de case cochée. Une rubrique qui ne concerne pas le média choisi s’écrit « Sans objet ». L’utilisateur répond dans le panneau de décision.',
-    `2 bis. ${REGLE_DES_PISTES} Exemple : pour « comment la vidéo invite-t-elle à vous contacter ? », ne propose pas seulement « adresse du site » et « formulaire » ; ajoute par exemple un mot-clé dit par le présentateur puis un message direct, un code à l’écran, une offre limitée dans le temps.`,
-    '3. TU AGIS EN DIRECTEUR ARTISTIQUE, RÉALISATEUR PUBLICITAIRE ET SUPERVISEUR DE POSTPRODUCTION — pas en simple générateur. La chaîne : brief commercial → direction artistique → storyboard → prompts par plan → génération → montage → validation. Le cahier couvre TOUTE la chaîne, jusqu’aux prompts et au contrôle, pas seulement le brief et le storyboard. Huit règles de fond :',
-    '   a. L’ACCROCHE : les deux premières secondes disent déjà le bénéfice pour le spectateur (pas une scène d’ambiance). Propose deux ou trois accroches par « ask_user ». Le scénario montre un CONTRASTE avant/après, du rythme et de la personnalité — pas une simple suite d’actions descriptives.',
-    '   b. LA BIBLE VISUELLE avant toute génération : visage exact des personnages, vêtements, décor, lumière, palette, texture, étalonnage, focales, tailles de plan, mouvements de caméra, transitions, références de cadrage. Sans elle, chaque plan ressemble à une publicité différente.',
-    '   c. SCÉNARIO ≠ PROMPTS. « Scénario et découpage » est un tableau temps / visuel / voix off. « Plan par plan » donne, pour CHAQUE plan, un prompt de génération complet et autonome (écrit en français : il est traduit en anglais automatiquement avant l’envoi au générateur) avec : image de départ (et d’arrivée), références de personnage et de lieu, taille de plan, focale indicative, mouvement principal et secondaire, profondeur de champ, durée, interdits (aucun texte lisible généré, aucun logo, aucun personnage en plus, aucun mouvement brusque) et critères de validation. Chaque plan dit aussi ce que l’IA GÉNÈRE et ce qui se fait AU MONTAGE.',
-    '   d. LES VRAIS ÉCRANS NE SE GÉNÈRENT JAMAIS : les captures réelles du produit sont incrustées au montage, avec animations contrôlées ; le plan généré garde un écran vide remplaçable. « Montage et incrustations » écrit chaque incrustation, les sous-titres, les titres et l’appel à l’action animé.',
-    '   e. L’EXACTITUDE COMMERCIALE : demande l’assiette de chaque montant (hors taxes, toutes taxes comprises, net) et écris le calcul. Une promesse (gain, commission, remise) n’est jamais montrée comme acquise : sa condition (abonnement souscrit et payé, durée) est dite à l’image ou à la voix.',
-    '   f. LES FORMATS dès la composition : zones de sécurité des interfaces sociales prévues dans chaque plan, déclinaisons horizontales et carrées pensées au départ plutôt que recadrées après coup ; textes, sous-titres et appel à l’action lisibles sur téléphone.',
-    '   g. LES DROITS : musique, voix, images et ressources externes portent une licence qui autorise explicitement l’usage publicitaire, écrite dans « Droits et conformité » ; une musique « composée » n’est pas libre de droits d’office.',
-    '   h. LE CONTRÔLE ET LE RAPPORT : « Contrôle qualité » liste ce qu’on vérifie (visages, mains, continuité, lisibilité, synchronisation voix et image, montants, formats, conformité du message) ; la fabrication rendra un rapport final (modèles et réglages employés, crédits dépensés, défauts restants, fichiers sources réutilisables).',
-    '4. LA DÉPENSE, SANS LA DEMANDER : aucun budget, aucun seuil ni nombre de tentatives ne se demande plus. L’enveloppe d’aperçus paie les images clés ; le prix du film se tire du devis prévisionnel (jamais d’un chiffre arbitraire) et s’accorde à l’arrêt 2 ; la fabrication peut ensuite aller jusqu’à ce prix plus 30 % pour réparer seule une panne, et redemande au-delà. Les générations abouties se facturent même quand le résultat déplaît : dis-le en présentant le prix.',
-    `5. APRÈS CHAQUE RÉPONSE, AVANT LA QUESTION SUIVANTE, appelle « cahier_de_realisation » avec le document ENTIER mis à jour et l’avancement : « faites » (questions tranchées, le genre compris), « total » (questions prévues, ajusté en chemin), « phase » (${PHASES_DE_REALISATION.join(', ')}), « restants » (ce qui reste à voir, quelques mots chacun). L’outil l’écrit dans ${e.document} du projet ; l’utilisateur le lit depuis la carte pendant qu’il s’écrit. Le document porte ces rubriques « ## », dans cet ordre : ${RUBRIQUES_DE_REALISATION.map((r) => `« ${r} »`).join(', ')} ; une rubrique pas encore tranchée porte « ${MARQUE_A_VOIR} », une rubrique sans objet pour ce média s’écrit « Sans objet : <raison> ». « Budget et seuil » porte le prix annoncé et le plafond (point 2 e).`,
-    '6. L’UTILISATEUR PEUT METTRE EN PAUSE à tout moment : ton tour s’arrête net. À la reprise, on te redonne le document, l’avancement et l’état de la production lu en base : ne repose JAMAIS une question déjà tranchée ni un accord déjà donné.',
-    `7. AVANT L’ARRÊT 2 : relis le document comme un directeur de production — chaque rubrique écrite, chaque plan avec son prompt, sa capacité et sa mention généré ou monté, chaque montant avec son assiette, devis et prix cohérents. Puis appelle « cahier_de_realisation » avec « termine » = vrai et le document complet, sans plus aucune marque « ${MARQUE_A_VOIR} » : l’outil REFUSE de terminer tant qu’une rubrique manque ou reste à voir, et te dit laquelle — et l’arrêt 2 est refusé tant que le cahier n’est pas terminé. Tu ne rends PAS de plan : le document le remplace.`,
-    `7 bis. UNE RETOUCHE DEMANDÉE AVANT L’ARRÊT 2 (un plan, un ton, une rubrique) : relis ${e.document}, applique-la, réécris le document ENTIER (« termine » = vrai s’il reste complet), puis soumets de nouveau l’arrêt concerné.`,
-    `8. Appuie tes questions et ton découpage sur ${COMPETENCES_DE_REALISATION}.`,
-    'Rien d’autre que les aperçus de l’enveloppe ne se génère avant l’arrêt 2 : la fabrication part à son accord, dans cette même conversation.',
+    `2. ${inventaire}`,
+    '3. KIE.AI SEUL : toute fabrication passe par l’outil « realiser » (kie.ai). JAMAIS « codex exec », ni le générateur d’images intégré d’un moteur, ni un script qui appelle un autre service : c’est refusé, et rien de ce qu’ils produiraient n’entrerait dans la carte.',
+    '4. « production » action « etat » relit le brief, les plans, les pièces reçues et l’étape en base, sans la conversation : appelle-le au début de chaque tour. Une retouche d’une pièce écrite passe par « modifier » (nouvelle version, l’ancienne gardée).',
+    `5. ${REGLE_DE_LA_PIECE_DESIGNEE}`,
+    '6. TU AGIS EN DIRECTEUR ARTISTIQUE ET RÉALISATEUR, pas en simple générateur : l’accroche dit le bénéfice dans les deux premières secondes ; une BIBLE VISUELLE (personnages, vêtements, décor, lumière, palette, focales) tient chaque image cohérente ; chaque prompt est complet et autonome (écrit en français, traduit en anglais avant l’envoi) avec ses interdits (aucun texte lisible généré, aucun logo inventé) ; LES VRAIS ÉCRANS NE SE GÉNÈRENT JAMAIS — ils s’incrustent au montage ; un montant dit son assiette (hors taxes, toutes taxes comprises) ; les formats et zones de sécurité des réseaux sont pensés dès la composition ; musique, voix et images portent une licence qui autorise l’usage publicitaire. Regarde chaque résultat (lis le fichier) avant d’en parler.',
+    `7. ${REGLE_DES_PISTES}`,
+    '8. LES CHOIX QUI S’ÉCOUTENT OU SE REGARDENT : joins chaque fichier avec « attach_file », puis « ask_user » avec une option par fichier et son identifiant dans « media » (ou « image ») de l’option.',
+    `9. Appuie ton savoir-faire sur ${COMPETENCES_DE_REALISATION}.`,
+    style,
+    fabricationServeur,
+    voix,
   ].join('\n');
 }
 
@@ -897,8 +918,9 @@ export function nomDuFichierDeMedia(plan: string, version: number, extension: st
 /* ------------------------------------------------------------------ */
 
 export function consigneDeFabrication(
-  e: BudgetDeRealisation & { depense: number; services: string; document?: string; methodes?: readonly string[]; prixAccorde?: number; production?: string },
+  e: BudgetDeRealisation & { depense: number; services: string; document?: string; methodes?: readonly string[]; prixAccorde?: number; production?: string; style?: IdStyleDeRealisation },
 ): string {
+  const retenu = styleDeRealisation(e.style);
   const budget =
     e.prixAccorde !== undefined && e.budget !== null
       ? `LA FABRICATION A L’ACCORD DE L’UTILISATEUR (arrêt 2) : prix annoncé ${arrondi(e.prixAccorde)} $, plafond ${arrondi(e.budget)} $ avec la marge de réparation de 30 % — déjà engagé : ${arrondi(e.depense)} $. Le serveur tient ce plafond : chaque génération y est réservée avant l’appel, débitée au résultat, rendue si elle échoue.`
@@ -906,7 +928,8 @@ export function consigneDeFabrication(
         ? 'AUCUN prix n’a encore été accordé : tout lot repose la question à l’utilisateur. Une carte d’avant les trois arrêts peut fixer un budget avec l’action « fixer_budget ».'
         : `Budget total : ${e.budget} $ — déjà engagé : ${arrondi(e.depense)} $. Le budget est tenu par le serveur : chaque génération y est réservée avant l’appel, débitée au résultat, rendue si elle échoue.`;
   return [
-    'MODE RÉALISATION ALLUMÉ SUR CETTE CARTE — tu restes le DIRECTEUR ARTISTIQUE qui a mené l’idée et les images clés avec l’utilisateur, dans la même conversation : tu FABRIQUES maintenant le média, en réalisateur, directeur de la photographie et monteur, jusqu’au film monté. Le Studio n’a rien à voir avec ce travail : tout passe par l’outil « realiser ».',
+    'MODE RÉALISATION ALLUMÉ SUR CETTE CARTE — tu restes le DIRECTEUR ARTISTIQUE qui a mené l’idée et les images clés avec l’utilisateur, dans la même conversation : tu FABRIQUES maintenant le média, en réalisateur, directeur de la photographie et monteur, jusqu’au film monté : tout passe par l’outil « realiser ».',
+    ...(retenu ? [`LE STYLE RETENU : « ${retenu.libelle} » — ${retenu.fabrication === 'serveur' ? 'tu l’écris et le serveur le fabrique, sans frais (point 2 quater)' : retenu.fabrication === 'mixte' ? 'plans générés par un service, puis habillés par composition sur le serveur (point 2 quater)' : 'images et plans par un service payant, dans le prix accordé'}. Modes d’emploi à relire (outil « memoire », geste « chercher ») : ${retenu.competences.join(', ') || 'aucun en particulier'}.`] : []),
     budget,
     'TROIS ARRÊTS SEULEMENT, ET LES DEUX PREMIERS SONT PASSÉS : l’idée et les images clés avec le prix ont l’accord de l’utilisateur. Tu ne t’arrêtes plus qu’au FILM MONTÉ (arrêt 3). Aucune question entre deux plans : ni combien de propositions, ni quelle image garder, ni quel lot valider. Tu ne demandes que si une dépense dépasse le plafond, si un prix n’est pas publié, ou si une pièce indispensable manque.',
     ...(e.production?.trim() ? [`L’ÉTAT DE LA PRODUCTION, LU EN BASE (outil « production », action « etat ») — il remplace la relecture de la conversation :\n${e.production.trim()}`] : []),
@@ -914,15 +937,16 @@ export function consigneDeFabrication(
     `Services branchés : ${e.services || 'AUCUN.'} Avant chaque génération, vérifie qu’un service branché sait la fabriquer (« realiser » action « modeles », filtrée par capacité). S’il n’y en a pas, appelle « realiser » action « brancher » : la question part dans la conversation avec un encadré où l’utilisateur colle sa clé (kie.ai d’abord), testée sur place ; sa réponse te relance. Ne demande JAMAIS une clé en texte.`,
     'Méthode :',
     '1. Relis l’état de la production et le cahier, puis écris ta FICHE DE PRODUCTION dans ta réponse : chaque plan (numéro, durée, capacité, image de départ, ce qu’on voit, cadrage, mouvement), les éléments à garder cohérents. Les prompts de « Plan par plan » font foi : tu les suis, tu ne les réinventes pas.',
-    '2. FABRIQUE D’UN TRAIT : (a) les images de départ — les IMAGES CLÉS accordées à l’arrêt 2 sont déjà au suivi (« lister » marque « DANS LE SUIVI ») ; fabrique celles qui manquent, regarde chaque résultat (lis le fichier) et ajoute toi-même au suivi la meilleure (« realiser » action « retenir ») ; (b) l’ANIMATION de chaque plan à partir de son image retenue (capacité « animation », « source » = l’image, « fin » = une autre image retenue s’il en faut une) ; (c) la voix off, la musique et les bruitages que le cahier prévoit. Ne génère QUE ce que le cahier marque « généré » : les vraies captures du produit s’incrustent au montage, jamais inventées par un générateur. Choisis le modèle avec « modeles » : la qualité d’abord, puis le coût, dans le plafond.',
+    '2. FABRIQUE D’UN TRAIT : (a) les images de départ — les IMAGES CLÉS accordées à l’arrêt 2 sont déjà au suivi (« lister » marque « DANS LE SUIVI ») ; fabrique celles qui manquent, regarde chaque résultat (lis le fichier) et ajoute toi-même au suivi la meilleure (« realiser » action « retenir ») ; (b) l’ANIMATION de chaque plan à partir de son image retenue (capacité « animation », « source » = l’image, « fin » = une autre image retenue s’il en faut une) ; (c) la VOIX FINALE du texte validé à l’arrêt 2 (« modeles » capacité « voix » : les vingt voix Gemini par OpenRouter, « voix » = Kore, Puck, Charon… ; ou ElevenLabs par kie.ai), la musique et les bruitages que le cahier prévoit (sans frais par « sons » quand ils se synthétisent). Ne génère QUE ce que le cahier marque « généré » : les vraies captures du produit s’incrustent au montage, jamais inventées par un générateur. Choisis le modèle avec « modeles » : la qualité d’abord, puis le coût, dans le plafond.',
     '2 bis. LES DEMANDES QUI VIENNENT DU MENU « … » D’UN MÉDIA arrivent comme un message de l’utilisateur avec le média joint et son identifiant : « Autres angles », « Changer la lumière », « Remplacer le visage », ou « Relancer avec ces réglages ». Lis le détail du média avec « realiser » action « media ». Pour une RETOUCHE, UNE question à la fois, dans cet ordre : (1) LE MODÈLE — « realiser » action « modeles » avec la capacité (« angles », « lumiere », « visage ») rend TOUS les modèles en place, branchés ou à brancher, avec leur prix : pose « ask_user » avec un choix par modèle, le prix et l’ÉCART de prix dans la description, ta recommandation en tête marquée « (recommandé) » ; un modèle « À BRANCHER » passe par « brancher » ; dis franchement qu’un modèle « décrit en mots » est moins précis ; (2) LE RÉGLAGE — angles : « ask_user » en choix MULTIPLE (De face, Trois-quarts gauche, Trois-quarts droite, Profil gauche, Profil droit, De dos, Plongée, Contre-plongée, Gros plan, Plan large ; réponse libre possible), un devis par angle coché ; lumière : « realiser » action « lumiere » avec le service, le modèle et la « source » — la sphère s’ouvre, et la réponse « Lumière : azimut …°, élévation …° » passe en « lumiere » { azimut, elevation } du devis ; visage : demande la ou les PHOTOS du visage, puis, s’il y a plusieurs personnes dans l’image, montre-les NUMÉROTÉES et fais choisir qui remplacer (« cible ») ; rappelle que les visages utilisés doivent être autorisés ; (3) LE NOMBRE de propositions, 1 à 4 ; (4) devis (« source » = le média visé), lot, génération. Pour une RELANCE : refais un devis (version suivante) avec les réglages donnés.',
     '2 ter. LE CONTRÔLE DU MOUVEMENT (« motion control ») : le personnage d’une image reprend les gestes d’une VIDÉO DE RÉFÉRENCE de 3 à 30 s. Devis avec « source » = l’image, « mouvement » = la vidéo, « orientation » ; la durée suit la vidéo de référence. LE CATALOGUE EN DIRECT : « modeles » avec « en_direct » (et « recherche », « capacite ») lit TOUS les modèles que kie.ai publie ; « modeles » avec « en_direct », « service » et « modele » donne ses entrées exactes, et le devis le commande avec « parametres ».',
+    `2 quater. LES PLANS « Capacité : ${CAPACITE_COMPOSITION} » SE FABRIQUENT SUR LE SERVEUR, SANS DEVIS NI LOT : « realiser » action « composer ». (1) « geste » = « preparer » avec « plan », « format », « duree », « bibliotheques » (${BIBLIOTHEQUES_DE_COMPOSITION.map((b) => b.id).join(', ')}) et « medias » (les identifiants des images, vidéos ou sons de la carte à copier dans medias/) : le dossier de la composition est créé avec une page de départ qui se rend déjà ; (2) écris la page entière (« html » de l’action, ou le fichier index.html du dossier) : UNE chronologie GSAP en pause posée sur window.__timelines[<data-composition-id>], des éléments « clip » à data-start / data-duration, les sons en <audio class="clip" id=…>, tout en fonction du temps de la chronologie, des tailles relatives à la racine pour servir chaque format ; (3) « controler » puis « apercu » (« instants ») — REGARDE les images rendues avant d’aller plus loin ; (4) « rendre » (« sortie » = video ou image, « formats ») : la vidéo part dans la file du serveur, « suivre » l’attend, elle arrive dans le fil à 0 $. BRUITAGES ET MUSIQUE sans frais : « realiser » action « sons » (« script » Tone.js joué hors temps réel, « duree ») rend un WAV à poser dans la composition. Les modes d’emploi par outil se cherchent dans la mémoire (hyperframes, motion-doctrine, three, p5, matter, rapier, tone…).`,
     '3. UN DEVIS PAR LOT, VALIDÉ D’OFFICE DANS LE PRIX ACCORDÉ : fais un « devis » par génération, écris pour chacun une ligne lisible (🎬 <plan> — <modèle> (<service>) — <prix> — <pourquoi>), puis regroupe-les avec « realiser » action « lot » (« devis_du_lot », « titre », « etape »). Un lot dont tous les prix sont publiés et qui tient dans ce qui reste du plafond est VALIDÉ D’OFFICE : lance-le aussitôt avec « generer » (« lot »). Un lot qui dépasse, ou qui porte un prix non publié, part en question avec son bloc « Devis » et ARRÊTE ton tour jusqu’au clic. Seules les opérations d’un lot validé partent.',
     `3 bis. LA MÉMOIRE DE LA PRODUCTION : le brief, la direction retenue, le scénario, le storyboard et la liste des plans se relisent avec l’outil « production » action « etat ». Une retouche d’une pièce écrite passe par « production » action « modifier » : nouvelle version, l’ancienne gardée. Les pièces nouvelles de la fabrication (personnage, référence) se rangent avec « realiser » action « noter ». ${REGLE_DE_LA_PIECE_DESIGNEE}`,
     '4. « suivre » attend le résultat (une vidéo prend plusieurs minutes) ; le média paraît dans le fil de la carte. REGARDE chaque image ou première image d’un plan (lis le fichier rendu) et juge-la avec les critères de « Contrôle qualité » (visages, mains, continuité, identité des personnages, texte parasite) : un plan raté se refait seul avec un nouveau devis (version suivante), sans refaire le reste.',
     '4 bis. UNE PANNE SE RÉPARE SEULE, DANS LA MARGE : quand une génération échoue, « suivre » te dit quoi faire — réessayer le même modèle, puis passer à un modèle ÉQUIVALENT de même capacité — et le nouveau lot part d’office tant qu’il tient dans le plafond. Écris alors UNE ligne à l’utilisateur (ce qui a raté, ce que tu fais), sans question. Tu ne rends JAMAIS la main sur une panne tant qu’une issue existe dans la marge ; au-delà (plafond atteint, trois échecs sur un plan), demande avec « ask_user ».',
-    '5. LE MONTAGE : appelle « realiser » action « monter » — l’étape « Montage » s’allume et les plans finis sont versés dans le montage de la carte, que l’utilisateur peut ouvrir dans le grand volet pour régler à la main. Assemble avec ffmpeg dans le dossier des médias, comme « Montage et incrustations » l’écrit (enchaînement des plans, vraies interfaces incrustées, voix, musique, sous-titres, titres, appel à l’action, formats vertical, carré et horizontal avec leurs zones de sécurité), puis range le fichier monté avec « realiser » action « ajouter ». Contrôle le résultat (montants affichés, lisibilité sur téléphone, synchronisation).',
-    '5 bis. ARRÊT 3 — LE FILM MONTÉ : « production » action « soumettre » avec « etape » = « rendu » et « film » = l’identifiant de la pièce jointe rendue par « ajouter ». L’utilisateur le regarde depuis la question. « Retoucher » ou une précision : applique la retouche (un plan refait par un lot dans le plafond, un texte, le rythme, la musique), remonte, range la nouvelle version et soumets de nouveau. « Valider le film » : livre l’export final.',
+    `5. LE MONTAGE, PAR TOI : appelle « realiser » action « monter » (l’étape « Montage » s’allume), puis monte le film en UNE composition « montage » : « composer », « geste » = « preparer », avec « medias » = les plans finis, la voix finale et la musique ; les plans en <video class="clip" muted> (ou data-has-audio="true" pour garder leur son), la voix et la musique en <audio class="clip" id=…>, les SOUS-TITRES AU MOT (« realiser » action « mots » sur la voix : les temps de chaque mot, deux mots au plus à l’écran, le mot dit en couleur d’accent), les titres, les vraies interfaces incrustées et l’appel à l’action, comme « Montage et incrustations » l’écrit. « rendre » avec « formats » = chaque format demandé (vertical, carré, horizontal : la même page, mise à la taille du format) : le film monté passe en livraison (niveau sonore des réseaux, lecture immédiate sur le web) et arrive dans le fil. Contrôle le résultat (montants affichés, lisibilité sur téléphone, synchronisation). Un montage fait hors composition (ffmpeg à la main) se range avec « realiser » action « ajouter ».`,
+    '5 bis. ARRÊT 3 — LE FILM MONTÉ : « production » action « soumettre » avec « etape » = « rendu » et « film » = l’identifiant de la pièce jointe du film monté (rendu par « composer », ou rangé par « ajouter »). L’utilisateur le regarde depuis la question. « Retoucher » ou une précision : applique la retouche (un plan refait par un lot dans le plafond, un texte, le rythme, la musique), remonte, range la nouvelle version et soumets de nouveau. « Valider le film » : livre l’export final.',
     '6. Ta réponse finale est un RAPPORT court : le film livré et les fichiers exportés (« realiser » action « lister »), les modèles employés, ce qui a été dépensé sur le prix accordé, les pannes réparées en chemin, les défauts restants. Une retouche demandée plus tard en écrivant dans cette conversation relance la fabrication d’elle-même.',
     `MÉTHODES : ${e.methodes?.length ? `en service, ${e.methodes.join(' ; ')}` : 'aucune en service'}. Lis celle d’un plan avec « realiser » action « methodes » et nomme-la dans son « devis » (« methodes ») ; une fois le média fini, « avis » demande à l’utilisateur s’il le garde : son verdict note la méthode. Une amélioration se propose avec « proposer_methode » : elle n’entre en service qu’après l’accord de l’utilisateur.`,
     'DÉCLINER DANS UNE AUTRE LANGUE : « decliner » dit ce qui se réutilise (images, plans sans parole, musique), ce qui se refait (la voix, un audio propre par langue, « langue » dans le devis), ce qui se resynchronise (un présentateur, capacité « synchro ») et ce qui se remonte aux durées adaptées. Aucune image n’est refaite.',
@@ -951,7 +975,8 @@ export function barreDEcritureDuVolet(
     | undefined,
   etat: { travaille: boolean; questionEnAttente: boolean },
 ): boolean {
-  if (barreDEcritureDuVoletDeRealisation(carte)) return true;
+  /* Une création de média : la barre d'écriture, sauf quand une question attend sa réponse dans le panneau de décision. */
+  if (estVoletDeRealisation(carte)) return !etat.questionEnAttente;
   const cahier = estVoletDuCahier(carte);
   if (!cahier && !estVoletDeRealisation(carte)) return false;
   if (cahier && carte?.cahierDesCharges?.enPauseA) return true;

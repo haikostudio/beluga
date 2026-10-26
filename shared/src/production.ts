@@ -254,7 +254,33 @@ export const REPONSE_REFUSER_LE_LOT = 'Refuser';
 
 /** La réponse donnée vaut-elle validation ? « Valider » (ou « Lancer », « Accepter », « Oui »), complément libre toléré. */
 export function lotValideParLaReponse(reponse: string | undefined): boolean {
-  return /^\s*(valider|lancer|accepter|oui)\b/i.test(reponse ?? '');
+  return /^\s*(valider|lancer|accepter|oui|g[ée]n[ée]rer)(?![a-zà-ÿ])/i.test(reponse ?? '');
+}
+
+/** Le bouton d'une génération d'une création de média : son prix dessus, un clic vaut accord (26/10/2026). */
+export const REPONSE_GENERER_LE_LOT = 'Générer';
+
+/**
+ * LE RÉESSAI D'OFFICE D'UNE CRÉATION DE MÉDIA (décision de l'utilisateur du
+ * 26/10/2026) : une génération tombée en panne SANS être facturée se retente
+ * UNE fois, au même modèle et au même prix, sans nouveau clic ; tout autre
+ * modèle, tout autre prix, ou un second réessai repasse par le bouton à prix.
+ */
+export function reessaiDOfficePermis(e: {
+  rate: { etat: string; coutReel: number | null; modele: string; prix: number | null; plan: string };
+  devis: readonly { modele: string; prix: number | null; plan: string }[];
+  dejaReessaye: boolean;
+}): { ok: true } | { ok: false; raison: string } {
+  if (e.rate.etat !== 'echec') return { ok: false, raison: 'le média désigné n’est pas en panne' };
+  if (e.rate.coutReel !== null && e.rate.coutReel > 0) return { ok: false, raison: 'la génération ratée a été facturée : le réessai repasse par le bouton à prix' };
+  if (e.dejaReessaye) return { ok: false, raison: 'cette génération a déjà été retentée une fois : la suite repasse par le bouton à prix' };
+  if (!e.devis.length) return { ok: false, raison: 'aucun devis à retenter' };
+  for (const d of e.devis) {
+    if (d.modele !== e.rate.modele) return { ok: false, raison: 'un autre modèle repasse par le bouton à prix' };
+    if ((d.prix ?? null) !== (e.rate.prix ?? null)) return { ok: false, raison: 'un autre prix repasse par le bouton à prix' };
+    if (d.plan !== e.rate.plan) return { ok: false, raison: 'le réessai porte sur le même média, rien d’autre' };
+  }
+  return { ok: true };
 }
 
 /** Ce que le bloc « Devis » montre dans la conversation : une ligne par opération, le total et le budget. */
@@ -266,6 +292,11 @@ export const DevisDeLaQuestion = z.object({
   sansPrix: z.number().int().nonnegative(),
   budget: z.number().nullable(),
   depense: z.number(),
+  /**
+   * UNE GÉNÉRATION D'UNE CRÉATION DE MÉDIA (26/10/2026) : le devis porte son
+   * propre bouton « Générer · prix » — un clic vaut accord et lance le lot.
+   */
+  bouton: z.boolean().optional(),
 });
 export type DevisDeLaQuestion = z.infer<typeof DevisDeLaQuestion>;
 
@@ -288,6 +319,28 @@ export function questionDuLotDeDevis(e: {
       { label: REPONSE_REFUSER_LE_LOT, description: 'Rien n’est dépensé ; l’agent propose autre chose.' },
     ],
     devis: { lotId: e.lotId, titre: e.titre, lignes: e.lignes, total: connu, sansPrix, budget: e.budget, depense: e.depense },
+  };
+}
+
+/**
+ * LA QUESTION D'UNE GÉNÉRATION D'UNE CRÉATION DE MÉDIA (26/10/2026) : pas de
+ * choix à cocher, le devis porte son bouton « Générer · prix » — un clic vaut
+ * accord et lance la génération ; une réponse écrite à la place la refuse et
+ * part au directeur, qui ajuste.
+ */
+export function questionDUneGeneration(e: {
+  lotId: string;
+  titre: string;
+  lignes: DevisDeLaQuestion['lignes'];
+  depense: number;
+}): { question: string; description: string; options: { label: string; description: string }[]; devis: DevisDeLaQuestion } {
+  const { connu, sansPrix } = totalDuLot(e.lignes);
+  const n = e.lignes.length;
+  return {
+    question: `Générer « ${e.titre} » ?`,
+    description: `${n} brouillon${n > 1 ? 's' : ''} à départager${sansPrix ? ' — une ligne au prix non publié sera facturée par le service au tarif de votre compte' : ''}. Le bouton porte le prix : un clic vaut accord et lance la génération. Pour changer quelque chose avant, écrivez-le ici.`,
+    options: [],
+    devis: { lotId: e.lotId, titre: e.titre, lignes: e.lignes, total: connu, sansPrix, budget: null, depense: e.depense, bouton: true },
   };
 }
 
@@ -689,4 +742,6 @@ export interface EtatDeProduction {
   medias: MediaDuSuivi[];
   budget: number | null;
   depense: number;
+  /** Les exports PRÊTS du montage de la carte (vidéo) : le passage au téléchargement les attend. */
+  exportsPrets?: number;
 }

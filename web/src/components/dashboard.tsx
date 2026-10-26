@@ -54,7 +54,6 @@ const COMPOSANTS: Record<RubriqueDuResume, React.LazyExoticComponent<Rubrique>> 
   taches: React.lazy(() => chargerActivite().then((m) => ({ default: m.RubriqueTaches }))),
   memoire: React.lazy(() => chargerMemoire().then((m) => ({ default: m.RubriqueMemoire }))),
   surveillance: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueSurveillance }))),
-  studio: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueStudio }))),
   coffre: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueCoffre }))),
   backups: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueBackups }))),
   statistiques: React.lazy(() => chargerServices().then((m) => ({ default: m.RubriqueStatistiques }))),
@@ -98,9 +97,6 @@ function rubriques(studioOuvert: boolean): { groupe: string; entrees: { cle: Rub
           libelle: t('Surveillance'),
           aide: t('Les contrôles des sites surveillés, leurs pannes et leur temps de réponse.'),
         },
-        ...(studioOuvert
-          ? [{ cle: 'studio' as const, Icone: Clapperboard, libelle: t('Studio'), aide: t("Les visuels et vidéos créés, leurs exports et ce qu'ils ont coûté.") }]
-          : []),
         {
           cle: 'coffre',
           Icone: Key,

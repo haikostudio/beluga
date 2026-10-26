@@ -3,6 +3,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   SERVEUR_MCP_REA,
+  COMPETENCES_ECARTEES_D_UNE_CREATION,
+  VARIABLE_DE_CREATION_DE_MEDIA,
   Agent,
   AgentRole,
   CONSIGNE_CADRAGE,
@@ -106,9 +108,6 @@ import {
   CONSIGNE_ASSISTANT_SURVEILLANCE,
   consigneDePerimetre,
   CONSIGNE_AGENT_MARKETING,
-  CONSIGNE_AGENT_STUDIO,
-  CONSIGNE_AGENT_BIBLIOTHEQUE,
-  LABEL_BIBLIOTHEQUE,
   CONSIGNE_DE_VULGARISATION,
   CONSIGNE_DES_DATES,
   CONSIGNE_ASSISTANT_GLOBAL,
@@ -209,7 +208,6 @@ import { adapterFor, cachedEngines, contextWindowFor, EngineAdapter, EngineEvent
 import { acheverLArbre } from './engines/fin-de-processus.js';
 import { agentLog, log } from './logger.js';
 import { estAgentMarketing } from './marketing.js';
-import { estAgentStudio } from './studio.js';
 import { listerSites } from './surveillance.js';
 import { productionsPourLAgent, productionsProtegees } from './productions-protegees.js';
 import { estAgentAttitre } from './agent-attitre.js';
@@ -1344,11 +1342,6 @@ export async function sendPrompt(agentId: string, text: string, options: PromptO
    */
   if (!options.motif && listerSites().some((site) => site.agentId === agentId))
     options = { ...options, motif: 'configuration-surveillance' };
-  // De même pour l'agent d'une création du Studio : sa consigne et son outil le suivent.
-  if (!options.motif && estAgentStudio(agentId)) options = { ...options, motif: 'studio' };
-  // Et pour l'agent d'une source de la bibliothèque de styles (`server/src/studio-sources.ts`).
-  if (!options.motif && !agent.workdir && agent.role !== 'cadrage' && agent.cardId && store.getCard(agent.cardId)?.labels.includes(LABEL_BIBLIOTHEQUE))
-    options = { ...options, motif: 'bibliotheque-styles' };
 
   /*
    * NI PENDANT SA PUBLICATION. Le même verrou que la commande du client
@@ -1783,6 +1776,8 @@ async function preparerLeTour(
       card && partsDAccueil(niveau).competences
         ? await competencesPertinentes(travailDeLaCarte, { cardId: card.id, projectId: project.id, projet: project.name })
         : undefined,
+      // Une carte de création fabrique par kie.ai seulement : la fabrique d'images par Codex ne lui est jamais servie.
+      card?.parcours?.realisationSouhaitee ? COMPETENCES_ECARTEES_D_UNE_CREATION : undefined,
     );
     contextParts.push({
       label: niveau === 'minimal' ? 'Briefing réduit (dépannage)' : 'Briefing du projet',
@@ -2764,6 +2759,12 @@ async function startTurn(
      * mise en production (rôle « deploy ») n'en reçoit aucune.
      */
     ...productionsDansLEnvironnement(agent.role),
+    /*
+     * UNE CARTE DE CRÉATION FABRIQUE PAR KIE.AI SEULEMENT (26/10/2026) : le
+     * garde refuse `codex exec` et les générateurs directs à l'agent d'une
+     * carte caméra (`shared/src/garde-creation.ts`), jamais aux autres.
+     */
+    ...(agent.cardId && store.getCard(agent.cardId)?.parcours?.realisationSouhaitee ? { [VARIABLE_DE_CREATION_DE_MEDIA]: '1' } : {}),
     /*
      * UN OUTIL A LE DROIT D'ATTENDRE UNE PERSONNE. Une question posée par
      * `ask_user` arrête le moteur jusqu'à la réponse : sans ce délai, Claude
@@ -6096,8 +6097,6 @@ function corpsDeConsigne(
   if (motif === 'configuration-backup') return CONSIGNE_ASSISTANT_BACKUP;
   if (motif === 'configuration-surveillance') return CONSIGNE_ASSISTANT_SURVEILLANCE;
   if (motif === 'configuration-marketing') return CONSIGNE_AGENT_MARKETING;
-  if (motif === 'studio') return CONSIGNE_AGENT_STUDIO;
-  if (motif === 'bibliotheque-styles') return CONSIGNE_AGENT_BIBLIOTHEQUE;
   if (motif === 'depannage-manuel') return CONSIGNE_DEPANNAGE_MANUEL;
   if (niveau === 'minimal') return CONSIGNE_DEPANNAGE;
 

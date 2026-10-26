@@ -1,4 +1,7 @@
-import { arrondi, type DevisDeLaQuestion } from '@beluga/shared';
+import * as React from 'react';
+import { Sparkles } from 'lucide-react';
+import { arrondi, REPONSE_GENERER_LE_LOT, REPONSE_REFUSER_LE_LOT, type DevisDeLaQuestion } from '@beluga/shared';
+import { Button } from '@/components/ui';
 import { t } from '@/lib/langue';
 
 /**
@@ -9,8 +12,24 @@ import { t } from '@/lib/langue';
  * Les choix « Valider le devis » / « Refuser » restent ceux de la question :
  * ce bloc ne décide rien, il montre ce que le clic autorisera, et rien d'autre.
  */
-export function DevisDuLot({ devis }: { devis: DevisDeLaQuestion }) {
+export function DevisDuLot({ devis, onRepondre }: { devis: DevisDeLaQuestion; onRepondre?: (reponse: string) => Promise<void> | void }) {
   const montant = (prix: number | null) => (prix === null ? t('prix non publié') : `${arrondi(prix)} $`);
+  const [enVol, setEnVol] = React.useState<'generer' | 'refuser' | null>(null);
+  /*
+   * UNE GÉNÉRATION D'UNE CRÉATION DE MÉDIA (26/10/2026) : le bouton porte le
+   * prix, et UN CLIC VAUT ACCORD — la génération part aussitôt. « Refuser »
+   * ne dépense rien. Il dit qu'il travaille dès le clic.
+   */
+  const repondre = async (choix: 'generer' | 'refuser') => {
+    if (!onRepondre || enVol) return;
+    setEnVol(choix);
+    try {
+      await onRepondre(choix === 'generer' ? REPONSE_GENERER_LE_LOT : REPONSE_REFUSER_LE_LOT);
+    } finally {
+      setEnVol(null);
+    }
+  };
+  const prixDuBouton = devis.sansPrix && !devis.total ? t('prix non publié') : `${arrondi(devis.total)} $${devis.sansPrix ? ` + ${t('prix non publié')}` : ''}`;
   return (
     <div className="mt-2 rounded-md bg-raised/40 px-2.5 py-2" data-devis-du-lot={devis.lotId}>
       <p className="mb-1 text-[12px] uppercase tracking-wide text-faint">{t('Devis')}</p>
@@ -34,6 +53,26 @@ export function DevisDuLot({ devis }: { devis: DevisDeLaQuestion }) {
           {devis.sansPrix ? <span className="font-normal text-faint"> {t('+ {n} au prix non publié', { n: devis.sansPrix })}</span> : null}
         </span>
       </div>
+      {devis.bouton && onRepondre ? (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5" data-boutons-du-lot="">
+          <Button
+            type="button"
+            size="sm"
+            data-generer-le-lot={devis.lotId}
+            data-prix-du-bouton={String(devis.total)}
+            aria-busy={enVol === 'generer'}
+            disabled={!!enVol}
+            onClick={() => void repondre('generer')}
+            className="bg-accent text-accent-fg hover:opacity-90"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {enVol === 'generer' ? t('Génération lancée…') : t('Générer · {prix}', { prix: prixDuBouton })}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" data-refuser-le-lot={devis.lotId} disabled={!!enVol} onClick={() => void repondre('refuser')}>
+            {t('Refuser')}
+          </Button>
+        </div>
+      ) : null}
       {devis.budget !== null ? (
         <p className="mt-1 text-[12px] text-faint" data-budget-du-devis="">
           {t('Budget : {engage} $ engagés sur {budget} $', { engage: arrondi(devis.depense), budget: devis.budget })}

@@ -48,7 +48,7 @@ import {
   adresseAdministration,
 } from '@beluga/shared';
 import { getDb, getMeta, setMeta } from './db.js';
-import { mediasDuContenuMarketing } from './studio.js';
+import { carteDuContenu, visuelsDuContenu } from './visuels-marketing.js';
 import { ciblesDuProjet, oublierCiblesDuContenu, vueDesComptes } from './publication-sociale.js';
 import { bus } from './bus.js';
 import { log } from './logger.js';
@@ -1167,12 +1167,12 @@ export function espaceComplet(projectId: string, jours = 30) {
     /* Ce que porte la page servie, et la carte d'installation (onglet Statistiques). */
     diagnosticSuivi: espace ? diagnosticDeLEspace(projectId) : null,
     carteSuivi: espace ? carteDuSuivi(projectId) : null,
-    /* LES VISUELS DU STUDIO rattachés à chaque contenu : ses exports prêts, le plus récent d'abord. */
+    /* LES VISUELS rattachés à chaque contenu : le média validé du directeur artistique, et ceux de l'ancien Studio, le plus récent d'abord. */
     visuels: Object.fromEntries(
-      contenus
-        .map((c) => [c.id, mediasDuContenuMarketing(c.id).map((e) => ({ exportId: e.id, creationId: e.creationId, attachmentId: e.attachmentId, afficheId: e.afficheId, format: e.format, genre: e.genre, titre: e.titre }))] as const)
-        .filter(([, liste]) => liste.length),
+      contenus.map((c) => [c.id, visuelsDuContenu(c.projectId, c.id)] as const).filter(([, liste]) => liste.length),
     ),
+    /* La carte du directeur liée à chaque contenu (« Créer le visuel » la rouvre). */
+    cartesDesVisuels: Object.fromEntries(contenus.map((c) => [c.id, carteDuContenu(c.projectId, c.id)?.id] as const).filter(([, id]) => !!id)),
   };
 }
 

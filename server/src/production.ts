@@ -329,14 +329,3 @@ export function marquerLOperation(operationId: string, etat: EtatDOperation, mon
     db.prepare('UPDATE production_operations SET etat = ?, maj_le = ? WHERE id = ?').run(etat, Date.now(), operationId);
   }
 }
-
-/** L'enveloppe réservée à une étape (posée par le responsable créatif, carte 2). */
-export function allouerALEtape(cardId: string, etape: string, montant: number): void {
-  getDb()
-    .prepare('INSERT INTO production_budget_phases (card_id, etape, alloue, maj_le) VALUES (?, ?, ?, ?) ON CONFLICT(card_id, etape) DO UPDATE SET alloue = excluded.alloue, maj_le = excluded.maj_le')
-    .run(cardId, etape, Math.max(0, montant), Date.now());
-}
-
-export function allocationsDeLaCarte(cardId: string): { etape: string; alloue: number }[] {
-  return getDb().prepare('SELECT etape, alloue FROM production_budget_phases WHERE card_id = ? ORDER BY etape').all(cardId) as { etape: string; alloue: number }[];
-}

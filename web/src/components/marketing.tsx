@@ -122,6 +122,7 @@ import { InterrupteurDeSuivi } from '@/components/interrupteur-suivi';
 import { PastilleProjet } from '@/components/pastille-projet';
 import { SelecteurDeProjet } from '@/components/selecteur-de-projet';
 import { client } from '@/lib/client';
+import { writePref } from '@/lib/prefs';
 import { useApp } from '@/lib/use-app';
 import { useTelephone } from '@/lib/telephone';
 import { formatRegional, t } from '@/lib/langue';
@@ -227,34 +228,38 @@ interface EspaceComplet {
   diagnosticSuivi?: DiagnosticSuivi | null;
   /** LA carte d'installation du suivi, si elle existe : posée, elle ne vaut pas code posé. */
   carteSuivi?: Card | null;
-  /** Les visuels exportés par le Studio, rattachés à chaque contenu (le plus récent d'abord). */
+  /** Les visuels prêts de chaque contenu : le média validé du directeur artistique, ou un visuel de l'ancien Studio (le plus récent d'abord). */
   visuels?: Record<string, VisuelDuContenu[]>;
+  /** La carte du directeur artistique liée à chaque contenu (« Créer le visuel » la rouvre). */
+  cartesDesVisuels?: Record<string, string>;
   /** Les comptes reliés du projet, les applications des réseaux et les messages non lus. */
   reseaux?: VueDesReseaux;
 }
 
 interface VisuelDuContenu {
-  exportId: string;
-  creationId: string;
-  attachmentId?: string;
+  id: string;
+  attachmentId: string;
   afficheId?: string;
   format: string;
   genre: 'video' | 'image';
   titre: string;
+  cardId?: string;
 }
 
 /**
- * « CRÉER LE VISUEL » : le Studio s'ouvre sur LA création de ce contenu — créée
- * au premier clic (texte du contenu posé, format déduit du canal), rouverte
- * ensuite. L'adresse change comme un Précédent/Suivant : l'écran la suit.
+ * « CRÉER LE VISUEL » : LA carte du directeur artistique de ce contenu — créée
+ * au premier clic (mode caméra allumé, type et format déduits du canal), rouverte
+ * ensuite. La demande au directeur est pré-remplie dans la barre d'écriture avec
+ * le texte du contenu : rien ne part avant l'envoi. Le média validé revient au
+ * contenu, prêt à publier.
  */
 async function creerLeVisuel(contenuId: string): Promise<void> {
   try {
-    const r = await client.call<{ creation: { id: string } }>({ type: 'studio.depuisMarketing', contenuId });
-    window.history.pushState(null, '', `#studio/${encodeURIComponent(r.creation.id)}`);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+    const r = await client.call<{ card: { id: string }; agentId: string | null; demande: string; nouvelle: boolean }>({ type: 'marketing.creerLeVisuel', contenuId });
+    if (r.nouvelle && r.agentId) writePref(`draft.${r.agentId}`, r.demande);
+    client.openCard(r.card.id);
   } catch (err: any) {
-    client.pushToast('error', err?.message ?? t('Le studio n’a pas pu s’ouvrir'));
+    client.pushToast('error', err?.message ?? t('La création du visuel n’a pas pu s’ouvrir'));
   }
 }
 
@@ -1901,6 +1906,7 @@ function EspaceDuProjet({
         contenu={contenu}
         adresseLiens={donnees?.adresseLiens ?? ''}
         visuels={contenu ? donnees?.visuels?.[contenu.id] ?? [] : []}
+        aUneCarte={!!(contenu && donnees?.cartesDesVisuels?.[contenu.id])}
         comptes={donnees?.reseaux?.comptes ?? []}
         onClose={() => setContenuOuvert(null)}
       />
@@ -3575,12 +3581,15 @@ function TiroirContenu({
   contenu,
   adresseLiens,
   visuels = [],
+  aUneCarte = false,
   comptes = [],
   onClose,
 }: {
   contenu: ContenuMarketing | null;
   adresseLiens: string;
   visuels?: VisuelDuContenu[];
+  /** Une carte du directeur existe déjà pour ce contenu : le bouton la rouvre. */
+  aUneCarte?: boolean;
   /** Les comptes reliés du projet : on y coche ceux où ce contenu part. */
   comptes?: CompteSocial[];
   onClose: () => void;
@@ -3591,8 +3600,6 @@ function TiroirContenu({
   const [heure, setHeure] = React.useState('');
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [aSupprimer, setASupprimer] = React.useState(false);
-  /* LE VISUEL SE FAIT DANS LE STUDIO : sans lui, le tiroir n'en propose ni la création ni l'ouverture. */
-  const studioOuvert = useApp().studioOuvert;
 
   React.useEffect(() => {
     setTitre(contenu?.titre ?? '');
@@ -3649,17 +3656,13 @@ function TiroirContenu({
           <Badge tone={toneEtape(contenu.etape)}>{t(LIBELLE_ETAPE[contenu.etape])}</Badge>
           <ActionsEntete
             actions={[
-              ...(studioOuvert
-                ? [
-                    {
-                      cle: 'visuel',
-                      libelle: visuels.length ? t('Ouvrir le visuel') : t('Créer le visuel'),
-                      icone: <Clapperboard className="h-3.5 w-3.5" />,
-                      onClick: () => void creerLeVisuel(contenu.id),
-                      repere: 'data-marketing-creer-visuel',
-                    },
-                  ]
-                : []),
+              {
+                cle: 'visuel',
+                libelle: visuels.length || aUneCarte ? t('Ouvrir le visuel') : t('Créer le visuel'),
+                icone: <Clapperboard className="h-3.5 w-3.5" />,
+                onClick: () => void creerLeVisuel(contenu.id),
+                repere: 'data-marketing-creer-visuel',
+              },
               { cle: 'texte', libelle: t('Copier le texte'), icone: <Copy className="h-3.5 w-3.5" />, onClick: () => void copier(texte, t('Texte')), repere: 'data-marketing-copier-texte' },
               ...(lien
                 ? [{ cle: 'lien', libelle: t('Copier le lien de suivi'), icone: <Link2 className="h-3.5 w-3.5" />, onClick: () => void copier(lien, t('Lien de suivi')), repere: 'data-marketing-copier-lien' }]
@@ -3720,29 +3723,31 @@ function TiroirContenu({
                 <ChoixDHeure valeur={heure} disabled={publie} onChange={setHeure} effacable aria-label="Heure" className="text-[13px]" data-marketing-tiroir-heure="" />
               </div>
             </div>
-            {!studioOuvert ? null : visuels.length ? (
+            {visuels.length ? (
               <div className="flex flex-col gap-1.5" data-marketing-visuels={visuels.length}>
-                <span className="text-[12px] text-muted">{t('Visuel du Studio')}</span>
+                <span className="text-[12px] text-muted">{t('Visuel')}</span>
                 <div className="flex flex-wrap gap-2">
-                  {visuels.slice(0, 4).map((v) =>
-                    v.afficheId || (v.genre === 'image' && v.attachmentId) ? (
-                      <button
-                        key={v.exportId}
-                        type="button"
-                        onClick={() => void creerLeVisuel(contenu.id)}
-                        className="block overflow-hidden rounded-md bg-raised"
-                        title={`${v.titre} · ${v.format}`}
-                      >
-                        <img src={`/api/attachment?id=${encodeURIComponent(v.afficheId ?? v.attachmentId!)}`} alt="" className="h-24 w-auto object-cover" loading="lazy" />
-                      </button>
-                    ) : null,
-                  )}
+                  {visuels.slice(0, 4).map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => void creerLeVisuel(contenu.id)}
+                      className="block overflow-hidden rounded-md bg-raised"
+                      title={`${v.titre} · ${v.format}`}
+                    >
+                      {v.genre === 'video' && !v.afficheId ? (
+                        <video src={`/api/attachment?id=${encodeURIComponent(v.attachmentId)}`} muted playsInline preload="metadata" className="h-24 w-auto object-cover" />
+                      ) : (
+                        <img src={`/api/attachment?id=${encodeURIComponent(v.afficheId ?? v.attachmentId)}`} alt="" className="h-24 w-auto object-cover" loading="lazy" />
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
             ) : (
-              <Button size="sm" variant="outline" className="self-start" onClick={() => void creerLeVisuel(contenu.id)}>
+              <Button size="sm" variant="outline" className="self-start" onClick={() => void creerLeVisuel(contenu.id)} data-marketing-bouton-visuel="">
                 <Clapperboard className="h-3.5 w-3.5" />
-                {t('Créer le visuel')}
+                {aUneCarte ? t('Ouvrir le visuel') : t('Créer le visuel')}
               </Button>
             )}
             {/* OÙ PUBLIER : les comptes reliés cochés, chacun avec son état ; « Publier maintenant » en dessous. */}

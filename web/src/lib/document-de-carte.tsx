@@ -28,12 +28,17 @@ export type DocumentDeCarte =
    * `volet-de-suivi.tsx`).
    */
   | { cardId: string; genre: 'suivi'; numero: number }
+  /* Le montage vidéo d'une création de média : l'éditeur du Studio a été retiré, aucun volet ne l'affiche pour l'instant. */
+  | { cardId: string; genre: 'montage' }
   /**
-   * LE GRAND VOLET DE MONTAGE (24/10/2026) : l'éditeur du Studio sur la création
-   * liée à la carte, nourrie des plans qu'elle a fabriqués. Rendu par la page de
-   * la carte elle-même (pas par un portail du fil), dans le même volet, élargi.
+   * LES STUDIOS ET LA PAGE DE FIN D'UNE CRÉATION DE MÉDIA (26/10/2026) : le
+   * studio photo (cadrage, couleurs), le studio son (pistes, coupes, fondus) et
+   * la page Téléchargement (finaux, validés, esquisses). Rendus par la page de
+   * la carte, dans le même volet que le montage.
    */
-  | { cardId: string; genre: 'montage' };
+  | { cardId: string; genre: 'studio-photo'; source?: string }
+  | { cardId: string; genre: 'studio-son' }
+  | { cardId: string; genre: 'telechargement' };
 
 let ouvert: DocumentDeCarte | null = null;
 const abonnes = new Set<() => void>();
@@ -51,7 +56,7 @@ export function ouvrirLeDocument(document: DocumentDeCarte): void {
  * LE SUIVI D'UNE PRODUCTION EST TOUJOURS OUVERT SUR ORDINATEUR (décision du
  * 25/10/2026, qui remplace « une fois par session ») : dès que le chemin du
  * tournage paraît, et à chaque affichage, rechargement compris. Il ne chasse
- * jamais un document déjà ouvert pour la carte (le plan, le montage) et revient
+ * jamais un document déjà ouvert pour la carte (le plan) et revient
  * dès que celui-ci se referme (`card-panel.tsx`).
  */
 export function ouvrirLeSuiviSiRienNestOuvert(cardId: string): void {

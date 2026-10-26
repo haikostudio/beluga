@@ -11,8 +11,6 @@ import {
   ENVELOPPE_CONSEILLEE,
   ENVELOPPE_MAXIMALE,
   colonneApresComprehensionDeRelance,
-  LABEL_BIBLIOTHEQUE,
-  jugerRecetteSource,
   AGENT_MOVABLE_COLUMNS,
   AgentQuestion,
   Attachment,
@@ -134,6 +132,7 @@ import {
   REFUS_COMPREHENSION_SANS_CAHIER,
   CHAMPS_DU_BRIEF,
   tailleLisible,
+  BIBLIOTHEQUES_DE_COMPOSITION,
 } from '@beluga/shared';
 import {
   listerAcces,
@@ -236,7 +235,7 @@ import {
   resultatsDuProjet,
   rythmeDuProjet,
 } from './marketing.js';
-import { estAgentDUnMontage, estAgentStudio, mediasDuContenuMarketing } from './studio.js';
+import { visuelsDuContenu } from './visuels-marketing.js';
 import {
   compterMessagesNonLus,
   ecrireApplication as ecrireApplicationSociale,
@@ -248,7 +247,6 @@ import { ecrireLeCahier, estAgentDuCahier, ouvrirLeCahierDesCharges } from './ca
 import { ecrireLaRealisation, estAgentDuQuestionnaireDeRealisation, lireLeDocumentDeRealisation } from './realisation-questionnaire.js';
 import type { ServeurMcp } from './rea.js';
 import {
-  DEFINITION_OUTIL_STUDIO,
   LABEL_MARKETING,
   jugerParcours,
   jugerReperes,
@@ -882,7 +880,7 @@ export const TOOL_DEFS: ToolDef[] = [
       "Annonce dans le fil une image, une vidéo ou un son que TU fabriques (Gemini, Codex, script…) : « debut » AVANT de lancer " +
       "la fabrication pose un bloc d'attente (sujet, temps, outil, prix) ; « fin » avec le chemin du fichier remplace le bloc par " +
       "l'aperçu (inutile d'appeler attach_file en plus) ; « echec » dit pourquoi. Un bloc laissé ouvert passe en échec à la fin du tour. " +
-      "Inutile pour l'outil « realiser » et le Studio, qui l'annoncent eux-mêmes.",
+      "Inutile pour l'outil « realiser », qui l'annonce lui-même.",
     inputSchema: {
       type: 'object',
       required: ['action'],
@@ -1215,7 +1213,7 @@ export const TOOL_DEFS: ToolDef[] = [
         termine: { type: 'boolean', description: 'Vrai quand toutes les questions sont tranchées' },
         enveloppe: {
           type: 'number',
-          description: `L’enveloppe d’aperçus acceptée, en dollars (${ENVELOPPE_CONSEILLEE} $ conseillé, ${ENVELOPPE_MAXIMALE} $ au plus ; 0 = pas d’aperçus) : à passer dès la réponse à la question de l’enveloppe, posée juste après les types de média`,
+          description: `L’enveloppe d’aperçus, en dollars : posée d’office à ${ENVELOPPE_CONSEILLEE} $ sans la demander (${ENVELOPPE_MAXIMALE} $ au plus). À ne passer que si l’utilisateur la change ; 0 = aperçus refusés par l’utilisateur`,
         },
         ambiance: {
           type: 'array',
@@ -1232,7 +1230,7 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'apercu_de_realisation',
     description:
-      "APERÇU DU QUESTIONNAIRE DE RÉALISATION (mode caméra, cadrage seulement) — fabrique UNE image d'essai pour illustrer un choix (style, ambiance, personnage, cadrage), payée sur l'enveloppe d'aperçus acceptée par l'utilisateur et jamais sur le budget principal. Refusé sans enveloppe, au-delà de l'enveloppe, ou si le prix du modèle n'est pas publié. L'appel attend l'image (quelques secondes) et rend l'identifiant de sa pièce jointe : passe-le dans « image » d'une option d'« ask_user » pour un choix en images. Trois aperçus au plus par question.",
+      "APERÇU DU QUESTIONNAIRE DE RÉALISATION (mode caméra, cadrage seulement) — fabrique UNE image d'essai pour illustrer un choix (style, ambiance, personnage, cadrage), payée sur l'enveloppe d'aperçus (posée d'office, jamais sur le budget principal). Refusé si l'utilisateur a refusé l'enveloppe (0), au-delà de l'enveloppe, ou si le prix du modèle n'est pas publié. L'appel attend l'image (quelques secondes) et rend l'identifiant de sa pièce jointe : passe-le dans « image » d'une option d'« ask_user » pour un choix en images. Trois aperçus au plus par question.",
     inputSchema: {
       type: 'object',
       required: ['consigne', 'phase'],
@@ -1499,8 +1497,6 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
-  // LE STUDIO : servi au seul agent attitré d'une création (`estAgentStudio`).
-  DEFINITION_OUTIL_STUDIO as ToolDef,
   {
     name: 'rendre_reparation',
     description:
@@ -1623,87 +1619,6 @@ export const TOOL_DEFS: ToolDef[] = [
         site: { type: 'string', description: 'Un SITE AUTONOME (identifiant « site:… », donné par une carte d’étude) au lieu de ce projet — pour « etat », « reperes », « parcours » et « lire » seulement' },
       },
       required: ['action'],
-    },
-  },
-  {
-    name: 'bibliotheque_source_essai',
-    description:
-      "JOUE LA RECETTE D'UNE SOURCE DE LA BIBLIOTHÈQUE DE STYLES, SANS RIEN ENREGISTRER : lit la liste du site, la fiche des premiers exemples, et rend le nombre d'entrées et trois exemples (id, titre, auteur, début de la consigne, aperçus). Appelle-le jusqu'à ce que les exemples aient chacun une consigne et un aperçu, AVANT « bibliotheque_source_recette ».",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sourceId: { type: 'string', description: "L'identifiant de la source (donné dans ta demande)" },
-        recette: schemaDeRecetteDeSource(),
-      },
-      required: ['sourceId', 'recette'],
-    },
-  },
-  {
-    name: 'bibliotheque_source_recette',
-    description:
-      "ENREGISTRE LA RECETTE D'UNE SOURCE (rejouée ici pour de vrai, refusée si elle ne rend aucun exemple avec sa consigne) avec son nom, sa licence et le résumé de ton analyse : la source passe « à valider » et attend l'utilisateur. Si le site ne se lit pas, donne seulement « impossible » (la raison en une phrase).",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sourceId: { type: 'string' },
-        nom: { type: 'string', description: 'Un nom court (« prompt-motion.com »)' },
-        licence: { type: 'string', description: 'Les conditions d’usage des consignes et des vidéos, en une phrase' },
-        resume: { type: 'string', description: 'Deux à quatre phrases en français pour l’utilisateur : contenu, nombre d’exemples, ce qui est gardé, conditions' },
-        recette: schemaDeRecetteDeSource(),
-        impossible: { type: 'string', description: 'À la place de la recette : pourquoi ce site ne peut pas être lu' },
-        annuaire: { type: 'string', description: 'À la place de la recette, pour un ANNUAIRE exploré : une phrase — combien de sources tu as proposées, pourquoi les autres liens ont été écartés' },
-      },
-      required: ['sourceId'],
-    },
-  },
-  {
-    name: 'bibliotheque_source_proposer',
-    description:
-      "PROPOSE UN SITE TROUVÉ DANS UN ANNUAIRE (sujet GitHub, liste « awesome ») comme NOUVELLE SOURCE « à valider » : sa recette est rejouée ici pour de vrai, refusée si elle ne rend aucun exemple avec sa consigne, et l'adresse est refusée si une source la suit déjà. Vingt propositions au plus par annuaire. Essaie d'abord la recette avec « bibliotheque_source_essai ».",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        depuis: { type: 'string', description: "L'identifiant de l'annuaire (la source que tu analyses)" },
-        adresse: { type: 'string', description: 'L’adresse du site proposé (https://…)' },
-        nom: { type: 'string', description: 'Un nom court (« prompt-motion.com »)' },
-        licence: { type: 'string', description: 'Les conditions d’usage des consignes et des vidéos, en une phrase' },
-        resume: { type: 'string', description: 'Deux à trois phrases en français pour l’utilisateur : contenu, nombre d’exemples, conditions' },
-        recette: schemaDeRecetteDeSource(),
-      },
-      required: ['depuis', 'adresse', 'recette'],
-    },
-  },
-  {
-    name: 'bibliotheque_styles_a_rediger',
-    description:
-      'Le LOT SUIVANT des styles arrivés d’une source et pas encore rédigés (id, titre et catégorie d’origine, auteur, début de la consigne), avec la liste des catégories.',
-    inputSchema: { type: 'object', properties: { sourceId: { type: 'string' } } },
-  },
-  {
-    name: 'bibliotheque_styles_ecrire',
-    description:
-      "ÉCRIT LES TEXTES FRANÇAIS ET LES CATÉGORIES d'un lot de styles : chacun paraît aussitôt dans la bibliothèque, marqué « Nouveau ». « categoriesNeuves » seulement quand AUCUNE catégorie de la liste ne convient (rare) ; « ecarter » pour un style inutilisable.",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        styles: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              id: { type: 'string' },
-              titre: { type: 'string', description: '60 signes au plus : la direction visuelle' },
-              phrase: { type: 'string', description: 'Une phrase de 200 signes au plus' },
-              motsCles: { type: 'array', items: { type: 'string' } },
-              genre: { type: 'string', enum: ['motion', 'explication'] },
-              categories: { type: 'array', items: { type: 'string' }, description: '1 à 4 identifiants de la liste' },
-            },
-            required: ['id', 'titre', 'phrase', 'categories'],
-          },
-        },
-        categoriesNeuves: { type: 'array', items: { type: 'object', properties: { libelle: { type: 'string' } } } },
-        ecarter: { type: 'array', items: { type: 'string' } },
-      },
     },
   },
   {
@@ -1907,12 +1822,25 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'production',
     description:
-      "DIRECTEUR ARTISTIQUE (mode caméra) — écrit la chaîne d'une production dans sa mémoire, en texte et sans dépense : brief → directions → scénario → storyboard → plans, en TROIS ARRÊTS pour accord : « idee » (brief + directions), « images-cles » (scénario, storyboard, plans, images clés et « prix » du film — son accord LANCE la fabrication), « rendu » (le film monté). L'outil REFUSE le scénario, le storyboard et les plans tant que l'idée n'est pas accordée, un plan sans ligne « Capacité : … » branchée, et l'arrêt « images-cles » tant qu'une pièce à fournir manque. Actions : « etat » (relit la production en base : étapes, brief, pièces et prochaine étape), « lire » (« cle » : le texte ENTIER de la version courante d'une pièce, à relire avant de la corriger), « brief » (« champs » : [{ champ, valeur, source : demande | reponse | deduit }], fusionnés dans le brief), « formulaire » (3 à 5 « questions » d'un coup, chacune { champ, question, description, options } ; écarte seul ce que le brief sait déjà ; ATTEND les réponses, rendues ensemble), « concept » (« directions » : 2 ou 3 { titre, contenu }), « script » (« titre », « contenu »), « storyboard » (« scenes » : [{ titre, contenu }]), « plans » (« plans » : [{ titre, contenu, scene }]), « soumettre » (« etape » = idee | images-cles | rendu ; pose la question d'accord et ATTEND la réponse ; idee : « images » = { clé de direction : pièce jointe d'aperçu } ; images-cles : « prix » en dollars et « images » = [identifiants des images clés] ; rendu : « film » = pièce jointe du film monté), « piece_recue » (« nom » tel qu'écrit au champ « pieces » du brief, « piece » = pièce jointe reçue), « modifier » (« cle », « contenu », « titre » facultatif : nouvelle version, l'ancienne gardée), « versions » (« cle »), « revenir_a_version » (« cle », « version » : réécrit l'ancienne version en version courante, rien d'effacé).",
+      "DIRECTEUR ARTISTIQUE (mode caméra) — écrit la chaîne d'une production dans sa mémoire, en texte et sans dépense : brief → directions → scénario → storyboard → plans, en TROIS ARRÊTS pour accord : « idee » (brief + directions), « images-cles » (scénario, storyboard, plans, images clés et « prix » du film — son accord LANCE la fabrication), « rendu » (le film monté). L'outil REFUSE le scénario, le storyboard et les plans tant que l'idée n'est pas accordée, un plan sans ligne « Capacité : … » branchée, et l'arrêt « images-cles » tant qu'une pièce à fournir manque. Actions : « etat » (relit la production en base : étapes, brief, pièces et prochaine étape), « lire » (« cle » : le texte ENTIER de la version courante d'une pièce, à relire avant de la corriger), « brief » (« champs » : [{ champ, valeur, source : demande | reponse | deduit }], fusionnés dans le brief), « formulaire » (3 à 5 « questions » d'un coup, chacune { champ, question, description, options } ; écarte seul ce que le brief sait déjà ; ATTEND les réponses, rendues ensemble), « concept » (« directions » : 2 ou 3 { titre, contenu }), « script » (« titre », « contenu »), « storyboard » (« scenes » : [{ titre, contenu }]), « plans » (« plans » : [{ titre, contenu, scene }]), « type » (« media » : video, image ou son — quand la barre d'écriture ne l'a pas dit, après l'avoir demandé), « styles » (les dix styles et l'identifiant de l'image de chacun, à poser en images avec « ask_user »), « style » (« style » : écrit le style retenu, qui décide de la fabrication), « catalogue » (le catalogue gelé de 350 directions de motion design : « recherche », « categorie », « id »), « exemples » (les deux vidéos validées de l'ancien Studio, à lire pour leur structure : sans « id » la liste, avec « id » les fichiers), « esquisse » (« plan », « html », « format », « instants » : la page écrite par toi, contrôlée et photographiée par le serveur, SANS FRAIS — les images clés d'un style codé), « voix_essai » (« texte », « voix » : la voix d'essai gratuite, jointe), « soumettre » (« etape » = idee | images-cles | rendu ; pose la question d'accord et ATTEND la réponse ; idee : « images » = { clé de direction : pièce jointe d'aperçu } ; images-cles : « prix » en dollars (0 pour une fabrication toute sur le serveur), « images » = [identifiants des images clés] et « voix » = la voix d'essai à écouter ; rendu : « film » = pièce jointe du film monté), « piece_recue » (« nom » tel qu'écrit au champ « pieces » du brief, « piece » = pièce jointe reçue), « modifier » (« cle », « contenu », « titre » facultatif : nouvelle version, l'ancienne gardée), « versions » (« cle »), « revenir_a_version » (« cle », « version » : réécrit l'ancienne version en version courante, rien d'effacé).",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['etat', 'lire', 'brief', 'formulaire', 'concept', 'script', 'storyboard', 'plans', 'soumettre', 'piece_recue', 'modifier', 'versions', 'revenir_a_version'] },
+        action: { type: 'string', enum: ['etat', 'lire', 'type', 'styles', 'style', 'catalogue', 'exemples', 'brief', 'formulaire', 'concept', 'script', 'storyboard', 'plans', 'esquisse', 'voix_essai', 'soumettre', 'piece_recue', 'modifier', 'versions', 'revenir_a_version'] },
+        media: { type: 'string', enum: ['video', 'image', 'son'], description: 'type : le type de média répondu par l’utilisateur (image = photo)' },
+        style: { type: 'string', description: 'style : l’identifiant (ou le libellé) du style retenu par l’utilisateur' },
+        recherche: { type: 'string', description: 'catalogue : des mots (« néon », « lancement d’application »…)' },
+        categorie: { type: 'string', description: 'catalogue : une catégorie (3d, typographie, donnees, retro, neon, abstrait…)' },
+        id: { type: 'string', description: 'catalogue : l’identifiant d’un style pour son détail complet ; exemples : l’identifiant d’un exemple' },
+        plan: { type: 'string', description: 'esquisse : le nom du plan esquissé (devient l’identifiant de la composition)' },
+        duree: { type: 'number', description: 'esquisse : la durée de la composition en secondes (défaut 6)' },
+        html: { type: 'string', description: 'esquisse : la page ENTIÈRE de la composition (racine data-composition-id + data-duration, chronologie GSAP en pause sur window.__timelines)' },
+        format: { type: 'string', enum: ['9:16', '1:1', '4:5', '16:9'], description: 'esquisse : le format (défaut 9:16)' },
+        instants: { type: 'array', items: { type: 'number' }, description: 'esquisse : les instants (secondes) à photographier' },
+        bibliotheques: { type: 'array', items: { type: 'string' }, description: 'esquisse : les bibliothèques locales à copier (three, pixi, p5, ogl, matter, rapier, paper, anime, tone…)' },
+        texte: { type: 'string', description: 'voix_essai : le texte EXACT de la voix off' },
+        voix: { type: 'string', description: 'voix_essai : Claire (défaut), Thomas, Pierre ou Jessica ; soumettre (images-cles) : l’identifiant de la voix d’essai jointe' },
         champs: {
           type: 'array',
           description: 'brief : les valeurs connues',
@@ -1966,12 +1894,24 @@ export const TOOL_DEFS: ToolDef[] = [
   {
     name: 'realiser',
     description:
-      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget tenu par le serveur. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « brancher » (aucun service ne sait faire une capacité : pose la question avec l'encadré où l'utilisateur colle sa clé, fal.ai d'abord ; ATTEND sa réponse), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (une génération : modèle, prix, raison, étape — puis écris l'annonce dans ta réponse), « lot » (regroupe des devis : validé D'OFFICE s'il tient dans le prix accordé à l'arrêt 2, marge comprise ; sinon UN devis validé d'un clic dans la conversation, qui ATTEND la réponse), « generer » (lance un devis, ou tout un « lot » validé ; un devis hors lot repose la question), « suivre » (attend le résultat, qui paraît dans le fil et le volet de suivi), « lister » (médias, lots et total dépensé), « noter » (range une pièce écrite de la production — brief, concept, script, scène, plan, personnage, référence — en gardant ses versions), « retenir » (« id » : ajoute toi-même au suivi une image réussie, qui peut alors s'animer), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » et verse les plans finis dans le montage de la carte), « ajouter » (range un fichier monté par toi, ex. ffmpeg), « fixer_budget » (pose la question du budget ; après « Accepter », rappelle avec les mêmes montants), « methodes » (méthodes en service et leur note ; « methode » pour en lire une), « proposer_methode » (nouvelle version, activée seulement après l'accord : rappelle avec « version »), « avis » (demande si un média fini est gardé ; rappelle avec le même « id »), « decliner » (plan pour une autre « langue » : quoi réutiliser, refaire, resynchroniser), « media » (le détail complet d'un média : consigne, modèle, réglages, prix — pour le refaire ou le relancer), « lumiere » (APRÈS le choix du modèle de lumière : pose la sphère où l'utilisateur oriente la lumière, libre ou bloquée selon le modèle ; ATTEND sa réponse). UN DEVIS PEUT PORTER 1 À 4 PROPOSITIONS (« variantes »), jamais plus. ANIMER un plan (capacité « animation ») part de son image AJOUTÉE AU SUIVI (« source »), et va jusqu'à une IMAGE DE FIN (« fin ») quand l'utilisateur en choisit une ; le CONTRÔLE DU MOUVEMENT (« mouvement ») fait reprendre au personnage de « source » les gestes d'une vidéo de référence (« mouvement ») ; REFAIRE une image d'après elle-même (« retouche ») part de « source » avec la nouvelle consigne ; « modeles » avec « en_direct » (et « recherche ») lit TOUT le catalogue publié par fal.ai et Higgsfield, chaque modèle avec ses entrées, commandable au devis avec « parametres ». Les RETOUCHES d'une image (« angles », « lumiere », « visage ») partent de « source » avec « angle », « lumiere » ou « photos » + « cible ».",
+      "MODE RÉALISATION — fabrique les images, vidéos, voix, sons et présentateurs de la carte, sous le budget tenu par le serveur. Actions : « modeles » (catalogue des services branchés, par capacité, meilleure qualité d'abord), « brancher » (aucun service ne sait faire une capacité : pose la question avec l'encadré où l'utilisateur colle sa clé, fal.ai d'abord ; ATTEND sa réponse), « voix » (voix et présentateurs d'ElevenLabs ou HeyGen), « devis » (une génération : modèle, prix, raison, étape — puis écris l'annonce dans ta réponse), « lot » (regroupe des devis : validé D'OFFICE s'il tient dans le prix accordé à l'arrêt 2, marge comprise ; sinon UN devis validé d'un clic dans la conversation, qui ATTEND la réponse), « generer » (lance un devis, ou tout un « lot » validé ; un devis hors lot repose la question), « suivre » (attend le résultat, qui paraît dans le fil et le volet de suivi), « lister » (médias, lots et total dépensé), « noter » (range une pièce écrite de la production — brief, concept, script, scène, plan, personnage, référence — en gardant ses versions), « retenir » (« id » : ajoute toi-même au suivi une image réussie, qui peut alors s'animer), « composer » (FABRICATION SUR LE SERVEUR, SANS FRAIS NI DEVIS : « geste » preparer → le dossier d'une composition HyperFrames avec ses bibliothèques locales et les « medias » copiés ; controler → déterminisme, lint, validate ; apercu → des images aux « instants », à regarder ; rendre → MP4 ou PNG par « formats », suivi par « suivre », rangé à 0 $ ; « html » écrit la page), « mots » (les temps de chaque mot d'une voix, pour les sous-titres au mot), « sons » (bruitages et musique synthétisés par Tone.js hors temps réel, en WAV, sans frais), « monter » (JUSTE AVANT d'assembler : allume l'étape « Montage » et dit comment monter en composition), « ajouter » (range un fichier monté hors composition, ex. ffmpeg), « fixer_budget » (pose la question du budget ; après « Accepter », rappelle avec les mêmes montants), « methodes » (méthodes en service et leur note ; « methode » pour en lire une), « proposer_methode » (nouvelle version, activée seulement après l'accord : rappelle avec « version »), « avis » (demande si un média fini est gardé ; rappelle avec le même « id »), « decliner » (plan pour une autre « langue » : quoi réutiliser, refaire, resynchroniser), « media » (le détail complet d'un média : consigne, modèle, réglages, prix — pour le refaire ou le relancer), « lumiere » (APRÈS le choix du modèle de lumière : pose la sphère où l'utilisateur oriente la lumière, libre ou bloquée selon le modèle ; ATTEND sa réponse). UN DEVIS PEUT PORTER 1 À 4 PROPOSITIONS (« variantes »), jamais plus. ANIMER un plan (capacité « animation ») part de son image AJOUTÉE AU SUIVI (« source »), et va jusqu'à une IMAGE DE FIN (« fin ») quand l'utilisateur en choisit une ; le CONTRÔLE DU MOUVEMENT (« mouvement ») fait reprendre au personnage de « source » les gestes d'une vidéo de référence (« mouvement ») ; REFAIRE une image d'après elle-même (« retouche ») part de « source » avec la nouvelle consigne ; « modeles » avec « en_direct » (et « recherche ») lit TOUT le catalogue publié par fal.ai et Higgsfield, chaque modèle avec ses entrées, commandable au devis avec « parametres ». Les RETOUCHES d'une image (« angles », « lumiere », « visage ») partent de « source » avec « angle », « lumiere » ou « photos » + « cible ».",
     inputSchema: {
       type: 'object',
       required: ['action'],
       properties: {
-        action: { type: 'string', enum: ['modeles', 'brancher', 'voix', 'devis', 'lot', 'generer', 'suivre', 'lister', 'noter', 'retenir', 'monter', 'ajouter', 'fixer_budget', 'methodes', 'proposer_methode', 'avis', 'decliner', 'media', 'lumiere'] },
+        action: { type: 'string', enum: ['modeles', 'brancher', 'voix', 'devis', 'lot', 'generer', 'suivre', 'lister', 'noter', 'retenir', 'composer', 'mots', 'sons', 'monter', 'ajouter', 'fixer_budget', 'methodes', 'proposer_methode', 'avis', 'decliner', 'media', 'lumiere'] },
+        geste: { type: 'string', enum: ['preparer', 'controler', 'apercu', 'rendre'], description: '« composer » : préparer le dossier, contrôler la page, en tirer des images, ou la rendre (vidéo ou image) sur le serveur, sans frais' },
+        html: { type: 'string', description: '« composer » : la page ENTIÈRE de la composition (écrit index.html avant le geste)' },
+        bibliotheques: { type: 'array', items: { type: 'string', enum: [...BIBLIOTHEQUES_DE_COMPOSITION.map((b) => b.id)] }, description: '« composer » preparer : les bibliothèques servies en local à copier (GSAP toujours)' },
+        medias: { type: 'array', items: { type: 'string' }, description: '« composer » preparer : les médias de la carte ou pièces jointes à copier dans medias/ (plans finis, voix, musique, images)' },
+        instants: { type: 'array', items: { type: 'number' }, description: '« composer » apercu : les instants (secondes) à photographier, 8 au plus' },
+        sortie: { type: 'string', enum: ['video', 'image'], description: '« composer » rendre : une vidéo MP4 (défaut) ou une image PNG' },
+        formats: { type: 'array', items: { type: 'string', enum: ['16:9', '9:16', '1:1', '4:5'] }, description: '« composer » rendre : un rendu par format, la même page mise à la taille de chacun' },
+        instant: { type: 'number', description: '« composer » rendre une image : l’instant photographié' },
+        dossier: { type: 'string', description: '« composer » : le chemin absolu d’un dossier de composition existant (sinon tiré de « plan »)' },
+        script: { type: 'string', description: '« sons » : le corps d’une fonction qui reçoit « Tone » (et « transport ») et programme les synthés, joué hors temps réel' },
+        nom: { type: 'string', description: '« sons » : le nom du fichier WAV' },
+        texte: { type: 'string', description: '« mots » : le texte connu de la voix (l’affichage le garde, la reconnaissance ne donne que les temps)' },
         capacite: {
           type: 'string',
           enum: ['image', 'video', 'voix', 'son', 'musique', 'avatar', 'synchro', 'animation', 'mouvement', 'angles', 'lumiere', 'visage', 'retouche'],
@@ -2150,22 +2090,6 @@ function schemaDuControleWordpress() {
 }
 
 /** Un verdict de surveillance dit en clair, pour l'agent. */
-/** L'agent d'une source de la bibliothèque : un agent de volet dont la carte porte l'étiquette « bibliotheque ». */
-function estAgentBibliotheque(agentId: string): boolean {
-  const agent = store.getAgent(agentId);
-  if (!agent?.cardId || agent.role === 'cadrage' || (agent as { workdir?: string }).workdir) return false;
-  return !!store.getCard(agent.cardId)?.labels.includes(LABEL_BIBLIOTHEQUE);
-}
-
-/** La recette d'une source, décrite pour l'agent (le détail est dans sa demande). */
-function schemaDeRecetteDeSource() {
-  return {
-    type: 'object',
-    description:
-      'DÉCLARATIVE : { liste: { url, format: "json"|"html", chemin?, objets?, desechapper?, pages?: { gabarit, jusqua } }, champs: { id, titre?, auteur?, auteurUrl?, consigne?, lien?, affiche?, video?, anime?, categorie? } (chemins « a.b » ou gabarits « https://…/{slug} »), fiche?: { url, consigne?|lien?|auteur?|affiche?|video?: { apres?, debut, fin, prefixe?, texte? } }, garder?: { consigneMin?, champ?, valeurs? } }',
-  };
-}
-
 function phraseDuVerdict(verdict: VerdictSite & { dureeMs: number }): string {
   if (verdict.etat === 'ok') return `DEBOUT${verdict.code ? ` (code ${verdict.code})` : ''}, en ${verdict.dureeMs} ms.`;
   return [
@@ -2188,12 +2112,6 @@ export const TASK_ONLY_TOOLS = new Set([
   'veille_poser',
   'marketing',
   'statistiques',
-  'studio',
-  'bibliotheque_source_essai',
-  'bibliotheque_source_recette',
-  'bibliotheque_source_proposer',
-  'bibliotheque_styles_a_rediger',
-  'bibliotheque_styles_ecrire',
 ]);
 
 /**
@@ -2203,16 +2121,14 @@ export const TASK_ONLY_TOOLS = new Set([
  */
 export function outilServiA(nom: string, agentId: string): boolean {
   if (nom === 'marketing') return estAgentMarketing(agentId);
-  // …et aux agents d'une carte qui a un MONTAGE (grand volet de montage) : la retouche demandée en mots passe par les mêmes opérations.
-  if (nom === 'studio') return estAgentStudio(agentId) || estAgentDUnMontage(agentId);
   // Le cahier des charges : le seul cadrage d'une carte née de la case « Démarrer par un cahier des charges ».
   if (nom === 'cahier_des_charges') return estAgentDuCahier(agentId);
   // Le cahier de réalisation : le seul cadrage d'une carte dont la caméra est allumée.
-  if (nom === 'cahier_de_realisation' || nom === 'apercu_de_realisation') return estAgentDuQuestionnaireDeRealisation(agentId);
+  if (nom === 'cahier_de_realisation') return estAgentDuQuestionnaireDeRealisation(agentId);
+  // Les aperçus payés d'office (enveloppe de 1 $) sont ABANDONNÉS (26/10/2026) : chaque génération a son bouton à prix.
+  if (nom === 'apercu_de_realisation') return false;
   // Le responsable créatif : le cadrage ET la tâche d'une carte caméra allumée, jamais un autre agent.
   if (nom === 'production') return estAgentDeProduction(agentId);
-  // Les outils de la bibliothèque de styles : le seul agent d'une source (carte étiquetée « bibliotheque »).
-  if (nom.startsWith('bibliotheque_')) return estAgentBibliotheque(agentId);
   if (nom === 'moteurs') return Boolean(store.getAgent(agentId)?.ajoutDeMoteur);
   /*
    * LA VEILLE : tout agent de TÂCHE qui porte une carte — tâche ordinaire comme
@@ -2268,14 +2184,20 @@ export const CADRAGE_ONLY_TOOLS = new Set([
 /** Les outils du mode « Création » : servis seulement quand la carte l'a allumé. */
 export const CREATION_TOOLS = new Set(['deleguer', 'evaluer', 'suggerer_modele']);
 
-/** L'outil du mode « Réalisation » : servi seulement à l'agent de TÂCHE d'une carte où la caméra est allumée. */
+/**
+ * L'outil du mode « Réalisation » : servi à l'agent d'une carte où la caméra
+ * est allumée — au CADRAGE aussi depuis le 26/10/2026 : le directeur artistique
+ * y mène tout le parcours (brief, esquisses, montage, téléchargement), et
+ * « realiser » refuse lui-même toute génération avant « Passer aux esquisses ».
+ * Chaque génération reste derrière son bouton à prix.
+ */
 export const REALISATION_TOOLS = new Set(['realiser']);
 
 export function toolsFor(role: ToolContext['role'], options: { creation?: boolean; realisation?: boolean } = {}): ToolDef[] {
   const servis = TOOL_DEFS.filter(
     (t) =>
       (options.creation || !CREATION_TOOLS.has(t.name)) &&
-      ((options.realisation && role !== 'cadrage') || !REALISATION_TOOLS.has(t.name)),
+      (options.realisation || !REALISATION_TOOLS.has(t.name)),
   );
   if (role === 'cadrage') return servis.filter((t) => !CADRAGE_BLOCKED_TOOLS.has(t.name));
   return servis.filter((t) => !CADRAGE_ONLY_TOOLS.has(t.name));
@@ -3128,7 +3050,7 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'attach_screenshot': {
       const demande = String(args.path ?? '').trim();
       if (!demande) return { ok: false, text: 'Aucun chemin donné.' };
-      /* LES RACINES ACCEPTÉES — définies une seule fois, partagées avec l'import du Studio. */
+      /* LES RACINES ACCEPTÉES — définies une seule fois. */
       const racines = racinesDeLAgent(ctx.agentId, project);
       const full = fichierPermis(demande, racines);
       if (!full) return { ok: false, text: refusDeChemin(demande, racines) };
@@ -3935,61 +3857,6 @@ export async function callTool(ctx: ToolContext, name: string, args: Record<stri
     case 'statistiques':
       return outilStatistiques(ctx, project, args);
 
-    case 'studio': {
-      if (!estAgentStudio(ctx.agentId) && !estAgentDUnMontage(ctx.agentId)) return { ok: false, text: 'Cet outil est réservé à l’agent attitré d’une création du Studio, ou aux agents d’une carte qui a un montage.' };
-      // Chargé à l'appel : le module tire le rendu et la voix, inutiles à tout autre outil.
-      const { outilStudio } = await import('./outil-studio.js');
-      return outilStudio({ agentId: ctx.agentId, ...(ctx.cardId ? { cardId: ctx.cardId } : {}) }, project, args);
-    }
-
-    /* LA BIBLIOTHÈQUE DE STYLES : l'agent d'une source (`server/src/studio-sources.ts`). */
-    case 'bibliotheque_source_essai':
-    case 'bibliotheque_source_recette': {
-      const sources = await import('./studio-sources.js');
-      const { lireSource } = await import('./studio-styles.js');
-      const sourceId = String(args.sourceId ?? '');
-      if (!lireSource(sourceId)) return { ok: false, text: `Aucune source « ${sourceId} ».` };
-      if (name === 'bibliotheque_source_recette' && typeof args.impossible === 'string' && args.impossible.trim()) {
-        sources.marquerAnalyseImpossible(sourceId, args.impossible.trim());
-        return { ok: true, text: 'Noté : la source passe « en erreur » avec ta raison, visible dans le volet « Sources ».' };
-      }
-      if (name === 'bibliotheque_source_recette' && typeof args.annuaire === 'string' && args.annuaire.trim()) {
-        sources.marquerAnnuaire(sourceId, args.annuaire.trim());
-        return { ok: true, text: 'Noté : la source est rangée comme annuaire ; les sites proposés attendent la validation de l’utilisateur dans le volet « Sources ».' };
-      }
-      const avis = jugerRecetteSource(args.recette);
-      if (!avis.ok) return { ok: false, text: `Recette refusée : ${avis.raison}. Corrige et rappelle l'outil.` };
-      if (name === 'bibliotheque_source_recette') {
-        const r = await sources.enregistrerRecette(sourceId, { nom: args.nom, licence: args.licence, resume: args.resume, recette: avis.valeur });
-        return { ok: r.ok, text: r.texte };
-      }
-      let lues = 0;
-      const lecture = await sources.lireLaSource(avis.valeur, { fichePour: () => lues++ < 5, maxFiches: 5 });
-      if (!lecture.ok) return { ok: true, text: `Essai (rien n'est enregistré) — ÉCHEC : ${lecture.raison}` };
-      return { ok: true, text: `Essai (rien n'est enregistré) — ${sources.phraseDeLEssai(lecture.lecture, Math.min(lues, 5))}` };
-    }
-
-    case 'bibliotheque_source_proposer': {
-      const sources = await import('./studio-sources.js');
-      const { lireSource } = await import('./studio-styles.js');
-      const depuis = String(args.depuis ?? '');
-      if (!lireSource(depuis)) return { ok: false, text: `Aucune source « ${depuis} ».` };
-      const avis = jugerRecetteSource(args.recette);
-      if (!avis.ok) return { ok: false, text: `Recette refusée : ${avis.raison}. Corrige et rappelle l'outil.` };
-      const r = await sources.proposerSourceDepuisAnnuaire(depuis, { adresse: args.adresse, nom: args.nom, licence: args.licence, resume: args.resume, recette: avis.valeur });
-      return { ok: r.ok, text: r.texte };
-    }
-
-    case 'bibliotheque_styles_a_rediger': {
-      const { lotARediger } = await import('./studio-sources.js');
-      return { ok: true, text: lotARediger(typeof args.sourceId === 'string' && args.sourceId ? args.sourceId : undefined) };
-    }
-
-    case 'bibliotheque_styles_ecrire': {
-      const { ecrireStylesRediges } = await import('./studio-sources.js');
-      return { ok: true, text: ecrireStylesRediges(args) };
-    }
-
     case 'veille_poser': {
       const { poserVeille } = await import('./veille-de-carte.js');
       const pose = await poserVeille({ agentId: ctx.agentId, cardId: ctx.cardId, args });
@@ -4783,7 +4650,7 @@ export function cadrageAllowList(): string[] {
     ...CADRAGE_ALLOWED_NATIVE,
     // Les outils du mode Création y figurent toujours : le pont ne les SERT
     // qu'à une carte où il est allumé, la liste blanche n'a donc rien à trier.
-    ...toolsFor('cadrage', { creation: true }).map((t) => `mcp__beluga__${t.name}`),
+    ...toolsFor('cadrage', { creation: true, realisation: true }).map((t) => `mcp__beluga__${t.name}`),
   ];
 }
 
@@ -4860,11 +4727,11 @@ function outilMarketing(ctx: ToolContext, project: Project, args: Record<string,
           `CONTENUS (${contenus.length}) :`,
           ...contenus.slice(0, 40).map((c) => {
             const l = parContenu.get(c.id);
-            // Les visuels exportés par le Studio pour ce contenu, en lecture seule.
-            const visuels = mediasDuContenuMarketing(c.id);
+            // Les visuels prêts de ce contenu (directeur artistique, ancien Studio), en lecture seule.
+            const visuels = visuelsDuContenu(project.id, c.id);
             return `- [${c.id}] ${c.etape} · ${c.genre} · ${c.canaux.join('+')}${c.datePrevue ? ` · ${c.datePrevue}` : ''} · « ${c.titre} »${c.varianteDe ? ` (version B de ${c.varianteDe})` : ''}${
               l ? ` — ${l.visites} clic(s), ${l.objectifs} objectif(s), ${l.ventes} vente(s), ${centimes(l.montantCentimes)}` : ''
-            }${visuels.length ? ` · visuel(s) du Studio : ${visuels.map((v) => `${v.genre} ${v.format}`).join(', ')}` : ''}`;
+            }${visuels.length ? ` · visuel(s) : ${visuels.map((v) => `${v.genre} ${v.format}`).join(', ')}` : ''}`;
           }),
           contenus.length > 40 ? `(${contenus.length - 40} contenu(s) plus ancien(s) non listé(s))` : '',
           phraseDuRythme(rythmeDuProjet(project.id)),

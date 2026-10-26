@@ -135,7 +135,7 @@ export const ARBORESCENCE_REGLAGES: readonly GroupeDeReglages[] = [
       {
         cle: 'services-creation',
         titre: 'Services de création',
-        motsCles: ['studio', 'vidéo', 'clé', 'kie', 'kie.ai', 'higgsfield', 'byteplus', 'seedance', 'freepik', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter', 'modèle', 'génération'],
+        motsCles: ['vidéo', 'image', 'clé', 'kie', 'kie.ai', 'higgsfield', 'byteplus', 'seedance', 'freepik', 'magnific', 'krea', 'runway', 'fal', 'replicate', 'openrouter', 'modèle', 'génération'],
       },
     ],
   },

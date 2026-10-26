@@ -176,10 +176,11 @@ export function arretLu(brut: unknown): ArretDuDirecteur | null {
 }
 
 /**
- * PEUT-ON ÉCRIRE CETTE ÉTAPE ? Les étapes de l'IDÉE (brief, direction)
- * s'écrivent librement ; celles des IMAGES CLÉS (scénario, storyboard, plans)
- * attendent l'accord sur l'idée, puis s'enchaînent SANS arrêt entre elles. Le
- * serveur le juge, jamais l'agent : c'est ce qui tient les trois arrêts.
+ * PEUT-ON ÉCRIRE CETTE ÉTAPE ? Depuis le 26/10/2026, tout l'écrit d'une
+ * création (brief, directions, scénario, storyboard, plans) se fait AU BRIEF,
+ * librement et sans arrêt d'accord : c'est le bouton « Passer aux esquisses »
+ * qui vaut accord. Seule une étape étrangère à la chaîne du média est refusée
+ * (un storyboard pour une photo).
  */
 export function etapeSuivantePermise(
   etape: EtapeDEcriture,
@@ -190,14 +191,7 @@ export function etapeSuivantePermise(
   if (!chaine.includes(etape)) {
     return { ok: false, raison: `l’étape « ${LIBELLES_ETAPES_D_ECRITURE[etape]} » n’existe pas pour cette production (chaîne : ${chaine.map((e) => LIBELLES_ETAPES_D_ECRITURE[e]).join(' → ')}).` };
   }
-  if (arretDeLEtape(etape) === 'idee') return { ok: true };
-  for (const avant of etapesDeLArret('idee', types)) {
-    const etat = etatDeLEtapeDEcriture(elements, avant);
-    if (etat !== 'valide') {
-      const geste = etat === 'vide' ? 'écris-la d’abord' : etat === 'a-valider' ? 'elle attend la réponse de l’utilisateur' : 'soumets l’arrêt « idee » avec l’action « soumettre »';
-      return { ok: false, raison: `l’idée n’a pas encore l’accord de l’utilisateur (« ${LIBELLES_ETAPES_D_ECRITURE[avant]} » : ${geste}) : « ${LIBELLES_ETAPES_D_ECRITURE[etape]} » attend cet accord.` };
-    }
-  }
+  void elements;
   return { ok: true };
 }
 
@@ -283,6 +277,8 @@ export function questionDAccordDArret(e: {
   prix?: number;
   plafond?: number;
   film?: string;
+  /** La voix d'essai (pièce jointe son) que l'arrêt 2 fait écouter : son accord vaut validation des textes. */
+  voix?: string;
 }): { question: string; description: string; options: { label: string; description: string; image?: string; media?: string }[] } {
   const resume = (e.resume ?? '').trim();
   if (e.arret === 'idee') {
@@ -319,23 +315,29 @@ export function questionDAccordDArret(e: {
     const prix = e.prix ?? 0;
     const plafond = e.plafond ?? prix;
     const nombre = (e.pieces ?? []).length;
+    const voix = e.voix ? 'Écoutez la voix d’essai (bouton lecture) : valider vaut accord sur les textes dits, la voix finale est fabriquée ensuite. ' : '';
+    const gratuit = prix <= 0;
     return {
-      question: `Lancer la fabrication pour ${montant(prix)} $ ?`,
+      question: gratuit ? 'Lancer la fabrication ?' : `Lancer la fabrication pour ${montant(prix)} $ ?`,
       description: [
         resume,
-        `${nombre ? `Scénario, storyboard et ${nombre} pièce(s) à fabriquer sont lisibles dans le suivi à droite ; les images clés sont dans le fil. ` : ''}Prix annoncé : ${montant(prix)} $. Pour réparer seul une panne (un nouvel essai, un autre outil), le directeur peut aller jusqu’à ${montant(plafond)} $, soit 30 % de marge ; au-delà, il vous demande. Valider lance la fabrication ici même : il revient avec le film monté.`,
+        `${nombre ? `Scénario, storyboard et ${nombre} pièce(s) à fabriquer sont lisibles dans le suivi à droite ; les images clés sont dans le fil. ` : ''}${voix}${
+          gratuit
+            ? 'Tout se fabrique sur notre serveur, sans aucun frais de génération. Valider lance la fabrication ici même : le directeur revient avec le film monté.'
+            : `Prix annoncé : ${montant(prix)} $. Pour réparer seul une panne (un nouvel essai, un autre outil), le directeur peut aller jusqu’à ${montant(plafond)} $, soit 30 % de marge ; au-delà, il vous demande. Valider lance la fabrication ici même : il revient avec le film monté.`
+        }`,
       ]
         .filter(Boolean)
         .join(' '),
       options: [
-        { label: REPONSE_LANCER_LA_FABRICATION, description: `La fabrication part tout de suite, ${montant(plafond)} $ au plus.` },
+        { label: REPONSE_LANCER_LA_FABRICATION, description: gratuit ? 'La fabrication part tout de suite, sans frais.' : `La fabrication part tout de suite, ${montant(plafond)} $ au plus.`, ...(e.voix ? { media: e.voix } : {}) },
         { label: REPONSE_RETOUCHER_L_ETAPE, description: 'Dites ce qu’il faut changer avant de dépenser : une nouvelle version sera écrite.' },
       ],
     };
   }
   return {
     question: 'Le film vous convient-il ?',
-    description: [resume, 'Valider livre l’export final sous la réponse. Pour retoucher, dites ce qui change (un plan, un texte, le rythme, la musique) : le directeur l’applique et vous le remontre. Le volet de montage reste ouvert pour régler à la main.']
+    description: [resume, 'Valider livre l’export final sous la réponse. Pour retoucher, dites ce qui change (un plan, un texte, le rythme, la musique, un format) : le directeur l’applique et vous le remontre.']
       .filter(Boolean)
       .join(' '),
     options: [
@@ -431,6 +433,9 @@ export const CHAMPS_DU_BRIEF = [
   'pieces',
   'contraintes',
   'echeance',
+  /* Ce qu'une VIDÉO fait entendre (26/10/2026) : prévu ici, fabriqué au second temps des esquisses, exigé avant le montage. */
+  'voix',
+  'musique',
 ] as const;
 export type ChampDuBrief = (typeof CHAMPS_DU_BRIEF)[number];
 
@@ -447,6 +452,8 @@ export const LIBELLES_CHAMPS_DU_BRIEF: Record<ChampDuBrief, string> = {
   pieces: 'Pièces à fournir',
   contraintes: 'Contraintes',
   echeance: 'Échéance',
+  voix: 'Voix off',
+  musique: 'Musique',
 };
 
 /** D'où vient une valeur : la phrase de départ, une réponse au formulaire, ou une déduction du responsable créatif. */
@@ -653,8 +660,8 @@ export function retourAVersion(
 
 const LIBELLES_ETATS: Record<EtatDEtapeDEcriture, string> = {
   vide: 'pas encore écrite',
-  propose: 'écrite, pas encore soumise',
-  'a-valider': 'soumise, attend l’accord',
+  propose: 'écrite',
+  'a-valider': 'soumise, attend la réponse',
   valide: 'validée',
 };
 
@@ -674,12 +681,9 @@ export function resumeDeLaProduction(elements: readonly ElementDeProduction[], t
   const pieces = courants
     .filter((e) => e.genre !== 'brief')
     .map((e) => `- ${e.genre} « ${e.titre} » (clé « ${e.cle} », v${e.version}, ${e.etat})`);
+  void arret;
   return [
-    `CHAÎNE : ${etats.map((x) => `${LIBELLES_ETAPES_D_ECRITURE[x.etape]} — ${LIBELLES_ETATS[x.etat]}`).join(' ; ')}.`,
-    `ARRÊT À MENER : ${LIBELLES_ARRETS_DU_DIRECTEUR[arret]} (« ${arret} »)${prochaine ? ` — prochaine étape à écrire : ${LIBELLES_ETAPES_D_ECRITURE[prochaine]}` : ''}.`,
-    arret === 'rendu'
-      ? 'L’IDÉE ET LES IMAGES CLÉS SONT ACCORDÉES : la fabrication est lancée ; monte le film puis soumets l’arrêt « rendu ».'
-      : '',
+    `ÉCRIT : ${etats.map((x) => `${LIBELLES_ETAPES_D_ECRITURE[x.etape]} — ${LIBELLES_ETATS[x.etat]}`).join(' ; ')}${prochaine ? ` — prochaine pièce à écrire au brief : ${LIBELLES_ETAPES_D_ECRITURE[prochaine]}` : ''}.`,
     manquantes.length ? `PIÈCES À FOURNIR ENCORE ATTENDUES : ${manquantes.join(' ; ')} — si elles sont DÉJÀ arrivées (jointes à un message ou à une réponse, ou parmi ce que tu as vu), note-les TOI-MÊME avec « piece_recue » (identifiant ou alias « #xxxx ») ; sinon demande-les avec « ask_user ». Ne redemande JAMAIS une pièce déjà reçue.` : '',
     `BRIEF${brief ? ` (v${brief.version}, ${brief.etat})` : ''} :\n${brief?.contenu.trim() || '(pas encore écrit)'}`,
     `PIÈCES :\n${pieces.length ? pieces.join('\n') : '(aucune)'}`,

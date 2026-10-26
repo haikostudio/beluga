@@ -1288,6 +1288,50 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('production.choisirDirection'), cardId: z.string(), cle: z.string() }),
   /** « Ajouter au suivi » / « Retirer du suivi » depuis le menu « … » d'un média : le fichier ne bouge jamais. */
   z.object({ type: z.literal('production.retenir'), cardId: z.string(), mediaId: z.string(), retenu: z.boolean() }),
+  /*
+   * LE PARCOURS D'UNE CRÉATION DE MÉDIA (26/10/2026) : le bouton du bas
+   * (Brief → Esquisses → Montage → Téléchargement), les panneaux du menu « … »
+   * (chiffrés, puis lancés d'un clic qui vaut accord), les studios photo et son,
+   * et la page Téléchargement.
+   */
+  z.object({
+    type: z.literal('realisation.passer'),
+    cardId: z.string(),
+    geste: z.enum(['passer-esquisses', 'passer-sequences', 'passer-montage', 'passer-telechargement', 'revenir-esquisses']),
+  }),
+  z.object({
+    type: z.literal('realisation.panneau.chiffrer'),
+    cardId: z.string(),
+    mediaId: z.string(),
+    operation: z.enum(['visage', 'lumiere', 'angles', 'animer', 'gestes', 'consigne']),
+    duree: z.number().positive().max(60).optional(),
+  }),
+  z.object({
+    type: z.literal('realisation.panneau.lancer'),
+    cardId: z.string(),
+    mediaId: z.string(),
+    operation: z.enum(['visage', 'lumiere', 'angles', 'animer', 'gestes', 'consigne']),
+    service: z.string(),
+    modele: z.string(),
+    variantes: z.number().int().min(2).max(4).optional(),
+    consigne: z.string().max(4000).optional(),
+    photos: z.array(z.string()).max(8).optional(),
+    cible: z.string().max(300).optional(),
+    lumiere: z.object({ azimut: z.number(), elevation: z.number() }).optional(),
+    typeDeLumiere: z.string().max(120).optional(),
+    angle: z.string().max(40).optional(),
+    fin: z.string().optional(),
+    duree: z.number().positive().max(60).optional(),
+    son: z.boolean().optional(),
+    mouvement: z.string().optional(),
+    orientation: z.enum(['image', 'video']).optional(),
+    image: z.string().optional(),
+  }),
+  z.object({ type: z.literal('realisation.photo.rendre'), cardId: z.string(), source: z.string(), reglages: z.unknown() }),
+  z.object({ type: z.literal('realisation.son.lire'), cardId: z.string() }),
+  z.object({ type: z.literal('realisation.son.enregistrer'), cardId: z.string(), montage: z.unknown() }),
+  z.object({ type: z.literal('realisation.son.exporter'), cardId: z.string(), montage: z.unknown(), format: z.enum(['mp3', 'wav']) }),
+  z.object({ type: z.literal('realisation.telechargement.lire'), cardId: z.string() }),
   z.object({ type: z.literal('medias.livres.agent'), agentId: z.string() }),
   z.object({
     type: z.literal('medias.lister'),
@@ -1370,139 +1414,22 @@ export const ClientCommand = z.discriminatedUnion('type', [
   z.object({ type: z.literal('marketing.contenu.supprimer'), id: z.string() }),
   z.object({ type: z.literal('marketing.action.faite'), id: z.string(), fait: z.boolean() }),
   z.object({ type: z.literal('marketing.action.modifier'), projectId: z.string(), id: z.string(), datePrevue: z.string() }),
-  /**
-   * LE STUDIO (`shared/src/studio.ts`, `server/src/studio.ts`). La liste des
-   * créations ; une création ouverte (sa composition courante, son historique,
-   * sa bibliothèque, ses exports, ses dépenses — demandée à l'ouverture) ; une
-   * OPÉRATION de l'écran devient une version ; voix d'essai gratuite, devis et
-   * validation de la voix finale ; exports ; le clic sur une dépense ; parler à
-   * l'agent de la création. Chaque changement se rediffuse par l'événement `studio`.
-   */
-  z.object({ type: z.literal('studio.lister'), projectId: z.string().optional() }),
-  z.object({
-    type: z.literal('studio.espace.ecrire'),
-    projectId: z.string(),
-    kit: z.record(z.any()).optional(),
-    voixFinale: z.string().optional(),
-    voixEssai: z.string().optional(),
-  }),
-  z.object({
-    type: z.literal('studio.creation.creer'),
-    projectId: z.string(),
-    titre: z.string().optional(),
-    formats: z.array(z.string()).optional(),
-    /* Un dessin gardé de la bibliothèque, posé comme premier segment. */
-    depuisMedia: z.string().optional(),
-    /* Un MODÈLE du projet : la nouvelle création part de sa composition entière. */
-    depuisModele: z.string().optional(),
-  }),
-  z.object({ type: z.literal('studio.creation.ouvrir'), id: z.string() }),
-  /* LE MONTAGE D'UNE CARTE (grand volet de montage) : la création liée à la carte, créée au premier appel, nourrie de ses plans. */
-  z.object({ type: z.literal('studio.carte.montage'), cardId: z.string() }),
-  z.object({ type: z.literal('studio.creation.modifier'), id: z.string(), titre: z.string().optional(), formats: z.array(z.string()).optional() }),
-  /** Le réglage de l'agent d'une création, choisi avant sa première demande (`null` l'efface). */
-  z.object({
-    type: z.literal('studio.creation.agent'),
-    id: z.string(),
-    run: z.object({ engine: z.string(), model: z.string().optional(), thinking: z.string().optional(), account: z.string().optional() }).nullable(),
-  }),
-  z.object({ type: z.literal('studio.creation.supprimer'), id: z.string() }),
-  z.object({ type: z.literal('studio.creation.dupliquer'), id: z.string() }),
-  /* LES MODÈLES : « Garder comme modèle » (le refaire met le modèle à jour), lister, retirer, copier vers un autre projet. */
-  z.object({ type: z.literal('studio.modele.valider'), creationId: z.string() }),
-  z.object({ type: z.literal('studio.modele.lister'), projectId: z.string().optional() }),
-  z.object({ type: z.literal('studio.modele.supprimer'), id: z.string() }),
-  z.object({ type: z.literal('studio.modele.copier'), id: z.string(), projectId: z.string() }),
-  z.object({ type: z.literal('studio.operation'), creationId: z.string(), operation: z.record(z.any()) }),
-  z.object({ type: z.literal('studio.annuler'), creationId: z.string() }),
-  z.object({ type: z.literal('studio.retablir'), creationId: z.string() }),
-  z.object({ type: z.literal('studio.restaurer'), creationId: z.string(), numero: z.number() }),
-  z.object({ type: z.literal('studio.historique'), creationId: z.string() }),
-  /* Ce que l'écran a sélectionné : l'agent le lit avec chaque demande. */
-  z.object({
-    type: z.literal('studio.selection'),
-    creationId: z.string(),
-    segmentIds: z.array(z.string()),
-    elementId: z.string().optional(),
-    curseur: z.number(),
-    format: z.string().optional(),
-  }),
-  z.object({ type: z.literal('studio.media.importer'), projectId: z.string(), attachmentId: z.string(), creationId: z.string().optional(), licence: z.string().optional() }),
-  z.object({ type: z.literal('studio.media.modifier'), id: z.string(), nom: z.string().optional(), categorie: z.string().optional(), usage: z.string().optional(), licence: z.string().optional() }),
-  z.object({ type: z.literal('studio.media.supprimer'), id: z.string() }),
-  /* La bande d'images d'une vidéo (fenêtre d'édition d'un élément), extraite une fois puis gardée. */
-  z.object({ type: z.literal('studio.media.bande'), creationId: z.string(), mediaId: z.string() }),
-  /* LE CATALOGUE DE STYLES (collection libre de consignes de vidéos animées) : la galerie « Bibliothèque », en haut de l’aperçu. */
-  z.object({ type: z.literal('studio.styles.lister') }),
-  /* La fenêtre d'aperçu agrandi : le début de la consigne, les liens et le crédit, demandés à l'ouverture. */
-  z.object({ type: z.literal('studio.styles.lire'), id: z.string() }),
-  /* LES SOURCES DE LA BIBLIOTHÈQUE (`server/src/studio-sources.ts`) : le volet « Sources » du tiroir. */
-  z.object({ type: z.literal('studio.sources.lister') }),
-  z.object({ type: z.literal('studio.sources.ajouter'), adresse: z.string() }),
-  z.object({ type: z.literal('studio.sources.valider'), id: z.string() }),
-  z.object({ type: z.literal('studio.sources.analyser'), id: z.string() }),
-  z.object({ type: z.literal('studio.sources.controler'), id: z.string() }),
-  z.object({ type: z.literal('studio.sources.retirer'), id: z.string() }),
-  /* LE VOLET « PASSER LA VÉRIFICATION » (`server/src/studio-navigateur.ts`) : un vrai navigateur sur le serveur, son
-     image à l'écran, les gestes renvoyés ; « terminer » lit la source par lui. */
-  z.object({ type: z.literal('studio.navigateur.ouvrir'), sourceId: z.string() }),
-  z.object({
-    type: z.literal('studio.navigateur.geste'),
-    sourceId: z.string(),
-    geste: z.union([
-      z.object({ genre: z.literal('clic'), x: z.number(), y: z.number() }),
-      z.object({ genre: z.literal('molette'), x: z.number(), y: z.number(), dx: z.number(), dy: z.number() }),
-      z.object({ genre: z.literal('texte'), texte: z.string().max(500) }),
-      z.object({ genre: z.literal('touche'), cle: z.string().max(20) }),
-    ]),
-  }),
-  z.object({ type: z.literal('studio.navigateur.terminer'), sourceId: z.string() }),
-  z.object({ type: z.literal('studio.navigateur.fermer'), sourceId: z.string() }),
-  /* La voix d'essai, gratuite : un segment, ou toutes les voix qui n'en ont pas. */
-  z.object({ type: z.literal('studio.voix.essai'), creationId: z.string(), segmentId: z.string().optional() }),
-  /* Le PLAFOND de prix des voix finales, lu en direct AVANT le clic. `refaire` : la prise entière même si tout est déjà final. */
-  z.object({ type: z.literal('studio.voix.devis'), creationId: z.string(), segmentIds: z.array(z.string()).optional(), refaire: z.boolean().optional() }),
-  /* LE CLIC « Valider la voix » (ou « Refaire la voix », `refaire`) : autorise jusqu'au plafond affiché, et lance. */
-  z.object({ type: z.literal('studio.voix.valider'), creationId: z.string(), segmentIds: z.array(z.string()).optional(), plafond: z.number(), refaire: z.boolean().optional() }),
-  z.object({ type: z.literal('studio.voix.extraits') }),
-  z.object({
-    type: z.literal('studio.exporter'),
-    creationId: z.string(),
-    format: z.string(),
-    genre: z.enum(['video', 'image']).optional(),
-    /** L'instant pris pour une image : la tête de lecture. */
-    instant: z.number().nonnegative().optional(),
-    /** Qualité, définition, images par seconde, type, son, format d'image (`studio-export.ts`), lus avec tolérance. */
-    reglages: z.record(z.unknown()).optional(),
-    /** Le lot du clic « Exporter » : le même pour chaque format coché (`partagerLesExports`). */
-    lot: z.string().max(64).optional(),
-  }),
-  z.object({ type: z.literal('studio.export.annuler'), id: z.string() }),
-  /* « Vider les anciens exports » : retire les exports FINIS de la création (lignes et fichiers), sauf ceux à garder. */
-  z.object({ type: z.literal('studio.exports.vider'), creationId: z.string(), garder: z.array(z.string()).max(200).optional() }),
-  z.object({ type: z.literal('studio.depense.valider'), id: z.string() }),
-  z.object({ type: z.literal('studio.depense.refuser'), id: z.string() }),
-  z.object({ type: z.literal('studio.credit') }),
-  /* LES SERVICES DE CRÉATION de l'utilisateur (sept services vidéo, plus son OpenRouter) : une fiche du coffre par service. */
-  z.object({ type: z.literal('studio.services.lister') }),
-  z.object({ type: z.literal('studio.services.enregistrer'), service: z.string(), champs: z.record(z.string().max(4000)) }),
-  z.object({ type: z.literal('studio.services.tester'), service: z.string() }),
-  z.object({ type: z.literal('studio.services.retirer'), service: z.string() }),
   /*
-   * LES MÊMES GESTES HORS DU STUDIO (studio créatif, 24/10/2026) : l'encadré de
-   * branchement d'une carte caméra et la rubrique des paramètres s'en servent.
-   * Ouverts à l'administrateur qui pilote ses agents, jamais à un collaborateur
-   * ni à un client ; le Studio garde ses « studio.services.* ».
+   * LES SERVICES DE CRÉATION de l'utilisateur (une fiche du coffre par service) :
+   * l'encadré de branchement d'une carte caméra et la rubrique des paramètres
+   * s'en servent. Ouverts à l'administrateur qui pilote ses agents, jamais à un
+   * collaborateur ni à un client.
    */
   z.object({ type: z.literal('services.creation.lister') }),
   z.object({ type: z.literal('services.creation.enregistrer'), service: z.string(), champs: z.record(z.string().max(4000)) }),
   z.object({ type: z.literal('services.creation.tester'), service: z.string() }),
   z.object({ type: z.literal('services.creation.retirer'), service: z.string() }),
-  /* Le modèle vidéo retenu pour une création (encadré du chat) : gardé, puis dit à l'agent. */
-  z.object({ type: z.literal('studio.modeleVideo.choisir'), creationId: z.string(), service: z.string(), modele: z.string() }),
-  z.object({ type: z.literal('studio.assistant'), creationId: z.string(), demande: z.string() }),
-  /* « Créer le visuel » depuis un contenu de l'atelier Marketing. */
-  z.object({ type: z.literal('studio.depuisMarketing'), contenuId: z.string() }),
+  /*
+   * « CRÉER LE VISUEL » depuis un contenu de l'atelier Marketing (26/10/2026) :
+   * une carte du directeur artistique, liée au contenu, rouverte ensuite ; son
+   * média livré revient au contenu (`server/src/visuels-marketing.ts`).
+   */
+  z.object({ type: z.literal('marketing.creerLeVisuel'), contenuId: z.string() }),
   /**
    * Les dernières erreurs remontées par l'interface, pour le bloc des réglages.
    * Elles arrivent par `POST /api/erreur` et vivent dans un fichier de journal.
@@ -2034,7 +1961,16 @@ export const ServerEvent = z.discriminatedUnion('type', [
      */
     agents: z.array(Agent).optional(),
   }),
-  z.object({ type: z.literal('message.upsert'), message: Message }),
+  z.object({
+    type: z.literal('message.upsert'),
+    message: Message,
+    /**
+     * Le contexte envoyé (`sentContext`) n'a pas bougé depuis le dernier envoi
+     * de ce message sur CE canal : il est retiré du message, l'écran garde le
+     * sien (`messageAvecContexteRepris`, `shared/src/demarrage-allege.ts`).
+     */
+    contexteInchange: z.boolean().optional(),
+  }),
   /**
    * UNE LIGNE DE PLUS AU JOURNAL D'UNE CARTE (`shared/src/journal-carte.ts`).
    * La ligne de temps du cycle complet grandit ainsi À VUE, sans que l'écran
@@ -2096,30 +2032,6 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * d'autre ne voyage — le détail ne part qu'à qui l'a demandé.
    */
   z.object({ type: z.literal('marketing'), projectId: z.string() }),
-  /**
-   * LE STUDIO A CHANGÉ (une création, sa bibliothèque, un export) : l'écran
-   * ouvert se relit. Un export en cours porte sa progression, sans relecture.
-   */
-  z.object({
-    type: z.literal('studio'),
-    projectId: z.string(),
-    creationId: z.string().optional(),
-    progression: z.object({ exportId: z.string(), valeur: z.number(), etape: z.string() }).optional(),
-  }),
-  /**
-   * LE NAVIGATEUR DU VOLET « PASSER LA VÉRIFICATION » : une image de sa page (JPEG en base64, ses dimensions en
-   * pixels CSS), ou un changement d'état. Ne voyage que tant qu'un volet est ouvert.
-   */
-  z.object({
-    type: z.literal('studio.navigateur'),
-    sourceId: z.string(),
-    etat: z.enum(['ouvert', 'ferme', 'lecture', 'verifie', 'echec']).optional(),
-    texte: z.string().optional(),
-    image: z.string().optional(),
-    largeur: z.number().optional(),
-    hauteur: z.number().optional(),
-    adresse: z.string().optional(),
-  }),
   /**
    * Le catalogue des moteurs, rediffusé quand il a changé — après une
    * connexion de compte réussie, la liste des modèles doit redevenir complète
@@ -2188,7 +2100,7 @@ export const ServerEvent = z.discriminatedUnion('type', [
     title: z.string(),
     body: z.string(),
     tag: z.string().optional(),
-    /** Une adresse de l'application (« #studio/verification:<source> ») où mène l'appui, quand l'alerte ne tient à aucune carte. */
+    /** Une adresse de l'application (« #leads ») où mène l'appui, quand l'alerte ne tient à aucune carte. */
     url: z.string().optional(),
     /** Le genre d'événement : c'est lui qui choisit l'image de l'alerte. */
     motif: z.string().optional(),

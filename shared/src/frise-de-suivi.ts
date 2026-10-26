@@ -43,13 +43,13 @@ export const ETAPES_DE_SUIVI_DE_LA_NUIT = ['demande', 'examen', 'propositions'] 
 export const ETAPES_DE_SUIVI_DU_CAHIER = ['creation', 'cahier', 'termine'] as const;
 /**
  * UNE CRÉATION DE MÉDIA (carte caméra) A LES SIENNES, du premier message à la
- * fin (décision de l'utilisateur du 25/10/2026) : le type de média, puis les
- * trois accords du directeur artistique — l'idée, les images clés et le prix,
- * le film monté — avec la fabrication entre les deux derniers, et la
- * livraison. Ni « Compréhension » ni « À déployer » : un média ne se déploie
- * pas (`etapesDuMedia`, `etapes-du-media.ts`).
+ * fin, LES MÊMES POUR TOUS LES MÉDIAS (décision de l'utilisateur du
+ * 26/10/2026) : le brief, les esquisses (générations à prix, validées d'un
+ * clic), le montage dans le studio du média, puis le téléchargement. Ni
+ * « Compréhension » ni « À déployer » : un média ne se déploie pas
+ * (`etapesDuMedia`, `etapes-du-media.ts`).
  */
-export const ETAPES_DE_SUIVI_DE_LA_REALISATION = ['type', 'idee', 'images-cles', 'fabrication', 'film', 'livre'] as const;
+export const ETAPES_DE_SUIVI_DE_LA_REALISATION = ['brief', 'esquisses', 'montage', 'telechargement'] as const;
 export type EtapeDeSuivi =
   | (typeof ETAPES_DE_SUIVI)[number]
   | (typeof ETAPES_DE_SUIVI_DE_LA_NUIT)[number]
@@ -68,12 +68,10 @@ export const LIBELLE_ETAPE_DE_SUIVI: Record<EtapeDeSuivi, string> = {
   creation: 'Création du projet',
   cahier: 'Définition du cahier des charges',
   termine: 'Terminé',
-  type: 'Type',
-  idee: 'Idée',
-  'images-cles': 'Images clés et prix',
-  fabrication: 'Fabrication',
-  film: 'Film monté',
-  livre: 'Livré',
+  brief: 'Brief',
+  esquisses: 'Esquisses',
+  montage: 'Montage',
+  telechargement: 'Téléchargement',
 };
 
 /** Les ronds de CETTE carte : ceux d'une tâche, ou les trois de la nuit. */
@@ -83,7 +81,7 @@ export function etapesDeSuivi(carte: Pick<CarteDeSuivi, 'rendezVousDeNuit'>): re
 
 /** L'étape d'ARRIVÉE, finie pour de bon : rien ne s'y attend plus. */
 function etapeDArrivee(etape: EtapeDeSuivi): boolean {
-  return etape === 'archivee' || etape === 'propositions' || etape === 'termine' || etape === 'livre';
+  return etape === 'archivee' || etape === 'propositions' || etape === 'termine' || etape === 'telechargement';
 }
 
 /** L'état d'un rond : passé, celui où se trouve la carte, ou à venir. */

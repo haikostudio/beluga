@@ -2,6 +2,7 @@ import * as React from 'react';
 import { FeuilleDeValidationDeConfiguration } from '@/components/carte-de-configuration';
 import {
   AlertCircle,
+  ArrowRight,
   Calendar,
   Check,
   ChevronDown,
@@ -68,7 +69,6 @@ import {
   carteEnPause,
   MESSAGE_DE_REPRISE,
   questionAMontrer,
-  boutonDuMedia,
   carteDeMedia,
   horsDuLotDeDeploiement,
   type AgentQuestion,
@@ -93,7 +93,8 @@ import { useApp } from '@/lib/use-app';
 import { cn, dateHeure } from '@/lib/utils';
 import { t } from '@/lib/langue';
 import { BoutonLireLeCahier, cahierALire } from '@/components/cahier-des-charges';
-import { useEtapesDuMedia } from '@/lib/production-de-carte';
+import { studioDuMedia, useBoutonDuMedia } from '@/lib/production-de-carte';
+import { ouvrirLeDocument } from '@/lib/document-de-carte';
 
 /**
  * L'ÉCRAN D'UNE CARTE, DE HAUT EN BAS : LA BARRE, LE FLUX EN POINTS, LA
@@ -843,36 +844,24 @@ export function BarreDAction(props: {
 
 /** L'icône de chaque geste d'une création de média. */
 function iconeDuGesteDuMedia(geste: GesteDuMedia) {
-  return geste === 'lancer-fabrication' ? Rocket : geste === 'suspendre' ? Pause : Check;
-}
-
-/** Les options cochées d'une question, lues dans son brouillon (celui de la bulle). */
-function useChoixCoches(questionId: string | undefined): string[] {
-  const brut = React.useSyncExternalStore(
-    client.subscribe,
-    () => (questionId ? client.lireEtat().prefs[cleDeBrouillonDeReponse.outil(questionId)] : undefined),
-    () => undefined,
-  ) as { choisis?: unknown } | undefined;
-  const choisis = brut?.choisis;
-  return React.useMemo(() => (Array.isArray(choisis) ? choisis.filter((c): c is string => typeof c === 'string') : []), [JSON.stringify(choisis ?? null)]);
+  return geste === 'terminer' ? Check : geste === 'revenir-esquisses' ? RotateCcw : ArrowRight;
 }
 
 /**
- * LA RANGÉE D'UNE CRÉATION DE MÉDIA : un seul bouton, qui suit l'étape
- * (`boutonDuMedia`), et ses réglages COLLÉS À DROITE sur toute la largeur
- * (MEM-5438). Le clic répond à la question d'accord du directeur par le MÊME
- * chemin que la bulle (`question.answer`) : la question passe répondue dès le
- * premier clic, un second ne trouve plus rien à répondre. « Suspendre » est
- * l'arrêt de l'agent de la carte ; « Terminer » range la carte dans
- * « Archivé » (`card.finish`). Éteint, le bouton DIT pourquoi ; une direction
- * à choisir mène à la question.
+ * LA RANGÉE D'UNE CRÉATION DE MÉDIA (26/10/2026) : un seul bouton, qui fait
+ * passer à l'étape suivante — « Passer aux esquisses », « Passer aux séquences
+ * vidéo », « Passer au montage », « Passer au téléchargement », puis
+ * « Terminer » (`card.finish` range la carte dans « Archivé ») — et ses
+ * réglages COLLÉS À DROITE (MEM-5438). Éteint, il DIT ce qui manque (« Il
+ * manque l'image validée du plan 3 »). Au montage, « Revenir aux esquisses »
+ * se tient à côté. AUCUN de ces boutons ne dépense : chaque génération garde
+ * son propre bouton à prix, dans le fil. Passer au montage ouvre le studio du
+ * média ; passer au téléchargement ouvre sa page.
  */
 function RangeeDuMedia({
   carte,
-  agent,
   menuReglages,
   reglagesModifiables,
-  accordEnAttente,
 }: {
   carte: Card;
   agent: Agent | null;
@@ -880,21 +869,7 @@ function RangeeDuMedia({
   reglagesModifiables?: boolean;
   accordEnAttente?: { messageId: string; question: AgentQuestion } | null;
 }) {
-  const media = useEtapesDuMedia(carte);
-  const arret = useArretAgent({ agent, cardId: carte.id });
-  const question = accordEnAttente?.question;
-  const choisis = useChoixCoches(question?.id);
-  const brut = media
-    ? boutonDuMedia({
-        carte,
-        etape: media.courante,
-        accord: question?.accord ? { etape: question.accord.etape, prix: question.accord.prix, options: question.options } : null,
-        choisis,
-      })
-    : null;
-  /* « Suspendre » ne s'allume que pour l'agent de la carte (`arretDeCarteAutorise`). */
-  const bouton =
-    brut?.geste === 'suspendre' && brut.possible && !arret.possible ? { ...brut, possible: false, raison: arret.raison ?? undefined } : brut;
+  const bouton = useBoutonDuMedia(carte);
   if (!bouton) {
     if (!menuReglages) return null;
     return (
@@ -907,57 +882,72 @@ function RangeeDuMedia({
     client.signalerRefus(err?.message ?? t('Geste refusé'), carte.id);
     throw err;
   };
-  const agir = (): unknown => {
-    if (bouton.reponse && accordEnAttente) {
-      return client
-        .call({ type: 'question.answer', messageId: accordEnAttente.messageId, questionId: accordEnAttente.question.id, answer: bouton.reponse, attachments: [] })
-        .catch(refuse);
-    }
-    if (bouton.geste === 'suspendre') return arret.demander();
-    if (bouton.geste === 'terminer') return client.call({ type: 'card.finish', id: carte.id }).catch(refuse);
-    return undefined;
+  const passer = (geste: GesteDuMedia): Promise<unknown> => {
+    if (geste === 'terminer') return client.call({ type: 'card.finish', id: carte.id }).catch(refuse);
+    return client
+      .call({ type: 'realisation.passer', cardId: carte.id, geste })
+      .then((r) => {
+        /* LE STUDIO DU MÉDIA S'OUVRE AU PASSAGE AU MONTAGE, LA PAGE DES FICHIERS AU PASSAGE AU TÉLÉCHARGEMENT. */
+        if (geste === 'passer-montage') ouvrirLeDocument(studioDuMedia(carte));
+        if (geste === 'passer-telechargement') ouvrirLeDocument({ cardId: carte.id, genre: 'telechargement' });
+        if (geste === 'revenir-esquisses') ouvrirLeDocument({ cardId: carte.id, genre: 'suivi', numero: 0 });
+        return r;
+      })
+      .catch(refuse);
   };
+  const raison = !bouton.possible && bouton.raison ? t(bouton.raison.texte, bouton.raison.valeurs) : undefined;
   const Icone = iconeDuGesteDuMedia(bouton.geste);
-  const arretRouge = bouton.geste === 'suspendre';
-  const libelle = [t(bouton.libelle), typeof bouton.prix === 'number' ? `${bouton.prix.toLocaleString(undefined, { maximumFractionDigits: 2 })} $` : null]
-    .filter(Boolean)
-    .join(' · ');
-  const ton: TonDesReglages = !bouton.possible ? 'neutre' : arretRouge ? 'arret' : 'accent';
+  const ton: TonDesReglages = bouton.possible ? 'accent' : 'neutre';
   return (
     <div
       data-barre-realisation
       data-barre-action={bouton.geste}
       data-geste-possible={bouton.possible ? 'oui' : 'non'}
       data-groupe-reglages={menuReglages ? '' : undefined}
-      className="flex min-w-[150px] flex-1 items-stretch"
+      className="flex min-w-[150px] flex-1 items-stretch gap-1.5"
     >
-      <div className="min-w-0 flex-1">
-        <BoutonPrincipal raison={!bouton.possible ? bouton.raison : undefined}>
-          <Button
-            type="button"
-            variant="default"
-            data-geste-principal={bouton.geste}
-            data-geste-du-media={bouton.geste}
-            data-raison={!bouton.possible ? bouton.raison : undefined}
-            aria-disabled={!bouton.possible}
-            onClick={() => (bouton.possible ? agir() : accordEnAttente ? void ouvrirLesDecisions() : undefined)}
-            title={!bouton.possible && bouton.raison ? t(bouton.raison) : undefined}
-            className={cn(
-              CLASSES_BOUTON_DU_FIL,
-              menuReglages && 'rounded-r-none',
-              bouton.possible
-                ? arretRouge
-                  ? 'bg-teinte-plein text-white hover:bg-teinte-plein hover:opacity-90'
-                  : 'bg-accent text-accent-fg hover:opacity-90'
-                : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
-            )}
-          >
-            <Icone className="h-3.5 w-3.5" />
-            <span className="min-w-0 truncate">{libelle}</span>
-          </Button>
-        </BoutonPrincipal>
+      {bouton.secondaire ? (
+        <Button
+          type="button"
+          variant="default"
+          data-geste-secondaire-du-media={bouton.secondaire.geste}
+          onClick={() => passer(bouton.secondaire!.geste)}
+          className={cn(CLASSES_BOUTON_DU_FIL, 'shrink-0 bg-raised text-text hover:bg-raised hover:opacity-90')}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span className="min-w-0 truncate max-sm:sr-only">{t(bouton.secondaire.libelle)}</span>
+        </Button>
+      ) : null}
+      <div className="flex min-w-0 flex-1 items-stretch">
+        <div className="min-w-0 flex-1">
+          <BoutonPrincipal raison={raison}>
+            <Button
+              type="button"
+              variant="default"
+              data-geste-principal={bouton.geste}
+              data-geste-du-media={bouton.geste}
+              data-raison={raison}
+              aria-disabled={!bouton.possible}
+              onClick={() => (bouton.possible ? passer(bouton.geste) : undefined)}
+              title={raison}
+              className={cn(
+                CLASSES_BOUTON_DU_FIL,
+                menuReglages && 'rounded-r-none',
+                bouton.possible ? 'bg-accent text-accent-fg hover:opacity-90' : 'cursor-not-allowed bg-raised text-faint hover:bg-raised hover:text-faint',
+              )}
+            >
+              <Icone className="h-3.5 w-3.5" />
+              <span className="min-w-0 truncate">{t(bouton.libelle)}</span>
+            </Button>
+          </BoutonPrincipal>
+        </div>
+        <IconeDesReglages menuReglages={menuReglages} modifiables={reglagesModifiables} colle={ton} />
       </div>
-      <IconeDesReglages menuReglages={menuReglages} modifiables={reglagesModifiables} colle={ton} />
+      {!bouton.possible && raison ? (
+        <span className="sr-only" data-ce-qui-manque="">
+          {raison}
+        </span>
+      ) : null}
     </div>
   );
 }

@@ -16,7 +16,6 @@
  * (fal.ai), sinon le devis dit « prix non publié ».
  */
 
-import { type Composition, type OperationStudio, type Piste, type ResultatOperation, appliquerOperation } from './studio.js';
 import { corpsEnDirect } from './catalogue-en-direct.js';
 import { KIE_API, MODELES_KIE, lireCommandeKie, lireSuiviKie, modeleKie, requeteDeCommandeKie } from './kie.js';
 
@@ -203,12 +202,6 @@ export function ratioAjuste(modele: ModeleVideoDeService, voulu: RatioClip): Rat
   if (modele.ratios.includes(voulu)) return voulu;
   // Un carré sans carré : le vertical, pensé pour le téléphone.
   return modele.ratios.includes('9:16') ? '9:16' : modele.ratios[0]!;
-}
-
-/** Le cadrage d'un format du Studio (largeur × hauteur). */
-export function ratioDuFormat(largeur: number, hauteur: number): RatioClip {
-  if (largeur === hauteur) return '1:1';
-  return largeur > hauteur ? '16:9' : '9:16';
 }
 
 /* ------------------------------------------------------------------ */
@@ -480,86 +473,6 @@ export function plafondFal(prix: { unit_price?: unknown; unit?: unknown } | unde
   return null;
 }
 
-/** Ce que l'agent lit des services branchés : nom, modèles, durées, son. */
-export function resumeDesServicesPourLAgent(branches: IdServiceCreation[]): string {
-  const video = SERVICES_CREATION.filter((s) => branches.includes(s.id) && s.modeles.length);
-  if (!video.length) return '';
-  return video
-    .map((s) => `${s.nom} (service « ${s.id} ») : ${s.modeles.map((m) => `« ${m.id} » ${m.nom} — ${m.durees.length > 4 ? `${m.durees[0]} à ${m.durees[m.durees.length - 1]} s` : `${m.durees.join(', ')} s`}${m.son ? ', avec son' : ''}`).join(' ; ')}`)
-    .join('\n');
-}
-
-/** La clé de méta qui garde le modèle vidéo choisi pour une création. */
-export function cleDuModeleVideo(creationId: string): string {
-  return `studio.modele-video.${creationId}`;
-}
-
 /** Le repère que l'agent écrit dans sa réponse pour faire paraître l'encadré des services. */
 export const REPERE_SERVICES_CREATION = '[services-de-creation]';
 
-/* ------------------------------------------------------------------ */
-/* La pose d'un extrait : l'image et son son, calés sur deux pistes     */
-/* ------------------------------------------------------------------ */
-
-export interface PoseDExtrait {
-  videoMediaId: string;
-  /** Le son séparé de l'extrait ; absent quand l'extrait n'a pas de son (aucune piste vide). */
-  audioMediaId?: string;
-  debut: number;
-  duree: number;
-  nom: string;
-  /** La piste visuelle voulue par l'agent, si elle est libre à cet instant. */
-  pisteVisuelleId?: string;
-}
-
-function pisteLibre(piste: Piste, debut: number, fin: number): boolean {
-  return piste.segments.every((s) => s.debut + s.duree <= debut + 1e-3 || s.debut >= fin - 1e-3);
-}
-
-/**
- * POSER UN EXTRAIT SÉPARÉ (demande du 14/10/2026) : l'image MUETTE sur une
- * piste de visuels, son SON sur une piste de son, au MÊME instant et pour la
- * même durée. Chaque morceau va sur une piste libre à cet endroit ; s'il n'y en
- * a pas, une piste neuve est ajoutée (« Extraits », « Son des extraits ») —
- * jamais un extrait posé par-dessus un autre. La piste « Voix » n'est jamais
- * prise pour le son d'un extrait. Pure : `idNeuf` donne les identifiants.
- */
-export function poserLExtrait(composition: Composition, e: PoseDExtrait, idNeuf: (prefixe: string) => string): ResultatOperation {
-  let c = composition;
-  const fin = e.debut + e.duree;
-  const resumes: string[] = [];
-  const appliquer = (op: OperationStudio): string | null => {
-    const r = appliquerOperation(c, op, idNeuf);
-    if (!r.ok) return r.raison;
-    c = r.composition;
-    resumes.push(r.resume);
-    return null;
-  };
-  const trouverOuAjouter = (genre: 'visuel' | 'son', voulue: string | undefined, nom: string): string | { erreur: string } => {
-    const candidates = c.pistes.filter((p) => p.genre === genre && (genre === 'visuel' || p.id !== 'voix'));
-    const choisie = (voulue ? candidates.find((p) => p.id === voulue && pisteLibre(p, e.debut, fin)) : undefined) ?? candidates.find((p) => pisteLibre(p, e.debut, fin));
-    if (choisie) return choisie.id;
-    const avant = new Set(c.pistes.map((p) => p.id));
-    const derniere = c.pistes.reduce((i, p, k) => (p.genre === genre ? k : i), -1);
-    const erreur = appliquer({ op: 'piste-ajouter', genre, nom, position: derniere + 1 });
-    if (erreur) return { erreur };
-    return c.pistes.find((p) => !avant.has(p.id))!.id;
-  };
-  const visuelle = trouverOuAjouter('visuel', e.pisteVisuelleId, 'Extraits');
-  if (typeof visuelle !== 'string') return { ok: false, raison: visuelle.erreur };
-  const nom = e.nom.slice(0, 80);
-  const erreurImage = appliquer({
-    op: 'inserer',
-    pisteId: visuelle,
-    // L'IMAGE EST MUETTE : son son vit sur sa propre piste, réglable à part.
-    segment: { genre: 'video', debut: e.debut, duree: e.duree, mediaId: e.videoMediaId, ajustement: 'couvrir', debutMedia: 0, volume: 0, nom },
-  });
-  if (erreurImage) return { ok: false, raison: erreurImage };
-  if (e.audioMediaId) {
-    const sonore = trouverOuAjouter('son', undefined, 'Son des extraits');
-    if (typeof sonore !== 'string') return { ok: false, raison: sonore.erreur };
-    const erreurSon = appliquer({ op: 'inserer', pisteId: sonore, segment: { genre: 'audio', debut: e.debut, duree: e.duree, mediaId: e.audioMediaId, debutMedia: 0, volume: 1, nom: `Son — ${nom}`.slice(0, 80) } });
-    if (erreurSon) return { ok: false, raison: erreurSon };
-  }
-  return { ok: true, composition: c, resume: e.audioMediaId ? `extrait « ${nom} » posé (image et son)` : `extrait « ${nom} » posé (sans son)` };
-}

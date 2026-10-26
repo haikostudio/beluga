@@ -112,7 +112,6 @@ import { useEtapesDuMedia } from '@/lib/production-de-carte';
 import { BarreDAction, PanneauDeDecision } from '@/components/parcours-carte';
 import { useArretAgent } from '@/components/arret-agent';
 import { InfoTravail } from '@/components/info-travail';
-import { EtiquetteDuModele } from '@/components/etiquette-du-modele';
 import { useTelephone } from '@/lib/telephone';
 import { usePiedCompact } from '@/lib/pied-compact';
 import { CarteDeConfiguration, choixDeLaCarte } from '@/components/carte-de-configuration';
@@ -1919,6 +1918,9 @@ function TravailEnCours({
   entete?: (taches: React.ReactNode) => React.ReactNode;
 }) {
   const state = useApp();
+  /* UNE CRÉATION DE MÉDIA COMPTE SES QUATRE ÉTAPES (26/10/2026) : la ligne d'état dit
+     « n/4 », comme le chemin collé au champ les montre — plus les sept jalons d'avant. */
+  const etapesDuMedia = useEtapesDuMedia(cardId ? state.cards[cardId] : undefined);
   // Le geste d'arrêt est le MÊME qu'en bas de la barre d'écriture : un seul
   // texte, donc le même contrôle, la même commande et la même confirmation.
   const arret = useArretAgent({ agent, cardId });
@@ -1956,6 +1958,13 @@ function TravailEnCours({
     () => messages.filter((m) => m !== dernier && !!m.todos?.length),
     [messages, dernier],
   );
+  /*
+   * LE DIRECTEUR D'UNE CRÉATION GARDE SA LISTE (26/10/2026) : le cadrage d'une
+   * carte caméra tient la carte du brief au téléchargement — ses tâches se
+   * rangent sous l'étape en cours, comme celles d'un agent de tâche. Seul le
+   * cadrage ORDINAIRE (sans barre d'étapes) retire sa liste refermée.
+   */
+  const listeRetiree = (agent?.role === 'cadrage' && !entete) || !!sansListe;
   const [rang, setRang] = React.useState<number | null>(null);
   React.useEffect(() => setRang(null), [passees.length]);
   /*
@@ -1971,7 +1980,7 @@ function TravailEnCours({
   const total = passees.length + (courante ? 1 : 0);
   const defaut = total - 1;
   const position = rang !== null && rang < defaut ? rang : defaut;
-  const enPasse = position < defaut && agent?.role !== 'cadrage' && !sansListe;
+  const enPasse = position < defaut && !listeRetiree;
   // La liste complète ne se déplie que si l'agent en a annoncé une — un
   // agent qui n'avance que par étapes (steps) n'a rien de plus à montrer ici,
   // ces étapes restant visibles repliées dans le fil au-dessus.
@@ -1988,9 +1997,9 @@ function TravailEnCours({
    * couvrent la moitié du composeur. Pendant son tour, le témoin reste : c'est
    * la liste REFERMÉE qu'on retire, pas le signe qu'il travaille.
    */
-  const todosDisponibles = !!todos?.length && agent?.role !== 'cadrage' && !sansListe;
+  const todosDisponibles = !!todos?.length && !listeRetiree;
 
-  const avecFleches = total > 1 && agent?.role !== 'cadrage' && !sansListe;
+  const avecFleches = total > 1 && !listeRetiree;
   // Rien ne tourne et aucune liste à garder sous les yeux : le repère s'efface.
   if (!busy && !todosDisponibles && !entete && !avecFleches) return null;
   /* La ligne du témoin : ce qui tourne, le bilan de la liste montrée, ou les
@@ -2078,7 +2087,7 @@ function TravailEnCours({
   const rangeLeTour =
     busy && agent?.tourVivantDepuis !== undefined && agent?.status !== 'running' && agent?.status !== 'starting';
   const carteDuChemin = niche && cardId ? state.cards[cardId] : undefined;
-  const etapesDuChemin = carteDuChemin ? cheminDeLaRealisation(carteDuChemin).etapes : [];
+  const etapesDuChemin: readonly { etat: string }[] = !carteDuChemin ? [] : etapesDuMedia ? etapesDuMedia.segments : cheminDeLaRealisation(carteDuChemin).etapes;
   const etapesFaites = etapesDuChemin.filter((etape) => etape.etat === 'fait').length;
   const quoi = enPasse
     ? resumeDesTaches(todos!)
@@ -2122,9 +2131,9 @@ function TravailEnCours({
   const toutFait = todosDisponibles
     ? todos!.every((todo) => todo.state === 'done')
     : niche && etapesDuChemin.length > 0 && etapesFaites === etapesDuChemin.length;
-  /* AVEC QUOI L'AGENT TRAVAILLE, tant qu'il travaille : moteur, modèle et
-     niveau en toutes lettres (la largeur du champ le permet). */
-  const etiquette = busy && !enPasse && agent ? <EtiquetteDuModele run={agent.run} complet className="max-w-[50%]" /> : null;
+  /* Le témoin du champ ne nomme PAS le moteur ni le modèle (décision
+     utilisateur, 26/10/2026) : la mention reste sur la carte du tableau et
+     le bandeau des agents (`BandeauTravail`). */
   const icone = busy && !enPasse ? undefined : toutFait ? (
     <Check className="h-3 w-3 shrink-0 text-termine" />
   ) : (
@@ -2169,7 +2178,7 @@ function TravailEnCours({
             className="flex min-w-0 flex-1 items-center gap-2 text-left"
             data-statut-du-temoin
           >
-            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" etiquette={etiquette} />
+            <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
           </button>
           {fleches}
           <button
@@ -2185,7 +2194,7 @@ function TravailEnCours({
         </>
       ) : (
         <>
-          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" etiquette={etiquette} />
+          <InfoTravail quoi={quoi} avancement={avancement} temps={temps} icone={icone} classeDuTexte="text-teinte" />
           {fleches ? <span className="ml-auto flex shrink-0">{fleches}</span> : null}
         </>
       )}

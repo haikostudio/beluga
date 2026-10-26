@@ -186,7 +186,6 @@ export const FONCTIONNALITES_DECOUVRABLES: readonly string[] = [
   'card',
   'project',
   'deploy',
-  'studio',
   'espace',
   'coffre',
   'stats',

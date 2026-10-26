@@ -70,7 +70,6 @@ import {
   estUnRegroupement,
   membresActifsDuRegroupement,
   serviceDeLaCarte,
-  serviceVisible,
 } from '@beluga/shared';
 import { CLE_ETAT_EN_ROUTE, client } from '@/lib/client';
 import { useRedemarrage } from '@/components/redemarrage';
@@ -865,7 +864,7 @@ function CarteEnRoute({
   const state = useApp();
   const projet = state.projects.find((p) => p.id === card.projectId);
   /* LA CARTE D'UN SERVICE (agent de volet) porte le badge du service, à côté de l'étape. */
-  const service = serviceVisible(serviceDeLaCarte(card.agentId ? state.agents[card.agentId] : null, card), state.studioOuvert);
+  const service = serviceDeLaCarte(card.agentId ? state.agents[card.agentId] : null, card);
   /* UNE MÈRE TRAVAILLE PAR SES FILLES : son coin dit « Au travail » tant que
      l'une d'elles tourne, jamais « Rendue » sur le seul cadrage fini. */
   const fillesAuTravail =

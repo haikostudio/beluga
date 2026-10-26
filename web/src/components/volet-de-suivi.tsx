@@ -1,7 +1,15 @@
 import * as React from 'react';
-import { ChevronDown, ChevronRight, Clapperboard, FileText, History, ImageIcon, Loader2, MessageSquarePlus, Palette, Pencil, Play, RotateCcw, Sparkles } from 'lucide-react';
+import { ChevronDown, Clapperboard, History, ImageIcon, Loader2, MessageSquarePlus, Palette, Pencil, Play, RotateCcw } from 'lucide-react';
 import {
   arrondi,
+  decoupageDuMedia,
+  estRetenu,
+  etatDesPlans,
+  phaseDesEsquisses,
+  realisationDeLaCarte,
+  sonDuBrief,
+  elementsCourants,
+  type EtatDuPlan,
   etiquetteDeCorrection,
   type EtapeDEcriture,
   etapesDuSuivi,
@@ -42,7 +50,9 @@ import {
   ZoneDefilement,
 } from '@/components/ui';
 import { LectureDuCahierDeRealisation } from '@/components/realisation-volet';
-import { useEtapesDuMedia } from '@/lib/production-de-carte';
+import { studioDuMedia, useEtapesDuMedia } from '@/lib/production-de-carte';
+import { ouvrirLeDocument } from '@/lib/document-de-carte';
+import { Button } from '@/components/ui';
 import { client } from '@/lib/client';
 import { joindreAuChamp } from '@/lib/joindre-au-champ';
 import { Markdown } from '@/lib/markdown';
@@ -154,25 +164,11 @@ export function VoletDeSuivi({ card }: { card: Card }) {
     };
     for (const e of etapes) {
       for (const id of e.ambiance) ajouter(id, t('Ambiance'), 'image/jpeg', 0);
-      for (const m of [...e.enConception, ...e.medias]) if (m.attachmentId && m.etat !== 'en-cours') ajouter(m.attachmentId, m.plan, MIME_DU_GENRE[m.genre], m.creeLe);
+      for (const m of e.medias) if (m.attachmentId && m.etat !== 'en-cours') ajouter(m.attachmentId, m.plan, MIME_DU_GENRE[m.genre], m.creeLe);
     }
     return liste;
   }, [etapes, pieces, card.projectId]);
   const [ouverte, setOuverte] = React.useState<string | null>(null);
-  /*
-   * DEUX ONGLETS (demande du 25/10/2026, capture #d283) : « Production » montre
-   * ce qui se FABRIQUE — images en conception, aperçus, médias retenus, en
-   * grand — et « Script » tout l'ÉCRIT (brief, direction, scénario,
-   * storyboard, plans), avec ses versions et ses corrections. On voyait le
-   * script technique entier pendant qu'on concevait les images.
-   */
-  const [onglet, setOnglet] = React.useState<OngletDuSuivi>('production');
-  const [etapeDuScript, setEtapeDuScript] = React.useState<EtapeDuMedia | null>(null);
-  const allerAuScript = (etape: EtapeDuMedia) => {
-    setEtapeDuScript(etape);
-    setOnglet('script');
-  };
-  const nombreDuScript = groupes.reduce((n, g) => n + g.blocs.reduce((m, b) => m + piecesAffichees(b.elements).affichees.length, 0), 0);
   const piece = ouverte ? galerie.find((p) => p.id === ouverte) ?? null : null;
   const pieceDe = (id: string) => galerie.find((p) => p.id === id);
 
@@ -184,35 +180,17 @@ export function VoletDeSuivi({ card }: { card: Card }) {
             production reste toujours ouvert ; sur téléphone, il est une feuille du
             bas dont la bande du haut porte sa croix et sa poignée (#f41f). */}
         <span className="min-w-0 flex-1 truncate text-[14.5px] font-medium text-text">{t('Suivi de la production')}</span>
+        {/* LA DÉPENSE À DROITE DU TITRE (26/10/2026) : ce qui a été réellement engagé, clic par clic. */}
+        {production ? (
+          <span className="shrink-0 text-[12.5px] tabular-nums text-faint" data-depense-du-suivi={String(production.depense)}>
+            {t('Dépensé : {montant} $', { montant: arrondi(production.depense) })}
+          </span>
+        ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-1 px-4 pb-2" role="tablist" aria-label="onglets-du-suivi" data-onglets-du-suivi="">
-        {(['production', 'script'] as const).map((cle) => {
-          const choisi = onglet === cle;
-          return (
-            <button
-              key={cle}
-              type="button"
-              role="tab"
-              aria-selected={choisi}
-              onClick={() => setOnglet(cle)}
-              data-onglet-suivi={cle}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] transition-colors',
-                choisi ? 'bg-raised font-medium text-teinte' : 'text-muted hover:bg-raised/60 hover:text-text',
-              )}
-            >
-              {cle === 'production' ? <Sparkles className="h-3.5 w-3.5" aria-hidden /> : <FileText className="h-3.5 w-3.5" aria-hidden />}
-              {cle === 'production' ? t('Production') : t('Script')}
-              {cle === 'script' && nombreDuScript ? <span className="text-[11.5px] tabular-nums text-faint">{nombreDuScript}</span> : null}
-            </button>
-          );
-        })}
-      </div>
-      {production && production.budget !== null ? (
-        <p className="shrink-0 px-5 pb-2 text-[12.5px] text-faint" data-budget-du-suivi="">
-          {t('Budget : {engage} $ engagés sur {budget} $', { engage: arrondi(production.depense), budget: production.budget })}
-        </p>
-      ) : null}
+      {/* PLUS D'ONGLETS (demande du 26/10/2026) : une seule liste d'étapes. Tout
+          l'ÉCRIT — brief, direction, scénario, storyboard, plans — se lit sous
+          « Brief », avec ses versions et ses corrections ; les autres étapes
+          montrent ce qui est validé. */}
       {production === null ? (
         <p className="flex items-center gap-2 px-5 py-2 text-[13px] text-faint">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -220,19 +198,15 @@ export function VoletDeSuivi({ card }: { card: Card }) {
         </p>
       ) : (
         <AccordeonDesEtapes
-          /* Chaque onglet garde ses propres étapes ouvertes. */
-          key={onglet}
-          mode={onglet}
           cardId={card.id}
           agentId={agentDuFil ?? card.agentId ?? null}
-          etapes={onglet === 'script' ? groupes.filter((g) => g.blocs.some((b) => piecesAffichees(b.elements).affichees.length > 0 || b.elements.length > 0)) : groupes}
+          etapes={groupes}
           types={types}
           courante={courante}
-          ouvrirDOffice={onglet === 'script' ? etapeDuScript : null}
           enTravail={card.column === 'running'}
           pieceDe={pieceDe}
           onOuvrir={setOuverte}
-          onVersLeScript={allerAuScript}
+          carte={card}
         />
       )}
       {/* LE PIED FIXE : la lecture du cahier de réalisation, sur toute la largeur, hors du défilement des étapes. */}
@@ -244,9 +218,6 @@ export function VoletDeSuivi({ card }: { card: Card }) {
 
 const MIME_DU_GENRE: Record<MediaDuSuivi['genre'], string> = { image: 'image/png', video: 'video/mp4', son: 'audio/mpeg' };
 
-/** Les deux onglets du volet : ce qui se fabrique, et ce qui s'écrit. */
-type OngletDuSuivi = 'production' | 'script';
-
 /**
  * L'ACCORDÉON DES ÉTAPES, VERTICAL : une étape par bloc, les unes sous les
  * autres. L'étape EN COURS s'ouvre d'elle-même (à l'ouverture et chaque fois
@@ -254,36 +225,31 @@ type OngletDuSuivi = 'production' | 'script';
  * ouvert ; n'importe quelle autre s'ouvre ou se referme d'un clic sur sa tête.
  */
 function AccordeonDesEtapes({
-  mode,
   cardId,
   agentId,
   etapes,
   types,
   courante,
-  ouvrirDOffice,
   enTravail,
   pieceDe,
   onOuvrir,
-  onVersLeScript,
+  carte,
 }: {
-  mode: OngletDuSuivi;
   cardId: string;
   agentId: string | null;
   etapes: readonly EtapeDuVoletDuMedia[];
-  /** Les types de média choisis, en mots (« Vidéo ») : le contenu de l'étape « Type ». */
+  /** Les types de média choisis, en mots (« Vidéo ») : la première ligne du « Brief ». */
   types: string;
   courante: EtapeDuMedia | null;
-  /** L'étape à ouvrir en arrivant (« Lire dans le script » depuis la production). */
-  ouvrirDOffice: EtapeDuMedia | null;
   enTravail: boolean;
   pieceDe: (id: string) => Attachment | undefined;
   onOuvrir: (id: string) => void;
-  onVersLeScript: (etape: EtapeDuMedia) => void;
+  carte: Card;
 }) {
   /* CE QUE L'UTILISATEUR A OUVERT À LA MAIN, et l'étape en cours s'il l'a refermée :
      l'étape en cours est ouverte d'office, celle d'avant se referme quand le travail
      avance — sauf si c'est l'utilisateur qui l'avait ouverte. */
-  const [ouvertes, setOuvertes] = React.useState<ReadonlySet<EtapeDuMedia>>(() => new Set(ouvrirDOffice ? [ouvrirDOffice] : []));
+  const [ouvertes, setOuvertes] = React.useState<ReadonlySet<EtapeDuMedia>>(() => new Set());
   const [couranteFermee, setCouranteFermee] = React.useState<EtapeDuMedia | null>(null);
   const estOuverte = (etape: EtapeDuMedia) => ouvertes.has(etape) || (etape === courante && couranteFermee !== courante);
   const basculer = (etape: EtapeDuMedia) => {
@@ -298,16 +264,10 @@ function AccordeonDesEtapes({
   };
   return (
     <ZoneDefilement className="px-4 pb-6">
-      {mode === 'script' && !etapes.length ? (
-        <p className="px-1 py-2 text-[12.5px] text-faint" data-script-vide="">
-          {t('Rien d’écrit pour l’instant : le brief et la direction viennent à l’idée, puis le scénario, le storyboard et les plans.')}
-        </p>
-      ) : null}
-      <ol className="flex flex-col gap-2" data-accordeon-du-suivi={mode} data-etapes-du-suivi={etapes.length}>
+      <ol className="flex flex-col gap-2" data-accordeon-du-suivi="" data-etapes-du-suivi={etapes.length}>
         {etapes.map((etape) => (
           <EtapeEnAccordeon
             key={etape.etape}
-            mode={mode}
             cardId={cardId}
             agentId={agentId}
             numero={ETAPES_DU_MEDIA_EN_ORDRE.indexOf(etape.etape) + 1}
@@ -319,7 +279,7 @@ function AccordeonDesEtapes({
             enTravail={enTravail}
             pieceDe={pieceDe}
             onOuvrir={onOuvrir}
-            onVersLeScript={() => onVersLeScript(etape.etape)}
+            carte={carte}
           />
         ))}
       </ol>
@@ -327,16 +287,12 @@ function AccordeonDesEtapes({
   );
 }
 
-/** L'ordre des six étapes : le numéro d'une étape ne change pas d'un onglet à l'autre. */
-const ETAPES_DU_MEDIA_EN_ORDRE: readonly EtapeDuMedia[] = ['type', 'idee', 'images-cles', 'fabrication', 'film', 'livre'];
+/** L'ordre des quatre étapes : le numéro de chacune, dans sa tête. */
+const ETAPES_DU_MEDIA_EN_ORDRE: readonly EtapeDuMedia[] = ['brief', 'esquisses', 'montage', 'telechargement'];
 
-/**
- * Le nombre de choses MONTRÉES dans un bloc (les pistes écartées rangées dans le
- * menu ne comptent pas) : l'écrit dans le script, ce qui se voit en production.
- */
-function nombreDuBloc(bloc: BlocDuMedia, mode: OngletDuSuivi): number {
-  if (mode === 'script') return piecesAffichees(bloc.elements).affichees.length;
-  return bloc.ambiance.length + bloc.medias.length + (bloc.enConception?.length ?? 0) + (bloc.elements.length ? 1 : 0);
+/** Le nombre de pièces ÉCRITES montrées dans un bloc (les pistes écartées rangées dans le menu ne comptent pas). */
+function ecritDuBloc(bloc: BlocDuMedia): number {
+  return piecesAffichees(bloc.elements).affichees.length;
 }
 
 /** UNE RUBRIQUE DANS UNE ÉTAPE OUVERTE : son intitulé (icône, nom, nombre), puis son contenu. */
@@ -354,7 +310,6 @@ function RubriqueDEtape({ icone, titre, nombre, children, repere }: { icone: Rea
 }
 
 function EtapeEnAccordeon({
-  mode,
   cardId,
   agentId,
   numero,
@@ -366,9 +321,8 @@ function EtapeEnAccordeon({
   enTravail,
   pieceDe,
   onOuvrir,
-  onVersLeScript,
+  carte,
 }: {
-  mode: OngletDuSuivi;
   cardId: string;
   agentId: string | null;
   numero: number;
@@ -380,13 +334,22 @@ function EtapeEnAccordeon({
   enTravail: boolean;
   pieceDe: (id: string) => Attachment | undefined;
   onOuvrir: (id: string) => void;
-  onVersLeScript: () => void;
+  carte: Card;
 }) {
   const etatTache = etatDeTache(etape.etat);
-  const blocs = etape.blocs.filter((b) => nombreDuBloc(b, mode) > 0 || (mode === 'script' && b.elements.length > 0));
-  const nombre = blocs.reduce((n, b) => n + nombreDuBloc(b, mode), 0);
+  /* L'ÉCRIT DE L'ÉTAPE (brief, direction, scénario, storyboard, plans… sous « Brief ») :
+     un bloc par pièce du suivi, sous son nom quand il y en a plusieurs. */
+  const blocsEcrits = etape.blocs.filter((b) => b.elements.length > 0);
+  const nombre = blocsEcrits.reduce((n, b) => n + ecritDuBloc(b), 0);
   /* Un seul bloc garni : son nom ferait doublon avec celui de l'étape quand il le répète. */
-  const nommerLesBlocs = blocs.length > 1 || (blocs.length === 1 && LIBELLES_ETAPES[blocs[0]!.etape]() !== t(LIBELLE_ETAPE_DE_SUIVI[etape.etape]));
+  const nommerLesBlocs = blocsEcrits.length > 1 || (blocsEcrits.length === 1 && LIBELLES_ETAPES[blocsEcrits[0]!.etape]() !== t(LIBELLE_ETAPE_DE_SUIVI[etape.etape]));
+  const ecrit = blocsEcrits.length ? (
+    <div className="flex flex-col gap-3" data-ecrit-de-l-etape={etape.etape}>
+      {blocsEcrits.map((bloc) => (
+        <BlocDEtape key={bloc.etape} cardId={cardId} agentId={agentId} bloc={bloc} nomme={nommerLesBlocs} />
+      ))}
+    </div>
+  ) : null;
   return (
     <li
       className={cn('flex flex-col overflow-hidden rounded-xl transition-colors', courante ? 'bg-raised' : 'bg-raised/45')}
@@ -413,7 +376,7 @@ function EtapeEnAccordeon({
         <span className={cn('min-w-0 flex-1 truncate text-[14px]', courante ? 'font-medium text-text' : etatTache === 'done' ? 'text-muted' : 'text-text')}>
           {t(LIBELLE_ETAPE_DE_SUIVI[etape.etape])}
         </span>
-        {nombre && mode === 'script' ? (
+        {nombre ? (
           <span className="shrink-0 text-[11.5px] tabular-nums text-faint" data-nombre-etape={nombre}>
             {nombre > 1 ? t('{n} éléments', { n: nombre }) : t('{n} élément', { n: nombre })}
           </span>
@@ -425,30 +388,9 @@ function EtapeEnAccordeon({
       </button>
       {ouverte ? (
         <div className="flex flex-col gap-3 px-3 pb-3 pt-0.5" data-contenu-etape={etape.etape}>
-          {etape.etape === 'type' ? (
-            <p className="text-[13px] text-text" data-types-du-media="">
-              {types || t('Rien encore : cette étape viendra en son temps.')}
-            </p>
-          ) : !nombre ? (
-            <p className="text-[12.5px] text-faint" data-etape-vide="">
-              {etape.etat === 'a-definir' ? t('Rien encore : cette étape viendra en son temps.') : t('Rien d’ajouté au suivi pour cette étape.')}
-            </p>
-          ) : null}
-          {mode === 'production' ? (
-            <ProductionDeLEtape cardId={cardId} blocs={blocs} pieceDe={pieceDe} onOuvrir={onOuvrir} onVersLeScript={onVersLeScript} />
-          ) : (
-            blocs.map((bloc) => (
-              <BlocDEtape
-                key={bloc.etape}
-                cardId={cardId}
-                agentId={agentId}
-                bloc={bloc}
-                nomme={nommerLesBlocs}
-                pieceDe={pieceDe}
-                onOuvrir={onOuvrir}
-              />
-            ))
-          )}
+          {/* Le brief pose l'écrit entre ce qu'on crée et l'ambiance ; les autres étapes le posent après ce qui est validé. */}
+          <ProductionDeLEtape cardId={cardId} etape={etape} blocs={etape.blocs} types={types} pieceDe={pieceDe} onOuvrir={onOuvrir} carte={carte} ecrit={ecrit} />
+          {etape.etape !== 'brief' ? ecrit : null}
         </div>
       ) : null}
     </li>
@@ -456,30 +398,19 @@ function EtapeEnAccordeon({
 }
 
 /**
- * UN BLOC D'UNE ÉTAPE : les pièces d'une étape du suivi (le brief, la
- * direction…), sous son nom quand l'étape en réunit plusieurs : les pièces
- * écrites d'abord, sans intitulé, puis les rubriques « Ambiance » et « Médias
- * retenus ».
+ * UN BLOC ÉCRIT D'UNE ÉTAPE : les pièces d'une étape du suivi (le brief, la
+ * direction, le scénario, les plans…), sous son nom quand l'étape en réunit
+ * plusieurs, sans intitulé « Écrit ». L'ambiance et les médias validés sont
+ * montrés par l'étape elle-même (`ProductionDeLEtape`), jamais deux fois.
  */
-function BlocDEtape({
-  cardId,
-  agentId,
-  bloc,
-  nomme,
-  pieceDe,
-  onOuvrir,
-}: {
-  cardId: string;
-  agentId: string | null;
-  bloc: BlocDuMedia;
-  nomme: boolean;
-  pieceDe: (id: string) => Attachment | undefined;
-  onOuvrir: (id: string) => void;
-}) {
+function BlocDEtape({ cardId, agentId, bloc, nomme }: { cardId: string; agentId: string | null; bloc: BlocDuMedia; nomme: boolean }) {
   const ecrit = piecesAffichees(bloc.elements);
+  /* Une seule pièce qui porte déjà le nom du bloc (« Brief », « Scénario ») : l'intitulé ferait doublon. */
+  const nom = LIBELLES_ETAPES[bloc.etape]();
+  const doublon = ecrit.affichees.length === 1 && ecrit.affichees[0]!.titre.trim().toLowerCase() === nom.trim().toLowerCase();
   return (
     <section className="flex flex-col gap-3" data-bloc-etape={bloc.etape}>
-      {nomme ? <h3 className="text-[12.5px] font-medium text-muted">{LIBELLES_ETAPES[bloc.etape]()}</h3> : null}
+      {nomme && !doublon ? <h3 className="text-[12.5px] font-medium text-muted">{nom}</h3> : null}
       {/* LES PIÈCES ÉCRITES, posées telles quelles (plus d'intitulé « Écrit · N »).
           Les pistes écartées sont dans le menu « Versions » : celui de la direction
           retenue, ou, sans retenue, celui de chaque direction montrée. */}
@@ -497,200 +428,300 @@ function BlocDEtape({
         </div>
       ) : null}
       {ecrit.ecartees.length && !ecrit.affichees.some((e) => e.genre === 'concept') ? <PistesEcarteesSeules cardId={cardId} pistes={ecrit.ecartees} /> : null}
-      {bloc.ambiance.length ? (
-        <RubriqueDEtape icone={<Palette className="h-3 w-3" />} titre={t('Ambiance')} nombre={bloc.ambiance.length} repere="ambiance">
-          <ul className="flex flex-wrap gap-1.5">
-            {bloc.ambiance.map((id) => (
-              <li key={`ambiance-${id}`} data-creation-suivi="ambiance">
-                <button
-                  type="button"
-                  className={`${VIGNETTE_DU_SUIVI} relative flex items-center justify-center overflow-hidden rounded-lg bg-surface/70 p-1.5 sm:p-1`}
-                  onClick={() => onOuvrir(id)}
-                  title={t('Ouvrir en grand')}
-                >
-                  <ImageDePiece id={id} alt="" className="max-h-full max-w-full rounded object-contain" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </RubriqueDEtape>
-      ) : null}
-      {bloc.medias.length ? (
-        <RubriqueDEtape icone={<Clapperboard className="h-3 w-3" />} titre={t('Médias retenus')} nombre={bloc.medias.length} repere="medias">
-          <ul className="flex flex-col gap-2">
-            {bloc.medias.map((m) => (
-              <CreationDuSuivi key={m.id} cardId={cardId} media={m} piece={m.attachmentId ? pieceDe(m.attachmentId) : undefined} onOuvrir={onOuvrir} />
-            ))}
-          </ul>
-        </RubriqueDEtape>
-      ) : null}
     </section>
   );
 }
 
 /**
- * L'ONGLET « PRODUCTION » D'UNE ÉTAPE (demande du 25/10/2026, capture #d283) :
- * ce qui se VOIT, en grand. L'écrit ne s'y déroule plus — une ligne le résume
- * et mène au script —, puis les images en conception, le storyboard des plans
- * (une tuile par plan, son image dès qu'elle existe), l'ambiance et les médias
- * retenus. Les textes, leurs versions et leurs corrections vivent dans
- * l'onglet « Script ».
+ * LE CONTENU D'UNE ÉTAPE (26/10/2026) : ce qui est VALIDÉ, et l'écrit — tout
+ * le reste vit dans la conversation et la bande du bas. Plus de « En
+ * conception » ni de case « Image à venir ».
+ *  - BRIEF : ce qu'on crée, TOUT l'écrit (brief, direction, scénario,
+ *    storyboard, plans, avec versions et corrections), puis l'ambiance.
+ *  - ESQUISSES : les médias validés ; pour une VIDÉO, plan par plan dans
+ *    l'ordre du découpage — son image validée, puis sa séquence validée, ou son
+ *    bouton « Animer · prix » au second temps, ou la marque « à refaire » —,
+ *    puis la voix off et la musique.
+ *  - MONTAGE : les médias finaux, et l'ouverture du studio du média.
+ *  - TÉLÉCHARGEMENT : l'ouverture de la page des fichiers.
  */
 function ProductionDeLEtape({
   cardId,
+  etape,
   blocs,
+  types,
   pieceDe,
   onOuvrir,
-  onVersLeScript,
+  carte,
+  ecrit,
 }: {
   cardId: string;
+  etape: EtapeDuVoletDuMedia;
   blocs: readonly BlocDuMedia[];
+  types: string;
   pieceDe: (id: string) => Attachment | undefined;
   onOuvrir: (id: string) => void;
-  onVersLeScript: () => void;
+  carte: Card;
+  /** L'écrit de l'étape, déjà monté : le brief le pose entre ce qu'on crée et l'ambiance. */
+  ecrit: React.ReactNode;
 }) {
-  const plans = blocs.flatMap((b) => b.elements).filter((e) => e.genre === 'plan' && e.etat !== 'refuse');
-  const conception = blocs.flatMap((b) => b.enConception ?? []);
-  const retenus = blocs.flatMap((b) => b.medias);
+  const production = useProduction(cardId);
+  const retenus = blocs.flatMap((b) => b.medias).filter((m) => estRetenu(m));
   const ambiance = blocs.flatMap((b) => b.ambiance);
-  const imageDuPlan = (cle: string) =>
-    [...conception, ...retenus].filter((m) => m.plan === cle && !!m.attachmentId && m.genre !== 'son').sort((a, b) => a.creeLe - b.creeLe).at(-1);
-  const surLesPlans = new Set(plans.map((p) => imageDuPlan(p.cle)?.id).filter(Boolean));
-  const libres = conception.filter((m) => !surLesPlans.has(m.id));
-  /* Le résumé de l'écrit : la direction retenue par son titre, le reste par son nom et son nombre. */
-  const resume = blocs
-    .map((b) => {
-      const ecrit = piecesAffichees(b.elements);
-      if (!ecrit.affichees.length) return null;
-      if (ecrit.retenue) return t('Direction « {titre} »', { titre: ecrit.retenue.titre });
-      const n = ecrit.affichees.length;
-      return n > 1 ? `${LIBELLES_ETAPES[b.etape]()} (${n})` : LIBELLES_ETAPES[b.etape]();
-    })
-    .filter(Boolean)
-    .join(' · ');
-  return (
-    <>
-      {resume ? (
-        <button
-          type="button"
-          onClick={onVersLeScript}
-          data-vers-le-script=""
-          className="flex w-full min-w-0 items-center gap-2 rounded-lg bg-surface/70 px-3 py-2 text-left transition-colors hover:bg-surface"
-        >
-          <FileText className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-[12.5px] text-muted">{resume}</span>
-          <span className="shrink-0 text-[12px] text-text">{t('Lire le script')}</span>
-          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-faint" aria-hidden />
-        </button>
-      ) : null}
-      {libres.length ? (
-        <RubriqueDEtape icone={<ImageIcon className="h-3 w-3" />} titre={t('En conception')} nombre={libres.length} repere="en-conception">
-          <ul className="grid grid-cols-2 gap-2">
-            {libres.map((m) => (
-              <ImageEnConception key={m.id} cardId={cardId} media={m} piece={m.attachmentId ? pieceDe(m.attachmentId) : undefined} onOuvrir={onOuvrir} />
-            ))}
-          </ul>
-        </RubriqueDEtape>
-      ) : null}
-      {plans.length ? (
-        <RubriqueDEtape icone={<Clapperboard className="h-3 w-3" />} titre={t('Plans')} nombre={plans.length} repere="storyboard">
-          <ol className="grid grid-cols-2 gap-2">
-            {plans.map((plan, i) => {
-              const image = imageDuPlan(plan.cle);
-              return (
-                <li key={plan.id} className="flex min-w-0 flex-col gap-1" data-tuile-plan={plan.cle} data-tuile-avec-image={image ? '' : undefined}>
-                  {image ? (
-                    <button
-                      type="button"
-                      onClick={() => onOuvrir(image.attachmentId!)}
-                      title={t('Ouvrir en grand')}
-                      className="group relative aspect-video w-full overflow-hidden rounded-lg bg-surface/70"
-                    >
-                      {image.genre === 'video' ? (
-                        <VignetteVideo id={image.attachmentId!} nom={plan.titre} seconde={pieceDe(image.attachmentId!)?.apercuSeconde} className="pointer-events-none h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
-                      ) : (
-                        <ImageDePiece id={image.attachmentId!} alt={plan.titre} className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
-                      )}
-                      <span className="pointer-events-none absolute left-1 top-1 rounded-sm bg-surface/85 px-1 text-[10.5px] leading-4 tabular-nums text-muted">{i + 1}</span>
-                    </button>
-                  ) : (
-                    <div className="relative flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-lg bg-surface/50 text-faint" data-tuile-vide="">
-                      <ImageIcon className="h-4 w-4" aria-hidden />
-                      <span className="text-[11px]">{t('Image à venir')}</span>
-                      <span className="absolute left-1 top-1 rounded-sm px-1 text-[10.5px] leading-4 tabular-nums">{i + 1}</span>
-                    </div>
-                  )}
-                  <p className="line-clamp-2 text-[12px] leading-snug text-muted" title={plan.titre}>
-                    {plan.titre}
-                  </p>
-                </li>
-              );
-            })}
-          </ol>
-        </RubriqueDEtape>
-      ) : null}
-      {ambiance.length ? (
-        <RubriqueDEtape icone={<Palette className="h-3 w-3" />} titre={t('Ambiance')} nombre={ambiance.length} repere="ambiance">
-          <ul className="grid grid-cols-3 gap-1.5">
-            {ambiance.map((id) => (
-              <li key={`ambiance-${id}`} data-creation-suivi="ambiance">
-                <button
-                  type="button"
-                  className="group relative aspect-square w-full overflow-hidden rounded-lg bg-surface/70"
-                  onClick={() => onOuvrir(id)}
-                  title={t('Ouvrir en grand')}
-                >
-                  <ImageDePiece id={id} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
+  const typesDeLaCarte = typesDeMediaDeLaRealisation(carte.realisation ?? {});
+  const video = typesDeLaCarte.includes('video');
+  const rien = (texte: string) => (
+    <p className="text-[12.5px] text-faint" data-etape-vide="">
+      {texte}
+    </p>
+  );
+
+  if (etape.etape === 'brief') {
+    return (
+      <>
+        <p className="text-[13px] text-text" data-types-du-media="">
+          {types || t('Choisissez ce que vous voulez créer au bouton caméra.')}
+        </p>
+        {ecrit ?? (
+          <p className="text-[12.5px] text-faint" data-etape-vide="">
+            {t('Rien d’écrit pour l’instant : le brief s’écrit avec le directeur, et pour une vidéo, le découpage en plans.')}
+          </p>
+        )}
+        {ambiance.length ? <GrilleDAmbiance ambiance={ambiance} onOuvrir={onOuvrir} /> : null}
+      </>
+    );
+  }
+
+  if (etape.etape === 'esquisses') {
+    if (video) {
+      const plans = etatDesPlans(decoupageDuMedia(production?.elements ?? []), production?.medias ?? []).filter((p) => p.visuel);
+      const phase = phaseDesEsquisses(typesDeLaCarte, carte.realisation);
+      const son = sonDuBrief(elementsCourants(production?.elements ?? []).find((e) => e.genre === 'brief')?.contenu);
+      const sons = retenus.filter((m) => m.genre === 'son');
+      return (
+        <>
+          {plans.length ? (
+            <ol className="flex flex-col gap-2" data-plans-du-suivi={plans.length} data-phase-des-esquisses={phase}>
+              {plans.map((plan, i) => (
+                <PlanDuSuivi key={plan.cle} cardId={cardId} numero={i + 1} plan={plan} phase={phase} pieceDe={pieceDe} onOuvrir={onOuvrir} />
+              ))}
+            </ol>
+          ) : (
+            rien(t('Le découpage en plans s’écrit au brief.'))
+          )}
+          {sons.length || son.voix || son.musique ? (
+            <RubriqueDEtape icone={<Clapperboard className="h-3 w-3" />} titre={t('Voix et musique')} nombre={sons.length} repere="sons">
+              {sons.length ? (
+                <ul className="flex flex-col gap-2">
+                  {sons.map((m) => (
+                    <CreationDuSuivi key={m.id} cardId={cardId} media={m} piece={m.attachmentId ? pieceDe(m.attachmentId) : undefined} onOuvrir={onOuvrir} />
+                  ))}
+                </ul>
+              ) : (
+                rien(phase === 'sequences' ? t('La voix off et la musique prévues au brief se valident ici.') : t('La voix off et la musique viennent au second temps, avec les séquences.'))
+              )}
+            </RubriqueDEtape>
+          ) : null}
+        </>
+      );
+    }
+    return retenus.length ? (
+      <ul className="flex flex-col gap-2" data-valides-du-suivi={retenus.length}>
+        {retenus.map((m) => (
+          <CreationDuSuivi key={m.id} cardId={cardId} media={m} piece={m.attachmentId ? pieceDe(m.attachmentId) : undefined} onOuvrir={onOuvrir} />
+        ))}
+      </ul>
+    ) : (
+      rien(etape.etat === 'a-definir' ? t('Rien encore : cette étape viendra en son temps.') : t('Validez d’un clic, sur le média, les brouillons que vous gardez : ils se rangent ici.'))
+    );
+  }
+
+  if (etape.etape === 'montage') {
+    const finaux = realisationDeLaCarte(carte).finaux ?? [];
+    return (
+      <>
+        {finaux.length ? (
+          <ul className="grid grid-cols-2 gap-2" data-finaux-du-suivi={finaux.length}>
+            {finaux.map((f) => (
+              <li key={f.piece} className="min-w-0">
+                <button type="button" onClick={() => onOuvrir(f.piece)} title={t('Ouvrir en grand')} className="block aspect-video w-full overflow-hidden rounded-lg bg-surface/70">
+                  {f.genre === 'image' ? <ImageDePiece id={f.piece} alt={f.nom ?? ''} className="h-full w-full object-contain" /> : f.genre === 'video' ? <VignetteVideo id={f.piece} nom={f.nom ?? ''} className="h-full w-full object-contain" /> : <span className="flex h-full items-center justify-center text-[12px] text-muted">{f.nom}</span>}
                 </button>
               </li>
             ))}
           </ul>
-        </RubriqueDEtape>
-      ) : null}
-      {retenus.length ? (
-        <RubriqueDEtape icone={<Clapperboard className="h-3 w-3" />} titre={t('Médias retenus')} nombre={retenus.length} repere="medias">
-          <ul className="flex flex-col gap-2">
-            {retenus.map((m) => (
-              <CreationDuSuivi key={m.id} cardId={cardId} media={m} piece={m.attachmentId ? pieceDe(m.attachmentId) : undefined} onOuvrir={onOuvrir} />
-            ))}
-          </ul>
-        </RubriqueDEtape>
-      ) : null}
-    </>
+        ) : null}
+        {etape.etat === 'a-definir' ? (
+          rien(t('Rien encore : cette étape viendra en son temps.'))
+        ) : (
+          <Button type="button" size="sm" className="self-start" onClick={() => ouvrirLeDocument(studioDuMedia(carte))} data-ouvrir-le-studio="">
+            {video ? t('Ouvrir le montage') : typesDeLaCarte.includes('image') ? t('Ouvrir le studio photo') : t('Ouvrir le studio son')}
+          </Button>
+        )}
+        {typesDeLaCarte.includes('image') && typesDeLaCarte.some((x) => x !== 'image' && x !== 'video') && etape.etat !== 'a-definir' ? (
+          <Button type="button" size="sm" variant="ghost" className="self-start" onClick={() => ouvrirLeDocument({ cardId, genre: 'studio-son' })} data-ouvrir-le-studio-son="">
+            {t('Ouvrir le studio son')}
+          </Button>
+        ) : null}
+      </>
+    );
+  }
+
+  return etape.etat === 'a-definir' ? (
+    rien(t('Rien encore : cette étape viendra en son temps.'))
+  ) : (
+    <Button type="button" size="sm" className="self-start" onClick={() => ouvrirLeDocument({ cardId, genre: 'telechargement' })} data-ouvrir-le-telechargement="">
+      {t('Ouvrir la page Téléchargement')}
+    </Button>
   );
 }
 
-/** Une image (ou une vidéo) en conception : grande, son nom dessous, son menu « … » au coin. */
-function ImageEnConception({ cardId, media, piece, onOuvrir }: { cardId: string; media: MediaDuSuivi; piece?: Attachment; onOuvrir: (id: string) => void }) {
-  const legende = `${media.plan}${media.version > 1 ? ` · v${media.version}` : ''}`;
+function GrilleDAmbiance({ ambiance, onOuvrir }: { ambiance: readonly string[]; onOuvrir: (id: string) => void }) {
   return (
-    <li className="flex min-w-0 flex-col gap-1" data-en-conception={media.id}>
+    <RubriqueDEtape icone={<Palette className="h-3 w-3" />} titre={t('Ambiance')} nombre={ambiance.length} repere="ambiance">
+      <ul className="grid grid-cols-3 gap-1.5">
+        {ambiance.map((id) => (
+          <li key={`ambiance-${id}`} data-creation-suivi="ambiance">
+            <button type="button" className="group relative aspect-square w-full overflow-hidden rounded-lg bg-surface/70" onClick={() => onOuvrir(id)} title={t('Ouvrir en grand')}>
+              <ImageDePiece id={id} alt="" className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </RubriqueDEtape>
+  );
+}
+
+/** Le prix d'une animation, lu une fois par image et par durée (le meilleur modèle, deux variantes). */
+const prixDesAnimations = new Map<string, Promise<{ service: string; modele: string; prix: number | null } | null>>();
+function usePrixDeLAnimation(cardId: string, mediaId: string | null, duree: number | null): { service: string; modele: string; prix: number | null } | null | undefined {
+  const [prix, setPrix] = React.useState<{ service: string; modele: string; prix: number | null } | null | undefined>(undefined);
+  React.useEffect(() => {
+    if (!mediaId) return;
+    const cle = `${mediaId}|${duree ?? ''}`;
+    let promesse = prixDesAnimations.get(cle);
+    if (!promesse) {
+      promesse = client
+        .call<{ modeles: { service: string; modele: string; prix: number | null }[]; recommande: string | null }>({
+          type: 'realisation.panneau.chiffrer',
+          cardId,
+          mediaId,
+          operation: 'animer',
+          ...(duree ? { duree } : {}),
+        })
+        .then((r) => r.modeles.find((m) => m.modele === r.recommande) ?? null)
+        .catch(() => null);
+      prixDesAnimations.set(cle, promesse);
+    }
+    let vivant = true;
+    void promesse.then((r) => vivant && setPrix(r));
+    return () => {
+      vivant = false;
+    };
+  }, [cardId, mediaId, duree]);
+  return prix;
+}
+
+/**
+ * UN PLAN D'UNE VIDÉO DANS LE SUIVI : son image validée, puis sa séquence
+ * validée — ou, au second temps, son bouton « Animer · prix » : UN CLIC VAUT
+ * ACCORD et lance l'animation (le meilleur modèle, la durée du plan, deux
+ * variantes, le son d'ambiance). Une séquence animée d'une image qui n'est plus
+ * validée est « à refaire ».
+ */
+function PlanDuSuivi({
+  cardId,
+  numero,
+  plan,
+  phase,
+  pieceDe,
+  onOuvrir,
+}: {
+  cardId: string;
+  numero: number;
+  plan: EtatDuPlan;
+  phase: string;
+  pieceDe: (id: string) => Attachment | undefined;
+  onOuvrir: (id: string) => void;
+}) {
+  const image = plan.images[0] ?? null;
+  const production = useProduction(cardId);
+  const imageComplete = image ? production?.medias.find((m) => m.id === image.id) ?? null : null;
+  const sequence = plan.sequence ? production?.medias.find((m) => m.id === plan.sequence!.id) ?? null : null;
+  const animable = phase === 'sequences' && !!image && (!sequence || plan.aRefaire);
+  const prix = usePrixDeLAnimation(cardId, animable ? image!.id : null, plan.duree);
+  const [envoi, setEnvoi] = React.useState(false);
+  const animer = async () => {
+    if (!image || !prix || envoi) return;
+    setEnvoi(true);
+    try {
+      await client.call({
+        type: 'realisation.panneau.lancer',
+        cardId,
+        mediaId: image.id,
+        operation: 'animer',
+        service: prix.service,
+        modele: prix.modele,
+        variantes: 2,
+        son: true,
+        ...(plan.duree ? { duree: Math.min(15, Math.max(3, Math.round(plan.duree))) } : {}),
+      });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('L’animation n’a pas pu partir'));
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  const vignette = (m: MediaDuSuivi | null, vide: string) =>
+    m?.attachmentId ? (
       <div className="relative">
-        <button
-          type="button"
-          onClick={() => onOuvrir(media.attachmentId!)}
-          title={[t('Ouvrir en grand'), heureExacte(media.creeLe)].join(' · ')}
-          data-ouvrir-media={media.id}
-          className="group relative block aspect-video w-full overflow-hidden rounded-lg bg-surface/70"
-        >
-          {media.genre === 'video' ? (
-            <>
-              <VignetteVideo id={media.attachmentId!} nom={legende} seconde={piece?.apercuSeconde} className="pointer-events-none h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
-              <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface/85 text-text">
-                  <Play className="h-4 w-4 translate-x-[1px]" fill="currentColor" aria-hidden />
-                </span>
-              </span>
-            </>
+        <button type="button" onClick={() => onOuvrir(m.attachmentId!)} title={t('Ouvrir en grand')} className="block aspect-video w-full overflow-hidden rounded-lg bg-surface/70">
+          {m.genre === 'video' ? (
+            <VignetteVideo id={m.attachmentId} nom={m.plan} seconde={pieceDe(m.attachmentId)?.apercuSeconde} className="pointer-events-none h-full w-full object-cover" />
           ) : (
-            <ImageDePiece id={media.attachmentId!} alt={legende} className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]" />
+            <ImageDePiece id={m.attachmentId} alt={m.plan} className="h-full w-full object-cover" />
           )}
         </button>
-        <MenuDuMedia cardId={cardId} media={media} className="absolute right-1 top-1" />
+        <MenuDuMedia cardId={cardId} media={m} className="absolute right-1 top-1" />
       </div>
-      <p className="truncate text-[12px] text-muted" title={legende}>
-        {legende}
+    ) : (
+      <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-surface/40 px-2 text-center text-[11.5px] text-faint">{vide}</div>
+    );
+  return (
+    <li className="flex min-w-0 flex-col gap-1.5 rounded-lg bg-surface/40 p-2" data-plan-du-suivi={plan.cle} data-plan-image={image ? '' : undefined} data-plan-sequence={sequence ? '' : undefined} data-plan-a-refaire={plan.aRefaire ? '' : undefined}>
+      <p className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-text">
+        <span className="tabular-nums text-faint">{numero}</span>
+        <span className="min-w-0 flex-1 truncate" title={plan.titre}>
+          {plan.titre}
+        </span>
+        {plan.duree ? <span className="shrink-0 tabular-nums text-faint">{t('{n} s', { n: plan.duree })}</span> : null}
       </p>
+      <div className="grid grid-cols-2 gap-1.5">
+        {vignette(imageComplete, t('Image à valider'))}
+        {phase === 'sequences' ? (
+          animable ? (
+            <div className="flex aspect-video w-full flex-col items-center justify-center gap-1 rounded-lg bg-surface/40 p-1.5">
+              {plan.aRefaire ? <span className="text-[11px] text-en-cours" data-sequence-a-refaire="">{t('À refaire : l’image a changé')}</span> : null}
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1 bg-accent text-accent-fg hover:opacity-90"
+                disabled={!prix || envoi}
+                aria-busy={envoi}
+                onClick={() => void animer()}
+                data-animer-le-plan={plan.cle}
+              >
+                {envoi || prix === undefined ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                {prix === undefined ? t('Animer') : t('Animer · {prix}', { prix: prix?.prix === null || !prix ? t('prix non publié') : `${arrondi(prix.prix * 2)} $` })}
+              </Button>
+            </div>
+          ) : (
+            vignette(sequence, t('Séquence à valider'))
+          )
+        ) : (
+          <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-surface/20 px-2 text-center text-[11px] text-faint">{t('La séquence viendra après toutes les images')}</div>
+        )}
+      </div>
     </li>
   );
 }

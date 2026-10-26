@@ -34,7 +34,7 @@ import { log } from './logger.js';
 import * as store from './store.js';
 import { enregistrerAcces, enregistrerDossier, listerAcces, listerDossiers, supprimerAcces } from './coffre-fort.js';
 import { cheminDePieceJointe } from './pieces-jointes.js';
-import { mediasDuContenuMarketing } from './studio.js';
+import { visuelsDuContenu } from './visuels-marketing.js';
 import { adresseDeBeluga, changerEtape, diffuser, lireContenu } from './marketing.js';
 import { type CompteTrouve, type ContexteCompte, type IdentifiantsApplication, type MediaAEnvoyer, ErreurReseau, adaptateurDe } from './reseaux/index.js';
 
@@ -567,10 +567,11 @@ export function mediaDeLAdressePublique(route: string, maintenant = Date.now()):
   return { chemin, mime: piece.mime, taille: fs.statSync(chemin).size };
 }
 
-/** Les visuels prêts du Studio pour ce contenu, du plus récent au plus ancien. */
+/** Les visuels prêts de ce contenu (directeur artistique, ancien Studio), du plus récent au plus ancien. */
 function mediasDuContenu(contenuId: string): MediaAEnvoyer[] {
   const sortie: MediaAEnvoyer[] = [];
-  for (const e of mediasDuContenuMarketing(contenuId)) {
+  const contenu = lireContenu(contenuId);
+  for (const e of contenu ? visuelsDuContenu(contenu.projectId, contenuId) : []) {
     if (!e.attachmentId) continue;
     const piece = store.getAttachment(e.attachmentId);
     if (!piece) continue;

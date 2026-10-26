@@ -79,6 +79,18 @@ async function main() {
   }
 
   /*
+   * UNE CARTE DE CRÉATION FABRIQUE PAR KIE.AI SEULEMENT (`shared/src/garde-creation.ts`) :
+   * la variable n'est posée que pour l'agent d'une carte caméra, jamais pour le moteur Codex en soi.
+   */
+  if (typeof regle.commandeFabriqueHorsDeKie === 'function' && process.env[regle.VARIABLE_DE_CREATION_DE_MEDIA] === '1') {
+    const creation = regle.commandeFabriqueHorsDeKie(commande);
+    if (creation?.refusee) {
+      process.stderr.write(regle.refusDeCreation(creation) + '\n');
+      process.exit(2);
+    }
+  }
+
+  /*
    * LES ATTENTES INUTILES (`shared/src/garde-attentes.ts`) : une boucle
    * d'attente, un long sommeil, un serveur d'essai ou un « tail -f » lancés au
    * premier plan bloquent la tâche. Refusés avant de partir, avec leurs issues.

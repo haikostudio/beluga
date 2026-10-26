@@ -4403,7 +4403,7 @@ export const MIGRATIONS: {
      *    (UNIQUE) et passe prévue → réservée → débitée, ou → libérée ;
      *  - `production_approbations`, `production_evenements` : les réponses de
      *    l'utilisateur et le journal qui fait vivre le volet de suivi ;
-     *  - `production_budget_phases` : l'enveloppe par étape (carte 2) ;
+     *  - `production_budget_phases` : plus alimentée (budget global : parcours.realisationBudget) ;
      *  - `methodes_creatives*` : la bibliothèque de méthodes, vide ici,
      *    remplie et notée par la carte 4 ;
      *  - `medias_realisation` gagne l'étape du suivi et le lot de son devis.

@@ -5,7 +5,7 @@ import {
   type Card,
   type EtatDUnJalon,
   type TodoItem,
-  LIBELLES_JALONS_DE_REALISATION,
+  LIBELLE_ETAPE_DE_SUIVI,
   LIBELLES_PHASES_DE_REALISATION,
   cheminDeLaRealisation,
   estUnApercu,
@@ -20,6 +20,7 @@ import { ImageDePiece, adresseDePiece } from '@/components/pastille-de-fichier';
 import { client } from '@/lib/client';
 import { ouvrirLeDocument } from '@/lib/document-de-carte';
 import { useApp } from '@/lib/use-app';
+import { useEtapesDuMedia } from '@/lib/production-de-carte';
 import { cn } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
@@ -94,13 +95,21 @@ export function CheminDeRealisation({
 }) {
   const chemin = cheminDeLaRealisation(carte);
   const auTravail = carte.column === 'running';
+  /* LES QUATRE ÉTAPES DU MÉDIA (26/10/2026), les mêmes que la barre du haut et
+     le volet : Brief, Esquisses, Montage, Téléchargement — plus les sept jalons
+     d'avant, qui disaient deux fois le parcours autrement. */
+  const media = useEtapesDuMedia(carte);
+  const etapes: { jalon: string; libelle: string; etat: EtatDUnJalon }[] = media
+    ? media.segments.map((s) => ({ jalon: s.etape, libelle: LIBELLE_ETAPE_DE_SUIVI[s.etape], etat: s.etat === 'fait' ? 'fait' : s.etat === 'avenir' ? 'avenir' : s.etat === 'question' ? 'pret' : 'encours' }))
+    : [];
+  const ouEstOn = media?.courante ?? chemin.jalon;
   return (
     <section
       className={integre ? 'min-w-0 flex-1' : CLASSE_BLOC_DU_PIED}
       data-chemin-realisation
       data-chemin-integre={integre ? '' : undefined}
       data-chemin-reduit={reduit ? '' : undefined}
-      data-jalon={chemin.jalon}
+      data-jalon={ouEstOn}
       data-role={chemin.role}
     >
       <div
@@ -128,9 +137,9 @@ export function CheminDeRealisation({
             ouvert, et le bouton le ramène quand un autre document a pris sa place. */}
         <div className="flex min-w-0 items-start gap-2">
         <ol className="flex min-w-0 flex-1 flex-col gap-0.5" aria-label="Étapes du tournage">
-          {chemin.etapes.map((etape) => {
-            /* L'étape DÉPLIÉE est celle du jalon : en cours, prête, ou « Livré » une fois tout fait. */
-            const ici = etape.jalon === chemin.jalon;
+          {etapes.map((etape) => {
+            /* L'étape DÉPLIÉE est celle où se trouve la création. */
+            const ici = etape.jalon === ouEstOn;
             /* Replié par le pied compact du téléphone : seule l'étape où l'on est reste. */
             if (onDeplier && !ici) return null;
             const etat = etatDeTache(etape.etat);
@@ -147,7 +156,7 @@ export function CheminDeRealisation({
                 <CaseDeTache etat={etat} streaming={etape.etat === 'encours' && auTravail} />
                 <div className="min-w-0 flex-1">
                   <span className={cn('block truncate', classeDuLibelleDeTache(etat))} data-nom-etape>
-                    {t(LIBELLES_JALONS_DE_REALISATION[etape.jalon])}
+                    {t(etape.libelle)}
                   </span>
                   {ici ? (
                     <>
@@ -238,18 +247,6 @@ function PlansFabriques({ carte }: { carte: Card }) {
     <div className="mt-3" data-plans-fabriques={finis.length} data-plans-en-cours={enCours.length}>
       <div className="mb-1.5 flex items-center gap-2">
         <p className="min-w-0 flex-1 text-[12px] uppercase tracking-wide text-faint">{t('Plans fabriqués')}</p>
-        {/* LE GRAND VOLET DE MONTAGE : les plans finis s'y montent (réservé à qui ouvre le Studio). */}
-        {etat.studioOuvert && finis.length ? (
-          <button
-            type="button"
-            onClick={() => ouvrirLeDocument({ cardId: carte.id, genre: 'montage' })}
-            className="flex shrink-0 items-center gap-1 rounded-md px-2 sm:px-1.5 py-1 sm:py-0.5 text-[12.5px] text-muted transition-colors hover:bg-raised hover:text-text"
-            data-ouvrir-le-montage=""
-          >
-            <Clapperboard className="h-3.5 w-3.5" />
-            {t('Monter les plans')}
-          </button>
-        ) : null}
       </div>
       <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-6">
         {finis.map((m) => {

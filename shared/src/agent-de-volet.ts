@@ -1,6 +1,6 @@
 /**
  * LES AGENTS DE VOLET : ceux qui vivent dans leur PROPRE écran, pas sur le
- * tableau — le Studio, l'atelier Marketing, l'agent d'une surveillance de site,
+ * tableau — l'atelier Marketing, l'agent d'une surveillance de site,
  * celui des sauvegardes (configuration, analyse, réparation). Ils ne livrent
  * aucun code : leur carte (`ouvrirCarteDAgent`) n'a ni branche ni copie de
  * travail, et elle ne sert qu'à les montrer au tableau pendant qu'ils tournent.
@@ -18,16 +18,14 @@
  *
  * Un cadrage ou un agent de tâche dans une copie de travail n'en est JAMAIS
  * un, même sous la même étiquette : la carte « Installer le suivi » porte
- * l'étiquette marketing, une création du Studio peut partir en vraie tâche.
+ * l'étiquette marketing.
  */
 import { LABEL_BACKUP } from './backups-agent.js';
 import { LABEL_MARKETING } from './marketing.js';
-import { LABEL_STUDIO } from './studio.js';
-import { LABEL_BIBLIOTHEQUE } from './studio-sources.js';
 import { LABEL_SURVEILLANCE } from './surveillance.js';
 
 /** Les étiquettes que pose la naissance d'un agent de volet sur sa carte. */
-export const LABELS_DE_VOLET: readonly string[] = [LABEL_STUDIO, LABEL_MARKETING, LABEL_SURVEILLANCE, LABEL_BACKUP, LABEL_BIBLIOTHEQUE];
+export const LABELS_DE_VOLET: readonly string[] = [LABEL_MARKETING, LABEL_SURVEILLANCE, LABEL_BACKUP];
 
 export function estAgentDeVolet(
   agent: { role?: string; workdir?: string | null } | null | undefined,
@@ -48,15 +46,13 @@ export function estAgentDeVolet(
  * n'est JAMAIS un agent de volet : il garde sa carte Système violette, qui ouvre
  * déjà son tiroir.
  */
-export type ServiceDeCarte = 'studio' | 'marketing' | 'surveillance' | 'backups' | 'bibliotheque';
+export type ServiceDeCarte = 'marketing' | 'surveillance' | 'backups';
 
 /** Le service de chaque étiquette de volet. */
 const SERVICE_PAR_ETIQUETTE: ReadonlyArray<readonly [string, ServiceDeCarte]> = [
-  [LABEL_STUDIO, 'studio'],
   [LABEL_MARKETING, 'marketing'],
   [LABEL_SURVEILLANCE, 'surveillance'],
   [LABEL_BACKUP, 'backups'],
-  [LABEL_BIBLIOTHEQUE, 'bibliotheque'],
 ];
 
 /** Le service de la carte d'un agent de volet, ou `null` pour toute autre carte. */
@@ -71,25 +67,21 @@ export function serviceDeLaCarte(
 
 /** Le nom du service sur le badge de la carte (le dictionnaire le traduit à l'affichage). */
 export const NOM_DU_SERVICE: Readonly<Record<ServiceDeCarte, string>> = {
-  studio: 'Studio',
   marketing: 'Marketing',
   surveillance: 'Surveillance',
   backups: 'Sauvegardes',
-  bibliotheque: 'Bibliothèque',
 };
 
 /**
- * OÙ MÈNE LE CLIC : la vue du service et l'élément qu'elle ouvre (une création,
- * le projet d'un atelier, un site). La bibliothèque de styles n'a pas de
- * conversation dans le Studio : sa carte reste le seul endroit où lire son fil,
- * elle n'a donc pas de lieu.
+ * OÙ MÈNE LE CLIC : la vue du service et l'élément qu'elle ouvre (le projet
+ * d'un atelier, un site).
  */
 export type LieuDeService = {
-  vue: 'studio' | 'marketing' | 'surveillance' | 'backups';
+  vue: 'marketing' | 'surveillance' | 'backups';
   elementId: string;
 };
 
-/** Un service dont la conversation de l'agent se lit dans son propre écran. */
-export function serviceAUneConversation(service: ServiceDeCarte): boolean {
-  return service !== 'bibliotheque';
+/** Un service dont la conversation de l'agent se lit dans son propre écran (tous, depuis le retrait du Studio et de sa bibliothèque). */
+export function serviceAUneConversation(_service: ServiceDeCarte): boolean {
+  return true;
 }

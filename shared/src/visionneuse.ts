@@ -201,3 +201,15 @@ export function nomDArchiveDImages(nom: string | null | undefined): string {
     .slice(0, 80);
   return `${propre || 'images'}.zip`;
 }
+
+/** Des noms de fichiers sans doublon dans une archive : le second « a.png » devient « a-2.png ». */
+export function nomsSansDoublon(noms: string[]): string[] {
+  const vus = new Map<string, number>();
+  return noms.map((nom) => {
+    const n = (vus.get(nom.toLowerCase()) ?? 0) + 1;
+    vus.set(nom.toLowerCase(), n);
+    if (n === 1) return nom;
+    const point = nom.lastIndexOf('.');
+    return point > 0 ? `${nom.slice(0, point)}-${n}${nom.slice(point)}` : `${nom}-${n}`;
+  });
+}

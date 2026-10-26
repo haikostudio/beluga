@@ -3,7 +3,10 @@ import { Check, Clapperboard, Download, Footprints, Loader2, MessageSquarePlus, 
 import {
   ANGLES_DE_VUE,
   PARAMETRES_DES_ANGLES,
+  animationPermise,
+  carteDeMedia,
   catalogueDeGeneration,
+  typesDeMediaDeLaRealisation,
   heureExacte,
   estUneRetoucheDImage,
   informationsDuMedia,
@@ -11,17 +14,12 @@ import {
   type CapaciteDeGeneration,
   type InformationDeMedia,
   type MediaDuSuivi,
-  type OperationDeRetouche,
 } from '@beluga/shared';
 import {
   ActionTiroir,
   Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Drawer,
+  EnteteDeFeuille,
   Input,
   MenuActions,
   Textarea,
@@ -29,6 +27,7 @@ import {
   ListeDeroulante,
 } from '@/components/ui';
 import { adresseDePiece } from '@/components/pastille-de-fichier';
+import { LIBELLES_OPERATIONS_DU_PANNEAU, PanneauDuMedia, type OperationDuPanneau } from '@/components/creation/panneau-du-media';
 import { client } from '@/lib/client';
 import { joindreAuChamp } from '@/lib/joindre-au-champ';
 import { useProduction } from '@/lib/production-de-carte';
@@ -38,7 +37,14 @@ import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
 
 /**
- * LE MENU « … » D'UN MÉDIA FABRIQUÉ (agent créatif, 24/10/2026).
+ * LE MENU « … » D'UN MÉDIA FABRIQUÉ (agent créatif, 24/10/2026 ; refait le
+ * 26/10/2026 : « Valider » en premier, et chaque option qui fabrique ouvre SON
+ * PANNEAU — `PanneauDuMedia`, feuille du bas avec le modèle choisi d'office et
+ * le prix sur le bouton —, au lieu d'écrire un message à l'agent qui
+ * reposait ses questions une à une). Ce qui suit décrit le menu d'avant ; les
+ * gestes d'image et de vidéo passent désormais tous par leur panneau.
+ *
+ * (Version du 24/10/2026 :)
  *
  * En haut à droite de chaque image, vidéo ou son — dans la discussion comme
  * dans le suivi de la production —, les trois points ouvrent ses options :
@@ -154,46 +160,62 @@ export function InformationsDuMedia({ media, className }: { media: MediaDuSuivi;
   );
 }
 
-/** La petite marque d'un média retenu, monochrome. */
+/** La petite marque d'un média validé, en violet (l'élément choisi). */
 export function MarqueDansLeSuivi({ className }: { className?: string }) {
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded bg-surface/85 px-1 text-[10.5px] leading-4 text-muted', className)} data-media-dans-le-suivi="">
+    <span className={cn('inline-flex items-center gap-1 rounded bg-teinte-plein px-1 text-[10.5px] leading-4 text-white', className)} data-media-dans-le-suivi="">
       <Check className="h-3 w-3" aria-hidden />
-      {t('Dans le suivi')}
+      {t('Validé')}
     </span>
+  );
+}
+
+/**
+ * « VALIDER » D'UN CLIC, DIRECTEMENT SUR LE MÉDIA (26/10/2026) : le média
+ * entre dans le volet de droite (il servira au montage) ; un second clic
+ * retire la validation, sans jamais toucher au fichier. Violet une fois validé,
+ * discret avant. Plusieurs brouillons d'une même génération peuvent l'être.
+ */
+export function BoutonValider({ cardId, media, className }: { cardId: string; media: MediaDuSuivi; className?: string }) {
+  const [enVol, setEnVol] = React.useState(false);
+  if (media.etat !== 'fini' || !media.attachmentId) return null;
+  const valide = !!media.retenuLe;
+  const basculer = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (enVol) return;
+    setEnVol(true);
+    try {
+      await client.call({ type: 'production.retenir', cardId, mediaId: media.id, retenu: !valide });
+    } catch (err: any) {
+      client.pushToast('error', err?.message ?? t('La validation n’a pas pu être enregistrée'));
+    } finally {
+      setEnVol(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={(event) => void basculer(event)}
+      aria-pressed={valide}
+      aria-busy={enVol}
+      title={valide ? t('Retirer la validation') : t('Valider : il servira au montage')}
+      data-valider-media={media.id}
+      data-media-valide={valide ? '' : undefined}
+      className={cn(
+        'inline-flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium transition-colors',
+        valide ? 'bg-teinte-plein text-white hover:opacity-90' : 'bg-surface/85 text-text hover:bg-surface',
+        className,
+      )}
+    >
+      {enVol ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" strokeWidth={valide ? 3 : 2} />}
+      {valide ? t('Validé') : t('Valider')}
+    </button>
   );
 }
 
 /* ------------------------------------------------------------------ */
 /* Le menu                                                              */
 /* ------------------------------------------------------------------ */
-
-const LIBELLES_RETOUCHES: Record<OperationDeRetouche, () => string> = {
-  angles: () => t('Autres angles'),
-  lumiere: () => t('Changer la lumière'),
-  visage: () => t('Remplacer le visage'),
-};
-
-/** Les gestes de fabrication à partir d'un média : animer une image, reprendre les gestes d'une vidéo. */
-function demandeDeFabrication(geste: 'animer' | 'mouvement', media: MediaDuSuivi): string {
-  const nom = `« ${legendeDuMedia(media)} » (${t('média')} ${media.id})`;
-  return geste === 'animer'
-    ? t('Animer le plan à partir de l’image {media} comme image de départ : demandez-moi l’image de fin (ou aucune), puis le modèle avec son prix, puis le nombre de propositions.', { media: nom })
-    : t('Reprendre les gestes de la vidéo {media} (contrôle du mouvement) : demandez-moi l’image du personnage, l’orientation, puis le modèle avec son prix.', { media: nom });
-}
-
-/** Ce que le message à l'agent dit pour chaque retouche demandée depuis le menu. */
-function demandeDeRetouche(operation: OperationDeRetouche, media: MediaDuSuivi): string {
-  const nom = `« ${legendeDuMedia(media)} » (${t('média')} ${media.id})`;
-  switch (operation) {
-    case 'angles':
-      return t('Autres angles de l’image {media} : demandez-moi les angles voulus, puis le modèle avec son prix, puis le nombre d’images.', { media: nom });
-    case 'lumiere':
-      return t('Changer la lumière de l’image {media} : demandez-moi le modèle avec son prix, puis ouvrez la sphère de lumière, puis le nombre d’images.', { media: nom });
-    case 'visage':
-      return t('Remplacer un visage dans l’image {media} : demandez-moi le modèle avec son prix, les photos du visage à poser et la personne à remplacer, puis le nombre d’images.', { media: nom });
-  }
-}
 
 export function MenuDuMedia({ cardId, media, className }: { cardId: string; media: MediaDuSuivi; className?: string }) {
   const state = useApp();
@@ -202,6 +224,7 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
   const agentId = agentDuFil ?? carte?.agentId ?? media.agentId ?? null;
   const [enCours, setEnCours] = React.useState<string | null>(null);
   const [reglages, setReglages] = React.useState(false);
+  const [panneau, setPanneau] = React.useState<OperationDuPanneau | null>(null);
   const pret = media.etat === 'fini' && !!media.attachmentId;
   const piece: Attachment | null = media.attachmentId
     ? (state.attachments[carte?.projectId ?? ''] ?? []).find((p: Attachment) => p.id === media.attachmentId) ??
@@ -211,12 +234,14 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
   if (!pret) return null;
   const retenu = !!media.retenuLe;
 
+  /* UNE CRÉATION DE MÉDIA : la validation ne réveille pas l'agent, et chaque option qui fabrique ouvre son panneau. */
+  const creation = carteDeMedia(carte);
   const basculerLeSuivi = async (fermer: () => void) => {
     if (enCours) return;
     setEnCours('suivi');
     try {
       await client.call({ type: 'production.retenir', cardId, mediaId: media.id, retenu: !retenu });
-      if (agentId) annoncerAuSuivi(agentId, retenu ? t('Retiré du suivi : « {media} » ({id}).', { media: legendeDuMedia(media), id: media.id }) : t('Ajouté au suivi : « {media} » ({id}).', { media: legendeDuMedia(media), id: media.id }));
+      if (agentId && !creation) annoncerAuSuivi(agentId, retenu ? t('Retiré du suivi : « {media} » ({id}).', { media: legendeDuMedia(media), id: media.id }) : t('Ajouté au suivi : « {media} » ({id}).', { media: legendeDuMedia(media), id: media.id }));
       fermer();
     } catch (err: any) {
       client.pushToast('error', err?.message ?? t('Le suivi n’a pas pu être mis à jour'));
@@ -224,17 +249,30 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
       setEnCours(null);
     }
   };
-  const retoucher = async (operation: OperationDeRetouche | 'animer' | 'mouvement', fermer: () => void) => {
-    if (enCours || !agentId) return;
-    setEnCours(operation);
-    try {
-      await direALAgent(agentId, operation === 'animer' || operation === 'mouvement' ? demandeDeFabrication(operation, media) : demandeDeRetouche(operation, media), [media.attachmentId!]);
-      fermer();
-    } catch (err: any) {
-      client.pushToast('error', err?.message ?? t('La demande n’a pas pu partir'));
-    } finally {
-      setEnCours(null);
-    }
+  const ouvrirLePanneau = (operation: OperationDuPanneau, fermer: () => void) => {
+    fermer();
+    setPanneau(operation);
+  };
+  /* L'ANIMATION ATTEND LE SECOND TEMPS D'UNE VIDÉO (toutes les images d'abord), et une image validée. */
+  const animer =
+    media.genre === 'image' && retenu && !!carte && typesDeMediaDeLaRealisation(carte.realisation).includes('video') && animationPermise({ types: typesDeMediaDeLaRealisation(carte.realisation), carte }).ok;
+  const operations: OperationDuPanneau[] =
+    media.genre === 'image' ? ['visage', 'lumiere', 'angles', 'consigne', ...(animer ? (['animer'] as const) : [])] : media.genre === 'video' ? ['gestes', 'consigne'] : [];
+  const ICONES: Record<OperationDuPanneau, React.ReactNode> = {
+    visage: <ScanFace className="h-4 w-4" />,
+    lumiere: <SunMedium className="h-4 w-4" />,
+    angles: <Move3d className="h-4 w-4" />,
+    consigne: <MessageSquarePlus className="h-4 w-4" />,
+    animer: <Clapperboard className="h-4 w-4" />,
+    gestes: <Footprints className="h-4 w-4" />,
+  };
+  const REPERES: Record<OperationDuPanneau, string> = {
+    visage: 'data-media-visage',
+    lumiere: 'data-media-lumiere',
+    angles: 'data-media-autres-angles',
+    consigne: 'data-media-redemander',
+    animer: 'data-media-animer',
+    gestes: 'data-media-mouvement',
   };
 
   return (
@@ -242,25 +280,24 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
       <MenuActions titre={t('Options du média')} repere={`media-${media.id}`} className={cn('bg-surface/85', className)} taille="icon-sm">
         {(fermer) => (
           <div className="flex flex-col gap-0.5" data-menu-media={media.id}>
-            <ActionTiroir
-              icone={<SlidersHorizontal className="h-4 w-4" />}
-              onClick={() => {
-                fermer();
-                setReglages(true);
-              }}
-              data-media-reglages=""
-            >
-              {t('Réglages')}
-            </ActionTiroir>
+            {/* « VALIDER » EN PREMIER (26/10/2026) : le média rejoint le volet et servira au montage. */}
             <ActionTiroir
               icone={enCours === 'suivi' ? <Loader2 className="h-4 w-4 animate-spin" /> : retenu ? <Undo2 className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               onClick={() => void basculerLeSuivi(fermer)}
               disabled={!!enCours}
               {...(retenu ? { 'data-media-retirer': '' } : { 'data-media-retenir': '' })}
             >
-              {retenu ? t('Retirer du suivi') : t('Ajouter au suivi')}
+              {creation ? (retenu ? t('Retirer la validation') : t('Valider')) : retenu ? t('Retirer du suivi') : t('Ajouter au suivi')}
             </ActionTiroir>
-            {agentId && piece ? (
+            {/* LES OPTIONS QUI FABRIQUENT : chacune ouvre son panneau, prix sur le bouton. */}
+            {creation
+              ? operations.map((operation) => (
+                  <ActionTiroir key={operation} icone={ICONES[operation]} onClick={() => ouvrirLePanneau(operation, fermer)} {...{ [REPERES[operation]]: '' }}>
+                    {LIBELLES_OPERATIONS_DU_PANNEAU[operation]()}
+                  </ActionTiroir>
+                ))
+              : null}
+            {(!creation || media.genre === 'son') && agentId && piece ? (
               <ActionTiroir
                 icone={<MessageSquarePlus className="h-4 w-4" />}
                 onClick={() => {
@@ -273,6 +310,16 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
               </ActionTiroir>
             ) : null}
             <ActionTiroir
+              icone={<SlidersHorizontal className="h-4 w-4" />}
+              onClick={() => {
+                fermer();
+                setReglages(true);
+              }}
+              data-media-reglages=""
+            >
+              {t('Réglages')}
+            </ActionTiroir>
+            <ActionTiroir
               icone={telechargement === 'reception' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               onClick={() => {
                 telecharger();
@@ -282,53 +329,10 @@ export function MenuDuMedia({ cardId, media, className }: { cardId: string; medi
             >
               {t('Télécharger')}
             </ActionTiroir>
-            {media.genre === 'image' && agentId ? (
-              <ActionTiroir
-                icone={enCours === 'animer' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clapperboard className="h-4 w-4" />}
-                onClick={() => void retoucher('animer', fermer)}
-                disabled={!!enCours}
-                data-media-animer=""
-              >
-                {t('Animer ce plan')}
-              </ActionTiroir>
-            ) : null}
-            {media.genre === 'video' && agentId ? (
-              <ActionTiroir
-                icone={enCours === 'mouvement' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Footprints className="h-4 w-4" />}
-                onClick={() => void retoucher('mouvement', fermer)}
-                disabled={!!enCours}
-                data-media-mouvement=""
-              >
-                {t('Reprendre ses gestes')}
-              </ActionTiroir>
-            ) : null}
-            {/* Les retouches d'IMAGE : aucun modèle en place ne retouche une vidéo ou un son. */}
-            {media.genre === 'image' && agentId
-              ? (['angles', 'lumiere', 'visage'] as const).map((operation) => (
-                  <ActionTiroir
-                    key={operation}
-                    icone={
-                      enCours === operation ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : operation === 'angles' ? (
-                        <Move3d className="h-4 w-4" />
-                      ) : operation === 'lumiere' ? (
-                        <SunMedium className="h-4 w-4" />
-                      ) : (
-                        <ScanFace className="h-4 w-4" />
-                      )
-                    }
-                    onClick={() => void retoucher(operation, fermer)}
-                    disabled={!!enCours}
-                    {...{ [`data-media-${operation === 'angles' ? 'autres-angles' : operation}`]: '' }}
-                  >
-                    {LIBELLES_RETOUCHES[operation]()}
-                  </ActionTiroir>
-                ))
-              : null}
           </div>
         )}
       </MenuActions>
+      {panneau ? <PanneauDuMedia ouvert={!!panneau} onFermer={() => setPanneau(null)} operation={panneau} cardId={cardId} media={media} /> : null}
       <ReglagesDuMedia ouvert={reglages} onFermer={() => setReglages(false)} media={media} agentId={agentId} />
     </>
   );
@@ -401,14 +405,14 @@ function ReglagesDuMedia({ ouvert, onFermer, media, agentId }: { ouvert: boolean
     }
   };
   return (
-    <Dialog open={ouvert} onOpenChange={(next) => !next && onFermer()}>
-      <DialogContent className="sm:w-[min(560px,100%)]" data-reglages-media={media.id}>
-        <DialogHeader>
-          <DialogTitle>{t('Réglages de « {media} »', { media: legendeDuMedia(media) })}</DialogTitle>
-          <DialogDescription>{t('Tout ce qui a fabriqué ce média. Changez ce qui se règle, puis relancez : l’agent refait un devis avant toute dépense.')}</DialogDescription>
-        </DialogHeader>
-        <ZoneDefilement className="max-h-[60dvh]">
-          <div className="flex flex-col pr-1">
+    <Drawer open={ouvert} onClose={onFermer} feuille>
+      <div className="flex min-h-0 flex-1 flex-col" data-reglages-media={media.id}>
+        <EnteteDeFeuille
+          titre={t('Réglages de « {media} »', { media: legendeDuMedia(media) })}
+          sousTitre={t('Tout ce qui a fabriqué ce média. Changez ce qui se règle, puis relancez : l’agent refait un devis avant toute dépense.')}
+        />
+        <ZoneDefilement className="min-h-0 flex-1">
+          <div className="flex flex-col px-4 pb-3">
             <LigneDeReglage cle={t('Service et modèle')}>{[media.service, media.modeleNom].filter(Boolean).join(' · ')}</LigneDeReglage>
             <LigneDeReglage cle={t('Informations')}>
               {informationsDuMedia({ genre: media.genre, format: media.format ?? null, mesure: media.mesure ?? null, taille: media.taille ?? null }).map(texteDUneInformation).join(' · ') || '—'}
@@ -477,7 +481,7 @@ function ReglagesDuMedia({ ouvert, onFermer, media, agentId }: { ouvert: boolean
             ) : null}
           </div>
         </ZoneDefilement>
-        <DialogFooter>
+        <div className="flex shrink-0 items-center justify-end gap-2 px-4 pb-3 pt-2">
           <Button variant="ghost" size="sm" onClick={onFermer}>
             {t('Fermer')}
           </Button>
@@ -485,9 +489,9 @@ function ReglagesDuMedia({ ouvert, onFermer, media, agentId }: { ouvert: boolean
             {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
             {t('Relancer avec ces réglages')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </Drawer>
   );
 }
 
@@ -503,10 +507,12 @@ function ReglagesDuMedia({ ouvert, onFermer, media, agentId }: { ouvert: boolean
  */
 export function MenuDeLaPiece({ cardId, attachmentId, className }: { cardId: string | null | undefined; attachmentId: string | null | undefined; className?: string }) {
   const media = useMediaDeProduction(cardId, { attachmentId });
+  const cartes = useApp().cards;
   if (!cardId || !media) return null;
+  const creation = carteDeMedia(cartes[cardId]);
   return (
     <div className={cn('absolute right-1 top-1 z-[1] flex items-center gap-1', className)}>
-      {media.retenuLe ? <MarqueDansLeSuivi /> : null}
+      {creation ? <BoutonValider cardId={cardId} media={media} /> : media.retenuLe ? <MarqueDansLeSuivi /> : null}
       <MenuDuMedia cardId={cardId} media={media} />
     </div>
   );

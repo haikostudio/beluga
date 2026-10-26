@@ -9,9 +9,13 @@ import {
 } from '@beluga/shared';
 import { Button } from '@/components/ui';
 import { LigneDeService, useServicesDeCreation, type ServiceAffiche } from '@/components/reglages/page-services-creation';
-import { ouvrirLesServicesDeCreation } from '@/components/studio/services';
 import { t } from '@/lib/langue';
 import { cn } from '@/lib/utils';
+
+/** Ouvre les paramètres de l'application sur la rubrique « Services de création ». */
+function ouvrirLesServicesDeCreation() {
+  window.dispatchEvent(new CustomEvent('beluga:ouvrir-reglages', { detail: { page: 'services-creation' } }));
+}
 
 /**
  * L'ENCADRÉ DE BRANCHEMENT, DANS LA CONVERSATION (studio créatif, décision de

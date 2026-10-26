@@ -39,10 +39,6 @@ export function effortParDefaut(input: { role: AgentRole; motif?: MotifDAppel })
   if (input.motif === 'configuration-backup' || input.motif === 'configuration-surveillance') return 'low';
   // Rédiger pour vendre demande un peu de jugement : un cran au-dessus des assistants de configuration.
   if (input.motif === 'configuration-marketing') return 'medium';
-  // Lire un site inconnu et en tirer une recette, ou rédiger des textes : du jugement, sans plus.
-  if (input.motif === 'bibliotheque-styles') return 'medium';
-  // Dessiner en code, regarder son aperçu, corriger : le studio veut le cran haut.
-  if (input.motif === 'studio') return 'high';
   // « Résoudre le problème » cherche une cause INCONNUE : du jugement, pas un geste dicté.
   if (input.motif === 'depannage-manuel') return 'medium';
   // La réparation silencieuse d'une étape et le heurt de fusion réglé sur place : une panne

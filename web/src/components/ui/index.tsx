@@ -1985,7 +1985,11 @@ export function Drawer({
   /**
    * LA FEUILLE DU BAS au lieu de la page de zone : voile, poignée à tirer,
    * titre et gestes en tête du contenu. Réservé à « Déploiement » et « Mise en
-   * production » — les autres écrans restent des pages (refonte du 11/10/2026).
+   * production » — les autres écrans restent des pages (refonte du 11/10/2026) —,
+   * ET AUX PANNEAUX D'UN MÉDIA (demande explicite de l'utilisateur du
+   * 26/10/2026) : chaque option du menu « … » d'un média d'une création
+   * (visage, lumière, angles, animation, gestes, consigne, réglages) ouvre sa
+   * feuille, avec le composant adapté et le prix sur le bouton.
    */
   feuille?: boolean;
   /** L'en-tête propre à la page (fil d'Ariane, gestes) ; sans lui, la barre « Retour ». */

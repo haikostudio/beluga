@@ -72,6 +72,7 @@ import {
   type SourceDuBrief,
 } from '@beluga/shared';
 import { changerLEtatDesElements, elementsDeLaCarte, noterUnElement, noterUnEvenement, noterUneApprobation } from './production.js';
+import { actionCatalogue, actionEsquisse, actionExemples, actionStyle, actionStyles, actionType, actionVoixEssai } from './production-du-directeur.js';
 import * as store from './store.js';
 import { bus } from './bus.js';
 
@@ -165,8 +166,8 @@ function lirePieces(brut: unknown): { cle?: string; titre: string; contenu: stri
  * tests, qui n'ont aucun service branché.
  */
 let lireLesCapacitesBranchees: () => Promise<string[]> = async () => {
-  const { capacitesCouvertes } = await import('./realisation.js');
-  return capacitesCouvertes();
+  const { capacitesDuDirecteur } = await import('./realisation.js');
+  return capacitesDuDirecteur();
 };
 export function remplacerLesCapacitesBranchees(fn: () => Promise<string[]>): void {
   lireLesCapacitesBranchees = fn;
@@ -201,13 +202,12 @@ async function ecrireLEtape(card: Card, etape: EtapeDEcriture, pieces: ReturnTyp
     ecrites.push(r.element);
     aval = [...new Set([...aval, ...r.aval])];
   });
-  const arret = arretDeLEtape(etape);
   const suite =
-    arret === 'idee'
-      ? 'Quand le brief et les directions sont prêts, soumets l’arrêt « idee » (action « soumettre ») : c’est le premier des trois arrêts.'
+    etape === 'direction'
+      ? 'Fais choisir une direction avec « soumettre » (étape « idee ») si le choix appartient à l’utilisateur ; sinon continue le brief.'
       : etape === 'plans'
-        ? 'Fabrique maintenant les images clés sur l’enveloppe d’aperçus (« apercu_de_realisation »), chiffre le prix du film, termine le cahier, puis soumets l’arrêt « images-cles » avec « prix » : son accord lance la fabrication.'
-        : 'Enchaîne l’étape suivante SANS t’arrêter : scénario, storyboard et plans se soumettent ensemble à l’arrêt « images-cles ».';
+        ? 'Le découpage est écrit : quand le brief est complet, invite l’utilisateur à cliquer « Passer aux esquisses » sous le champ d’écriture — c’est son geste, jamais le tien.'
+        : 'Continue le brief sans t’arrêter : tout l’écrit se fait avant « Passer aux esquisses ».';
   return {
     ok: true,
     text: `${LIBELLES_ETAPES_D_ECRITURE[etape]} écrit : ${ecrites.map((e) => `« ${e.titre} » (clé « ${e.cle} », v${e.version})`).join(', ')}. Les pièces paraissent dans le suivi à droite. ${suite}${phraseDeLAval(aval)}`,
@@ -343,6 +343,17 @@ function actionSoumettre(card: Card, args: Record<string, unknown>): ResultatPro
     return poserLAccord(card, arret, soumises.map((p) => p.id), forme);
   }
 
+  /* PLUS D'ARRÊT DE PRIX NI DE FILM (26/10/2026) : l'utilisateur avance par le bouton du bas, chaque génération a son propre bouton à prix. */
+  if (arret === 'images-cles' || arret === 'rendu') {
+    return {
+      ok: false,
+      text:
+        arret === 'images-cles'
+          ? 'Refusé : il n’y a plus d’arrêt « images clés et prix » ni d’accord global. Au brief, invite l’utilisateur à cliquer « Passer aux esquisses » ; aux esquisses, chaque génération part par son propre lot à prix (« realiser » action « devis » puis « lot »).'
+          : 'Refusé : il n’y a plus d’arrêt « film monté ». Le montage se fait dans le studio de la carte, et l’utilisateur passe lui-même au téléchargement par le bouton du bas.',
+    };
+  }
+
   if (arret === 'images-cles') {
     if (!arretAccorde('idee', elements, types)) return { ok: false, text: 'Refusé : l’idée n’a pas encore l’accord de l’utilisateur — soumets d’abord l’arrêt « idee ».' };
     if (card.parcours?.fabricationAccordeeA && arretAccorde('images-cles', elements, types)) {
@@ -365,7 +376,10 @@ function actionSoumettre(card: Card, args: Record<string, unknown>): ResultatPro
     }
     const pieces = etapes.flatMap((e) => piecesDeLEtape(elements, e));
     const images = imagesDesignees(args.images, card.projectId);
-    const forme = questionDAccordDArret({ arret, pieces: piecesDeLEtape(elements, 'plans'), resume, prix, plafond: plafondDeFabrication(prix) });
+    /* LA VOIX D'ESSAI s'écoute dans la question : son accord vaut validation des textes (décision du 26/10/2026). */
+    const voixJointe = args.voix ? store.pieceJointeDesignee(args.voix, card.projectId) : null;
+    if (args.voix && !voixJointe?.mime?.startsWith('audio/')) return { ok: false, text: `« voix » doit être l’identifiant d’une pièce jointe SON de ce projet (rendue par « voix_essai ») : « ${String(args.voix)} » n’en est pas une.` };
+    const forme = questionDAccordDArret({ arret, pieces: piecesDeLEtape(elements, 'plans'), resume, prix, plafond: plafondDeFabrication(prix), ...(voixJointe ? { voix: voixJointe.id } : {}) });
     changerLEtatDesElements(pieces.map((p) => p.id), 'a-valider', ['propose', 'refuse', 'a-valider', 'valide']);
     return poserLAccord(card, arret, pieces.map((p) => p.id), forme, { prix: Math.round(prix * 100) / 100, ...(images.length ? { images } : {}) });
   }
@@ -454,12 +468,9 @@ export function trancherLAccordDEtape(
       changerLEtatDesElements(elements.map((e) => e.id), valide ? 'valide' : 'propose', ['a-valider']);
     }
   } else if (accord.etape === 'images-cles') {
+    /* UNE QUESTION D'AVANT LE 26/10/2026 encore ouverte : elle valide l'écrit, ne lance plus rien (chaque génération a son bouton à prix). */
     valide = etapeValideeParLaReponse(reponse);
     changerLEtatDesElements(elements.map((e) => e.id), valide ? 'valide' : 'propose', ['a-valider']);
-    if (valide) {
-      fabrication = true;
-      accorderLaFabrication(card.id, accord.prix ?? 0, accord.images ?? []);
-    }
   } else if (accord.etape === 'rendu') {
     valide = etapeValideeParLaReponse(reponse);
     /* Validé : l'export final part, « Terminer » suivra. Retouché : le film revient au montage. */
@@ -484,35 +495,6 @@ export function trancherLAccordDEtape(
   noterUneApprobation(card.id, 'etape', accord.etape, valide ? 'valide' : 'refuse', reponse);
   noterUnEvenement(card.id, valide ? 'etape.validee' : 'etape.retouche', { etape: accord.etape });
   return { etape: accord.etape, valide, ...(fabrication ? { fabrication } : {}) };
-}
-
-/**
- * L'ACCORD DE FABRICATION : le budget devient le prix accordé plus la marge de
- * réparation, les images clés désignées entrent au suivi (elles servent
- * d'images de départ aux plans), et la carte porte la marque qui fera partir
- * le tour de tâche à la fin du tour du directeur.
- */
-function accorderLaFabrication(cardId: string, prix: number, images: readonly string[]): void {
-  const card = store.getCard(cardId);
-  if (!card) return;
-  const plafond = plafondDeFabrication(prix);
-  const maintenant = Date.now();
-  const ecrite = store.saveCard({
-    ...card,
-    parcours: {
-      ...(card.parcours ?? { plans: [] }),
-      realisationBudget: { budget: plafond, seuil: plafond, at: maintenant, prixAccorde: prix },
-      realisationBudgetDemande: undefined,
-      fabricationAccordeeA: maintenant,
-    },
-  });
-  bus.emit({ type: 'card.upsert', card: ecrite });
-  noterUnEvenement(cardId, 'fabrication.accordee', { prix, plafond });
-  if (images.length) {
-    void import('./realisation.js')
-      .then(({ retenirLesImagesCles }) => retenirLesImagesCles(cardId, images))
-      .catch(() => {});
-  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -686,7 +668,7 @@ export async function production(ctx: ContexteProduction, args: Record<string, u
       });
       return {
         ok: true,
-        text: `« ${element.titre} » retouché : v${element.version} écrite, v${courante.version} gardée (l’utilisateur peut y revenir depuis le suivi).${etape ? ` Soumets de nouveau l’arrêt « ${arretDeLEtape(etape)} » (${LIBELLES_ARRETS_DU_DIRECTEUR[arretDeLEtape(etape)]}) quand il est prêt.` : ''} Si ce plan a déjà été fabriqué, refais-le par un nouveau devis dans un LOT validé avant toute génération.${phraseDeLAval(aval)}`,
+        text: `« ${element.titre} » retouché : v${element.version} écrite, v${courante.version} gardée (l’utilisateur peut y revenir depuis le suivi).${etape === 'direction' ? ' Fais rechoisir la direction avec « soumettre » (étape « idee ») si le choix lui revient.' : ''} Si ce plan a déjà été fabriqué, refais-le par un nouveau « devis » puis un « lot » à prix : rien ne part sans le clic de l’utilisateur.${phraseDeLAval(aval)}`,
       };
     }
 
@@ -725,6 +707,27 @@ export async function production(ctx: ContexteProduction, args: Record<string, u
     case 'soumettre':
       return actionSoumettre(card, args);
 
+    case 'type':
+      return actionType(card, args);
+
+    case 'styles':
+      return await actionStyles(card, ctx);
+
+    case 'style':
+      return actionStyle(card, args);
+
+    case 'catalogue':
+      return actionCatalogue(args);
+
+    case 'exemples':
+      return actionExemples(args);
+
+    case 'esquisse':
+      return await actionEsquisse(card, ctx, args);
+
+    case 'voix_essai':
+      return await actionVoixEssai(card, ctx, args);
+
     case 'piece_recue': {
       /* UNE PIÈCE FOURNIE PAR L'UTILISATEUR (photo, logo, voix…), jointe à sa réponse : notée au suivi, elle lève l'attente de l'arrêt 2. */
       const nom = String(args.nom ?? args.titre ?? '').trim().slice(0, 120);
@@ -752,7 +755,22 @@ export async function production(ctx: ContexteProduction, args: Record<string, u
     default:
       return {
         ok: false,
-        text: 'Action inconnue. Actions : etat, lire, brief, formulaire, concept, script, storyboard, plans, soumettre (arrêts idee, images-cles, rendu), piece_recue, modifier, versions, revenir_a_version.',
+        text: 'Action inconnue. Actions : etat, lire, type, styles, style, catalogue, exemples, brief, formulaire, concept, script, storyboard, plans, esquisse, voix_essai, soumettre (arrêts idee, images-cles, rendu), piece_recue, modifier, versions, revenir_a_version.',
       };
   }
+}
+
+/**
+ * « PASSER AUX ESQUISSES » VAUT ACCORD SUR L'ÉCRIT DU BRIEF (26/10/2026) : le
+ * brief, le scénario, le storyboard et les plans courants passent « validés »
+ * (la direction aussi quand une seule reste en lice) ; une retouche écrite
+ * ensuite les fera revalider, comme toute retouche d'une étape validée.
+ */
+export function validerLEcritDuBrief(cardId: string): number {
+  const courants = elementsCourants(elementsDeLaCarte(cardId)).filter((e) => e.etat === 'propose' || e.etat === 'a-valider');
+  const enLice = courants.filter((e) => e.genre === 'concept');
+  const ids = courants.filter((e) => ['brief', 'script', 'scene', 'plan'].includes(e.genre) || (e.genre === 'concept' && enLice.length === 1)).map((e) => e.id);
+  const n = changerLEtatDesElements(ids, 'valide', ['propose', 'a-valider']);
+  if (n) noterUnEvenement(cardId, 'brief.valide', { pieces: n });
+  return n;
 }

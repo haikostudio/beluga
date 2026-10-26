@@ -13,7 +13,6 @@ import {
   type ResumeMessagerie,
   type ResumeNotes,
   type ResumeStatistiques,
-  type ResumeStudio,
   type ResumeSurveillance,
   type ResumeTaches,
   type RubriqueDuResume,
@@ -347,51 +346,6 @@ function surveillance(base: BaseDuResume): ResumeSurveillance {
         constats: constats.get(s.id) ?? 0,
       };
     }),
-  };
-}
-
-function studio(base: BaseDuResume): ResumeStudio {
-  const db = getDb();
-  const b = base;
-  const noms = nomsDesProjets();
-  const creations = db
-    .prepare('SELECT id, project_id AS projet, titre, etat, cree_le AS creeLe, maj_le AS majLe FROM studio_creations WHERE maj_le >= ? AND cree_le <= ?')
-    .all(b.debut, b.fin) as { id: string; projet: string; titre: string; etat: string; creeLe: number; majLe: number }[];
-  const exports = db
-    .prepare('SELECT creation_id AS creation, etat, cree_le AS at FROM studio_exports WHERE cree_le BETWEEN ? AND ?')
-    .all(b.debut, b.fin) as { creation: string; etat: string; at: number }[];
-  const depenses = db
-    .prepare('SELECT creation_id AS creation, montant_reel AS montant FROM studio_depenses WHERE cree_le BETWEEN ? AND ? AND montant_reel IS NOT NULL')
-    .all(b.debut, b.fin) as { creation: string; montant: number }[];
-  const medias = db.prepare('SELECT COUNT(*) AS n FROM studio_medias WHERE cree_le BETWEEN ? AND ?').get(b.debut, b.fin) as { n: number };
-  const nees = creations.filter((c) => dans(c.creeLe, b));
-  return {
-    ...base,
-    rubrique: 'studio',
-    depuis: plusAncien('studio_creations', 'cree_le'),
-    creations: nees.length,
-    exports: exports.length,
-    exportsEnEchec: exports.filter((e) => e.etat === 'echoue').length,
-    depense: depenses.reduce((t, d) => t + (d.montant ?? 0), 0),
-    medias: medias.n ?? 0,
-    parJour: {
-      creations: sommesParJour(
-        nees.map((c) => ({ at: c.creeLe })),
-        b.debut,
-        b.fin,
-      ),
-      exports: sommesParJour(exports, b.debut, b.fin),
-    },
-    lignes: creations.map((c) => ({
-      id: c.id,
-      titre: c.titre,
-      projet: noms.get(c.projet) ?? null,
-      etat: c.etat,
-      exports: exports.filter((e) => e.creation === c.id).length,
-      depense: depenses.filter((d) => d.creation === c.id).reduce((t, d) => t + (d.montant ?? 0), 0),
-      creeLe: c.creeLe,
-      majLe: c.majLe,
-    })),
   };
 }
 
@@ -734,7 +688,6 @@ const CALCULS: Record<RubriqueDuResume, (base: BaseDuResume) => ResumeDeRubrique
   taches,
   memoire,
   surveillance,
-  studio,
   coffre,
   backups,
   statistiques,

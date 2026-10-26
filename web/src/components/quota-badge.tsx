@@ -457,6 +457,13 @@ export function QuotaBadge({
     if (current?.session) pourcents.push({ chiffre: chiffreGauche, nom: libelleFenetre(current.session, 'session') });
     if (current?.weekly) pourcents.push({ chiffre: chiffreDroite, nom: libelleFenetre(current.weekly, 'weekly') });
   }
+  /*
+   * LE CHIFFRE DE LA COLONNE REPLIÉE (demande du 26/10/2026) : sous le logo, la
+   * SEULE part de la fenêtre courte (5 h) du compte qui défile — jamais la
+   * semaine. Cursor et MiMo n'ont pas de fenêtre courte : leur première part
+   * lue la remplace. Rien de lu, rien d'écrit.
+   */
+  const chiffreBande = cursorActif ? pourcents[0]?.chiffre : current?.session ? chiffreGauche : undefined;
   const pourcentsEnClair = pourcents.map(({ chiffre, nom }) => `${nom} ${chiffre} %`).join(' · ');
 
   return (
@@ -471,7 +478,7 @@ export function QuotaBadge({
         <button
           className={cn(
             'flex min-w-0 items-center rounded-lg text-left transition-colors hover:bg-raised',
-            variante === 'bande' ? 'relative h-[43px] sm:h-9 w-[43px] sm:w-9 justify-center' : 'h-11 flex-1 gap-2.5 px-2.5',
+            variante === 'bande' ? 'relative h-[43px] sm:h-9 w-[43px] sm:w-9 flex-col justify-center gap-0.5' : 'h-11 flex-1 gap-2.5 px-2.5',
           )}
           title={[liaison?.texte, current?.label ?? t('Quotas des moteurs'), pourcentsEnClair].filter(Boolean).join(' · ')}
           aria-label={current?.label ? `${t('Quotas des moteurs')} · ${current.label}` : t('Quotas des moteurs')}
@@ -488,9 +495,20 @@ export function QuotaBadge({
             </span>
           ) : null}
           {variante === 'bande' ? (
-            liaison ? (
-              <span data-point-etat className={cn('absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full', liaison.classe)} />
-            ) : null
+            <>
+              {current && chiffreBande !== undefined ? (
+                <span
+                  key={`pourcent-${current.id}`}
+                  data-pourcent-bande={current.id}
+                  className="whitespace-nowrap text-[10px] font-medium leading-none tabular-nums text-muted animate-fade-in [animation-duration:500ms]"
+                >
+                  {chiffreBande} %
+                </span>
+              ) : null}
+              {liaison ? (
+                <span data-point-etat className={cn('absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full', liaison.classe)} />
+              ) : null}
+            </>
           ) : (
             <>
               <span className="min-w-0 flex-1">

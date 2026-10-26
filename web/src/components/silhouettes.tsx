@@ -715,12 +715,12 @@ export function SilhouetteMarketing({ lignes = 4 }: { lignes?: number }) {
 }
 
 /**
- * LE STUDIO : une grille de vignettes — l'affiche de chaque création, son
- * titre, ses formats —, en attendant `studio.lister` ou l'ouverture d'une création.
+ * UN ATELIER EN GRILLE (le service Leads) : des vignettes avec leur titre, en
+ * attendant les données de l'écran.
  */
-export function SilhouetteStudio({ vignettes = 6 }: { vignettes?: number }) {
+export function SilhouetteAtelier({ vignettes = 6 }: { vignettes?: number }) {
   return (
-    <Bloc zone="studio" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+    <Bloc zone="atelier" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: vignettes }, (_, index) => (
         <div key={index} className="flex flex-col overflow-hidden rounded-md bg-bloc">
           <Barre className="aspect-[4/5] w-full rounded-none" />

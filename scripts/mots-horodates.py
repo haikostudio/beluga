@@ -4,7 +4,7 @@
 Usage : mots-horodates.py <fichier audio> [modele]
 Sortie : une ligne JSON {"mots": [{"texte", "debut", "fin"}], "duree": s}.
 
-Sert au STUDIO : les sous-titres d'une voix se calent sur ces temps. Le texte
+Sert au DIRECTEUR ARTISTIQUE (vidéos fabriquées sur le serveur) : les sous-titres d'une voix se calent sur ces temps. Le texte
 reconnu n'est jamais affiché — il peut se tromper de mot (« voie » pour
 « voix ») ; seuls les TEMPS comptent, alignés ensuite sur le texte connu.
 """

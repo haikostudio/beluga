@@ -65,7 +65,21 @@ function couleurDuTheme(variable: string): [number, number, number] {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [128, 128, 128];
 }
 
-export function SphereDeLumiere({ sphere, onRepondre }: { sphere: SphereDeLaQuestion; onRepondre: (reponse: string, images: string[]) => Promise<void> }) {
+export function SphereDeLumiere({
+  sphere,
+  onRepondre,
+  onChange,
+}: {
+  sphere: SphereDeLaQuestion;
+  /** Dans une question : le bouton « Valider » répond à l'agent. */
+  onRepondre?: (reponse: string, images: string[]) => Promise<void>;
+  /**
+   * DANS LE PANNEAU « CHANGER LA LUMIÈRE » d'un média (26/10/2026) : la
+   * direction suit le doigt, et c'est le bouton à prix du panneau qui part —
+   * la sphère n'a alors pas de bouton à elle.
+   */
+  onChange?: (direction: DirectionDeLumiere) => void;
+}) {
   const libre = sphere.directions === 'libre';
   /* La question ne porte que la direction et son nom : la valeur envoyée au service reste au démon. */
   const permises = (libre ? 'libre' : sphere.directions) as DirectionsDuModele;
@@ -144,9 +158,12 @@ export function SphereDeLumiere({ sphere, onRepondre }: { sphere: SphereDeLaQues
     const suivante = liste[(ici + sens + liste.length) % liste.length]!;
     setDirection({ azimut: suivante.azimut, elevation: suivante.elevation });
   };
+  React.useEffect(() => {
+    onChange?.(direction);
+  }, [direction.azimut, direction.elevation]);
   const point = pointDeLaDirection(direction);
   const valider = async () => {
-    if (envoi) return;
+    if (envoi || !onRepondre) return;
     setEnvoi(true);
     try {
       await onRepondre(reponseDeLumiere(direction), []);
@@ -216,10 +233,12 @@ export function SphereDeLumiere({ sphere, onRepondre }: { sphere: SphereDeLaQues
         <p className="select-text text-[12.5px] tabular-nums text-text" data-lumiere-libelle="">
           {t('azimut {a}°, élévation {e}°', { a: direction.azimut, e: direction.elevation })} · {sphere.modele}
         </p>
-        <Button size="sm" className={cn('self-start gap-1.5')} onClick={() => void valider()} disabled={envoi} data-valider-lumiere="">
-          {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-          {t('Valider cette lumière')}
-        </Button>
+        {onRepondre ? (
+          <Button size="sm" className={cn('self-start gap-1.5')} onClick={() => void valider()} disabled={envoi} data-valider-lumiere="">
+            {envoi ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            {t('Valider cette lumière')}
+          </Button>
+        ) : null}
       </div>
     </section>
   );

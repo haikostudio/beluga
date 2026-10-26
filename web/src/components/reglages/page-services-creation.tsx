@@ -6,7 +6,7 @@ import { relativeTime } from '@/lib/utils';
 import { t } from '@/lib/langue';
 
 /**
- * LES SERVICES DE CRÉATION — les comptes de l'utilisateur que le Studio peut
+ * LES SERVICES DE CRÉATION — les comptes de l'utilisateur que le directeur artistique peut
  * utiliser (demande du 14/10/2026) : sept services de génération vidéo, plus
  * son propre compte OpenRouter pour la voix finale et la musique. Depuis le
  * 18/10/2026, HeyGen et ElevenLabs s'y ajoutent pour le mode « Réalisation »
@@ -225,7 +225,7 @@ export function PageServicesCreation() {
   return (
     <div className="flex flex-col gap-3" data-page-services-creation>
       <p className="text-[13px] leading-relaxed text-muted">
-        {t('Branchez vos propres comptes : l’agent du Studio s’en sert pour fabriquer les extraits d’une vidéo, et votre compte OpenRouter remplace celui de Beluga Build pour la voix et la musique. Chaque extrait passe d’abord par un devis que vous validez d’un clic.')}{' '}
+        {t('Branchez vos propres comptes : le directeur artistique s’en sert pour fabriquer les images et les plans de vos vidéos, et votre compte OpenRouter remplace celui de Beluga Build pour la voix finale. Rien de payant ne part sans votre accord sur le prix.')}{' '}
         {t('Les cartes en mode Réalisation s’en servent aussi pour fabriquer images, vidéos, voix et sons, en annonçant modèle et prix avant chaque génération.')}
       </p>
       {services === null ? (

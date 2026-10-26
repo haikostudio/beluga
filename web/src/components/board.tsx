@@ -3,7 +3,6 @@ import { aLeNiveauSurLeProjet } from '@/lib/mes-droits';
 import { Layers, Settings2, Rocket, CircleAlert, CalendarClock, Clock, AlertTriangle, Info, Loader2, Archive, Check, MessageSquare, ListChecks, EllipsisVertical, CheckCheck, Route, RotateCcw, Lightbulb, FileCheck2, Pause, ClipboardList, Eye } from 'lucide-react';
 import {
   serviceDeLaCarte,
-  serviceVisible,
   debutDeLaDemande,
   Attachment,
   gestesGeles,
@@ -1992,7 +1991,7 @@ export function CardTile({
     : undefined;
   const agent = card.agentId ? state.agents[card.agentId] : null;
   /* LA CARTE D'UN SERVICE (agent de volet) : cadre et badge jaunes ; un clic la ramène au service. */
-  const service = serviceVisible(serviceDeLaCarte(agent, card), state.studioOuvert);
+  const service = serviceDeLaCarte(agent, card);
   const waiting = card.scheduling?.waitingReason;
   /* Une horloge UNIQUE pour toutes les cartes : vingt cartes ne font pas vingt
      minuteries. Elle sert à l'heure de départ comme au tour resté sans suite. */

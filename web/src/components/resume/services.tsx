@@ -31,7 +31,6 @@ import {
   type ResumeMessagerie,
   type ResumeNotes,
   type ResumeStatistiques,
-  type ResumeStudio,
   type ResumeSurveillance,
 } from '@beluga/shared';
 import { TableauDeDonnees } from '@/components/ui/tableau-de-donnees';
@@ -168,94 +167,6 @@ export function RubriqueSurveillance({ debut, fin }: ProprietesDeRubrique) {
                   droite: true,
                   masqueSurTelephone: true,
                 },
-              ]}
-            />
-          </Section>
-        </>
-      )}
-    </EtatDeRubrique>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Studio                                                              */
-/* ------------------------------------------------------------------ */
-
-export function RubriqueStudio({ debut, fin }: ProprietesDeRubrique) {
-  const etat = useResume<ResumeStudio>('studio', debut, fin);
-  const [taille, setTaille] = useTailleDePage();
-  return (
-    <EtatDeRubrique etat={etat}>
-      {(d) => (
-        <>
-          <Tuiles>
-            <Tuile
-              icone={<Clapperboard className="h-3.5 w-3.5" />}
-              titre={t('Créations')}
-              valeur={nombre(d.creations)}
-              dessous={t('commencées sur la période')}
-              repere="creations"
-            />
-            <Tuile
-              icone={<Film className="h-3.5 w-3.5" />}
-              titre={t('Exports')}
-              valeur={nombre(d.exports)}
-              dessous={t('{v0} en échec', { v0: nombre(d.exportsEnEchec) })}
-              repere="exports"
-            />
-            <Tuile
-              icone={<Images className="h-3.5 w-3.5" />}
-              titre={t('Médias ajoutés')}
-              valeur={nombre(d.medias)}
-              dessous={t('images, sons et vidéos')}
-              repere="medias"
-            />
-            <Tuile
-              icone={<Coins className="h-3.5 w-3.5" />}
-              titre={t('Dépenses')}
-              valeur={dollars(d.depense)}
-              dessous={t('facturées par les fournisseurs')}
-              repere="depense"
-            />
-          </Tuiles>
-          <Section titre={t('Créations et exports, jour par jour')} icone={<Clapperboard className="h-3.5 w-3.5 text-faint" />}>
-            <CourbeDuResume
-              jours={d.jours}
-              barres={{ libelle: t('Exports'), valeurs: d.parJour.exports }}
-              ligne={{ libelle: t('Créations'), valeurs: d.parJour.creations }}
-              vide={t('Aucune création ni export sur la période.')}
-            />
-          </Section>
-          <Section titre={t('Créations')} icone={<Clapperboard className="h-3.5 w-3.5 text-faint" />}>
-            <TableauDeDonnees
-              repere="creations-studio"
-              lignes={d.lignes}
-              cle={(l) => l.id}
-              taille={taille}
-              onTaille={setTaille}
-              vide={t('Aucune création travaillée sur la période.')}
-              colonnes={[
-                { cle: 'titre', libelle: t('Création'), valeur: (l) => l.titre, largeur: 'sm:min-w-[180px]' },
-                { cle: 'projet', libelle: t('Projet'), valeur: (l) => l.projet ?? t('Projet retiré'), masqueSurTelephone: true },
-                { cle: 'etat', libelle: t('État'), valeur: (l) => l.etat, rendu: (l) => (l.etat === 'exportee' ? t('Exportée') : t('Brouillon')) },
-                { cle: 'exports', libelle: t('Exports'), valeur: (l) => l.exports, droite: true },
-                {
-                  cle: 'depense',
-                  libelle: t('Dépenses'),
-                  valeur: (l) => l.depense,
-                  rendu: (l) => dollars(l.depense),
-                  droite: true,
-                  masqueSurTelephone: true,
-                },
-                {
-                  cle: 'creee',
-                  libelle: t('Créée le'),
-                  valeur: (l) => l.creeLe,
-                  rendu: (l) => dateCourte(l.creeLe),
-                  droite: true,
-                  masqueSurTelephone: true,
-                },
-                { cle: 'maj', libelle: t('Modifiée le'), valeur: (l) => l.majLe, rendu: (l) => dateHeure(l.majLe), droite: true },
               ]}
             />
           </Section>

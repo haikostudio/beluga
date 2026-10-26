@@ -39,7 +39,6 @@ const CLES_DES_SERVICES: { cle: Service; repere: string; Icone: typeof Key; cleL
   { cle: 'surveillance', repere: 'surveillance', Icone: Activity, cleLibelle: 'Surveillance' },
   { cle: 'taches-recurrentes', repere: 'taches-recurrentes', Icone: Repeat, cleLibelle: 'Tâches récurrentes' },
   { cle: 'marketing', repere: 'marketing', Icone: Megaphone, cleLibelle: 'Marketing' },
-  { cle: 'studio', repere: 'studio', Icone: Clapperboard, cleLibelle: 'Studio' },
   { cle: 'medias', repere: 'medias', Icone: Film, cleLibelle: 'Médias' },
   { cle: 'notes', repere: 'notes', Icone: NotebookPen, cleLibelle: 'Notes' },
 ];
@@ -95,7 +94,6 @@ export function BoutonDesServices({
   const sitesEnPanne = compterEnPanne(state.surveillance);
   const messages = state.compteursMessagerie.nonLu + state.compteursMessagerie.aTraiter;
   const alertes = messages + sitesEnPanne;
-  /* LE STUDIO N'A DE TUILE QUE POUR SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`). */
   /* LES SERVICES SONT À L'ADMINISTRATEUR : un accès tiers n'a que ses projets,
      plus le coffre-fort si sa grille le lui ouvre. */
   /* Les services réservés à un seul compte, que ce compte-ci n'a pas. */
@@ -104,7 +102,7 @@ export function BoutonDesServices({
     reserves.has(service.cle)
       ? false
       : state.monRole === 'admin'
-        ? service.cle !== 'studio' || state.studioOuvert
+        ? true
         : service.cle === 'coffre' && niveauDeMonService(state, 'coffre') !== 'aucun',
   );
   const serviceOuvert = services.find((service) => service.cle === vue);

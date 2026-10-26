@@ -27,20 +27,25 @@
  */
 
 /* ------------------------------------------------------------------ */
-/* Les opérations                                                       */
+/* Les propositions                                                     */
 /* ------------------------------------------------------------------ */
 
-export const OPERATIONS_DE_RETOUCHE = ['angles', 'lumiere', 'visage'] as const;
-export type OperationDeRetouche = (typeof OPERATIONS_DE_RETOUCHE)[number];
 
 /** Le nombre de propositions d'une génération : de 1 à 4, jamais plus (décision du 24/10/2026). */
 export const PROPOSITIONS_PAR_GENERATION = 4;
 
-export function nombreDePropositions(brut: unknown): number {
+export function nombreDePropositions(brut: unknown, minimum = 1): number {
   const n = Math.round(Number(brut));
-  if (!Number.isFinite(n) || n < 1) return 1;
+  if (!Number.isFinite(n) || n < minimum) return minimum;
   return Math.min(PROPOSITIONS_PAR_GENERATION, n);
 }
+
+/**
+ * UNE CRÉATION DE MÉDIA PROPOSE TOUJOURS DE 2 À 4 BROUILLONS par génération
+ * (décision de l'utilisateur du 26/10/2026) : de quoi départager, jamais un
+ * seul résultat à prendre ou à laisser.
+ */
+export const PROPOSITIONS_MIN_D_UN_MEDIA = 2;
 
 /* ------------------------------------------------------------------ */
 /* Les angles de vue                                                    */

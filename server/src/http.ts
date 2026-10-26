@@ -56,7 +56,6 @@ import {
   peutVoirProjet,
   estCollaborateur,
   REFUS_HORS_PORTEE,
-  routeApiDuStudio,
   type CompteUtilisateur,
 } from '@beluga/shared';
 import { demandeDUneePiece, filDUnePiece } from './espace-client.js';
@@ -1228,55 +1227,6 @@ export function createHttpServer(): http.Server {
         if (publicFile.startsWith(racine) && serveStatic(res, publicFile)) return;
       }
 
-      /*
-       * LE CADRE D'APERÇU DU STUDIO A UNE ORIGINE OPAQUE (`sandbox` sans
-       * `allow-same-origin`) : il n'envoie pas le témoin de session. Ses trois
-       * sortes de fichiers passent donc AVANT le mur :
-       *  - GSAP et les polices embarquées, publics par nature (bibliothèque et
-       *    polices libres), avec l'entête CORS que réclament les polices ;
-       *  - les médias, par une adresse SIGNÉE de courte durée, limitée à une
-       *    création et à un média de son projet (`mediaDeLAdresseSignee`).
-       */
-      if (route === '/studio/gsap.min.js' || /^\/studio\/polices\/[a-z0-9-]+\.woff2$/.test(route)) {
-        const { outilsDeRendu } = await import('./studio-rendu.js');
-        const outils = outilsDeRendu();
-        const fichier = route === '/studio/gsap.min.js' ? outils.gsap : path.join(outils.polices, path.basename(route));
-        if (!fichier || !fs.existsSync(fichier)) return json(res, 404, { error: 'fichier introuvable' });
-        res.writeHead(200, {
-          'content-type': route.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'font/woff2',
-          'cache-control': 'public, max-age=86400',
-          'access-control-allow-origin': '*',
-        });
-        return fs.createReadStream(fichier).pipe(res);
-      }
-      const studioMedia = /^\/studio-media\/([\w-]+)\/([\w-]+)$/.exec(route);
-      if (studioMedia) {
-        const { mediaDeLAdresseSignee, fichierDuMedia } = await import('./studio.js');
-        const media = mediaDeLAdresseSignee(studioMedia[1]!, studioMedia[2]!, Number(url.searchParams.get('e')), String(url.searchParams.get('s') ?? ''));
-        const fichier = media ? fichierDuMedia(media) : null;
-        if (!media || !fichier) return json(res, 404, { error: 'média introuvable' });
-        const taille = fs.statSync(fichier).size;
-        const entetes: http.OutgoingHttpHeaders = {
-          'content-type': media.mime ?? 'application/octet-stream',
-          'accept-ranges': 'bytes',
-          'cache-control': 'private, max-age=3600',
-          'x-content-type-options': 'nosniff',
-        };
-        const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
-        if (plage.genre === 'impossible') {
-          res.writeHead(416, { 'content-range': `bytes */${taille}` });
-          return res.end();
-        }
-        if (plage.genre === 'partiel') {
-          res.writeHead(206, { ...entetes, 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
-          if (req.method === 'HEAD') return res.end();
-          return pipeline(fs.createReadStream(fichier, { start: plage.debut, end: plage.fin }), res).catch(() => {});
-        }
-        res.writeHead(200, { ...entetes, 'content-length': taille });
-        if (req.method === 'HEAD') return res.end();
-        return pipeline(fs.createReadStream(fichier), res).catch(() => {});
-      }
-
       /* ---------------- Mur d'accès ---------------- */
 
       /*
@@ -1328,10 +1278,6 @@ export function createHttpServer(): http.Server {
        * `scripts/verif-cloison-client.mjs` le vérifie à chaque passage.
        */
       if (route.startsWith('/api/') && !routeApiAutorisee(compte.role, route)) {
-        return json(res, 403, { error: REFUS_HORS_PORTEE });
-      }
-      /* LES ROUTES DU STUDIO NE SERVENT QUE SON SUPER ADMINISTRATEUR (`shared/src/studio-reserve.ts`) : même refus que pour une route fermée. */
-      if (routeApiDuStudio(route) && !compteEstSuperAdministrateur(compte)) {
         return json(res, 403, { error: REFUS_HORS_PORTEE });
       }
 
@@ -1757,30 +1703,19 @@ export function createHttpServer(): http.Server {
         return json(res, 200, installationsRecues(filtre === 'payants' || filtre === 'open-source' ? filtre : 'tous'));
       }
 
-      /* L'extrait d'une voix finale du Studio : fabriqué une fois (quota gratuit), gardé, puis servi. */
-      if (route === '/api/studio/extrait') {
-        const { fichierDExtrait } = await import('./studio-generation.js');
-        const r = await fichierDExtrait(String(url.searchParams.get('voix') ?? ''));
-        if (!r.ok) return json(res, 503, { error: r.raison });
-        res.writeHead(200, { 'content-type': 'audio/wav', 'cache-control': 'private, max-age=86400' });
-        return fs.createReadStream(r.fichier).pipe(res);
-      }
-
       /*
-       * « TOUT TÉLÉCHARGER » : les fichiers PRÊTS de plusieurs exports d'une même création, en UNE archive.
-       * Écrite en flux et SANS compression (une vidéo ne se compresse pas, et le serveur est petit) : rien
-       * ne tient en mémoire. Un export pas prêt, ou d'une autre création, refuse toute l'archive.
+       * LE « TOUT TÉLÉCHARGER » D'UNE CRÉATION DE MÉDIA (26/10/2026) : trois dossiers — médias finaux,
+       * validés, esquisses —, en flux et sans compression, comme l'archive du Studio.
        */
-      if (route === '/api/studio/exports-groupes') {
-        const { archiveDesExports } = await import('./studio-archive.js');
-        const r = archiveDesExports((url.searchParams.get('ids') ?? '').split(',').filter(Boolean));
+      if (route === '/api/creation/telechargement') {
+        const { archiveDuTelechargement } = await import('./parcours-du-media.js');
+        const r = await archiveDuTelechargement(String(url.searchParams.get('cardId') ?? ''), (url.searchParams.get('langue') ?? 'fr') as never);
         if (!r.ok) return json(res, r.statut, { error: r.raison });
         const entetes: http.OutgoingHttpHeaders = {
           'content-type': 'application/zip',
           'cache-control': 'private, no-store',
           'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(r.nom)}`,
         };
-        // Sans compression, le poids final est connu d'avance : le navigateur montre un vrai pourcentage.
         const poids = await r.poids;
         res.writeHead(200, poids > 0 ? { ...entetes, 'content-length': poids } : entetes);
         if (req.method === 'HEAD') {
@@ -1788,36 +1723,6 @@ export function createHttpServer(): http.Server {
           return res.end();
         }
         return pipeline(r.flux, res).catch(() => {});
-      }
-
-      /* LA VIGNETTE D'UN STYLE DU STUDIO (galerie « Styles ») : téléchargée une fois, gardée, servie d'ici. */
-      if (route === '/api/studio/style-vignette') {
-        const { vignetteDuStyle } = await import('./studio-styles.js');
-        const v = await vignetteDuStyle(String(url.searchParams.get('id') ?? ''), url.searchParams.get('anime') === '1');
-        const entetes = { 'content-type': v.type, 'cache-control': 'private, max-age=604800', 'x-content-type-options': 'nosniff' };
-        if (Buffer.isBuffer(v.corps)) {
-          res.writeHead(200, entetes);
-          return res.end(v.corps);
-        }
-        // Une vidéo se sert PAR PLAGES (206) : sans réponse aux requêtes Range, Safari ne la lit pas.
-        if (v.type.startsWith('video/')) {
-          const taille = fs.statSync(v.corps).size;
-          const plage = plageDemandee(typeof req.headers.range === 'string' ? req.headers.range : undefined, taille);
-          if (plage.genre === 'impossible') {
-            res.writeHead(416, { 'content-range': `bytes */${taille}` });
-            return res.end();
-          }
-          if (plage.genre === 'partiel') {
-            res.writeHead(206, { ...entetes, 'accept-ranges': 'bytes', 'content-range': `bytes ${plage.debut}-${plage.fin}/${taille}`, 'content-length': plage.fin - plage.debut + 1 });
-            if (req.method === 'HEAD') return res.end();
-            return pipeline(fs.createReadStream(v.corps, { start: plage.debut, end: plage.fin }), res).catch(() => {});
-          }
-          res.writeHead(200, { ...entetes, 'accept-ranges': 'bytes', 'content-length': taille });
-          if (req.method === 'HEAD') return res.end();
-          return pipeline(fs.createReadStream(v.corps), res).catch(() => {});
-        }
-        res.writeHead(200, entetes);
-        return fs.createReadStream(v.corps).pipe(res);
       }
 
       if (route === '/api/favicon') {

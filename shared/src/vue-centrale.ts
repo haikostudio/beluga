@@ -27,9 +27,6 @@ export const VUES_CENTRALES = [
   /* L'atelier marketing : un espace de commercialisation par projet
      (`shared/src/marketing.ts`). */
   'marketing',
-  /* Le Studio : visuels et vidéos animées de chaque projet, modifiables pièce
-     par pièce (`shared/src/studio.ts`). */
-  'studio',
   /* Le service Statistiques : le suivi des visites de chaque projet mesuré
      et des sites autonomes (`shared/src/statistiques.ts`). */
   'statistiques',
@@ -57,7 +54,7 @@ export type VueCentrale = (typeof VUES_CENTRALES)[number];
  *  - `nouvel-agent` : le bouton « Nouvel agent », sur les deux tableaux de bord
  *    généraux (« en-route », « tableau-de-bord ») et quand aucun projet n'est
  *    ouvert — il fait d'abord choisir le projet ;
- *  - `geste-de-page` : sur un SERVICE (marketing, studio, statistiques, coffre,
+ *  - `geste-de-page` : sur un SERVICE (marketing, statistiques, coffre,
  *    notes, mémoire, espace client, sauvegardes, surveillance), le bas de
  *    l'écran appartient à la page affichée, qui y pose SON geste principal —
  *    « Nouveau site », « Nouvel accès », « Nouvelle note »… (demande du

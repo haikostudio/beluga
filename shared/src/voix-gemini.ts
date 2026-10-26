@@ -59,7 +59,7 @@ export function texteGeminiAvecDebit(texte: string, echelle: number): string {
  */
 export const BALISE_ACCENT_FRANCE = '[French from France]';
 
-export function texteVoixFinaleStudio(texte: string): string {
+export function texteDeVoixFinale(texte: string): string {
   return `${BALISE_ACCENT_FRANCE} ${texte}`;
 }
 

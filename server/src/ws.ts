@@ -86,8 +86,6 @@ import {
   programmerLeDepart,
   ROUTE_TERMINAL,
   REFUS_HORS_PORTEE,
-  commandeDuStudio,
-  evenementDuStudio,
   commandeAutorisee,
   estCollaborateur,
   peutVoirProjet,
@@ -474,7 +472,7 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
      * qui a demandé cette conversation. Tout le reste part comme avant.
      */
     const perimetre = { projet: null as string | null, agents: new Set<string>(), cartes: new Set<string>() };
-    /* LE DROIT AU STUDIO SE CALCULE UNE FOIS, À LA CONNEXION, POUR CE COMPTE (`shared/src/studio-reserve.ts`). */
+    /* LE SUPER ADMINISTRATEUR SE RECONNAÎT UNE FOIS, À LA CONNEXION, POUR CE COMPTE (`shared/src/studio-reserve.ts`). */
     const studioOuvert = compteEstSuperAdministrateur(compte);
     const send = (brut: ServerEvent) => {
       if (ws.readyState !== WebSocket.OPEN) return;
@@ -484,8 +482,6 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
       if (!event) return;
       if (compte.role === 'client' && !evenementPourCeClient(event, compte)) return;
       if (compte.role !== 'client' && !detailPourCetEcran(event, perimetre)) return;
-      // LE STUDIO NE PARLE QU'À SON SUPER ADMINISTRATEUR : ni signal, ni image de son navigateur d'essai.
-      if (!studioOuvert && evenementDuStudio(event.type)) return;
       /*
        * UN ÉVÉNEMENT QUI NOMME SON DESTINATAIRE NE VA QU'À LUI — administrateur
        * compris. L'écran de Haiko recevait les chiffres des pastilles de TOUS
@@ -493,7 +489,36 @@ export function attachWebSocket(server: http.Server): WebSocketServer {
        */
       const pour = (event as { pour?: unknown }).pour;
       if (typeof pour === 'string' && pour && pour !== compte.id) return;
-      ws.send(JSON.stringify(evenementPourLEcran(event)));
+      ws.send(JSON.stringify(sansContexteRepete(evenementPourLEcran(event))));
+    };
+    /*
+     * LE CONTEXTE ENVOYÉ D'UN MESSAGE NE VOYAGE QU'UNE FOIS PAR CANAL
+     * (`shared/src/demarrage-allege.ts`) : chaque pas d'un agent au travail
+     * renvoyait le message entier, contexte de plus de 100 Ko compris — sur
+     * un téléphone qui rouvre l'application, une rafale qui pèse. Les derniers
+     * contextes envoyés sont gardés par message, en nombre borné.
+     */
+    const contextesEnvoyes = new Map<string, unknown>();
+    const textesDesContextes = new Map<string, string>();
+    const sansContexteRepete = (event: ServerEvent): ServerEvent => {
+      if (event.type !== 'message.upsert' || event.message.sentContext === undefined) return event;
+      const id = event.message.id;
+      const contexte = event.message.sentContext;
+      const texte = contextesEnvoyes.get(id) === contexte ? textesDesContextes.get(id) : JSON.stringify(contexte);
+      if (textesDesContextes.get(id) === texte) {
+        contextesEnvoyes.set(id, contexte);
+        return { ...event, message: { ...event.message, sentContext: undefined }, contexteInchange: true };
+      }
+      contextesEnvoyes.delete(id);
+      textesDesContextes.delete(id);
+      contextesEnvoyes.set(id, contexte);
+      textesDesContextes.set(id, texte ?? '');
+      if (textesDesContextes.size > 50) {
+        const plusVieux = textesDesContextes.keys().next().value as string;
+        textesDesContextes.delete(plusVieux);
+        contextesEnvoyes.delete(plusVieux);
+      }
+      return event;
     };
     const unsubscribe = bus.subscribe(send);
     /*
@@ -886,51 +911,12 @@ export async function demanderLePlan(cardId: string): Promise<{ ok: true; numero
    `onComplete`, qui retirerait la demande de la file d'attente faute de quota. */
 brancherFinDeTourDeCadrage((cardId, agentId, ok) => {
   const parcours = store.getCard(cardId)?.parcours;
-  if (parcours?.realisationSouhaitee && parcours.fabricationAccordeeA) void lancerLaFabricationAccordee(cardId, agentId);
-  else if (parcours?.lancementAutomatique) void lancerSiAutomatique(cardId, agentId, ok);
+  /* UNE CRÉATION DE MÉDIA NE SE LANCE JAMAIS D'ELLE-MÊME (26/10/2026) : le
+     directeur y reste au cadrage, et chaque génération part par son propre
+     bouton à prix — plus d'accord global qui ferait repartir une fabrication. */
+  if (parcours?.realisationSouhaitee) return;
+  if (parcours?.lancementAutomatique) void lancerSiAutomatique(cardId, agentId, ok);
 });
-
-/** Ce que le directeur lit sous la réponse « Valider et lancer la fabrication ». */
-const CONSIGNE_FABRICATION_ACCORDEE =
-  'ACCORD DE FABRICATION DONNÉ : termine ton tour MAINTENANT par une phrase courte (la fabrication part, tu reviens avec le film monté), sans autre outil ni question. La fabrication part d’elle-même, dans cette même conversation, dès la fin de ton tour.';
-
-/**
- * LA FABRICATION ACCORDÉE PART D'ELLE-MÊME (directeur artistique, 25/10/2026).
- * Plus de bouton « Lancer la fabrication » : l'accord de l'arrêt 2 a posé
- * `fabricationAccordeeA`, et chaque fin de tour du directeur (cadrage) lance
- * le tour de tâche par le chemin UNIQUE du lancement (`startCard`) — le même
- * agent reprend la même conversation. Une retouche écrite après la livraison
- * rouvre le cadrage, qui finit son tour : la fabrication repart de même. On
- * attend que le tour soit vraiment refermé, et rien ne part sur une question
- * restée sans réponse ni sur une carte déjà au travail (DEC-037 : jamais deux
- * tours sur une carte).
- */
-async function lancerLaFabricationAccordee(cardId: string, agentId: string): Promise<void> {
-  const debut = Date.now();
-  while (isRunning(agentId) && Date.now() - debut < 120_000) {
-    await new Promise((fin) => setTimeout(fin, 1_000));
-  }
-  const card = store.getCard(cardId);
-  if (!card?.parcours?.fabricationAccordeeA || !carteEnCadrage(card) || isRunning(agentId)) return;
-  if (card.agentId && card.agentId !== agentId && isRunning(card.agentId)) return;
-  const questionEnAttente = store.listMessages(agentId, 5).some((m) => (m.questions ?? []).some((q) => !q.answer && !q.cancelled));
-  if (questionEnAttente) return;
-  const lance = await startCard(cardId).catch((err: any) => ({ ok: false, error: String(err?.message ?? err) }));
-  if (!lance.ok) {
-    const jalon = ajouterAuJournal({
-      cardId,
-      phase: phaseDeLaCarte(cardId, 'cadrage'),
-      nature: 'jalon',
-      libelle: 'Fabrication non lancée',
-      agentId,
-      agentRole: 'cadrage',
-      resultat: lance.error ?? 'lancement impossible',
-      reussie: false,
-    });
-    if (jalon) bus.emit({ type: 'journal.entree', entree: jalon });
-  }
-  bus.emit({ type: 'attention', ...store.signalAttention() });
-}
 
 async function lancerSiAutomatique(cardId: string, agentId: string, tourReussi: boolean): Promise<void> {
   const debut = Date.now();
@@ -1174,19 +1160,6 @@ function oublierLesPiecesParties(agentId: string, parties: readonly string[]): v
 async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtilisateur, canal?: WebSocket): Promise<unknown> {
   // L'espace client a ses propres commandes, et son propre cloisonnement.
   if (estCommandeDeLEspace(commande)) return commandeDeLEspaceClient(commande, compte);
-
-  /*
-   * LE STUDIO N'A QU'UNE PORTE : cette ligne. Toute commande « studio.… » et la
-   * rubrique « studio » du résumé refusent un compte qui n'est pas super
-   * administrateur — même phrase qu'une commande qui n'existe pas
-   * (`shared/src/studio-reserve.ts`).
-   */
-  if (
-    (commandeDuStudio(commande.type) || (commande.type === 'stats.resume' && commande.rubrique === 'studio')) &&
-    !compteEstSuperAdministrateur(compte)
-  ) {
-    throw new Error(REFUS_HORS_PORTEE);
-  }
 
   const cmd: Exclude<ClientEnvelope['cmd'], CommandeDeLEspace> = commande;
   switch (cmd.type) {
@@ -2832,8 +2805,15 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       let consigneDeLAccord = '';
       if (question.accord) {
         const { trancherLAccordDEtape } = await import('./responsable-creatif.js');
-        const tranche = trancherLAccordDEtape(question, cmd.answer);
-        if (tranche?.fabrication) consigneDeLAccord = CONSIGNE_FABRICATION_ACCORDEE;
+        trancherLAccordDEtape(question, cmd.answer);
+      }
+      /* LE CLIC SUR « GÉNÉRER · PRIX » D'UNE CRÉATION DE MÉDIA TRANCHE ET LANCE LE LOT (26/10/2026) : l'agent lit qu'il est parti. */
+      if (question.devis) {
+        const { trancherLeLotDuClic } = await import('./realisation.js');
+        consigneDeLAccord = (await trancherLeLotDuClic(question, cmd.answer).catch((err) => {
+          log.warn('lot de création non lancé', String((err as Error)?.message ?? err));
+          return null;
+        })) ?? '';
       }
 
       /*
@@ -4296,6 +4276,53 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { retenu: !!r.media.retenuLe, change: r.change };
     }
 
+    case 'realisation.passer': {
+      const { passerALEtape } = await import('./parcours-du-media.js');
+      const r = await passerALEtape(cmd.cardId, cmd.geste);
+      if (!r.ok) throw new Error(r.raison);
+      return { deja: r.deja };
+    }
+
+    case 'realisation.panneau.chiffrer': {
+      const { chiffrerUnPanneau } = await import('./realisation.js');
+      return chiffrerUnPanneau(cmd.cardId, { mediaId: cmd.mediaId, operation: cmd.operation, ...(cmd.duree ? { duree: cmd.duree } : {}) });
+    }
+
+    case 'realisation.panneau.lancer': {
+      /* LE CLIC SUR « ENVOYER · PRIX » VAUT ACCORD : le lot est accepté et lancé, sans tour d'agent. */
+      const { lancerUnPanneau } = await import('./realisation.js');
+      const { type: _type, cardId, ...demande } = cmd;
+      void _type;
+      const r = await lancerUnPanneau(cardId, demande);
+      if (!r.ok) throw new Error(r.raison);
+      return r;
+    }
+
+    case 'realisation.photo.rendre': {
+      const { rendreLaPhoto } = await import('./parcours-du-media.js');
+      return rendreLaPhoto(cmd.cardId, cmd.source, cmd.reglages);
+    }
+
+    case 'realisation.son.lire': {
+      const { montageSonDeLaCarte } = await import('./parcours-du-media.js');
+      return { montage: await montageSonDeLaCarte(cmd.cardId) };
+    }
+
+    case 'realisation.son.enregistrer': {
+      const { enregistrerLeMontageSon } = await import('./parcours-du-media.js');
+      return { montage: enregistrerLeMontageSon(cmd.cardId, cmd.montage) };
+    }
+
+    case 'realisation.son.exporter': {
+      const { exporterLeSon } = await import('./parcours-du-media.js');
+      return exporterLeSon(cmd.cardId, cmd.montage, cmd.format);
+    }
+
+    case 'realisation.telechargement.lire': {
+      const { telechargementDeLaCarte } = await import('./parcours-du-media.js');
+      return telechargementDeLaCarte(cmd.cardId);
+    }
+
     case 'medias.lister': {
       const { mediasDuProjet } = await import('./realisation.js');
       return mediasDuProjet(cmd.projectId, { genre: cmd.genre, avant: cmd.avant });
@@ -4532,63 +4559,11 @@ async function handleCommand(commande: ClientEnvelope['cmd'], compte: CompteUtil
       return { ok: true };
     }
 
-    /* -------- Studio : visuels et vidéos animées (`server/src/studio-commandes.ts`) -------- */
 
-    case 'studio.lister':
-    case 'studio.espace.ecrire':
-    case 'studio.creation.creer':
-    case 'studio.creation.ouvrir':
-    case 'studio.carte.montage':
-    case 'studio.creation.modifier':
-    case 'studio.creation.agent':
-    case 'studio.creation.supprimer':
-    case 'studio.creation.dupliquer':
-    case 'studio.modele.valider':
-    case 'studio.modele.lister':
-    case 'studio.modele.supprimer':
-    case 'studio.modele.copier':
-    case 'studio.operation':
-    case 'studio.annuler':
-    case 'studio.retablir':
-    case 'studio.restaurer':
-    case 'studio.historique':
-    case 'studio.selection':
-    case 'studio.media.importer':
-    case 'studio.media.modifier':
-    case 'studio.media.supprimer':
-    case 'studio.media.bande':
-    case 'studio.styles.lister':
-    case 'studio.styles.lire':
-    case 'studio.sources.lister':
-    case 'studio.sources.ajouter':
-    case 'studio.sources.valider':
-    case 'studio.sources.analyser':
-    case 'studio.sources.controler':
-    case 'studio.sources.retirer':
-    case 'studio.navigateur.ouvrir':
-    case 'studio.navigateur.geste':
-    case 'studio.navigateur.terminer':
-    case 'studio.navigateur.fermer':
-    case 'studio.voix.essai':
-    case 'studio.voix.devis':
-    case 'studio.voix.valider':
-    case 'studio.voix.extraits':
-    case 'studio.exporter':
-    case 'studio.export.annuler':
-    case 'studio.exports.vider':
-    case 'studio.depense.valider':
-    case 'studio.depense.refuser':
-    case 'studio.credit':
-    case 'studio.services.lister':
-    case 'studio.services.enregistrer':
-    case 'studio.services.tester':
-    case 'studio.services.retirer':
-    case 'studio.modeleVideo.choisir':
-    case 'studio.assistant':
-    case 'studio.depuisMarketing':
-    {
-      const { traiterCommandeStudio } = await import('./studio-commandes.js');
-      return await traiterCommandeStudio(cmd);
+    /* « Créer le visuel » de l'atelier Marketing : la carte du directeur artistique liée au contenu (`server/src/visuels-marketing.ts`). */
+    case 'marketing.creerLeVisuel': {
+      const { creerLeVisuel } = await import('./visuels-marketing.js');
+      return await creerLeVisuel(cmd.contenuId);
     }
 
     /* -------- Surveillance des sites -------- */

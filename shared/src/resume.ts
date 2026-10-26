@@ -30,7 +30,6 @@ export const RUBRIQUES_DU_RESUME = [
   'taches',
   'memoire',
   'surveillance',
-  'studio',
   'coffre',
   'backups',
   'statistiques',
@@ -289,18 +288,6 @@ export interface ResumeSurveillance extends BaseDuResume {
   }[];
 }
 
-export interface ResumeStudio extends BaseDuResume {
-  rubrique: 'studio';
-  creations: number;
-  exports: number;
-  exportsEnEchec: number;
-  /** En dollars, le montant réel facturé par les fournisseurs. */
-  depense: number;
-  medias: number;
-  parJour: { creations: number[]; exports: number[] };
-  lignes: { id: string; titre: string; projet: string | null; etat: string; exports: number; depense: number; creeLe: number; majLe: number }[];
-}
-
 export interface ResumeCoffre extends BaseDuResume {
   rubrique: 'coffre';
   fiches: number;
@@ -369,7 +356,6 @@ export type ResumeDeRubrique =
   | ResumeTaches
   | ResumeMemoire
   | ResumeSurveillance
-  | ResumeStudio
   | ResumeCoffre
   | ResumeBackups
   | ResumeStatistiques

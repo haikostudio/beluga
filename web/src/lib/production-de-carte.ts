@@ -1,5 +1,6 @@
 import * as React from 'react';
-import { carteDeMedia, etapeCouranteDuMedia, etapesDuMedia, type Card, type EtapeDuMedia, type EtatDeProduction } from '@beluga/shared';
+import { boutonDuMedia, carteDeMedia, etapeCouranteDuMedia, etapesDuMedia, typesDeMediaDeLaRealisation, type BoutonDuMedia, type Card, type EtapeDuMedia, type EtatDeProduction } from '@beluga/shared';
+import type { DocumentDeCarte } from '@/lib/document-de-carte';
 import { client } from '@/lib/client';
 import { useApp } from '@/lib/use-app';
 
@@ -74,3 +75,30 @@ export function useEtapesDuMedia(carte: Card | null | undefined): { segments: Se
 }
 
 export type SegmentDuMedia = ReturnType<typeof etapesDuMedia>[number];
+
+/**
+ * LE BOUTON DU BAS D'UNE CRÉATION DE MÉDIA (`boutonDuMedia`, 26/10/2026) : le
+ * passage à venir — « Passer aux esquisses », « Passer aux séquences vidéo »,
+ * « Passer au montage », « Passer au téléchargement », « Terminer » —, allumé
+ * ou éteint avec ce qui manque, lu sur la carte et sur sa production.
+ */
+export function useBoutonDuMedia(carte: Card | null | undefined): BoutonDuMedia | null {
+  const media = carteDeMedia(carte);
+  const production = useProduction(media ? carte?.id : null);
+  return React.useMemo(() => {
+    if (!media || !carte) return null;
+    return boutonDuMedia({ carte, elements: production?.elements ?? [], medias: production?.medias ?? [], exportsPrets: production?.exportsPrets ?? 0 });
+  }, [media, carte, production]);
+}
+
+/**
+ * LE STUDIO DE MONTAGE DU MÉDIA (26/10/2026) : chaque type a le sien — une
+ * vidéo l'éditeur de montage de la carte, une image le studio photo, un son
+ * le studio son.
+ */
+export function studioDuMedia(carte: Pick<Card, 'id' | 'realisation'>): DocumentDeCarte {
+  const types = typesDeMediaDeLaRealisation(carte.realisation);
+  if (types.includes('video')) return { cardId: carte.id, genre: 'montage' };
+  if (types.includes('image')) return { cardId: carte.id, genre: 'studio-photo' };
+  return { cardId: carte.id, genre: 'studio-son' };
+}

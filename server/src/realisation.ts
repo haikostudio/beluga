@@ -26,6 +26,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
   AgentQuestion,
+  Message,
   IDS_SERVICES_CREATION,
   CATEGORIES_FAL_LUES,
   lireReponseDeLumiere,
@@ -70,6 +71,17 @@ import {
   rubriquesDuDocumentDeRealisation,
   consigneDeFabrication,
   consigneDuQuestionnaire,
+  carteDeMedia,
+  passagesDuMedia,
+  animationPermise,
+  etapesDuMedia,
+  etapeCouranteDuMedia,
+  phaseDesEsquisses,
+  sonDuBrief,
+  elementsCourants,
+  questionDUneGeneration,
+  reessaiDOfficePermis,
+  PROPOSITIONS_MIN_D_UN_MEDIA,
   typesDeMediaDeLaRealisation,
   resumeDeLaProduction,
   decisionDApercu,
@@ -153,6 +165,11 @@ import {
   type AngleDeVue,
   type DirectionDeLumiere,
   type MesureDeMedia,
+  BIBLIOTHEQUES_DE_COMPOSITION,
+  CAPACITE_COMPOSITION,
+  VOIX_FINALES,
+  VOIX_FINALE_PAR_DEFAUT,
+  idDeComposition,
 } from '@beluga/shared';
 import * as store from './store.js';
 import { bus } from './bus.js';
@@ -160,6 +177,9 @@ import { getDb } from './db.js';
 import { PATHS } from './config.js';
 import { log } from './logger.js';
 import { cleDuService, fabriquerClipChezLeService, plafondDuClip, servicesDeGenerationBranches, tarifsKie } from './studio-services.js';
+import { apercusDeLaComposition, compositionDisponible, controlerComposition, dossierDeComposition, livrerLeFilm, preparerComposition, rendreComposition } from './composition.js';
+import { MODELE_VOIX_OPENROUTER, cleOpenRouter, motsDeLaVoix, prixEstimeDeLaVoix, voixParOpenRouter } from './voix-de-realisation.js';
+import { fabriquerDesSons } from './sons-de-composition.js';
 import { consigneAEnvoyer } from './traduction-des-consignes.js';
 import { joindreUnFichier } from './joindre-fichier.js';
 import { cheminDePieceJointe } from './pieces-jointes.js';
@@ -170,6 +190,7 @@ import {
   creerUnLot,
   deciderDuLot,
   elementsDeLaCarte,
+  evenementsDeLaCarte,
   lotParId,
   lotsDeLaCarte,
   marquerLOperation,
@@ -213,11 +234,23 @@ export function realisationAllumeePourLAgent(agentId: string): boolean {
  * questionnaire à document). Le premier montant trouvé l'emporte.
  */
 export function budgetDeLaCarte(card: Card): BudgetDeRealisation {
+  /* UNE CRÉATION DE MÉDIA N'A PLUS DE BUDGET NI DE PLAFOND (26/10/2026) : ce
+     qui peut partir, c'est exactement ce que l'utilisateur a accepté, clic par
+     clic — la somme des lots validés. */
+  if (carteDeMedia(card)) return { budget: totalDesLotsAcceptes(card.id), seuil: null };
   const fixe = card.parcours?.realisationBudget;
   if (fixe) return { budget: fixe.budget, seuil: fixe.seuil };
   const duDocument = budgetDuCahier(rubriquesDuDocumentDeRealisation(lireLeDocumentDeRealisation(card)?.texte));
   const duCahier = budgetDuCahier(card.parcours?.comprehension?.cahierDesCharges);
   return { budget: duDocument.budget ?? duCahier.budget, seuil: duDocument.seuil ?? duCahier.seuil };
+}
+
+/** Ce que l'utilisateur a accepté d'un clic sur une création de média : les lots validés, au prix annoncé. */
+export function totalDesLotsAcceptes(cardId: string): number {
+  const total = lotsDeLaCarte(cardId)
+    .filter((l) => l.etat === 'valide')
+    .reduce((somme, l) => somme + totalDuLot(l.operations).connu, 0);
+  return Math.round(total * 1e4) / 1e4;
 }
 
 /** Ce que la carte a déjà engagé : les générations lancées ou finies, au coût réel quand il est connu. */
@@ -261,14 +294,23 @@ function resumeDesServices(): string {
 export function consigneDeRealisationDeLaCarte(card: Card, role: string): string {
   if (!card.parcours?.realisationSouhaitee) return '';
   const document = cheminAbsoluDuDocument(card);
-  if (role === 'cadrage') {
-    return consigneDuQuestionnaire({
-      medias: typesDeMediaDeLaRealisation(card.realisation),
+  /* LE DIRECTEUR ARTISTIQUE, QUEL QUE SOIT SON RÔLE (26/10/2026) : la même
+     consigne, celle de l'étape où se trouve la carte. */
+  if (role === 'cadrage' || carteDeMedia(card)) {
+    const types = typesDeMediaDeLaRealisation(card.realisation);
+    const elements = elementsDeLaCarte(card.id);
+    const etape = etapeCouranteDuMedia(etapesDuMedia({ carte: card, elements, lots: lotsDeLaCarte(card.id) }));
+    const production = elements.length ? resumeDeLaProduction(elements, types) : '';
+    const consigne = consigneDuQuestionnaire({
+      medias: types,
       document,
-      enveloppe: card.realisation?.enveloppe,
       capacites: capacitesCouvertes(),
-      fabricationAccordee: !!card.parcours?.fabricationAccordeeA,
+      etape,
+      phase: phaseDesEsquisses(types, card.realisation),
+      son: sonDuBrief(elementsCourants(elements).find((e) => e.genre === 'brief')?.contenu),
+      ...(card.realisation?.style ? { style: card.realisation.style } : {}),
     });
+    return production ? `${consigne}\nL’ÉTAT DE LA PRODUCTION, LU EN BASE :\n${production}` : consigne;
   }
   const elements = elementsDeLaCarte(card.id);
   return consigneDeFabrication({
@@ -279,6 +321,7 @@ export function consigneDeRealisationDeLaCarte(card: Card, role: string): string
     services: resumeDesServices(),
     document: lireLeDocumentDeRealisation(card) ? document : undefined,
     methodes: methodesEnServiceSansPanne().map((m) => ligneDeMethodePourConsigne({ nom: m.methode.nom, domaine: m.methode.domaine, numero: m.version.numero, note: m.note })),
+    ...(card.realisation?.style ? { style: card.realisation.style } : {}),
   });
 }
 
@@ -307,7 +350,8 @@ export interface MediaDeRealisation {
   version: number;
   capacite: CapaciteDeGeneration;
   genre: GenreDeMedia;
-  service: IdServiceGeneration | 'montage';
+  /** « montage » : assemblé par l'agent ; « serveur » : une composition écrite par l'agent et rendue sur le serveur, sans frais. */
+  service: IdServiceGeneration | 'montage' | 'serveur';
   modele: string;
   modeleNom: string;
   demande: {
@@ -715,7 +759,8 @@ async function soldeKie(cle: string): Promise<number | null> {
 }
 
 /** Le prix PUBLIÉ d'une génération : fal.ai seulement (vidéo, image, voix, synchronisation), jamais deviné ailleurs. */
-async function prixPublie(modele: ModeleDeGeneration, duree: number, quantite: { secondes?: number; caracteres?: number } = {}): Promise<number | null> {
+async function prixPublie(modele: ModeleDeGeneration, duree: number, quantite: { secondes?: number; caracteres?: number; texte?: string } = {}): Promise<number | null> {
+  if (modele.service === 'openrouter' && modele.id === MODELE_VOIX_OPENROUTER) return quantite.texte ? prixEstimeDeLaVoix(quantite.texte) : null;
   if (modele.prix === 'credits-kie') {
     /* kie.ai : la liste publique des prix, par la ligne du modèle choisi (ou, lu en direct, par son lien). */
     const k = modeleKie(modele.id, modele.capacite);
@@ -785,6 +830,17 @@ async function telecharger(url: string, entetes: Record<string, string> = {}): P
  */
 async function fabriquer(m: MediaDeRealisation, attente: (ms: number) => Promise<void>): Promise<{ data: Buffer; type: string; coutReel?: number }> {
   const service = m.service as IdServiceGeneration;
+  /* LA VOIX FINALE PAR OPENROUTER : le texte validé, une des vingt voix Gemini, le coût réel relevé (MEM-4350). */
+  if (service === 'openrouter' && m.capacite === 'voix') {
+    const sortie = path.join(PATHS.medias, `.en-cours-${m.id}.wav`);
+    fs.mkdirSync(PATHS.medias, { recursive: true });
+    try {
+      const cout = await voixParOpenRouter(m.demande.voix || VOIX_FINALE_PAR_DEFAUT, m.demande.consigneOriginale ?? m.demande.consigne, sortie);
+      return { data: fs.readFileSync(sortie), type: 'audio/wav', coutReel: cout };
+    } finally {
+      fs.rmSync(sortie, { force: true });
+    }
+  }
   const cle = cleDuService(service);
   if (!cle) throw new Error(`${serviceDeGeneration(service)?.nom ?? service} n’est plus branché : sa clé a été retirée`);
 
@@ -1154,6 +1210,23 @@ export function capacitesCouvertes(): CapaciteDeGeneration[] {
   return [...new Set(modelesProposes(servicesDeGenerationBranches()).map((m) => m.capacite))];
 }
 
+/**
+ * CE QUE LE DIRECTEUR SAIT FABRIQUER : les capacités des services branchés,
+ * la composition sur le serveur (sans frais) dès que le moteur est installé, et
+ * la voix finale par OpenRouter dès qu'une clé existe (branchée ou relais).
+ */
+export function capacitesDuDirecteur(): string[] {
+  const capacites: string[] = capacitesCouvertes();
+  if (!capacites.includes('voix') && voixParOpenRouterPossible()) capacites.push('voix');
+  if (compositionDisponible()) capacites.push(CAPACITE_COMPOSITION);
+  return capacites;
+}
+
+/** La voix finale par OpenRouter part avec la clé branchée ou, à défaut, celle du relais de Beluga Build. */
+function voixParOpenRouterPossible(): boolean {
+  return !estServiceCache('openrouter') && !!cleOpenRouter();
+}
+
 const LIBELLES_CAPACITES: Record<CapaciteDeGeneration, string> = {
   image: 'des images',
   video: 'des vidéos',
@@ -1181,6 +1254,15 @@ function libelleDeCapacite(c: CapaciteDeGeneration): string {
  * l'utilisateur, jamais une question ; au-delà, l'accord est redemandé.
  */
 function texteDePanne(card: Card, m: MediaDeRealisation): string {
+  if (carteDeMedia(card)) {
+    const raison = `Échec de « ${m.plan} » (${m.modeleNom}) : ${m.echec ?? 'sans raison'}.`;
+    noterUnEvenement(card.id, 'panne', { media: m.id, plan: m.plan, raison: (m.echec ?? '').slice(0, 200) });
+    const deja = dejaReessaye(card.id, m);
+    if (!deja && !(m.coutReel !== null && m.coutReel > 0)) {
+      return `${raison} RÉESSAI D’OFFICE, UNE SEULE FOIS : refais le « devis » à l’identique (même service, même modèle, même consigne, même plan) puis « lot » avec « reessai » = « ${m.id} » — il part sans nouveau clic. Écris UNE ligne à l’utilisateur (« La génération a raté chez le service, je la relance une fois au même prix. »).`;
+    }
+    return `${raison} Le réessai d’office a déjà servi (ou la génération a été facturée) : dis-le à l’utilisateur en une phrase et propose la suite par un nouveau « lot » à prix (un autre modèle, une consigne ajustée) — son clic décide.`;
+  }
   const budget = budgetDeLaCarte(card);
   const reste = budget.budget === null ? null : budget.budget - depenseDeLaCarte(card.id);
   const echecsDuPlan = mediasDeLaCarte(card.id).filter((x) => x.plan === m.plan && x.etat === 'echec').length;
@@ -1211,6 +1293,28 @@ function proposerUnLot(
   const depense = depenseDeLaCarte(card.id);
   const lignes = medias.map((m) => ({ mediaId: m.id, plan: m.plan, service: m.service, modeleNom: m.modeleNom, capacite: m.capacite, prix: m.prix }));
   const total = totalDuLot(lignes);
+  /* UNE CRÉATION DE MÉDIA : ni budget ni décision d'office — le bouton « Générer · prix » est la seule porte. */
+  if (carteDeMedia(card)) {
+    const lot = creerUnLot({ cardId: card.id, projectId: card.projectId, titre: e.titre, etape: e.etape, lignes });
+    const forme = questionDUneGeneration({
+      lotId: lot.id,
+      titre: lot.titre,
+      lignes: medias.map((m) => ({ plan: m.plan, modele: m.modeleNom, service: serviceDeGeneration(m.service)?.nom ?? m.service, prix: m.prix })),
+      depense,
+    });
+    const question = AgentQuestion.parse({
+      id: store.newId(),
+      question: forme.question,
+      description: forme.description,
+      kind: 'text',
+      options: [],
+      allowFreeText: true,
+      devis: forme.devis,
+    });
+    poserLaQuestionDuLot(lot.id, question.id);
+    void agentId;
+    return { ok: true, text: texteSansAttente(), question };
+  }
   const accordDeFabrication = card.parcours?.realisationBudget?.prixAccorde !== undefined;
   const decision = decisionDuLot({ total: total.connu, sansPrix: total.sansPrix, budget: budget.budget, depense, accordDeFabrication });
   if (decision.verdict === 'refus') return { ok: false, text: `Devis impossible en l’état : ${decision.raison}` };
@@ -1293,6 +1397,78 @@ async function genererUnDevis(
   });
 }
 
+/** Ce média a-t-il déjà eu son réessai d'office, ou en est-il un lui-même ? */
+function dejaReessaye(cardId: string, m: MediaDeRealisation): boolean {
+  const reessais = evenementsDeLaCarte(cardId, 500).filter((e) => e.genre === 'lot.reessai');
+  return reessais.some((e) => e.details.rate === m.id || (!!m.lotId && e.details.lot === m.lotId));
+}
+
+/**
+ * LE RÉESSAI D'OFFICE (26/10/2026) : une génération en panne, non facturée,
+ * repart UNE fois au même modèle et au même prix, sans nouveau clic
+ * (`reessaiDOfficePermis`). Sinon, le lot repasse par le bouton à prix.
+ */
+async function reessayerDOffice(
+  card: Card,
+  ctx: ContexteRealisation,
+  medias: readonly MediaDeRealisation[],
+  rateId: string,
+  titre: string,
+  etape: string | null,
+  attente: (ms: number) => Promise<void>,
+): Promise<ResultatRealisation> {
+  const rate = mediaParId(rateId);
+  if (!rate || rate.cardId !== card.id) return { ok: false, text: `« reessai » : le média « ${rateId} » est introuvable sur cette carte.` };
+  const verdict = reessaiDOfficePermis({
+    rate: { etat: rate.etat, coutReel: rate.coutReel, modele: rate.modele, prix: rate.prix, plan: rate.plan },
+    devis: medias.map((m) => ({ modele: m.modele, prix: m.prix, plan: m.plan })),
+    dejaReessaye: dejaReessaye(card.id, rate),
+  });
+  if (!verdict.ok) {
+    const propose = proposerUnLot(card, ctx.agentId, medias, { titre, etape });
+    return { ...propose, text: `Pas de réessai d’office : ${verdict.raison}. ${propose.text}` };
+  }
+  const lignes = medias.map((m) => ({ mediaId: m.id, plan: m.plan, service: m.service, modeleNom: m.modeleNom, capacite: m.capacite, prix: m.prix }));
+  const lot = creerUnLot({ cardId: card.id, projectId: card.projectId, titre, etape, lignes });
+  deciderDuLot(lot.id, true, `Réessai d’office de « ${rate.plan} » (panne non facturée, même modèle, même prix)`);
+  noterUnEvenement(card.id, 'lot.reessai', { lot: lot.id, rate: rate.id });
+  const textes: string[] = [];
+  for (const m of medias) {
+    const r = await genererUnDevis(card, ctx, mediaParId(m.id) ?? m, attente);
+    textes.push(`- ${m.plan} : ${r.text}`);
+  }
+  return { ok: true, text: [`Réessai d’office lancé (une seule fois, même modèle, même prix) :`, ...textes].join('\n') };
+}
+
+/**
+ * LE CLIC SUR « GÉNÉRER · PRIX » (26/10/2026) : la réponse à la question d'un
+ * lot le TRANCHE dès le clic, et sur une création de média elle LANCE aussitôt
+ * ses générations — sans attendre que l'agent pense à « generer ». Rend la
+ * consigne que l'agent lit avec la réponse, ou `null` hors d'un devis.
+ */
+export async function trancherLeLotDuClic(question: Pick<AgentQuestion, 'devis'>, reponse: string): Promise<string | null> {
+  const lotId = question.devis?.lotId;
+  if (!lotId) return null;
+  const lot = lotParId(lotId);
+  if (!lot || lot.etat !== 'propose') return null;
+  const card = store.getCard(lot.cardId);
+  if (!card || !carteDeMedia(card)) return null;
+  const valide = lotValideParLaReponse(reponse);
+  deciderDuLot(lot.id, valide, reponse);
+  if (!valide) {
+    return `L’UTILISATEUR N’A PAS CLIQUÉ « Générer » pour « ${lot.titre} » : rien n’est dépensé. Sa réponse dit ce qu’il veut changer — ajuste (consigne, modèle, nombre de variantes), puis propose un nouveau lot.`;
+  }
+  const lances: string[] = [];
+  for (const op of lot.operations) {
+    const m = mediaParId(op.mediaId);
+    if (!m) continue;
+    const r = await genererUnDevis(card, { agentId: m.agentId ?? card.agentId ?? '', projectId: card.projectId, cardId: card.id }, m, (ms) => new Promise((fin) => setTimeout(fin, ms)));
+    lances.push(`« ${m.id} » (${r.ok ? 'lancé' : r.text})`);
+  }
+  noterUnEvenement(card.id, 'lot.clic', { lot: lot.id, total: totalDuLot(lot.operations).connu });
+  return `L’UTILISATEUR A CLIQUÉ « Générer » : le lot « ${lot.titre} » est ACCEPTÉ ET DÉJÀ LANCÉ — ne rappelle pas « generer ». Suis chaque génération avec « suivre » : ${lances.join(', ')}. Les brouillons paraissent dans le fil ; l’utilisateur valide lui-même ceux qu’il garde.`;
+}
+
 /**
  * L'ÉTAT D'UNE PRODUCTION, tel que l'écran le lit (`production.lire`) : les
  * éléments, les lots, les médias et le budget. Le volet de suivi s'en calcule
@@ -1336,7 +1512,13 @@ export function etatDeProductionDeLaCarte(cardId: string): EtatDeProduction {
     medias,
     budget: card ? budgetDeLaCarte(card).budget : null,
     depense: depenseDeLaCarte(cardId),
+    exportsPrets: exportsPretsDuMontage(cardId),
   };
+}
+
+/** Les exports vidéo PRÊTS du montage de la carte : l'éditeur du Studio a été retiré, il n'y en a plus. */
+function exportsPretsDuMontage(_cardId: string): number {
+  return 0;
 }
 
 /** Les réglages d'une retouche ou d'une animation, en clair, pour le panneau « Réglages » du média. */
@@ -1381,26 +1563,237 @@ export function retenirUnMedia(cardId: string, mediaId: string, retenu: boolean)
   return { ok: true, media: apres, change: true };
 }
 
-/**
- * LES IMAGES CLÉS ACCORDÉES À L'ARRÊT 2 ENTRENT AU SUIVI (25/10/2026) : elles
- * deviennent les images de départ des plans, que la fabrication anime sans
- * redemander. L'agent les désigne par leur pièce jointe ou leur média.
- */
-export function retenirLesImagesCles(cardId: string, ids: readonly string[]): number {
-  const medias = mediasDeLaCarte(cardId);
-  let retenues = 0;
-  for (const id of ids) {
-    const m = medias.find((x) => x.id === id || x.attachmentId === id);
-    if (!m || m.genre !== 'image') continue;
-    const r = retenirUnMedia(cardId, m.id, true);
-    if (r.ok && r.change) retenues += 1;
-  }
-  return retenues;
-}
-
 function ligneDeMedia(m: MediaDeRealisation): string {
   const prix = m.coutReel ?? m.prix;
   return `- « ${m.id} » ${m.plan} v${m.version} [${m.genre}] — ${m.modeleNom} (${m.service}) — ${prix === null ? 'prix non publié' : `${arrondi(prix)} $`}${m.retenuLe ? ' — DANS LE SUIVI' : ''}${m.fichier ? ` — ${m.fichier}` : ''}`;
+}
+
+/* ------------------------------------------------------------------ */
+/* La fabrication sur le serveur (compositions écrites par l'agent)     */
+/* ------------------------------------------------------------------ */
+
+/** Le format d'une composition : celui demandé, sinon le premier du brief, sinon le vertical. */
+function formatDeComposition(brut: unknown): FormatDeMedia {
+  return FORMATS.find((f) => f === brut) ?? '9:16';
+}
+
+/** Un nom de fichier sûr pour les copies dans `medias/`. */
+function nomDeCopie(nom: string): string {
+  return nom.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+/, '').slice(0, 80) || 'media';
+}
+
+/**
+ * LES MÉDIAS DE LA CARTE COPIÉS DANS LA COMPOSITION (`medias/`) : plans finis,
+ * voix, musique, images jointes par l'utilisateur. Rend ce que la page doit
+ * citer (chemin relatif), avec la durée mesurée d'un son ou d'une vidéo.
+ */
+async function copierLesMedias(card: Card, dossier: string, brut: unknown): Promise<{ lignes: string[]; refus: string[] }> {
+  const ids = (Array.isArray(brut) ? brut : String(brut ?? '').split(',')).map((x) => idDeSource(card, x)).filter(Boolean);
+  const lignes: string[] = [];
+  const refus: string[] = [];
+  for (const id of [...new Set(ids)].slice(0, 40)) {
+    const source = fichierDUneSource(id);
+    const media = mediaParId(id);
+    const piece = media ? null : store.getAttachment(id);
+    if (!source || (media && media.projectId !== card.projectId) || (piece && piece.projectId !== card.projectId)) {
+      refus.push(`« ${id} » introuvable dans ce projet`);
+      continue;
+    }
+    const ext = path.extname(source.fichier) || (source.type.includes('png') ? '.png' : source.type.includes('jpeg') ? '.jpg' : source.type.includes('mp4') ? '.mp4' : source.type.includes('wav') ? '.wav' : source.type.includes('mpeg') ? '.mp3' : '');
+    const base = media ? `${media.plan}-v${media.version}` : path.basename(piece?.name ?? id, path.extname(piece?.name ?? ''));
+    const nom = `${nomDeCopie(base)}${ext}`;
+    fs.copyFileSync(source.fichier, path.join(dossier, 'medias', nom));
+    const mesure = /^(video|audio)\//.test(source.type) || /\.(mp4|webm|mov|wav|mp3|m4a|ogg)$/i.test(ext) ? await mesurerLeFichier(path.join(dossier, 'medias', nom)) : null;
+    lignes.push(`- medias/${nom} (« ${id} »${mesure?.duree ? `, ${mesure.duree.toFixed(2)} s` : ''}${mesure?.largeur ? `, ${mesure.largeur}×${mesure.hauteur}` : ''})`);
+  }
+  return { lignes, refus };
+}
+
+/** Le rendu d'une composition, suivi comme toute fabrication : bloc d'attente dans le fil, « suivre », rangement à 0 $. */
+function lancerUneComposition(m: MediaDeRealisation, dossier: string, sortie: 'video' | 'image', instant: number | undefined, livrer: boolean): void {
+  annoncerUnMedia({
+    id: m.id,
+    projectId: m.projectId,
+    cardId: m.cardId,
+    agentId: m.agentId,
+    sujet: m.plan,
+    outil: 'Fabrication sur le serveur',
+    prix: 0,
+    format: m.demande.format,
+    genre: m.genre,
+    suivi: 'service',
+  });
+  const travail = (async () => {
+    try {
+      const rendu = await rendreComposition(dossier, { genre: sortie, format: m.demande.format, ...(instant !== undefined ? { instant } : {}) });
+      const fichier = livrer && sortie === 'video' ? await livrerLeFilm(rendu.fichier) : rendu.fichier;
+      const fini = await ranger(m, fs.readFileSync(fichier), sortie === 'video' ? 'video/mp4' : 'image/png');
+      terminerUnMedia(m.id, { attachmentId: fini.attachmentId, prix: 0 });
+      log.info(`réalisation : composition « ${m.plan} » (${m.demande.format}) rendue en ${rendu.secondes} s`);
+    } catch (err) {
+      const raison = String((err as Error)?.message ?? err).slice(0, 400);
+      terminerUnMedia(m.id, { echec: raison });
+      maj(mediaParId(m.id) ?? m, { etat: 'echec', echec: raison });
+      log.warn(`réalisation : composition « ${m.plan} » en échec : ${raison}`);
+    } finally {
+      enVol.delete(m.id);
+    }
+  })();
+  enVol.set(m.id, travail);
+}
+
+const REGLES_DE_COMPOSITION = [
+  'RÈGLES DU MOTEUR (HyperFrames) : la racine porte data-composition-id, data-start="0", data-duration (secondes), data-width, data-height ; chaque élément minuté a class="clip", data-start, data-duration (et data-track-index) ;',
+  'UNE chronologie GSAP en pause, posée APRÈS ses tweens : window.__timelines["<id>"] = tl ; tweens à des secondes absolues (tl.to(el, {…}, 2.4)), états de départ dans le tween (fromTo) ;',
+  'tout ce qui se voit est une fonction du temps : ni Date.now, ni Math.random sans graine (mulberry32), ni requestAnimationFrame, ni minuteur, ni repeat: -1, ni réseau ; un canevas (Three.js, p5, Pixi, OGL) se dessine dans l’onUpdate de la chronologie à partir de tl.time() ;',
+  'jamais de tween sur display/visibility d’un .clip (animer un enfant) ; pas de transform CSS sur un élément que GSAP déplace ;',
+  'une <video> se marque muted (ou data-has-audio="true") ; chaque <audio class="clip"> a un id ; les fichiers sont relatifs (medias/…, lib/…, polices/…) ;',
+  'des tailles relatives à la racine (%, ou lues sur #root) pour qu’une même page serve plusieurs formats ; textes dans les 80 % du centre.',
+].join(' ');
+
+async function composerSurLeServeur(card: Card, ctx: ContexteRealisation, args: Record<string, unknown>): Promise<ResultatRealisation> {
+  if (!compositionDisponible()) return { ok: false, text: 'Le moteur de fabrication sur le serveur (HyperFrames) n’est pas installé ici : dis-le à l’utilisateur, ou passe par un service de génération.' };
+  const etape = String(args.geste ?? 'preparer');
+  const plan = String(args.plan ?? '').trim().slice(0, 80);
+  const dossierExplicite = dossierDeComposition(args.dossier);
+  if (!plan && !dossierExplicite) return { ok: false, text: 'Il faut « plan » : le nom du plan ou du film (« plan-1 », « montage »…).' };
+  const dossierDesMedias = dossierDesMediasDeLaCarte(card, ctx.agentId);
+  const format = formatDeComposition(args.format);
+  const dossier = dossierExplicite ?? path.join(dossierDesMedias, 'compositions', idDeComposition(plan));
+  const nomDuPlan = plan || path.basename(dossier);
+  const html = typeof args.html === 'string' ? args.html.trim() : '';
+
+  if (etape === 'preparer') {
+    const prep = preparerComposition({ dossierDesMedias, plan: nomDuPlan, format, duree: Number(args.duree) || 10, ...(typeof args.titre === 'string' ? { titre: args.titre } : {}), bibliotheques: args.bibliotheques });
+    if (html) fs.writeFileSync(path.join(prep.dossier, 'index.html'), html);
+    const copies = await copierLesMedias(card, prep.dossier, args.medias);
+    const libs = BIBLIOTHEQUES_DE_COMPOSITION.filter((b) => prep.bibliotheques.includes(b.id));
+    return {
+      ok: true,
+      text: [
+        `Composition « ${nomDuPlan} » ${prep.neuf ? 'préparée' : 'complétée'} : ${prep.dossier}`,
+        `- index.html : ${html ? 'ta page' : prep.neuf ? 'une page de départ qui se rend déjà (réécris-la entièrement)' : 'gardé tel quel'} ; data-composition-id = « ${prep.id} »`,
+        '- polices/ : Inter, Montserrat, Space Grotesk, Playfair Display, Bebas Neue, Caveat, JetBrains Mono (feuille polices/polices.css)',
+        ...libs.map((b) => `- bibliothèque ${b.nom} ${b.version} (${b.licence}) : ${b.balise} — ${b.usage}`),
+        ...(copies.lignes.length ? ['Médias copiés :', ...copies.lignes] : ['Aucun média copié (« medias » = identifiants de médias de la carte ou de pièces jointes).']),
+        ...(copies.refus.length ? [`Refusés : ${copies.refus.join(' ; ')}`] : []),
+        REGLES_DE_COMPOSITION,
+        'Ensuite : écris la page (fichier index.html, ou « html » de cette action), puis « controler », « apercu » (« instants ») — regarde les images —, puis « rendre ».',
+      ].join('\n'),
+    };
+  }
+
+  if (!fs.existsSync(path.join(dossier, 'index.html'))) return { ok: false, text: `Aucune composition « ${nomDuPlan} » : appelle d’abord « composer » avec « geste » = « preparer ».` };
+  if (html) fs.writeFileSync(path.join(dossier, 'index.html'), html);
+
+  if (etape === 'controler') {
+    const c = await controlerComposition(dossier);
+    return {
+      ok: !c.erreurs.length,
+      text: [
+        c.erreurs.length ? `La composition « ${nomDuPlan} » ne se rend pas encore :` : `Composition « ${nomDuPlan} » contrôlée sans erreur${c.duree ? ` (${c.duree} s)` : ''}.`,
+        ...c.erreurs.map((x) => `- ${x}`),
+        ...(c.avertissements.length ? ['Avertissements :', ...c.avertissements.slice(0, 8).map((x) => `- ${x}`)] : []),
+      ].join('\n'),
+    };
+  }
+
+  if (etape === 'apercu') {
+    const instants = (Array.isArray(args.instants) ? args.instants : String(args.instants ?? '').split(',')).map(Number).filter((t) => Number.isFinite(t));
+    const a = await apercusDeLaComposition(dossier, instants, format);
+    if (!a.ok) return { ok: false, text: `Aucune image tirée : ${a.raison}. Lance « controler » pour lire les erreurs.` };
+    return { ok: true, text: `Aperçu de « ${nomDuPlan} » en ${format} — REGARDE ces images (lis les fichiers) avant d’aller plus loin :\n${a.images.map((x) => `- ${x}`).join('\n')}${a.planche ? `\nPlanche : ${a.planche}` : ''}` };
+  }
+
+  if (etape === 'rendre') {
+    const sortie = args.sortie === 'image' ? 'image' : 'video';
+    const formats = [...new Set((Array.isArray(args.formats) ? args.formats : args.formats ? String(args.formats).split(',') : [format]).map((f) => formatDeComposition(String(f).trim())))];
+    const c = await controlerComposition(dossier);
+    if (c.erreurs.length) return { ok: false, text: [`Rendu refusé : la composition « ${nomDuPlan} » a des erreurs.`, ...c.erreurs.map((x) => `- ${x}`)].join('\n') };
+    const montage = /^montage/i.test(nomDuPlan) || args.montage === true;
+    if (montage) poserLeMontage(card);
+    const capacite: CapaciteDeGeneration = sortie === 'image' ? 'image' : 'video';
+    const instant = Number.isFinite(Number(args.instant)) ? Number(args.instant) : undefined;
+    const ids: string[] = [];
+    for (const f of formats) {
+      const maintenant = Date.now();
+      const m: MediaDeRealisation = {
+        id: store.newId(),
+        projectId: card.projectId,
+        cardId: card.id,
+        agentId: ctx.agentId,
+        branche: brancheDeLaCarte(card, ctx.agentId),
+        plan: formats.length > 1 ? `${nomDuPlan}-${f.replace(':', 'x')}` : nomDuPlan,
+        version: 0,
+        capacite,
+        genre: genreDuMedia(capacite),
+        service: montage ? 'montage' : 'serveur',
+        modele: 'composition',
+        modeleNom: montage ? 'Montage par le directeur' : 'Fabrication sur le serveur',
+        demande: { consigne: `composition ${dossier}`, format: f, ...(c.duree && sortie === 'video' ? { duree: c.duree } : {}) },
+        raison: 'écrit par l’agent, rendu sur le serveur, sans service payant',
+        prix: 0,
+        sourcePrix: 'aucun',
+        coutReel: 0,
+        etat: 'en-cours',
+        questionId: null,
+        echec: null,
+        fichier: null,
+        taille: null,
+        attachmentId: null,
+        etape: montage ? 'montage' : (ETAPES_DU_SUIVI.find((e) => e === args.etape) ?? null),
+        lotId: null,
+        retenuLe: null,
+        sourceId: null,
+        mesure: null,
+        creeLe: maintenant,
+        modifieLe: maintenant,
+      };
+      enregistrer(m);
+      lancerUneComposition(m, dossier, sortie, instant, montage);
+      ids.push(m.id);
+    }
+    return {
+      ok: true,
+      text: `${ids.length} rendu(s) de « ${nomDuPlan} » lancé(s) sur le serveur, sans frais (${formats.join(', ')}) : ${ids.map((x) => `« ${x} »`).join(', ')}. Un seul travail lourd à la fois : compte ≈ 3,5 s de rendu par seconde de vidéo en vertical. Attends chacun avec « suivre », puis REGARDE le résultat.${montage ? ' Le film monté passe en livraison (niveau sonore, lecture immédiate sur le web) avant d’arriver dans le fil.' : ''}`,
+    };
+  }
+  return { ok: false, text: '« geste » : preparer, controler, apercu ou rendre.' };
+}
+
+/** LES MOTS D'UNE VOIX, avec leurs temps (sous-titres au mot), écrits en JSON à côté de la composition voulue. */
+async function motsDUneVoix(card: Card, ctx: ContexteRealisation, args: Record<string, unknown>): Promise<ResultatRealisation> {
+  const id = idDeSource(card, args.media ?? args.voix ?? args.id);
+  const chemin = String(args.chemin ?? '').trim();
+  const source = id ? fichierDUneSource(id)?.fichier : chemin && path.isAbsolute(chemin) && fs.existsSync(chemin) ? chemin : null;
+  if (!source) return { ok: false, text: 'Il faut « media » (l’identifiant de la voix : média de la carte ou pièce jointe) ou « chemin » (un fichier son absolu).' };
+  const texte = typeof args.texte === 'string' ? args.texte : undefined;
+  const r = await motsDeLaVoix(source, texte);
+  const plan = String(args.plan ?? '').trim();
+  const cible = plan ? path.join(dossierDesMediasDeLaCarte(card, ctx.agentId), 'compositions', idDeComposition(plan), 'medias') : path.join(dossierDesMediasDeLaCarte(card, ctx.agentId), 'mots');
+  fs.mkdirSync(cible, { recursive: true });
+  const fichier = path.join(cible, `mots-${nomDeCopie(path.basename(source, path.extname(source)))}.json`);
+  fs.writeFileSync(fichier, JSON.stringify({ duree: r.duree, mots: r.mots }, null, 1));
+  const apercu = r.mots.slice(0, 12).map((m) => `${m.texte} ${m.debut.toFixed(2)}–${m.fin.toFixed(2)}`).join(' · ');
+  return {
+    ok: true,
+    text: `${r.mots.length} mot(s) horodaté(s) sur ${r.duree.toFixed(2)} s${r.reconnus ? '' : ' (reconnaissance impossible : temps RÉPARTIS au prorata — dis-le)'} : ${fichier}${plan ? ' (copié dans la composition : recopie ces temps dans ta page, data-start / data-duration de chaque mot)' : ''}.\nDébut : ${apercu}${r.mots.length > 12 ? ' …' : ''}`,
+  };
+}
+
+/** BRUITAGES ET MUSIQUE SANS FRAIS : un script Tone.js joué hors temps réel dans un vrai Chrome, rendu en WAV. */
+async function sonsSynthetises(card: Card, ctx: ContexteRealisation, args: Record<string, unknown>): Promise<ResultatRealisation> {
+  const script = String(args.script ?? '').trim();
+  const duree = Number(args.duree);
+  if (!script || !Number.isFinite(duree) || duree <= 0 || duree > 180) return { ok: false, text: 'Il faut « script » (le corps d’une fonction qui reçoit « Tone » et programme les sons, ex. « const s = new Tone.MembraneSynth().toDestination(); s.triggerAttackRelease(\'C2\', \'8n\', 0.5); ») et « duree » (en secondes, 180 au plus).' };
+  const nom = nomDeCopie(String(args.nom ?? 'sons'));
+  const plan = String(args.plan ?? '').trim();
+  const cible = plan ? path.join(dossierDesMediasDeLaCarte(card, ctx.agentId), 'compositions', idDeComposition(plan), 'medias') : path.join(dossierDesMediasDeLaCarte(card, ctx.agentId), 'sons');
+  fs.mkdirSync(cible, { recursive: true });
+  const fichier = path.join(cible, `${nom}.wav`);
+  const r = await fabriquerDesSons(script, duree, fichier);
+  if (!r.ok) return { ok: false, text: `Sons impossibles : ${r.raison}` };
+  return { ok: true, text: `Sons fabriqués sans frais (${r.duree.toFixed(2)} s) : ${fichier}${plan ? ` — dans la composition : <audio id="${nom}" class="clip" data-start="0" data-duration="${r.duree.toFixed(2)}" data-track-index="9" src="medias/${nom}.wav"></audio>` : ''}. Écoute-le avant de l’intégrer.` };
 }
 
 /**
@@ -1596,7 +1989,14 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
   const action = String(args.action ?? '');
   const budget = budgetDeLaCarte(card);
   const depense = depenseDeLaCarte(card.id);
-  const etatDuBudget = `Budget : ${budget.budget === null ? 'non fixé' : `${budget.budget} $`} · dépensé : ${arrondi(depense)} $ · seuil d’accord : ${budget.seuil === null ? 'non fixé' : `${budget.seuil} $`}.`;
+  const media = carteDeMedia(card);
+  const etatDuBudget = media
+    ? `Accepté d’un clic : ${arrondi(budget.budget ?? 0)} $ · dépensé : ${arrondi(depense)} $.`
+    : `Budget : ${budget.budget === null ? 'non fixé' : `${budget.budget} $`} · dépensé : ${arrondi(depense)} $ · seuil d’accord : ${budget.seuil === null ? 'non fixé' : `${budget.seuil} $`}.`;
+  /* RIEN NE SE FABRIQUE AU BRIEF (26/10/2026) : l'utilisateur passe aux esquisses par le bouton du bas. */
+  if (media && !passagesDuMedia(card).esquisses && ['devis', 'lot', 'generer', 'lumiere'].includes(action)) {
+    return { ok: false, text: 'Refusé : la carte est encore au BRIEF. Rien ne se fabrique avant que l’utilisateur clique « Passer aux esquisses » sous le champ d’écriture : termine le brief et invite-le à ce clic.' };
+  }
 
   switch (action) {
     case 'modeles': {
@@ -1673,7 +2073,11 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       }
       if (!branches.length) return { ok: true, text: 'Aucun service de génération n’est branché. Appelle « realiser » action « brancher » avec les capacités voulues : l’utilisateur colle sa clé dans la conversation (fal.ai d’abord), sans quitter la carte.' };
       const openrouter = branches.includes('openrouter') && (!capacite || capacite === 'image') ? await modelesOpenRouter() : [];
-      const liste = modelesProposes(branches, capacite, openrouter).slice(0, 40);
+      /* LA VOIX FINALE PAR OPENROUTER se propose aussi par la clé du relais, sans branchement. */
+      const branchesListees = capacite === 'voix' && !branches.includes('openrouter') && voixParOpenRouterPossible() ? [...branches, 'openrouter' as const] : branches;
+      const liste = modelesProposes(branchesListees, capacite, openrouter)
+        .filter((m) => m.service !== 'openrouter' || m.capacite !== 'voix' || voixParOpenRouterPossible())
+        .slice(0, 40);
       if (!liste.length) return { ok: true, text: `Aucun modèle branché ne sait faire « ${capacite} ». Services branchés : ${branches.join(', ')}. Appelle « realiser » action « brancher » avec « capacites » : ["${capacite}"].` };
       return {
         ok: true,
@@ -1726,7 +2130,11 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const raison = String(args.raison ?? '').trim();
       if (!consigne || !plan || !raison) return { ok: false, text: 'Il faut « plan » (le nom du plan ou du média), « consigne » (la demande complète au modèle) et « raison » (pourquoi ce modèle).' };
       if (estServiceCache(service)) return { ok: false, text: `Refusé : ${serviceDeGeneration(service)?.nom ?? service} n’est plus proposé (remplacé par kie.ai, décision de l’utilisateur). Refais le devis avec un modèle de kie.ai (« modeles »).` };
-      if (!servicesDeGenerationBranches().includes(service)) return { ok: false, text: `Le service « ${service} » n’est pas branché. Consulte « modeles », ou appelle « brancher » pour que l’utilisateur le branche depuis la conversation.` };
+      const voixOpenRouter = service === 'openrouter' && id === MODELE_VOIX_OPENROUTER && voixParOpenRouterPossible();
+      if (!servicesDeGenerationBranches().includes(service) && !voixOpenRouter) return { ok: false, text: `Le service « ${service} » n’est pas branché. Consulte « modeles », ou appelle « brancher » pour que l’utilisateur le branche depuis la conversation.` };
+      if (voixOpenRouter && !VOIX_FINALES.some((v) => v.id === String(args.voix ?? '').trim())) {
+        return { ok: false, text: `Il faut « voix » : une des vingt voix Gemini — ${VOIX_FINALES.map((v) => `${v.id} (${v.genre}, ${v.timbre})`).join(', ')}. « consigne » = le texte EXACT validé à l’arrêt 2.` };
+      }
       const openrouter = service === 'openrouter' ? await modelesOpenRouter() : [];
       const choisi = modeleDeGeneration(service, id, openrouter, args.capacite ?? args.operation);
       /* UN MODÈLE HORS DE LA LISTE CHOISIE se commande depuis le catalogue lu en direct, d'après son schéma. */
@@ -1747,6 +2155,11 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         args.sans_image !== true
       ) {
         return { ok: false, text: 'Refusé : dans cette production, un plan vidéo s’anime à partir de son image AJOUTÉE AU SUIVI — fais le devis avec un modèle « animation » (consulte « modeles » avec capacite « animation ») et « source » = l’identifiant de l’image retenue. Un plan sans image (texte vers vidéo) ne part qu’avec l’accord écrit de l’utilisateur, et « sans_image » = vrai.' };
+      }
+      /* TOUTES LES IMAGES D'ABORD, PUIS L'ANIMATION (26/10/2026) : aucune séquence avant « Passer aux séquences vidéo ». */
+      if (media && (modele.capacite === 'animation' || modele.capacite === 'video' || modele.capacite === 'mouvement')) {
+        const permise = animationPermise({ types: typesDeMediaDeLaRealisation(card.realisation), carte: card });
+        if (!permise.ok) return { ok: false, text: `Refusé : ${permise.raison}` };
       }
       const retouche = await lireLaRetouche(card, modele, args);
       if (!retouche.ok) return { ok: false, text: retouche.raison };
@@ -1811,9 +2224,12 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const prix = await prixPublie(modele, Number.isFinite(duree) && duree > 0 ? (modele.durees ? dureeAjustee({ durees: modele.durees } as any, duree) : duree) : (modele.durees?.[0] ?? 5), {
         ...(secondes ? { secondes } : {}),
         caracteres: envoyee.consigne.length,
+        texte: envoyee.consigne,
       });
       /* PLUSIEURS PROPOSITIONS (1 à 4, choisies par l'utilisateur à chaque génération) : un devis par proposition. */
-      const propositions = nombreDePropositions(args.variantes ?? args.propositions ?? 1);
+      const propositions = media
+        ? nombreDePropositions(args.variantes ?? args.propositions ?? PROPOSITIONS_MIN_D_UN_MEDIA, PROPOSITIONS_MIN_D_UN_MEDIA)
+        : nombreDePropositions(args.variantes ?? args.propositions ?? 1);
       if (Number(args.variantes ?? args.propositions ?? 1) > PROPOSITIONS_PAR_GENERATION) {
         return { ok: false, text: `Refusé : ${PROPOSITIONS_PAR_GENERATION} propositions au plus par génération (décision de l’utilisateur).` };
       }
@@ -1865,11 +2281,12 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         solde === null
           ? ''
           : `Solde kie.ai : ${Math.round(solde)} crédits (≈ ${arrondi(solde * DOLLARS_PAR_CREDIT)} $)${insuffisant ? ' — INSUFFISANT pour ce devis : dis-le à l’utilisateur et ne propose aucun lot avant qu’il recharge son compte sur kie.ai.' : '.'}`;
-      const suite =
-        decision.verdict === 'refus'
-          ? `Lancement impossible en l’état : ${decision.raison}`
-          : insuffisant
-            ? 'Lancement impossible en l’état : le solde kie.ai ne couvre pas ce devis.'
+      const suite = insuffisant
+        ? 'Lancement impossible en l’état : le solde kie.ai ne couvre pas ce devis.'
+        : media
+          ? `Propose-les maintenant avec « lot » (« devis_du_lot » = ces ${ids.length} identifiants, rien d’autre) : le bouton « Générer · prix » part dans le fil, et le clic de l’utilisateur lance la génération.`
+          : decision.verdict === 'refus'
+            ? `Lancement impossible en l’état : ${decision.raison}`
             : 'Regroupe ce devis avec les autres de la même étape (action « lot ») : rien ne part avant le clic de l’utilisateur sur le bloc « Devis ».';
       return {
         ok: true,
@@ -1922,6 +2339,13 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       }
       const titre = String(args.titre ?? '').trim().slice(0, 80) || medias.map((m) => m.plan).join(', ').slice(0, 80);
       const etape = ETAPES_DU_SUIVI.find((e) => e === args.etape) ?? null;
+      if (media) {
+        /* CHAQUE GÉNÉRATION SE VALIDE UNE À UNE (26/10/2026) : un lot = les variantes d'une même génération. */
+        const plans = new Set(medias.map((m) => m.plan.trim().toLowerCase()));
+        if (plans.size > 1) return { ok: false, text: 'Refusé : un lot porte UNE génération (ses 2 à 4 variantes), jamais plusieurs plans ou médias ensemble — propose un lot par génération.' };
+        const reessai = String(args.reessai ?? '').trim();
+        if (reessai) return reessayerDOffice(card, ctx, medias, reessai, titre, etape, attente);
+      }
       return proposerUnLot(card, ctx.agentId, medias, { titre, etape });
     }
 
@@ -1999,7 +2423,7 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
       const attachment = m.attachmentId ? store.getAttachment(m.attachmentId) : null;
       return {
         ok: true,
-        text: `« ${m.plan} » v${m.version} prêt : ${m.fichier}${m.coutReel !== null ? ` (coût réel ${arrondi(m.coutReel)} $)` : ''}. Il paraît dans le fil. Regarde-le (lis le fichier) avant de passer au plan suivant.\n${`Dépensé : ${arrondi(depenseDeLaCarte(card.id))} $${budget.budget !== null ? ` sur ${budget.budget} $` : ''}.`}`,
+        text: `« ${m.plan} » v${m.version} prêt : ${m.fichier}${m.coutReel !== null ? ` (coût réel ${arrondi(m.coutReel)} $)` : ''}. Il paraît dans le fil. Regarde-le (lis le fichier) avant de passer au plan suivant.\n${`Dépensé : ${arrondi(depenseDeLaCarte(card.id))} $${budget.budget !== null && !media ? ` sur ${budget.budget} $` : ''}.`}${media ? ' L’utilisateur valide lui-même, d’un clic sur le média, ce qu’il garde.' : ''}`,
         ...(attachment ? { attachment } : {}),
       };
     }
@@ -2019,7 +2443,9 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
           ...lotsDeLaCarte(card.id).map(
             (l) => `Lot « ${l.titre} » (« ${l.id} ») : ${l.etat === 'propose' ? 'en attente du clic' : l.etat === 'valide' ? 'validé' : 'refusé'} — ${l.operations.length} opération(s), ${arrondi(totalDuLot(l.operations).connu)} $${totalDuLot(l.operations).sansPrix ? ' + prix non publiés' : ''}`,
           ),
-          `Total dépensé : ${arrondi(depenseDeLaCarte(card.id))} $${budget.budget !== null ? ` sur un budget de ${budget.budget} $` : ''}.`,
+          media
+            ? `Total dépensé : ${arrondi(depenseDeLaCarte(card.id))} $ (accepté d’un clic : ${arrondi(budget.budget ?? 0)} $).`
+            : `Total dépensé : ${arrondi(depenseDeLaCarte(card.id))} $${budget.budget !== null ? ` sur un budget de ${budget.budget} $` : ''}.`,
           finis.length ? `Dossier : ${path.dirname(finis[0]!.fichier ?? '')}` : '',
         ]
           .filter(Boolean)
@@ -2084,6 +2510,8 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
     }
 
     case 'retenir': {
+      /* SEUL L'UTILISATEUR VALIDE (26/10/2026) : le bouton « Valider » sur le média. */
+      if (media) return { ok: false, text: 'Refusé : sur une création de média, seul l’utilisateur valide un média (le bouton « Valider » posé sur chaque média du fil). Dis-lui lequel tu recommandes, en une phrase.' };
       /* L'AGENT AJOUTE LUI-MÊME AU SUIVI une image qu'il juge réussie (fabrication sans arrêt, 25/10/2026). */
       const r = retenirUnMedia(card.id, String(args.id ?? args.media ?? ''), args.retenu !== false && args.retenu !== 'false');
       if (!r.ok) return { ok: false, text: `Impossible : ${r.raison}.` };
@@ -2091,21 +2519,32 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
     }
 
     case 'monter': {
-      const ecrite = poserLeMontage(card);
-      /* LES PLANS FINIS SE VERSENT DANS LE MONTAGE DE LA CARTE (25/10/2026) : le grand volet de montage les montre, réglables à la main. */
-      let verses = '';
-      try {
-        const { ouvrirLeMontageDeLaCarte } = await import('./studio-montage-de-carte.js');
-        const r = await ouvrirLeMontageDeLaCarte(card.id);
-        verses = r.aVerser ? ` ${r.aVerser} plan(s) versé(s) dans le montage de la carte, que l’utilisateur peut ouvrir dans le grand volet.` : ' Le montage de la carte est prêt dans le grand volet.';
-      } catch (err) {
-        verses = ` (Montage de la carte non ouvert : ${String((err as Error)?.message ?? err).slice(0, 120)}.)`;
-      }
+      /* LE MONTAGE EST UNE ÉTAPE DE L'UTILISATEUR (26/10/2026) : il y passe par le bouton du bas ; l'agent n'y fait jamais sauter la carte. */
+      if (media && !passagesDuMedia(card).montage) return { ok: false, text: 'Refusé : le montage s’ouvre quand l’utilisateur clique « Passer au montage ». Reste aux esquisses ; ne change jamais d’étape à sa place.' };
+      const ecrite = media ? null : poserLeMontage(card);
+      const finis = mediasDeLaCarte(card.id).filter((m) => m.etat === 'fini' && m.service !== 'montage');
+      const verses = '';
       return {
         ok: true,
-        text: `Montage annoncé${ecrite ? '' : ' (déjà)'} : l’étape « Montage » est allumée sur le chemin du tournage.${verses} Assemble, range le fichier monté avec l’action « ajouter », puis soumets l’arrêt « rendu » (« production » action « soumettre », « film » = sa pièce jointe).`,
+        text: [
+          `Montage annoncé${ecrite ? '' : ' (déjà)'} : l’étape « Montage » est allumée sur le chemin du tournage. Tu montes toi-même, sur le serveur, sans frais :`,
+          '1. « composer », « geste » = « preparer », avec « plan » = « montage », « format », « duree » et « medias » = les plans finis, la voix finale, la musique (identifiants ci-dessous) ;',
+          '2. la page : les plans en <video class="clip" muted> à la suite, la voix et la musique en <audio class="clip" id=…>, les sous-titres au mot (« mots » sur la voix), les titres et l’appel à l’action ;',
+          '3. « controler », « apercu », puis « rendre » avec « formats » = chaque format demandé : le film passe en livraison et arrive dans le fil ;',
+          '4. « production » action « soumettre », « etape » = « rendu », « film » = sa pièce jointe.',
+          finis.length ? `Médias finis de la carte : ${finis.map((m) => `« ${m.id} » ${m.plan} v${m.version} [${m.genre}]`).join(' ; ')}.` : 'Aucun média fini sur la carte pour l’instant.',
+        ].join('\n'),
       };
     }
+
+    case 'composer':
+      return composerSurLeServeur(card, ctx, args);
+
+    case 'mots':
+      return motsDUneVoix(card, ctx, args);
+
+    case 'sons':
+      return sonsSynthetises(card, ctx, args);
 
     case 'ajouter': {
       const chemin = String(args.chemin ?? '').trim();
@@ -2144,8 +2583,8 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
         modifieLe: maintenant,
       };
       enregistrer(m);
-      /* Le repli : un agent qui range son montage sans l'avoir annoncé allume quand même l'étape. */
-      poserLeMontage(card);
+      /* Le repli : un agent qui range son montage sans l'avoir annoncé allume quand même l'étape — jamais sur une création de média, où l'utilisateur seul change d'étape. */
+      if (!media) poserLeMontage(card);
       try {
         const fini = await ranger(m, fs.readFileSync(chemin), ext === 'mp4' ? 'video/mp4' : ext);
         const attachment = fini.attachmentId ? store.getAttachment(fini.attachmentId) : null;
@@ -2157,6 +2596,8 @@ export async function realiser(ctx: ContexteRealisation, args: Record<string, un
     }
 
     case 'fixer_budget': {
+      /* UNE CRÉATION DE MÉDIA N'A PLUS DE BUDGET (26/10/2026) : chaque génération se valide par son bouton à prix. */
+      if (media) return { ok: false, text: 'Refusé : une création de média n’a plus de budget ni de plafond. Chaque génération se valide par son propre bouton « Générer · prix » (« devis » puis « lot »).' };
       const montant = Number(args.budget);
       const seuil = Number(args.seuil);
       const raison = String(args.raison ?? '').trim();
@@ -2377,4 +2818,198 @@ export async function fabriquerUnApercu(
   }
   if (fini?.etat === 'en-cours') return { ok: false, text: 'L’aperçu tarde : il paraîtra dans le fil dès qu’il sera prêt. Pose ta question en mots en attendant.' };
   return { ok: false, text: `L’aperçu a échoué : ${fini?.echec ?? 'raison inconnue'}. Continue avec des choix décrits en mots.` };
+}
+
+/* ------------------------------------------------------------------ */
+/* Les panneaux du menu « … » d'un média (26/10/2026)                  */
+/* ------------------------------------------------------------------ */
+
+/** Les options du menu « … » qui fabriquent, et la capacité de chacune. */
+export const OPERATIONS_DU_PANNEAU = ['visage', 'lumiere', 'angles', 'animer', 'gestes', 'consigne'] as const;
+export type OperationDuPanneau = (typeof OPERATIONS_DU_PANNEAU)[number];
+
+function capaciteDuPanneau(operation: OperationDuPanneau, genre: string): CapaciteDeGeneration {
+  if (operation === 'visage') return 'visage';
+  if (operation === 'lumiere') return 'lumiere';
+  if (operation === 'angles') return 'angles';
+  if (operation === 'animer') return 'animation';
+  if (operation === 'gestes') return 'mouvement';
+  return genre === 'video' ? 'animation' : 'retouche';
+}
+
+export interface ModeleDuPanneau {
+  service: string;
+  modele: string;
+  nom: string;
+  qualite: number;
+  usage: string;
+  /** Prix publié d'UNE variante ; `null` : non publié. */
+  prix: number | null;
+  /** Le modèle accepte une image de fin (animation). */
+  fin?: boolean;
+  /** Le nombre de photos du visage ou d'images de référence qu'il accepte. */
+  sources?: number;
+  /** La lumière : libre, ou les directions fixes. */
+  lumiere?: 'libre' | { azimut: number; elevation: number; libelle: string }[];
+}
+
+/**
+ * LE MEILLEUR MODÈLE D'UNE OPTION, CHOISI D'OFFICE (26/10/2026) : le modèle
+ * branché, non caché, de la meilleure qualité pour la capacité ; un second
+ * n'est proposé que s'il se VAUT vraiment — même qualité, ou une qualité de
+ * moins pour au plus la moitié du prix. Le prix est celui d'une variante, lu
+ * dans la liste publique du service.
+ */
+export async function chiffrerUnPanneau(
+  cardId: string,
+  e: { mediaId: string; operation: OperationDuPanneau; duree?: number },
+): Promise<{ capacite: CapaciteDeGeneration; modeles: ModeleDuPanneau[]; recommande: string | null; raison?: string }> {
+  const card = store.getCard(cardId);
+  const m = mediaParId(e.mediaId);
+  if (!card || !m || m.cardId !== cardId) throw new Error('média introuvable sur cette carte');
+  const capacite = capaciteDuPanneau(e.operation, m.genre);
+  if (capacite === 'animation' || capacite === 'mouvement') {
+    const permise = animationPermise({ types: typesDeMediaDeLaRealisation(card.realisation), carte: card });
+    if (!permise.ok) return { capacite, modeles: [], recommande: null, raison: permise.raison };
+  }
+  const branches = servicesDeGenerationBranches();
+  const candidats = catalogueVisible()
+    .filter((x) => x.capacite === capacite && branches.includes(x.service) && !estServiceCache(x.service))
+    .sort((a, b) => b.qualite - a.qualite);
+  const duree = e.duree && e.duree > 0 ? e.duree : undefined;
+  const chiffres: ModeleDuPanneau[] = await Promise.all(
+    candidats.map(async (x) => {
+      const secondes = capacite === 'animation' ? (x.durees ? dureeAjustee({ durees: x.durees } as never, duree ?? x.durees[0] ?? 5) : (duree ?? 5)) : undefined;
+      const prix = await prixPublie(x, secondes ?? 5, secondes ? { secondes } : {}).catch(() => null);
+      return {
+        service: x.service,
+        modele: x.id,
+        nom: x.nom,
+        qualite: x.qualite,
+        usage: x.usage,
+        prix,
+        ...(x.fin ? { fin: true } : {}),
+        ...(x.retouche?.sources ? { sources: x.retouche.sources } : {}),
+        ...(x.retouche?.lumiere ? { lumiere: x.retouche.lumiere === 'libre' ? ('libre' as const) : x.retouche.lumiere.map((p) => ({ azimut: p.azimut, elevation: p.elevation, libelle: p.libelle })) } : {}),
+      };
+    }),
+  );
+  if (!chiffres.length) return { capacite, modeles: [], recommande: null, raison: 'aucun service branché ne sait faire cette opération : branchez kie.ai dans les réglages.' };
+  const meilleur = chiffres[0]!;
+  const second = chiffres.slice(1).find(
+    (x) => x.qualite === meilleur.qualite || (x.qualite === meilleur.qualite - 1 && x.prix !== null && meilleur.prix !== null && x.prix <= meilleur.prix / 2),
+  );
+  return { capacite, modeles: second ? [meilleur, second] : [meilleur], recommande: meilleur.modele };
+}
+
+/**
+ * LE BOUTON « ENVOYER · PRIX » D'UN PANNEAU (26/10/2026) : le clic VAUT
+ * ACCORD. Les devis se font par le même chemin que ceux de l'agent (`realiser`
+ * action « devis »), le lot est accepté aussitôt et lancé — sans tour d'agent.
+ * Une trace lisible s'écrit dans le fil (elle ne réveille pas le moteur), et les
+ * brouillons arrivent au bas du fil comme toute génération.
+ */
+export async function lancerUnPanneau(
+  cardId: string,
+  e: {
+    mediaId: string;
+    operation: OperationDuPanneau;
+    service: string;
+    modele: string;
+    variantes?: number;
+    consigne?: string;
+    photos?: string[];
+    cible?: string;
+    lumiere?: { azimut: number; elevation: number };
+    typeDeLumiere?: string;
+    angle?: string;
+    fin?: string;
+    duree?: number;
+    son?: boolean;
+    mouvement?: string;
+    orientation?: 'image' | 'video';
+    /** « Reprendre ses gestes » : l'image du personnage qui refait les gestes de la vidéo. */
+    image?: string;
+  },
+): Promise<{ ok: true; lot: string; medias: string[]; total: number | null } | { ok: false; raison: string }> {
+  const card = store.getCard(cardId);
+  const source = mediaParId(e.mediaId);
+  if (!card || !source || source.cardId !== cardId) return { ok: false, raison: 'média introuvable sur cette carte' };
+  if (!carteDeMedia(card)) return { ok: false, raison: 'cette carte n’est pas une création de média' };
+  if (!passagesDuMedia(card).esquisses) return { ok: false, raison: 'la carte est encore au brief : passez d’abord aux esquisses' };
+  const { cadrageDeLaCarte } = await import('./cadrage.js');
+  const agentId = cadrageDeLaCarte(cardId)?.id ?? card.agentId ?? source.agentId ?? '';
+  const capacite = capaciteDuPanneau(e.operation, source.genre);
+  /* L'image de départ : celle du personnage pour des gestes repris, sinon la source elle-même, ou l'image d'où vient une séquence. */
+  const image =
+    e.operation === 'gestes' ? (e.image ? mediaParId(e.image) : null) : source.genre === 'video' && source.sourceId ? mediaParId(source.sourceId) : source;
+  if (!image || image.genre !== 'image' || image.cardId !== cardId) return { ok: false, raison: e.operation === 'gestes' ? 'choisissez l’image du personnage qui reprend les gestes' : 'il faut une image de départ finie' };
+  const consignes: Record<OperationDuPanneau, string> = {
+    visage: 'Replace the face as described, keep everything else identical.',
+    lumiere: 'Relight the image from the chosen direction, keep everything else identical.',
+    angles: 'Show the same scene from the chosen camera angle, keep subject, style and lighting identical.',
+    animer: image.demande.consigneOriginale ?? image.demande.consigne,
+    gestes: 'The character reproduces the movements of the reference video.',
+    consigne: '',
+  };
+  const consigne = String(e.consigne ?? '').trim() || consignes[e.operation];
+  if (!consigne) return { ok: false, raison: 'écrivez la consigne' };
+  const args: Record<string, unknown> = {
+    action: 'devis',
+    service: e.service,
+    modele: e.modele,
+    capacite,
+    plan: image.plan,
+    consigne,
+    raison: 'Demandé depuis le menu « … » du média',
+    source: image.id,
+    variantes: e.variantes ?? PROPOSITIONS_MIN_D_UN_MEDIA,
+    format: source.demande.format,
+    ...(e.photos?.length ? { photos: e.photos } : {}),
+    ...(e.cible ? { cible: e.cible } : {}),
+    ...(e.lumiere ? { lumiere: e.lumiere } : {}),
+    ...(e.typeDeLumiere ? { type_de_lumiere: e.typeDeLumiere } : {}),
+    ...(e.angle ? { angle: e.angle } : {}),
+    ...(e.fin ? { fin: e.fin } : {}),
+    ...(e.duree ? { duree: e.duree } : {}),
+    ...(typeof e.son === 'boolean' ? { son: e.son } : {}),
+    ...(e.operation === 'gestes' ? { mouvement: source.id } : e.mouvement ? { mouvement: e.mouvement } : {}),
+    ...(e.orientation ? { orientation: e.orientation } : {}),
+  };
+  const debut = Date.now();
+  const devis = await realiser({ agentId, projectId: card.projectId, cardId }, args);
+  if (!devis.ok) return { ok: false, raison: devis.text.replace(/^Refusé : /, '') };
+  const crees = mediasDeLaCarte(cardId).filter((m) => m.creeLe >= debut && m.etat === 'devis' && m.plan === image.plan && !m.lotId);
+  if (!crees.length) return { ok: false, raison: 'aucun devis n’a pu être préparé' };
+  const libelles: Record<OperationDuPanneau, string> = {
+    visage: 'Remplacer le visage',
+    lumiere: 'Changer la lumière',
+    angles: 'Autre angle',
+    animer: 'Animer ce plan',
+    gestes: 'Reprendre ses gestes',
+    consigne: 'Redemander avec une consigne',
+  };
+  const titre = `${libelles[e.operation]} — ${image.plan}`.slice(0, 80);
+  const lignes = crees.map((m) => ({ mediaId: m.id, plan: m.plan, service: m.service, modeleNom: m.modeleNom, capacite: m.capacite, prix: m.prix }));
+  const lot = creerUnLot({ cardId, projectId: card.projectId, titre, etape: crees[0]!.etape ?? null, lignes });
+  deciderDuLot(lot.id, true, 'Envoyé depuis le panneau du média (le prix était sur le bouton)');
+  noterUnEvenement(cardId, 'panneau.envoye', { lot: lot.id, operation: e.operation, total: totalDuLot(lignes).connu });
+  /* LA TRACE DANS LE FIL : une bulle de l'utilisateur, qui ne réveille pas le moteur. */
+  const total = totalDuLot(lignes);
+  const trace = Message.parse({
+    id: store.newId(),
+    agentId,
+    role: 'user',
+    content: `${libelles[e.operation]} · ${crees[0]!.modeleNom} · ${crees.length} variante${crees.length > 1 ? 's' : ''}${total.sansPrix ? '' : ` · ${arrondi(total.connu)} $`}${e.consigne?.trim() ? `\n${e.consigne.trim()}` : ''}`,
+    attachments: source.attachmentId ? [source.attachmentId] : [],
+    createdAt: store.now(),
+  });
+  if (agentId) {
+    const ecrit = store.saveMessage(trace);
+    bus.emit({ type: 'message.upsert', message: ecrit });
+  }
+  for (const m of crees) {
+    await genererUnDevis(card, { agentId, projectId: card.projectId, cardId }, mediaParId(m.id) ?? m, (ms) => new Promise((fin) => setTimeout(fin, ms)));
+  }
+  return { ok: true, lot: lot.id, medias: crees.map((m) => m.id), total: total.sansPrix ? null : total.connu };
 }

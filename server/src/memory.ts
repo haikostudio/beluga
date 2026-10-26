@@ -220,6 +220,12 @@ export function briefingSepare(
   travail = '',
   /** Les compétences jugées utiles par le juge local, par nom (`texteDesCompetences`). */
   competencesPertinentes?: ReadonlySet<string>,
+  /**
+   * LES COMPÉTENCES À NE JAMAIS SERVIR à cet agent, par nom : l'agent d'une
+   * carte de création ne reçoit pas celle qui fabrique des images par Codex —
+   * tout y passe par kie.ai (26/10/2026).
+   */
+  competencesEcartees?: ReadonlySet<string>,
 ): BriefingSepare {
   const emporte = partsDAccueil(niveau);
   const dossier = dossierDeTravail?.trim() || projectPath;
@@ -252,7 +258,13 @@ export function briefingSepare(
    */
   const socle: string[] = [];
   const competences = emporte.competences
-    ? texteDesCompetences(listerCompetences(), dossierDesCompetences(), travail, competencesPertinentes, projectName)
+    ? texteDesCompetences(
+        listerCompetences().filter((fiche) => !competencesEcartees?.has(fiche.nom)),
+        dossierDesCompetences(),
+        travail,
+        competencesPertinentes,
+        projectName,
+      )
     : '';
   if (competences) socle.push(competences);
 

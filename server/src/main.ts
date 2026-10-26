@@ -2,7 +2,6 @@ import { arreterLaya } from './laya.js';
 import { demarrerLesVeilles } from './veille-de-carte.js';
 import { veillerSurLaNuitDeLaya } from './laya-nuit.js';
 import { demarrerLaSondeDeBlocage } from './sonde-de-blocage.js';
-import { veillerSurLesSourcesDeStyles } from './studio-sources.js';
 import path from 'node:path';
 import { titreDuProcessus } from '@beluga/shared';
 import { CONFIG, ROOT, ensureDirs } from './config.js';
@@ -384,17 +383,12 @@ async function main(): Promise<void> {
    * (`server/src/publication-sociale.ts`).
    */
   const publicationSocialeTimer = demarrerPublicationSociale();
-  /*
-   * LE STUDIO : un export resté « en cours » a été coupé par l'arrêt du démon.
-   * Il le DIT au démarrage, au lieu de rester affiché comme s'il tournait.
-   */
-  void import('./studio-rendu.js')
-    .then((m) => m.rattraperExportsCoupes())
-    .catch((err) => log.warn('studio : rattrapage des exports coupés impossible', err));
-  /* …et une fabrication de voix finales coupée de même ne reste pas affichée « en cours ». */
-  void import('./studio-generation.js')
-    .then((m) => m.rattraperVoixCoupees())
-    .catch((err) => log.warn('studio : rattrapage des voix coupées impossible', err));
+  /* LES ARCHIVES DU STUDIO, une seule fois : ses vidéos rangées dans une carte « Archivé » (`server/src/archives-du-studio.ts`). */
+  setTimeout(() => {
+    void import('./archives-du-studio.js')
+      .then((m) => m.rangerLesArchivesDuStudio())
+      .catch((err) => log.warn('archives du Studio impossibles', err));
+  }, 40_000).unref();
   const backupTimer = scheduleNightlyBackup(() => getSettings().backupHour);
   const digestTimer = scheduleDailyDigest(() => getSettings().dailyDigestHour);
   // Les backups des sites en production : leur propre heure, après celle de
@@ -520,8 +514,6 @@ async function main(): Promise<void> {
   const arreterLaNuitDeLaya = veillerSurLaNuitDeLaya();
   // Qui fige le démon ? Le fil principal bat, un gardien relève la pile d'un blocage (`sonde-de-blocage.ts`).
   const arreterLaSonde = demarrerLaSondeDeBlocage();
-  /* Les sources de la bibliothèque de styles du Studio, une fois par nuit (`server/src/studio-sources.ts`). */
-  const arreterLesSourcesDeStyles = veillerSurLesSourcesDeStyles();
   /*
    * LES PROJETS RÉUNIS : les cartes mères suivent leurs filles, et les anciens
    * projets à dépôts annexes deviennent des regroupements, une fois
@@ -592,7 +584,6 @@ async function main(): Promise<void> {
     arreterLeJuge();
     arreterLaNuitDeLaya();
     arreterLaSonde();
-    arreterLesSourcesDeStyles();
     arreterLesMeres();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 4000);

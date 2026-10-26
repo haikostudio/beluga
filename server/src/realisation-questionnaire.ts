@@ -14,7 +14,6 @@ import {
   ajouterALAmbiance,
   documentDeRealisation,
   demandeDeRepriseDeRealisation,
-  ENVELOPPE_CONSEILLEE,
   htmlDuCahier,
   lacunesDuCahierDeRealisation,
   lireAvancementDeRealisation,
@@ -109,14 +108,14 @@ export function ecrireLaRealisation(agentId: string, args: Record<string, unknow
   const carte = carteDeRealisationDeLAgent(agentId);
   if (!carte) return { ok: false, text: 'Cet outil n’appartient qu’au cadrage d’une carte dont le mode réalisation est allumé.' };
   const avant = realisationDeLaCarte(carte);
-  /* Le type vient du bouton caméra, jamais de l'agent : un « medias » passé ici est ignoré. */
+  /* Le type vient du bouton caméra, ou de la réponse de l'utilisateur écrite par « production » action « type » : un « medias » passé ici est ignoré. */
   const { medias: _ignore, ...sansMedias } = args;
   const lu = lireAvancementDeRealisation(sansMedias, avant, Date.now());
   if (!lu.ok) return { ok: false, text: lu.raison };
   if (!typesDeMediaDeLaRealisation(lu.realisation).length) {
     return {
       ok: false,
-      text: 'Le type de média (vidéo, image ou son) n’est pas choisi : l’utilisateur le choisit dans le menu du bouton caméra, sous le champ d’écriture. Ne le demande PAS dans la discussion : termine ton tour en lui disant de le choisir à ce bouton. N’écris rien avant.',
+      text: 'Le type de média (vidéo, photo ou son) n’est pas choisi : demande-le d’abord avec « ask_user » (Vidéo, Photo, Son), puis écris la réponse avec « production » action « type » — le bouton caméra le fait aussi. N’écris rien avant.',
     };
   }
   const document = typeof args.document === 'string' ? args.document : '';
@@ -153,14 +152,10 @@ export function ecrireLaRealisation(agentId: string, args: Record<string, unknow
     };
   }
   if (!r.termineA) {
-    /* L'ENVELOPPE D'APERÇUS se demande juste après les types de média : l'outil le rappelle tant qu'elle manque. */
-    const enveloppe =
-      r.enveloppe === undefined
-        ? ` L’enveloppe d’aperçus n’est pas encore demandée : ta question SUIVANTE est celle-là (« ask_user », ${ENVELOPPE_CONSEILLEE} $ recommandé), puis passe « enveloppe » à cet outil.`
-        : '';
+    /* L'ENVELOPPE D'APERÇUS EST ABANDONNÉE (26/10/2026) : chaque génération a son bouton à prix, plus rien ne se paie d'office. */
     return {
       ok: true,
-      text: `Enregistré : ${r.faites} question(s) tranchée(s)${r.total ? ` sur ${r.total}` : ''}, document ${chemin} à jour.${enveloppe || ' Pose la question suivante.'}`,
+      text: `Enregistré : ${r.faites} question(s) tranchée(s)${r.total ? ` sur ${r.total}` : ''}, document ${chemin} à jour. Pose la question suivante.`,
     };
   }
   return {

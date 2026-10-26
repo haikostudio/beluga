@@ -2281,10 +2281,13 @@ export function dernierPassage(
  *  - le passage est tombé en ERREUR, ou attend une réponse (QUESTION) ;
  *  - un plan attend sa décision (`PHRASE_PLAN_A_DECIDER`).
  *
- * Tout le reste — les passages d'avant, le travail terminé — reste replié : un
- * passage qui finit se referme donc de lui-même, sauf s'il est le dernier
- * rendu. Un geste fait à la main l'emporte toujours (`choisis`, dans
- * `FluxEnPoints`).
+ *  - LE PASSAGE EST TERMINÉ ET PORTE DES ACTIONS DE L'AGENT (décision de
+ *    l'utilisateur du 26/10/2026 : « arrête de refermer les actions des agents
+ *    dans le flux, et cela partout ») : un tour fini laisse sa liste d'actions
+ *    à l'écran, sur une carte comme dans une conversation sans carte.
+ *
+ * Le reste — un passage terminé sans aucune action — reste replié. Un geste
+ * fait à la main l'emporte toujours (`choisis`, dans `FluxEnPoints`).
  *
  * Ce qui reste replié DANS un passage ouvert ne change pas : les actions de
  * l'agent tiennent en une ligne chacune, et ne se déplient qu'au clic.
@@ -2305,7 +2308,8 @@ export function pointsOuvertsDOffice(points: readonly PointDuParcours[]): string
         point.etat === 'encours' ||
         point.etat === 'erreur' ||
         point.etat === 'question' ||
-        point.phrase === PHRASE_PLAN_A_DECIDER,
+        point.phrase === PHRASE_PLAN_A_DECIDER ||
+        (point.etat === 'fait' && point.traces.length > 0),
     )
     .map((point) => point.ancre);
 }

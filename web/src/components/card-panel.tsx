@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { ContexteEmplacementDuDocument, fermerLeDocument, ouvrirLeDocument, ouvrirLeSuiviSiRienNestOuvert, useDocumentDeCarte } from '@/lib/document-de-carte';
 import { VoletDeSuivi } from '@/components/volet-de-suivi';
 import { ContexteAgentDuFil } from '@/components/menu-du-media';
-import { useMediasLivres } from '@/components/medias-livres';
 import { GestesDePublicationDeCarte } from '@/components/geste-publication-carte';
 import {
   AlertTriangle,
@@ -26,7 +25,6 @@ import {
   Trash2,
   X,
   AppWindow,
-  Clapperboard,
 } from 'lucide-react';
 import {
   COLUMN_LABELS,
@@ -122,8 +120,10 @@ import { CLASSE_FEUILLE_DU_VOLET, PoigneeDuVolet, useFeuilleDuVolet, VoileDuVole
 /** La colonne de lecture d'une carte : la conversation se centre, elle ne s'étale pas. */
 export const CLASSE_COLONNE_DE_CARTE = 'max-w-[820px]';
 
-/** LE GRAND VOLET DE MONTAGE, chargé à son ouverture seulement : une carte qu'on ne monte pas ne télécharge pas le Studio. */
-const MontageDeCarte = React.lazy(() => import('@/components/studio/montage-de-carte'));
+/* LES STUDIOS ET LA PAGE DE FIN D'UNE CRÉATION DE MÉDIA (26/10/2026) : chargés seulement à l'ouverture. */
+const StudioPhoto = React.lazy(() => import('@/components/creation/studio-photo'));
+const StudioSon = React.lazy(() => import('@/components/creation/studio-son'));
+const PageTelechargement = React.lazy(() => import('@/components/creation/page-telechargement'));
 
 export function CardPanel({
   cardId,
@@ -732,21 +732,14 @@ function CardPanelBody({
     min: 360,
     max: placeDeLaRangee ? Math.max(360, Math.min(960, placeDeLaRangee - 360)) : 960,
   });
-  /*
-   * LE GRAND VOLET DE MONTAGE (24/10/2026) : le même volet, ÉLARGI — l'éditeur
-   * du Studio y tient aperçu, ligne de temps, onde et bande d'images. Sa largeur
-   * a sa propre mémoire (`width.montage-de-carte`), et laisse 360 px à la
-   * conversation, où s'écrivent les retouches en mots.
-   */
-  const montageOuvert = documentOuvert?.genre === 'montage';
+  /* Les studios photo et son et la page Téléchargement d'une création de média prennent un volet élargi (sa largeur a sa propre mémoire). */
+  const voletElargi = documentOuvert?.genre === 'studio-photo' || documentOuvert?.genre === 'studio-son' || documentOuvert?.genre === 'telechargement';
   const largeurDuMontage = useResizable('montage-de-carte', {
     initial: 880,
     min: 600,
     max: placeDeLaRangee ? Math.max(600, placeDeLaRangee - 360) : 1600,
   });
-  const largeurDuVolet = montageOuvert ? largeurDuMontage : largeurDuDocument;
-  /* LE BOUTON DU MONTAGE : réservé à qui ouvre le Studio, sur une carte qui a fabriqué des plans. */
-  const plansLivres = useMediasLivres({ cardId: state.studioOuvert ? card.id : null }).length;
+  const largeurDuVolet = voletElargi ? largeurDuMontage : largeurDuDocument;
 
   const adresseDeDev = project?.devUrl?.trim() || undefined;
   const apercuOuvert = apercu && !!adresseDeDev && !voletDuCahier && !documentOuvert;
@@ -873,22 +866,6 @@ function CardPanelBody({
               className={cn('shrink-0', apercu ? 'text-teinte hover:text-teinte' : 'text-muted')}
             >
               <AppWindow className="h-4 w-4" />
-            </Button>
-          </Tooltip>
-        ) : null}
-        {/* LE GRAND VOLET DE MONTAGE : les plans fabriqués par la carte, montés à côté de sa conversation. */}
-        {plansLivres > 0 || montageOuvert ? (
-          <Tooltip label={montageOuvert ? t('Fermer le montage') : t('Monter les plans de la carte')}>
-            <Button
-              variant="ghost"
-              size="icon-barre"
-              aria-label="Montage des plans"
-              aria-pressed={montageOuvert}
-              data-geste-montage={montageOuvert ? 'ouvert' : 'ferme'}
-              onClick={() => (montageOuvert ? fermerLeDocument() : ouvrirLeDocument({ cardId: card.id, genre: 'montage' }))}
-              className={cn('shrink-0', montageOuvert ? 'text-teinte hover:text-teinte' : 'text-muted')}
-            >
-              <Clapperboard className="h-4 w-4" />
             </Button>
           </Tooltip>
         ) : null}
@@ -1119,13 +1096,19 @@ function CardPanelBody({
         {documentEnFeuille ? (
           <PoigneeDuVolet tirer={feuilleDuDocument.tirer} onFermer={fermerLeDocument} croix={documentOuvert.genre !== 'plan'} />
         ) : null}
-        {montageOuvert ? (
+        {voletElargi ? (
           <div
             data-volet-de-montage=""
             className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !documentEnFeuille && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25')}
           >
             <React.Suspense fallback={null}>
-              <MontageDeCarte cardId={card.id} />
+              {documentOuvert?.genre === 'studio-photo' ? (
+                <StudioPhoto cardId={card.id} {...(documentOuvert.source ? { source: documentOuvert.source } : {})} />
+              ) : documentOuvert?.genre === 'studio-son' ? (
+                <StudioSon cardId={card.id} />
+              ) : documentOuvert?.genre === 'telechargement' ? (
+                <PageTelechargement cardId={card.id} />
+              ) : null}
             </React.Suspense>
           </div>
         ) : null}
@@ -1134,7 +1117,7 @@ function CardPanelBody({
           data-emplacement-du-document=""
           className={cn(
             'flex min-h-0 min-w-0 flex-1 flex-col',
-            montageOuvert && 'hidden',
+            voletElargi && 'hidden',
             documentOuvert && !documentEnFeuille && 'overflow-hidden rounded-xl bg-bg shadow-sm ring-1 ring-faint/25',
           )}
         />

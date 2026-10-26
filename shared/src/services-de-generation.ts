@@ -33,6 +33,7 @@
  */
 
 import { corpsEnDirect } from './catalogue-en-direct.js';
+import { MODELE_TTS_GEMINI } from './voix-gemini.js';
 import { MODELES_KIE, lireCommandeKie, lireSuiviKie, modeleKie, requeteDeCommandeKie } from './kie.js';
 import { DIRECTIONS_FIBO, DIRECTIONS_ICLIGHT, type AngleDeVue, type DirectionDeLumiere, type DirectionsDuModele } from './retouches-de-media.js';
 import {
@@ -215,6 +216,9 @@ const MODELES_EN_PLUS: readonly ModeleDeGeneration[] = [
   { service: 'fal', id: 'fal-ai/latentsync', nom: 'LatentSync', capacite: 'synchro', qualite: 3, usage: 'synchronisation labiale économique, pour les essais', prix: 'api-fal' },
   { service: 'fal', id: 'elevenlabs/tts/eleven-v4', nom: 'Eleven v4 (par fal.ai)', capacite: 'voix', qualite: 5, usage: 'voix off naturelle multilingue, langue imposée ; voix par nom (« Rachel »…)', prix: 'api-fal' },
   { service: 'fal', id: 'fal-ai/minimax/speech-2.8-hd', nom: 'MiniMax Speech 2.8 HD (par fal.ai)', capacite: 'voix', qualite: 4, usage: 'voix off multilingue ; voix par identifiant (« Wise_Woman »…)', prix: 'api-fal' },
+  /* LA VOIX FINALE DU DIRECTEUR (sortie du Studio le 26/10/2026, MEM-4350) : vingt voix Gemini par OpenRouter, avec la clé
+     branchée par l'utilisateur ou, à défaut, celle du relais de Beluga Build. Prix estimé au devis, coût réel relevé après. */
+  { service: 'openrouter', id: `google/${MODELE_TTS_GEMINI}`, nom: 'Voix Gemini (par OpenRouter)', capacite: 'voix', qualite: 4, usage: 'voix off française, vingt voix (« voix » = Kore, Aoede, Puck, Charon…) ; coût réel relevé après', prix: 'cout-reel-openrouter' },
   { service: 'replicate', id: 'black-forest-labs/flux-1.1-pro', nom: 'FLUX 1.1 Pro', capacite: 'image', qualite: 4, usage: 'photo réaliste', prix: 'non-publie' },
   { service: 'heygen', id: 'avatar_iv', nom: 'Présentateur HeyGen (Avatar IV)', capacite: 'avatar', qualite: 5, usage: 'un présentateur humain réaliste dit votre texte, dans la langue voulue', prix: 'non-publie' },
   { service: 'heygen', id: 'heygen-video-1', nom: 'HeyGen Video', capacite: 'video', qualite: 4, usage: 'plans de 5 à 15 s avec leur son', prix: 'non-publie', durees: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], ratios: ['16:9', '9:16', '1:1'], son: true },

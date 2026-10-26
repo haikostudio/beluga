@@ -122,33 +122,3 @@ export function ResizeHandle({
     </div>
   );
 }
-
-/**
- * La poignée d'un panneau qui s'étire en HAUTEUR : même trait, posé à plat — il
- * s'estompe donc à gauche et à droite. Il tient dans les 4 px qu'elle réserve
- * (1 px au repos, 3 px au survol et pendant le glisser).
- */
-export function ResizeHandleHorizontale({
-  onPointerDown,
-  onDoubleClick,
-  className,
-  ...reste
-}: {
-  onPointerDown: (event: React.PointerEvent) => void;
-  onDoubleClick?: () => void;
-  className?: string;
-  'data-studio-poignee'?: string;
-}) {
-  return (
-    <div
-      onPointerDown={onPointerDown}
-      onDoubleClick={onDoubleClick}
-      {...reste}
-      title={t('Glisser pour redimensionner · double-clic pour revenir à la hauteur d\'origine')}
-      className={cn('group relative h-1 shrink-0 cursor-row-resize touch-none select-none', className)}
-    >
-      <span className="absolute inset-x-0 top-[2px] h-px bg-gradient-to-r from-transparent via-faint to-transparent opacity-50 transition-all duration-150 group-hover:top-px group-hover:h-[3px] group-hover:opacity-100 group-active:top-px group-active:h-[3px] group-active:opacity-100" />
-      <span className="absolute inset-x-0 -top-1.5 -bottom-1.5" />
-    </div>
-  );
-}
